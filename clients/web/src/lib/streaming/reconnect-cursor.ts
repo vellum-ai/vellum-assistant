@@ -49,6 +49,26 @@ let reconnectCursor: number | null = null;
 let abandonedGenerationCeiling: number | null = null;
 
 /**
+ * Monotonic count of seq-generation resets observed on this connection's seq
+ * space, starting at 0 and advanced (never lowered) each time a backwards seq
+ * jump proves the daemon's counter restarted.
+ *
+ * Every recorded per-conversation frontier is tagged with the generation its
+ * value belongs to (see `local-seq.ts`): a live event's value is the current
+ * generation, and a `/messages` snapshot anchor's value is the generation the
+ * request was ISSUED in. A frontier tagged with a generation older than the
+ * current one is a dead-generation anchor by construction — regardless of
+ * whether its value sits above or below the abandoned ceiling — so the
+ * stale-frontier guard in `sse-event-consumer` clears it. This is what recovers
+ * a stale `/messages` anchor in a multi-conversation daemon, where the
+ * conversation's persisted watermark is below the global abandoned ceiling.
+ *
+ * Cleared to 0 with the cursor on an assistant switch, which is a fresh seq
+ * space; a transport reconnect within one assistant preserves it.
+ */
+let seqGeneration = 0;
+
+/**
  * The highest global seq applied so far, or `null` if no event with a
  * seq has been seen yet.
  */
@@ -77,6 +97,23 @@ export function recordAbandonedGeneration(abandonedCeiling: number): void {
  */
 export function getAbandonedGenerationCeiling(): number | null {
   return abandonedGenerationCeiling;
+}
+
+/**
+ * The current seq generation, starting at 0. Frontiers tagged with an older
+ * generation are dead-generation anchors (see `local-seq.ts`).
+ */
+export function getSeqGeneration(): number {
+  return seqGeneration;
+}
+
+/**
+ * Advance the seq generation by one. Called when a generation reset is observed
+ * (a backwards seq jump), alongside `recordAbandonedGeneration`, so frontiers
+ * recorded under the abandoned generation can be told apart from live ones.
+ */
+export function advanceSeqGeneration(): void {
+  seqGeneration += 1;
 }
 
 /**
@@ -110,4 +147,5 @@ export function replaceReconnectCursor(seq: number): void {
 export function resetReconnectCursor(): void {
   reconnectCursor = null;
   abandonedGenerationCeiling = null;
+  seqGeneration = 0;
 }

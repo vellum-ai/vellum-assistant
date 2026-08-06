@@ -74,7 +74,9 @@ class TokenRateLimiter {
         this.evictStale(now);
         if (this.requests.size >= this.maxTrackedKeys) {
           const oldest = this.requests.keys().next().value;
-          if (oldest !== undefined) this.requests.delete(oldest);
+          if (oldest !== undefined) {
+            this.requests.delete(oldest);
+          }
         }
       }
       entries = [];
@@ -120,7 +122,9 @@ class TokenRateLimiter {
    */
   getRecentPathCounts(key: string): Array<{ path: string; count: number }> {
     const entries = this.requests.get(key);
-    if (!entries || entries.length === 0) return [];
+    if (!entries || entries.length === 0) {
+      return [];
+    }
 
     const now = Date.now();
     const cutoff = now - this.windowMs;
@@ -310,11 +314,15 @@ export function extractClientIp(
     const forwarded = req.headers.get("x-forwarded-for");
     if (forwarded) {
       const first = forwarded.split(",")[0].trim();
-      if (first) return first;
+      if (first) {
+        return first;
+      }
     }
 
     const realIp = req.headers.get("x-real-ip");
-    if (realIp) return realIp.trim();
+    if (realIp) {
+      return realIp.trim();
+    }
   }
 
   return peerIp;

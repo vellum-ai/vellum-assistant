@@ -35,6 +35,16 @@ export const slackActiveThreads = sqliteTable("slack_active_threads", {
   // the bot's own mute confirmation cannot silently re-arm the thread it
   // just muted. An explicit human re-engagement (trackThread) clears it.
   detachedAt: integer("detached_at"),
+  // Set when the row was armed speculatively from the assistant's own
+  // top-level post: a thread root nobody has replied into yet. NULL = a
+  // thread with real human engagement behind it. Speculative roots still
+  // admit inbound events (`hasThread`), but are excluded from reconnect
+  // catch-up enumeration (`listActiveThreadsWithChannel`), which spends one
+  // tier-3 `conversations.replies` call per row. The assistant posts
+  // continuously, so fanning out over every never-engaged root could burn
+  // the rate limit that genuinely missed messages need. The first human
+  // reply promotes the row via `trackThread`, which clears this.
+  speculativeRootAt: integer("speculative_root_at"),
 });
 
 export const slackSeenEvents = sqliteTable("slack_seen_events", {
@@ -637,4 +647,26 @@ export const credentialRequests = sqliteTable(
       table.expiresAt,
     ),
   ],
+);
+
+// ---------------------------------------------------------------------------
+// Plugin ingress approvals (guardian grants for plugin-declared public routes)
+// ---------------------------------------------------------------------------
+
+export const pluginIngressApprovals = sqliteTable(
+  "plugin_ingress_approvals",
+  {
+    // One row per plugin: the declaration it is currently approved for.
+    // Approving again replaces the row, so a plugin is never approved for
+    // two different declarations at once.
+    plugin: text("plugin").primaryKey(),
+    // Digest of the approved routes. A declaration whose digest differs is
+    // unapproved, so editing a manifest requires a fresh decision.
+    digest: text("digest").notNull(),
+    approvedAt: integer("approved_at").notNull(),
+    // Guardian principal that granted it; null for grants made out of band
+    // (CLI, ops) rather than through a guardian decision.
+    approvedBy: text("approved_by"),
+  },
+  (table) => [index("idx_plugin_ingress_approvals_digest").on(table.digest)],
 );

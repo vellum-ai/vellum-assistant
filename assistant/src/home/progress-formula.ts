@@ -78,9 +78,13 @@ export function computeTier(input: ProgressInput): 1 | 2 | 3 | 4 {
   ).length;
   const convs = input.conversationCount;
   // "Hitting our stride" — real working relationship.
-  if (convs >= 20 && unlocked >= 3) return 3;
+  if (convs >= 20 && unlocked >= 3) {
+    return 3;
+  }
   // "Finding my footing" — starting to understand how they work.
-  if (convs >= 5 && input.facts.length >= 3) return 2;
+  if (convs >= 5 && input.facts.length >= 3) {
+    return 2;
+  }
   // "Getting to know you" — default for fresh relationships.
   return 1;
 }

@@ -49,7 +49,9 @@ mock.module("../credentials/metadata-store.js", () => ({
   getCredentialMetadata: (service: string, field: string) => {
     const key = `${service}/${field}`;
     const entry = metadataStore.get(key);
-    if (!entry) return undefined;
+    if (!entry) {
+      return undefined;
+    }
     return {
       credentialId: `cred-${key}`,
       service,
@@ -278,8 +280,12 @@ describe("executeAcpSpawn: sandboxed bun auto-install on missing binary", () => 
     // successful global install that links the adapter bin onto PATH.
     let binaryOnPath = false;
     which.setWhich((cmd) => {
-      if (cmd === "bun") return BUN_BIN;
-      if (binaryOnPath) return `/usr/local/bin/${cmd}`;
+      if (cmd === "bun") {
+        return BUN_BIN;
+      }
+      if (binaryOnPath) {
+        return `/usr/local/bin/${cmd}`;
+      }
       return null;
     });
     execScripts.set(BUN_ADD_KEY, {
@@ -326,8 +332,12 @@ describe("executeAcpSpawn: sandboxed bun auto-install on missing binary", () => 
   test("the installer cwd is a temp dir (not the project cwd) with secrets stripped", async () => {
     let binaryOnPath = false;
     which.setWhich((cmd) => {
-      if (cmd === "bun") return BUN_BIN;
-      if (binaryOnPath) return `/usr/local/bin/${cmd}`;
+      if (cmd === "bun") {
+        return BUN_BIN;
+      }
+      if (binaryOnPath) {
+        return `/usr/local/bin/${cmd}`;
+      }
       return null;
     });
     execScripts.set(BUN_ADD_KEY, {

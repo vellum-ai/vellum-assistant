@@ -31,6 +31,8 @@ interface MobileSubagentDetailOverlayProps {
   onStop?: (subagentId: string) => void;
   /** Request detail fetch for a subagent. */
   onRequestDetail?: (subagentId: string) => void;
+  /** Assistant that owns the conversation the subagent was spawned from. */
+  assistantId?: string | null;
 }
 
 /**
@@ -44,13 +46,17 @@ export function MobileSubagentDetailOverlay({
   onClose,
   onStop,
   onRequestDetail,
+  assistantId,
 }: MobileSubagentDetailOverlayProps) {
   const reduce = useReducedMotion();
   const shellStyle = useMobileOverlayViewportStyle();
   const isTouch = useMemo(() => isPointerCoarse(), []);
   const dragControls = useDragControls();
 
-  const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+  const handleDragEnd = (
+    _event: MouseEvent | TouchEvent | PointerEvent,
+    info: PanInfo,
+  ) => {
     if (info.offset.y > DRAG_DISMISS_THRESHOLD_PX) {
       haptic.light();
       onClose();
@@ -67,7 +73,11 @@ export function MobileSubagentDetailOverlay({
           initial={{ y: "100%", opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: "100%", opacity: 0 }}
-          transition={reduce ? { duration: 0 } : { duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+          transition={
+            reduce
+              ? { duration: 0 }
+              : { duration: 0.28, ease: [0.16, 1, 0.3, 1] }
+          }
           // Drag-to-dismiss: drag down past the threshold to close. Only
           // enabled on touch devices so desktop mouse interaction is
           // unaffected. The auto drag listener is disabled (`dragListener={
@@ -106,6 +116,7 @@ export function MobileSubagentDetailOverlay({
                 onClose={onClose}
                 onStop={onStop}
                 onRequestDetail={onRequestDetail}
+                assistantId={assistantId}
               />
             </LazyBoundary>
           </div>

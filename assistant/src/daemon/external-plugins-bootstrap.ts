@@ -59,6 +59,8 @@ import {
   registerPluginInjectors,
   unregisterPluginInjectors,
 } from "../plugins/injector-registry.js";
+import { registerDeclaredCredentialKeyPatterns } from "../plugins/mtime-cache.js";
+import { runInPluginContext } from "../plugins/plugin-execution-context.js";
 import { getRegisteredPlugins, unregisterPlugin } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -66,6 +68,7 @@ import {
   type ShutdownContext,
 } from "../plugins/types.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
+import { unregisterPluginSecretPatterns } from "../security/plugin-secret-patterns.js";
 import {
   registerPluginTools,
   unregisterPluginTools,
@@ -305,9 +308,23 @@ async function initializePlugin(
       );
     }
 
+    // Disabled plugins never reach this function (the `.disabled` sentinel
+    // check in `bootstrapPlugins` skips them before init), so declared
+    // credential key patterns are only ever registered for enabled plugins.
+    registerDeclaredCredentialKeyPatterns(
+      name,
+      plugin.manifest.credentialKeyPatterns,
+      log,
+    );
+
     if (plugin.hooks?.[HOOKS.INIT]) {
       try {
-        await plugin.hooks[HOOKS.INIT](initContext);
+        // Marked in context for the same reason `runPluginPipeline` marks
+        // every other hook: host APIs the hook reaches (resolveCredential,
+        // resolveWebhookUrl) scope to the calling plugin.
+        await runInPluginContext(name, () =>
+          plugin.hooks![HOOKS.INIT]!(initContext),
+        );
       } catch (err) {
         throw new PluginExecutionError(
           `plugin ${name} init() failed: ${
@@ -330,6 +347,7 @@ async function initializePlugin(
     } else {
       unregisterPluginTools(name);
       unregisterPluginInjectors(name);
+      unregisterPluginSecretPatterns(name);
     }
     throw err;
   }
@@ -374,4 +392,9 @@ async function teardownPlugin(
       );
     }
   }
+
+  // Unregister AFTER the shutdown hook so shutdown-time logging is still
+  // covered by the plugin's declared redaction patterns (mirror of the
+  // register-before-init ordering in initializePlugin).
+  unregisterPluginSecretPatterns(name);
 }

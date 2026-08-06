@@ -6,8 +6,8 @@
  */
 
 import { isPlainObject } from "../util/object.js";
+import type { Conversation } from "./conversation.js";
 import type { CardSurfaceData } from "./message-protocol.js";
-import type { ToolSetupContext } from "./tool-setup-types.js";
 
 interface DoordashStep {
   label: string;
@@ -29,26 +29,34 @@ function doordashCommandToStep(cmd: string): string | undefined {
     new RegExp(dd.source + "status\\b").test(cmd) ||
     new RegExp(dd.source + "refresh\\b").test(cmd) ||
     new RegExp(dd.source + "login\\b").test(cmd)
-  )
+  ) {
     return "Check session";
+  }
   if (
     new RegExp(dd.source + "search\\b").test(cmd) ||
     new RegExp(dd.source + "search-items\\b").test(cmd)
-  )
+  ) {
     return "Search restaurants";
+  }
   if (
     new RegExp(dd.source + "menu\\b").test(cmd) ||
     new RegExp(dd.source + "item\\b").test(cmd) ||
     new RegExp(dd.source + "store-search\\b").test(cmd)
-  )
+  ) {
     return "Browse menu";
-  if (new RegExp(dd.source + "cart\\b").test(cmd)) return "Add to cart";
+  }
+  if (new RegExp(dd.source + "cart\\b").test(cmd)) {
+    return "Add to cart";
+  }
   if (
     new RegExp(dd.source + "checkout\\b").test(cmd) ||
     new RegExp(dd.source + "payment-methods\\b").test(cmd)
-  )
+  ) {
     return "Add to cart";
-  if (new RegExp(dd.source + "order\\b").test(cmd)) return "Place order";
+  }
+  if (new RegExp(dd.source + "order\\b").test(cmd)) {
+    return "Place order";
+  }
   return undefined;
 }
 
@@ -61,10 +69,14 @@ function updateDoordashSteps(
   isError: boolean,
 ): DoordashStep[] | undefined {
   const stepLabel = doordashCommandToStep(cmd);
-  if (!stepLabel) return undefined;
+  if (!stepLabel) {
+    return undefined;
+  }
 
   const stepIndex = steps.findIndex((s) => s.label === stepLabel);
-  if (stepIndex < 0) return undefined;
+  if (stepIndex < 0) {
+    return undefined;
+  }
 
   const updated = steps.map((s, i) => {
     if (i < stepIndex) {
@@ -90,28 +102,34 @@ function updateDoordashSteps(
 
 // ── Helpers for reading/writing the task_progress surface ─────────────
 
-function getStoredSteps(ctx: ToolSetupContext): DoordashStep[] | null {
+function getStoredSteps(ctx: Conversation): DoordashStep[] | null {
   const stored = ctx.surfaceState.get(SURFACE_ID);
-  if (!stored || stored.surfaceType !== "card") return null;
-  const card = stored.data as CardSurfaceData;
-  if (card.template !== "task_progress" || !isPlainObject(card.templateData))
+  if (!stored || stored.surfaceType !== "card") {
     return null;
+  }
+  const card = stored.data;
+  if (card.template !== "task_progress" || !isPlainObject(card.templateData)) {
+    return null;
+  }
   const steps = (card.templateData as Record<string, unknown>).steps;
   return Array.isArray(steps) ? (steps as DoordashStep[]) : null;
 }
 
 function pushStepsUpdate(
-  ctx: ToolSetupContext,
+  ctx: Conversation,
   updatedSteps: DoordashStep[],
 ): void {
-  const stored = ctx.surfaceState.get(SURFACE_ID)!;
-  const card = stored.data as CardSurfaceData;
+  const stored = ctx.surfaceState.get(SURFACE_ID);
+  if (!stored || stored.surfaceType !== "card") {
+    return;
+  }
+  const card = stored.data;
   const updatedTemplateData = {
     ...(card.templateData as Record<string, unknown>),
     steps: updatedSteps,
   };
   const updatedData = { ...card, templateData: updatedTemplateData };
-  stored.data = updatedData as CardSurfaceData;
+  stored.data = updatedData;
   ctx.sendToClient({
     type: "ui_surface_update",
     conversationId: ctx.conversationId,
@@ -130,7 +148,9 @@ export function isDoordashCommand(
   name: string,
   input: Record<string, unknown>,
 ): boolean {
-  if (name !== "bash" && name !== "host_bash") return false;
+  if (name !== "bash" && name !== "host_bash") {
+    return false;
+  }
   const cmd = input.command as string | undefined;
   return !!cmd && doordashCommandToStep(cmd) !== undefined;
 }
@@ -140,18 +160,24 @@ export function isDoordashCommand(
  * before the command runs.
  */
 export function markDoordashStepInProgress(
-  ctx: ToolSetupContext,
+  ctx: Conversation,
   input: Record<string, unknown>,
 ): void {
   const cmd = input.command as string | undefined;
   const stepLabel = cmd ? doordashCommandToStep(cmd) : null;
-  if (!stepLabel) return;
+  if (!stepLabel) {
+    return;
+  }
 
   const steps = getStoredSteps(ctx);
-  if (!steps) return;
+  if (!steps) {
+    return;
+  }
 
   const stepIndex = steps.findIndex((s) => s.label === stepLabel);
-  if (stepIndex < 0 || steps[stepIndex].status === "in_progress") return;
+  if (stepIndex < 0 || steps[stepIndex].status === "in_progress") {
+    return;
+  }
 
   const updatedSteps = steps.map((s, i) =>
     i === stepIndex ? { ...s, status: "in_progress" } : s,
@@ -164,12 +190,14 @@ export function markDoordashStepInProgress(
  * DoorDash CLI command, then update step statuses based on the result.
  */
 export function updateDoordashProgress(
-  ctx: ToolSetupContext,
+  ctx: Conversation,
   input: Record<string, unknown>,
   isError: boolean,
 ): void {
   const cmd = input.command as string | undefined;
-  if (!cmd || !doordashCommandToStep(cmd)) return;
+  if (!cmd || !doordashCommandToStep(cmd)) {
+    return;
+  }
 
   if (!ctx.surfaceState.has(SURFACE_ID)) {
     // First DoorDash command — auto-emit the task_progress card
@@ -210,7 +238,9 @@ export function updateDoordashProgress(
 
   // Auto-update step statuses based on the command that just ran
   const steps = getStoredSteps(ctx);
-  if (!steps) return;
+  if (!steps) {
+    return;
+  }
 
   const updatedSteps = updateDoordashSteps(cmd, steps, isError);
   if (updatedSteps) {

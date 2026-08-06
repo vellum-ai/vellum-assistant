@@ -3,9 +3,7 @@ import { useMemo } from "react";
 
 import { cn, SegmentControl } from "@vellumai/design-library";
 
-import {
-  type ThemePreference,
-} from "@/utils/theme-preferences";
+import { type ThemePreference } from "@/utils/theme-preferences";
 import { useThemePreference } from "@/hooks/use-theme-preference";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { isPointerCoarse } from "@/utils/pointer";

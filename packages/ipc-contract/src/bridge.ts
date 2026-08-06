@@ -40,6 +40,10 @@ import type {
   TextInsertionResult,
   UpdateState,
   VellumCommand,
+  VoiceActivityContent,
+  VoiceActivityControl,
+  VoiceActivityStart,
+  VoiceActivityState,
 } from "./types";
 
 /**
@@ -57,6 +61,15 @@ export interface LocalUpgradeOptions {
   latest?: boolean;
   force?: boolean;
 }
+
+/**
+ * Result of `localMode.connectImport`. On success `assistantId` is the unique
+ * local id the pairing was registered under, and `accessOnly` is true when the
+ * bundle carried no refresh credential (the token expires without renewal).
+ */
+export type LocalConnectImportResult =
+  | { ok: true; assistantId: string; accessOnly: boolean }
+  | { ok: false; error: string };
 
 export interface VellumBridge {
   platform: "electron";
@@ -154,6 +167,9 @@ export interface VellumBridge {
   dock: {
     setBadge(count: number): void;
   };
+  share: {
+    shareFile(bytes: Uint8Array, filename: string): Promise<void>;
+  };
   localMode: {
     hatch(
       species: string,
@@ -169,6 +185,22 @@ export interface VellumBridge {
       organizationId?: string,
     ): Promise<LockfileWriteResult>;
     retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
+    /**
+     * Forget a paired assistant (`cloud: "paired"`): remove its lockfile
+     * entry and stored guardian token on this machine. Client-side only:
+     * the remote assistant is never touched.
+     */
+    unpair(assistantId: string): Promise<LockfileWriteResult>;
+    /**
+     * Register a pairing bundle printed by `vellum pair` on another machine:
+     * persist the guardian token and create a `cloud: "paired"` lockfile
+     * entry, the write counterpart of `unpair`. `name` picks the local id
+     * (its slug); omitted, the id derives from the bundle's device id.
+     */
+    connectImport(
+      bundle: string,
+      name?: string,
+    ): Promise<LocalConnectImportResult>;
     sleep(assistantId: string): Promise<{ ok: boolean; error?: string }>;
     wake(
       assistantId: string,
@@ -254,6 +286,27 @@ export interface VellumBridge {
     requestStop(): void;
     onStopRequested(callback: () => void): () => void;
     setInteractive(interactive: boolean): void;
+  };
+  /**
+   * The floating live-voice session surface (macOS). Two renderers use
+   * different halves: the main window drives `start`/`update`/`end` and
+   * listens for `onControl`; the panel's own route reads `getState`/`onState`
+   * and sends `control`.
+   */
+  voiceActivity: {
+    start(state: VoiceActivityStart): void;
+    update(content: VoiceActivityContent): void;
+    end(): void;
+    getState(): Promise<VoiceActivityState | null>;
+    onState(callback: (state: VoiceActivityState | null) => void): () => void;
+    control(control: VoiceActivityControl): void;
+    onControl(callback: (control: VoiceActivityControl) => void): () => void;
+    /** Bring the app forward, the panel's way back to the conversation. */
+    activate(): void;
+    /** Hide the window. The session keeps running. */
+    dismiss(): void;
+    /** Shrink to the chip, or restore. */
+    setCollapsed(collapsed: boolean): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;

@@ -1,36 +1,27 @@
 import {
-    ArrowLeft,
-    Calendar,
-    Mail,
-    MailOpen,
-    RotateCcw,
-    Trash2,
-    X,
+  ArrowLeft,
+  Calendar,
+  Mail,
+  MailOpen,
+  RotateCcw,
+  Trash2,
+  X,
 } from "lucide-react";
 
 import { formatFullLocalDate, formatRelativeDate } from "@/utils/format-date";
-import type {
-    FeedItem,
-    FeedItemCategory,
-    FeedItemStatus,
-} from "@vellumai/assistant-api";
+import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import { Button, Tag, Typography } from "@vellumai/design-library";
-import { CATEGORY_STYLES } from "../home-feed-filter-bar";
+import { resolveCategoryStyle } from "../home-feed-filter-bar";
 import { HomeGenericDetail } from "./home-generic-detail";
 import { HomeToolPermissionCard } from "./home-tool-permission-card";
-
-function resolveCategoryStyle(category?: FeedItemCategory) {
-  if (category && CATEGORY_STYLES[category]) {
-    return CATEGORY_STYLES[category];
-  }
-  return CATEGORY_STYLES.system;
-}
 
 // The header shows the item's own title when it has one. Many feed items omit
 // a distinct title — for those, falling back to `summary` (which is also the
 // body) duplicates the same text, so we surface the category label instead.
 function resolveHeaderTitle(item: FeedItem): string {
-  if (item.title) return item.title;
+  if (item.title) {
+    return item.title;
+  }
   if (item.category) {
     return item.category.charAt(0).toUpperCase() + item.category.slice(1);
   }
@@ -99,9 +90,7 @@ export function HomeDetailPanel({
             <Button
               variant="ghost"
               iconOnly={isUnread ? <MailOpen /> : <Mail />}
-              onClick={() =>
-                onUpdateStatus(item.id, isUnread ? "seen" : "new")
-              }
+              onClick={() => onUpdateStatus(item.id, isUnread ? "seen" : "new")}
               aria-label={isUnread ? "Mark as read" : "Mark as unread"}
               tooltip={isUnread ? "Mark as read" : "Mark as unread"}
             />

@@ -96,7 +96,11 @@ test("renders each group title and its cards", () => {
 test("forwards onSelect with the suggestion when a card is clicked", () => {
   const onSelect = mock((_: ThreadSuggestion) => {});
   const { getByText } = render(
-    <SuggestionLibrary featured={featured} groups={groups} onSelect={onSelect} />,
+    <SuggestionLibrary
+      featured={featured}
+      groups={groups}
+      onSelect={onSelect}
+    />,
   );
 
   fireEvent.click(getByText("Group Two"));

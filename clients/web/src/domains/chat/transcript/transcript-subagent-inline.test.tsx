@@ -11,9 +11,23 @@
  * generic inline card's internal markup (covered by `inline-process-card.test`).
  */
 
-import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { act } from "react";
-import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+  within,
+} from "@testing-library/react";
 
 mock.module("@/domains/chat/components/chat-markdown-message", () => ({
   ChatMarkdownMessage: ({ content }: { content: string }) => (
@@ -21,13 +35,19 @@ mock.module("@/domains/chat/components/chat-markdown-message", () => ({
   ),
 }));
 
-mock.module("@/domains/chat/components/message-hover-actions/message-hover-actions", () => ({
-  MessageHoverActions: () => <div data-testid="hover-actions" />,
-}));
+mock.module(
+  "@/domains/chat/components/message-hover-actions/message-hover-actions",
+  () => ({
+    MessageHoverActions: () => <div data-testid="hover-actions" />,
+  }),
+);
 
-mock.module("@/domains/chat/components/chat-attachments/message-attachments", () => ({
-  MessageAttachments: () => <div data-testid="message-attachments" />,
-}));
+mock.module(
+  "@/domains/chat/components/chat-attachments/message-attachments",
+  () => ({
+    MessageAttachments: () => <div data-testid="message-attachments" />,
+  }),
+);
 
 mock.module("@/domains/chat/components/surfaces/surface-router", () => ({
   SurfaceRouter: () => <div data-testid="surface-router" />,
@@ -44,33 +64,30 @@ mock.module(
 // `SUBAGENT_DESCRIPTOR`). Stub the row so id resolution + the transcript's
 // `onSubagentClick`/`onStopSubagent` wiring can be asserted without depending on
 // the generic card's internal markup (covered by `inline-process-card.test`).
-mock.module(
-  "@/domains/chat/process-registry/inline-process-card-row",
-  () => ({
-    InlineProcessCardRow: ({
-      id,
-      onOpen,
-      onStop,
-    }: {
-      id: string;
-      onOpen?: () => void;
-      onStop?: () => void;
-    }) => (
-      <div data-testid="subagent-inline-card" data-subagent-id={id}>
-        <button
-          type="button"
-          data-testid="subagent-inline-card-open"
-          onClick={() => onOpen?.()}
-        />
-        <button
-          type="button"
-          data-testid="subagent-inline-card-stop"
-          onClick={() => onStop?.()}
-        />
-      </div>
-    ),
-  }),
-);
+mock.module("@/domains/chat/process-registry/inline-process-card-row", () => ({
+  InlineProcessCardRow: ({
+    id,
+    onOpen,
+    onStop,
+  }: {
+    id: string;
+    onOpen?: () => void;
+    onStop?: () => void;
+  }) => (
+    <div data-testid="subagent-inline-card" data-subagent-id={id}>
+      <button
+        type="button"
+        data-testid="subagent-inline-card-open"
+        onClick={() => onOpen?.()}
+      />
+      <button
+        type="button"
+        data-testid="subagent-inline-card-stop"
+        onClick={() => onStop?.()}
+      />
+    </div>
+  ),
+}));
 
 // ---------------------------------------------------------------------------
 // Subjects under test — imported AFTER mocks are registered.
@@ -102,7 +119,9 @@ async function expandSubagentSummary(container: HTMLElement) {
   const toggles = container.querySelectorAll<HTMLButtonElement>(
     '[data-testid="subagent-avatar-row-details"]',
   );
-  if (toggles.length === 0) return; // already expanded — nothing to wait for
+  if (toggles.length === 0) {
+    return;
+  } // already expanded — nothing to wait for
   toggles.forEach((toggle) => fireEvent.click(toggle));
   // mode="wait" defers mounting the expanded cards until the collapse exit completes
   await waitFor(() =>
@@ -262,12 +281,7 @@ describe("Transcript — collapsible subagent spawn group", () => {
     ];
 
     const { getAllByTestId, queryAllByTestId } = render(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     // Resting state: the avatar summary is shown, the boxed rows are not.
@@ -282,12 +296,7 @@ describe("Transcript — collapsible subagent spawn group", () => {
     ];
 
     const { container, getAllByTestId, queryAllByTestId } = render(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     expect(queryAllByTestId("subagent-inline-card").length).toBe(0);
@@ -340,12 +349,7 @@ describe("Transcript — collapsible subagent spawn group", () => {
     ];
 
     const { queryAllByTestId } = render(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     expect(queryAllByTestId("subagent-avatar-badge").length).toBe(0);
@@ -359,12 +363,7 @@ describe("Transcript — collapsible subagent spawn group", () => {
     ];
 
     const { container, getByTestId } = render(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     // The subagent renders inline (collapsed avatar summary)...
@@ -396,12 +395,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
     ];
 
     const { container, getAllByTestId } = render(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     await expandSubagentSummary(container);
@@ -431,12 +425,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
     ];
 
     const { container, getAllByTestId } = render(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     await expandSubagentSummary(container);
@@ -480,12 +469,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
     ];
 
     const { container, getAllByTestId } = render(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     await expandSubagentSummary(container);
@@ -501,12 +485,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
     ];
 
     const { queryAllByTestId } = render(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     // No resolved spawn id — neither the collapsed summary nor any row mounts.
@@ -555,12 +534,7 @@ describe("Transcript — toolUseId anchor (PR 3)", () => {
     ];
 
     const { getAllByTestId, container } = render(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     // The spawn-only group must not surface a generic progress card.
@@ -630,12 +604,7 @@ describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
     ];
 
     const { container, getAllByTestId } = render(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     // The two spawns land in distinct activity groups (split by the interleaved
@@ -673,7 +642,11 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
         {
           id: toolUseId,
           name: "skill_execute",
-          input: { tool: "subagent_spawn", label: "agent-0", objective: "do a thing" },
+          input: {
+            tool: "subagent_spawn",
+            label: "agent-0",
+            objective: "do a thing",
+          },
           // No `result` — daemon hasn't acked the spawn yet.
         },
       ],
@@ -683,12 +656,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
 
   function transcript(items: TranscriptItem[]) {
     return (
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />
+      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />
     );
   }
 
@@ -817,12 +785,7 @@ describe("Transcript — legacy SubagentProgressCard mount is gone (PR 8)", () =
     ];
 
     const { container } = render(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     // The legacy bottom card used this id. PR 8 removes that mount entirely;

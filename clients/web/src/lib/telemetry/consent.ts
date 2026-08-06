@@ -24,7 +24,11 @@ import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 export function readAnalyticsConsent(): boolean {
   const { shareAnalytics, serverAnalyticsEffective, pendingAnalyticsOptIn } =
     useOnboardingStore.getState();
-  if (shareAnalytics === false) return false;
-  if (pendingAnalyticsOptIn) return true;
+  if (shareAnalytics === false) {
+    return false;
+  }
+  if (pendingAnalyticsOptIn) {
+    return true;
+  }
   return serverAnalyticsEffective ?? true;
 }

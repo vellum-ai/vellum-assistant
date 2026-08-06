@@ -29,6 +29,7 @@ import {
   DirectoryScopeOptionSchema,
   ScopeOptionSchema,
 } from "../events/confirmation-request.js";
+import { AnsweredQuestionSchema } from "../events/question-answered.js";
 import { QuestionEntrySchema } from "../events/question-request.js";
 import { ToolActivityMetadataSchema } from "../events/tool-result.js";
 
@@ -242,6 +243,16 @@ export const ConversationMessageToolCallSchema = z.object({
    * render time). Lets a cold reconnect restore the inline question card.
    */
   pendingQuestion: PendingToolQuestionSchema.optional(),
+  /**
+   * The answered counterpart to `pendingQuestion`: the questions an
+   * `ask_question` call asked and the answers the user gave. Persisted on the
+   * tool_use block rather than stamped from the live registry, so it survives a
+   * conversation switch, a reload, and a history reopen. A tool call carries at
+   * most one of the two: the pending prompt while it is outstanding, the
+   * answered record once it settles. Absent on history rows written before the
+   * daemon recorded it.
+   */
+  answeredQuestion: AnsweredQuestionSchema.optional(),
 });
 export type ConversationMessageToolCall = z.infer<
   typeof ConversationMessageToolCallSchema
@@ -415,7 +426,14 @@ export type ConversationSurfaceBlock = z.infer<
   typeof ConversationSurfaceBlockSchema
 >;
 
-/** A vellum attachment projection (no provider analog). */
+/**
+ * A vellum attachment projection (no provider analog).
+ *
+ * The inlined `attachment` is a metadata-only positional reference:
+ * `data`/`thumbnailData` are never populated here. The payload ships once,
+ * on the message's flat `attachments` array (joinable by `attachment.id`),
+ * or on demand via the attachment content endpoint.
+ */
 export const ConversationAttachmentBlockSchema = z.object({
   type: z.literal("attachment"),
   attachment: ConversationMessageAttachmentSchema,
@@ -491,10 +509,13 @@ export const ConversationMessageSchema = z.object({
   /** Display timestamp as an ISO-8601 string. */
   timestamp: z.string(),
   /**
-   * Flat list of attachment metadata for the row. Not yet supersedable by
-   * `contentBlocks`: `renderHistoryContent` emits an `attachment` content
+   * Flat list of attachment metadata for the row, and the sole carrier of
+   * inline attachment payloads: image rows populate `data`/`thumbnailData`
+   * here, while the `attachment` blocks in `contentBlocks` stay metadata-only
+   * references joinable by id. Not supersedable by `contentBlocks` for a
+   * second reason: `renderHistoryContent` emits an `attachment` content
    * block only for file-block refs with an inline placement, so orphan rows
-   * (unmatched ids, count mismatch, no DB rows — see `alignAttachments`) ship
+   * (unmatched ids, count mismatch, no DB rows; see `alignAttachments`) ship
    * here alone. Kept non-deprecated until `contentBlocks` reaches attachment
    * parity, so clients that migrate off the positional arrays don't drop those
    * chips.
@@ -586,6 +607,17 @@ export const ConversationMessageSchema = z.object({
    *  system notices — no avatar, no persona bubble — and never group them
    *  with adjacent assistant turns. */
   systemCard: z.boolean().optional(),
+  /** Present when this assistant row is a daemon-persisted provider-failure
+   *  notice (`metadata.messageKind === "provider_error"`); clients may render
+   *  a themed card instead of a persona bubble. `code` is the stable
+   *  classified error code (e.g. `"PROVIDER_BILLING"`), `category` the
+   *  classified category (e.g. `"credits_exhausted"`). */
+  providerError: z
+    .object({
+      code: z.string().optional(),
+      category: z.string().optional(),
+    })
+    .optional(),
   slackMessage: ConversationSlackMessageSchema.optional(),
   /**
    * Queue state for a user message that is still waiting in the daemon's

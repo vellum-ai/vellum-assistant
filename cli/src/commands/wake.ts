@@ -29,7 +29,7 @@ import {
   startLocalDaemon,
   startGateway,
 } from "../lib/local";
-import { maybeStartNgrokTunnel } from "../lib/ngrok";
+import { restoreTunnelEdgeAndAutoTunnel } from "../lib/tunnel-edge.js";
 
 export async function wake(): Promise<void> {
   const args = process.argv.slice(3);
@@ -368,9 +368,11 @@ export async function wake(): Promise<void> {
     }
   }
 
-  // Auto-start ngrok if webhook integrations (e.g. Telegram) are configured.
+  // Restore the nginx edge and point the webhook auto-tunnel at it. Non-fatal:
+  // a down edge is a degraded remote-web/webhook path, not a broken assistant.
   const workspaceDir = join(resources.instanceDir, ".vellum", "workspace");
-  const ngrokChild = await maybeStartNgrokTunnel(
+  const ngrokChild = await restoreTunnelEdgeAndAutoTunnel(
+    entry.assistantId,
     resources.gatewayPort,
     workspaceDir,
   );

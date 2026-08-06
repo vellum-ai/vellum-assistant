@@ -10,6 +10,7 @@ import { TtsProviderForm } from "@/components/speech/tts-provider-form";
 export function TextToSpeechCard() {
   return (
     <ByoServiceCard
+      id="text-to-speech"
       title="Text-to-Speech"
       subtitle="Configure how your assistant speaks"
     >

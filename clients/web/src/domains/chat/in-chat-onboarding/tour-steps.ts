@@ -1,4 +1,5 @@
 import {
+  AudioLines,
   Brain,
   CircleUser,
   MessageCircle,
@@ -42,34 +43,52 @@ export const TOUR_INTRO: TourStep = {
 export const TOUR_SIDEBAR: TourStep = {
   id: "side-menu",
   title: "Your sidebar",
-  body: "Everything lives here — our chats, my page, your settings.",
+  body: "Everything lives here: our chats, my page, your settings.",
   icon: PanelLeft,
 };
 
 /**
- * The finale: the chat composer gets the same takeover treatment as the
- * side menu — the flood pours over the input with the eyes surfacing —
- * ending the tour where the real conversation starts. Targets the
- * composer's `data-slot` anchor rather than a `data-tour-id`.
+ * The chat beat: the composer gets the same takeover treatment as the side
+ * menu, the flood pouring over the input with the eyes surfacing, landing the
+ * tour where the real conversation starts. Targets the composer's `data-slot`
+ * anchor rather than a `data-tour-id`.
  */
 export const TOUR_COMPOSER: TourStep = {
   id: "chat-composer",
   title: "Your chat",
-  body: "Don't get distracted by all the noise, start by talking to me!",
+  body: "I have tons of features, but let's chat before you start exploring!",
   icon: MessageCircle,
+};
+
+/**
+ * The finale: the composer flood drains and the whole avatar drops onto the
+ * voice button, perching on its top edge. The control itself is left alone,
+ * so the tour ends pointing at the affordance the user meets next rather than
+ * covering it.
+ *
+ * Targets `data-tour-id="voice-mode"` inside the overlay's scenery composer.
+ * The button renders only for an assistant that serves live voice, and a beat
+ * whose anchor is missing is skipped, so an ineligible assistant ends the tour
+ * on the chat beat instead.
+ */
+export const TOUR_VOICE: TourStep = {
+  id: "voice-mode",
+  title: "Voice mode",
+  body: "Or we can speak to each other. It's faster and more natural.",
+  icon: AudioLines,
 };
 
 export const TOUR_STEPS: TourStep[] = [
   {
     id: "assistant-page",
     title: "Your Assistant",
-    body: "My personality, the library of things I've built for you, and more. I keep it all tidy — you never have to.",
+    body: "My personality, things I've built for you, and more. I keep it all tidy so you never have to.",
     icon: Brain,
   },
   {
     id: "new-chat",
     title: "New Chat",
-    body: "A fresh chat when you want one.",
+    body: "You probably already know this one.",
     icon: Plus,
   },
   {

@@ -24,6 +24,7 @@ import type { OutgoingHttpHeaders } from "node:http";
 
 import { velayHostForPlatformHost } from "@vellumai/service-contracts/ingress";
 
+import { resolveScopeProfile } from "../../auth/scopes.js";
 import { validateEdgeToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
@@ -252,9 +253,19 @@ export function createSpeechRelayUpgradeHandler(
       return jsonError(401, "invalid_token", "missing service token");
     }
     const result = validateEdgeToken(rawToken);
-    if (!result.ok || result.claims.sub !== DAEMON_SERVICE_SUB) {
+    if (
+      !result.ok ||
+      result.claims.sub !== DAEMON_SERVICE_SUB ||
+      !resolveScopeProfile(result.claims.scope_profile).has("speech.relay")
+    ) {
       log.warn(
-        { reason: result.ok ? "wrong_sub" : result.reason },
+        {
+          reason: !result.ok
+            ? result.reason
+            : result.claims.sub !== DAEMON_SERVICE_SUB
+              ? "wrong_sub"
+              : "missing_speech_scope",
+        },
         "Speech relay: authentication failed",
       );
       return jsonError(401, "invalid_token", "service token rejected");

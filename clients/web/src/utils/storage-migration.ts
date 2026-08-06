@@ -21,8 +21,14 @@
  * renaming the key. Idempotent — only writes when the current value
  * matches `oldValue` exactly.
  */
-export function migrateValue(key: string, oldValue: string, newValue: string): void {
-  if (typeof window === "undefined") return;
+export function migrateValue(
+  key: string,
+  oldValue: string,
+  newValue: string,
+): void {
+  if (typeof window === "undefined") {
+    return;
+  }
   try {
     if (localStorage.getItem(key) === oldValue) {
       localStorage.setItem(key, newValue);
@@ -36,7 +42,9 @@ export function migrateValue(key: string, oldValue: string, newValue: string): v
  * Remove a legacy key that has no successor. Idempotent.
  */
 export function removeKey(key: string): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") {
+    return;
+  }
   try {
     localStorage.removeItem(key);
   } catch {
@@ -51,10 +59,14 @@ export function removeKey(key: string): void {
  * silently losing the value).
  */
 export function migrateKey(oldKey: string, newKey: string): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") {
+    return;
+  }
   try {
     const value = localStorage.getItem(oldKey);
-    if (value === null) return;
+    if (value === null) {
+      return;
+    }
     if (localStorage.getItem(newKey) === null) {
       localStorage.setItem(newKey, value);
     }
@@ -72,7 +84,9 @@ export function migrateKey(oldKey: string, newKey: string): void {
  * iteration.
  */
 export function migratePrefix(oldPrefix: string, newPrefix: string): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") {
+    return;
+  }
   try {
     const pairs: [string, string][] = [];
     for (let i = 0; i < localStorage.length; i++) {
@@ -90,6 +104,33 @@ export function migratePrefix(oldPrefix: string, newPrefix: string): void {
   }
 }
 
+/** Remove guardian credentials persisted by the legacy paired-session flow. */
+export function removePersistedPairedGatewayCredential(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    const source =
+      localStorage.getItem("vellum:gw:tokenSource") ??
+      localStorage.getItem("gw:tokenSource");
+    if (!source?.includes("/__gateway-paired/")) {
+      return;
+    }
+    for (const key of [
+      "vellum:gw:token",
+      "vellum:gw:expiresAt",
+      "vellum:gw:tokenSource",
+      "gw:token",
+      "gw:expiresAt",
+      "gw:tokenSource",
+    ]) {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // Storage unavailable. Retry on next load.
+  }
+}
+
 /**
  * Remove every key matching `prefix`. Snapshots keys first to avoid mutating
  * during iteration. Caller is responsible for the try/catch.
@@ -98,9 +139,13 @@ function removeAllWithPrefix(prefix: string): void {
   const keys: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (key && key.startsWith(prefix)) keys.push(key);
+    if (key && key.startsWith(prefix)) {
+      keys.push(key);
+    }
   }
-  for (const key of keys) localStorage.removeItem(key);
+  for (const key of keys) {
+    localStorage.removeItem(key);
+  }
 }
 
 /**
@@ -118,25 +163,35 @@ function removeAllWithPrefix(prefix: string): void {
  * via the target-exists short-circuit plus unconditional legacy removal.
  */
 export function collapseSelectedAssistantKeys(): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") {
+    return;
+  }
   const target = "vellum:selectedAssistantId";
   const tabLocalKey = "vellum:local:selectedAssistantId";
   const perOrgPrefix = "vellum:currentAssistantId:";
   try {
     if (localStorage.getItem(target) === null) {
       let candidate = localStorage.getItem(tabLocalKey);
-      if (candidate === null) candidate = activeOrgSelection(perOrgPrefix);
+      if (candidate === null) {
+        candidate = activeOrgSelection(perOrgPrefix);
+      }
       if (candidate === null) {
         let smallestKey: string | null = null;
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
           if (key && key.startsWith(perOrgPrefix)) {
-            if (smallestKey === null || key < smallestKey) smallestKey = key;
+            if (smallestKey === null || key < smallestKey) {
+              smallestKey = key;
+            }
           }
         }
-        if (smallestKey !== null) candidate = localStorage.getItem(smallestKey);
+        if (smallestKey !== null) {
+          candidate = localStorage.getItem(smallestKey);
+        }
       }
-      if (candidate) localStorage.setItem(target, candidate);
+      if (candidate) {
+        localStorage.setItem(target, candidate);
+      }
     }
     localStorage.removeItem(tabLocalKey);
     removeAllWithPrefix(perOrgPrefix);
@@ -153,7 +208,9 @@ function activeOrgSelection(perOrgPrefix: string): string | null {
   } catch {
     return null;
   }
-  if (!activeOrg) return null;
+  if (!activeOrg) {
+    return null;
+  }
   return localStorage.getItem(`${perOrgPrefix}${activeOrg}`);
 }
 
@@ -168,7 +225,9 @@ function activeOrgSelection(perOrgPrefix: string): string | null {
  * inter-key dependencies.
  */
 export function runStorageMigrations(): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") {
+    return;
+  }
 
   // -- Static key renames ------------------------------------------------
 
@@ -178,13 +237,18 @@ export function runStorageMigrations(): void {
 
   // voice: → vellum:voice:
   migrateKey("voice:permissionPrimerSeen", "vellum:voice:permissionPrimerSeen");
-  migrateKey("voice:conversationTimeoutSeconds", "vellum:voice:conversationTimeoutSeconds");
+  // `voice:conversationTimeoutSeconds` is intentionally not migrated: the
+  // setting was a leftover of the Swift macOS app, and nothing on web has read
+  // it since that client was removed.
   migrateKey("voice:ttsProvider", "vellum:voice:ttsProvider");
   migrateKey("voice:sttProvider", "vellum:voice:sttProvider");
   migrateKey("voice:activationKey", "vellum:voice:activationKey");
 
   // integrations. → vellum:integrations:
-  migrateKey("integrations.bannerDismissed", "vellum:integrations:bannerDismissed");
+  migrateKey(
+    "integrations.bannerDismissed",
+    "vellum:integrations:bannerDismissed",
+  );
 
   // onboarding. → vellum:onboarding:
   migrateKey("onboarding.tosAccepted", "vellum:onboarding:tosAccepted");
@@ -199,6 +263,22 @@ export function runStorageMigrations(): void {
   // vellum_ → vellum:ai: (AI settings page)
   migrateKey("vellum_image_gen_mode", "vellum:ai:imageGenMode");
   migrateKey("vellum_image_gen_model", "vellum:ai:imageGenModel");
+  // Image generation is configured by provider alone; convert a stored
+  // legacy mode into the equivalent provider so a previously-managed
+  // browser does not fall back to the BYOK default before the daemon
+  // config loads.
+  try {
+    if (localStorage.getItem("vellum:ai:imageGenProvider") === null) {
+      const legacyImageGenMode = localStorage.getItem("vellum:ai:imageGenMode");
+      if (legacyImageGenMode === "managed") {
+        localStorage.setItem("vellum:ai:imageGenProvider", "vellum");
+      } else if (legacyImageGenMode === "your-own") {
+        localStorage.setItem("vellum:ai:imageGenProvider", "gemini");
+      }
+    }
+  } catch {
+    // Storage unavailable. Retry on next load.
+  }
   migrateKey("vellum_web_search_mode", "vellum:ai:webSearchMode");
   migrateKey("vellum_web_search_provider", "vellum:ai:webSearchProvider");
   migrateKey("vellum_email_mode", "vellum:ai:emailMode");
@@ -218,6 +298,7 @@ export function runStorageMigrations(): void {
   migrateKey("gw:token", "vellum:gw:token");
   migrateKey("gw:expiresAt", "vellum:gw:expiresAt");
   migrateKey("gw:tokenSource", "vellum:gw:tokenSource");
+  removePersistedPairedGatewayCredential();
 
   // local: → vellum:local:
   migrateKey("local:lockfile", "vellum:local:lockfile");
@@ -234,7 +315,10 @@ export function runStorageMigrations(): void {
   migratePrefix("ff:client:", "vellum:ff:");
 
   // Unprefixed per-entity → vellum:
-  migratePrefix("disk-pressure-warning-dismissed-", "vellum:diskPressureDismissed:");
+  migratePrefix(
+    "disk-pressure-warning-dismissed-",
+    "vellum:diskPressureDismissed:",
+  );
 
   // vellum_ per-org → vellum:
   migratePrefix("vellum_current_assistant_id__", "vellum:currentAssistantId:");

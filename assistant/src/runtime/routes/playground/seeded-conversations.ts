@@ -67,7 +67,9 @@ export const ROUTES: RouteDefinition[] = [
       );
       let deletedCount = 0;
       for (const c of candidates) {
-        if (deleteConversationById(c.id)) deletedCount++;
+        if (deleteConversationById(c.id)) {
+          deletedCount++;
+        }
       }
       return { deletedCount };
     },

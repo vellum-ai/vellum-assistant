@@ -7,7 +7,14 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeAll, describe, expect, test } from "bun:test";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 
 import { finalizeTool } from "../tools/tool-defaults.js";
 import type { Tool, ToolContext } from "../tools/types.js";
@@ -81,15 +88,38 @@ describe("file_read tool (sandbox)", () => {
     expect(result.content).toContain("is a directory");
   });
 
-  test("rejects path traversal outside working dir", async () => {
+  test("reads a file outside the workspace boundary (non-containerized)", async () => {
     const dir = makeTempDir();
+    const outside = makeTempDir();
+    const target = join(outside, "escape.txt");
+    writeFileSync(target, "outside content");
 
     const result = await fileReadTool.execute(
-      { path: "../../../etc/passwd" },
+      { path: target },
       makeContext(dir),
     );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("outside the working directory");
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("outside content");
+  });
+
+  test("reads a file outside the workspace boundary when containerized", async () => {
+    const dir = makeTempDir();
+    const outside = makeTempDir();
+    const target = join(outside, "reference.md");
+    writeFileSync(target, "install tree content");
+    process.env.IS_CONTAINERIZED = "true";
+    try {
+      const result = await fileReadTool.execute(
+        { path: target },
+        makeContext(dir),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("install tree content");
+    } finally {
+      delete process.env.IS_CONTAINERIZED;
+    }
   });
 });
 
@@ -166,22 +196,56 @@ describe("file_read image support", () => {
     expect(result.content).toContain("file not found");
   });
 
-  test("blocks image path traversal outside working dir", async () => {
+  test("reads an image outside the workspace boundary (non-containerized)", async () => {
     const dir = makeTempDir();
+    const outside = makeTempDir();
+    writeFileSync(join(outside, "photo.jpg"), JPEG_HEADER);
 
     const result = await fileReadTool.execute(
-      { path: "../../etc/secret.png" },
+      { path: join(outside, "photo.jpg") },
       makeContext(dir),
     );
 
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("outside the working directory");
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Image loaded");
+  });
+
+  test("reads an image outside the workspace boundary when containerized", async () => {
+    const dir = makeTempDir();
+    const outside = makeTempDir();
+    writeFileSync(join(outside, "diagram.jpg"), JPEG_HEADER);
+    process.env.IS_CONTAINERIZED = "true";
+    try {
+      const result = await fileReadTool.execute(
+        { path: join(outside, "diagram.jpg") },
+        makeContext(dir),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Image loaded");
+    } finally {
+      delete process.env.IS_CONTAINERIZED;
+    }
   });
 });
 
 // ── Out-of-bounds hint for host_file_read ─────────────────────────────
+//
+// Reads leave the workspace freely, so the boundary only holds when the
+// service security deny set cannot be mirrored: a relative override resolves
+// against the owning service's cwd, so the policy fails closed.
 
 describe("file_read out-of-bounds hint", () => {
+  beforeEach(() => {
+    process.env.IS_CONTAINERIZED = "true";
+    process.env.GATEWAY_SECURITY_DIR = "relative/security-dir";
+  });
+
+  afterEach(() => {
+    delete process.env.IS_CONTAINERIZED;
+    delete process.env.GATEWAY_SECURITY_DIR;
+  });
+
   test("suggests host_file_read for out-of-bounds text file path", async () => {
     const dir = makeTempDir();
 

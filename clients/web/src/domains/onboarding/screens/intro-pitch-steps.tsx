@@ -91,32 +91,48 @@ function CarouselLine({
     revealFrom === "bottom" ? "inset(100% 0 0 0)" : "inset(0 0 100% 0)";
   const clipShown = "inset(0% 0 0% 0)";
   // Wait for the measurer so the window opens at the right height (no grow-in).
-  if (!firstH || !secondH) return null;
+  if (!firstH || !secondH) {
+    return null;
+  }
   return (
     <motion.div
       className="relative w-full overflow-hidden"
       initial={false}
       animate={{ height: carouseled ? secondH : firstH }}
-      transition={reduce ? { duration: 0 } : { duration: 0.5, ease: "easeInOut" }}
+      transition={
+        reduce ? { duration: 0 } : { duration: 0.5, ease: "easeInOut" }
+      }
     >
       <motion.div
         className="flex flex-col"
         style={{ color }}
         initial={false}
         animate={{ y: carouseled ? -firstH : 0 }}
-        transition={reduce ? { duration: 0 } : { duration: 0.5, ease: "easeInOut" }}
+        transition={
+          reduce ? { duration: 0 } : { duration: 0.5, ease: "easeInOut" }
+        }
       >
-        <div className="flex items-center justify-center" style={{ height: firstH }}>
+        <div
+          className="flex items-center justify-center"
+          style={{ height: firstH }}
+        >
           <motion.span
             className="block"
             initial={false}
             animate={{ clipPath: revealed ? clipShown : clipHidden }}
-            transition={reduce ? { duration: 0 } : { duration: revealDuration, ease: "easeOut" }}
+            transition={
+              reduce
+                ? { duration: 0 }
+                : { duration: revealDuration, ease: "easeOut" }
+            }
           >
             {firstText}
           </motion.span>
         </div>
-        <div className="flex items-center justify-center" style={{ height: secondH }}>
+        <div
+          className="flex items-center justify-center"
+          style={{ height: secondH }}
+        >
           <span className="block">{secondText}</span>
         </div>
       </motion.div>
@@ -157,10 +173,15 @@ export function PitchStep({
 
   // A lone helper peeks from the top-left as line 1 carousels to "The more I help".
   const helperColor = useMemo(() => {
-    if (!components || !chosen) return "orange";
+    if (!components || !chosen) {
+      return "orange";
+    }
     return (
-      pickOverlayColors(chosen.color, components.colors.map((c) => c.id), 1)[0] ??
-      "orange"
+      pickOverlayColors(
+        chosen.color,
+        components.colors.map((c) => c.id),
+        1,
+      )[0] ?? "orange"
     );
   }, [components, chosen]);
   const helperSize = Math.min(220, Math.max(150, w * 0.16));
@@ -170,8 +191,14 @@ export function PitchStep({
 
   // A small team peeks from the top-right as line 2 carousels to "The less you do".
   const teamColors = useMemo(() => {
-    if (!components || !chosen) return [] as string[];
-    return pickOverlayColors(chosen.color, components.colors.map((c) => c.id), 3);
+    if (!components || !chosen) {
+      return [] as string[];
+    }
+    return pickOverlayColors(
+      chosen.color,
+      components.colors.map((c) => c.id),
+      3,
+    );
   }, [components, chosen]);
   const peekScale = Math.max(0.42, Math.min(w / 1100, 1));
   const teamSize = Math.round(PITCH_TEAM_SIZE * peekScale);
@@ -205,11 +232,21 @@ export function PitchStep({
   const [secondH2, setSecondH2] = useState(0);
   const [thirdH, setThirdH] = useState(0);
   useLayoutEffect(() => {
-    if (m1aRef.current?.offsetHeight) setFirstH1(m1aRef.current.offsetHeight);
-    if (m1bRef.current?.offsetHeight) setSecondH1(m1bRef.current.offsetHeight);
-    if (m2aRef.current?.offsetHeight) setFirstH2(m2aRef.current.offsetHeight);
-    if (m2bRef.current?.offsetHeight) setSecondH2(m2bRef.current.offsetHeight);
-    if (m3Ref.current?.offsetHeight) setThirdH(m3Ref.current.offsetHeight);
+    if (m1aRef.current?.offsetHeight) {
+      setFirstH1(m1aRef.current.offsetHeight);
+    }
+    if (m1bRef.current?.offsetHeight) {
+      setSecondH1(m1bRef.current.offsetHeight);
+    }
+    if (m2aRef.current?.offsetHeight) {
+      setFirstH2(m2aRef.current.offsetHeight);
+    }
+    if (m2bRef.current?.offsetHeight) {
+      setSecondH2(m2bRef.current.offsetHeight);
+    }
+    if (m3Ref.current?.offsetHeight) {
+      setThirdH(m3Ref.current.offsetHeight);
+    }
   }, [blockW]);
 
   // Park the eyes at rest until the journey starts.
@@ -221,7 +258,9 @@ export function PitchStep({
   // Reduced motion: reveal the first lines, then swap to the payoff; Continue
   // is offered throughout.
   useEffect(() => {
-    if (!reduce) return;
+    if (!reduce) {
+      return;
+    }
     const t = setTimeout(() => {
       setCarousel1(true);
       setCarousel2(true);
@@ -231,7 +270,9 @@ export function PitchStep({
   }, [reduce]);
 
   useEffect(() => {
-    if (reduce || !art) return;
+    if (reduce || !art) {
+      return;
+    }
 
     eyeCy.set(restCy);
     eyeScale.set(1);
@@ -259,25 +300,41 @@ export function PitchStep({
 
     const run = async () => {
       await wait(200);
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
 
       // Eyes shoot up, wiping line 1 in bottom→top along the rise.
       setReveal1(true);
       await Promise.all([
         track(animate(eyeCy, aboveCy, { duration: 0.55, ease: "easeOut" })),
-        track(animate(eyeScale, smallScale, { duration: 0.55, ease: "easeOut" })),
+        track(
+          animate(eyeScale, smallScale, { duration: 0.55, ease: "easeOut" }),
+        ),
       ]);
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
 
       // Eyes drop back to rest, wiping line 2 in top→bottom as they pass.
       setReveal2(true);
       await Promise.all([
-        track(animate(eyeCy, restCy, { type: "spring", stiffness: 210, damping: 15 })),
+        track(
+          animate(eyeCy, restCy, {
+            type: "spring",
+            stiffness: 210,
+            damping: 15,
+          }),
+        ),
         track(animate(eyeScale, 1, { duration: 0.45, ease: "easeOut" })),
       ]);
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       await wait(900);
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
 
       // Carousel lines 1 + 2 together → "The more I help" / "The better I get"
       // as a helper peeks from the top-left.
@@ -290,9 +347,13 @@ export function PitchStep({
           ease: ["easeOut", "easeInOut", "easeInOut"],
         }),
       );
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       await wait(150);
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
 
       // Add line 3 → "The less you do" as a team peeks from the top-right.
       setReveal3(true);
@@ -304,7 +365,9 @@ export function PitchStep({
         }),
       );
       await wait(700);
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       // Surface Continue while the team finishes peeking back out.
       setLanded(true);
       await teamPeekAnim;
@@ -334,7 +397,10 @@ export function PitchStep({
   ]);
 
   return (
-    <div className="absolute inset-0 z-10 overflow-hidden" style={{ color: tone.fg }}>
+    <div
+      className="absolute inset-0 z-10 overflow-hidden"
+      style={{ color: tone.fg }}
+    >
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
 
       {/* Hidden measurer — sizes the carousel windows to the taller phrase. */}
@@ -343,11 +409,21 @@ export function PitchStep({
         className="pointer-events-none invisible absolute -left-[9999px] top-0 text-[clamp(2.25rem,5.5vw,4.5rem)] leading-[1.15]"
         style={{ width: blockW, fontFamily: "var(--font-serif)" }}
       >
-        <span ref={m1aRef} className="block">{SETUP_LINE}</span>
-        <span ref={m1bRef} className="block">{HELP_LINE}</span>
-        <span ref={m2aRef} className="block">{PUNCH_LINE}</span>
-        <span ref={m2bRef} className="block">{BETTER_LINE}</span>
-        <span ref={m3Ref} className="block">{LESS_LINE}</span>
+        <span ref={m1aRef} className="block">
+          {SETUP_LINE}
+        </span>
+        <span ref={m1bRef} className="block">
+          {HELP_LINE}
+        </span>
+        <span ref={m2aRef} className="block">
+          {PUNCH_LINE}
+        </span>
+        <span ref={m2bRef} className="block">
+          {BETTER_LINE}
+        </span>
+        <span ref={m3Ref} className="block">
+          {LESS_LINE}
+        </span>
       </div>
 
       {/* The assistant's eyes — behind the text, lifting the words into view as
@@ -379,7 +455,11 @@ export function PitchStep({
         >
           <AnimatedAvatar
             components={components}
-            traits={{ bodyShape: "blob", eyeStyle: "goofy", color: helperColor }}
+            traits={{
+              bodyShape: "blob",
+              eyeStyle: "goofy",
+              color: helperColor,
+            }}
             size={helperSize}
             breathe={false}
           />
@@ -418,7 +498,9 @@ export function PitchStep({
         </motion.div>
       )}
 
-      <div className={`${ONBOARDING_STEP_CONTENT.replace("top-[30%]", topClass)} max-w-3xl max-md:top-[34%]`}>
+      <div
+        className={`${ONBOARDING_STEP_CONTENT.replace("top-[30%]", topClass)} max-w-3xl max-md:top-[34%]`}
+      >
         <div
           className="flex w-full flex-col gap-3 text-[clamp(2.25rem,5.5vw,4.5rem)] leading-[1.15]"
           style={{ fontFamily: "var(--font-serif)" }}
@@ -455,7 +537,9 @@ export function PitchStep({
             style={{ color: tone.fg }}
             initial={false}
             animate={{ height: reveal3 ? thirdH : 0 }}
-            transition={reduce ? { duration: 0 } : { duration: 0.5, ease: "easeInOut" }}
+            transition={
+              reduce ? { duration: 0 } : { duration: 0.5, ease: "easeInOut" }
+            }
           >
             {thirdH > 0 && (
               <div
@@ -466,10 +550,14 @@ export function PitchStep({
                   className="block"
                   initial={false}
                   animate={{
-                    clipPath: reveal3 ? "inset(0% 0 0% 0)" : "inset(100% 0 0 0)",
+                    clipPath: reveal3
+                      ? "inset(0% 0 0% 0)"
+                      : "inset(100% 0 0 0)",
                   }}
                   transition={
-                    reduce ? { duration: 0 } : { duration: 0.5, ease: "easeOut" }
+                    reduce
+                      ? { duration: 0 }
+                      : { duration: 0.5, ease: "easeOut" }
                   }
                 >
                   {LESS_LINE}

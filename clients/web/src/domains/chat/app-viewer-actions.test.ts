@@ -21,7 +21,10 @@ afterEach(() => {
 describe("handleAppViewerAction — relay_prompt", () => {
   it("relays to the active conversation without touching the view", () => {
     useConversationStore.setState({ activeConversationId: "conv-1" });
-    useViewerStore.setState({ mainView: "app-editing", openedAppState: SAMPLE_APP });
+    useViewerStore.setState({
+      mainView: "app-editing",
+      openedAppState: SAMPLE_APP,
+    });
     const ctx = makeCtx();
 
     handleAppViewerAction(ctx, "relay_prompt", { prompt: "hello" });
@@ -87,7 +90,10 @@ describe("handleAppViewerAction — set_view", () => {
   });
 
   it("'full' exits the side-by-side to full-width", () => {
-    useViewerStore.setState({ mainView: "app-editing", openedAppState: SAMPLE_APP });
+    useViewerStore.setState({
+      mainView: "app-editing",
+      openedAppState: SAMPLE_APP,
+    });
 
     handleAppViewerAction(makeCtx(), "set_view", { view: "full" });
 
@@ -101,7 +107,9 @@ describe("handleAppViewerAction — set_view", () => {
     handleAppViewerAction(makeCtx(false), "set_view", { view: "split" });
 
     expect(useViewerStore.getState().mainView).toBe("app-editing");
-    expect(useConversationStore.getState().editingConversationId).toBe("conv-1");
+    expect(useConversationStore.getState().editingConversationId).toBe(
+      "conv-1",
+    );
   });
 
   it("'split' is ignored on mobile", () => {

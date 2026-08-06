@@ -94,15 +94,21 @@ function findCatalogPricing(
   model: string,
 ): ModelPricing | undefined {
   const entry = PROVIDER_CATALOG.find((p) => p.id === provider);
-  if (!entry) return undefined;
+  if (!entry) {
+    return undefined;
+  }
   // Exact match
   const exact = entry.models.find((m) => m.id === model && m.pricing);
-  if (exact?.pricing) return catalogPricingToInternal(exact.pricing);
+  if (exact?.pricing) {
+    return catalogPricingToInternal(exact.pricing);
+  }
   // Longest-prefix match against catalog model IDs
   let best: CatalogModel | undefined;
   let bestLen = 0;
   for (const m of entry.models) {
-    if (!m.pricing) continue;
+    if (!m.pricing) {
+      continue;
+    }
     if (model.startsWith(m.id) && m.id.length > bestLen) {
       best = m;
       bestLen = m.id.length;
@@ -170,7 +176,9 @@ function findInFallback(
   model: string,
 ): ModelPricing | undefined {
   // Exact match
-  if (table[model]) return table[model];
+  if (table[model]) {
+    return table[model];
+  }
 
   // Prefix match: find the longest matching prefix
   let bestMatch: ModelPricing | undefined;
@@ -193,9 +201,13 @@ function findPricing(
   model: string,
 ): ModelPricing | undefined {
   const fromCatalog = findCatalogPricing(provider, model);
-  if (fromCatalog) return fromCatalog;
+  if (fromCatalog) {
+    return fromCatalog;
+  }
   const fallbackTable = LEGACY_PRICING_FALLBACK[provider];
-  if (!fallbackTable) return undefined;
+  if (!fallbackTable) {
+    return undefined;
+  }
   return findInFallback(fallbackTable, model);
 }
 
@@ -204,12 +216,16 @@ function findOverride(
   provider: string,
   model: string,
 ): ModelPricingOverride | undefined {
-  if (!overrides || overrides.length === 0) return undefined;
+  if (!overrides || overrides.length === 0) {
+    return undefined;
+  }
 
   let bestOverride: ModelPricingOverride | undefined;
   let bestLen = 0;
   for (const override of overrides) {
-    if (override.provider !== provider) continue;
+    if (override.provider !== provider) {
+      continue;
+    }
     if (
       model === override.modelPattern ||
       model.startsWith(override.modelPattern)
@@ -243,7 +259,9 @@ function selectPricingTier(
   pricing: ModelPricing,
   usage: PricingUsage,
 ): ModelPricing {
-  if (!pricing.tiers || pricing.tiers.length === 0) return pricing;
+  if (!pricing.tiers || pricing.tiers.length === 0) {
+    return pricing;
+  }
 
   const totalPromptInputTokens = getTotalPromptInputTokens(usage);
   let selectedTier: ModelPricingTier | undefined;
@@ -257,7 +275,9 @@ function selectPricingTier(
     }
   }
 
-  if (!selectedTier) return pricing;
+  if (!selectedTier) {
+    return pricing;
+  }
 
   return {
     ...pricing,

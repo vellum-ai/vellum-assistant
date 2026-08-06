@@ -6,10 +6,12 @@ import { isActiveStatus } from "@/utils/subagent-status";
 /**
  * Active (running | pending | awaiting_input) subagent ids for `conversationId`,
  * in stable `orderedIds` order. The store is global (all conversations'
- * subagents), so the results are scoped by the subagent's `conversationId` to
- * keep one spawned in another conversation from surfacing here. `conversationId`
- * is assigned after spawn (via `subagent_event`), so an entry that hasn't
- * received it yet is unknown and stays visible rather than disappearing.
+ * subagents), so the results are scoped by the entry's `parentConversationId`,
+ * the conversation whose turn spawned it, assigned at spawn or hydration, to
+ * keep one spawned in another conversation from surfacing here. (The entry's
+ * own `conversationId` is the subagent's child conversation, used only for
+ * detail fetch; it never equals the viewed conversation.) An entry without a
+ * parent id yet is unknown and stays visible rather than disappearing.
  *
  * `useShallow` keeps the returned array reference stable across unrelated store
  * ticks (e.g. token-usage updates) so consumers only re-render when the active
@@ -24,8 +26,8 @@ export function useActiveSubagentIds(conversationId: string | null): string[] {
           return false;
         }
         return (
-          entry.conversationId === undefined ||
-          entry.conversationId === conversationId
+          entry.parentConversationId === undefined ||
+          entry.parentConversationId === conversationId
         );
       }),
     ),

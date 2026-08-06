@@ -1,22 +1,20 @@
 import { describe, expect, test } from "bun:test";
 
+import type { AssistantEvent } from "../api/index.js";
+import type { Conversation } from "../daemon/conversation.js";
 import {
   createSurfaceMutex,
   handleSurfaceAction,
-  type SurfaceConversationContext,
 } from "../daemon/conversation-surfaces.js";
-import type {
-  ServerMessage,
-  SurfaceData,
-  SurfaceType,
-} from "../daemon/message-protocol.js";
+import type { SurfaceType } from "../daemon/message-protocol.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 /**
- * Build a minimal SurfaceConversationContext for testing table surface actions.
+ * Build a minimal Conversation for testing table surface actions.
  * Tracks calls to enqueueMessage and processMessage so tests can assert
  * whether an LLM turn was triggered with the correct content.
  */
-function makeContext(): SurfaceConversationContext & {
+function makeContext(): Conversation & {
   enqueueCalls: Array<{
     content: string;
     requestId: string;
@@ -31,7 +29,7 @@ function makeContext(): SurfaceConversationContext & {
     surfaceId?: string;
     displayContent?: string;
   }>;
-  sentMessages: ServerMessage[];
+  sentMessages: AssistantEvent[];
 } {
   const enqueueCalls: Array<{
     content: string;
@@ -47,9 +45,9 @@ function makeContext(): SurfaceConversationContext & {
     surfaceId?: string;
     displayContent?: string;
   }> = [];
-  const sentMessages: ServerMessage[] = [];
+  const sentMessages: AssistantEvent[] = [];
 
-  return {
+  return asConversation({
     conversationId: "test-convo",
     sendToClient: (msg) => sentMessages.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
@@ -88,7 +86,7 @@ function makeContext(): SurfaceConversationContext & {
     enqueueCalls,
     processCalls,
     sentMessages,
-  };
+  });
 }
 
 /**
@@ -96,7 +94,7 @@ function makeContext(): SurfaceConversationContext & {
  * mimicking what surfaceProxyResolver does for ui_show with await_action.
  */
 function registerTableSurface(
-  ctx: SurfaceConversationContext,
+  ctx: Conversation,
   surfaceId: string,
   opts?: {
     selectionMode?: "single" | "multiple" | "none";
@@ -146,7 +144,7 @@ function registerTableSurface(
 
   ctx.surfaceState.set(surfaceId, {
     surfaceType: "table",
-    data: data as unknown as SurfaceData,
+    data,
     title: "Test Table",
     actions,
   });

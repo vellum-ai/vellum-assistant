@@ -27,6 +27,7 @@ export interface SlackBotsInfoResponse extends SlackApiResponse {
 export interface SlackConversation {
   id: string;
   name?: string;
+  name_normalized?: string;
   is_channel?: boolean;
   is_group?: boolean;
   is_im?: boolean;
@@ -43,6 +44,10 @@ export interface SlackConversation {
   user?: string;
   /** IM rows only: the DM peer's account has been deactivated. */
   is_user_deleted?: boolean;
+}
+
+export interface SlackConversationInfoResponse extends SlackApiResponse {
+  channel: SlackConversation;
 }
 
 export interface SlackConversationsListResponse extends SlackApiResponse {

@@ -9,6 +9,7 @@ import { processMessage } from "../daemon/process-message.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { getConversation } from "../persistence/conversation-crud.js";
+import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { invalidateAssistantInferredItemsForConversation } from "../plugins/defaults/memory/task-memory-cleanup.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
@@ -18,6 +19,7 @@ import { runSequencesOnce } from "../sequence/engine.js";
 import type { TurnFailure } from "../telemetry/turn-outcome.js";
 import { recordWatchdogEvent } from "../telemetry/watchdog-events-store.js";
 import { getLogger } from "../util/logger.js";
+import { describeScheduleSource } from "../util/schedule-source-key.js";
 import {
   createWorkerSupervisor,
   type WorkerSupervisor,
@@ -25,6 +27,8 @@ import {
 import { runWatchersOnce } from "../watcher/engine.js";
 import { normalizeCapabilityManifest } from "../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
+import { declarationExistsOnDisk } from "./plugin-schedule-declarations.js";
+import { isPluginSchedulesEnabled } from "./plugin-schedules-gate.js";
 import { hasSetConstructs } from "./recurrence-engine.js";
 import { applyRetryDecision, decideRetry } from "./retry-policy.js";
 import { runScript, type ScriptResult } from "./run-script.js";
@@ -33,15 +37,19 @@ import {
   completeOneShot,
   completeScheduleRun,
   createScheduleRun,
+  deferClaimedSchedule,
   failOneShotPermanently,
   getLastScheduleConversationId,
+  recordAdministrativeSkipRun,
   resetRetryCount,
+  resolveScheduleConversationGroupId,
   retryOneShot,
   type RoutingIntent,
   type ScheduleJob,
   scheduleRetry,
   setScheduleRunConversationId,
 } from "./schedule-store.js";
+import { buildWakeScheduleOptions } from "./wake-schedule-options.js";
 import {
   isScheduleWorkerAdministrativelyStopped,
   probeScheduleWorker,
@@ -105,6 +113,7 @@ async function emitScheduleNotifySignal(payload: {
   message: string;
   routingIntent: RoutingIntent;
   routingHints: Record<string, unknown>;
+  groupId: string;
   deepLinkConversationId?: string;
 }): Promise<void> {
   await emitNotificationSignal({
@@ -128,7 +137,7 @@ async function emitScheduleNotifySignal(payload: {
     routingIntent: payload.routingIntent,
     routingHints: payload.routingHints,
     conversationMetadata: {
-      groupId: "system:scheduled",
+      groupId: payload.groupId,
       scheduleJobId: payload.id,
       source: "schedule",
     },
@@ -434,6 +443,9 @@ export async function runScheduleDueWorkOnce(
     return result;
   }
 
+  // The drain quiesce gates live inside claimDueWatchers and
+  // claimDueEnrollments, immediately before their claim writes.
+
   // ── Watchers (event-driven polling) ────────────────────────────────
   try {
     const watcherProcessed = await runWatchersOnce(emitWatcherNotifySignal);
@@ -463,6 +475,9 @@ export async function runScheduleDueWorkOnce(
  * (`worker.ts`). Claims are atomic in the schedule store, so overlapping ticks
  * cannot double-run a job another claim already took.
  */
+/** How far a claimed-but-quiesced schedule is pushed back into the queue. */
+const QUIESCE_DEFER_MS = 30_000;
+
 export async function runDueSchedulesOnce(
   now: number = Date.now(),
 ): Promise<SchedulerDueWorkResult> {
@@ -490,9 +505,62 @@ export async function runDueSchedulesOnce(
     return result;
   }
 
+  // The drain quiesce gate lives inside claimDueSchedules, immediately
+  // before the claim writes.
   const jobs = await claimDueSchedules(now);
   result.claimed = jobs.length;
   for (const job of jobs) {
+    // Lease re-check per claimed job: a lease armed between the batch claim
+    // and this job's start returns the job to the queue untouched instead of
+    // starting work the drain snapshot cannot see — notify mode especially,
+    // which emits before any run row exists.
+    if (isLifecycleQuiesced()) {
+      try {
+        await deferClaimedSchedule(job.id, Date.now() + QUIESCE_DEFER_MS);
+      } catch (err) {
+        log.warn(
+          { err, jobId: job.id },
+          "Failed to defer claimed schedule under quiesce",
+        );
+      }
+      result.skipped += 1;
+      continue;
+    }
+
+    // Fire-time gate for plugin-sourced rows, covering every way the source
+    // can go away under an armed row. `declarationExistsOnDisk` is the probe
+    // the run-now route and the enable path use, and it answers for all of
+    // them: a `.disabled` sentinel, a plugin directory a local uninstall
+    // removed, a manifest that no longer parses, and a declaration that is
+    // simply gone. Turning the feature flag off retires the whole surface.
+    // The reconciler is what disarms the rows any of these own, and it runs
+    // on its own schedule, so re-reading here is what makes the change take
+    // effect immediately: a row still armed (or already claimed) at that
+    // moment cannot run the plugin's code. The probe costs a stat and a
+    // manifest read, paid only when a sourced row fires.
+    const sourceKey = job.sourceKey;
+    if (
+      sourceKey !== null &&
+      (!isPluginSchedulesEnabled() ||
+        !(await declarationExistsOnDisk(sourceKey)))
+    ) {
+      const sourcePlugin = describeScheduleSource(sourceKey) ?? sourceKey;
+      log.info(
+        { jobId: job.id, name: job.name, plugin: sourcePlugin },
+        "Schedule not run: its plugin schedule source is unavailable",
+      );
+      // cron_runs has no skip status, so the skip is recorded as an error run
+      // to stay visible in the schedule's history. It is an administrative
+      // skip, not an attempt: the retry budget is left alone and no retry is
+      // scheduled, so the row stays on its normal cadence.
+      await recordAdministrativeSkipRun(
+        job.id,
+        `Schedule not run: plugin "${sourcePlugin}" is disabled, uninstalled, or no longer declares this schedule.`,
+      );
+      mark("skipped");
+      continue;
+    }
+
     const isOneShot = job.expression == null;
 
     // ── Notify mode (one-shot or recurring) ─────────────────────────
@@ -509,6 +577,7 @@ export async function runDueSchedulesOnce(
           message: job.message,
           routingIntent: job.routingIntent,
           routingHints: job.routingHints,
+          groupId: resolveScheduleConversationGroupId(job),
           ...(job.createdFromConversationId
             ? { deepLinkConversationId: job.createdFromConversationId }
             : {}),
@@ -619,15 +688,9 @@ export async function runDueSchedulesOnce(
           { jobId: job.id, name: job.name, wakeConversationId, isOneShot },
           "Executing wake schedule",
         );
-        const result = await wakeAgentForOpportunity({
-          conversationId: wakeConversationId,
-          hint: job.message,
-          source: "defer",
-          persistTriggerAsEvent: true,
-          ...(job.inferenceProfile
-            ? { forceOverrideProfile: job.inferenceProfile }
-            : {}),
-        });
+        const result = await wakeAgentForOpportunity(
+          buildWakeScheduleOptions(job, wakeConversationId),
+        );
 
         if (result.reason === "timeout" && isOneShot) {
           // The conversation is busy processing a tool call. Retry on
@@ -891,7 +954,7 @@ export async function runDueSchedulesOnce(
         // timeouts.scheduleTurnTimeoutSec (default 1800s).
         timeoutMs: getConfig().timeouts.scheduleTurnTimeoutSec * 1000,
         origin: "schedule",
-        groupId: "system:scheduled",
+        groupId: resolveScheduleConversationGroupId(job),
         conversationType: "scheduled",
         scheduleJobId: job.id,
         suppressFailureNotifications: job.quiet === true,

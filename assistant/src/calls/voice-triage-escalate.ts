@@ -21,14 +21,11 @@
  * trusting the model to stop. Every infra failure fails open to a normal
  * committed answer turn.
  *
- * This module owns the routing policy in one place: the feature gates, the
- * profile key, the leg-specific prompt rules, the leading-token classifier,
- * and the bridge cap/fallback policy.
+ * This module owns the routing policy in one place: the profile key, the
+ * leg-specific prompt rules, the leading-token classifier, and the bridge
+ * cap/fallback policy. LiveVoiceSession drives the routing.
  */
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { getConfig } from "../config/loader.js";
-import type { AssistantConfig } from "../config/schema.js";
 import {
   ESCALATE_VERDICT_TOKEN,
   HOLD_VERDICT_TOKEN,
@@ -36,17 +33,6 @@ import {
 } from "./voice-control-protocol.js";
 
 export { ESCALATE_VERDICT_TOKEN, HOLD_VERDICT_TOKEN };
-
-/**
- * Feature-flag key gating the whole behavior: a fast model fronts each
- * live-voice turn, and endpointing rides that same leg. At each pause the
- * leg is dispatched speculatively and its leading tokens carry the full
- * verdict — {@link HOLD_VERDICT_TOKEN} (mid-thought, keep listening),
- * {@link ESCALATE_VERDICT_TOKEN} plus a spoken bridge, or the answer
- * itself. Off by default; when off, live voice runs the single-leg path
- * with the separate endpoint decider.
- */
-export const VOICE_TRIAGE_ESCALATE_FLAG = "voice-triage-escalate";
 
 // The fast model fronting every turn is pinned by the `voiceFrontDoor` call
 // site (see config/call-site-defaults.ts) — no per-turn profile override.
@@ -201,16 +187,6 @@ export const ESCALATION_CONTINUATION_CONTENT =
   "(You just told the caller you needed a moment to think. Now give them your full, careful answer to their previous question — do not repeat the holding phrase.)";
 
 /**
- * Whether triage-and-escalate routing is active for this workspace.
- * When false, every voice turn behaves exactly as before.
- */
-export function isVoiceTriageEscalateEnabled(
-  config: AssistantConfig = getConfig(),
-): boolean {
-  return isAssistantFeatureFlagEnabled(VOICE_TRIAGE_ESCALATE_FLAG, config);
-}
-
-/**
  * Compact, registry-derived digest of the tools the ESCALATED leg can use.
  * The front-door leg runs toolless, so without this it has no way to know
  * what the assistant can actually do — and its failure mode is refusing or
@@ -319,6 +295,6 @@ export function escalatedContinuationRule(spokenBridge?: string): string {
     'Do NOT greet again, do NOT say things like "as I was saying", and do NOT repeat, paraphrase, or re-announce that holding phrase —',
     'opening with another "Let me check", "One moment", or any restatement of what you are about to do sounds broken, because the caller just heard that.',
     "Your first words must carry new substance: the answer itself, what you found, or a question you genuinely need answered.",
-    `Never output ${ESCALATE_VERDICT_TOKEN} or any other verdict token — you are the model that finishes the answer.`,
+    `Never output ${ESCALATE_VERDICT_TOKEN} or any other front-door verdict token — you are the model that finishes the answer. (The [-1] room-minimize marker from your call instructions is not a verdict token and stays allowed.)`,
   ].join(" ");
 }

@@ -39,7 +39,9 @@ function readLeaf(
 ): { frontmatter: Record<string, unknown>; body: string } {
   const raw = readFileSync(leafPath(workspaceDir, rel), "utf8");
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(raw);
-  if (!match) throw new Error(`leaf ${rel} lost its frontmatter`);
+  if (!match) {
+    throw new Error(`leaf ${rel} lost its frontmatter`);
+  }
   return {
     frontmatter: parseYaml(match[1]) as Record<string, unknown>,
     body: match[2],

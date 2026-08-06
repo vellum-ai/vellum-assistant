@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "conversation_group_list",
+      "description": "List all conversation sidebar groups in display order, including built-in system groups (Pinned, Scheduled, Background, Recents) and user-defined custom groups. Use this before creating or moving so you reuse an existing group instead of creating a near-duplicate.",
+      "category": "conversations",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "executor": "tools/group-list.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "conversation_group_create",
+      "description": "Create a new custom conversation group (a named section in the conversation sidebar). If a group with the same name already exists (case-insensitive), the existing group is reused and no duplicate is created. System group names (Pinned, Scheduled, Background, Recents) are reserved.",
+      "category": "conversations",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name for the new group as it should appear in the sidebar"
+          }
+        },
+        "required": ["name"]
+      },
+      "executor": "tools/group-create.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "conversation_move_to_group",
+      "description": "Move a conversation into a sidebar group. Defaults to the current conversation when conversation_id is omitted. The group may be referenced by name (case-insensitive) or id. Moving to Pinned pins the conversation; moving to Recents (system:all) removes it from a custom group. Only sidebar organization changes — reversible, no content is affected.",
+      "category": "conversations",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "type": "string",
+            "description": "Target group name or group id"
+          },
+          "conversation_id": {
+            "type": "string",
+            "description": "Conversation to move. Omit to move the current conversation."
+          }
+        },
+        "required": ["group"]
+      },
+      "executor": "tools/move-to-group.ts",
+      "execution_target": "host"
+    }
+  ]
+}

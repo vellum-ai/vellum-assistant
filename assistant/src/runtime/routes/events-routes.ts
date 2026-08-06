@@ -46,12 +46,16 @@ import {
   registerSseSubscription,
 } from "../checkpoint-quiesce.js";
 import { DEFAULT_HEARTBEAT_INTERVAL_MS } from "../client-health.js";
-import { resolveActorPrincipalIdForLocalGuardianSync } from "../local-actor-identity.js";
+import {
+  resolveActorPrincipalIdForLocalGuardian,
+  resolveActorPrincipalIdForLocalGuardianSync,
+} from "../local-actor-identity.js";
 import {
   BadRequestError,
   NotFoundError,
   ServiceUnavailableError,
 } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("events-routes");
@@ -94,7 +98,9 @@ let eventLoopResetTimer: ReturnType<typeof setInterval> | null = null;
  * SSE handler.
  */
 function ensureEventLoopDelayMonitorStarted(): void {
-  if (eventLoopDelay !== null) return;
+  if (eventLoopDelay !== null) {
+    return;
+  }
   try {
     const histogram = monitorEventLoopDelay({
       resolution: EVENT_LOOP_DELAY_RESOLUTION_MS,
@@ -125,7 +131,9 @@ export interface EventLoopDelaySnapshot {
 }
 
 function nsToMs(ns: number): number | null {
-  if (!Number.isFinite(ns)) return null;
+  if (!Number.isFinite(ns)) {
+    return null;
+  }
   // Round to the nearest microsecond, then express in ms (3 decimal places).
   return Math.round(ns / 1e3) / 1e3;
 }
@@ -400,7 +408,9 @@ export function handleSubscribeAssistantEvents(
 
   const callback: AssistantEventCallback = (event) => {
     const controller = controllerRef;
-    if (!controller) return;
+    if (!controller) {
+      return;
+    }
     if (
       event.seq != null &&
       highWaterReplaySeq >= 0 &&
@@ -463,6 +473,30 @@ export function handleSubscribeAssistantEvents(
       throw new ServiceUnavailableError("Too many concurrent connections");
     }
     throw err;
+  }
+
+  // Self-heal for dev-bypass connections: the sync resolution above reads
+  // only the guardian-delivery cache, which can be cold at connect time.
+  // Without this, the subscription would carry no principal for its whole
+  // lifetime and every host-proxy result would 403. Fire-and-forget so the
+  // stream is not delayed; keyed by connectionId so a reconnect race cannot
+  // patch the subscription that replaced this one.
+  if (
+    clientId &&
+    interfaceId &&
+    actorPrincipalId == null &&
+    rawActorPrincipalId?.trim() === "dev-bypass"
+  ) {
+    void resolveActorPrincipalIdForLocalGuardian("dev-bypass")
+      .then((resolved) => {
+        if (resolved) {
+          hub.fillClientActorPrincipalId(sub.connectionId, resolved);
+        }
+      })
+      .catch(() => {
+        // Best-effort: an unreachable gateway leaves the record unhealed;
+        // the next reconnect retries.
+      });
   }
 
   const stream = new ReadableStream<Uint8Array>(
@@ -672,7 +706,7 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: EmitEventBodySchema,
     responseStatus: "204",
     handler: ({ body }) => {
-      const { kind } = EmitEventBodySchema.parse(body);
+      const { kind } = parseBody(EmitEventBodySchema, body);
       if (kind === "contacts_changed") {
         notifyContactsChanged();
       }

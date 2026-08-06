@@ -1,6 +1,68 @@
 import type { AssistantConfig } from "./schema.js";
 
 /**
+ * Whether memory as a whole is on — the user-facing master switch. Memory is
+ * on unless `memory.enabled` is explicitly set to `false`. Canonical home for
+ * the check; the config-singleton `isMemoryEnabled()` in
+ * `persistence/jobs-store.ts` delegates here. Accepts any object carrying the
+ * `memory` slice, so callers holding only the plugin-resolved slice (e.g. the
+ * memory plugin's `getMemoryConfig()`) can gate without the full config.
+ */
+export function isMemoryEnabled(
+  config: Pick<AssistantConfig, "memory">,
+): boolean {
+  return config.memory?.enabled !== false;
+}
+
+/**
+ * Whether the legacy graph/PKB memory engine (tier v1) is the live tier:
+ * memory is on and no concept-page consumer (v3 live or the v2 injection
+ * engine) is. Like {@link isMemoryEnabled}, accepts a `memory`-slice view.
+ *
+ * THE memory-off semantics for v1, stated once and shared by every v1 path
+ * (job dispatch, the job handlers, maintenance scheduling, startup seeding,
+ * the filing routes): `memory.enabled === false` means v1 is NOT the live
+ * tier, so v1 work is skipped exactly as it is under the concept-page
+ * substrate. Turning memory off is a user-facing opt-out — it must never be
+ * the one state in which the daemon still LLM-extracts, embeds, or files into
+ * the legacy graph. Ask this predicate, never `usesConceptPageMemory` alone:
+ * the two agree on every tier EXCEPT memory-off, where the bare substrate
+ * check reports "v1" and would keep v1 running.
+ */
+export function isMemoryV1Active(
+  config: Pick<AssistantConfig, "memory">,
+): boolean {
+  return isMemoryEnabled(config) && !usesConceptPageMemory(config.memory);
+}
+
+/**
+ * Whether the v2 activation/router engine performs turn-time selection:
+ * memory is on, `memory.v2.enabled` is set, and v3 is NOT the live injected
+ * source. Distinct from `usesConceptPageMemory`: `memory.v2.enabled` defaults
+ * true and typically stays set on v3-live assistants, so this predicate is the
+ * ONLY correct way to ask "should v2 select this turn" — a direct
+ * `memory.v2.enabled` read misbehaves under v3.
+ */
+export function isV2InjectionEngineActive(config: AssistantConfig): boolean {
+  return (
+    isMemoryEnabled(config) &&
+    config.memory?.v2?.enabled === true &&
+    !isMemoryV3Live(config)
+  );
+}
+
+/**
+ * Whether `memory.v2.enabled` is explicitly `false` — deliberately NOT the
+ * negation of `isV2InjectionEngineActive`, since the key defaults true. Names
+ * the explicit-false semantics `daemon/embedding-reconcile.ts` relies on: an
+ * explicit opt-out suppresses concept-page reconcile work even where the
+ * default would allow it.
+ */
+export function isMemoryV2ExplicitlyDisabled(config: AssistantConfig): boolean {
+  return config.memory?.v2?.enabled === false;
+}
+
+/**
  * Whether memory-v3 is the live injected memory source for this assistant,
  * suppressing v2 injection. Gated by workspace config (`memory.v3.live`): new
  * assistants are switched on at creation via a workspace migration, while
@@ -11,34 +73,34 @@ export function isMemoryV3Live(config: AssistantConfig): boolean {
 }
 
 /**
- * Whether the memory concept graph is available for this assistant — the single
- * source of truth for both `GET /memory-graph` (`supported`) and the cheap
- * `graph_supported` bit on `GET /memory/stats`, so the advertised capability
- * and the actual build can never drift.
+ * Whether memory-v3 is the live TIER: v3 is the live injected source AND
+ * memory as a whole is on. Exactly `memoryTier(config) === "v3"` (see
+ * `memory-tier.ts`), and the difference from {@link isMemoryV3Live} is the
+ * memory-off case — `"off"` outranks `"v3"`, so a `memory.v3.live` assistant
+ * whose owner switched Memory off is NOT on the v3 tier. Every v3-tier-scoped
+ * FEATURE asks this predicate; only the injection-suppression checks that must
+ * mirror the raw `memory.v3.live` key ask {@link isMemoryV3Live} directly.
  *
- * The graph builds off the v3 concept-page substrate, so it requires v3 live.
- * It also honors the user-facing Memory opt-out: `memory.enabled === false`
- * turns memory off wholesale, so the graph must not be offered even when
- * `memory.v3.live` is still set.
+ * The two features gated on it, and why they must agree:
+ *
+ * - The memory concept graph — the single source of truth for both
+ *   `GET /memory-graph` (`supported`) and the cheap `graph_supported` bit on
+ *   `GET /memory/stats`, so the advertised capability and the actual build can
+ *   never drift. The graph builds off the v3 concept-page substrate.
+ * - Procedural-memory-as-skills — the retrospective's skill-authoring step and
+ *   its permission grant. Scoped to the v3 tier because skill retrieval rides
+ *   the v3 lanes and the usage-prune stage lives in the v3 maintain job. That
+ *   prune ships observe-first: with `memory.maintenance.skillPruneDays` at its
+ *   default (`null`) it reports stale assistant-authored skills
+ *   (`prunableSkills`) but deletes none — so a v3-tier assistant authors skills
+ *   without an automatic retirement bound until a positive `skillPruneDays` is
+ *   configured.
+ *
+ * Both write into memory on the user's behalf, so both honor the Memory
+ * opt-out identically: one predicate, one answer.
  */
-export function isMemoryGraphSupported(config: AssistantConfig): boolean {
-  return config.memory?.enabled !== false && isMemoryV3Live(config);
-}
-
-/**
- * Whether procedural-memory-as-skills is ACTIVE: it is active whenever
- * memory-v3 is the live injected source. The feature is scoped to v3-live
- * assistants because skill retrieval rides the v3 lanes and the usage-prune
- * stage lives in the v3 maintain job. That prune ships observe-first: with
- * `memory.maintenance.skillPruneDays` at its default (`null`) it reports stale
- * assistant-authored skills (`prunableSkills`) but deletes none — so a v3-live
- * assistant authors skills without an automatic retirement bound until a
- * positive `skillPruneDays` is configured. Gating the whole feature (the
- * retrospective skill-authoring step and its permission grant) on this named
- * predicate keeps it coherently inert on non-v3 assistants.
- */
-export function isProcToSkillsActive(config: AssistantConfig): boolean {
-  return isMemoryV3Live(config);
+export function isV3TierActive(config: AssistantConfig): boolean {
+  return isMemoryEnabled(config) && isMemoryV3Live(config);
 }
 
 /**

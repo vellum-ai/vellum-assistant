@@ -10,12 +10,19 @@ import {
 describe("resolveProfileParamVisibility", () => {
   test("returns all-false for empty provider or model", () => {
     expect(resolveProfileParamVisibility("", "")).toEqual(VISIBILITY_NONE);
-    expect(resolveProfileParamVisibility("anthropic", "")).toEqual(VISIBILITY_NONE);
-    expect(resolveProfileParamVisibility("", "claude-sonnet-4-20250514")).toEqual(VISIBILITY_NONE);
+    expect(resolveProfileParamVisibility("anthropic", "")).toEqual(
+      VISIBILITY_NONE,
+    );
+    expect(
+      resolveProfileParamVisibility("", "claude-sonnet-4-20250514"),
+    ).toEqual(VISIBILITY_NONE);
   });
 
   test("anthropic non-haiku enables maxTokens, contextWindow, effort, temperature, thinking", () => {
-    const vis = resolveProfileParamVisibility("anthropic", "claude-sonnet-4-20250514");
+    const vis = resolveProfileParamVisibility(
+      "anthropic",
+      "claude-sonnet-4-20250514",
+    );
     expect(vis.maxTokens).toBe(true);
     expect(vis.contextWindow).toBe(true);
     expect(vis.effort).toBe(true);
@@ -27,38 +34,64 @@ describe("resolveProfileParamVisibility", () => {
   });
 
   test("topP is true for anthropic, fireworks, openrouter, and openai-compatible, false for gemini", () => {
-    expect(resolveProfileParamVisibility("anthropic", "claude-3-opus-20240229").topP).toBe(true);
     expect(
-      resolveProfileParamVisibility("fireworks", "accounts/fireworks/models/minimax-m3").topP,
+      resolveProfileParamVisibility("anthropic", "claude-3-opus-20240229").topP,
     ).toBe(true);
-    expect(resolveProfileParamVisibility("openrouter", "anthropic/claude-fable-5").topP).toBe(true);
     expect(
-      resolveProfileParamVisibility("vercel-ai-gateway", "anthropic/claude-fable-5").topP,
+      resolveProfileParamVisibility(
+        "fireworks",
+        "accounts/fireworks/models/minimax-m3",
+      ).topP,
+    ).toBe(true);
+    expect(
+      resolveProfileParamVisibility("openrouter", "anthropic/claude-fable-5")
+        .topP,
+    ).toBe(true);
+    expect(
+      resolveProfileParamVisibility(
+        "vercel-ai-gateway",
+        "anthropic/claude-fable-5",
+      ).topP,
     ).toBe(true);
     // Non-anthropic gateway models ride the OpenAI-compat chat-completions
     // client, which forwards top_p.
-    expect(resolveProfileParamVisibility("vercel-ai-gateway", "xai/grok-4.3").topP).toBe(true);
-    expect(resolveProfileParamVisibility("together", "MiniMaxAI/MiniMax-M3").topP).toBe(true);
+    expect(
+      resolveProfileParamVisibility("vercel-ai-gateway", "xai/grok-4.3").topP,
+    ).toBe(true);
+    expect(
+      resolveProfileParamVisibility("together", "MiniMaxAI/MiniMax-M3").topP,
+    ).toBe(true);
     // Custom OpenAI-compatible connections route through the OpenAI adapter,
     // which forwards top_p — so the control must be visible for them too.
-    expect(resolveProfileParamVisibility("openai-compatible", "some-custom-model").topP).toBe(true);
+    expect(
+      resolveProfileParamVisibility("openai-compatible", "some-custom-model")
+        .topP,
+    ).toBe(true);
     // Native `openai` uses the Responses API, which doesn't forward sampling
     // params — topP is hidden there (same as temperature).
     expect(resolveProfileParamVisibility("openai", "gpt-5").topP).toBe(false);
     expect(resolveProfileParamVisibility("openai", "gpt-4o").topP).toBe(false);
-    expect(resolveProfileParamVisibility("gemini", "gemini-2.5-flash").topP).toBe(false);
+    expect(
+      resolveProfileParamVisibility("gemini", "gemini-2.5-flash").topP,
+    ).toBe(false);
     expect(VISIBILITY_NONE.topP).toBe(false);
   });
 
   test("baseten inkling enables effort and topP without the thinking toggle", () => {
-    const vis = resolveProfileParamVisibility("baseten", "thinkingmachines/inkling");
+    const vis = resolveProfileParamVisibility(
+      "baseten",
+      "thinkingmachines/inkling",
+    );
     expect(vis.effort).toBe(true);
     expect(vis.topP).toBe(true);
     expect(vis.thinking).toBe(false);
   });
 
   test("anthropic haiku disables effort but supports thinking", () => {
-    const vis = resolveProfileParamVisibility("anthropic", "claude-3-5-haiku-20241022");
+    const vis = resolveProfileParamVisibility(
+      "anthropic",
+      "claude-3-5-haiku-20241022",
+    );
     expect(vis.effort).toBe(false);
     // Haiku supports thinking (per catalog) but not effort (haiku-specific gate)
     expect(vis.thinking).toBe(true);
@@ -75,13 +108,19 @@ describe("resolveProfileParamVisibility", () => {
   });
 
   test("openrouter anthropic fable hides the thinking toggle but keeps effort", () => {
-    const vis = resolveProfileParamVisibility("openrouter", "anthropic/claude-fable-5");
+    const vis = resolveProfileParamVisibility(
+      "openrouter",
+      "anthropic/claude-fable-5",
+    );
     expect(vis.effort).toBe(true);
     expect(vis.thinking).toBe(false);
   });
 
   test("vercel-ai-gateway anthropic sonnet/opus enable thinking, effort, and temperature", () => {
-    for (const model of ["anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.8"]) {
+    for (const model of [
+      "anthropic/claude-sonnet-4.6",
+      "anthropic/claude-opus-4.8",
+    ]) {
       const vis = resolveProfileParamVisibility("vercel-ai-gateway", model);
       expect(vis.thinking).toBe(true);
       expect(vis.effort).toBe(true);
@@ -93,13 +132,19 @@ describe("resolveProfileParamVisibility", () => {
   });
 
   test("vercel-ai-gateway anthropic haiku supports thinking but not effort", () => {
-    const vis = resolveProfileParamVisibility("vercel-ai-gateway", "anthropic/claude-haiku-4.5");
+    const vis = resolveProfileParamVisibility(
+      "vercel-ai-gateway",
+      "anthropic/claude-haiku-4.5",
+    );
     expect(vis.thinking).toBe(true);
     expect(vis.effort).toBe(false);
   });
 
   test("vercel-ai-gateway anthropic fable hides the thinking toggle but keeps effort", () => {
-    const vis = resolveProfileParamVisibility("vercel-ai-gateway", "anthropic/claude-fable-5");
+    const vis = resolveProfileParamVisibility(
+      "vercel-ai-gateway",
+      "anthropic/claude-fable-5",
+    );
     expect(vis.effort).toBe(true);
     expect(vis.thinking).toBe(false);
   });
@@ -108,7 +153,10 @@ describe("resolveProfileParamVisibility", () => {
     // xai/grok-4.3 is supportsThinking in the catalog, so effort is exposed
     // (reasoning_effort works on the OpenAI-compat path) — but the thinking
     // toggle is hidden because that path has no thinking translation.
-    const vis = resolveProfileParamVisibility("vercel-ai-gateway", "xai/grok-4.3");
+    const vis = resolveProfileParamVisibility(
+      "vercel-ai-gateway",
+      "xai/grok-4.3",
+    );
     expect(vis.thinking).toBe(false);
     expect(vis.effort).toBe(true);
     // Non-anthropic gateway models don't ride the Anthropic wire.
@@ -116,13 +164,19 @@ describe("resolveProfileParamVisibility", () => {
   });
 
   test("vercel-ai-gateway unknown non-anthropic model gets no thinking or effort", () => {
-    const vis = resolveProfileParamVisibility("vercel-ai-gateway", "mistral/mistral-large");
+    const vis = resolveProfileParamVisibility(
+      "vercel-ai-gateway",
+      "mistral/mistral-large",
+    );
     expect(vis.thinking).toBe(false);
     expect(vis.effort).toBe(false);
   });
 
   test("together MiniMax M3 enables effort and topP", () => {
-    const vis = resolveProfileParamVisibility("together", "MiniMaxAI/MiniMax-M3");
+    const vis = resolveProfileParamVisibility(
+      "together",
+      "MiniMaxAI/MiniMax-M3",
+    );
     // Together is an OpenAI-compatible endpoint whose chat-completions client
     // forwards both top_p and reasoning_effort; MiniMax M3 is a reasoning model
     // (supportsThinking in the catalog), so effort is adjustable too.
@@ -133,7 +187,10 @@ describe("resolveProfileParamVisibility", () => {
   });
 
   test("anthropic opus enables speed", () => {
-    const vis = resolveProfileParamVisibility("anthropic", "claude-3-opus-20240229");
+    const vis = resolveProfileParamVisibility(
+      "anthropic",
+      "claude-3-opus-20240229",
+    );
     expect(vis.speed).toBe(true);
   });
 
@@ -178,8 +235,12 @@ describe("modelSupportsThinking", () => {
   });
 
   test("vercel-ai-gateway falls back to the anthropic/ prefix heuristic off-catalog", () => {
-    expect(modelSupportsThinking("vercel-ai-gateway", "anthropic/claude-next")).toBe(true);
-    expect(modelSupportsThinking("vercel-ai-gateway", "mistral/mistral-large")).toBe(false);
+    expect(
+      modelSupportsThinking("vercel-ai-gateway", "anthropic/claude-next"),
+    ).toBe(true);
+    expect(
+      modelSupportsThinking("vercel-ai-gateway", "mistral/mistral-large"),
+    ).toBe(false);
   });
 });
 

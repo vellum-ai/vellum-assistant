@@ -39,11 +39,7 @@ import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
  *   upgraded to one of the above by the transport's teardown path.
  */
 export type SseClientEndReason =
-  | "watchdog"
-  | "cancelled"
-  | "error"
-  | "ended"
-  | "aborted";
+  "watchdog" | "cancelled" | "error" | "ended" | "aborted";
 
 export interface SseDebugClient {
   /** Stable client identifier. */
@@ -62,6 +58,21 @@ export interface SseDebugClient {
   dataFrames: number;
   /** Count of heartbeat comment frames seen on this client. */
   keepalives: number;
+  /**
+   * Epoch ms of the FIRST frame of any kind, data or keepalive. Isolates
+   * connect latency from stream silence: a late `firstFrameAt` means the
+   * Django/vembda/pod connect was slow, not that the stream went quiet.
+   */
+  firstFrameAt: number | null;
+  /**
+   * Median gap in ms between the last up-to-20 keepalive comments. ~7000
+   * implicates nothing (the daemon heartbeat is healthy end to end); ~10000
+   * means the daemon heartbeat is lost and the platform proxy's injector is
+   * carrying the stream. The daemon heartbeat interval is 7s (see
+   * `assistant/src/runtime/routes/events-routes.ts`); the proxy injects
+   * keepalives at 10s.
+   */
+  interKeepaliveMs: number | null;
   /** Epoch ms when the connection ended (null while still live). */
   endedAt: number | null;
   /** Why the connection ended (null while still live). */
@@ -107,6 +118,18 @@ let nextClientId = 0;
 const clients = new Map<string, SseDebugClient>();
 const events: SseDebugEventEntry[] = [];
 
+/**
+ * Per-client keepalive gap history, kept off the client object so the
+ * feedback JSON stays flat scalars.
+ */
+const keepaliveGaps = new Map<
+  string,
+  { lastKeepaliveAt: number; gaps: number[] }
+>();
+
+/** How many recent keepalive gaps feed the median. */
+const MAX_KEEPALIVE_GAPS = 20;
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -126,6 +149,8 @@ export function registerSseClient(abortSignal: AbortSignal): string {
     lastDataAt: null,
     dataFrames: 0,
     keepalives: 0,
+    firstFrameAt: null,
+    interKeepaliveMs: null,
     endedAt: null,
     endReason: null,
   };
@@ -175,12 +200,47 @@ export function recordSseTraffic(clientId: string, isData: boolean): void {
   }
   const now = Date.now();
   client.lastTrafficAt = now;
+  if (client.firstFrameAt === null) {
+    client.firstFrameAt = now;
+  }
   if (isData) {
     client.lastDataAt = now;
     client.dataFrames++;
   } else {
     client.keepalives++;
+    recordKeepaliveGap(client, now);
   }
+}
+
+/**
+ * Fold one keepalive arrival into the client's rolling gap history and
+ * refresh its median. A single keepalive yields no gap, and one gap is not
+ * yet a cadence, so `interKeepaliveMs` stays null until two are known.
+ */
+function recordKeepaliveGap(client: SseDebugClient, now: number): void {
+  const entry = keepaliveGaps.get(client.id);
+  if (!entry) {
+    keepaliveGaps.set(client.id, { lastKeepaliveAt: now, gaps: [] });
+    return;
+  }
+  entry.gaps.push(now - entry.lastKeepaliveAt);
+  entry.lastKeepaliveAt = now;
+  if (entry.gaps.length > MAX_KEEPALIVE_GAPS) {
+    entry.gaps.shift();
+  }
+  if (entry.gaps.length >= 2) {
+    client.interKeepaliveMs = Math.round(median(entry.gaps));
+  }
+}
+
+/** Median of a non-empty numeric list (mean of the middle pair when even). */
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) {
+    return sorted[mid]!;
+  }
+  return (sorted[mid - 1]! + sorted[mid]!) / 2;
 }
 
 /**
@@ -220,10 +280,14 @@ export const EVENTS_TAIL_CLIENT_ID = "events-tail";
 export function ingestReplayedEnvelopes(
   envelopes: AssistantEventEnvelope[],
 ): void {
-  if (envelopes.length === 0) return;
+  if (envelopes.length === 0) {
+    return;
+  }
   const retained = new Set<number>();
   for (const e of events) {
-    if (typeof e.seq === "number") retained.add(e.seq);
+    if (typeof e.seq === "number") {
+      retained.add(e.seq);
+    }
   }
   for (const envelope of envelopes) {
     if (typeof envelope.seq === "number" && retained.has(envelope.seq)) {
@@ -276,7 +340,9 @@ export function getSseEnvelopesSince(
   conversationId: string,
   sinceSeq: number | null,
 ): AssistantEventEnvelope[] | null {
-  if (sinceSeq === null) return null;
+  if (sinceSeq === null) {
+    return null;
+  }
 
   // Does the ring still reach back to the cursor? `seq` is a single global
   // counter, so the oldest retained seq across ALL conversations is what proves
@@ -325,6 +391,7 @@ export function endSseClient(
   } else if (client.endReason === "aborted" && reason !== "aborted") {
     client.endReason = reason;
   }
+  keepaliveGaps.delete(clientId);
   evictEndedBeyondCap();
 }
 
@@ -350,6 +417,9 @@ function evictEndedBeyondCap(): void {
     }
     if (client.endedAt !== null) {
       clients.delete(id);
+      // A keepalive landing after endSseClient can re-seed the gap entry;
+      // dropping it here keeps its lifetime tied to the registry entry.
+      keepaliveGaps.delete(id);
       endedCount--;
     }
   }
@@ -362,5 +432,6 @@ function evictEndedBeyondCap(): void {
 export function resetSseDebugStateForTests(): void {
   nextClientId = 0;
   clients.clear();
+  keepaliveGaps.clear();
   events.length = 0;
 }

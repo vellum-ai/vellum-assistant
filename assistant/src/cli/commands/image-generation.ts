@@ -165,11 +165,12 @@ export function registerImageGenerationCommand(program: Command): void {
           },
         });
 
-        if (!r.ok)
+        if (!r.ok) {
           return exitFromIpcResult(
             { ok: false, error: r.error, statusCode: r.statusCode },
             generate,
           );
+        }
 
         // Write images to disk (stays in CLI)
         if (!existsSync(outputDir)) {
@@ -203,7 +204,9 @@ export function registerImageGenerationCommand(program: Command): void {
             images: imageOutputs,
             model: r.result!.resolvedModel,
           };
-          if (r.result!.text) output.text = r.result!.text;
+          if (r.result!.text) {
+            output.text = r.result!.text;
+          }
           process.stdout.write(JSON.stringify(output) + "\n");
         } else {
           for (const img of imageOutputs) {

@@ -13,9 +13,10 @@ import {
   getAppDirPath,
   listAppFiles,
   resolveAppDir,
+  resolveAppSource,
 } from "../apps/app-store.js";
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
-import { getEffectiveProfile } from "../config/default-profile-catalog.js";
+import { resolveDefaultProfileForProvider } from "../config/default-profile-catalog.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { isMemoryV3Live } from "../config/memory-v3-gate.js";
@@ -74,13 +75,11 @@ import { resolveCapabilities } from "../runtime/capabilities.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
+import { channelSupportsInlineOptions } from "./channel-ui-capability.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
+import type { SurfaceShowPair } from "./conversation-surfaces.js";
 import { canonicalizeTimeZone, formatTurnTimestamp } from "./date-context.js";
-import type {
-  DynamicPageSurfaceData,
-  SurfaceData,
-  SurfaceType,
-} from "./message-protocol.js";
+import type {} from "./message-protocol.js";
 import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { timeLatencySubSpan } from "./turn-latency-sub-spans.js";
@@ -100,6 +99,13 @@ export interface ChannelCapabilities {
   dashboardCapable: boolean;
   /** Whether the channel supports dynamic UI surfaces (ui_show / ui_update). */
   supportsDynamicUi: boolean;
+  /**
+   * Whether the channel's adapter can render inline tappable options — approval
+   * buttons and (next) question option pickers. Distinct from `supportsDynamicUi`:
+   * a text-only channel can render inline buttons without dynamic UI. Optional;
+   * absent is treated as `false`.
+   */
+  supportsInlineOptions?: boolean;
   /** Whether the channel supports voice/microphone input. */
   supportsVoiceInput: boolean;
   /** The client OS/interface identifier (e.g. "macos", "ios", "web"). */
@@ -226,7 +232,11 @@ export function resolveTurnModelProfileLabel(
   if (modelProfileNoticeKey == null) {
     return null;
   }
-  const profileEntry = getEffectiveProfile(llm.profiles, modelProfileNoticeKey);
+  const profileEntry = resolveDefaultProfileForProvider(
+    llm.profiles,
+    modelProfileNoticeKey,
+    llm.defaultProvider ?? null,
+  );
   const resolved = resolveCallSiteConfig(callSite, llm, {
     overrideProfile: modelProfileNoticeKey,
     selectionSeed,
@@ -285,6 +295,7 @@ export function resolveChannelCapabilities(
         channel,
         dashboardCapable: supportsDesktopUi,
         supportsDynamicUi: supportsDesktopUi || iface === "web",
+        supportsInlineOptions: channelSupportsInlineOptions(channel),
         supportsVoiceInput: supportsDesktopUi,
         clientOS: iface ?? undefined,
         chatType: resolvedChatType,
@@ -299,6 +310,7 @@ export function resolveChannelCapabilities(
         channel,
         dashboardCapable: false,
         supportsDynamicUi: false,
+        supportsInlineOptions: channelSupportsInlineOptions(channel),
         supportsVoiceInput: false,
         chatType: resolvedChatType,
       };
@@ -307,6 +319,7 @@ export function resolveChannelCapabilities(
         channel,
         dashboardCapable: false,
         supportsDynamicUi: false,
+        supportsInlineOptions: channelSupportsInlineOptions(channel),
         supportsVoiceInput: false,
         chatType: resolvedChatType,
       };
@@ -363,10 +376,7 @@ interface ActiveSurfaceContext {
 export function buildActiveSurfaceContext(params: {
   currentActiveSurfaceId: string | undefined;
   currentPage: string | undefined;
-  surfaceState: ReadonlyMap<
-    string,
-    { surfaceType: SurfaceType; data: SurfaceData }
-  >;
+  surfaceState: ReadonlyMap<string, SurfaceShowPair>;
 }): ActiveSurfaceContext | null {
   const { currentActiveSurfaceId, currentPage, surfaceState } = params;
   if (!currentActiveSurfaceId) {
@@ -378,7 +388,7 @@ export function buildActiveSurfaceContext(params: {
     return null;
   }
 
-  const data = stored.data as DynamicPageSurfaceData;
+  const data = stored.data;
   const activeSurface: ActiveSurfaceContext = {
     surfaceId: currentActiveSurfaceId,
     html: data.html,
@@ -422,6 +432,59 @@ export function buildActiveDocuments(conversationId: string): Array<{
         updatedAt: d.updatedAt,
       }))
     : null;
+}
+
+/**
+ * Resolves the app the client reported as on-screen into the summary the
+ * `unified-turn-context` injector renders as the `visible_app:` line. Returns
+ * `null` when no app is in view or the id no longer resolves to an app (e.g.
+ * it was deleted while open).
+ *
+ * Resolution goes through `resolveAppSource` rather than `getApp` so both id
+ * shapes the viewer can hold are covered: workspace apps (opaque id) and
+ * plugin-bundled apps (`plugins~<plugin>~<app>`), which the apps list and open
+ * routes serve alongside them. Plugin apps carry their owning plugin so the
+ * rendered line can say the source belongs to a plugin rather than reading as
+ * an ordinary sandbox app to rewrite.
+ *
+ * Both identifiers come back: a workspace app's `appId` is an opaque UUID and
+ * the readable handle is its `slug` (the directory stem, frozen at creation).
+ * The app tools key off the id, so the line carries it for tool calls and the
+ * slug for everything a human or the model would recognize.
+ *
+ * The resolved directory is not part of the returned shape. A workspace app's
+ * files are reachable by joining the workspace `Root:` from the `<workspace>`
+ * block with the app-builder skill's `data/apps/<slug>/` layout and the slug
+ * above. A plugin-bundled app's files sit outside that layout and belong to
+ * the plugin, which the provenance clause marks as not the assistant's to
+ * rewrite, so no path is offered for them either.
+ */
+export function buildVisibleAppContext(appId: string | undefined): {
+  appId: string;
+  name: string;
+  slug: string;
+  pluginName?: string;
+} | null {
+  if (!appId) {
+    return null;
+  }
+  try {
+    const source = resolveAppSource(appId);
+    if (!source) {
+      return null;
+    }
+    return {
+      appId: source.id,
+      name: source.name,
+      slug: source.dirName,
+      ...(source.origin.kind === "plugin"
+        ? { pluginName: source.origin.pluginName }
+        : {}),
+    };
+  } catch {
+    // Malformed id (traversal-shaped, empty): treat as no app in view.
+    return null;
+  }
 }
 
 const MAX_CONTEXT_LENGTH = 100_000;
@@ -980,6 +1043,11 @@ function placeholderForBlockType(type: ContentBlock["type"]): string | null {
     case "tool_result":
     case "web_search_tool_result":
       return "[tool result]";
+    // Surfaces normally ride with a `_surfaceFallback` text sibling that
+    // supplies the line, so this label is reached only by legacy rows that
+    // carry a bare card — better than rendering an empty transcript line.
+    case "ui_surface":
+      return "[card]";
     case "thinking":
     case "redacted_thinking":
     case "text":
@@ -2181,6 +2249,13 @@ export async function applyRuntimeInjections(
   // `clientOs`) so a queued message from another surface can't perturb the
   // in-flight turn — same anti-race pattern as `clientTimezone`.
   const clientOs = liveConversation?.currentTurnClientOs ?? undefined;
+  // The app the client has on screen (app viewer or the app-editing split),
+  // resolved to its name and source directory so the assistant can act on it
+  // without asking the user which app they mean. Frozen per turn like
+  // `clientOs` for the same anti-race reason.
+  const visibleApp = buildVisibleAppContext(
+    liveConversation?.currentTurnVisibleAppId,
+  );
   const channelName = liveConversation
     ? (liveConversation.currentTurnChannelContext?.userMessageChannel ??
       liveConversation.originChannel ??
@@ -2290,6 +2365,7 @@ export async function applyRuntimeInjections(
     timestamp,
     interfaceName,
     clientOs,
+    visibleApp,
     channelName,
     actorContext: options.actorContext,
     configuredUserTimezone,

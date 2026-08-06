@@ -23,6 +23,8 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { asConversation } from "../../__tests__/helpers/mock-conversation.js";
+
 // ── Module-level mocks ─────────────────────────────────────────────
 
 // Hub publish capture — used by the single-emit assertions. We spread
@@ -123,11 +125,9 @@ mock.module("../process-message.js", () => ({
 // before the modules under test are loaded.
 const { createSurfaceMutex, handleSurfaceAction } =
   await import("../conversation-surfaces.js");
-type SurfaceConversationContext =
-  import("../conversation-surfaces.js").SurfaceConversationContext;
+type Conversation = import("../../daemon/conversation.js").Conversation;
 type TrustContext = import("../trust-context-types.js").TrustContext;
-type ServerMessage = import("../message-protocol.js").ServerMessage;
-type SurfaceData = import("../message-protocol.js").SurfaceData;
+type AssistantEvent = import("../../api/index.js").AssistantEvent;
 type SurfaceType = import("../message-protocol.js").SurfaceType;
 
 // ── Harness reset helper ───────────────────────────────────────────
@@ -145,20 +145,18 @@ function resetProcessHarness(): void {
 
 // ── Surface-context harness ────────────────────────────────────────
 
-interface HarnessContext extends SurfaceConversationContext {
-  sent: ServerMessage[];
+interface HarnessContext extends Conversation {
+  sent: AssistantEvent[];
   enqueueCalls: Array<{ content: string }>;
   processCalls: Array<{ content: string }>;
 }
 
-function makeContext(
-  overrides?: Partial<SurfaceConversationContext>,
-): HarnessContext {
-  const sent: ServerMessage[] = [];
+function makeContext(overrides?: Partial<Conversation>): HarnessContext {
+  const sent: AssistantEvent[] = [];
   const enqueueCalls: Array<{ content: string }> = [];
   const processCalls: Array<{ content: string }> = [];
 
-  const base: SurfaceConversationContext = {
+  const base = asConversation({
     conversationId: "origin-conv-id",
     sendToClient: (msg) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
@@ -166,10 +164,7 @@ function makeContext(
       string,
       { actionId: string; data?: Record<string, unknown> }
     >(),
-    surfaceState: new Map<
-      string,
-      { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-    >(),
+    surfaceState: new Map(),
     surfaceUndoStacks: new Map<string, string[]>(),
     accumulatedSurfaceState: new Map<string, Record<string, unknown>>(),
     surfaceActionRequestIds: new Set<string>(),
@@ -186,7 +181,7 @@ function makeContext(
     },
     withSurface: createSurfaceMutex(),
     ...overrides,
-  };
+  });
 
   return Object.assign(base, {
     sent,
@@ -200,13 +195,10 @@ function makeContext(
  * surfaces (no `pendingSurfaceActions` entry) — matching how the card
  * actually reaches `handleSurfaceAction` after reconstruction.
  */
-function registerCardSurface(
-  ctx: SurfaceConversationContext,
-  surfaceId: string,
-): void {
+function registerCardSurface(ctx: Conversation, surfaceId: string): void {
   ctx.surfaceState.set(surfaceId, {
     surfaceType: "card",
-    data: { title: "Launch" } as unknown as SurfaceData,
+    data: { title: "Launch" },
   });
 }
 

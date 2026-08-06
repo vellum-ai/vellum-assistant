@@ -36,7 +36,9 @@ function seed(
 ) {
   const store = useSubagentStore.getState();
   store.spawnSubagent({ subagentId, label, objective: "test", timestamp: NOW });
-  if (events.length > 0) store.loadDetail({ subagentId, events });
+  if (events.length > 0) {
+    store.loadDetail({ subagentId, events });
+  }
   store.changeStatus({ subagentId, status });
 }
 

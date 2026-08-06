@@ -1,6 +1,22 @@
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 // The transcript transitively pulls in the viewer store → the generated daemon
 // SDK (not built in CI/worktree checkouts). Stub the two endpoints it references
@@ -18,6 +34,34 @@ mock.module(
   }),
 );
 
+// The reopen link names its own document from the documents query and hides
+// itself while that document is open; both are covered by
+// `document-reopen-link.test`. Stub it to a bare button so these tests assert
+// what the transcript owns: which documents a turn anchors, in what order,
+// where in the message the links land, and what the click reaches.
+mock.module("@/domains/chat/transcript/document-reopen-link", () => ({
+  DocumentReopenLink: ({
+    surfaceId,
+    assistantId,
+    conversationId,
+    onOpenDocument,
+  }: {
+    surfaceId: string;
+    assistantId?: string | null;
+    conversationId?: string | null;
+    onOpenDocument: (surfaceId: string) => void;
+  }) => (
+    <button
+      type="button"
+      data-testid="document-reopen-link"
+      data-surface-id={surfaceId}
+      data-assistant-id={assistantId ?? ""}
+      data-conversation-id={conversationId ?? ""}
+      onClick={() => onOpenDocument(surfaceId)}
+    />
+  ),
+}));
+
 // The ACP-run and background-task rows wire their transcript stop button to
 // these standalone actions; stub them so clicking Stop records the call without
 // pulling in the daemon SDK / store wiring.
@@ -28,6 +72,52 @@ mock.module("@/domains/chat/utils/acp-run-actions", () => ({
 }));
 mock.module("@/domains/chat/utils/background-task-actions", () => ({
   stopBackgroundTask: stopBackgroundTaskMock,
+}));
+
+// The vellum file action modal builds on the design-library Modal (Radix
+// dialog). Stub the design-library primitives with bare elements so these
+// tests exercise the modal's action wiring without pulling in Radix's portal
+// and focus machinery.
+mock.module("@vellumai/design-library/components/modal", () => {
+  const passthrough =
+    (slot: string) =>
+    ({ children }: { children?: ReactNode }) => (
+      <div data-testid={slot}>{children}</div>
+    );
+  return {
+    Modal: {
+      Root: ({ open, children }: { open?: boolean; children?: ReactNode }) =>
+        open ? <div role="dialog">{children}</div> : null,
+      Content: passthrough("modal-content"),
+      Header: passthrough("modal-header"),
+      Title: ({ children }: { children?: ReactNode }) => (
+        <div data-testid="modal-title">{children}</div>
+      ),
+      Description: passthrough("modal-description"),
+      Footer: passthrough("modal-footer"),
+    },
+  };
+});
+mock.module("@vellumai/design-library/components/button", () => ({
+  Button: ({
+    children,
+    onClick,
+  }: {
+    children?: ReactNode;
+    onClick?: () => void;
+  }) => (
+    <button type="button" onClick={onClick}>
+      {children}
+    </button>
+  ),
+}));
+
+// `openWorkspaceFile` lazily imports the app router, which these tests don't
+// build. Stub it to record the workspace paths opened via the file action
+// modal's "Go to file" button.
+const openWorkspaceFileMock = mock(async (_path: string) => {});
+mock.module("@/utils/open-workspace-file", () => ({
+  openWorkspaceFile: openWorkspaceFileMock,
 }));
 
 // Captures the latest `onVellumLinkClick` handler so tests can drive the
@@ -220,8 +310,29 @@ import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import { MIN_VERSION as REDACTED_CHIPS_MIN_VERSION } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 const noop = () => {};
+
+/**
+ * Drives a `vellum://` link click through the mocked markdown renderer. The
+ * click stages the file in component state (opening the action modal), so it
+ * must run inside `act`.
+ */
+function clickVellumLink(href: string, linkText: string) {
+  act(() => {
+    lastVellumLinkClick?.(href, linkText);
+  });
+}
+
+/** Clicks an action button inside the vellum file action modal. */
+function clickModalAction(name: string) {
+  fireEvent.click(screen.getByRole("button", { name }));
+}
+
+function expandEarlierActivity() {
+  fireEvent.click(screen.getByRole("button", { name: "Earlier activity" }));
+}
 
 // `TranscriptMessageBody` renders a row's body by walking its unified
 // `contentBlocks` projection — the sole source of truth. Each block embeds its
@@ -259,8 +370,16 @@ function surfaceBlock(surfaceId: string): ConversationContentBlock {
 afterAll(() => {
   mock.restore();
 });
+beforeEach(() => {
+  useClientFeatureFlagStore.setState({
+    collapseAssistantIntermediates: true,
+  });
+});
 afterEach(() => {
   cleanup();
+  useClientFeatureFlagStore.setState({
+    collapseAssistantIntermediates: false,
+  });
 });
 
 function renderMessage(
@@ -303,6 +422,44 @@ describe("TranscriptMessageBody", () => {
     expect(markdown!.getAttribute("data-hard-line-breaks")).toBe("true");
   });
 
+  test("holds a shimmer for each announced in-flight visual", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-pending-visual",
+          role: "assistant",
+          contentBlocks: [textBlock("Here is the path a request takes.")],
+          pendingVisualToolUseIds: ["toolu_viz"],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+        isStreaming
+      />,
+    );
+
+    const placeholder = container.querySelector("[role='status']");
+    expect(placeholder).not.toBeNull();
+    expect(placeholder!.textContent).toContain("Sketching a visual");
+    expect(placeholder!.className).toContain("skeleton-shimmer");
+  });
+
+  test("renders no shimmer once the row carries no announced visual", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-no-pending-visual",
+          role: "assistant",
+          contentBlocks: [textBlock("Here is the path a request takes.")],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+        isStreaming
+      />,
+    );
+
+    expect(container.querySelector("[role='status']")).toBeNull();
+  });
+
   test("renders user text from a text block inside the user bubble with hard line breaks", () => {
     const { container } = render(
       <TranscriptMessageBody
@@ -321,9 +478,7 @@ describe("TranscriptMessageBody", () => {
     expect(markdown!.textContent).toBe("line one\nline two");
     expect(markdown!.getAttribute("data-hard-line-breaks")).toBe("true");
     // The text run is wrapped in the user bubble.
-    expect(
-      container.querySelector("[class*='user-bubble-bg']"),
-    ).not.toBeNull();
+    expect(container.querySelector("[class*='user-bubble-bg']")).not.toBeNull();
   });
 
   test("uses the latest tool completion as the message activity timestamp", () => {
@@ -526,6 +681,8 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
+    expandEarlierActivity();
+
     const card = container.querySelector("[data-testid='tool-progress-card']");
     expect(card).not.toBeNull();
     expect(card!.getAttribute("data-item-kinds")).toBe("thinking,toolCall");
@@ -538,6 +695,359 @@ describe("TranscriptMessageBody", () => {
     expect(
       Array.from(markdowns).some((m) => m.textContent === "the answer"),
     ).toBe(true);
+  });
+
+  test("collapses completed assistant activity before the final text response", () => {
+    const { getByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "completed-response",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I will check that."),
+            toolUseBlock({
+              id: "tc-check",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
+            textBlock("Here is the final answer."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("I will check that.")).toBeNull();
+    expect(queryByText("Here is the final answer.")).not.toBeNull();
+
+    const trigger = getByRole("button", { name: "Earlier activity" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(trigger);
+
+    expect(queryByText("I will check that.")).not.toBeNull();
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  test("renders the answered question card for a settled ask_question", () => {
+    const { queryByTestId, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "answered-response",
+          role: "assistant",
+          contentBlocks: [
+            toolUseBlock({
+              id: "tc-ask",
+              name: "ask_question",
+              input: {},
+              completedAt: 1,
+              answeredQuestion: {
+                requestId: "req-1",
+                questions: [
+                  {
+                    id: "q1",
+                    question: "Which Alice?",
+                    options: [{ id: "alice_work", label: "Alice (work)" }],
+                  },
+                ],
+                responses: [
+                  {
+                    questionId: "q1",
+                    decision: "option",
+                    optionId: "alice_work",
+                  },
+                ],
+                overall: "completed",
+              },
+            }),
+            textBlock("Booking with Alice (work)."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    // The answer is content the conversation keeps, so it stays out of the
+    // collapsed "Earlier activity" run that swallows plain completed tools.
+    expect(queryByTestId("answered-question-card")).not.toBeNull();
+    expect(queryByText("Which Alice?")).not.toBeNull();
+    expect(queryByText("Alice (work)")).not.toBeNull();
+    // The card supersedes the raw chip, so the question and answer appear once.
+    expect(queryByTestId("inline-tool-link")).toBeNull();
+    expect(queryByTestId("tool-progress-card")).toBeNull();
+  });
+
+  test("falls back to the raw chip when an answered record has no questions", () => {
+    // The card draws nothing for an empty record, so suppression must not fire
+    // on the field's mere presence: otherwise the step renders neither a card
+    // nor a chip and disappears from the conversation. The daemon cannot write
+    // this, but a truncated persisted row satisfies the wire schema.
+    const { queryByTestId } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "empty-answer-response",
+          role: "assistant",
+          contentBlocks: [
+            toolUseBlock({
+              id: "tc-ask-empty",
+              name: "ask_question",
+              input: {},
+              completedAt: 1,
+              answeredQuestion: {
+                requestId: "req-1",
+                questions: [],
+                responses: [],
+                overall: "completed",
+              },
+            }),
+          ],
+        }}
+        onSurfaceAction={noop}
+        isStreaming
+      />,
+    );
+
+    expect(queryByTestId("answered-question-card")).toBeNull();
+    expect(queryByTestId("inline-tool-link")).not.toBeNull();
+  });
+
+  test("keeps completed assistant activity visible when the flag is disabled", () => {
+    useClientFeatureFlagStore.setState({
+      collapseAssistantIntermediates: false,
+    });
+
+    const { queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "ungated-response",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I will check that."),
+            toolUseBlock({
+              id: "tc-ungated-check",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
+            textBlock("Here is the final answer."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("I will check that.")).not.toBeNull();
+    expect(queryByText("Here is the final answer.")).not.toBeNull();
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+  });
+
+  test("keeps all assistant activity visible while the response is streaming", () => {
+    const { queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "streaming-response",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I am checking that."),
+            toolUseBlock({
+              id: "tc-streaming-check",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
+            textBlock("Here is what I found so far."),
+          ],
+        }}
+        onSurfaceAction={noop}
+        isStreaming
+      />,
+    );
+
+    expect(queryByText("I am checking that.")).not.toBeNull();
+    expect(queryByText("Here is what I found so far.")).not.toBeNull();
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+  });
+
+  test("animates earlier activity closed when streaming completes", async () => {
+    const message: DisplayMessage = {
+      id: "settling-response",
+      role: "assistant",
+      contentBlocks: [
+        textBlock("I am checking that."),
+        toolUseBlock({
+          id: "tc-settling-check",
+          name: "bash",
+          input: {},
+          completedAt: 1,
+        }),
+        textBlock("Here is the final answer."),
+      ],
+    };
+    const { getByRole, getByTestId, rerender } = render(
+      <TranscriptMessageBody
+        message={message}
+        onSurfaceAction={noop}
+        isStreaming
+      />,
+    );
+
+    rerender(
+      <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
+    );
+
+    const trigger = getByRole("button", { name: "Earlier activity" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      getByTestId("assistant-earlier-activity").style.animationDuration,
+    ).toBe("var(--anim-standard)");
+
+    await waitFor(() => {
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    });
+  });
+
+  test("keeps result artifacts visible outside collapsed earlier activity", () => {
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-result-image",
+      name: "media_generate_image",
+      input: { prompt: "diagram" },
+      result: "Generated an image",
+      imageDataList: ["img-a"],
+      completedAt: 1,
+    };
+    const { container, getAllByRole, getByText, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "completed-with-artifacts",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I will create that."),
+            toolUseBlock(toolCall),
+            textBlock("I will summarize it."),
+            textBlock("Here are the results."),
+          ],
+          toolCalls: [toolCall],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("I will create that.")).toBeNull();
+    expect(queryByText("I will summarize it.")).toBeNull();
+    expect(queryByText("Here are the results.")).not.toBeNull();
+    const image = container.querySelector("[data-testid='tool-result-image']");
+    expect(image).not.toBeNull();
+
+    const triggers = getAllByRole("button", { name: "Earlier activity" });
+    expect(triggers.length).toBe(2);
+    triggers.forEach((trigger) => fireEvent.click(trigger));
+
+    const firstText = getByText("I will create that.");
+    const secondText = getByText("I will summarize it.");
+    const finalText = getByText("Here are the results.");
+    expect(
+      firstText.compareDocumentPosition(image!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+    expect(
+      image!.compareDocumentPosition(secondText) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+    expect(
+      secondText.compareDocumentPosition(finalText) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+  });
+
+  test("keeps surface lead-in text visible as part of the final response", () => {
+    const { container, queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "completed-with-surface-lead-in",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("Here is the chart:"),
+            surfaceBlock("result-surface"),
+            textBlock("The totals increased."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("Here is the chart:")).not.toBeNull();
+    expect(queryByText("The totals increased.")).not.toBeNull();
+    expect(
+      container.querySelector("[data-surface-id='result-surface']"),
+    ).not.toBeNull();
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+  });
+
+  test("keeps inline surfaces visible outside collapsed earlier text", () => {
+    const { container, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "completed-with-inline-surface",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I will build that."),
+            textBlock(
+              'Before surface<ui_show surface_type="card" template="task_progress"> {"title":"Result"} </ui_show>After surface',
+            ),
+            textBlock("Here is the final answer."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("I will build that.")).toBeNull();
+    expect(queryByText("Before surface")).not.toBeNull();
+    expect(queryByText("After surface")).not.toBeNull();
+    expect(container.querySelector("[data-testid='surface']")).not.toBeNull();
+  });
+
+  test("keeps running activity visible outside collapsed earlier text", () => {
+    const { container, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "completed-with-running-tool",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I will start that."),
+            toolUseBlock({
+              id: "tc-running",
+              name: "bash",
+              input: {},
+            }),
+            textBlock("It is running in the background."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("I will start that.")).toBeNull();
+    expect(queryByText("It is running in the background.")).not.toBeNull();
+    expect(
+      container.querySelector("[data-tool-call-id='tc-running']"),
+    ).not.toBeNull();
+  });
+
+  test("does not add a disclosure to a single assistant text response", () => {
+    const { queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "single-response",
+          role: "assistant",
+          contentBlocks: [textBlock("A concise answer.")],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("A concise answer.")).not.toBeNull();
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
   });
 
   test("merges contiguous thinking + tool runs into one card per run", () => {
@@ -560,6 +1070,8 @@ describe("TranscriptMessageBody", () => {
     const { container } = render(
       <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
     );
+
+    expandEarlierActivity();
 
     // Exactly two merged tool cards (one per run).
     const cards = container.querySelectorAll(
@@ -811,6 +1323,8 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
+    expandEarlierActivity();
+
     expect(
       container.querySelector("[data-testid='tool-progress-card']"),
     ).not.toBeNull();
@@ -865,6 +1379,8 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
+    expandEarlierActivity();
+
     expect(
       container.querySelector("[data-testid='thought-process-link']"),
     ).not.toBeNull();
@@ -881,20 +1397,26 @@ describe("TranscriptMessageBody", () => {
     // GIVEN a persisted assistant turn whose reasoning precedes its answer,
     // with no interleaved tool call
     // WHEN it is rendered as a settled row
-    const html = renderMessage({
-      id: "m-think",
-      role: "assistant",
-      contentBlocks: [
-        thinkingBlock("chain of thought"),
-        textBlock("the answer"),
-      ],
-      timestamp: 1_000,
-    });
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-think",
+          role: "assistant",
+          contentBlocks: [
+            thinkingBlock("chain of thought"),
+            textBlock("the answer"),
+          ],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+    expandEarlierActivity();
 
     // THEN the reasoning renders as a completed SingleActivity, not a
     // perpetually-streaming "Thinking" link
-    expect(html).toContain("Thought process");
-    expect(html).not.toContain("Thinking");
+    expect(container.textContent).toContain("Thought process");
+    expect(container.textContent).not.toContain("Thinking");
   });
 
   test("labels trailing reasoning as 'Thinking' while the row is live", () => {
@@ -968,6 +1490,8 @@ describe("TranscriptMessageBody", () => {
       <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
     );
 
+    expandEarlierActivity();
+
     // No legacy summary card.
     expect(
       container.querySelector("[data-testid='turn-activity-header']"),
@@ -1007,9 +1531,7 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    const bubbles = container.querySelectorAll(
-      "[class*='user-bubble-bg']",
-    );
+    const bubbles = container.querySelectorAll("[class*='user-bubble-bg']");
     // Exactly one bubble container carries the user-bubble background.
     expect(bubbles.length).toBe(1);
 
@@ -1048,9 +1570,7 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    const bubbles = container.querySelectorAll(
-      "[class*='user-bubble-bg']",
-    );
+    const bubbles = container.querySelectorAll("[class*='user-bubble-bg']");
     expect(bubbles.length).toBe(1);
     expect(bubbles[0]!.querySelector("img")?.getAttribute("src")).toBe(
       "blob:preview",
@@ -1082,10 +1602,8 @@ describe("TranscriptMessageBody", () => {
 
     // Bare label + percent-encoded path: the daemon stored the DECODED
     // basename ("qa shot.png"), so the click must decode before matching.
-    lastVellumLinkClick?.(
-      "vellum://workspace/scratch/qa%20shot.png",
-      "desktop",
-    );
+    clickVellumLink("vellum://workspace/scratch/qa%20shot.png", "desktop");
+    clickModalAction("Download file");
     expect(downloadAttachmentMock).toHaveBeenCalledTimes(1);
     expect(
       (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
@@ -1121,7 +1639,8 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    lastVellumLinkClick?.("vellum://workspace/b/result.png", "second");
+    clickVellumLink("vellum://workspace/b/result.png", "second");
+    clickModalAction("Download file");
     expect(downloadAttachmentMock).toHaveBeenCalledTimes(1);
     expect(
       (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
@@ -1160,14 +1679,69 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    lastVellumLinkClick?.(
+    clickVellumLink(
       "vellum://workspace/qa-delete-desktop-dialog.png",
       "desktop",
     );
+    clickModalAction("Download file");
     expect(downloadAttachmentMock).toHaveBeenCalledTimes(1);
     expect(
       (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
     ).toMatchObject({ id: "att-real" });
+  });
+
+  test("workspace link click opens the action modal; Go to file navigates", () => {
+    downloadAttachmentMock.mockClear();
+    openWorkspaceFileMock.mockClear();
+    render(
+      <TranscriptMessageBody
+        message={{
+          id: "a-modal",
+          role: "assistant",
+          contentBlocks: [textBlock("see the skill")],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    clickVellumLink(
+      "vellum://workspace/skills/foo/weekly%20plan.md",
+      "weekly plan.md",
+    );
+    // Both actions are offered for a workspace file.
+    expect(screen.getByRole("button", { name: "Go to file" })).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Download file" }),
+    ).not.toBeNull();
+
+    clickModalAction("Go to file");
+    // The workspace path is percent-decoded before navigation.
+    expect(openWorkspaceFileMock).toHaveBeenCalledWith(
+      "skills/foo/weekly plan.md",
+    );
+    expect(downloadAttachmentMock).not.toHaveBeenCalled();
+    // Choosing an action dismisses the modal.
+    expect(screen.queryByRole("button", { name: "Go to file" })).toBeNull();
+  });
+
+  test("host link modal offers download only, not Go to file", () => {
+    render(
+      <TranscriptMessageBody
+        message={{
+          id: "a-host",
+          role: "assistant",
+          contentBlocks: [textBlock("host file")],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    clickVellumLink("vellum://host/Users/user1/doc.pdf", "doc.pdf");
+    // Host files cannot open in the workspace browser.
+    expect(screen.queryByRole("button", { name: "Go to file" })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Download file" }),
+    ).not.toBeNull();
   });
 
   test("vellum link click still matches link text and raw basename", () => {
@@ -1200,14 +1774,16 @@ describe("TranscriptMessageBody", () => {
     );
 
     // Link text still wins when it names the attachment.
-    lastVellumLinkClick?.("vellum://workspace/out/final.pdf", "report.pdf");
+    clickVellumLink("vellum://workspace/out/final.pdf", "report.pdf");
+    clickModalAction("Download file");
     expect(
       (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
     ).toMatchObject({ id: "att-label" });
 
     // Malformed percent-encoding: decodeURIComponent throws, raw basename
     // fallback still finds the attachment.
-    lastVellumLinkClick?.("vellum://workspace/qa%ZZshot.png", "shot");
+    clickVellumLink("vellum://workspace/qa%ZZshot.png", "shot");
+    clickModalAction("Download file");
     expect(
       (downloadAttachmentMock.mock.calls[1] as unknown[])[0],
     ).toMatchObject({ id: "att-raw" });
@@ -1238,9 +1814,7 @@ describe("TranscriptMessageBody", () => {
     expect(
       container.querySelector("[data-testid='attachments']"),
     ).not.toBeNull();
-    expect(
-      container.querySelector("[class*='user-bubble-bg']"),
-    ).toBeNull();
+    expect(container.querySelector("[class*='user-bubble-bg']")).toBeNull();
   });
 
   test("suppresses native text selection on user bubbles for coarse pointers", () => {
@@ -1340,9 +1914,7 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    const bubble = container.querySelector(
-      "[class*='user-bubble-bg']",
-    );
+    const bubble = container.querySelector("[class*='user-bubble-bg']");
     expect(bubble).not.toBeNull();
     // Text lives inside the bubble.
     expect(bubble!.querySelector("[data-testid='markdown']")?.textContent).toBe(
@@ -1378,9 +1950,7 @@ describe("TranscriptMessageBody", () => {
     ).toBeTruthy();
 
     // The surface is NOT inside a user bubble; the text IS.
-    const bubble = container.querySelector(
-      "[class*='user-bubble-bg']",
-    );
+    const bubble = container.querySelector("[class*='user-bubble-bg']");
     expect(bubble).not.toBeNull();
     expect(bubble!.contains(surface)).toBe(false);
     expect(bubble!.contains(markdown)).toBe(true);
@@ -1429,9 +1999,7 @@ describe("TranscriptMessageBody", () => {
 
     // The tool chip is never wrapped inside a user text bubble — the
     // text runs render inline and the chip sits between them.
-    const bubbles = container.querySelectorAll(
-      "[class*='user-bubble-bg']",
-    );
+    const bubbles = container.querySelectorAll("[class*='user-bubble-bg']");
     for (const bubble of bubbles) {
       expect(bubble.contains(toolChip)).toBe(false);
     }
@@ -1458,9 +2026,7 @@ describe("TranscriptMessageBody", () => {
 
     // No visible text and no attachments: the empty user bubble must
     // not render.
-    expect(
-      container.querySelector("[class*='user-bubble-bg']"),
-    ).toBeNull();
+    expect(container.querySelector("[class*='user-bubble-bg']")).toBeNull();
     // The lone tool still renders as the inline chip.
     expect(
       container.querySelector("[data-testid='inline-tool-link']"),
@@ -1658,5 +2224,152 @@ describe("TranscriptMessageBody — redacted-credential chip version gate", () =
   test("user messages never enable chips, even at the gated version", () => {
     hydrateIdentity(REDACTED_CHIPS_MIN_VERSION);
     expect(chipFlag("user")).toBe("false");
+  });
+});
+
+/**
+ * The links themselves are resolved across a whole response by `Transcript`
+ * (see `resolve-response-documents.test` for which documents a response
+ * anchors, and `transcript.test` for which message ends up carrying them).
+ * What the body owns is the slot: it renders exactly the ids it is handed,
+ * below the response body and above the footer, and nothing without a handler.
+ */
+describe("TranscriptMessageBody: changed-document reopen links", () => {
+  const DOC_ASSISTANT_ID = "asst-doc";
+  const DOC_CONVERSATION_ID = "conv-doc";
+  const onOpenDocumentMock = mock((_surfaceId: string) => {});
+
+  /** A settled `document_update` whose result carries the surface it wrote. */
+  function documentUpdateCall(
+    id: string,
+    surfaceId: string,
+  ): ChatMessageToolCall {
+    return {
+      id,
+      name: "document_update",
+      input: { surface_id: surfaceId, content: "notes" },
+      result: JSON.stringify({ success: true, surface_id: surfaceId }),
+      completedAt: 1,
+    };
+  }
+
+  /**
+   * A message that narrates, runs `document_update`, then answers. The lead-in
+   * and the tool run collapse into "Earlier activity", so any reopen link that
+   * renders has to sit outside that disclosure to still be visible.
+   */
+  function turnElement(
+    changedDocumentIds: string[] | undefined,
+    onOpenDocument: ((surfaceId: string) => void) | undefined,
+  ) {
+    const toolCalls = [documentUpdateCall("tc-doc", "surf-notes")];
+    return (
+      <TranscriptMessageBody
+        message={{
+          id: "m-doc-turn",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("Updating your notes."),
+            ...toolCalls.map(toolUseBlock),
+            textBlock("Done."),
+          ],
+          toolCalls,
+          timestamp: 1_000,
+        }}
+        conversationId={DOC_CONVERSATION_ID}
+        assistantId={DOC_ASSISTANT_ID}
+        changedDocumentIds={changedDocumentIds}
+        onOpenDocument={onOpenDocument}
+        onSurfaceAction={noop}
+      />
+    );
+  }
+
+  function renderTurn(changedDocumentIds: string[] | undefined) {
+    return render(turnElement(changedDocumentIds, onOpenDocumentMock));
+  }
+
+  function reopenLinks(container: HTMLElement): HTMLElement[] {
+    return Array.from(
+      container.querySelectorAll<HTMLElement>(
+        "[data-testid='document-reopen-link']",
+      ),
+    );
+  }
+
+  function reopenSurfaceIds(container: HTMLElement): (string | null)[] {
+    return reopenLinks(container).map((link) =>
+      link.getAttribute("data-surface-id"),
+    );
+  }
+
+  beforeEach(() => {
+    onOpenDocumentMock.mockClear();
+  });
+
+  test("renders one reopen link per id its response resolved", () => {
+    const { container } = renderTurn(["surf-notes"]);
+
+    const links = reopenLinks(container);
+    expect(links.length).toBe(1);
+    expect(links[0]!.getAttribute("data-surface-id")).toBe("surf-notes");
+    expect(links[0]!.getAttribute("data-assistant-id")).toBe(DOC_ASSISTANT_ID);
+    expect(links[0]!.getAttribute("data-conversation-id")).toBe(
+      DOC_CONVERSATION_ID,
+    );
+  });
+
+  test("renders the ids in the order the response resolved them", () => {
+    const { container } = renderTurn(["surf-notes", "surf-plan"]);
+
+    expect(reopenSurfaceIds(container)).toEqual(["surf-notes", "surf-plan"]);
+  });
+
+  test("places the reopen link after the response body and above the footer", () => {
+    const { container, getByText } = renderTurn(["surf-notes"]);
+
+    const link = reopenLinks(container)[0]!;
+    // A direct child of the message column, so it is a sibling of the
+    // "Earlier activity" disclosure rather than something inside it.
+    const column = link.parentElement!;
+    expect(column.parentElement!.getAttribute("data-message-id")).toBe(
+      "m-doc-turn",
+    );
+    expect(
+      screen.getByRole("button", { name: "Earlier activity" }).contains(link),
+    ).toBe(false);
+    expect(
+      getByText("Done.").compareDocumentPosition(link) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+    // The hover-action footer is the column's last row.
+    expect(
+      link.compareDocumentPosition(column.lastElementChild!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+  });
+
+  test("renders no reopen link for its own document tool calls", () => {
+    // The message writes a document, but the response anchored the link on a
+    // later message. Resolution belongs to the response, not to each message
+    // that wrote.
+    const { container } = renderTurn(undefined);
+
+    expect(reopenLinks(container).length).toBe(0);
+  });
+
+  test("clicking the reopen link opens that document", () => {
+    const { container } = renderTurn(["surf-notes"]);
+
+    fireEvent.click(reopenLinks(container)[0]!);
+
+    expect(onOpenDocumentMock).toHaveBeenCalledTimes(1);
+    expect(onOpenDocumentMock).toHaveBeenCalledWith("surf-notes");
+  });
+
+  test("renders no reopen link without a handler to open the document", () => {
+    const { container } = render(turnElement(["surf-notes"], undefined));
+
+    expect(reopenLinks(container).length).toBe(0);
   });
 });

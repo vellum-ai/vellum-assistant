@@ -33,9 +33,8 @@ const exportNames = [...sdkSource.matchAll(/^export const (\w+)/gm)].map(
 const sdkMock = Object.fromEntries(exportNames.map((n) => [n, sdkStub]));
 mock.module("@/generated/daemon/sdk.gen", () => sdkMock);
 
-const { ActivityStepsPanel } = await import(
-  "@/domains/chat/components/activity-steps-panel"
-);
+const { ActivityStepsPanel } =
+  await import("@/domains/chat/components/activity-steps-panel");
 
 afterEach(() => {
   cleanup();

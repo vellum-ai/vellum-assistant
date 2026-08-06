@@ -14,12 +14,12 @@ import {
   renameSync,
   rmSync,
   statSync,
-  writeFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 import { z } from "zod";
 
+import { rebindDocumentsToRenamedPath } from "../../documents/document-store.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { publishSoundsConfigUpdated } from "../sync/resource-sync-events.js";
@@ -35,6 +35,8 @@ import {
   isTextMimeType,
   MAX_INLINE_TEXT_SIZE,
   resolveWorkspacePath,
+  toWorkspaceRelativePath,
+  writeWorkspaceFile,
 } from "./workspace-utils.js";
 
 const workspaceTreeEntrySchema = z.object({
@@ -85,7 +87,9 @@ interface DirSizeBudget {
  * directories purely to discover their type.
  */
 function computeDirSize(absPath: string, budget: DirSizeBudget): number | null {
-  if (budget.remaining <= 0) return null;
+  if (budget.remaining <= 0) {
+    return null;
+  }
 
   let total = 0;
   const stack: string[] = [absPath];
@@ -101,7 +105,9 @@ function computeDirSize(absPath: string, budget: DirSizeBudget): number | null {
     }
 
     for (const entry of dirents) {
-      if (budget.remaining <= 0) return null;
+      if (budget.remaining <= 0) {
+        return null;
+      }
       budget.remaining -= 1;
 
       if (entry.isDirectory()) {
@@ -196,7 +202,9 @@ function handleWorkspaceTree({ queryParams }: RouteHandlerArgs) {
 
     const entries: TreeEntry[] = [];
     for (const entry of dirents) {
-      if (!showHidden && entry.name.startsWith(".")) continue;
+      if (!showHidden && entry.name.startsWith(".")) {
+        continue;
+      }
 
       const fullPath = join(resolved, entry.name);
 
@@ -316,7 +324,9 @@ function handleWorkspaceFileContent({
       throw new BadRequestError("Path is not a file");
     }
   } catch (err) {
-    if (err instanceof BadRequestError) throw err;
+    if (err instanceof BadRequestError) {
+      throw err;
+    }
     throw new NotFoundError("File not found");
   }
 
@@ -392,22 +402,12 @@ function handleWorkspaceWrite({ body, headers }: RouteHandlerArgs) {
     throw new BadRequestError("content must be a string");
   }
 
-  const resolved = resolveWorkspacePath(path);
-  if (resolved === undefined) {
-    throw new BadRequestError("Invalid path");
-  }
-
   const buffer =
     encoding === "base64"
       ? Buffer.from(content ?? "", "base64")
       : Buffer.from(content ?? "", "utf-8");
 
-  if (existsSync(resolved) && statSync(resolved).isDirectory()) {
-    throw new ConflictError("Path is a directory");
-  }
-
-  mkdirSync(dirname(resolved), { recursive: true });
-  writeFileSync(resolved, buffer);
+  writeWorkspaceFile(path, buffer);
   publishSoundsConfigUpdatedForPaths(
     [path],
     headers?.["x-vellum-client-id"]?.trim() || undefined,
@@ -505,6 +505,13 @@ function handleWorkspaceRename({ body, headers }: RouteHandlerArgs) {
 
   mkdirSync(dirname(resolvedNew), { recursive: true });
   renameSync(resolvedOld, resolvedNew);
+  // File-backed documents key off the canonical relative path, so they follow
+  // the file to its new name. The request strings are not canonical, hence the
+  // resolved paths.
+  rebindDocumentsToRenamedPath({
+    oldPath: toWorkspaceRelativePath(resolvedOld),
+    newPath: toWorkspaceRelativePath(resolvedNew),
+  });
   publishSoundsConfigUpdatedForPaths(
     [oldPath, newPath],
     headers?.["x-vellum-client-id"]?.trim() || undefined,

@@ -1,8 +1,8 @@
-import { getConfig } from "../config/loader.js";
-import { isMemoryV3Live } from "../config/memory-v3-gate.js";
+import type { AnsweredQuestion } from "../api/events/question-answered.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { preModelCallSanitize } from "../context/outbound-sanitize.js";
+import { turnStartUserMessageHasSpotlight } from "../context/strip-injections.js";
 import {
   estimatePromptTokensRaw,
   estimatePromptTokensWithTools,
@@ -52,6 +52,10 @@ import {
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { CompactionCircuit } from "./compaction-circuit.js";
+import {
+  deepRepairHistory,
+  isRepairableOrderingError,
+} from "./history-repair/history-repair.js";
 
 const log = getLogger("agent-loop");
 
@@ -112,9 +116,9 @@ export interface AgentLoopConfig {
    * This is a SERVER tool the provider runs itself, distinct from the client
    * tool list (`tools` / `resolveTools`): it is never executed by
    * {@link AgentLoopConstructorOptions.toolExecutor} and does not require any
-   * client-tool allowlist entry. Used by the tool-less advisor consult to
-   * ground its guidance with live web access while staying one-shot for client
-   * tools. Defaults to false — existing behavior.
+   * client-tool allowlist entry. Used by the advisor consult to ground its
+   * guidance with live web access on top of its read-only client tools.
+   * Defaults to false.
    */
   enableNativeWebSearch?: boolean;
 }
@@ -285,6 +289,8 @@ export type AgentEvent =
       approvalReason?: string;
       riskThreshold?: string;
       activityMetadata?: ToolActivityMetadata;
+      /** Answered `ask_question` record (see `ToolExecutionResult.answeredQuestion`). */
+      answeredQuestion?: AnsweredQuestion;
       /** Stable machine-readable error classification (see `ToolExecutionResult.errorCode`). */
       errorCode?: string;
       /**
@@ -694,6 +700,7 @@ export type LoopToolExecutor = (
   approvalReason?: string;
   riskThreshold?: string;
   activityMetadata?: ToolActivityMetadata;
+  answeredQuestion?: AnsweredQuestion;
   errorCode?: string;
 }>;
 
@@ -1020,6 +1027,14 @@ export class AgentLoop {
     let newMessagesStart = history.length;
     let toolUseTurns = 0;
     let postModelCallContinues = 0;
+    // One deep history-repair recovery per turn: a second consecutive ordering
+    // rejection means the repair could not recover, so the error surfaces
+    // instead of looping. Turn-scoped, so each turn recovers afresh.
+    let orderingRepairAttempted = false;
+    // One resume per turn after a call dies mid-generation: a second
+    // interruption means re-issuing is not getting through, so the error
+    // surfaces instead of looping.
+    let interruptedCallResumed = false;
     let lastLlmCallTime = 0;
     let exitReason: ExitReason | null = null;
     // Armed at the end of a tool-use iteration so the budget gate runs at the
@@ -1168,6 +1183,12 @@ export class AgentLoop {
       // elsewhere in the turn body (tool execution, the success-path stop
       // chain, post-model-call hooks) must not re-enter the stop chain.
       let providerCallError: unknown;
+      // Set once the model streams its first token on this iteration's call.
+      // Two readers: latency instrumentation stamps time-to-first-token off
+      // its rising edge, and the outer catch reads it to tell a refused
+      // request from a generation that died mid-flight. Declared here so that
+      // catch can reach it.
+      let streamedTokens = false;
 
       try {
         // ── Pre-call budget gate ─────────────────────────────────────
@@ -1337,9 +1358,9 @@ export class AgentLoop {
         // `this.provider.supportsNativeWebSearch` snapshot; providers without
         // the routing-aware probe fall back to the static flag. This is a SERVER
         // tool — it bypasses the client allowlist and the tool executor — so the
-        // tool-less advisor consult can ground its guidance with live web access
-        // while staying one-shot for client tools. Skip when a `web_search` tool
-        // is already present so we never duplicate the name.
+        // advisor consult can ground its guidance with live web access on top of
+        // its read-only client tools. Skip when a `web_search` tool is already
+        // present so we never duplicate the name.
         const supportsRoutedNativeWebSearch = this.provider
           .supportsNativeWebSearchFor
           ? this.provider.supportsNativeWebSearchFor(
@@ -1402,9 +1423,7 @@ export class AgentLoop {
         if (this.config.toolChoice) {
           providerConfig.tool_choice = this.config.toolChoice;
         } else if (attachNativeWebSearch) {
-          // The native web-search tool is the only tool on this turn (the
-          // advisor consult is otherwise tool-less). Let the model decide
-          // whether to search rather than forcing it.
+          // Let the model decide whether to search rather than forcing it.
           providerConfig.tool_choice = { type: "auto" };
         }
 
@@ -1412,14 +1431,18 @@ export class AgentLoop {
           providerConfig.cacheTtl = this.config.cacheTtl;
         }
 
-        // Cache-anchor signal for volatile latest-user-message turns: when
-        // memory-v3 is live it injects a per-turn `<memory>` block into the
-        // latest user message, so the provider must anchor its long-TTL cache
-        // breakpoint on the most recent STABLE user message instead of the
-        // volatile latest one. Read here alongside the rest of the provider
-        // config; only set when true so the wire/config stays byte-identical
-        // when off.
-        if (isMemoryV3Live(getConfig())) {
+        // Cache-anchor signal for turns whose opening message is volatile. The
+        // memory-v3 `<memory_spotlight>` block is the only injected block that
+        // is strip-and-replaced from every user message each turn, so when it
+        // is present that message's bytes do not recur next turn and a
+        // long-TTL breakpoint on it could never be read back. The provider
+        // marks it at the short TTL instead. Derived from the history actually
+        // being sent rather than from configuration, so turns where memory
+        // contributed no spotlight keep a normal anchor. Read off the
+        // turn-starting message, so the signal holds for every request in the
+        // turn rather than flipping once tool results arrive. Only set when
+        // true so the wire/config stays byte-identical when absent.
+        if (turnStartUserMessageHasSpotlight(history)) {
           providerConfig.mutableLatestUserMessage = true;
         }
 
@@ -1441,8 +1464,17 @@ export class AgentLoop {
           // conversation id). Absent for standalone `AgentLoop` instances
           // (unit tests constructed without a conversation id) — those fall
           // back to per-call random mix selection.
+          //
+          // The same id also travels as `conversationId`, which
+          // `RetryProvider.normalizeSendMessageOptions` uses to resolve the
+          // conversation's subagent role and spawn mode for the runtime
+          // proxy's billing-attribution headers. Both are stripped before any
+          // provider wire request; they are carried separately because
+          // `selectionSeed` is an opaque hashing input that callers may set to
+          // something other than a conversation id.
           if (this.conversationId) {
             providerConfig.selectionSeed = this.conversationId;
+            providerConfig.conversationId = this.conversationId;
           }
         }
 
@@ -1519,11 +1551,6 @@ export class AgentLoop {
         // the client would otherwise see nothing.
         let streamedVisibleText = false;
 
-        // Latency instrumentation: stamp the first streamed token (thinking or
-        // text) of THIS call exactly once, so each per-call segment carries its
-        // own time-to-first-token. Reset per provider call.
-        let firstTokenMarked = false;
-
         // The `onEvent` wrapping below applies sensitive-output placeholder
         // substitution to streamed text while forwarding every other event
         // type through unchanged.
@@ -1533,10 +1560,10 @@ export class AgentLoop {
           config: providerConfig,
           onEvent: (event) => {
             if (
-              !firstTokenMarked &&
+              !streamedTokens &&
               (event.type === "thinking_delta" || event.type === "text_delta")
             ) {
-              firstTokenMarked = true;
+              streamedTokens = true;
               latencyTracker?.markFirstToken(
                 event.type === "thinking_delta" ? "thinking" : "text",
               );
@@ -2188,13 +2215,16 @@ export class AgentLoop {
         // message between calls would invalidate the prompt-cache prefix on
         // every iteration).
         if (conversationDir) {
-          const toolNameByUseId = new Map(
-            toolUseBlocks.map((tu) => [tu.id, tu.name]),
+          const toolCallByUseId = new Map(
+            toolUseBlocks.map((tu) => [
+              tu.id,
+              { name: tu.name, input: tu.input },
+            ]),
           );
           try {
             spoolAndStubOversizedToolResults(rawResultBlocks, {
               conversationDir,
-              toolNameById: (id) => toolNameByUseId.get(id),
+              toolCallById: (id) => toolCallByUseId.get(id),
             });
           } catch (err) {
             rlog.warn(
@@ -2273,6 +2303,7 @@ export class AgentLoop {
             approvalReason: result.approvalReason,
             riskThreshold: result.riskThreshold,
             activityMetadata: result.activityMetadata,
+            answeredQuestion: result.answeredQuestion,
             errorCode: result.errorCode,
           });
         }
@@ -2414,15 +2445,11 @@ export class AgentLoop {
           continue;
         }
 
-        // A provider rejection is a model-call outcome: the loop has nothing
-        // more to produce this turn unless a recovery hook repairs the history
-        // and asks to retry. Run the `post-model-call` hook with the rejection
-        // attached — a recovery hook (e.g. history-repair on an ordering
-        // violation) can re-normalize the history and set `decision` to
-        // `"continue"` to re-issue the call; hooks that only act on a real
-        // reply ignore the rejection. The same per-run backstop bounds these
-        // error-driven retries as the success-path ones. The chain is run
-        // fail-open: a hook throw surfaces the original rejection.
+        // A provider rejection is a model-call outcome. Dispatch the
+        // post-model-call chain first so plugins observe the rejection (the
+        // hook fires at every outcome, per its contract), then decide whether
+        // to recover and retry. Both recovery paths share the same per-run
+        // backstop as the success-path retries.
         //
         // Confined to genuine provider rejections: a throw from elsewhere in
         // the turn body (tool execution, the success-path stop/post-model-call
@@ -2447,9 +2474,40 @@ export class AgentLoop {
           } catch (postModelCallError) {
             rlog.error(
               { err: postModelCallError },
-              "post-model-call hook failed on a provider rejection — surfacing the original error",
+              "post-model-call hook failed on a provider rejection, surfacing the original error",
             );
           }
+
+          // Built-in history-repair recovery takes precedence over a hook-driven
+          // retry. A tool_use/tool_result pairing or ordering rejection is
+          // recovered by deep-repairing the settled history and re-issuing the
+          // call, so a hook that continues generically on a rejection cannot
+          // burn the retry budget re-sending the same malformed history. Bounded
+          // to one pass per turn (a second consecutive ordering rejection means
+          // the repair could not recover).
+          if (
+            isRepairableOrderingError(err.message) &&
+            !orderingRepairAttempted &&
+            postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES
+          ) {
+            orderingRepairAttempted = true;
+            postModelCallContinues++;
+            history = deepRepairHistory(errorOutcome.messages).messages;
+            // Deep repair merges and drops messages, so the prior input
+            // boundary no longer maps onto the new array; the repaired history
+            // is the base the retry's output appends after.
+            newMessagesStart = history.length;
+            rlog.warn(
+              { turn: toolUseTurns, messageCount: history.length },
+              "Provider ordering error, recovering via history deep-repair",
+            );
+            continue;
+          }
+
+          // Otherwise honor a post-model-call recovery hook (e.g. image-recovery
+          // on an image-too-large rejection) that re-normalized the history and
+          // set `decision` to `"continue"` to re-issue the call. Hooks that only
+          // act on a real reply leave `decision` at `"stop"`.
           if (
             errorOutcome.decision === "continue" &&
             postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES
@@ -2461,6 +2519,30 @@ export class AgentLoop {
             // onto the new array; the repaired history is the base the retry's
             // output appends after.
             newMessagesStart = history.length;
+            continue;
+          }
+
+          // Last: the call died mid-generation. `streamedTokens` means the
+          // provider accepted the request and started producing before it
+          // failed, so the request is fine and re-issuing it as-is is the
+          // recovery — nothing to repair, which is why no branch above claims
+          // it. A rejection that streamed nothing is the opposite case (the
+          // provider refused the request), and an identical resend would be
+          // refused identically, so those surface. Main-agent turns only:
+          // background call sites answer to callers that handle their own
+          // failures.
+          if (
+            streamedTokens &&
+            !interruptedCallResumed &&
+            callSite === "mainAgent" &&
+            postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES
+          ) {
+            interruptedCallResumed = true;
+            postModelCallContinues++;
+            rlog.warn(
+              { turn: toolUseTurns, messageCount: history.length, err },
+              "Model call died mid-generation, resuming the turn",
+            );
             continue;
           }
         }

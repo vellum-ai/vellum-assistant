@@ -76,7 +76,9 @@ function ConsentCheckbox({
 }
 
 function Divider() {
-  return <div className="h-px bg-[var(--surface-active)] dark:bg-[var(--surface-lift)]" />;
+  return (
+    <div className="h-px bg-[var(--surface-active)] dark:bg-[var(--surface-lift)]" />
+  );
 }
 
 // A short "what's changed" summary shown above a consent checkbox when the
@@ -84,7 +86,9 @@ function Divider() {
 // change itself to the most legible line in the card — it's why the user is
 // here. Renders nothing when there are no notes.
 function PolicyChangeNotes({ notes }: { notes?: string[] }) {
-  if (!notes || notes.length === 0) return null;
+  if (!notes || notes.length === 0) {
+    return null;
+  }
   return (
     <div className="rounded-r-md border-l-2 border-[var(--content-secondary)] bg-[var(--surface-base)] py-3 pl-3.5 pr-3.5">
       <p className="text-body-small-default font-medium text-[var(--content-secondary)]">

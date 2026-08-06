@@ -71,12 +71,9 @@ const BASELINE: Record<string, readonly string[]> = {
     "src/daemon/conversation-runtime-assembly.ts",
     "src/daemon/conversation.ts",
   ],
-  "history-repair": [
-    "src/daemon/conversation-error.ts",
-    "src/daemon/conversation.ts",
-  ],
   "image-recovery": ["src/daemon/conversation-error.ts"],
   memory: [
+    "src/cli/commands/memory/memory-ingest.ts",
     "src/cli/commands/memory/memory-retrospective.ts",
     "src/cli/commands/memory/memory-v2-compare-render.ts",
     "src/cli/commands/memory/memory-v2.ts",
@@ -89,7 +86,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "src/context/strip-injections.ts",
     "src/daemon/conversation-agent-loop-handlers.ts",
     "src/daemon/conversation-agent-loop.ts",
-    "src/daemon/conversation-lifecycle.ts",
     "src/daemon/conversation-runtime-assembly.ts",
     "src/daemon/conversation-surfaces.ts",
     "src/daemon/conversation-tool-setup.ts",

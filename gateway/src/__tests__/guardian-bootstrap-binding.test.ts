@@ -235,6 +235,72 @@ describe("createGuardianBinding gateway dual-write", () => {
     expect(row.blockedReason).toBe("spam");
   });
 
+  test("does not reactivate a revoked row without reactivateRevoked (fail-closed default)", async () => {
+    // A deliberately-revoked binding must not be silently brought back by a
+    // caller with no fresh verification act — this is the single enforcement
+    // point beneath the recovery path's absent-guardian gate. A regression here
+    // (e.g. dropping the guard) turns this test red.
+    seedGwChannel({
+      contactId: "revoked-contact",
+      channelId: "revoked-channel",
+      type: "slack",
+      address: "U_OWNER",
+      principalId: "revoked-principal",
+      status: "revoked",
+      policy: "deny",
+    });
+
+    await createGuardianBinding({
+      channel: "slack",
+      externalUserId: "U_OWNER",
+      deliveryChatId: "D_OWNER",
+      guardianPrincipalId: "guardian-principal",
+      displayName: "Example User",
+      verifiedVia: "challenge",
+      // reactivateRevoked omitted → defaults false (fail-closed).
+    });
+
+    const rows = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.type, "slack"))
+      .all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.status).toBe("revoked"); // left intact, not reactivated
+  });
+
+  test("reactivates a revoked row when reactivateRevoked is set (verified act)", async () => {
+    // A caller backed by a fresh verification act (re-pair / re-verify) may
+    // bring a revoked binding back — the opt-in preserves that path.
+    seedGwChannel({
+      contactId: "revoked-contact",
+      channelId: "revoked-channel",
+      type: "slack",
+      address: "U_OWNER",
+      principalId: "revoked-principal",
+      status: "revoked",
+      policy: "deny",
+    });
+
+    await createGuardianBinding({
+      channel: "slack",
+      externalUserId: "U_OWNER",
+      deliveryChatId: "D_OWNER",
+      guardianPrincipalId: "guardian-principal",
+      displayName: "Example User",
+      verifiedVia: "challenge",
+      reactivateRevoked: true,
+    });
+
+    const rows = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.type, "slack"))
+      .all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.status).toBe("active"); // reactivated by the verified act
+  });
+
   test("inserts a brand-new (type,address) gateway row when none exists", async () => {
     const result = await createGuardianBinding({
       channel: "slack",
@@ -354,19 +420,21 @@ describe("createGuardianBinding id resolution (gateway reads)", () => {
       (c) => c[0] === "contacts_mirror_apply",
     );
     expect(applyCalls).toHaveLength(1);
-    expect((applyCalls[0][1] as { body: { ops: unknown[] } }).body.ops).toEqual([
-      {
-        op: "upsert_channel",
-        contactId: result.contactId,
-        channelId: result.channelId,
-        type: "slack",
-        address: "U_FRESH",
-        externalChatId: "D_FRESH",
-        displayName: "Example User",
-        isPrimary: true,
-        refreshDisplayName: true,
-        reassignConflictingChannels: true,
-      },
-    ]);
+    expect((applyCalls[0][1] as { body: { ops: unknown[] } }).body.ops).toEqual(
+      [
+        {
+          op: "upsert_channel",
+          contactId: result.contactId,
+          channelId: result.channelId,
+          type: "slack",
+          address: "U_FRESH",
+          externalChatId: "D_FRESH",
+          displayName: "Example User",
+          isPrimary: true,
+          refreshDisplayName: true,
+          reassignConflictingChannels: true,
+        },
+      ],
+    );
   });
 });

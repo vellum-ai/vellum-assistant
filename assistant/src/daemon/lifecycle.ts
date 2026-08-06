@@ -27,11 +27,15 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-backend.js";
 import { maybeEnqueueLexicalBackfillOnUpgrade } from "../persistence/job-handlers/message-lexical-backfill.js";
+import { clearLifecycleQuiesce } from "../persistence/lifecycle-quiesce.js";
+import { isPlatformClientConfigured } from "../platform/client.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
+import { repairSharedCredentialSlots } from "../providers/inference/credential-slot-repair.js";
 import { initializeProviders } from "../providers/registry.js";
+import { startRouteHost } from "../routes/control.js";
 import { floorSeqAbove } from "../runtime/assistant-stream-state.js";
 import {
   initAuthSigningKey,
@@ -43,7 +47,9 @@ import {
 } from "../runtime/http-server.js";
 import { warmLocalGuardianPrincipalCache } from "../runtime/local-actor-identity.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
+import { markCurrentProcessAsMainDaemon } from "../runtime/process-role.js";
 import { publishConfigChanged } from "../runtime/sync/resource-sync-events.js";
+import { reconcilePluginSchedules } from "../schedule/plugin-schedule-reconciler.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import { getSubagentManager } from "../subagent/index.js";
@@ -57,6 +63,7 @@ import {
 import { APP_VERSION } from "../version.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
+import { ensureByokDefaultProfiles } from "../workspace/byok-default-profile-ensure.js";
 import { ensureCompleteCustomProfiles } from "../workspace/custom-profile-ensure.js";
 import { ensureDefaultProvider } from "../workspace/default-provider-ensure.js";
 import { startWorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
@@ -76,7 +83,7 @@ import { startDiskPressureGuardForLifecycle } from "./disk-pressure-guard-lifecy
 import { startEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
-import { installAssistantSymlink } from "./install-symlink.js";
+import { installAssistantCommand } from "./install-assistant-command.js";
 import {
   type InterruptedResumeTarget,
   MAX_RESUME_ATTEMPTS,
@@ -101,6 +108,11 @@ function loadDotEnv(): void {
 
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
+  // Identify this process as the daemon before anything can publish: it owns
+  // the event hub real clients subscribe to, so plugin-facing publishes made
+  // here fan out locally rather than routing to a daemon over IPC.
+  markCurrentProcessAsMainDaemon();
+
   const startupStartedAt = Date.now();
   // dotenv loads before the first log call so the lazy root logger
   // initializes against the final VELLUM_WORKSPACE_DIR / log path, not
@@ -188,6 +200,14 @@ export async function runDaemon(): Promise<void> {
   // failure is non-fatal — the daemon falls back to IPC-only operation.
   await startRuntimeHttpServer();
 
+  // Warms the configured-probe cache (credential reads only, no DB). Fired
+  // immediately after the transport binds, ahead of DB init and readiness,
+  // so an urgent signal arriving the moment requests are admitted is not
+  // decided on an empty cache.
+  void isPlatformClientConfigured().catch((err) =>
+    log.warn({ err }, "Platform configured-probe warmup failed"),
+  );
+
   // Pre-populate feature flag overrides so subsequent sync
   // isAssistantFeatureFlagEnabled() calls have data. Fired non-blocking
   // so a slow or unreachable gateway doesn't delay daemon startup (the
@@ -240,6 +260,12 @@ export async function runDaemon(): Promise<void> {
   try {
     const { migrationsOk } = await initializeDb();
     dbReady = true;
+    // A quiesce lease can survive a stop that happened mid-drain; clear it so
+    // a fresh boot never starts with background work paused. Placed
+    // synchronously after DB init — before any await yields to the
+    // already-listening HTTP server — so it cannot delete a lease a client
+    // arms against THIS boot.
+    clearLifecycleQuiesce();
     // Floor the stream seq counter above every persisted conversation
     // anchor before turns can stamp events. Anchors are getCurrentSeq()
     // snapshots already served to clients, and a crashed process can have
@@ -315,6 +341,13 @@ export async function runDaemon(): Promise<void> {
         "provider_connections backfill failed — continuing startup",
       );
     }
+
+    // Repoint openai-compatible connections sharing the legacy provider-keyed
+    // credential slot onto per-connection slots. Vault-dependent, so it runs
+    // fire-and-forget with per-row deferral rather than blocking startup.
+    void repairSharedCredentialSlots(getDb()).catch((err) => {
+      log.warn({ err }, "credential slot repair failed — continuing startup");
+    });
 
     // Profiler retention sweep — prune completed profiler runs to stay
     // within configured byte-count, run-count, and free-space budgets.
@@ -452,13 +485,11 @@ export async function runDaemon(): Promise<void> {
   // seeder and persisted alongside schema defaults.
   const defaultConfigMerge = mergeDefaultWorkspaceConfig();
 
-  // Seed inference profiles into the workspace config. Managed Anthropic
-  // profiles are overwritten on every boot so Vellum can push updates.
-  // Off-platform hatches additionally create user profiles + a personal
-  // provider connection for the hatch provider.
+  // Seed inference profiles into the workspace config: active/advisor
+  // resolution plus, on off-platform hatches, `llm.defaultProvider` and a
+  // personal provider connection for the hatch provider.
   try {
     seedInferenceProfiles({
-      preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
       preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
       isHatch: defaultConfigMerge.hadOverlay,
       db: dbReady ? getDb() : undefined,
@@ -499,6 +530,22 @@ export async function runDaemon(): Promise<void> {
     log.warn(
       { err },
       "Default provider ensure pass failed — continuing startup",
+    );
+  }
+
+  // Runs on every boot, after the default-provider ensure (it keys off
+  // llm.defaultProvider) and before custom-profile materialization (so
+  // copies it retires this boot are never pointlessly materialized first;
+  // its comparison normalizes both sides through the same completion, so
+  // ordering is not correctness-bearing).
+  // See workspace/byok-default-profile-ensure.ts for the full rationale.
+  try {
+    ensureByokDefaultProfiles(getWorkspaceDir());
+    log.info("BYOK default profile ensure pass complete");
+  } catch (err) {
+    log.warn(
+      { err },
+      "BYOK default profile ensure pass failed; continuing startup",
     );
   }
 
@@ -652,6 +699,16 @@ export async function runDaemon(): Promise<void> {
     log.error({ err }, "Schedule recovery failed — continuing startup");
   }
 
+  // Converge plugin-declared schedules into cron_jobs rows before the
+  // scheduler starts claiming. The reconciler contains its own failures and
+  // checks DB migration readiness itself; the catch is startup insurance in
+  // the same shape as schedule recovery above.
+  try {
+    await reconcilePluginSchedules();
+  } catch (err) {
+    log.error({ err }, "Plugin schedule reconcile failed, continuing startup");
+  }
+
   // Reconcile workflow runs orphaned by a crash: any row still `running` was
   // in flight when the process died (the engine always finishes its row on
   // exit), so flip it to `interrupted` to make it eligible for an explicit
@@ -703,6 +760,10 @@ export async function runDaemon(): Promise<void> {
   // main event loop.
   startMonitoring();
 
+  // Pre-warm the route host subprocess when `userRoutes.host.enabled` is set
+  // (no-op otherwise). Fire-and-forget — never blocks boot.
+  startRouteHost();
+
   // The runtime HTTP server is up; broadcast the fresh daemon status so
   // connected clients pick up the transition.
   broadcastDaemonStatus();
@@ -724,10 +785,10 @@ export async function runDaemon(): Promise<void> {
 
   writePid(process.pid);
 
-  // Install the `assistant` CLI symlink idempotently on every daemon start.
+  // Install the `assistant` CLI command idempotently on every daemon start.
   // Best-effort and self-contained: every step swallows its own errors, so a
   // failure never affects startup.
-  installAssistantSymlink();
+  installAssistantCommand();
 
   void startEmbeddingRuntimeManager();
 

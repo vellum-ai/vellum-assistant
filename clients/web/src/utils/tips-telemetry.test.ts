@@ -23,8 +23,7 @@ const { emitTipEvent } = await import("@/utils/tips-telemetry");
 
 function eventFromCall(callIndex: number): Record<string, unknown> {
   const options = ingestMock.mock.calls[callIndex]?.[0] as
-    | { body: { events: Array<Record<string, unknown>> } }
-    | undefined;
+    { body: { events: Array<Record<string, unknown>> } } | undefined;
   if (!options) {
     throw new Error(`No ingest call at index ${callIndex}`);
   }

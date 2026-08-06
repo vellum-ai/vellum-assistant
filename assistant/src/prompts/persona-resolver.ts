@@ -56,11 +56,15 @@ export interface PersonaContext {
  * after stripping.
  */
 function readPersonaFile(filePath: string): string | null {
-  if (!existsSync(filePath)) return null;
+  if (!existsSync(filePath)) {
+    return null;
+  }
 
   try {
     const content = stripCommentLines(readFileSync(filePath, "utf-8")).trim();
-    if (content.length === 0) return null;
+    if (content.length === 0) {
+      return null;
+    }
     log.debug({ path: filePath }, "Loaded persona file");
     return content;
   } catch (err) {
@@ -214,7 +218,9 @@ function resolveUserFilename(
  */
 export function resolveGuardianPersonaPath(): string | null {
   const filename = resolveUserFilename(undefined);
-  if (!filename) return null;
+  if (!filename) {
+    return null;
+  }
   return join(getWorkspaceDir(), "users", filename);
 }
 
@@ -227,7 +233,9 @@ export function resolveUserSlug(
   trustContext: TrustContext | undefined,
 ): string | null {
   const filename = resolveUserFilename(trustContext);
-  if (!filename) return null;
+  if (!filename) {
+    return null;
+  }
   return filename.endsWith(".md") ? filename.slice(0, -3) : filename;
 }
 
@@ -328,9 +336,13 @@ export function resolveGuardianPersona(): string | null {
  */
 export function resolveGuardianPersonaStrict(): string | null {
   const filename = resolveUserFilename(undefined);
-  if (!filename) return null;
+  if (!filename) {
+    return null;
+  }
   const filePath = join(getWorkspaceDir(), "users", filename);
-  if (!existsSync(filePath)) return null;
+  if (!existsSync(filePath)) {
+    return null;
+  }
   return readPersonaFile(filePath);
 }
 
@@ -360,7 +372,9 @@ export function ensureGuardianPersonaFile(userFile: string): void {
   }
 
   const filePath = join(getWorkspaceDir(), "users", userFile);
-  if (existsSync(filePath)) return;
+  if (existsSync(filePath)) {
+    return;
+  }
 
   mkdirSync(dirname(filePath), { recursive: true });
   writeFileSync(filePath, GUARDIAN_PERSONA_TEMPLATE, "utf-8");
@@ -378,7 +392,9 @@ export function ensureGuardianPersonaFile(userFile: string): void {
  * `prompts/USER.md` entry may safely overwrite `users/<slug>.md`.
  */
 export function isGuardianPersonaCustomized(filePath: string): boolean {
-  if (!existsSync(filePath)) return false;
+  if (!existsSync(filePath)) {
+    return false;
+  }
 
   let content: string;
   try {
@@ -392,7 +408,9 @@ export function isGuardianPersonaCustomized(filePath: string): boolean {
   }
 
   const stripped = stripCommentLines(content);
-  if (stripped.length === 0) return false;
+  if (stripped.length === 0) {
+    return false;
+  }
 
   const templateStripped = stripCommentLines(GUARDIAN_PERSONA_TEMPLATE);
   return stripped !== templateStripped;
@@ -440,10 +458,14 @@ function buildOnboardingSection(normalized: NormalizedOnboarding): string {
  */
 function resolveOnboardingWriteTarget(): string {
   const guardianPath = resolveGuardianPersonaPath();
-  if (guardianPath) return guardianPath;
+  if (guardianPath) {
+    return guardianPath;
+  }
 
   const defaultUserPath = join(getWorkspaceDir(), "users", "default.md");
-  if (existsSync(defaultUserPath)) return defaultUserPath;
+  if (existsSync(defaultUserPath)) {
+    return defaultUserPath;
+  }
 
   return getWorkspacePromptPath("USER.md");
 }

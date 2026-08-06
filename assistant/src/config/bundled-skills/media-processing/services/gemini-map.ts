@@ -15,6 +15,7 @@ import { ApiError, GoogleGenAI } from "@google/genai";
 import { computeRetryDelay, sleep } from "../../../../util/retry.js";
 import { ConcurrencyPool } from "./concurrency-pool.js";
 import { type CostSummary, CostTracker } from "./cost-tracker.js";
+import { resolveMediaAnalysisModel } from "./media-analysis-model.js";
 import type { Segment } from "./preprocess.js";
 
 // ---------------------------------------------------------------------------
@@ -92,7 +93,7 @@ function computeConfigHash(options: GeminiMapOptions): string {
   const payload = JSON.stringify({
     systemPrompt: options.systemPrompt,
     outputSchema: options.outputSchema,
-    model: options.model ?? "gemini-2.5-flash",
+    model: resolveMediaAnalysisModel(options.model),
     context: options.context,
   });
   return createHash("sha256").update(payload).digest("hex").slice(0, 8);
@@ -137,7 +138,7 @@ async function processSegment(
 
   parts.push({ text: promptText });
 
-  const model = options.model ?? "gemini-2.5-flash";
+  const model = resolveMediaAnalysisModel(options.model);
 
   const response = await client.models.generateContent({
     model,
@@ -284,7 +285,7 @@ export async function mapSegments(
   options: GeminiMapOptions,
   onProgress?: (msg: string) => void,
 ): Promise<MapOutput> {
-  const model = options.model ?? "gemini-2.5-flash";
+  const model = resolveMediaAnalysisModel(options.model);
   const concurrency = options.concurrency ?? 10;
   const maxRetries = options.maxRetries ?? 3;
 

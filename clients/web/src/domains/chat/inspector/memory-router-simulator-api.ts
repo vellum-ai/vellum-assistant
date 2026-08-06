@@ -94,7 +94,9 @@ export async function simulateMemoryRouter(
 }
 
 function prettyJson(raw: string): string {
-  if (raw.length === 0) return raw;
+  if (raw.length === 0) {
+    return raw;
+  }
   try {
     return JSON.stringify(JSON.parse(raw), null, 2);
   } catch {

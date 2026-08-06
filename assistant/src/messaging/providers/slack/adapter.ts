@@ -8,13 +8,13 @@
 import { createHash } from "node:crypto";
 
 import {
+  buildSlackChannelLabelMap,
   buildSlackUserLabelMap,
   renderSlackTextForModel,
 } from "@vellumai/slack-text";
 
 import { findContactChannel } from "../../../contacts/contact-store.js";
 import type { OAuthConnection } from "../../../oauth/connection.js";
-import { resolveOAuthConnection } from "../../../oauth/connection-resolver.js";
 import { isProviderConnected } from "../../../oauth/oauth-store.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";
@@ -31,8 +31,8 @@ import type {
   SendOptions,
   SendResult,
 } from "../../provider-types.js";
+import { resolveSlackAuth } from "./auth.js";
 import * as slack from "./client.js";
-import { SlackApiError } from "./client.js";
 import {
   classifyConversationType,
   isPrivateConversation,
@@ -44,6 +44,7 @@ import type {
   SlackSearchMatch,
   SlackUser,
 } from "./types.js";
+import { SlackApiError } from "./web-api-transport.js";
 
 interface NormalizedSlackUserInfo {
   displayName: string;
@@ -68,6 +69,15 @@ const PERMANENT_USER_INFO_SLACK_ERRORS = new Set([
 
 // Cache normalized Slack user facts to avoid repeated API calls within a session.
 const userInfoCache = new Map<string, Promise<SlackUserInfoLookupResult>>();
+
+/**
+ * Cache resolved channel names for inline `<#C…>` mention rendering, same
+ * lifetime and keying discipline as {@link userInfoCache}. Holds `undefined`
+ * for channels this auth provably cannot resolve (not found / no permission)
+ * so a wall of history mentioning an inaccessible channel doesn't re-fire a
+ * doomed lookup per message batch.
+ */
+const channelNameCache = new Map<string, Promise<string | undefined>>();
 
 /**
  * Cached auth resolved during resolveConnection(), split by direction.
@@ -96,9 +106,15 @@ const botUserIdByBotIdCache = new Map<string, string>();
  * getReadAuth() / getWriteAuth() directly.
  */
 function getSlackAuth(connection?: OAuthConnection): OAuthConnection | string {
-  if (connection) return connection;
-  if (_cachedSlackWriteAuth) return _cachedSlackWriteAuth;
-  if (_cachedSlackReadAuth) return _cachedSlackReadAuth;
+  if (connection) {
+    return connection;
+  }
+  if (_cachedSlackWriteAuth) {
+    return _cachedSlackWriteAuth;
+  }
+  if (_cachedSlackReadAuth) {
+    return _cachedSlackReadAuth;
+  }
   throw new Error(
     "Slack: no connection or cached token available. Was resolveConnection() called?",
   );
@@ -109,8 +125,12 @@ function getSlackAuth(connection?: OAuthConnection): OAuthConnection | string {
  * conversation replies, search, users.info lookups).
  */
 function getReadAuth(connection?: OAuthConnection): OAuthConnection | string {
-  if (connection) return connection;
-  if (_cachedSlackReadAuth) return _cachedSlackReadAuth;
+  if (connection) {
+    return connection;
+  }
+  if (_cachedSlackReadAuth) {
+    return _cachedSlackReadAuth;
+  }
   return getSlackAuth(connection);
 }
 
@@ -124,8 +144,12 @@ function getReadAuth(connection?: OAuthConnection): OAuthConnection | string {
  * future reactions, joins, leaves, updates, or deletes).
  */
 function getWriteAuth(connection?: OAuthConnection): OAuthConnection | string {
-  if (connection) return connection;
-  if (_cachedSlackWriteAuth) return _cachedSlackWriteAuth;
+  if (connection) {
+    return connection;
+  }
+  if (_cachedSlackWriteAuth) {
+    return _cachedSlackWriteAuth;
+  }
   return getSlackAuth(connection);
 }
 
@@ -148,8 +172,12 @@ export async function withSlackBotToken<T>(
   // directly instead of accepting any previously cached workspace token.
   const resolvedAuth = await slackProvider.resolveConnection?.(account);
   const auth = resolvedAuth ?? _cachedSlackWriteAuth;
-  if (!auth) return null;
-  if (typeof auth === "string") return fn(auth);
+  if (!auth) {
+    return null;
+  }
+  if (typeof auth === "string") {
+    return fn(auth);
+  }
   return auth.withToken(fn);
 }
 
@@ -158,7 +186,9 @@ export async function resolveSlackBotUserId(
   botId: string,
 ): Promise<string | null> {
   const trimmedBotId = botId.trim();
-  if (!trimmedBotId) return null;
+  if (!trimmedBotId) {
+    return null;
+  }
 
   const cacheKey = account ? `${account}:${trimmedBotId}` : null;
   if (cacheKey && botUserIdByBotIdCache.has(cacheKey)) {
@@ -190,7 +220,9 @@ async function runReadWithFallback<T>(
   connection: OAuthConnection | undefined,
   call: (auth: OAuthConnection | string) => Promise<T>,
 ): Promise<T> {
-  if (connection) return call(connection);
+  if (connection) {
+    return call(connection);
+  }
   const auth = getReadAuth(undefined);
   const usingUserToken =
     _cachedSlackWriteAuth !== null &&
@@ -222,10 +254,14 @@ async function resolveUserInfo(
   auth: OAuthConnection | string,
   userId: string,
 ): Promise<NormalizedSlackUserInfo> {
-  if (!userId) return { displayName: "unknown" };
+  if (!userId) {
+    return { displayName: "unknown" };
+  }
   const cacheKey = slackUserInfoCacheKey(auth, userId);
   const cached = userInfoCache.get(cacheKey);
-  if (cached) return (await cached).info;
+  if (cached) {
+    return (await cached).info;
+  }
 
   const resolved = resolveUserInfoUncached(auth, userId).then(
     (result) => {
@@ -281,15 +317,54 @@ function isPermanentSlackUserInfoFailure(err: unknown): boolean {
   );
 }
 
+function slackAuthCacheScope(auth: OAuthConnection | string): string {
+  return typeof auth === "string"
+    ? `token:${createHash("sha256").update(auth).digest("hex")}`
+    : `connection:${auth.id}:${auth.accountInfo ?? ""}`;
+}
+
 function slackUserInfoCacheKey(
   auth: OAuthConnection | string,
   userId: string,
 ): string {
-  const authScope =
-    typeof auth === "string"
-      ? `token:${createHash("sha256").update(auth).digest("hex")}`
-      : `connection:${auth.id}:${auth.accountInfo ?? ""}`;
-  return `${authScope}:user:${userId}`;
+  return `${slackAuthCacheScope(auth)}:user:${userId}`;
+}
+
+/**
+ * Resolve a channel's display name for inline mention rendering, cached per
+ * auth scope. Returns undefined when the channel has no name (DMs) or this
+ * auth cannot see it; transient failures are not cached so a later batch
+ * retries.
+ */
+async function resolveChannelName(
+  auth: OAuthConnection | string,
+  channelId: string,
+): Promise<string | undefined> {
+  if (!channelId) {
+    return undefined;
+  }
+  const cacheKey = `${slackAuthCacheScope(auth)}:channel:${channelId}`;
+  const cached = channelNameCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const resolved = slack.conversationInfo(auth, channelId).then(
+    (resp) => trimNonEmpty(resp.channel.name),
+    (err: unknown) => {
+      // Cache the definitive "this auth cannot resolve it" answers; drop
+      // everything else so transient failures retry on the next batch.
+      const permanent =
+        err instanceof SlackApiError &&
+        (err.category === "channel_not_found" || err.category === "permission");
+      if (!permanent) {
+        channelNameCache.delete(cacheKey);
+      }
+      return undefined;
+    },
+  );
+  channelNameCache.set(cacheKey, resolved);
+  return resolved;
 }
 
 function normalizeSlackUserInfo(
@@ -313,19 +388,24 @@ function normalizeSlackUserInfo(
 }
 
 function trimNonEmpty(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
+  if (typeof value !== "string") {
+    return undefined;
+  }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-export function __resetSlackUserInfoCacheForTests(): void {
+export function __resetSlackMentionCachesForTests(): void {
   userInfoCache.clear();
+  channelNameCache.clear();
 }
 
 function slackUserInfoMetadata(
   userInfo: NormalizedSlackUserInfo | undefined,
 ): Record<string, unknown> {
-  if (!userInfo) return {};
+  if (!userInfo) {
+    return {};
+  }
   return {
     ...(userInfo.timezone ? { actorTimezone: userInfo.timezone } : {}),
     ...(userInfo.timezoneLabel
@@ -369,7 +449,9 @@ function mapSlackFiles(files: SlackMessage["files"]):
       urlPrivate?: string;
     }>
   | undefined {
-  if (!files || files.length === 0) return undefined;
+  if (!files || files.length === 0) {
+    return undefined;
+  }
   const mapped = files
     .map((file) => ({
       ...(file.id ? { id: file.id } : {}),
@@ -428,13 +510,13 @@ function mapMessage(
 
 function mapSearchMatch(
   match: SlackSearchMatch,
-  userLabels: Record<string, string>,
+  labels: SlackMentionLabels,
 ): Message {
   return {
     id: match.ts,
     conversationId: match.channel.id,
     sender: { id: match.user ?? "unknown", name: match.username ?? "unknown" },
-    text: renderSlackTextForModel(match.text, { userLabels }),
+    text: renderSlackTextForModel(match.text, labels),
     timestamp: parseFloat(match.ts) * 1000,
     threadId: match.thread_ts,
     platform: "slack",
@@ -447,7 +529,7 @@ async function mapSlackMessages(
   channelId: string,
   slackMessages: SlackMessage[],
 ): Promise<Message[]> {
-  const userLabels = await buildMentionUserLabels(
+  const labels = await buildMentionLabels(
     auth,
     slackMessages.map((msg) => msg.text),
   );
@@ -459,31 +541,48 @@ async function mapSlackMessages(
         msg,
         channelId,
         senderInfo,
-        renderSlackTextForModel(msg.text, { userLabels }),
+        renderSlackTextForModel(msg.text, labels),
       ),
     );
   }
   return messages;
 }
 
-async function buildMentionUserLabels(
+interface SlackMentionLabels {
+  userLabels: Record<string, string>;
+  channelLabels: Record<string, string>;
+}
+
+/**
+ * Resolve display labels for every user and channel mentioned inline in the
+ * given texts, so bare `<@U…>` / `<#C…>` tokens render as names instead of
+ * falling back to `@unknown-user` / `#unknown-channel`. Pipe-form tokens
+ * carry their own label and are skipped by the map builders.
+ */
+async function buildMentionLabels(
   auth: OAuthConnection | string,
-  textValues: Iterable<string | undefined>,
-): Promise<Record<string, string>> {
-  return buildSlackUserLabelMap(textValues, (userId) =>
-    resolveUserName(auth, userId),
-  );
+  textValues: readonly (string | undefined)[],
+): Promise<SlackMentionLabels> {
+  const [userLabels, channelLabels] = await Promise.all([
+    buildSlackUserLabelMap(textValues, (userId) =>
+      resolveUserName(auth, userId),
+    ),
+    buildSlackChannelLabelMap(textValues, (channelId) =>
+      resolveChannelName(auth, channelId),
+    ),
+  ]);
+  return { userLabels, channelLabels };
 }
 
 async function mapSearchMatches(
   auth: OAuthConnection | string,
   matches: SlackSearchMatch[],
 ): Promise<Message[]> {
-  const userLabels = await buildMentionUserLabels(
+  const labels = await buildMentionLabels(
     auth,
     matches.map((match) => match.text),
   );
-  return matches.map((match) => mapSearchMatch(match, userLabels));
+  return matches.map((match) => mapSearchMatch(match, labels));
 }
 
 export const slackProvider: MessagingProvider = {
@@ -504,7 +603,9 @@ export const slackProvider: MessagingProvider = {
     const botToken = await getSecureKeyAsync(
       credentialKey("slack_channel", "bot_token"),
     );
-    if (botToken) return true;
+    if (botToken) {
+      return true;
+    }
     // Preserve existing OAuth path for backwards compat.
     return isProviderConnected("slack");
   },
@@ -512,29 +613,23 @@ export const slackProvider: MessagingProvider = {
   async resolveConnection(
     account?: string,
   ): Promise<OAuthConnection | undefined> {
-    // Socket Mode: cache the raw bot token for use in adapter methods.
-    // Token presence is sufficient — no connection row required.
-    //
-    // When a user_token is also stored, prefer it for reads so the adapter
-    // can see channels the user is in but the bot isn't (conversations.list,
-    // conversations.history, search.messages). Writes always stay on the
-    // bot token — see SAFETY note above getWriteAuth().
-    const botToken = await getSecureKeyAsync(
-      credentialKey("slack_channel", "bot_token"),
-    );
-    const userToken = await getSecureKeyAsync(
-      credentialKey("slack_channel", "user_token"),
-    );
-    if (botToken) {
-      _cachedSlackWriteAuth = botToken;
-      _cachedSlackReadAuth = userToken ?? botToken;
-      return undefined;
+    // Resolve both identities through the canonical resolver and cache them
+    // for the adapter's read/write accessors. The write cache holds the bot
+    // identity (posts come from the bot); the read cache holds the user
+    // identity (wider visibility, search). Socket Mode yields raw token
+    // strings; the legacy OAuth path yields a refreshing OAuthConnection.
+    // Identity rules live in slack/auth.ts.
+    const writeAuth = await resolveSlackAuth("bot", { account });
+    if (writeAuth === undefined) {
+      // No Slack credentials configured — fail fast for the messaging path.
+      throw new Error("No OAuth connection found for slack");
     }
-    // Preserve existing OAuth path for backwards compat.
-    const conn = await resolveOAuthConnection("slack", { account });
-    _cachedSlackWriteAuth = conn;
-    _cachedSlackReadAuth = conn;
-    return conn;
+    _cachedSlackWriteAuth = writeAuth;
+    const readAuth = await resolveSlackAuth("user", { account });
+    _cachedSlackReadAuth = readAuth ?? writeAuth;
+    // Socket Mode caches the token internally (return undefined); OAuth returns
+    // the connection to the messaging framework.
+    return typeof writeAuth === "string" ? undefined : writeAuth;
   },
 
   async testConnection(connection?: OAuthConnection): Promise<ConnectionInfo> {

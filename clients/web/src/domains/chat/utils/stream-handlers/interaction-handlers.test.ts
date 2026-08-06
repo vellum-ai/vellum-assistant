@@ -107,9 +107,9 @@ describe("handleConfirmationRequest", () => {
       ctx,
     );
 
-    expect(
-      useInteractionStore.getState().inlineConfirmationToolCallId,
-    ).toBe("tc-1");
+    expect(useInteractionStore.getState().inlineConfirmationToolCallId).toBe(
+      "tc-1",
+    );
     expect(ctx.setConfirmationToolCall).toHaveBeenCalledWith("cr-1", "tc-1");
   });
 });
@@ -160,9 +160,9 @@ describe("handleInteractionResolved", () => {
       state: "cancelled",
     });
 
-    expect(
-      useInteractionStore.getState().pendingConfirmation?.requestId,
-    ).toBe("cr-1");
+    expect(useInteractionStore.getState().pendingConfirmation?.requestId).toBe(
+      "cr-1",
+    );
   });
 
   it("ignores non-confirmation interaction kinds", () => {
@@ -182,9 +182,89 @@ describe("handleInteractionResolved", () => {
     });
 
     // Host-proxy steps own their own lifecycle and must not clear the card.
-    expect(
-      useInteractionStore.getState().pendingConfirmation?.requestId,
-    ).toBe("cr-1");
+    expect(useInteractionStore.getState().pendingConfirmation?.requestId).toBe(
+      "cr-1",
+    );
+  });
+
+  it("retires a question card the daemon settled without the user", () => {
+    // Timeout, abort, supersession, and daemon restart all settle the prompt
+    // as "cancelled". None of them produce an answer, so this event is the
+    // only signal the card has stopped being answerable.
+    useInteractionStore
+      .getState()
+      .showQuestion({ requestId: "q-req-1", entries: [] });
+
+    handleInteractionResolved({
+      type: "interaction_resolved",
+      requestId: "q-req-1",
+      conversationId: "conv-1",
+      kind: "question",
+      state: "cancelled",
+    });
+
+    expect(useInteractionStore.getState().pendingQuestion).toBeNull();
+  });
+
+  it("retires a question card on the answered state too", () => {
+    // The channel paths (a Telegram option tap, a request-code reply) resolve
+    // the prompt as "answered" while the web card is still open.
+    useInteractionStore
+      .getState()
+      .showQuestion({ requestId: "q-req-1", entries: [] });
+
+    handleInteractionResolved({
+      type: "interaction_resolved",
+      requestId: "q-req-1",
+      conversationId: "conv-1",
+      kind: "question",
+      state: "answered",
+    });
+
+    expect(useInteractionStore.getState().pendingQuestion).toBeNull();
+  });
+
+  it("leaves a question card raised for a different requestId alone", () => {
+    useInteractionStore
+      .getState()
+      .showQuestion({ requestId: "q-req-2", entries: [] });
+
+    handleInteractionResolved({
+      type: "interaction_resolved",
+      requestId: "q-req-1",
+      conversationId: "conv-1",
+      kind: "question",
+      state: "cancelled",
+    });
+
+    expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
+      "q-req-2",
+    );
+  });
+
+  it("does not disturb a pending confirmation when a question resolves", () => {
+    useInteractionStore.getState().showConfirmation({
+      requestId: "cr-1",
+      toolName: "bash",
+      riskLevel: "high",
+      input: {},
+    });
+    useInteractionStore
+      .getState()
+      .showQuestion({ requestId: "q-req-1", entries: [] });
+
+    handleInteractionResolved({
+      type: "interaction_resolved",
+      requestId: "q-req-1",
+      conversationId: "conv-1",
+      kind: "question",
+      state: "cancelled",
+    });
+
+    expect(useInteractionStore.getState().pendingQuestion).toBeNull();
+    expect(useInteractionStore.getState().pendingConfirmation?.requestId).toBe(
+      "cr-1",
+    );
   });
 });
 

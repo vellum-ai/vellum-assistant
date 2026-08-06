@@ -268,7 +268,8 @@ describe("useDoctorAutoScroll", () => {
     expect(result.current.showScrollToLatest).toBe(true);
   });
 
-  test("resets pinned state when a new scroll element attaches", () => {    // First transcript — user scrolls away (un-pinned).
+  test("resets pinned state when a new scroll element attaches", () => {
+    // First transcript — user scrolls away (un-pinned).
     const { el: el1 } = createScrollElement({
       scrollTop: 4200,
       scrollHeight: 5000,

@@ -709,7 +709,7 @@ describe("HostTransferProxy — targetClientId", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("does not match");
+      expect(result.content).toContain("signed in as a different user");
       expect(sentMessages).toHaveLength(0);
     });
 
@@ -738,7 +738,7 @@ describe("HostTransferProxy — targetClientId", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("does not match");
+      expect(result.content).toContain("no authenticated actor");
       expect(sentMessages).toHaveLength(0);
     });
 
@@ -767,7 +767,9 @@ describe("HostTransferProxy — targetClientId", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("does not match");
+      expect(result.content).toContain(
+        "registered without an authenticated user",
+      );
       expect(sentMessages).toHaveLength(0);
     });
 
@@ -863,7 +865,7 @@ describe("HostTransferProxy — targetClientId", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("does not match");
+      expect(result.content).toContain("signed in as a different user");
       expect(sentMessages).toHaveLength(0);
     });
 

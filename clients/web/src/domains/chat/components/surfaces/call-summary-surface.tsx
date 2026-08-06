@@ -1,4 +1,10 @@
-import { ChevronDown, ChevronRight, Phone, PhoneMissed, PhoneOff } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Phone,
+  PhoneMissed,
+  PhoneOff,
+} from "lucide-react";
 import { useState } from "react";
 
 import type { Surface } from "@/domains/chat/types/types";
@@ -16,9 +22,7 @@ interface CallSummaryData {
 }
 
 function prettifyEventType(eventType: string): string {
-  return eventType
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return eventType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export function CallSummarySurface({
@@ -27,7 +31,11 @@ export function CallSummarySurface({
   // onAction is accepted to satisfy the SurfaceRouter contract but unused.
 }: {
   surface: Surface;
-  onAction: (surfaceId: string, actionId: string, data?: Record<string, unknown>) => void;
+  onAction: (
+    surfaceId: string,
+    actionId: string,
+    data?: Record<string, unknown>,
+  ) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const { status, duration, events = [] } = surface.data as CallSummaryData;

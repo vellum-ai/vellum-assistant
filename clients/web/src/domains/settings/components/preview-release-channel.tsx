@@ -1,31 +1,31 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-    AlertTriangle,
-    ChevronDown,
-    Loader2,
-    RefreshCw,
-    Rocket,
-    RotateCcw,
+  AlertTriangle,
+  ChevronDown,
+  Loader2,
+  RefreshCw,
+  Rocket,
+  RotateCcw,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
-    assistantsReleaseChannelPreviewOptInCreateMutation,
-    assistantsReleaseChannelPreviewOptOutCreateMutation,
-    assistantsReleaseChannelRetrieveOptions,
-    assistantsReleaseChannelRetrieveQueryKey,
-    assistantsRetrieveQueryKey,
+  assistantsReleaseChannelPreviewOptInCreateMutation,
+  assistantsReleaseChannelPreviewOptOutCreateMutation,
+  assistantsReleaseChannelRetrieveOptions,
+  assistantsReleaseChannelRetrieveQueryKey,
+  assistantsRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
-    ModeEnum,
-    PreviewSafetyBackup,
-    ReleaseChannelStatus,
+  ModeEnum,
+  PreviewSafetyBackup,
+  ReleaseChannelStatus,
 } from "@/generated/api/types.gen";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { Button } from "@vellumai/design-library/components/button";
 import { Collapsible } from "@vellumai/design-library/components/collapsible";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Radio, RadioGroup } from "@vellumai/design-library/components/radio";
@@ -100,7 +100,11 @@ export function PreviewReleaseChannel({
     path: { id: assistantId },
   });
 
-  const { data: status, isLoading, isError } = useQuery({
+  const {
+    data: status,
+    isLoading,
+    isError,
+  } = useQuery({
     ...statusQueryOptions,
     enabled: previewChannel,
     retry: false,
@@ -131,8 +135,7 @@ export function PreviewReleaseChannel({
   );
 
   const currentChannel = normalizeChannel(status?.current_channel);
-  const isChangingChannel =
-    optInMutation.isPending || optOutMutation.isPending;
+  const isChangingChannel = optInMutation.isPending || optOutMutation.isPending;
   const optInDisabled =
     isChangingChannel ||
     statusUnavailable(status) ||
@@ -150,8 +153,7 @@ export function PreviewReleaseChannel({
     return null;
   }
 
-  const standardUpgradeAvailable =
-    status?.standard_upgrade_available ?? false;
+  const standardUpgradeAvailable = status?.standard_upgrade_available ?? false;
 
   const openOptOutModal = () => {
     const backup = defaultRestoreBackup;
@@ -333,11 +335,7 @@ function StablePreviewPanel({
       <Button
         variant="outlined"
         leftIcon={
-          isChangingChannel ? (
-            <Loader2 className="animate-spin" />
-          ) : (
-            <Rocket />
-          )
+          isChangingChannel ? <Loader2 className="animate-spin" /> : <Rocket />
         }
         disabled={optInDisabled}
         onClick={onOptIn}
@@ -486,9 +484,7 @@ function OptOutModal({
     <Modal.Root open={open} onOpenChange={(next) => !next && onCancel()}>
       <Modal.Content size="md" hideCloseButton={isPending}>
         <Modal.Header>
-          <Modal.Title icon={AlertTriangle}>
-            Switch back to Stable
-          </Modal.Title>
+          <Modal.Title icon={AlertTriangle}>Switch back to Stable</Modal.Title>
           <Modal.Description>
             Choose how this assistant should leave the Preview channel.
           </Modal.Description>
@@ -522,7 +518,7 @@ function OptOutModal({
             {mode === "restore_backup" && backups.length > 0 && (
               <label className="flex flex-col gap-1 text-body-medium-default text-[var(--content-secondary)]">
                 Safety backup
-                <Dropdown
+                <Select
                   value={selectedSnapshotName}
                   onChange={onSnapshotChange}
                   disabled={isPending}

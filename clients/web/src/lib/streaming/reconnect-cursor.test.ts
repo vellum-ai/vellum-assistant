@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   advanceReconnectCursor,
+  advanceSeqGeneration,
   getAbandonedGenerationCeiling,
   getReconnectCursor,
+  getSeqGeneration,
   recordAbandonedGeneration,
   replaceReconnectCursor,
   resetReconnectCursor,
@@ -104,5 +106,33 @@ describe("reconnect-cursor — abandoned generation ceiling", () => {
 
     // THEN the ceiling clears too — the old seq space is gone
     expect(getAbandonedGenerationCeiling()).toBeNull();
+  });
+});
+
+describe("reconnect-cursor — seq generation", () => {
+  test("starts at 0 before any reset is observed", () => {
+    expect(getSeqGeneration()).toBe(0);
+  });
+
+  test("advances by one per observed reset", () => {
+    // WHEN two generation resets are observed
+    advanceSeqGeneration();
+    expect(getSeqGeneration()).toBe(1);
+    advanceSeqGeneration();
+
+    // THEN the counter tracks the number of resets
+    expect(getSeqGeneration()).toBe(2);
+  });
+
+  test("reset returns the generation to 0 (a new seq space)", () => {
+    // GIVEN a generation advanced by a reset
+    advanceSeqGeneration();
+    expect(getSeqGeneration()).toBe(1);
+
+    // WHEN the connection resets for a new assistant
+    resetReconnectCursor();
+
+    // THEN the generation clears too — the old seq space is gone
+    expect(getSeqGeneration()).toBe(0);
   });
 });

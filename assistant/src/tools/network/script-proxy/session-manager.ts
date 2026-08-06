@@ -101,11 +101,15 @@ const APPROVAL_HEADER_ALLOWLIST: readonly string[] = [
 function filterApprovalHeaders(
   raw: Record<string, string | string[] | undefined> | undefined,
 ): Record<string, string> | undefined {
-  if (!raw) return undefined;
+  if (!raw) {
+    return undefined;
+  }
   const out: Record<string, string> = {};
   for (const key of APPROVAL_HEADER_ALLOWLIST) {
     const value = raw[key];
-    if (value === undefined) continue;
+    if (value === undefined) {
+      continue;
+    }
     out[key] = Array.isArray(value) ? value.join(", ") : value;
   }
   return out;
@@ -149,9 +153,13 @@ async function buildInjectedValue(
       tpl.composeWith.service,
       tpl.composeWith.field,
     );
-    if (!composed) return null;
+    if (!composed) {
+      return null;
+    }
     const composedValue = await getSecureKeyAsync(composed.storageKey);
-    if (!composedValue) return null;
+    if (!composedValue) {
+      return null;
+    }
     value = `${value}${tpl.composeWith.separator}${composedValue}`;
   }
 
@@ -168,7 +176,9 @@ async function buildInjectedValue(
 function resolveInjectionTemplates(
   resolved: ResolvedCredential | undefined,
 ): CredentialInjectionTemplate[] {
-  if (!resolved) return [];
+  if (!resolved) {
+    return [];
+  }
   return resolved.injectionTemplates;
 }
 
@@ -243,11 +253,15 @@ function buildSessionStartHooks(): SessionStartHooks {
               let bestCandidates: CredentialInjectionTemplate[] = [];
 
               for (const tpl of tpls) {
-                if (tpl.injectionType === "query") continue;
+                if (tpl.injectionType === "query") {
+                  continue;
+                }
                 const match = matchHostPattern(req.hostname, tpl.hostPattern, {
                   includeApexForWildcard: true,
                 });
-                if (match === "none") continue;
+                if (match === "none") {
+                  continue;
+                }
 
                 const cmp = compareMatchSpecificity(match, bestMatch);
                 if (cmp < 0) {
@@ -266,9 +280,13 @@ function buildSessionStartHooks(): SessionStartHooks {
               }
             }
 
-            if (perCredentialBest.length === 0) return req.headers;
+            if (perCredentialBest.length === 0) {
+              return req.headers;
+            }
             // Cross-credential ambiguity - block
-            if (perCredentialBest.length > 1) return null;
+            if (perCredentialBest.length > 1) {
+              return null;
+            }
 
             const { credId, tpl } = perCredentialBest[0];
             log.debug(
@@ -282,9 +300,13 @@ function buildSessionStartHooks(): SessionStartHooks {
 
             if (tpl.injectionType === "header" && tpl.headerName) {
               const resolved = resolveById(credId);
-              if (!resolved) return req.headers;
+              if (!resolved) {
+                return req.headers;
+              }
               const value = await getSecureKeyAsync(resolved.storageKey);
-              if (!value) return req.headers;
+              if (!value) {
+                return req.headers;
+              }
 
               const headerValue = await buildInjectedValue(tpl, value);
               if (!headerValue) {
@@ -365,9 +387,13 @@ function buildSessionStartHooks(): SessionStartHooks {
           case "matched": {
             const { credentialId, template } = decision;
             const resolved = resolveById(credentialId);
-            if (!resolved) return {};
+            if (!resolved) {
+              return {};
+            }
             const value = await getSecureKeyAsync(resolved.storageKey);
-            if (!value) return {};
+            if (!value) {
+              return {};
+            }
 
             if (template.injectionType === "header" && template.headerName) {
               const headerValue = await buildInjectedValue(template, value);

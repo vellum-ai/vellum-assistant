@@ -15,7 +15,6 @@ export interface ConceptPageSummary {
  * the error state.
  */
 export type ListConceptPagesResult =
-  | { kind: "success"; pages: ConceptPageSummary[] }
-  | { kind: "disabled" };
+  { kind: "success"; pages: ConceptPageSummary[] } | { kind: "disabled" };
 
 export type SortOrder = "recent" | "az";

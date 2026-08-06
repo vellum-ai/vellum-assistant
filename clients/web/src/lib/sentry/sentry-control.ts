@@ -31,11 +31,14 @@ import { selectSentryFlavor } from "@/lib/sentry/flavor";
 import { diagnosticsConsentGranted } from "@/lib/sentry/consent-gate";
 import { watchDeviceSetting } from "@/utils/device-settings";
 import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
+import { disableNativeFailureReportForwarding } from "@/runtime/native-failure-reports";
 import { useAuthStore } from "@/stores/auth-store";
 
 function tryInit(options: BrowserOptions): void {
   const flavor = selectSentryFlavor();
-  if (flavor.getClientEnabled()) return;
+  if (flavor.getClientEnabled()) {
+    return;
+  }
   flavor.init(options);
 }
 
@@ -49,7 +52,10 @@ function tryClose(): void {
  * Idempotent when consent matches the current client state.
  */
 export function syncSentryClient(options: BrowserOptions): void {
-  if (!options.dsn) return;
+  if (!options.dsn) {
+    void disableNativeFailureReportForwarding();
+    return;
+  }
   if (diagnosticsConsentGranted()) {
     tryInit(options);
   } else {

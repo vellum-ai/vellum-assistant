@@ -21,8 +21,7 @@ export type ResolvedAssistantLifecycleState =
  */
 export const PROXY_NETWORK_ERROR_CODE = "proxy_network_error";
 
-export const TRANSPORT_ERROR_MESSAGE =
-  "Connection interrupted. Reconnecting…";
+export const TRANSPORT_ERROR_MESSAGE = "Connection interrupted. Reconnecting…";
 
 /**
  * Does this failed `/assistant/` result look like a transport failure
@@ -38,7 +37,9 @@ export const TRANSPORT_ERROR_MESSAGE =
 export function isTransportShapedError(
   error: Record<string, unknown>,
 ): boolean {
-  if (error.code === PROXY_NETWORK_ERROR_CODE) return true;
+  if (error.code === PROXY_NETWORK_ERROR_CODE) {
+    return true;
+  }
   const detail = typeof error.detail === "string" ? error.detail : "";
   return detail.includes("net::ERR_");
 }
@@ -110,7 +111,9 @@ export function isPlatformHostedDisabled(
   status: number | undefined,
   error: Record<string, unknown> | undefined,
 ): boolean {
-  if (status !== 503) return false;
+  if (status !== 503) {
+    return false;
+  }
   return error?.code === PLATFORM_HOSTED_DISABLED_CODE;
 }
 

@@ -31,7 +31,9 @@ export function matchHostPattern(
   const lHost = host.toLowerCase();
   const lPattern = pattern.toLowerCase();
 
-  if (lHost === lPattern) return "exact";
+  if (lHost === lPattern) {
+    return "exact";
+  }
 
   if (lPattern.startsWith("*.")) {
     const suffix = lPattern.slice(1); // ".fal.run"

@@ -21,11 +21,15 @@ export const updatePkbIndexBarMigration: WorkspaceMigration = {
 
   run(workspaceDir: string): void {
     const indexPath = join(workspaceDir, "pkb", "INDEX.md");
-    if (!existsSync(indexPath)) return;
+    if (!existsSync(indexPath)) {
+      return;
+    }
 
     const current = readFileSync(indexPath, "utf-8");
 
-    if (current.includes(NEW_BAR)) return;
+    if (current.includes(NEW_BAR)) {
+      return;
+    }
 
     if (current.includes(ORIGINAL_BAR)) {
       const updated = current.replace(ORIGINAL_BAR, NEW_BAR);

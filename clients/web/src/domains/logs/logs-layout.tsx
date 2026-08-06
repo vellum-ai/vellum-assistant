@@ -28,10 +28,11 @@ export function LogsLayout() {
 
   const pageTitle = useMemo(() => {
     const match = LOGS_SIDEBAR.find(
-      (item) =>
-        pathname === item.href || pathname.startsWith(item.href + "/"),
+      (item) => pathname === item.href || pathname.startsWith(item.href + "/"),
     );
-    if (match) return match.label;
+    if (match) {
+      return match.label;
+    }
     if (pathname === routes.logs.root) {
       return LOGS_SIDEBAR[0]?.label ?? "Logs & Usage";
     }
@@ -41,7 +42,9 @@ export function LogsLayout() {
   return (
     <SidebarShell
       backHref={routes.assistant}
-      sidebar={<SidebarTree items={filteredItems} indexPath={routes.logs.root} />}
+      sidebar={
+        <SidebarTree items={filteredItems} indexPath={routes.logs.root} />
+      }
       title={pageTitle}
       menuRoute={routes.logs.root}
     >

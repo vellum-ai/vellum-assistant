@@ -105,9 +105,13 @@ export function ActiveOverlayShell({
     // observe(parent) nor observe(el) alone would fire (Codex P2). `observe` is
     // idempotent, so re-observing on later mutations is safe.
     const observeSiblings = () => {
-      if (!observer || !el) return;
+      if (!observer || !el) {
+        return;
+      }
       for (const sibling of Array.from(row?.children ?? [])) {
-        if (sibling !== el) observer.observe(sibling);
+        if (sibling !== el) {
+          observer.observe(sibling);
+        }
       }
     };
     if (parent && el && typeof ResizeObserver !== "undefined") {
@@ -144,7 +148,10 @@ export function ActiveOverlayShell({
   // mirroring `animated-right-drawer`'s "unmeasured container keeps requested
   // width" fallback. Never produce a width <= 0.
   const fittedWidth = metrics
-    ? Math.max(1, Math.min(DROPDOWN_MAX_PX, metrics.available - DROPDOWN_GUTTER_PX))
+    ? Math.max(
+        1,
+        Math.min(DROPDOWN_MAX_PX, metrics.available - DROPDOWN_GUTTER_PX),
+      )
     : DROPDOWN_MAX_PX;
 
   // Horizontal placement. The transform keeps `x: "-50%"` (centering on the
@@ -169,7 +176,9 @@ export function ActiveOverlayShell({
 
   // While open, dismiss on outside pointerdown or Escape.
   useEffect(() => {
-    if (!expanded) return;
+    if (!expanded) {
+      return;
+    }
 
     const handlePointerDown = (event: PointerEvent) => {
       if (
@@ -180,7 +189,7 @@ export function ActiveOverlayShell({
       }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !event.defaultPrevented) {
         // Claim Escape so it dismisses only this dropdown, not also an
         // underlying side panel: `ChatContentLayout`'s window keydown handler
         // bails on `event.defaultPrevented`. The listener is attached only
@@ -214,6 +223,8 @@ export function ActiveOverlayShell({
           // from the row's width (Figma 6063:149685). Width is fitted to the
           // chat column (see `fittedWidth`) rather than the viewport.
           <motion.div
+            data-slot="active-overlay-panel"
+            data-state="open"
             // Horizontal centering lives in motion's `x: "-50%"` (not a
             // `-translate-x-1/2` class) so it composes with the animated
             // `scale`/`y` in the same inline `transform` — version-independent
@@ -222,12 +233,18 @@ export function ActiveOverlayShell({
             // Width fits the chat column (not the viewport) so a detail panel +
             // sidebar can't clip it; `left` is the clamped anchor that pairs
             // with the `x: "-50%"` transform below.
-            style={{ width: fittedWidth, left: dropdownLeft, transformOrigin: "top center" }}
+            style={{
+              width: fittedWidth,
+              left: dropdownLeft,
+              transformOrigin: "top center",
+            }}
             initial={{ opacity: 0, scale: 0.96, y: -4, x: "-50%" }}
             animate={{ opacity: 1, scale: 1, y: 0, x: "-50%" }}
             exit={{ opacity: 0, scale: 0.96, y: -4, x: "-50%" }}
             transition={
-              reduce ? { duration: 0 } : { duration: 0.16, ease: [0.16, 1, 0.3, 1] }
+              reduce
+                ? { duration: 0 }
+                : { duration: 0.16, ease: [0.16, 1, 0.3, 1] }
             }
           >
             <Typography

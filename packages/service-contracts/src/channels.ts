@@ -29,6 +29,7 @@ export const CHANNEL_IDS = [
   "email",
   "platform",
   "a2a",
+  "discord",
 ] as const;
 
 export type ChannelId = (typeof CHANNEL_IDS)[number];

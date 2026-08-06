@@ -8,7 +8,14 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { VIRTUAL_CENTER } from "@/domains/intelligence/components/constellation-view/constants";
 import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
@@ -16,11 +23,17 @@ import { emitMemoryEvent } from "@/domains/intelligence/memory-telemetry";
 import { Button } from "@vellumai/design-library";
 
 import { buildForceLayout } from "./build-force-layout";
+import { CenteredMessage } from "./centered-message";
 import { ConceptDetailPanel, type ConceptDetailNode } from "./concept-detail-panel";
 import { ConceptGraphIntroBanner } from "./concept-graph-intro-banner";
 import { ConceptGraphLegend } from "./concept-graph-legend";
-import { CLUSTER_PALETTE, EDGE_LEARNED_COLOR, NODE_KIND_COLORS } from "./constants";
+import {
+  CLUSTER_PALETTE,
+  EDGE_LEARNED_COLOR,
+  NODE_KIND_COLORS,
+} from "./constants";
 import { detectClusters } from "./detect-clusters";
+import { MemoryUpgradePrompt } from "./memory-upgrade-prompt";
 import { RecencyLens, type RecencyWindow } from "./recency-lens";
 import type { ConceptNodeKind, GraphLayoutNode } from "./types";
 import { useGraphIntroDismissed } from "./use-graph-intro-dismissed";
@@ -69,6 +82,12 @@ const SELECTION_DIM_EDGE = 0.03;
 
 // Below this node count the graph is small enough to scan by eye — no search box.
 const SEARCH_MIN_NODES = 12;
+
+// How long a just-created memory announces itself: expanding rings around the
+// node after the camera lands on it (a static highlight ring under reduced
+// motion). Long enough to register, short enough that rapid consecutive
+// creates don't feel noisy.
+const BORN_PULSE_MS = 2600;
 
 interface Projected {
   id: string;
@@ -140,6 +159,14 @@ function makeEgoTest(
     selectedId != null && (id === selectedId || (neighbors?.has(id) ?? false));
 }
 
+export interface ConceptGraphViewHandle {
+  /** Fly the camera to a node and run the short "born" pulse marking where it
+   * landed. An id the current layout doesn't know yet (the usual case right
+   * after a create, while the graph refetch is in flight) is parked and
+   * applied as soon as a layout containing it arrives. */
+  focusNode(id: string): void;
+}
+
 export interface ConceptGraphViewProps {
   assistantId: string;
   className?: string;
@@ -148,21 +175,15 @@ export interface ConceptGraphViewProps {
   /** Opens a fresh chat seeded with a message; wired to the node detail drawer's
    * chat-from-node actions. When absent, those actions are hidden. */
   onOpenThread?: (message: string) => void;
-}
-
-function CenteredMessage({ title, detail }: { title: string; detail?: string }) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-      <p className="text-body-medium-default" style={{ color: "var(--content-default)" }}>
-        {title}
-      </p>
-      {detail ? (
-        <p className="max-w-sm text-body-small-default" style={{ color: "var(--content-tertiary)" }}>
-          {detail}
-        </p>
-      ) : null}
-    </div>
-  );
+  /** Page-owned action rendered at the header's right edge (e.g. the Memory
+   * tab's "Create memory" CTA). The header owns ordering, so the action is a
+   * flex sibling of the stats/search cluster and cannot overlap it at any
+   * container width. */
+  headerAction?: React.ReactNode;
+  /** Imperative surface for page-driven navigation (fly-to-node after a
+   * create). A plain prop rather than forwardRef so callers that don't need
+   * it never see a ref signature. */
+  handleRef?: React.Ref<ConceptGraphViewHandle>;
 }
 
 /**
@@ -177,6 +198,8 @@ export function ConceptGraphView({
   isFullscreen,
   onToggleFullscreen,
   onOpenThread,
+  headerAction,
+  handleRef,
 }: ConceptGraphViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -265,7 +288,9 @@ export function ConceptGraphView({
   // Framed by the 92nd percentile of node distances so a few fringe/orphan
   // nodes can't shrink the whole mass into the middle of the viewport.
   const massRadius = useMemo(() => {
-    if (layout.nodes.length === 0) {return 1;}
+    if (layout.nodes.length === 0) {
+      return 1;
+    }
     const dists = layout.nodes
       .map((n) => {
         const dx = n.x - VIRTUAL_CENTER.x;
@@ -304,6 +329,12 @@ export function ConceptGraphView({
   // Set on dismiss so the 60fps loop eases the camera back out to the overview
   // framing (zoom + pitch), then clears itself once settled.
   const resetViewRef = useRef(false);
+  // A just-created memory announcing itself: the render loop draws expanding
+  // rings around this node for BORN_PULSE_MS after the camera lands on it.
+  const bornRef = useRef<{ id: string; start: number } | null>(null);
+  // A focusNode() request for an id the current layout doesn't know yet —
+  // applied by the layout effect once the post-create refetch delivers it.
+  const pendingFocusRef = useRef<string | null>(null);
 
   // Bumped only when the focused node changes, so the DOM tooltip re-renders.
   // The canvas itself never needs React state.
@@ -344,16 +375,32 @@ export function ConceptGraphView({
   // a ref the 60fps render loop reads (so keystrokes don't re-run the effect),
   // and `dirty` is bumped whenever it changes so reduced-motion redraws.
   const [search, setSearch] = useState("");
+  // On narrow containers the header collapses the search field to an icon
+  // button; this holds whether the field is expanded there. On wide
+  // containers the field is always visible and this state is inert.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  // Focus the field when the collapsed (icon) form expands it, so the tap
+  // that opened it also starts the typing session.
+  useEffect(() => {
+    if (searchOpen) {
+      searchInputRef.current?.focus();
+    }
+  }, [searchOpen]);
   // Latch so the "search" interaction is emitted once per search session — on
   // the empty→non-empty transition — not per keystroke. Reset whenever the box
   // empties (see the effect below), so a fresh search re-emits.
   const searchEmittedRef = useRef(false);
   const searchLower = search.trim().toLowerCase();
   const matchIds = useMemo(() => {
-    if (!searchLower) {return null;}
+    if (!searchLower) {
+      return null;
+    }
     const s = new Set<string>();
     for (const n of layout.nodes) {
-      if (n.label.toLowerCase().includes(searchLower)) {s.add(n.id);}
+      if (n.label.toLowerCase().includes(searchLower)) {
+        s.add(n.id);
+      }
     }
     return s;
   }, [searchLower, layout.nodes]);
@@ -394,7 +441,11 @@ export function ConceptGraphView({
   const recencyRef = useRef<number | null>(null);
   useEffect(() => {
     recencyRef.current =
-      recency === "week" ? 7 * DAY_MS : recency === "month" ? 30 * DAY_MS : null;
+      recency === "week"
+        ? 7 * DAY_MS
+        : recency === "month"
+          ? 30 * DAY_MS
+          : null;
     view.current.dirty = true;
   }, [recency]);
   // Whether any node carries a recency timestamp. Without one the lens has
@@ -470,6 +521,43 @@ export function ConceptGraphView({
     },
     [openNodeDetail, focusOn],
   );
+
+  // Fly to a node and start its "born" pulse. Under reduced motion the loop
+  // only redraws on input, so schedule the redraw that retires the static
+  // highlight ring once the window ends.
+  const applyBorn = useCallback(
+    (id: string) => {
+      bornRef.current = { id, start: performance.now() };
+      focusOn(id);
+      window.setTimeout(() => {
+        view.current.dirty = true;
+      }, BORN_PULSE_MS + 60);
+    },
+    [focusOn],
+  );
+
+  const focusNode = useCallback(
+    (id: string) => {
+      if (layout.nodes.some((n) => n.id === id)) {
+        applyBorn(id);
+      } else {
+        pendingFocusRef.current = id;
+      }
+    },
+    [layout.nodes, applyBorn],
+  );
+
+  // Apply a parked focusNode() request once a layout containing the node
+  // lands (the post-create refetch resolving).
+  useEffect(() => {
+    const id = pendingFocusRef.current;
+    if (id && layout.nodes.some((n) => n.id === id)) {
+      pendingFocusRef.current = null;
+      applyBorn(id);
+    }
+  }, [layout.nodes, applyBorn]);
+
+  useImperativeHandle(handleRef, () => ({ focusNode }), [focusNode]);
 
   // Fully dismiss the detail drawer back to the overview: empty the trail
   // (closing the drawer), clear any active search (the box hides behind the
@@ -555,12 +643,18 @@ export function ConceptGraphView({
   }, [openNode?.id, adjacency, layout.nodes, layout.edges]);
 
   useEffect(() => {
-    if (!ready) {return;}
+    if (!ready) {
+      return;
+    }
     const canvas = canvasRef.current;
     const container = containerRef.current;
-    if (!canvas || !container) {return;}
+    if (!canvas || !container) {
+      return;
+    }
     const ctx = canvas.getContext("2d");
-    if (!ctx) {return;}
+    if (!ctx) {
+      return;
+    }
 
     // Capture the current layout for the loop; the effect re-runs (cancelling
     // this loop) whenever the data changes, so these never go stale.
@@ -575,7 +669,9 @@ export function ConceptGraphView({
     const presentNodeIds = new Set(nodes.map((n) => n.id));
     const R = massRadius;
 
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
     colorsRef.current = resolveColors(container);
 
     let dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -596,6 +692,20 @@ export function ConceptGraphView({
     applySize();
     const ro = new ResizeObserver(applySize);
     ro.observe(container);
+
+    // Label/edge colors are sampled from CSS variables, which only change when
+    // the root's theme attributes do: a live theme switch (data-theme/class) or
+    // a workspace-theme inline-var write (style). Re-sample on those mutations
+    // so the canvas doesn't keep painting the previous theme's colors — e.g.
+    // light-theme label ink on a dark background.
+    const themeObserver = new MutationObserver(() => {
+      colorsRef.current = resolveColors(container);
+      view.current.dirty = true;
+    });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme", "class", "style"],
+    });
 
     let raf = 0;
     let last = 0;
@@ -709,8 +819,12 @@ export function ConceptGraphView({
       // selected ego-network overrides the recency window and edge-kind filter
       // so it always reads and stays interactive; search still narrows normally.
       const selectedId = selectedIdRef.current;
-      const selectionActive = selectedId != null && presentNodeIds.has(selectedId);
-      const inSelectedEgo = makeEgoTest(adj, selectionActive ? selectedId : null);
+      const selectionActive =
+        selectedId != null && presentNodeIds.has(selectedId);
+      const inSelectedEgo = makeEgoTest(
+        adj,
+        selectionActive ? selectedId : null,
+      );
 
       // Density fog: fade the resting learned-edge web as the corpus grows.
       const learnedFog =
@@ -751,9 +865,13 @@ export function ConceptGraphView({
         };
       }
       // Painter's order: far → near.
-      const order = proj.map((_, i) => i).sort((a, b) => proj[a].depth - proj[b].depth);
+      const order = proj
+        .map((_, i) => i)
+        .sort((a, b) => proj[a].depth - proj[b].depth);
       const posById = new Map<string, (typeof proj)[number]>();
-      for (const p of proj) {posById.set(p.node.id, p);}
+      for (const p of proj) {
+        posById.set(p.node.id, p);
+      }
 
       // Edges (behind nodes). Each drawn, non-ghosted segment is also collected
       // (screen-space endpoints) so the pointer can hit-test edges for hover.
@@ -762,7 +880,9 @@ export function ConceptGraphView({
       for (const e of edges) {
         const a = posById.get(e.fromId);
         const b = posById.get(e.toId);
-        if (!a || !b) {continue;}
+        if (!a || !b) {
+          continue;
+        }
         const learned = e.kind === "learned";
         // Spine of the focused ego-network: an edge touching the selected node
         // (selected ↔ neighbor). It overrides the edge-kind filter and the
@@ -781,7 +901,8 @@ export function ConceptGraphView({
         const ghost =
           (searchActive && (!isMatch(e.fromId) || !isMatch(e.toId))) ||
           (!egoEdge && (isRecencyGhost(a.node) || isRecencyGhost(b.node)));
-        const incident = activeId != null && (e.fromId === activeId || e.toId === activeId);
+        const incident =
+          activeId != null && (e.fromId === activeId || e.toId === activeId);
         const depth = (a.depth + b.depth) / 2;
         // Only offer hover on edges that read as present — skip faded ones. With
         // a selection, only the lit ego edges are hit-testable (the rest dim).
@@ -809,7 +930,11 @@ export function ConceptGraphView({
           // other edge fades to near-zero so the neighborhood reads.
           alpha = egoEdge ? 0.9 : SELECTION_DIM_EDGE;
         } else if (activeId != null) {
-          alpha = incident ? 0.9 : isLit(e.fromId) && isLit(e.toId) ? litAlpha : 0.05;
+          alpha = incident
+            ? 0.9
+            : isLit(e.fromId) && isLit(e.toId)
+              ? litAlpha
+              : 0.05;
         } else {
           alpha = restAlpha;
         }
@@ -834,7 +959,9 @@ export function ConceptGraphView({
         // node falls back to its per-kind color.
         const color =
           node.kind === "concept"
-            ? CLUSTER_PALETTE[(nodeClusters.get(node.id) ?? 0) % CLUSTER_PALETTE.length]
+            ? CLUSTER_PALETTE[
+                (nodeClusters.get(node.id) ?? 0) % CLUSTER_PALETTE.length
+              ]
             : NODE_KIND_COLORS[node.kind];
         const searchGhost = searchActive && !isMatch(node.id);
         // Selection overrides the recency window for the focused ego-network so
@@ -857,7 +984,8 @@ export function ConceptGraphView({
                 ? depthA
                 : depthA * 0.18;
 
-        let glow = (isActive ? 16 : node.degree >= HUB_LABEL_DEGREE ? 8 : 4) * p.depth;
+        let glow =
+          (isActive ? 16 : node.degree >= HUB_LABEL_DEGREE ? 8 : 4) * p.depth;
         // Recency: fresh concepts glow brighter; the very newest pulse. Static
         // (no pulse) under reduced motion, which only ever redraws on input.
         const updatedAtMs = node.updatedAtMs;
@@ -893,6 +1021,35 @@ export function ConceptGraphView({
         ctx.setLineDash(isPending ? [3, 3] : []);
         ctx.stroke();
         ctx.setLineDash([]);
+
+        // Born pulse: a just-created memory announces itself with staggered
+        // expanding rings for BORN_PULSE_MS after the camera lands on it —
+        // a single static highlight ring under reduced motion.
+        const born = bornRef.current;
+        if (born && born.id === node.id) {
+          const bornElapsed = t - born.start;
+          if (bornElapsed > BORN_PULSE_MS) {
+            bornRef.current = null;
+          } else if (reduceMotion) {
+            ctx.globalAlpha = 0.7;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(p.sx, p.sy, p.sr + 7, 0, Math.PI * 2);
+            ctx.stroke();
+          } else {
+            for (let ring = 0; ring < 3; ring++) {
+              const prog = (bornElapsed - ring * 320) / 1100;
+              if (prog <= 0 || prog >= 1) {
+                continue;
+              }
+              ctx.globalAlpha = (1 - prog) * 0.8;
+              ctx.lineWidth = 1.5;
+              ctx.beginPath();
+              ctx.arc(p.sx, p.sy, p.sr + prog * 46 * p.depth, 0, Math.PI * 2);
+              ctx.stroke();
+            }
+          }
+        }
       }
       ctx.shadowBlur = 0;
 
@@ -925,12 +1082,15 @@ export function ConceptGraphView({
               ? isLit(node.id)
               : hubIds.has(node.id) ||
                 (node.degree >= HUB_LABEL_DEGREE && p.depth > 0.55);
-        if (!showLabel) {continue;}
+        if (!showLabel) {
+          continue;
+        }
         ctx.globalAlpha =
           (node.id === activeId || node.id === selectedId ? 1 : 0.85) *
           (0.4 + 0.6 * p.depth);
         ctx.fillStyle = colors.content;
-        const label = node.label.length > 22 ? `${node.label.slice(0, 21)}…` : node.label;
+        const label =
+          node.label.length > 22 ? `${node.label.slice(0, 21)}…` : node.label;
         ctx.fillText(label, p.sx, p.sy + p.sr + 3);
       }
       ctx.globalAlpha = 1;
@@ -952,6 +1112,7 @@ export function ConceptGraphView({
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      themeObserver.disconnect();
     };
   }, [ready, layout, adjacency, massRadius, clusters, clusterHubs]);
 
@@ -961,32 +1122,40 @@ export function ConceptGraphView({
   // (a missing timestamp counts as stale). A selected concept's ego-network is
   // exempt from the recency skip so the focused neighborhood stays clickable.
   // Mirrors the render-loop ghosting.
-  const hitTest = useCallback((x: number, y: number): string | null => {
-    const filter = filterRef.current;
-    const recencyWindowMs = recencyRef.current;
-    // The focused ego-network stays clickable even when a recency window would
-    // otherwise skip it (selection overrides the filter); search still narrows.
-    const inSelectedEgo = makeEgoTest(adjacency, selectedIdRef.current);
-    const now = Date.now();
-    let best: string | null = null;
-    let bestDepth = -1;
-    for (const p of projectedRef.current) {
-      if (filter.active && !(filter.matches?.has(p.id) ?? false)) {continue;}
-      if (
-        !inSelectedEgo(p.id) &&
-        isStale(p.updatedAtMs, recencyWindowMs, now)
-      ) {
-        continue;
+  const hitTest = useCallback(
+    (x: number, y: number): string | null => {
+      const filter = filterRef.current;
+      const recencyWindowMs = recencyRef.current;
+      // The focused ego-network stays clickable even when a recency window would
+      // otherwise skip it (selection overrides the filter); search still narrows.
+      const inSelectedEgo = makeEgoTest(adjacency, selectedIdRef.current);
+      const now = Date.now();
+      let best: string | null = null;
+      let bestDepth = -1;
+      for (const p of projectedRef.current) {
+        if (filter.active && !(filter.matches?.has(p.id) ?? false)) {
+          continue;
+        }
+        if (
+          !inSelectedEgo(p.id) &&
+          isStale(p.updatedAtMs, recencyWindowMs, now)
+        ) {
+          continue;
+        }
+        const dx = x - p.sx;
+        const dy = y - p.sy;
+        if (
+          dx * dx + dy * dy <= (p.sr + 5) * (p.sr + 5) &&
+          p.depth > bestDepth
+        ) {
+          best = p.id;
+          bestDepth = p.depth;
+        }
       }
-      const dx = x - p.sx;
-      const dy = y - p.sy;
-      if (dx * dx + dy * dy <= (p.sr + 5) * (p.sr + 5) && p.depth > bestDepth) {
-        best = p.id;
-        bestDepth = p.depth;
-      }
-    }
-    return best;
-  }, [adjacency]);
+      return best;
+    },
+    [adjacency],
+  );
 
   // Nearest EDGE segment under a screen point, within ~5px (point-to-segment
   // distance); on ties the one nearer the front (higher depth) wins. Only the
@@ -1028,8 +1197,12 @@ export function ConceptGraphView({
   };
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) {return;}
-    if ((e.target as HTMLElement).closest("[data-graph-control]")) {return;}
+    if (e.button !== 0) {
+      return;
+    }
+    if ((e.target as HTMLElement).closest("[data-graph-control]")) {
+      return;
+    }
     const v = view.current;
     // A user grab takes control immediately: cancel any in-flight search
     // jump-to ease so the drag isn't fighting the camera each frame.
@@ -1052,7 +1225,10 @@ export function ConceptGraphView({
           v.moved = true;
         }
         v.yaw += dx * DRAG_SENSITIVITY;
-        v.pitch = Math.max(-PITCH_CLAMP, Math.min(PITCH_CLAMP, v.pitch + dy * DRAG_SENSITIVITY));
+        v.pitch = Math.max(
+          -PITCH_CLAMP,
+          Math.min(PITCH_CLAMP, v.pitch + dy * DRAG_SENSITIVITY),
+        );
         v.lastX = e.clientX;
         v.lastY = e.clientY;
         v.lastInteractAt = performance.now();
@@ -1125,13 +1301,20 @@ export function ConceptGraphView({
 
   useEffect(() => {
     const el = containerRef.current;
-    if (!el || !ready) {return;}
+    if (!el || !ready) {
+      return;
+    }
     const onWheel = (e: WheelEvent) => {
       // Let the detail drawer scroll natively instead of zooming the graph.
-      if ((e.target as HTMLElement).closest?.("[data-graph-panel]")) {return;}
+      if ((e.target as HTMLElement).closest?.("[data-graph-panel]")) {
+        return;
+      }
       e.preventDefault();
       const v = view.current;
-      v.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, v.zoom * (1 - e.deltaY / 500)));
+      v.zoom = Math.max(
+        MIN_ZOOM,
+        Math.min(MAX_ZOOM, v.zoom * (1 - e.deltaY / 500)),
+      );
       v.lastInteractAt = performance.now();
       v.dirty = true;
     };
@@ -1143,8 +1326,14 @@ export function ConceptGraphView({
     const kinds = new Set(layout.nodes.map((n) => n.kind));
     return NODE_KIND_ORDER.filter((k) => kinds.has(k));
   }, [layout.nodes]);
-  const hasLearned = useMemo(() => layout.edges.some((e) => e.kind === "learned"), [layout.edges]);
-  const hasLinks = useMemo(() => layout.edges.some((e) => e.kind !== "learned"), [layout.edges]);
+  const hasLearned = useMemo(
+    () => layout.edges.some((e) => e.kind === "learned"),
+    [layout.edges],
+  );
+  const hasLinks = useMemo(
+    () => layout.edges.some((e) => e.kind !== "learned"),
+    [layout.edges],
+  );
   // The Link/Learned toggles only render when both kinds are present. If a
   // refetch leaves only one kind, the controls disappear — so clear any active
   // filter, otherwise a previously-hidden kind stays hidden with no way to
@@ -1162,13 +1351,35 @@ export function ConceptGraphView({
   // over the loading / error / unsupported states.
   const showIntro = query.data?.kind === "ready" && !introDismissed;
 
+  // Brain-vocabulary stats for the header: neurons (nodes), synapses (edges),
+  // and lobes (distinct detected clusters). Rendered only when `ready`, so
+  // they always carry live counts.
+  const neurons = layout.nodes.length;
+  const synapses = layout.edges.length;
+  const lobes = new Set(clusters.values()).size;
+  const plural = (n: number, word: string) =>
+    `${n} ${word}${n === 1 ? "" : "s"}`;
+
+  // Header slots. The hover pill (node/edge label) wins the center slot over
+  // the stats, and both yield to the intro banner — the same precedence the
+  // pills had when they floated over the canvas, now enforced by one slot.
+  const hoverLabel = !showIntro ? (focusLabel ?? edgeLabel) : null;
+  const showSearch =
+    ready && (layout.nodes.length > SEARCH_MIN_NODES || Boolean(search));
+  // Skip the header entirely when it would be an empty strip (e.g. the
+  // loading / unsupported states with no fullscreen toggle or page action).
+  const showHeader = Boolean(onToggleFullscreen || headerAction) || ready;
+
   let body: React.ReactNode;
   if (query.isLoading) {
     body = (
       <div className="flex h-full items-center justify-center">
         <div
           className="h-6 w-6 animate-spin rounded-full border-2"
-          style={{ borderColor: "var(--border-base)", borderTopColor: "var(--content-tertiary)" }}
+          style={{
+            borderColor: "var(--border-base)",
+            borderTopColor: "var(--content-tertiary)",
+          }}
         />
       </div>
     );
@@ -1180,10 +1391,12 @@ export function ConceptGraphView({
       />
     );
   } else if (query.data?.kind === "unsupported") {
+    // Not a dead end: the prompt reads the memory tier to say WHY there's no
+    // graph (Memory switched off vs. a pre-v3 engine) and offers the fix.
     body = (
-      <CenteredMessage
-        title="Memory graph isn't available"
-        detail="The active memory backend doesn't expose a concept graph."
+      <MemoryUpgradePrompt
+        assistantId={assistantId}
+        onOpenThread={onOpenThread}
       />
     );
   } else if (!ready) {
@@ -1194,146 +1407,18 @@ export function ConceptGraphView({
       />
     );
   } else {
-    // Brain-vocabulary stat header: neurons (nodes), synapses (edges), and
-    // lobes (distinct detected clusters). Only reached inside the ready body
-    // (nodes.length > 0), so it always has live counts to show.
-    const neurons = layout.nodes.length;
-    const synapses = layout.edges.length;
-    const lobes = new Set(clusters.values()).size;
-    const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-
     body = (
       <>
         <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
 
-        {/* Brain-vocabulary stat header. Tagged data-graph-control so a
-            pointer-down on it bails the orbit-drag. Yields the top-center slot
-            to the intro banner and to a hover tooltip so the pills never stack. */}
-        {!showIntro && focusLabel == null && edgeLabel == null ? (
-          <div
-            data-graph-control
-            className="absolute left-1/2 top-4 -translate-x-1/2 rounded-full px-3 py-1 text-[11px] tabular-nums"
-            style={{
-              backgroundColor: "color-mix(in srgb, var(--surface-base) 82%, transparent)",
-              border: "1px solid var(--border-base)",
-              color: "var(--content-tertiary)",
-            }}
-          >
-            {plural(neurons, "neuron")} · {plural(synapses, "synapse")} ·{" "}
-            {plural(lobes, "lobe")}
-          </div>
-        ) : null}
-
-        {/* Keep the box visible whenever a search is active, even if the graph
-            shrank below the threshold (e.g. a refetch) — otherwise an active
-            filter would ghost nodes with no way to clear it short of remount. */}
-        {/* z-20 keeps the results dropdown above the recency lens (top-14,
-            z-10) so its top rows stay clickable while a search is active. */}
-        {layout.nodes.length > SEARCH_MIN_NODES || search ? (
-          <div
-            data-graph-control
-            className={`absolute top-4 z-20 ${onToggleFullscreen ? "left-16" : "left-4"}`}
-          >
-            <div
-              className="flex items-center gap-1.5 rounded-full px-2.5 py-1"
-              style={{
-                backgroundColor: "color-mix(in srgb, var(--surface-base) 82%, transparent)",
-                border: "1px solid var(--border-base)",
-              }}
-            >
-              <Search size={14} aria-hidden style={{ color: "var(--content-tertiary)" }} />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  // Emit once when a search session begins (empty → typed).
-                  // Key on the trimmed value so whitespace-only input, which the
-                  // graph treats as no search, doesn't latch/emit prematurely.
-                  if (value.trim() && !searchEmittedRef.current) {
-                    emitMemoryEvent("search");
-                    searchEmittedRef.current = true;
-                  }
-                  setSearch(value);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setSearch("");
-                  } else if (e.key === "Enter" && searchResults.length > 0) {
-                    e.preventDefault();
-                    focusOn(searchResults[0].id);
-                  }
-                }}
-                placeholder="Search concepts…"
-                aria-label="Search concepts"
-                className="w-36 bg-transparent text-[12px] outline-none placeholder:text-[var(--content-tertiary)]"
-                style={{ color: "var(--content-default)" }}
-              />
-              {search ? (
-                <>
-                  <span
-                    className="text-[11px] tabular-nums"
-                    style={{ color: "var(--content-tertiary)" }}
-                  >
-                    {matchIds?.size ?? 0}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setSearch("")}
-                    aria-label="Clear search"
-                    className="flex items-center"
-                    style={{ color: "var(--content-tertiary)" }}
-                  >
-                    <X size={13} />
-                  </button>
-                </>
-              ) : null}
-            </div>
-
-            {/* Results under the box: click (or Enter on the top row) flies the
-                camera to center that concept and opens its detail drawer. */}
-            {search && searchResults.length > 0 ? (
-              <ul
-                className="mt-1.5 flex max-h-56 w-52 list-none flex-col overflow-y-auto rounded-xl py-1"
-                style={{
-                  backgroundColor:
-                    "color-mix(in srgb, var(--surface-base) 92%, transparent)",
-                  border: "1px solid var(--border-base)",
-                }}
-              >
-                {searchResults.map((node) => (
-                  <li key={node.id}>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        travelTo({
-                          id: node.id,
-                          label: node.label,
-                          updatedAtMs: node.updatedAtMs,
-                        })
-                      }
-                      className="block w-full truncate px-3 py-1 text-left text-[12px] hover:bg-[color-mix(in_srgb,var(--content-tertiary)_14%,transparent)]"
-                      style={{ color: "var(--content-default)" }}
-                    >
-                      {node.label}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
-        ) : null}
-
-        {/* Recency time-lens, tucked just under the search pill. Kept visible
-            while a non-"all" window is active even if the graph shrank below the
-            threshold (e.g. a refetch), so an active window is always resettable
-            — mirrors the search box's own guard. */}
+        {/* Recency time-lens, top-left of the canvas (the search box lives in
+            the header above). Kept visible while a non-"all" window is active
+            even if the graph shrank below the threshold (e.g. a refetch), so
+            an active window is always resettable — mirrors the search box's
+            own guard. */}
         {(layout.nodes.length > SEARCH_MIN_NODES || recency !== "all") &&
         hasRecencyData ? (
-          <div
-            data-graph-control
-            className={`absolute top-14 z-10 ${onToggleFullscreen ? "left-16" : "left-4"}`}
-          >
+          <div data-graph-control className="absolute left-4 top-4 z-10">
             <RecencyLens value={recency} onChange={setRecency} />
           </div>
         ) : null}
@@ -1356,22 +1441,6 @@ export function ConceptGraphView({
             : {})}
         />
 
-        {/* One pill for both hovers. Node hover and edge hover are mutually
-            exclusive (a node hit clears edgeLabel; an edge hit means no node,
-            so focusLabel is null), and focusLabel wins when both are present. */}
-        {(focusLabel ?? edgeLabel) && !showIntro ? (
-          <div
-            className="pointer-events-none absolute left-1/2 top-4 max-w-[80%] -translate-x-1/2 truncate rounded-full px-3 py-1 text-[12px]"
-            style={{
-              backgroundColor: "color-mix(in srgb, var(--surface-base) 82%, transparent)",
-              border: "1px solid var(--border-base)",
-              color: "var(--content-default)",
-            }}
-          >
-            {focusLabel ?? edgeLabel}
-          </div>
-        ) : null}
-
         <div
           className="pointer-events-none absolute bottom-4 right-4 text-[11px]"
           style={{ color: "var(--content-tertiary)" }}
@@ -1383,7 +1452,8 @@ export function ConceptGraphView({
           <div
             className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[11px]"
             style={{
-              backgroundColor: "color-mix(in srgb, var(--surface-base) 82%, transparent)",
+              backgroundColor:
+                "color-mix(in srgb, var(--surface-base) 82%, transparent)",
               border: "1px solid var(--border-base)",
               color: "var(--content-tertiary)",
             }}
@@ -1392,7 +1462,10 @@ export function ConceptGraphView({
           </div>
         ) : null}
 
-        <div data-graph-control className="absolute right-4 top-4 flex flex-col gap-1">
+        <div
+          data-graph-control
+          className="absolute right-4 top-4 flex flex-col gap-1"
+        >
           <Button
             variant="ghost"
             iconOnly={<ZoomIn />}
@@ -1421,49 +1494,242 @@ export function ConceptGraphView({
 
   return (
     <div
-      ref={containerRef}
-      className={`relative select-none overflow-hidden rounded-xl ${className ?? ""}`}
-      style={{
-        backgroundColor: "var(--surface-base)",
-        backgroundImage:
-          "radial-gradient(circle at center, color-mix(in srgb, var(--content-tertiary) 8%, transparent), transparent 62%)",
-        touchAction: "none",
-        cursor: ready ? "grab" : "default",
-      }}
-      onPointerDown={ready ? onPointerDown : undefined}
-      onPointerMove={ready ? onPointerMove : undefined}
-      onPointerUp={ready ? onPointerUp : undefined}
-      onPointerCancel={ready ? onPointerUp : undefined}
-      onPointerLeave={ready ? onPointerLeave : undefined}
+      className={`@container flex select-none flex-col overflow-hidden rounded-xl ${className ?? ""}`}
+      style={{ backgroundColor: "var(--surface-base)" }}
     >
-      {onToggleFullscreen ? (
-        <div className="absolute left-4 top-4 z-10" data-graph-control>
-          <Button
-            variant="ghost"
-            iconOnly={isFullscreen ? <Minimize2 /> : <Maximize2 />}
-            onClick={onToggleFullscreen}
-            aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-            tooltip={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-          />
+      {/* Header — one flex row that owns the top-of-page controls (fullscreen,
+          search, the stats/hover center slot, and the page-provided action).
+          Flex siblings in a single row cannot overlap at any width, and the
+          row degrades by container width: the search field collapses to an
+          icon below @2xl, the stats compact to bare numbers below @md. Lives
+          outside the canvas wrapper, so its controls need no
+          data-graph-control opt-outs. */}
+      {showHeader ? (
+        <div
+          className="flex h-12 flex-none items-center gap-2 px-3"
+          style={{ borderBottom: "1px solid var(--border-base)" }}
+        >
+          {onToggleFullscreen ? (
+            <Button
+              variant="ghost"
+              iconOnly={isFullscreen ? <Minimize2 /> : <Maximize2 />}
+              onClick={onToggleFullscreen}
+              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              tooltip={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+            />
+          ) : null}
+
+          {showSearch ? (
+            <>
+              <Button
+                variant="ghost"
+                iconOnly={<Search />}
+                onClick={() => setSearchOpen(true)}
+                aria-label="Search concepts"
+                tooltip="Search concepts"
+                className={searchOpen ? "hidden" : "@2xl:hidden"}
+              />
+              <div
+                className={`relative ${searchOpen ? "" : "hidden @2xl:block"}`}
+              >
+                <div
+                  className="flex items-center gap-1.5 rounded-full px-2.5 py-1"
+                  style={{
+                    backgroundColor:
+                      "color-mix(in srgb, var(--surface-base) 82%, transparent)",
+                    border: "1px solid var(--border-base)",
+                  }}
+                >
+                  <Search
+                    size={14}
+                    aria-hidden
+                    style={{ color: "var(--content-tertiary)" }}
+                  />
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    value={search}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      // Emit once when a search session begins (empty → typed).
+                      // Key on the trimmed value so whitespace-only input, which the
+                      // graph treats as no search, doesn't latch/emit prematurely.
+                      if (value.trim() && !searchEmittedRef.current) {
+                        emitMemoryEvent("search");
+                        searchEmittedRef.current = true;
+                      }
+                      setSearch(value);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        // Progressive Escape: with search state to clear,
+                        // clear it and swallow the event so the detail
+                        // drawer's window-level Escape handler doesn't also
+                        // close the drawer. With nothing to clear, let it
+                        // bubble so Escape still closes the drawer from the
+                        // field.
+                        if (search || searchOpen) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setSearch("");
+                          setSearchOpen(false);
+                        }
+                      } else if (
+                        e.key === "Enter" &&
+                        searchResults.length > 0
+                      ) {
+                        e.preventDefault();
+                        focusOn(searchResults[0].id);
+                      }
+                    }}
+                    placeholder="Search concepts…"
+                    aria-label="Search concepts"
+                    className="w-36 bg-transparent text-[12px] outline-none placeholder:text-[var(--content-tertiary)]"
+                    style={{ color: "var(--content-default)" }}
+                  />
+                  {search ? (
+                    <span
+                      className="text-[11px] tabular-nums"
+                      style={{ color: "var(--content-tertiary)" }}
+                    >
+                      {matchIds?.size ?? 0}
+                    </span>
+                  ) : null}
+                  {search || searchOpen ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearch("");
+                        setSearchOpen(false);
+                      }}
+                      aria-label="Clear search"
+                      className="flex items-center"
+                      style={{ color: "var(--content-tertiary)" }}
+                    >
+                      <X size={13} />
+                    </button>
+                  ) : null}
+                </div>
+
+                {/* Results under the box: click (or Enter on the top row) flies
+                    the camera to center that concept and opens its detail
+                    drawer. Anchored to the search wrapper so the dropdown
+                    overlays the canvas instead of stretching the header. */}
+                {search && searchResults.length > 0 ? (
+                  <ul
+                    className="absolute left-0 top-full z-30 mt-1.5 flex max-h-56 w-52 list-none flex-col overflow-y-auto rounded-xl py-1"
+                    style={{
+                      backgroundColor:
+                        "color-mix(in srgb, var(--surface-base) 92%, transparent)",
+                      border: "1px solid var(--border-base)",
+                    }}
+                  >
+                    {searchResults.map((node) => (
+                      <li key={node.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            travelTo({
+                              id: node.id,
+                              label: node.label,
+                              updatedAtMs: node.updatedAtMs,
+                            });
+                            // The search found its target — clear it so the
+                            // dropdown (z-30, header layer) doesn't sit over
+                            // the detail drawer this opens.
+                            setSearch("");
+                            setSearchOpen(false);
+                          }}
+                          className="block w-full truncate px-3 py-1 text-left text-[12px] hover:bg-[color-mix(in_srgb,var(--content-tertiary)_14%,transparent)]"
+                          style={{ color: "var(--content-default)" }}
+                        >
+                          {node.label}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            </>
+          ) : null}
+
+          {/* Center slot: the hover pill (node/edge label) wins over the stats;
+              both yield to the intro banner. Always rendered so `mx-auto` keeps
+              the page action pinned to the right edge even when empty. */}
+          <div className="pointer-events-none mx-auto min-w-0">
+            {hoverLabel ? (
+              <div
+                className="truncate rounded-full px-3 py-1 text-[12px]"
+                style={{
+                  backgroundColor:
+                    "color-mix(in srgb, var(--surface-base) 82%, transparent)",
+                  border: "1px solid var(--border-base)",
+                  color: "var(--content-default)",
+                }}
+              >
+                {hoverLabel}
+              </div>
+            ) : ready && !showIntro && !searchOpen ? (
+              <div
+                className="rounded-full px-3 py-1 text-[11px] tabular-nums"
+                style={{
+                  backgroundColor:
+                    "color-mix(in srgb, var(--surface-base) 82%, transparent)",
+                  border: "1px solid var(--border-base)",
+                  color: "var(--content-tertiary)",
+                }}
+              >
+                <span className="@max-md:hidden">
+                  {plural(neurons, "neuron")} · {plural(synapses, "synapse")} ·{" "}
+                  {plural(lobes, "lobe")}
+                </span>
+                <span className="hidden @max-md:inline">
+                  {neurons} · {synapses} · {lobes}
+                </span>
+              </div>
+            ) : null}
+          </div>
+
+          {headerAction ? (
+            <div className="flex-none">{headerAction}</div>
+          ) : null}
         </div>
       ) : null}
 
-      {showIntro ? <ConceptGraphIntroBanner onDismiss={dismissIntro} /> : null}
+      <div
+        ref={containerRef}
+        className="relative min-h-0 flex-1"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle at center, color-mix(in srgb, var(--content-tertiary) 8%, transparent), transparent 62%)",
+          touchAction: "none",
+          cursor: ready ? "grab" : "default",
+        }}
+        onPointerDown={ready ? onPointerDown : undefined}
+        onPointerMove={ready ? onPointerMove : undefined}
+        onPointerUp={ready ? onPointerUp : undefined}
+        onPointerCancel={ready ? onPointerUp : undefined}
+        onPointerLeave={ready ? onPointerLeave : undefined}
+      >
+        {showIntro ? (
+          <ConceptGraphIntroBanner onDismiss={dismissIntro} />
+        ) : null}
 
-      {body}
+        {body}
 
-      {ready && openNode ? (
-        <ConceptDetailPanel
-          assistantId={assistantId}
-          node={openNode}
-          trail={trail}
-          neighbors={neighbors}
-          onTravel={travelFromPanel}
-          onCrumb={goToCrumb}
-          onClose={dismiss}
-          onOpenThread={onOpenThread}
-        />
-      ) : null}
+        {ready && openNode ? (
+          <ConceptDetailPanel
+            assistantId={assistantId}
+            node={openNode}
+            trail={trail}
+            neighbors={neighbors}
+            onTravel={travelFromPanel}
+            onCrumb={goToCrumb}
+            onClose={dismiss}
+            onOpenThread={onOpenThread}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }

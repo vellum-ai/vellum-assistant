@@ -9,17 +9,21 @@
  * @see useSendMessage — the orchestrator that composes this hook
  */
 
-import {
-  useCallback,
-  useMemo,
-} from "react";
+import { useCallback, useMemo } from "react";
 
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { clearQueueStatus } from "@/domains/chat/utils/stream-updaters/shared";
-import { useTurnStore } from "@/domains/chat/turn-store";
-import { deleteQueuedMessage, steerToMessage } from "@/domains/chat/api/messages";
+import {
+  clearQueueStatus,
+  markMessageQueued,
+} from "@/domains/chat/utils/stream-updaters/shared";
+import { steerToMessage } from "@/domains/chat/api/messages";
 import { useComposerStore } from "@/domains/chat/composer-store";
+import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
+import { confirmQueuedMessageDeletion } from "@/domains/chat/queue-cancellation";
+import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
+import { messageMatchesKey } from "@/domains/chat/utils/message-identity";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -30,6 +34,19 @@ interface UseMessageQueueParams {
   activeConversationId: string | null;
 }
 
+function requestIdForQueuedMessage(messageId: string): string | undefined {
+  const { requestIdToMessageId, snapshot } = useChatSessionStore.getState();
+  for (const [requestId, mappedMessageId] of requestIdToMessageId.entries()) {
+    if (requestId === messageId || mappedMessageId === messageId) {
+      return requestId;
+    }
+  }
+  return snapshot?.messages.find(
+    (message) =>
+      message.queueStatus === "queued" && messageMatchesKey(message, messageId),
+  )?.id;
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -38,7 +55,7 @@ export function useMessageQueue({
   assistantId,
   activeConversationId,
 }: UseMessageQueueParams) {
-  const optimisticSends = useChatSessionStore.use.optimisticSends();
+  const transcriptMessages = useTranscriptMessages();
   const setOptimisticSends = useChatSessionStore.use.setOptimisticSends();
   /** Remove an optimistically-added queued message and its tracking state. */
   const revertQueuedMessage = useCallback(
@@ -46,17 +63,33 @@ export function useMessageQueue({
       setOptimisticSends((prev) => prev.filter((m) => m.id !== messageId));
       const queueIds = useChatSessionStore.getState().pendingQueuedMessageIds;
       const idx = queueIds.indexOf(messageId);
-      if (idx !== -1) queueIds.splice(idx, 1);
+      if (idx !== -1) {
+        queueIds.splice(idx, 1);
+      }
     },
     [setOptimisticSends],
   );
 
   const queuedMessages = useMemo(
     () =>
-      optimisticSends
-        .filter((m) => m.role === "user" && m.queueStatus === "queued")
+      transcriptMessages
+        .filter(
+          (m) =>
+            m.role === "user" &&
+            m.queueStatus === "queued" &&
+            // Daemon-injected run lifecycle notifications are internal
+            // scaffolding, not something the user typed: the transcript already
+            // drops them (see `buildTranscriptItems`), and the queue drawer —
+            // which offers steer/cancel on a person's own pending prompts —
+            // must drop them for the same reason. The daemon keeps them out of
+            // its queued snapshot too; this is the client-side half of that
+            // invariant.
+            !m.isSubagentNotification &&
+            !m.isAcpNotification &&
+            !m.isBackgroundEventNotification,
+        )
         .sort((a, b) => (a.queuePosition ?? 0) - (b.queuePosition ?? 0)),
-    [optimisticSends],
+    [transcriptMessages],
   );
 
   const handleCancelQueuedMessage = useCallback(
@@ -64,19 +97,20 @@ export function useMessageQueue({
       if (!assistantId || !activeConversationId) {
         return;
       }
-      let targetRequestId: string | undefined;
-      for (const [reqId, mId] of useChatSessionStore.getState().requestIdToMessageId.entries()) {
-        if (mId === messageId) {
-          targetRequestId = reqId;
-          break;
-        }
-      }
-      setOptimisticSends((prev) => prev.filter((m) => m.id !== messageId));
+      const targetRequestId = requestIdForQueuedMessage(messageId);
       if (targetRequestId) {
-        void deleteQueuedMessage(assistantId, activeConversationId, targetRequestId);
+        void confirmQueuedMessageDeletion({
+          assistantId,
+          conversationId: activeConversationId,
+          requestId: targetRequestId,
+          messageId,
+          setOptimisticSends,
+          onDeleted: () => {
+            useChatSessionStore.getState().popRequestIdMapping(targetRequestId);
+          },
+        });
       } else {
         useChatSessionStore.getState().addPendingLocalDeletion(messageId);
-        useTurnStore.getState().deleteQueuedMessage();
       }
     },
     [assistantId, activeConversationId, setOptimisticSends],
@@ -93,31 +127,32 @@ export function useMessageQueue({
       if (!assistantId || !activeConversationId) {
         return;
       }
-      let targetRequestId: string | undefined;
-      for (const [reqId, mId] of useChatSessionStore.getState().requestIdToMessageId.entries()) {
-        if (mId === messageId) {
-          targetRequestId = reqId;
-          break;
-        }
-      }
+      const targetRequestId = requestIdForQueuedMessage(messageId);
       if (targetRequestId) {
-        setOptimisticSends((prev) => clearQueueStatus(prev, messageId));
+        const queuePosition = queuedMessages.find((message) =>
+          messageMatchesKey(message, messageId),
+        )?.queuePosition;
+        const patchMessageCopies = (
+          updater: (prev: DisplayMessage[]) => DisplayMessage[],
+        ) => {
+          setOptimisticSends(updater);
+          patchTranscriptMessages(updater);
+        };
+        const promoteMessage = (prev: DisplayMessage[]) =>
+          clearQueueStatus(prev, messageId);
+        patchMessageCopies(promoteMessage);
         steerToMessage(assistantId, activeConversationId, targetRequestId).then(
-          (ok) => {
-            if (!ok) {
-              setOptimisticSends((prev) =>
-                prev.map((m) =>
-                  m.id === messageId
-                    ? { ...m, queueStatus: "queued" as const }
-                    : m,
-                ),
-              );
+          (result) => {
+            if (result === "request_failed") {
+              const restoreMessage = (prev: DisplayMessage[]) =>
+                markMessageQueued(prev, messageId, queuePosition);
+              patchMessageCopies(restoreMessage);
             }
           },
         );
       }
     },
-    [assistantId, activeConversationId, setOptimisticSends],
+    [assistantId, activeConversationId, queuedMessages, setOptimisticSends],
   );
 
   const handleEditQueueTail = useCallback(() => {

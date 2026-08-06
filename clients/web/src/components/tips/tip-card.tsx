@@ -157,7 +157,6 @@ export function TipCard({
           <button
             type="button"
             onClick={onNextTip}
-            disabled={carouselIndex === carouselCount - 1}
             aria-label="Next tip"
             data-slot="tip-card-next"
             className={carouselButtonClassName}

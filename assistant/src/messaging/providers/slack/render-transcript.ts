@@ -135,7 +135,9 @@ export function parentAlias(channelTs: string): string {
  */
 function formatSlackTs(channelTs: string): string {
   const seconds = Number.parseFloat(channelTs);
-  if (!Number.isFinite(seconds)) return "??/??/?? ??:??";
+  if (!Number.isFinite(seconds)) {
+    return "??/??/?? ??:??";
+  }
   return formatEpochMs(seconds * 1000);
 }
 
@@ -143,7 +145,9 @@ function formatSlackTs(channelTs: string): string {
  * Format an epoch millisecond timestamp as `MM/DD/YY HH:MM` (UTC).
  */
 function formatEpochMs(ms: number): string {
-  if (!Number.isFinite(ms)) return "??/??/?? ??:??";
+  if (!Number.isFinite(ms)) {
+    return "??/??/?? ??:??";
+  }
   const d = new Date(ms);
   const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
   const da = String(d.getUTCDate()).padStart(2, "0");
@@ -208,7 +212,9 @@ function formatCompactEpochMs(
     }`;
   }
   const parts = compactDateTimeParts(ms, timeZone);
-  if (!parts) return formatEpochMs(ms);
+  if (!parts) {
+    return formatEpochMs(ms);
+  }
   const label =
     formatSlackTimezoneLabel(timeZone, {
       persistedLabel: timezoneLabel,
@@ -255,14 +261,18 @@ function speakerLabel(
       : formatSlackTimezoneLabel(undefined, {
           persistedLabel: meta.speakerTimezoneLabel,
         });
-  if (!speaker) return "";
+  if (!speaker) {
+    return "";
+  }
   return suffix ? `${speaker} (${suffix})` : speaker;
 }
 
 function renderSlackFileMarkers(
   files: SlackMessageMetadata["slackFiles"],
 ): string {
-  if (!files || files.length === 0) return "";
+  if (!files || files.length === 0) {
+    return "";
+  }
   return files
     .map((file) => {
       const name = file.name.replace(/\s+/g, " ").trim();
@@ -279,7 +289,9 @@ function appendSlackFileMarkers(
   files: SlackMessageMetadata["slackFiles"],
 ): string {
   const markers = renderSlackFileMarkers(files);
-  if (!markers) return content;
+  if (!markers) {
+    return content;
+  }
   return content.length > 0 ? `${content} ${markers}` : markers;
 }
 
@@ -293,7 +305,9 @@ function appendSlackFileMarkers(
 function sortKey(msg: RenderableSlackMessage): number {
   if (msg.metadata) {
     const n = Number.parseFloat(msg.metadata.channelTs);
-    if (Number.isFinite(n)) return n;
+    if (Number.isFinite(n)) {
+      return n;
+    }
   }
   // createdAt is epoch ms; convert to seconds for like-with-like comparison.
   return msg.createdAt / 1000;
@@ -313,8 +327,12 @@ export function isSlackTsAfter(ts: string, watermarkTs: string): boolean {
 }
 
 function maxNullableSlackTs(a: string | null, b: string | null): string | null {
-  if (a === null) return b;
-  if (b === null) return a;
+  if (a === null) {
+    return b;
+  }
+  if (b === null) {
+    return a;
+  }
   return compareSlackTs(a, b) >= 0 ? a : b;
 }
 
@@ -349,7 +367,9 @@ function renderMessage(msg: RenderableSlackMessage): string {
   const meta = msg.metadata;
 
   if (msg.role === "assistant") {
-    if (msg.metadata?.deletedAt !== undefined) return "[deleted]";
+    if (msg.metadata?.deletedAt !== undefined) {
+      return "[deleted]";
+    }
     return appendSlackFileMarkers(msg.content, msg.metadata?.slackFiles);
   }
 
@@ -455,7 +475,9 @@ function renderModelBody(msg: RenderableSlackMessage, body: string): string {
  */
 function renderReaction(msg: RenderableSlackMessage): string | null {
   const meta = msg.metadata;
-  if (!meta || meta.eventKind !== "reaction" || !meta.reaction) return null;
+  if (!meta || meta.eventKind !== "reaction" || !meta.reaction) {
+    return null;
+  }
   const time = hasTimestampTimezone(meta)
     ? formatCompactSlackTs(
         meta.channelTs,
@@ -599,7 +621,9 @@ export function renderSlackTranscriptWithProvenance(
   // Stable sort: decorate-sort-undecorate so equal keys preserve input order.
   const indexed = messages.map((m, i) => ({ m, i, k: sortKey(m) }));
   indexed.sort((a, b) => {
-    if (a.k !== b.k) return a.k - b.k;
+    if (a.k !== b.k) {
+      return a.k - b.k;
+    }
     return a.i - b.i;
   });
   const sorted = indexed.map((x) => x.m);
@@ -644,7 +668,9 @@ export function renderSlackTranscriptWithProvenance(
     keepTarget: string | null,
   ) => {
     for (const target of Array.from(overflowAccumulator.keys())) {
-      if (target === keepTarget) continue;
+      if (target === keepTarget) {
+        continue;
+      }
       const acc = overflowAccumulator.get(target)!;
       out.push(trailerMessage(target, acc));
       overflowAccumulator.delete(target);
@@ -695,7 +721,9 @@ export function renderSlackTranscriptWithProvenance(
     flushOverflowExcept(out, null);
     const tagLine = renderMessage(m);
     const blocks = buildMessageContentBlocks(m, tagLine);
-    if (blocks.length === 0) continue;
+    if (blocks.length === 0) {
+      continue;
+    }
     const hasRenderedText = blocks.some((block) => block.type === "text");
     out.push({
       message: {
@@ -749,9 +777,14 @@ function filterOrphanToolPairs(
   const consumed = new Set<string>();
   for (const { message: msg } of entries) {
     for (const b of msg.content) {
-      if (b.type === "tool_use") produced.add(b.id);
-      else if (b.type === "tool_result" || b.type === "web_search_tool_result")
+      if (b.type === "tool_use") {
+        produced.add(b.id);
+      } else if (
+        b.type === "tool_result" ||
+        b.type === "web_search_tool_result"
+      ) {
         consumed.add(b.tool_use_id);
+      }
     }
   }
   const out: RenderedSlackTranscriptMessage[] = [];
@@ -759,12 +792,15 @@ function filterOrphanToolPairs(
     const msg = entry.message;
     const kept: ContentBlock[] = [];
     for (const b of msg.content) {
-      if (b.type === "tool_use" && !consumed.has(b.id)) continue;
+      if (b.type === "tool_use" && !consumed.has(b.id)) {
+        continue;
+      }
       if (
         (b.type === "tool_result" || b.type === "web_search_tool_result") &&
         !produced.has(b.tool_use_id)
-      )
+      ) {
         continue;
+      }
       kept.push(b);
     }
     if (kept.length > 0) {

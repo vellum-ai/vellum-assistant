@@ -103,6 +103,24 @@ const POLICIES_THAT_COULD_UPGRADE: ReadonlySet<AdmissionPolicy> = new Set([
 ]);
 
 /**
+ * Whether promoting a caller to a trusted contact would lift them past this
+ * floor.
+ *
+ * A guardian approving an access request activates the requester as a trusted
+ * contact (directly for voice, per `guardian-request-resolvers.ts`; via the
+ * minted verification code for text), so approval only helps on floors at or
+ * below the trusted-contact rank. `guardian_only` and `no_one` sit above it:
+ * an approved caller would still be below the floor, so callers denied by
+ * those floors must not be routed into an approval flow that cannot admit
+ * them.
+ */
+export function trustedContactPromotionClearsFloor(
+  policy: AdmissionPolicy,
+): boolean {
+  return ADMISSION_FLOOR[policy] <= TRUST_CLASS_RANK.trusted_contact;
+}
+
+/**
  * Enforce the admission policy floor against the resolved trust class.
  *
  * Pure function — all I/O happens in the caller. Returns the canned

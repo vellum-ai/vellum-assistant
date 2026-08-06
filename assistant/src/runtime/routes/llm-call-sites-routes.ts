@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
+import { CALL_SITE_DEFAULTS } from "../../config/call-site-defaults.js";
+import { getEffectiveProfilesForProvider } from "../../config/default-profile-catalog.js";
 import { resolveDefaultProfileKey } from "../../config/llm-resolver.js";
 import { loadConfig } from "../../config/loader.js";
 import {
@@ -21,7 +22,17 @@ const callSiteEntrySchema = z.object({
   displayName: z.string(),
   description: z.string(),
   domain: z.string(),
+  /** The effective winning profile key: includes per-call-site pins. */
   defaultProfile: z.string().optional(),
+  /**
+   * The code-owned `CALL_SITE_DEFAULTS` tier key, independent of pins and
+   * tier remaps. Clients group call sites by tier with this; grouping by
+   * `defaultProfile` would scatter pinned or remapped sites across their
+   * winners. Profileless call sites report `balanced`: the resolver's
+   * fallback anchor consults the balanced remap for them, so they follow
+   * the Balanced tier like any balanced-keyed site.
+   */
+  shippedDefaultProfile: z.string().optional(),
 });
 
 const callSiteCatalogResponseSchema = z.object({
@@ -36,6 +47,8 @@ async function handleGetCallSites() {
     callSites: CALL_SITE_CATALOG.map((entry) => ({
       ...entry,
       defaultProfile: resolveDefaultProfileKey(entry.id as LLMCallSite, llm),
+      shippedDefaultProfile:
+        CALL_SITE_DEFAULTS[entry.id]?.profile ?? "balanced",
     })),
   };
 }
@@ -53,7 +66,10 @@ export type LlmProfilesListResult = z.infer<
 
 async function handleListProfiles(): Promise<LlmProfilesListResult> {
   const { llm } = loadConfig();
-  const profiles = getEffectiveProfiles(llm?.profiles);
+  const profiles = getEffectiveProfilesForProvider(
+    llm?.profiles,
+    llm?.defaultProvider ?? null,
+  );
   return {
     profiles: Object.keys(profiles).sort(),
     activeProfile:

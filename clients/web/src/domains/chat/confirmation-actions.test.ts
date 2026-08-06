@@ -29,15 +29,12 @@ mock.module("@/domains/chat/api/interactions", () => ({
   },
 }));
 
-const { handleConfirmationSubmit } = await import(
-  "@/domains/chat/confirmation-actions"
-);
-const { useInteractionStore } = await import(
-  "@/domains/chat/interaction-store"
-);
-const { useChatSessionStore } = await import(
-  "@/domains/chat/chat-session-store"
-);
+const { handleConfirmationSubmit } =
+  await import("@/domains/chat/confirmation-actions");
+const { useInteractionStore } =
+  await import("@/domains/chat/interaction-store");
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
 const { useStreamStore } = await import("@/domains/chat/stream-store");
 
 function seedPendingConfirmation(requestId: string): void {
@@ -93,6 +90,8 @@ describe("handleConfirmationSubmit — stale (404) interaction", () => {
     expect(useInteractionStore.getState().pendingConfirmation?.requestId).toBe(
       "cr-500",
     );
-    expect(useChatSessionStore.getState().error?.message).toBe("Internal error");
+    expect(useChatSessionStore.getState().error?.message).toBe(
+      "Internal error",
+    );
   });
 });

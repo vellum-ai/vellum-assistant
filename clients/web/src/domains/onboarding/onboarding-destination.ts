@@ -14,18 +14,14 @@ import { routes } from "@/utils/routes";
  *   gateway readyz → provider key) runs; the hatching screen then redirects into
  *   the research flow, which adopts that just-hatched assistant. Skipping
  *   hatching here would leave the research flow with no assistant to adopt.
- * - **Native** (iOS/Capacitor) → hatching, then chat: the research flow isn't
- *   wired for the native shell yet.
  */
 export function onboardingDestinationAfterConsent({
-  isNative,
   isLocalHatch,
 }: {
-  isNative: boolean;
   /** A local-hosting onboarding that must run the foreground local hatch. */
   isLocalHatch: boolean;
 }): string {
-  return isNative || isLocalHatch
+  return isLocalHatch
     ? routes.onboarding.hatching
     : routes.onboarding.research;
 }

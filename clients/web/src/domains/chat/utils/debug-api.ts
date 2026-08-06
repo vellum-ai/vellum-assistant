@@ -47,6 +47,7 @@ import {
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import { setImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
+import { toggleAppIframeSandboxDisabled } from "@/lib/app-sandbox-debug-flag";
 import { classifyScrollPosition } from "@/domains/chat/transcript/transcript-scroll-utils";
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
@@ -153,8 +154,9 @@ export interface PendingInteractionsSnapshot {
 }
 
 /**
- * Raw values the UI uses to decide avatar ring + thinking dots visibility.
- * No derived wrappers — these are the exact booleans the render path reads.
+ * Raw values the UI uses to decide thinking-dots visibility and the
+ * character-avatar busy morph. No derived wrappers — these are the exact
+ * booleans the render path reads.
  */
 export interface ChatDebugStreamingRing {
   isAssistantBusy: boolean;
@@ -311,7 +313,8 @@ export interface ChatDebugApi {
    */
   thinkingIndicator(): ChatDebugThinkingIndicator;
   /**
-   * Raw values the UI uses to decide avatar ring + thinking dots visibility.
+   * Raw values the UI uses to decide thinking-dots visibility and the
+   * character-avatar busy morph.
    * Returns `isAssistantBusy`, `shouldShowThinkingIndicator`, and
    * `activeConversationIsProcessing` directly — no derived wrappers.
    *
@@ -607,13 +610,11 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     if (conditions.hasUncompletedVisibleSurface) {
       failingConditions.push("hasUncompletedVisibleSurface");
     }
-    if (
-      !(
-        conditions.isThinking ||
-        conditions.restoredProcessing ||
-        !conditions.hasStreamingAssistantMessage
-      )
-    ) {
+    if (!(
+      conditions.isThinking ||
+      conditions.restoredProcessing ||
+      !conditions.hasStreamingAssistantMessage
+    )) {
       failingConditions.push("streamingAssistantMessageActive");
     }
     if (conditions.hasStreamingAssistantThinking) {
@@ -623,7 +624,11 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       failingConditions.push("activeToolCallCount>0");
     }
 
-    const visible = shouldShowThinkingIndicator(turnState.phase, turnState.activeToolCallCount, uiContext);
+    const visible = shouldShowThinkingIndicator(
+      turnState.phase,
+      turnState.activeToolCallCount,
+      uiContext,
+    );
     // Cross-check: the failingConditions list should be empty iff visible is
     // true. If this ever drifts we want the test suite (and DevTools users) to
     // notice immediately rather than chasing a confusing report.
@@ -660,19 +665,25 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
 
     return {
       isAssistantBusy: isAssistantBusy(turnState.phase, uiContext),
-      shouldShowThinkingIndicator: shouldShowThinkingIndicator(turnState.phase, turnState.activeToolCallCount, uiContext),
+      shouldShowThinkingIndicator: shouldShowThinkingIndicator(
+        turnState.phase,
+        turnState.activeToolCallCount,
+        uiContext,
+      ),
       activeConversationIsProcessing: uiContext.activeConversationIsProcessing,
     };
   }
 
   async function forceReconcile(): Promise<ReconcileActiveConversationResult> {
     recordDiagnostic("debug_force_reconcile_start", {
-      activeConversationId: useConversationStore.getState().activeConversationId,
+      activeConversationId:
+        useConversationStore.getState().activeConversationId,
       assistantId: refs.getAssistantId(),
     });
     const result = await refs.reconcileActiveConversation();
     recordDiagnostic("debug_force_reconcile_result", {
-      activeConversationId: useConversationStore.getState().activeConversationId,
+      activeConversationId:
+        useConversationStore.getState().activeConversationId,
       changed: result.changed,
       messagesAdded: result.messagesAdded,
       assistantProgress: result.assistantProgress,
@@ -785,7 +796,9 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     events: DiagnosticsEvent[],
     kindPrefix?: string,
   ): DiagnosticsEvent[] {
-    if (!kindPrefix) return events;
+    if (!kindPrefix) {
+      return events;
+    }
     return events.filter((event) => event.kind.startsWith(kindPrefix));
   }
 
@@ -815,7 +828,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       "  .thinkingIndicator()       live evaluation of the `...` predicate + done signal",
       "                              .visible / .failingConditions tell you why dots are or aren't showing",
       "                              .done.terminal / .done.lastTerminalReason tell you if the turn is finished",
-      "  .streamingRing()           raw values for avatar ring + thinking dots — .isAssistantBusy / .shouldShowThinkingIndicator / .activeConversationIsProcessing",
+      "  .streamingRing()           raw values for thinking dots + avatar busy morph — .isAssistantBusy / .shouldShowThinkingIndicator / .activeConversationIsProcessing",
       "  .forceReconcile()          [experimental] imperatively run /v1/history reconcile",
       "  .serverMessages()          [experimental] fetch /v1/history and return the server snapshot response (messages + seq)",
       "                              (diff against getClientMessages() manually in the console)",
@@ -859,9 +872,9 @@ const API_NS = "api";
 
 /**
  * Dev-only toggle surface. Each function is a single-purpose imperative
- * flip — call from the console to flip a localStorage-persisted flag.
- * Toggles that change React hook ordering or module-load constants
- * reload the page so the new value takes effect cleanly.
+ * flip, called from the console. Toggles that change React hook ordering
+ * or module-load constants reload the page so the new value takes effect
+ * cleanly; the rest apply in place.
  */
 export interface VellumDebugFlagsApi {
   /** Override the assistant's reported version for every version-gated
@@ -876,6 +889,19 @@ export interface VellumDebugFlagsApi {
    *
    *  Returns the value in effect after the call. */
   impersonateVersion(value?: string | null): string | null;
+  /** Render app iframes without their `sandbox` attribute, giving the
+   *  app document the host's origin so origin-gated APIs
+   *  (`getDisplayMedia()`, …) work. Costs the isolation the sandbox
+   *  buys, so it is off by default and lives only in memory: a reload
+   *  restores the sandbox.
+   *
+   *  - `toggleAppsSandboxDisabled()`      : flip the current value.
+   *  - `toggleAppsSandboxDisabled(true)`  : drop the sandbox.
+   *  - `toggleAppsSandboxDisabled(false)` : restore it.
+   *
+   *  Open apps reload in place, so no page reload is needed. Returns the
+   *  value in effect after the call. */
+  toggleAppsSandboxDisabled(value?: boolean): boolean;
 }
 
 interface VellumDebugRoot extends Record<string, unknown> {
@@ -902,8 +928,9 @@ declare global {
  *   - `api` — the full `@vellumai/assistant-api` namespace, so a developer
  *     can pull canonical SSE schemas (`RelationshipStateUpdatedEventSchema`, …)
  *     out of the shipped bundle from the console.
- *   - `flags` — dev-toggleable feature flags (`impersonateVersion`).
- *     Stable singleton; pure module exports backed by localStorage.
+ *   - `flags`: dev-toggleable feature flags (`impersonateVersion`,
+ *     `toggleAppsSandboxDisabled`). Stable singleton; pure module
+ *     exports over localStorage and in-memory flag state.
  *
  * Consolidating these into one installer guarantees they're set at the
  * same time and torn down together, so DevTools never sees one namespace
@@ -918,8 +945,12 @@ export function installVellumDebugApi(
   chatApi: ChatDebugApi,
   flagsApi: VellumDebugFlagsApi,
 ): () => void {
-  if (typeof window === "undefined") return () => {};
-  const win = window as Omit<Window, typeof ROOT_NS> & { [ROOT_NS]?: VellumDebugRoot };
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+  const win = window as Omit<Window, typeof ROOT_NS> & {
+    [ROOT_NS]?: VellumDebugRoot;
+  };
   const existing: VellumDebugRoot = (win[ROOT_NS] ?? {}) as VellumDebugRoot;
   existing[EVENTS_NS] = eventsDebugApi;
   existing[CHAT_NS] = chatApi;
@@ -928,7 +959,9 @@ export function installVellumDebugApi(
   win[ROOT_NS] = existing;
   return () => {
     const current = win[ROOT_NS];
-    if (!current) return;
+    if (!current) {
+      return;
+    }
     // Gate every deletion on the chat-API identity check. If a newer
     // mount has already replaced our chatApi (strict-mode double-mount,
     // hot reload, etc.), our teardown is stale — leave the world alone.
@@ -966,7 +999,9 @@ export function installVellumDebugApi(
  */
 export function useChatDebugApi(refs: ChatDebugRefs): void {
   const latestRefs = useRef(refs);
-  useLayoutEffect(() => { latestRefs.current = refs; });
+  useLayoutEffect(() => {
+    latestRefs.current = refs;
+  });
 
   useEffect(() => {
     const stableRefs: ChatDebugRefs = {
@@ -987,6 +1022,7 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
     const api = createChatDebugApi(stableRefs);
     const flagsApi: VellumDebugFlagsApi = {
       impersonateVersion: setImpersonatedAssistantVersion,
+      toggleAppsSandboxDisabled: toggleAppIframeSandboxDisabled,
     };
     const uninstall = installVellumDebugApi(api, flagsApi);
     return uninstall;

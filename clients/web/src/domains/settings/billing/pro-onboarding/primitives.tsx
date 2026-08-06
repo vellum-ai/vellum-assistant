@@ -1,66 +1,8 @@
 import type { CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
-import { ArrowRight } from "lucide-react";
-
-import { Button } from "@vellumai/design-library/components/button";
-import { Notice } from "@vellumai/design-library/components/notice";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
-import { cn } from "@/utils/misc";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
-
-import { extractOnboardingErrorMessage } from "./utils";
-
-/** The manual Apply & Restart recovery threaded down from the modal. */
-export interface StalledApplyAction {
-  onApply: () => void;
-  pending: boolean;
-  error: unknown;
-}
-
-/** Warning shown when a backgrounded resize stalls mid-wizard. */
-const STALLED_UPGRADE_WARNING =
-  "We couldn't finish your machine upgrade automatically. Apply it now to finish — your assistant will briefly restart.";
-
-/**
- * Warning notice + Apply & Restart button for recovering a stalled resize.
- * Shared by the complete screen and the domain step so the recovery affordance
- * can't drift between them. (The dark provisioning takeover renders its own
- * inline button by design.)
- */
-export function StalledApplyControls({
-  action,
-  buttonTestId,
-  className,
-}: {
-  action: StalledApplyAction;
-  buttonTestId: string;
-  className?: string;
-}) {
-  return (
-    <div className={cn("flex flex-col items-center gap-2", className)}>
-      <Notice tone="warning" className="w-full text-left">
-        {STALLED_UPGRADE_WARNING}
-      </Notice>
-      {action.error != null && (
-        <Notice tone="error" className="w-full text-left">
-          {extractOnboardingErrorMessage(
-            action.error,
-            "Couldn't apply changes. Please try again.",
-          )}
-        </Notice>
-      )}
-      <Button
-        variant="outlined"
-        data-testid={buttonTestId}
-        disabled={action.pending}
-        onClick={action.onApply}
-      >
-        Apply &amp; Restart
-      </Button>
-    </div>
-  );
-}
 
 export function IconBadge({ icon: Icon }: { icon: LucideIcon }) {
   return (
@@ -77,63 +19,6 @@ export function IconBadge({ icon: Icon }: { icon: LucideIcon }) {
         aria-hidden="true"
       />
     </span>
-  );
-}
-
-export function ResourceCard({
-  icon: Icon,
-  label,
-  from,
-  fromDetail,
-  to,
-  toDetail,
-}: {
-  icon: LucideIcon;
-  label: string;
-  from: string;
-  fromDetail?: string;
-  to: string;
-  toDetail?: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-lg bg-[var(--surface-base)] p-3">
-      <span
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-        style={{
-          backgroundColor: "color-mix(in oklab, var(--system-positive-strong) 10%, transparent)",
-        }}
-      >
-        <Icon className="h-4 w-4 text-[var(--system-positive-strong)]" />
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="text-label-small-default text-[var(--content-tertiary)]">
-          {label}
-        </span>
-        <div className="flex items-center gap-2">
-          <div className="flex flex-col">
-            <span className="text-label-medium-default text-[var(--content-tertiary)] line-through">
-              {from}
-            </span>
-            {fromDetail && (
-              <span className="text-label-small-default text-[var(--content-tertiary)] line-through">
-                {fromDetail}
-              </span>
-            )}
-          </div>
-          <ArrowRight className="h-3 w-3 shrink-0 text-[var(--content-tertiary)]" />
-          <div className="flex flex-col">
-            <span className="text-label-medium-default text-[var(--content-default)]">
-              {to}
-            </span>
-            {toDetail && (
-              <span className="text-label-small-default text-[var(--content-tertiary)]">
-                {toDetail}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -163,7 +48,10 @@ export function WizardCardHeading({
 }) {
   return (
     <header className="flex flex-col items-center gap-2 pt-12 text-center">
-      <h2 className="text-[var(--content-emphasised)]" style={SERIF_HEADING_STYLE}>
+      <h2
+        className="text-[var(--content-emphasised)]"
+        style={SERIF_HEADING_STYLE}
+      >
         {title}
       </h2>
       {subtitle && (
@@ -208,12 +96,54 @@ interface CreaturePlacement {
  * the 480px mock frame; horizontal centers stay proportional.
  */
 const CREATURE_PLACEMENTS: CreaturePlacement[] = [
-  { bodyShape: "star", eyeStyle: "curious", color: "yellow", size: 103, position: "-left-[28px] -top-[33px]", rotate: 180 },
-  { bodyShape: "star", eyeStyle: "curious", color: "orange", size: 109, position: "left-[63%] -top-[62px] -translate-x-1/2", rotate: -8 },
-  { bodyShape: "blob", eyeStyle: "grumpy", color: "green", size: 76, position: "-right-[25px] top-[60px]", rotate: 1 },
-  { bodyShape: "stack", eyeStyle: "gentle", color: "purple", size: 110, position: "-left-[39px] top-[74%]", rotate: 0 },
-  { bodyShape: "urchin", eyeStyle: "goofy", color: "pink", size: 137, position: "-right-[42px] -bottom-[40px]", rotate: 180 },
-  { bodyShape: "sprout", eyeStyle: "curious", color: "orange", size: 72, position: "left-[37%] -bottom-[22px] -translate-x-1/2", rotate: 0 },
+  {
+    bodyShape: "star",
+    eyeStyle: "curious",
+    color: "yellow",
+    size: 103,
+    position: "-left-[28px] -top-[33px]",
+    rotate: 180,
+  },
+  {
+    bodyShape: "star",
+    eyeStyle: "curious",
+    color: "orange",
+    size: 109,
+    position: "left-[63%] -top-[62px] -translate-x-1/2",
+    rotate: -8,
+  },
+  {
+    bodyShape: "blob",
+    eyeStyle: "grumpy",
+    color: "green",
+    size: 76,
+    position: "-right-[25px] top-[60px]",
+    rotate: 1,
+  },
+  {
+    bodyShape: "stack",
+    eyeStyle: "gentle",
+    color: "purple",
+    size: 110,
+    position: "-left-[39px] top-[74%]",
+    rotate: 0,
+  },
+  {
+    bodyShape: "urchin",
+    eyeStyle: "goofy",
+    color: "pink",
+    size: 137,
+    position: "-right-[42px] -bottom-[40px]",
+    rotate: 180,
+  },
+  {
+    bodyShape: "sprout",
+    eyeStyle: "curious",
+    color: "orange",
+    size: 72,
+    position: "left-[37%] -bottom-[22px] -translate-x-1/2",
+    rotate: 0,
+  },
 ];
 
 /**
@@ -223,9 +153,30 @@ const CREATURE_PLACEMENTS: CreaturePlacement[] = [
  * green blob peeking in from the right edge.
  */
 const TOP_CREATURE_PLACEMENTS: CreaturePlacement[] = [
-  { bodyShape: "star", eyeStyle: "curious", color: "yellow", size: 103, position: "-left-[28px] -top-[33px]", rotate: 180 },
-  { bodyShape: "star", eyeStyle: "curious", color: "orange", size: 109, position: "left-[63%] -top-[62px] -translate-x-1/2", rotate: -8 },
-  { bodyShape: "blob", eyeStyle: "grumpy", color: "green", size: 76, position: "-right-[25px] top-[60px]", rotate: 1 },
+  {
+    bodyShape: "star",
+    eyeStyle: "curious",
+    color: "yellow",
+    size: 103,
+    position: "-left-[28px] -top-[33px]",
+    rotate: 180,
+  },
+  {
+    bodyShape: "star",
+    eyeStyle: "curious",
+    color: "orange",
+    size: 109,
+    position: "left-[63%] -top-[62px] -translate-x-1/2",
+    rotate: -8,
+  },
+  {
+    bodyShape: "blob",
+    eyeStyle: "grumpy",
+    color: "green",
+    size: 76,
+    position: "-right-[25px] top-[60px]",
+    rotate: 1,
+  },
 ];
 
 /**

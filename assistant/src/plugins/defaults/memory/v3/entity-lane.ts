@@ -46,9 +46,13 @@ export function buildEntityIndex(
   const byToken: EntityIndex = new Map();
   for (let doc = 0; doc < index.sections.length; doc++) {
     const title = index.sections[doc]!.title;
-    if (title.length === 0) continue;
+    if (title.length === 0) {
+      continue;
+    }
     for (const token of new Set(tokenize(title))) {
-      if (!isDistinctive(token)) continue;
+      if (!isDistinctive(token)) {
+        continue;
+      }
       let docs = byToken.get(token);
       if (!docs) {
         docs = [];
@@ -77,7 +81,9 @@ export function entityLane(
   message: string,
   cap: number,
 ): { article: Slug; section: number }[] {
-  if (cap <= 0) return [];
+  if (cap <= 0) {
+    return [];
+  }
 
   // Per heading section hit by ≥1 message token, count how many DISTINCT message
   // tokens its heading contains (the entity index maps token → sections whose

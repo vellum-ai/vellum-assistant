@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import type { AnsweredQuestion } from "../api/events/question-answered.js";
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import {
@@ -298,9 +299,9 @@ describe("renderHistoryContent", () => {
     expect(output.toolCalls[0].errorCode).toBe("acp_claude_oauth_missing");
   });
 
-  test("emits the attachment id for a workspace_ref tool-result image", () => {
+  test("emits the attachment id for a workspace_ref tool-result image", async () => {
     // "aGVsbG8=" = "hello" — a stand-in for screenshot bytes.
-    const stored = uploadAttachment("shot.png", "image/png", "aGVsbG8=");
+    const stored = await uploadAttachment("shot.png", "image/png", "aGVsbG8=");
     const output = renderHistoryContent([
       { type: "tool_use", id: "tu_1", name: "browser_screenshot", input: {} },
       {
@@ -547,6 +548,95 @@ describe("renderHistoryContent", () => {
     ]);
 
     expect(output.toolCalls[0].activityMetadata).toEqual(activityMetadata);
+  });
+
+  // ── Persisted answered ask_question ────────────────────────────────────────
+
+  test("hydrates a persisted _answeredQuestion onto its tool_use block", () => {
+    // Mirrors what the daemon stamps when an `ask_question` prompt settles, so
+    // the answered card rehydrates on a reopened conversation instead of the
+    // user's decision disappearing with the interactive prompt.
+    const answeredQuestion: AnsweredQuestion = {
+      requestId: "req-1",
+      questions: [
+        {
+          id: "q1",
+          question: "Which Alice?",
+          options: [
+            { id: "alice_work", label: "Alice (work)" },
+            { id: "alice_personal", label: "Alice (personal)" },
+          ],
+        },
+      ],
+      responses: [
+        { questionId: "q1", decision: "option", optionId: "alice_work" },
+      ],
+      overall: "completed",
+    };
+
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_q",
+        name: "ask_question",
+        input: { questions: [{ question: "Which Alice?" }] },
+        _answeredQuestion: answeredQuestion,
+      },
+    ]);
+
+    expect(output.toolCalls[0].answeredQuestion).toEqual(answeredQuestion);
+  });
+
+  test("hydrates a free-text answer verbatim", () => {
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_q",
+        name: "ask_question",
+        input: {},
+        _answeredQuestion: {
+          requestId: "req-2",
+          questions: [{ id: "q1", question: "Which fruit?", options: [] }],
+          responses: [
+            { questionId: "q1", decision: "free_text", text: "Cherry" },
+          ],
+          overall: "completed",
+        },
+      },
+    ]);
+
+    expect(output.toolCalls[0].answeredQuestion?.responses).toEqual([
+      { questionId: "q1", decision: "free_text", text: "Cherry" },
+    ]);
+  });
+
+  test("leaves answeredQuestion absent on rows that predate the annotation", () => {
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_q",
+        name: "ask_question",
+        input: { questions: [{ question: "Which Alice?" }] },
+      },
+    ]);
+
+    expect(output.toolCalls[0].answeredQuestion).toBeUndefined();
+  });
+
+  test("ignores a malformed _answeredQuestion annotation", () => {
+    // The card renders these contents directly, so a rider that does not match
+    // the schema must degrade to no card rather than a crashing render.
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_q",
+        name: "ask_question",
+        input: {},
+        _answeredQuestion: { requestId: "req-3", overall: "sideways" },
+      },
+    ]);
+
+    expect(output.toolCalls[0].answeredQuestion).toBeUndefined();
   });
 
   test("ignores non-object _activityMetadata annotations", () => {
@@ -1084,7 +1174,7 @@ describe("getAttachmentsForMessage", () => {
 
   test("returns attachments linked to a message", async () => {
     const msgId = await createMessage("assistant", "Here is a chart");
-    const stored = uploadAttachment("chart.png", "image/png", "iVBORw==");
+    const stored = await uploadAttachment("chart.png", "image/png", "iVBORw==");
     linkAttachmentToMessage(msgId, stored.id, 0);
 
     const result = getAttachmentsForMessage(msgId);
@@ -1101,8 +1191,8 @@ describe("getAttachmentsForMessage", () => {
 
   test("returns multiple attachments in position order", async () => {
     const msgId = await createMessage("assistant", "Two files");
-    const a1 = uploadAttachment("first.txt", "text/plain", "AAAA");
-    const a2 = uploadAttachment("second.txt", "text/plain", "BBBB");
+    const a1 = await uploadAttachment("first.txt", "text/plain", "AAAA");
+    const a2 = await uploadAttachment("second.txt", "text/plain", "BBBB");
 
     linkAttachmentToMessage(msgId, a2.id, 1);
     linkAttachmentToMessage(msgId, a1.id, 0);
@@ -1115,8 +1205,8 @@ describe("getAttachmentsForMessage", () => {
 
   test("returns all attachments linked to a message", async () => {
     const msgId = await createMessage("assistant", "Mixed");
-    const a1 = uploadAttachment("a.png", "image/png", "AAAA");
-    const a2 = uploadAttachment("b.png", "image/png", "BBBB");
+    const a1 = await uploadAttachment("a.png", "image/png", "AAAA");
+    const a2 = await uploadAttachment("b.png", "image/png", "BBBB");
 
     linkAttachmentToMessage(msgId, a1.id, 0);
     linkAttachmentToMessage(msgId, a2.id, 1);

@@ -12,18 +12,32 @@ const configLlmProfilesByNamePutMock = mock(async () => ({
 const configPatchMock = mock(async () => ({
   response: { ok: true, status: 200 },
 }));
+const configLlmDefaultproviderPutMock = mock(async () => ({
+  response: { ok: true, status: 200 },
+}));
+// Version fetched by the onboarding-default-provider gate. Defaults to the
+// gate's MIN_VERSION so tests exercise the new write path unless they
+// override it.
+const identityGetMock = mock(async () => ({
+  data: { version: "0.11.1" } as { version: string | null } | null,
+  error: undefined,
+  response: { ok: true, status: 200 },
+}));
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   secretsPost: secretsPostMock,
   inferenceProviderconnectionsPost: inferenceProviderconnectionsPostMock,
   configLlmProfilesByNamePut: configLlmProfilesByNamePutMock,
   configPatch: configPatchMock,
+  configLlmDefaultproviderPut: configLlmDefaultproviderPutMock,
+  identityGet: identityGetMock,
 }));
 
 const {
   applyPendingProviderKey,
   consumePendingProviderKey,
   peekPendingProviderKey,
+  ProviderKeyRejectedError,
   setPendingProviderKey,
 } = await import("@/domains/onboarding/provider-key");
 
@@ -33,6 +47,13 @@ beforeEach(() => {
   inferenceProviderconnectionsPostMock.mockClear();
   configLlmProfilesByNamePutMock.mockClear();
   configPatchMock.mockClear();
+  configLlmDefaultproviderPutMock.mockClear();
+  identityGetMock.mockClear();
+  identityGetMock.mockImplementation(async () => ({
+    data: { version: "0.11.1" },
+    error: undefined,
+    response: { ok: true, status: 200 },
+  }));
 });
 
 describe("pending provider key", () => {
@@ -72,12 +93,85 @@ describe("pending provider key", () => {
     });
   });
 
-  test("applies an Ollama provider connection and activates the selected model profile", async () => {
+  test("API-key providers rely on the code-defined defaults: key, personal connection, default provider — no profile writes", async () => {
+    // GIVEN an OpenAI provider key
+    setPendingProviderKey({ provider: "openai", key: "sk-proj-test" });
+
+    // WHEN the pending key is applied
+    await applyPendingProviderKey("local-2");
+
+    // THEN the API key is stored
+    expect(secretsPostMock).toHaveBeenCalledWith({
+      path: { assistant_id: "local-2" },
+      body: { type: "api_key", name: "openai", value: "sk-proj-test" },
+      throwOnError: false,
+    });
+    // AND the `<provider>-personal` connection the default profiles dispatch
+    // through is created
+    expect(inferenceProviderconnectionsPostMock).toHaveBeenCalledWith({
+      path: { assistant_id: "local-2" },
+      body: {
+        name: "openai-personal",
+        provider: "openai",
+        auth: {
+          type: "api_key",
+          credential: "credential/openai/api_key",
+        },
+        label: "OpenAI (Personal)",
+      },
+      throwOnError: false,
+    });
+    // AND the default provider reflects the pick
+    expect(configLlmDefaultproviderPutMock).toHaveBeenCalledWith({
+      path: { assistant_id: "local-2" },
+      body: { provider: "openai" },
+      throwOnError: false,
+    });
+    // AND no profile is authored or activated — the hatch-activated
+    // `balanced` default stays in charge
+    expect(configLlmProfilesByNamePutMock).not.toHaveBeenCalled();
+    expect(configPatchMock).not.toHaveBeenCalled();
+    expect(peekPendingProviderKey()).toBeNull();
+  });
+
+  test("a selected model on an API-key provider is ignored — defaults resolve models via the daemon matrix", async () => {
+    setPendingProviderKey({
+      provider: "vercel-ai-gateway",
+      key: "vck_test",
+      model: "anthropic/claude-sonnet-4.6",
+    });
+
+    await applyPendingProviderKey("local-3");
+
+    expect(inferenceProviderconnectionsPostMock).toHaveBeenCalledWith({
+      path: { assistant_id: "local-3" },
+      body: {
+        name: "vercel-ai-gateway-personal",
+        provider: "vercel-ai-gateway",
+        auth: {
+          type: "api_key",
+          credential: "credential/vercel-ai-gateway/api_key",
+        },
+        label: "Vercel AI Gateway (Personal)",
+      },
+      throwOnError: false,
+    });
+    expect(configLlmDefaultproviderPutMock).toHaveBeenCalledWith({
+      path: { assistant_id: "local-3" },
+      body: { provider: "vercel-ai-gateway" },
+      throwOnError: false,
+    });
+    expect(configLlmProfilesByNamePutMock).not.toHaveBeenCalled();
+    expect(configPatchMock).not.toHaveBeenCalled();
+  });
+
+  test("Ollama authors a provider-named profile and activates it (no matrix column for keyless providers)", async () => {
     setPendingProviderKey({ provider: "ollama", key: "", model: "mistral" });
 
     await applyPendingProviderKey("local-1");
 
     expect(secretsPostMock).not.toHaveBeenCalled();
+    expect(configLlmDefaultproviderPutMock).not.toHaveBeenCalled();
     expect(inferenceProviderconnectionsPostMock).toHaveBeenCalledWith({
       path: { assistant_id: "local-1" },
       body: {
@@ -88,14 +182,13 @@ describe("pending provider key", () => {
       throwOnError: false,
     });
     expect(configLlmProfilesByNamePutMock).toHaveBeenCalledWith({
-      path: { assistant_id: "local-1", name: "custom-balanced" },
+      path: { assistant_id: "local-1", name: "ollama" },
       body: {
         provider: "ollama",
         model: "mistral",
         provider_connection: "ollama",
         source: "user",
-        label: "Balanced",
-        description: "Good balance of quality, cost, and speed",
+        label: "Ollama",
         maxTokens: 4096,
         contextWindow: { maxInputTokens: 32768 },
         effort: "none",
@@ -105,128 +198,230 @@ describe("pending provider key", () => {
     });
     expect(configPatchMock).toHaveBeenCalledWith({
       path: { assistant_id: "local-1" },
-      body: { llm: { activeProfile: "custom-balanced" } },
+      body: { llm: { activeProfile: "ollama" } },
       throwOnError: false,
     });
     expect(peekPendingProviderKey()).toBeNull();
   });
 
-  test("applies an OpenRouter API key, connection, and profile with model metadata", async () => {
-    // GIVEN an OpenRouter provider key with a selected model
+  test("openai-compatible authors a provider-named profile from the custom base URL + models", async () => {
     setPendingProviderKey({
-      provider: "openrouter",
-      key: "sk-or-v1-test",
-      model: "anthropic/claude-sonnet-4.6",
+      provider: "openai-compatible",
+      key: "sk-custom",
+      baseUrl: "https://llm.example.com/v1",
+      customModels: "model-a, model-b",
     });
 
-    // WHEN the pending key is applied
-    await applyPendingProviderKey("local-2");
+    await applyPendingProviderKey("local-4");
 
-    // THEN the API key is stored
     expect(secretsPostMock).toHaveBeenCalledWith({
-      path: { assistant_id: "local-2" },
+      path: { assistant_id: "local-4" },
       body: {
         type: "api_key",
-        name: "openrouter",
-        value: "sk-or-v1-test",
+        name: "openai-compatible",
+        value: "sk-custom",
       },
       throwOnError: false,
     });
-    // AND the provider connection is created with API-key auth
+    expect(configLlmDefaultproviderPutMock).not.toHaveBeenCalled();
     expect(inferenceProviderconnectionsPostMock).toHaveBeenCalledWith({
-      path: { assistant_id: "local-2" },
+      path: { assistant_id: "local-4" },
       body: {
-        name: "openrouter",
-        provider: "openrouter",
+        name: "openai-compatible",
+        provider: "openai-compatible",
         auth: {
           type: "api_key",
-          credential: "credential/openrouter/api_key",
+          credential: "credential/openai-compatible/api_key",
         },
+        base_url: "https://llm.example.com/v1",
+        models: [{ id: "model-a" }, { id: "model-b" }],
       },
       throwOnError: false,
     });
-    // AND the profile uses model metadata from the onboarding catalog
     expect(configLlmProfilesByNamePutMock).toHaveBeenCalledWith({
-      path: { assistant_id: "local-2", name: "custom-balanced" },
+      path: { assistant_id: "local-4", name: "openai-compatible" },
       body: {
-        provider: "openrouter",
-        model: "anthropic/claude-sonnet-4.6",
-        provider_connection: "openrouter",
+        provider: "openai-compatible",
+        model: "model-a",
+        provider_connection: "openai-compatible",
         source: "user",
-        label: "Balanced",
-        description: "Good balance of quality, cost, and speed",
-        maxTokens: 64_000,
+        label: "OpenAI-compatible",
+        maxTokens: 16_000,
         contextWindow: { maxInputTokens: 200_000 },
         effort: "high",
         thinking: { enabled: true, streamThinking: true },
       },
       throwOnError: false,
     });
-    // AND the profile is activated
     expect(configPatchMock).toHaveBeenCalledWith({
-      path: { assistant_id: "local-2" },
-      body: { llm: { activeProfile: "custom-balanced" } },
+      path: { assistant_id: "local-4" },
+      body: { llm: { activeProfile: "openai-compatible" } },
       throwOnError: false,
     });
-    expect(peekPendingProviderKey()).toBeNull();
   });
 
-  test("applies a Vercel AI Gateway API key, connection, and profile with model metadata", async () => {
-    // GIVEN a Vercel AI Gateway provider key with no selected model
-    setPendingProviderKey({
-      provider: "vercel-ai-gateway",
-      key: "vck_test",
-    });
+  test("an assistant below the gate gets the legacy custom-balanced flow instead of the default-provider write", async () => {
+    // 0.11.0 has the PUT endpoint but not the code-defined BYOK defaults —
+    // the new path would leave `balanced` resolving through the vellum
+    // column with the entered key unused.
+    identityGetMock.mockImplementation(async () => ({
+      data: { version: "0.11.0" },
+      error: undefined,
+      response: { ok: true, status: 200 },
+    }));
+    setPendingProviderKey({ provider: "anthropic", key: "sk-ant-test" });
 
-    // WHEN the pending key is applied
-    await applyPendingProviderKey("local-3");
+    await applyPendingProviderKey("local-5");
 
-    // THEN the API key is stored
     expect(secretsPostMock).toHaveBeenCalledWith({
-      path: { assistant_id: "local-3" },
-      body: {
-        type: "api_key",
-        name: "vercel-ai-gateway",
-        value: "vck_test",
-      },
+      path: { assistant_id: "local-5" },
+      body: { type: "api_key", name: "anthropic", value: "sk-ant-test" },
       throwOnError: false,
     });
-    // AND the provider connection is created with API-key auth
+    expect(configLlmDefaultproviderPutMock).not.toHaveBeenCalled();
+    // Legacy shape: provider-named connection, not `<provider>-personal`
     expect(inferenceProviderconnectionsPostMock).toHaveBeenCalledWith({
-      path: { assistant_id: "local-3" },
+      path: { assistant_id: "local-5" },
       body: {
-        name: "vercel-ai-gateway",
-        provider: "vercel-ai-gateway",
+        name: "anthropic",
+        provider: "anthropic",
         auth: {
           type: "api_key",
-          credential: "credential/vercel-ai-gateway/api_key",
+          credential: "credential/anthropic/api_key",
         },
       },
       throwOnError: false,
     });
-    // AND the profile falls back to the catalog default model with its metadata
     expect(configLlmProfilesByNamePutMock).toHaveBeenCalledWith({
-      path: { assistant_id: "local-3", name: "custom-balanced" },
+      path: { assistant_id: "local-5", name: "custom-balanced" },
       body: {
-        provider: "vercel-ai-gateway",
-        model: "anthropic/claude-sonnet-4.6",
-        provider_connection: "vercel-ai-gateway",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        provider_connection: "anthropic",
         source: "user",
         label: "Balanced",
         description: "Good balance of quality, cost, and speed",
-        maxTokens: 64_000,
+        maxTokens: 16_000,
         contextWindow: { maxInputTokens: 200_000 },
         effort: "high",
         thinking: { enabled: true, streamThinking: true },
       },
       throwOnError: false,
     });
-    // AND the profile is activated
     expect(configPatchMock).toHaveBeenCalledWith({
-      path: { assistant_id: "local-3" },
+      path: { assistant_id: "local-5" },
       body: { llm: { activeProfile: "custom-balanced" } },
       throwOnError: false,
     });
     expect(peekPendingProviderKey()).toBeNull();
+  });
+
+  test("an unresolvable assistant version falls back to the legacy flow", async () => {
+    identityGetMock.mockImplementation(async () => ({
+      data: null,
+      error: undefined,
+      response: { ok: false, status: 503 },
+    }));
+    setPendingProviderKey({ provider: "openai", key: "sk-proj-test" });
+
+    await applyPendingProviderKey("local-6");
+
+    expect(configLlmDefaultproviderPutMock).not.toHaveBeenCalled();
+    expect(configLlmProfilesByNamePutMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: { assistant_id: "local-6", name: "custom-balanced" },
+      }),
+    );
+    expect(configPatchMock).toHaveBeenCalledWith({
+      path: { assistant_id: "local-6" },
+      body: { llm: { activeProfile: "custom-balanced" } },
+      throwOnError: false,
+    });
+  });
+
+  test("a provider-rejected key throws, re-stages the selection, and writes nothing downstream", async () => {
+    // The daemon reports provider-side key validation failure as a 200 with
+    // success:false (the key is NOT stored).
+    secretsPostMock.mockImplementationOnce(async () => ({
+      data: { success: false, error: "API key is invalid or expired." },
+      response: { ok: true, status: 200 },
+    }));
+    setPendingProviderKey({ provider: "anthropic", key: "sk-ant-bad" });
+
+    const attempt = applyPendingProviderKey("local-8");
+
+    await expect(attempt).rejects.toBeInstanceOf(ProviderKeyRejectedError);
+    await attempt.catch((err: unknown) => {
+      expect(err).toEqual(
+        expect.objectContaining({
+          provider: "anthropic",
+          reason: "API key is invalid or expired.",
+        }),
+      );
+    });
+    // The full selection survives for the API-key screen to prefill. The
+    // rejected key is kept so a reload re-applies it and re-surfaces the
+    // rejection instead of proceeding with no provider key at all.
+    expect(peekPendingProviderKey()).toEqual({
+      provider: "anthropic",
+      key: "sk-ant-bad",
+    });
+    // Nothing downstream may reference the never-stored credential.
+    expect(inferenceProviderconnectionsPostMock).not.toHaveBeenCalled();
+    expect(configLlmDefaultproviderPutMock).not.toHaveBeenCalled();
+    expect(configLlmProfilesByNamePutMock).not.toHaveBeenCalled();
+    expect(configPatchMock).not.toHaveBeenCalled();
+  });
+
+  test("a success:false response without a reason still throws ProviderKeyRejectedError", async () => {
+    secretsPostMock.mockImplementationOnce(async () => ({
+      data: { success: false },
+      response: { ok: true, status: 200 },
+    }));
+    setPendingProviderKey({ provider: "openai", key: "sk-proj-bad" });
+
+    await expect(applyPendingProviderKey("local-9")).rejects.toBeInstanceOf(
+      ProviderKeyRejectedError,
+    );
+    expect(peekPendingProviderKey()).toEqual({
+      provider: "openai",
+      key: "sk-proj-bad",
+    });
+  });
+
+  test("a success:true response with a body proceeds normally", async () => {
+    secretsPostMock.mockImplementationOnce(async () => ({
+      data: { success: true, type: "api_key", name: "anthropic" },
+      response: { ok: true, status: 200 },
+    }));
+    setPendingProviderKey({ provider: "anthropic", key: "sk-ant-good" });
+
+    await applyPendingProviderKey("local-10");
+
+    expect(configLlmDefaultproviderPutMock).toHaveBeenCalledWith({
+      path: { assistant_id: "local-10" },
+      body: { provider: "anthropic" },
+      throwOnError: false,
+    });
+    expect(peekPendingProviderKey()).toBeNull();
+  });
+
+  test("a dev build on the gate's base version takes the new path", async () => {
+    identityGetMock.mockImplementation(async () => ({
+      data: { version: "0.11.1-dev.202607290000.abc1234" },
+      error: undefined,
+      response: { ok: true, status: 200 },
+    }));
+    setPendingProviderKey({ provider: "anthropic", key: "sk-ant-test" });
+
+    await applyPendingProviderKey("local-7");
+
+    expect(configLlmDefaultproviderPutMock).toHaveBeenCalledWith({
+      path: { assistant_id: "local-7" },
+      body: { provider: "anthropic" },
+      throwOnError: false,
+    });
+    expect(configLlmProfilesByNamePutMock).not.toHaveBeenCalled();
+    expect(configPatchMock).not.toHaveBeenCalled();
   });
 });

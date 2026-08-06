@@ -21,6 +21,7 @@ import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,
 } from "../notifications/guardian-delivery-recorder.js";
+import { buildVellumCardAffinity } from "../notifications/vellum-card-affinity.js";
 import { getLogger } from "../util/logger.js";
 import { resolveApprovalSourceReference } from "./approval-source-link.js";
 import { getGuardianBinding } from "./channel-verification-service.js";
@@ -177,6 +178,9 @@ export async function createOrReuseToolGrantRequest(
     sourceChannel,
     sourceContextId: conversationId,
     requiresConversation: true,
+    // Pin the in-app (vellum) card to the conversation the escalated tool is
+    // running in, so the guardian decides it in context.
+    ...(buildVellumCardAffinity(conversationId) ?? {}),
     attentionHints: {
       requiresAction: true,
       urgency: "high",

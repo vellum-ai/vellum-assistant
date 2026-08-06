@@ -24,22 +24,30 @@ interface SpeakerProfile {
 }
 
 function toCleanString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
+  if (typeof value !== "string") {
+    return null;
+  }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 
 function toNumber(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
   if (typeof value === "string") {
     const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
   }
   return null;
 }
 
 function getObject(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
   return value as Record<string, unknown>;
 }
 
@@ -49,7 +57,9 @@ function normalizeSpeakerLabel(
 ): string {
   const preferredLabel =
     toCleanString(metadata.speakerName) ?? toCleanString(metadata.speakerLabel);
-  if (preferredLabel) return preferredLabel;
+  if (preferredLabel) {
+    return preferredLabel;
+  }
   return `Speaker ${fallbackIndex}`;
 }
 
@@ -64,7 +74,9 @@ export function extractPromptSpeakerMetadata(
   const pick = (...values: unknown[]): string | undefined => {
     for (const value of values) {
       const cleaned = toCleanString(value);
-      if (cleaned) return cleaned;
+      if (cleaned) {
+        return cleaned;
+      }
     }
     return undefined;
   };
@@ -72,7 +84,9 @@ export function extractPromptSpeakerMetadata(
   const pickNumber = (...values: unknown[]): number | undefined => {
     for (const value of values) {
       const parsed = toNumber(value);
-      if (parsed != null) return parsed;
+      if (parsed != null) {
+        return parsed;
+      }
     }
     return undefined;
   };

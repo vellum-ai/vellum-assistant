@@ -42,6 +42,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { runShutdownHook } from "../../hooks/hook-loader.js";
 import { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import type { FetchLike } from "./fetch-like.js";
@@ -53,6 +54,8 @@ import {
   type PluginLocalInfo,
 } from "./inspect-plugin.js";
 import {
+  type ConfirmStagedInstall,
+  confirmStagedOrAbort,
   finalizeStagedInstall,
   type GitRunner,
   installPlugin,
@@ -125,6 +128,26 @@ export interface UpgradePluginDeps {
   readonly runPostinstall?: PostinstallRunner;
   /** Override the dependency-install runner. Forwarded to {@link installPlugin} and {@link finalizeStagedInstall}. */
   readonly runInstallDeps?: DependencyInstaller;
+  /**
+   * Invoked after every fallible staging step succeeds and immediately before
+   * the staged tree is swapped over the live install, so the outgoing
+   * version's teardown runs while its files are still on disk (mirroring
+   * `uninstallPlugin`, which runs `shutdown` before `rmSync`). Defaults to
+   * running the plugin's `shutdown` hook (reason `reload`) in this process,
+   * skipped when the plugin is disabled; the daemon's upgrade route overrides
+   * it to deactivate the plugin in-process instead, so the post-swap
+   * reconcile only has the new version's `init` left to run. Never invoked
+   * for dry runs or no-op upgrades (they never reach the swap).
+   */
+  readonly beforeSwap?: () => Promise<void>;
+  /**
+   * Consent gate between staging and finalize, identical to the install
+   * path's ({@link ConfirmStagedInstall}): the caller inspects the staged
+   * upgraded tree (e.g. its declared schedules) and may abort before
+   * anything replaces the live install. Applies to overwrite and merge
+   * upgrades alike; dry runs and no-ops never stage, so it is not invoked.
+   */
+  readonly confirmStaged?: ConfirmStagedInstall;
 }
 
 /** Result of an upgrade attempt. */
@@ -236,6 +259,21 @@ export async function upgradePlugin(
   const name = sanitizePluginName(opts.name);
   const dryRun = opts.dryRun ?? false;
   const strategy = opts.strategy ?? DEFAULT_PLUGIN_UPGRADE_STRATEGY;
+
+  // Old-version teardown at the swap boundary. The default runs the
+  // `shutdown` hook in whatever process performs the upgrade (CLI or
+  // daemon), exactly like `uninstallPlugin`; a disabled plugin is skipped
+  // for the same reason uninstall skips it — it was never init'd, so
+  // running its shutdown would be the first-ever execution of its code.
+  const beforeSwap =
+    deps.beforeSwap ??
+    (async () => {
+      if (existsSync(join(pluginTarget(name, deps), ".disabled"))) {
+        return;
+      }
+      await runShutdownHook("plugin", name, "reload");
+    });
+  deps = { ...deps, beforeSwap };
 
   let inspection: PluginInspection;
   try {
@@ -372,6 +410,8 @@ export async function upgradePlugin(
       runGit: deps.runGit,
       runPostinstall: deps.runPostinstall,
       runInstallDeps: deps.runInstallDeps,
+      beforeSwap: deps.beforeSwap,
+      confirmStaged: deps.confirmStaged,
     },
   );
 
@@ -561,6 +601,8 @@ async function directUpgrade(
       runGit: deps.runGit,
       runPostinstall: deps.runPostinstall,
       runInstallDeps: deps.runInstallDeps,
+      beforeSwap: deps.beforeSwap,
+      confirmStaged: deps.confirmStaged,
     },
   );
 
@@ -717,6 +759,12 @@ async function mergeUpgrade(
       conflictLabels,
     });
 
+    // Same staging-to-finalize consent boundary as `installPlugin`: the
+    // caller sees the fully merged tree before it replaces the live install.
+    // A decline removes the staging dir and throws; the outer catch's rmSync
+    // is then a no-op.
+    await confirmStagedOrAbort(name, stagingDir, deps.confirmStaged);
+
     const toCommit = theirs.commit ?? ctx.toCommit;
     const toTimestamp = theirs.committedAt ?? ctx.toTimestamp;
     await finalizeStagedInstall(stagingDir, {
@@ -727,6 +775,7 @@ async function mergeUpgrade(
       committedAt: toTimestamp,
       pluginsDir,
       installDependencies: deps.runInstallDeps,
+      beforeSwap: deps.beforeSwap,
     });
 
     return {

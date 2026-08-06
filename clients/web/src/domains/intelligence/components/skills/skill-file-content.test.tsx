@@ -51,13 +51,11 @@ describe("SkillFileContent", () => {
 
   test("binary file shows the binary message", () => {
     render(
-      <SkillFileContent
-        fileName="logo.png"
-        content={null}
-        isBinary={true}
-      />,
+      <SkillFileContent fileName="logo.png" content={null} isBinary={true} />,
     );
 
-    expect(screen.getByText("Binary file — no preview available.")).toBeTruthy();
+    expect(
+      screen.getByText("Binary file — no preview available."),
+    ).toBeTruthy();
   });
 });

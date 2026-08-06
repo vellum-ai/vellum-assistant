@@ -17,12 +17,12 @@
  *    make a command semantically findable.
  */
 
-import { buildCliCommandSummary } from "./substrate/cli-command-content.js";
+import { buildCliCommandSummary } from "../substrate/cli-command-content.js";
 import {
   getCliCommandCapability,
   isCliCommandSlug,
-} from "./substrate/cli-command-store.js";
-import { getSkillCapability, isSkillSlug } from "./substrate/skill-store.js";
+} from "../substrate/cli-command-store.js";
+import { getSkillCapability, isSkillSlug } from "../substrate/skill-store.js";
 import type { Slug } from "./types.js";
 
 /** True iff the slug is a synthetic skill or CLI-command capability row. */
@@ -127,6 +127,8 @@ export async function capabilityOrDiskBody(
   slug: Slug,
   readDiskBody: (slug: Slug) => Promise<string>,
 ): Promise<string> {
-  if (isCapabilitySlug(slug)) return renderCapabilityBody(slug) ?? "";
+  if (isCapabilitySlug(slug)) {
+    return renderCapabilityBody(slug) ?? "";
+  }
   return readDiskBody(slug);
 }

@@ -24,6 +24,7 @@ export const cronJobs = sqliteTable("cron_jobs", {
   retryBackoffMs: integer("retry_backoff_ms").notNull().default(60000),
   timeoutMs: integer("timeout_ms"), // script-mode execution timeout override (ms); null = use default
   inferenceProfile: text("inference_profile"), // llm.profiles key for LLM-executed runs; null = default main-agent selection
+  groupId: text("group_id"), // conversation_groups id for run conversations; null = system:scheduled
   createdFromConversationId: text("created_from_conversation_id"),
   createdBy: text("created_by").notNull(), // 'agent' | 'user'
   mode: text("mode").notNull().default("execute"), // 'notify' | 'execute'
@@ -39,6 +40,9 @@ export const cronJobs = sqliteTable("cron_jobs", {
   workflowName: text("workflow_name"), // saved workflow to trigger (nullable, only used when mode = 'workflow')
   workflowArgsJson: text("workflow_args_json"), // JSON-encoded args passed to the workflow run (nullable)
   capabilitiesJson: text("capabilities_json"), // JSON-encoded capability manifest for the run (nullable; null = hardcoded read-only manifest)
+  sourceKey: text("source_key"), // plugin declaration key ('plugin:<pluginName>/<scheduleName>'); null = imperative schedule
+  definitionHash: text("definition_hash"), // reconciler change detector over the declaration files (nullable, only used when source_key is set)
+  userEnabled: integer("user_enabled", { mode: "boolean" }), // user override for a sourced row's enabled state; null = declaration's value applies
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
@@ -275,6 +279,17 @@ export const llmUsageEvents = sqliteTable(
      * persisted before migration 267 ran.
      */
     assistantVersion: text("assistant_version"),
+    /**
+     * `conversations.conversation_type` of the parent conversation
+     * (`"standard"` / `"background"` / `"scheduled"`), captured at RECORD
+     * time. The parent conversation can be deleted before the telemetry
+     * flush joins against it (memory-retrospective forks are GC'd once
+     * superseded; users delete conversations), so a flush-time JOIN alone
+     * under-labels usage rows. Null when the call has no parent
+     * conversation and for rows persisted before migration 353 ran (the
+     * telemetry read path falls back to the JOIN for those).
+     */
+    conversationType: text("conversation_type"),
   },
   (table) => [
     index("idx_llm_usage_events_conversation_id").on(table.conversationId),

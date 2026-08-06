@@ -1,20 +1,26 @@
 /**
  * Pins the read contract the overview's Personality card leans on: a
- * genuinely missing sidecar (404) resolves `null` so the card can plot the
- * neutral radar, but every other failure throws so a transient read error
- * degrades to a no-stat card instead of an all-centered radar over saved dials.
+ * genuinely missing sidecar (404) resolves `null` so the card can draw the
+ * neutral flat line, but every other failure throws so a transient read error
+ * degrades to a no-stat card instead of a flat line over saved dials.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const workspaceFileGetMock = mock(
-  async (): Promise<{ data?: unknown; error?: unknown; response: unknown }> => ({
+  async (): Promise<{
+    data?: unknown;
+    error?: unknown;
+    response: unknown;
+  }> => ({
     response: { ok: true, status: 200 },
   }),
 );
 mock.module("@/generated/daemon/sdk.gen", () => ({
   workspaceFileGet: workspaceFileGetMock,
-  workspaceWritePost: mock(async () => ({ response: { ok: true, status: 200 } })),
+  workspaceWritePost: mock(async () => ({
+    response: { ok: true, status: 200 },
+  })),
 }));
 
 const { fetchPersonalitySliders } = await import("./personality-sliders");

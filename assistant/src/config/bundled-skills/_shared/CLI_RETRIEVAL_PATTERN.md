@@ -7,7 +7,7 @@ any generic account registry:
 
 - `assistant credentials list` for discovering stored credential handles
 - `assistant oauth status <provider>` for discovering OAuth connection handles
-- `assistant credentials set ...` for storing new credentials
+- `assistant credentials prompt ...` for collecting and storing user-supplied secrets (never pass a user-provided value inline to `assistant credentials set` — the CLI refuses it from an agent shell). `assistant credentials set ... --generated` is only for values the assistant machine-generated itself (e.g. `"$(uuidgen)"`, an API exchange result)
 - `assistant mcp auth <name>` when an MCP server needs browser login
 - `assistant platform status` for platform-linked deployment/auth context
 

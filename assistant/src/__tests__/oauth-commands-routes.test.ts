@@ -99,7 +99,9 @@ mock.module("../oauth/oauth-store.js", () => ({
   getConnection: (id: string) => {
     for (const list of Object.values(mockAllConnections)) {
       const row = (list as Array<{ id: string }>).find((r) => r.id === id);
-      if (row) return row;
+      if (row) {
+        return row;
+      }
     }
     return undefined;
   },
@@ -136,7 +138,9 @@ mock.module("../oauth/manual-token-connection.js", () => ({
 mock.module("../platform/client.js", () => ({
   VellumPlatformClient: {
     create: async () => {
-      if (!platformAvailable) return null;
+      if (!platformAvailable) {
+        return null;
+      }
       return {
         platformAssistantId,
         fetch: (path: string, init?: RequestInit) => mockFetchImpl(path, init),
@@ -174,7 +178,9 @@ function getRoute(method: string, endpoint: string) {
   const route = ROUTES.find(
     (r) => r.method === method && r.endpoint === endpoint,
   );
-  if (!route) throw new Error(`Route not found: ${method} ${endpoint}`);
+  if (!route) {
+    throw new Error(`Route not found: ${method} ${endpoint}`);
+  }
   return route;
 }
 

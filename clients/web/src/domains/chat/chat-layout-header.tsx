@@ -1,15 +1,21 @@
 import { Button } from "@vellumai/design-library";
 import {
-    ChevronLeft,
-    ChevronRight,
-    Menu as MenuIcon,
-    PanelLeft,
-    Search,
+  ChevronLeft,
+  ChevronRight,
+  Menu as MenuIcon,
+  PanelLeft,
+  Search,
 } from "lucide-react";
 import { useCallback, useEffect, type ReactNode } from "react";
 
+import { NATIVE_MOBILE_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-mobile-button-constants";
 import { isElectron } from "@/runtime/is-electron";
+import { isNativeMobile } from "@/runtime/platform-detection";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
+import {
+  resolveShellBackground,
+  usePageSurfaceStore,
+} from "@/stores/page-surface-store";
 import { useTitleBarStore } from "@/stores/title-bar-store";
 
 // On macOS the native window controls (traffic lights) overlay the top-left of
@@ -40,6 +46,13 @@ export interface ChatLayoutHeaderProps {
    *  them visible for context but pulls them out of the attention field. */
   controlsDimmed?: boolean;
   topBarCenter?: ReactNode;
+  /**
+   * Leads the right cluster, ahead of the mobile search button. The
+   * voice-session pill sits here so a live session reads as the leftmost
+   * thing in the cluster rather than buried between search and the
+   * notification bell.
+   */
+  topBarRightLeading?: ReactNode;
   topBarRightSlot?: ReactNode;
   canGoBack?: boolean;
   canGoForward?: boolean;
@@ -57,6 +70,7 @@ export function ChatLayoutHeader({
   centerHidden = false,
   controlsDimmed = false,
   topBarCenter,
+  topBarRightLeading,
   topBarRightSlot,
   canGoBack,
   canGoForward,
@@ -64,7 +78,9 @@ export function ChatLayoutHeader({
   onGoForward,
 }: ChatLayoutHeaderProps) {
   const toggleCommandPalette = useCommandPaletteStore.use.toggle();
-  const handleSearchClick = useCallback(() => { toggleCommandPalette(); }, [toggleCommandPalette]);
+  const handleSearchClick = useCallback(() => {
+    toggleCommandPalette();
+  }, [toggleCommandPalette]);
 
   // In the Electron shell the header doubles as the macOS title bar: it sits
   // inline with the traffic lights and drives window dragging
@@ -76,6 +92,18 @@ export function ChatLayoutHeader({
   // Gated to Electron so the web/iOS layouts are byte-for-byte unchanged.
   const electron = isElectron();
 
+  // Mobile-only: on desktop the same affordance lives in the left cluster.
+  const searchButton = isMobile ? (
+    <Button
+      variant="ghost"
+      iconOnly={<Search />}
+      aria-label="Search (Ctrl+K)"
+      tooltip="Search (Ctrl+K)"
+      className={NATIVE_MOBILE_BARE_ICON_BUTTON}
+      onClick={handleSearchClick}
+    />
+  ) : null;
+
   const setInlineTitleBarActive =
     useTitleBarStore.use.setInlineTitleBarActive();
   useEffect(() => {
@@ -86,6 +114,14 @@ export function ChatLayoutHeader({
     return () => setInlineTitleBarActive(false);
   }, [electron, setInlineTitleBarActive]);
 
+  // The header sits between the safe-area strips and the page content, both of
+  // which take the route's published surface on the native shells. Painting it
+  // from the same resolver is what makes the color continuous instead of a
+  // neutral band across the top. Off native mobile, and on any route that
+  // publishes nothing, this resolves to the usual neutral chrome.
+  const pageSurface = usePageSurfaceStore.use.surface();
+  const headerBackground = resolveShellBackground(pageSurface, isNativeMobile());
+
   return (
     <header
       data-slot="chat-layout-header"
@@ -95,7 +131,7 @@ export function ChatLayoutHeader({
           : ""
       }`}
       style={{
-        background: "var(--surface-base)",
+        background: headerBackground,
         minHeight: electron ? "44px" : "40px",
         paddingTop: electron ? 0 : undefined,
       }}
@@ -104,13 +140,17 @@ export function ChatLayoutHeader({
         // `inert` (not just opacity/pointer-events) so the faded-out
         // controls also leave the tab order and accessibility tree.
         inert={controlsHidden || undefined}
-        className={`flex items-center gap-2 transition-[min-width,opacity] duration-300 ease-in-out max-md:min-w-0 max-md:flex-1${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
+        className={`flex items-center gap-2 transition-[min-width,opacity] duration-300 ease-in-out max-md:shrink-0${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
         style={{
           // `minWidth` reserves the sidebar column on desktop only. The Electron
           // inset clears the inline traffic lights regardless of `isMobile` —
           // they stay put even in the narrow mobile layout.
-          ...(isMobile ? {} : { minWidth: collapsed ? 48 : (sidebarWidth ?? 230) }),
-          ...(electron ? { paddingLeft: ELECTRON_TRAFFIC_LIGHT_CLEARANCE } : {}),
+          ...(isMobile
+            ? {}
+            : { minWidth: collapsed ? 48 : (sidebarWidth ?? 230) }),
+          ...(electron
+            ? { paddingLeft: ELECTRON_TRAFFIC_LIGHT_CLEARANCE }
+            : {}),
         }}
       >
         {isMobile ? (
@@ -121,6 +161,7 @@ export function ChatLayoutHeader({
             aria-expanded={drawerOpen}
             aria-controls="chat-side-menu"
             tooltip="Open navigation"
+            className={NATIVE_MOBILE_BARE_ICON_BUTTON}
             onClick={toggleSidebar}
           />
         ) : (
@@ -167,24 +208,25 @@ export function ChatLayoutHeader({
 
       <div
         inert={controlsHidden || centerHidden || undefined}
-        className={`flex min-w-0 flex-1 items-center justify-center transition-opacity duration-300${controlsHidden || centerHidden ? " pointer-events-none opacity-0" : ""}`}
+        // Left-aligned on mobile, pulled in 12px past the header's own
+        // `gap-4` (16px) to sit closer to the menu button, 4px total.
+        // Desktop keeps the title centered in the remaining space.
+        className={`flex min-w-0 flex-1 items-center max-md:-ml-3 max-md:justify-start justify-center transition-opacity duration-300${controlsHidden || centerHidden ? " pointer-events-none opacity-0" : ""}`}
       >
         {topBarCenter}
       </div>
 
+      {/* `shrink-0`, not `flex-1`: these are fixed-size controls, and a wide
+          occupant (the voice-session pill) would otherwise either squash them
+          into each other or hold the row at its intrinsic width and push the
+          trailing ones off-screen. The centre slot is the only zone that
+          gives. */}
       <div
         inert={controlsHidden || undefined}
-        className={`flex items-center gap-2 max-md:flex-1 max-md:justify-end transition-opacity duration-300${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
+        className={`flex shrink-0 items-center gap-2 max-md:justify-end transition-opacity duration-300${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
       >
-        {isMobile ? (
-          <Button
-            variant="ghost"
-            iconOnly={<Search />}
-            aria-label="Search (Ctrl+K)"
-            tooltip="Search (Ctrl+K)"
-            onClick={handleSearchClick}
-          />
-        ) : null}
+        {topBarRightLeading}
+        {searchButton}
         {topBarRightSlot}
       </div>
     </header>

@@ -40,7 +40,11 @@ interface AvatarManagementModalProps {
  *  uploaded custom image (secondary — only reachable when one exists). */
 type PreviewMode = "character" | "custom";
 
-function cycleIndex(current: number, total: number, direction: "forward" | "backward"): number {
+function cycleIndex(
+  current: number,
+  total: number,
+  direction: "forward" | "backward",
+): number {
   if (direction === "forward") {
     return (current + 1) % total;
   }
@@ -64,7 +68,8 @@ export function AvatarManagementModal({
 
   // Fallback fetch for assistants whose cached avatar query resolved without
   // components (e.g. a custom image with no traits sidecar).
-  const [fetchedComponents, setFetchedComponents] = useState<CharacterComponents | null>(null);
+  const [fetchedComponents, setFetchedComponents] =
+    useState<CharacterComponents | null>(null);
   const [isFetchingComponents, setIsFetchingComponents] = useState(false);
   const resolvedComponents = components ?? fetchedComponents;
 
@@ -108,9 +113,15 @@ export function AvatarManagementModal({
       return;
     }
     if (resolvedComponents && traits) {
-      const bi = resolvedComponents.bodyShapes.findIndex((b) => b.id === traits.bodyShape);
-      const ei = resolvedComponents.eyeStyles.findIndex((e) => e.id === traits.eyeStyle);
-      const ci = resolvedComponents.colors.findIndex((c) => c.id === traits.color);
+      const bi = resolvedComponents.bodyShapes.findIndex(
+        (b) => b.id === traits.bodyShape,
+      );
+      const ei = resolvedComponents.eyeStyles.findIndex(
+        (e) => e.id === traits.eyeStyle,
+      );
+      const ci = resolvedComponents.colors.findIndex(
+        (c) => c.id === traits.color,
+      );
       setBodyIndex(bi >= 0 ? bi : 0);
       setEyeIndex(ei >= 0 ? ei : 0);
       setColorIndex(ci >= 0 ? ci : 0);
@@ -171,8 +182,12 @@ export function AvatarManagementModal({
       return;
     }
     setPreviewMode("character");
-    setBodyIndex(Math.floor(Math.random() * resolvedComponents.bodyShapes.length));
-    setEyeIndex(Math.floor(Math.random() * resolvedComponents.eyeStyles.length));
+    setBodyIndex(
+      Math.floor(Math.random() * resolvedComponents.bodyShapes.length),
+    );
+    setEyeIndex(
+      Math.floor(Math.random() * resolvedComponents.eyeStyles.length),
+    );
     setColorIndex(Math.floor(Math.random() * resolvedComponents.colors.length));
   }, [resolvedComponents]);
 
@@ -217,7 +232,8 @@ export function AvatarManagementModal({
 
       // Traits are only written from the builder view — saving while viewing
       // the uploaded image keeps that image.
-      const shouldSaveTraits = resolvedComponents && previewMode === "character";
+      const shouldSaveTraits =
+        resolvedComponents && previewMode === "character";
       if (shouldSaveTraits) {
         const nextTraits: CharacterTraits = {
           bodyShape: resolvedComponents.bodyShapes[bodyIndex]!.id,
@@ -297,7 +313,10 @@ export function AvatarManagementModal({
                     description="Pick from our built-in avatars"
                     onClick={() => setPreviewMode("character")}
                     thumbnail={
-                      resolvedComponents && currentBody && currentEye && currentColor ? (
+                      resolvedComponents &&
+                      currentBody &&
+                      currentEye &&
+                      currentColor ? (
                         <AvatarRenderer
                           components={resolvedComponents}
                           bodyShapeId={currentBody.id}
@@ -324,7 +343,8 @@ export function AvatarManagementModal({
                   </div>
                 ) : (
                   <div className="py-8 text-center text-body-medium-lighter text-[var(--content-quiet)]">
-                    Unable to load avatar components. Make sure your assistant is running.
+                    Unable to load avatar components. Make sure your assistant
+                    is running.
                   </div>
                 )}
               </>
@@ -349,12 +369,20 @@ export function AvatarManagementModal({
                     value={currentBody!.id}
                     onPrev={() =>
                       setBodyIndex(
-                        cycleIndex(bodyIndex, resolvedComponents.bodyShapes.length, "backward"),
+                        cycleIndex(
+                          bodyIndex,
+                          resolvedComponents.bodyShapes.length,
+                          "backward",
+                        ),
                       )
                     }
                     onNext={() =>
                       setBodyIndex(
-                        cycleIndex(bodyIndex, resolvedComponents.bodyShapes.length, "forward"),
+                        cycleIndex(
+                          bodyIndex,
+                          resolvedComponents.bodyShapes.length,
+                          "forward",
+                        ),
                       )
                     }
                   />
@@ -363,12 +391,20 @@ export function AvatarManagementModal({
                     value={currentEye!.id}
                     onPrev={() =>
                       setEyeIndex(
-                        cycleIndex(eyeIndex, resolvedComponents.eyeStyles.length, "backward"),
+                        cycleIndex(
+                          eyeIndex,
+                          resolvedComponents.eyeStyles.length,
+                          "backward",
+                        ),
                       )
                     }
                     onNext={() =>
                       setEyeIndex(
-                        cycleIndex(eyeIndex, resolvedComponents.eyeStyles.length, "forward"),
+                        cycleIndex(
+                          eyeIndex,
+                          resolvedComponents.eyeStyles.length,
+                          "forward",
+                        ),
                       )
                     }
                   />
@@ -378,12 +414,20 @@ export function AvatarManagementModal({
                     colorHex={currentColor!.hex}
                     onPrev={() =>
                       setColorIndex(
-                        cycleIndex(colorIndex, resolvedComponents.colors.length, "backward"),
+                        cycleIndex(
+                          colorIndex,
+                          resolvedComponents.colors.length,
+                          "backward",
+                        ),
                       )
                     }
                     onNext={() =>
                       setColorIndex(
-                        cycleIndex(colorIndex, resolvedComponents.colors.length, "forward"),
+                        cycleIndex(
+                          colorIndex,
+                          resolvedComponents.colors.length,
+                          "forward",
+                        ),
                       )
                     }
                   />
@@ -493,7 +537,12 @@ interface SwitchModeRowProps {
 
 /** Compact secondary row for hopping between the builder and the uploaded
  *  image without leaving the modal. */
-function SwitchModeRow({ label, description, thumbnail, onClick }: SwitchModeRowProps) {
+function SwitchModeRow({
+  label,
+  description,
+  thumbnail,
+  onClick,
+}: SwitchModeRowProps) {
   return (
     <button
       type="button"

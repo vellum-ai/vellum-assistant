@@ -15,7 +15,9 @@ export function downBackfillContactInteractionStats(database: DrizzleDb): void {
       `SELECT 1 FROM pragma_table_info('contacts') WHERE name = 'last_interaction'`,
     )
     .get();
-  if (!colExists) return;
+  if (!colExists) {
+    return;
+  }
 
   raw.exec(/*sql*/ `UPDATE contacts SET last_interaction = NULL`);
 }
@@ -32,7 +34,9 @@ export function migrateBackfillContactInteractionStats(db: DrizzleDb): void {
       `SELECT 1 FROM pragma_table_info('contacts') WHERE name = 'last_interaction'`,
     )
     .get();
-  if (!colExists) return;
+  if (!colExists) {
+    return;
+  }
 
   db.run(/*sql*/ `
     UPDATE contacts

@@ -4,12 +4,7 @@
  * logic stays with each consumer.
  */
 
-import {
-  Check,
-  Copy,
-  Download,
-  Pencil,
-} from "lucide-react";
+import { Check, Copy, Download, Pencil } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -19,6 +14,8 @@ import {
 } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
+
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 
 export const MONO_FONT =
   "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace";
@@ -46,12 +43,15 @@ export function ContentActionBar({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleCopy = useCallback(() => {
-    void navigator.clipboard.writeText(content).then(() => {
-      setCopied(true);
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-      }
-      timerRef.current = setTimeout(() => setCopied(false), 1500);
+    copyToClipboard(content, {
+      errorMessage: "Couldn't copy the file contents.",
+      onCopied: () => {
+        setCopied(true);
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+        }
+        timerRef.current = setTimeout(() => setCopied(false), 1500);
+      },
     });
   }, [content]);
 

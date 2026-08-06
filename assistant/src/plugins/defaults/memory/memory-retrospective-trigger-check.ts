@@ -53,12 +53,20 @@ export function shouldEnqueueRetrospective(args: {
     minCooldownMs,
   } = args;
 
-  if (state && now - state.lastRunAt < minCooldownMs) return null;
+  if (state && now - state.lastRunAt < minCooldownMs) {
+    return null;
+  }
 
-  if (state && now - state.lastRunAt >= timeThresholdMs) return "interval";
-  if (!state) return "interval";
+  if (state && now - state.lastRunAt >= timeThresholdMs) {
+    return "interval";
+  }
+  if (!state) {
+    return "interval";
+  }
 
-  if (newMessageCount >= messageThreshold) return "message_count";
+  if (newMessageCount >= messageThreshold) {
+    return "message_count";
+  }
   return null;
 }
 
@@ -77,7 +85,9 @@ export function maybeEnqueueRetrospective(
       conversationId,
       state?.lastProcessedMessageId ?? null,
     );
-    if (newMessageCount === 0) return;
+    if (newMessageCount === 0) {
+      return;
+    }
 
     const trigger = shouldEnqueueRetrospective({
       state,
@@ -87,7 +97,9 @@ export function maybeEnqueueRetrospective(
       messageThreshold: config.memory.retrospective.messageThreshold,
       minCooldownMs: config.memory.retrospective.minCooldownMs,
     });
-    if (!trigger) return;
+    if (!trigger) {
+      return;
+    }
 
     enqueueMemoryRetrospectiveIfEnabled({ conversationId, trigger });
   } catch (err) {

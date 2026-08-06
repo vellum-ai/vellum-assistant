@@ -125,7 +125,7 @@ Grouping dimensions:
   inference_profile  Groups by inference profile; unset historical rows are
                      shown as Default / Unset
   provider           Groups by LLM provider (anthropic, openai, etc.)
-  model              Groups by model name (claude-sonnet-4-20250514, etc.)
+  model              Groups by model name (claude-sonnet-5, etc.)
   conversation       Groups by conversation ID
   actor              Legacy/internal subsystem grouping (main_agent, etc.)
 

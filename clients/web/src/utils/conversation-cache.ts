@@ -36,6 +36,7 @@ import {
   conversationListPrefix,
   conversationsQueryKey,
   scheduledConversationsQueryKey,
+  unreadConversationCountQueryKey,
 } from "@/utils/conversation-list-fetchers";
 import type { Conversation } from "@/types/conversation-types";
 
@@ -57,14 +58,23 @@ import type { Conversation } from "@/types/conversation-types";
  * Cancel any in-flight refetches for ALL conversation caches. Call this
  * before applying an optimistic update so a concurrent refetch doesn't
  * overwrite the optimistic value with stale server data.
+ *
+ * Includes the unread-count cache: it lives under its own key (a scalar,
+ * not a `Conversation[]`, so it cannot share the list prefix) but is
+ * optimistically adjusted by the same seen/unseen mutations.
  */
 export async function cancelConversationQueries(
   queryClient: QueryClient,
   assistantId: string,
 ): Promise<void> {
-  await queryClient.cancelQueries({
-    queryKey: conversationListPrefix(assistantId),
-  });
+  await Promise.all([
+    queryClient.cancelQueries({
+      queryKey: conversationListPrefix(assistantId),
+    }),
+    queryClient.cancelQueries({
+      queryKey: unreadConversationCountQueryKey(assistantId),
+    }),
+  ]);
 }
 
 /**
@@ -107,14 +117,24 @@ export function restoreConversationCaches(
  * Invalidate all conversation caches so TanStack Query refetches from the
  * server. Used in `onSettled` to reconcile optimistic values with the
  * server-authoritative state regardless of mutation success or failure.
+ *
+ * Includes the unread-count cache (own key, see
+ * `cancelConversationQueries`) so optimistic count deltas always
+ * reconcile against the authoritative server count after a mutation
+ * settles.
  */
 export async function invalidateConversationQueries(
   queryClient: QueryClient,
   assistantId: string,
 ): Promise<void> {
-  await queryClient.invalidateQueries({
-    queryKey: conversationListPrefix(assistantId),
-  });
+  await Promise.all([
+    queryClient.invalidateQueries({
+      queryKey: conversationListPrefix(assistantId),
+    }),
+    queryClient.invalidateQueries({
+      queryKey: unreadConversationCountQueryKey(assistantId),
+    }),
+  ]);
 }
 
 type ConversationUpdater = (conversations: Conversation[]) => Conversation[];
@@ -185,11 +205,7 @@ export function updateArchivedConversationsCache(
   assistantId: string | null,
   updater: ConversationUpdater,
 ): void {
-  updateCache(
-    queryClient,
-    archivedConversationsQueryKey(assistantId),
-    updater,
-  );
+  updateCache(queryClient, archivedConversationsQueryKey(assistantId), updater);
 }
 
 /**
@@ -208,12 +224,16 @@ export function updateAllConversationCaches(
   assistantId: string | null,
   updater: ConversationUpdater,
 ): void {
-  if (!assistantId) return;
+  if (!assistantId) {
+    return;
+  }
   const entries = queryClient.getQueriesData<Conversation[]>({
     queryKey: conversationListPrefix(assistantId),
   });
   for (const [queryKey, data] of entries) {
-    if (!data) continue;
+    if (!data) {
+      continue;
+    }
     const next = updater(data);
     if (next !== data) {
       queryClient.setQueryData<Conversation[]>(queryKey, next);
@@ -232,13 +252,17 @@ export function findConversation(
   assistantId: string | null,
   key: string,
 ): Conversation | undefined {
-  if (!assistantId) return undefined;
+  if (!assistantId) {
+    return undefined;
+  }
   const entries = queryClient.getQueriesData<Conversation[]>({
     queryKey: conversationListPrefix(assistantId),
   });
   for (const [, data] of entries) {
     const match = data?.find((c) => c.conversationId === key);
-    if (match) return match;
+    if (match) {
+      return match;
+    }
   }
   return undefined;
 }
@@ -278,7 +302,9 @@ export function getConversations(
   queryClient: QueryClient,
   assistantId: string | null,
 ): Conversation[] {
-  if (!assistantId) return [];
+  if (!assistantId) {
+    return [];
+  }
   const entries = queryClient.getQueriesData<Conversation[]>({
     queryKey: conversationListPrefix(assistantId),
   });

@@ -13,10 +13,14 @@ if (statSync(PUBLIC_SKILLS_DIR, { throwIfNoEntry: false })?.isDirectory()) {
 let copied = 0;
 
 for (const entry of readdirSync(SKILLS_DIR, { withFileTypes: true })) {
-  if (!entry.isDirectory()) continue;
+  if (!entry.isDirectory()) {
+    continue;
+  }
 
   const assetsDir = join(SKILLS_DIR, entry.name, "assets");
-  if (!statSync(assetsDir, { throwIfNoEntry: false })?.isDirectory()) continue;
+  if (!statSync(assetsDir, { throwIfNoEntry: false })?.isDirectory()) {
+    continue;
+  }
 
   const destDir = join(PUBLIC_SKILLS_DIR, entry.name, "assets");
   mkdirSync(destDir, { recursive: true });

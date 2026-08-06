@@ -49,7 +49,9 @@ export function StackedBarTooltip({
   showTotal,
   formatLabel,
 }: StackedBarTooltipProps) {
-  if (!active || !payload?.length) return null;
+  if (!active || !payload?.length) {
+    return null;
+  }
 
   const items: TooltipRowItem[] = payload
     .filter((p) => p.value != null && p.dataKey != null)
@@ -67,9 +69,7 @@ export function StackedBarTooltip({
       return a.label.localeCompare(b.label);
     });
 
-  const hovered = hoveredKey
-    ? items.find((i) => i.key === hoveredKey)
-    : null;
+  const hovered = hoveredKey ? items.find((i) => i.key === hoveredKey) : null;
   const rest = hovered ? items.filter((i) => i.key !== hoveredKey) : items;
 
   const total = items.reduce((sum, i) => sum + i.numericValue, 0);

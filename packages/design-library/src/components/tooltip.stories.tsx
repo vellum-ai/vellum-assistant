@@ -89,3 +89,32 @@ export const OnTextTrigger: Story = {
     </Tooltip>
   ),
 };
+
+/**
+ * A sentence-length tooltip wraps instead of stretching into one long line.
+ *
+ * Real copy reaches this length whenever a tooltip explains a problem and
+ * its fix, so the content is capped at 20rem and never exceeds the space
+ * Radix reports on the chosen side. Forced open so the wrapping is visible
+ * in a static screenshot.
+ */
+export const LongContent: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <TooltipProvider delayDuration={0}>
+      <div
+        style={{ padding: "6rem", display: "flex", justifyContent: "center" }}
+      >
+        <Tooltip.Root defaultOpen delayDuration={0}>
+          <Tooltip.Trigger asChild>
+            <Button variant="outlined">Needs attention</Button>
+          </Tooltip.Trigger>
+          <Tooltip.Content side="bottom">
+            Missing a model, so actions using it fall back to another profile.
+            Click to fix.
+          </Tooltip.Content>
+        </Tooltip.Root>
+      </div>
+    </TooltipProvider>
+  ),
+};

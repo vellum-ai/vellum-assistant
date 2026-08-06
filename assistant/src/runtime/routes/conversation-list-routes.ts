@@ -2,6 +2,7 @@
  * Route handlers for conversation listing, detail, and seen/unread state.
  *
  * GET    /v1/conversations              — paginated conversation list
+ * GET    /v1/conversations/unread-count - count of unseen foreground conversations
  * POST   /v1/conversations/seen         — record a seen signal (single)
  * POST   /v1/conversations/seen/bulk    — record seen signals (batch)
  * POST   /v1/conversations/unread       — mark a conversation unread
@@ -10,6 +11,7 @@
 
 import { z } from "zod";
 
+import { CHANNEL_IDS } from "../../channels/types.js";
 import { channelBindingSchema } from "../../messaging/channel-binding-schema.js";
 import {
   type Confidence,
@@ -25,7 +27,9 @@ import {
 } from "../../persistence/conversation-crud.js";
 import { resolveConversationId } from "../../persistence/conversation-key-store.js";
 import {
+  type ConversationListFilter,
   countConversations,
+  countUnreadConversations,
   listConversations,
   listPinnedConversations,
 } from "../../persistence/conversation-queries.js";
@@ -57,16 +61,7 @@ const log = getLogger("conversation-list-routes");
 // Response schemas
 // ---------------------------------------------------------------------------
 
-const channelIdSchema = z.enum([
-  "telegram",
-  "phone",
-  "vellum",
-  "whatsapp",
-  "slack",
-  "email",
-  "platform",
-  "a2a",
-]);
+const channelIdSchema = z.enum(CHANNEL_IDS);
 
 const assistantAttentionSchema = z.object({
   hasUnseenLatestAssistantMessage: z.boolean(),
@@ -149,13 +144,19 @@ const conversationDetailResponseSchema = z.object({
   conversation: conversationSummarySchema,
 });
 
+const unreadConversationCountResponseSchema = z.object({
+  count: z.number(),
+});
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function resolveOrThrow(rawId: string): string {
   const id = resolveConversationId(rawId);
-  if (!id) throw new NotFoundError(`Unknown conversation: ${rawId}`);
+  if (!id) {
+    throw new NotFoundError(`Unknown conversation: ${rawId}`);
+  }
   return id;
 }
 
@@ -200,18 +201,19 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
       ? queryParams.originChannel
       : undefined;
 
-  let rows = listConversations(
-    limit,
-    conversationType,
-    offset,
-    archiveStatus,
-    originChannel,
-  );
-  const totalCount = countConversations(
+  const groupId =
+    queryParams.groupId !== undefined && queryParams.groupId !== ""
+      ? queryParams.groupId
+      : undefined;
+
+  const filter: ConversationListFilter = {
     conversationType,
     archiveStatus,
     originChannel,
-  );
+    groupId,
+  };
+  let rows = listConversations({ ...filter, limit, offset });
+  const totalCount = countConversations(filter);
 
   // On the first page, ensure all pinned conversations are included
   // even if they fall outside the paginated window. Pinned injection is
@@ -219,11 +221,19 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   // rows in archive-time order, not pin order. Also skipped for
   // channel-scoped queries — those return only items matching the
   // requested origin channel; pinned items render in their own section.
+  //
+  // Skipped for group-scoped queries for the same reason: a caller asking
+  // for one group gets that group, and a client that fetches the Pinned
+  // section via `groupId=system:pinned` has no use for rows appended to
+  // some other group's page. This is the compatibility shim for clients
+  // that still read Pinned out of the unfiltered list; it goes away once
+  // every section fetches its own group.
   if (
     offset === 0 &&
     conversationType === "standard" &&
     archiveStatus === "active" &&
-    originChannel === undefined
+    originChannel === undefined &&
+    groupId === undefined
   ) {
     const pinned = listPinnedConversations(archiveStatus);
     const seen = new Set(rows.map((c) => c.id));
@@ -269,6 +279,10 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   }
 
   return response;
+}
+
+function handleGetUnreadConversationCount() {
+  return { count: countUnreadConversations() };
 }
 
 function handleRecordSeen({ body = {}, headers }: RouteHandlerArgs) {
@@ -453,20 +467,34 @@ export const ROUTES: RouteDefinition[] = [
           "Filter by origin channel. When provided, only conversations with this exact origin_channel value are returned. Omit to include all channels.",
         schema: {
           type: "string",
-          enum: [
-            "slack",
-            "telegram",
-            "whatsapp",
-            "email",
-            "a2a",
-            "vellum",
-            "phone",
-          ],
+          enum: [...CHANNEL_IDS],
         },
+      },
+      {
+        name: "groupId",
+        type: "string",
+        required: false,
+        description:
+          'Filter to a single group, so each sidebar section can load independently of the paginated list. Pass "system:all" for conversations in no group, "system:pinned" for the Pinned section, or a custom group id. A group-scoped request is ordered by the user\'s arrangement (display order, then recency) and never has pinned rows appended to it. Omit to span every group.',
       },
     ],
     responseBody: listConversationsResponseSchema,
     handler: handleListConversations,
+  },
+  {
+    operationId: "getUnreadConversationCount",
+    endpoint: "conversations/unread-count",
+    method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Unread conversation count",
+    description:
+      "Count of foreground conversations whose latest assistant message is unseen. Matches the sidebar's unread indicators: archived rows and non-surfaced background/scheduled rows are excluded.",
+    tags: ["conversations"],
+    responseBody: unreadConversationCountResponseSchema,
+    handler: handleGetUnreadConversationCount,
   },
   {
     operationId: "recordConversationSeen",

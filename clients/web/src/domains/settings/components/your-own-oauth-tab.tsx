@@ -1,12 +1,5 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Check,
-  Copy,
-  ExternalLink,
-  Loader2,
-  Plus,
-  Trash2,
-} from "lucide-react";
+import { Check, Copy, ExternalLink, Loader2, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
@@ -25,6 +18,7 @@ import type {
   OauthAppsByAppIdConnectionsGetResponses,
   OauthAppsGetResponses,
 } from "@/generated/daemon/types.gen";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
@@ -180,7 +174,9 @@ export function YourOwnTab({
   const handleCreateApp = () => {
     const trimmedId = clientId.trim();
     const trimmedSecret = clientSecret.trim();
-    if (!trimmedId || !trimmedSecret) return;
+    if (!trimmedId || !trimmedSecret) {
+      return;
+    }
     createAppMutation.mutate({
       path: { assistant_id: assistantId },
       body: {
@@ -194,7 +190,9 @@ export function YourOwnTab({
   const confirmDeleteApp = () => {
     const app = appPendingDeletion;
     setAppPendingDeletion(null);
-    if (!app) return;
+    if (!app) {
+      return;
+    }
     deleteAppMutation.mutate({
       path: { assistant_id: assistantId, id: app.id },
     });
@@ -210,7 +208,9 @@ export function YourOwnTab({
   const confirmDisconnect = () => {
     const pending = connectionPendingDisconnect;
     setConnectionPendingDisconnect(null);
-    if (!pending) return;
+    if (!pending) {
+      return;
+    }
     disconnectMutation.mutate(
       { path: { assistant_id: assistantId, id: pending.connection.id } },
       {
@@ -246,109 +246,110 @@ export function YourOwnTab({
       {shouldShowForm ? (
         <Card.Root>
           <Card.Body className="flex flex-col gap-3">
-          <div className="space-y-1">
-            <p className="text-body-medium-default text-[var(--content-default)]">
-              {apps.length === 0
-                ? `Add your own ${displayName} OAuth app`
-                : `Add another ${displayName} OAuth app`}
-            </p>
-            <p className="text-body-small-default leading-relaxed text-[var(--content-tertiary)]">
-              Credentials are stored encrypted on the assistant and are never
-              sent to Vellum.
-            </p>
-          </div>
-          {oauthCallbackUrl ? (
             <div className="space-y-1">
-              <p className="text-body-small-default text-[var(--content-secondary)]">
-                Redirect URL
+              <p className="text-body-medium-default text-[var(--content-default)]">
+                {apps.length === 0
+                  ? `Add your own ${displayName} OAuth app`
+                  : `Add another ${displayName} OAuth app`}
               </p>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="text"
-                  value={oauthCallbackUrl}
-                  readOnly
-                  fullWidth
-                />
+              <p className="text-body-small-default leading-relaxed text-[var(--content-tertiary)]">
+                Credentials are stored encrypted on the assistant and are never
+                sent to Vellum.
+              </p>
+            </div>
+            {oauthCallbackUrl ? (
+              <div className="space-y-1">
+                <p className="text-body-small-default text-[var(--content-secondary)]">
+                  Redirect URL
+                </p>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="text"
+                    value={oauthCallbackUrl}
+                    readOnly
+                    fullWidth
+                  />
+                  <Button
+                    type="button"
+                    variant="outlined"
+                    size="compact"
+                    onClick={() => {
+                      copyToClipboard(oauthCallbackUrl, {
+                        successMessage: "Copied to clipboard!",
+                        errorMessage: "Couldn't copy the redirect URL.",
+                        onCopied: () => {
+                          setCallbackUrlCopied(true);
+                          setTimeout(() => setCallbackUrlCopied(false), 2000);
+                        },
+                      });
+                    }}
+                    aria-label={
+                      callbackUrlCopied ? "Copied" : "Copy redirect URL"
+                    }
+                    iconOnly={
+                      callbackUrlCopied ? (
+                        <Check aria-hidden />
+                      ) : (
+                        <Copy aria-hidden />
+                      )
+                    }
+                  />
+                </div>
+                <p className="text-body-small-default text-[var(--content-tertiary)]">
+                  Add this URL to your OAuth app&apos;s redirect settings.
+                </p>
+              </div>
+            ) : null}
+            <Input
+              label="Client ID"
+              type="text"
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              placeholder="Enter your client ID"
+              fullWidth
+            />
+            <Input
+              label="Client Secret"
+              type="password"
+              value={clientSecret}
+              onChange={(e) => setClientSecret(e.target.value)}
+              placeholder="Enter your client secret"
+              fullWidth
+            />
+            <div className="flex items-center justify-end gap-2 pt-1">
+              {apps.length > 0 ? (
                 <Button
                   type="button"
                   variant="outlined"
                   size="compact"
                   onClick={() => {
-                    void navigator.clipboard
-                      .writeText(oauthCallbackUrl)
-                      .then(() => {
-                        setCallbackUrlCopied(true);
-                        toast.success("Copied to clipboard!");
-                        setTimeout(() => setCallbackUrlCopied(false), 2000);
-                      });
+                    setIsShowingAddAppForm(false);
+                    setClientId("");
+                    setClientSecret("");
                   }}
-                  aria-label={
-                    callbackUrlCopied ? "Copied" : "Copy redirect URL"
-                  }
-                  iconOnly={
-                    callbackUrlCopied ? (
-                      <Check aria-hidden />
-                    ) : (
-                      <Copy aria-hidden />
-                    )
-                  }
-                />
-              </div>
-              <p className="text-body-small-default text-[var(--content-tertiary)]">
-                Add this URL to your OAuth app&apos;s redirect settings.
-              </p>
-            </div>
-          ) : null}
-          <Input
-            label="Client ID"
-            type="text"
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-            placeholder="Enter your client ID"
-            fullWidth
-          />
-          <Input
-            label="Client Secret"
-            type="password"
-            value={clientSecret}
-            onChange={(e) => setClientSecret(e.target.value)}
-            placeholder="Enter your client secret"
-            fullWidth
-          />
-          <div className="flex items-center justify-end gap-2 pt-1">
-            {apps.length > 0 ? (
+                  disabled={creatingApp}
+                >
+                  Cancel
+                </Button>
+              ) : null}
               <Button
                 type="button"
-                variant="outlined"
                 size="compact"
-                onClick={() => {
-                  setIsShowingAddAppForm(false);
-                  setClientId("");
-                  setClientSecret("");
-                }}
-                disabled={creatingApp}
+                onClick={handleCreateApp}
+                disabled={
+                  creatingApp || !clientId.trim() || !clientSecret.trim()
+                }
+                leftIcon={
+                  creatingApp ? (
+                    <Loader2 className="animate-spin" aria-hidden />
+                  ) : (
+                    <Plus aria-hidden />
+                  )
+                }
               >
-                Cancel
+                Add App
               </Button>
-            ) : null}
-            <Button
-              type="button"
-              size="compact"
-              onClick={handleCreateApp}
-              disabled={
-                creatingApp || !clientId.trim() || !clientSecret.trim()
-              }
-              leftIcon={
-                creatingApp ? (
-                  <Loader2 className="animate-spin" aria-hidden />
-                ) : (
-                  <Plus aria-hidden />
-                )
-              }
-            >
-              Add App
-            </Button>
-          </div>
+            </div>
           </Card.Body>
         </Card.Root>
       ) : null}
@@ -360,92 +361,94 @@ export function YourOwnTab({
         return (
           <Card.Root key={app.id}>
             <Card.Body className="flex flex-col gap-3">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0 space-y-0.5">
-                <p className="truncate text-body-medium-default text-[var(--content-default)]">
-                  {maskClientId(app.client_id)}
-                </p>
-                <p className="text-body-small-default text-[var(--content-tertiary)]">
-                  Added {formatOAuthTimestamp(app.created_at)}
-                </p>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 space-y-0.5">
+                  <p className="truncate text-body-medium-default text-[var(--content-default)]">
+                    {maskClientId(app.client_id)}
+                  </p>
+                  <p className="text-body-small-default text-[var(--content-tertiary)]">
+                    Added {formatOAuthTimestamp(app.created_at)}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="dangerOutline"
+                  size="compact"
+                  onClick={() => setAppPendingDeletion(app)}
+                  disabled={isDeleting}
+                  aria-label={`Delete OAuth app ${maskClientId(app.client_id)}`}
+                  iconOnly={
+                    isDeleting ? (
+                      <Loader2 className="animate-spin" aria-hidden />
+                    ) : (
+                      <Trash2 aria-hidden />
+                    )
+                  }
+                />
               </div>
+
+              {connections.length > 0 ? (
+                <ul className="divide-y divide-[var(--border-base)] overflow-hidden rounded-md border border-[var(--border-base)] dark:divide-[var(--border-base)] dark:border-[var(--border-base)]">
+                  {connections.map((connection) => {
+                    const isDisconnecting = disconnectingId === connection.id;
+                    return (
+                      <li
+                        key={connection.id}
+                        className="flex items-center gap-3 px-3 py-2"
+                      >
+                        <IntegrationIcon
+                          providerKey={providerKey}
+                          displayName={displayName}
+                          logoUrl={logoUrl}
+                          size={18}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-body-medium-lighter text-[var(--content-default)]">
+                          {connection.account_info ?? `${displayName} Account`}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="dangerOutline"
+                          size="compact"
+                          onClick={() =>
+                            setConnectionPendingDisconnect({
+                              appId: app.id,
+                              connection,
+                            })
+                          }
+                          disabled={isDisconnecting}
+                          aria-label={`Disconnect ${connection.account_info ?? `${displayName} account`}`}
+                          iconOnly={
+                            isDisconnecting ? (
+                              <Loader2 className="animate-spin" aria-hidden />
+                            ) : (
+                              <Trash2 aria-hidden />
+                            )
+                          }
+                        />
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+
               <Button
                 type="button"
-                variant="dangerOutline"
                 size="compact"
-                onClick={() => setAppPendingDeletion(app)}
-                disabled={isDeleting}
-                aria-label={`Delete OAuth app ${maskClientId(app.client_id)}`}
-                iconOnly={
-                  isDeleting ? (
+                onClick={() => handleConnect(app)}
+                disabled={isConnecting}
+                className="w-full"
+                leftIcon={
+                  isConnecting ? (
                     <Loader2 className="animate-spin" aria-hidden />
                   ) : (
-                    <Trash2 aria-hidden />
+                    <ExternalLink aria-hidden />
                   )
                 }
-              />
-            </div>
-
-            {connections.length > 0 ? (
-              <ul className="divide-y divide-[var(--border-base)] overflow-hidden rounded-md border border-[var(--border-base)] dark:divide-[var(--border-base)] dark:border-[var(--border-base)]">
-                {connections.map((connection) => {
-                  const isDisconnecting = disconnectingId === connection.id;
-                  return (
-                    <li
-                      key={connection.id}
-                      className="flex items-center gap-3 px-3 py-2"
-                    >
-                      <IntegrationIcon
-                        providerKey={providerKey}
-                        displayName={displayName}
-                        logoUrl={logoUrl}
-                        size={18}
-                      />
-                      <span className="min-w-0 flex-1 truncate text-body-medium-lighter text-[var(--content-default)]">
-                        {connection.account_info ?? `${displayName} Account`}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="dangerOutline"
-                        size="compact"
-                        onClick={() =>
-                          setConnectionPendingDisconnect({
-                            appId: app.id,
-                            connection,
-                          })
-                        }
-                        disabled={isDisconnecting}
-                        aria-label={`Disconnect ${connection.account_info ?? `${displayName} account`}`}
-                        iconOnly={
-                          isDisconnecting ? (
-                            <Loader2 className="animate-spin" aria-hidden />
-                          ) : (
-                            <Trash2 aria-hidden />
-                          )
-                        }
-                      />
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : null}
-
-            <Button
-              type="button"
-              size="compact"
-              onClick={() => handleConnect(app)}
-              disabled={isConnecting}
-              className="w-full"
-              leftIcon={
-                isConnecting ? (
-                  <Loader2 className="animate-spin" aria-hidden />
-                ) : (
-                  <ExternalLink aria-hidden />
-                )
-              }
-            >
-              {isConnecting ? "Waiting for authorization..." : "Connect account"}
-            </Button>
+              >
+                {isConnecting
+                  ? "Waiting for authorization..."
+                  : "Connect account"}
+              </Button>
             </Card.Body>
           </Card.Root>
         );

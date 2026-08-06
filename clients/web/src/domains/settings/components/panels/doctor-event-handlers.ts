@@ -19,7 +19,10 @@ import type { FeedbackReason } from "@/components/share-feedback-types";
 // Handlers
 // ---------------------------------------------------------------------------
 
-export function handleMessageDelta(ctx: DoctorPanelContext, event: { content: string }): void {
+export function handleMessageDelta(
+  ctx: DoctorPanelContext,
+  event: { content: string },
+): void {
   ctx.setThinking(false);
   const currentId = ctx.getStreamingEntryId();
   if (!currentId) {
@@ -92,7 +95,12 @@ export function handleToolResult(
 
 export function handleApprovalRequired(
   ctx: DoctorPanelContext,
-  event: { toolName: string; input: Record<string, unknown>; id: string; description: string },
+  event: {
+    toolName: string;
+    input: Record<string, unknown>;
+    id: string;
+    description: string;
+  },
 ): void {
   ctx.setThinking(false);
   ctx.setPendingApproval(true);
@@ -108,7 +116,10 @@ export function handleApprovalRequired(
   });
 }
 
-export function handleBackupPrompt(ctx: DoctorPanelContext, event: { toolName: string }): void {
+export function handleBackupPrompt(
+  ctx: DoctorPanelContext,
+  event: { toolName: string },
+): void {
   ctx.setThinking(false);
   ctx.setPendingBackup(true);
   ctx.appendEntry({
@@ -156,8 +167,17 @@ export function handleFeedbackPrompt(
   });
 }
 
+/**
+ * Records the resolution prompt while the turn is still running.
+ *
+ * The Doctor requests the prompt through a tool call and keeps working
+ * afterwards, usually to write a closing reply, so the turn stays marked as
+ * thinking until that reply completes or the session ends. The panel holds the
+ * prompt back until then, which keeps the card from surfacing above the reply
+ * it asks about.
+ */
 export function handleUserOutcomePrompt(ctx: DoctorPanelContext): void {
-  ctx.setThinking(false);
+  ctx.setThinking(true);
   ctx.appendEntry({
     kind: "user_outcome_prompt",
     content: USER_OUTCOME_PROMPT_QUESTION,
@@ -184,7 +204,10 @@ export function handleStatus(
   return false;
 }
 
-export function handleError(ctx: DoctorPanelContext, event: { message: string }): void {
+export function handleError(
+  ctx: DoctorPanelContext,
+  event: { message: string },
+): void {
   ctx.setThinking(false);
   ctx.setPendingApproval(false);
   ctx.setPendingBackup(false);

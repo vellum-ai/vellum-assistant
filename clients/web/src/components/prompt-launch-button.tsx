@@ -2,7 +2,11 @@ import { Sparkles } from "lucide-react";
 import { useCallback, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 
-import { Button, type ButtonVariant, type ButtonSize } from "@vellumai/design-library";
+import {
+  Button,
+  type ButtonVariant,
+  type ButtonSize,
+} from "@vellumai/design-library";
 
 import { navigateToNewConversation } from "@/utils/conversation-navigation";
 

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#216C37</color>
+    <color name="colorPrimaryDark">#174B26</color>
+    <color name="colorAccent">#F6C744</color>
+    <color name="launcher_foreground">#FFFFFF</color>
+    <color name="launch_screen_background_light">#F6F5F4</color>
+    <color name="launch_screen_foreground_light">#17191C</color>
+    <color name="launch_screen_background_dark">#17191C</color>
+    <color name="launch_screen_foreground_dark">#FFFFFF</color>
+    <color name="launch_screen_background">@color/launch_screen_background_light</color>
+    <color name="launch_screen_foreground">@color/launch_screen_foreground_light</color>
+    <color name="notification_icon_color">#F6C744</color>
+    <color name="system_bar_scrim">#00000000</color>
+</resources>

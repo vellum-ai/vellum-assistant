@@ -167,6 +167,7 @@ export function OAuthConnectSurface({
       assistantId,
       providerKey,
       providerLabel,
+      requestedScopes: data.requestedScopes,
     });
 
     // Skip if this instance unmounted while the (possibly shared) OAuth flow was

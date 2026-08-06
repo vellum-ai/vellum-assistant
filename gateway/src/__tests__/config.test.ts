@@ -26,9 +26,7 @@ describe("config: hardcoded defaults", () => {
     expect(config.maxAttachmentConcurrency).toBe(3);
     expect(config.runtimeProxyRequireAuth).toBe(true);
     expect(config.trustProxy).toBe(false);
-    expect(config.unmappedPolicy).toBe("reject");
     expect(config.routingEntries).toEqual([]);
-    expect(config.defaultAssistantId).toBeUndefined();
     expect(config.logFile.dir).toMatch(/logs$/);
     expect(config.logFile.retentionDays).toBe(30);
   });

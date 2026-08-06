@@ -198,7 +198,9 @@ class AbortedSignal extends Error {
  * this helper just covers a stray late `AbortError` after the signal cleared.
  */
 function isAbortError(err: unknown): boolean {
-  if (err instanceof AbortedSignal) return true;
+  if (err instanceof AbortedSignal) {
+    return true;
+  }
   if (typeof DOMException !== "undefined" && err instanceof DOMException) {
     return err.name === "AbortError";
   }
@@ -368,11 +370,15 @@ function lineStartsInCode(source: string, lineCount: number): boolean[] {
     if (c === "\n") {
       // A string survives the newline only if it was line-continued (`\`); an
       // otherwise-unterminated string is a syntax error the transpiler catches.
-      if (stringQuote !== null && !escaped) stringQuote = null;
+      if (stringQuote !== null && !escaped) {
+        stringQuote = null;
+      }
       inLineComment = false;
       escaped = false;
       line++;
-      if (line < lineCount) result[line] = carryIsCode();
+      if (line < lineCount) {
+        result[line] = carryIsCode();
+      }
       continue;
     }
 
@@ -380,7 +386,9 @@ function lineStartsInCode(source: string, lineCount: number): boolean[] {
       escaped = false;
       continue;
     }
-    if (inLineComment) continue;
+    if (inLineComment) {
+      continue;
+    }
     if (inBlockComment) {
       if (c === "*" && next === "/") {
         inBlockComment = false;
@@ -389,16 +397,21 @@ function lineStartsInCode(source: string, lineCount: number): boolean[] {
       continue;
     }
     if (stringQuote !== null) {
-      if (c === "\\") escaped = true;
-      else if (c === stringQuote) stringQuote = null;
+      if (c === "\\") {
+        escaped = true;
+      } else if (c === stringQuote) {
+        stringQuote = null;
+      }
       continue;
     }
 
     const top = stack[stack.length - 1]!;
     if (top.kind === "template") {
-      if (c === "\\") escaped = true;
-      else if (c === "`") stack.pop();
-      else if (c === "$" && next === "{") {
+      if (c === "\\") {
+        escaped = true;
+      } else if (c === "`") {
+        stack.pop();
+      } else if (c === "$" && next === "{") {
         stack.push({ kind: "code", braceDepth: 0 });
         i++;
       }
@@ -406,7 +419,9 @@ function lineStartsInCode(source: string, lineCount: number): boolean[] {
     }
 
     // --- code frame ---
-    if (c === " " || c === "\t" || c === "\r") continue; // not significant
+    if (c === " " || c === "\t" || c === "\r") {
+      continue;
+    } // not significant
     if (c === "/" && next === "/") {
       inLineComment = true;
       i++;
@@ -438,8 +453,11 @@ function lineStartsInCode(source: string, lineCount: number): boolean[] {
     if (c === "{") {
       top.braceDepth++;
     } else if (c === "}") {
-      if (top.braceDepth === 0 && stack.length > 1) stack.pop();
-      else if (top.braceDepth > 0) top.braceDepth--;
+      if (top.braceDepth === 0 && stack.length > 1) {
+        stack.pop();
+      } else if (top.braceDepth > 0) {
+        top.braceDepth--;
+      }
     }
     prevSignificant = c;
   }
@@ -456,7 +474,9 @@ function lineStartsInCode(source: string, lineCount: number): boolean[] {
  * contains a backtick or `/*`), so this conservative table suffices.
  */
 function regexAllowedAfter(prev: string): boolean {
-  if (prev === "") return true;
+  if (prev === "") {
+    return true;
+  }
   return "(,=:[!&|?{};+-*/%^~<>".includes(prev);
 }
 
@@ -470,14 +490,20 @@ function skipRegexLiteral(source: string, start: number): number {
   let inClass = false;
   for (let j = start + 1; j < source.length; j++) {
     const c = source[j]!;
-    if (c === "\n") return j - 1; // regex can't span a newline; bail before it
+    if (c === "\n") {
+      return j - 1;
+    } // regex can't span a newline; bail before it
     if (c === "\\") {
       j++;
       continue;
     }
-    if (c === "[") inClass = true;
-    else if (c === "]") inClass = false;
-    else if (c === "/" && !inClass) return j;
+    if (c === "[") {
+      inClass = true;
+    } else if (c === "]") {
+      inClass = false;
+    } else if (c === "/" && !inClass) {
+      return j;
+    }
   }
   return source.length - 1;
 }
@@ -661,7 +687,9 @@ export async function executeWorkflow(
     leafOpts: LeafCallOptions,
     leafSignal?: AbortSignal,
   ): Promise<{ output: unknown; failed: boolean }> => {
-    if (signal?.aborted) throw new AbortedSignal();
+    if (signal?.aborted) {
+      throw new AbortedSignal();
+    }
 
     const hash = callHashOf(prompt, leafOpts);
 
@@ -816,7 +844,9 @@ export async function executeWorkflow(
     labelPrefix: string,
     leafOpts: LeafCallOptions,
   ): LeafCallOptions => {
-    if (!labelPrefix) return leafOpts;
+    if (!labelPrefix) {
+      return leafOpts;
+    }
     const base = leafOpts.label ?? "";
     return {
       ...leafOpts,
@@ -914,8 +944,12 @@ export async function executeWorkflow(
       nameArg: unknown,
       childArgs?: unknown,
     ): Promise<unknown> => {
-      if (depth >= 1) throw new WorkflowNestingDepthError();
-      if (signal?.aborted) throw new AbortedSignal();
+      if (depth >= 1) {
+        throw new WorkflowNestingDepthError();
+      }
+      if (signal?.aborted) {
+        throw new AbortedSignal();
+      }
       const childName = String(nameArg);
 
       // Snapshot the resolved child source under its own journal `seq` so a
@@ -940,7 +974,9 @@ export async function executeWorkflow(
         source = (cached.result as { source: string }).source;
       } else {
         const saved = library.getWorkflow(childName);
-        if (!saved) throw new WorkflowNotFoundError(childName);
+        if (!saved) {
+          throw new WorkflowNotFoundError(childName);
+        }
         source = saved.source;
         journal.appendJournalEntry({
           runId,
@@ -979,7 +1015,9 @@ export async function executeWorkflow(
     // PRs; here we expose the names so an undeclared call is a ReferenceError and
     // a declared-but-unbound call fails loudly rather than silently.)
     for (const name of capabilities.hostFunctions) {
-      if (name in hostFunctions) continue;
+      if (name in hostFunctions) {
+        continue;
+      }
       hostFunctions[name] = () => {
         throw new WorkflowScriptError(
           `Host function "${name}" is declared but not bound in this engine build.`,
@@ -1075,14 +1113,26 @@ export async function executeWorkflow(
 }
 
 function normalizeLeafOpts(optsArg: unknown): LeafCallOptions {
-  if (!optsArg || typeof optsArg !== "object") return {};
+  if (!optsArg || typeof optsArg !== "object") {
+    return {};
+  }
   const o = optsArg as Record<string, unknown>;
   const out: LeafCallOptions = {};
-  if (o.schema !== undefined) out.schema = o.schema;
-  if (typeof o.label === "string") out.label = o.label;
-  if (typeof o.profile === "string") out.profile = o.profile;
-  if (typeof o.persona === "boolean") out.persona = o.persona;
-  if (typeof o.phase === "string") out.phase = o.phase;
+  if (o.schema !== undefined) {
+    out.schema = o.schema;
+  }
+  if (typeof o.label === "string") {
+    out.label = o.label;
+  }
+  if (typeof o.profile === "string") {
+    out.profile = o.profile;
+  }
+  if (typeof o.persona === "boolean") {
+    out.persona = o.persona;
+  }
+  if (typeof o.phase === "string") {
+    out.phase = o.phase;
+  }
   return out;
 }
 
@@ -1155,9 +1205,13 @@ async function runWithConcurrency<T, R>(
     for (;;) {
       // Once any task has thrown, stop pulling NEW work; let the in-flight
       // leaves (which `onUnwind` has asked to cancel) drain to settlement.
-      if (failed) return;
+      if (failed) {
+        return;
+      }
       const index = cursor++;
-      if (index >= tasks.length) return;
+      if (index >= tasks.length) {
+        return;
+      }
       try {
         results[index] = await run(tasks[index]!);
       } catch (err) {
@@ -1177,6 +1231,8 @@ async function runWithConcurrency<T, R>(
   // Each worker catches its own errors and resolves, so this awaits ALL of them
   // to settle — an all-settled drain, not a fail-fast `Promise.all`.
   await Promise.all(Array.from({ length: width }, () => worker()));
-  if (failed) throw firstError;
+  if (failed) {
+    throw firstError;
+  }
   return results;
 }

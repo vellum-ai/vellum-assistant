@@ -4,10 +4,9 @@
 
 Bun + TypeScript monorepo with multiple packages:
 
-- `clients/` — End-user app surfaces: `clients/web/` (Vite + React Router v7 SPA), `clients/ios/` (Capacitor iOS shell that loads the web app in a WKWebView), and `clients/macos/` (Electron desktop shell that wraps `clients/web/`; daemon/gateway lifecycle is owned by the `vellum` CLI, which the app invokes as a subprocess; auto-update via `electron-updater`; CI workflows are `pr-macos.yaml` / `ci-main-macos.yaml`). See [`clients/README.md`](clients/README.md) and [`clients/AGENTS.md`](clients/AGENTS.md).
+- `clients/`: End-user app surfaces: `clients/web/` (Vite + React Router v7 SPA), `clients/ios/` (Capacitor iOS shell that loads the web app in a WKWebView), `clients/android/` (Capacitor Android shell that loads the web app in a WebView), `clients/macos/` (Electron desktop shell that wraps `clients/web/`; daemon/gateway lifecycle is owned by the `vellum` CLI, which the app invokes as a subprocess; auto-update via `electron-updater`; CI workflows are `pr-macos.yaml` / `ci-main-macos.yaml`), `clients/windows/` (bootstrap Electron shell around `clients/web/`; CI workflows are `pr-windows.yaml` / `ci-main-windows.yaml`), and `clients/chrome-extension/` (MV3 Chrome browser extension). See [`clients/README.md`](clients/README.md) and [`clients/AGENTS.md`](clients/AGENTS.md).
 - `assistant/` — Main backend service (Bun + TypeScript)
 - `cli/` — Multi-assistant management CLI (Bun + TypeScript). See `cli/AGENTS.md`.
-- `clients/` — Chrome extension client. See `clients/chrome-extension/README.md`.
 - `gateway/` — Channel ingress gateway (Bun + TypeScript)
 - `packages/` — Shared internal packages (e.g. `service-contracts` for CES wire-protocol schemas)
 - `scripts/` — Utility scripts
@@ -25,10 +24,10 @@ Defend technical positions with evidence. Don't flip-flop to placate the user �
 
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
 - **Imports**: Packages that compile to JS (`assistant/`, `gateway/`, `cli/`) use NodeNext module resolution with `.js` extensions on all imports. Bundler-only packages (`clients/web/`, `packages/design-library/`) use `moduleResolution: "Bundler"` and omit `.js` extensions.
-- **Package manager**: This is a bun workspace — one root `bun.lock` covers every member (services, `packages/*`, `clients/web`, `clients/macos`). Run `bun install` anywhere in the tree (it resolves to the workspace root), or scope it with name filters like `--filter=@vellumai/assistant` (path filters resolve against the cwd — avoid them). Cross-package deps use `workspace:*`; `overrides`, `patchedDependencies`, and `trustedDependencies` are honored only in the root manifest. Non-members (`clients/chrome-extension`, skills) keep their own lockfiles.
+- **Package manager**: This is a bun workspace. One root `bun.lock` covers every member (services, `packages/*`, `clients/web`, `clients/macos`, `clients/windows`). Run `bun install` anywhere in the tree (it resolves to the workspace root), or scope it with name filters like `--filter=@vellumai/assistant` (path filters resolve against the cwd, so avoid them). Cross-package deps use `workspace:*`; `overrides`, `patchedDependencies`, and `trustedDependencies` are honored only in the root manifest. Non-members (`clients/chrome-extension`, skills) keep their own lockfiles.
 
 ```bash
-cd assistant && bun install          # Install dependencies
+bun install                          # Install workspace dependencies (any directory works)
 cd assistant && bunx tsc --noEmit    # Type-check
 cd assistant && bun run typecheck:fast  # Fast type-check using tsgo
 cd assistant && bun test src/path/to/changed.test.ts  # Run tests
@@ -136,9 +135,19 @@ Proactively remove unused code during every change. Remove code your change make
 
 Default to no comment — bias aggressively toward terseness and rely on good naming. Follow the commenting density of the surrounding code.
 
+## Em Dashes
+
+Never use em dashes (`—`). Use a period, comma, colon, parentheses, or a plain hyphen instead.
+
+This covers everything you write: user-facing copy, code comments, documentation, commit messages, and PR descriptions.
+
+**User-facing copy is the strict case.** The assistant's own system prompt already forbids em dashes (`assistant/src/prompts/templates/SOUL.md`), so a UI string that uses one is written in a different voice from the assistant standing next to it. Treat any string a user can read (product copy, error messages, notifications, seeded prompts, API descriptions) as a hard no.
+
+Existing text is not swept retroactively. Fix em dashes on lines you are already changing and leave the rest alone.
+
 ## Control-Flow Braces
 
-Wrap every `if` / `else` / `for` / `while` / `do…while` body in braces, even a single-statement one-liner. Braces make control flow easy to scan — the block boundary is explicit — and close a common footgun: a second line added under a braceless condition reads as if it sits inside the branch but runs unconditionally. The ESLint `curly` rule flags this in both `assistant/` and `clients/web/` (currently at `warn`); it is fully auto-fixable, so add braces to any control statement you touch.
+Wrap every `if` / `else` / `for` / `while` / `do…while` body in braces, even a single-statement one-liner. Braces make control flow easy to scan — the block boundary is explicit — and close a common footgun: a second line added under a braceless condition reads as if it sits inside the branch but runs unconditionally. The ESLint `curly` rule enforces this at `error` in both `assistant/` and `clients/web/`; it is fully auto-fixable with `eslint --fix`.
 
 ## Generic Examples
 
@@ -210,7 +219,7 @@ See `meta/feature-flags/AGENTS.md` for naming, registry, resolver, and the requi
 
 All LLM calls must go through `getConfiguredProvider(callSite)` from `providers/provider-send-message.ts`. The `callSite: LLMCallSite` arg is required so the resolver picks the right per-call-site config. Shipped defaults live in `assistant/src/config/call-site-defaults.ts`. Resolution semantics are documented at the `resolveCallSiteConfig` docstring in `assistant/src/config/llm-resolver.ts`: selection is a single-winner chain — the highest-precedence rung naming a usable profile (enabled, carrying its own provider and model) wins outright, and no profile ever contributes fields to another.
 
-Each LLM call site has a stable identifier (`LLMCallSite` from `assistant/src/config/schemas/llm.ts`). Pick the appropriate call-site ID for the request — the provider layer resolves provider/model/maxTokens/effort/thinking/contextWindow/etc. via `resolveCallSiteConfig` (in `assistant/src/config/llm-resolver.ts`). The winner is selected by precedence (high → low): (1) `overrideProfile` (per-turn/per-conversation pin passed to the resolver), (2) `llm.activeProfile` — `mainAgent` only, since it is that call site's user-facing chat-model selection, (3) `llm.callSites.<id>.profile` (the call site's named profile), (4) the call site's shipped profile intent from `assistant/src/config/call-site-defaults.ts` (`balanced` or `cost-optimized`) resolved through `llm.defaultProvider`, (5) the balanced intent through `llm.defaultProvider` as the code-owned anchor. A rung only wins if it resolves to an enabled profile carrying its own provider and model; unusable rungs are skipped (reported via `onResolutionFallback`) and resolution continues down the chain. The resolved config composes code-owned schema defaults, the winning profile's fragment, and the call site's own tuning tweak (`llm.callSites.<id>` minus `profile`/`logitBias`, or the shipped call-site default) — `temperature`/`top_p`/`logitBias` come only from the winner (or an explicit call-site tweak for sampling), so a shadowed profile can never leak provider-coupled fields. Use provider-agnostic language in comments and logs ('LLM' not 'Haiku'/'Sonnet'). Route text generation through the daemon process — direct provider calls discard user context and preferences.
+Each LLM call site has a stable identifier (`LLMCallSite` from `assistant/src/config/schemas/llm.ts`). Pick the appropriate call-site ID for the request: the provider layer resolves provider/model/maxTokens/effort/thinking/contextWindow/etc. via `resolveCallSiteConfig` (in `assistant/src/config/llm-resolver.ts`). The winner is selected by precedence (high → low): (1) `overrideProfile` (per-turn/per-conversation pin passed to the resolver), (2) `llm.activeProfile` (`mainAgent` only, since it is that call site's user-facing chat-model selection), (3) `llm.callSites.<id>.profile` (the call site's named profile), (4) the call site's shipped profile intent from `assistant/src/config/call-site-defaults.ts` (`balanced` or `cost-optimized`) resolved through `llm.defaultProvider`, (5) the balanced intent through `llm.defaultProvider` as the code-owned anchor. A rung only wins if it resolves to an enabled profile carrying its own provider and model; unusable rungs are skipped (reported via `onResolutionFallback`) and resolution continues down the chain. The resolved config composes code-owned schema defaults, the winning profile's fragment, and the call site's own tuning tweak: the shipped `call-site-defaults.ts` tuning with the workspace `llm.callSites.<id>` entry layered over it field by field, both minus `profile`/`logitBias`. A workspace entry that only names a profile therefore repoints the selection without discarding the tuning the call site ships with. `temperature`/`top_p`/`logitBias` come only from the winner (or an explicit call-site tweak for sampling), so a shadowed profile can never leak provider-coupled fields. Use provider-agnostic language in comments and logs ('LLM' not 'Haiku'/'Sonnet'). Route text generation through the daemon process: direct provider calls discard user context and preferences.
 
 ## Skill Isolation
 
@@ -261,6 +270,16 @@ Docker instances use six per-service volumes enforcing least-privilege at the co
 
 **Never store secrets, API keys, or sensitive credentials in the workspace directory.**
 
+Paired guardian credentials are host-only. Renderer code sends paired traffic
+through `/assistant/__gateway-paired/<assistantId>` without a bearer. The
+Electron main process, CLI web host, or Vite development host must remove any
+renderer-provided `Authorization` header and inject the guardian bearer on the
+remote gateway hop. Renderer-facing guardian-token endpoints must reject
+paired assistant IDs. Packaged Electron must authorize the paired custom-
+protocol request through main-process `WebRequest` frame identity before the
+protocol handler runs. `GlobalRequest` headers are not an initiator proof for
+custom protocols because Chromium omits Origin, Referer, and Fetch Metadata.
+
 - **Local mode**: Use the credential store (`assistant credentials`) or `GATEWAY_SECURITY_DIR` (resolved by `getGatewaySecurityDir()` in `gateway/src/paths.ts`) for sensitive data. Do **not** create new secrets in the daemon's `protected/` directory — that directory is being phased out; all new security-sensitive files belong in the gateway security dir or CES.
 - **Docker mode**: Sensitive files are isolated on dedicated security volumes that only the owning service can access. Trust rules (`trust.json`, `actor-token-signing-key`), capability-token secrets, and other gateway-owned security material live on the gateway security volume (`/gateway-security`). Credential keys (`keys.enc`, `store.key`) live on the CES security volume (`/ces-security`). The assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`), and the assistant accesses trust rules via the gateway's trust HTTP API. Neither the assistant nor the gateway has direct filesystem access to the other service's security volume.
 - **The daemon must never read from `GATEWAY_SECURITY_DIR`** or any gateway-owned directory. Any data the daemon needs from the gateway (e.g. capability token verification, feature flags, trust rules) must flow through IPC or HTTP APIs.
@@ -309,17 +328,18 @@ Error reporting uses Sentry. The daemon/runtime (Node) project's DSN is configur
 
 ### Sentry projects & DSNs
 
-Surfaces map onto Sentry projects as below. The Electron renderer reports to the macOS project, sharing the `SENTRY_DSN_MACOS` secret with the main process. Per-host flavor + DSN selection in the shared clients/web bundle is live: `flavor.ts` `selectSentryFlavor()` picks the capacitor flavor on native iOS and the react flavor everywhere else (web + Electron renderer); `sentry-init.ts` `resolveDsn()` picks `VITE_SENTRY_DSN_MACOS` (Electron) / `VITE_SENTRY_DSN_IOS` (iOS) / `VITE_SENTRY_DSN` (web). All flavors share one `options` object (ignoreErrors, denyUrls, beforeBreadcrumb URL sanitize, enhanceFetchErrorMessages, attachStacktrace) so PII/noise filtering is uniform. An empty DSN no-ops.
+Surfaces map onto Sentry projects as below. The Electron renderer reports to the macOS project, sharing the `SENTRY_DSN_MACOS` secret with the main process. Per-host flavor + DSN selection in the shared clients/web bundle is live: `flavor.ts` `selectSentryFlavor()` picks the capacitor flavor on native iOS/Android and the react flavor everywhere else (web + Electron renderer); `sentry-init.ts` `resolveDsn()` picks `VITE_SENTRY_DSN_MACOS` (Electron) / `VITE_SENTRY_DSN_IOS` (iOS) / `VITE_SENTRY_DSN_ANDROID` (Android) / `VITE_SENTRY_DSN` (web). All flavors share one `options` object (ignoreErrors, denyUrls, beforeBreadcrumb URL sanitize, enhanceFetchErrorMessages, attachStacktrace) so PII/noise filtering is uniform. An empty DSN no-ops.
 
-| Surface              | Project                  | DSN source                                            | Delivered via                            |
-| -------------------- | ------------------------ | ----------------------------------------------------- | ---------------------------------------- |
-| Web SPA              | `vellum-assistant-web`   | `VITE_SENTRY_DSN` (vars)                              | web build                                |
-| Electron main        | `vellum-assistant-macos` | `SENTRY_DSN_MACOS` (secret) → `__SENTRY_DSN_MACOS__`  | macOS build define                       |
-| Electron renderer    | `vellum-assistant-macos` | `SENTRY_DSN_MACOS` (secret) → `VITE_SENTRY_DSN_MACOS` | macOS build                              |
-| iOS webview + native | `vellum-assistant-ios`   | `SENTRY_DSN_IOS` (secret) → `VITE_SENTRY_DSN_IOS`     | web-SPA build (loaded at runtime on iOS) |
-| Assistant daemon     | (unchanged)              | `SENTRY_DSN_ASSISTANT`                                | runtime env                              |
+| Surface                  | Project                    | DSN source                                                | Delivered via                                |
+| ------------------------ | -------------------------- | --------------------------------------------------------- | -------------------------------------------- |
+| Web SPA                  | `vellum-assistant-web`     | `VITE_SENTRY_DSN` (vars)                                  | web build                                    |
+| Electron main            | `vellum-assistant-macos`   | `SENTRY_DSN_MACOS` (secret) → `__SENTRY_DSN_MACOS__`      | macOS build define                           |
+| Electron renderer        | `vellum-assistant-macos`   | `SENTRY_DSN_MACOS` (secret) → `VITE_SENTRY_DSN_MACOS`     | macOS build                                  |
+| iOS webview + native     | `vellum-assistant-ios`     | `SENTRY_DSN_IOS` (secret) → `VITE_SENTRY_DSN_IOS`         | web-SPA build (loaded at runtime on iOS)     |
+| Android webview + native | `vellum-assistant-android` | `SENTRY_DSN_ANDROID` (secret) → `VITE_SENTRY_DSN_ANDROID` | web-SPA build (loaded at runtime on Android) |
+| Assistant daemon         | (unchanged)                | `SENTRY_DSN_ASSISTANT`                                    | runtime env                                  |
 
-The iOS DSN is baked into the deployed web SPA bundle rather than the iOS build, because the iOS app runs the deployed SPA via `server.url` (see `clients/web/capacitor.config.ts`) and bundles no web assets at `cap sync`.
+Native mobile DSNs are baked into the deployed web SPA bundle rather than the native builds, because the iOS and Android apps run the deployed SPA via `server.url` (see `clients/web/capacitor.config.ts`) and bundle no web assets at `cap sync`.
 
 The Electron renderer uses `@sentry/react` (not `@sentry/electron/renderer`): `@sentry/electron` pins `@sentry/core` 10.50 while `@sentry/capacitor` pins `@sentry/react`/`@sentry/browser` 10.52, and Sentry's current-client carrier is version-specific, so an `@sentry/electron/renderer` client couldn't see `@sentry/react` captures. Renderer native crashes still reach `vellum-assistant-macos` via `@sentry/electron/main` (separate process).
 

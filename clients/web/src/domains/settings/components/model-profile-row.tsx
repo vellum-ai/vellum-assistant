@@ -1,20 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
-import {
-  configGetOptions,
-  configLlmCallsitesGetOptions,
-} from "@/generated/daemon/@tanstack/react-query.gen";
+import { configGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useCallSiteDefaultProfile } from "@/hooks/use-call-site-default-profile";
 import { extractUsageProfileMetadata } from "@/utils/profile-metadata";
 
 import type { ConfigGetResponse } from "@/generated/daemon/types.gen";
+import type { ResolvableCallSite } from "@/hooks/use-call-site-default-profile";
 import type { UsageProfileMetadataMap } from "@/utils/profile-metadata";
-
-export type ScheduleModelProfileCallSite =
-  | "mainAgent"
-  | "heartbeatAgent"
-  | "memoryV2Consolidation"
-  | "memoryRetrospective";
 
 const DEFAULT_MAIN_AGENT_PROFILE_LABEL = "Default (assistant's main model)";
 const CUSTOM_CALL_SITE_MODEL_LABEL = "Custom call-site model";
@@ -55,7 +48,7 @@ export function ModelProfileRow({
 }: {
   assistantId: string;
   pinnedProfile?: string | null;
-  defaultCallSite?: ScheduleModelProfileCallSite;
+  defaultCallSite?: ResolvableCallSite;
   fallbackLabel?: string;
   respectCallSiteOverride?: boolean;
 }) {
@@ -69,11 +62,11 @@ export function ModelProfileRow({
     () => (daemonConfig ? extractUsageProfileMetadata(daemonConfig) : {}),
     [daemonConfig],
   );
-  const { data: callSiteCatalog } = useQuery({
-    ...configLlmCallsitesGetOptions({ path: { assistant_id: assistantId } }),
-    enabled: Boolean(assistantId) && shouldResolveDefault,
-    staleTime: 60_000,
-  });
+  const { label: defaultProfileLabel } = useCallSiteDefaultProfile(
+    assistantId,
+    defaultCallSite,
+    { enabled: shouldResolveDefault },
+  );
 
   const overrideLabel =
     shouldResolveDefault && respectCallSiteOverride
@@ -82,18 +75,13 @@ export function ModelProfileRow({
           profileMetadata,
         )
       : undefined;
-  const defaultProfile = shouldResolveDefault
-    ? callSiteCatalog?.callSites.find(
-        (callSite) => callSite.id === defaultCallSite,
-      )?.defaultProfile
-    : undefined;
   const profileLabel =
     pinnedProfile != null
       ? profileDisplayName(pinnedProfile, profileMetadata)
       : overrideLabel != null
         ? overrideLabel
-        : defaultProfile != null
-          ? `Default (${profileDisplayName(defaultProfile, profileMetadata)})`
+        : defaultProfileLabel != null
+          ? `Default (${defaultProfileLabel})`
           : fallbackLabel;
 
   return (

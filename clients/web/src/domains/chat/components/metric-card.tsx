@@ -1,4 +1,3 @@
-
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
 
@@ -47,7 +46,9 @@ export function useAnimatedNumber(target: number): number {
 
     // Already at the target, or a loop is already running toward the
     // (just-updated) target — nothing new to start.
-    if (displayedRef.current === target || rafRef.current) return;
+    if (displayedRef.current === target || rafRef.current) {
+      return;
+    }
 
     const startTime = performance.now();
     const startValue = displayedRef.current;
@@ -108,15 +109,17 @@ export function MetricCard({
   );
 }
 
-export function AnimatedMetricCard({ icon, label, target, format }: {
-  icon: ReactNode; label: string; target: number; format: (n: number) => string;
+export function AnimatedMetricCard({
+  icon,
+  label,
+  target,
+  format,
+}: {
+  icon: ReactNode;
+  label: string;
+  target: number;
+  format: (n: number) => string;
 }) {
   const animated = useAnimatedNumber(target);
-  return (
-    <MetricCard
-      icon={icon}
-      label={label}
-      value={format(animated)}
-    />
-  );
+  return <MetricCard icon={icon} label={label} value={format(animated)} />;
 }

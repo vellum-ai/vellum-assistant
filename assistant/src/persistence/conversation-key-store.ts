@@ -10,15 +10,31 @@
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import type { ChannelId } from "../channels/types.js";
 import { cleanupBootstrapFiles } from "../prompts/bootstrap-cleanup.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
+import { getLogger } from "../util/logger.js";
 import { initConversationDir } from "./conversation-disk-view.js";
 import { GENERATING_TITLE } from "./conversation-title-service.js";
+import type { NonScheduledConversationType } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
 import { conversationKeys, conversations } from "./schema/index.js";
 
-/** Set after the first conversation is created so BOOTSTRAP.md is deleted on the second. */
+const log = getLogger("conversation-key-store");
+
+/**
+ * Set after the first *standard* conversation is created so BOOTSTRAP.md is
+ * deleted on the second. Background creates never touch it.
+ */
 let firstConversationSeen = false;
+
+/**
+ * Test-only reset of the process-global first-conversation flag, so a test file
+ * can replay the "fresh install" sequence more than once.
+ */
+export function _resetFirstConversationSeenForTesting(): void {
+  firstConversationSeen = false;
+}
 
 export interface ConversationKeyMapping {
   id: string;
@@ -116,7 +132,9 @@ export function resolveConversationId(idOrKey: string): string | null {
     .from(conversations)
     .where(eq(conversations.id, idOrKey))
     .get();
-  if (direct) return direct.id;
+  if (direct) {
+    return direct.id;
+  }
 
   // Slow path: check if it's a conversation key.
   const mapping = db
@@ -137,7 +155,7 @@ export function resolveConversationId(idOrKey: string): string | null {
 export function getOrCreateConversation(
   conversationKey: string,
   opts?: {
-    conversationType?: "standard";
+    conversationType?: NonScheduledConversationType;
     /**
      * Caller-supplied title for the conversation, used only when this call
      * actually creates the row. Treated as a user-set title (`isAutoTitle = 0`)
@@ -145,6 +163,17 @@ export function getOrCreateConversation(
      * untouched. Ignored when the conversation already exists.
      */
     title?: string;
+    /**
+     * The channel this conversation originates on, stamped into
+     * `origin_channel` when this call creates the row.
+     *
+     * This is the principal inbound materialization seam, so it is where a
+     * channel conversation gets its provenance. Callers that resolve a
+     * source channel before reaching here already hold the value; omitting
+     * it leaves the column unset for first-message attribution, which is
+     * what every caller did before this option existed.
+     */
+    origin?: ChannelId;
   },
 ): {
   conversationId: string;
@@ -204,14 +233,16 @@ export function getOrCreateConversation(
       };
     }
 
-    // Delete BOOTSTRAP.md when a non-first conversation is created.
-    // The first conversation is the onboarding one; keep BOOTSTRAP.md
-    // for its entire duration. Any subsequent conversation means
-    // onboarding is over.
-    if (firstConversationSeen) {
-      cleanupBootstrapFiles("new conversation created after onboarding");
+    // The first standard conversation is the onboarding one, so BOOTSTRAP.md
+    // survives its whole duration and any later standard create means
+    // onboarding is over. Background rows stay inert: a hidden side thread
+    // minted before the user's first visible chat must not consume that slot.
+    if (conversationType === "standard") {
+      if (firstConversationSeen) {
+        cleanupBootstrapFiles("new conversation created after onboarding");
+      }
+      firstConversationSeen = true;
     }
-    firstConversationSeen = true;
 
     const now = Date.now();
     const conversationId = uuid();
@@ -240,6 +271,7 @@ export function getOrCreateConversation(
         contextCompactedMessageCount: 0,
         contextCompactedAt: null,
         conversationType,
+        originChannel: opts?.origin ?? null,
       })
       .run();
 
@@ -261,12 +293,30 @@ export function getOrCreateConversation(
         title,
         createdAt: now,
         conversationType,
+        originChannel: opts?.origin ?? null,
       },
     };
   });
 
   if (result.created) {
-    initConversationDir({ ...result.conversation, originChannel: null });
+    initConversationDir(result.conversation);
+    // Attribution for every key-materialized conversation: this is the single
+    // choke point through which all unseen-key creations flow, and the key
+    // shape + caller frames identify the entry point from the log alone. The
+    // raw key is never logged — channel-backed keys embed external chat ids
+    // (phone numbers, Slack/Telegram ids), and assistant logs travel in
+    // support bundles. Emitted only on the creation branch, never on hot
+    // read/write paths.
+    log.info(
+      {
+        conversationKeyShape: classifyConversationKey(conversationKey),
+        conversationId: result.conversationId,
+        conversationType,
+        hasCustomTitle: Boolean(opts?.title?.trim()),
+        caller: captureCallerFrames(),
+      },
+      "Materialized conversation for unseen conversation key",
+    );
   }
 
   return {
@@ -274,4 +324,47 @@ export function getOrCreateConversation(
     conversationType: result.conversationType,
     created: result.created,
   };
+}
+
+const UUID_SHAPE_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * PII-free shape label for a conversation key. Channel-backed keys embed
+ * external chat/user ids, so only the structural prefix is kept (e.g.
+ * `asst:<id>:slack:<chat>:thread:<ts>` → "asst-scoped:slack:threaded");
+ * free-form keys collapse to a coarse class.
+ */
+function classifyConversationKey(conversationKey: string): string {
+  if (conversationKey.startsWith("asst:")) {
+    const parts = conversationKey.split(":");
+    const channel = parts[2] ?? "unknown";
+    const threaded = parts.includes("thread") ? ":threaded" : "";
+    return `asst-scoped:${channel}${threaded}`;
+  }
+  const prefixed = conversationKey.match(/^([a-z-]+)[:-]/i);
+  if (prefixed) {
+    return `prefixed:${prefixed[1].toLowerCase()}`;
+  }
+  if (UUID_SHAPE_RE.test(conversationKey)) {
+    return "uuid";
+  }
+  return "opaque";
+}
+
+/**
+ * Compact caller summary for creation attribution: the first few stack
+ * frames above this module, joined into one log-friendly line.
+ */
+function captureCallerFrames(): string {
+  const stack = new Error().stack?.split("\n") ?? [];
+  return stack
+    .slice(1)
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line.startsWith("at ") && !line.includes("conversation-key-store"),
+    )
+    .slice(0, 4)
+    .join(" | ");
 }

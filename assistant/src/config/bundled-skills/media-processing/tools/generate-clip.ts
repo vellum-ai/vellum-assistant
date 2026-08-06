@@ -44,7 +44,9 @@ async function getMediaDuration(filePath: string): Promise<number> {
     ],
     FFPROBE_TIMEOUT_MS,
   );
-  if (result.exitCode !== 0) return 0;
+  if (result.exitCode !== 0) {
+    return 0;
+  }
   return parseFloat(result.stdout.trim()) || 0;
 }
 

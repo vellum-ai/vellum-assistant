@@ -18,6 +18,7 @@
  * On any parse or resolution failure we abort the compaction and return
  * `compacted: false` — never silently lose messages.
  */
+import { repairHistory } from "../agent/history-repair/history-repair.js";
 import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import type { CompactionConfig } from "../config/schemas/compaction.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -83,7 +84,9 @@ function recordCompactionRequestLog(
   response: ProviderResponse,
   provider: Provider,
 ): string | null {
-  if (!response.rawRequest || !response.rawResponse) return null;
+  if (!response.rawRequest || !response.rawResponse) {
+    return null;
+  }
   try {
     // Inserted unlinked (no message id) — user-initiated compaction flows
     // (/compact, summarize-up-to) link the row to their result card after
@@ -376,7 +379,9 @@ export function parseCompactionResult(
   opts: { requireTailStart?: boolean } = {},
 ): ParsedCompactionResult | null {
   const openIdx = raw.indexOf(RESULT_TAG_OPEN);
-  if (openIdx < 0) return null;
+  if (openIdx < 0) {
+    return null;
+  }
   const closeIdx = raw.lastIndexOf(RESULT_TAG_CLOSE);
   const inner =
     closeIdx > openIdx
@@ -384,7 +389,9 @@ export function parseCompactionResult(
       : raw.slice(openIdx + RESULT_TAG_OPEN.length);
 
   const summary = extractTagContent(inner, "summary")?.trim() ?? "";
-  if (summary.length === 0) return null;
+  if (summary.length === 0) {
+    return null;
+  }
 
   const keyState = extractTagContent(inner, "key_state")?.trim() ?? "";
 
@@ -411,9 +418,13 @@ function extractTagContent(haystack: string, tag: string): string | null {
   const open = `<${tag}>`;
   const close = `</${tag}>`;
   const openIdx = haystack.indexOf(open);
-  if (openIdx < 0) return null;
+  if (openIdx < 0) {
+    return null;
+  }
   const closeIdx = haystack.indexOf(close, openIdx + open.length);
-  if (closeIdx < 0) return null;
+  if (closeIdx < 0) {
+    return null;
+  }
   return haystack.slice(openIdx + open.length, closeIdx);
 }
 
@@ -425,7 +436,9 @@ function extractTailStart(
   const tagMatch = inner.match(
     /<tail_start\b([\s\S]*?)(?:\/>|<\/tail_start>)/i,
   );
-  if (!tagMatch) return null;
+  if (!tagMatch) {
+    return null;
+  }
   const attrs = tagMatch[1];
   const timestamp = extractAttr(attrs, "timestamp") ?? "";
   const preview = extractAttr(attrs, "preview") ?? "";
@@ -440,14 +453,18 @@ function extractAttr(attrs: string, name: string): string | null {
 
 function extractRetainedImages(inner: string): string[] {
   const block = extractTagContent(inner, "retained_images");
-  if (block == null) return [];
+  if (block == null) {
+    return [];
+  }
   const out: string[] = [];
   const seen = new Set<string>();
   const re = /<image\b[^>]*\bfile\s*=\s*"([^"]+)"[^>]*\/?>/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(block)) !== null) {
     const name = m[1].trim();
-    if (name.length === 0 || seen.has(name)) continue;
+    if (name.length === 0 || seen.has(name)) {
+      continue;
+    }
     seen.add(name);
     out.push(name);
   }
@@ -498,7 +515,9 @@ export function collectImageManifest(
   for (const row of rows) {
     const atts = getAttachmentMetadataForMessage(row.id);
     for (const att of atts) {
-      if (att.kind !== "image") continue;
+      if (att.kind !== "image") {
+        continue;
+      }
       entries.push({
         filename: att.originalFilename,
         attachmentId: att.id,
@@ -511,7 +530,9 @@ export function collectImageManifest(
 }
 
 export function renderImageManifest(entries: ManifestEntry[]): string {
-  if (entries.length === 0) return "(no images in this conversation)";
+  if (entries.length === 0) {
+    return "(no images in this conversation)";
+  }
   return entries
     .map((e) => {
       const ts = new Date(e.timestamp).toISOString();
@@ -531,16 +552,24 @@ export function renderImageManifest(entries: ManifestEntry[]): string {
  * `2026-04-02 (Thursday) 01:52:33 -05:00 (America/Chicago)`).
  */
 export function extractTurnContextTimestamp(message: Message): string | null {
-  if (message.role !== "user") return null;
+  if (message.role !== "user") {
+    return null;
+  }
   for (const block of message.content) {
-    if (block.type !== "text") continue;
+    if (block.type !== "text") {
+      continue;
+    }
     const text = block.text;
     const idx = text.indexOf("<turn_context>");
-    if (idx < 0) continue;
+    if (idx < 0) {
+      continue;
+    }
     const end = text.indexOf("</turn_context>", idx);
     const slice = end > 0 ? text.slice(idx, end) : text.slice(idx);
     const m = slice.match(/current_time:\s*([^\n]+)/);
-    if (m) return m[1].trim();
+    if (m) {
+      return m[1].trim();
+    }
   }
   return null;
 }
@@ -559,16 +588,22 @@ function buildTimestampIndex(messages: Message[]): (string | null)[] {
 
 function extractFirstTextPreview(message: Message, maxChars = 120): string {
   for (const block of message.content) {
-    if (block.type !== "text") continue;
+    if (block.type !== "text") {
+      continue;
+    }
     let text = block.text;
     // Skip injected blocks (`<turn_context>`, `<memory>`, `<workspace>`, ...) —
     // they're not what the model means by "first 60 chars of that message".
     while (text.startsWith("<") && text.includes("</")) {
       const closeMatch = text.match(/<\/[a-zA-Z_][\w-]*>\s*\n?/);
-      if (!closeMatch || closeMatch.index === undefined) break;
+      if (!closeMatch || closeMatch.index === undefined) {
+        break;
+      }
       text = text.slice(closeMatch.index + closeMatch[0].length).trimStart();
     }
-    if (text.length === 0) continue;
+    if (text.length === 0) {
+      continue;
+    }
     return text.slice(0, maxChars);
   }
   return "";
@@ -610,7 +645,9 @@ function describeFixedBoundary(message: Message): string {
  */
 export function canonicalDateTimeKey(ts: string): string | null {
   const m = ts.match(/(\d{4}-\d{2}-\d{2})\D+(\d{2}:\d{2}:\d{2})/);
-  if (!m) return null;
+  if (!m) {
+    return null;
+  }
   return `${m[1]}T${m[2]}`;
 }
 
@@ -631,18 +668,26 @@ function resolveTailStartIndex(
   const wantedTs = parsed.tailStartTimestamp.trim();
   if (wantedTs.length > 0) {
     for (let i = 0; i < timestamps.length; i++) {
-      if (timestamps[i] === wantedTs) return i;
+      if (timestamps[i] === wantedTs) {
+        return i;
+      }
     }
     for (let i = 0; i < timestamps.length; i++) {
       const ts = timestamps[i];
-      if (ts && (ts.includes(wantedTs) || wantedTs.includes(ts))) return i;
+      if (ts && (ts.includes(wantedTs) || wantedTs.includes(ts))) {
+        return i;
+      }
     }
     const wantedKey = canonicalDateTimeKey(wantedTs);
     if (wantedKey) {
       for (let i = 0; i < timestamps.length; i++) {
         const ts = timestamps[i];
-        if (!ts) continue;
-        if (canonicalDateTimeKey(ts) === wantedKey) return i;
+        if (!ts) {
+          continue;
+        }
+        if (canonicalDateTimeKey(ts) === wantedKey) {
+          return i;
+        }
       }
     }
   }
@@ -651,9 +696,13 @@ function resolveTailStartIndex(
     const previewHead = wantedPreview.slice(0, 40);
     for (let i = 0; i < messages.length; i++) {
       const m = messages[i];
-      if (m.role !== "user") continue;
+      if (m.role !== "user") {
+        continue;
+      }
       const head = extractFirstTextPreview(m);
-      if (head.length > 0 && head.startsWith(previewHead)) return i;
+      if (head.length > 0 && head.startsWith(previewHead)) {
+        return i;
+      }
     }
   }
   return null;
@@ -707,7 +756,9 @@ export function adjustTailIndexForToolPairing(
  */
 function isForwardCutBoundary(messages: Message[], index: number): boolean {
   const m = messages[index];
-  if (m == null || m.role !== "user") return false;
+  if (m == null || m.role !== "user") {
+    return false;
+  }
   // guard:allow-tool-result-only — server-side web_search_tool_result is
   // self-paired inside its assistant message and never spans user turns.
   return !m.content.some((block) => block.type === "tool_result");
@@ -766,7 +817,9 @@ function advanceTailForBudget(args: {
   let chosen = startIndex;
   let fits = false;
   for (let i = startIndex + 1; i <= floorIndex; i++) {
-    if (!isForwardCutBoundary(messages, i)) continue;
+    if (!isForwardCutBoundary(messages, i)) {
+      continue;
+    }
     chosen = i;
     const estimate = estimateTail(messages.slice(i));
     if (estimate <= targetTokens) {
@@ -797,9 +850,13 @@ function resolveTailFloorIndex(messages: Message[], tailIndex: number): number {
       break;
     }
   }
-  if (lastAssistant < 0) return tailIndex;
+  if (lastAssistant < 0) {
+    return tailIndex;
+  }
   for (let i = lastAssistant - 1; i > tailIndex; i--) {
-    if (isForwardCutBoundary(messages, i)) return i;
+    if (isForwardCutBoundary(messages, i)) {
+      return i;
+    }
   }
   return tailIndex;
 }
@@ -808,10 +865,10 @@ function resolveTailFloorIndex(messages: Message[], tailIndex: number): number {
 // Retained-image hydration
 // ---------------------------------------------------------------------------
 
-function buildRetainedImageBlocks(
+async function buildRetainedImageBlocks(
   filenames: string[],
   manifest: ManifestEntry[],
-): { blocks: ImageContent[]; resolved: string[]; missing: string[] } {
+): Promise<{ blocks: ImageContent[]; resolved: string[]; missing: string[] }> {
   const blocks: ImageContent[] = [];
   const resolved: string[] = [];
   const missing: string[] = [];
@@ -830,7 +887,7 @@ function buildRetainedImageBlocks(
     // Run the same downscale pass the agent uses when first sending an
     // image. Without this, attachments that exceed the provider's per-image
     // byte limit (Anthropic: 5 MB) crash the next turn after compaction.
-    const optimized = optimizeImageForTransport(
+    const optimized = await optimizeImageForTransport(
       content.toString("base64"),
       sourceMime,
     );
@@ -956,7 +1013,9 @@ export function buildSummaryMemoryText(
 ): string {
   const trimmedSummary = summary.trim();
   const trimmedKey = keyState.trim();
-  if (trimmedKey.length === 0) return trimmedSummary;
+  if (trimmedKey.length === 0) {
+    return trimmedSummary;
+  }
   return `${trimmedSummary}\n\n## Pending State\n${trimmedKey}`;
 }
 
@@ -998,9 +1057,14 @@ function extractTextFromResponse(content: ContentBlock[]): string {
 
 // Build the outbound message list for a compaction provider call: apply the
 // same pre-send sanitization bundle as the agent loop's model calls
-// (`preModelCallSanitize` — old tool-result media stripped, AX trees
-// collapsed, historical web-search results converted to text), then append
-// the summarization instruction at the tail.
+// (`preModelCallSanitize`: old tool-result media stripped, AX trees
+// collapsed, historical web-search results converted to text), run the
+// deterministic history repair over the sanitized projection, then append
+// the summarization instruction at the tail. The repair pass downgrades any
+// orphaned `tool_result` (its `tool_use` outside the request, e.g. cut off
+// by front truncation) to plain text and merges consecutive same-role runs,
+// so the request always satisfies the provider's pairing validation. A
+// well-formed history passes through repair structurally unchanged.
 //
 // Matching the loop's projection matters for two reasons. First, the summary
 // call's prefix stays byte-aligned with the agent's warm prompt cache — an
@@ -1018,7 +1082,10 @@ function buildCompactionRequest(
   history: Message[],
   instruction: Message,
 ): Message[] {
-  return [...preModelCallSanitize(history), instruction];
+  return [
+    ...repairHistory(preModelCallSanitize(history)).messages,
+    instruction,
+  ];
 }
 
 // Token headroom a compaction summary call reserves on top of its history: room
@@ -1050,9 +1117,13 @@ function truncateHistoryToBudget(args: {
   systemPrompt: string;
   budgetTokens: number;
   providerName: string;
+  model?: string;
 }): Message[] {
-  const { messages, systemPrompt, budgetTokens, providerName } = args;
-  let estimate = estimatePromptTokens(messages, systemPrompt, { providerName });
+  const { messages, systemPrompt, budgetTokens, providerName, model } = args;
+  let estimate = estimatePromptTokens(messages, systemPrompt, {
+    providerName,
+    model,
+  });
   if (estimate <= budgetTokens || messages.length <= 1) {
     return messages;
   }
@@ -1061,10 +1132,39 @@ function truncateHistoryToBudget(args: {
     dropCount++;
     estimate = estimatePromptTokens(messages.slice(dropCount), systemPrompt, {
       providerName,
+      model,
     });
   }
   if (dropCount === 0) {
     return messages;
+  }
+  // Advance the cut to a pair-safe boundary. The budget loop stops wherever
+  // the estimate first fits, which can land between an assistant `tool_use`
+  // and its user `tool_result` and leave an orphaned `tool_result` opening
+  // the retained portion (rejected by providers that validate pairing).
+  // Walk forward to the next clean user boundary, never dropping the final
+  // message (mirroring the budget loop's own bound). When no boundary exists
+  // the requested cut stands; the request-build repair pass downgrades any
+  // orphaned results so the outbound call remains valid.
+  const requestedDropCount = dropCount;
+  if (!isForwardCutBoundary(messages, dropCount)) {
+    for (let i = dropCount + 1; i < messages.length; i++) {
+      if (isForwardCutBoundary(messages, i)) {
+        dropCount = i;
+        break;
+      }
+    }
+  }
+  if (dropCount !== requestedDropCount) {
+    log.info(
+      {
+        requestedDropCount,
+        pairSafeDropCount: dropCount,
+        budgetTokens,
+        totalMessages: messages.length,
+      },
+      "Advanced compaction summary-call front truncation to a pair-safe boundary",
+    );
   }
   log.info(
     { dropCount, budgetTokens, totalMessages: messages.length },
@@ -1155,6 +1255,7 @@ export async function runAssistantDrivenCompaction(
     systemPrompt: args.systemPrompt,
     budgetTokens: compactionPrefixBudget(args.maxInputTokens),
     providerName: args.provider.tokenEstimationProvider ?? args.provider.name,
+    model: args.provider.defaultModel,
   });
   const requestMessages = buildCompactionRequest(summaryHistory, instruction);
 
@@ -1292,7 +1393,7 @@ export async function runAssistantDrivenCompaction(
     blocks: retainedImageBlocks,
     resolved,
     missing,
-  } = buildRetainedImageBlocks(parsed.retainedImageFilenames, manifest);
+  } = await buildRetainedImageBlocks(parsed.retainedImageFilenames, manifest);
   if (missing.length > 0) {
     log.warn(
       { missing },
@@ -1349,12 +1450,14 @@ export async function runAssistantDrivenCompaction(
     // budget and land short of the real low-watermark.
     const toolTokenBudget = args.tools ? estimateToolsTokens(args.tools) : 0;
     const fixedPrefix: Message[] = [summaryMessage];
-    if (retainedImageMessage) fixedPrefix.push(retainedImageMessage);
+    if (retainedImageMessage) {
+      fixedPrefix.push(retainedImageMessage);
+    }
     const estimateRebuilt = (tail: Message[]): number =>
       estimatePromptTokens(
         [...fixedPrefix, ...stripInjectionsForCompaction(tail)],
         args.systemPrompt,
-        { providerName, toolTokenBudget },
+        { providerName, model: args.provider.defaultModel, toolTokenBudget },
       );
     const floorIndex = resolveTailFloorIndex(args.messages, pairedTailIndex);
     const advanced = advanceTailForBudget({
@@ -1554,9 +1657,13 @@ Structured list of:
 function findLastToolPairStart(messages: Message[]): number | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
-    if (msg.role !== "assistant") continue;
+    if (msg.role !== "assistant") {
+      continue;
+    }
     const hasToolUse = msg.content.some((b) => b.type === "tool_use");
-    if (hasToolUse) return i;
+    if (hasToolUse) {
+      return i;
+    }
   }
   return null;
 }
@@ -1616,6 +1723,7 @@ export async function runEmergencyCompaction(
     systemPrompt: args.systemPrompt,
     budgetTokens: compactionPrefixBudget(args.maxInputTokens),
     providerName: args.provider.tokenEstimationProvider ?? args.provider.name,
+    model: args.provider.defaultModel,
   });
 
   const instruction: Message = {

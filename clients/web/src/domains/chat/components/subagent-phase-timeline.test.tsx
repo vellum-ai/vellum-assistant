@@ -378,7 +378,10 @@ describe("SubagentPhaseTimeline — clickable tool steps", () => {
       bash("pwd", "completed", "2s", "tc-b"),
     ];
     const { getByTestId, getAllByTestId } = render(
-      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+      <SubagentPhaseTimeline
+        steps={steps}
+        onStepDetailClick={onStepDetailClick}
+      />,
     );
 
     fireEvent.click(getByTestId("subagent-phase-header"));
@@ -405,7 +408,10 @@ describe("SubagentPhaseTimeline — clickable tool steps", () => {
     const onStepDetailClick = mock((_id: string) => {});
     const steps: ToolCallCardStep[] = [bash("", "completed", "1s", "tc-a")];
     const { getByTestId } = render(
-      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+      <SubagentPhaseTimeline
+        steps={steps}
+        onStepDetailClick={onStepDetailClick}
+      />,
     );
 
     const header = getByTestId("subagent-phase-header");
@@ -424,7 +430,10 @@ describe("SubagentPhaseTimeline — clickable tool steps", () => {
     const onStepDetailClick = mock((_id: string) => {});
     const steps: ToolCallCardStep[] = [thinking("Considering options")];
     const { getByTestId, queryByTestId } = render(
-      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+      <SubagentPhaseTimeline
+        steps={steps}
+        onStepDetailClick={onStepDetailClick}
+      />,
     );
 
     fireEvent.click(getByTestId("subagent-phase-header"));
@@ -437,7 +446,10 @@ describe("SubagentPhaseTimeline — clickable tool steps", () => {
       thinking("Considering options", "1s", "think-1"),
     ];
     const { getByTestId } = render(
-      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+      <SubagentPhaseTimeline
+        steps={steps}
+        onStepDetailClick={onStepDetailClick}
+      />,
     );
 
     fireEvent.click(getByTestId("subagent-phase-header"));
@@ -453,7 +465,10 @@ describe("SubagentPhaseTimeline — clickable tool steps", () => {
     const onStepDetailClick = mock((_id: string) => {});
     const steps: ToolCallCardStep[] = [toolError("context window exceeded")];
     const { getByTestId, queryByTestId } = render(
-      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+      <SubagentPhaseTimeline
+        steps={steps}
+        onStepDetailClick={onStepDetailClick}
+      />,
     );
 
     fireEvent.click(getByTestId("subagent-phase-header"));
@@ -472,7 +487,10 @@ describe("SubagentPhaseTimeline — clickable tool steps", () => {
       },
     ];
     const { getByTestId } = render(
-      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+      <SubagentPhaseTimeline
+        steps={steps}
+        onStepDetailClick={onStepDetailClick}
+      />,
     );
 
     fireEvent.click(getByTestId("subagent-phase-header"));
@@ -494,7 +512,10 @@ describe("SubagentPhaseTimeline — clickable tool steps", () => {
       },
     ];
     const { getByTestId, queryByTestId } = render(
-      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+      <SubagentPhaseTimeline
+        steps={steps}
+        onStepDetailClick={onStepDetailClick}
+      />,
     );
 
     fireEvent.click(getByTestId("subagent-phase-header"));
@@ -510,7 +531,10 @@ describe("SubagentPhaseTimeline — clickable tool steps", () => {
       bash("pwd", "completed", "2s", ""),
     ];
     const { getByTestId, queryByTestId } = render(
-      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+      <SubagentPhaseTimeline
+        steps={steps}
+        onStepDetailClick={onStepDetailClick}
+      />,
     );
 
     fireEvent.click(getByTestId("subagent-phase-header"));
@@ -541,7 +565,10 @@ describe("SubagentPhaseTimeline — clickable tool steps", () => {
       ),
     ];
     const { getByTestId } = render(
-      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+      <SubagentPhaseTimeline
+        steps={steps}
+        onStepDetailClick={onStepDetailClick}
+      />,
     );
 
     fireEvent.click(getByTestId("subagent-phase-header"));
@@ -565,7 +592,10 @@ describe("SubagentPhaseTimeline — clickable tool steps", () => {
       ]),
     ];
     const { getByTestId, getAllByTestId } = render(
-      <SubagentPhaseTimeline steps={steps} onStepDetailClick={onStepDetailClick} />,
+      <SubagentPhaseTimeline
+        steps={steps}
+        onStepDetailClick={onStepDetailClick}
+      />,
     );
 
     fireEvent.click(getByTestId("subagent-phase-header"));
@@ -623,7 +653,11 @@ describe("SubagentPhaseTimeline — web_search chips", () => {
   test("a web_search step renders its results as favicon link chips when expanded", () => {
     const steps: ToolCallCardStep[] = [
       webSearch([
-        { title: "First Result", url: "https://example.com/a", domain: "example.com" },
+        {
+          title: "First Result",
+          url: "https://example.com/a",
+          domain: "example.com",
+        },
         { title: "Second Result", url: "https://foo.org/b", domain: "foo.org" },
       ]),
       // A second search so the group is multi-step (has the "N steps" pill).
@@ -753,8 +787,9 @@ describe("SubagentPhaseTimeline — controlled expand state", () => {
   // `toggle` callback stable), so the next set is derived by applying it to the
   // previous one.
   test("renders expansion from `expandedKeys` and reports toggles to the parent", () => {
-    const onExpandedKeysChange =
-      mock((_updater: (prev: Set<string>) => Set<string>) => {});
+    const onExpandedKeysChange = mock(
+      (_updater: (prev: Set<string>) => Set<string>) => {},
+    );
     const steps: ToolCallCardStep[] = [
       bash("ls", "completed", "1s", "tc-a"),
       bash("pwd", "completed", "2s", "tc-b"),

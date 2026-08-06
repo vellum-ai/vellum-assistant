@@ -182,8 +182,6 @@ describe("runtime proxy enforcement", () => {
     return {
       assistantRuntimeBaseUrl: "http://localhost:7821",
       routingEntries: [],
-      defaultAssistantId: undefined,
-      unmappedPolicy: "reject" as const,
       port: 7830,
       runtimeProxyRequireAuth: true,
       shutdownDrainMs: 5000,

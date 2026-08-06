@@ -110,7 +110,9 @@ export async function synthesizeText(
     });
   } catch (err) {
     // Re-throw TtsSynthesisError as-is (e.g. from inner adapter errors).
-    if (err instanceof TtsSynthesisError) {throw err;}
+    if (err instanceof TtsSynthesisError) {
+      throw err;
+    }
 
     throw new TtsSynthesisError(
       "TTS_SYNTHESIS_FAILED",

@@ -45,6 +45,12 @@ jobs:
           fi
           echo "Building iOS $ENVIRONMENT release, version $VERSION"
 
+      # Every environment resolves two bundle IDs and two provisioning
+      # profiles: the app's, and the VoiceActivity extension embedded inside
+      # it. The profile names must match character for character both the
+      # Apple Developer portal and the `PROVISIONING_PROFILE_SPECIFIER_Manual`
+      # values in `clients/ios/App/App/Config/*.xcconfig`. See "Signing: two
+      # profiles per environment" in `clients/ios/README.md`.
       - name: Resolve environment config
         id: config
         env:
@@ -56,6 +62,9 @@ jobs:
               echo "bundle_id=ai.vocify-inc.vellum-assistant-ios" >> "$GITHUB_OUTPUT"
               echo "profile_key=IOS_PROVISIONING_PROFILE" >> "$GITHUB_OUTPUT"
               echo "profile_name=Vellum Assistant iOS Distribution" >> "$GITHUB_OUTPUT"
+              echo "ext_bundle_id=ai.vocify-inc.vellum-assistant-ios.VoiceActivity" >> "$GITHUB_OUTPUT"
+              echo "ext_profile_key=IOS_PROVISIONING_PROFILE_EXT" >> "$GITHUB_OUTPUT"
+              echo "ext_profile_name=Vellum Assistant iOS VoiceActivity Distribution" >> "$GITHUB_OUTPUT"
               echo "apple_app_id_key=APPLE_APP_ID_PROD" >> "$GITHUB_OUTPUT"
               echo "vellum_env=production" >> "$GITHUB_OUTPUT"
               echo "testflight_internal=false" >> "$GITHUB_OUTPUT"
@@ -65,6 +74,9 @@ jobs:
               echo "bundle_id=ai.vocify-inc.vellum-assistant-ios.staging" >> "$GITHUB_OUTPUT"
               echo "profile_key=IOS_PROVISIONING_PROFILE_STAGING" >> "$GITHUB_OUTPUT"
               echo "profile_name=Vellum Assistant iOS Staging Distribution" >> "$GITHUB_OUTPUT"
+              echo "ext_bundle_id=ai.vocify-inc.vellum-assistant-ios.staging.VoiceActivity" >> "$GITHUB_OUTPUT"
+              echo "ext_profile_key=IOS_PROVISIONING_PROFILE_EXT_STAGING" >> "$GITHUB_OUTPUT"
+              echo "ext_profile_name=Vellum Assistant iOS Staging VoiceActivity Distribution" >> "$GITHUB_OUTPUT"
               echo "apple_app_id_key=APPLE_APP_ID_STAGING" >> "$GITHUB_OUTPUT"
               echo "vellum_env=staging" >> "$GITHUB_OUTPUT"
               echo "testflight_internal=true" >> "$GITHUB_OUTPUT"
@@ -74,6 +86,9 @@ jobs:
               echo "bundle_id=ai.vocify-inc.vellum-assistant-ios.dev" >> "$GITHUB_OUTPUT"
               echo "profile_key=IOS_PROVISIONING_PROFILE_DEV" >> "$GITHUB_OUTPUT"
               echo "profile_name=Vellum Assistant iOS Dev Distribution" >> "$GITHUB_OUTPUT"
+              echo "ext_bundle_id=ai.vocify-inc.vellum-assistant-ios.dev.VoiceActivity" >> "$GITHUB_OUTPUT"
+              echo "ext_profile_key=IOS_PROVISIONING_PROFILE_EXT_DEV" >> "$GITHUB_OUTPUT"
+              echo "ext_profile_name=Vellum Assistant iOS Dev VoiceActivity Distribution" >> "$GITHUB_OUTPUT"
               echo "apple_app_id_key=APPLE_APP_ID_DEV" >> "$GITHUB_OUTPUT"
               echo "vellum_env=dev" >> "$GITHUB_OUTPUT"
               echo "testflight_internal=true" >> "$GITHUB_OUTPUT"
@@ -103,10 +118,9 @@ jobs:
         env:
           VELLUM_ENVIRONMENT: ${{ steps.config.outputs.vellum_env }}
           # No Sentry DSN here: this build bundles no web assets. The iOS app
-          # runs the deployed web SPA via `server.url`, so its Sentry DSN
-          # (SENTRY_DSN_IOS → VITE_SENTRY_DSN_IOS, vellum-assistant-ios) is baked
-          # into the SPA bundle by the web-SPA deploy workflow and selected at
-          # runtime on iOS.
+          # runs the deployed web SPA via `server.url`, so native webview DSNs
+          # are baked into the SPA bundle by the web-SPA deploy workflow and
+          # selected at runtime.
         run: bunx cap sync ios
 
       - name: Install XcodeGen
@@ -148,22 +162,56 @@ jobs:
           security find-identity -v -p codesigning | grep -q "Apple Distribution" \
             || { echo "::error::Apple Distribution identity not found in keychain."; exit 1; }
 
-      - name: Install provisioning profile
+      - name: Install provisioning profiles
+        id: profiles
         env:
           IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
           IOS_PROVISIONING_PROFILE_STAGING: ${{ secrets.IOS_PROVISIONING_PROFILE_STAGING }}
           IOS_PROVISIONING_PROFILE_DEV: ${{ secrets.IOS_PROVISIONING_PROFILE_DEV }}
+          IOS_PROVISIONING_PROFILE_EXT: ${{ secrets.IOS_PROVISIONING_PROFILE_EXT }}
+          IOS_PROVISIONING_PROFILE_EXT_STAGING: ${{ secrets.IOS_PROVISIONING_PROFILE_EXT_STAGING }}
+          IOS_PROVISIONING_PROFILE_EXT_DEV: ${{ secrets.IOS_PROVISIONING_PROFILE_EXT_DEV }}
         run: |
-          PROFILE_KEY="${{ steps.config.outputs.profile_key }}"
-          PROFILE_B64="${!PROFILE_KEY}"
-          if [ -z "$PROFILE_B64" ]; then
-            echo "::error::Provisioning profile secret $PROFILE_KEY is empty"
-            exit 1
-          fi
           PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$PROFILE_DIR"
-          echo "$PROFILE_B64" | base64 -D > "$PROFILE_DIR/ios_distribution.mobileprovision"
-          echo "Provisioning profile installed from $PROFILE_KEY"
+
+          # The filenames must differ: a second write to the same name
+          # silently clobbers the first, and the failure surfaces much later
+          # as an opaque export error.
+          #
+          # Returns non-zero when the secret is empty, leaving how fatal that
+          # is to the caller.
+          install_profile() {
+            local key="$1" filename="$2"
+            local b64="${!key}"
+            if [ -z "$b64" ]; then
+              return 1
+            fi
+            echo "$b64" | base64 -D > "$PROFILE_DIR/$filename"
+            echo "Provisioning profile installed from $key"
+          }
+
+          # The app profile is non-negotiable: without it there is no build to
+          # attempt, and no later step could produce a more useful error.
+          APP_PROFILE_KEY="${{ steps.config.outputs.profile_key }}"
+          if ! install_profile "$APP_PROFILE_KEY" ios_distribution.mobileprovision; then
+            echo "::error::Provisioning profile secret $APP_PROFILE_KEY is empty"
+            exit 1
+          fi
+
+          # A missing extension profile is tolerated: the App IDs and profiles
+          # behind IOS_PROVISIONING_PROFILE_EXT* do not exist in the Apple
+          # Developer portal yet. The archive fails either way, so exiting here
+          # would only replace Xcode's precise, target-named signing error with
+          # an opaque one — and it would do so on releases whose only fault is
+          # sharing a workflow with the extension.
+          EXT_PROFILE_KEY="${{ steps.config.outputs.ext_profile_key }}"
+          if install_profile "$EXT_PROFILE_KEY" ios_distribution_ext.mobileprovision; then
+            echo "ext_profile_installed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ext_profile_installed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Provisioning profile secret $EXT_PROFILE_KEY is empty, so the VoiceActivity extension profile was not installed and is omitted from ExportOptions.plist. THIS RELEASE WILL STILL FAIL: every app target embeds the extension, so 'xcodebuild archive' stops at signing with \"No profile for team ... matching '${{ steps.config.outputs.ext_profile_name }}' found ... (in target 'VoiceActivity ...')\". No iOS release of any environment can be produced until the portal setup lands. Fix: follow 'Manual Apple Developer portal setup' in clients/ios/README.md to create the App ID and profile, then add $EXT_PROFILE_KEY."
+          fi
 
       - name: Set version
         id: version
@@ -180,13 +228,28 @@ jobs:
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
           echo "Display version: $DISPLAY_VERSION (from $VERSION) / Build version: $BUILD_VERSION"
 
+      # `provisioningProfiles` needs one entry per signed bundle, not just the
+      # app: `-exportArchive` fails when an embedded extension has no entry,
+      # and its error does not name the offending extension. It fails just as
+      # hard on an entry naming a profile that was never installed, so the
+      # extension entry follows the install step's outcome rather than
+      # re-testing the secret here — the two decisions have to agree.
       - name: Generate ExportOptions.plist
         env:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           BUNDLE_ID: ${{ steps.config.outputs.bundle_id }}
           PROFILE_NAME: ${{ steps.config.outputs.profile_name }}
+          EXT_BUNDLE_ID: ${{ steps.config.outputs.ext_bundle_id }}
+          EXT_PROFILE_NAME: ${{ steps.config.outputs.ext_profile_name }}
+          EXT_PROFILE_INSTALLED: ${{ steps.profiles.outputs.ext_profile_installed }}
           TESTFLIGHT_INTERNAL: ${{ steps.config.outputs.testflight_internal }}
         run: |
+          EXT_ENTRY=""
+          if [ "$EXT_PROFILE_INSTALLED" = "true" ]; then
+            EXT_ENTRY="<key>$EXT_BUNDLE_ID</key>
+                  <string>$EXT_PROFILE_NAME</string>"
+          fi
+
           INTERNAL_ENTRY=""
           if [ "$TESTFLIGHT_INTERNAL" = "true" ]; then
             INTERNAL_ENTRY="    <key>testFlightInternalTestingOnly</key>
@@ -207,12 +270,22 @@ jobs:
               <dict>
                   <key>$BUNDLE_ID</key>
                   <string>$PROFILE_NAME</string>
+                  $EXT_ENTRY
               </dict>
               $INTERNAL_ENTRY
           </dict>
           </plist>
           EOF
 
+      # PROVISIONING_PROFILE_SPECIFIER is deliberately NOT passed here. An
+      # xcodebuild CLI override applies to every target in the archive, so a
+      # single specifier would push the app profile onto the embedded
+      # VoiceActivity appex, which it does not cover. The per-target mapping
+      # lives in `clients/ios/App/App/Config/*.xcconfig` instead, next to the
+      # per-target bundle IDs it has to agree with. Those xcconfigs key the
+      # specifier off CODE_SIGN_STYLE, so the `CODE_SIGN_STYLE=Manual`
+      # override below is what activates it — local Xcode builds stay on
+      # automatic signing and pick up no specifier at all.
       - name: Archive
         working-directory: clients/ios/App
         run: |
@@ -223,7 +296,6 @@ jobs:
             -destination 'generic/platform=iOS' \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="${{ steps.config.outputs.profile_name }}" \
             DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
             MARKETING_VERSION="${{ steps.version.outputs.display_version }}" \
             CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build_version }}"
@@ -263,15 +335,75 @@ jobs:
             exit 1
           fi
 
+          # `altool` exits 0 even when it fails. It prints "VERIFY FAILED" or
+          # "UPLOAD FAILED", reports the reason, and returns success anyway, so
+          # `bash -e` never trips and the step goes green having shipped
+          # nothing. Every dev release between the VoiceActivity appex landing
+          # (#39306) and #39556 was green while uploading nothing at all: the
+          # appex was missing CFBundleDisplayName and App Store Connect
+          # rejected all of them.
+          #
+          # So the exit code is not the signal. `--output-format json` makes
+          # altool emit a `product-errors` array, which is, and it is a
+          # documented contract rather than a message string that can be
+          # reworded. The raw JSON is echoed so the log keeps the detail that
+          # the human-readable output used to carry.
+          #
+          # The text scan afterwards is a backstop for the case this exists to
+          # prevent: a failure altool reports in some shape that is neither a
+          # non-zero exit nor a `product-errors` entry. Between the three, a
+          # release that does not reach TestFlight cannot report success.
+          run_altool() {
+            local label="$1"
+            shift
+
+            local output status
+            set +e
+            output=$(xcrun altool "$@" --output-format json)
+            status=$?
+            set -e
+
+            printf '%s\n' "$output"
+
+            if [ "$status" -ne 0 ]; then
+              echo "::error::$label failed (altool exited $status)"
+              exit 1
+            fi
+
+            # Unparseable output is not proof of failure, and failing on it
+            # would block releases on a formatting change, so that case falls
+            # through to the text scan below instead. Both probes are one-line
+            # programs on purpose: a `run: |` block scalar ends at the first
+            # line indented less than the block, so an indentation-sensitive
+            # heredoc cannot live here.
+            if printf '%s' "$output" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null; then
+              local errors
+              errors=$(printf '%s' "$output" | python3 -c 'import json,sys; print("\n".join(str(e.get("message","unknown error")) for e in (json.load(sys.stdin).get("product-errors") or [])))')
+              if [ -n "$errors" ]; then
+                while IFS= read -r message; do
+                  echo "::error::$label: $message"
+                done <<< "$errors"
+                exit 1
+              fi
+            else
+              echo "::warning::altool output was not valid JSON; relying on the text scan"
+            fi
+
+            if printf '%s' "$output" | grep -qE 'VERIFY FAILED|UPLOAD FAILED|Failed to (validate|upload)'; then
+              echo "::error::$label reported a failure in its output"
+              exit 1
+            fi
+          }
+
           echo "Validating $IPA_FILE..."
-          xcrun altool --validate-app \
+          run_altool "Validation" --validate-app \
             -f "$IPA_FILE" \
             --type ios \
             --apiKey "$ASC_KEY_ID" \
             --apiIssuer "$ASC_ISSUER_ID"
 
           echo "Uploading $IPA_FILE to TestFlight..."
-          xcrun altool --upload-package "$IPA_FILE" \
+          run_altool "Upload" --upload-package "$IPA_FILE" \
             --type ios \
             --apple-id "$APPLE_APP_ID" \
             --bundle-id "$BUNDLE_ID" \

@@ -11,6 +11,7 @@ mock.module("@/runtime/is-electron", () => ({ isElectron: () => electron }));
 // the capacitor flavor here does not drag in the auth store's runtime deps.
 mock.module("@/lib/sentry/consent-gate", () => ({
   diagnosticsConsentGranted: () => false,
+  diagnosticsReportingResolvedOff: () => false,
 }));
 
 const { selectSentryFlavor } = await import("@/lib/sentry/flavor");
@@ -23,7 +24,7 @@ afterEach(() => {
 });
 
 describe("selectSentryFlavor", () => {
-  test("selects the capacitor flavor on native iOS", () => {
+  test("selects the capacitor flavor on native mobile", () => {
     nativePlatform = true;
     expect(selectSentryFlavor()).toBe(capacitorFlavor);
   });

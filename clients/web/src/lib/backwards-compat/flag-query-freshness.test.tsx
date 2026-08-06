@@ -2,7 +2,10 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
-import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
+import {
+  useClientFlagQueryFreshness,
+  useFlagQueryFreshness,
+} from "@/lib/backwards-compat/flag-query-freshness";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -61,5 +64,51 @@ describe("useFlagQueryFreshness", () => {
     act(() => setVersion("0.8.5"));
     expect(result.current.refetchInterval).toBe(false);
     expect(result.current.staleTime).toBe(60_000);
+  });
+});
+
+describe("useClientFlagQueryFreshness", () => {
+  test("returns poll options when version is unknown", () => {
+    setVersion(null);
+    const { result } = renderHook(() => useClientFlagQueryFreshness(true), {
+      wrapper,
+    });
+    expect(result.current).toEqual({
+      staleTime: 5_000,
+      refetchInterval: 5_000,
+    });
+  });
+
+  test("returns poll options for assistants on 0.8.4", () => {
+    setVersion("0.8.4");
+    const { result } = renderHook(() => useClientFlagQueryFreshness(true), {
+      wrapper,
+    });
+    expect(result.current).toEqual({
+      staleTime: 5_000,
+      refetchInterval: 5_000,
+    });
+  });
+
+  test("polls when the sync transport is not attached", () => {
+    setVersion("0.8.5");
+    const { result } = renderHook(() => useClientFlagQueryFreshness(false), {
+      wrapper,
+    });
+    expect(result.current).toEqual({
+      staleTime: 5_000,
+      refetchInterval: 5_000,
+    });
+  });
+
+  test("keeps push-capable client flags fresh until invalidated", () => {
+    setVersion("0.8.5");
+    const { result } = renderHook(() => useClientFlagQueryFreshness(true), {
+      wrapper,
+    });
+    expect(result.current).toEqual({
+      staleTime: Infinity,
+      refetchInterval: false,
+    });
   });
 });

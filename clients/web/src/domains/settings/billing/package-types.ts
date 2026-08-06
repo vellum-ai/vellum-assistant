@@ -5,9 +5,26 @@
  * `pro-packages` LaunchDarkly flag is off; callers no-op on an empty array.
  */
 
-import type { ProPackage } from "@/generated/api/types.gen";
+import type {
+  ProPackage,
+  SubscriptionPackage,
+} from "@/generated/api/types.gen";
 
 export type { ProPackage };
+
+/** A Pro sub pinned to a stock package whose tiers still match it (not customized). */
+export function isCleanPin(
+  pkg: SubscriptionPackage | null | undefined,
+): pkg is SubscriptionPackage {
+  return pkg != null && !pkg.customized;
+}
+
+/** A clean pin reads its stock name; anything else reads "Custom" (tiers can diverge). */
+export function proPackageDisplayName(
+  pkg: SubscriptionPackage | null | undefined,
+): string {
+  return isCleanPin(pkg) ? pkg.name : "Custom";
+}
 
 /**
  * Catalog display order (mirrors `PRO_PACKAGES` insertion order from
@@ -70,7 +87,9 @@ export function nextPackageUp(
   packages: ProPackage[],
   currentKey: string | null,
 ): ProPackage | null {
-  if (packages.length === 0) return null;
+  if (packages.length === 0) {
+    return null;
+  }
 
   const sorted = [...packages].sort(
     (a, b) =>
@@ -78,10 +97,16 @@ export function nextPackageUp(
       PACKAGE_ORDER.indexOf(b.key as (typeof PACKAGE_ORDER)[number]),
   );
 
-  if (!currentKey) return sorted[0];
+  if (!currentKey) {
+    return sorted[0];
+  }
 
   const idx = sorted.findIndex((p) => p.key === currentKey);
-  if (idx === -1) return sorted[0];
-  if (idx >= sorted.length - 1) return null;
+  if (idx === -1) {
+    return sorted[0];
+  }
+  if (idx >= sorted.length - 1) {
+    return null;
+  }
   return sorted[idx + 1];
 }

@@ -11,10 +11,10 @@
  *
  * State is held on `globalThis.vellumAssistant.storePathOverride` so
  * test helpers in `__tests__/` can read/write it WITHOUT importing this
- * module — they declare the same slot shape locally and access the
- * globalThis namespace directly. See
- * `__tests__/encrypted-store-test-helpers.ts` for the test-side mirror;
- * the slot shape MUST stay in sync between the two.
+ * module. Both sides reference the shared ambient `VellumStorePathOverride`
+ * type (declared in `src/vellum-assistant-namespace.d.ts`), which types the
+ * slot without adding a runtime import between them. See
+ * `__tests__/encrypted-store-test-helpers.ts` for the test-side writer.
  *
  * Note: the new test preload places `VELLUM_WORKSPACE_DIR` at
  * `<tmpRoot>/workspace`, so `getProtectedDir()` resolves to
@@ -27,18 +27,8 @@
  *   - `__tests__/encrypted-store-test-helpers.ts` (writes for tests, via globalThis)
  */
 
-type PathSlot = {
-  storePath: string | null;
-  storeKeyPath: string | null;
-};
-
-type VellumAssistantNamespace = {
-  storePathOverride?: PathSlot;
-};
-
-function slot(): PathSlot {
-  const g = globalThis as { vellumAssistant?: VellumAssistantNamespace };
-  const ns = (g.vellumAssistant ??= {});
+function slot(): VellumStorePathOverride {
+  const ns = (globalThis.vellumAssistant ??= {});
   return (ns.storePathOverride ??= { storePath: null, storeKeyPath: null });
 }
 

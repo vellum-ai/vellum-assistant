@@ -150,11 +150,17 @@ async function buildCandidatesForChannel(
   const candidates: ConversationCandidate[] = [];
 
   for (const row of rows) {
-    if (!row.conversationId) continue;
-    if (seen.has(row.conversationId)) continue;
+    if (!row.conversationId) {
+      continue;
+    }
+    if (seen.has(row.conversationId)) {
+      continue;
+    }
 
     // Apply recency filter on the conversation's updatedAt
-    if (row.convUpdatedAt < cutoffMs) continue;
+    if (row.convUpdatedAt < cutoffMs) {
+      continue;
+    }
 
     seen.add(row.conversationId);
 
@@ -166,7 +172,9 @@ async function buildCandidatesForChannel(
       channel: channel,
     });
 
-    if (candidates.length >= MAX_CANDIDATES_PER_CHANNEL) break;
+    if (candidates.length >= MAX_CANDIDATES_PER_CHANNEL) {
+      break;
+    }
   }
 
   // Enrich each candidate with its count of pending guardian requests. The
@@ -211,12 +219,16 @@ export function serializeCandidatesForPrompt(
     NotificationChannel,
     ConversationCandidate[],
   ][];
-  if (channelEntries.length === 0) return null;
+  if (channelEntries.length === 0) {
+    return null;
+  }
 
   const sections: string[] = [];
 
   for (const [channel, candidates] of channelEntries) {
-    if (candidates.length === 0) continue;
+    if (candidates.length === 0) {
+      continue;
+    }
 
     const lines: string[] = [`Channel: ${channel}`];
     for (const c of candidates) {
@@ -248,6 +260,8 @@ export function serializeCandidatesForPrompt(
     sections.push(lines.join("\n"));
   }
 
-  if (sections.length === 0) return null;
+  if (sections.length === 0) {
+    return null;
+  }
   return sections.join("\n\n");
 }

@@ -33,7 +33,9 @@ const PIN_TABLES = ["conversations", "cron_jobs"] as const;
  * skips a table an install hasn't created the column on yet.
  */
 export function migrateRewriteFrontierProfilePins(database: DrizzleDb): void {
-  if (isUserOwnedFrontierProfile()) return;
+  if (isUserOwnedFrontierProfile()) {
+    return;
+  }
 
   const raw = getSqliteFrom(database);
 
@@ -41,7 +43,9 @@ export function migrateRewriteFrontierProfilePins(database: DrizzleDb): void {
     const cols = raw.prepare(`PRAGMA table_info(${table})`).all() as {
       name: string;
     }[];
-    if (!cols.some((c) => c.name === "inference_profile")) continue;
+    if (!cols.some((c) => c.name === "inference_profile")) {
+      continue;
+    }
 
     raw
       .prepare(

@@ -1,0 +1,148 @@
+import {
+  selectedBackendSupportsMultimodal,
+  sweepOrphanedGraphNodePoints,
+} from "@vellumai/plugin-api";
+import { and, eq, isNotNull, like, ne } from "drizzle-orm";
+
+import { getDb } from "../../../../../persistence/db-connection.js";
+import { withQdrantBreaker } from "../../../../../persistence/embeddings/qdrant-circuit-breaker.js";
+import {
+  asString,
+  requireQdrantClient,
+} from "../../../../../persistence/job-utils.js";
+import {
+  enqueueMemoryJob,
+  type MemoryJob,
+} from "../../../../../persistence/jobs-store.js";
+import {
+  mediaAssets,
+  memoryEmbeddings,
+  memoryGraphNodes,
+  memoryGraphTriggers,
+  memorySegments,
+  memorySummaries,
+  messages,
+} from "../../../../../persistence/schema/index.js";
+import { getLogger } from "../../logging.js";
+import { memoryDbOrNull } from "../../memory-db.js";
+import { extractMediaBlockMeta } from "../../message-media.js";
+
+const log = getLogger("memory-jobs-worker");
+
+export async function rebuildIndexJob(): Promise<void> {
+  const db = getDb();
+  const memoryDb = memoryDbOrNull("rebuildIndexJob");
+
+  // memory_embeddings, memory_segments, and memory_summaries live on the memory
+  // connection; wipe embeddings there and re-enqueue segments and summaries from
+  // there. Media stays on the main handle.
+  memoryDb?.delete(memoryEmbeddings).run();
+
+  const summaries =
+    memoryDb?.select({ id: memorySummaries.id }).from(memorySummaries).all() ??
+    [];
+  for (const summary of summaries) {
+    enqueueMemoryJob("embed_summary", { summaryId: summary.id });
+  }
+
+  const segments =
+    memoryDb?.select({ id: memorySegments.id }).from(memorySegments).all() ??
+    [];
+  for (const segment of segments) {
+    enqueueMemoryJob("embed_segment", { segmentId: segment.id });
+  }
+
+  // Re-enqueue multimodal embedding jobs only when the resolved embedding
+  // backend supports multimodal inputs. Without this gate, embed_media and
+  // embed_attachment jobs would all fail for text-only backends.
+  if (await selectedBackendSupportsMultimodal()) {
+    const assets = db
+      .select({ id: mediaAssets.id })
+      .from(mediaAssets)
+      .where(eq(mediaAssets.status, "indexed"))
+      .all();
+    for (const asset of assets) {
+      enqueueMemoryJob("embed_media", { assetId: asset.id });
+    }
+
+    const imageMessages = db
+      .select({ id: messages.id, content: messages.content })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.finalized, 1),
+          like(messages.content, '%"type":"image"%'),
+        ),
+      )
+      .all();
+    for (const msg of imageMessages) {
+      const blocks = extractMediaBlockMeta(msg.content);
+      for (const block of blocks) {
+        enqueueMemoryJob("embed_attachment", {
+          messageId: msg.id,
+          blockIndex: block.index,
+        });
+      }
+    }
+  }
+
+  // The graph cluster lives on the memory connection; re-embeds read it there.
+  if (memoryDb) {
+    // Re-embed graph nodes stored in the memory graph.
+    const graphNodes = memoryDb
+      .select({ id: memoryGraphNodes.id })
+      .from(memoryGraphNodes)
+      .where(ne(memoryGraphNodes.fidelity, "gone"))
+      .all();
+    for (const node of graphNodes) {
+      enqueueMemoryJob("embed_graph_node", { nodeId: node.id });
+    }
+
+    // Re-embed semantic triggers that have condition text.
+    const triggers = memoryDb
+      .select({ id: memoryGraphTriggers.id })
+      .from(memoryGraphTriggers)
+      .where(isNotNull(memoryGraphTriggers.condition))
+      .all();
+    for (const trigger of triggers) {
+      enqueueMemoryJob("graph_trigger_embed", { triggerId: trigger.id });
+    }
+  }
+}
+
+export async function deleteQdrantVectorsJob(job: MemoryJob): Promise<void> {
+  const targetType = asString(job.payload.targetType);
+  const targetId = asString(job.payload.targetId);
+  if (!targetType || !targetId) {
+    return;
+  }
+
+  const qdrant = requireQdrantClient();
+  await withQdrantBreaker(() => qdrant.deleteByTarget(targetType, targetId));
+  log.info(
+    { targetType, targetId },
+    "Retried Qdrant vector deletion succeeded",
+  );
+}
+
+/**
+ * Sweep `graph_node` Qdrant points whose backing `memory_graph_nodes` row no
+ * longer exists — the cacheless orphans migration 340's `memory_embeddings`
+ * cache-driven sweep cannot see (see `sweepOrphanedGraphNodePoints`). Enqueued
+ * once by migration 341 and drained here so the scroll runs after Qdrant is up.
+ *
+ * `requireQdrantClient` throws a retryable `BackendUnavailableError` when the v1
+ * Qdrant client is not initialized, so the job defers instead of failing; under
+ * memory v2 the worker holds this job pending before dispatch (it is not in
+ * `V1_QDRANT_JOB_TYPES`), so the handler runs only once v1 is active.
+ */
+export async function sweepOrphanedGraphNodePointsJob(): Promise<void> {
+  const qdrant = requireQdrantClient();
+  const { scanned, deleted } = await sweepOrphanedGraphNodePoints(qdrant);
+  if (deleted > 0) {
+    log.info(
+      { scanned, deleted },
+      "Swept cacheless orphaned graph-node Qdrant points",
+    );
+  }
+}

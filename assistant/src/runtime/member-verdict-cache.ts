@@ -50,16 +50,22 @@ function canonicalize(
   actorExternalId: string | undefined,
 ): string | null {
   const trimmed = actorExternalId?.trim();
-  if (!trimmed) return null;
+  if (!trimmed) {
+    return null;
+  }
   return canonicalizeInboundIdentity(channelType, trimmed);
 }
 
 /** Drop expired entries; when still over capacity, evict oldest-expiring first. */
 function evictIfNeeded(now: number): void {
   for (const [key, entry] of cache) {
-    if (entry.expiresAt <= now) cache.delete(key);
+    if (entry.expiresAt <= now) {
+      cache.delete(key);
+    }
   }
-  if (cache.size < MEMBER_VERDICT_MAX_ENTRIES) return;
+  if (cache.size < MEMBER_VERDICT_MAX_ENTRIES) {
+    return;
+  }
   const ordered = [...cache.entries()].sort(
     (a, b) => a[1].expiresAt - b[1].expiresAt,
   );
@@ -81,7 +87,9 @@ export function setMemberVerdict(
   verdict: TrustVerdict,
 ): void {
   const canonicalActorId = canonicalize(channelType, actorExternalId);
-  if (!canonicalActorId) return;
+  if (!canonicalActorId) {
+    return;
+  }
   const key = cacheKey(channelType, canonicalActorId);
 
   const member = verdictMemberFromVerdict(verdict);
@@ -109,10 +117,14 @@ export function getCachedMemberAcl(
   actorExternalId: string | undefined,
 ): CachedMemberAcl | undefined {
   const canonicalActorId = canonicalize(channelType, actorExternalId);
-  if (!canonicalActorId) return undefined;
+  if (!canonicalActorId) {
+    return undefined;
+  }
 
   const entry = cache.get(cacheKey(channelType, canonicalActorId));
-  if (!entry) return undefined;
+  if (!entry) {
+    return undefined;
+  }
   if (entry.expiresAt <= Date.now()) {
     cache.delete(cacheKey(channelType, canonicalActorId));
     return undefined;

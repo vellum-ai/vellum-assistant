@@ -1,5 +1,6 @@
-import { spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync, statfsSync } from "node:fs";
+import { promisify } from "node:util";
 
 import {
   getIsContainerized,
@@ -7,6 +8,8 @@ import {
   getMinikubeStorageSize,
 } from "../config/env-registry.js";
 import { getWorkspaceDir } from "./platform.js";
+
+const execFileAsync = promisify(execFile);
 
 export interface DiskUsageInfo {
   path: string;
@@ -19,19 +22,21 @@ export interface DiskUsageInfo {
  * Measure the on-disk usage of one or more directory paths using `du -sb`.
  * Returns the sum of all paths in bytes, or null on failure.
  */
-function getDirectorySizeBytes(paths: string[]): number | null {
+async function getDirectorySizeBytes(paths: string[]): Promise<number | null> {
   try {
     const existing = paths.filter((p) => existsSync(p));
-    if (existing.length === 0) return null;
-    const result = spawnSync("du", ["-sb", ...existing], {
-      encoding: "utf-8",
+    if (existing.length === 0) {
+      return null;
+    }
+    const { stdout } = await execFileAsync("du", ["-sb", ...existing], {
       timeout: 30_000,
     });
-    if (result.status !== 0) return null;
     let total = 0;
-    for (const line of result.stdout.trim().split("\n")) {
+    for (const line of stdout.trim().split("\n")) {
       const size = parseInt(line.split("\t")[0], 10);
-      if (!isNaN(size) && size > 0) total += size;
+      if (!isNaN(size) && size > 0) {
+        total += size;
+      }
     }
     return total > 0 ? total : null;
   } catch {
@@ -40,14 +45,19 @@ function getDirectorySizeBytes(paths: string[]): number | null {
 }
 
 const DU_CACHE_TTL_MS = 60_000;
-let duCacheValue: number | null = null;
+// Caches the in-flight promise so concurrent callers share one `du` run.
+let duCacheValue: Promise<number | null> | null = null;
 let duCacheTime = 0;
 let duCachePaths: string | null = null;
 
-function getCachedDirectorySizeBytes(paths: string[]): number | null {
+function getCachedDirectorySizeBytes(paths: string[]): Promise<number | null> {
   const key = paths.join("\0");
   const now = Date.now();
-  if (duCachePaths === key && now - duCacheTime < DU_CACHE_TTL_MS) {
+  if (
+    duCacheValue !== null &&
+    duCachePaths === key &&
+    now - duCacheTime < DU_CACHE_TTL_MS
+  ) {
     return duCacheValue;
   }
   duCacheValue = getDirectorySizeBytes(paths);
@@ -113,7 +123,7 @@ function classifyWorkspaceVolume(
   return { kind: "none" };
 }
 
-export function getDiskUsageInfo(): DiskUsageInfo | null {
+export async function getDiskUsageInfo(): Promise<DiskUsageInfo | null> {
   try {
     const wsDir = getWorkspaceDir();
     const diskPath = existsSync(wsDir) ? wsDir : "/";
@@ -129,7 +139,7 @@ export function getDiskUsageInfo(): DiskUsageInfo | null {
       if (diskPath !== "/data" && existsSync("/data")) {
         volumePaths.push("/data");
       }
-      const usedBytes = getCachedDirectorySizeBytes(volumePaths);
+      const usedBytes = await getCachedDirectorySizeBytes(volumePaths);
       if (usedBytes !== null) {
         const totalBytes =
           reporting.kind === "fixed-cap"
@@ -167,7 +177,9 @@ export function parseK8sMemoryBytes(value: string): number | null {
   const match = value
     .trim()
     .match(/^(\d+(?:\.\d+)?)\s*(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E|m)?$/);
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
   const num = parseFloat(match[1]);
   const unit = match[2] ?? "";
   const multipliers: Record<string, number> = {
@@ -187,7 +199,9 @@ export function parseK8sMemoryBytes(value: string): number | null {
     Ei: 1024 ** 6,
   };
   const mult = multipliers[unit];
-  if (mult === undefined) return null;
+  if (mult === undefined) {
+    return null;
+  }
   const bytes = Math.round(num * mult);
   return bytes > 0 ? bytes : null;
 }

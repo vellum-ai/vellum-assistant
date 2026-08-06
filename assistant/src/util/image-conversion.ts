@@ -13,7 +13,6 @@
  * conversions of the same image (or daemon restarts) skip the sips call.
  */
 
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   closeSync,
@@ -46,7 +45,9 @@ function getCacheDir(): string {
 function readFromCache(key: string): Buffer | null {
   try {
     const cachePath = join(getCacheDir(), `${key}.jpg`);
-    if (!existsSync(cachePath)) return null;
+    if (!existsSync(cachePath)) {
+      return null;
+    }
     return readFileSync(cachePath) as Buffer;
   } catch {
     return null;
@@ -99,10 +100,10 @@ export interface ConvertToJpegOptions {
   quality?: number;
 }
 
-function runSips(
+async function runSips(
   inputBytes: Uint8Array,
   options: ConvertToJpegOptions,
-): Buffer | null {
+): Promise<Buffer | null> {
   const stamp = `${Date.now()}-${uuid().slice(0, 8)}`;
   const srcPath = join(tmpdir(), `vellum-img-opt-${stamp}-src`);
   const outPath = join(tmpdir(), `vellum-img-opt-${stamp}-out.jpg`);
@@ -131,7 +132,15 @@ function runSips(
       "--out",
       outPath,
     );
-    execFileSync("sips", args, { stdio: "pipe", timeout: 15_000 });
+    const proc = Bun.spawn(["sips", ...args], {
+      stdout: "ignore",
+      stderr: "ignore",
+      timeout: 15_000,
+    });
+    await proc.exited;
+    if (proc.exitCode !== 0) {
+      return null;
+    }
     return readFileSync(outPath) as Buffer;
   } catch {
     return null;
@@ -153,10 +162,10 @@ function runSips(
  * Convert an image to JPEG, optionally downscaling. Returns null when
  * conversion is unavailable (non-macOS) or fails; callers keep the original.
  */
-export function convertImageToJpeg(
+export async function convertImageToJpeg(
   bytes: Uint8Array,
   options: ConvertToJpegOptions = {},
-): Buffer | null {
+): Promise<Buffer | null> {
   const hash = createHash("sha256").update(bytes).digest("hex").slice(0, 16);
   // Options qualify the key so full-resolution storage conversions and
   // resized transport conversions of the same source never collide.
@@ -167,10 +176,14 @@ export function convertImageToJpeg(
   const cacheKey = `${hash}-${sizeKey}-q${options.quality ?? DEFAULT_JPEG_QUALITY}`;
 
   const cached = readFromCache(cacheKey);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
 
-  const converted = runSips(bytes, options);
-  if (!converted) return null;
+  const converted = await runSips(bytes, options);
+  if (!converted) {
+    return null;
+  }
 
   writeToCache(cacheKey, converted);
   return converted;
@@ -199,7 +212,9 @@ const HEIF_FTYP_BRANDS = new Set([
  * `application/octet-stream`.
  */
 export function isHeifImage(bytes: Uint8Array): boolean {
-  if (bytes.length < 12) return false;
+  if (bytes.length < 12) {
+    return false;
+  }
   // ISO BMFF layout: bytes 4-8 are "ftyp", bytes 8-12 the major brand.
   if (
     bytes[4] !== 0x66 || // f
@@ -317,7 +332,9 @@ export function isHeicFilename(filename: string): boolean {
 export function jpegFilenameFor(filename: string): string {
   const fallback = "attachment";
   const trimmed = filename.trim() || fallback;
-  if (/\.jpe?g$/i.test(trimmed)) return trimmed;
+  if (/\.jpe?g$/i.test(trimmed)) {
+    return trimmed;
+  }
   const withoutExtension = trimmed.replace(/\.[^./\\]+$/, "") || fallback;
   return `${withoutExtension}.jpg`;
 }
@@ -336,12 +353,12 @@ export interface NormalizedImageBytes {
  * {@link jpegFilenameFor} when `converted` is true — a MIME-only correction
  * sets `converted: false` and keeps the filename.
  */
-export function normalizeImageBytes(
+export async function normalizeImageBytes(
   mimeType: string,
   bytes: Uint8Array,
-): NormalizedImageBytes {
+): Promise<NormalizedImageBytes> {
   if (isHeifImage(bytes)) {
-    const converted = convertImageToJpeg(bytes, {
+    const converted = await convertImageToJpeg(bytes, {
       quality: STORAGE_JPEG_QUALITY,
     });
     if (!converted) {
@@ -366,14 +383,14 @@ export interface NormalizedImageBase64 {
  * Base64 variant of {@link normalizeImageBytes}. Sniffs the decoded head
  * first so non-HEIF payloads skip the full decode.
  */
-export function normalizeImageBase64(
+export async function normalizeImageBase64(
   mimeType: string,
   dataBase64: string,
-): NormalizedImageBase64 {
+): Promise<NormalizedImageBase64> {
   // 16 base64 chars decode to the 12 bytes the ftyp/signature sniffs need.
   const head = Buffer.from(dataBase64.slice(0, 16), "base64");
   if (isHeifImage(head)) {
-    const normalized = normalizeImageBytes(
+    const normalized = await normalizeImageBytes(
       mimeType,
       Buffer.from(dataBase64, "base64"),
     );

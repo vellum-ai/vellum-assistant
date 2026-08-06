@@ -21,12 +21,16 @@ export const dropWebFetchModeMigration: WorkspaceMigration = {
     "Strip services.web-fetch.mode from config.json (mode field removed from schema)",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
@@ -37,19 +41,23 @@ export const dropWebFetchModeMigration: WorkspaceMigration = {
       services === null ||
       typeof services !== "object" ||
       Array.isArray(services)
-    )
+    ) {
       return;
+    }
 
     const webFetch = (services as Record<string, unknown>)["web-fetch"];
     if (
       webFetch === null ||
       typeof webFetch !== "object" ||
       Array.isArray(webFetch)
-    )
+    ) {
       return;
+    }
 
     const webFetchObj = webFetch as Record<string, unknown>;
-    if (!("mode" in webFetchObj)) return;
+    if (!("mode" in webFetchObj)) {
+      return;
+    }
 
     delete webFetchObj.mode;
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");

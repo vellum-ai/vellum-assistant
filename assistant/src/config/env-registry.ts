@@ -26,7 +26,9 @@ function flag(name: string): boolean {
 
 function int(name: string): number | undefined {
   const raw = str(name);
-  if (raw === undefined) return undefined;
+  if (raw === undefined) {
+    return undefined;
+  }
   const n = parseInt(raw, 10);
   return Number.isFinite(n) ? n : undefined;
 }
@@ -235,6 +237,7 @@ const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_CPU_LIMIT",
   "VELLUM_MEMORY_LIMIT",
   "VELLUM_MINIKUBE_STORAGE_SIZE",
+  "VELLUM_ONNX_INTRA_OP_THREADS",
 ]);
 
 /**

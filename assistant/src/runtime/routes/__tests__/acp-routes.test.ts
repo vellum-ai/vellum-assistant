@@ -104,7 +104,9 @@ const broadcasts: Array<Record<string, unknown>> = [];
 mock.module("../../assistant-event-hub.js", () => ({
   broadcastMessage: (msg: { type?: string; requestId?: string }) => {
     broadcasts.push(msg as Record<string, unknown>);
-    if (msg?.type !== "confirmation_request") return;
+    if (msg?.type !== "confirmation_request") {
+      return;
+    }
     confirmationRequests.push(msg as Record<string, unknown>);
     const interaction = pendingInteractions.resolve(
       msg.requestId as string,
@@ -145,7 +147,9 @@ function getSessionsHandler() {
   const route = ROUTES.find(
     (r) => r.endpoint === "acp/sessions" && r.method === "GET",
   );
-  if (!route) throw new Error("acp/sessions GET route not found");
+  if (!route) {
+    throw new Error("acp/sessions GET route not found");
+  }
   return route.handler;
 }
 
@@ -515,7 +519,9 @@ function getSpawnHandler() {
   const route = ROUTES.find(
     (r) => r.endpoint === "acp/spawn" && r.method === "POST",
   );
-  if (!route) throw new Error("acp/spawn POST route not found");
+  if (!route) {
+    throw new Error("acp/spawn POST route not found");
+  }
   return route.handler;
 }
 
@@ -534,8 +540,12 @@ describe("POST /v1/acp/spawn: sandboxed bun auto-install on missing binary", () 
     // successful global install that links the adapter bin onto PATH.
     let binaryOnPath = false;
     which.setWhich((cmd) => {
-      if (cmd === "bun") return BUN_BIN;
-      if (binaryOnPath) return `/usr/local/bin/${cmd}`;
+      if (cmd === "bun") {
+        return BUN_BIN;
+      }
+      if (binaryOnPath) {
+        return `/usr/local/bin/${cmd}`;
+      }
       return null;
     });
     execScripts.set(BUN_ADD_KEY, {
@@ -576,8 +586,12 @@ describe("POST /v1/acp/spawn: sandboxed bun auto-install on missing binary", () 
   test("install runs in a temp dir (not the task cwd) with secrets stripped", async () => {
     let binaryOnPath = false;
     which.setWhich((cmd) => {
-      if (cmd === "bun") return BUN_BIN;
-      if (binaryOnPath) return `/usr/local/bin/${cmd}`;
+      if (cmd === "bun") {
+        return BUN_BIN;
+      }
+      if (binaryOnPath) {
+        return `/usr/local/bin/${cmd}`;
+      }
       return null;
     });
     execScripts.set(BUN_ADD_KEY, {
@@ -660,7 +674,9 @@ function getSteerHandler() {
   const route = ROUTES.find(
     (r) => r.endpoint === "acp/:id/steer" && r.method === "POST",
   );
-  if (!route) throw new Error("acp/:id/steer POST route not found");
+  if (!route) {
+    throw new Error("acp/:id/steer POST route not found");
+  }
   return route.handler;
 }
 

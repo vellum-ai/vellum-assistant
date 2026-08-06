@@ -46,11 +46,12 @@ export function registerWebhooksCommand(program: Command): void {
               source: opts.source,
             },
           });
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, { ok: true, ...r.result });
           } else {
@@ -75,11 +76,12 @@ export function registerWebhooksCommand(program: Command): void {
               source_identifier: string | null;
             }>;
           }>("webhooks_list", {});
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, { ok: true, routes: r.result!.routes });
           } else {

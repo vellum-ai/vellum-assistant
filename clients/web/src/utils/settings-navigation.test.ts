@@ -58,6 +58,34 @@ describe("getSettingsRouteForClientTab — Debug page", () => {
     );
   });
 
+  test("resolves Sounds to its own page, not the Voice page", () => {
+    // Sounds used to be a `?tab=sounds` panel on Voice & Sounds; it's a
+    // first-class page now, so the bare label must resolve there.
+    expect(getSettingsRouteForClientTab("Sounds")).toBe(
+      "/assistant/settings/sounds",
+    );
+  });
+
+  test("routes speech-service lookups to Models & Services", () => {
+    // The BYO TTS/STT forms moved off the Voice page to sit with every other
+    // provider, so the old "Services" tab name has to follow them.
+    expect(getSettingsRouteForClientTab("Services")).toBe(
+      "/assistant/settings/ai",
+    );
+    expect(getSettingsRouteForClientTab("Text-to-Speech")).toBe(
+      "/assistant/settings/ai",
+    );
+  });
+
+  test("keeps resolving the retired Voice & Sounds label to Voice", () => {
+    expect(getSettingsRouteForClientTab("Voice & Sounds")).toBe(
+      "/assistant/settings/voice",
+    );
+    expect(getSettingsRouteForClientTab("Voice")).toBe(
+      "/assistant/settings/voice",
+    );
+  });
+
   test("no two sidebar items share a label", () => {
     // The label is a lookup key in the fallback tier, so a duplicate would make
     // resolution order-dependent.

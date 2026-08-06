@@ -963,6 +963,14 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("low");
   });
 
+  test("assistant memory ingest → medium", async () => {
+    const result = await classifier.classify({
+      command: "assistant memory ingest --dir staging/",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
   test("assistant conversations clear → medium", async () => {
     const result = await classifier.classify({
       command: "assistant conversations clear --confirm",
@@ -1014,6 +1022,22 @@ describe("assistant subcommand classification", () => {
   test("assistant inference session list → low", async () => {
     const result = await classifier.classify({
       command: "assistant inference session list",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("assistant platform invoices list → low", async () => {
+    const result = await classifier.classify({
+      command: "assistant platform invoices list",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("assistant platform invoices get <id> → low", async () => {
+    const result = await classifier.classify({
+      command: "assistant platform invoices get inv_123",
       toolName: "bash",
     });
     expect(result.riskLevel).toBe("low");

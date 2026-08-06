@@ -59,8 +59,12 @@ export function filterDismissedSurfaces(
   messages: DisplayMessage[] | null | undefined,
   dismissed: ReadonlySet<string>,
 ): DisplayMessage[] {
-  if (!messages) return EMPTY_MESSAGES;
-  if (dismissed.size === 0) return messages;
+  if (!messages) {
+    return EMPTY_MESSAGES;
+  }
+  if (dismissed.size === 0) {
+    return messages;
+  }
   let changed = false;
   const next = messages.map((msg) => {
     const filtered = filterMessageSurfaces(

@@ -13,7 +13,9 @@ export function truncate(
   maxLength: number,
   ellipsis: string = "…",
 ): string {
-  if (text.length <= maxLength) return text;
+  if (text.length <= maxLength) {
+    return text;
+  }
   // Reserve room for the ellipsis so the final string is exactly `maxLength`.
   return text.slice(0, maxLength - ellipsis.length) + ellipsis;
 }

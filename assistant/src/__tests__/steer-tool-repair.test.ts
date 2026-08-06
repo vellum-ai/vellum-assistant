@@ -17,7 +17,9 @@ import type { Message } from "../providers/types.js";
  * This mirrors it exactly to avoid needing the full Conversation.
  */
 function repairPendingToolUseBlocks(messages: Message[]): Message[] {
-  if (messages.length === 0) return messages;
+  if (messages.length === 0) {
+    return messages;
+  }
 
   const resolvedToolUseIds = new Set<string>();
   const pendingToolUseIds: string[] = [];
@@ -39,7 +41,9 @@ function repairPendingToolUseBlocks(messages: Message[]): Message[] {
     }
   }
 
-  if (pendingToolUseIds.length === 0) return messages;
+  if (pendingToolUseIds.length === 0) {
+    return messages;
+  }
 
   const syntheticContent = pendingToolUseIds.map((toolUseId) => ({
     type: "tool_result" as const,

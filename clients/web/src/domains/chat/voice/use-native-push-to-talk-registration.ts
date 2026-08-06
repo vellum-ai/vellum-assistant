@@ -7,10 +7,7 @@ import {
   parseActivator,
 } from "@/utils/ptt-activator";
 import { getLocalSetting, watchSetting } from "@/utils/local-settings";
-import {
-  setFnPushToTalkEnabled,
-  supportsFnPushToTalk,
-} from "@/runtime/hotkey";
+import { setFnPushToTalkEnabled, supportsFnPushToTalk } from "@/runtime/hotkey";
 
 function shouldRegisterFnPushToTalk(): boolean {
   const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
@@ -32,14 +29,18 @@ export function useNativePushToTalkRegistration(): void {
     let syncInFlight: Promise<void> | null = null;
 
     const sync = () => {
-      if (syncInFlight) return;
+      if (syncInFlight) {
+        return;
+      }
 
       syncInFlight = (async () => {
         while (!disposed && applied !== desired) {
           const next = desired;
           const ok = await setFnPushToTalkEnabled(next);
           if (!ok) {
-            if (next) applied = false;
+            if (next) {
+              applied = false;
+            }
             return;
           }
           applied = next;

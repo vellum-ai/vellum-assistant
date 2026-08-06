@@ -49,7 +49,9 @@ describe("setComplexDeployApp", () => {
   });
 
   it("clears the complex deploy app when null", () => {
-    useDeployStore.setState({ complexDeployApp: { appId: "app-1", name: "My App" } });
+    useDeployStore.setState({
+      complexDeployApp: { appId: "app-1", name: "My App" },
+    });
     getState().setComplexDeployApp(null);
     expect(getState().complexDeployApp).toBeNull();
   });

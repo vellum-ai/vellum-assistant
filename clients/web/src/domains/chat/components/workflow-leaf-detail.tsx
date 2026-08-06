@@ -3,8 +3,8 @@ import { ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
 import { Typography } from "@vellumai/design-library";
 
 import {
-    AnimatedMetricCard,
-    formatNumber,
+  AnimatedMetricCard,
+  formatNumber,
 } from "@/domains/chat/components/metric-card";
 import type { WorkflowLeaf } from "@/domains/chat/workflow-store";
 

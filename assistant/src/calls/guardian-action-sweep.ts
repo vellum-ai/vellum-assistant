@@ -35,7 +35,9 @@ export async function sendGuardianExpiryNotices(
   assistantId: string,
 ): Promise<void> {
   for (const delivery of deliveries) {
-    if (delivery.status !== "sent" && delivery.status !== "pending") continue;
+    if (delivery.status !== "sent" && delivery.status !== "pending") {
+      continue;
+    }
 
     try {
       const expiryText = await composeGuardianActionMessageGenerative({

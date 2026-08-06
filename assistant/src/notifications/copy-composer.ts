@@ -9,6 +9,7 @@
  * values from the context payload.
  */
 
+import { normalizeTitle } from "../util/short-title.js";
 import {
   accessRequestCardTitle,
   buildAccessRequestContractText,
@@ -26,8 +27,10 @@ import {
 } from "./guardian-question-mode.js";
 import {
   nonEmpty,
+  NOTIFICATION_TITLE_MAX_LENGTH,
   readPayloadString,
   sanitizeIdentityField,
+  sanitizeMessagePreview,
 } from "./notification-utils.js";
 import type {
   NotificationSignal,
@@ -39,22 +42,72 @@ import type { NotificationChannel, RenderedChannelCopy } from "./types.js";
 type CopyTemplate = (payload: Record<string, unknown>) => RenderedChannelCopy;
 
 function str(value: unknown, fallback: string): string {
-  if (typeof value === "string" && value.length > 0) return value;
+  if (typeof value === "string" && value.length > 0) {
+    return value;
+  }
   return fallback;
+}
+
+/**
+ * Read an untrusted payload string for interpolation into copy: sanitized
+ * like an identity field, undefined when the value is absent, not a string,
+ * or sanitizes down to nothing.
+ */
+function optionalSanitizedPayloadField(value: unknown): string | undefined {
+  return typeof value === "string"
+    ? nonEmpty(sanitizeIdentityField(value))
+    : undefined;
+}
+
+/** {@link optionalSanitizedPayloadField} with a fallback for the empty case. */
+function sanitizedPayloadField(value: unknown, fallback: string): string {
+  return optionalSanitizedPayloadField(value) ?? fallback;
+}
+
+/**
+ * Plugin and schedule names from a `schedule.*` payload, with the fallbacks
+ * every schedule template shares.
+ */
+function schedulePayloadNames(payload: Record<string, unknown>): {
+  scheduleName: string;
+  pluginName: string;
+} {
+  return {
+    scheduleName: sanitizedPayloadField(payload.scheduleName, "a schedule"),
+    pluginName: sanitizedPayloadField(payload.pluginName, "A plugin"),
+  };
 }
 
 /**
  * Derive a short notification title from a message body. Trims to the
  * first sentence terminator when present, then caps the result at
- * 60 characters with an ellipsis.
+ * `NOTIFICATION_TITLE_MAX_LENGTH` characters with an ellipsis.
  */
 export function deriveTitle(body: string): string {
   const firstSentenceEnd = body.search(/[.!?](\s|$)/);
   const candidate =
     firstSentenceEnd > 0 ? body.slice(0, firstSentenceEnd + 1) : body;
-  return candidate.length > 60
-    ? candidate.slice(0, 60).trim() + "\u2026"
+  return candidate.length > NOTIFICATION_TITLE_MAX_LENGTH
+    ? candidate.slice(0, NOTIFICATION_TITLE_MAX_LENGTH).trim() + "\u2026"
     : candidate.trim();
+}
+
+/**
+ * Clean a producer-authored title, falling back to one derived from the body
+ * when `normalizeTitle` returns its empty-string rejection signal.
+ *
+ * The decision engine's pass-through path applies the same clamp, so a signal
+ * carrying `requestedTitle` renders the same headline whether or not the LLM
+ * classifier was reachable.
+ *
+ * The two branches carry different budgets. An accepted authored title is
+ * bounded by `normalizeTitle` at 40 characters. A rejected one falls through to
+ * `deriveTitle`, which never sees the normalizer and applies
+ * `NOTIFICATION_TITLE_MAX_LENGTH` (60) plus a trailing ellipsis, so a derived
+ * title can reach 61 characters.
+ */
+export function resolveTitle(raw: string | undefined, body: string): string {
+  return normalizeTitle(raw ?? "") || deriveTitle(body);
 }
 
 /**
@@ -92,6 +145,44 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     title: str(payload.label, "Reminder"),
     body: str(payload.message, "A reminder has fired"),
   }),
+
+  // The schedule.* fields below (names, cadence, error reason) originate in
+  // plugin-authored declaration files, so they are sanitized like any other
+  // untrusted actor-controlled string before interpolation.
+  "schedule.declared": (payload) => {
+    const { scheduleName, pluginName } = schedulePayloadNames(payload);
+    const cadence = optionalSanitizedPayloadField(payload.cadence);
+    const cadenceSuffix = cadence ? ` (${cadence})` : "";
+    return {
+      title: `New plugin schedule: ${scheduleName}`,
+      body: `Plugin "${pluginName}" armed the schedule "${scheduleName}"${cadenceSuffix}. It will run automatically; you can disable it from your schedules.`,
+    };
+  },
+
+  "schedule.definition_changed": (payload) => {
+    const { scheduleName, pluginName } = schedulePayloadNames(payload);
+    return {
+      title: `Plugin schedule changed: ${scheduleName}`,
+      body: `Plugin "${pluginName}" changed the definition of its schedule "${scheduleName}".`,
+    };
+  },
+
+  "schedule.definition_error": (payload) => {
+    const { scheduleName, pluginName } = schedulePayloadNames(payload);
+    const reason = sanitizeMessagePreview(
+      str(payload.reason, "the declaration is invalid"),
+    );
+    // `paused` says the schedule stopped running over this error rather than
+    // carrying on with what it last loaded, which is the part the user acts on.
+    const pausedSuffix =
+      payload.paused === true
+        ? " It is paused until the declaration loads again."
+        : "";
+    return {
+      title: `Plugin schedule error: ${scheduleName}`,
+      body: `Plugin "${pluginName}" has a schedule "${scheduleName}" that could not be loaded: ${reason}${pausedSuffix}`,
+    };
+  },
 
   "guardian.question": (payload) => {
     const question = str(
@@ -222,21 +313,6 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     };
   },
 
-  "ingress.trusted_contact.denied": (payload) => {
-    const parsed = parseTrustedContactDecisionPayload(payload);
-    const requesterLabel = formatTrustedContactActor(
-      parsed?.requesterDisplayName,
-      parsed?.requesterExternalUserId,
-      parsed?.sourceChannel,
-      "Someone",
-    );
-
-    return {
-      title: "Trusted Contact Denied",
-      body: `A trusted contact request from ${requesterLabel} has been denied.`,
-    };
-  },
-
   "watcher.notification": (payload) => ({
     title: str(payload.title, "Watcher Notification"),
     body: str(payload.body, "A watcher event occurred"),
@@ -303,9 +379,10 @@ export function composeFallbackCopy(
     readPayloadString(signal.contextPayload, "requestedMessage"),
   );
   if (msg) {
-    const title =
-      nonEmpty(readPayloadString(signal.contextPayload, "requestedTitle")) ??
-      deriveTitle(msg);
+    const title = resolveTitle(
+      readPayloadString(signal.contextPayload, "requestedTitle"),
+      msg,
+    );
     const baseCopy: RenderedChannelCopy = {
       title,
       body: msg,
@@ -350,13 +427,19 @@ function buildChatSurfaceFallbackDeliveryText(
   baseCopy: RenderedChannelCopy,
 ): string {
   const explicit = nonEmpty(baseCopy.deliveryText);
-  if (explicit) return explicit;
+  if (explicit) {
+    return explicit;
+  }
 
   const body = nonEmpty(baseCopy.body);
-  if (body) return body;
+  if (body) {
+    return body;
+  }
 
   const title = nonEmpty(baseCopy.title);
-  if (title) return title;
+  if (title) {
+    return title;
+  }
 
   // No usable text: return empty string. The broadcaster's empty-body skip in
   // `broadcaster.ts` suppresses fallback-derived empty bodies; the

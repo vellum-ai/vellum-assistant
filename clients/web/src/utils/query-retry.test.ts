@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-const { httpStatusFromError, shouldRetryQuery, queryRetryDelay } = await import(
-  "@/utils/query-retry"
-);
+const { httpStatusFromError, shouldRetryQuery, queryRetryDelay } =
+  await import("@/utils/query-retry");
 const { ApiError } = await import("@/utils/api-errors");
 
 describe("httpStatusFromError", () => {
@@ -19,7 +18,9 @@ describe("httpStatusFromError", () => {
   });
 
   test("returns undefined for network/non-HTTP errors", () => {
-    expect(httpStatusFromError(new TypeError("Failed to fetch"))).toBeUndefined();
+    expect(
+      httpStatusFromError(new TypeError("Failed to fetch")),
+    ).toBeUndefined();
     expect(httpStatusFromError("boom")).toBeUndefined();
   });
 });

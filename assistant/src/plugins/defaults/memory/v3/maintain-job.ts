@@ -76,6 +76,9 @@ import { executeDeleteManagedSkill } from "../../../../tools/skills/delete-manag
 import { embedWithBackend } from "../embeddings.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
+import { getPageIndex } from "../substrate/page-index.js";
+import { readPage } from "../substrate/page-store.js";
+import { skillSlugFor } from "../substrate/skill-store.js";
 import { capabilityOrDiskBody, isCapabilitySlug } from "./capabilities.js";
 import { loadCoreSet as realLoadCoreSet } from "./core-set.js";
 import {
@@ -87,9 +90,6 @@ import {
 } from "./section-dense-store.js";
 import { buildSectionIndex as realBuildSectionIndex } from "./sections.js";
 import { invalidateLanes as realInvalidateLanes } from "./shadow-plugin.js";
-import { getPageIndex } from "./substrate/page-index.js";
-import { readPage } from "./substrate/page-store.js";
-import { skillSlugFor } from "./substrate/skill-store.js";
 import type { Slug } from "./types.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;

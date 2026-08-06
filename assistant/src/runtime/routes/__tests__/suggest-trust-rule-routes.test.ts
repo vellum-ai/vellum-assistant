@@ -63,6 +63,7 @@ mock.module("../../../providers/provider-send-message.js", () => ({
 // Import the module under test AFTER mocks are set up
 // ---------------------------------------------------------------------------
 
+import { BadRequestError } from "../errors.js";
 import { ROUTES } from "../suggest-trust-rule-routes.js";
 
 const suggestTrustRuleRoute = ROUTES[0];
@@ -221,6 +222,34 @@ describe("suggestTrustRuleRoute", () => {
       expect(
         (result as { directoryScopeOptions?: unknown }).directoryScopeOptions,
       ).toBeUndefined();
+    });
+  });
+
+  describe("request body validation", () => {
+    test("rejects a body missing required fields with BadRequestError", async () => {
+      await expect(
+        suggestTrustRuleRoute.handler({
+          body: { tool: "bash" } as Record<string, unknown>,
+        }),
+      ).rejects.toThrow(BadRequestError);
+    });
+
+    test("rejects a body with an out-of-enum intent", async () => {
+      await expect(
+        suggestTrustRuleRoute.handler({
+          body: {
+            ...baseRequest,
+            intent: "sideways",
+          } as unknown as Record<string, unknown>,
+        }),
+      ).rejects.toThrow(BadRequestError);
+    });
+
+    test("validates before reaching the provider", async () => {
+      await expect(
+        suggestTrustRuleRoute.handler({ body: {} as Record<string, unknown> }),
+      ).rejects.toThrow(BadRequestError);
+      expect(mockSendMessage).not.toHaveBeenCalled();
     });
   });
 });

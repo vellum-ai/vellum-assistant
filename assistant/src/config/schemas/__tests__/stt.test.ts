@@ -65,6 +65,44 @@ describe("SttServiceSchema", () => {
       /must be one of/,
     );
   });
+
+  test("language defaults to multilingual rather than staying absent", () => {
+    // Every config carries a real language, so nothing downstream has to
+    // infer one from an absent key. Omitting the param entirely is not a
+    // neutral state on Deepgram and the managed relay: it decodes as
+    // English, which is what this default exists to stop.
+    const parsed = SttServiceSchema.parse({ provider: "vellum" });
+    expect(parsed.language).toBe("multi");
+  });
+
+  test("a chosen language is never replaced by the default", () => {
+    expect(
+      SttServiceSchema.parse({ provider: "deepgram", language: "ta" }).language,
+    ).toBe("ta");
+    expect(
+      SttServiceSchema.parse({ provider: "deepgram", language: "en" }).language,
+    ).toBe("en");
+  });
+
+  test("language round-trips a code and the multi code-switching mode", () => {
+    expect(
+      SttServiceSchema.parse({ provider: "vellum", language: "multi" })
+        .language,
+    ).toBe("multi");
+    expect(
+      SttServiceSchema.parse({ provider: "deepgram", language: "hi" }).language,
+    ).toBe("hi");
+  });
+
+  test("language is trimmed and rejects blank strings", () => {
+    expect(
+      SttServiceSchema.parse({ provider: "vellum", language: "  multi  " })
+        .language,
+    ).toBe("multi");
+    expect(() =>
+      SttServiceSchema.parse({ provider: "vellum", language: "   " }),
+    ).toThrow(/must not be empty/);
+  });
 });
 
 describe("managed provider", () => {
@@ -80,6 +118,10 @@ describe("managed provider", () => {
       mode: "managed",
       provider: "vellum",
     });
-    expect(parsed).toEqual({ provider: "vellum", providers: {} });
+    expect(parsed).toEqual({
+      provider: "vellum",
+      language: "multi",
+      providers: {},
+    });
   });
 });

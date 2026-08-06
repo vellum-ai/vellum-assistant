@@ -4,7 +4,9 @@ import { getAssistantHealthz } from "@/assistant/api";
 import type { HealthzGetResponse } from "@/generated/daemon/types.gen";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
-type AssistantCapability = keyof NonNullable<HealthzGetResponse["capabilities"]>;
+type AssistantCapability = keyof NonNullable<
+  HealthzGetResponse["capabilities"]
+>;
 
 /**
  * Whether the active assistant advertises a healthz `capabilities` flag.

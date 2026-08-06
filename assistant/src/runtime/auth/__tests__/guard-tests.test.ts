@@ -148,7 +148,9 @@ describe("no X-Actor-Token in production code", () => {
       ).trim();
     } catch (err) {
       // Exit code 1 means no matches — that's the happy path.
-      if ((err as { status?: number }).status === 1) return;
+      if ((err as { status?: number }).status === 1) {
+        return;
+      }
       throw err;
     }
 
@@ -162,9 +164,15 @@ describe("no X-Actor-Token in production code", () => {
     ]);
 
     const violations = files.filter((f) => {
-      if (isTestFile(f)) return false;
-      if (isDocFile(f)) return false;
-      if (ALLOWLIST.has(f)) return false;
+      if (isTestFile(f)) {
+        return false;
+      }
+      if (isDocFile(f)) {
+        return false;
+      }
+      if (ALLOWLIST.has(f)) {
+        return false;
+      }
       return true;
     });
 
@@ -197,7 +205,9 @@ describe("no legacy gateway-origin proof in production code", () => {
         { encoding: "utf-8", cwd: PROJECT_ROOT },
       ).trim();
     } catch (err) {
-      if ((err as { status?: number }).status === 1) return;
+      if ((err as { status?: number }).status === 1) {
+        return;
+      }
       throw err;
     }
 
@@ -208,9 +218,15 @@ describe("no legacy gateway-origin proof in production code", () => {
     ]);
 
     const violations = files.filter((f) => {
-      if (isTestFile(f)) return false;
-      if (isDocFile(f)) return false;
-      if (ALLOWLIST.has(f)) return false;
+      if (isTestFile(f)) {
+        return false;
+      }
+      if (isDocFile(f)) {
+        return false;
+      }
+      if (ALLOWLIST.has(f)) {
+        return false;
+      }
       return true;
     });
 
@@ -260,6 +276,7 @@ describe("scope profile contract", () => {
       "internal.write",
     ],
     local_v1: ["local.all"],
+    speech_relay_v1: ["speech.relay"],
     ui_page_v1: ["settings.read"],
   };
 
@@ -283,6 +300,7 @@ describe("scope profile contract", () => {
       "gateway_ingress_v1",
       "gateway_service_v1",
       "local_v1",
+      "speech_relay_v1",
       "ui_page_v1",
     ];
 

@@ -34,7 +34,10 @@ function renderStage(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
-        <Route path="/assistant/theme-stage/:view" element={<ThemeStagePage />} />
+        <Route
+          path="/assistant/theme-stage/:view"
+          element={<ThemeStagePage />}
+        />
       </Routes>
     </MemoryRouter>,
   );

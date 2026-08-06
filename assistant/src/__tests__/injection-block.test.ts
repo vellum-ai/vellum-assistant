@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  assembleContextBlock,
-  assembleInjectionBlock,
-} from "../plugins/defaults/memory/graph/injection.js";
 import type {
   MemoryNode,
   ScoredNode,
 } from "../plugins/defaults/memory/graph/types.js";
+import {
+  assembleContextBlock,
+  assembleInjectionBlock,
+} from "../plugins/defaults/memory/v1/graph/injection.js";
 
 function makeScoredNode(
   overrides: Partial<MemoryNode> & { content: string },

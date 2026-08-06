@@ -3,8 +3,8 @@ import { type ReactNode } from "react";
 import { Card } from "@vellumai/design-library";
 
 import {
-    aggregateSkillLoads,
-    type SkillLoad,
+  aggregateSkillLoads,
+  type SkillLoad,
 } from "@/domains/chat/inspector/skill-load-aggregator";
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 
@@ -65,7 +65,9 @@ export function SkillsTab({ logs, buildCallHref }: SkillsTabProps): ReactNode {
           className="mt-1 text-body-medium-lighter"
           style={{ color: "var(--content-secondary)" }}
         >
-          {uniqueCount === 1 ? "1 unique skill" : `${uniqueCount} unique skills`}
+          {uniqueCount === 1
+            ? "1 unique skill"
+            : `${uniqueCount} unique skills`}
           {" · "}
           {totalLoads === 1 ? "1 load call" : `${totalLoads} load calls`}
         </p>
@@ -89,11 +91,7 @@ interface SkillCardProps {
   buildCallHref: (logId: string) => string;
 }
 
-function SkillCard({
-  skill,
-  loads,
-  buildCallHref,
-}: SkillCardProps): ReactNode {
+function SkillCard({ skill, loads, buildCallHref }: SkillCardProps): ReactNode {
   return (
     <Card>
       <div className="flex items-baseline justify-between gap-3">
@@ -140,6 +138,8 @@ const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
 });
 
 function formatTimestamp(createdAt: number): string {
-  if (!Number.isFinite(createdAt)) return "—";
+  if (!Number.isFinite(createdAt)) {
+    return "—";
+  }
   return dateTimeFormatter.format(new Date(createdAt));
 }

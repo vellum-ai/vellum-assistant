@@ -99,18 +99,20 @@ function getStoreKeyPath(): string {
   );
 }
 
-
-
 /**
  * Read the store.key file. Returns the raw 32-byte key buffer, or null
  * if the file is missing, wrong size, or unreadable.
  */
 function readStoreKey(): Buffer | null {
   const keyPath = getStoreKeyPath();
-  if (!pathExists(keyPath)) return null;
+  if (!pathExists(keyPath)) {
+    return null;
+  }
   try {
     const buf = readFileSync(keyPath);
-    if (buf.length !== STORE_KEY_LENGTH) return null;
+    if (buf.length !== STORE_KEY_LENGTH) {
+      return null;
+    }
     return buf;
   } catch {
     return null;
@@ -137,7 +139,9 @@ function generateAndWriteStoreKey(dir: string): Buffer {
  */
 function getOrReadStoreKey(dir: string): Buffer {
   const existing = readStoreKey();
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
   return generateAndWriteStoreKey(dir);
 }
 
@@ -252,7 +256,9 @@ function migrateV1ToV2(store: StoreFileV1): StoreFileV2 | null {
  */
 function readStore(): StoreFile | null {
   const path = getStorePath();
-  if (!pathExists(path)) return null;
+  if (!pathExists(path)) {
+    return null;
+  }
 
   // Read outside the parse try/catch so transient filesystem errors (EACCES,
   // EMFILE, EIO) propagate to callers instead of triggering corruption recovery.
@@ -311,7 +317,9 @@ const ENTROPY_FILENAME = "entropy.key";
  * since v2 stores no longer need it.
  */
 function persistStoreKey(protectedDir: string): void {
-  if (!getIsContainerized()) return;
+  if (!getIsContainerized()) {
+    return;
+  }
   try {
     const storeKeyPath = join(protectedDir, STORE_KEY_FILENAME);
     if (!pathExists(storeKeyPath)) {
@@ -411,8 +419,71 @@ function decrypt(entry: EncryptedEntry, key: Buffer): string {
 }
 
 // ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown by `readKey()` when the store is UNAVAILABLE: the store file exists
+ * but cannot be read, the key material is missing, or an entry fails to
+ * decrypt. Distinct from a credential being ABSENT (no store file, or the
+ * store reads cleanly but lacks the requested key), which returns `undefined`.
+ *
+ * Mirrors the CES-side `StoreUnavailableError` so managed pods and local mode
+ * report the same absent-vs-unavailable distinction: an unavailable store must
+ * surface as `unreachable` (presence indeterminate), never as "no key".
+ */
+export class StoreUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StoreUnavailableError";
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+/**
+ * Retrieve a secret, distinguishing a genuinely-absent credential (returns
+ * `undefined`) from a store that exists but cannot be read or decrypted
+ * (throws {@link StoreUnavailableError}).
+ */
+export function readKey(account: string): string | undefined {
+  // `readStore()` returns null for a missing store (or a corrupt store it has
+  // just reset) and throws on transient I/O errors (EACCES, EMFILE, EIO). A
+  // missing store is genuinely absent; a transient read error is unavailable
+  // and propagates.
+  const store = readStore();
+  if (!store) {
+    return undefined;
+  }
+
+  let effectiveStore: StoreFile = store;
+  if (store.version === 1) {
+    const migrated = migrateV1ToV2(store);
+    if (migrated) {
+      writeStore(migrated);
+      effectiveStore = migrated;
+    }
+    // Migration failed: fall through and read with the legacy PBKDF2 key.
+  }
+
+  const entry = effectiveStore.entries[account];
+  if (!entry) {
+    return undefined;
+  }
+
+  const key = getKeyForStore(effectiveStore);
+  if (!key) {
+    throw new StoreUnavailableError(
+      "credential store entry present but key material is unavailable",
+    );
+  }
+  // A decrypt failure means corrupt data or wrong key material, so the credential
+  // exists but its value cannot be produced. Let it propagate as unavailable
+  // rather than swallowing it into a false "not found".
+  return decrypt(entry, key);
+}
 
 /**
  * Retrieve a secret from the encrypted store.
@@ -420,34 +491,7 @@ function decrypt(entry: EncryptedEntry, key: Buffer): string {
  */
 export function getKey(account: string): string | undefined {
   try {
-    const store = readStore();
-    if (!store) return undefined;
-
-    // If v1, trigger migration
-    if (store.version === 1) {
-      const migrated = migrateV1ToV2(store);
-      if (migrated) {
-        writeStore(migrated);
-        const entry = migrated.entries[account];
-        if (!entry) return undefined;
-        const key = getKeyForStore(migrated);
-        if (!key) return undefined;
-        return decrypt(entry, key);
-      }
-      // Migration failed -- try reading with legacy key
-      const entry = store.entries[account];
-      if (!entry) return undefined;
-      const key = getKeyForStore(store);
-      if (!key) return undefined;
-      return decrypt(entry, key);
-    }
-
-    const entry = store.entries[account];
-    if (!entry) return undefined;
-
-    const key = getKeyForStore(store);
-    if (!key) return undefined;
-    return decrypt(entry, key);
+    return readKey(account);
   } catch (err) {
     log.debug({ err, account }, "Failed to read from encrypted store");
     return undefined;
@@ -462,7 +506,9 @@ export function setKey(account: string, value: string): boolean {
   try {
     const store = getOrCreateStore();
     const key = getKeyForStore(store);
-    if (!key) return false;
+    if (!key) {
+      return false;
+    }
     store.entries[account] = encrypt(value, key);
     writeStore(store);
     return true;
@@ -483,7 +529,9 @@ export type DeleteKeyResult = "deleted" | "not-found" | "error";
 export function deleteKey(account: string): DeleteKeyResult {
   try {
     const existing = readStore();
-    if (!existing) return "not-found";
+    if (!existing) {
+      return "not-found";
+    }
 
     // Ensure v1→v2 migration happens when a store exists
     let store: StoreFileV2;
@@ -498,8 +546,9 @@ export function deleteKey(account: string): DeleteKeyResult {
       store = existing;
     }
 
-    if (!Object.prototype.hasOwnProperty.call(store.entries, account))
+    if (!Object.prototype.hasOwnProperty.call(store.entries, account)) {
       return "not-found";
+    }
 
     delete store.entries[account];
     writeStore(store);
@@ -516,6 +565,8 @@ export function deleteKey(account: string): DeleteKeyResult {
  */
 export function listKeys(): string[] {
   const store = readStore();
-  if (!store) return [];
+  if (!store) {
+    return [];
+  }
   return Object.keys(store.entries);
 }

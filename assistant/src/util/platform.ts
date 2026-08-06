@@ -26,7 +26,9 @@ export function vellumRoot(): string {
   const override = getWorkspaceDirOverride();
   if (override) {
     const parent = dirname(override);
-    if (parent !== "/") return parent;
+    if (parent !== "/") {
+      return parent;
+    }
   }
   return VELLUM_ROOT;
 }
@@ -63,10 +65,14 @@ export function getPlatformName(): string {
  * so both sides use a consistent DB key.
  */
 export function normalizeAssistantId(assistantId: string): string {
-  if (assistantId === "self") return "self";
+  if (assistantId === "self") {
+    return "self";
+  }
 
   const ownName = process.env.VELLUM_ASSISTANT_NAME;
-  if (ownName && assistantId === ownName) return "self";
+  if (ownName && assistantId === ownName) {
+    return "self";
+  }
 
   return assistantId;
 }
@@ -183,8 +189,12 @@ const KNOWN_ENVIRONMENTS: ReadonlySet<string> = new Set(Object.keys(SEEDS));
  */
 export function getXdgVellumConfigDirName(): string {
   const raw = process.env.VELLUM_ENVIRONMENT?.trim();
-  if (!raw || raw === "production") return "vellum";
-  if (!KNOWN_ENVIRONMENTS.has(raw)) return "vellum";
+  if (!raw || raw === "production") {
+    return "vellum";
+  }
+  if (!KNOWN_ENVIRONMENTS.has(raw)) {
+    return "vellum";
+  }
   return `vellum-${raw}`;
 }
 
@@ -289,6 +299,42 @@ export function getMonitoringPidPath(): string {
 }
 
 /**
+ * Root holding every daemon-managed subprocess's runtime directory
+ * ($VELLUM_WORKSPACE_DIR/procs). Each managed subprocess keeps its IPC socket,
+ * PID file, and per-process scratch under `procs/<name>/`, so `ls procs` is a
+ * census of managed subprocesses and cleanup is one `rm -rf` of the subdir.
+ */
+export function getProcsDir(): string {
+  return join(getWorkspaceDir(), "procs");
+}
+
+/** The runtime directory for one managed subprocess: `procs/<name>/`. */
+export function getProcDir(name: string): string {
+  return join(getProcsDir(), name);
+}
+
+/** Create (if needed) and return a managed subprocess's runtime directory. */
+export function ensureProcDir(name: string): string {
+  const dir = getProcDir(name);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/**
+ * The IPC socket a managed subprocess binds and the daemon connects to
+ * (`procs/<name>/ipc.sock`). The basename is fixed — the directory already
+ * carries the subprocess name. Keep it short: Unix `sun_path` is ~104–108 bytes.
+ */
+export function getProcSocketPath(name: string): string {
+  return join(getProcDir(name), "ipc.sock");
+}
+
+/** The PID file a managed subprocess writes on readiness (`procs/<name>/<name>.pid`). */
+export function getProcPidPath(name: string): string {
+  return join(getProcDir(name), `${name}.pid`);
+}
+
+/**
  * Returns the workspace root for user-facing state.
  *
  * When the VELLUM_WORKSPACE_DIR env var is set, returns that value (used in
@@ -297,7 +343,9 @@ export function getMonitoringPidPath(): string {
  */
 export function getWorkspaceDir(): string {
   const override = getWorkspaceDirOverride();
-  if (override) return override;
+  if (override) {
+    return override;
+  }
   return join(VELLUM_ROOT, "workspace");
 }
 
@@ -396,6 +444,21 @@ export function getConversationsDir(): string {
 /** Returns the workspace path for a prompt file (e.g. IDENTITY.md, SOUL.md). */
 export function getWorkspacePromptPath(file: string): string {
   return join(getWorkspaceDir(), file);
+}
+
+/**
+ * Returns `<workspaceDir>/prompts/system` — the workspace override layer for
+ * system prompt sections. Layout: `prompts/system/<NN-name>.md`.
+ *
+ * The bundled section registry (`prompts/templates/system-sections.ts`) is
+ * the source of default truth; a file here with the same id replaces the
+ * bundled body (or, stripped to nothing, silences it), and a brand-new
+ * `<NN-name>` adds a workspace-only section. Because that includes the
+ * security-policy sections, writes under this directory are gated as a
+ * control-plane prompt surface (`permissions/workspace-policy.ts`).
+ */
+export function getWorkspaceSystemPromptDir(): string {
+  return join(getWorkspaceDir(), "prompts", "system");
 }
 
 // ── Profiler filesystem layout ──────────────────────────────────────────

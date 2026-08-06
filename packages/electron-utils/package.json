@@ -1,0 +1,20 @@
+{
+  "name": "@vellumai/electron-utils",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./app-protocol": "./src/app-protocol.ts",
+    "./auth-popup-session": "./src/auth-popup-session.ts"
+  },
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test src"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.14",
+    "@types/node": "22.10.5",
+    "typescript": "5.9.3"
+  }
+}

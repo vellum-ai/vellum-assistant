@@ -369,6 +369,7 @@ async function applyGuardianSideEffects(params: {
     guardianPrincipalId: canonicalPrincipal,
     displayName,
     verifiedVia: "challenge",
+    reactivateRevoked: true,
   });
   return true;
 }

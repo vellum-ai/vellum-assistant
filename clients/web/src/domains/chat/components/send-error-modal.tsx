@@ -32,7 +32,9 @@ export function SendErrorModal({
     <Modal.Root
       open={open}
       onOpenChange={(next) => {
-        if (!next) onClose();
+        if (!next) {
+          onClose();
+        }
       }}
     >
       <Modal.Content size="sm">

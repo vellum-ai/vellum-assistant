@@ -9,6 +9,15 @@
  * delegated to the shared package.
  */
 
+import {
+  type CesRpcClient,
+  type CesRpcClientConfig,
+  type CesTransport,
+  createCesRpcClient,
+} from "@vellumai/ces-client/rpc-client";
+
+import { getLogger } from "../util/logger.js";
+
 export {
   type CesRpcClient as CesClient,
   type CesRpcClientConfig as CesClientConfig,
@@ -17,5 +26,17 @@ export {
   CesHandshakeError,
   type CesTransport,
   CesTransportError,
-  createCesRpcClient as createCesClient,
 } from "@vellumai/ces-client/rpc-client";
+
+const log = getLogger("ces-rpc-client");
+
+/**
+ * Construct a CES RPC client wired to the assistant logger so handshake-ready
+ * and close transitions are visible in the daemon logs.
+ */
+export function createCesClient(
+  transport: CesTransport,
+  config?: CesRpcClientConfig,
+): CesRpcClient {
+  return createCesRpcClient(transport, { logger: log, ...config });
+}

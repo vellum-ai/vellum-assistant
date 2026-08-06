@@ -24,6 +24,7 @@ import type {
   HelperState,
   HotkeyEvent,
   LocalAssistantStatusResult,
+  LocalConnectImportResult,
   LocalUpgradeOptions,
   LocalWakeOptions,
   NotificationActionEvent,
@@ -37,6 +38,10 @@ import type {
   UpdateState,
   VellumBridge,
   VellumCommand,
+  VoiceActivityContent,
+  VoiceActivityControl,
+  VoiceActivityStart,
+  VoiceActivityState,
 } from "@vellumai/ipc-contract";
 
 export type {
@@ -285,6 +290,10 @@ const bridge: VellumBridge = {
       ipcRenderer.send("vellum:dock:setBadge", count);
     },
   },
+  share: {
+    shareFile: (bytes: Uint8Array, filename: string): Promise<void> =>
+      ipcRenderer.invoke("vellum:share:file", bytes, filename),
+  },
   localMode: {
     hatch: (species: string, remote?: string) =>
       ipcRenderer.invoke("vellum:localMode:hatch", species, remote) as Promise<{
@@ -337,6 +346,17 @@ const bridge: VellumBridge = {
         ok: boolean;
         error?: string;
       }>,
+    unpair: (assistantId: string) =>
+      ipcRenderer.invoke(
+        "vellum:localMode:unpair",
+        assistantId,
+      ) as Promise<LockfileWriteResult>,
+    connectImport: (bundle: string, name?: string) =>
+      ipcRenderer.invoke(
+        "vellum:localMode:connectImport",
+        bundle,
+        name,
+      ) as Promise<LocalConnectImportResult>,
     sleep: (assistantId: string) =>
       ipcRenderer.invoke("vellum:localMode:sleep", assistantId) as Promise<{
         ok: boolean;
@@ -541,6 +561,57 @@ const bridge: VellumBridge = {
     },
     setInteractive: (interactive: boolean): void => {
       ipcRenderer.send("vellum:dictationOverlay:setInteractive", interactive);
+    },
+  },
+  voiceActivity: {
+    start: (state: VoiceActivityStart): void => {
+      ipcRenderer.send("vellum:voiceActivity:start", state);
+    },
+    update: (content: VoiceActivityContent): void => {
+      ipcRenderer.send("vellum:voiceActivity:update", content);
+    },
+    end: (): void => {
+      ipcRenderer.send("vellum:voiceActivity:end");
+    },
+    getState: (): Promise<VoiceActivityState | null> =>
+      ipcRenderer.invoke(
+        "vellum:voiceActivity:getState",
+      ) as Promise<VoiceActivityState | null>,
+    onState: (callback) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        payload: VoiceActivityState | null,
+      ) => {
+        callback(payload);
+      };
+      ipcRenderer.on("vellum:voiceActivity:state", handler);
+      return () => {
+        ipcRenderer.off("vellum:voiceActivity:state", handler);
+      };
+    },
+    control: (control: VoiceActivityControl): void => {
+      ipcRenderer.send("vellum:voiceActivity:control", control);
+    },
+    onControl: (callback) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        payload: VoiceActivityControl,
+      ) => {
+        callback(payload);
+      };
+      ipcRenderer.on("vellum:voiceActivity:controlEvent", handler);
+      return () => {
+        ipcRenderer.off("vellum:voiceActivity:controlEvent", handler);
+      };
+    },
+    activate: (): void => {
+      ipcRenderer.send("vellum:voiceActivity:activate");
+    },
+    dismiss: (): void => {
+      ipcRenderer.send("vellum:voiceActivity:dismiss");
+    },
+    setCollapsed: (collapsed: boolean): void => {
+      ipcRenderer.send("vellum:voiceActivity:setCollapsed", collapsed);
     },
   },
   popout: {

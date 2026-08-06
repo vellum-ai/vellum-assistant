@@ -30,7 +30,9 @@ await initializeDb();
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 
@@ -66,7 +68,9 @@ describe("CLI vs HTTP route parity", () => {
     // ── CLI path ──────────────────────────────────────────────────────────────
     const cliResult = createConnection(getDb(), payload);
     expect(cliResult.ok).toBe(true);
-    if (!cliResult.ok) throw new Error("CLI create failed");
+    if (!cliResult.ok) {
+      throw new Error("CLI create failed");
+    }
     const cliRow = getConnection(getDb(), payload.name);
     expect(cliRow).not.toBeNull();
 
@@ -95,14 +99,16 @@ describe("CLI vs HTTP route parity", () => {
 
   test("platform connection: CLI createConnection and HTTP POST produce identical DB rows", async () => {
     const payload = {
-      name: "parity-openai-managed",
-      provider: "openai" as const,
+      name: "parity-vellum-managed",
+      provider: "vellum" as const,
       auth: { type: "platform" as const },
     };
 
     const cliResult = createConnection(getDb(), payload);
     expect(cliResult.ok).toBe(true);
-    if (!cliResult.ok) throw new Error("CLI create failed");
+    if (!cliResult.ok) {
+      throw new Error("CLI create failed");
+    }
     const cliRow = getConnection(getDb(), payload.name);
 
     clearConnections();
@@ -128,7 +134,9 @@ describe("CLI vs HTTP route parity", () => {
 
     const cliResult = createConnection(getDb(), payload);
     expect(cliResult.ok).toBe(true);
-    if (!cliResult.ok) throw new Error("CLI create failed");
+    if (!cliResult.ok) {
+      throw new Error("CLI create failed");
+    }
     const cliRow = getConnection(getDb(), payload.name);
 
     clearConnections();

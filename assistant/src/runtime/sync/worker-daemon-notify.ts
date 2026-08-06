@@ -1,13 +1,13 @@
 /**
- * Worker → daemon hand-off for conversation message-persist notifications.
+ * Worker → daemon hand-off for sync notifications a sidecar cannot deliver.
  *
  * Sidecar worker processes (schedule, memory) disable SSE seq stamping — the
  * daemon is the sole seq authority — so a worker's own `getCurrentSeq()`
- * reports `0` and its `publishConversationMessagesChanged` broadcast reaches no
- * SSE subscriber (those live in the daemon). After a worker persists a turn's
- * rows it hands the notification here; the daemon records an honest snapshot
- * anchor at its own seq and republishes the invalidation to real subscribers
- * (see `ipc/routes/conversation-sync-ipc-routes.ts`).
+ * reports `0` and its `sync_changed` broadcasts reach no SSE subscriber (those
+ * live in the daemon). A worker hands the notification here instead and the
+ * daemon republishes it to real subscribers (see
+ * `ipc/routes/conversation-sync-ipc-routes.ts`,
+ * `ipc/routes/documents-sync-ipc-routes.ts`).
  */
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
@@ -21,6 +21,14 @@ const log = getLogger("worker-daemon-notify");
  */
 export const NOTIFY_CONVERSATION_PERSISTED_IPC_METHOD =
   "notify_conversation_persisted_externally";
+
+/**
+ * IPC method the daemon exposes for the documents-changed hand-off. Shared by
+ * the worker caller and the daemon route registration so the wire name cannot
+ * drift.
+ */
+export const NOTIFY_DOCUMENTS_CHANGED_IPC_METHOD =
+  "notify_documents_changed_externally";
 
 /**
  * Short timeout: this is a fire-and-forget invalidation, not a request whose
@@ -59,5 +67,35 @@ export async function notifyDaemonConversationPersisted(
       { err, conversationId },
       "daemon conversation-persisted notify failed",
     );
+  }
+}
+
+/**
+ * Ask the daemon to republish the documents-list invalidation.
+ *
+ * A scheduled or background turn runs its document tools in a sidecar worker,
+ * so the edit is real but the worker's own broadcast reaches nobody. This is
+ * the path that lets the user learn a document changed while they were not
+ * looking.
+ *
+ * Best-effort by design, like the conversation hand-off: an unreachable daemon
+ * is logged at debug and swallowed, and the client picks the change up on its
+ * next document-list fetch.
+ */
+export async function notifyDaemonDocumentsChanged(): Promise<void> {
+  try {
+    const result = await cliIpcCall(
+      NOTIFY_DOCUMENTS_CHANGED_IPC_METHOD,
+      { body: {} },
+      { timeoutMs: NOTIFY_TIMEOUT_MS },
+    );
+    if (!result.ok) {
+      log.debug(
+        { error: result.error },
+        "daemon documents-changed notify was not acknowledged",
+      );
+    }
+  } catch (err) {
+    log.debug({ err }, "daemon documents-changed notify failed");
   }
 }

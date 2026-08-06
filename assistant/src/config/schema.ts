@@ -50,6 +50,7 @@ import {
   PlatformConfigSchema,
   UiConfigSchema,
 } from "./schemas/platform.js";
+import { PluginUpdatesConfigSchema } from "./schemas/plugin-updates.js";
 import { SecretDetectionConfigSchema } from "./schemas/security.js";
 import { ServicesSchema } from "./schemas/services.js";
 import { SkillsConfigSchema } from "./schemas/skills.js";
@@ -58,6 +59,7 @@ import {
   TimeoutConfigSchema,
 } from "./schemas/timeouts.js";
 import { ToolsConfigSchema } from "./schemas/tools.js";
+import { UserRoutesConfigSchema } from "./schemas/user-routes.js";
 import { WorkflowsConfigSchema } from "./schemas/workflows.js";
 import { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
@@ -66,6 +68,7 @@ export const AssistantConfigSchema = z.object({
   memory: MemoryConfigSchema.default(MemoryConfigSchema.parse({})),
   monitoring: MonitoringConfigSchema.default(MonitoringConfigSchema.parse({})),
   migrations: MigrationsConfigSchema.default(MigrationsConfigSchema.parse({})),
+  userRoutes: UserRoutesConfigSchema.default(UserRoutesConfigSchema.parse({})),
   dataDir: z
     .string({ error: "dataDir must be a string" })
     .default(getDataDir())
@@ -140,6 +143,9 @@ export const AssistantConfigSchema = z.object({
     .describe(
       "Per-plugin configuration keyed by plugin name. Validated downstream by each plugin's manifest.config validator at bootstrap.",
     ),
+  pluginUpdates: PluginUpdatesConfigSchema.default(
+    PluginUpdatesConfigSchema.parse({}),
+  ),
   legacyTelemetryOptOut: z
     .boolean()
     .optional()

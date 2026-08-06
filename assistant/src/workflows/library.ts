@@ -101,7 +101,9 @@ function logDuplicateMetaName(name: string, paths: string[]): void {
  */
 function* readWorkflowFiles(): Generator<RawWorkflowFile> {
   const dir = getWorkspaceWorkflowsDir();
-  if (!existsSync(dir)) return;
+  if (!existsSync(dir)) {
+    return;
+  }
   const entries = readdirSync(dir).sort();
 
   // Resolve each form once, keyed by base name (sorted entries keep Map
@@ -114,13 +116,17 @@ function* readWorkflowFiles(): Generator<RawWorkflowFile> {
       continue;
     }
     const entrypoint = join(dir, entry, DIRECTORY_ENTRY);
-    if (existsSync(entrypoint)) dirPaths.set(entry, entrypoint);
+    if (existsSync(entrypoint)) {
+      dirPaths.set(entry, entrypoint);
+    }
   }
 
   // Fail closed on a base-name collision (both forms present).
   const collisions = new Set<string>();
   for (const baseName of dirPaths.keys()) {
-    if (flatPaths.has(baseName)) collisions.add(baseName);
+    if (flatPaths.has(baseName)) {
+      collisions.add(baseName);
+    }
   }
   for (const baseName of collisions) {
     log.error(
@@ -132,9 +138,13 @@ function* readWorkflowFiles(): Generator<RawWorkflowFile> {
 
   // Directory-style first, then flat; a colliding base name is skipped in both.
   for (const [baseName, path] of [...dirPaths, ...flatPaths]) {
-    if (collisions.has(baseName)) continue;
+    if (collisions.has(baseName)) {
+      continue;
+    }
     const raw = readRawWorkflow(baseName, path);
-    if (raw) yield raw;
+    if (raw) {
+      yield raw;
+    }
   }
 }
 

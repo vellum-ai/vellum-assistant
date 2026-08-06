@@ -15,7 +15,9 @@ let listShouldThrow = false;
 
 mock.module("../../../util/process-tree.js", () => ({
   listProcesses: async () => {
-    if (listShouldThrow) throw new Error("no /proc and ps unavailable");
+    if (listShouldThrow) {
+      throw new Error("no /proc and ps unavailable");
+    }
     return procsToReturn;
   },
   buildProcessTree: (_procs: ProcInfo[], rootPid: number): ProcTreeNode => ({
@@ -54,7 +56,9 @@ const { ROUTES } = await import("../ps-routes.js");
 
 function getHandler() {
   const route = ROUTES.find((r) => r.operationId === "ps");
-  if (!route) throw new Error("ps route not registered");
+  if (!route) {
+    throw new Error("ps route not registered");
+  }
   return route.handler as () => Promise<{
     processes: Array<{
       name: string;
@@ -109,7 +113,9 @@ describe("ps route handler", () => {
       children?: unknown[];
     }) => {
       byName.set(n.name, n.origin);
-      for (const c of (n.children ?? []) as Array<typeof n>) walk(c);
+      for (const c of (n.children ?? []) as Array<typeof n>) {
+        walk(c);
+      }
     };
     walk(root as never);
 
@@ -130,7 +136,9 @@ describe("ps route handler", () => {
     }): void => {
       expect(n.status).toBe("running");
       expect(n.info).toMatch(/^pid \d+$/);
-      for (const c of (n.children ?? []) as Array<typeof n>) walk(c);
+      for (const c of (n.children ?? []) as Array<typeof n>) {
+        walk(c);
+      }
     };
     walk(processes[0]);
   });

@@ -149,7 +149,9 @@ describe("resolveSlash /compact", () => {
   test("/compact rejects arguments with usage hint", async () => {
     const result = await resolveSlash("/compact 30000");
     expect(result.kind).toBe("unknown");
-    if (result.kind !== "unknown") throw new Error("expected unknown");
+    if (result.kind !== "unknown") {
+      throw new Error("expected unknown");
+    }
     expect(result.message).toContain("does not take arguments");
     expect(result.message).toContain("/compact");
   });
@@ -174,7 +176,9 @@ describe("resolveSlash /clean", () => {
   test("/clean rejects arguments with usage hint", async () => {
     const result = await resolveSlash("/clean now");
     expect(result.kind).toBe("unknown");
-    if (result.kind !== "unknown") throw new Error("expected unknown");
+    if (result.kind !== "unknown") {
+      throw new Error("expected unknown");
+    }
     expect(result.message).toContain("/clean");
     expect(result.message).toContain("does not take arguments");
   });
@@ -259,7 +263,9 @@ describe("resolveSlash /model — inference profile switcher", () => {
   test("`/model` lists profiles with current marker, status, and description", async () => {
     const result = await resolveSlash("/model");
     expect(result.kind).toBe("unknown");
-    if (result.kind !== "unknown") throw new Error("expected unknown kind");
+    if (result.kind !== "unknown") {
+      throw new Error("expected unknown kind");
+    }
     expect(result.message).toContain("Inference profiles:");
     expect(result.message).toContain(
       "`balanced` (Balanced) **[current]** — Default mix of speed and quality",
@@ -276,7 +282,9 @@ describe("resolveSlash /model — inference profile switcher", () => {
   test("`/model <name>` switches the active profile and writes config to disk", async () => {
     const result = await resolveSlash("/model cost-optimized");
     expect(result.kind).toBe("unknown");
-    if (result.kind !== "unknown") throw new Error("expected unknown kind");
+    if (result.kind !== "unknown") {
+      throw new Error("expected unknown kind");
+    }
     expect(result.message).toBe(
       "Switched to profile `cost-optimized` (Cost-optimized).",
     );
@@ -290,7 +298,9 @@ describe("resolveSlash /model — inference profile switcher", () => {
   test("`/model <unknown>` returns an error with available profile names", async () => {
     const result = await resolveSlash("/model gemini");
     expect(result.kind).toBe("unknown");
-    if (result.kind !== "unknown") throw new Error("expected unknown kind");
+    if (result.kind !== "unknown") {
+      throw new Error("expected unknown kind");
+    }
     expect(result.message).toContain("Profile `gemini` not found.");
     expect(result.message).toContain("`balanced`");
     expect(result.message).toContain("`cost-optimized`");
@@ -299,7 +309,9 @@ describe("resolveSlash /model — inference profile switcher", () => {
   test("`/model <disabled>` refuses to switch and points at Settings", async () => {
     const result = await resolveSlash("/model short-context");
     expect(result.kind).toBe("unknown");
-    if (result.kind !== "unknown") throw new Error("expected unknown kind");
+    if (result.kind !== "unknown") {
+      throw new Error("expected unknown kind");
+    }
     expect(result.message).toBe(
       "Profile `short-context` is disabled. Enable it in **Settings → Models & Services** first.",
     );
@@ -313,7 +325,9 @@ describe("resolveSlash /model — inference profile switcher", () => {
   test("`/model <current>` is a no-op with a friendly message", async () => {
     const result = await resolveSlash("/model balanced");
     expect(result.kind).toBe("unknown");
-    if (result.kind !== "unknown") throw new Error("expected unknown kind");
+    if (result.kind !== "unknown") {
+      throw new Error("expected unknown kind");
+    }
     expect(result.message).toBe("Already using profile `balanced` (Balanced).");
   });
 
@@ -323,7 +337,9 @@ describe("resolveSlash /model — inference profile switcher", () => {
     });
     const result = await resolveSlash("/model");
     expect(result.kind).toBe("unknown");
-    if (result.kind !== "unknown") throw new Error("expected unknown kind");
+    if (result.kind !== "unknown") {
+      throw new Error("expected unknown kind");
+    }
     expect(result.message).toContain("Inference profiles:");
     expect(result.message).toContain("`balanced`");
     expect(result.message).toContain("`quality-optimized`");
@@ -333,7 +349,9 @@ describe("resolveSlash /model — inference profile switcher", () => {
   test("`/model <name>` trims surrounding whitespace from the argument", async () => {
     const result = await resolveSlash("/model   cost-optimized  ");
     expect(result.kind).toBe("unknown");
-    if (result.kind !== "unknown") throw new Error("expected unknown kind");
+    if (result.kind !== "unknown") {
+      throw new Error("expected unknown kind");
+    }
     expect(result.message).toBe(
       "Switched to profile `cost-optimized` (Cost-optimized).",
     );

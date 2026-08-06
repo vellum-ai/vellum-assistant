@@ -211,7 +211,9 @@ describe("LLM catalog parity: daemon vs client", () => {
     for (const entry of PROVIDER_CATALOG) {
       // Providers with an empty models list (e.g. openai-compatible) use
       // per-connection model identifiers instead of a static catalog.
-      if (entry.models.length === 0) continue;
+      if (entry.models.length === 0) {
+        continue;
+      }
       const found = entry.models.some((m) => m.id === entry.defaultModel);
       expect(
         found,
@@ -223,7 +225,9 @@ describe("LLM catalog parity: daemon vs client", () => {
   test("cache pricing rates are positive when defined", () => {
     for (const entry of PROVIDER_CATALOG) {
       for (const model of entry.models) {
-        if (!model.pricing) continue;
+        if (!model.pricing) {
+          continue;
+        }
         if (model.pricing.cacheReadPer1mTokens !== undefined) {
           expect(
             model.pricing.cacheReadPer1mTokens,
@@ -246,7 +250,9 @@ describe("LLM catalog parity: daemon vs client", () => {
     for (const entry of PROVIDER_CATALOG) {
       for (const model of entry.models) {
         expect(model.defaultContextWindowTokens).toBeGreaterThan(0);
-        if (model.contextWindowTokens === undefined) continue;
+        if (model.contextWindowTokens === undefined) {
+          continue;
+        }
         expect(
           model.defaultContextWindowTokens,
           `${entry.id}/${model.id} default context exceeds context window`,
@@ -257,7 +263,9 @@ describe("LLM catalog parity: daemon vs client", () => {
     for (const entry of json.providers) {
       for (const model of entry.models) {
         expect(model.defaultContextWindowTokens).toBeGreaterThan(0);
-        if (model.contextWindowTokens === undefined) continue;
+        if (model.contextWindowTokens === undefined) {
+          continue;
+        }
         expect(
           model.defaultContextWindowTokens,
           `${entry.id}/${model.id} JSON default context exceeds context window`,
@@ -368,7 +376,9 @@ describe("LLM catalog parity: daemon vs client", () => {
 
     for (const provider of PROVIDER_CATALOG) {
       for (const model of provider.models) {
-        if (!model.pricing) continue;
+        if (!model.pricing) {
+          continue;
+        }
 
         const inputResult = resolvePricing(
           provider.id,
@@ -412,7 +422,9 @@ describe("LLM catalog parity: daemon vs client", () => {
     for (const provider of PROVIDER_CATALOG) {
       for (const model of provider.models) {
         const cacheReadCatalogRate = model.pricing?.cacheReadPer1mTokens;
-        if (cacheReadCatalogRate === undefined) continue;
+        if (cacheReadCatalogRate === undefined) {
+          continue;
+        }
 
         const result = resolvePricingForUsage(provider.id, model.id, {
           directInputTokens: 0,
@@ -441,7 +453,9 @@ describe("LLM catalog parity: daemon vs client", () => {
     for (const provider of PROVIDER_CATALOG) {
       for (const model of provider.models) {
         const tiers = model.pricing?.tiers;
-        if (!tiers || tiers.length === 0) continue;
+        if (!tiers || tiers.length === 0) {
+          continue;
+        }
 
         for (const tier of tiers) {
           const probeTokens = tier.inputTokenThreshold + 1_000;

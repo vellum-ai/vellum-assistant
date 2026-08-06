@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,6 +51,45 @@ function makePluginDir(
     writeFileSync(join(dir, "skills", "my-skill"), "content");
   }
   return dir;
+}
+
+/**
+ * Build a plugin directory backed by a git repo that `resolveGitContext` can
+ * read without touching the network.
+ *
+ * `origin` is a filesystem path under `github.com/<owner>/<repo>.git`, which
+ * satisfies the GitHub-remote match while keeping every git invocation local.
+ * Nothing exists at that path, so the reachability probe resolves offline in
+ * milliseconds and `resolveGitContext` applies its documented fallback of
+ * treating an unanswerable probe as pushed. Pointing `origin` at a real
+ * github.com URL instead makes the probe a live network call, which is slow
+ * and can block on a credential prompt.
+ */
+function makeGitPluginDir(): { dir: string; cleanup: () => void } {
+  const base = mkdtempSync(join(tmpdir(), "publish-"));
+  const remote = join(base, "github.com", "test", "test-plugin.git");
+
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "Test",
+    GIT_AUTHOR_EMAIL: "test@example.com",
+    GIT_COMMITTER_NAME: "Test",
+    GIT_COMMITTER_EMAIL: "test@example.com",
+    // Belt to the local-path suspenders: git must fail rather than wait on a
+    // terminal for credentials.
+    GIT_TERMINAL_PROMPT: "0",
+  };
+  const git = (cwd: string, args: string[]): void => {
+    execFileSync("git", args, { cwd, stdio: "ignore", env });
+  };
+
+  const dir = makePluginDir(base, validPkg, { hooks: true });
+  git(dir, ["init", "--quiet"]);
+  git(dir, ["add", "-A"]);
+  git(dir, ["-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "init"]);
+  git(dir, ["remote", "add", "origin", remote]);
+
+  return { dir, cleanup: () => rmSync(base, { recursive: true, force: true }) };
 }
 
 const validPkg: Partial<ParsedPackageJson> = {
@@ -339,36 +379,25 @@ describe("formatValidationResult", () => {
 
 describe("runPublish", () => {
   it("returns false on denied confirmation without submitting", async () => {
-    const dir = makePluginDir(tmpdir(), validPkg, { hooks: true });
-    // Initialize a git repo so resolveGitContext doesn't fail
-    const { execSync } = await import("node:child_process");
-    const gitEnv = {
-      ...process.env,
-      GIT_AUTHOR_NAME: "Test",
-      GIT_AUTHOR_EMAIL: "test@test.com",
-      GIT_COMMITTER_NAME: "Test",
-      GIT_COMMITTER_EMAIL: "test@test.com",
-    };
-    execSync("git init && git add -A && git commit -m init", {
-      cwd: dir,
-      stdio: "ignore",
-      env: gitEnv,
-    });
-    execSync("git remote add origin https://github.com/test/test-plugin.git", {
-      cwd: dir,
-      stdio: "ignore",
-      env: gitEnv,
-    });
+    const { dir, cleanup } = makeGitPluginDir();
 
+    let confirmed = false;
     const ok = await runPublish(
       { path: dir, force: false, json: false },
       {
-        confirmPrompt: async () => "denied",
+        confirmPrompt: async () => {
+          confirmed = true;
+          return "denied";
+        },
       },
     );
 
     expect(ok).toBe(false);
-    rmSync(dir, { recursive: true });
+    // The flow has to reach the confirmation step for the assertion above to
+    // mean anything: an earlier short-circuit (validation, git resolution)
+    // also returns false.
+    expect(confirmed).toBe(true);
+    cleanup();
   });
 
   it("returns true on --print without submitting", async () => {

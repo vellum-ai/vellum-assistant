@@ -6,7 +6,7 @@
  * constants as the key argument.
  */
 
-export const LS_IMAGE_GEN_MODE = "vellum:ai:imageGenMode";
+export const LS_IMAGE_GEN_PROVIDER = "vellum:ai:imageGenProvider";
 export const LS_IMAGE_GEN_MODEL = "vellum:ai:imageGenModel";
 export const LS_WEB_SEARCH_PROVIDER = "vellum:ai:webSearchProvider";
 export const LS_WEB_FETCH_PROVIDER = "vellum:ai:webFetchProvider";

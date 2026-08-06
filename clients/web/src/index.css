@@ -1,10 +1,25 @@
 @import "tailwindcss";
 @import "@vellumai/design-library/tokens.css";
-@source "../node_modules/@vellumai/design-library/src/**/*.tsx";
+
+/* Capacitor mobile shell variant. Keys off the data-native-platform marker
+ * set by initNativePlatformAttributes() at boot. Deliberately :is(), not
+ * :where(): the selector must carry :root[attr] specificity (0,3,0 with
+ * the utility class) so native-mobile: utilities outrank the design
+ * library's touch-mobile: pill classes, which are single-class rules
+ * inside a media query (0,1,0) and would otherwise win or lose on
+ * emission order. */
+@custom-variant native-mobile (&:is(:root[data-native-platform="ios"] *, :root[data-native-platform="android"] *));
 
 /* Base element styles — theme-aware defaults inherited by all descendants. */
 body {
   color: var(--content-default);
+}
+
+/* Capacitor shells briefly expose the document canvas while their web views
+ * resize for the keyboard. Paint it to prevent the native backdrop flashing
+ * through. Electron's transparent floating windows remain unpainted. */
+:root:is([data-native-platform="ios"], [data-native-platform="android"]) body {
+  background: var(--surface-base);
 }
 
 /* Electron prechat onboarding typography — mirror the lighter DM Sans (Swift
@@ -41,9 +56,6 @@ body {
 
 @keyframes fadeInUp {
   0% { transform: translateY(16px); opacity: 0; }
-  /* End at `none` (not translateY(0)) so the filled-forwards transform does
-     not create a containing block — otherwise position:fixed descendants like
-     the Dropdown menu anchor to this element instead of the viewport. */
   100% { transform: none; opacity: 1; }
 }
 
@@ -60,8 +72,12 @@ body {
   animation: fadeIn 0.25s ease-out both;
 }
 
+/* `backwards`, not `both`: see the note on `.home-detail-drawer` below. A
+   forwards-filled transform stays applied as an identity matrix once the
+   animation ends, and that is enough to make this element the containing
+   block for any `position: fixed` descendant. */
 .plans-takeover-content-enter {
-  animation: fadeInUp 0.35s ease-out both;
+  animation: fadeInUp 0.35s ease-out backwards;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -79,16 +95,107 @@ body {
 }
 
 /* Home Activity detail drawer (schedule / heartbeat / notification) sliding
-   in from the right. Ends at `transform: none` for the same containing-block
-   reason as fadeInUp above (the panel hosts fixed Dropdown/tooltip layers). */
+   in from the right. The panel hosts fixed Dropdown/tooltip layers, so the
+   fill mode below matters: see the note on the rule. */
 @keyframes drawer-slide-in {
   0% { transform: translateX(16px); opacity: 0; }
   100% { transform: none; opacity: 1; }
 }
 
+/* `backwards`, not `both`. Forwards-fill would hold the final keyframe after
+   the animation ends, and the held value is the interpolated identity matrix,
+   not the `transform: none` written above. A transform of any kind, identity
+   included, makes this element the containing block for `position: fixed`
+   descendants, which silently defeats the intent the keyframe documents:
+   fixed layers inside the panel would resolve their viewport coordinates
+   against this box and land offscreen. Dropping forwards-fill costs nothing,
+   because the final keyframe is already the element's own resting style. */
 .home-detail-drawer {
-  animation: drawer-slide-in 0.2s ease-out both;
+  animation: drawer-slide-in 0.2s ease-out backwards;
   height: 100%;
+}
+
+/* Notifications bell popover swapping between the list and one notification's
+   detail. The detail arrives from the right and the list fades back in behind
+   it, so the two views read as one container moving laterally. `backwards`
+   for the same reason as `.home-detail-drawer` above: nothing here should be
+   left holding a transform once the entrance ends. */
+@keyframes notifications-panel-detail-in {
+  0% { transform: translateX(8px); opacity: 0; }
+  100% { transform: none; opacity: 1; }
+}
+
+.notifications-panel-detail-enter {
+  animation: notifications-panel-detail-in var(--anim-fast) var(--anim-ease-out) backwards;
+}
+
+.notifications-panel-list-enter {
+  animation: fadeIn var(--anim-fast) var(--anim-ease-out) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notifications-panel-detail-enter,
+  .notifications-panel-list-enter {
+    animation: none;
+  }
+}
+
+/* Page transitions — the two snapshots the View Transitions API creates for a
+   router navigation, driven by `lib/page-transition.ts`, which writes the
+   direction attribute and asks React Router for the transition.
+
+   Both snapshots are live at once, so the pages travel together: the arriving
+   one crosses the full viewport while the departing one drifts a quarter of
+   it, the parallax that reads as one page sitting behind another. `z-index`
+   gives the arriving page the top layer on a push and the departing page the
+   top layer on a pop, matching which one a finger would be dragging.
+
+   Duration and easing mirror the edge-swipe gestures
+   (`hooks/edge-swipe-motion.ts`) so a tapped navigation and a swiped one land
+   on the same motion. Keep the two in step.
+
+   Inert wherever nothing requests a view transition: the pseudo-elements are
+   only created for a navigation that asked for one. */
+:root {
+  --page-transition-duration: 200ms;
+}
+
+/* Drop the default cross-fade. These are opaque pages sliding past each
+   other, not two images blending through one another. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+html[data-page-transition="push"]::view-transition-old(root) {
+  animation: page-depart-leading var(--page-transition-duration) ease-out both;
+}
+html[data-page-transition="push"]::view-transition-new(root) {
+  z-index: 1;
+  animation: page-arrive-trailing var(--page-transition-duration) ease-out both;
+}
+html[data-page-transition="pop"]::view-transition-old(root) {
+  z-index: 1;
+  animation: page-depart-trailing var(--page-transition-duration) ease-out both;
+}
+html[data-page-transition="pop"]::view-transition-new(root) {
+  animation: page-arrive-leading var(--page-transition-duration) ease-out both;
+}
+
+@keyframes page-arrive-trailing { from { transform: translateX(100%); } }
+@keyframes page-depart-leading { to { transform: translateX(-25%); } }
+@keyframes page-arrive-leading { from { transform: translateX(-25%); } }
+@keyframes page-depart-trailing { to { transform: translateX(100%); } }
+
+/* Snap to the destination. The transition still runs, so React Router's
+   snapshot still covers the router's own latency; only the travel is dropped. */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(root),
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
 }
 
 @keyframes typing-dot-pulse {
@@ -132,7 +239,7 @@ body {
 /* Live-voice transcript caret — a thin bar blinking like a text caret at the
  * end of the streaming speech transcript in the composer (Light 55). The
  * component also holds it static via useReducedMotion; the media query is
- * defense-in-depth matching .avatar-streaming-ring below. */
+ * defense-in-depth for callers that don't. */
 @keyframes voice-caret-blink {
   0%, 50% { opacity: 1; }
   50.01%, 100% { opacity: 0; }
@@ -145,46 +252,6 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .voice-caret-blink {
     animation: none;
-  }
-}
-
-/* Chat-loading skeleton shimmer — a soft gradient band sweeping left→right
- * over the placeholder bars while conversation history loads. The highlight
- * mixes the surface toward `--foreground` so it reads in every theme:
- * lighter band in dark/velvet, darker in light. */
-@keyframes skeleton-shimmer {
-  from { background-position: 150% 0; }
-  to { background-position: -50% 0; }
-}
-
-.skeleton-shimmer {
-  background-color: var(--surface-active);
-  /* Fallback band for engines without color-mix() (WKWebView before
-   * iOS 16.2, per the iOS 15.0 deployment target): a neutral translucent
-   * highlight over the surface color — no token expresses this without
-   * color-mix, hence the raw rgba. Engines that parse color-mix() take the
-   * declaration below instead. */
-  background-image: linear-gradient(
-    90deg,
-    transparent 35%,
-    rgba(128, 128, 128, 0.12) 50%,
-    transparent 65%
-  );
-  background-image: linear-gradient(
-    90deg,
-    var(--surface-active) 35%,
-    color-mix(in srgb, var(--surface-active), var(--foreground) 12%) 50%,
-    var(--surface-active) 65%
-  );
-  background-size: 200% 100%;
-  background-repeat: no-repeat;
-  animation: skeleton-shimmer 1.6s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .skeleton-shimmer {
-    animation: none;
-    background-image: none;
   }
 }
 
@@ -201,6 +268,28 @@ body {
   border-radius: var(--radius-lg);
 }
 
+/* Unseen-changes dot attention pulse, applied when the dot appears so a
+ * change landing while the user reads the transcript is noticeable. Bounded
+ * on purpose: this dot lives in a persistent header, where anything looping
+ * forever reads as noise. It needs no fill mode because the last keyframe is
+ * already the resting style. The consumer also holds it static via
+ * useReducedMotion; the media query is defense-in-depth for callers that
+ * don't. */
+@keyframes unseen-dot-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.35); }
+}
+
+.unseen-dot-pulse {
+  animation: unseen-dot-pulse 0.6s ease-in-out 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .unseen-dot-pulse {
+    animation: none;
+  }
+}
+
 /* Streamed word fade — applied by `rehypeStreamWordFade` to each word of the
  * actively-streaming assistant message's trailing text. The plugin grades the
  * words nearest the reveal edge with inline opacities; this transition is
@@ -214,33 +303,6 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .stream-word-fade {
     transition: none;
-  }
-}
-
-/* Avatar streaming ring — a semicircular arc that traces the circular avatar's
-   edge and spins continuously while the assistant is streaming/loading. Used
-   only for custom uploaded-image avatars; character avatars convey streaming
-   through their own morph animation instead. Two adjacent borders are colored
-   (each border occupies a 90° quadrant of the ring when border-radius is 50%,
-   so two adjacent borders make a 180° semicircle); the rest stay transparent,
-   and the whole ring rotates. Border thickness/inset are set inline so the
-   ring scales with avatar size. `prefers-reduced-motion` holds it static. */
-@keyframes avatar-ring-spin {
-  to { transform: rotate(360deg); }
-}
-
-.avatar-streaming-ring {
-  border-style: solid;
-  border-radius: 50%;
-  border-color: transparent;
-  border-top-color: var(--border-active);
-  border-right-color: var(--border-active);
-  animation: avatar-ring-spin 0.85s linear infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .avatar-streaming-ring {
-    animation: none;
   }
 }
 
@@ -282,21 +344,297 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Provisioning takeover — the avatar acknowledges completion with the same
- * overshoot the hatching screen uses on resolve, held a touch longer so it
- * reads as settling rather than bouncing. */
-@keyframes provision-resolve {
-  0% { transform: scale(1); }
-  55% { transform: scale(1.1); }
-  100% { transform: scale(1.06); }
+/* Provisioning takeover — the assistant grows into a larger form when the
+ * upgrade lands. It crouches, then pulses up twice, each pulse overshooting and
+ * relaxing a little higher than the one before, and settles at
+ * `--provision-avatar-growth`. The origin is the bottom edge, so the creature
+ * stands taller off its shadow rather than floating up the screen. Both custom
+ * properties come from the component. */
+.provision-avatar-stage {
+  position: relative;
+  width: 100%;
+  /* Reserving the grown height up front keeps the copy below from reflowing. */
+  height: calc(var(--provision-avatar-size) * var(--provision-avatar-growth));
 }
 
-.provision-avatar-resolved {
-  animation: provision-resolve 0.82s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+/* While the avatar is withheld, an identity-neutral glow breathes on the
+ * creature's resting footprint so the reserved stage doesn't read as a hole.
+ * Centering is `margin-inline`, not a translate: the breathe owns `transform`. */
+.provision-avatar-placeholder {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: var(--provision-avatar-size);
+  width: calc(var(--provision-avatar-size) * 0.8);
+  margin-inline: auto;
+  /* Fallback first for engines without color-mix(), see the skeleton-shimmer
+   * note in the design library's tokens.css. The takeover is always
+   * dark-themed, so a translucent white stands in for the emphasised mix. */
+  background: radial-gradient(
+    closest-side,
+    rgba(255, 255, 255, 0.12),
+    transparent 72%
+  );
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--content-emphasised) 12%, transparent),
+    transparent 72%
+  );
+  transform-origin: bottom center;
+  transition: opacity var(--provision-reveal) ease-out;
+  animation: provision-placeholder-breathe 2.6s ease-in-out infinite;
+}
+
+@keyframes provision-placeholder-breathe {
+  0%, 100% { transform: scale(0.94); opacity: 0.65; }
+  50% { transform: scale(1.05); opacity: 1; }
+}
+
+/* Fades out on the same beat the creature reveals on, then costs nothing. */
+.provision-avatar-placeholder.is-resolved {
+  opacity: 0;
+  animation: none;
+}
+
+.provision-avatar-layer {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.provision-avatar-current {
+  transform-origin: bottom center;
+  will-change: transform;
+}
+
+.provision-avatar-shadow {
+  margin-top: 14px;
+  height: 31px;
+  width: 263px;
+  will-change: transform, opacity;
+  /* Decorative avatar drop-shadow; raw rgba is conventional for a CSS shadow. */
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0, 0, 0, 0.45),
+    transparent 70%
+  );
+}
+
+/* The crouch is what makes this read as the creature pushing itself up rather
+ * than as something being scaled. */
+@keyframes provision-grow {
+  0% { transform: scale(1); }
+  11% { transform: scale(1.03) scaleY(0.9); }
+  38% { transform: scale(1.3); }
+  50% { transform: scale(1.24); }
+  82% { transform: scale(1.49); }
+  100% { transform: scale(var(--provision-avatar-growth)); }
+}
+
+/* The shadow tightens as it leaves the ground and spreads as it lands. */
+@keyframes provision-grow-shadow {
+  0% { transform: scaleX(1); opacity: 0.85; }
+  18% { transform: scaleX(1.08); opacity: 1; }
+  45% { transform: scaleX(0.95); opacity: 0.6; }
+  100% { transform: scaleX(1.16); opacity: 1; }
+}
+
+.provision-avatar-evolve.is-evolved .provision-avatar-current {
+  animation: provision-grow 1.1s cubic-bezier(0.36, 0.02, 0.24, 1) both;
+}
+
+.provision-avatar-evolve.is-evolved .provision-avatar-shadow {
+  animation: provision-grow-shadow 1.1s cubic-bezier(0.36, 0.02, 0.24, 1) both;
+}
+
+/* A plan that steps down runs the same choreography backwards: the creature
+ * waits at the grown size and settles into the resting one, so it ends smaller
+ * than it began. The stage already reserves the grown height, so nothing around
+ * it moves and both directions cost the same layout. */
+.provision-avatar-evolve.is-downsizing .provision-avatar-current {
+  transform: scale(var(--provision-avatar-growth));
+}
+
+.provision-avatar-evolve.is-downsizing .provision-avatar-shadow {
+  transform: scaleX(1.16);
+}
+
+/* The step down is a ratchet run backwards: it lets go a notch at a time and
+ * catches itself on each one, rather than sinking in a single motion. A smooth
+ * descent reads as deflating, which is the wrong feeling for a plan that is
+ * still working. The per-keyframe easing is what does it: the release into each
+ * notch accelerates, and the catch overshoots slightly and recovers, so each
+ * step lands with a click. The outer timing function stays linear so these
+ * carry the motion.
+ *
+ * The notches interpolate between the grown scale and rest, so they hold
+ * whatever `--provision-avatar-growth` is set to. */
+@keyframes provision-shrink {
+  0% {
+    transform: scale(var(--provision-avatar-growth));
+    animation-timing-function: cubic-bezier(0.45, 0, 0.75, 0);
+  }
+  10% {
+    transform: scale(calc(var(--provision-avatar-growth) * 1.012));
+    animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0);
+  }
+  28% {
+    transform: scale(calc(1 + (var(--provision-avatar-growth) - 1) * 0.62)) scaleY(0.985);
+    animation-timing-function: cubic-bezier(0.2, 1.5, 0.4, 1);
+  }
+  40% {
+    transform: scale(calc(1 + (var(--provision-avatar-growth) - 1) * 0.62));
+    animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0);
+  }
+  58% {
+    transform: scale(calc(1 + (var(--provision-avatar-growth) - 1) * 0.28)) scaleY(0.985);
+    animation-timing-function: cubic-bezier(0.2, 1.5, 0.4, 1);
+  }
+  70% {
+    transform: scale(calc(1 + (var(--provision-avatar-growth) - 1) * 0.28));
+    animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0);
+  }
+  86% {
+    transform: scale(0.975) scaleY(0.955);
+    animation-timing-function: cubic-bezier(0.2, 1.6, 0.4, 1);
+  }
+  100% { transform: scale(1); }
+}
+
+/* The shadow tightens a notch behind each drop and spreads as it is caught. */
+@keyframes provision-shrink-shadow {
+  0% { transform: scaleX(1.16); opacity: 1; }
+  28% { transform: scaleX(1.12); opacity: 0.9; }
+  40% { transform: scaleX(1.13); opacity: 0.92; }
+  58% { transform: scaleX(1.06); opacity: 0.82; }
+  70% { transform: scaleX(1.07); opacity: 0.84; }
+  86% { transform: scaleX(0.98); opacity: 0.94; }
+  100% { transform: scaleX(1); opacity: 0.85; }
+}
+
+.provision-avatar-evolve.is-downsizing.is-evolved .provision-avatar-current {
+  animation: provision-shrink 1.25s linear both;
+}
+
+.provision-avatar-evolve.is-downsizing.is-evolved .provision-avatar-shadow {
+  animation: provision-shrink-shadow 1.25s linear both;
+}
+
+/* The creature fades in over the placeholder as soon as something is drawable:
+ * the live query settling, or the stash captured at the Stripe hand-off. The
+ * stage has already reserved its height, so this fades in place with nothing
+ * moving around it. */
+@keyframes provision-avatar-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* The takeover's arrival beat: the avatar, the surface color, and the blurred
+ * backdrop all resolve on this one duration. */
+:root {
+  --provision-reveal: 250ms;
+}
+
+.provision-avatar-reveal {
+  animation: provision-avatar-reveal var(--provision-reveal) ease-out both;
+}
+
+.provision-surface-settle {
+  transition: background-color var(--provision-reveal) ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .provision-avatar-resolved {
+  .provision-avatar-reveal {
+    animation: none;
+  }
+
+  .provision-surface-settle {
+    transition: none;
+  }
+
+  /* A static glow still marks where the creature lands. */
+  .provision-avatar-placeholder {
+    animation: none;
+  }
+
+  .provision-avatar-placeholder.is-resolved {
+    transition: none;
+  }
+}
+
+/* One gesture at three amplitudes. The strain loop sits on its own nesting
+ * level so it multiplies with the growth on the parent rather than fighting it
+ * for `transform`; the transition is what carries it back to rest from wherever
+ * in the cycle the resolve caught it, instead of snapping. */
+.provision-avatar-strain {
+  transform-origin: bottom center;
+  transition:
+    transform 260ms ease-out,
+    filter 400ms ease;
+}
+
+@keyframes provision-strain {
+  0% { transform: scale(1); }
+  18% {
+    transform: scaleX(calc(1 + var(--provision-strain) * 0.35))
+      scaleY(calc(1 - var(--provision-strain) * 0.75));
+  }
+  44% { transform: scale(calc(1 + var(--provision-strain))); }
+  66%, 100% { transform: scale(1); }
+}
+
+/* A third of every cycle is rest — that pause is what keeps it reading as
+ * effort rather than fidgeting. */
+.provision-avatar-evolve.is-working {
+  --provision-strain: 0.05;
+  --provision-strain-cycle: 3.5s;
+}
+
+.provision-avatar-evolve.is-settling {
+  --provision-strain: 0.035;
+  --provision-strain-cycle: 5s;
+}
+
+.provision-avatar-evolve.is-working .provision-avatar-strain,
+.provision-avatar-evolve.is-settling .provision-avatar-strain {
+  animation: provision-strain var(--provision-strain-cycle)
+    cubic-bezier(0.36, 0.05, 0.28, 1) infinite;
+}
+
+/* The hatching screen tilts a dead egg 45deg; this machine is recoverable and
+ * the screen offers a retry, so it slumps rather than falls over. */
+.provision-avatar-evolve.is-stalled .provision-avatar-strain {
+  transform: rotate(8deg);
+  filter: grayscale(0.7) brightness(0.78);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .provision-avatar-evolve.is-evolved .provision-avatar-current {
+    animation: none;
+    transform: scale(var(--provision-avatar-growth));
+  }
+
+  .provision-avatar-evolve.is-evolved .provision-avatar-shadow {
+    animation: none;
+    transform: scaleX(1.16);
+  }
+
+  /* Both endpoints still hold for a step down; only the travel is dropped. */
+  .provision-avatar-evolve.is-downsizing.is-evolved .provision-avatar-current {
+    animation: none;
+    transform: scale(1);
+  }
+
+  .provision-avatar-evolve.is-downsizing.is-evolved .provision-avatar-shadow {
+    animation: none;
+    transform: scaleX(1);
+  }
+
+  /* The stalled tilt stays — it reports a state rather than animating one. */
+  .provision-avatar-evolve.is-working .provision-avatar-strain,
+  .provision-avatar-evolve.is-settling .provision-avatar-strain {
     animation: none;
   }
 }
@@ -393,6 +731,48 @@ body {
 [data-theme="velvet"] ::-webkit-scrollbar-thumb:hover {
   background: rgba(232, 63, 91, 0.5);
   background-clip: padding-box;
+}
+
+/* Sidebar menu scrollbar: hidden permanently, not just at rest. A native
+ * scrollbar can't both take zero layout space at every moment (hover
+ * included) and be visible on hover: toggling its width to reveal it
+ * shifts row content on hover, and reserving its width at a constant
+ * non-zero size to avoid that shift instead leaves a permanent one-sided
+ * inset. Neither keeps row width truly constant and symmetric, so there's
+ * no visible thumb at all here: trackpad/wheel/touch scrolling is
+ * unaffected. Scoped to the menu's own scroll container rather than
+ * changed globally. */
+[data-slot="side-menu-body"] {
+  scrollbar-width: none;
+}
+[data-slot="side-menu-body"]::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* Capacitor mobile shells hide scrollbars entirely. The global scrollbar
+ * styling above replaces native auto-hiding overlay indicators with visible
+ * browser chrome. Scrolling and momentum are unaffected. The native-platform
+ * prefix covers the document scrollbar, every inner scroller, and pseudo
+ * elements while outranking the global and theme scrollbar rules. */
+:root:is([data-native-platform="ios"], [data-native-platform="android"]),
+:root:is([data-native-platform="ios"], [data-native-platform="android"]) *,
+:root:is([data-native-platform="ios"], [data-native-platform="android"])
+  *::before,
+:root:is([data-native-platform="ios"], [data-native-platform="android"])
+  *::after {
+  scrollbar-width: none;
+}
+
+:root:is(
+    [data-native-platform="ios"],
+    [data-native-platform="android"]
+  )::-webkit-scrollbar,
+:root:is([data-native-platform="ios"], [data-native-platform="android"])
+  ::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -671,6 +1051,93 @@ body {
   }
 }
 
+/* Audio-reactive eyes (use-reactive-eyes.ts). `--eye-amp` is written per frame
+ * from the live amplitude; the gesture is picked by `data-eye-reaction`.
+ * Deliberately small — the eyes are the room's fixed point, so this is meant to
+ * read as alive, not as dancing. Composes with (rather than replaces) the
+ * entrance keyframes and the per-state size tween, which live on ancestors. */
+.voice-room-eyes-reactive {
+  --eye-amp: 0;
+  transform-origin: center;
+  will-change: transform;
+}
+
+/* Listening: the eyes open up toward the speaker — mostly vertical, so it
+ * reads as widening rather than as zooming — and lift very slightly. */
+.voice-room-eyes-reactive[data-eye-reaction="listening"] {
+  transform: translateY(calc(var(--eye-amp) * -1.5%))
+    scaleX(calc(1 + var(--eye-amp) * 0.03))
+    scaleY(calc(1 + var(--eye-amp) * 0.1));
+}
+
+/* Responding: a rounder pulse on the assistant's own output amplitude, with a
+ * small bounce — the "energy going out" language of the responding treatment
+ * radiating behind them. */
+.voice-room-eyes-reactive[data-eye-reaction="responding"] {
+  transform: translateY(calc(var(--eye-amp) * -2.5%))
+    scale(calc(1 + var(--eye-amp) * 0.055));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-room-eyes-reactive {
+    transform: none;
+  }
+}
+
+/* Mesh band (voice-mesh-waves.tsx): the canvas already answers amplitude in its
+ * own geometry — the sheet expands and contracts as the envelope swells — so the
+ * container must NOT also translate or scale with `--voice-amp`. Two responses
+ * stacked on one signal read as the whole band bouncing up and down behind a
+ * sheet that is separately breathing, which is the tell that this is an effect
+ * rather than a picture of the voice. Keep the static anchoring (and the
+ * brightness, which composes fine); drop the movement. */
+.voice-listening-waves--mesh,
+.voice-listening-waves--mesh.voice-listening-waves--top,
+.voice-listening-waves--mesh.voice-listening-waves--inline {
+  transform: none;
+  /* Fade all the way out with the voice, rather than to the shared band's 0.28
+   * floor. The sheet's displacement already drops to nothing as amplitude does
+   * (`idleEnvelope: 0`), so a floored opacity would leave a flat, permanently
+   * visible line across the room between turns. `--band-peak-opacity` is the
+   * per-voice ceiling the room sets (see `BAND_VOICE`); `--band-presence` is a
+   * saturating curve on the amplitude rather than the raw value, so the ceiling
+   * is reached at ordinary speaking level instead of only at a shout — see
+   * `opacityKnee`. Multiplying two linear ramps was what made the band read as
+   * barely there. */
+  opacity: calc(var(--band-presence, 0) * var(--band-peak-opacity, 1));
+}
+/* The centered band still needs its own -50% or it drops half a band height;
+ * only the amplitude-driven scaleY comes off. */
+.voice-listening-waves--mesh.voice-listening-waves--center {
+  transform: translateY(-50%);
+}
+
+/* Push the two edge bands further out of frame than the filled band sits.
+ *
+ * The mesh centers its sheet inside whatever box it is given, so a band
+ * spanning 0–42% puts the weave's spine at 21% — close enough to the middle
+ * that it crowds the eyes and reads as two competing centerpieces. Hanging the
+ * box off the edge moves the spine to ~11% (and its mirror at ~89%), which
+ * both clears the eyes and lets the sheet run off the top and bottom of the
+ * screen rather than terminating inside it — the energy arrives from outside
+ * the room instead of starting at a visible boundary. The room's own
+ * `overflow-hidden` does the clipping. */
+.voice-listening-waves--mesh.voice-listening-waves--top {
+  top: -10%;
+}
+.voice-listening-waves--mesh.voice-listening-waves--bottom {
+  bottom: -10%;
+}
+
+/* Reactive band (voice-reactive-waves.tsx): the path geometry is rebuilt every
+ * frame from a rolling history of the live amplitude, so the horizontal motion
+ * *is* the signal scrolling by. The drift keyframe above would slide that
+ * terrain a second time, so it comes off — everything else (palette, style,
+ * placement, the `--voice-amp` rise/brightness) still applies. */
+.voice-listening-waves--reactive path {
+  animation: none;
+}
+
 /* Line style: stroke the open curve; no fill. */
 .voice-listening-waves--line path {
   fill: none;
@@ -782,7 +1249,8 @@ body {
   transform: translateY(-50%) scaleY(calc(0.5 + var(--voice-amp) * 0.7));
   opacity: calc(0.3 + var(--voice-amp) * 0.7);
 }
-.voice-listening-waves--center .voice-listening-waves__half {
+.voice-listening-waves--center .voice-listening-waves__half,
+.voice-listening-waves--inline .voice-listening-waves__half {
   position: absolute;
   left: 0;
   right: 0;
@@ -791,13 +1259,28 @@ body {
 }
 /* Top half sits above the midline; its wave fill hugs the half's bottom edge
  * (= the center line), rippling upward. */
-.voice-listening-waves--center .voice-listening-waves__half--top {
+.voice-listening-waves--center .voice-listening-waves__half--top,
+.voice-listening-waves--inline .voice-listening-waves__half--top {
   top: 0;
 }
 /* Bottom half is the vertical mirror below the midline. */
-.voice-listening-waves--center .voice-listening-waves__half--bottom {
+.voice-listening-waves--center .voice-listening-waves__half--bottom,
+.voice-listening-waves--inline .voice-listening-waves__half--bottom {
   bottom: 0;
   transform: scaleY(-1);
+}
+
+/* Placement: inline = the band fills a small positioned container (the
+ * composer's voice-session bar strip) instead of anchoring to a screen edge.
+ * Same mirrored-halves structure as center — the wave fills meet at the
+ * strip's midline — with the amplitude swell expressed as a vertical scale
+ * around it. */
+.voice-listening-waves--inline {
+  inset: 0;
+  height: auto;
+  transform-origin: center;
+  transform: scaleY(calc(0.55 + var(--voice-amp) * 0.45));
+  opacity: calc(0.35 + var(--voice-amp) * 0.65);
 }
 
 /* Placement: top = the band sweeps in from the ceiling edge (both room looks —
@@ -830,6 +1313,11 @@ body {
   /* Keep the top band pinned to the ceiling (flipped), just steady. */
   .voice-listening-waves--top {
     transform: scaleY(-1);
+    opacity: 0.4;
+  }
+  /* The inline strip is inset-anchored; it just holds steady. */
+  .voice-listening-waves--inline {
+    transform: none;
     opacity: 0.4;
   }
 }

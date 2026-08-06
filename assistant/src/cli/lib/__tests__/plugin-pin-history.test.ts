@@ -74,7 +74,9 @@ function makeFetch(commits: string[] = [C3, C2B, C2, C1]): FetchLike {
     if (m) {
       const ref = decodeURIComponent(m[1]!);
       const pin = PIN_BY_REF[ref];
-      if (!pin) return new Response("not found", { status: 404 });
+      if (!pin) {
+        return new Response("not found", { status: 404 });
+      }
       return new Response(manifest(pin), { status: 200 });
     }
     return new Response("unexpected url: " + url, { status: 500 });

@@ -255,4 +255,16 @@ describe("global-search q parser", () => {
       includeArchived: true,
     });
   });
+
+  test("returns the lexical tokens of the cleaned term", async () => {
+    // Clients highlight matches with these tokens, so they must come from
+    // the same tokenizer the sparse index uses (non-alphanumeric splits),
+    // with filter tokens already stripped.
+    const result = (await handler({
+      queryParams: { q: "is:archived alpha,beta", categories: "conversations" },
+    })) as { query: string; queryTokens: string[] };
+
+    expect(result.query).toBe("alpha,beta");
+    expect(result.queryTokens).toEqual(["alpha", "beta"]);
+  });
 });

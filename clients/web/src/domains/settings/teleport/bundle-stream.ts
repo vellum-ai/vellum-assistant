@@ -19,7 +19,9 @@ export async function readArrayBufferWithProgress(
   let received = 0;
   for (;;) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      break;
+    }
     chunks.push(value);
     received += value.length;
     onProgress(received / total);

@@ -6,7 +6,6 @@ import {
   getDefaultWorkspaceDir,
   saveIngressUrl,
 } from "./ingress-config.js";
-import { resolveTunnelTargetPort } from "./nginx-ingress.js";
 
 // ── Cloudflare Tunnel ─────────────────────────────────────────────────────────
 
@@ -116,7 +115,7 @@ export function waitForCloudflareTunnelUrl(
 /**
  * Run the cloudflared quick-tunnel workflow:
  * 1. Verify cloudflared is installed.
- * 2. Start a quick tunnel pointing at the gateway port.
+ * 2. Start a quick tunnel pointing at the local edge port.
  * 3. Parse the public URL from cloudflared output.
  * 4. Persist the URL to the workspace config as the ingress base URL.
  * 5. Block until the process exits or the user presses Ctrl+C.
@@ -125,12 +124,10 @@ export function waitForCloudflareTunnelUrl(
  * No Cloudflare account is required — quick tunnels are free and ephemeral.
  */
 export interface RunCloudflareTunnelOptions {
-  /** Gateway port to forward. Defaults to the global GATEWAY_PORT. */
+  /** Local edge port to forward. Defaults to the global GATEWAY_PORT. */
   port?: number;
   /** Workspace directory for config read/write. Defaults to ~/.vellum/workspace. */
   workspaceDir?: string;
-  /** Prefer nginx ingress over the gateway port when it is running. */
-  preferNginxIngress?: boolean;
   /** Lockfile entry to mirror the ingress URL onto (`ingressUrl`). */
   assistantId?: string;
 }
@@ -156,17 +153,7 @@ export async function runCloudflareTunnel(
   console.log(`Using ${version}`);
 
   const workspaceDir = opts.workspaceDir ?? getDefaultWorkspaceDir();
-  const gatewayPort = opts.port ?? GATEWAY_PORT;
-  const { port, viaIngress } = resolveTunnelTargetPort(
-    workspaceDir,
-    gatewayPort,
-    { preferNginxIngress: opts.preferNginxIngress === true },
-  );
-  if (viaIngress) {
-    console.log(
-      `nginx ingress detected — tunneling to it on 127.0.0.1:${port}.`,
-    );
-  }
+  const port = opts.port ?? GATEWAY_PORT;
 
   console.log(`Starting cloudflared quick tunnel to localhost:${port}...`);
   console.log("No Cloudflare account required — quick tunnels are free.");

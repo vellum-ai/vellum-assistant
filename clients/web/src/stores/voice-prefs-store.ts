@@ -69,7 +69,9 @@ export function interruptSensitivityToMs(level: InterruptSensitivity): number {
  * an out-of-range `silenceThresholdMs` the daemon would reject.
  */
 export function clampPauseBeforeReplyMs(ms: number): number {
-  if (!Number.isFinite(ms)) return DEFAULT_PAUSE_BEFORE_REPLY_MS;
+  if (!Number.isFinite(ms)) {
+    return DEFAULT_PAUSE_BEFORE_REPLY_MS;
+  }
   return Math.round(
     Math.min(
       MAX_PAUSE_BEFORE_REPLY_MS,
@@ -111,8 +113,10 @@ export interface VoicePrefsActions {
   setShowAssistantTranscript: (next: boolean) => void;
   /** Flip `firstRunSeen` to true on first observation. No-op afterwards. */
   markFirstRunSeen: () => void;
-  setPauseBeforeReplyMs: (next: number) => void;
-  setInterruptSensitivity: (next: InterruptSensitivity) => void;
+  /** `null` clears the preference, handing endpointing back to daemon config. */
+  setPauseBeforeReplyMs: (next: number | null) => void;
+  /** `null` clears the preference, handing barge-in back to daemon config. */
+  setInterruptSensitivity: (next: InterruptSensitivity | null) => void;
 }
 
 export type VoicePrefsStore = VoicePrefsState & VoicePrefsActions;
@@ -151,11 +155,12 @@ const useVoicePrefsStoreBase = create<VoicePrefsStore>()(
           set({ firstRunSeen: true });
         }
       },
-      setPauseBeforeReplyMs: (next: number) =>
+      setPauseBeforeReplyMs: (next: number | null) =>
         set({
-          pauseBeforeReplyMs: clampPauseBeforeReplyMs(next),
+          pauseBeforeReplyMs:
+            next === null ? null : clampPauseBeforeReplyMs(next),
         }),
-      setInterruptSensitivity: (next: InterruptSensitivity) =>
+      setInterruptSensitivity: (next: InterruptSensitivity | null) =>
         set({ interruptSensitivity: next }),
     }),
     {

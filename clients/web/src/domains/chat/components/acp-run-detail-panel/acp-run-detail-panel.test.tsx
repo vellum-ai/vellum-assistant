@@ -18,9 +18,8 @@ mock.module("@/domains/chat/utils/acp-run-actions", () => ({
   stopAcpRun: mock(async () => {}),
 }));
 
-const { AcpRunDetailPanel } = await import(
-  "@/domains/chat/components/acp-run-detail-panel/acp-run-detail-panel"
-);
+const { AcpRunDetailPanel } =
+  await import("@/domains/chat/components/acp-run-detail-panel/acp-run-detail-panel");
 
 const noop = () => {};
 

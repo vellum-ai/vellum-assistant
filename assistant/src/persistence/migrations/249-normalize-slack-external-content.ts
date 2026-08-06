@@ -33,7 +33,9 @@ export function migrateNormalizeSlackExternalContent(
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'messages'`,
     )
     .get();
-  if (!tableExists) return;
+  if (!tableExists) {
+    return;
+  }
 
   let lastRowid = 0;
 
@@ -55,12 +57,16 @@ export function migrateNormalizeSlackExternalContent(
       )
       .all(lastRowid, BATCH_SIZE) as CandidateMessageRow[];
 
-    if (rows.length === 0) break;
+    if (rows.length === 0) {
+      break;
+    }
 
     for (const row of rows) {
       lastRowid = row.rowid;
       const normalized = normalizeSlackMessageRow(row);
-      if (!normalized) continue;
+      if (!normalized) {
+        continue;
+      }
 
       raw
         .query(`UPDATE messages SET content = ?, metadata = ? WHERE id = ?`)
@@ -78,7 +84,9 @@ function normalizeSlackMessageRow(
   row: CandidateMessageRow,
 ): NormalizedMessageRow | null {
   const parsed = parseSlackMetadataEnvelope(row.metadata);
-  if (!parsed) return null;
+  if (!parsed) {
+    return null;
+  }
 
   const normalizedContent = normalizeMessageContent(row.content);
   if (normalizedContent !== null) {
@@ -129,9 +137,13 @@ function parseSlackMetadataEnvelope(rawMetadata: string): {
   }
 
   const metadata = parsed as Record<string, unknown>;
-  if (typeof metadata.slackMeta !== "string") return null;
+  if (typeof metadata.slackMeta !== "string") {
+    return null;
+  }
   const slackMeta = readSlackMetadata(metadata.slackMeta);
-  if (!slackMeta) return null;
+  if (!slackMeta) {
+    return null;
+  }
   return { metadata, slackMeta };
 }
 
@@ -181,8 +193,12 @@ function isLegacyGuardianBackfillRow(
     slackMeta: SlackMessageMetadata;
   },
 ): boolean {
-  if (row.role !== "user") return false;
-  if (parsed.slackMeta.eventKind !== "message") return false;
+  if (row.role !== "user") {
+    return false;
+  }
+  if (parsed.slackMeta.eventKind !== "message") {
+    return false;
+  }
   if (
     Object.prototype.hasOwnProperty.call(
       parsed.metadata,
@@ -207,7 +223,9 @@ function isLegacyGuardianBackfillRow(
 }
 
 function hasNonEmptyRawText(content: string): boolean {
-  if (parseExternalContentEnvelope(content)) return false;
+  if (parseExternalContentEnvelope(content)) {
+    return false;
+  }
 
   let parsed: unknown;
   try {
@@ -220,7 +238,9 @@ function hasNonEmptyRawText(content: string): boolean {
     return parsed.trim().length > 0 && !parseExternalContentEnvelope(parsed);
   }
 
-  if (!Array.isArray(parsed)) return false;
+  if (!Array.isArray(parsed)) {
+    return false;
+  }
 
   return parsed.some((block) => {
     if (block === null || typeof block !== "object" || Array.isArray(block)) {

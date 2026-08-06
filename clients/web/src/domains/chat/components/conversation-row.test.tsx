@@ -38,7 +38,10 @@ function conv(overrides: Partial<Conversation> = {}): Conversation {
 
 describe("buildMenuProps", () => {
   test("marks channel conversations read-only", () => {
-    const channel = buildMenuProps(makeCtx(), conv({ originChannel: "telegram" }));
+    const channel = buildMenuProps(
+      makeCtx(),
+      conv({ originChannel: "telegram" }),
+    );
     expect(channel.isReadonly).toBe(true);
 
     const native = buildMenuProps(makeCtx(), conv({ originChannel: "vellum" }));
@@ -82,9 +85,9 @@ describe("buildDragProps", () => {
   const b = conv({ conversationId: "b" });
 
   test("returns nothing when reordering is disabled", () => {
-    expect(buildDragProps(makeCtx({ canReorder: false }), a, "pinned", [a, b])).toEqual(
-      {},
-    );
+    expect(
+      buildDragProps(makeCtx({ canReorder: false }), a, "pinned", [a, b]),
+    ).toEqual({});
   });
 
   test("returns nothing without a section or with fewer than two siblings", () => {

@@ -29,7 +29,9 @@ export const seedConversationStartersCallsiteMigration: WorkspaceMigration = {
   description:
     "Seed latency-optimized default for conversationStarters LLM call site",
   run(workspaceDir: string): void {
-    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) return;
+    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) {
+      return;
+    }
 
     const configPath = join(workspaceDir, "config.json");
     const configExisted = existsSync(configPath);
@@ -38,7 +40,9 @@ export const seedConversationStartersCallsiteMigration: WorkspaceMigration = {
     if (configExisted) {
       try {
         const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+          return;
+        }
         config = raw as Record<string, unknown>;
       } catch {
         return;
@@ -58,10 +62,14 @@ export const seedConversationStartersCallsiteMigration: WorkspaceMigration = {
     }
     const provider = explicitProvider ?? "anthropic";
     const fastModel = resolveLatencyModel(provider);
-    if (fastModel === undefined) return;
+    if (fastModel === undefined) {
+      return;
+    }
 
     const callSites = readObject(llm.callSites) ?? {};
-    if (readObject(callSites.conversationStarters) !== null) return;
+    if (readObject(callSites.conversationStarters) !== null) {
+      return;
+    }
 
     callSites.conversationStarters = {
       model: fastModel,

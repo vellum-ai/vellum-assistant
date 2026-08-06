@@ -241,7 +241,9 @@ function parseActions(raw: string): InteractiveUiAction[] {
  * Returns the parsed integer or `NaN` on any non-pure-integer input.
  */
 function parseStrictPositiveInt(value: string): number {
-  if (!/^\d+$/.test(value)) return NaN;
+  if (!/^\d+$/.test(value)) {
+    return NaN;
+  }
   return Number(value);
 }
 
@@ -446,7 +448,9 @@ export function registerUiCommand(program: Command): void {
           const confirmLabel = opts.confirmLabel ?? "Confirm";
           const denyLabel = opts.denyLabel ?? "Deny";
           const data: Record<string, unknown> = {};
-          if (opts.message) data.message = opts.message;
+          if (opts.message) {
+            data.message = opts.message;
+          }
           // Pass custom labels via data payload so the renderer reads them
           // from ConfirmationSurfaceData.confirmLabel / .cancelLabel.
           data.confirmLabel = confirmLabel;

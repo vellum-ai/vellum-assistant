@@ -103,11 +103,15 @@ export async function executeFindSimilarSkills(
   const enriched: EnrichedHit[] = [];
   for (const hit of hits) {
     const skill = byId.get(hit.skillId);
-    if (!skill) continue;
+    if (!skill) {
+      continue;
+    }
     // Defense in depth: the scoped catalog already excludes out-of-scope plugin
     // skills, but re-check so a shortlist source that ignores the catalog seam
     // still cannot leak one.
-    if (outOfScope(skill)) continue;
+    if (outOfScope(skill)) {
+      continue;
+    }
     enriched.push({
       skill_id: hit.skillId,
       name: skill.name,

@@ -18,9 +18,7 @@ export function EnvironmentConfigPanel() {
           <div className="shrink-0 pt-0.5">
             <Toggle
               checked={isNonProduction}
-              onChange={(next) =>
-                setEnvironment({ isNonProduction: next })
-              }
+              onChange={(next) => setEnvironment({ isNonProduction: next })}
               aria-label={`Non-Production is ${isNonProduction ? "on" : "off"}`}
             />
           </div>
@@ -29,7 +27,8 @@ export function EnvironmentConfigPanel() {
               Non-Production
             </span>
             <span className="block text-body-small-default text-[var(--content-tertiary)]">
-              Indicates a non-production environment. Enables dev-only UI surfaces and diagnostics.
+              Indicates a non-production environment. Enables dev-only UI
+              surfaces and diagnostics.
             </span>
           </div>
         </div>

@@ -1611,7 +1611,8 @@ describe("background channel processing approval prompts", () => {
 
     expect(deliverPromptSpy).toHaveBeenCalled();
     const approvalMeta = deliverPromptSpy.mock.calls[0]?.[3] as
-      { requestId?: string } | undefined;
+      | { requestId?: string }
+      | undefined;
     expect(approvalMeta?.requestId).toBe("req-bg-1");
 
     deliverPromptSpy.mockRestore();

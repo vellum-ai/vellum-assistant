@@ -18,7 +18,9 @@ export function migrateExternalConversationBindingThreadId(
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'external_conversation_bindings'`,
     )
     .get();
-  if (!tableExists) return;
+  if (!tableExists) {
+    return;
+  }
 
   const columns = raw
     .query(`PRAGMA table_info(external_conversation_bindings)`)

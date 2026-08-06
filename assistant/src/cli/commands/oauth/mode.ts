@@ -26,7 +26,9 @@ export function registerModeCommand(oauth: Command): void {
             queryParams: { provider },
           });
 
-          if (!r.ok) return exitFromIpcResult(r);
+          if (!r.ok) {
+            return exitFromIpcResult(r);
+          }
 
           const result = r.result!;
 
@@ -56,7 +58,9 @@ export function registerModeCommand(oauth: Command): void {
           body: { provider, mode: opts.set },
         });
 
-        if (!r.ok) return exitFromIpcResult(r);
+        if (!r.ok) {
+          return exitFromIpcResult(r);
+        }
 
         const result = r.result!;
 

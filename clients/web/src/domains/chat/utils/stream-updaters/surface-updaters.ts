@@ -14,7 +14,7 @@ import {
   upsertSurfaceBlock,
 } from "@/domains/chat/utils/map-message-surfaces";
 import {
-  findAssistantRowIndexByMessageId,
+  findTurnAssistantRowIndex,
   withMergedAlias,
 } from "@/domains/chat/utils/stream-updaters/shared";
 
@@ -29,19 +29,9 @@ export function attachSurface(
   messageId?: string,
   at: number = Date.now(),
 ): DisplayMessage[] {
-  let targetIdx = -1;
-
-  if (messageId) {
-    targetIdx = findAssistantRowIndexByMessageId(prev, messageId);
-  }
-  if (targetIdx === -1) {
-    for (let i = prev.length - 1; i >= 0; i--) {
-      if (prev[i]?.role === "assistant") {
-        targetIdx = i;
-        break;
-      }
-    }
-  }
+  // A turn that has not opened an assistant row yet gets one opened here, so
+  // the surface never folds into the previous turn's bubble.
+  const targetIdx = findTurnAssistantRowIndex(prev, messageId);
 
   const updated = [...prev];
   if (targetIdx === -1) {
@@ -78,6 +68,86 @@ export function attachSurface(
 }
 
 // ---------------------------------------------------------------------------
+// ui_surface_pending
+// ---------------------------------------------------------------------------
+
+/**
+ * Record that a still-streaming `ui_show` on this turn will produce a visual,
+ * so the row renders a placeholder while the fragment streams.
+ *
+ * Unlike {@link attachSurface} this never opens an assistant row: a
+ * placeholder is a hint about work in flight, and a bubble carrying nothing
+ * else would outlive it as an empty row once the marker is retired.
+ */
+export function markPendingVisualSurface(
+  prev: DisplayMessage[],
+  toolUseId: string,
+  messageId?: string,
+): DisplayMessage[] {
+  const targetIdx = findTurnAssistantRowIndex(prev, messageId);
+  if (targetIdx === -1) {
+    return prev;
+  }
+  const target = prev[targetIdx]!;
+  if (target.pendingVisualToolUseIds?.includes(toolUseId)) {
+    return prev;
+  }
+  const updated = [...prev];
+  updated[targetIdx] = {
+    ...withMergedAlias(target, messageId),
+    pendingVisualToolUseIds: [
+      ...(target.pendingVisualToolUseIds ?? []),
+      toolUseId,
+    ],
+  };
+  return updated;
+}
+
+/**
+ * Retire visual placeholders. `toolUseId` retires exactly the one its call
+ * produced (its surface arrived, or the call failed); `messageId` alone
+ * retires every placeholder on that row; neither retires all of them, which is
+ * what the end of a turn does, because no surface can still be coming.
+ */
+export function clearPendingVisualSurfaces(
+  prev: DisplayMessage[],
+  match: { toolUseId?: string; messageId?: string } = {},
+): DisplayMessage[] {
+  const rowIdx =
+    match.toolUseId === undefined && match.messageId !== undefined
+      ? findTurnAssistantRowIndex(prev, match.messageId)
+      : undefined;
+
+  let changed = false;
+  const updated = prev.map((msg, i) => {
+    const pending = msg.pendingVisualToolUseIds;
+    if (!pending || pending.length === 0) {
+      return msg;
+    }
+    if (rowIdx !== undefined && i !== rowIdx) {
+      return msg;
+    }
+    const remaining =
+      match.toolUseId === undefined
+        ? []
+        : pending.filter((id) => id !== match.toolUseId);
+    if (remaining.length === pending.length) {
+      return msg;
+    }
+    changed = true;
+    const next = { ...msg };
+    if (remaining.length === 0) {
+      delete next.pendingVisualToolUseIds;
+    } else {
+      next.pendingVisualToolUseIds = remaining;
+    }
+    return next;
+  });
+
+  return changed ? updated : prev;
+}
+
+// ---------------------------------------------------------------------------
 // ui_surface_update
 // ---------------------------------------------------------------------------
 
@@ -91,7 +161,9 @@ export function updateSurfaceData(
     const msg = prev[i]!;
     const surfIdx =
       msg.surfaces?.findIndex((s) => s.surfaceId === surfaceId) ?? -1;
-    if (surfIdx === -1) continue;
+    if (surfIdx === -1) {
+      continue;
+    }
 
     const surface = msg.surfaces![surfIdx]!;
     const mergedData = { ...surface.data, ...data };
@@ -130,7 +202,9 @@ export function dismissSurface(
   surfaceId: string,
 ): DisplayMessage[] {
   for (let i = prev.length - 1; i >= 0; i--) {
-    if (!prev[i]!.surfaces?.some((s) => s.surfaceId === surfaceId)) continue;
+    if (!prev[i]!.surfaces?.some((s) => s.surfaceId === surfaceId)) {
+      continue;
+    }
     const updated = [...prev];
     updated[i] = {
       ...prev[i]!,
@@ -157,7 +231,9 @@ export function completeSurface(
 ): DisplayMessage[] {
   for (let i = prev.length - 1; i >= 0; i--) {
     const surface = prev[i]!.surfaces?.find((s) => s.surfaceId === surfaceId);
-    if (!surface) continue;
+    if (!surface) {
+      continue;
+    }
     const completedSurface: Surface = {
       ...surface,
       completed: true,
@@ -169,7 +245,10 @@ export function completeSurface(
       surfaces: prev[i]!.surfaces?.map((s) =>
         s.surfaceId === surfaceId ? completedSurface : s,
       ),
-      contentBlocks: upsertSurfaceBlock(prev[i]!.contentBlocks, completedSurface),
+      contentBlocks: upsertSurfaceBlock(
+        prev[i]!.contentBlocks,
+        completedSurface,
+      ),
     };
     return updated;
   }

@@ -18,6 +18,7 @@ import {
 } from "@vellumai/local-mode/contract";
 
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./constants.js";
+import { crossEnvironmentAssistantHint } from "./environments/detect.js";
 import {
   getDefaultPorts,
   getLockfilePath,
@@ -423,7 +424,7 @@ export function formatAssistantLookupError(
     return `Multiple assistants match '${identifier}': ${matches}. Use the assistant ID to disambiguate.`;
   }
 
-  return `No assistant found with name or ID '${identifier}'.`;
+  return `No assistant found with name or ID '${identifier}'.${crossEnvironmentAssistantHint() ?? ""}`;
 }
 
 export function removeAssistantEntry(assistantId: string): void {
@@ -580,7 +581,9 @@ export function resolveTargetAssistant(nameArg?: string): AssistantEntry {
     if (all.length === 1) return all[0];
 
     if (all.length === 0) {
-      console.error("No assistant found. Run 'vellum hatch' first.");
+      console.error(
+        `No assistant found. Run 'vellum hatch' first.${crossEnvironmentAssistantHint() ?? ""}`,
+      );
     } else {
       console.error(
         `Multiple assistants found. Set an active assistant with 'vellum use <name>'.`,

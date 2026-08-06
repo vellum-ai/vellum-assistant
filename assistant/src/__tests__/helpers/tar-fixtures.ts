@@ -17,7 +17,9 @@ export function makeTarEntry(name: string, content: string): Buffer {
   Buffer.from("00", "ascii").copy(header, 263);
 
   let sum = 0;
-  for (let i = 0; i < 512; i += 1) sum += header[i] ?? 0;
+  for (let i = 0; i < 512; i += 1) {
+    sum += header[i] ?? 0;
+  }
   Buffer.from(`${sum.toString(8).padStart(6, "0")}\0 `, "ascii").copy(
     header,
     148,

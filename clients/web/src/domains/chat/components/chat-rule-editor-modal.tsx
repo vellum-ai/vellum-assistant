@@ -92,9 +92,21 @@ function isPipelineDecomposition(options: AllowlistOption[]): boolean {
 // ---------------------------------------------------------------------------
 
 const RISK_LEVELS = [
-  { value: "low", label: "Low", dotColor: "bg-[var(--system-positive-strong)]" },
-  { value: "medium", label: "Medium", dotColor: "bg-[var(--system-mid-strong)]" },
-  { value: "high", label: "High", dotColor: "bg-[var(--system-negative-strong)]" },
+  {
+    value: "low",
+    label: "Low",
+    dotColor: "bg-[var(--system-positive-strong)]",
+  },
+  {
+    value: "medium",
+    label: "Medium",
+    dotColor: "bg-[var(--system-mid-strong)]",
+  },
+  {
+    value: "high",
+    label: "High",
+    dotColor: "bg-[var(--system-negative-strong)]",
+  },
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -152,7 +164,9 @@ function OverlayCard({
       padding="sm"
       onClick={onClick}
       className={`bg-[var(--surface-overlay)] ${
-        onClick ? "cursor-pointer transition-colors hover:bg-[var(--surface-active)]" : ""
+        onClick
+          ? "cursor-pointer transition-colors hover:bg-[var(--surface-active)]"
+          : ""
       } ${className}`}
     >
       {children}
@@ -226,7 +240,8 @@ export function ChatRuleEditorModal({
     ? generalizedOptions.filter((opt) => opt.pattern !== existingRule.pattern)
     : generalizedOptions;
 
-  const showSaveAsNew = isEditMode && !!onSaveAsNew && narrowerOptions.length > 0;
+  const showSaveAsNew =
+    isEditMode && !!onSaveAsNew && narrowerOptions.length > 0;
 
   // In edit mode the default selection is the first narrower option (what
   // "Save As New" persists), so the button can't upsert the existing pattern
@@ -282,7 +297,9 @@ export function ChatRuleEditorModal({
       // Default to first narrower option.
       if (narrowerOptions.length > 0) {
         const firstNarrower = narrowerOptions[0];
-        const idx = effectiveOptions.findIndex((o) => o.pattern === firstNarrower.pattern);
+        const idx = effectiveOptions.findIndex(
+          (o) => o.pattern === firstNarrower.pattern,
+        );
         if (idx >= 0) {
           setSelectedPatternIndex(idx);
         }
@@ -291,15 +308,26 @@ export function ChatRuleEditorModal({
       }
 
       // If suggestion arrived, pre-select its pattern for Save As New.
-      if (suggestion && suggestion.pattern && suggestion.pattern !== existingRule.pattern) {
-        const matchIdx = effectiveOptions.findIndex((o) => o.pattern === suggestion.pattern);
-        if (matchIdx >= generalizationOffset || (matchIdx >= 0 && isSingleOption)) {
+      if (
+        suggestion &&
+        suggestion.pattern &&
+        suggestion.pattern !== existingRule.pattern
+      ) {
+        const matchIdx = effectiveOptions.findIndex(
+          (o) => o.pattern === suggestion.pattern,
+        );
+        if (
+          matchIdx >= generalizationOffset ||
+          (matchIdx >= 0 && isSingleOption)
+        ) {
           setSelectedPatternIndex(matchIdx);
         }
       }
       // Apply suggestion directory scope in edit mode.
       if (suggestion?.scope && suggestion.scope !== "everywhere") {
-        const matchIdx = directoryScopeFiltered.findIndex((o) => o.scope === suggestion.scope);
+        const matchIdx = directoryScopeFiltered.findIndex(
+          (o) => o.scope === suggestion.scope,
+        );
         if (matchIdx >= 0) {
           setSelectedDirScopeIndex(matchIdx);
         }
@@ -310,13 +338,20 @@ export function ChatRuleEditorModal({
         setSelectedRiskLevel(toRiskLevel(suggestion.risk));
       }
       if (suggestion.pattern) {
-        const matchIdx = effectiveOptions.findIndex((o) => o.pattern === suggestion.pattern);
-        if (matchIdx >= generalizationOffset || (matchIdx >= 0 && isSingleOption)) {
+        const matchIdx = effectiveOptions.findIndex(
+          (o) => o.pattern === suggestion.pattern,
+        );
+        if (
+          matchIdx >= generalizationOffset ||
+          (matchIdx >= 0 && isSingleOption)
+        ) {
           setSelectedPatternIndex(matchIdx);
         }
       }
       if (suggestion.scope && suggestion.scope !== "everywhere") {
-        const matchIdx = directoryScopeFiltered.findIndex((o) => o.scope === suggestion.scope);
+        const matchIdx = directoryScopeFiltered.findIndex(
+          (o) => o.scope === suggestion.scope,
+        );
         if (matchIdx >= 0) {
           setSelectedDirScopeIndex(matchIdx);
         }
@@ -328,7 +363,18 @@ export function ChatRuleEditorModal({
         setSelectedPatternIndex(0);
       }
     }
-  }, [suggestionPattern, hasUserInteracted, existingRule, suggestion, effectiveOptions, isSingleOption, narrowerOptions, directoryScopeFiltered, context.riskLevel, generalizationOffset]);
+  }, [
+    suggestionPattern,
+    hasUserInteracted,
+    existingRule,
+    suggestion,
+    effectiveOptions,
+    isSingleOption,
+    narrowerOptions,
+    directoryScopeFiltered,
+    context.riskLevel,
+    generalizationOffset,
+  ]);
 
   const handleUserInteraction = useCallback((setter: () => void) => {
     setHasUserInteracted(true);
@@ -371,7 +417,17 @@ export function ChatRuleEditorModal({
         scope: resolvedScope(),
       });
     }
-  }, [canSave, isEditMode, existingRule, effectiveOptions, context.toolName, selectedPatternIndex, selectedRiskLevel, resolvedScope, onSave]);
+  }, [
+    canSave,
+    isEditMode,
+    existingRule,
+    effectiveOptions,
+    context.toolName,
+    selectedPatternIndex,
+    selectedRiskLevel,
+    resolvedScope,
+    onSave,
+  ]);
 
   const handleSaveAsNew = useCallback(() => {
     if (!onSaveAsNew || selectedPatternIndex >= effectiveOptions.length) {
@@ -384,7 +440,14 @@ export function ChatRuleEditorModal({
       riskLevel: selectedRiskLevel,
       scope: resolvedScope(),
     });
-  }, [onSaveAsNew, effectiveOptions, selectedPatternIndex, context.toolName, selectedRiskLevel, resolvedScope]);
+  }, [
+    onSaveAsNew,
+    effectiveOptions,
+    selectedPatternIndex,
+    context.toolName,
+    selectedRiskLevel,
+    resolvedScope,
+  ]);
 
   const riskHint = getRiskToleranceHint(selectedRiskLevel) ?? "";
 
@@ -408,7 +471,9 @@ export function ChatRuleEditorModal({
     >
       <Modal.Content size="sm" hideCloseButton>
         <Modal.Header>
-          <Modal.Title>{isEditMode ? "Edit Trust Rule" : "Create Trust Rule"}</Modal.Title>
+          <Modal.Title>
+            {isEditMode ? "Edit Trust Rule" : "Create Trust Rule"}
+          </Modal.Title>
           <Modal.Description>
             Matching tool calls take this rule's risk level, so your approval
             tolerance can auto-approve them.
@@ -497,7 +562,9 @@ export function ChatRuleEditorModal({
                             >
                               <Radio
                                 value={String(scopeIdx)}
-                                label={<OptionLabel mono>{option.label}</OptionLabel>}
+                                label={
+                                  <OptionLabel mono>{option.label}</OptionLabel>
+                                }
                               />
                             </OverlayCard>
                           );
@@ -636,7 +703,9 @@ export function ChatRuleEditorModal({
                 <Button
                   variant="outlined"
                   onClick={handleSaveAsNew}
-                  disabled={isSaving || selectedPatternIndex >= effectiveOptions.length}
+                  disabled={
+                    isSaving || selectedPatternIndex >= effectiveOptions.length
+                  }
                 >
                   Save As New
                 </Button>

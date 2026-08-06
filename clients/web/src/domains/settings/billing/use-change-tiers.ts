@@ -38,7 +38,12 @@ export interface CurrentTiers {
 
 /** A three-dimension custom selection to apply (mirrors `CustomPlanSelection`). */
 export interface ChangeTiersSelection {
-  machineTier: MachineTierEnum;
+  /**
+   * `null` is the baseline machine. Only a sub already on the baseline can
+   * submit it (the configurator offers it to no one else), so it always equals
+   * `current.machineTier` and dispatches nothing.
+   */
+  machineTier: MachineTierEnum | null;
   storageTier: StorageTierEnum;
   /** `null` is the explicit "No extra credits" choice. */
   creditTier: CreditTierEnum | null;
@@ -50,9 +55,17 @@ export interface ChangeTiersResult {
    * A resource dimension grew and persisted — a storage upgrade or a machine
    * upgrade — so the assistant must provision the new compute/disk and the
    * caller opens the resize takeover. A machine downgrade, a credit-only
-   * change, or a no-op leaves this false.
+   * change, or a no-op leaves this false. Credits are kept out of it so
+   * downstream resize logic stays keyed on "the assistant must provision".
    */
   needsResize: boolean;
+  /**
+   * The credit bundle changed and persisted. Reported alongside `needsResize`
+   * so the caller can surface the takeover for a credit-only change (a readable
+   * confirmation moment) even though no compute/disk provisioning is owed.
+   * False for a machine/storage-only change or a no-op.
+   */
+  creditChanged: boolean;
 }
 
 export interface UseChangeTiersResult {
@@ -69,6 +82,23 @@ export interface UseChangeTiersResult {
    * "not representable" — a false negative would misroute an eligible sub.
    */
   currentReady: boolean;
+  /**
+   * Whether `current`'s server-read dimensions were actually READ: for a Pro
+   * sub, the onboarding payload behind them is in hand. `currentReady` only
+   * says that read settled, so it is true for one that failed, and a failed
+   * read leaves `machineTier` null, which is exactly what a package naming no
+   * machine reports. Callers that rank the machine tier must consult this and
+   * treat an unread tier as unknown rather than as the machine-less floor.
+   */
+  currentKnown: boolean;
+  /**
+   * The assistant the server provisions against, from the same onboarding
+   * payload `current` reads, and only when that payload is trustworthy: it
+   * carries `currentKnown`'s gate for the same reason the tiers do. Null when
+   * the org names no primary or the read cannot be trusted, so callers must
+   * decide for themselves whether an unknown target is safe to guess at.
+   */
+  primaryAssistantId: string | null;
 }
 
 /**
@@ -156,6 +186,34 @@ export function useChangeTiers({
   // that first load settles (success or error) — an error leaves the tiers null,
   // which the caller safely reads as "not representable" and routes to manage.
   const currentReady = !onPro || !onboardingQuery.isPending;
+  // Whether these tiers can be trusted to describe the sub right now, which is
+  // stricter than `currentReady` and exists because ranking a wrong machine
+  // tier silently grants a downgrade the no-op inference only a raise earns.
+  //
+  // Every state the query can be in that does not answer "yes":
+  //   - never loaded: no payload, every dimension null
+  //   - loaded with no payload: a successful read of nothing, same nulls
+  //   - failed outright: same nulls, and null is what a machine-less package
+  //     legitimately reports, so it cannot be told apart from one
+  //   - failed over cached data: payload retained, real but no longer current
+  //   - re-reading cached data: payload retained and possibly about to change
+  //
+  // A settled read is still not enough on its own, because these tiers are
+  // ranked against a subscription read from a different query. The client holds
+  // both for `staleTime` without refetching, so a subscription refreshed on its
+  // own can be paired with onboarding describing the plan before it: a fresh
+  // Ultra sub beside a cached machine-less payload ranks a step down as a step
+  // up. The two have to be read from the same moment or later, so the payload
+  // must not predate the subscription it is being compared against.
+  //
+  // Callers treat everything else as unrankable, which costs a fast path and
+  // never costs correctness.
+  const currentKnown =
+    !onPro ||
+    (onboardingQuery.isSuccess &&
+      onboardingQuery.data != null &&
+      !onboardingQuery.isFetching &&
+      onboardingQuery.dataUpdatedAt >= subscriptionQuery.dataUpdatedAt);
 
   const isPending =
     changeMachineTierMutation.isPending ||
@@ -251,7 +309,7 @@ export function useChangeTiers({
     // Nothing diverged from the current config — treat as a successful no-op so
     // the caller closes the modal without opening the resize takeover.
     if (pending.length === 0) {
-      return { needsResize: false };
+      return { needsResize: false, creditChanged: false };
     }
 
     const results = await Promise.all(pending);
@@ -270,6 +328,11 @@ export function useChangeTiers({
       (r) => r.ok && r.dimension === "storage",
     );
     const needsResize = machineUpgradeSucceeded || storageSucceeded;
+    // A persisted credit-bundle change surfaces the takeover without owing any
+    // compute/disk provisioning, so it is tracked apart from `needsResize`.
+    const creditSucceeded = results.some(
+      (r) => r.ok && r.dimension === "credit",
+    );
 
     const failures = results.filter((r) => !r.ok);
     if (failures.length > 0) {
@@ -282,15 +345,31 @@ export function useChangeTiers({
         )
         .join(" ");
       toast.error(message);
-      // A resource dimension can persist server-side even when another one
-      // fails, so still surface the resize takeover to provision it; the caller
+      // A resource or credit dimension can persist server-side even when another
+      // one fails, so still surface the takeover for what landed; the caller
       // closes the modal. Only when nothing landed do we return null to hold the
       // modal open for a retry.
-      return needsResize ? { needsResize: true } : null;
+      return needsResize || creditSucceeded
+        ? { needsResize, creditChanged: creditSucceeded }
+        : null;
     }
 
-    return { needsResize };
+    return { needsResize, creditChanged: creditSucceeded };
   };
 
-  return { changeTiers, isPending, current, eligible, currentReady };
+  return {
+    changeTiers,
+    isPending,
+    current,
+    eligible,
+    currentReady,
+    currentKnown,
+    // Only from a payload we trust. This names the pod a caller will read tier
+    // values off, and a stale payload can name the org's previous primary while
+    // the takeover resolves the current one from its own read, which would
+    // describe two different machines as one change.
+    primaryAssistantId: currentKnown
+      ? (onboardingQuery.data?.primary_assistant_id ?? null)
+      : null,
+  };
 }

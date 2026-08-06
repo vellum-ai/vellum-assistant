@@ -7,10 +7,27 @@ import type { BrowserOptions, ErrorEvent } from "@sentry/react";
 // ---------------------------------------------------------------------------
 
 let lastInitOptions: BrowserOptions | undefined;
-const initMock = mock((options: BrowserOptions) => {
-  lastInitOptions = options;
+let siblingInit: ((options: BrowserOptions) => void) | undefined;
+const shutdownOrder: string[] = [];
+const initMock = mock(
+  (
+    options: BrowserOptions,
+    originalInit?: (options: BrowserOptions) => void,
+  ) => {
+    lastInitOptions = options;
+    siblingInit = originalInit;
+  },
+);
+const closeMock = mock(() => {
+  shutdownOrder.push("sentry");
+  return Promise.resolve();
 });
-const closeMock = mock(() => Promise.resolve());
+const reactInitMock = mock((_options: BrowserOptions) => {});
+const startNativeFailureReportForwardingMock = mock(() => Promise.resolve());
+const stopNativeFailureReportForwardingMock = mock(() => {
+  shutdownOrder.push("reports");
+  return Promise.resolve();
+});
 let client: { getOptions: () => { enabled?: boolean } } | undefined;
 
 mock.module("@sentry/capacitor", () => ({
@@ -18,7 +35,11 @@ mock.module("@sentry/capacitor", () => ({
   close: closeMock,
   getClient: () => client,
 }));
-mock.module("@sentry/react", () => ({ init: mock(() => {}) }));
+mock.module("@sentry/react", () => ({ init: reactInitMock }));
+mock.module("@/runtime/native-failure-reports", () => ({
+  startNativeFailureReportForwarding: startNativeFailureReportForwardingMock,
+  stopNativeFailureReportForwarding: stopNativeFailureReportForwardingMock,
+}));
 
 // Controllable composed gate the flavor's beforeSend reads.
 let consent = false;
@@ -35,7 +56,12 @@ const anEvent = (): ErrorEvent =>
 beforeEach(() => {
   initMock.mockClear();
   closeMock.mockClear();
+  reactInitMock.mockClear();
+  startNativeFailureReportForwardingMock.mockClear();
+  stopNativeFailureReportForwardingMock.mockClear();
+  shutdownOrder.length = 0;
   lastInitOptions = undefined;
+  siblingInit = undefined;
   client = undefined;
   consent = false;
 });
@@ -46,6 +72,16 @@ describe("capacitorFlavor.init", () => {
     expect(initMock).toHaveBeenCalledTimes(1);
     expect(lastInitOptions?.enabled).toBe(true);
     expect(lastInitOptions?.dsn).toBe(OPTIONS.dsn);
+  });
+
+  test("starts native failure forwarding after the Sentry client initializes", () => {
+    capacitorFlavor.init(OPTIONS);
+    expect(startNativeFailureReportForwardingMock).not.toHaveBeenCalled();
+
+    siblingInit?.(OPTIONS);
+
+    expect(reactInitMock).toHaveBeenCalledWith(OPTIONS);
+    expect(startNativeFailureReportForwardingMock).toHaveBeenCalledTimes(1);
   });
 
   test("beforeSend drops JS-bridged events when consent is off", () => {
@@ -70,12 +106,39 @@ describe("capacitorFlavor.init", () => {
     consent = false; // user opts out after the client was initialized
     expect(beforeSend?.(anEvent(), {})).toBeNull();
   });
+
+  test("composes the caller's beforeSend instead of replacing it", () => {
+    // The caller's hook carries diagnostic enrichment that every surface
+    // should get and must apply to every native mobile shell.
+    consent = true;
+    const enriched = { event_id: "enriched" } as ErrorEvent;
+    capacitorFlavor.init({ ...OPTIONS, beforeSend: () => enriched });
+
+    expect(lastInitOptions?.beforeSend?.(anEvent(), {})).toBe(enriched);
+  });
+
+  test("consent is checked before the caller's beforeSend runs", () => {
+    consent = false;
+    let callerRan = false;
+    capacitorFlavor.init({
+      ...OPTIONS,
+      beforeSend: (event) => {
+        callerRan = true;
+        return event;
+      },
+    });
+
+    expect(lastInitOptions?.beforeSend?.(anEvent(), {})).toBeNull();
+    expect(callerRan).toBe(false);
+  });
 });
 
 describe("capacitorFlavor.close", () => {
-  test("shuts down both JS and native via Capacitor.close", () => {
-    void capacitorFlavor.close();
+  test("disables queued reports before shutting down Sentry", async () => {
+    await capacitorFlavor.close();
+    expect(stopNativeFailureReportForwardingMock).toHaveBeenCalledTimes(1);
     expect(closeMock).toHaveBeenCalledTimes(1);
+    expect(shutdownOrder).toEqual(["reports", "sentry"]);
   });
 });
 

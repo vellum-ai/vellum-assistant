@@ -6,7 +6,8 @@
  * middleware, loaders, and API interceptors can read state synchronously
  * via `useOrganizationStore.getState()` outside the React tree. The
  * active organization is persisted to sessionStorage so page refreshes
- * and new tabs preserve the selection.
+ * and new tabs preserve the selection, and mirrored into state as
+ * `persistedOrganizationId` so React consumers can subscribe to it.
  *
  * Lifecycle (auth subscription + focus/visibility refetch) is registered
  * via `setupOrganizationStore()`, called once at app startup.
@@ -22,21 +23,58 @@ import { organizationsList } from "@/generated/api/sdk.gen";
 import type { OrganizationRead } from "@/generated/api/types.gen";
 import { subscribe } from "@/lib/event-bus";
 import { useAuthStore } from "@/stores/auth-store";
-import { hasLivePlatformSession } from "@/stores/session-status";
+import {
+  hasLivePlatformSession,
+  isSettledSessionRejection,
+} from "@/stores/session-status";
 
 const ACTIVE_ORGANIZATION_STORAGE_KEY = "vellum_active_organization_id";
 
-type OrganizationStatus = "idle" | "loading" | "ready" | "error";
+export type OrganizationStatus = "idle" | "loading" | "ready" | "error";
+
+/**
+ * How a fetch concluded. `"rejected"` is a settled session rejection from the
+ * platform (401/403/410): the request completed and the server refused the
+ * credentials. `"unavailable"` covers everything else that lands in the error
+ * path: transport failures, 5xx, and a user with no organizations.
+ */
+export type OrgFetchOutcome =
+  | { ok: true }
+  | { ok: false; kind: "rejected"; status: number }
+  | { ok: false; kind: "unavailable" };
 
 interface OrganizationState {
   organizations: OrganizationRead[];
+  /** The selection resolved against the fetched list. */
   currentOrganizationId: string | null;
+  /**
+   * The sessionStorage-persisted selection, which stands in for
+   * `currentOrganizationId` until the list resolves. Every write to the
+   * persisted value goes through a store action that updates this slice and
+   * sessionStorage together, so subscribers observe the id requests carry.
+   */
+  persistedOrganizationId: string | null;
   status: OrganizationStatus;
   error: string | null;
 }
 
 interface OrganizationActions {
-  fetchOrganizations: () => Promise<void>;
+  /**
+   * Load the org list and report how the fetch concluded. When `isCurrent`
+   * is provided and answers false at commit time (a raced caller superseded
+   * mid-flight), a failed fetch settles status/error only: no org list, id,
+   * or storage writes, so a stale rejection cannot strip the org fallback
+   * out from under a newer session, while readiness still reaches a
+   * terminal state. A successful fetch consults `isSameSession` (defaulting
+   * to `isCurrent`): when the probed session is still the active one — the
+   * fetch merely outlived the probe's race timeout — the resolved org
+   * commits fully; a fetch superseded by a newer session/probe discards its
+   * success so an older account's org id cannot install itself.
+   */
+  fetchOrganizations: (
+    isCurrent?: () => boolean,
+    isSameSession?: () => boolean,
+  ) => Promise<OrgFetchOutcome>;
   setCurrentOrganizationId: (organizationId: string) => void;
   clearOrganization: () => void;
 }
@@ -52,7 +90,9 @@ function getSessionStorage(): Storage | null {
 
 function getStoredOrganizationId(): string | null {
   const storage = getSessionStorage();
-  if (!storage) return null;
+  if (!storage) {
+    return null;
+  }
   try {
     return storage.getItem(ACTIVE_ORGANIZATION_STORAGE_KEY);
   } catch {
@@ -62,7 +102,9 @@ function getStoredOrganizationId(): string | null {
 
 function setStoredOrganizationId(organizationId: string): void {
   const storage = getSessionStorage();
-  if (!storage) return;
+  if (!storage) {
+    return;
+  }
   try {
     storage.setItem(ACTIVE_ORGANIZATION_STORAGE_KEY, organizationId);
   } catch {
@@ -72,7 +114,9 @@ function setStoredOrganizationId(organizationId: string): void {
 
 function clearStoredOrganizationId(): void {
   const storage = getSessionStorage();
-  if (!storage) return;
+  if (!storage) {
+    return;
+  }
   try {
     storage.removeItem(ACTIVE_ORGANIZATION_STORAGE_KEY);
   } catch {
@@ -84,7 +128,9 @@ function resolveActiveOrganizationId(
   organizations: readonly OrganizationRead[],
   candidateId: string | null,
 ): string | null {
-  if (organizations.length === 0) return null;
+  if (organizations.length === 0) {
+    return null;
+  }
   if (candidateId && organizations.some((org) => org.id === candidateId)) {
     return candidateId;
   }
@@ -94,49 +140,117 @@ function resolveActiveOrganizationId(
 const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
   organizations: [],
   currentOrganizationId: null,
+  persistedOrganizationId: getStoredOrganizationId(),
   status: "idle",
   error: null,
 
-  fetchOrganizations: async () => {
+  fetchOrganizations: async (
+    isCurrent?: () => boolean,
+    isSameSession?: () => boolean,
+  ) => {
     set({ status: "loading", error: null });
 
     try {
       const result = await organizationsList();
+      // throwOnError is false, so an HTTP error surfaces as data-undefined
+      // with the completed Response alongside.
+      const failureStatus =
+        result.data === undefined ? (result.response?.status ?? null) : null;
+      const rejectionStatus =
+        failureStatus !== null &&
+        isSettledSessionRejection({ ok: false, status: failureStatus })
+          ? failureStatus
+          : null;
       const organizations = result.data?.results ?? [];
       const candidateId =
-        get().currentOrganizationId ?? getStoredOrganizationId();
+        get().currentOrganizationId ?? get().persistedOrganizationId;
       const currentOrganizationId = resolveActiveOrganizationId(
         organizations,
         candidateId,
       );
+      const outcome: OrgFetchOutcome = currentOrganizationId
+        ? { ok: true }
+        : rejectionStatus !== null
+          ? { ok: false, kind: "rejected", status: rejectionStatus }
+          : { ok: false, kind: "unavailable" };
+
+      let error: string | null = null;
+      if (!currentOrganizationId) {
+        error =
+          rejectionStatus !== null
+            ? `Platform session was rejected (HTTP ${rejectionStatus}).`
+            : "No organization available for this user.";
+      }
+
+      // A non-current caller commits no failure state beyond status/error: a
+      // stale rejection must not strip the org fallback out from under a
+      // newer session, but leaving the store at "loading" would wedge
+      // org-header readiness at "resolving" when no newer fetch is coming
+      // (the probe's race timeout). A SUCCESS is judged by `isSameSession`:
+      // when the fetch merely outlived the probe's race timeout but the
+      // probed session is still the active one, the resolved org belongs to
+      // that session and discarding it would strand readiness until the next
+      // resume — it commits fully. Only a fetch superseded by a newer
+      // session/probe discards its success, since an older account's org id
+      // must not overwrite the newer header source.
+      const current = isCurrent?.() ?? true;
+      const successCommits =
+        current || ((isSameSession ?? isCurrent)?.() ?? true);
+      if (currentOrganizationId ? !successCommits : !current) {
+        set({
+          status: "error",
+          error: error ?? "Organization fetch superseded.",
+        });
+        return outcome;
+      }
 
       if (currentOrganizationId) {
         setStoredOrganizationId(currentOrganizationId);
       }
 
+      // A rejected session must stop stamping requests with its stale org
+      // id; transport failures keep the fallback for offline reloads.
+      if (rejectionStatus !== null) {
+        clearStoredOrganizationId();
+      }
+      const persistedOrganizationId =
+        rejectionStatus !== null
+          ? null
+          : (currentOrganizationId ?? get().persistedOrganizationId);
+
       set({
         organizations,
         currentOrganizationId,
+        persistedOrganizationId,
         status: currentOrganizationId ? "ready" : "error",
-        error: currentOrganizationId
-          ? null
-          : "No organization available for this user.",
+        error,
       });
+
+      return outcome;
     } catch (err) {
       const message =
         err instanceof Error && err.message
           ? err.message
           : "Failed to load organizations.";
+      // Status-only settle even for superseded callers, or readiness wedges
+      // at "resolving" when no newer fetch is coming.
       set({ status: "error", error: message });
+      return { ok: false, kind: "unavailable" };
     }
   },
 
   setCurrentOrganizationId: (organizationId: string) => {
     const { organizations } = get();
-    if (!organizations.some((org) => org.id === organizationId)) return;
+    if (!organizations.some((org) => org.id === organizationId)) {
+      return;
+    }
 
     setStoredOrganizationId(organizationId);
-    set({ currentOrganizationId: organizationId, status: "ready" });
+    set({
+      currentOrganizationId: organizationId,
+      persistedOrganizationId: organizationId,
+      status: "ready",
+    });
   },
 
   clearOrganization: () => {
@@ -144,6 +258,7 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
     set({
       organizations: [],
       currentOrganizationId: null,
+      persistedOrganizationId: null,
       status: "idle",
       error: null,
     });
@@ -153,14 +268,30 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
 export const useOrganizationStore = createSelectors(useOrganizationStoreBase);
 
 /**
+ * The organization a request made right now would be scoped to: the selection
+ * resolved against the list, or the persisted one standing in for it.
+ */
+function selectRequestOrganizationId(state: OrganizationState): string | null {
+  return state.currentOrganizationId ?? state.persistedOrganizationId;
+}
+
+/**
  * Read the active organization ID for non-React contexts (API interceptors).
- * Prefer `useOrganizationStore.use.currentOrganizationId()` in components.
+ * Prefer `useRequestOrganizationId()` in components.
  */
 export function getActiveOrganizationIdForRequests(): string | null {
-  return (
-    useOrganizationStore.getState().currentOrganizationId ??
-    getStoredOrganizationId()
-  );
+  return selectRequestOrganizationId(useOrganizationStore.getState());
+}
+
+/**
+ * Subscribe to the organization requests are scoped to.
+ *
+ * Same derivation `Vellum-Organization-Id` is built from, so anything a
+ * component keys on it — a query cache scope, a readiness gate — moves with
+ * the header rather than trailing it.
+ */
+export function useRequestOrganizationId(): string | null {
+  return useOrganizationStore(selectRequestOrganizationId);
 }
 
 /**
@@ -199,17 +330,16 @@ export function setupOrganizationStore(): () => void {
   const unsubAuth = useAuthStore.subscribe((state, prevState) => {
     const hasSession = hasLivePlatformSession(state.platformSession);
     const hadSession = hasLivePlatformSession(prevState.platformSession);
-    if (
-      hasSession &&
-      (!hadSession || state.user?.id !== prevState.user?.id)
-    ) {
+    if (hasSession && (!hadSession || state.user?.id !== prevState.user?.id)) {
       useOrganizationStore.getState().fetchOrganizations();
     }
   });
 
   // 2. App resume — refetch if stale and platform session is active.
   const refetchIfStale = () => {
-    if (!hasLivePlatformSession(useAuthStore.getState().platformSession)) return;
+    if (!hasLivePlatformSession(useAuthStore.getState().platformSession)) {
+      return;
+    }
     const { status } = useOrganizationStore.getState();
     if (
       (status === "ready" || status === "error") &&

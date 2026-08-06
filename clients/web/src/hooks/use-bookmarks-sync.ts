@@ -27,8 +27,12 @@ export function useBookmarksSync(): void {
 
   useBusSubscription("sse.event", (envelope) => {
     const type = (envelope.message as { type?: string }).type;
-    if (type !== "bookmark.created" && type !== "bookmark.deleted") return;
-    if (!assistantId) return;
+    if (type !== "bookmark.created" && type !== "bookmark.deleted") {
+      return;
+    }
+    if (!assistantId) {
+      return;
+    }
     void queryClient.invalidateQueries({
       queryKey: bookmarksGetQueryKey({ path: { assistant_id: assistantId } }),
     });

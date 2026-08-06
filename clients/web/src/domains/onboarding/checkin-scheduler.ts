@@ -65,9 +65,10 @@ export async function scheduleCheckin({
       throwOnError: false,
     });
 
-    const ok =
-      result.response?.ok === true && result.data?.scheduled === true;
-    if (!ok) return { scheduled: false };
+    const ok = result.response?.ok === true && result.data?.scheduled === true;
+    if (!ok) {
+      return { scheduled: false };
+    }
     return {
       scheduled: true,
       start: result.data?.start,

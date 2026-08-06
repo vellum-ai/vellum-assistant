@@ -1,4 +1,11 @@
-import { describe, expect, test, beforeEach } from "bun:test";
+import {
+  afterEach,
+  describe,
+  expect,
+  test,
+  beforeEach,
+  setSystemTime,
+} from "bun:test";
 
 import {
   endSseClient,
@@ -18,6 +25,10 @@ import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 
 beforeEach(() => {
   resetSseDebugStateForTests();
+});
+
+afterEach(() => {
+  setSystemTime();
 });
 
 function makeTextDeltaEvent(text: string): AssistantEvent {
@@ -62,6 +73,8 @@ describe("registerSseClient", () => {
     expect(found!.lastDataAt).toBeNull();
     expect(found!.dataFrames).toBe(0);
     expect(found!.keepalives).toBe(0);
+    expect(found!.firstFrameAt).toBeNull();
+    expect(found!.interKeepaliveMs).toBeNull();
     // AND it starts out live (no end metadata yet)
     expect(found!.endedAt).toBeNull();
     expect(found!.endReason).toBeNull();
@@ -213,7 +226,9 @@ describe("markClientEstablished", () => {
 
     // wait a tick so timestamps would differ
     const start = Date.now();
-    while (Date.now() - start < 2) { /* busy wait */ }
+    while (Date.now() - start < 2) {
+      /* busy wait */
+    }
 
     markClientEstablished(id);
     const second = getSseClients().find((c) => c.id === id)!.establishedAt;
@@ -281,14 +296,28 @@ describe("getSseEnvelopesSince", () => {
     const ctrl = new AbortController();
     const id = registerSseClient(ctrl.signal);
     // Two conversations interleaved with sparse, non-consecutive global seqs.
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a3"), { seq: 3, conversationId: "A" }));
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("b4"), { seq: 4, conversationId: "B" }));
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a9"), { seq: 9, conversationId: "A" }));
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a7"), { seq: 7, conversationId: "A" }));
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("a3"), { seq: 3, conversationId: "A" }),
+    );
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("b4"), { seq: 4, conversationId: "B" }),
+    );
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("a9"), { seq: 9, conversationId: "A" }),
+    );
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("a7"), { seq: 7, conversationId: "A" }),
+    );
 
     const tail = getSseEnvelopesSince("A", 3);
     expect(tail?.map((e) => e.seq)).toEqual([7, 9]); // > 3, A only, seq-ordered
-    expect(tail![0]!.message as AssistantEvent).toEqual(makeTextDeltaEvent("a7"));
+    expect(tail![0]!.message as AssistantEvent).toEqual(
+      makeTextDeltaEvent("a7"),
+    );
     expect(tail![0]!.emittedAt).toBe(new Date(1000).toISOString());
   });
 
@@ -297,22 +326,34 @@ describe("getSseEnvelopesSince", () => {
     const id = registerSseClient(ctrl.signal);
     // Oldest retained seq (50) is well past sinceSeq+1 — seqs 4..49 were
     // evicted, so a replay would be a partial tail. Signal a gap instead.
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a50"), { seq: 50, conversationId: "A" }));
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a60"), { seq: 60, conversationId: "A" }));
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("a50"), { seq: 50, conversationId: "A" }),
+    );
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("a60"), { seq: 60, conversationId: "A" }),
+    );
     expect(getSseEnvelopesSince("A", 3)).toBeNull();
   });
 
   test("returns null without a version anchor (snapshot must stand alone)", () => {
     const ctrl = new AbortController();
     const id = registerSseClient(ctrl.signal);
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("x"), { seq: 5, conversationId: "A" }));
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("x"), { seq: 5, conversationId: "A" }),
+    );
     expect(getSseEnvelopesSince("A", null)).toBeNull();
   });
 
   test("returns [] when covered but the conversation has no newer events", () => {
     const ctrl = new AbortController();
     const id = registerSseClient(ctrl.signal);
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("b6"), { seq: 6, conversationId: "B" }));
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("b6"), { seq: 6, conversationId: "B" }),
+    );
     expect(getSseEnvelopesSince("A", 5)).toEqual([]); // oldest 6 <= 5+1, covered
   });
 
@@ -326,7 +367,10 @@ describe("getSseEnvelopesSince", () => {
       emittedAt: new Date(1000).toISOString(),
       message: makeTextDeltaEvent("x"),
     } as AssistantEventEnvelope);
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("y"), { seq: 6, conversationId: "A" }));
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("y"), { seq: 6, conversationId: "A" }),
+    );
     expect(getSseEnvelopesSince("A", 5)?.map((e) => e.seq)).toEqual([6]);
   });
 });
@@ -377,6 +421,126 @@ describe("recordSseTraffic", () => {
   });
 });
 
+describe("recordSseTraffic connect-latency and keepalive cadence", () => {
+  const START = 1_700_000_000_000;
+
+  /** Deliver keepalives at the given gaps, starting at START. */
+  function replayKeepalives(clientId: string, gaps: number[]): void {
+    let at = START;
+    setSystemTime(new Date(at));
+    recordSseTraffic(clientId, false);
+    for (const gap of gaps) {
+      at += gap;
+      setSystemTime(new Date(at));
+      recordSseTraffic(clientId, false);
+    }
+  }
+
+  function clientById(id: string) {
+    return getSseClients().find((c) => c.id === id)!;
+  }
+
+  test("stamps firstFrameAt on the first keepalive and never moves it", () => {
+    // GIVEN a live client whose first frame is a heartbeat comment
+    const id = registerSseClient(new AbortController().signal);
+    setSystemTime(new Date(START));
+    recordSseTraffic(id, false);
+
+    // WHEN later frames of either kind arrive
+    setSystemTime(new Date(START + 5_000));
+    recordSseTraffic(id, true);
+    setSystemTime(new Date(START + 9_000));
+    recordSseTraffic(id, false);
+
+    // THEN firstFrameAt still marks the connect moment, not the first data
+    const client = clientById(id);
+    expect(client.firstFrameAt).toBe(START);
+    expect(client.establishedAt).toBeNull();
+    expect(client.lastTrafficAt).toBe(START + 9_000);
+  });
+
+  test("stamps firstFrameAt on a first data frame too", () => {
+    const id = registerSseClient(new AbortController().signal);
+    setSystemTime(new Date(START));
+    recordSseTraffic(id, true);
+    expect(clientById(id).firstFrameAt).toBe(START);
+  });
+
+  test("reports the daemon heartbeat cadence for evenly spaced keepalives", () => {
+    // GIVEN ten keepalives 7s apart (a healthy end-to-end daemon heartbeat)
+    const id = registerSseClient(new AbortController().signal);
+    replayKeepalives(id, Array.from({ length: 9 }, () => 7_000));
+
+    // THEN the median gap reads back as the heartbeat interval
+    expect(clientById(id).interKeepaliveMs).toBe(7_000);
+    expect(clientById(id).keepalives).toBe(10);
+  });
+
+  test("reports the proxy injector cadence when the daemon heartbeat is lost", () => {
+    // GIVEN keepalives arriving only at the platform proxy's 10s injection
+    const id = registerSseClient(new AbortController().signal);
+    replayKeepalives(id, [10_000, 10_000, 10_000]);
+
+    expect(clientById(id).interKeepaliveMs).toBe(10_000);
+  });
+
+  test("takes the median, not the latest gap, of jittered arrivals", () => {
+    // GIVEN gaps alternating around 7s
+    const id = registerSseClient(new AbortController().signal);
+    replayKeepalives(id, [6_000, 8_000, 6_000, 8_000, 6_000, 8_000]);
+
+    // THEN a single jittered arrival cannot swing the reported cadence
+    expect(clientById(id).interKeepaliveMs).toBe(7_000);
+  });
+
+  test("stays null until two gaps are known", () => {
+    // GIVEN a single keepalive (no gap at all)
+    const id = registerSseClient(new AbortController().signal);
+    setSystemTime(new Date(START));
+    recordSseTraffic(id, false);
+    expect(clientById(id).interKeepaliveMs).toBeNull();
+
+    // AND a second keepalive (one gap is not yet a cadence)
+    setSystemTime(new Date(START + 7_000));
+    recordSseTraffic(id, false);
+    expect(clientById(id).interKeepaliveMs).toBeNull();
+
+    // THEN the third arrival is what establishes a median
+    setSystemTime(new Date(START + 14_000));
+    recordSseTraffic(id, false);
+    expect(clientById(id).interKeepaliveMs).toBe(7_000);
+  });
+
+  test("keeps only the most recent gaps so a cadence change is visible", () => {
+    // GIVEN a long run at 7s followed by more than the 20-gap window at 10s
+    const id = registerSseClient(new AbortController().signal);
+    replayKeepalives(id, [
+      ...Array.from({ length: 10 }, () => 7_000),
+      ...Array.from({ length: 21 }, () => 10_000),
+    ]);
+
+    // THEN the stale 7s run has aged out of the window
+    expect(clientById(id).interKeepaliveMs).toBe(10_000);
+  });
+
+  test("does not leak gap state from an ended client to its replacement", () => {
+    // GIVEN a client that ended with a settled 10s cadence
+    const first = registerSseClient(new AbortController().signal);
+    replayKeepalives(first, [10_000, 10_000, 10_000]);
+    endSseClient(first, "watchdog");
+
+    // WHEN a replacement connection starts and sees one keepalive
+    const second = registerSseClient(new AbortController().signal);
+    setSystemTime(new Date(START + 100_000));
+    recordSseTraffic(second, false);
+
+    // THEN the replacement reports no cadence yet, and the ended client
+    // keeps its final reading for post-hoc diagnosis
+    expect(clientById(second).interKeepaliveMs).toBeNull();
+    expect(clientById(first).interKeepaliveMs).toBe(10_000);
+  });
+});
+
 describe("ingestReplayedEnvelopes", () => {
   test("bridges an eviction gap so the reseed replay can serve the tail", () => {
     // GIVEN a live buffer whose oldest retained seq (50) is past the
@@ -384,8 +548,14 @@ describe("ingestReplayedEnvelopes", () => {
     // "no safe replay"
     const ctrl = new AbortController();
     const id = registerSseClient(ctrl.signal);
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a50"), { seq: 50, conversationId: "A" }));
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a60"), { seq: 60, conversationId: "A" }));
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("a50"), { seq: 50, conversationId: "A" }),
+    );
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("a60"), { seq: 60, conversationId: "A" }),
+    );
     expect(getSseEnvelopesSince("A", 3)).toBeNull();
 
     // WHEN the server-fetched tail above the anchor is ingested
@@ -397,19 +567,33 @@ describe("ingestReplayedEnvelopes", () => {
     // THEN the replay bridges from the anchor through the live events
     const tail = getSseEnvelopesSince("A", 3);
     expect(tail?.map((e) => e.seq)).toEqual([4, 20, 50, 60]);
-    expect(tail?.[0]?.message as AssistantEvent).toEqual(makeTextDeltaEvent("a4"));
+    expect(tail?.[0]?.message as AssistantEvent).toEqual(
+      makeTextDeltaEvent("a4"),
+    );
   });
 
   test("skips envelopes whose seq the ring already retains", () => {
     // GIVEN a live buffer holding seq 5
     const ctrl = new AbortController();
     const id = registerSseClient(ctrl.signal);
-    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("live-5"), { seq: 5, conversationId: "A" }));
+    pushSseEvent(
+      id,
+      makeEnvelope(makeTextDeltaEvent("live-5"), {
+        seq: 5,
+        conversationId: "A",
+      }),
+    );
 
     // WHEN a tail overlapping that seq is ingested
     ingestReplayedEnvelopes([
-      makeEnvelope(makeTextDeltaEvent("tail-5"), { seq: 5, conversationId: "A" }),
-      makeEnvelope(makeTextDeltaEvent("tail-6"), { seq: 6, conversationId: "A" }),
+      makeEnvelope(makeTextDeltaEvent("tail-5"), {
+        seq: 5,
+        conversationId: "A",
+      }),
+      makeEnvelope(makeTextDeltaEvent("tail-6"), {
+        seq: 6,
+        conversationId: "A",
+      }),
     ]);
 
     // THEN the overlap is deduplicated and the live copy kept

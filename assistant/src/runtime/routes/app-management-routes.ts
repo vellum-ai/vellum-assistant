@@ -139,16 +139,22 @@ function getAppDataResult(
     case "query":
       return queryAppRecords(appId);
     case "create":
-      if (!data) throw new BadRequestError("data is required for create");
+      if (!data) {
+        throw new BadRequestError("data is required for create");
+      }
       return createAppRecord(appId, data);
     case "update":
-      if (!recordId)
+      if (!recordId) {
         throw new BadRequestError("recordId is required for update");
-      if (!data) throw new BadRequestError("data is required for update");
+      }
+      if (!data) {
+        throw new BadRequestError("data is required for update");
+      }
       return updateAppRecord(appId, recordId, data);
     case "delete":
-      if (!recordId)
+      if (!recordId) {
         throw new BadRequestError("recordId is required for delete");
+      }
       deleteAppRecord(appId, recordId);
       return null;
     default:
@@ -222,7 +228,9 @@ function listSharedApps(): Array<Record<string, unknown>> {
   for (const app of apps) {
     if (app.contentId && !app.forked) {
       const versions = contentIdVersions.get(app.contentId) ?? [];
-      if (app.version) versions.push(app.version);
+      if (app.version) {
+        versions.push(app.version);
+      }
       contentIdVersions.set(app.contentId, versions);
     }
   }

@@ -7,6 +7,7 @@
 import { z } from "zod";
 
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   enforceSameActorOrThrow,
@@ -20,28 +21,43 @@ import {
   ForbiddenError,
   NotFoundError,
 } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+/**
+ * Body of `POST /v1/host-bash-result`, declared as the route's `requestBody`
+ * and parsed by the handler, so the OpenAPI contract and the runtime check are
+ * one schema rather than two hand-kept copies.
+ *
+ * `exitCode` is nullable because a process terminated by a signal has no exit
+ * status: the desktop executor forwards Node's `close` argument verbatim, which
+ * is `null` on signal termination (including its own timeout kill). The proxy
+ * result type carries that `null` through to the tool output.
+ *
+ * Unknown keys are stripped rather than rejected, so a desktop client that
+ * reports a newer result field still resolves its pending request.
+ */
+const HostBashResultBodySchema = z.object({
+  requestId: z.string().min(1).describe("Pending bash request ID"),
+  stdout: z.string().optional(),
+  stderr: z.string().optional(),
+  exitCode: z
+    .number()
+    .nullable()
+    .describe("Process exit status, or null when terminated by a signal")
+    .optional(),
+  timedOut: z.boolean().optional(),
+});
 
 // ---------------------------------------------------------------------------
 // POST /v1/host-bash-result
 // ---------------------------------------------------------------------------
 
 async function handleHostBashResult({ body, headers }: RouteHandlerArgs) {
-  if (!body || typeof body !== "object") {
-    throw new BadRequestError("Request body is required");
-  }
-
-  const { requestId, stdout, stderr, exitCode, timedOut } = body as {
-    requestId?: string;
-    stdout?: string;
-    stderr?: string;
-    exitCode?: number | null;
-    timedOut?: boolean;
-  };
-
-  if (!requestId || typeof requestId !== "string") {
-    throw new BadRequestError("requestId is required");
-  }
+  const { requestId, stdout, stderr, exitCode, timedOut } = parseBody(
+    HostBashResultBodySchema,
+    body,
+  );
 
   const submittingClientId =
     headers?.["x-vellum-client-id"]?.trim() || undefined;
@@ -84,6 +100,7 @@ async function handleHostBashResult({ body, headers }: RouteHandlerArgs) {
       targetActorPrincipalId: peeked.targetActorPrincipalId,
       targetClientId,
       op: "host_bash",
+      hubForMissingTarget: assistantEventHub,
     });
   }
 
@@ -114,13 +131,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Submit host bash result",
     description: "Resolve a pending host bash request by requestId.",
     tags: ["host"],
-    requestBody: z.object({
-      requestId: z.string().describe("Pending bash request ID"),
-      stdout: z.string().optional(),
-      stderr: z.string().optional(),
-      exitCode: z.number().optional(),
-      timedOut: z.boolean().optional(),
-    }),
+    requestBody: HostBashResultBodySchema,
     responseBody: z.object({
       accepted: z.boolean(),
     }),

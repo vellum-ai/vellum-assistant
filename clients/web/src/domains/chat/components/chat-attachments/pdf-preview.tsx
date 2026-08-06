@@ -1,4 +1,3 @@
-
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
@@ -15,7 +14,23 @@ import { dataUriToUint8Array } from "@/domains/chat/components/chat-attachments/
  * @see https://bugs.webkit.org/show_bug.cgi?id=118859 — WebKit sandbox+PDF
  */
 
-const SCALE = 1.5;
+/**
+ * Backing-store scale used when the canvas has not been laid out yet (no
+ * measurable width, as in a headless DOM). Otherwise the scale is derived from
+ * the size the canvas actually renders at (see {@link renderPage}), so a page
+ * is neither upscaled into blur where the canvas is capped narrow (the chat
+ * column, the drawer) nor rendered short of the device's pixels.
+ */
+const FALLBACK_SCALE = 1.5;
+
+/**
+ * Ceiling on the derived scale. Every rendered page keeps its canvas mounted,
+ * so the backing store is paid for the life of the preview and a 3x display on
+ * a wide viewport would spend hundreds of megabytes to sharpen text that is
+ * already past what the eye resolves.
+ */
+const MAX_SCALE = 2;
+
 const MAX_PAGES = 20;
 
 let pdfJsConfigured = false;
@@ -35,7 +50,9 @@ interface PdfPreviewProps {
 }
 
 export function PdfPreview({ url, className }: PdfPreviewProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  // Spans with block/flex classes rather than divs: the preview also renders
+  // inline in chat markdown, where a div inside <p> is invalid HTML.
+  const containerRef = useRef<HTMLSpanElement>(null);
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [numPages, setNumPages] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -101,16 +118,34 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
 
   const renderPage = useCallback(
     async (pageNum: number) => {
-      if (!pdf || renderedPages.current.has(pageNum)) return;
+      if (!pdf || renderedPages.current.has(pageNum)) {
+        return;
+      }
 
       const canvas = canvasRefs.current.get(pageNum);
-      if (!canvas) return;
+      if (!canvas) {
+        return;
+      }
 
       renderedPages.current.add(pageNum);
 
       try {
         const page = await pdf.getPage(pageNum);
-        const viewport = page.getViewport({ scale: SCALE });
+        // Match the backing store to the size the canvas is actually rendered
+        // at: callers cap its CSS width (the chat column, the drawer) and a
+        // fixed scale would either blur on a retina display or waste memory.
+        const cssWidth = canvas.clientWidth;
+        const reportedDpr =
+          typeof window === "undefined" ? 1 : window.devicePixelRatio;
+        const dpr = reportedDpr > 0 ? reportedDpr : 1;
+        const scale =
+          cssWidth > 0
+            ? Math.min(
+                (cssWidth * dpr) / page.getViewport({ scale: 1 }).width,
+                MAX_SCALE,
+              )
+            : FALLBACK_SCALE;
+        const viewport = page.getViewport({ scale });
 
         canvas.width = viewport.width;
         canvas.height = viewport.height;
@@ -127,16 +162,20 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
   // Avoids layout thrashing from getBoundingClientRect on every scroll tick.
   // @see https://developer.mozilla.org/en-US/docs/Web/API/Intersection_Observer_API
   useEffect(() => {
-    if (!pdf || numPages === 0) return;
+    if (!pdf || numPages === 0) {
+      return;
+    }
 
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          const pageNum = Number(
-            (entry.target as HTMLElement).dataset.page,
-          );
-          if (pageNum) void renderPage(pageNum);
+          if (!entry.isIntersecting) {
+            continue;
+          }
+          const pageNum = Number((entry.target as HTMLElement).dataset.page);
+          if (pageNum) {
+            void renderPage(pageNum);
+          }
         }
       },
       { root: containerRef.current, rootMargin: "200px" },
@@ -159,22 +198,24 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-24">
+      <span className="flex items-center justify-center py-24">
         <Loader2 className="h-8 w-8 animate-spin text-white/70" />
-      </div>
+      </span>
     );
   }
 
   if (error) {
     return (
-      <div className="w-full max-w-sm rounded-lg border border-white/15 bg-white/[0.08] p-8 text-center">
-        <p className="text-body-medium-lighter text-white/80">{error}</p>
-      </div>
+      <span className="block w-full max-w-sm rounded-lg border border-white/15 bg-white/[0.08] p-8 text-center">
+        <span className="text-body-medium-lighter block text-white/80">
+          {error}
+        </span>
+      </span>
     );
   }
 
   return (
-    <div
+    <span
       ref={containerRef}
       className={`flex max-h-[80vh] flex-col items-center gap-2 overflow-y-auto rounded ${className ?? ""}`}
     >
@@ -187,6 +228,6 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
           style={{ height: "auto" }}
         />
       ))}
-    </div>
+    </span>
   );
 }

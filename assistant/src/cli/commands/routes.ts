@@ -11,6 +11,7 @@ import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { routesHelp } from "./routes.help.js";
+import { registerRoutesWorkerCommand } from "./routes-worker.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,11 +55,15 @@ export function registerRoutesCommand(program: Command): void {
     build: (routes) => {
       applyCommandHelp(routes, routesHelp);
 
+      registerRoutesWorkerCommand(routes);
+
       subcommand(routes, "list").action(async (opts: { json?: boolean }) => {
         const r = await cliIpcCall<{ routes: DiscoveredRoute[] }>(
           "user_routes_list",
         );
-        if (!r.ok) return exitFromIpcResult(r);
+        if (!r.ok) {
+          return exitFromIpcResult(r);
+        }
 
         const discovered = r.result!.routes;
 

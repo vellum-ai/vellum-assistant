@@ -33,7 +33,9 @@ async function slackWelcomeDM(ctx: PostConnectHookContext): Promise<void> {
     | Record<string, unknown>
     | undefined;
   const installingUserId = authedUser?.id as string | undefined;
-  if (!botToken || !installingUserId) return;
+  if (!botToken || !installingUserId) {
+    return;
+  }
 
   const identity = await authTest(botToken);
   const dmChannel = await conversationsOpen(botToken, installingUserId);
@@ -59,7 +61,9 @@ export async function runPostConnectHook(
   ctx: PostConnectHookContext,
 ): Promise<void> {
   const hook = POST_CONNECT_HOOKS[ctx.service];
-  if (!hook) return;
+  if (!hook) {
+    return;
+  }
 
   try {
     await hook(ctx);

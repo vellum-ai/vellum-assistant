@@ -19,6 +19,19 @@ export interface UnifiedTurnContextOptions {
   timestamp: string;
   interfaceName?: string;
   clientOs?: string;
+  /**
+   * App the user currently has open on screen. Rendered as the `visible_app:`
+   * line so unqualified references to "the app" resolve without a lookup.
+   */
+  visibleApp?: {
+    appId: string;
+    /** Opaque for workspace apps, so the readable handle travels alongside. */
+    name: string;
+    /** Directory stem: the handle a human would recognize the app by. */
+    slug: string;
+    /** Set when the app is bundled by an installed plugin rather than built here. */
+    pluginName?: string;
+  } | null;
   channelName?: string;
   actorContext?: InboundActorContext | null;
   configuredUserTimezone?: string | null;
@@ -103,6 +116,18 @@ export function buildUnifiedTurnContextBlock(
   }
   if (options.clientOs) {
     lines.push(`client_os: ${options.clientOs}`);
+  }
+  if (options.visibleApp) {
+    const app = options.visibleApp;
+    // Plugin-bundled apps are owned by their plugin: their source is replaced
+    // on plugin update, so the model is told where it came from rather than
+    // treating it as an ordinary sandbox app to rewrite.
+    const provenance = app.pluginName
+      ? ` It is bundled by the "${sanitizeInlineContextValue(app.pluginName)}" plugin, not built in the sandbox.`
+      : "";
+    lines.push(
+      `visible_app: "${sanitizeInlineContextValue(app.name)}" (app_id: "${sanitizeInlineContextValue(app.appId)}", slug: "${sanitizeInlineContextValue(app.slug)}"). The user has this app open on screen; unqualified references to "the app" mean this one.${provenance}`,
+    );
   }
 
   // Actor identity and trust fields — only for non-guardian turns.

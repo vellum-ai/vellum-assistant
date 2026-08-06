@@ -13,7 +13,9 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Mock state
 // ---------------------------------------------------------------------------
 
-let mockIpcCallFn: any = mock(() => Promise.resolve({ ok: true, result: { results: [] } }));
+let mockIpcCallFn: any = mock(() =>
+  Promise.resolve({ ok: true, result: { results: [] } }),
+);
 let mockIpcCallStreamFn: any = mock(() =>
   Promise.resolve({ ok: false, error: "not used" }),
 );
@@ -23,7 +25,8 @@ let mockIpcCallStreamFn: any = mock(() =>
 // ---------------------------------------------------------------------------
 
 mock.module("../../../ipc/cli-client.js", () => ({
-  cliIpcCall: (...args: Parameters<typeof mockIpcCallFn>) => mockIpcCallFn(...args),
+  cliIpcCall: (...args: Parameters<typeof mockIpcCallFn>) =>
+    mockIpcCallFn(...args),
   cliIpcCallStream: (...args: Parameters<typeof mockIpcCallStreamFn>) =>
     mockIpcCallStreamFn(...args),
   exitFromIpcResult: mock((r: { error?: string; statusCode?: number }) => {
@@ -69,11 +72,18 @@ function makeMockStream(chunks: Uint8Array[]): {
 } {
   const body = new ReadableStream<Uint8Array>({
     start(ctrl) {
-      for (const chunk of chunks) ctrl.enqueue(chunk);
+      for (const chunk of chunks) {
+        ctrl.enqueue(chunk);
+      }
       ctrl.close();
     },
   });
-  return { ok: true, headers: { "x-filename": "test.pdf" }, body, abort: () => {} };
+  return {
+    ok: true,
+    headers: { "x-filename": "test.pdf" },
+    body,
+    abort: () => {},
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -86,7 +96,10 @@ beforeEach(() => {
   process.exitCode = 0;
   captured.length = 0;
 
-  tmpDir = join(tmpdir(), `email-att-ipc-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  tmpDir = join(
+    tmpdir(),
+    `email-att-ipc-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(tmpDir, { recursive: true });
 
   // Default: list returns two attachments
@@ -117,16 +130,16 @@ beforeEach(() => {
   );
 
   mockIpcCallStreamFn = mock(() =>
-    Promise.resolve(
-      makeMockStream([new Uint8Array([1, 2, 3])]),
-    ),
+    Promise.resolve(makeMockStream([new Uint8Array([1, 2, 3])])),
   );
 });
 
 afterEach(() => {
   process.exitCode = 0;
   captured.length = 0;
-  if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true });
+  if (existsSync(tmpDir)) {
+    rmSync(tmpDir, { recursive: true });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -148,7 +161,13 @@ async function runAttachment(...args: string[]): Promise<string> {
     const program = new Command();
     program.exitOverride();
     registerEmailCommand(program);
-    await program.parseAsync(["node", "assistant", "email", "attachment", ...args]);
+    await program.parseAsync([
+      "node",
+      "assistant",
+      "email",
+      "attachment",
+      ...args,
+    ]);
   } catch {
     // exitOverride throws on --help etc; ignore
   } finally {
@@ -167,7 +186,10 @@ describe("email attachment (IPC)", () => {
     await runAttachment("msg_1", "--list");
 
     expect(mockIpcCallFn.mock.calls.length).toBeGreaterThan(0);
-    const [method, params] = mockIpcCallFn.mock.calls[0] as unknown as [string, { queryParams: Record<string, unknown> }];
+    const [method, params] = mockIpcCallFn.mock.calls[0] as unknown as [
+      string,
+      { queryParams: Record<string, unknown> },
+    ];
     expect(method).toBe("email_attachment_list");
     expect(params.queryParams.messageId).toBe("msg_1");
   });
@@ -206,7 +228,15 @@ describe("email attachment (IPC)", () => {
       const program = new Command();
       program.exitOverride();
       registerEmailCommand(program);
-      await program.parseAsync(["node", "assistant", "email", "--json", "attachment", "msg_1", "--list"]);
+      await program.parseAsync([
+        "node",
+        "assistant",
+        "email",
+        "--json",
+        "attachment",
+        "msg_1",
+        "--list",
+      ]);
     } finally {
       process.stdout.write = origWrite;
     }
@@ -232,12 +262,18 @@ describe("email attachment (IPC)", () => {
     await runAttachment("msg_1", "att-001", "-o", tmpDir);
 
     // The list call should come first
-    const listCall = mockIpcCallFn.mock.calls[0] as unknown as [string, { queryParams: Record<string, unknown> }];
+    const listCall = mockIpcCallFn.mock.calls[0] as unknown as [
+      string,
+      { queryParams: Record<string, unknown> },
+    ];
     expect(listCall[0]).toBe("email_attachment_list");
     expect(listCall[1].queryParams.messageId).toBe("msg_1");
 
     // Stream call should use the correct attachmentId and messageId
-    const streamCall = mockIpcCallStreamFn.mock.calls[0] as unknown as [string, { queryParams: Record<string, unknown> }];
+    const streamCall = mockIpcCallStreamFn.mock.calls[0] as unknown as [
+      string,
+      { queryParams: Record<string, unknown> },
+    ];
     expect(streamCall[0]).toBe("email_attachment_get");
     expect(streamCall[1].queryParams.attachmentId).toBe("att-001");
     expect(streamCall[1].queryParams.messageId).toBe("msg_1");
@@ -289,14 +325,20 @@ describe("email attachment (IPC)", () => {
     await runAttachment("msg_1", "--all", "-o", tmpDir);
 
     // First IPC call: list
-    const listCall = mockIpcCallFn.mock.calls[0] as unknown as [string, Record<string, unknown>];
+    const listCall = mockIpcCallFn.mock.calls[0] as unknown as [
+      string,
+      Record<string, unknown>,
+    ];
     expect(listCall[0]).toBe("email_attachment_list");
 
     // Two stream calls — one per attachment
     expect(mockIpcCallStreamFn.mock.calls.length).toBe(2);
-    const ids = (mockIpcCallStreamFn.mock.calls as unknown as [string, { queryParams: Record<string, unknown> }][]).map(
-      ([, p]) => p.queryParams.attachmentId,
-    );
+    const ids = (
+      mockIpcCallStreamFn.mock.calls as unknown as [
+        string,
+        { queryParams: Record<string, unknown> },
+      ][]
+    ).map(([, p]) => p.queryParams.attachmentId);
     expect(ids).toContain("att-001");
     expect(ids).toContain("att-002");
 
@@ -396,4 +438,4 @@ describe("email attachment (IPC)", () => {
     expect(out).toContain("2.4 MB");
     expect(process.exitCode).toBe(0);
   });
-});  
+});

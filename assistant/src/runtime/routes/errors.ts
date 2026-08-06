@@ -139,6 +139,19 @@ export class GatewayTimeoutError extends RouteError {
   }
 }
 
+/**
+ * An upstream LLM provider call failed. Carries the per-request diagnostics
+ * observed on the wire (resolved URL, model, connection, HTTP status, verbatim
+ * upstream error body) in `details` so a caller diagnosing the failure sees
+ * what was actually sent and what came back, not just the normalized message.
+ */
+export class UpstreamProviderError extends RouteError {
+  constructor(message: string, details: unknown) {
+    super(message, "UPSTREAM_PROVIDER_ERROR", 502, details);
+    this.name = "UpstreamProviderError";
+  }
+}
+
 export class InternalError extends RouteError {
   constructor(message: string) {
     super(message, "INTERNAL_ERROR", 500);

@@ -1,6 +1,9 @@
 import { getConfig } from "../config/loader.js";
 import { ConfigError, ProviderError } from "../util/errors.js";
-import { resolveImageGenCredentials } from "./image-credentials.js";
+import {
+  resolveImageGenCredentials,
+  resolveImageGenRouting,
+} from "./image-credentials.js";
 import { generateImage, mapImageGenError } from "./image-service.js";
 
 export async function generateAvatar(
@@ -9,9 +12,10 @@ export async function generateAvatar(
   const config = getConfig();
   const svc = config.services["image-generation"];
 
+  const { backendProvider, managed } = resolveImageGenRouting(svc);
   const { credentials, errorHint } = await resolveImageGenCredentials({
-    provider: svc.provider,
-    mode: svc.mode,
+    provider: backendProvider,
+    managed,
   });
 
   if (!credentials) {
@@ -20,7 +24,7 @@ export async function generateAvatar(
 
   let result;
   try {
-    result = await generateImage(svc.provider, credentials, {
+    result = await generateImage(backendProvider, credentials, {
       prompt,
       mode: "generate",
       model: svc.model,
@@ -30,7 +34,7 @@ export async function generateAvatar(
     // (e.g. avatar-generator) don't need provider context to surface a
     // useful error.
     throw new ProviderError(
-      mapImageGenError(svc.provider, error),
+      mapImageGenError(backendProvider, error),
       svc.provider,
     );
   }

@@ -113,7 +113,11 @@ export async function suggestTrustRule(
   if (!response.ok) {
     throw new ApiError(
       response.status,
-      extractErrorMessage(error, response, "Failed to get trust rule suggestion."),
+      extractErrorMessage(
+        error,
+        response,
+        "Failed to get trust rule suggestion.",
+      ),
     );
   }
   if (!data?.suggestion) {

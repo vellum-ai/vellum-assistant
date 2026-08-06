@@ -22,7 +22,10 @@ import {
   useAcpRunSteps,
   type AcpTimelineStep,
 } from "@/domains/chat/acp-run-step-projection";
-import { useAcpRunStore, type AcpRunRawEvent } from "@/domains/chat/acp-run-store";
+import {
+  useAcpRunStore,
+  type AcpRunRawEvent,
+} from "@/domains/chat/acp-run-store";
 import type { AcpRunStatus } from "@/utils/acp-run-status";
 import type { ToolProgressCardState } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
 
@@ -72,7 +75,9 @@ function deriveCardState(
  */
 function deriveCurrentStepInfo(steps: AcpTimelineStep[]): string {
   const latest = steps[steps.length - 1];
-  if (!latest) return "";
+  if (!latest) {
+    return "";
+  }
   switch (latest.kind) {
     case "tool":
       // The title already drives `currentStepTitle`; repeating it duplicates.
@@ -98,7 +103,9 @@ export function useAcpRunCardData(acpSessionId: string): AcpRunCardData | null {
   const steps = useAcpRunSteps(entry?.events ?? EMPTY_EVENTS);
 
   return useMemo(() => {
-    if (!entry) return null;
+    if (!entry) {
+      return null;
+    }
 
     const carousel = acpStepsToCarousel(steps);
     const latest = carousel[carousel.length - 1];

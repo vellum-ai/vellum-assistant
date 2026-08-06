@@ -37,7 +37,9 @@ export default meta;
 type Story = StoryObj<typeof QuoteReplyBubble>;
 
 export const Default: Story = {
-  render: () => <WithReplyBubble quotedText="This is a text that's being quoted" />,
+  render: () => (
+    <WithReplyBubble quotedText="This is a text that's being quoted" />
+  ),
 };
 
 export const LongQuote: Story = {

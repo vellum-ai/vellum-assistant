@@ -11,8 +11,7 @@ import { randomUUID } from "node:crypto";
 
 import { updateConversationTitle } from "../persistence/conversation-crud.js";
 import { getOrCreateConversation as getOrCreateConversationKey } from "../persistence/conversation-key-store.js";
-import { buildAssistantEvent } from "../runtime/assistant-event.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
 import { getOrCreateConversation } from "./conversation-store.js";
 import { processMessageInBackground } from "./process-message.js";
@@ -72,19 +71,17 @@ export async function launchConversation(
     updateConversationTitle(conversationId, params.title, 0);
   }
 
-  await assistantEventHub.publish(
-    buildAssistantEvent(
-      {
-        type: "open_conversation",
-        conversationId,
-        ...(params.title ? { title: params.title } : {}),
-        ...(params.anchorMessageId
-          ? { anchorMessageId: params.anchorMessageId }
-          : {}),
-        ...(params.focus !== undefined ? { focus: params.focus } : {}),
-      },
+  broadcastMessage(
+    {
+      type: "open_conversation",
       conversationId,
-    ),
+      ...(params.title ? { title: params.title } : {}),
+      ...(params.anchorMessageId
+        ? { anchorMessageId: params.anchorMessageId }
+        : {}),
+      ...(params.focus !== undefined ? { focus: params.focus } : {}),
+    },
+    conversationId,
   );
 
   processMessageInBackground(conversationId, params.seedPrompt, {

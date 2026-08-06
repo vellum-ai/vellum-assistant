@@ -7,7 +7,10 @@ import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import { useSandboxFetchProxy } from "@/hooks/use-sandbox-fetch-proxy";
 import { injectBridge } from "@/utils/sandbox-bridge";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import { isSurfaceToolCallComplete, type Surface } from "@/domains/chat/types/types";
+import {
+  isSurfaceToolCallComplete,
+  type Surface,
+} from "@/domains/chat/types/types";
 import { getDynamicPageAppId } from "@/domains/chat/components/surfaces/dynamic-page-app-id";
 
 // ---------------------------------------------------------------------------
@@ -35,7 +38,11 @@ interface DynamicPageSurfaceData {
 
 interface DynamicPageSurfaceProps {
   surface: Surface;
-  onAction: (surfaceId: string, actionId: string, data?: Record<string, unknown>) => void;
+  onAction: (
+    surfaceId: string,
+    actionId: string,
+    data?: Record<string, unknown>,
+  ) => void;
   assistantId?: string | null;
   onOpenApp?: (appId: string) => void;
   /** Tool calls of the message this surface belongs to. The preview unlocks
@@ -60,7 +67,10 @@ function StatusPill({ text }: { text: string }) {
   }
 
   useEffect(() => {
-    const timer = setTimeout(() => setState((s) => ({ ...s, hidden: true })), 3000);
+    const timer = setTimeout(
+      () => setState((s) => ({ ...s, hidden: true })),
+      3000,
+    );
     return () => clearTimeout(timer);
   }, [text]);
 
@@ -95,9 +105,8 @@ export function DynamicPageSurface({
     () => isSurfaceToolCallComplete(surface, toolCalls),
     [surface, toolCalls],
   );
-  const inlineHtml = typeof data.html === "string" && data.html.length > 0
-    ? data.html
-    : null;
+  const inlineHtml =
+    typeof data.html === "string" && data.html.length > 0 ? data.html : null;
   const [expanded, setExpanded] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -114,7 +123,8 @@ export function DynamicPageSurface({
   }, [data.html, surface.surfaceId]);
 
   const srcdoc = useMemo(
-    () => injectBridge(data.html || "", surface.surfaceId, { fetch: enableFetch }),
+    () =>
+      injectBridge(data.html || "", surface.surfaceId, { fetch: enableFetch }),
     [data.html, surface.surfaceId, enableFetch],
   );
 
@@ -150,11 +160,12 @@ export function DynamicPageSurface({
     }
   }, [appId, inlineHtml, onOpenApp]);
 
-  const onOpenPreview = appId && onOpenApp
-    ? handleOpenPreview
-    : inlineHtml != null
+  const onOpenPreview =
+    appId && onOpenApp
       ? handleOpenPreview
-      : undefined;
+      : inlineHtml != null
+        ? handleOpenPreview
+        : undefined;
 
   const loadHtmlForPreview = useMemo(
     () =>

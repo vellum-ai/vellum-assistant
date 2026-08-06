@@ -13,11 +13,7 @@ export {
   CardFooter,
   type CardRootProps,
 } from "./components/card";
-export {
-  Notice,
-  type NoticeProps,
-  type NoticeTone,
-} from "./components/notice";
+export { Notice, type NoticeProps, type NoticeTone } from "./components/notice";
 export { ProgressBar, type ProgressBarProps } from "./components/progress-bar";
 export {
   ResizablePanel,
@@ -40,10 +36,7 @@ export {
   type TypographyVariant,
   type TypographyAs,
 } from "./components/typography";
-export {
-  Popover,
-  type PopoverContentProps,
-} from "./components/popover";
+export { Popover, type PopoverContentProps } from "./components/popover";
 export {
   Input,
   Textarea,
@@ -157,6 +150,14 @@ export {
   type ContextMenuTriggerProps,
 } from "./components/context-menu";
 export {
+  Select,
+  type SelectOption,
+  type SelectProps,
+  type SelectMenuAlign,
+  type SelectSize,
+} from "./components/select";
+/** @deprecated Use `Select`. */
+export {
   Dropdown,
   resolveDropdownMenuPosition,
   type DropdownOption,
@@ -176,6 +177,7 @@ export {
   type MarqueeTextProps,
 } from "./components/panel-item/marquee-text";
 export {
+  MARKDOWN_INLINE_CODE_CLASS,
   MarkdownMessage,
   quoteBlockquoteAccentClassName,
   quoteBlockquoteClassName,
@@ -184,6 +186,11 @@ export {
   type MarkdownImageComponent,
   type MarkdownLinkComponent,
 } from "./components/markdown-message";
+export {
+  Skeleton,
+  type SkeletonProps,
+  type SkeletonAs,
+} from "./components/skeleton";
 export {
   SideMenu,
   SideMenuBody,
@@ -229,10 +236,7 @@ export {
   type StatSquareProps,
   type StatSquareTone,
 } from "./components/stat-square";
-export {
-  ListRow,
-  type ListRowProps,
-} from "./components/list-row";
+export { ListRow, type ListRowProps } from "./components/list-row";
 export {
   ShortcutKeys,
   parseAccelerator,

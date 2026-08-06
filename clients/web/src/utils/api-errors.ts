@@ -47,7 +47,9 @@ export function extractErrorMessage(
       return error.detail;
     }
     if ("error" in error) {
-      if (typeof error.error === "string") return error.error;
+      if (typeof error.error === "string") {
+        return error.error;
+      }
       if (
         error.error &&
         typeof error.error === "object" &&
@@ -109,6 +111,29 @@ export class ApiError extends Error {
     this.name = "ApiError";
     this.status = status;
   }
+}
+
+/**
+ * The server's own message for a 400 rejection, or `undefined` for any other
+ * failure. A 400 from the daemon is a validation verdict written for the user
+ * ("Anthropic has no API key…") and is worth more than generic retry copy;
+ * every other status carries internal detail, so callers keep their own
+ * wording there.
+ *
+ * Only matches {@link ApiError}, which the daemon client's error interceptor
+ * produces for `throwOnError: true` calls — its `message` is already the
+ * server's `error.message` when the body carried one. The synthesized
+ * `HTTP <status>` fallback is treated as no message at all.
+ */
+export function badRequestMessage(error: unknown): string | undefined {
+  if (!(error instanceof ApiError) || error.status !== 400) {
+    return undefined;
+  }
+  const message = error.message.trim();
+  if (message.length === 0 || /^HTTP \d+$/.test(message)) {
+    return undefined;
+  }
+  return message;
 }
 
 /**

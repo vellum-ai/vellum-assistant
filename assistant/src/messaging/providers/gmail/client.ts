@@ -105,20 +105,28 @@ interface GmailRequestOptions extends RequestInit {
 function extractNonAuthHeaders(
   options?: GmailRequestOptions,
 ): Record<string, string> | undefined {
-  if (!options?.headers) return undefined;
+  if (!options?.headers) {
+    return undefined;
+  }
   const raw = options.headers;
   const result: Record<string, string> = {};
   if (raw instanceof Headers) {
     raw.forEach((v, k) => {
-      if (k.toLowerCase() !== "authorization") result[k] = v;
+      if (k.toLowerCase() !== "authorization") {
+        result[k] = v;
+      }
     });
   } else if (Array.isArray(raw)) {
     for (const [k, v] of raw) {
-      if (k.toLowerCase() !== "authorization") result[k] = v;
+      if (k.toLowerCase() !== "authorization") {
+        result[k] = v;
+      }
     }
   } else {
     for (const [k, v] of Object.entries(raw)) {
-      if (k.toLowerCase() !== "authorization" && v !== undefined) result[k] = v;
+      if (k.toLowerCase() !== "authorization" && v !== undefined) {
+        result[k] = v;
+      }
     }
   }
   return Object.keys(result).length > 0 ? result : undefined;
@@ -142,7 +150,9 @@ function paramsToQuery(
  * Extract the JSON body from request options for use with OAuthConnection.
  */
 function extractBody(options?: GmailRequestOptions): unknown | undefined {
-  if (!options?.body) return undefined;
+  if (!options?.body) {
+    return undefined;
+  }
   if (typeof options.body === "string") {
     try {
       return JSON.parse(options.body);
@@ -238,11 +248,17 @@ export async function listMessages(
   signal?: AbortSignal,
 ): Promise<GmailMessageListResponse> {
   const params = new URLSearchParams();
-  if (query) params.set("q", query);
+  if (query) {
+    params.set("q", query);
+  }
   params.set("maxResults", String(maxResults));
-  if (pageToken) params.set("pageToken", pageToken);
+  if (pageToken) {
+    params.set("pageToken", pageToken);
+  }
   if (labelIds) {
-    for (const id of labelIds) params.append("labelIds", id);
+    for (const id of labelIds) {
+      params.append("labelIds", id);
+    }
   }
   return request<GmailMessageListResponse>(
     connection,
@@ -264,9 +280,13 @@ async function getMessage(
 ): Promise<GmailMessage> {
   const params = new URLSearchParams({ format });
   if (format === "metadata" && metadataHeaders) {
-    for (const h of metadataHeaders) params.append("metadataHeaders", h);
+    for (const h of metadataHeaders) {
+      params.append("metadataHeaders", h);
+    }
   }
-  if (fields) params.set("fields", fields);
+  if (fields) {
+    params.set("fields", fields);
+  }
   return request<GmailMessage>(
     connection,
     `/messages/${messageId}`,
@@ -285,7 +305,9 @@ export async function getThread(
 ): Promise<GmailThread> {
   const params = new URLSearchParams({ format });
   if (format === "metadata" && metadataHeaders) {
-    for (const h of metadataHeaders) params.append("metadataHeaders", h);
+    for (const h of metadataHeaders) {
+      params.append("metadataHeaders", h);
+    }
   }
   return request<GmailThread>(
     connection,
@@ -303,12 +325,16 @@ function parseSubResponse(
   part: string,
 ): { index: number; status: number; json: string | null } | null {
   const idMatch = part.match(/Content-ID:\s*<response-(\d+)>/i);
-  if (!idMatch) return null;
+  if (!idMatch) {
+    return null;
+  }
   const index = parseInt(idMatch[1], 10);
 
   // Split MIME headers from the embedded HTTP response (separated by blank line)
   const mimeEnd = part.search(/\r?\n\r?\n/);
-  if (mimeEnd === -1) return null;
+  if (mimeEnd === -1) {
+    return null;
+  }
   const httpResponse = part.slice(mimeEnd).replace(/^(\r?\n){2}/, "");
 
   const statusMatch = httpResponse.match(/^HTTP\/[\d.]+ (\d+)/);
@@ -316,7 +342,9 @@ function parseSubResponse(
 
   // Split HTTP headers from body (separated by blank line)
   const bodyStart = httpResponse.search(/\r?\n\r?\n/);
-  if (bodyStart === -1) return { index, status, json: null };
+  if (bodyStart === -1) {
+    return { index, status, json: null };
+  }
   const json = httpResponse
     .slice(bodyStart)
     .replace(/^(\r?\n){2}/, "")
@@ -347,9 +375,13 @@ async function executeBatchCall(
   // Build query string once (shared by all sub-requests)
   const params = new URLSearchParams({ format });
   if (format === "metadata" && metadataHeaders) {
-    for (const h of metadataHeaders) params.append("metadataHeaders", h);
+    for (const h of metadataHeaders) {
+      params.append("metadataHeaders", h);
+    }
   }
-  if (fields) params.set("fields", fields);
+  if (fields) {
+    params.set("fields", fields);
+  }
   const qs = params.toString();
 
   // Build multipart request body
@@ -399,8 +431,9 @@ async function executeBatchCall(
         /boundary=(?:"([^"]+)"|([^\s;]+))/,
       );
       const respBoundary = boundaryMatch?.[1] ?? boundaryMatch?.[2];
-      if (!respBoundary)
+      if (!respBoundary) {
         throw new Error("Missing boundary in Gmail batch response");
+      }
 
       const respParts = responseText.split(`--${respBoundary}`);
       const messages: Array<{ index: number; msg: GmailMessage }> = [];
@@ -408,7 +441,9 @@ async function executeBatchCall(
 
       for (const rp of respParts) {
         const parsed = parseSubResponse(rp);
-        if (!parsed) continue;
+        if (!parsed) {
+          continue;
+        }
 
         if (parsed.status >= 200 && parsed.status < 300 && parsed.json) {
           try {
@@ -498,7 +533,9 @@ export async function batchGetMessages(
   fields?: string,
   signal?: AbortSignal,
 ): Promise<GmailMessage[]> {
-  if (messageIds.length === 0) return [];
+  if (messageIds.length === 0) {
+    return [];
+  }
 
   // Single message -- just use getMessage directly
   if (messageIds.length === 1) {
@@ -639,8 +676,12 @@ export async function createDraft(
     `Subject: ${subject}`,
     "Content-Type: text/plain; charset=utf-8",
   ];
-  if (cc) headers.push(`Cc: ${cc}`);
-  if (bcc) headers.push(`Bcc: ${bcc}`);
+  if (cc) {
+    headers.push(`Cc: ${cc}`);
+  }
+  if (bcc) {
+    headers.push(`Bcc: ${bcc}`);
+  }
   if (inReplyTo) {
     headers.push(`In-Reply-To: ${inReplyTo}`);
     headers.push(`References: ${inReplyTo}`);
@@ -651,7 +692,9 @@ export async function createDraft(
     .replace(/\//g, "_")
     .replace(/=+$/, "");
   const message: Record<string, unknown> = { raw };
-  if (threadId) message.threadId = threadId;
+  if (threadId) {
+    message.threadId = threadId;
+  }
   return request<GmailDraft>(connection, "/drafts", {
     method: "POST",
     body: JSON.stringify({ message }),
@@ -665,7 +708,9 @@ export async function createDraftRaw(
   threadId?: string,
 ): Promise<GmailDraft> {
   const message: Record<string, unknown> = { raw };
-  if (threadId) message.threadId = threadId;
+  if (threadId) {
+    message.threadId = threadId;
+  }
   return request<GmailDraft>(connection, "/drafts", {
     method: "POST",
     body: JSON.stringify({ message }),
@@ -696,7 +741,9 @@ export async function sendMessage(
     .replace(/\//g, "_")
     .replace(/=+$/, "");
   const payload: Record<string, unknown> = { raw };
-  if (threadId) payload.threadId = threadId;
+  if (threadId) {
+    payload.threadId = threadId;
+  }
   return request<GmailMessage>(connection, "/messages/send", {
     method: "POST",
     body: JSON.stringify(payload),

@@ -30,7 +30,11 @@ import type {
   LiveVoiceAudioCaptureOptions,
   LiveVoiceCaptureResult,
 } from "@/domains/chat/voice/live-voice/pcm-capture";
-import type { LiveVoicePlaybackProgress } from "@/domains/chat/voice/live-voice/tts-playback";
+import type {
+  LiveVoicePlaybackProgress,
+  TtsOutputRoute,
+  TtsOutputRouteDiagnostics,
+} from "@/domains/chat/voice/live-voice/tts-playback";
 import {
   useLiveVoiceStore,
   type LiveVoiceSessionControls,
@@ -182,18 +186,54 @@ export class FakePlayer {
   prewarmCount = 0;
   resetPlaybackProgressCount = 0;
   isPlaying = false;
+  /**
+   * Assistant-mute the controller last pushed into the graph. The real player
+   * holds this flag itself, which is how a mute survives a reconnect onto a new
+   * graph, so the fake holds it too rather than counting calls only.
+   */
+  outputMuted = false;
   /** Progress the fake reports; tests set it to drive the store's provider. */
   playbackProgress: LiveVoicePlaybackProgress | null = null;
+  /** Speaker amplitude the fake reports, for the store's output provider. */
+  outputAmplitude = 0;
+  /** Route the fake reports, and how many times it was asked to re-render it. */
+  outputRoute: TtsOutputRoute = "unsupported";
+  restartOutputRouteCount = 0;
   private drainResolvers: Array<() => void> = [];
 
   prewarm(): void {
     this.prewarmCount++;
+  }
+  getOutputAmplitude(): number {
+    return this.outputAmplitude;
+  }
+  readOutputLevel(): number {
+    return this.outputAmplitude;
+  }
+  restartOutputRoute(): Promise<void> {
+    this.restartOutputRouteCount++;
+    return Promise.resolve();
+  }
+  getOutputRouteDiagnostics(): TtsOutputRouteDiagnostics {
+    return {
+      route: this.outputRoute,
+      mediaStreamRouteRequested: this.outputRoute !== "unsupported",
+      mediaStreamApiAvailable: true,
+      playAttempts: 0,
+      playRejectionName: null,
+      elementPaused: null,
+      elementReadyState: null,
+      contextState: null,
+    };
   }
   getPlaybackProgress(): LiveVoicePlaybackProgress | null {
     return this.playbackProgress;
   }
   resetPlaybackProgress(): void {
     this.resetPlaybackProgressCount++;
+  }
+  setOutputMuted(muted: boolean): void {
+    this.outputMuted = muted;
   }
   enqueue(chunk: unknown): void {
     this.enqueued.push(chunk);
@@ -242,12 +282,16 @@ export function makeControlsSpies() {
     release: mock(() => {}),
     interrupt: mock(() => {}),
     setMuted: mock((_muted: boolean) => {}),
+    setOutputMuted: mock((_muted: boolean) => {}),
     updateConfig: mock(
       (_config: {
         silenceThresholdMs?: number;
         bargeInMinSpeechMs?: number;
       }) => {},
     ),
+    // Defaults to delivered. The reconnect-gap case (false) is asserted by the
+    // tests that care, so the common path stays uncluttered.
+    attachImage: mock((_attachmentId: string) => true),
   } satisfies LiveVoiceSessionControls;
 }
 

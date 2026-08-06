@@ -15,7 +15,9 @@ twilio.accountSid). Values are auto-parsed as JSON (booleans, numbers,
 objects) with fallback to plain string if parsing fails.
 
 API keys are managed separately via secure storage. Use "assistant keys list"
-and "assistant keys set <provider> <key>" to view and manage API keys.
+to view stored keys. To store one, the user runs "assistant keys set
+<provider> <key>" from their own terminal (or the Settings page under API
+Keys) — agent shells refuse inline keys unless --generated is passed.
 
 Examples:
   $ assistant config list
@@ -43,7 +45,9 @@ given path, invalidates caches, and reinitializes providers so the new
 value takes effect immediately. Object subtrees replace (not merge), and
 explicit null is preserved.
 
-To manage API keys, use "assistant keys set <provider> <key>" instead.
+API keys are not config values: the user stores them with "assistant keys
+set <provider> <key>" from their own terminal or via the Settings page under
+API Keys (agent shells refuse inline keys unless --generated is passed).
 
 Examples:
   $ assistant config set llm.defaultProvider.provider anthropic

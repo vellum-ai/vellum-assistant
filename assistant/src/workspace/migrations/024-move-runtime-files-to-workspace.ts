@@ -46,7 +46,9 @@ const DIR_MOVES = ["external", "bin"] as const;
  * exists, remove the old file instead of overwriting.
  */
 function moveFile(oldPath: string, newPath: string): void {
-  if (!existsSync(oldPath)) return;
+  if (!existsSync(oldPath)) {
+    return;
+  }
   if (existsSync(newPath)) {
     try {
       unlinkSync(oldPath);
@@ -67,7 +69,9 @@ function moveFile(oldPath: string, newPath: string): void {
  * has an entry with the same name, the source entry is removed.
  */
 function moveDirContents(oldDir: string, newDir: string): void {
-  if (!existsSync(oldDir)) return;
+  if (!existsSync(oldDir)) {
+    return;
+  }
   mkdirSync(newDir, { recursive: true });
 
   try {

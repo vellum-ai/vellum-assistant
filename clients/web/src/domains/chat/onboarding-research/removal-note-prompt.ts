@@ -27,7 +27,9 @@ export interface RemovedClaim {
 function formatRemoved(removed: RemovedClaim[]): string {
   return removed
     .map((r) => {
-      const label = r.reason ? REMOVAL_REASON_LABELS[r.reason].toLowerCase() : null;
+      const label = r.reason
+        ? REMOVAL_REASON_LABELS[r.reason].toLowerCase()
+        : null;
       return `- ${r.claim}${label ? ` (${label})` : ""}`;
     })
     .join("\n");

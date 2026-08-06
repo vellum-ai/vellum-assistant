@@ -48,7 +48,9 @@ mock.module("../../daemon/conversation-surfaces.js", () => ({
     _request: unknown,
     _surfaceId: string,
   ) => {
-    if (mockSurfaceThrows) throw mockSurfaceThrows;
+    if (mockSurfaceThrows) {
+      throw mockSurfaceThrows;
+    }
     return mockSurfaceResult;
   },
 }));

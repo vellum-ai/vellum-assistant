@@ -16,6 +16,10 @@ import {
 } from "./avatar-tour";
 import { TourOverlay } from "./tour-overlay";
 import { type TourStep } from "./tour-steps";
+import {
+  emitInChatTourCompleted,
+  emitInChatTourSkipped,
+} from "./tour-telemetry";
 
 /**
  * SPIKE — orchestrator for the in-chat onboarding UI prototype, mounted
@@ -40,6 +44,9 @@ export function InChatOnboardingController() {
   const { components, traits } = useAssistantAvatar(assistantId);
 
   const tourRef = useRef<AvatarTourHandle | null>(null);
+  /** True once Skip was pressed this run — tells the done handler to emit
+   *  `tour_skipped` (already sent at click time) instead of completed. */
+  const skippedRef = useRef(false);
   /** The stop the tour currently sits in; null while it's mid-transition. */
   const [narrationStep, setNarrationStep] = useState<TourStep | null>(null);
   /** Latches on first landing so the chat doesn't flash back between stops. */
@@ -60,6 +67,12 @@ export function InChatOnboardingController() {
   }, []);
 
   const handleTourDone = useCallback(() => {
+    // Skip's own event was emitted at click time; a natural end past the
+    // last beat is a completion.
+    if (!skippedRef.current) {
+      emitInChatTourCompleted();
+    }
+    skippedRef.current = false;
     setNarrationStep(null);
     setTakeover(false);
     setProgress(null);
@@ -73,6 +86,7 @@ export function InChatOnboardingController() {
       setNarrationStep(null);
       setTakeover(false);
       setProgress(null);
+      skippedRef.current = false;
     }
   }, [stage]);
 
@@ -87,7 +101,11 @@ export function InChatOnboardingController() {
   const skipButton = (
     <Button
       variant="ghost"
-      onClick={() => tourRef.current?.skip()}
+      onClick={() => {
+        skippedRef.current = true;
+        emitInChatTourSkipped(progress?.index ?? 0, progress?.count ?? 0);
+        tourRef.current?.skip();
+      }}
       // Contrast-toned over the intro's avatar-colored flood.
       style={{ color: introFg }}
     >

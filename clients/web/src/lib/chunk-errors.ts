@@ -16,8 +16,12 @@
  * component-level boundaries agree.
  */
 export function isChunkLoadError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  if (error.name === "ChunkLoadError") return true;
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  if (error.name === "ChunkLoadError") {
+    return true;
+  }
   const msg = error.message;
   return (
     msg.includes("Failed to fetch dynamically imported module") ||

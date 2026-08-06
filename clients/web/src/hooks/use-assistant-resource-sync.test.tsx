@@ -4,11 +4,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
+import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
+import { memoryStatsOptions } from "@/domains/intelligence/memory-graph/get-memory-stats";
 import {
   appsGetQueryKey,
   configGetQueryKey,
+  documentsGetQueryKey,
   homeFeedGetQueryKey,
   homeStateGetQueryKey,
+  configLlmCallsitesGetQueryKey,
+  inferenceProfilesGetQueryKey,
   pluginsGetQueryKey,
   pluginsSearchGetQueryKey,
   schedulesGetQueryKey,
@@ -36,6 +41,35 @@ function freshQueryClient(): QueryClient {
     defaultOptions: { queries: { retry: false } },
   });
 }
+
+type QueryPredicate = (query: { queryKey: readonly unknown[] }) => boolean;
+
+/**
+ * Swaps `invalidateQueries` for a capture that records every predicate handed
+ * to it, so a test can ask which query keys the hook claimed.
+ */
+function capturePredicates(queryClient: QueryClient): QueryPredicate[] {
+  const predicates: QueryPredicate[] = [];
+  queryClient.invalidateQueries = ((arg: unknown) => {
+    const predicate = (arg as { predicate?: QueryPredicate }).predicate;
+    if (predicate) {
+      predicates.push(predicate);
+    }
+    return Promise.resolve();
+  }) as never;
+  return predicates;
+}
+
+/** The shape `domains/library/use-library-data.ts` reads documents under. */
+const LIBRARY_DOCUMENTS_KEY = documentsGetQueryKey({
+  path: { assistant_id: "asst-1" },
+});
+
+/** The shape `domains/chat/components/conversation-assets-pill.tsx` reads under. */
+const CONVERSATION_DOCUMENTS_KEY = documentsGetQueryKey({
+  path: { assistant_id: "asst-1" },
+  query: { conversationId: "convo-1" },
+});
 
 function syncEvent(tags: string[]): SyncChangedEvent {
   return { type: "sync_changed", tags };
@@ -66,7 +100,7 @@ describe("useAssistantResourceSync", () => {
     renderHook(() => useAssistantResourceSync("asst-1", false), {
       wrapper: createWrapper(queryClient),
     });
-    emit((syncEvent([SYNC_TAGS.assistantAvatar]) as unknown) as AssistantEvent);
+    emit(syncEvent([SYNC_TAGS.assistantAvatar]) as unknown as AssistantEvent);
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -77,7 +111,7 @@ describe("useAssistantResourceSync", () => {
     renderHook(() => useAssistantResourceSync(null, true), {
       wrapper: createWrapper(queryClient),
     });
-    emit((syncEvent([SYNC_TAGS.assistantAvatar]) as unknown) as AssistantEvent);
+    emit(syncEvent([SYNC_TAGS.assistantAvatar]) as unknown as AssistantEvent);
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -88,7 +122,7 @@ describe("useAssistantResourceSync", () => {
     renderHook(() => useAssistantResourceSync("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    emit((syncEvent([SYNC_TAGS.assistantAvatar]) as unknown) as AssistantEvent);
+    emit(syncEvent([SYNC_TAGS.assistantAvatar]) as unknown as AssistantEvent);
     await waitFor(() => {
       expect(spy).toHaveBeenCalledWith({
         queryKey: avatarQueryKey("asst-1"),
@@ -106,15 +140,13 @@ describe("useAssistantResourceSync", () => {
     renderHook(() => useAssistantResourceSync("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    emit(
-      (syncEvent([SYNC_TAGS.assistantIdentity]) as unknown) as AssistantEvent
-    );
+    emit(syncEvent([SYNC_TAGS.assistantIdentity]) as unknown as AssistantEvent);
     await waitFor(() => {
       const queryKeys = calls.map(
-        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey
+        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey,
       );
       expect(queryKeys).toEqual(
-        expect.arrayContaining([assistantIdentityQueryKey("asst-1")]) as never
+        expect.arrayContaining([assistantIdentityQueryKey("asst-1")]) as never,
       );
     });
   });
@@ -130,24 +162,141 @@ describe("useAssistantResourceSync", () => {
       wrapper: createWrapper(queryClient),
     });
     emit(
-      (syncEvent([
+      syncEvent([
         SYNC_TAGS.assistantConfig,
         SYNC_TAGS.assistantSounds,
         SYNC_TAGS.assistantSchedules,
-      ]) as unknown) as AssistantEvent
+      ]) as unknown as AssistantEvent,
     );
     await waitFor(() => {
       const queryKeys = calls.map(
-        ([arg]) => (arg as { queryKey: readonly unknown[] }).queryKey
+        ([arg]) => (arg as { queryKey: readonly unknown[] }).queryKey,
       );
       const pathOpts = { path: { assistant_id: "asst-1" } };
       expect(queryKeys).toEqual(
         expect.arrayContaining([
           configGetQueryKey(pathOpts),
+          inferenceProfilesGetQueryKey(pathOpts),
+          configLlmCallsitesGetQueryKey(pathOpts),
           soundsConfigGetQueryKey(pathOpts),
           schedulesGetQueryKey(pathOpts),
-          [{ _id: "schedulesUsagesummaryGet", path: { assistant_id: "asst-1" } }],
-        ]) as never
+          [
+            {
+              _id: "schedulesUsagesummaryGet",
+              path: { assistant_id: "asst-1" },
+            },
+          ],
+        ]) as never,
+      );
+    });
+  });
+
+  // Memory availability is derived from config, so the config tag has to reach
+  // the two memory reads as well. They use hand-rolled query keys, so the
+  // generated config invalidation never touches them on its own.
+  test("invalidates memory graph / stats queries on the config sync tag", async () => {
+    const queryClient = freshQueryClient();
+    const calls: unknown[][] = [];
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      calls.push([arg]);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit(syncEvent([SYNC_TAGS.assistantConfig]) as unknown as AssistantEvent);
+    await waitFor(() => {
+      const queryKeys = calls.map(
+        ([arg]) => (arg as { queryKey: readonly unknown[] }).queryKey,
+      );
+      expect(queryKeys).toEqual(
+        expect.arrayContaining([
+          memoryGraphOptions("asst-1").queryKey,
+          memoryStatsOptions("asst-1").queryKey,
+        ]) as never,
+      );
+    });
+  });
+
+  // The reconnect catch-up exists because `sync_changed` events are missed
+  // while the transport is down. A resource covered by a tag but not by the
+  // reconnect sweep silently keeps serving pre-gap data for its whole
+  // staleTime, which for the memory reads is five minutes.
+  test("reconciles memory graph / stats queries on non-fresh sse.opened reconnect", async () => {
+    const queryClient = freshQueryClient();
+    const calls: unknown[] = [];
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      calls.push(arg);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await waitFor(() => {
+      const queryKeys = calls.map(
+        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey,
+      );
+      expect(queryKeys).toEqual(
+        expect.arrayContaining([
+          memoryGraphOptions("asst-1").queryKey,
+          memoryStatsOptions("asst-1").queryKey,
+        ]) as never,
+      );
+    });
+  });
+
+  // Memory availability is derived from config, so the config tag has to reach
+  // the two memory reads as well. They use hand-rolled query keys, so the
+  // generated config invalidation never touches them on its own.
+  test("invalidates memory graph / stats queries on the config sync tag", async () => {
+    const queryClient = freshQueryClient();
+    const calls: unknown[][] = [];
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      calls.push([arg]);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit(syncEvent([SYNC_TAGS.assistantConfig]) as unknown as AssistantEvent);
+    await waitFor(() => {
+      const queryKeys = calls.map(
+        ([arg]) => (arg as { queryKey: readonly unknown[] }).queryKey,
+      );
+      expect(queryKeys).toEqual(
+        expect.arrayContaining([
+          memoryGraphOptions("asst-1").queryKey,
+          memoryStatsOptions("asst-1").queryKey,
+        ]) as never,
+      );
+    });
+  });
+
+  // The reconnect catch-up exists because `sync_changed` events are missed
+  // while the transport is down. A resource covered by a tag but not by the
+  // reconnect sweep silently keeps serving pre-gap data for its whole
+  // staleTime, which for the memory reads is five minutes.
+  test("reconciles memory graph / stats queries on non-fresh sse.opened reconnect", async () => {
+    const queryClient = freshQueryClient();
+    const calls: unknown[] = [];
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      calls.push(arg);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await waitFor(() => {
+      const queryKeys = calls.map(
+        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey,
+      );
+      expect(queryKeys).toEqual(
+        expect.arrayContaining([
+          memoryGraphOptions("asst-1").queryKey,
+          memoryStatsOptions("asst-1").queryKey,
+        ]) as never,
       );
     });
   });
@@ -158,16 +307,18 @@ describe("useAssistantResourceSync", () => {
       | ((query: { queryKey: readonly unknown[] }) => boolean)
       | undefined;
     queryClient.invalidateQueries = ((arg: unknown) => {
-      predicate = (arg as {
-        predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
-      }).predicate;
+      predicate = (
+        arg as {
+          predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+        }
+      ).predicate;
       return Promise.resolve();
     }) as never;
     renderHook(() => useAssistantResourceSync("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
 
-    emit((syncEvent([SYNC_TAGS.appsList]) as unknown) as AssistantEvent);
+    emit(syncEvent([SYNC_TAGS.appsList]) as unknown as AssistantEvent);
 
     await waitFor(() => {
       expect(predicate).toBeDefined();
@@ -175,9 +326,49 @@ describe("useAssistantResourceSync", () => {
     expect(
       predicate!({
         queryKey: appsGetQueryKey({ path: { assistant_id: "asst-1" } }),
-      })
+      }),
     ).toBe(true);
     expect(predicate!({ queryKey: avatarQueryKey("asst-1") })).toBe(false);
+  });
+
+  // The Library keys the documents read by assistant alone while the
+  // conversation assets pill adds `query.conversationId`. Covering only the
+  // conversation-scoped key leaves the Library serving a pre-edit list.
+  test("invalidates both documents key shapes on documents:list sync tag", async () => {
+    const queryClient = freshQueryClient();
+    const predicates = capturePredicates(queryClient);
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    emit(syncEvent([SYNC_TAGS.documentsList]) as unknown as AssistantEvent);
+
+    const claims = (queryKey: readonly unknown[]) =>
+      predicates.some((p) => p({ queryKey }));
+    await waitFor(() => {
+      expect(claims(LIBRARY_DOCUMENTS_KEY)).toBe(true);
+    });
+    expect(claims(CONVERSATION_DOCUMENTS_KEY)).toBe(true);
+    expect(claims(appsGetQueryKey({ path: { assistant_id: "asst-1" } }))).toBe(
+      false,
+    );
+  });
+
+  test("reconciles both documents key shapes on non-fresh sse.opened reconnect", async () => {
+    const queryClient = freshQueryClient();
+    const predicates = capturePredicates(queryClient);
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+
+    const claims = (queryKey: readonly unknown[]) =>
+      predicates.some((p) => p({ queryKey }));
+    await waitFor(() => {
+      expect(claims(LIBRARY_DOCUMENTS_KEY)).toBe(true);
+    });
+    expect(claims(CONVERSATION_DOCUMENTS_KEY)).toBe(true);
   });
 
   test("invalidates plugin list / catalog / open-detail queries on plugins:list sync tag", async () => {
@@ -190,10 +381,10 @@ describe("useAssistantResourceSync", () => {
     renderHook(() => useAssistantResourceSync("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    emit((syncEvent([SYNC_TAGS.pluginsList]) as unknown) as AssistantEvent);
+    emit(syncEvent([SYNC_TAGS.pluginsList]) as unknown as AssistantEvent);
     await waitFor(() => {
       const queryKeys = calls.map(
-        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey
+        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey,
       );
       const pathOpts = { path: { assistant_id: "asst-1" } };
       expect(queryKeys).toEqual(
@@ -203,8 +394,13 @@ describe("useAssistantResourceSync", () => {
           // The broad sync carries no name, so every open plugin detail + drift
           // inspect is invalidated via partial key (see invalidatePluginQueries).
           [{ _id: "pluginsByNameGet", path: { assistant_id: "asst-1" } }],
-          [{ _id: "pluginsByNameInspectGet", path: { assistant_id: "asst-1" } }],
-        ]) as never
+          [
+            {
+              _id: "pluginsByNameInspectGet",
+              path: { assistant_id: "asst-1" },
+            },
+          ],
+        ]) as never,
       );
     });
   });
@@ -222,7 +418,7 @@ describe("useAssistantResourceSync", () => {
     publish("sse.opened", { assistantId: "asst-1", cause: "error" });
     await waitFor(() => {
       const queryKeys = calls.map(
-        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey
+        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey,
       );
       const pathOpts = { path: { assistant_id: "asst-1" } };
       expect(queryKeys).toEqual(
@@ -231,8 +427,13 @@ describe("useAssistantResourceSync", () => {
           pluginsSearchGetQueryKey(pathOpts),
           // Reconnect reconcile is name-agnostic too — open details invalidate.
           [{ _id: "pluginsByNameGet", path: { assistant_id: "asst-1" } }],
-          [{ _id: "pluginsByNameInspectGet", path: { assistant_id: "asst-1" } }],
-        ]) as never
+          [
+            {
+              _id: "pluginsByNameInspectGet",
+              path: { assistant_id: "asst-1" },
+            },
+          ],
+        ]) as never,
       );
     });
   });
@@ -254,19 +455,21 @@ describe("useAssistantResourceSync", () => {
       | ((query: { queryKey: readonly unknown[] }) => boolean)
       | undefined;
     queryClient.invalidateQueries = ((arg: unknown) => {
-      predicate = (arg as {
-        predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
-      }).predicate;
+      predicate = (
+        arg as {
+          predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+        }
+      ).predicate;
       return Promise.resolve();
     }) as never;
     renderHook(() => useAssistantResourceSync("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    emit(({
+    emit({
       type: "home_feed_updated",
       updatedAt: "2026-05-21T00:00:00Z",
       newItemCount: 1,
-    } as unknown) as AssistantEvent);
+    } as unknown as AssistantEvent);
     await waitFor(() => {
       expect(predicate).toBeDefined();
     });
@@ -276,7 +479,7 @@ describe("useAssistantResourceSync", () => {
           path: { assistant_id: "asst-1" },
           query: { timeAwaySeconds: 0 },
         }),
-      })
+      }),
     ).toBe(true);
     expect(predicate!({ queryKey: avatarQueryKey("asst-1") })).toBe(false);
   });
@@ -287,19 +490,23 @@ describe("useAssistantResourceSync", () => {
       (query: { queryKey: readonly unknown[] }) => boolean
     > = [];
     queryClient.invalidateQueries = ((arg: unknown) => {
-      const pred = (arg as {
-        predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
-      }).predicate;
-      if (pred) predicates.push(pred);
+      const pred = (
+        arg as {
+          predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+        }
+      ).predicate;
+      if (pred) {
+        predicates.push(pred);
+      }
       return Promise.resolve();
     }) as never;
     renderHook(() => useAssistantResourceSync("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    emit(({
+    emit({
       type: "relationship_state_updated",
       updatedAt: "2026-05-21T00:00:00Z",
-    } as unknown) as AssistantEvent);
+    } as unknown as AssistantEvent);
     await waitFor(() => {
       expect(predicates.length).toBe(2);
     });
@@ -313,7 +520,7 @@ describe("useAssistantResourceSync", () => {
     expect(predicates.some((p) => p({ queryKey: feedKey }))).toBe(true);
     expect(predicates.some((p) => p({ queryKey: stateKey }))).toBe(true);
     expect(
-      predicates.every((p) => !p({ queryKey: avatarQueryKey("asst-1") }))
+      predicates.every((p) => !p({ queryKey: avatarQueryKey("asst-1") })),
     ).toBe(true);
   });
 
@@ -324,7 +531,7 @@ describe("useAssistantResourceSync", () => {
     renderHook(() => useAssistantResourceSync("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    emit(({ type: "identity_changed" } as unknown) as AssistantEvent);
+    emit({ type: "identity_changed" } as unknown as AssistantEvent);
     await waitFor(() => {
       expect(spy).toHaveBeenCalledWith({
         queryKey: assistantIdentityQueryKey("asst-1"),
@@ -339,7 +546,7 @@ describe("useAssistantResourceSync", () => {
     renderHook(() => useAssistantResourceSync("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    emit(({ type: "avatar_updated" } as unknown) as AssistantEvent);
+    emit({ type: "avatar_updated" } as unknown as AssistantEvent);
     await waitFor(() => {
       expect(spy).toHaveBeenCalledWith({
         queryKey: avatarQueryKey("asst-1"),
@@ -354,11 +561,11 @@ describe("useAssistantResourceSync", () => {
     renderHook(() => useAssistantResourceSync("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    emit(({
+    emit({
       type: "assistant_text_delta",
       conversationId: "convo-1",
       delta: "hi",
-    } as unknown) as AssistantEvent);
+    } as unknown as AssistantEvent);
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -372,13 +579,13 @@ describe("useAssistantResourceSync", () => {
       {
         wrapper: createWrapper(queryClient),
         initialProps: { active: true },
-      }
+      },
     );
-    emit((syncEvent([SYNC_TAGS.assistantAvatar]) as unknown) as AssistantEvent);
+    emit(syncEvent([SYNC_TAGS.assistantAvatar]) as unknown as AssistantEvent);
     expect(spy).toHaveBeenCalledTimes(1);
     spy.mockClear();
     rerender({ active: false });
-    emit((syncEvent([SYNC_TAGS.assistantAvatar]) as unknown) as AssistantEvent);
+    emit(syncEvent([SYNC_TAGS.assistantAvatar]) as unknown as AssistantEvent);
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -393,7 +600,7 @@ describe("useAssistantResourceSync", () => {
       ...syncEvent([SYNC_TAGS.assistantAvatar]),
       originClientId: getClientId(),
     };
-    emit((selfEvent as unknown) as AssistantEvent);
+    emit(selfEvent as unknown as AssistantEvent);
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -408,7 +615,7 @@ describe("useAssistantResourceSync", () => {
       ...syncEvent([SYNC_TAGS.assistantAvatar]),
       originClientId: "other-client-id",
     };
-    emit((otherEvent as unknown) as AssistantEvent);
+    emit(otherEvent as unknown as AssistantEvent);
     await waitFor(() => {
       expect(spy).toHaveBeenCalledWith({
         queryKey: avatarQueryKey("asst-1"),

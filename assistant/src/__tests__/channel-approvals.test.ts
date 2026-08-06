@@ -17,7 +17,6 @@ import type { PendingApprovalInfo } from "../runtime/channel-approvals.js";
 import {
   buildApprovalUIMetadata,
   buildGuardianApprovalPrompt,
-  channelSupportsRichApprovalUI,
   getChannelApprovalPrompt,
   handleChannelDecision,
 } from "../runtime/channel-approvals.js";
@@ -341,31 +340,5 @@ describe("buildGuardianApprovalPrompt", () => {
 
     const prompt = buildGuardianApprovalPrompt(approvalInfo, "dana");
     expect(prompt.actions.map((a) => a.id)).toEqual(["approve_once", "reject"]);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 5. channelSupportsRichApprovalUI
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe("channelSupportsRichApprovalUI", () => {
-  test("returns true for telegram", () => {
-    expect(channelSupportsRichApprovalUI("telegram")).toBe(true);
-  });
-
-  test("returns false for vellum", () => {
-    expect(channelSupportsRichApprovalUI("vellum")).toBe(false);
-  });
-
-  test("returns false for voice", () => {
-    expect(channelSupportsRichApprovalUI("phone")).toBe(false);
-  });
-
-  test("returns true for slack", () => {
-    expect(channelSupportsRichApprovalUI("slack")).toBe(true);
-  });
-
-  test("returns false for unknown channels", () => {
-    expect(channelSupportsRichApprovalUI("")).toBe(false);
   });
 });

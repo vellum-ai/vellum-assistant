@@ -65,7 +65,9 @@ export function OnboardingPeekingEyes({
 
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   useEffect(() => {
-    if (reduce) return;
+    if (reduce) {
+      return;
+    }
     const onMove = (e: MouseEvent) => {
       setPointer({
         x: (e.clientX / window.innerWidth - 0.5) * 2,
@@ -93,14 +95,20 @@ export function OnboardingPeekingEyes({
   const [blinking, setBlinking] = useState(false);
   const [entranceDone, setEntranceDone] = useState(!entrance);
   useEffect(() => {
-    if (reduce || !entranceDone) return;
+    if (reduce || !entranceDone) {
+      return;
+    }
     let cancelled = false;
     let t: ReturnType<typeof setTimeout>;
     const blink = (next: () => void) => {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       setBlinking(true);
       t = setTimeout(() => {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         setBlinking(false);
         t = setTimeout(next, 140);
       }, 140);
@@ -109,8 +117,11 @@ export function OnboardingPeekingEyes({
       t = setTimeout(() => blink(idle), 2500 + Math.random() * 4000);
     };
     // Resting eyes (carried over) skip the settle blinks and just idle.
-    if (settleBlink) blink(() => blink(idle));
-    else idle();
+    if (settleBlink) {
+      blink(() => blink(idle));
+    } else {
+      idle();
+    }
     return () => {
       cancelled = true;
       clearTimeout(t);
@@ -120,13 +131,22 @@ export function OnboardingPeekingEyes({
   const chosen = characters.length > 0 ? characters[selectedIndex] : undefined;
 
   const eye = useMemo(() => {
-    if (!components || !chosen) return null;
+    if (!components || !chosen) {
+      return null;
+    }
     const def = components.eyeStyles.find((e) => e.id === chosen.eyeStyle);
-    if (!def) return null;
-    return { paths: def.paths, bbox: unionBBox(def.paths.map((p) => pathBBox(p.svgPath))) };
+    if (!def) {
+      return null;
+    }
+    return {
+      paths: def.paths,
+      bbox: unionBBox(def.paths.map((p) => pathBBox(p.svgPath))),
+    };
   }, [components, chosen]);
 
-  if (!eye) return null;
+  if (!eye) {
+    return null;
+  }
 
   // Size by the smaller viewport dimension so the eyes shrink on mobile (in
   // portrait, height alone would make them oversized), capped to the viewport
@@ -163,39 +183,44 @@ export function OnboardingPeekingEyes({
       }
       transition={
         playEntrance
-          ? { duration: 1, delay: entranceDelay, times: [0, 0.7, 1], ease: "easeInOut" }
+          ? {
+              duration: 1,
+              delay: entranceDelay,
+              times: [0, 0.7, 1],
+              ease: "easeInOut",
+            }
           : { duration: 0 }
       }
       onAnimationComplete={() => setEntranceDone(true)}
     >
       {/* Mario-style bump (jolts up to knock the coin). */}
       <motion.div animate={bumpControls}>
-      {/* Slight parallax: the whole eyes drift smoothly toward the cursor. */}
-      <div
-        style={{
-          transform: `translate(${pointer.x * CURSOR_MAX_X}px, ${pointer.y * CURSOR_MAX_Y}px)`,
-          transition: "transform 0.5s cubic-bezier(0.22, 1, 0.36, 1)",
-        }}
-      >
-        <svg
-          viewBox={`${eye.bbox.x} ${eye.bbox.y} ${eye.bbox.w} ${eye.bbox.h}`}
-          width={eyesW}
-          height={eyesH}
-          style={{ overflow: "visible", display: "block" }}
+        {/* Slight parallax: the whole eyes drift smoothly toward the cursor. */}
+        <div
+          style={{
+            transform: `translate(${pointer.x * CURSOR_MAX_X}px, ${pointer.y * CURSOR_MAX_Y}px)`,
+            transition: "transform 0.5s cubic-bezier(0.22, 1, 0.36, 1)",
+          }}
         >
-          <g
-            style={{
-              transform: blinking ? "scaleY(0.1)" : "scaleY(1)",
-              transformOrigin: `${eyeCx}px ${eyeCy}px`,
-              transition: "transform 0.14s ease-in-out",
-            }}
+          <svg
+            viewBox={`${eye.bbox.x} ${eye.bbox.y} ${eye.bbox.w} ${eye.bbox.h}`}
+            width={eyesW}
+            height={eyesH}
+            style={{ overflow: "visible", display: "block" }}
           >
-            {eye.paths.map((p, i) => (
-              <path key={i} d={p.svgPath} fill={p.color} />
-            ))}
-          </g>
-        </svg>
-      </div>
+            <g
+              style={{
+                transform: blinking ? "scaleY(0.1)" : "scaleY(1)",
+                transformOrigin: `${eyeCx}px ${eyeCy}px`,
+                transition: "transform 0.14s ease-in-out",
+              }}
+            >
+              {eye.paths.map((p, i) => (
+                <path key={i} d={p.svgPath} fill={p.color} />
+              ))}
+            </g>
+          </svg>
+        </div>
       </motion.div>
     </motion.div>
   );

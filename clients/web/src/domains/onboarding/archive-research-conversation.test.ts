@@ -37,9 +37,8 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { archiveResearchConversation } = await import(
-  "./archive-research-conversation"
-);
+const { archiveResearchConversation } =
+  await import("./archive-research-conversation");
 
 afterEach(() => {
   calls = [];

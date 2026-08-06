@@ -6,10 +6,15 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
-import { bucketMessagesAdded, recordDiagnostic, resolvePlatformTag } from "@/lib/diagnostics";
+import {
+  bucketMessagesAdded,
+  recordDiagnostic,
+  resolvePlatformTag,
+} from "@/lib/diagnostics";
 import { summarizeRuntimeMessages } from "@/domains/chat/utils/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { recordLocalSeq } from "@/lib/streaming/local-seq";
+import { getSeqGeneration } from "@/lib/streaming/reconnect-cursor";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { selectTranscriptMessages } from "@/domains/chat/transcript/select-transcript-messages";
 import { conversationHistoryQueryKey } from "@/domains/chat/transcript/use-history-pagination";
@@ -70,7 +75,9 @@ interface UseMessageReconciliationReturn {
 export function useMessageReconciliation({
   latestPageOldestTimestamp,
 }: UseMessageReconciliationArgs): UseMessageReconciliationReturn {
-  const initialPageOldestTsRef = useRef<number | null>(latestPageOldestTimestamp);
+  const initialPageOldestTsRef = useRef<number | null>(
+    latestPageOldestTimestamp,
+  );
   useLayoutEffect(() => {
     initialPageOldestTsRef.current = latestPageOldestTimestamp;
   }, [latestPageOldestTimestamp]);
@@ -81,7 +88,9 @@ export function useMessageReconciliation({
     // Below-floor only. The poll loop is the sole thing that arms a timer,
     // and it runs only below the events-tail floor. At/above the floor
     // there is no loop, so the cancel is fully off.
-    if (supportsEventsTail()) return;
+    if (supportsEventsTail()) {
+      return;
+    }
     if (reconcileTimerRef.current) {
       clearTimeout(reconcileTimerRef.current);
       reconcileTimerRef.current = null;
@@ -104,6 +113,12 @@ export function useMessageReconciliation({
       serverSeq: number | null,
       serverProcessing: boolean | undefined,
       authoritative = false,
+      // The seq generation this snapshot's `/messages` request was ISSUED in.
+      // A request that raced a generation reset returns a dead-generation
+      // watermark; tagging the frontier with the issue-time generation lets the
+      // stale-frontier guard recognise and clear it. Defaults to the current
+      // generation for callers that fetched synchronously with no reset window.
+      issuedGeneration: number = getSeqGeneration(),
     ): {
       changed: boolean;
       assistantProgress: boolean;
@@ -115,7 +130,7 @@ export function useMessageReconciliation({
       }
 
       // Advance the local seq frontier — we've observed this server snapshot.
-      recordLocalSeq(conversationId, serverSeq);
+      recordLocalSeq(conversationId, serverSeq, issuedGeneration);
 
       const localView = currentLocalView();
       const serverView = serverMessages.map(mapRuntimeToDisplayMessage);
@@ -133,7 +148,9 @@ export function useMessageReconciliation({
       // rescue breadcrumb, not control flow).
       const localIds = new Set<string>();
       for (const m of localView) {
-        if (m.id) localIds.add(m.id);
+        if (m.id) {
+          localIds.add(m.id);
+        }
       }
       const messagesAdded = serverView.reduce(
         (count, sm) => (sm.id && !localIds.has(sm.id) ? count + 1 : count),
@@ -225,6 +242,7 @@ export function useMessageReconciliation({
       serverSeq: number | null,
       serverProcessing: boolean | undefined,
       authoritative = false,
+      issuedGeneration: number = getSeqGeneration(),
     ): ReconcileActiveConversationResult => {
       const { changed, assistantProgress, messagesAdded } =
         reconcileFromServerDetailed(
@@ -233,6 +251,7 @@ export function useMessageReconciliation({
           serverSeq,
           serverProcessing,
           authoritative,
+          issuedGeneration,
         );
 
       // Reconcile turn state: only fire the silent-stall rescue when ALL
@@ -319,7 +338,9 @@ export function useMessageReconciliation({
       };
       const streamState = useStreamStore.getState();
       const ctx = streamState.streamContext;
-      if (!ctx) return empty;
+      if (!ctx) {
+        return empty;
+      }
 
       // Snapshot the turn identity before the async fetch so the
       // POLL_RECONCILED dispatch is scoped to THIS turn. If the user
@@ -327,6 +348,11 @@ export function useMessageReconciliation({
       // in the store prevents stale reconciliation from idling it.
       const snapshotTurnId = useTurnStore.getState().activeTurnId;
       const snapshotEpoch = streamState.streamEpoch;
+      // Capture the seq generation at request-ISSUE time: if the daemon's
+      // counter resets while this fetch is in flight, the watermark it returns
+      // belongs to the abandoned generation, and tagging the frontier with the
+      // issue-time generation is what lets the stale-frontier guard clear it.
+      const issuedGeneration = getSeqGeneration();
 
       try {
         const snapshot = await fetchConversationMessages(
@@ -337,10 +363,17 @@ export function useMessageReconciliation({
         const serverMessages = snapshot?.messages ?? [];
         const serverSeq = snapshot?.seq ?? null;
         const serverProcessing = snapshot?.processing;
-        if (useConversationStore.getState().activeConversationId !== ctx.conversationId) return empty;
+        if (
+          useConversationStore.getState().activeConversationId !==
+          ctx.conversationId
+        ) {
+          return empty;
+        }
         // If the epoch changed during the fetch (e.g. page went hidden
         // and back), this reconciliation is stale — bail out.
-        if (useStreamStore.getState().streamEpoch !== snapshotEpoch) return empty;
+        if (useStreamStore.getState().streamEpoch !== snapshotEpoch) {
+          return empty;
+        }
         // Pair the snapshot with the daemon's buffered event tail above its
         // anchor BEFORE reconciling: the reconcile invalidates history, and
         // the reseed replay reads the client event ring — priming it first
@@ -352,8 +385,15 @@ export function useMessageReconciliation({
           ctx.conversationId,
           serverSeq,
         );
-        if (useConversationStore.getState().activeConversationId !== ctx.conversationId) return empty;
-        if (useStreamStore.getState().streamEpoch !== snapshotEpoch) return empty;
+        if (
+          useConversationStore.getState().activeConversationId !==
+          ctx.conversationId
+        ) {
+          return empty;
+        }
+        if (useStreamStore.getState().streamEpoch !== snapshotEpoch) {
+          return empty;
+        }
         recordDiagnostic("reconciliation_active_fetch", {
           assistantId: ctx.assistantId,
           conversationId: ctx.conversationId,
@@ -368,6 +408,7 @@ export function useMessageReconciliation({
           serverSeq,
           serverProcessing,
           authoritative,
+          issuedGeneration,
         );
       } catch (err) {
         // Re-throw so callers that await the result (e.g. the
@@ -382,9 +423,8 @@ export function useMessageReconciliation({
         throw err;
       }
     },
-    [
-    reconcileFetchedMessages,
-  ]);
+    [reconcileFetchedMessages],
+  );
 
   const startReconciliationLoop = useCallback(
     (epoch: number) => {
@@ -396,7 +436,9 @@ export function useMessageReconciliation({
       // and the callers' invocations become no-ops there. Below the floor
       // the daemon doesn't serve the endpoint, so the poll-until-stable
       // loop is retained to wait out the partial-persist debounce.
-      if (supportsEventsTail()) return;
+      if (supportsEventsTail()) {
+        return;
+      }
 
       cancelReconciliation();
       recordDiagnostic("reconciliation_loop_start", { epoch });
@@ -426,12 +468,17 @@ export function useMessageReconciliation({
           return;
         }
         const snapshotTurnId = useTurnStore.getState().activeTurnId;
+        // Issue-time generation (see `reconcileActiveConversation`): a reset
+        // mid-fetch makes this snapshot's watermark a dead-generation anchor.
+        const issuedGeneration = getSeqGeneration();
 
         fetchConversationMessages(ctx.assistantId, ctx.conversationId, {
           latestPageLimit: RECONCILE_LATEST_PAGE_LIMIT,
         })
           .then((snapshot) => {
-            if (epoch !== useStreamStore.getState().streamEpoch) return;
+            if (epoch !== useStreamStore.getState().streamEpoch) {
+              return;
+            }
             const serverMessages = snapshot?.messages ?? [];
             const serverSeq = snapshot?.seq ?? null;
             const serverProcessing = snapshot?.processing;
@@ -450,6 +497,9 @@ export function useMessageReconciliation({
               ctx.conversationId,
               serverSeq,
               serverProcessing,
+              // Poll-loop reconciles are never authoritative.
+              false,
+              issuedGeneration,
             );
 
             if (changed) {

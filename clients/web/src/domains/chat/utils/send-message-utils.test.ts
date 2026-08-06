@@ -41,7 +41,11 @@ describe("clearPendingConfirmationsFromMessages", () => {
     const messages = [
       msg({
         toolCalls: [
-          { toolCallId: "tc-1", toolName: "run", pendingConfirmation: { title: "Confirm?" } } as never,
+          {
+            toolCallId: "tc-1",
+            toolName: "run",
+            pendingConfirmation: { title: "Confirm?" },
+          } as never,
         ],
       }),
     ];
@@ -65,7 +69,10 @@ describe("clearPendingConfirmationsFromMessages", () => {
 describe("dismissInteractiveSurfaces", () => {
   it("returns the same reference when no interactive surfaces exist", () => {
     const messages = [msg()];
-    const { updatedMessages, dismissedIds } = dismissInteractiveSurfaces(messages, messages);
+    const { updatedMessages, dismissedIds } = dismissInteractiveSurfaces(
+      messages,
+      messages,
+    );
     expect(updatedMessages).toBe(messages);
     expect(dismissedIds.size).toBe(0);
   });
@@ -77,9 +84,7 @@ describe("dismissInteractiveSurfaces", () => {
       completed: false,
       actions: [{ label: "Submit" }],
     };
-    const messagesWithSurface = [
-      msg({ surfaces: [surface as never] }),
-    ];
+    const messagesWithSurface = [msg({ surfaces: [surface as never] })];
     const { updatedMessages, dismissedIds } = dismissInteractiveSurfaces(
       messagesWithSurface,
       messagesWithSurface,
@@ -146,6 +151,70 @@ describe("completeSubmittedSurface", () => {
     );
   });
 
+  it("treats a secondary-styled choice as a successful selection", () => {
+    const messages = [
+      msg({
+        surfaces: [
+          {
+            surfaceId: "s-first-run-scope",
+            surfaceType: "choice",
+            completed: false,
+            data: {},
+            actions: [
+              {
+                id: "scope_work",
+                label: "Help me plan my week",
+                style: "secondary",
+              },
+            ],
+          } as never,
+        ],
+      }),
+    ];
+
+    const result = completeSubmittedSurface(
+      messages,
+      "s-first-run-scope",
+      "scope_work",
+    );
+
+    expect(result[0]!.surfaces![0]!.completed).toBe(true);
+    expect(result[0]!.surfaces![0]!.completionSummary).toBe(
+      "Help me plan my week",
+    );
+  });
+
+  it("preserves an authoritative completion that arrives before the optimistic patch", () => {
+    const messages = [
+      msg({
+        surfaces: [
+          {
+            surfaceId: "s-first-run-scope",
+            surfaceType: "choice",
+            completed: true,
+            completionSummary: 'User chose: "Help me plan my week"',
+            data: {},
+            actions: [
+              {
+                id: "scope_work",
+                label: "Help me plan my week",
+                style: "secondary",
+              },
+            ],
+          } as never,
+        ],
+      }),
+    ];
+
+    expect(
+      completeSubmittedSurface(
+        messages,
+        "s-first-run-scope",
+        "scope_work",
+      ),
+    ).toBe(messages);
+  });
+
   it("leaves non-completing surfaces unchanged", () => {
     const messages = [
       msg({
@@ -162,6 +231,45 @@ describe("completeSubmittedSurface", () => {
 
     expect(completeSubmittedSurface(messages, "s-copy", "copy")).toBe(messages);
   });
+
+  it("does not mislabel a guardian decision on a secondary button as Cancelled, and applies the tone", () => {
+    const messages = [
+      msg({
+        surfaces: [
+          {
+            surfaceId: "access-request-req1",
+            surfaceType: "card",
+            completed: false,
+            data: {},
+            actions: [
+              {
+                id: "apr:req1:leave_unverified",
+                label: "Leave unverified",
+                style: "secondary",
+              },
+            ],
+          } as never,
+        ],
+      }),
+    ];
+
+    const replyText = "Alice will stay unverified.";
+    const result = completeSubmittedSurface(
+      messages,
+      "access-request-req1",
+      "apr:req1:leave_unverified",
+      replyText,
+      { tone: "neutral" },
+    );
+
+    const surface = result[0]!.surfaces![0]!;
+    expect(surface.completed).toBe(true);
+    // The secondary-style button must NOT collapse to "Cancelled" for a
+    // guardian decision — the resolver's reply text is preserved.
+    expect(surface.completionSummary).toBe(replyText);
+    // A leave-unverified park is a neutral hold, not a denial.
+    expect(surface.completionTone).toBe("neutral");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -170,8 +278,14 @@ describe("completeSubmittedSurface", () => {
 
 describe("resolvePostError", () => {
   it("returns the known error message for a recognized code", () => {
-    const result = resolvePostError("rate_limit_exceeded", undefined, "fallback");
-    expect(result).toBe("Too many requests. Please wait a moment and try again.");
+    const result = resolvePostError(
+      "rate_limit_exceeded",
+      undefined,
+      "fallback",
+    );
+    expect(result).toBe(
+      "Too many requests. Please wait a moment and try again.",
+    );
   });
 
   it("returns the detail when the code is unrecognized", () => {

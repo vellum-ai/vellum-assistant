@@ -14,6 +14,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Brain,
   CalendarClock,
+  ChevronRight,
   FolderOpen,
   LayoutGrid,
   Pencil,
@@ -35,13 +36,16 @@ import { PageShell } from "@/components/page-shell";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useElementSize } from "@/hooks/use-element-size";
 import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useIsNativeMobile } from "@/runtime/platform-detection";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { contrastForeground } from "@/utils/avatar-tone";
 
 import { applyRename } from "../identity-actions/apply-rename";
-import { memoryStatsOptions } from "../memory-graph/get-memory-stats";
+import {
+  conceptPageCount,
+  memoryStatsOptions,
+} from "../memory-graph/get-memory-stats";
 import {
   assistantIdentityDetailsQueryKey,
   useAssistantIdentityDetails,
@@ -58,8 +62,11 @@ import {
 } from "./amoeba-avatar";
 import { AssistantNameEditor } from "./assistant-name-editor";
 import { resolveAvatarHex } from "./assistant-stage";
-import { buildIdentitySections, type IdentitySection } from "./identity-sections";
-import { PersonalityRadar } from "./personality-radar";
+import {
+  buildIdentitySections,
+  type IdentitySection,
+} from "./identity-sections";
+import { PersonalitySignature } from "./personality-signature";
 
 const SECTION_ICONS: Record<string, LucideIcon> = {
   personality: Sparkles,
@@ -106,7 +113,7 @@ const MINI_SECTION_KEYS = [
  * the greeting becomes his commentary on whatever you're pointing at.
  */
 const CARD_HOVER_LINES: Record<string, string> = {
-  personality: "Go ahead — tweak my soul",
+  personality: "Go ahead, tweak my soul",
   superpowers: "Everything I know how to do",
   memory: "Everything I remember",
   library: "The apps and docs I've made for you",
@@ -115,7 +122,6 @@ const CARD_HOVER_LINES: Record<string, string> = {
   contacts: "The people I know and trust",
   channels: "All the places you can reach me",
 };
-
 
 /** "14 Jul, 9:00 am" — compact next-fire time for the schedules preview. */
 function formatNextRun(nextRunAt: number): string {
@@ -156,6 +162,33 @@ const BG_TINT_PERCENT = 14;
 const CARD_TINT_PERCENT = 5;
 const HOVER_TINT_PERCENT = 22;
 
+/**
+ * Overlay palette for the custom-photo backdrop (Figma: New-App
+ * 7219-160935). With a custom avatar the page floats on the user's
+ * blurred photo, so surfaces and text are fixed light-on-dark values —
+ * the photo, not the theme, is the background in every theme. The values
+ * are the dark theme's content/surface set; the feature cards go
+ * translucent (they additionally get a backdrop blur via `photoBackdrop`).
+ */
+const PHOTO_OVERLAY_STYLE = {
+  "--card-bg": "#24292e",
+  // Glassy per Figma; legibility on bright photos comes from the
+  // backdrop's brightness dimming, so the wash itself can stay thin
+  // (white text keeps ~4.5:1 even over a pure-white photo).
+  "--card-feature-bg": "rgba(23, 25, 28, 0.35)",
+  // Card.Root asChild puts the hover bg on the same element as the card
+  // bg, so a translucent hover would punch through to the photo. Opaque
+  // value = the theme's hover wash pre-composited over the dark card.
+  "--card-hover": "#2d3339",
+  "--card-accent": "#bd4900",
+  "--card-flood-fg": "#fdfdfc",
+  "--content-default": "#fdfdfc",
+  "--content-strong": "#fdfdfc",
+  "--content-secondary": "#a9b2bb",
+  "--content-tertiary": "#8d99a5",
+  "--border-base": "rgba(255, 255, 255, 0.08)",
+} as CSSProperties;
+
 interface IdentityOverviewProps {
   assistantId: string;
 }
@@ -171,33 +204,35 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
   } = useAssistantAvatar(assistantId);
   const identityQuery = useAssistantIdentityDetails(assistantId);
   const supportsPlugins = useSupportsPluginsSurface();
-  const showChannels = useAssistantFeatureFlagStore.use.channelTrustFloors();
+  // The native mobile shells drop the Memory, Workspace, Contacts and
+  // Channels cards, so their measurements are dead reads there.
+  const isNativeMobile = useIsNativeMobile();
   const stats = useIdentitySectionStats(assistantId, {
     supportsPlugins,
-    showChannels,
+    isNativeMobile,
   });
   // The Memory card's measurement is the cheap page-index concept count
-  // (get-memory-stats) — NOT the concept-graph build, which is kept off
-  // identity-page load. Fetched unconditionally: the card's visibility now
-  // follows the same call's `graphSupported` capability bit, so the Memory
-  // concept graph is only offered where the backend can build it (memory v3
-  // live) rather than dead-ending on a "not available" graph.
-  const memoryStats = useQuery(memoryStatsOptions(assistantId));
-  const showMemory =
-    memoryStats.data?.kind === "ready" && memoryStats.data.graphSupported;
+  // (get-memory-stats), NOT the concept-graph build, which is kept off
+  // identity-page load. Wherever the card shows it is never gated on backend
+  // capability; only its count is, so an assistant whose backend can't draw
+  // the graph still has a way into the Memory tab (which explains why, and
+  // offers the fix).
+  const memoryStats = useQuery({
+    ...memoryStatsOptions(assistantId),
+    enabled: !isNativeMobile,
+  });
+  // Only measured where concept pages are actually the substrate (memory tier
+  // v2/v3). A loading query, an older daemon predating `/memory/stats`, a v1
+  // assistant (memory lives in the legacy graph) and a memory-off one all read
+  // `undefined` and leave the measurement off, rather than render a "0
+  // memories" that says "I remember nothing about you".
+  const memories = conceptPageCount(memoryStats.data);
   const sectionStats: Record<string, IdentitySectionStat | undefined> = {
     ...stats,
-    // Only show a count when the daemon actually answered one (`ready`). An
-    // older daemon predating `/memory/stats` reads `unsupported`, and a loading
-    // query is `undefined` — both leave the measurement off (as the card was
-    // before this feature) rather than render a wrong "0 memories".
     memory:
-      memoryStats.data?.kind === "ready"
-        ? {
-            value: memoryStats.data.concepts,
-            label: memoryStats.data.concepts === 1 ? "memory" : "memories",
-          }
-        : undefined,
+      memories === undefined
+        ? undefined
+        : { value: memories, label: memories === 1 ? "memory" : "memories" },
   };
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -212,9 +247,14 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
           void queryClient.invalidateQueries({
             queryKey: assistantIdentityDetailsQueryKey(assistantId),
           });
-          const { version, setIdentity } =
-            useAssistantIdentityStore.getState();
-          setIdentity(newName, version);
+          const {
+            version,
+            assistantId: hydratedAssistantId,
+            setIdentity,
+          } = useAssistantIdentityStore.getState();
+          // Preserve the owner tag: a rename changes the name, not which
+          // assistant the hydrated identity belongs to.
+          setIdentity(newName, version, hydratedAssistantId);
           toast.success(`Say hi to ${newName}!`);
         } else {
           toast.error("The rename didn't go through. Please try again.");
@@ -228,15 +268,19 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
     invalidateAvatar();
   }, [invalidateAvatar]);
 
-  const sections = buildIdentitySections({
-    showChannels,
-    showMemory,
-  });
+  const sections = buildIdentitySections({ isNativeMobile });
   const isLoading = isAvatarLoading || identityQuery.isLoading;
   const avatarHex = resolveAvatarHex(components, traits);
+  // Custom image (no character color): the page background becomes the
+  // photo itself, blown up and heavily blurred behind the content.
+  const photoBackdrop = Boolean(customImageUrl) && !avatarHex;
 
   return (
     <PageShell
+      // The photo backdrop is an image, not a flat color, so there is nothing
+      // the shell could paint into the safe areas that would continue it.
+      bleed={!photoBackdrop}
+      className={photoBackdrop ? "relative overflow-hidden" : undefined}
       style={
         avatarHex
           ? {
@@ -245,8 +289,25 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
           : undefined
       }
     >
+      {photoBackdrop && customImageUrl && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0"
+        >
+          {/* Scaled up so the blur never bleeds transparent edges in.
+              Dimmed via brightness (not a flat scrim) so bright photos
+              darken naturally — highlights keep their hue, like the dark
+              reference backdrop in Figma (7219-160942) — and the white
+              overlay text and translucent cards stay readable. */}
+          <img
+            src={customImageUrl}
+            alt=""
+            className="h-full w-full scale-110 object-cover blur-[60px] brightness-[0.65]"
+          />
+        </div>
+      )}
       {isLoading ? (
-        <div className="flex flex-1 items-center justify-center">
+        <div className="relative flex flex-1 items-center justify-center">
           <div
             className="h-6 w-6 animate-spin rounded-full border-2"
             style={{
@@ -264,6 +325,7 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
           sections={sections}
           stats={sectionStats}
           avatarHex={avatarHex}
+          photoBackdrop={photoBackdrop}
           isRenaming={isRenaming}
           onOpenAvatarModal={() => setModalOpen(true)}
         />
@@ -293,33 +355,31 @@ function SectionCard({
   cardStyle,
   hoverFill,
   mini,
-  stacked,
   flooded = false,
   floodOrigin,
+  photoBackdrop = false,
   linkRef,
   onHoverChange,
 }: {
   section: IdentitySection;
   stat: IdentitySectionStat | undefined;
-  /** Named bento cell; omitted in the stacked layout's plain grid. */
+  /** Named bento cell; unset in the stacked layout's plain grid. */
   gridArea?: string;
   /** Extra card-root styles (e.g. self-sizing within a taller area). */
   cardStyle?: CSSProperties;
   /** Tint the card itself on hover — off when the amoeba avatar reacts instead. */
   hoverFill: boolean;
-  /** Compact one-row variant for the bottom-strip sections. */
+  /** Compact one-row variant for the bottom-strip and stacked-grid
+   *  sections. */
   mini?: boolean;
-  /** Uniform tile for the stacked (small-viewport) grid: every card gets
-   *  the same chrome — icon + title row, subtitle, small stat line. The
-   *  bento-only orchestration props (`hoverFill`, `flooded`, `floodOrigin`,
-   *  `linkRef`, `onHoverChange`) are ignored; the amoeba hover act never
-   *  runs in the stacked layout. */
-  stacked?: boolean;
   /** The avatar has poured itself over this card — fill it with the
    *  avatar color and flip the content to the contrast tone. */
   flooded?: boolean;
   /** Where the flood enters, in percent of the card box. */
   floodOrigin?: { x: number; y: number };
+  /** On the blurred-photo backdrop the feature cards go translucent
+   *  (a dark wash + backdrop blur) instead of the avatar-color wash. */
+  photoBackdrop?: boolean;
   linkRef?: (el: HTMLAnchorElement | null) => void;
   onHoverChange?: (hovering: boolean) => void;
 }) {
@@ -362,48 +422,6 @@ function SectionCard({
       }
     />
   );
-
-  if (stacked) {
-    // Small-viewport tile: one shared template for every section — no
-    // feature-card wash, no radar or schedule previews, no display-size
-    // numerals — so the stacked grid reads as one calm, even surface.
-    const stackedStat =
-      stat?.value !== undefined
-        ? `${stat.value} ${stat.label ?? ""}`.trim()
-        : stat?.text;
-    return (
-      <Card.Root
-        asChild
-        bordered
-        elevated
-        clipContents
-        className="rounded-2xl bg-[var(--card-bg)]"
-      >
-        <Link
-          to={section.to}
-          className="relative flex h-full w-full cursor-pointer flex-col gap-1 p-4 text-left transition-all duration-150 hover:bg-[var(--card-hover)] active:scale-[0.98]"
-        >
-          <span className="flex items-center gap-2">
-            <Icon
-              className="h-5 w-5 shrink-0 text-[var(--content-default)]"
-              aria-hidden
-            />
-            <span className="truncate text-body-medium-default text-[var(--content-default)]">
-              {section.label}
-            </span>
-          </span>
-          <span className="text-[13px] text-[var(--content-secondary)]">
-            {section.description}
-          </span>
-          {stackedStat && (
-            <span className="mt-auto truncate pt-1 text-[12px] font-medium text-[var(--content-tertiary)]">
-              {stackedStat}
-            </span>
-          )}
-        </Link>
-      </Card.Root>
-    );
-  }
 
   if (mini) {
     const miniStat =
@@ -476,7 +494,11 @@ function SectionCard({
       elevated={!isFeatureCard}
       className={`${SECTION_RADII[section.key] ?? ""} ${
         isFeatureCard
-          ? "border border-[var(--border-base)] bg-[var(--card-feature-bg,var(--card-bg))]"
+          ? `border bg-[var(--card-feature-bg,var(--card-bg))] ${
+              photoBackdrop
+                ? "border-transparent backdrop-blur-[32px]"
+                : "border-[var(--border-base)]"
+            }`
           : "bg-[var(--card-bg)]"
       }`}
       style={{
@@ -498,16 +520,20 @@ function SectionCard({
         }`}
       >
         {floodOverlay}
-        {/* The Personality card fills with the radar of the persisted
-            slider values; bento only (`gridArea`). The blob reads the
+        {/* The Personality card fills with the signature of the persisted
+            slider values; bento only (`gridArea`). The mark reads the
             `--card-accent` var, so it flips to the contrast tone while
-            flooded along with the grid/labels (currentColor). */}
-        {gridArea && stat?.radar && (
+            flooded along with the rule and labels (currentColor). */}
+        {gridArea && stat?.signature && (
           <span
-            className={`absolute inset-x-5 top-14 bottom-4 flex items-center justify-center transition-colors duration-300 ${
+            className={`absolute inset-x-5 top-14 bottom-9 flex flex-col justify-start transition-colors duration-300 ${
               flooded
                 ? "text-[var(--card-flood-fg)]"
-                : "text-[var(--content-secondary)]"
+                : photoBackdrop
+                  ? // On the photo backdrop the rule and labels read in
+                    // white (Figma 7219-160964), not the muted secondary.
+                    "text-[var(--content-default)]"
+                  : "text-[var(--content-secondary)]"
             }`}
             style={
               flooded
@@ -515,7 +541,22 @@ function SectionCard({
                 : undefined
             }
           >
-            <PersonalityRadar values={stat.radar} className="h-auto w-full" />
+            {/* The mark rests on the bottom inset, but only while the gap it
+                leaves under the header stays inside this spacer. The mark's
+                height follows its WIDTH, so a narrow card makes a short one —
+                and without the cap that whole surplus collected under the
+                header and pushed the mark to the floor of the card. Past the
+                cap the surplus falls below the mark instead. */}
+            <span aria-hidden className="max-h-10 flex-1" />
+            {/* Nothing ties the mark's width-derived height to a box sized by
+                the card's HEIGHT, so a wide, short window makes it the taller
+                of the two. `max-h-full` clamps the viewport there and the
+                default `xMidYMid meet` scales the whole mark down to fit,
+                rather than letting `overflow-hidden` cut the top labels off. */}
+            <PersonalitySignature
+              values={stat.signature}
+              className="h-auto max-h-full w-full"
+            />
           </span>
         )}
         {isFeatureCard ? (
@@ -644,13 +685,14 @@ function CenterCell({
         className="avatar-edit-cursor outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
       >
         {customImageUrl && !traits ? (
-          // Custom image: a plain static circle — no entrance or bounce.
+          // Custom image: a plain static rounded square (Figma
+          // 7259-169118) — no entrance or bounce.
           <img
             src={customImageUrl}
             alt=""
             width={avatarSize}
             height={avatarSize}
-            className="rounded-full object-cover"
+            className="rounded-[32px] object-cover"
             style={{ width: avatarSize, height: avatarSize }}
           />
         ) : (
@@ -685,6 +727,7 @@ function OverviewBento({
   sections,
   stats,
   avatarHex,
+  photoBackdrop,
   isRenaming,
   onOpenAvatarModal,
 }: {
@@ -695,6 +738,8 @@ function OverviewBento({
   sections: IdentitySection[];
   stats: Record<string, IdentitySectionStat | undefined>;
   avatarHex: string | null;
+  /** The page sits on the blurred custom photo — use the overlay palette. */
+  photoBackdrop: boolean;
   isRenaming: boolean;
   onOpenAvatarModal: () => void;
 }) {
@@ -798,21 +843,25 @@ function OverviewBento({
   // Without a character color (custom image / not loaded) every surface
   // falls back to the regular theme tokens — no forced white/black card
   // faces, no accent wash — so the page reads like the rest of the app.
-  const tintStyle = {
-    "--card-bg": avatarHex
-      ? `color-mix(in srgb, ${avatarHex} var(--card-tint-pct, ${CARD_TINT_PERCENT}%), var(--card-surface, var(--surface-lift)))`
-      : "var(--surface-lift)",
-    "--card-feature-bg": avatarHex
-      ? "color-mix(in srgb, var(--card-accent) 28%, var(--card-surface, var(--surface-lift)))"
-      : "var(--surface-lift)",
-    "--card-hover": avatarHex
-      ? `color-mix(in srgb, ${avatarHex} ${HOVER_TINT_PERCENT}%, var(--card-surface, var(--surface-lift)))`
-      : "var(--surface-hover)",
-    "--card-accent": avatarHex ?? "var(--content-default)",
-    "--card-flood-fg": avatarHex
-      ? contrastForeground(avatarHex)
-      : "var(--content-default)",
-  } as CSSProperties;
+  // Exception: on the blurred-photo backdrop the fixed overlay palette
+  // takes over so cards and text read on the photo in every theme.
+  const tintStyle = photoBackdrop
+    ? PHOTO_OVERLAY_STYLE
+    : ({
+        "--card-bg": avatarHex
+          ? `color-mix(in srgb, ${avatarHex} var(--card-tint-pct, ${CARD_TINT_PERCENT}%), var(--card-surface, var(--surface-lift)))`
+          : "var(--surface-lift)",
+        "--card-feature-bg": avatarHex
+          ? "color-mix(in srgb, var(--card-accent) 28%, var(--card-surface, var(--surface-lift)))"
+          : "var(--surface-lift)",
+        "--card-hover": avatarHex
+          ? `color-mix(in srgb, ${avatarHex} ${HOVER_TINT_PERCENT}%, var(--card-surface, var(--surface-lift)))`
+          : "var(--surface-hover)",
+        "--card-accent": avatarHex ?? "var(--content-default)",
+        "--card-flood-fg": avatarHex
+          ? contrastForeground(avatarHex)
+          : "var(--content-default)",
+      } as CSSProperties);
 
   // The avatar is a background element positioned against the full page —
   // cards overlap it freely; cap only so his head stays inside the frame.
@@ -839,34 +888,145 @@ function OverviewBento({
   );
 
   if (!useBento) {
+    // Stacked (mobile) layout per Figma 7259-169032: greeting + avatar,
+    // a compact Schedules row (title · count › ), the Personality card
+    // with the full signature, then the remaining sections as a two-column
+    // grid of mini tiles.
+    const schedulesSection = sections.find((s) => s.key === "schedules");
+    const personalitySection = sections.find((s) => s.key === "personality");
+    const gridSections = sections.filter(
+      (s) => s.key !== "schedules" && s.key !== "personality",
+    );
+    const schedulesStat = stats["schedules"]?.schedules;
+    const scheduleCount = schedulesStat
+      ? schedulesStat.items.length + schedulesStat.more
+      : undefined;
+    const signature = stats["personality"]?.signature;
+    // Same feature-card chrome as the bento's Personality/Schedules
+    // cards: translucent glass on the photo backdrop, themed otherwise.
+    const featureCardClass = `w-full rounded-[12px] border bg-[var(--card-feature-bg,var(--card-bg))] ${
+      photoBackdrop
+        ? "border-transparent backdrop-blur-[32px]"
+        : "border-[var(--border-base)]"
+    }`;
+
     return (
       <div
         ref={setContainerRef}
-        className="identity-bento flex min-h-0 flex-1 flex-col items-center gap-6 overflow-y-auto px-2 py-4"
-        style={tintStyle}
+        className="identity-bento relative flex min-h-0 flex-1 flex-col items-center gap-6 overflow-y-auto px-2 py-4"
+        style={
+          photoBackdrop
+            ? // The mobile grid tiles sit on the deeper dark base (Figma
+              // 7259-169066) rather than the desktop strip's lift color.
+              ({ ...tintStyle, "--card-bg": "#17191c" } as CSSProperties)
+            : tintStyle
+        }
       >
         {centerCell}
-        <div className="grid w-full max-w-md shrink-0 grid-cols-2 gap-3">
-          {sections.map((section) => (
-            <SectionCard
-              key={section.key}
-              section={section}
-              stat={stats[section.key]}
-              hoverFill
-              stacked
-            />
-          ))}
+        <div className="flex w-full max-w-md shrink-0 flex-col gap-2">
+          {schedulesSection && (
+            <Card.Root
+              asChild
+              bordered={false}
+              elevated={false}
+              clipContents
+              className={featureCardClass}
+            >
+              <Link
+                to={schedulesSection.to}
+                className="flex w-full cursor-pointer items-center gap-2 p-4 transition-all duration-150 hover:bg-[var(--card-hover)] active:scale-[0.98]"
+              >
+                <CalendarClock
+                  className="h-5 w-5 shrink-0 text-[var(--content-default)]"
+                  aria-hidden
+                />
+                <span className="flex min-w-0 flex-1 items-center gap-2">
+                  <span className="truncate text-body-medium-default text-[var(--content-default)]">
+                    {schedulesSection.label}
+                  </span>
+                  {scheduleCount !== undefined && (
+                    <>
+                      <span
+                        className="h-[3px] w-[3px] shrink-0 rounded-full bg-[var(--content-tertiary)]"
+                        aria-hidden
+                      />
+                      <span className="text-body-medium-default text-[var(--content-tertiary)]">
+                        {scheduleCount}
+                      </span>
+                    </>
+                  )}
+                </span>
+                <ChevronRight
+                  className="h-4 w-4 shrink-0 text-[var(--content-default)]"
+                  aria-hidden
+                />
+              </Link>
+            </Card.Root>
+          )}
+          {personalitySection && (
+            <Card.Root
+              asChild
+              bordered={false}
+              elevated={false}
+              clipContents
+              className={featureCardClass}
+            >
+              <Link
+                to={personalitySection.to}
+                className="flex w-full cursor-pointer flex-col gap-4 px-4 pt-4 pb-6 transition-all duration-150 hover:bg-[var(--card-hover)] active:scale-[0.98]"
+              >
+                <span className="flex items-center gap-2">
+                  <Sparkles
+                    className="h-5 w-5 text-[var(--content-default)]"
+                    aria-hidden
+                  />
+                  <span className="text-body-medium-default text-[var(--content-default)]">
+                    {personalitySection.label}
+                  </span>
+                </span>
+                {signature && (
+                  <span
+                    className={`flex items-center justify-center ${
+                      photoBackdrop
+                        ? "text-[var(--content-default)]"
+                        : "text-[var(--content-secondary)]"
+                    }`}
+                  >
+                    <PersonalitySignature
+                      values={signature}
+                      className="h-auto w-full"
+                    />
+                  </span>
+                )}
+              </Link>
+            </Card.Root>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            {gridSections.map((section) => (
+              <SectionCard
+                key={section.key}
+                section={section}
+                stat={stats[section.key]}
+                hoverFill
+                mini
+              />
+            ))}
+          </div>
         </div>
       </div>
     );
   }
 
-  // Priority layout: Personality owns the left column (radar centered in
+  // Priority layout: Personality owns the left column (signature centered in
   // it) and Schedules the right, both the same height above the strip,
   // and everything else (Skills, Plugins, Workspace, Contacts, Channels)
   // runs as compact mini cards in a full-width bottom strip.
-  const mainSections = sections.filter((s) => !MINI_SECTION_KEYS.includes(s.key));
-  const miniSections = sections.filter((s) => MINI_SECTION_KEYS.includes(s.key));
+  const mainSections = sections.filter(
+    (s) => !MINI_SECTION_KEYS.includes(s.key),
+  );
+  const miniSections = sections.filter((s) =>
+    MINI_SECTION_KEYS.includes(s.key),
+  );
 
   // Top row is a centered trio — Personality, the greeting, Schedules —
   // and the rows below stay open so the page-anchored avatar shows
@@ -903,6 +1063,7 @@ function OverviewBento({
     section,
     stat: stats[section.key],
     hoverFill: !morphing,
+    photoBackdrop,
     flooded: activeHug?.key === section.key,
     floodOrigin: activeHug?.key === section.key ? activeHug.origin : undefined,
     linkRef: (el: HTMLAnchorElement | null) => {

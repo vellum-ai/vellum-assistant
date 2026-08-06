@@ -1,5 +1,5 @@
 import type { InterfaceId } from "../channels/types.js";
-import { getEffectiveProfiles } from "../config/default-profile-catalog.js";
+import { getEffectiveProfilesForProvider } from "../config/default-profile-catalog.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import {
@@ -25,7 +25,9 @@ const COMPACT_COMMAND_PATTERN = /^\/compact(?:\s+(.+?))?\s*$/i;
 
 function parseCompactCommand(trimmed: string): CompactParse | null {
   const match = trimmed.match(COMPACT_COMMAND_PATTERN);
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
   const rest = match[1]?.trim();
   if (rest) {
     return {
@@ -42,7 +44,9 @@ const CLEAN_COMMAND_PATTERN = /^\/clean(?:\s+(.+?))?\s*$/i;
 
 function parseCleanCommand(trimmed: string): CleanParse | null {
   const match = trimmed.match(CLEAN_COMMAND_PATTERN);
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
   const rest = match[1]?.trim();
   if (rest) {
     return {
@@ -79,7 +83,9 @@ export function buildSlashContextForContent(
   content: string,
   source: SlashContextSource,
 ): SlashContext | undefined {
-  if (classifySlash(content) === "passthrough") return undefined;
+  if (classifySlash(content) === "passthrough") {
+    return undefined;
+  }
 
   const config = getConfig();
   const contextWindow = resolveEffectiveContextWindow({
@@ -125,10 +131,16 @@ type ModelCommandParse =
  * that isn't a `/model` invocation (so the caller can fall through).
  */
 function parseModelCommand(trimmed: string): ModelCommandParse | null {
-  if (trimmed === "/model") return { kind: "list" };
-  if (!trimmed.startsWith("/model ")) return null;
+  if (trimmed === "/model") {
+    return { kind: "list" };
+  }
+  if (!trimmed.startsWith("/model ")) {
+    return null;
+  }
   const rest = trimmed.slice("/model ".length).trim();
-  if (rest.length === 0) return { kind: "list" };
+  if (rest.length === 0) {
+    return { kind: "list" };
+  }
   return { kind: "switch", profileName: rest };
 }
 
@@ -136,7 +148,10 @@ async function resolveModelCommand(
   parse: ModelCommandParse,
 ): Promise<SlashResolution> {
   const config = getConfig();
-  const profiles = getEffectiveProfiles(config.llm.profiles);
+  const profiles = getEffectiveProfilesForProvider(
+    config.llm.profiles,
+    config.llm.defaultProvider ?? null,
+  );
   const profileNames = orderProfileKeys(profiles, config.llm.profileOrder);
   const activeProfile = config.llm.activeProfile;
 
@@ -296,7 +311,9 @@ function resolveCommandsList(context?: SlashContext): string[] {
     fallbackLines.push("/status — Show conversation status and context usage");
   }
 
-  if (!context?.userMessageInterface) return fallbackLines;
+  if (!context?.userMessageInterface) {
+    return fallbackLines;
+  }
 
   if (context.userMessageInterface === "macos") {
     return [
@@ -361,14 +378,26 @@ export function classifySlash(
   ) {
     return "unknown";
   }
-  if (trimmed === "/models") return "unknown";
+  if (trimmed === "/models") {
+    return "unknown";
+  }
   const compactParse = parseCompactCommand(trimmed);
-  if (compactParse) return compactParse.kind;
+  if (compactParse) {
+    return compactParse.kind;
+  }
   const cleanParse = parseCleanCommand(trimmed);
-  if (cleanParse) return cleanParse.kind;
-  if (trimmed === "/context") return "unknown";
-  if (trimmed === "/status") return "unknown";
-  if (trimmed === "/commands") return "unknown";
+  if (cleanParse) {
+    return cleanParse.kind;
+  }
+  if (trimmed === "/context") {
+    return "unknown";
+  }
+  if (trimmed === "/status") {
+    return "unknown";
+  }
+  if (trimmed === "/commands") {
+    return "unknown";
+  }
   return "passthrough";
 }
 
@@ -408,11 +437,15 @@ export async function resolveSlash(
 
   // Handle /compact command (summarize history; takes no arguments).
   const compactParse = parseCompactCommand(trimmed);
-  if (compactParse) return compactParse;
+  if (compactParse) {
+    return compactParse;
+  }
 
   // Handle /clean command (strip injections, no summarization).
   const cleanParse = parseCleanCommand(trimmed);
-  if (cleanParse) return cleanParse;
+  if (cleanParse) {
+    return cleanParse;
+  }
 
   // Handle /context and legacy /status commands
   if (trimmed === "/context" || trimmed === "/status") {

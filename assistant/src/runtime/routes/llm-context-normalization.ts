@@ -116,23 +116,43 @@ function normalizeProviderErrorPayload(
   }
 
   const normalized: LlmContextError = {};
-  if (name !== undefined) normalized.name = name;
-  if (message !== undefined) normalized.message = message;
-  if (code !== undefined) normalized.code = code;
+  if (name !== undefined) {
+    normalized.name = name;
+  }
+  if (message !== undefined) {
+    normalized.message = message;
+  }
+  if (code !== undefined) {
+    normalized.code = code;
+  }
   const provider = asString(error.provider);
-  if (provider !== undefined) normalized.provider = provider;
+  if (provider !== undefined) {
+    normalized.provider = provider;
+  }
   const statusCode = asNumber(error.statusCode);
-  if (statusCode !== undefined) normalized.statusCode = statusCode;
+  if (statusCode !== undefined) {
+    normalized.statusCode = statusCode;
+  }
   const retryAfterMs = asNumber(error.retryAfterMs);
-  if (retryAfterMs !== undefined) normalized.retryAfterMs = retryAfterMs;
+  if (retryAfterMs !== undefined) {
+    normalized.retryAfterMs = retryAfterMs;
+  }
   const apiErrorCode = asString(error.apiErrorCode);
-  if (apiErrorCode !== undefined) normalized.apiErrorCode = apiErrorCode;
+  if (apiErrorCode !== undefined) {
+    normalized.apiErrorCode = apiErrorCode;
+  }
   const apiErrorType = asString(error.apiErrorType);
-  if (apiErrorType !== undefined) normalized.apiErrorType = apiErrorType;
+  if (apiErrorType !== undefined) {
+    normalized.apiErrorType = apiErrorType;
+  }
   const apiErrorParam = asString(error.apiErrorParam);
-  if (apiErrorParam !== undefined) normalized.apiErrorParam = apiErrorParam;
+  if (apiErrorParam !== undefined) {
+    normalized.apiErrorParam = apiErrorParam;
+  }
   const requestId = asString(error.requestId);
-  if (requestId !== undefined) normalized.requestId = requestId;
+  if (requestId !== undefined) {
+    normalized.requestId = requestId;
+  }
   return normalized;
 }
 
@@ -1595,12 +1615,16 @@ function normalizeCompatibleRequestPayload(
 }
 
 function hasOpenAiModelPrefix(model: string | undefined): boolean {
-  if (!model) return false;
+  if (!model) {
+    return false;
+  }
   return /^(gpt-|chatgpt-|ft:|o[1-9]\d*(-|$))/.test(model);
 }
 
 function hasAnthropicModelPrefix(model: string | undefined): boolean {
-  if (!model) return false;
+  if (!model) {
+    return false;
+  }
   return model.startsWith("claude-");
 }
 

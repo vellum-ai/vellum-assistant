@@ -54,6 +54,38 @@ export function coerceSurfaceDataRecord(
   return {};
 }
 
+/**
+ * Describe why a `data` payload the caller double-encoded as a JSON object or
+ * array literal could not be decoded, or null when it decoded fine.
+ *
+ * {@link coerceSurfaceDataRecord} collapses an undecodable string to `{}`, which
+ * every downstream shape check then reads as "no fields were sent". Callers pair
+ * the two so a rejection names the encoding failure instead of blaming whichever
+ * field happened to be looked up first.
+ *
+ * Scoped to strings that open with `{` or `[`: those are an object payload that
+ * lost a quote or a brace on the way through. A string that never resembled one
+ * (`"delete it?"`) is a different mistake, and the surface's own shape doc says
+ * more about it than a parse error would.
+ */
+export function describeSurfaceDataStringParseFailure(
+  value: unknown,
+): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trimStart();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+    return null;
+  }
+  try {
+    JSON.parse(value);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 /** Optional string that drops (rather than rejects on) a non-string value. */
 const tolerantString = () => z.string().optional().catch(undefined);
 
@@ -89,6 +121,21 @@ export const CardSurfaceDataSchema = z.object({
 export type CardSurfaceData = z.infer<typeof CardSurfaceDataSchema>;
 
 /**
+ * Stringify+trim entries, drop blanks and non-scalars, and collapse an
+ * empty result to `undefined` so a schema treats it as "field absent".
+ */
+function cleanedStringEntries(items: unknown[]): string[] | undefined {
+  const cleaned = items
+    .map((item) =>
+      typeof item === "string" || typeof item === "number"
+        ? String(item).trim()
+        : "",
+    )
+    .filter((item) => item.length > 0);
+  return cleaned.length > 0 ? cleaned : undefined;
+}
+
+/**
  * Accepted MIME-type / extension patterns for a `file_upload` surface.
  *
  * The renderer consumes this as a `string[]` — it calls `.join`/`.some`/
@@ -105,14 +152,7 @@ const FileUploadAcceptedTypesSchema = z.preprocess((value) => {
       : Array.isArray(value)
         ? value
         : [];
-  const cleaned = items
-    .map((item) =>
-      typeof item === "string" || typeof item === "number"
-        ? String(item).trim()
-        : "",
-    )
-    .filter((item) => item.length > 0);
-  return cleaned.length > 0 ? cleaned : undefined;
+  return cleanedStringEntries(items);
 }, z.array(z.string()).optional());
 
 export const FileUploadSurfaceDataSchema = z.object({
@@ -206,6 +246,19 @@ export const ChoiceSurfaceDataSchema = z.object({
 });
 export type ChoiceSurfaceData = z.infer<typeof ChoiceSurfaceDataSchema>;
 
+/**
+ * Requested OAuth scopes for an `oauth_connect` surface.
+ *
+ * Unlike `FileUploadAcceptedTypesSchema`, a bare string is NOT split on
+ * commas: OAuth scopes are opaque URIs, so only arrays are accepted.
+ * Entries are stringified and trimmed, blanks are dropped, and an empty
+ * result or any non-array value collapses to `undefined` (use defaults).
+ */
+const RequestedScopesSchema = z.preprocess(
+  (value) => (Array.isArray(value) ? cleanedStringEntries(value) : undefined),
+  z.array(z.string()).optional(),
+);
+
 export const OAuthConnectSurfaceDataSchema = z.object({
   /** OAuth provider key from the managed provider catalog, e.g. "google". */
   providerKey: z
@@ -214,6 +267,13 @@ export const OAuthConnectSurfaceDataSchema = z.object({
       z.string(),
     )
     .catch(""),
+  /**
+   * Optional OAuth scopes to request for the managed connection. A full
+   * replacement set: when present, the platform uses exactly these scopes
+   * instead of its defaults (it does not merge). Omit to use the platform's
+   * default scopes for the provider.
+   */
+  requestedScopes: RequestedScopesSchema,
   /** Optional display label. The client falls back to the provider catalog. */
   displayName: tolerantString(),
   /** Optional helper text. The client falls back to the provider catalog. */
@@ -458,6 +518,59 @@ export const WorkResultSurfaceDataSchema = z.object({
 });
 export type WorkResultSurfaceData = z.infer<typeof WorkResultSurfaceDataSchema>;
 
+/**
+ * Inline visual: a self-contained html fragment rendered in a sandboxed
+ * frame. Model-invokable via `ui_show`, which validates the fragment (no
+ * external resources, design-token styling) before emitting it — see
+ * `tools/ui-surface/visual-validation.ts`.
+ */
+export const VisualSurfaceDataSchema = z.object({
+  /** The visual's markup. Load-bearing: empty renders a blank box. */
+  html: z.string().catch(""),
+  /** Preferred render height in px. */
+  height: tolerantNumber(),
+});
+export type VisualSurfaceData = z.infer<typeof VisualSurfaceDataSchema>;
+
+/**
+ * Bounds for the caller's initial height estimate, in CSS pixels. The maximum
+ * matches the client renderer's clamp (`visual-surface.tsx`), so an estimate
+ * the frame would clip never reaches the wire.
+ */
+const VISUAL_MIN_HEIGHT = 80;
+const VISUAL_MAX_HEIGHT = 1400;
+
+/**
+ * Normalize a visual `ui_show` payload: recover `html`/`height` the model
+ * placed at the top level of the tool input instead of nesting inside `data`,
+ * clamp the height estimate, then parse through the canonical schema. Shared
+ * by the tool's validation guard and the daemon resolver so both layers see
+ * the same fragment.
+ */
+export function normalizeVisualShowData(
+  input: Record<string, unknown>,
+  data: Record<string, unknown>,
+): VisualSurfaceData {
+  const normalized: Record<string, unknown> = { ...data };
+  if (typeof normalized.html !== "string" && typeof input.html === "string") {
+    normalized.html = input.html;
+  }
+  if (normalized.height == null && input.height != null) {
+    normalized.height = input.height;
+  }
+  const parsed = VisualSurfaceDataSchema.parse(normalized);
+  if (parsed.height === undefined || parsed.height <= 0) {
+    return { html: parsed.html };
+  }
+  return {
+    html: parsed.html,
+    height: Math.min(
+      VISUAL_MAX_HEIGHT,
+      Math.max(VISUAL_MIN_HEIGHT, Math.round(parsed.height)),
+    ),
+  };
+}
+
 // === Surface type registry ===
 
 export const SURFACE_TYPES = [
@@ -477,6 +590,7 @@ export const SURFACE_TYPES = [
   "work_result",
   "skill_card",
   "call_summary",
+  "visual",
 ] as const;
 
 export const SurfaceTypeSchema = z.enum(SURFACE_TYPES);
@@ -509,6 +623,19 @@ export const MODEL_INVOKABLE_SURFACE_TYPES = SURFACE_TYPES.filter(
   (type) => !isDaemonInternalSurfaceType(type),
 );
 
+const SURFACE_TYPE_SET = new Set<string>(SURFACE_TYPES);
+
+/**
+ * Whether `type` is a surface type this daemon models (has a canonical schema
+ * for). Restore preserves an unknown-but-non-empty persisted `surfaceType`
+ * verbatim (a newer/custom client-rendered surface), so a runtime string can
+ * reach code that indexes the schema registry; callers must gate on this
+ * before indexing `SURFACE_DATA_SCHEMAS`, which has no entry for unknown types.
+ */
+export function isKnownSurfaceType(type: string): type is SurfaceType {
+  return SURFACE_TYPE_SET.has(type);
+}
+
 export type SurfaceData =
   | CardSurfaceData
   | ChoiceSurfaceData
@@ -521,67 +648,101 @@ export type SurfaceData =
   | DynamicPageSurfaceData
   | FileUploadSurfaceData
   | DocumentPreviewSurfaceData
-  | WorkResultSurfaceData;
+  | WorkResultSurfaceData
+  | VisualSurfaceData;
+
+/**
+ * Per-type `data` payload shapes, keyed by surface type. This is the
+ * correlation source for everything that pairs a `surfaceType` with its
+ * `data`: generic code indexes it (`SurfaceDataByType[K]`) so the compiler
+ * tracks which data shape belongs to which type instead of collapsing to
+ * the undiscriminated `SurfaceData` union.
+ *
+ * Several types are opaque records — they carry data the daemon persists
+ * and serves verbatim but whose shape it does not model, which is why they
+ * are absent from the renderable `SurfaceData` union: `channel_setup` (a
+ * side-effect command forwarded to the setup panel), `task_preferences` (a
+ * fixed grid that reads no data), and `skill_card` / `call_summary` (cards
+ * the daemon appends to history directly — the memory retrospective and a
+ * call summary — and whose data shape is owned by their client renderers).
+ */
+export interface SurfaceDataByType {
+  card: CardSurfaceData;
+  channel_setup: Record<string, unknown>;
+  choice: ChoiceSurfaceData;
+  copy_block: CopyBlockSurfaceData;
+  oauth_connect: OAuthConnectSurfaceData;
+  form: FormSurfaceData;
+  list: ListSurfaceData;
+  table: TableSurfaceData;
+  confirmation: ConfirmationSurfaceData;
+  dynamic_page: DynamicPageSurfaceData;
+  file_upload: FileUploadSurfaceData;
+  document_preview: DocumentPreviewSurfaceData;
+  task_preferences: Record<string, unknown>;
+  work_result: WorkResultSurfaceData;
+  skill_card: Record<string, unknown>;
+  call_summary: Record<string, unknown>;
+  visual: VisualSurfaceData;
+}
+
+/** Any surface `data` payload, including the opaque (non-renderable) types. */
+export type AnySurfaceData = SurfaceDataByType[SurfaceType];
+
+/**
+ * Canonical schema per surface type. The mapped type is what makes generic
+ * indexing sound: `SURFACE_DATA_SCHEMAS[t]` for `t: K` has type
+ * `z.ZodType<SurfaceDataByType[K]>`, so parse results stay correlated with
+ * the surface type instead of widening to an untyped union — the compiler
+ * also verifies here, entry by entry, that each schema's output matches its
+ * declared payload shape.
+ */
+export const SURFACE_DATA_SCHEMAS: {
+  [K in SurfaceType]: z.ZodType<SurfaceDataByType[K]>;
+} = {
+  card: CardSurfaceDataSchema,
+  channel_setup: z.record(z.string(), z.unknown()),
+  choice: ChoiceSurfaceDataSchema,
+  copy_block: CopyBlockSurfaceDataSchema,
+  oauth_connect: OAuthConnectSurfaceDataSchema,
+  form: FormSurfaceDataSchema,
+  list: ListSurfaceDataSchema,
+  table: TableSurfaceDataSchema,
+  confirmation: ConfirmationSurfaceDataSchema,
+  dynamic_page: DynamicPageSurfaceDataSchema,
+  file_upload: FileUploadSurfaceDataSchema,
+  document_preview: DocumentPreviewSurfaceDataSchema,
+  task_preferences: z.record(z.string(), z.unknown()),
+  work_result: WorkResultSurfaceDataSchema,
+  skill_card: z.record(z.string(), z.unknown()),
+  call_summary: z.record(z.string(), z.unknown()),
+  visual: VisualSurfaceDataSchema,
+};
 
 /**
  * Parse a surface `data` payload through its type's canonical schema,
  * returning `undefined` when the payload does not parse.
  *
- * The dispatch is an exhaustive switch rather than a schema registry so the
- * compiler verifies that every surface type's schema output is a member of
- * the `SurfaceData` union — a registry keyed by `SurfaceType` erases the
- * per-type output types and forces casts at every call site.
- *
  * Only `card` can actually fail on an object input (its fields validate
  * without `catch` fallbacks); every other schema is total over plain
  * objects, and a non-object payload fails them all.
  */
-export function safeParseSurfaceData(
-  surfaceType: SurfaceType,
+export function safeParseSurfaceData<K extends SurfaceType>(
+  surfaceType: K,
   data: unknown,
-): SurfaceData | undefined {
-  const parse = <T>(schema: z.ZodType<T>): T | undefined => {
-    const result = schema.safeParse(data);
-    return result.success ? result.data : undefined;
-  };
-  switch (surfaceType) {
-    case "card":
-      return parse(CardSurfaceDataSchema);
-    case "choice":
-      return parse(ChoiceSurfaceDataSchema);
-    case "copy_block":
-      return parse(CopyBlockSurfaceDataSchema);
-    case "oauth_connect":
-      return parse(OAuthConnectSurfaceDataSchema);
-    case "form":
-      return parse(FormSurfaceDataSchema);
-    case "list":
-      return parse(ListSurfaceDataSchema);
-    case "table":
-      return parse(TableSurfaceDataSchema);
-    case "confirmation":
-      return parse(ConfirmationSurfaceDataSchema);
-    case "dynamic_page":
-      return parse(DynamicPageSurfaceDataSchema);
-    case "file_upload":
-      return parse(FileUploadSurfaceDataSchema);
-    case "document_preview":
-      return parse(DocumentPreviewSurfaceDataSchema);
-    case "work_result":
-      return parse(WorkResultSurfaceDataSchema);
-    case "channel_setup":
-    case "task_preferences":
-    case "skill_card":
-    case "call_summary":
-      // Opaque payloads the daemon forwards/persists verbatim: channel_setup
-      // is a side-effect command whose data goes to the setup panel,
-      // task_preferences renders a fixed grid that reads no data, and
-      // skill_card / call_summary are daemon-appended cards whose data shape
-      // is owned by their client renderers. There is no canonical shape to
-      // parse into, so this is the one deliberate cast in the surface-data
-      // parse path.
-      return coerceSurfaceDataRecord(data) as SurfaceData;
-    default:
-      return surfaceType satisfies never;
+): SurfaceDataByType[K] | undefined {
+  // `surfaceType` is typed as a known type, but nothing stops a JS caller — or a
+  // runtime string that only survived under a widened type — from passing one
+  // that isn't in the registry, where `SURFACE_DATA_SCHEMAS[surfaceType]` is
+  // `undefined` and `.safeParse` would throw. Return `undefined` (the same
+  // "couldn't produce a typed payload" signal a parse miss gives) so this stays
+  // total, as its name promises.
+  const schema = SURFACE_DATA_SCHEMAS[surfaceType] as
+    | z.ZodType<SurfaceDataByType[K]>
+    | undefined;
+  if (!schema) {
+    return undefined;
   }
+  const result = schema.safeParse(data);
+  return result.success ? result.data : undefined;
 }

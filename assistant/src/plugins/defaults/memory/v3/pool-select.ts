@@ -104,7 +104,9 @@ function providerBillingNoticeFromError(
   const classified = classifyConversationError(error, {
     phase: "agent_loop",
   });
-  if (classified.code !== "PROVIDER_BILLING") return undefined;
+  if (classified.code !== "PROVIDER_BILLING") {
+    return undefined;
+  }
   return {
     source: "memory_v3",
     code: classified.code,
@@ -255,7 +257,9 @@ function renderSnippet(descriptor: string): string {
 }
 
 function readStringField(value: unknown, key: string): string | undefined {
-  if (value === null || typeof value !== "object") return undefined;
+  if (value === null || typeof value !== "object") {
+    return undefined;
+  }
   const field = (value as Record<string, unknown>)[key];
   return typeof field === "string" && field.length > 0 ? field : undefined;
 }
@@ -399,7 +403,9 @@ export async function selectPool(
     ...pool.stable.map((c) => c.slug),
     ...pool.finder.map((c) => c.slug),
   ];
-  if (ordered.length === 0) return { pages: [], keptAll: false };
+  if (ordered.length === 0) {
+    return { pages: [], keptAll: false };
+  }
 
   const keepAll = (): SelectedPage[] => selectAllPoolCandidates(pool);
 
@@ -582,7 +588,9 @@ export async function selectPool(
   }
 
   // Omitted `ids` is the recall-safe "keep all candidates" signal.
-  if (parsed.ids === undefined) return { pages: keepAll(), keptAll: true };
+  if (parsed.ids === undefined) {
+    return { pages: keepAll(), keptAll: true };
+  }
 
   const pinned = new Set(parsed.pinned_ids ?? []);
 
@@ -590,7 +598,9 @@ export async function selectPool(
   // IDs without throwing, then dedupe by slug (pinned flags ORed).
   const selected: Array<{ slug: Slug; pinned: boolean }> = [];
   for (const id of parsed.ids) {
-    if (id < 1 || id > ordered.length) continue;
+    if (id < 1 || id > ordered.length) {
+      continue;
+    }
     selected.push({ slug: ordered[id - 1]!, pinned: pinned.has(id) });
   }
   return { pages: dedupeBySlug(selected), keptAll: false };

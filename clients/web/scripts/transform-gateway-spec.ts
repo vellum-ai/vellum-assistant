@@ -15,8 +15,9 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const SCRIPT_DIR = dirname(new URL(import.meta.url).pathname);
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = resolve(SCRIPT_DIR, "..");
 const GATEWAY_SPEC_PATH = resolve(WEB_ROOT, "../../gateway/openapi.json");
 const OUTPUT_PATH = resolve(WEB_ROOT, "openapi-schemas/gateway.json");
@@ -56,7 +57,9 @@ for (const [path, methods] of Object.entries(sourcePaths)) {
   const newPath = `/v1/assistants/{assistant_id}/${rest}`;
 
   for (const [key, value] of Object.entries(methods)) {
-    if (key === "parameters") continue;
+    if (key === "parameters") {
+      continue;
+    }
     const operation = value as Record<string, unknown>;
     const params = (operation.parameters ?? []) as Array<
       Record<string, unknown>

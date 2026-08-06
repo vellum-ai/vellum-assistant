@@ -7,6 +7,7 @@ import { z } from "zod";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { requestInteractiveUi } from "../interactive-ui.js";
 import { RESERVED_ACTION_IDS } from "../interactive-ui-types.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Param schema ──────────────────────────────────────────────────────
@@ -36,7 +37,7 @@ const UiRequestParams = z.object({
 // ── Handler ───────────────────────────────────────────────────────────
 
 async function handleUiRequest({ body = {} }: RouteHandlerArgs) {
-  const validated = UiRequestParams.parse(body);
+  const validated = parseBody(UiRequestParams, body);
   return requestInteractiveUi(validated);
 }
 

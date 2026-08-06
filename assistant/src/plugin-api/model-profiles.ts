@@ -1,4 +1,4 @@
-import { getEffectiveProfiles } from "../config/default-profile-catalog.js";
+import { getEffectiveProfilesForProvider } from "../config/default-profile-catalog.js";
 import { getConfig } from "../config/loader.js";
 import { isDispatchableProfile } from "../config/profile-dispatchability.js";
 import { orderProfileKeys } from "../config/profile-order.js";
@@ -20,12 +20,19 @@ import type { ModelProfileInfo } from "./types.js";
 export function getModelProfiles(): ModelProfileInfo[] {
   const { llm } = getConfig();
   const { activeProfile } = llm;
-  const profiles = getEffectiveProfiles(llm.profiles);
+  const profiles = getEffectiveProfilesForProvider(
+    llm.profiles,
+    llm.defaultProvider ?? null,
+  );
   const result: ModelProfileInfo[] = [];
   for (const key of orderProfileKeys(profiles, llm.profileOrder)) {
     const entry = profiles[key];
-    if (entry == null) continue;
-    if (!isDispatchableProfile(entry)) continue;
+    if (entry == null) {
+      continue;
+    }
+    if (!isDispatchableProfile(entry)) {
+      continue;
+    }
     result.push({
       key,
       label: entry.label ?? key,

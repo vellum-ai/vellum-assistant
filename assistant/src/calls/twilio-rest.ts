@@ -126,7 +126,9 @@ export async function searchAvailableNumbers(
   const params = new URLSearchParams({
     VoiceEnabled: "true",
   });
-  if (areaCode) params.set("AreaCode", areaCode);
+  if (areaCode) {
+    params.set("AreaCode", areaCode);
+  }
 
   const res = await fetch(
     `${twilioBaseUrl(accountSid)}/AvailablePhoneNumbers/${encodeURIComponent(

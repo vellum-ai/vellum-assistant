@@ -68,8 +68,12 @@ export function readEmbeddingCache(
       ),
     )
     .get();
-  if (!row || row.dimensions !== key.expectedDim) return null;
-  if (row.contentHash === null) return null;
+  if (!row || row.dimensions !== key.expectedDim) {
+    return null;
+  }
+  if (row.contentHash === null) {
+    return null;
+  }
   const dense = row.vectorBlob
     ? blobToVector(row.vectorBlob as Buffer)
     : (JSON.parse(row.vectorJson!) as number[]);

@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 
 import { ChatPill } from "@/domains/chat/components/chat-pill";
@@ -70,7 +69,9 @@ export function RefreshFeedbackPill({
     return () => clearTimeout(timer);
   }, [feedback, onDismiss]);
 
-  if (!active) return null;
+  if (!active) {
+    return null;
+  }
 
   const isError = active.kind === "error";
   const interactive = isError && !!onRetry;

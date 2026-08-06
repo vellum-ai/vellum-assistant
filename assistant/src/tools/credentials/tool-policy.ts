@@ -52,8 +52,12 @@ export function isToolAllowed(
   toolName: string,
   allowedTools: string[],
 ): boolean {
-  if (!Array.isArray(allowedTools) || allowedTools.length === 0) return false;
-  if (!toolName || typeof toolName !== "string") return false;
+  if (!Array.isArray(allowedTools) || allowedTools.length === 0) {
+    return false;
+  }
+  if (!toolName || typeof toolName !== "string") {
+    return false;
+  }
 
   const canonical = resolveCanonical(toolName);
   return allowedTools.some(

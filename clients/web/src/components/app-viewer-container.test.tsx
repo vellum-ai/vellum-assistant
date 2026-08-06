@@ -13,8 +13,9 @@
  * while open.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 let capturedOptions:
@@ -36,27 +37,52 @@ mock.module("@/utils/sandbox-bridge", () => ({
 }));
 
 import { AppViewerContainer } from "@/components/app-viewer-container";
+import { toggleAppIframeSandboxDisabled } from "@/lib/app-sandbox-debug-flag";
+
+spyOn(console, "warn").mockImplementation(() => {});
+spyOn(console, "info").mockImplementation(() => {});
+
+function setSandboxFlag(value: boolean): void {
+  act(() => {
+    toggleAppIframeSandboxDisabled(value);
+  });
+}
+
+function getIframe(): HTMLIFrameElement {
+  return document.querySelector("iframe") as HTMLIFrameElement;
+}
 
 afterEach(() => {
+  setSandboxFlag(false);
   cleanup();
   capturedOptions = undefined;
 });
 
 function renderViewer(props?: { enableFullscreen?: boolean; appId?: string }) {
+  // The viewer reads the app's Vercel deployment status through TanStack
+  // Query, so it needs a client in scope even when the read is disabled (no
+  // deploy handler is passed here).
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <AppViewerContainer
-      appId={props?.appId ?? "app-1"}
-      appName="My App"
-      html="<html><body>hi</body></html>"
-      assistantId="assistant-1"
-      onClose={() => {}}
-      enableFullscreen={props?.enableFullscreen}
-    />,
+    <QueryClientProvider client={queryClient}>
+      <AppViewerContainer
+        appId={props?.appId ?? "app-1"}
+        appName="My App"
+        html="<html><body>hi</body></html>"
+        assistantId="assistant-1"
+        onClose={() => {}}
+        enableFullscreen={props?.enableFullscreen}
+      />
+    </QueryClientProvider>,
   );
 }
 
 function getMaximizeButton(): HTMLButtonElement | null {
-  return document.querySelector("svg.lucide-maximize2")?.closest("button") ?? null;
+  return (
+    document.querySelector("svg.lucide-maximize2")?.closest("button") ?? null
+  );
 }
 
 function getFloatingExitButton(): HTMLButtonElement | null {
@@ -64,11 +90,15 @@ function getFloatingExitButton(): HTMLButtonElement | null {
   // top/right offsets are applied via inline safe-area-aware styles); scope to
   // that so we don't match any nav-bar button.
   const container = document.querySelector(".absolute.z-10");
-  return container?.querySelector("svg.lucide-minimize2")?.closest("button") ?? null;
+  return (
+    container?.querySelector("svg.lucide-minimize2")?.closest("button") ?? null
+  );
 }
 
 function getRoot(): HTMLElement {
-  return document.querySelector("[data-testid='app-viewer-root']") as HTMLElement;
+  return document.querySelector(
+    "[data-testid='app-viewer-root']",
+  ) as HTMLElement;
 }
 
 describe("AppViewerContainer fullscreen", () => {
@@ -129,14 +159,18 @@ describe("AppViewerContainer app actions", () => {
   test("forwards onAction to the sandbox fetch proxy", () => {
     const onAction = () => {};
     render(
-      <AppViewerContainer
-        appId="app-1"
-        appName="My App"
-        html="<html><body>hi</body></html>"
-        assistantId="assistant-1"
-        onClose={() => {}}
-        onAction={onAction}
-      />,
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <AppViewerContainer
+          appId="app-1"
+          appName="My App"
+          html="<html><body>hi</body></html>"
+          assistantId="assistant-1"
+          onClose={() => {}}
+          onAction={onAction}
+        />
+      </QueryClientProvider>,
     );
 
     expect(capturedOptions?.onAction).toBe(onAction);
@@ -146,5 +180,50 @@ describe("AppViewerContainer app actions", () => {
     renderViewer();
 
     expect(capturedOptions?.onAction).toBeUndefined();
+  });
+});
+
+describe("AppViewerContainer sandbox debug flag", () => {
+  test("sandboxes the app frame by default", () => {
+    renderViewer();
+
+    expect(getIframe().getAttribute("sandbox")).toBe(
+      "allow-scripts allow-popups allow-popups-to-escape-sandbox",
+    );
+  });
+
+  test("drops the sandbox and reloads the frame once the flag is set", () => {
+    renderViewer();
+    const sandboxed = getIframe();
+
+    setSandboxFlag(true);
+
+    const unsandboxed = getIframe();
+    expect(unsandboxed.hasAttribute("sandbox")).toBe(false);
+    // A new element, so the document reloads into the real origin instead
+    // of keeping the opaque one it was created with.
+    expect(unsandboxed).not.toBe(sandboxed);
+  });
+
+  test("restores the sandbox when the flag goes back to false", () => {
+    renderViewer();
+
+    setSandboxFlag(true);
+    setSandboxFlag(false);
+
+    expect(getIframe().getAttribute("sandbox")).toBe(
+      "allow-scripts allow-popups allow-popups-to-escape-sandbox",
+    );
+  });
+
+  test("keeps the sandbox for a non-boolean from the untyped console", () => {
+    renderViewer();
+
+    // The console has no types, so a stray string can reach the toggle.
+    act(() => {
+      toggleAppIframeSandboxDisabled("true" as unknown as boolean);
+    });
+
+    expect(getIframe().hasAttribute("sandbox")).toBe(true);
   });
 });

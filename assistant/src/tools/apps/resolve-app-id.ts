@@ -1,4 +1,7 @@
-import { listAppsByConversation } from "../../apps/app-store.js";
+import {
+  isDirectAppConversation,
+  listAppsByConversation,
+} from "../../apps/app-store.js";
 
 /**
  * Resolve the `app_id` an app-builder tool should operate on.
@@ -14,6 +17,12 @@ import { listAppsByConversation } from "../../apps/app-store.js";
  * Returns `null` when no app_id is supplied and the conversation has no app, so
  * callers can surface an actionable error instead of a raw store throw.
  *
+ * Apps a conversation only inherited — created by a background subagent that
+ * forked from it — rank behind its own. Without that, a background
+ * continuation's freshly created app sits at the head of the parent thread's
+ * list and captures a foreground `app_update` that omitted `app_id`, writing to
+ * an app the user is not looking at.
+ *
  * Not used for destructive operations (`app_delete`): deleting an inferred app
  * is unsafe, so deletion requires an explicit id.
  */
@@ -25,9 +34,12 @@ export function resolveAppId(
     return input.app_id;
   }
   // `listAppsByConversation` preserves `listApps`' updatedAt-descending order,
-  // so the first entry is the app the model is actively working on.
+  // so the first direct entry is the app the model is actively working on.
   const apps = listAppsByConversation(conversationId);
-  return apps.length > 0 ? apps[0].id : null;
+  const direct = apps.find((app) =>
+    isDirectAppConversation(app, conversationId),
+  );
+  return (direct ?? apps[0])?.id ?? null;
 }
 
 /** Error payload returned when no app_id is supplied and none can be inferred. */

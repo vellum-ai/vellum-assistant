@@ -31,7 +31,9 @@ beforeEach(() => {
   useLiveVoiceStore.getState().reset();
   useConversationStore.getState().reset();
   useChatSessionStore.setState({ snapshot: null });
-  useConversationStore.getState().setActiveConversationId(DRAFT_CONVERSATION_ID);
+  useConversationStore
+    .getState()
+    .setActiveConversationId(DRAFT_CONVERSATION_ID);
 });
 
 afterEach(() => {

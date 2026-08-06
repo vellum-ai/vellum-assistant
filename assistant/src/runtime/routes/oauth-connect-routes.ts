@@ -46,7 +46,9 @@ async function handleOAuthConnectStart({
     requestedScopes?: string[];
   };
 
-  if (!service) throw new BadRequestError("service is required");
+  if (!service) {
+    throw new BadRequestError("service is required");
+  }
 
   // Provider row drives validation that applies regardless of whether the
   // caller supplied an explicit clientId: existence, manual-token rejection,
@@ -62,7 +64,7 @@ async function handleOAuthConnectStart({
   if (providerRow.authorizeUrl === "urn:manual-token") {
     throw new BadRequestError(
       `"${service}" uses manual token configuration, not an OAuth browser flow. ` +
-        `Set the token with: assistant credentials set <token_value> --service ${service} --field <field_name>`,
+        `Collect the token securely with: assistant credentials prompt --service ${service} --field <field_name> --label "<label>"`,
     );
   }
 
@@ -80,7 +82,9 @@ async function handleOAuthConnectStart({
 
     if (clientSecret === undefined) {
       const storedSecret = await getAppClientSecret(dbApp);
-      if (storedSecret) clientSecret = storedSecret;
+      if (storedSecret) {
+        clientSecret = storedSecret;
+      }
     }
   } else {
     // clientId was explicitly provided — resolve its app.
@@ -93,7 +97,9 @@ async function handleOAuthConnectStart({
     }
     if (clientSecret === undefined) {
       const storedSecret = await getAppClientSecret(dbApp);
-      if (storedSecret) clientSecret = storedSecret;
+      if (storedSecret) {
+        clientSecret = storedSecret;
+      }
     }
   }
 
@@ -126,7 +132,9 @@ async function handleOAuthConnectStart({
       ...(requestedScopes ? { requestedScopes } : {}),
       isInteractive: false,
       onDeferredComplete: (r) => {
-        if (!resolvedState) return;
+        if (!resolvedState) {
+          return;
+        }
         if (r.success) {
           setOAuthConnectComplete(
             resolvedState,
@@ -180,8 +188,9 @@ function handleOAuthConnectStatus({
     );
   }
 
-  if (flowState.status === "pending")
+  if (flowState.status === "pending") {
     return { status: "pending", service: flowState.service };
+  }
   if (flowState.status === "complete") {
     return {
       status: "complete",

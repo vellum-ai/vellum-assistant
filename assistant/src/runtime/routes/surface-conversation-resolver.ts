@@ -14,22 +14,21 @@
  * as the existence check so `getOrCreateConversation` can't be tricked
  * into materializing a phantom conversation for any caller-supplied id.
  */
+import { coerceSurfaceDataRecord } from "../../api/surfaces.js";
 import type { Conversation } from "../../daemon/conversation.js";
 import {
   findConversation,
   findConversationBySurfaceId,
 } from "../../daemon/conversation-registry.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
-import { isRowVisibleToUntrustedActor } from "../../daemon/message-provenance.js";
-import type {
-  SurfaceData,
-  SurfaceType,
-} from "../../daemon/message-types/surfaces.js";
-import { rawAll, rawGet } from "../../persistence/raw-query.js";
 import {
-  type ActivationMomentParam,
-  isActivationMomentParam,
-} from "../../telemetry/activation-funnel.js";
+  parseActivationMomentTag,
+  parseStoredActions,
+  type StoredSurfaceAction,
+} from "../../daemon/conversation-surface-state.js";
+import { isRowVisibleToUntrustedActor } from "../../daemon/message-provenance.js";
+import { rawAll, rawGet } from "../../persistence/raw-query.js";
+import type { ActivationMomentParam } from "../../telemetry/activation-funnel.js";
 
 /**
  * Resolve the {@link Conversation} that owns the given surface.
@@ -81,19 +80,20 @@ export async function resolveSurfaceConversation(
 }
 
 /**
- * A `ui_surface` block extracted from persisted history, in the shape of a
- * `Conversation.surfaceState` entry.
+ * A `ui_surface` block extracted from persisted history for a read-only
+ * content response. `surfaceType` and `data` are preserved VERBATIM — this
+ * endpoint serves what was persisted so the client renders it, and the
+ * client applies the canonical per-type schema itself. It deliberately does
+ * NOT reuse the live `SurfaceStateEntry` restore (`restoreSurfaceStateEntry`),
+ * whose canonical parse strips keys the daemon does not model and coerces
+ * types it does not know (e.g. `skill_card`, `call_summary`) — which would
+ * drop renderable content on the way to the client.
  */
 export interface PersistedSurfaceState {
-  surfaceType: SurfaceType;
-  data: SurfaceData;
+  surfaceType: string;
+  data: Record<string, unknown>;
   title?: string;
-  actions?: Array<{
-    id: string;
-    label: string;
-    style?: string;
-    data?: Record<string, unknown>;
-  }>;
+  actions?: StoredSurfaceAction[];
   activationMoment?: ActivationMomentParam;
 }
 
@@ -188,21 +188,17 @@ export function findPersistedSurfaceState(
       if (b.type !== "ui_surface" || b.surfaceId !== surfaceId) {
         continue;
       }
-      // Same field mapping and validation as
-      // `restoreSurfaceStateFromHistory` — a malformed daemon-only
-      // `activationMoment` is dropped, never served or memoized.
-      const activationMoment =
-        typeof b.activationMoment === "string" &&
-        isActivationMomentParam(b.activationMoment)
-          ? b.activationMoment
-          : undefined;
+      // Serve verbatim: preserve the persisted `surfaceType` string and
+      // `data` object as-is (the client parses them), applying only the same
+      // light shared parsing for `actions` and the daemon-only
+      // `activationMoment` tag that the live restore uses.
+      const activationMoment = parseActivationMomentTag(b.activationMoment);
       return {
-        surfaceType: (b.surfaceType ?? "dynamic_page") as SurfaceType,
-        data: (b.data ?? {}) as SurfaceData,
-        title: b.title as string | undefined,
-        actions: Array.isArray(b.actions)
-          ? (b.actions as PersistedSurfaceState["actions"])
-          : undefined,
+        surfaceType:
+          typeof b.surfaceType === "string" ? b.surfaceType : "dynamic_page",
+        data: coerceSurfaceDataRecord(b.data),
+        title: typeof b.title === "string" ? b.title : undefined,
+        actions: parseStoredActions(b.actions),
         ...(activationMoment ? { activationMoment } : {}),
       };
     }

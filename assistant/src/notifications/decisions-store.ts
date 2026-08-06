@@ -87,7 +87,9 @@ export function updateDecision(id: string, params: UpdateDecisionParams): void {
   if (params.validationResults !== undefined) {
     updates.validationResults = JSON.stringify(params.validationResults);
   }
-  if (Object.keys(updates).length === 0) return;
+  if (Object.keys(updates).length === 0) {
+    return;
+  }
 
   db.update(notificationDecisions)
     .set(updates)
@@ -111,7 +113,9 @@ export function findLatestDecisionByEventId(
     .where(eq(notificationDecisions.notificationEventId, eventId))
     .orderBy(desc(notificationDecisions.createdAt))
     .get();
-  if (!row) return undefined;
+  if (!row) {
+    return undefined;
+  }
   return {
     id: row.id,
     notificationEventId: row.notificationEventId,

@@ -1,19 +1,5 @@
-import {
-  ChevronLeft,
-  ChevronRight,
-  Globe,
-  LayoutGrid,
-  MessageSquare,
-  Monitor,
-  Search as SearchIcon,
-  Settings,
-  SquarePen,
-  ZoomIn,
-  ZoomOut,
-} from "lucide-react";
+import { MessageSquare } from "lucide-react";
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
-
-import { isElectron } from "@/runtime/is-electron";
 
 import {
   type CommandPaletteItemData,
@@ -23,7 +9,10 @@ import {
   useCommandPalette,
   type UseCommandPaletteReturn,
 } from "@/components/command-palette/use-command-palette";
-import { buildServerResultSections } from "@/domains/chat/hooks/command-palette-utils";
+import {
+  buildActionsSection,
+  buildServerResultSections,
+} from "@/domains/chat/hooks/command-palette-utils";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 
@@ -33,66 +22,6 @@ import type { Conversation } from "@/types/conversation-types";
 // ---------------------------------------------------------------------------
 // Helpers — pure functions, no React state
 // ---------------------------------------------------------------------------
-
-/** Build the static "Actions" section with keyboard shortcuts. */
-function buildActionsSection(assistantName: string): CommandPaletteSection {
-  return {
-    id: "actions",
-    label: "Actions",
-    items: [
-      {
-        id: "action-new-conversation",
-        icon: SquarePen,
-        title: "New Conversation",
-        shortcutHint: isElectron() ? "⌘N" : "⌘⇧O",
-      },
-      {
-        id: "action-current-conversation",
-        icon: Monitor,
-        title: "Current Conversation",
-        shortcutHint: "⌘⇧N",
-      },
-      {
-        id: "action-settings",
-        icon: Settings,
-        title: "Settings",
-        shortcutHint: "⌘,",
-      },
-      { id: "action-library", icon: LayoutGrid, title: "Library" },
-      { id: "action-intelligence", icon: Globe, title: assistantName },
-      {
-        id: "action-back",
-        icon: ChevronLeft,
-        title: "Back",
-        shortcutHint: "⌘[",
-      },
-      {
-        id: "action-forward",
-        icon: ChevronRight,
-        title: "Forward",
-        shortcutHint: "⌘]",
-      },
-      {
-        id: "action-zoom-in",
-        icon: ZoomIn,
-        title: "Zoom In",
-        shortcutHint: "⌘+",
-      },
-      {
-        id: "action-zoom-out",
-        icon: ZoomOut,
-        title: "Zoom Out",
-        shortcutHint: "⌘−",
-      },
-      {
-        id: "action-actual-size",
-        icon: SearchIcon,
-        title: "Actual Size",
-        shortcutHint: "⌘0",
-      },
-    ],
-  };
-}
 
 /** Build the "Recent" section from the first 5 conversations. */
 function buildRecentsSection(
@@ -148,25 +77,6 @@ function dispatchCommandPaletteAction(
     case "action-library":
       haptic.light();
       ctx.navigate(routes.library.root);
-      break;
-    case "action-back":
-      ctx.navigate(-1);
-      break;
-    case "action-forward":
-      ctx.navigate(1);
-      break;
-    case "action-zoom-in":
-      document.body.style.zoom = String(
-        parseFloat(document.body.style.zoom || "1") + 0.1,
-      );
-      break;
-    case "action-zoom-out":
-      document.body.style.zoom = String(
-        Math.max(0.5, parseFloat(document.body.style.zoom || "1") - 0.1),
-      );
-      break;
-    case "action-actual-size":
-      document.body.style.zoom = "1";
       break;
     default:
       if (item.id.startsWith("conv-")) {

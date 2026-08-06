@@ -10,7 +10,7 @@ import {
   conversations,
   messages,
 } from "../../../../../persistence/schema/index.js";
-import type { MemoryV2ConceptRowRecord } from "../../memory-v2-activation-log-store.js";
+import type { MemoryV2ConceptRowRecord } from "../activation-log-store.js";
 import { runComparisonOverHistory } from "../harness/compare.js";
 import type { RetrievalOutput, Retriever } from "../harness/retriever.js";
 

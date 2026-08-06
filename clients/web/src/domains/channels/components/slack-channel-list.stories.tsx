@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 
+import { Card } from "@vellumai/design-library/components/card";
+
 import type { SlackChannel } from "@/domains/channels/slack-channels-query";
 
 import { SlackChannelList } from "./slack-channel-list";
@@ -58,12 +60,14 @@ const meta: Meta<typeof SlackChannelList> = {
     slackHandle: "@example-assistant",
     channels: MIXED_CHANNELS,
     // Gateway-resolved fall-through (no broader-scope cells → the owner's
-    // global interactive threshold, Conservative here).
-    defaultTier: "low",
+    // global interactive threshold, which defaults to Relaxed / medium — the
+    // seeded `auto_approve_thresholds.interactive` value).
+    defaultTier: "medium",
   },
   decorators: [
-    // Mirrors the Slack sub-tab's card column (flex flex-col gap-4 in
-    // assistant-channels-list.tsx), which owns inter-card spacing.
+    // The list renders bare; in the Slack sub-tab it drops into the
+    // "Per-channel overrides" collapsible card, so wrap it in that same card
+    // frame here. The outer column mirrors the sub-tab's inter-card spacing.
     (Story) => (
       <div
         style={{
@@ -74,7 +78,9 @@ const meta: Meta<typeof SlackChannelList> = {
           gap: 16,
         }}
       >
-        <Story />
+        <Card.Root noPadding clipContents>
+          <Story />
+        </Card.Root>
       </div>
     ),
   ],
@@ -95,21 +101,16 @@ export const Empty: Story = {
 };
 
 /**
- * `eng-releases` starts overridden to the Conservative tier — the row badge
- * reads "Conservative • custom" and expanding it shows the custom-access
- * callout with Reset to default (mirrors the ticket mockup's `releases`).
+ * `eng-releases` is pinned to Full access — its picker names that level with no
+ * "default" marker, while every cell-less row shows the resolved default
+ * ("Relaxed · default"). Re-selecting the default-marked level clears the
+ * override.
  */
 export const OverriddenChannel: Story = {
   args: {
-    tierOverrides: { C003: "low" },
+    tierOverrides: { C003: "high" },
     onTierChange: () => {},
     onTierReset: () => {},
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(
-      canvas.getByLabelText("eng-releases — expand channel settings"),
-    );
   },
 };
 
@@ -135,7 +136,11 @@ export const LoadError: Story = {
   },
 };
 
-/** Past ~100 rows the list virtualizes into a fixed-height scroller. */
+/**
+ * Past ~100 rows the list virtualizes. The virtualized scroller self-bounds to
+ * a fixed height inside the card, so the rows scroll within it without the whole
+ * collapsible growing unbounded.
+ */
 export const ManyChannels: Story = {
   args: {
     channels: Array.from({ length: 250 }, (_, i) =>

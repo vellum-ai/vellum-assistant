@@ -135,7 +135,12 @@ describe("createIncrementalDetailProjection — per-diff-class", () => {
     p.project(events);
     events = appendEvent(
       events,
-      makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "tu-1", content: "ls" }),
+      makeEvent({
+        type: "tool_call",
+        toolName: "bash",
+        toolUseId: "tu-1",
+        content: "ls",
+      }),
     );
     const map = p.project(events);
     expectMapsEqual(map, buildSubagentStepDetails(events));
@@ -145,13 +150,25 @@ describe("createIncrementalDetailProjection — per-diff-class", () => {
   test("append-1 tool_result closes an earlier in-flight tool (full untruncated result)", () => {
     const p = createIncrementalDetailProjection();
     let events: SubagentTimelineEvent[] = [
-      makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "tu-1", content: "ls", timestamp: NOW }),
+      makeEvent({
+        type: "tool_call",
+        toolName: "bash",
+        toolUseId: "tu-1",
+        content: "ls",
+        timestamp: NOW,
+      }),
       makeEvent({ type: "text", content: "waiting" }, NOW + 100),
     ];
     p.project(events);
     events = appendEvent(
       events,
-      makeEvent({ type: "tool_result", toolName: "bash", toolUseId: "tu-1", result: "file-a\nfile-b", timestamp: NOW + 2500 }),
+      makeEvent({
+        type: "tool_result",
+        toolName: "bash",
+        toolUseId: "tu-1",
+        result: "file-a\nfile-b",
+        timestamp: NOW + 2500,
+      }),
     );
     const map = p.project(events);
     expectMapsEqual(map, buildSubagentStepDetails(events));
@@ -162,12 +179,26 @@ describe("createIncrementalDetailProjection — per-diff-class", () => {
   test("append-1 error closes in-flight tool as error", () => {
     const p = createIncrementalDetailProjection();
     let events: SubagentTimelineEvent[] = [
-      makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "tu-1", content: "rm -rf /", timestamp: NOW }),
+      makeEvent({
+        type: "tool_call",
+        toolName: "bash",
+        toolUseId: "tu-1",
+        content: "rm -rf /",
+        timestamp: NOW,
+      }),
     ];
     p.project(events);
     events = appendEvent(
       events,
-      makeEvent({ type: "error", toolName: "bash", toolUseId: "tu-1", content: "permission denied", result: "permission denied", isError: true, timestamp: NOW + 500 }),
+      makeEvent({
+        type: "error",
+        toolName: "bash",
+        toolUseId: "tu-1",
+        content: "permission denied",
+        result: "permission denied",
+        isError: true,
+        timestamp: NOW + 500,
+      }),
     );
     const map = p.project(events);
     expectMapsEqual(map, buildSubagentStepDetails(events));
@@ -196,7 +227,12 @@ describe("createIncrementalDetailProjection — per-diff-class", () => {
     p.project([makeEvent({ type: "text", content: "live" })]);
     const hydrated: SubagentTimelineEvent[] = [
       makeEvent({ type: "text", content: "hydrated-1" }),
-      makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "h-1", content: "echo" }),
+      makeEvent({
+        type: "tool_call",
+        toolName: "bash",
+        toolUseId: "h-1",
+        content: "echo",
+      }),
     ];
     expectMapsEqual(p.project(hydrated), buildSubagentStepDetails(hydrated));
   });
@@ -204,11 +240,21 @@ describe("createIncrementalDetailProjection — per-diff-class", () => {
   test("subagent switch (totally different array) falls back to a full rebuild", () => {
     const p = createIncrementalDetailProjection();
     p.project([
-      makeEvent({ type: "tool_call", toolName: "web_search", toolUseId: "ws-a", input: { query: "a" } }),
+      makeEvent({
+        type: "tool_call",
+        toolName: "web_search",
+        toolUseId: "ws-a",
+        input: { query: "a" },
+      }),
     ]);
     const other: SubagentTimelineEvent[] = [
       makeEvent({ type: "text", content: "different subagent" }),
-      makeEvent({ type: "tool_call", toolName: "web_fetch", toolUseId: "wf-b", input: { url: "https://x.dev" } }),
+      makeEvent({
+        type: "tool_call",
+        toolName: "web_fetch",
+        toolUseId: "wf-b",
+        input: { url: "https://x.dev" },
+      }),
     ];
     expectMapsEqual(p.project(other), buildSubagentStepDetails(other));
   });
@@ -227,12 +273,26 @@ describe("createIncrementalDetailProjection — per-diff-class", () => {
   test("failed web_search payload is keyed by toolUseId and carries the full error", () => {
     const p = createIncrementalDetailProjection();
     let events: SubagentTimelineEvent[] = [
-      makeEvent({ type: "tool_call", toolName: "web_search", toolUseId: "ws-1", input: { query: "vellum" }, timestamp: NOW }),
+      makeEvent({
+        type: "tool_call",
+        toolName: "web_search",
+        toolUseId: "ws-1",
+        input: { query: "vellum" },
+        timestamp: NOW,
+      }),
     ];
     p.project(events);
     events = appendEvent(
       events,
-      makeEvent({ type: "tool_result", toolName: "web_search", toolUseId: "ws-1", isError: true, result: "upstream 503 backend overloaded", content: "search failed", timestamp: NOW + 900 }),
+      makeEvent({
+        type: "tool_result",
+        toolName: "web_search",
+        toolUseId: "ws-1",
+        isError: true,
+        result: "upstream 503 backend overloaded",
+        content: "search failed",
+        timestamp: NOW + 900,
+      }),
     );
     const map = p.project(events);
     expectMapsEqual(map, buildSubagentStepDetails(events));
@@ -245,12 +305,24 @@ describe("createIncrementalDetailProjection — per-diff-class", () => {
   test("successful web_search payload flips to completed with parsed sources", () => {
     const p = createIncrementalDetailProjection();
     let events: SubagentTimelineEvent[] = [
-      makeEvent({ type: "tool_call", toolName: "web_search", toolUseId: "ws-2", input: { query: "vellum" }, timestamp: NOW }),
+      makeEvent({
+        type: "tool_call",
+        toolName: "web_search",
+        toolUseId: "ws-2",
+        input: { query: "vellum" },
+        timestamp: NOW,
+      }),
     ];
     p.project(events);
     events = appendEvent(
       events,
-      makeEvent({ type: "tool_result", toolName: "web_search", toolUseId: "ws-2", result: "Vellum\nhttps://vellum.ai", timestamp: NOW + 900 }),
+      makeEvent({
+        type: "tool_result",
+        toolName: "web_search",
+        toolUseId: "ws-2",
+        result: "Vellum\nhttps://vellum.ai",
+        timestamp: NOW + 900,
+      }),
     );
     const map = p.project(events);
     expectMapsEqual(map, buildSubagentStepDetails(events));
@@ -281,7 +353,12 @@ describe("createIncrementalDetailProjection — per-diff-class", () => {
     p.project(subagentA);
     // Subagent B: a single text event — SAME id `detail-1`, different object.
     const subagentB: SubagentTimelineEvent[] = [
-      { id: "detail-1", type: "text", content: "B is thinking", timestamp: NOW },
+      {
+        id: "detail-1",
+        type: "text",
+        content: "B is thinking",
+        timestamp: NOW,
+      },
     ];
     const map = p.project(subagentB);
     // Must deep-equal a full rebuild of B — no stale tool entry from A.

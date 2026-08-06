@@ -72,9 +72,7 @@ export async function resolveTelephonyCredentialReadiness(): Promise<TelephonyCr
 
   if (stt.status !== "supported") {
     const providerId =
-      "providerId" in stt
-        ? stt.providerId
-        : getConfig().services.stt.provider;
+      "providerId" in stt ? stt.providerId : getConfig().services.stt.provider;
     missing.push({ kind: "stt", providerId, reason: stt.reason });
     clauses.push(sttGapClause(stt, providerId));
   }

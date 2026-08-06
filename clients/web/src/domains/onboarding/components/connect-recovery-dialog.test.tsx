@@ -4,7 +4,7 @@
  * The component composes `@vellumai/design-library`'s `Modal` and
  * `ConfirmDialog` (Radix Dialog under the hood), mounted via
  * `@testing-library/react` on happy-dom — same approach as
- * `rename-conversation-dialog.test.tsx`. The real library components are
+ * `name-input-dialog.test.tsx`. The real library components are
  * rendered so the destructive styling and `isPending` behavior asserted
  * here are the actual shipped behavior, not a mock's.
  *
@@ -65,9 +65,7 @@ function renderDialog(
 describe("Menu step", () => {
   test("renders the title, assistant name, and all three actions", () => {
     renderDialog();
-    expect(document.body.textContent).toContain(
-      "Can’t Authenticate Assistant",
-    );
+    expect(document.body.textContent).toContain("Can’t Authenticate Assistant");
     expect(document.body.textContent).toContain(
       "The authentication token for Local Assistant",
     );
@@ -113,9 +111,7 @@ describe("Repair confirmation", () => {
     const { onRepair, onCancel } = renderDialog();
     fireEvent.click(getButton("Wake & Repair"));
     fireEvent.click(getButton("Cancel"));
-    expect(document.body.textContent).toContain(
-      "Can’t Authenticate Assistant",
-    );
+    expect(document.body.textContent).toContain("Can’t Authenticate Assistant");
     expect(onRepair).not.toHaveBeenCalled();
     expect(onCancel).not.toHaveBeenCalled();
   });
@@ -197,9 +193,7 @@ describe("Reset on reopen", () => {
 
     rerender({ open: false });
     rerender({ open: true });
-    expect(document.body.textContent).toContain(
-      "Can’t Authenticate Assistant",
-    );
+    expect(document.body.textContent).toContain("Can’t Authenticate Assistant");
     expect(getButton("Wake & Repair")).toBeTruthy();
   });
 });

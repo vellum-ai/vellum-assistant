@@ -8,6 +8,7 @@
 import { z } from "zod";
 
 import { getApp } from "../../../../apps/app-store.js";
+import { resolveSlackAuth } from "../../../../messaging/providers/slack/auth.js";
 import { postMessage } from "../../../../messaging/providers/slack/client.js";
 import { getLogger } from "../../../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../../../auth/route-policy.js";
@@ -18,7 +19,6 @@ import {
   ServiceUnavailableError,
 } from "../../errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../../types.js";
-import { resolveSlackToken } from "./token.js";
 
 const log = getLogger("slack-share");
 
@@ -31,8 +31,16 @@ const SlackShareResultSchema = z.object({
 export async function handleShareToSlackChannel({
   body = {},
 }: RouteHandlerArgs) {
-  const token = await resolveSlackToken("write");
-  if (!token) {
+  // Post AS THE BOT. This route is exposed at the gateway with generic edge
+  // auth and the daemon never sees the calling actor's identity (the proxy
+  // strips the caller's Authorization for a service token), so it cannot verify
+  // that the caller is the Slack user who installed the stored user_token.
+  // Posting as that single installer token would let any authenticated caller
+  // make a message appear as another person — so shares always come from the
+  // neutral app identity. (Attributing a share to the acting user would require
+  // plumbing and verifying caller-specific Slack auth through the gateway.)
+  const auth = await resolveSlackAuth("bot");
+  if (auth === undefined) {
     throw new ServiceUnavailableError("No Slack token configured");
   }
 
@@ -81,9 +89,7 @@ export async function handleShareToSlackChannel({
   }
 
   try {
-    const result = await postMessage(token, channelId, fallbackText, {
-      blocks,
-    });
+    const result = await postMessage(auth, channelId, fallbackText, { blocks });
     return {
       ok: true,
       ts: result.ts,

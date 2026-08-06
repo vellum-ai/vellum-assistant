@@ -63,7 +63,9 @@ mock.module("openai", () => ({
       ) => {
         lastStreamParams = params;
         lastStreamOptions = options ?? null;
-        if (shouldThrow) throw shouldThrow;
+        if (shouldThrow) {
+          throw shouldThrow;
+        }
 
         return {
           [Symbol.asyncIterator]: async function* () {

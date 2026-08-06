@@ -8,6 +8,7 @@ import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
 import { mutateConfigFile } from "../config-file-utils.js";
 import { getLogger } from "../logger.js";
+import { ExponentialBackoff } from "../util/exponential-backoff.js";
 import { waitForWebSocketClose } from "../util/wait-for-ws-close.js";
 import {
   VELAY_ALLOWED_PATHS_HEADER,
@@ -33,11 +34,14 @@ const RECONNECT_JITTER_RATIO = 0.5;
 const VELAY_POLICY_CLOSE_CODE = 4008;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_READ_TIMEOUT_MS = 60_000;
-// How long to hold off reconnecting after a pre-checkpoint quiesce. The
-// checkpoint lands within seconds; if it never does, the normal reconnect
-// path resumes once this window expires. `resumeAfterWake()` (fired by the
-// post-restore wake detector) short-circuits the wait.
 const CHECKPOINT_RECONNECT_HOLDOFF_MS = 60_000;
+// Velay's production load balancer terminates every tunnel connection at
+// exactly 3600s (BackendConfig timeoutSec), killing any proxied call
+// mid-stream. Refresh the tunnel ourselves before that deadline (but only
+// while nothing is proxied through it) so the LB's clock resets without
+// ever chopping an established call.
+const TUNNEL_REFRESH_AFTER_MS = 3_300_000;
+const TUNNEL_REFRESH_BUSY_RETRY_MS = 30_000;
 
 export type WebSocketConstructorWithOptions = {
   new (
@@ -59,6 +63,7 @@ export type VelayTunnelClientOptions = {
   webSocketBridgeFactory?: (
     gatewayLoopbackBaseUrl: string,
     sendFrame: (frame: VelayFrame) => void,
+    onIdle?: () => void,
   ) => VelayWebSocketBridge;
   reconnect?: {
     baseDelayMs?: number;
@@ -69,6 +74,10 @@ export type VelayTunnelClientOptions = {
   heartbeat?: {
     intervalMs?: number;
     readTimeoutMs?: number;
+  };
+  refresh?: {
+    afterMs?: number;
+    busyRetryMs?: number;
   };
   timerApi?: TimerApi;
 };
@@ -82,20 +91,26 @@ export class VelayTunnelClient {
   private readonly webSocketConstructor: WebSocketConstructorWithOptions;
   private readonly httpBridge: typeof bridgeVelayHttpRequest;
   private readonly webSocketBridge: VelayWebSocketBridge;
-  private readonly baseReconnectDelayMs: number;
-  private readonly maxReconnectDelayMs: number;
-  private readonly reconnectJitterRatio: number;
-  private readonly random: () => number;
+  private readonly backoff: ExponentialBackoff;
   private readonly heartbeatIntervalMs: number;
   private readonly heartbeatReadTimeoutMs: number;
+  private readonly refreshAfterMs: number;
+  private readonly refreshBusyRetryMs: number;
   private readonly timerApi: TimerApi;
   private ws: WebSocket | null = null;
   private running = false;
   private connecting = false;
-  private reconnectAttempt = 0;
   private reconnectTimer: unknown = null;
   private heartbeatTimer: unknown = null;
   private readTimeoutTimer: unknown = null;
+  private refreshTimer: unknown = null;
+  // Set when the refresh deadline passed while the tunnel was busy: the
+  // refresh then fires as soon as the tunnel drains (last bridged
+  // connection or in-flight HTTP request completes) instead of waiting for
+  // the next busy-retry poll, which could leave a stale tunnel accepting
+  // new streams right before the LB chops it.
+  private refreshDue = false;
+  private inFlightHttpRequests = 0;
   private peerHeartbeatConfirmed = false;
   private publishedPublicBaseUrl: string | undefined;
   private credentialRefreshPending = false;
@@ -103,8 +118,6 @@ export class VelayTunnelClient {
   // Last observed value of `ingress.enabled === false`, so a config change can
   // detect a disabled → enabled transition and wake a waiting reconnect.
   private lastPublicIngressDisabled = false;
-  // Epoch-ms until which reconnects are deferred after a pre-checkpoint
-  // quiesce. 0 when no holdoff is active.
   private reconnectHoldoffUntil = 0;
 
   constructor(private readonly options: VelayTunnelClientOptions) {
@@ -114,18 +127,27 @@ export class VelayTunnelClient {
     this.httpBridge = options.httpBridge ?? bridgeVelayHttpRequest;
     this.webSocketBridge = (
       options.webSocketBridgeFactory ?? defaultWebSocketBridgeFactory
-    )(options.gatewayLoopbackBaseUrl, (frame) => this.sendFrame(frame));
-    this.baseReconnectDelayMs =
-      options.reconnect?.baseDelayMs ?? BASE_RECONNECT_DELAY_MS;
-    this.maxReconnectDelayMs =
-      options.reconnect?.maxDelayMs ?? MAX_RECONNECT_DELAY_MS;
-    this.reconnectJitterRatio =
-      options.reconnect?.jitterRatio ?? RECONNECT_JITTER_RATIO;
-    this.random = options.reconnect?.random ?? Math.random;
+    )(
+      options.gatewayLoopbackBaseUrl,
+      (frame) => this.sendFrame(frame),
+      () => this.handleTunnelIdle(),
+    );
+    this.backoff = new ExponentialBackoff({
+      baseDelayMs: options.reconnect?.baseDelayMs ?? BASE_RECONNECT_DELAY_MS,
+      maxDelayMs: options.reconnect?.maxDelayMs ?? MAX_RECONNECT_DELAY_MS,
+      jitter: {
+        mode: "additive",
+        ratio: options.reconnect?.jitterRatio ?? RECONNECT_JITTER_RATIO,
+      },
+      random: options.reconnect?.random,
+    });
     this.heartbeatIntervalMs =
       options.heartbeat?.intervalMs ?? HEARTBEAT_INTERVAL_MS;
     this.heartbeatReadTimeoutMs =
       options.heartbeat?.readTimeoutMs ?? HEARTBEAT_READ_TIMEOUT_MS;
+    this.refreshAfterMs = options.refresh?.afterMs ?? TUNNEL_REFRESH_AFTER_MS;
+    this.refreshBusyRetryMs =
+      options.refresh?.busyRetryMs ?? TUNNEL_REFRESH_BUSY_RETRY_MS;
     this.timerApi = options.timerApi ?? defaultTimerApi;
   }
 
@@ -143,7 +165,7 @@ export class VelayTunnelClient {
   refreshCredentials(reason = "credentials changed"): void {
     if (!this.running) return;
 
-    this.reconnectAttempt = 0;
+    this.backoff.reset();
     if (this.reconnectTimer) {
       this.timerApi.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -171,33 +193,19 @@ export class VelayTunnelClient {
     this.connectForCredentialRefresh(reason);
   }
 
-  /**
-   * Close the tunnel socket ahead of a gVisor pod checkpoint so the snapshot's
-   * epoll set holds no external TCP connection (dead-on-restore sockets crash
-   * Bun's event loop on resume). Reconnect is held off for
-   * {@link CHECKPOINT_RECONNECT_HOLDOFF_MS}; the holdoff expiry (capture
-   * failed / pod kept running) or `resumeAfterWake()` (post-restore wake
-   * detection) re-establishes the tunnel via the normal reconnect path.
-   *
-   * Resolves true when an active tunnel socket was closed. The returned
-   * promise settles only once the close handshake finishes (or the bounded
-   * wait force-terminates), so the caller can respond after the socket is
-   * really gone.
-   */
+  /** Close the external tunnel before a checkpoint and defer reconnection. */
   async prepareForCheckpoint(): Promise<boolean> {
     if (!this.running) {
       return false;
     }
     this.reconnectHoldoffUntil = Date.now() + CHECKPOINT_RECONNECT_HOLDOFF_MS;
-    this.reconnectAttempt = 0;
+    this.backoff.reset();
     if (this.reconnectTimer) {
       this.timerApi.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
     const ws = this.ws;
     if (!ws) {
-      // Not connected — re-arm the reconnect loop so the holdoff still ends
-      // in a connect attempt.
       this.scheduleReconnect();
       return false;
     }
@@ -207,17 +215,13 @@ export class VelayTunnelClient {
     return true;
   }
 
-  /**
-   * Cancel a pre-checkpoint reconnect holdoff and reconnect immediately when
-   * disconnected. Called on system-wake detection (which also fires after a
-   * pod snapshot restore). No-op while connected or when never started.
-   */
+  /** Clear the checkpoint holdoff and reconnect after system wake. */
   resumeAfterWake(): void {
     this.reconnectHoldoffUntil = 0;
     if (!this.running || this.ws || this.connecting) {
       return;
     }
-    this.reconnectAttempt = 0;
+    this.backoff.reset();
     if (this.reconnectTimer) {
       this.timerApi.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -256,6 +260,7 @@ export class VelayTunnelClient {
       this.reconnectTimer = null;
     }
     this.clearHeartbeat();
+    this.clearTunnelRefresh();
     const ws = this.ws;
     this.ws = null;
     this.webSocketBridge.closeAll();
@@ -271,13 +276,10 @@ export class VelayTunnelClient {
   }
 
   private async connect(): Promise<void> {
-    // `this.ws` check: a reconnect timer scheduled by a stale async cleanup
-    // (e.g. the one prepareForCheckpoint starts) must not open a second
-    // tunnel next to one that resumeAfterWake already re-established.
-    if (!this.running || this.connecting || this.ws) return;
+    if (!this.running || this.connecting || this.ws) {
+      return;
+    }
     if (Date.now() < this.reconnectHoldoffUntil) {
-      // Pre-checkpoint holdoff: defer any connect attempt (credential
-      // refresh, config invalidation, early timer) until it expires.
       this.scheduleReconnect();
       return;
     }
@@ -343,9 +345,6 @@ export class VelayTunnelClient {
       return;
     }
 
-    // Re-check after the awaits above: a pre-checkpoint quiesce may have
-    // arrived while this connect was in flight, and constructing the socket
-    // now would put a doomed connection into the snapshot.
     if (Date.now() < this.reconnectHoldoffUntil) {
       this.connecting = false;
       this.scheduleReconnect();
@@ -520,20 +519,31 @@ export class VelayTunnelClient {
 
     await writeManagedPublicBaseUrl(publicUrl, this.options.configFile);
     this.publishedPublicBaseUrl = publicUrl;
-    this.reconnectAttempt = 0;
+    this.backoff.reset();
     log.info({ publicUrl }, "Velay tunnel registered");
+    this.scheduleTunnelRefresh(originWs, this.refreshAfterMs);
   }
 
   private async handleHttpRequestFrame(
     frame: VelayHttpRequestFrame,
     originWs: WebSocket,
   ): Promise<void> {
-    const response = await this.httpBridge(
-      frame,
-      this.options.gatewayLoopbackBaseUrl,
-    );
-    if (this.ws !== originWs || !this.running) return;
-    this.sendFrame(response);
+    this.inFlightHttpRequests++;
+    try {
+      const response = await this.httpBridge(
+        frame,
+        this.options.gatewayLoopbackBaseUrl,
+      );
+      if (this.ws !== originWs || !this.running) {
+        return;
+      }
+      this.sendFrame(response);
+    } finally {
+      this.inFlightHttpRequests--;
+      if (this.inFlightHttpRequests === 0) {
+        this.handleTunnelIdle();
+      }
+    }
   }
 
   private handleClose(ws: WebSocket, event: CloseEvent): void {
@@ -541,6 +551,7 @@ export class VelayTunnelClient {
     this.ws = null;
     this.connecting = false;
     this.clearHeartbeat();
+    this.clearTunnelRefresh();
     this.webSocketBridge.closeAll();
     log.info(
       { code: event.code, reason: event.reason },
@@ -558,9 +569,71 @@ export class VelayTunnelClient {
     this.ws = null;
     this.connecting = false;
     this.clearHeartbeat();
+    this.clearTunnelRefresh();
     this.webSocketBridge.closeAll();
     closeWebSocket(ws, code, reason);
     this.clearPublishedPublicBaseUrlThenReconnect();
+  }
+
+  /**
+   * Restart the tunnel before velay's load balancer terminates it (see
+   * TUNNEL_REFRESH_AFTER_MS), so proxied calls stop dying at the hourly
+   * boundary. Only fires while nothing is proxied through the tunnel; while
+   * busy it marks the refresh due, so the tunnel refreshes the moment it
+   * drains, with a busy-retry poll as backstop. If the LB chops first, the
+   * close handler clears the timer and the normal reconnect takes over.
+   */
+  private scheduleTunnelRefresh(ws: WebSocket, delayMs: number): void {
+    if (this.refreshAfterMs <= 0) {
+      return;
+    }
+    this.clearTunnelRefresh();
+    this.refreshTimer = this.timerApi.setTimeout(() => {
+      this.refreshTimer = null;
+      if (this.ws !== ws || !this.running) {
+        return;
+      }
+      if (this.isTunnelBusy()) {
+        this.scheduleTunnelRefresh(ws, this.refreshBusyRetryMs);
+        // Set after the reschedule: clearTunnelRefresh resets the flag.
+        this.refreshDue = true;
+        return;
+      }
+      this.performTunnelRefresh(ws);
+    }, delayMs);
+  }
+
+  private clearTunnelRefresh(): void {
+    this.refreshDue = false;
+    if (this.refreshTimer) {
+      this.timerApi.clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+  }
+
+  private isTunnelBusy(): boolean {
+    return (
+      this.webSocketBridge.getConnectionCount() > 0 ||
+      this.inFlightHttpRequests > 0
+    );
+  }
+
+  /** Overdue-refresh path: the tunnel just drained (see refreshDue). */
+  private handleTunnelIdle(): void {
+    if (!this.refreshDue || !this.running) {
+      return;
+    }
+    const ws = this.ws;
+    if (!ws || this.isTunnelBusy()) {
+      return;
+    }
+    this.performTunnelRefresh(ws);
+  }
+
+  private performTunnelRefresh(ws: WebSocket): void {
+    log.info("Refreshing idle Velay tunnel before the load balancer timeout");
+    this.backoff.reset();
+    this.disconnectActiveWebSocket(ws, 1000, "proactive tunnel refresh");
   }
 
   private async clearPublishedPublicBaseUrl(): Promise<void> {
@@ -656,16 +729,8 @@ export class VelayTunnelClient {
   private scheduleReconnect(): void {
     if (!this.running || this.reconnectTimer) return;
 
-    const backoff = Math.min(
-      this.baseReconnectDelayMs * Math.pow(2, this.reconnectAttempt),
-      this.maxReconnectDelayMs,
-    );
-    const jitter = backoff * this.reconnectJitterRatio * this.random();
-    // A pre-checkpoint holdoff overrides the backoff so a reconnect can't
-    // race the checkpoint and recreate a doomed socket.
     const holdoffRemaining = this.reconnectHoldoffUntil - Date.now();
-    const delay = Math.max(Math.round(backoff + jitter), holdoffRemaining);
-    this.reconnectAttempt++;
+    const delay = Math.max(this.backoff.nextDelayMs(), holdoffRemaining);
 
     this.reconnectTimer = this.timerApi.setTimeout(() => {
       this.reconnectTimer = null;
@@ -698,7 +763,7 @@ export class VelayTunnelClient {
     // backoff — otherwise a link minted right after enabling ingress (which
     // also starts the tunnel) stays unreachable for up to the max backoff.
     if (wasDisabled && this.running && !ws && !this.connecting) {
-      this.reconnectAttempt = 0;
+      this.backoff.reset();
       if (this.reconnectTimer) {
         this.timerApi.clearTimeout(this.reconnectTimer);
         this.reconnectTimer = null;
@@ -757,8 +822,9 @@ const defaultTimerApi: TimerApi = {
 function defaultWebSocketBridgeFactory(
   gatewayLoopbackBaseUrl: string,
   sendFrame: (frame: VelayFrame) => void,
+  onIdle?: () => void,
 ): VelayWebSocketBridge {
-  return new VelayWebSocketBridge(gatewayLoopbackBaseUrl, sendFrame);
+  return new VelayWebSocketBridge(gatewayLoopbackBaseUrl, sendFrame, onIdle);
 }
 
 async function mutateGatewayConfigFile(

@@ -39,7 +39,9 @@ function collectFiles(
   } catch {
     return entries;
   }
-  if (ancestors.has(realDir)) return entries;
+  if (ancestors.has(realDir)) {
+    return entries;
+  }
   ancestors.add(realDir);
 
   let items: string[];
@@ -51,7 +53,9 @@ function collectFiles(
   }
 
   for (const name of items) {
-    if (EXCLUDED_NAMES.has(name)) continue;
+    if (EXCLUDED_NAMES.has(name)) {
+      continue;
+    }
     const full = join(dir, name);
     let stat;
     try {

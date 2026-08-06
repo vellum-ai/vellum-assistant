@@ -12,7 +12,10 @@ export function ContactTypeBadge({ role, contactType }: ContactTypeBadgeProps) {
   return <Tag tone={tone}>{label}</Tag>;
 }
 
-function describeRole(role: ContactRole, contactType?: string | null): {
+function describeRole(
+  role: ContactRole,
+  contactType?: string | null,
+): {
   label: string;
   tone: TagTone;
 } {

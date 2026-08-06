@@ -8,6 +8,7 @@ import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import { PROMPT_CACHE_BREAKPOINT_MODEL_IDS } from "../model-catalog.js";
+import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import { createToolProgressEmitter } from "../tool-progress-events.js";
 import type {
@@ -25,6 +26,7 @@ import {
   normalizeOpenAIAPIError,
 } from "./api-error-normalization.js";
 import { detectOpenAICompatibleContextOverflow } from "./chat-completions-provider.js";
+import { serializeToolResult } from "./orphaned-tool-result.js";
 
 const log = getLogger("openai-responses");
 
@@ -79,7 +81,9 @@ const VALID_VERBOSITIES = new Set<string>(["low", "medium", "high"]);
 export function mapNeutralToolChoiceForResponses(
   toolChoice: unknown,
 ): string | { type: "function"; name: string } | undefined {
-  if (toolChoice == null || typeof toolChoice !== "object") return undefined;
+  if (toolChoice == null || typeof toolChoice !== "object") {
+    return undefined;
+  }
   const tc = toolChoice as { type?: unknown; name?: unknown };
   switch (tc.type) {
     case "auto":
@@ -227,8 +231,6 @@ export class OpenAIResponsesProvider implements Provider {
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
       | Record<string, string>
       | undefined;
-    const mutableLatestUserMessage =
-      configObj?.mutableLatestUserMessage === true;
     const disableCache = configObj?.disableCache === true;
     const disableTurnStartCache = configObj?.disableTurnStartCache === true;
     const promptCacheKey =
@@ -239,7 +241,8 @@ export class OpenAIResponsesProvider implements Provider {
 
     try {
       const effectiveModel = modelOverride ?? this.model;
-      const input = this.toResponsesInput(messages);
+      recordProviderRequestDiagnostics({ model_id: effectiveModel });
+      const input = await this.toResponsesInput(messages);
 
       const params: Record<string, unknown> = {
         model: effectiveModel,
@@ -254,30 +257,36 @@ export class OpenAIResponsesProvider implements Provider {
         );
       }
 
+      // A per-conversation prompt-cache key gives OpenAI's cache router a
+      // stable affinity key so a conversation's requests land on the same
+      // cache shard. Every model on the direct API receives it — both
+      // breakpoint-capable models (which additionally opt into explicit mode
+      // below) and implicit-mode models, which carry no explicit breakpoints
+      // yet still gain prefix-cache routing affinity from a stable key. The
+      // Codex subscription endpoint rejects extra params, so it is skipped
+      // there.
+      if (!this.codexSubscription && promptCacheKey) {
+        params.prompt_cache_key = promptCacheKey;
+      }
+
       // Explicit prompt-cache mode (GPT-5.6+ semantics, direct API only).
       // Explicit mode disables the implicit latest-message breakpoint — under
-      // implicit mode a volatile latest user message (mutableLatestUserMessage)
-      // makes every cached entry end at content that never recurs: zero reads
+      // implicit mode a volatile latest user message makes every cached entry
+      // end at content that never recurs across turns: zero reads
       // plus a full-prompt 1.25x write per turn. With explicit markers we
       // choose the stable boundaries ourselves. Under `disableCache` we still
       // send explicit mode but stamp no markers: a request with no explicit
       // breakpoints neither uses the cache nor incurs cache-write charges,
       // which is exactly the opt-out `disableCache` wants (omitting the param
       // would re-enable implicit mode). The Codex subscription endpoint
-      // rejects extra params, so cache params are skipped entirely there.
+      // rejects extra params, so these params are skipped entirely there.
       if (
         !this.codexSubscription &&
         PROMPT_CACHE_BREAKPOINT_MODEL_IDS.has(effectiveModel)
       ) {
         params.prompt_cache_options = { mode: "explicit" };
-        if (promptCacheKey) {
-          params.prompt_cache_key = promptCacheKey;
-        }
         if (!disableCache) {
-          this.applyPromptCacheBreakpoints(input, {
-            mutableLatestUserMessage,
-            disableTurnStartCache,
-          });
+          this.applyPromptCacheBreakpoints(input, { disableTurnStartCache });
         }
       }
 
@@ -499,7 +508,9 @@ export class OpenAIResponsesProvider implements Provider {
                 if (callId) {
                   const entry = toolCallMap.get(callId);
                   if (entry) {
-                    if (event.name) entry.name = event.name;
+                    if (event.name) {
+                      entry.name = event.name;
+                    }
                     entry.args = event.arguments;
                     toolProgress.emitInputJsonDelta(
                       entry.callId,
@@ -679,18 +690,30 @@ export class OpenAIResponsesProvider implements Provider {
           rawBody?: string;
           reason?: ProviderErrorReason;
         } = {};
-        if (retryAfterMs !== undefined)
+        if (retryAfterMs !== undefined) {
           errorOptions.retryAfterMs = retryAfterMs;
-        if (abortReason) errorOptions.abortReason = abortReason;
-        if (normalized.apiErrorCode)
+        }
+        if (abortReason) {
+          errorOptions.abortReason = abortReason;
+        }
+        if (normalized.apiErrorCode) {
           errorOptions.apiErrorCode = normalized.apiErrorCode;
-        if (normalized.apiErrorType)
+        }
+        if (normalized.apiErrorType) {
           errorOptions.apiErrorType = normalized.apiErrorType;
-        if (normalized.apiErrorParam)
+        }
+        if (normalized.apiErrorParam) {
           errorOptions.apiErrorParam = normalized.apiErrorParam;
-        if (normalized.requestId) errorOptions.requestId = normalized.requestId;
-        if (normalized.rawBody) errorOptions.rawBody = normalized.rawBody;
-        if (normalized.reason) errorOptions.reason = normalized.reason;
+        }
+        if (normalized.requestId) {
+          errorOptions.requestId = normalized.requestId;
+        }
+        if (normalized.rawBody) {
+          errorOptions.rawBody = normalized.rawBody;
+        }
+        if (normalized.reason) {
+          errorOptions.reason = normalized.reason;
+        }
         throw new ProviderError(
           formattedMessage,
           this.name,
@@ -725,17 +748,22 @@ export class OpenAIResponsesProvider implements Provider {
    *
    * System prompt is NOT included here — it goes into the `instructions` param.
    */
-  private toResponsesInput(messages: Message[]): unknown[] {
+  private async toResponsesInput(messages: Message[]): Promise<unknown[]> {
     // Swap any persisted attachment references back to inline base64 before
     // serializing, so the block transforms below can read `source.data`.
-    messages = resolveMediaReferences(messages);
+    messages = await resolveMediaReferences(messages);
     const result: unknown[] = [];
 
+    // `call_id`s emitted as `function_call` items earlier in this request.
+    // The API rejects a `function_call_output` whose `call_id` has no
+    // preceding `function_call`, so tool results are only serialized as
+    // outputs when their call was emitted first (backward matches only).
+    const emittedCallIds = new Set<string>();
     for (const msg of messages) {
       if (msg.role === "assistant") {
-        this.appendAssistantItems(result, msg);
+        this.appendAssistantItems(result, msg, emittedCallIds);
       } else {
-        this.appendUserItems(result, msg);
+        this.appendUserItems(result, msg, emittedCallIds);
       }
     }
 
@@ -755,8 +783,11 @@ export class OpenAIResponsesProvider implements Provider {
    * historical user-message boundaries makes the newest still-matching one
    * the read point; in the volatile-latest-message flow that is typically
    * the previous turn's user message once it re-renders without its
-   * injected block. Marking the volatile latest item itself prepays its
-   * write so in-turn tool-loop iterations read it back. The ladder is
+   * injected block. Every markable item is marked, including a volatile
+   * latest user message that is the only one on a first turn: a volatile
+   * message is still fixed within its own turn, so marking it prepays one
+   * write that every in-turn tool-loop iteration reads back, and cross-turn
+   * the ladder re-marks whichever boundaries recur. The ladder is
    * cost-safe: OpenAI writes at most the latest four unmatched marked
    * boundaries per request and considers up to the latest 50 markers for
    * reads. All breakpoints share the fixed 30m TTL (no `ttl` field is
@@ -778,7 +809,7 @@ export class OpenAIResponsesProvider implements Provider {
    */
   private applyPromptCacheBreakpoints(
     input: unknown[],
-    opts: { mutableLatestUserMessage: boolean; disableTurnStartCache: boolean },
+    opts: { disableTurnStartCache: boolean },
   ): void {
     const items = input as ResponsesMessageItem[];
 
@@ -833,17 +864,6 @@ export class OpenAIResponsesProvider implements Provider {
       return;
     }
 
-    // A volatile latest user message with no prior user message to anchor
-    // on: every marker would be a write whose prefix never recurs across
-    // turns — skip caching entirely for this request.
-    if (
-      opts.mutableLatestUserMessage &&
-      candidates.length === 1 &&
-      candidates[0] === items.length - 1
-    ) {
-      return;
-    }
-
     for (const idx of candidates) {
       // `disableTurnStartCache` suppresses the marker on the turn-start
       // (newest user) item — one-shot call sites whose prompts never
@@ -860,8 +880,16 @@ export class OpenAIResponsesProvider implements Provider {
     }
   }
 
-  /** Convert an assistant message's content blocks to Responses input items. */
-  private appendAssistantItems(result: unknown[], msg: Message): void {
+  /**
+   * Convert an assistant message's content blocks to Responses input items.
+   * Every `function_call` emitted is recorded in `emittedCallIds` so the
+   * user-item conversion can pair `tool_result` blocks against it.
+   */
+  private appendAssistantItems(
+    result: unknown[],
+    msg: Message,
+    emittedCallIds: Set<string>,
+  ): void {
     const textParts: string[] = [];
 
     for (const block of msg.content) {
@@ -885,6 +913,7 @@ export class OpenAIResponsesProvider implements Provider {
             name: block.name,
             arguments: JSON.stringify(block.input),
           });
+          emittedCallIds.add(block.id);
           break;
         case "server_tool_use":
           textParts.push(`[Web search: ${block.name}]`);
@@ -905,8 +934,18 @@ export class OpenAIResponsesProvider implements Provider {
     }
   }
 
-  /** Convert a user message's content blocks to Responses input items. */
-  private appendUserItems(result: unknown[], msg: Message): void {
+  /**
+   * Convert a user message's content blocks to Responses input items.
+   * A `tool_result` whose `tool_use_id` was not emitted as a `function_call`
+   * earlier in this request (`emittedCallIds`) is orphaned; the API rejects
+   * an unmatched `function_call_output`, so its content is degraded into the
+   * plain user message instead of dropped.
+   */
+  private appendUserItems(
+    result: unknown[],
+    msg: Message,
+    emittedCallIds: Set<string>,
+  ): void {
     // Separate tool results from other blocks
     const toolResults = msg.content.filter(
       (b): b is Extract<ContentBlock, { type: "tool_result" }> =>
@@ -921,31 +960,34 @@ export class OpenAIResponsesProvider implements Provider {
 
     // Emit tool results as function_call_output items
     const toolResultImages: ContentBlock[] = [];
+    const orphanedResultBlocks: ContentBlock[] = [];
     for (const tr of toolResults) {
-      let textContent = tr.content;
-      if (tr.contentBlocks && tr.contentBlocks.length > 0) {
-        const extraText = tr.contentBlocks
-          .filter(
-            (cb): cb is Extract<ContentBlock, { type: "text" }> =>
-              cb.type === "text",
-          )
-          .map((cb) => cb.text);
-        if (extraText.length > 0) {
-          textContent = textContent + "\n" + extraText.join("\n");
+      // This transport carries images only; the text payload and the orphan
+      // decision are the shared cross-transport rule.
+      for (const cb of tr.contentBlocks ?? []) {
+        if (cb.type === "image") {
+          toolResultImages.push(cb);
         }
-        for (const cb of tr.contentBlocks) {
-          if (cb.type === "image") toolResultImages.push(cb);
-        }
+      }
+      const serialized = serializeToolResult(tr, emittedCallIds);
+      if (serialized.kind === "orphaned") {
+        orphanedResultBlocks.push(serialized.block);
+        continue;
       }
       result.push({
         type: "function_call_output",
         call_id: tr.tool_use_id,
-        output: tr.is_error ? `[ERROR] ${textContent}` : textContent,
+        output: serialized.payload,
       });
     }
 
-    // Emit remaining content + any tool result images as a user message
-    const userContent = [...otherBlocks, ...toolResultImages];
+    // Emit remaining content, degraded orphaned results, and any tool result
+    // images as a user message
+    const userContent = [
+      ...otherBlocks,
+      ...orphanedResultBlocks,
+      ...toolResultImages,
+    ];
     if (userContent.length > 0) {
       result.push(this.toResponsesUserMessage(userContent));
     }

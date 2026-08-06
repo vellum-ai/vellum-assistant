@@ -483,7 +483,7 @@ describe("forkConversation", () => {
     // message — same-millisecond inserts would otherwise make the event
     // "at-or-before" the branch point and inherit.
     const db = getDb();
-    const base = Date.now();
+    const base = Date.now() - 10_000;
     db.run(
       `UPDATE messages SET created_at = ${base} WHERE id = '${compactedBranchPoint.id}'`,
     );
@@ -702,7 +702,11 @@ describe("forkConversation", () => {
       "Attached the updated mock.",
       { skipIndexing: true },
     );
-    const uploaded = uploadAttachment("wireframe.png", "image/png", "iVBORw0K");
+    const uploaded = await uploadAttachment(
+      "wireframe.png",
+      "image/png",
+      "iVBORw0K",
+    );
     linkAttachmentToMessage(sourceAssistant.id, uploaded.id, 0);
 
     const sourceAttachments = getAttachmentsForMessage(sourceAssistant.id);

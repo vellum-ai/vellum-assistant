@@ -24,9 +24,7 @@ function abbreviateTokenCount(count: number): string {
   return count.toLocaleString();
 }
 
-export function formatBreakdownTokensShort(
-  group: UsageGroupBreakdown,
-): string {
+export function formatBreakdownTokensShort(group: UsageGroupBreakdown): string {
   const totalInput =
     group.totalInputTokens +
     group.totalCacheCreationTokens +

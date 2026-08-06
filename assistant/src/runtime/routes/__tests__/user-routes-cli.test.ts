@@ -17,6 +17,7 @@ import {
   getWorkspacePluginsDir,
   getWorkspaceRoutesDir,
 } from "../../../util/platform.js";
+import { BadRequestError } from "../errors.js";
 import type { RouteHandlerArgs } from "../types.js";
 import { ROUTES } from "../user-routes-cli.js";
 
@@ -186,5 +187,11 @@ describe("routes inspect", () => {
     await expect(
       inspectHandler({ body: { path: "plugins/dead/status" } }),
     ).rejects.toThrow();
+  });
+
+  test("rejects a body missing path with BadRequestError", async () => {
+    await expect(
+      inspectHandler({ body: {} as Record<string, unknown> }),
+    ).rejects.toThrow(BadRequestError);
   });
 });

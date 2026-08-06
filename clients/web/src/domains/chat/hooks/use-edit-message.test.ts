@@ -4,7 +4,13 @@ import { useEditMessage } from "./use-edit-message";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
 
-function makeMsg(overrides: Partial<DisplayMessage> & { id: string; role: DisplayMessage["role"]; content: string }): DisplayMessage {
+function makeMsg(
+  overrides: Partial<DisplayMessage> & {
+    id: string;
+    role: DisplayMessage["role"];
+    content: string;
+  },
+): DisplayMessage {
   const { content, ...rest } = overrides;
   return { ...rest, ...textBody(content) };
 }
@@ -33,8 +39,18 @@ describe("useEditMessage", () => {
     const messages: DisplayMessage[] = [
       makeMsg({ id: "1", role: "user", content: "confirmed" }),
       makeMsg({ id: "2", role: "assistant", content: "reply" }),
-      makeMsg({ id: "3", role: "user", content: "queued", queueStatus: "queued" }),
-      makeMsg({ id: "4", role: "user", content: "optimistic", isOptimistic: true }),
+      makeMsg({
+        id: "3",
+        role: "user",
+        content: "queued",
+        queueStatus: "queued",
+      }),
+      makeMsg({
+        id: "4",
+        role: "user",
+        content: "optimistic",
+        isOptimistic: true,
+      }),
     ];
     const { result } = renderHook(() => useEditMessage(messages));
 

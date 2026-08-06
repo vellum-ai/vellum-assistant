@@ -98,6 +98,49 @@ describe("XAIProvider", () => {
     expect((file as Blob).type).toBe("audio/mpeg");
   });
 
+  test("forwards a configured language as a form field, appended before the file", async () => {
+    let capturedBody: FormData | undefined;
+
+    globalThis.fetch = (async (
+      _url: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      capturedBody = init?.body as FormData;
+      return new Response(JSON.stringify({ text: "hola" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const provider = new XAIProvider(TEST_API_KEY, { language: "es" });
+    await provider.transcribe(Buffer.from("fake-audio"), "audio/wav");
+
+    expect(capturedBody!.get("language")).toBe("es");
+    // xAI requires `file` to be the LAST field in the multipart body.
+    expect([...capturedBody!.keys()]).toEqual(["language", "file"]);
+  });
+
+  test("omits the language field entirely when no language is configured", async () => {
+    let capturedBody: FormData | undefined;
+
+    globalThis.fetch = (async (
+      _url: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      capturedBody = init?.body as FormData;
+      return new Response(JSON.stringify({ text: "hello" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const provider = new XAIProvider(TEST_API_KEY);
+    await provider.transcribe(Buffer.from("fake-audio"), "audio/wav");
+
+    expect(capturedBody!.get("language")).toBeNull();
+    expect([...capturedBody!.keys()]).toEqual(["file"]);
+  });
+
   test("returns empty text when API returns empty text field", async () => {
     globalThis.fetch = (async () => {
       return new Response(JSON.stringify({ text: "" }), {

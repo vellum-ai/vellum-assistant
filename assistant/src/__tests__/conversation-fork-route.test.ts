@@ -258,7 +258,9 @@ describe("POST /v1/conversations/fork", () => {
   }
 
   function url(pathname: string): string {
-    if (!server) throw new Error("server not started");
+    if (!server) {
+      throw new Error("server not started");
+    }
     return `http://127.0.0.1:${server.actualPort}/v1${pathname}`;
   }
 });

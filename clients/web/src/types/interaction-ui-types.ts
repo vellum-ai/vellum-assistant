@@ -58,6 +58,7 @@ export interface PendingContactRequestState {
   requestId: string;
   channel?: string;
   placeholder?: string;
+  defaultValue?: string;
   label?: string;
   description?: string;
   role?: string;

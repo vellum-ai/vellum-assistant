@@ -17,10 +17,10 @@
  *
  * State is held on `globalThis.vellumAssistant.dbSingletons` so test
  * helpers in `__tests__/` can read/write it WITHOUT importing this
- * module — they declare the same slot shape locally and access the
- * globalThis namespace directly. See
- * `__tests__/db-test-helpers.ts` for the test-side mirror; the slot
- * shape MUST stay in sync between the two.
+ * module. Both sides reference the shared ambient `VellumDbSlots` type
+ * (declared in `src/vellum-assistant-namespace.d.ts`), which types the
+ * slot without adding a runtime import between them. See
+ * `__tests__/db-test-helpers.ts` for the test-side reader.
  *
  * The stored value is typed as `unknown` so this file never has to import
  * Drizzle types. Callers in `db-connection.ts` narrow via the type
@@ -33,32 +33,19 @@
  *   - `__tests__/db-test-helpers.ts` (per-test reset, via globalThis)
  */
 
-/** Which connection a slot holds. */
-export type DbSlotKey =
-  | "main"
-  | "main-readonly"
-  | "logs"
-  | "memory"
-  | "telemetry";
+/**
+ * Which connection a slot holds. The canonical union is the ambient
+ * `VellumDbSlotKey` (see `src/vellum-assistant-namespace.d.ts`); this
+ * re-export is the DB layer's public name for it.
+ */
+export type DbSlotKey = VellumDbSlotKey;
 
-type DbSlot = {
-  db: unknown;
-  closer: (() => void) | null;
-};
-
-type DbSlots = Record<DbSlotKey, DbSlot>;
-
-type VellumAssistantNamespace = {
-  dbSingletons?: DbSlots;
-};
-
-function emptySlot(): DbSlot {
+function emptySlot(): VellumDbSlot {
   return { db: null, closer: null };
 }
 
-function slots(): DbSlots {
-  const g = globalThis as { vellumAssistant?: VellumAssistantNamespace };
-  const ns = (g.vellumAssistant ??= {});
+function slots(): VellumDbSlots {
+  const ns = (globalThis.vellumAssistant ??= {});
   return (ns.dbSingletons ??= {
     main: emptySlot(),
     "main-readonly": emptySlot(),
@@ -68,7 +55,7 @@ function slots(): DbSlots {
   });
 }
 
-function slot(key: DbSlotKey): DbSlot {
+function slot(key: DbSlotKey): VellumDbSlot {
   return slots()[key];
 }
 

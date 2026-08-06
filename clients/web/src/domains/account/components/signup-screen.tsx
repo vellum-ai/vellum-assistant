@@ -28,9 +28,7 @@ interface SignupScreenProps {
  * `startAuthFlow` (`intent: "signup"`); the post-OAuth name/occupation step
  * lives in `ProviderSignupPage`.
  */
-export function SignupScreen({
-  returnTo,
-}: SignupScreenProps) {
+export function SignupScreen({ returnTo }: SignupScreenProps) {
   const [error, setError] = useState<string | null>(null);
   const callbackUrl = buildProviderCallbackUrl(returnTo, {
     authIntent: "signup",

@@ -46,10 +46,14 @@ export function recallAtK(
   groundTruth: ReadonlySet<string>,
   k: number,
 ): number {
-  if (groundTruth.size === 0) return 1;
+  if (groundTruth.size === 0) {
+    return 1;
+  }
   let hit = 0;
   for (const slug of new Set(selected.slice(0, k))) {
-    if (groundTruth.has(slug)) hit++;
+    if (groundTruth.has(slug)) {
+      hit++;
+    }
   }
   return hit / groundTruth.size;
 }
@@ -107,7 +111,9 @@ export function aggregate(
       continue;
     }
     let sum = 0;
-    for (const t of perTurn) sum += t.recallAtK[k] ?? 0;
+    for (const t of perTurn) {
+      sum += t.recallAtK[k] ?? 0;
+    }
     meanRecallAtK[k] = sum / turns;
   }
 

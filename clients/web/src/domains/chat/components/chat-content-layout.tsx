@@ -18,7 +18,11 @@ import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-dr
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
-import { ChatMainPanel, type ChatMainPanelProps } from "@/domains/chat/components/chat-route-content";
+import { FilePreviewContainer } from "@/domains/chat/components/local-file/preview/file-preview-container";
+import {
+  ChatMainPanel,
+  type ChatMainPanelProps,
+} from "@/domains/chat/components/chat-route-content";
 import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -43,14 +47,14 @@ const importToolDetailPanel = () =>
   import("@/domains/chat/components/tool-detail-panel");
 const importActivityStepsPanel = () =>
   import("@/domains/chat/components/activity-steps-panel");
+const importMessageFilesPanel = () =>
+  import("@/domains/chat/components/message-files-panel");
 const importAcpRunDetailPanel = () =>
   import("@/domains/chat/components/acp-run-detail-panel/acp-run-detail-panel");
 const importWorkflowDetailPanel = () =>
   import("@/domains/chat/components/workflow-detail-panel");
 const importBackgroundTaskDetailPanel = () =>
-  import(
-    "@/domains/chat/components/background-task-detail-panel/background-task-detail-panel"
-  );
+  import("@/domains/chat/components/background-task-detail-panel/background-task-detail-panel");
 const importSkillDetailPanel = () =>
   import("@/domains/chat/components/skill-detail-panel");
 
@@ -69,6 +73,9 @@ const ToolDetailPanel = lazy(() =>
 const ActivityStepsPanel = lazy(() =>
   importActivityStepsPanel().then((m) => ({ default: m.ActivityStepsPanel })),
 );
+const MessageFilesPanel = lazy(() =>
+  importMessageFilesPanel().then((m) => ({ default: m.MessageFilesPanel })),
+);
 const BackgroundTaskDetailPanel = lazy(() =>
   importBackgroundTaskDetailPanel().then((m) => ({
     default: m.BackgroundTaskDetailPanel,
@@ -86,13 +93,16 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const mainView = useViewerStore.use.mainView();
   const openedAppState = useViewerStore.use.openedAppState();
   const openedDocumentState = useViewerStore.use.openedDocumentState();
-  const editingConversationId = useConversationStore.use.editingConversationId();
+  const editingConversationId =
+    useConversationStore.use.editingConversationId();
   const activeSubagentId = useViewerStore.use.activeSubagentId();
   const activeWorkflowRunId = useViewerStore.use.activeWorkflowRunId();
   const activeToolDetail = useViewerStore.use.activeToolDetail();
   const closeToolDetail = useViewerStore.use.closeToolDetail();
   const activeActivitySteps = useViewerStore.use.activeActivitySteps();
   const closeActivitySteps = useViewerStore.use.closeActivitySteps();
+  const activeMessageFiles = useViewerStore.use.activeMessageFiles();
+  const closeMessageFiles = useViewerStore.use.closeMessageFiles();
   // Subscribe to only the active subagent's entry rather than the whole `byId`
   // map, so streaming events from *other* subagents don't re-render the chat
   // layout (and the chat transcript it hosts) on every token.
@@ -137,19 +147,27 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   const handleEditApp = useCallback(() => {
     const oas = useViewerStore.getState().openedAppState;
-    if (oas) editApp(oas);
+    if (oas) {
+      editApp(oas);
+    }
   }, [editApp]);
 
   const handleShareApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;
     const aid = useResolvedAssistantsStore.getState().activeAssistantId;
-    if (app && aid) void useDeployStore.getState().shareApp(aid, app.appId, app.name);
+    if (app && aid) {
+      void useDeployStore.getState().shareApp(aid, app.appId, app.name);
+    }
   }, []);
 
   const handleDeployApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;
     const aid = useResolvedAssistantsStore.getState().activeAssistantId;
-    if (app && aid) void useDeployStore.getState().deployApp(aid, app.appId, app.name, app.html);
+    if (app && aid) {
+      void useDeployStore
+        .getState()
+        .deployApp(aid, app.appId, app.name, app.html);
+    }
   }, []);
 
   const handleAppAction = useCallback(
@@ -167,13 +185,16 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   }, []);
 
   const onStopSubagent = useCallback(
-    (subagentId: string) => void useSubagentStore.getState().abortSubagent(subagentId),
+    (subagentId: string) =>
+      void useSubagentStore.getState().abortSubagent(subagentId),
     [],
   );
 
   const onRequestSubagentDetail = useCallback((id: string) => {
     const aid = useResolvedAssistantsStore.getState().activeAssistantId;
-    if (!aid) return;
+    if (!aid) {
+      return;
+    }
     void useSubagentStore.getState().fetchDetailIfNeeded(aid, id);
   }, []);
 
@@ -188,7 +209,9 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   const onRequestWorkflowJournal = useCallback((runId: string) => {
     const aid = useResolvedAssistantsStore.getState().activeAssistantId;
-    if (!aid) return;
+    if (!aid) {
+      return;
+    }
     void useWorkflowStore.getState().fetchJournalIfNeeded(aid, runId);
   }, []);
 
@@ -214,8 +237,12 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   // -------------------------------------------------------------------------
 
   useEffect(() => {
-    if (!isMobile) return;
-    if (mainView !== "channel-setup" || !activeChannelSetup) return;
+    if (!isMobile) {
+      return;
+    }
+    if (mainView !== "channel-setup" || !activeChannelSetup) {
+      return;
+    }
     const channel = activeChannelSetup.channel;
     // This close is a hand-off, not a dismissal: setup continues on the
     // Channels page, which runs standalone and cannot auto-notify on
@@ -237,8 +264,12 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   // destination the in-chat card uses on mobile). Unlike channel setup, no
   // hand-off notification is needed — the detail page is self-contained.
   useEffect(() => {
-    if (!isMobile) return;
-    if (mainView !== "skill-detail" || !activeSkillDetailId) return;
+    if (!isMobile) {
+      return;
+    }
+    if (mainView !== "skill-detail" || !activeSkillDetailId) {
+      return;
+    }
     useViewerStore.getState().closeSkillDetail();
     navigate(routes.skills.detail(activeSkillDetailId));
   }, [isMobile, mainView, activeSkillDetailId, navigate]);
@@ -260,44 +291,21 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   // -------------------------------------------------------------------------
 
   useEffect(() => {
-    if (isMobile) return;
+    if (isMobile) {
+      return;
+    }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      // Don't intercept IME composition (CJK input confirmation).
-      if (event.isComposing || event.keyCode === 229) return;
-      const viewer = useViewerStore.getState();
-      switch (viewer.mainView) {
-        case "tool-detail":
-          viewer.closeToolDetail();
-          break;
-        case "activity-steps":
-          viewer.closeActivitySteps();
-          break;
-        case "subagent-detail":
-          viewer.closeSubagentDetail();
-          break;
-        case "workflow-detail":
-          viewer.closeWorkflowDetail();
-          break;
-        case "acp-run-detail":
-          viewer.closeAcpRunDetail();
-          break;
-        case "background-task-detail":
-          viewer.closeBackgroundTaskDetail();
-          break;
-        case "skill-detail":
-          viewer.closeSkillDetail();
-          break;
-        case "channel-setup":
-          viewer.closeChannelSetup();
-          break;
-        case "document":
-          viewer.closeDocument();
-          break;
-        default:
-          return;
+      if (event.key !== "Escape" || event.defaultPrevented) {
+        return;
       }
-      event.preventDefault();
+      // Don't intercept IME composition (CJK input confirmation).
+      if (event.isComposing || event.keyCode === 229) {
+        return;
+      }
+      const viewer = useViewerStore.getState();
+      if (viewer.closeActiveOverlay()) {
+        event.preventDefault();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -313,6 +321,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
       importSubagentDetailPanel().catch(() => {});
       importToolDetailPanel().catch(() => {});
       importActivityStepsPanel().catch(() => {});
+      importMessageFilesPanel().catch(() => {});
       importAcpRunDetailPanel().catch(() => {});
       importWorkflowDetailPanel().catch(() => {});
       importBackgroundTaskDetailPanel().catch(() => {});
@@ -405,25 +414,46 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   let rightPanel: ReactNode = null;
   if (!isMobile) {
     if (mainView === "document" && openedDocumentState && assistantId) {
-      rightPanel = (
-        <DocumentViewerContainer
-          documentName={openedDocumentState.documentName}
-          content={openedDocumentState.content}
-          onClose={handleCloseDocument}
-          assistantId={assistantId}
-          surfaceId={openedDocumentState.surfaceId}
-          conversationId={openedDocumentState.conversationId}
-          onSubmitFeedback={() => {
-            const prompt = `Please review and address my comments on "${openedDocumentState.documentName}".`;
-            navigate(
-              routes.conversationWithPrompt(
-                openedDocumentState.conversationId,
-                prompt,
-              ),
-            );
-          }}
-        />
-      );
+      // A file the editor cannot round-trip is shown read-only instead, in a
+      // panel that fetches its own bytes.
+      if (openedDocumentState.source === "workspace-file-preview") {
+        rightPanel = (
+          <FilePreviewContainer
+            key={`preview:${openedDocumentState.workspacePath}`}
+            assistantId={assistantId}
+            workspacePath={openedDocumentState.workspacePath}
+            documentName={openedDocumentState.documentName}
+            previewKind={openedDocumentState.previewKind}
+            onClose={handleCloseDocument}
+          />
+        );
+      } else {
+        // Keyed per document so switching targets remounts the editor. Feeding a
+        // new document into the mounted editor emits a Tiptap update, which the
+        // autosave would write straight into whichever target is now current.
+        rightPanel = (
+          <DocumentViewerContainer
+            key={`document:${openedDocumentState.surfaceId}`}
+            source="document"
+            documentName={openedDocumentState.documentName}
+            content={openedDocumentState.content}
+            onClose={handleCloseDocument}
+            assistantId={assistantId}
+            surfaceId={openedDocumentState.surfaceId}
+            conversationId={openedDocumentState.conversationId}
+            workspacePath={openedDocumentState.workspacePath}
+            onSubmitFeedback={() => {
+              const prompt = `Please review and address my comments on "${openedDocumentState.documentName}".`;
+              navigate(
+                routes.conversationWithPrompt(
+                  openedDocumentState.conversationId,
+                  prompt,
+                ),
+              );
+            }}
+          />
+        );
+      }
     } else if (
       mainView === "subagent-detail" &&
       activeSubagentId &&
@@ -436,6 +466,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             onClose={onCloseSubagentDetail}
             onStop={onStopSubagent}
             onRequestDetail={onRequestSubagentDetail}
+            assistantId={assistantId}
           />
         </LazyBoundary>
       );
@@ -445,6 +476,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           <ToolDetailPanel
             detail={activeToolDetail}
             onClose={closeToolDetail}
+            assistantId={assistantId}
           />
         </LazyBoundary>
       );
@@ -461,6 +493,19 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             }`}
             payload={activeActivitySteps}
             onClose={closeActivitySteps}
+            assistantId={assistantId}
+          />
+        </LazyBoundary>
+      );
+    } else if (mainView === "message-files" && activeMessageFiles) {
+      rightPanel = (
+        <LazyBoundary>
+          <MessageFilesPanel
+            // Re-key per message so the panel resets when a different
+            // message's tile is clicked while the panel is already open.
+            key={activeMessageFiles.messageId}
+            payload={activeMessageFiles}
+            onClose={closeMessageFiles}
           />
         </LazyBoundary>
       );
@@ -474,6 +519,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           <AcpRunDetailPanel
             entry={activeAcpRunEntry}
             onClose={onCloseAcpRunDetail}
+            assistantId={assistantId}
           />
         </LazyBoundary>
       );

@@ -136,10 +136,14 @@ export function ensureAdapterInstalled(
   }
 
   const inFlight = installPromises.get(command);
-  if (inFlight) return inFlight;
+  if (inFlight) {
+    return inFlight;
+  }
 
   const promise = runInstall(bunPath, command, packageName).then((result) => {
-    if (!result.installed) installPromises.delete(command);
+    if (!result.installed) {
+      installPromises.delete(command);
+    }
     return result;
   });
   installPromises.set(command, promise);

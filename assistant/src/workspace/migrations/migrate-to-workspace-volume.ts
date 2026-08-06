@@ -54,12 +54,16 @@ export const migrateToWorkspaceVolumeMigration: WorkspaceMigration = {
       process.env.VELLUM_WORKSPACE_DIR?.trim() || undefined;
 
     // Only relevant when VELLUM_WORKSPACE_DIR is explicitly set (Docker with separate volume)
-    if (!workspaceDirOverride) return;
+    if (!workspaceDirOverride) {
+      return;
+    }
 
     const sentinelPath = join(workspaceDir, SENTINEL_FILENAME);
 
     // Already migrated — skip
-    if (existsSync(sentinelPath)) return;
+    if (existsSync(sentinelPath)) {
+      return;
+    }
 
     // If the workspace volume already has data (config.json), assume it's
     // already populated — either by a previous migration or manual setup.
@@ -102,7 +106,9 @@ export const migrateToWorkspaceVolumeMigration: WorkspaceMigration = {
       const dst = join(workspaceDir, entry);
 
       // Skip if destination already exists (partial previous run)
-      if (existsSync(dst)) continue;
+      if (existsSync(dst)) {
+        continue;
+      }
 
       try {
         cpSync(src, dst, { recursive: true });

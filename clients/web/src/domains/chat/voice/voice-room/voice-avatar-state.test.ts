@@ -2,7 +2,10 @@ import { describe, expect, it } from "bun:test";
 
 import type { LiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live-voice-store";
 
-import { toVoiceAvatarVisual, type VoiceAvatarVisual } from "./voice-avatar-state";
+import {
+  toVoiceAvatarVisual,
+  type VoiceAvatarVisual,
+} from "./voice-avatar-state";
 
 // Every session phase paired with both `reconnecting` values (8 × 2 = 16).
 const CASES: ReadonlyArray<{

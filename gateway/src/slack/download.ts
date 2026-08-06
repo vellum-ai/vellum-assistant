@@ -1,7 +1,7 @@
 import { fileTypeFromBuffer } from "file-type";
 import { validateDownloadedContent } from "../download-validation.js";
 import { fetchImpl } from "../fetch.js";
-import type { SlackFile } from "./normalize.js";
+import type { SlackFile } from "./message-schemas.js";
 
 export interface DownloadedFile {
   filename: string;

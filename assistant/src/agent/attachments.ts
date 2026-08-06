@@ -76,35 +76,37 @@ export function attachmentsToReferenceBlocks(
 
 export function attachmentsToContentBlocks(
   attachments: MessageAttachmentInput[],
-): ContentBlock[] {
-  return attachments.map((attachment) => {
-    if (attachment.mimeType.toLowerCase().startsWith("image/")) {
-      const { data, mediaType } = optimizeImageForTransport(
-        attachment.data,
-        attachment.mimeType,
-      );
+): Promise<ContentBlock[]> {
+  return Promise.all(
+    attachments.map(async (attachment) => {
+      if (attachment.mimeType.toLowerCase().startsWith("image/")) {
+        const { data, mediaType } = await optimizeImageForTransport(
+          attachment.data,
+          attachment.mimeType,
+        );
+        return {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: mediaType,
+            data,
+          },
+        } as ContentBlock;
+      }
+
       return {
-        type: "image",
+        type: "file",
         source: {
           type: "base64",
-          media_type: mediaType,
-          data,
+          media_type: attachment.mimeType,
+          data: attachment.data,
+          filename: attachment.filename,
         },
+        extracted_text: attachment.extractedText,
+        ...(attachment.id ? { _attachmentId: attachment.id } : {}),
       } as ContentBlock;
-    }
-
-    return {
-      type: "file",
-      source: {
-        type: "base64",
-        media_type: attachment.mimeType,
-        data: attachment.data,
-        filename: attachment.filename,
-      },
-      extracted_text: attachment.extractedText,
-      ...(attachment.id ? { _attachmentId: attachment.id } : {}),
-    } as ContentBlock;
-  });
+    }),
+  );
 }
 
 /**

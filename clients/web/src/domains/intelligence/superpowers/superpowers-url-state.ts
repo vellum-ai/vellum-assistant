@@ -53,7 +53,9 @@ export function readSuperpowersUrlState(
   const category = searchParams.get("category");
   return {
     q: searchParams.get("q") ?? "",
-    filter: isSuperpowerFilter(rawFilter) ? rawFilter : DEFAULT_SUPERPOWER_FILTER,
+    filter: isSuperpowerFilter(rawFilter)
+      ? rawFilter
+      : DEFAULT_SUPERPOWER_FILTER,
     category: category || null,
   };
 }

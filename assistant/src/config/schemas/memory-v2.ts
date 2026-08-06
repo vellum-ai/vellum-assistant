@@ -3,9 +3,10 @@ import { z } from "zod";
 /**
  * Tolerance for floating-point comparisons of weight sums. Using 0.001 lets
  * users specify weights to three decimal places without spurious rejections,
- * while still catching obvious mis-sums.
+ * while still catching obvious mis-sums. Shared with the `memory.substrate`
+ * schema so both namespaces apply the same hybrid-weight refinement.
  */
-const WEIGHT_SUM_TOLERANCE = 0.001;
+export const WEIGHT_SUM_TOLERANCE = 0.001;
 
 /**
  * Default cross-encoder model for memory v2 reranking.

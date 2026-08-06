@@ -242,7 +242,9 @@ describe("getSkill — skillssh audit enrichment", () => {
 
     // Should succeed
     expect("skill" in result).toBe(true);
-    if (!("skill" in result)) throw new Error("Expected skill response");
+    if (!("skill" in result)) {
+      throw new Error("Expected skill response");
+    }
 
     const detail = result.skill;
     expect(detail.origin).toBe("skillssh");
@@ -300,7 +302,9 @@ describe("getSkill — skillssh audit enrichment", () => {
 
     // Should still succeed — audit failure is non-fatal
     expect("skill" in result).toBe(true);
-    if (!("skill" in result)) throw new Error("Expected skill response");
+    if (!("skill" in result)) {
+      throw new Error("Expected skill response");
+    }
 
     const detail = result.skill;
     expect(detail.origin).toBe("skillssh");
@@ -340,7 +344,9 @@ describe("getSkill — skillssh audit enrichment", () => {
     // bundled/vellum for older clients) while preserving plugin attribution
     // on the owner descriptor
     expect("skill" in result).toBe(true);
-    if (!("skill" in result)) throw new Error("Expected skill response");
+    if (!("skill" in result)) {
+      throw new Error("Expected skill response");
+    }
 
     const detail = result.skill;
     expect(detail.origin).toBe("vellum");

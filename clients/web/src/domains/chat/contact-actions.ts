@@ -19,15 +19,23 @@ import { submitContactPrompt } from "@/domains/chat/api/interactions";
  * Submit the contact address/channel to the daemon.
  * Optimistically dismisses the prompt after a 1.5 s delay (matching macOS).
  */
-export async function handleContactPromptSubmit(address: string, channelType: string): Promise<void> {
-  const { pendingContactRequest, isSubmittingContactRequest } = useInteractionStore.getState();
-  if (!pendingContactRequest || isSubmittingContactRequest) return;
+export async function handleContactPromptSubmit(
+  address: string,
+  channelType: string,
+): Promise<void> {
+  const { pendingContactRequest, isSubmittingContactRequest } =
+    useInteractionStore.getState();
+  if (!pendingContactRequest || isSubmittingContactRequest) {
+    return;
+  }
   useInteractionStore.getState().submitContactRequestStart();
   useChatSessionStore.getState().setError(null);
 
   const ctx = useStreamStore.getState().streamContext;
   if (!ctx) {
-    useChatSessionStore.getState().setError({ message: "No active session. Please try again." });
+    useChatSessionStore
+      .getState()
+      .setError({ message: "No active session. Please try again." });
     useInteractionStore.getState().submitContactRequestEnd();
     return;
   }
@@ -56,7 +64,9 @@ export async function handleContactPromptSubmit(address: string, channelType: st
     }, 1500);
   } catch (err) {
     captureError(err, { context: "submit_contact_prompt" });
-    useChatSessionStore.getState().setError({ message: "Failed to save contact. Please try again." });
+    useChatSessionStore
+      .getState()
+      .setError({ message: "Failed to save contact. Please try again." });
     useInteractionStore.getState().submitContactRequestEnd();
   }
 }

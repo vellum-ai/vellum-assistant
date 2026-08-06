@@ -23,7 +23,9 @@ function laneTotals(
   const totals: Record<string, number> = {};
   for (const turn of report.perTurn) {
     const ev = turn.byRetriever[retrieverName];
-    if (!ev) continue;
+    if (!ev) {
+      continue;
+    }
     for (const [lane, count] of Object.entries(ev.hitsByLane)) {
       totals[lane] = (totals[lane] ?? 0) + count;
     }

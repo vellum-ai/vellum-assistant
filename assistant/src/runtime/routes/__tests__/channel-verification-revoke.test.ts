@@ -21,7 +21,9 @@ let ipcError: Error | undefined;
 const ipcCallPersistentMock = mock(
   async (method: string, params?: Record<string, unknown>) => {
     ipcCalls.push({ method, params });
-    if (ipcError) throw ipcError;
+    if (ipcError) {
+      throw ipcError;
+    }
     return {
       ok: true,
       didWrite: true,
@@ -95,8 +97,12 @@ mock.module("../../../contacts/contact-store.js", () => ({
 let guardianDeliveries: GuardianDelivery[] | null = null;
 mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: mock(async (input?: { channelTypes?: string[] }) => {
-    if (guardianDeliveries == null) return null;
-    if (!input?.channelTypes) return guardianDeliveries;
+    if (guardianDeliveries == null) {
+      return null;
+    }
+    if (!input?.channelTypes) {
+      return guardianDeliveries;
+    }
     return guardianDeliveries.filter((g) =>
       input.channelTypes!.includes(g.channelType),
     );

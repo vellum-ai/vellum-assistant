@@ -1,3 +1,4 @@
+import { LOCAL_ASSISTANT_ID } from "../assistant-id.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { GatewayConfig } from "../config.js";
 import { getLogger } from "../logger.js";
@@ -7,9 +8,22 @@ const log = getLogger("routing");
 
 export function resolveAssistant(
   config: GatewayConfig,
-  conversationId: string,
-  actorId: string,
+  conversationId: string | undefined,
+  actorId: string | undefined,
 ): RoutingOutcome {
+  // Priority 0: no identity at all → nothing to route on, so a malformed event
+  // with neither a conversation nor an actor is dropped rather than attributed
+  // to the local assistant. This is the only rejection this function produces;
+  // callers are expected to validate identity too, and this is the fail-closed
+  // backstop behind them.
+  if (!conversationId && !actorId) {
+    log.info(
+      { conversationId, actorId },
+      "No routable identity on event, rejecting",
+    );
+    return { rejected: true, reason: "No routable identity on this event" };
+  }
+
   // Priority 1: explicit conversation_id route
   for (const entry of config.routingEntries) {
     if (entry.type === "conversation_id" && entry.key === conversationId) {
@@ -32,17 +46,16 @@ export function resolveAssistant(
     }
   }
 
-  // Priority 3: apply unmapped policy
-  if (config.unmappedPolicy === "default" && config.defaultAssistantId) {
-    log.debug(
-      { conversationId, actorId, assistantId: config.defaultAssistantId },
-      "Resolved by default policy",
-    );
-    return { assistantId: config.defaultAssistantId, routeSource: "default" };
-  }
-
-  log.info({ conversationId, actorId }, "No route matched, rejecting");
-  return { rejected: true, reason: "No route configured for this chat" };
+  // Priority 3: the local assistant. A gateway process fronts exactly one
+  // daemon, so any event carrying a routable identity belongs to it — there is
+  // no second backend an unmatched event could have been meant for. Admission
+  // is decided downstream on trust class (see the admission-policy floor in
+  // gateway/CLAUDE.md), not here on whether a routing entry happened to exist.
+  log.debug(
+    { conversationId, actorId, assistantId: LOCAL_ASSISTANT_ID },
+    "Resolved to the local assistant",
+  );
+  return { assistantId: LOCAL_ASSISTANT_ID, routeSource: "default" };
 }
 
 /**

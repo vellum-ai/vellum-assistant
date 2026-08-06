@@ -22,6 +22,7 @@ import {
 } from "./connection-resolution.js";
 import { listConnections } from "./inference/connections.js";
 import { initializeProviders, listProviders } from "./registry.js";
+import { recordProviderRequestDiagnostics } from "./request-diagnostics.js";
 import type {
   ContentBlock,
   Message,
@@ -221,6 +222,11 @@ export async function resolveConfiguredProvider(
     );
     return null;
   }
+  // Which credential signs the request is only known here, and a failed
+  // request is unactionable without it ("which key was this?"). Recorded once
+  // the adapter exists, so a connection that resolved to nothing is never
+  // reported as the one that signed the request.
+  recordProviderRequestDiagnostics({ connection_name: connectionName });
   return {
     provider: new CallSiteConfiguredProvider(
       connectionProvider,

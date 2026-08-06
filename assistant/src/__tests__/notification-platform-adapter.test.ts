@@ -9,13 +9,19 @@ mock.module("../util/retry.js", () => ({
   isRetryableStatus: (status: number): boolean =>
     status === 429 || status >= 500,
   isRetryableNetworkError: (error: unknown): boolean => {
-    if (!(error instanceof Error)) return false;
+    if (!(error instanceof Error)) {
+      return false;
+    }
     const codes = new Set(["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EPIPE"]);
     const code = (error as { code?: string }).code;
-    if (code && codes.has(code)) return true;
+    if (code && codes.has(code)) {
+      return true;
+    }
     if (error.cause instanceof Error) {
       const causeCode = (error.cause as { code?: string }).code;
-      if (causeCode && codes.has(causeCode)) return true;
+      if (causeCode && codes.has(causeCode)) {
+        return true;
+      }
     }
     return false;
   },
@@ -27,24 +33,37 @@ interface FetchCall {
   path: string;
   method: string;
   body: Record<string, unknown>;
+  hasAbortSignal: boolean;
 }
 
 const fetchCalls: FetchCall[] = [];
 const fetchResponses: Array<{ ok: boolean; status: number; body?: string }> =
   [];
+const fetchErrors: Error[] = [];
 let clientAvailable = true;
 
 mock.module("../platform/client.js", () => ({
   VellumPlatformClient: {
     create: async () => {
-      if (!clientAvailable) return null;
+      if (!clientAvailable) {
+        return null;
+      }
       return {
         platformAssistantId: "test-assistant-id",
         fetch: async (path: string, init?: RequestInit) => {
           const body = init?.body
             ? (JSON.parse(init.body as string) as Record<string, unknown>)
             : {};
-          fetchCalls.push({ path, method: init?.method ?? "GET", body });
+          fetchCalls.push({
+            path,
+            method: init?.method ?? "GET",
+            body,
+            hasAbortSignal: init?.signal instanceof AbortSignal,
+          });
+          const error = fetchErrors.shift();
+          if (error) {
+            throw error;
+          }
           const response = fetchResponses.shift() ?? {
             ok: true,
             status: 200,
@@ -54,6 +73,7 @@ mock.module("../platform/client.js", () => ({
             ok: response.ok,
             status: response.status,
             text: async () => response.body ?? "",
+            json: async () => JSON.parse(response.body ?? "") as unknown,
           };
         },
       };
@@ -74,6 +94,7 @@ function makePayload(
 ): ChannelDeliveryPayload {
   return {
     deliveryId: "delivery-uuid-1",
+    correlationId: "signal-1",
     sourceEventName: "schedule.notify",
     copy: { title: "Reminder", body: "Check the oven!" },
     deepLinkTarget: { type: "conversation", id: "conv-1" },
@@ -98,6 +119,7 @@ describe("PlatformPushAdapter", () => {
   beforeEach(() => {
     fetchCalls.length = 0;
     fetchResponses.length = 0;
+    fetchErrors.length = 0;
     clientAvailable = true;
   });
 
@@ -115,7 +137,7 @@ describe("PlatformPushAdapter", () => {
     const call = fetchCalls[0]!;
     expect(call.path).toBe("/v1/assistants/test-assistant-id/push/dispatch/");
     expect(call.method).toBe("POST");
-    expect(call.body.delivery_id).toBe("delivery-uuid-1");
+    expect(call.body.delivery_id).toBe("signal-1");
     expect(call.body.source_event_name).toBe("schedule.notify");
     expect(call.body.title).toBe("Reminder");
     expect(call.body.body).toBe("Check the oven!");
@@ -194,6 +216,28 @@ describe("PlatformPushAdapter", () => {
     expect(fetchCalls).toHaveLength(4);
   });
 
+  test("bounds every attempt with an abort signal", async () => {
+    const adapter = new PlatformPushAdapter();
+    const result = await adapter.send(makePayload(), makeDestination());
+
+    expect(result.success).toBe(true);
+    expect(fetchCalls[0]?.hasAbortSignal).toBe(true);
+  });
+
+  test("retries attempts that abort on the per-attempt timeout", async () => {
+    fetchErrors.push(
+      new DOMException("The operation timed out.", "TimeoutError"),
+    );
+    fetchResponses.push({ ok: true, status: 200, body: '{"tokens_sent": 1}' });
+
+    const adapter = new PlatformPushAdapter();
+    const result = await adapter.send(makePayload(), makeDestination());
+
+    expect(result.success).toBe(true);
+    expect(result.remotePushAccepted).toBe(true);
+    expect(fetchCalls).toHaveLength(2);
+  });
+
   test("does not retry on 4xx responses", async () => {
     fetchResponses.push({ ok: false, status: 400, body: "bad request" });
     const adapter = new PlatformPushAdapter();
@@ -202,6 +246,98 @@ describe("PlatformPushAdapter", () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain("400");
     expect(fetchCalls).toHaveLength(1);
+  });
+
+  test("preserves an explicit empty platform list with legacy acceptance", async () => {
+    fetchResponses.push({
+      ok: true,
+      status: 200,
+      body: '{"tokens_sent":2,"accepted_platforms":[]}',
+    });
+    const adapter = new PlatformPushAdapter();
+    const result = await adapter.send(makePayload(), makeDestination());
+
+    expect(result.success).toBe(true);
+    expect(result.remotePushAccepted).toBe(true);
+    expect(result.remotePushPlatforms).toEqual([]);
+  });
+
+  test("preserves a successful provider from the final partial 503", async () => {
+    fetchResponses.push(
+      {
+        ok: false,
+        status: 503,
+        body: '{"accepted_platforms":["ios"]}',
+      },
+      { ok: false, status: 503, body: "{}" },
+      { ok: false, status: 503, body: "{}" },
+      {
+        ok: false,
+        status: 503,
+        body: '{"accepted_platforms":["android"]}',
+      },
+    );
+
+    const result = await new PlatformPushAdapter().send(
+      makePayload(),
+      makeDestination(),
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.remotePushPlatforms).toEqual(["ios", "android"]);
+  });
+
+  test("reports remotePushAccepted: false on 202 skipped (flag off)", async () => {
+    fetchResponses.push({
+      ok: true,
+      status: 202,
+      body: '{"skipped": "flag_off"}',
+    });
+    const adapter = new PlatformPushAdapter();
+    const result = await adapter.send(makePayload(), makeDestination());
+
+    expect(result.success).toBe(true);
+    expect(result.remotePushAccepted).toBe(false);
+  });
+
+  test("reports remotePushAccepted: false on 200 with tokens_sent 0", async () => {
+    fetchResponses.push({
+      ok: true,
+      status: 200,
+      body: '{"idempotent": true, "tokens_sent": 0}',
+    });
+    const adapter = new PlatformPushAdapter();
+    const result = await adapter.send(makePayload(), makeDestination());
+
+    expect(result.success).toBe(true);
+    expect(result.remotePushAccepted).toBe(false);
+  });
+
+  test("reports remotePushAccepted: false when the success body is unparseable", async () => {
+    fetchResponses.push({ ok: true, status: 200, body: "not json" });
+    const adapter = new PlatformPushAdapter();
+    const result = await adapter.send(makePayload(), makeDestination());
+
+    expect(result.success).toBe(true);
+    expect(result.remotePushAccepted).toBe(false);
+  });
+
+  test("leaves remotePushAccepted unset on non-2xx failure", async () => {
+    fetchResponses.push({ ok: false, status: 400, body: "bad request" });
+    const adapter = new PlatformPushAdapter();
+    const result = await adapter.send(makePayload(), makeDestination());
+
+    expect(result.success).toBe(false);
+    expect(result.remotePushAccepted).toBeUndefined();
+  });
+
+  test("leaves remotePushAccepted unset when the platform client is unavailable", async () => {
+    clientAvailable = false;
+    const adapter = new PlatformPushAdapter();
+    const result = await adapter.send(makePayload(), makeDestination());
+
+    expect(result.success).toBe(false);
+    expect(result.remotePushAccepted).toBeUndefined();
   });
 
   test("omits optional fields when absent from payload", async () => {

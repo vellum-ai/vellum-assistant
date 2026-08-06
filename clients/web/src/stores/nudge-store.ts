@@ -94,7 +94,9 @@ const useNudgeStoreBase = create<NudgeStore>()(
         }
       },
       incrementGitHubUserMessagesSeen: (delta: number) => {
-        if (delta <= 0) return;
+        if (delta <= 0) {
+          return;
+        }
         set({ githubUserMessagesSeen: get().githubUserMessagesSeen + delta });
       },
       markDiscordJoined: () => set({ discordJoined: true }),
@@ -135,5 +137,3 @@ if (typeof window !== "undefined") {
     }
   });
 }
-
-

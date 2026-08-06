@@ -35,10 +35,16 @@ const backgroundTurnInjector: Injector = {
   name: "background-turn",
   order: DEFAULT_INJECTOR_ORDER.backgroundTurn,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    if (!ctx.isBackgroundConversation) return null;
-    if (!ctx.isNonInteractive) return null;
+    if (!ctx.isBackgroundConversation) {
+      return null;
+    }
+    if (!ctx.isNonInteractive) {
+      return null;
+    }
     const inner = getConfig().conversations.backgroundInjection;
-    if (!inner) return null;
+    if (!inner) {
+      return null;
+    }
     return {
       id: "background-turn",
       text: `<background_turn>\n${inner}\n</background_turn>`,
@@ -66,9 +72,13 @@ const subagentStatusInjector: Injector = {
   order: DEFAULT_INJECTOR_ORDER.subagentStatus,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     const mode = ctx.mode ?? "full";
-    if (mode !== "full") return null;
+    if (mode !== "full") {
+      return null;
+    }
     const block = ctx.subagentStatusBlock;
-    if (!block) return null;
+    if (!block) {
+      return null;
+    }
     return {
       id: "subagent-status",
       text: block,

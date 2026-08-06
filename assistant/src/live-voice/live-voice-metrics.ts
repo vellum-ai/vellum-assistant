@@ -1,5 +1,4 @@
 import { getLogger } from "../util/logger.js";
-import type { VoiceEndpointAction } from "./front-decision.js";
 
 const log = getLogger("live-voice-metrics");
 
@@ -25,6 +24,10 @@ export type LiveVoiceMetricsEvent =
   | "turn_completed"
   | "turn_cancelled"
   | "session_ended";
+
+// The endpoint outcome recorded for a silence boundary: the speculative
+// front-door leg either holds the utterance open or releases it to the turn.
+export type VoiceEndpointAction = "release" | "hold";
 
 // Semantic-endpointing decision on a silence boundary.
 interface LiveVoiceEndpointDecisionMark {
@@ -274,8 +277,12 @@ export class LiveVoiceMetricsCollector {
     let earliestMs = startedAtMs;
     for (const field of SEEDABLE_MARK_FIELDS) {
       const value = seeds[field];
-      if (value === undefined || !Number.isFinite(value)) continue;
-      if (turn.timestamps[field] !== null) continue;
+      if (value === undefined || !Number.isFinite(value)) {
+        continue;
+      }
+      if (turn.timestamps[field] !== null) {
+        continue;
+      }
       const seededMs = Math.min(value, startedAtMs);
       turn.timestamps[field] = seededMs;
       earliestMs = Math.min(earliestMs, seededMs);
@@ -604,8 +611,12 @@ function frontModelFields(
 }
 
 function normalizeRecentTurnLimit(limit: number | undefined): number {
-  if (limit === undefined) return DEFAULT_RECENT_TURN_LIMIT;
-  if (!Number.isFinite(limit) || limit < 1) return DEFAULT_RECENT_TURN_LIMIT;
+  if (limit === undefined) {
+    return DEFAULT_RECENT_TURN_LIMIT;
+  }
+  if (!Number.isFinite(limit) || limit < 1) {
+    return DEFAULT_RECENT_TURN_LIMIT;
+  }
   return Math.floor(limit);
 }
 
@@ -614,11 +625,15 @@ function selectTurnForAggregate(
   turnId: string | undefined,
 ): LiveVoiceTurnMetrics | null {
   if (turnId !== undefined) {
-    if (snapshot.activeTurn?.turnId === turnId) return snapshot.activeTurn;
+    if (snapshot.activeTurn?.turnId === turnId) {
+      return snapshot.activeTurn;
+    }
     const matchingRecentTurn = snapshot.recentTurns.find(
       (turn) => turn.turnId === turnId,
     );
-    if (matchingRecentTurn) return matchingRecentTurn;
+    if (matchingRecentTurn) {
+      return matchingRecentTurn;
+    }
   }
 
   return (
@@ -744,12 +759,16 @@ function percentile(
   sortedValues: number[],
   percentileValue: number,
 ): number | null {
-  if (sortedValues.length === 0) return null;
+  if (sortedValues.length === 0) {
+    return null;
+  }
   const index = Math.ceil(sortedValues.length * percentileValue) - 1;
   return sortedValues[Math.min(Math.max(index, 0), sortedValues.length - 1)];
 }
 
 function duration(startMs: number | null, endMs: number | null): number | null {
-  if (startMs === null || endMs === null) return null;
+  if (startMs === null || endMs === null) {
+    return null;
+  }
   return Math.max(0, endMs - startMs);
 }

@@ -1,13 +1,8 @@
-import {
-  useLayoutEffect,
-  useRef,
-  useState,
-  type DragEventHandler,
-  type ReactNode,
-} from "react";
+import { useLayoutEffect, type DragEventHandler, type ReactNode } from "react";
 
-import { Paperclip, X } from "lucide-react";
+import { Paperclip } from "lucide-react";
 
+import { useKeyboardOpen } from "@/hooks/use-keyboard-open";
 import { useBannerVisibilityStore } from "@/stores/banner-visibility-store";
 import { QuestionPromptSlot } from "@/domains/chat/components/question-prompt-slot";
 import { StagedQuotesStrip } from "@/domains/chat/components/staged-quotes-strip";
@@ -20,21 +15,24 @@ import {
   RefreshFeedbackPill,
   type RefreshFeedback,
 } from "@/domains/chat/refresh-feedback-pill";
-import { Button, Notice, type NoticeTone } from "@vellumai/design-library";
+import { Notice, type NoticeTone } from "@vellumai/design-library";
 
 /**
  * Single composition of a chat panel: a scrollable messages/empty-state
  * area on top, and a composer stack underneath.
  *
  * **Empty‑state centering (LUM-1566):** When the empty state is visible,
- * the outer container switches to `justify-content: safe center` +
- * `overflow-y-auto` and the scroll area drops its `flex-1`. This lets
+ * the outer container becomes a plain `overflow-y-auto` scroll container,
+ * an inner `min-h-full` wrapper carries `justify-content: safe center`,
+ * and the scroll area drops its `flex-1`. This lets
  * the greeting, composer, and conversation-starter chips center as a
  * single visual group — matching the original centered layout — while
  * the composer **stays at the same position in the React tree** so its
  * state (focus, draft text, attachments) is preserved across the
  * empty→active transition. `safe center` falls back to start-alignment
- * when the group overflows (e.g. iOS with the soft keyboard open).
+ * when the group overflows; while the soft keyboard is open the empty
+ * state bottom-anchors the group instead so the composer docks to the
+ * keyboard edge.
  *
  * See [React — Preserving and Resetting State](https://react.dev/learn/preserving-and-resetting-state)
  * and [MDN — `justify-content: safe center`](https://developer.mozilla.org/en-US/docs/Web/CSS/justify-content).
@@ -113,16 +111,16 @@ export interface ChatBodyProps {
     tone?: NoticeTone;
   } | null;
   /**
-   * Dismiss handler for {@link genericChatError}. When provided, the
-   * banner renders a "Dismiss" button as a second action next to the
-   * existing actions (typically "Go to Doctor").
+   * Dismiss handler for {@link genericChatError}. When provided, the banner
+   * renders the notice's own dismiss control, leaving the actions row to the
+   * error's own actions (typically "Go to Doctor").
    */
   onDismissChatError?: () => void;
 
   /**
    * Optional pre-rendered banner stack (mobile-app nudge / GitHub / Discord)
-   * rendered alongside the scroll-to-latest button in the absolute-positioned
-   * overlay above the composer. Omitted by the app-editing side panel.
+   * rendered in flow directly above the composer, so the flex column sizes
+   * the transcript around it. Omitted by the app-editing side panel.
    * While mounted (non-empty state), visibility is mirrored into the shared
    * banner-visibility store so tip surfaces can stay mutually exclusive.
    */
@@ -155,7 +153,10 @@ export interface ChatBodyProps {
    * wrapper directly below the composer and above {@link startersSlot}.
    * Visible only on the empty state; the parent passes `undefined` once
    * messages arrive. Rendered as a slot (like {@link startersSlot}) so
-   * `ChatBody` stays agnostic of the plugin data model.
+   * `ChatBody` stays agnostic of the plugin data model. While the soft
+   * keyboard is open the row fades out and collapses its reserved height
+   * (kept mounted) so the composer, not the plugin row, docks to the
+   * keyboard edge.
    */
   pluginPillsSlot?: ReactNode;
 
@@ -172,6 +173,9 @@ export interface ChatBodyProps {
    * that viewport, and {@link belowFoldSlot} is placed below the fold. Used by
    * the new-thread suggestions library. When false, the empty state keeps the
    * default layout where the starters sit directly below the composer.
+   * While the soft keyboard is open the greeting + composer anchor to the
+   * bottom edge and the dock fades out and collapses its reserved height
+   * (kept mounted so dismissing the keyboard restores it without a remount).
    */
   dockStartersToBottom?: boolean;
 
@@ -211,65 +215,50 @@ export function ChatBody({
   activeProcessOverlaysSlot,
 }: ChatBodyProps) {
   const isEmptyState = scrollAreaProps.showEmptyState;
-  const bottomBannerOverlayRef = useRef<HTMLDivElement | null>(null);
-  const [bottomBannerOverlayHeight, setBottomBannerOverlayHeight] = useState(0);
-
-  useLayoutEffect(() => {
-    if (isEmptyState || !bannerSlot) {
-      setBottomBannerOverlayHeight(0);
-      return;
-    }
-
-    const el = bottomBannerOverlayRef.current;
-    if (!el) return;
-
-    const updateHeight = () => {
-      const nextHeight = Math.ceil(el.getBoundingClientRect().height);
-      setBottomBannerOverlayHeight((currentHeight) =>
-        currentHeight === nextHeight ? currentHeight : nextHeight,
-      );
-    };
-
-    updateHeight();
-
-    if (typeof ResizeObserver === "undefined") return;
-
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [bannerSlot, isEmptyState]);
+  const keyboardOpen = useKeyboardOpen();
+  // Banners (app-download nudge, GitHub star, Discord) show once the user
+  // sends a message and the empty state clears. They stay out of the empty
+  // state, where the outer container centers greeting + composer + starters
+  // as one group and a banner above the composer would split it.
+  const bannerRendered = !isEmptyState && Boolean(bannerSlot);
 
   // When the empty state is visible, center greeting + composer + starters
   // as one group. `safe center` falls back to start-alignment when the
-  // content overflows the container (e.g. iOS soft keyboard open).
-  // `overflow-y-auto` enables scrolling in that overflow case.
+  // content overflows the container. `overflow-y-auto` enables scrolling
+  // in that overflow case.
   const baseClass =
     variant === "main"
       ? "relative flex min-h-0 flex-1 flex-col"
       : "relative flex h-full min-h-0 flex-col";
 
-  // The docked (suggestions-library) empty state owns its own vertical layout
-  // — a full-height first screen that centers the greeting + composer and
-  // pins the featured row to the bottom — so it does not use `safe center`.
-  const outerClass = isEmptyState
-    ? dockStartersToBottom
-      ? `${baseClass} overflow-y-auto`
-      : `${baseClass} overflow-y-auto [justify-content:safe_center]`
-    : baseClass;
+  // While the soft keyboard is open and nothing renders below the composer
+  // (`startersSlot` absent: starters have not arrived yet), the plain
+  // non-docked empty state bottom-anchors instead of centering so the
+  // composer docks to the keyboard edge, and the flip to the docked branch
+  // when starters arrive keeps that alignment instead of jumping
+  // mid-typing. The app-editing side panel always passes inline starters,
+  // so it keeps its centered layout regardless of keyboard state.
+  const nonDockedAlignmentClass =
+    keyboardOpen && startersSlot == null
+      ? "justify-end"
+      : "[justify-content:safe_center]";
 
-  // Suppress the absolutely-positioned overlay on the empty state: its
-  // `bottom-full` positioning would overlap the greeting when the outer
-  // container centers greeting + composer + starters as a group.
-  // Banners (app-download nudge, GitHub star, Discord) show once the
-  // user sends a message and the empty state clears. `showScrollToLatest`
-  // is already false on the empty state (gated on `messages.length > 0`
-  // at the call site), so this only affects `bannerSlot`.
-  const bannerRendered = !isEmptyState && Boolean(bannerSlot);
-  const hasOverlay = bannerRendered || (!isEmptyState && showScrollToLatest);
-  const bottomOverlayReservePx =
-    bannerRendered && bottomBannerOverlayHeight > 0
-      ? bottomBannerOverlayHeight
-      : undefined;
+  // On the empty state the outer container is a plain scroll container.
+  // Group alignment lives on an inner `min-h-full` wrapper (the docked
+  // branch builds its own): alignment directly on the scroll container
+  // would make end-aligned content taller than the viewport overflow past
+  // the START edge, where scrolling cannot reach, leaving the greeting
+  // unreachable on short viewports while the keyboard is open.
+  const outerClass = isEmptyState ? `${baseClass} overflow-y-auto` : baseClass;
+
+  // Inner wrapper for the non-docked layout. On the empty state it fills
+  // the first viewport (`min-h-full`) and carries the group alignment; on
+  // the active state it is a plain fill wrapper (`min-h-0 flex-1`) so the
+  // transcript keeps its height chain. It exists in both states so the
+  // composer keeps its tree position across the empty→active transition.
+  const nonDockedInnerClass = isEmptyState
+    ? `flex min-h-full flex-col ${nonDockedAlignmentClass}`
+    : "flex min-h-0 flex-1 flex-col";
 
   // Mirror the mounted banner — not the candidate slot — into the shared
   // store so tip surfaces stay mutually exclusive with nudge banners.
@@ -288,77 +277,85 @@ export function ChatBody({
     return unregisterVisibleBanner;
   }, [bannerRendered, registerVisibleBanner, unregisterVisibleBanner]);
 
+  // Shared treatment for the below-composer extras (the starters dock and
+  // the plugin pills) while the soft keyboard is open: fade out and collapse
+  // the reserved height so the bottom-anchored composer reaches the keyboard
+  // edge. Each stays mounted so dismissing the keyboard restores it without
+  // a remount, and `inert` removes it from the tab order and the
+  // accessibility tree. The inner div clips only while the keyboard is
+  // open: the collapse needs the clip, but at rest it would shave the
+  // keyboard-focus rings that paint outside the cards and buttons inside
+  // the slot.
+  const renderKeyboardCollapse = (dataSlot: string, children: ReactNode) => (
+    <div
+      data-slot={dataSlot}
+      inert={keyboardOpen || undefined}
+      className={`grid transition-[grid-template-rows,opacity] duration-150${keyboardOpen ? " pointer-events-none opacity-0" : ""}`}
+      style={{ gridTemplateRows: keyboardOpen ? "0fr" : "1fr" }}
+    >
+      <div className={`min-h-0${keyboardOpen ? " overflow-hidden" : ""}`}>
+        {children}
+      </div>
+    </div>
+  );
+
   // Composer stack — stays at the same tree position across the empty→active
   // transition so React preserves its state (focus, draft text, attachments)
   // and iOS Safari does not blur the input on first send (LUM-1506 / LUM-1516).
   // `trailingStarters` lets the docked layout render the starters elsewhere
   // (its own bottom dock) instead of directly below the composer.
   const renderComposerStack = (trailingStarters: ReactNode) => (
-    <div className="relative px-3 pt-2 pb-2 sm:px-6 sm:pb-0">
-      {refreshFeedback && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center pb-2">
-          <RefreshFeedbackPill
-            feedback={refreshFeedback}
-            onDismiss={onDismissRefreshFeedback}
-            onRetry={onRetryRefresh}
-          />
+    // The banner is a flow child here because it is an opaque full-width
+    // card that always occupies its own height: the `flex-1` scroll area
+    // then gives back exactly that height at every viewport size, with
+    // nothing measured. The pill is the opposite and floats, so it anchors
+    // to the top of this group to clear the banner.
+    <div className="relative">
+      {showScrollToLatest && !isEmptyState && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center">
+          <div className="pointer-events-auto pb-2.5">
+            <ScrollToLatestButton
+              onClick={onScrollToLatest}
+              isAssistantBusy={isAssistantBusy}
+            />
+          </div>
         </div>
       )}
-      {hasOverlay && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex flex-col items-center">
-          {showScrollToLatest && (
-            <div className="pointer-events-auto pb-2.5">
-              <ScrollToLatestButton
-                onClick={onScrollToLatest}
-                isAssistantBusy={isAssistantBusy}
-              />
-            </div>
-          )}
-          {bannerSlot && (
-            <div ref={bottomBannerOverlayRef} className="w-full">
-              {bannerSlot}
-            </div>
-          )}
-        </div>
-      )}
-      <div className="mx-auto max-w-[var(--chat-max-width)]">
-        {genericChatError && (
-          <div className="mb-2">
-            <Notice
-              tone={genericChatError.tone ?? "error"}
-              actions={
-                <>
-                  {genericChatError.actions}
-                  {onDismissChatError ? (
-                    <Button
-                      variant="outlined"
-                      size="compact"
-                      leftIcon={
-                        <X
-                          className="h-3.5 w-3.5"
-                          strokeWidth={2}
-                          aria-hidden="true"
-                        />
-                      }
-                      onClick={onDismissChatError}
-                    >
-                      Dismiss
-                    </Button>
-                  ) : null}
-                </>
-              }
-            >
-              {genericChatError.message}
-            </Notice>
+      {bannerRendered && bannerSlot}
+      <div className="relative px-3 pt-1 pb-2 sm:px-6 sm:pb-0">
+        {refreshFeedback && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center pb-2">
+            <RefreshFeedbackPill
+              feedback={refreshFeedback}
+              onDismiss={onDismissRefreshFeedback}
+              onRetry={onRetryRefresh}
+            />
           </div>
         )}
-        {queuedDrawerSlot}
-        <QuestionPromptSlot />
-        {channelFooterSlot}
-        <StagedQuotesStrip />
-        {composerSlot}
-        {pluginPillsSlot && <div className="mt-4">{pluginPillsSlot}</div>}
-        {trailingStarters}
+        <div className="mx-auto max-w-[var(--chat-max-width)]">
+          {genericChatError && (
+            <div className="mb-2">
+              <Notice
+                tone={genericChatError.tone ?? "error"}
+                onDismiss={onDismissChatError}
+                actions={genericChatError.actions}
+              >
+                {genericChatError.message}
+              </Notice>
+            </div>
+          )}
+          {queuedDrawerSlot}
+          <QuestionPromptSlot />
+          {channelFooterSlot}
+          <StagedQuotesStrip />
+          {composerSlot}
+          {pluginPillsSlot &&
+            renderKeyboardCollapse(
+              "new-chat-plugins",
+              <div className="mt-4">{pluginPillsSlot}</div>,
+            )}
+          {trailingStarters}
+        </div>
       </div>
     </div>
   );
@@ -389,20 +386,24 @@ export function ChatBody({
         onDrop={dragHandlers.onDrop}
       >
         <div className="flex min-h-full flex-col">
-          <div className="flex flex-1 flex-col [justify-content:safe_center]">
-            <ChatScrollArea
-              {...scrollAreaProps}
-              bottomOverlayReservePx={bottomOverlayReservePx}
-            />
+          {/* While the keyboard is open the group anchors to the bottom edge
+              (the shell bottom is the keyboard top), matching the transcript
+              layout; otherwise it centers in the first screen. */}
+          <div
+            className={`flex flex-1 flex-col ${keyboardOpen ? "justify-end" : "[justify-content:safe_center]"}`}
+          >
+            <ChatScrollArea {...scrollAreaProps} />
             {renderComposerStack(null)}
           </div>
-          {startersSlot && (
-            <div className="px-3 pb-3 sm:px-6">
-              <div className="mx-auto max-w-[var(--chat-max-width)]">
-                {startersSlot}
-              </div>
-            </div>
-          )}
+          {startersSlot &&
+            renderKeyboardCollapse(
+              "docked-starters",
+              <div className="px-3 pb-3 sm:px-6">
+                <div className="mx-auto max-w-[var(--chat-max-width)]">
+                  {startersSlot}
+                </div>
+              </div>,
+            )}
         </div>
         {belowFoldSlot && (
           <div className="px-3 pt-2 pb-8 sm:px-6">
@@ -425,21 +426,20 @@ export function ChatBody({
       onDragLeave={dragHandlers.onDragLeave}
       onDrop={dragHandlers.onDrop}
     >
-      <ChatScrollArea
-        {...scrollAreaProps}
-        bottomOverlayReservePx={bottomOverlayReservePx}
-      />
+      <div className={nonDockedInnerClass}>
+        <ChatScrollArea {...scrollAreaProps} />
 
-      {!isEmptyState && activeProcessOverlaysSlot && (
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center gap-2 px-3 pt-2">
-          {/* Registry-driven row of active background-process overlays. Order is
-              owned by PROCESS_KINDS (subagents, acp runs, workflows, background
-              tasks); each overlay self-gates on its own active ids. */}
-          {activeProcessOverlaysSlot}
-        </div>
-      )}
+        {!isEmptyState && activeProcessOverlaysSlot && (
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center gap-2 px-3 pt-2">
+            {/* Registry-driven row of active background-process overlays. The
+                caller owns which kinds it covers and their order; each overlay
+                self-gates on its own active ids. */}
+            {activeProcessOverlaysSlot}
+          </div>
+        )}
 
-      {renderComposerStack(startersSlot)}
+        {renderComposerStack(startersSlot)}
+      </div>
       {dragOverlay}
     </div>
   );

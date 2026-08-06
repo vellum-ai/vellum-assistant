@@ -517,7 +517,13 @@ describe("HostCuProxy", () => {
       // All of these normalize to an exempt combo the mac helper would execute
       // identically: spaced, uppercase, alt->option alias, command->cmd alias,
       // and reversed modifier order.
-      const variants = ["cmd + a", "CMD+A", "alt+tab", "command+c", "tab+shift"];
+      const variants = [
+        "cmd + a",
+        "CMD+A",
+        "alt+tab",
+        "command+c",
+        "tab+shift",
+      ];
 
       for (const [i, variant] of variants.entries()) {
         setup();
@@ -1410,9 +1416,7 @@ describe("HostCuProxy", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain(
-        "Submitting actor does not match the target client's actor",
-      );
+      expect(result.content).toContain("signed in as a different user");
       expect(sentMessages).toHaveLength(0);
     });
 
@@ -1438,9 +1442,7 @@ describe("HostCuProxy", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain(
-        "Submitting actor does not match the target client's actor",
-      );
+      expect(result.content).toContain("no authenticated actor");
       expect(sentMessages).toHaveLength(0);
     });
 
@@ -1467,7 +1469,7 @@ describe("HostCuProxy", () => {
 
       expect(result.isError).toBe(true);
       expect(result.content).toContain(
-        "Submitting actor does not match the target client's actor",
+        "registered without an authenticated user",
       );
       expect(sentMessages).toHaveLength(0);
     });

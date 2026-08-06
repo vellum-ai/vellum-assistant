@@ -119,9 +119,13 @@ function collectPairs(text: string): ParsedPair[] {
     }
 
     // Header line for Brave / Tavily ("Web search results for ...:") — skip.
-    if (/^Web search results for /i.test(line)) continue;
+    if (/^Web search results for /i.test(line)) {
+      continue;
+    }
     // Perplexity "Sources:" header — skip.
-    if (/^Sources:?$/i.test(line)) continue;
+    if (/^Sources:?$/i.test(line)) {
+      continue;
+    }
 
     pendingTitle = stripTitlePrefix(line);
   }
@@ -137,7 +141,9 @@ function collectPairs(text: string): ParsedPair[] {
 export function parseWebSearchResultText(
   text: string | undefined,
 ): WebSearchResultItem[] {
-  if (!text || !text.trim()) return [];
+  if (!text || !text.trim()) {
+    return [];
+  }
 
   return collectPairs(text).map((pair, idx) => {
     const domain = extractDomain(pair.url);

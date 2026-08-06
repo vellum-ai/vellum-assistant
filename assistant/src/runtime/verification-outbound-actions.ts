@@ -80,7 +80,9 @@ function isTelegramChatId(destination: string): boolean {
  * Numeric chat IDs are returned as-is.
  */
 export function normalizeTelegramDestination(destination: string): string {
-  if (isTelegramChatId(destination)) return destination;
+  if (isTelegramChatId(destination)) {
+    return destination;
+  }
   return destination.replace(/^@/, "").toLowerCase();
 }
 

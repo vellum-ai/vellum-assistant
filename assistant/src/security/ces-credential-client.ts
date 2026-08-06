@@ -50,7 +50,9 @@ class CesCredentialBackend implements CredentialBackend {
   private getClient(): CesHttpCredentialClient | undefined {
     const baseUrl = getBaseUrl();
     const serviceToken = getServiceToken();
-    if (!baseUrl || !serviceToken) return undefined;
+    if (!baseUrl || !serviceToken) {
+      return undefined;
+    }
     return createCesHttpCredentialClient({ baseUrl, serviceToken }, log);
   }
 
@@ -60,19 +62,25 @@ class CesCredentialBackend implements CredentialBackend {
 
   async get(account: string): Promise<CredentialGetResult> {
     const client = this.getClient();
-    if (!client) return { value: undefined, unreachable: true };
+    if (!client) {
+      return { value: undefined, unreachable: true };
+    }
     return client.get(account);
   }
 
   async set(account: string, value: string): Promise<boolean> {
     const client = this.getClient();
-    if (!client) return false;
+    if (!client) {
+      return false;
+    }
     return client.set(account, value);
   }
 
   async delete(account: string): Promise<DeleteResult> {
     const client = this.getClient();
-    if (!client) return "error";
+    if (!client) {
+      return "error";
+    }
     return client.delete(account);
   }
 
@@ -88,7 +96,9 @@ class CesCredentialBackend implements CredentialBackend {
 
   async list(): Promise<CredentialListResult> {
     const client = this.getClient();
-    if (!client) return { accounts: [], unreachable: true };
+    if (!client) {
+      return { accounts: [], unreachable: true };
+    }
     return client.list();
   }
 }

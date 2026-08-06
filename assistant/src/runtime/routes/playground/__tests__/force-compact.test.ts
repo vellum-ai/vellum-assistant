@@ -68,7 +68,9 @@ function makeFakeConversation(
       processing = value;
     },
     getMessages(): Message[] {
-      if (!returnedAfter && calls === 0) return messagesBefore;
+      if (!returnedAfter && calls === 0) {
+        return messagesBefore;
+      }
       return messagesAfter;
     },
     async forceCompact(): Promise<ContextWindowResult> {
@@ -86,7 +88,9 @@ function makeFakeConversation(
 
 function findRoute() {
   const route = ROUTES.find((r) => r.operationId === "playgroundForceCompact");
-  if (!route) throw new Error("force-compact route not registered");
+  if (!route) {
+    throw new Error("force-compact route not registered");
+  }
   return route;
 }
 

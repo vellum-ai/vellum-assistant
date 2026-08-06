@@ -70,7 +70,9 @@ function findOrCreateStage(
 ): ProcessingStage {
   const stages = getProcessingStagesForAsset(assetId);
   const existing = stages.find((s) => s.stage === stageName);
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
   return createProcessingStage({ assetId, stage: stageName });
 }
 
@@ -84,7 +86,9 @@ function isStageCompleted(stage: ProcessingStage): boolean {
  */
 function isAssetCancelled(assetId: string): boolean {
   const asset = getMediaAssetById(assetId);
-  if (!asset) return true;
+  if (!asset) {
+    return true;
+  }
   return (asset.status as string) === "cancelled";
 }
 
@@ -234,7 +238,9 @@ export async function runPipeline(
       }
     }
 
-    if (cancelled) break;
+    if (cancelled) {
+      break;
+    }
 
     if (!succeeded) {
       failedStage = stageName;

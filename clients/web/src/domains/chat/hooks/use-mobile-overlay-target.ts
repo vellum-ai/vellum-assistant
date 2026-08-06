@@ -22,9 +22,7 @@ export function useMobileOverlayTarget(): HTMLElement | null {
   const [target, setTarget] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
-    setTarget(
-      isMobile ? document.getElementById("viewport-overlays") : null,
-    );
+    setTarget(isMobile ? document.getElementById("viewport-overlays") : null);
   }, [isMobile]);
 
   return target;

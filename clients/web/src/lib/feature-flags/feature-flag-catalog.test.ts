@@ -23,6 +23,13 @@ describe("feature flag catalog", () => {
     expect(ASSISTANT_FLAG_DEFAULTS.selfIntroGreeting).toBe(false);
   });
 
+  test("exposes collapse assistant intermediates as a client flag defaulted off", () => {
+    expect(CLIENT_FLAG_DEFAULTS.collapseAssistantIntermediates).toBe(false);
+    expect(
+      "collapseAssistantIntermediates" in ASSISTANT_FLAG_DEFAULTS,
+    ).toBe(false);
+  });
+
   test("exposes the activation flow experiment as a client string flag", () => {
     expect(CLIENT_STRING_FLAG_DEFAULTS.experimentActivationFlow20260603).toBe(
       "control",
@@ -31,6 +38,16 @@ describe("feature flag catalog", () => {
       false,
     );
     expect("experimentActivationFlow20260603" in ASSISTANT_FLAG_DEFAULTS).toBe(
+      false,
+    );
+  });
+
+  test("exposes the billing CTA experiment as a client string flag", () => {
+    expect(CLIENT_STRING_FLAG_DEFAULTS.experimentBillingCta20260723).toBe(
+      "control",
+    );
+    expect("experimentBillingCta20260723" in CLIENT_FLAG_DEFAULTS).toBe(false);
+    expect("experimentBillingCta20260723" in ASSISTANT_FLAG_DEFAULTS).toBe(
       false,
     );
   });
@@ -206,8 +223,12 @@ describe("getEnvFlagOverridesForScope", () => {
     resetEnvOverridesCache();
 
     const result = getEnvFlagOverridesForScope("client");
-    expect(result.str).not.toHaveProperty("preChatOnboardingExperiment20260606");
-    expect(result.bool).not.toHaveProperty("preChatOnboardingExperiment20260606");
+    expect(result.str).not.toHaveProperty(
+      "preChatOnboardingExperiment20260606",
+    );
+    expect(result.bool).not.toHaveProperty(
+      "preChatOnboardingExperiment20260606",
+    );
   });
 
   test("flags with scope 'both' appear for both client and assistant scopes", () => {

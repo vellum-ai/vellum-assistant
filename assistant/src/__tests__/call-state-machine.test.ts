@@ -111,7 +111,9 @@ describe("call-state-machine", () => {
 
       // Also cannot go between terminal states
       for (const otherTerminal of terminalStates) {
-        if (otherTerminal === terminal) continue;
+        if (otherTerminal === terminal) {
+          continue;
+        }
         test(`${terminal} -> ${otherTerminal} is rejected (terminal to terminal)`, () => {
           const result = validateTransition(terminal, otherTerminal);
           expect(result.valid).toBe(false);

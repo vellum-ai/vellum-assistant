@@ -37,7 +37,9 @@ const VALID_FIELDS = {
   claims_confident: 1,
   claims_maybe: 0,
   claims_guessing: 0,
-  suggestions: [{ suggestion: "I'll find 3 papers", prompt: "Find me 3 papers" }],
+  suggestions: [
+    { suggestion: "I'll find 3 papers", prompt: "Find me 3 papers" },
+  ],
   suggestion_count: 1,
   plugins: ["marketing-expert"],
   installed_plugins: ["marketing-expert", "web-research"],
@@ -142,8 +144,11 @@ describe("telemetry-routes: ingest", () => {
 
   test("rejects malformed fields (missing or mistyped) without persisting", () => {
     // Missing the required derived counts.
-    const { claim_count: _c, suggestion_count: _s, ...missingCounts } =
-      VALID_FIELDS;
+    const {
+      claim_count: _c,
+      suggestion_count: _s,
+      ...missingCounts
+    } = VALID_FIELDS;
     expect(() =>
       call({ type: "onboarding_research", fields: missingCounts }),
     ).toThrow(RouteError);

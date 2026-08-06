@@ -69,7 +69,7 @@ describe("host_file_write tool", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain(
-      "content is required and must be a string",
+      'Invalid input for tool "host_file_write"',
     );
   });
 
@@ -124,7 +124,9 @@ describe("host_file_write tool", () => {
       makeContext(),
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("path is required");
+    expect(result.content).toContain(
+      'Invalid input for tool "host_file_write"',
+    );
   });
 
   test("rejects non-string path", async () => {
@@ -133,7 +135,9 @@ describe("host_file_write tool", () => {
       makeContext(),
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("path is required and must be a string");
+    expect(result.content).toContain(
+      'Invalid input for tool "host_file_write"',
+    );
   });
 
   test("success message contains the file path", async () => {

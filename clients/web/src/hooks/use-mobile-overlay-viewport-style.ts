@@ -1,10 +1,7 @@
 import { type CSSProperties } from "react";
 
-import { useIsMobile } from "@/hooks/use-is-mobile";
-import {
-  KEYBOARD_OPEN_THRESHOLD_PX,
-  useVisibleViewport,
-} from "@/hooks/use-visible-viewport";
+import { useKeyboardOpen } from "@/hooks/use-keyboard-open";
+import { useVisibleViewport } from "@/hooks/use-visible-viewport";
 
 const SAFE_AREA_TOP =
   "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))";
@@ -45,13 +42,8 @@ const SAFE_AREA_RIGHT =
  * @see https://bugs.webkit.org/show_bug.cgi?id=207049
  */
 export function useMobileOverlayViewportStyle(): CSSProperties {
-  const isMobile = useIsMobile();
+  const keyboardOpen = useKeyboardOpen();
   const visibleViewport = useVisibleViewport();
-
-  const keyboardOpen =
-    isMobile &&
-    visibleViewport !== null &&
-    visibleViewport.keyboardHeight > KEYBOARD_OPEN_THRESHOLD_PX;
 
   if (keyboardOpen && visibleViewport) {
     return {

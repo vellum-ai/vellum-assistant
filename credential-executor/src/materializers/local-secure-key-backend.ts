@@ -38,7 +38,17 @@ import {
   pbkdf2Sync,
   randomBytes,
 } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import { hostname, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -55,8 +65,7 @@ const ALGORITHM = "aes-256-gcm";
 const KEY_LENGTH = 32; // bytes (256 bits)
 const IV_LENGTH = 16; // bytes (128 bits)
 const AUTH_TAG_LENGTH = 16; // bytes
-const PBKDF2_ITERATIONS =
-  process.env.BUN_TEST === "1" ? 1 : 100_000;
+const PBKDF2_ITERATIONS = process.env.BUN_TEST === "1" ? 1 : 100_000;
 
 // ---------------------------------------------------------------------------
 // On-disk format (must match assistant/src/security/encrypted-store.ts)
@@ -250,10 +259,30 @@ function writeStore(store: StoreFile, storePath: string): void {
   const protectedDir = dirname(storePath);
   mkdirSync(protectedDir, { recursive: true });
   // Atomic write: write to temp file then rename to avoid partial/corrupt writes.
+  // `flush: true` fsyncs the temp file before we return, so the ack the caller
+  // receives follows a durable write and survives a crash within the window.
   const tmpPath = storePath + `.tmp.${process.pid}`;
-  writeFileSync(tmpPath, JSON.stringify(store, null, 2), { mode: 0o600 });
+  writeFileSync(tmpPath, JSON.stringify(store, null, 2), {
+    mode: 0o600,
+    flush: true,
+  });
   chmodSync(tmpPath, 0o600);
   renameSync(tmpPath, storePath);
+
+  // Fsync the parent directory so the rename itself is durable. `{flush:true}`
+  // syncs the temp file's contents, not the directory entry the rename updates,
+  // so without this a host-level crash could still expose the previous keys.enc.
+  // Best-effort: a directory-fsync failure must not fail the write.
+  try {
+    const dirFd = openSync(protectedDir, "r");
+    try {
+      fsyncSync(dirFd);
+    } finally {
+      closeSync(dirFd);
+    }
+  } catch {
+    // Directory fsync is a durability nicety, not required for correctness.
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -330,7 +359,10 @@ export class StoreUnavailableError extends Error {
  */
 export function createLocalSecureKeyBackend(
   vellumRoot: string,
-  options?: { entropyOverride?: string; entropyGetter?: () => string | undefined },
+  options?: {
+    entropyOverride?: string;
+    entropyGetter?: () => string | undefined;
+  },
 ): SecureKeyBackend {
   const storePath = join(resolveSecurityDir(vellumRoot), KEYS_ENC_FILENAME);
   const staticEntropy = options?.entropyOverride;

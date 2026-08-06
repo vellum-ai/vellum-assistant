@@ -1,6 +1,9 @@
 import { Menu, Tray, app, nativeTheme, shell } from "electron";
 
-import type { LockfileAssistant } from "@vellumai/local-mode/contract";
+import {
+  pairedHostLabel,
+  type LockfileAssistant,
+} from "@vellumai/local-mode/contract";
 
 import {
   MENU_ICON_CIRCLECHECK,
@@ -63,6 +66,20 @@ import { readOnboardingActive } from "./window-state";
 
 export interface TrayHandlers {
   /**
+   * Whether a live-voice session is running, which is the only time reopening
+   * the floating panel means anything.
+   *
+   * Injected like every other handler rather than imported: the tray is built
+   * on every menu open, and reaching into the panel module directly would pull
+   * its window and store dependencies into the tray's own graph.
+   */
+  isVoicePanelAvailable(): boolean;
+  /**
+   * Show the floating voice panel again. The way back from its close button,
+   * which hides the window without ending the call.
+   */
+  showVoicePanel(): void;
+  /**
    * Bound to the tray's left click and the "Show / Hide Main Window"
    * menu item: if the main window is visible and focused, hide it;
    * otherwise show + focus + (recreate if previously destroyed).
@@ -95,6 +112,19 @@ const assistantDisplayTitle = (assistant: LockfileAssistant): string => {
 };
 
 /**
+ * Switcher label for a lockfile assistant. Paired entries carry a suffix
+ * naming the remote host (the chooser's paired labeling) so they read as
+ * remote pairings, not managed assistants.
+ */
+const assistantMenuLabel = (assistant: LockfileAssistant): string => {
+  const title = assistantDisplayTitle(assistant);
+  if (assistant.cloud !== "paired") {
+    return title;
+  }
+  return `${title} (${pairedHostLabel(assistant.runtimeUrl)})`;
+};
+
+/**
  * Whether the multi-platform-assistant feature flag is currently enabled.
  * Checked at menu-build time so toggling the flag takes effect on the next
  * right-click without requiring an app restart.
@@ -114,7 +144,10 @@ const isDeveloperMenuEnabled = (): boolean => {
   return flags?.["developer-menu-items"] === true;
 };
 
-const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu => {
+const buildTrayMenu = (
+  handlers: TrayHandlers,
+  status: AssistantStatus,
+): Menu => {
   const onboarding = readOnboardingActive();
 
   const items: Electron.MenuItemConstructorOptions[] = [
@@ -130,23 +163,24 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
   // Reads from the lockfile watcher's in-memory cache (no disk I/O).
   if (isMultiAssistantEnabled() && !onboarding) {
     const lockfile = getWatchedLockfile();
-    // Only managed (platform-hosted) assistants belong in the switcher,
-    // mirroring the native client's `isManaged` filter (cloud === "vellum").
-    // Local/Docker lockfile entries are handled by separate flows and would
-    // mis-route through the platform selection path.
-    const assistants = lockfile.assistants.filter((a) => a.cloud === "vellum");
+    // Managed (platform-hosted) and paired (remote, imported) assistants
+    // belong in the switcher. Local/Docker lockfile entries are handled by
+    // separate flows and would mis-route through the platform selection path.
+    const assistants = lockfile.assistants.filter(
+      (a) => a.cloud === "vellum" || a.cloud === "paired",
+    );
     const activeId = lockfile.activeAssistant;
 
     items.push({ type: "separator" });
     items.push({ label: "Assistants", enabled: false });
 
     if (assistants.length === 0) {
-      items.push({ label: "No managed assistants", enabled: false });
+      items.push({ label: "No managed or paired assistants", enabled: false });
     } else {
       for (const assistant of assistants) {
         const isActive = assistant.assistantId === activeId;
         items.push({
-          label: assistantDisplayTitle(assistant),
+          label: assistantMenuLabel(assistant),
           type: "radio",
           checked: isActive,
           click: async () => {
@@ -173,7 +207,23 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
       const activeAssistant = assistants.find(
         (a) => a.assistantId === activeId,
       );
-      if (activeAssistant) {
+      if (activeAssistant?.cloud === "paired") {
+        // A paired entry is a pairing record on this machine, so forget it
+        // rather than retire the remote assistant. The renderer owns the
+        // removal (confirm dialog + unpair host op + session cleanup) \u2014
+        // unpairing here in main would leave the window selected on, and
+        // still authenticated to, the removed assistant.
+        items.push({
+          label: "Remove from this Mac\u2026",
+          click: async () => {
+            await handlers.ensureMainWindow();
+            dispatchToMain({
+              kind: "removePairedAssistant",
+              assistantId: activeAssistant.assistantId,
+            });
+          },
+        });
+      } else if (activeAssistant) {
         items.push({
           label: `Retire ${assistantDisplayTitle(activeAssistant)}\u2026`,
           click: async () => {
@@ -271,6 +321,18 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
       label: "Show / Hide Main Window",
       click: handlers.toggleMainWindow,
     },
+    // Only while a call is running, because reopening is meaningless
+    // otherwise. This is the way back from the panel's close button: closing
+    // it never ends the session, so without this a closed panel would leave a
+    // live microphone with no floating control until the call ended.
+    ...(handlers.isVoicePanelAvailable()
+      ? [
+          {
+            label: "Show Voice Panel",
+            click: handlers.showVoicePanel,
+          },
+        ]
+      : []),
     { type: "separator" },
     {
       label: "Settings\u2026",

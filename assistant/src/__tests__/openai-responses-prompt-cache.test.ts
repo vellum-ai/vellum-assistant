@@ -1,10 +1,12 @@
 /**
- * Explicit prompt-cache breakpoint placement for GPT-5.6+ on the OpenAI
- * Responses transport: request-wide `prompt_cache_options`/`prompt_cache_key`
- * emission, block-level `prompt_cache_breakpoint` anchor placement (turn-start
- * / previous-turn / advancing tail, mirroring the Anthropic client), the
- * `disableCache` explicit-mode-with-zero-markers opt-out, and the unflagged-
- * model regression guard.
+ * Prompt caching on the OpenAI Responses transport: request-wide
+ * `prompt_cache_key` emission for every direct-API model (routing affinity for
+ * implicit-mode models, opt-in explicit mode for breakpoint-capable ones),
+ * explicit `prompt_cache_options` and block-level `prompt_cache_breakpoint`
+ * anchor placement for GPT-5.6+ (turn-start / previous-turn / advancing tail,
+ * mirroring the Anthropic client), the `disableCache`
+ * explicit-mode-with-zero-markers opt-out, and the unflagged-model and Codex
+ * regression guards.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -236,16 +238,19 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
     expect(breakpointedItemIndexes()).toEqual([0, 2]);
   });
 
-  test("volatile single-message first turn: no markers (nothing stable to anchor)", async () => {
+  test("volatile single-message first turn: the sole item is still marked", async () => {
     const provider = makeProvider("gpt-5.6-sol");
     await provider.sendMessage([userMsg("hi")], {
       config: { mutableLatestUserMessage: true, promptCacheKey: "conv-1" },
     });
 
+    // A volatile message is fixed within its own turn, so marking it prepays
+    // one write that the turn's tool-loop iterations read back, covering the
+    // instructions and tools that precede it in the cached prefix.
     expect(lastStreamParams?.prompt_cache_options).toEqual({
       mode: "explicit",
     });
-    expect(breakpointedItemIndexes()).toEqual([]);
+    expect(breakpointedItemIndexes()).toEqual([0]);
   });
 
   test("tool loop: single fixed anchor on the turn-start user item, none on function_call_output", async () => {
@@ -339,15 +344,33 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
     expect(breakpointedItemIndexes()).toEqual([0]);
   });
 
-  test("unflagged model sends no cache params at all", async () => {
+  test("unflagged model sends the cache key for routing affinity but no explicit mode or breakpoints", async () => {
     const provider = makeProvider("gpt-5.5");
     await provider.sendMessage(
       [userMsg("t1"), assistantMsg("r1"), userMsg("t2")],
       { config: { mutableLatestUserMessage: true, promptCacheKey: "conv-1" } },
     );
 
+    // Implicit-caching models still get a stable prompt_cache_key so OpenAI's
+    // cache router keeps a conversation on the same shard, but they never opt
+    // into explicit mode or carry block-level breakpoints.
+    expect(lastStreamParams?.prompt_cache_key).toBe("conv-1");
     expect(lastStreamParams?.prompt_cache_options).toBeUndefined();
+    expect(JSON.stringify(lastStreamParams?.input)).not.toContain(
+      "prompt_cache_breakpoint",
+    );
+  });
+
+  test("unflagged model with no key sends no cache params at all", async () => {
+    const provider = makeProvider("gpt-5.5");
+    await provider.sendMessage([
+      userMsg("t1"),
+      assistantMsg("r1"),
+      userMsg("t2"),
+    ]);
+
     expect(lastStreamParams?.prompt_cache_key).toBeUndefined();
+    expect(lastStreamParams?.prompt_cache_options).toBeUndefined();
     expect(JSON.stringify(lastStreamParams?.input)).not.toContain(
       "prompt_cache_breakpoint",
     );

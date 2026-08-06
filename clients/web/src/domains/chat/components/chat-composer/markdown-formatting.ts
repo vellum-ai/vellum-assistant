@@ -98,7 +98,9 @@ export function matchFormattingShortcut(event: {
   shiftKey: boolean;
 }): string | null {
   const hasModifier = event.metaKey || event.ctrlKey;
-  if (!hasModifier) return null;
+  if (!hasModifier) {
+    return null;
+  }
 
   const keyLower = event.key.toLowerCase();
   for (const shortcut of FORMATTING_SHORTCUTS) {

@@ -40,6 +40,18 @@ export function messageMatchKeys(message: DisplayMessage): string[] {
   return keys;
 }
 
+/** Whether a message matches a server id, merged id, or client nonce. */
+export function messageMatchesKey(
+  message: DisplayMessage,
+  key: string,
+): boolean {
+  return (
+    message.id === key ||
+    message.clientMessageId === key ||
+    (message.mergedMessageIds?.includes(key) ?? false)
+  );
+}
+
 /** Register a message under each of its identity keys (first writer wins). */
 export function indexDisplayMessageByIdentity(
   indexById: Map<string, DisplayMessage>,

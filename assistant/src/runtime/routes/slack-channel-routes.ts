@@ -4,10 +4,8 @@ import {
   conversationMetadataSyncTag,
   SYNC_TAGS,
 } from "../../daemon/message-types/sync.js";
-import {
-  getSlackConversationInfo,
-  SlackApiError,
-} from "../../messaging/providers/slack/api.js";
+import { getSlackConversationInfo } from "../../messaging/providers/slack/api.js";
+import { SlackApiError } from "../../messaging/providers/slack/web-api-transport.js";
 import {
   getBindingByConversation,
   updateExternalChatName,
@@ -57,7 +55,9 @@ function friendlyCachedName(
   externalChatName?: string | null,
 ): string | undefined {
   const trimmed = externalChatName?.trim();
-  if (!trimmed || trimmed === externalChatId) return undefined;
+  if (!trimmed || trimmed === externalChatId) {
+    return undefined;
+  }
   return trimmed;
 }
 
@@ -68,7 +68,9 @@ function usableResolvedName(
 ): string | undefined {
   for (const candidate of [name, nameNormalized]) {
     const trimmed = candidate?.trim();
-    if (trimmed && trimmed !== externalChatId) return trimmed;
+    if (trimmed && trimmed !== externalChatId) {
+      return trimmed;
+    }
   }
   return undefined;
 }

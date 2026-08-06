@@ -29,9 +29,8 @@ mock.module("@/runtime/browser", () => ({
   },
 }));
 
-const { useCheckoutDismissRefresh } = await import(
-  "./use-checkout-dismiss-refresh"
-);
+const { useCheckoutDismissRefresh } =
+  await import("./use-checkout-dismiss-refresh");
 
 function setup() {
   const client = new QueryClient({

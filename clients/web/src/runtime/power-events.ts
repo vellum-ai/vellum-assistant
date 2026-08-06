@@ -22,11 +22,7 @@ import { isElectron } from "@/runtime/is-electron";
  */
 
 export type PowerEventKind =
-  | "suspend"
-  | "resume"
-  | "lock"
-  | "unlock"
-  | "active";
+  "suspend" | "resume" | "lock" | "unlock" | "active";
 
 export interface PowerEvent {
   kind: PowerEventKind;
@@ -35,6 +31,8 @@ export interface PowerEvent {
 export function subscribeToPowerEvents(
   callback: (event: PowerEvent) => void,
 ): () => void {
-  if (!isElectron()) return () => undefined;
+  if (!isElectron()) {
+    return () => undefined;
+  }
   return window.vellum?.power.onEvent(callback) ?? (() => undefined);
 }

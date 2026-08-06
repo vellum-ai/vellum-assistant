@@ -149,9 +149,7 @@ export function StagedQuotesStrip() {
               key={quote.id}
               layout
               initial={
-                reduceMotion
-                  ? false
-                  : { opacity: 0, height: 0, scale: 0.98 }
+                reduceMotion ? false : { opacity: 0, height: 0, scale: 0.98 }
               }
               animate={{ opacity: 1, height: "auto", scale: 1 }}
               exit={

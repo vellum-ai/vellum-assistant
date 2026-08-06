@@ -1,16 +1,15 @@
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
-import { resolveImageGenCredentials } from "../../media/image-credentials.js";
+import {
+  resolveImageGenCredentials,
+  resolveImageGenRouting,
+} from "../../media/image-credentials.js";
 import {
   describeImageModels,
   resolveImageModel,
 } from "../../media/image-models.js";
-import {
-  generateImage,
-  mapImageGenError,
-  providerForModel,
-} from "../../media/image-service.js";
+import { generateImage, mapImageGenError } from "../../media/image-service.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
@@ -95,13 +94,17 @@ async function handleImageGenerationGenerate(
     resolvedModel = entry.id;
   }
 
-  // Derive provider from explicit model override when supplied
-  const provider = providerForModel(resolvedModel, svc.provider);
+  // Backend and managed-ness resolve together; an explicit model override
+  // re-routes to the model's backend.
+  const { backendProvider: provider, managed } = resolveImageGenRouting(
+    svc,
+    resolvedModel,
+  );
 
   // Resolve credentials
   const { credentials, errorHint } = await resolveImageGenCredentials({
     provider,
-    mode: svc.mode,
+    managed,
   });
 
   if (!credentials) {

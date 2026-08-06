@@ -40,6 +40,8 @@ export function memorySqliteOrNull(context: string) {
  * `getMemoryDb()` still returns the shell.
  */
 export function memoryDbOrNull(context: string): DrizzleDb | null {
-  if (!memorySqliteOrNull(context)) return null;
+  if (!memorySqliteOrNull(context)) {
+    return null;
+  }
   return getMemoryDb();
 }

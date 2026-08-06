@@ -12,7 +12,9 @@
 import { kill } from "node:process";
 
 export function isProcessAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
   try {
     kill(pid, 0);
     return true;
@@ -20,7 +22,9 @@ export function isProcessAlive(pid: number): boolean {
     const code = (err as NodeJS.ErrnoException).code;
     // EPERM means the PID exists but we cannot signal it — treat as alive so
     // we don't accidentally take over another user's lock.
-    if (code === "EPERM") return true;
+    if (code === "EPERM") {
+      return true;
+    }
     return false;
   }
 }

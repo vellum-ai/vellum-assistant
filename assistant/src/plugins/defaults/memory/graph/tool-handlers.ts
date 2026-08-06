@@ -9,7 +9,10 @@
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
+import {
+  isMemoryEnabled,
+  usesConceptPageMemory,
+} from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
 import { getWorkspaceDir } from "../paths.js";
@@ -71,7 +74,7 @@ export function handleRemember(
   if (facts.length === 0) {
     return { success: false, message: "content is required" };
   }
-  if (config.memory.enabled === false) {
+  if (!isMemoryEnabled(config)) {
     return { success: false, message: "Memory is disabled." };
   }
 

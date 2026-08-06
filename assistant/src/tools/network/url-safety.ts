@@ -20,9 +20,13 @@ export function looksLikePathOnlyInput(value: string): boolean {
 }
 
 export function parseUrl(input: unknown): URL | null {
-  if (typeof input !== "string") return null;
+  if (typeof input !== "string") {
+    return null;
+  }
   const value = input.trim();
-  if (!value) return null;
+  if (!value) {
+    return null;
+  }
 
   if (looksLikeHostPortShorthand(value)) {
     try {
@@ -55,12 +59,18 @@ export function parseUrl(input: unknown): URL | null {
 
 export function isIPv4(hostname: string): boolean {
   const parts = hostname.split(".");
-  if (parts.length !== 4) return false;
+  if (parts.length !== 4) {
+    return false;
+  }
 
   for (const part of parts) {
-    if (!/^\d{1,3}$/.test(part)) return false;
+    if (!/^\d{1,3}$/.test(part)) {
+      return false;
+    }
     const value = Number(part);
-    if (value < 0 || value > 255) return false;
+    if (value < 0 || value > 255) {
+      return false;
+    }
   }
 
   return true;
@@ -70,15 +80,33 @@ export function isPrivateIPv4(hostname: string): boolean {
   const parts = hostname.split(".").map((part) => Number(part));
   const [a, b] = parts;
 
-  if (a === 0) return true;
-  if (a === 10) return true;
-  if (a === 127) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 198 && (b === 18 || b === 19)) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  if (a >= 224) return true;
+  if (a === 0) {
+    return true;
+  }
+  if (a === 10) {
+    return true;
+  }
+  if (a === 127) {
+    return true;
+  }
+  if (a === 169 && b === 254) {
+    return true;
+  }
+  if (a === 172 && b >= 16 && b <= 31) {
+    return true;
+  }
+  if (a === 192 && b === 168) {
+    return true;
+  }
+  if (a === 198 && (b === 18 || b === 19)) {
+    return true;
+  }
+  if (a === 100 && b >= 64 && b <= 127) {
+    return true;
+  }
+  if (a >= 224) {
+    return true;
+  }
 
   return false;
 }
@@ -105,20 +133,28 @@ export function extractEmbeddedIPv4FromIPv6(hostname: string): string | null {
   const hexMatch = normalized.match(
     /^(?:(?:(?:0:){5}|::)ffff:|(?:(?:0:){6}|::))([0-9a-f]{1,4}):([0-9a-f]{1,4})$/,
   );
-  if (!hexMatch) return null;
+  if (!hexMatch) {
+    return null;
+  }
 
   const hi = Number.parseInt(hexMatch[1], 16);
   const lo = Number.parseInt(hexMatch[2], 16);
-  if (Number.isNaN(hi) || Number.isNaN(lo)) return null;
+  if (Number.isNaN(hi) || Number.isNaN(lo)) {
+    return null;
+  }
 
   return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
 }
 
 export function isIPv6(hostname: string): boolean {
-  if (extractEmbeddedIPv4FromIPv6(hostname)) return true;
+  if (extractEmbeddedIPv4FromIPv6(hostname)) {
+    return true;
+  }
 
   const unwrapped = unwrapBracketedHostname(hostname);
-  if (!unwrapped.includes(":")) return false;
+  if (!unwrapped.includes(":")) {
+    return false;
+  }
   const stripped = unwrapped.split("%")[0];
   return /^[0-9a-fA-F:]+$/.test(stripped);
 }
@@ -128,9 +164,15 @@ export function isPrivateIPv6(hostname: string): boolean {
     .split("%")[0]
     .toLowerCase();
 
-  if (normalized === "::" || normalized === "::1") return true;
-  if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
-  if (normalized.startsWith("ff")) return true;
+  if (normalized === "::" || normalized === "::1") {
+    return true;
+  }
+  if (normalized.startsWith("fc") || normalized.startsWith("fd")) {
+    return true;
+  }
+  if (normalized.startsWith("ff")) {
+    return true;
+  }
   if (
     normalized.startsWith("fe8") ||
     normalized.startsWith("fe9") ||

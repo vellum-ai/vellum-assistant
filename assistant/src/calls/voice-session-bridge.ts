@@ -8,9 +8,16 @@
 
 import { v7 as uuidv7 } from "uuid";
 
+import type {
+  AssistantEvent,
+  AssistantTextDeltaEvent,
+  GenerationCancelledEvent,
+  MessageCompleteEvent,
+} from "../api/index.js";
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
 import type {
   ChannelId,
+  ClientOs,
   InterfaceId,
   TurnChannelContext,
   TurnInterfaceContext,
@@ -20,7 +27,6 @@ import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
 import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   deleteMessageById,
@@ -35,6 +41,7 @@ import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { getAllTools } from "../tools/registry.js";
+import { sensitiveToolReach } from "../tools/tool-approval-handler.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
@@ -43,6 +50,7 @@ import {
   CALL_VERIFICATION_COMPLETE_MARKER,
   ESCALATE_VERDICT_TOKEN,
   HOLD_VERDICT_TOKEN,
+  MINIMIZE_ROOM_MARKER,
   stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
 import {
@@ -216,15 +224,8 @@ export interface VoiceToolResultEvent {
  * standard channel path.
  */
 export interface VoiceRunEventSink {
-  onTextDelta(
-    msg: Extract<ServerMessage, { type: "assistant_text_delta" }>,
-  ): void;
-  onMessageComplete(
-    msg: Extract<
-      ServerMessage,
-      { type: "message_complete" } | { type: "generation_cancelled" }
-    >,
-  ): void;
+  onTextDelta(msg: AssistantTextDeltaEvent): void;
+  onMessageComplete(msg: MessageCompleteEvent | GenerationCancelledEvent): void;
   onError(message: string): void;
   onToolUse(
     toolName: string,
@@ -235,19 +236,17 @@ export interface VoiceRunEventSink {
 }
 
 export interface VoiceTurnCallbacks {
-  assistant_text_delta?: (
-    msg: Extract<ServerMessage, { type: "assistant_text_delta" }>,
-  ) => void;
+  assistant_text_delta?: (msg: AssistantTextDeltaEvent) => void;
   message_complete?: (
-    msg: Extract<
-      ServerMessage,
-      { type: "message_complete" } | { type: "generation_cancelled" }
-    >,
+    msg: MessageCompleteEvent | GenerationCancelledEvent,
   ) => void;
   persisted_user_message_id?: (messageId: string) => void;
   persisted_assistant_message_id?: (messageId: string) => void;
   /** Fired when the agent run starts a definitive tool use this turn. */
-  tool_use_start?: (toolName: string, detail?: { toolUseId?: string }) => void;
+  tool_use_start?: (
+    toolName: string,
+    detail?: { toolUseId?: string; input?: Record<string, unknown> },
+  ) => void;
   /** Fired when a tool invocation finishes. */
   tool_result?: (event: VoiceToolResultEvent) => void;
 }
@@ -267,6 +266,22 @@ export interface VoiceTurnOptions {
   userMessageInterface?: InterfaceId;
   /** Source interface for persisted assistant messages. Defaults to userMessageInterface. */
   assistantMessageInterface?: InterfaceId;
+  /**
+   * Analytics attribution for a live-voice turn: which client opened the
+   * session, and that session's id. Persisted into the user message's
+   * `metadata.client` bag, which `turn-events-store` projects onto
+   * `TurnTelemetryEvent.client`, so a live-voice turn is countable per client
+   * and joinable to its session's start/end funnel rows.
+   *
+   * Deliberately separate from {@link userMessageInterface}: that field feeds
+   * `resolveChannelCapabilities` and decides what the turn may do, so it is not
+   * free to carry attribution. Absent for phone calls and for clients that send
+   * no identity on the start frame.
+   */
+  voiceTelemetry?: {
+    sessionId: string;
+    client?: ClientOs;
+  };
   /** Per-turn control prompt. Undefined uses the phone prompt; null disables it. */
   voiceControlPrompt?: string | null;
   /** The transcribed caller utterance or synthetic marker. */
@@ -289,6 +304,28 @@ export interface VoiceTurnOptions {
   onError?: (message: string) => void;
   /** Event-name callbacks used by non-phone voice clients. */
   callbacks?: VoiceTurnCallbacks;
+  /**
+   * Called when this turn leaves a confirmation for the user to answer instead
+   * of deciding it, so the client can put the prompt where they can see it.
+   *
+   * A voice client renders its call as something that covers the app (the
+   * live-voice room is a full-screen overlay), which is fine while the call is
+   * the only thing happening and wrong the moment the turn is waiting on a
+   * decision: the card is on screen, behind the call. The bridge cannot reach
+   * a client's own surfaces, so it says *that a decision is waiting* and the
+   * client decides what to do about it.
+   */
+  onApprovalPending?: (requestId: string) => void;
+  /**
+   * Called when the last pending confirmation this turn was waiting on is
+   * decided, however it was decided (the user answered, it timed out, a newer
+   * message superseded it). Paired with {@link onApprovalPending} so a client
+   * that changed its presentation for the wait can change it back.
+   *
+   * Fires on the *last* one, not each: a turn waiting on two decisions is
+   * still waiting after the first is answered.
+   */
+  onApprovalsResolved?: () => void;
   /** Optional AbortSignal for external cancellation (e.g. barge-in). */
   signal?: AbortSignal;
   /**
@@ -314,6 +351,14 @@ export interface VoiceTurnOptions {
    * Only meaningful with `routingLeg: "escalated"`.
    */
   spokenEscalationBridge?: string;
+  /**
+   * Marks this turn's `content` as an internal instruction rather than user
+   * speech: it persists `hidden` so `/messages` filters it after a reload,
+   * its echo is suppressed, and prompt-as-user-speech consumers (title
+   * generation) skip it. Set by callers whose synthetic prompt text is not a
+   * fixed sentinel.
+   */
+  hiddenSyntheticPrompt?: boolean;
   /**
    * Unified front-door: this leg was dispatched speculatively at a silence
    * boundary, so its decision rule includes the hold branch (leading token
@@ -362,12 +407,27 @@ export interface VoiceTurnHandle {
  * provides assistant identity) and guardian context (injected separately).
  */
 /**
- * Steering shared by every voice channel. Voice turns exclude the ui-surface
- * tools, but the model can still reach OAuth/sign-in flows through shell or
- * CLI tools (e.g. `assistant oauth connect`), which open a browser window
- * mid-call that the caller may be unable to see or complete. Tell it to speak
- * the limitation and defer the flow to text chat instead.
+ * Steering shared by every voice channel. A sign-in flow opens a browser
+ * window mid-call that the caller may be unable to see or complete, whether it
+ * is reached through a ui-surface tool or through shell and CLI tools (e.g.
+ * `assistant oauth connect`). Tell the model to speak the limitation and defer
+ * the flow to text chat instead.
+ *
+ * This outlives the ui-surface restriction it was written alongside: a
+ * live-voice call can now show surfaces, but a browser window handing control
+ * to a third party mid-call is a different problem, and one a minimized room
+ * does not solve.
  */
+/**
+ * How long a live-voice call waits on an approval before deciding it itself.
+ *
+ * Long enough to pick the phone up and read the card, short enough that a turn
+ * cannot sit blocked for the rest of the call. The fallback is the decision
+ * this channel made before it prompted at all, so the worst case of nobody
+ * answering is exactly the old behavior, arrived at late.
+ */
+const VOICE_APPROVAL_TIMEOUT_MS = 45_000;
+
 export const VOICE_NO_SETUP_FLOWS_RULE =
   "Never start account connections, OAuth or sign-in flows, or any other action that opens a browser window or needs the user's screen during this call — not even through shell or CLI tools. If the task needs one, say so briefly and offer to finish it in text chat after the call.";
 
@@ -466,9 +526,9 @@ function buildVoiceCallControlPrompt(opts: {
     `12. ${VOICE_NO_SETUP_FLOWS_RULE}`,
   );
 
-  // Triage-and-escalate routing rules (voice-triage-escalate flag). The
-  // front-door leg decides and may hand off; the escalated leg continues the
-  // answer after a holding phrase was already spoken.
+  // Triage-and-escalate routing rules. The front-door leg decides and may
+  // hand off; the escalated leg continues the answer after a holding phrase
+  // was already spoken.
   if (opts.routingLeg === "front-door") {
     lines.push(`13. ${frontDoorRuleWithDigest(opts.unifiedVerdict === true)}`);
   } else if (opts.routingLeg === "escalated") {
@@ -481,8 +541,84 @@ function buildVoiceCallControlPrompt(opts: {
 }
 
 // ---------------------------------------------------------------------------
-// Front-door transcript hygiene
+// Transcript hygiene
 // ---------------------------------------------------------------------------
+
+/** The concatenated text of a row's text blocks. */
+function joinedTextOfBlocks(blocks: ContentBlock[]): string {
+  return blocks
+    .map((block) => (block.type === "text" ? block.text : ""))
+    .join("");
+}
+
+/**
+ * Strip internal speech markers from every text block, dropping text blocks
+ * the strip leaves empty; non-text blocks pass through untouched. Shared by
+ * the front-door stray-token rewrite and the main-leg minimize-marker
+ * rewrite.
+ */
+function stripMarkersFromBlocks(blocks: ContentBlock[]): ContentBlock[] {
+  const kept: ContentBlock[] = [];
+  for (const block of blocks) {
+    if (block.type !== "text") {
+      kept.push(block);
+      continue;
+    }
+    const cleaned = stripInternalSpeechMarkers(block.text);
+    if (cleaned.trim().length > 0) {
+      kept.push({ ...block, text: cleaned });
+    }
+  }
+  return kept;
+}
+
+/**
+ * Remove the terminal MINIMIZE_ROOM_MARKER from the end of a row's text,
+ * walking text blocks from the last one backward so a marker split across
+ * block boundaries (e.g. `"Done [-"` + `"1]"`) is removed whole — the
+ * per-block strip in {@link stripMarkersFromBlocks} only sees fragments and
+ * would leave both halves in place. Callers must have established that the
+ * row's joined text ends with the marker after trimming trailing whitespace.
+ */
+function stripTerminalMinimizeMarker(blocks: ContentBlock[]): ContentBlock[] {
+  const result = blocks.map((block) => ({ ...block }));
+  const joined = joinedTextOfBlocks(result);
+  const cutAt = joined.trimEnd().length - MINIMIZE_ROOM_MARKER.length;
+  let blockEnd = joined.length;
+  for (let i = result.length - 1; i >= 0 && blockEnd > cutAt; i--) {
+    const block = result[i]!;
+    if (block.type !== "text") {
+      continue;
+    }
+    const blockStart = blockEnd - block.text.length;
+    block.text = block.text.slice(0, Math.max(0, cutAt - blockStart));
+    blockEnd = blockStart;
+  }
+  return result;
+}
+
+/**
+ * Trim whitespace stranded at a rewritten row's outer edges by a stripped
+ * edge marker (e.g. "Done, take a look [-1]"), leaving inter-block spacing
+ * untouched.
+ */
+function trimOuterTextEdges(blocks: ContentBlock[]): ContentBlock[] {
+  const result = blocks.map((block) => ({ ...block }));
+  for (const block of result) {
+    if (block.type === "text") {
+      block.text = block.text.trimStart();
+      break;
+    }
+  }
+  for (let i = result.length - 1; i >= 0; i--) {
+    const block = result[i]!;
+    if (block.type === "text") {
+      block.text = block.text.trimEnd();
+      break;
+    }
+  }
+  return result;
+}
 
 /**
  * Reduce a front-door leg's persisted content to what was actually spoken
@@ -500,9 +636,7 @@ function buildVoiceCallControlPrompt(opts: {
 export function cutFrontDoorContentAtVerdict(
   blocks: ContentBlock[],
 ): { blocks: ContentBlock[]; spokenText: string } | null {
-  const joinedText = blocks
-    .map((block) => (block.type === "text" ? block.text : ""))
-    .join("");
+  const joinedText = joinedTextOfBlocks(blocks);
   if (joinedText.trimStart().startsWith(ESCALATE_VERDICT_TOKEN)) {
     const spokenText = spokenBridgeText(joinedText);
     return {
@@ -516,21 +650,8 @@ export function cutFrontDoorContentAtVerdict(
   ) {
     return null;
   }
-  const kept: ContentBlock[] = [];
-  for (const block of blocks) {
-    if (block.type !== "text") {
-      kept.push(block);
-      continue;
-    }
-    const cleaned = stripInternalSpeechMarkers(block.text);
-    if (cleaned.trim().length > 0) {
-      kept.push({ ...block, text: cleaned });
-    }
-  }
-  const spokenText = kept
-    .map((block) => (block.type === "text" ? block.text : ""))
-    .join("")
-    .trim();
+  const kept = stripMarkersFromBlocks(blocks);
+  const spokenText = joinedTextOfBlocks(kept).trim();
   return { blocks: kept, spokenText };
 }
 
@@ -589,7 +710,7 @@ export async function startVoiceTurn(
     },
     onToolUse: (toolName, input, toolUseId) => {
       log.debug({ toolName, input }, "Voice turn tool_use event");
-      opts.callbacks?.tool_use_start?.(toolName, { toolUseId });
+      opts.callbacks?.tool_use_start?.(toolName, { toolUseId, input });
     },
     onToolResult: (event) => {
       opts.callbacks?.tool_result?.(event);
@@ -625,11 +746,13 @@ export async function startVoiceTurn(
         ? "(verification completed — transitioning into conversation)"
         : opts.content;
 
-  // Opener / verification / escalation-continuation prompts are internal
-  // scaffolding: they persist a row so the model wakes, but they are not user
-  // speech and must not render as a live user bubble. Their echo is suppressed
-  // below (parity with `isEchoSuppressedUserMessage` on the text path).
+  // Opener / verification / escalation-continuation prompts, plus any turn a
+  // caller declares hidden, are internal scaffolding: they persist a row so the
+  // model wakes, but they are not user speech and must not render as a live
+  // user bubble. Their echo is suppressed below (parity with
+  // `isEchoSuppressedUserMessage` on the text path).
   const isSyntheticVoicePrompt =
+    opts.hiddenSyntheticPrompt === true ||
     opts.content === CALL_OPENING_MARKER ||
     opts.content === CALL_VERIFICATION_COMPLETE_MARKER ||
     opts.content === ESCALATION_CONTINUATION_CONTENT;
@@ -641,8 +764,10 @@ export async function startVoiceTurn(
   // `/messages` filters it out after a refetch/reload, and flag the turn as a
   // hidden prompt so prompt-as-user-speech consumers (e.g. title generation)
   // skip it. The escalated model still sees the row in context — `hidden` only
-  // affects client display.
+  // affects client display. A caller whose prompt text is not a fixed sentinel
+  // opts into the same treatment with `hiddenSyntheticPrompt`.
   const isHiddenSyntheticPrompt =
+    opts.hiddenSyntheticPrompt === true ||
     opts.content === ESCALATION_CONTINUATION_CONTENT;
 
   // Build the call-control protocol prompt so the model knows how to emit
@@ -781,7 +906,37 @@ export async function startVoiceTurn(
   // (tracked via `clientCallbackInstalled`); otherwise cleanup would detach
   // an active sender installed by a prior turn.
   let clientCallbackInstalled = false;
+  /**
+   * Confirmations this voice turn left pending for the user to answer, and the
+   * timers that stop them waiting forever.
+   *
+   * A call is a poor place to block: the user may have put the phone in a
+   * pocket, and a turn that waits indefinitely is a session that looks wedged.
+   * Each pending request therefore carries a deadline, after which it resolves
+   * the way this channel resolved everything before it prompted at all.
+   */
+  const pendingVoiceApprovals = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
+  const settleVoiceApproval = (requestId: string): void => {
+    const timer = pendingVoiceApprovals.get(requestId);
+    if (timer === undefined) {
+      // Not one of ours: other interactions (secrets, host-proxy requests)
+      // resolve through the same event.
+      return;
+    }
+    clearTimeout(timer);
+    pendingVoiceApprovals.delete(requestId);
+    if (pendingVoiceApprovals.size === 0) {
+      opts.onApprovalsResolved?.();
+    }
+  };
   const cleanup = () => {
+    for (const timer of pendingVoiceApprovals.values()) {
+      clearTimeout(timer);
+    }
+    pendingVoiceApprovals.clear();
     conversation.setChannelCapabilities(null);
     conversation.setTrustContext(null);
     conversation.setCommandIntent(null);
@@ -802,7 +957,33 @@ export async function startVoiceTurn(
     const persistResult = await conversation.persistUserMessage({
       content: persistedContent,
       requestId,
-      ...(isHiddenSyntheticPrompt ? { metadata: { hidden: true } } : {}),
+      metadata: {
+        // Durable "this turn came from an open voice session" marker; see
+        // `isVoiceSessionUserMessage` for why the channel fields cannot carry it.
+        voiceSessionTurn: true,
+        ...(isHiddenSyntheticPrompt ? { hidden: true } : {}),
+        ...(opts.voiceTelemetry
+          ? {
+              // Projected onto `TurnTelemetryEvent.client` by
+              // `turn-events-store`. `voice_session_id` is what joins these
+              // turn rows to the session's funnel rows, so a session's turn
+              // count is a count of rows carrying its id, never a field
+              // anyone has to keep correct.
+              //
+              // `os` is the standard per-platform dimension the HTTP send
+              // path already fills from the same `detectClientOs()` value, so
+              // a voice turn reports its platform in the column existing turn
+              // analytics read rather than one only voice knows about.
+              client: {
+                voice: true,
+                voice_session_id: opts.voiceTelemetry.sessionId,
+                ...(opts.voiceTelemetry.client
+                  ? { os: opts.voiceTelemetry.client }
+                  : {}),
+              },
+            }
+          : {}),
+      },
     });
     return persistResult.id;
   };
@@ -822,21 +1003,22 @@ export async function startVoiceTurn(
     trustContext: opts.trustContext ?? null,
     turnChannelContext,
     turnInterfaceContext,
-    channelCapabilities: {
-      ...resolveChannelCapabilities(
-        turnChannelContext.userMessageChannel,
-        turnInterfaceContext.userMessageInterface,
-      ),
-      // Voice calls are non-interactive: no surface can be shown, read, or
-      // clicked mid-call, so `ui_show`/`ui_update`/`ui_dismiss` (and thus
-      // `oauth_connect`, a ui_show surface_type) must never reach the model.
-      // Phone already resolves to false via its channel; live-voice resolves
-      // vellum/macos → true, so force it off here for every voice turn. This
-      // also flips the runtime-context `supports_dynamic_ui` line the prompt
-      // advertises, the secret-prompter's dynamic-UI branch, and the
-      // task-progress-nudge hook — all correctly non-UI during a call.
-      supportsDynamicUi: false,
-    },
+    // Resolved from the channel, with no voice-specific override.
+    //
+    // Whether a call can show a surface is a property of the call's channel,
+    // not of calls in general. A phone call has no screen at all and resolves
+    // to `supportsDynamicUi: false` on its own; a live-voice call is a screen
+    // the user is holding, temporarily covered by the room overlay, and the
+    // session minimizes that overlay when a surface is shown (see the ui-tool
+    // branch of the live-voice session's `tool_use_start`).
+    //
+    // This one flag also drives the runtime-context `supports_dynamic_ui`
+    // line, the secret-prompter's dynamic-UI branch, and the
+    // task-progress-nudge hook, so a live-voice turn now reaches all of them.
+    channelCapabilities: resolveChannelCapabilities(
+      turnChannelContext.userMessageChannel,
+      turnInterfaceContext.userMessageInterface,
+    ),
     voiceCallControlPrompt,
   };
   const installVoiceTurnState = () => {
@@ -1034,7 +1216,12 @@ export async function startVoiceTurn(
   // Hook into conversation to intercept confirmation_request and secret_request events.
   // Voice auto-denies/auto-allows/auto-resolves these since there's no interactive UI.
   let lastError: string | null = null;
-  conversation.updateClient(async (msg: ServerMessage) => {
+  conversation.updateClient(async (msg: AssistantEvent) => {
+    // The user (or anything else) answered: stop the fallback from firing on a
+    // request that is already decided.
+    if (msg.type === "interaction_resolved") {
+      settleVoiceApproval(msg.requestId);
+    }
     if (msg.type === "confirmation_request") {
       // Broadcast the request BEFORE resolving it: resolution synchronously
       // broadcasts `interaction_resolved` (handleConfirmationResponse →
@@ -1111,6 +1298,71 @@ export async function startVoiceTurn(
         });
         return;
       }
+      // A live-voice call has a screen, so a consequential action can be put
+      // to the user instead of decided for them.
+      //
+      // Everything used to be allowed here on the strength of the caller being
+      // a guardian, which made a voice call the one surface where a tool that
+      // writes to the workspace or reaches the host never had to ask. Only
+      // *sensitive* reach prompts: gating every confirmation would interrupt a
+      // conversation constantly, and the tools that read or render were never
+      // the reason approval exists.
+      //
+      // Phone keeps the old behavior in full. There is no screen on that
+      // channel, so a prompt there is a question nobody can answer.
+      // The workspace root is what makes an escape visible. A sandbox file
+      // tool pointed outside the workspace reaches the host filesystem on a
+      // non-containerized install, and `sensitiveToolReach` can only see that
+      // when it is given the boundary to compare against: without it,
+      // `file_read { path: "/etc/hosts" }` classifies as `none` and would fall
+      // through to the auto-allow this branch exists to prevent.
+      const workspaceRoot = conversation.workingDir;
+      const reach = sensitiveToolReach(
+        msg.toolName,
+        // Absent on requests that do not come from the tool pipeline (proxy
+        // and network prompters). Unknown reads as the more consequential of
+        // the two: the cost of being wrong is a prompt the user did not need,
+        // against an unreviewed action on their machine.
+        msg.executionTarget ?? "host",
+        msg.input,
+        workspaceRoot,
+      );
+      const canPrompt = turnChannelContext.userMessageChannel === "vellum";
+      // Fail closed on a missing boundary for the same reason: with no
+      // workspace root there is no way to tell an ordinary write from an
+      // escape, and the safe reading of "cannot tell" is "ask". A real
+      // conversation always has one, so this is a guard rather than a path.
+      if (canPrompt && (reach !== "none" || !workspaceRoot)) {
+        log.info(
+          { turnId, toolName: msg.toolName, reach },
+          "Prompting guardian voice caller for a sensitive tool",
+        );
+        // Left pending: the request is already broadcast, so the approval card
+        // an attached client renders is now answerable rather than cleared a
+        // moment later by this handler.
+        //
+        // Announced separately, because "a card exists" and "the user can see
+        // it" are different things on a channel whose call covers the app.
+        opts.onApprovalPending?.(msg.requestId);
+        const timer = setTimeout(() => {
+          pendingVoiceApprovals.delete(msg.requestId);
+          if (pendingVoiceApprovals.size === 0) {
+            opts.onApprovalsResolved?.();
+          }
+          log.info(
+            { turnId, toolName: msg.toolName },
+            "Voice approval timed out — falling back to the guardian allow",
+          );
+          conversation.handleConfirmationResponse(msg.requestId, "allow", {
+            decisionContext: `Permission approved for "${msg.toolName}": this is a verified guardian voice call and the approval prompt went unanswered.`,
+          });
+        }, VOICE_APPROVAL_TIMEOUT_MS);
+        // Never hold the process open for a prompt nobody is looking at.
+        timer.unref?.();
+        pendingVoiceApprovals.set(msg.requestId, timer);
+        return;
+      }
+
       log.info(
         { turnId, toolName: msg.toolName },
         "Auto-approving confirmation request for guardian voice turn",
@@ -1121,11 +1373,14 @@ export async function startVoiceTurn(
       return;
     }
     if (msg.type === "secret_request") {
-      // Defense-in-depth: SecretPrompter.prompt fails fast with
-      // `unsupported_channel` on voice turns (supportsDynamicUi is forced
-      // off above), so a secret_request should never reach this handler.
-      // Resolve immediately anyway in case an emitter bypasses the
-      // prompter's channel check or races a capability install.
+      // Auto-resolved rather than prompted, on every voice channel.
+      //
+      // A phone call cannot render a secret field at all. A live-voice call
+      // now can (its channel resolves `supportsDynamicUi` true), so this is
+      // where the prompt would surface, and it deliberately does not yet:
+      // typing a credential into a screen you reached by minimizing a call is
+      // a flow that needs designing, not a flag flip. Resolving with no secret
+      // leaves the tool to fail the way it does today.
       log.info(
         { turnId, service: msg.service, field: msg.field },
         "Auto-resolving secret request for voice turn (no secret-entry UI)",
@@ -1178,6 +1433,14 @@ export async function startVoiceTurn(
    *   never the verdict token or the text streamed past the cap (issue
    *   #37850). A row with no spoken bridge (canned-fallback case — that
    *   bridge is audio-only) is deleted.
+   * - Any leg whose row ENDS with the `[-1]` minimize marker (swallowed
+   *   before TTS on the live path) has its text blocks rewritten through
+   *   `stripInternalSpeechMarkers` so the marker never renders in the chat
+   *   transcript. This covers front-door answers too: that leg is never
+   *   taught the marker, but it can parrot one from visible conversation
+   *   history, and the parroted marker is never spoken and never minimizes
+   *   the room. Deliberately scoped to that marker: rows without it
+   *   persist byte-identical.
    *
    * After a rewrite, in-memory history is reloaded from the clean DB before
    * the escalated leg — blocked on this turn's teardown — snapshots it, so
@@ -1198,9 +1461,6 @@ export async function startVoiceTurn(
       }
       return;
     }
-    if (!discarded && opts.routingLeg !== "front-door") {
-      return;
-    }
     try {
       let action = "none";
       if (discarded) {
@@ -1208,8 +1468,13 @@ export async function startVoiceTurn(
         action = "delete_discarded";
       } else {
         const row = getMessageById(reservedAssistantRowId, opts.conversationId);
-        const cut = row ? cutFrontDoorContentAtVerdict(row.content) : null;
-        if (cut) {
+        const cut =
+          row && opts.routingLeg === "front-door"
+            ? cutFrontDoorContentAtVerdict(row.content)
+            : null;
+        if (!row) {
+          action = "row_missing";
+        } else if (cut) {
           if (cut.spokenText.length > 0) {
             updateMessageContent(
               reservedAssistantRowId,
@@ -1220,20 +1485,53 @@ export async function startVoiceTurn(
             deleteMessageById(reservedAssistantRowId);
             action = "delete_empty";
           }
-        } else if (!row) {
-          action = "row_missing";
+        } else if (
+          // Terminal position only — mirrors the live latch in
+          // createControlMarkerHoldback: a reply whose CONTENT contains
+          // "[-1]" mid-text never minimized the room, so its transcript
+          // keeps that content untouched too. Front-door answer rows (no
+          // verdict token to cut) take this branch as well.
+          joinedTextOfBlocks(row.content)
+            .trimEnd()
+            .endsWith(MINIMIZE_ROOM_MARKER)
+        ) {
+          // Terminal marker first (boundary-aware — it may span text blocks),
+          // then the per-block strip for any interior complete markers.
+          const cleaned = trimOuterTextEdges(
+            stripMarkersFromBlocks(stripTerminalMinimizeMarker(row.content)),
+          );
+          // A marker-only reply (the model said nothing beyond "[-1]") strips
+          // to nothing at all; keeping the row would render a blank assistant
+          // bubble, so delete it like the front-door empty case. Any surviving
+          // block — including non-text blocks like tool_use — keeps the row.
+          if (cleaned.length === 0) {
+            deleteMessageById(reservedAssistantRowId);
+            action = "delete_empty";
+          } else {
+            updateMessageContent(
+              reservedAssistantRowId,
+              JSON.stringify(cleaned),
+            );
+            action = "strip_minimize_marker";
+          }
         }
       }
-      log.info(
-        {
-          turnId,
-          messageId: reservedAssistantRowId,
-          routingLeg: opts.routingLeg ?? null,
-          discarded,
-          action,
-        },
-        "Voice leg transcript hygiene",
-      );
+      // Main legs run the pass on every voice turn; keep the no-op case
+      // out of the logs.
+      const isMainLegNoOp =
+        action === "none" && !discarded && opts.routingLeg !== "front-door";
+      if (!isMainLegNoOp) {
+        log.info(
+          {
+            turnId,
+            messageId: reservedAssistantRowId,
+            routingLeg: opts.routingLeg ?? null,
+            discarded,
+            action,
+          },
+          "Voice leg transcript hygiene",
+        );
+      }
       if (action !== "none" && action !== "row_missing") {
         await conversation.loadFromDb();
         publishConversationMessagesChanged(opts.conversationId);
@@ -1283,7 +1581,7 @@ export async function startVoiceTurn(
         frontDoorToolsSuppressed = true;
       }
       await conversation.runAgentLoop(persistedContent, messageId, {
-        onEvent: (msg: ServerMessage) => {
+        onEvent: (msg: AssistantEvent) => {
           if (msg.type === "assistant_turn_start") {
             reservedAssistantRowId = msg.messageId;
           } else if (msg.type === "error") {

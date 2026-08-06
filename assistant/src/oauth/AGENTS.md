@@ -39,7 +39,7 @@ The `logoUrl` field in `seed-providers.ts` is the source of truth for a provider
 
 For brands Simple Icons doesn't host (e.g. Salesforce, which Simple Icons removed for trademark reasons), use the `glincker/thesvg` source via jsDelivr — `https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/<key>/default.svg`. The recognised `logoUrl` prefixes are enforced by `oauth-provider-seed-logos.test.ts`; if you need a third source, extend that allowlist.
 
-### 5. Secret patterns (if applicable) — `../security/secret-patterns.ts`
+### 5. Secret patterns (if applicable) — `packages/service-contracts/src/secret-detection.ts`
 
 If the provider issues API keys with a recognizable prefix (e.g. `acme_sk_`), add a `PREFIX_PATTERNS` entry. OAuth-only services with opaque access tokens do not need one. See `../security/AGENTS.md` for details.
 

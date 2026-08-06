@@ -66,7 +66,9 @@ function findBlockById(
   const block = (blocks as unknown as Array<Record<string, unknown>>).find(
     (b) => b.id === id,
   );
-  if (!block) throw new Error(`block ${id} not found`);
+  if (!block) {
+    throw new Error(`block ${id} not found`);
+  }
   return block;
 }
 

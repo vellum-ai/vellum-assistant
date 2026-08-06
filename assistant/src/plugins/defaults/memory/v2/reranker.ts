@@ -5,8 +5,8 @@ import { createHash } from "node:crypto";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
-import { getOrCreateRerankBackend } from "../rerank-local.js";
-import { readPage } from "../v3/substrate/page-store.js";
+import { readPage } from "../substrate/page-store.js";
+import { getOrCreateRerankBackend } from "./rerank-local.js";
 
 const log = getLogger("memory-v2-reranker");
 
@@ -36,13 +36,17 @@ function cacheKey(
 
 function evictExpired(now: number): void {
   for (const [k, v] of cache) {
-    if (now - v.ts > CACHE_TTL_MS) cache.delete(k);
+    if (now - v.ts > CACHE_TTL_MS) {
+      cache.delete(k);
+    }
   }
   if (cache.size > CACHE_MAX_ENTRIES) {
     const toDrop = cache.size - CACHE_MAX_ENTRIES;
     let i = 0;
     for (const k of cache.keys()) {
-      if (i++ >= toDrop) break;
+      if (i++ >= toDrop) {
+        break;
+      }
       cache.delete(k);
     }
   }
@@ -77,8 +81,12 @@ export async function rerankCandidates(
   candidates: readonly string[],
   config: AssistantConfig,
 ): Promise<Array<Map<string, number>>> {
-  if (queries.length === 0) return [];
-  if (candidates.length === 0) return queries.map(() => new Map());
+  if (queries.length === 0) {
+    return [];
+  }
+  if (candidates.length === 0) {
+    return queries.map(() => new Map());
+  }
 
   const { model, dtype } = config.memory.v2.rerank;
   const now = Date.now();
@@ -107,7 +115,9 @@ export async function rerankCandidates(
   const finalize = (): Array<Map<string, number>> =>
     results.map((r) => r ?? new Map());
 
-  if (uncachedIndices.length === 0) return finalize();
+  if (uncachedIndices.length === 0) {
+    return finalize();
+  }
 
   const workspaceDir = getWorkspaceDir();
   const pages = await Promise.all(
@@ -122,13 +132,17 @@ export async function rerankCandidates(
   const slugsForPassages: string[] = [];
   for (let i = 0; i < candidates.length; i++) {
     const page = pages[i];
-    if (!page) continue;
+    if (!page) {
+      continue;
+    }
     passages.push(buildPassage(candidates[i], page.body));
     slugsForPassages.push(candidates[i]);
   }
 
   if (passages.length === 0) {
-    for (const i of uncachedIndices) results[i] = new Map();
+    for (const i of uncachedIndices) {
+      results[i] = new Map();
+    }
     return finalize();
   }
 
@@ -154,7 +168,9 @@ export async function rerankCandidates(
       { err, model, n: batchPassages.length },
       "Rerank backend failed; falling back to pure fused scores",
     );
-    for (const i of uncachedIndices) results[i] = new Map();
+    for (const i of uncachedIndices) {
+      results[i] = new Map();
+    }
     return finalize();
   }
 
@@ -164,7 +180,9 @@ export async function rerankCandidates(
     const result = new Map<string, number>();
     for (let i = 0; i < slugsForPassages.length; i++) {
       const s = scores[offset + i];
-      if (typeof s !== "number" || Number.isNaN(s)) continue;
+      if (typeof s !== "number" || Number.isNaN(s)) {
+        continue;
+      }
       // sigmoid output should already be in [0, 1]; clamp defensively.
       result.set(slugsForPassages[i], Math.max(0, Math.min(1, s)));
     }

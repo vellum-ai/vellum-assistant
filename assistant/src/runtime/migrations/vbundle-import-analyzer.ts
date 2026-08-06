@@ -130,7 +130,9 @@ export class DefaultPathResolver implements PathResolver {
     // New format: workspace/ prefix — maps directly into the workspace dir
     if (archivePath.startsWith("workspace/") && this.workspaceDir) {
       const relPath = archivePath.slice("workspace/".length);
-      if (!relPath) return null;
+      if (!relPath) {
+        return null;
+      }
       const resolved = resolve(this.workspaceDir, relPath);
       const wsRoot = resolve(this.workspaceDir);
       // Path traversal containment

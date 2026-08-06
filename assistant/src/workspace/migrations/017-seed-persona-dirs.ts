@@ -39,7 +39,9 @@ function stripCommentLines(content: string): string {
         openFenceChar = null;
       }
     }
-    if (openFenceChar) return true;
+    if (openFenceChar) {
+      return true;
+    }
     return !line.trimStart().startsWith("_");
   });
   return filtered
@@ -87,7 +89,9 @@ export const seedPersonaDirsMigration: WorkspaceMigration = {
     const channelsDir = join(workspaceDir, "channels");
 
     for (const dir of [usersDir, channelsDir]) {
-      if (!existsSync(dir)) continue;
+      if (!existsSync(dir)) {
+        continue;
+      }
       try {
         const entries = readdirSync(dir);
         if (entries.length === 0) {
@@ -106,16 +110,22 @@ export const seedPersonaDirsMigration: WorkspaceMigration = {
 
     // Check if USER.md exists and has been customized
     const userMdPath = join(workspaceDir, "USER.md");
-    if (!existsSync(userMdPath)) return;
+    if (!existsSync(userMdPath)) {
+      return;
+    }
 
     const rawContent = readFileSync(userMdPath, "utf-8");
     const content = stripCommentLines(rawContent);
-    if (!content) return;
+    if (!content) {
+      return;
+    }
 
     // Skip if the content is the unmodified legacy template. We compare
     // against an inlined snapshot rather than reading the bundled
     // template from disk, since migration 031 deletes that template file.
-    if (content === LEGACY_USER_MD_TEMPLATE_STRIPPED) return;
+    if (content === LEGACY_USER_MD_TEMPLATE_STRIPPED) {
+      return;
+    }
 
     // Seed the canonical `users/guardian.md` — the runtime persona resolver
     // falls back to this name, so no assistant-DB lookup is needed.

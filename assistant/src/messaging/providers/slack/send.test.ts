@@ -15,14 +15,6 @@ mock.module("./api.js", () => ({
     callSlackApiMock(method, body),
   callSlackApiForm: async () => ({}),
   completeSlackUpload: async () => {},
-  SlackApiError: class SlackApiError extends Error {
-    readonly slackError: string | undefined;
-
-    constructor(slackError: string | undefined) {
-      super(slackError ?? "unknown");
-      this.slackError = slackError;
-    }
-  },
   uploadToSlackUrl: async () => {},
   startSlackStream: (params: { markdownText?: string }) =>
     callSlackApiMock("chat.startStream", { ...params }),
@@ -32,7 +24,10 @@ mock.module("./api.js", () => ({
     callSlackApiMock("chat.stopStream", { ...params }),
 }));
 
-const { SlackApiError } = await import("./api.js");
+// The real error class: send.ts branches on `instanceof SlackApiError` from
+// the (unmocked) shared transport, so thrown test errors must be real
+// instances or every branch under test would silently take the generic path.
+const { SlackApiError } = await import("./web-api-transport.js");
 const { sendSlackAssistantThreadStatus, sendSlackReply } =
   await import("./send.js");
 

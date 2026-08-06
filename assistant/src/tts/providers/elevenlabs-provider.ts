@@ -81,9 +81,13 @@ const MAX_RAW_ERROR_BODY_CHARS = 200;
 export function extractElevenLabsErrorMessage(
   body: string,
 ): string | undefined {
-  if (!body) return undefined;
+  if (!body) {
+    return undefined;
+  }
   const trimmed = body.trim();
-  if (!trimmed) return undefined;
+  if (!trimmed) {
+    return undefined;
+  }
 
   // Try JSON envelopes first.
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
@@ -230,7 +234,7 @@ async function performTtsRequest(
     throw new ElevenLabsTtsError(
       "ELEVENLABS_TTS_NO_API_KEY",
       "ElevenLabs API key not configured. " +
-        "Add it in Settings → Voice or via: assistant credentials set --service elevenlabs --field api_key <key>",
+        'Add it in Settings → Voice or via: assistant credentials prompt --service elevenlabs --field api_key --label "ElevenLabs API Key"',
     );
   }
 
@@ -278,7 +282,9 @@ async function performTtsRequest(
       signal: request.signal,
     });
   } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") throw err;
+    if (err instanceof Error && err.name === "AbortError") {
+      throw err;
+    }
     throw new ElevenLabsTtsError(
       "ELEVENLABS_TTS_REQUEST_FAILED",
       `ElevenLabs TTS request failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -396,7 +402,7 @@ export const elevenLabsTtsProviderDefinition: TtsProviderDefinition = {
       credentialStoreKey: "credential/elevenlabs/api_key",
       displayName: "ElevenLabs API Key",
       setCommand:
-        "assistant credentials set --service elevenlabs --field api_key <key>",
+        'assistant credentials prompt --service elevenlabs --field api_key --label "ElevenLabs API Key"',
     },
   ],
   adapter: createElevenLabsProvider(),

@@ -14,12 +14,18 @@ export async function run(
   const sequenceId = input.sequence_id as string;
   const autoEnroll = input.auto_enroll as boolean | undefined;
 
-  if (!filePath) return err("file_path is required.");
-  if (!sequenceId) return err("sequence_id is required.");
+  if (!filePath) {
+    return err("file_path is required.");
+  }
+  if (!sequenceId) {
+    return err("sequence_id is required.");
+  }
 
   try {
     const seq = getSequence(sequenceId);
-    if (!seq) return err(`Sequence not found: ${sequenceId}`);
+    if (!seq) {
+      return err(`Sequence not found: ${sequenceId}`);
+    }
 
     const parsed = parseContactFile(filePath);
 
@@ -41,16 +47,18 @@ export async function run(
         for (const e of parsed.errors.slice(0, 10)) {
           lines.push(`  Row ${e.row}: ${e.reason}`);
         }
-        if (parsed.errors.length > 10)
+        if (parsed.errors.length > 10) {
           lines.push(`  ... and ${parsed.errors.length - 10} more`);
+        }
       }
       lines.push("");
       lines.push(`Sample contacts:`);
       for (const c of parsed.contacts.slice(0, 5)) {
         lines.push(`  ${c.email}${c.name ? ` (${c.name})` : ""}`);
       }
-      if (parsed.contacts.length > 5)
+      if (parsed.contacts.length > 5) {
         lines.push(`  ... and ${parsed.contacts.length - 5} more`);
+      }
       lines.push("");
       lines.push(
         `Call again with auto_enroll=true to enroll all ${parsed.contacts.length} contacts in "${seq.name}".`,

@@ -296,9 +296,15 @@ class TimeoutDuringBodyReadError extends Error {
 }
 
 function isAbortShaped(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  if (err.name === "AbortError") return true;
-  if (/abort/i.test(err.message)) return true;
+  if (!(err instanceof Error)) {
+    return false;
+  }
+  if (err.name === "AbortError") {
+    return true;
+  }
+  if (/abort/i.test(err.message)) {
+    return true;
+  }
   return false;
 }
 
@@ -568,13 +574,17 @@ export async function listDevToolsTargets(opts: {
     }
     const record = entry as Record<string, unknown>;
     const type = readStringField(record, "type");
-    if (type !== "page") continue;
+    if (type !== "page") {
+      continue;
+    }
 
     const webSocketDebuggerUrl = readStringField(
       record,
       "webSocketDebuggerUrl",
     );
-    if (!webSocketDebuggerUrl) continue;
+    if (!webSocketDebuggerUrl) {
+      continue;
+    }
 
     try {
       assertWsUrlLoopback(webSocketDebuggerUrl);
@@ -629,9 +639,15 @@ export function pickDefaultTarget(targets: DevToolsTarget[]): DevToolsTarget {
 
 function isUtilityTarget(target: DevToolsTarget): boolean {
   const url = target.url.toLowerCase();
-  if (url.startsWith("chrome://")) return true;
-  if (url.startsWith("devtools://")) return true;
-  if (url === "about:blank") return true;
+  if (url.startsWith("chrome://")) {
+    return true;
+  }
+  if (url.startsWith("devtools://")) {
+    return true;
+  }
+  if (url === "about:blank") {
+    return true;
+  }
   return false;
 }
 
@@ -668,7 +684,9 @@ export function buildBrowserWsUrl(host: string, port: number): string {
 export function isHttpDiscoveryFallbackEligible(
   err: unknown,
 ): err is DevToolsDiscoveryError {
-  if (!(err instanceof DevToolsDiscoveryError)) return false;
+  if (!(err instanceof DevToolsDiscoveryError)) {
+    return false;
+  }
   return err.code === "invalid_response" || err.code === "unreachable";
 }
 
@@ -736,13 +754,17 @@ export async function discoverTargetsViaWs(opts: {
     ) {
       continue;
     }
-    if (info.type !== "page") continue;
+    if (info.type !== "page") {
+      continue;
+    }
 
     const id =
       typeof info.targetId === "string" && info.targetId.length > 0
         ? info.targetId
         : "";
-    if (!id) continue;
+    if (!id) {
+      continue;
+    }
 
     const title = typeof info.title === "string" ? info.title : "";
     const url = typeof info.url === "string" ? info.url : "";
