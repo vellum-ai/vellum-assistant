@@ -216,6 +216,11 @@ export interface CompanionSurfaceProps {
    */
   spotlight?: "talk" | "type";
   /**
+   * Start a live-voice session. Absent leaves Talk inert, which is what
+   * Storybook wants: there is no session to start there.
+   */
+  onTalk?: () => void;
+  /**
    * When the call started, for the elapsed clock. Absent leaves the clock at a
    * fixed sample, which is what the static stories want.
    */
@@ -235,6 +240,7 @@ export function CompanionSurface({
   rootRef,
   onSurfaceMouseDown,
   spotlight,
+  onTalk,
   callStartedAt,
 }: CompanionSurfaceProps) {
   const expanded = phase !== "resting";
@@ -372,7 +378,7 @@ export function CompanionSurface({
             {phase === "call" ? (
               <CallBody startedAt={callStartedAt} />
             ) : (
-              <IdleBody spotlight={spotlight} />
+              <IdleBody spotlight={spotlight} onTalk={onTalk} />
             )}
           </div>
         )}
@@ -521,7 +527,13 @@ function Avatar({
  * of one choice about how to say something, and a verb pair reads as that where
  * a verb and a question word do not.
  */
-function IdleBody({ spotlight }: { spotlight?: "talk" | "type" }) {
+function IdleBody({
+  spotlight,
+  onTalk,
+}: {
+  spotlight?: "talk" | "type";
+  onTalk?: () => void;
+}) {
   return (
     <>
       <PillButton
@@ -529,6 +541,7 @@ function IdleBody({ spotlight }: { spotlight?: "talk" | "type" }) {
         label="Talk"
         showLabel
         active={spotlight === "talk"}
+        onClick={onTalk}
       />
       <PillButton
         icon={<Keyboard className="size-4" />}
@@ -614,6 +627,7 @@ function PillButton({
   tone,
   showLabel = false,
   active = false,
+  onClick,
 }: {
   icon: ReactNode;
   label: string;
@@ -621,12 +635,14 @@ function PillButton({
   showLabel?: boolean;
   /** Held down, for a control whose surface is currently open. */
   active?: boolean;
+  onClick?: () => void;
 }) {
   return (
     <button
       type="button"
       aria-label={label}
       title={label}
+      onClick={onClick}
       // A press on a control is not the start of a drag. Without this the
       // surface would move under a click meant to activate something on it.
       onMouseDown={(event) => {

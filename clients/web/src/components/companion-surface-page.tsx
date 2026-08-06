@@ -8,6 +8,7 @@ import {
   getCompanionState,
   moveCompanionBy,
   setCompanionInteractive,
+  startCompanionVoice,
   subscribeCompanionState,
 } from "@/runtime/companion-surface";
 import type { CompanionAnchor } from "@vellumai/ipc-contract";
@@ -140,6 +141,11 @@ export function CompanionSurfacePage() {
         onSurfaceMouseDown={(event) => {
           dragRef.current = { x: event.screenX, y: event.screenY };
         }}
+        // The press leaves this window immediately: the session lives in the
+        // renderer holding the chat layout, and this page only asks for one.
+        // Nothing here changes as a result, which is what makes the
+        // voice-activity panel the visible answer for now.
+        onTalk={startCompanionVoice}
       />
     </div>
   );

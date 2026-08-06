@@ -8,7 +8,7 @@ import {
   restoreVoiceRoom,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { requestVoiceStartFromDeepLink } from "@/domains/chat/voice/live-voice/start-voice-deep-link";
+import { requestVoiceStart } from "@/domains/chat/voice/live-voice/start-voice-request";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
 import { useConnectDialogStore } from "@/stores/connect-dialog-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -36,7 +36,7 @@ import { routes } from "@/utils/routes";
  *   on `status: "cancel"` — the same landing the web flow uses.
  * - `deeplink.startVoice` → `ensureMainWindowVisible()` + navigate,
  *   then hand the request to the live-voice starter (parked for the
- *   cold-launch case — see `start-voice-deep-link.ts`). `mode: "resume"`
+ *   cold-launch case, see `start-voice-request.ts`). `mode: "resume"`
  *   just navigates back to a running session's conversation. A `prompt`
  *   (Siri's "Ask …" intent, which collects the question before the app is
  *   up) is parked in the composer inbox — see below.
@@ -190,7 +190,7 @@ export function useGlobalDeepLinkConsumer(): void {
     // The draft composer (no conversation): the session starts without one and
     // the server assigns it on `ready`.
     navigateRef.current(routes.assistant);
-    requestVoiceStartFromDeepLink();
+    requestVoiceStart();
   });
 
   useBusSubscription(

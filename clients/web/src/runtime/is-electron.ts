@@ -335,6 +335,7 @@ declare global {
         onState(callback: (state: CompanionSurfaceState) => void): () => void;
         setInteractive?(interactive: boolean): void;
         moveBy?(dx: number, dy: number): void;
+        startVoice?(): void;
       };
     };
   }

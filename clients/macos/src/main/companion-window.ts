@@ -6,6 +6,7 @@ import type { CompanionAnchor, CompanionSurfaceState } from "@vellumai/ipc-contr
 import { getAvatarPng, onAvatarChange } from "./avatar";
 import { createFloatingWindow, getFloatingWindow } from "./floating-window";
 import { handle, on } from "./ipc";
+import { dispatchToMain } from "./main-window";
 
 /**
  * The always-present companion surface (LUM-3086): the assistant's avatar
@@ -198,6 +199,24 @@ export const installCompanionWindow = (): void => {
       win.setPosition(Math.round(x + dx), Math.round(y + dy));
     },
   );
+
+  /**
+   * Talk, delivered to the renderer that can act on it.
+   *
+   * The surface is its own renderer and holds no live-voice session, so the
+   * press travels through main the way the voice panel's controls do. It goes
+   * to the main window rather than the focused one, and rather than to every
+   * window: the session lives where `ChatLayout` is mounted, which is that
+   * window and no other, and the press arrives while the user is working in
+   * some other app entirely, so "focused" would name the wrong target.
+   *
+   * The window is not raised. A user reaching for a floating avatar has chosen
+   * not to go back to Vellum, and the session gets its own on-screen readout
+   * from the voice-activity panel.
+   */
+  on("vellum:companion:startVoice", z.tuple([]), () => {
+    dispatchToMain({ kind: "startVoice" });
+  });
 
   // One avatar feeds every surface, so a change to the Dock icon is a change
   // here too.
