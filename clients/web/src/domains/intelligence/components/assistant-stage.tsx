@@ -128,6 +128,7 @@ export function AssistantStage({
       ref={ref}
       className={cn(
         "relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[var(--border-base)]",
+        "native-mobile:rounded-none native-mobile:border-0",
         className,
       )}
       style={{ backgroundColor: bg, color: tone.fg }}
