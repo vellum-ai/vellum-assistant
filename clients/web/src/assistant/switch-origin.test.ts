@@ -29,8 +29,9 @@ mock.module("@/lib/local-mode", () => ({
   isRemoteGatewayMode: () => remoteGatewayMode,
 }));
 
+let publicBaseUrl = "https://gateway.example/assistant-1";
 mock.module("@/lib/auth/remote-gateway-session", () => ({
-  remoteGatewayPublicBaseUrl: () => "https://gateway.example/assistant-1",
+  remoteGatewayPublicBaseUrl: () => publicBaseUrl,
 }));
 
 const assignMock = mock((_url: string) => {});
@@ -43,9 +44,8 @@ Object.defineProperty(window.location, "assign", {
 // remembered origin can carry; the harness default is http.
 window.location.href = "https://app.example/select-assistant";
 
-const { isCurrentOrigin, switchToOrigin, switchToVellumCloud } = await import(
-  "@/assistant/switch-origin"
-);
+const { isCurrentOrigin, switchToOrigin } =
+  await import("@/assistant/switch-origin");
 
 function origin(url: string): RememberedOrigin {
   return { url, addedAt: "2026-01-01T00:00:00.000Z" };
@@ -55,6 +55,7 @@ beforeEach(() => {
   isNativeMobileValue = false;
   nativeSwitchAccepts = true;
   remoteGatewayMode = false;
+  publicBaseUrl = "https://gateway.example/assistant-1";
   assignMock.mockClear();
   nativeSwitchToOriginMock.mockClear();
 });
@@ -96,15 +97,6 @@ describe("switchToOrigin", () => {
   });
 });
 
-describe("switchToVellumCloud", () => {
-  test("asks the shell for its baked origin", async () => {
-    isNativeMobileValue = true;
-
-    expect(await switchToVellumCloud()).toBe(true);
-    expect(nativeSwitchToOriginMock).toHaveBeenCalledWith(null);
-  });
-});
-
 describe("isCurrentOrigin", () => {
   test("compares against the running deployment's base", () => {
     expect(isCurrentOrigin(origin("https://app.example"))).toBe(true);
@@ -118,5 +110,14 @@ describe("isCurrentOrigin", () => {
       true,
     );
     expect(isCurrentOrigin(origin("https://gateway.example"))).toBe(false);
+  });
+
+  test("normalizes the running base, since stored urls are already canonical", () => {
+    remoteGatewayMode = true;
+    publicBaseUrl = "https://Gateway.Example/assistant-1/";
+
+    expect(isCurrentOrigin(origin("https://gateway.example/assistant-1"))).toBe(
+      true,
+    );
   });
 });

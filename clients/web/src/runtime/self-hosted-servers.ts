@@ -113,7 +113,9 @@ function markMigrationDone(): void {
 /**
  * Fold pre-plugin localStorage entries into the native list once, returning
  * the merged view. Native entries win on name conflicts, since the shell and
- * its deep links are the newer writer.
+ * its deep links are the newer writer. Only entries the shell accepted join
+ * the result, so a partial merge never publishes a card the shell would
+ * refuse to switch to; the marker stays unset so the next load retries.
  */
 async function migrateLocalOriginsIntoNative(
   native: RememberedOrigin[],
@@ -129,6 +131,7 @@ async function migrateLocalOriginsIntoNative(
   }
   const knownUrls = new Set(native.map((o) => o.url));
   const missing = local.filter((o) => !knownUrls.has(o.url));
+  const added: RememberedOrigin[] = [];
   for (const entry of missing) {
     try {
       await SelfHostedServers.add({
@@ -136,13 +139,13 @@ async function migrateLocalOriginsIntoNative(
         ...(entry.name ? { name: entry.name } : {}),
       });
     } catch (err) {
-      // Leave the marker unset so the next load retries the merge.
       console.debug("[self-hosted-servers] migration add failed:", err);
-      return [...native, ...missing];
+      return [...native, ...added];
     }
+    added.push(entry);
   }
   markMigrationDone();
-  return [...native, ...missing];
+  return [...native, ...added];
 }
 
 /**

@@ -12,11 +12,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { resolveSelectedAssistantId } from "@/assistant/selection";
 import { retireAssistant } from "@/assistant/retire-service";
-import {
-  isCurrentOrigin,
-  switchToOrigin,
-  switchToVellumCloud,
-} from "@/assistant/switch-origin";
+import { isCurrentOrigin, switchToOrigin } from "@/assistant/switch-origin";
 import { removePairedAssistant } from "@/assistant/switch-service";
 import { RemoveFromDeviceDialog } from "@/components/remove-from-device-dialog";
 import {
@@ -45,6 +41,7 @@ import {
 import { useIsNativeMobile } from "@/runtime/platform-detection";
 import {
   installNativeRememberedOrigins,
+  nativeSwitchToOrigin,
   nativeVellumCloudOrigin,
 } from "@/runtime/self-hosted-servers";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
@@ -94,8 +91,12 @@ function assistantSubtitle(a: ResolvedAssistant): string {
  */
 type OriginCardEntry = Pick<RememberedOrigin, "name" | "url">;
 
+function originHostname(origin: OriginCardEntry): string {
+  return new URL(origin.url).hostname;
+}
+
 function originLabel(origin: OriginCardEntry): string {
-  return origin.name ?? new URL(origin.url).hostname;
+  return origin.name ?? originHostname(origin);
 }
 
 /**
@@ -114,29 +115,19 @@ const CLOUD_SELECTION_KEY = "origin:vellum-cloud";
 const NO_ORIGINS: RememberedOrigin[] = [];
 
 /**
- * Strip the consumed `register`/`name` handoff params from the address bar,
+ * The consumed `register`/`name` handoff params dropped from `params`,
  * preserving everything else, so a reload does not re-run the registration.
- * Mirrors `clearDeviceCodeFromUrl` on the pairing page: a plain
- * `history.replaceState`, never a navigation.
  */
-function clearRegisterParamsFromUrl(): void {
-  try {
-    const url = new URL(window.location.href);
-    url.searchParams.delete("register");
-    url.searchParams.delete("name");
-    window.history.replaceState(
-      null,
-      "",
-      `${url.pathname}${url.search}${url.hash}`,
-    );
-  } catch {
-    // history.replaceState unavailable; the leftover params are inert.
-  }
+function withoutRegisterParams(params: URLSearchParams): URLSearchParams {
+  const next = new URLSearchParams(params);
+  next.delete("register");
+  next.delete("name");
+  return next;
 }
 
 export function SelectAssistantScreen() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const fromLogin = searchParams.get("fromLogin") === "1";
   const noAutoSkip = searchParams.get("noAutoSkip") === "1";
   const electron = isElectron();
@@ -169,6 +160,9 @@ export function SelectAssistantScreen() {
     assistantSwitcher && cloudOriginUrl !== null
       ? { url: cloudOriginUrl, name: "Vellum Cloud" }
       : null;
+  // Stable dep for the selection effect: `cloudOrigin` is a fresh object each
+  // render.
+  const cloudOriginOffered = cloudOrigin !== null;
 
   const isAccessible = (a: ResolvedAssistant): boolean =>
     a.isLocal || a.isPaired || hasPlatformSession;
@@ -273,10 +267,11 @@ export function SelectAssistantScreen() {
 
   // `?register=<url>&name=<label>` handoff: another origin's Switch
   // Assistant action self-registers here so the hub lists it. Records the
-  // entry (renaming an existing one) and cleans the address bar; it never
-  // navigates, so the user sees the updated list. Consumed at most once,
-  // and only once the flag is known on: with the flag off the params are
-  // ignored and left untouched. Only a name and an https URL ride the
+  // entry (renaming an existing one) and strips the params through the
+  // router, so router state and the address bar stay in step; it never
+  // navigates away, so the user sees the updated list. Consumed at most
+  // once, and only once the flag is known on: with the flag off the params
+  // are ignored and left untouched. Only a name and an https URL ride the
   // params; anything failing `normalizeOriginUrl` is dropped silently
   // (and stripped, since retrying cannot fix it). A failed add keeps the
   // params and releases the ref so a reload can retry the registration.
@@ -290,9 +285,11 @@ export function SelectAssistantScreen() {
     if (register === null) {
       return;
     }
+    const clearParams = () =>
+      setSearchParams(withoutRegisterParams, { replace: true });
     const normalized = normalizeOriginUrl(register);
     if (normalized === null) {
-      clearRegisterParamsFromUrl();
+      clearParams();
       return;
     }
     void useRememberedOriginsStore
@@ -303,7 +300,7 @@ export function SelectAssistantScreen() {
       })
       .then((result) => {
         if (result.ok) {
-          clearRegisterParamsFromUrl();
+          clearParams();
         } else {
           registerHandledRef.current = false;
         }
@@ -311,15 +308,16 @@ export function SelectAssistantScreen() {
       .catch(() => {
         registerHandledRef.current = false;
       });
-  }, [assistantSwitcher, searchParams]);
+  }, [assistantSwitcher, searchParams, setSearchParams]);
 
   // Default selection: the app's known selected assistant when accessible,
-  // else the first accessible assistant. Also reconciles an existing
-  // selection that stops being accessible (an in-place logout locks the
-  // platform cards), so Continue can never target a locked assistant. A
-  // selected remembered origin needs no session, so it stands.
+  // else the first accessible assistant, else the first origin card. Also
+  // reconciles an existing selection that stops being accessible (an
+  // in-place logout locks the platform cards), so Continue can never target
+  // a locked assistant. A selected remembered origin needs no session, so it
+  // stands.
   useEffect(() => {
-    if (selected === CLOUD_SELECTION_KEY && cloudOriginUrl !== null) {
+    if (selected === CLOUD_SELECTION_KEY && cloudOriginOffered) {
       return;
     }
     if (
@@ -329,8 +327,16 @@ export function SelectAssistantScreen() {
       return;
     }
     if (accessibleAssistants.length === 0) {
-      if (selected != null) {
-        setSelected(null);
+      // Without this an origins-only chooser has no default and Continue
+      // renders permanently disabled.
+      const firstOrigin = originEntries[0];
+      const fallback = firstOrigin
+        ? originSelectionKey(firstOrigin)
+        : cloudOriginOffered
+          ? CLOUD_SELECTION_KEY
+          : null;
+      if (selected !== fallback) {
+        setSelected(fallback);
       }
       return;
     }
@@ -348,7 +354,7 @@ export function SelectAssistantScreen() {
     accessibleAssistants,
     currentOrganizationId,
     originEntries,
-    cloudOriginUrl,
+    cloudOriginOffered,
   ]);
 
   const handleConnect = async (assistant: ResolvedAssistant) => {
@@ -575,8 +581,12 @@ export function SelectAssistantScreen() {
       return;
     }
     // Remembered origins are alternatives a sole assistant does not account
-    // for, so the chooser stays up whenever any exist. Persisted entries
-    // publish only after hydration, so hold the skip until then.
+    // for, so the chooser stays up whenever any exist. Both the flag and the
+    // entries land after mount, and the flag store boots to its registry
+    // default, so the origin hold below is inert until this one clears.
+    if (!flagsHydrated) {
+      return;
+    }
     if (assistantSwitcher && !originsHydrated) {
       return;
     }
@@ -607,16 +617,19 @@ export function SelectAssistantScreen() {
     localClient,
     originEntries.length,
     assistantSwitcher,
+    flagsHydrated,
     originsHydrated,
   ]);
 
   const onContinue = () => {
     if (selected === CLOUD_SELECTION_KEY) {
       // A rejected bridge switch leaves the shell where it is, so fall back
-      // to the plain navigation the card's url already gives us.
-      void switchToVellumCloud().then((switched) => {
+      // to a plain navigation. The baked url is the hub's assistant root
+      // already (the shell's `server.url`), unlike a remembered origin's
+      // bare base.
+      void nativeSwitchToOrigin(null).then((switched) => {
         if (!switched && cloudOriginUrl !== null) {
-          window.location.assign(`${cloudOriginUrl}/assistant`);
+          window.location.assign(cloudOriginUrl);
         }
       });
       return;
@@ -729,19 +742,30 @@ export function SelectAssistantScreen() {
           })}
           {originEntries.map((origin, index) => {
             const key = originSelectionKey(origin);
+            // Forgetting the origin a native shell is serving clears its
+            // active slot and relocates the app, which the removal copy
+            // promises it will not do, so the current card has no menu.
+            const current = isCurrentOrigin(origin);
             return (
               <RemoteOriginCard
                 key={origin.url}
                 origin={origin}
                 selected={selected === key}
-                current={isCurrentOrigin(origin)}
+                current={current}
                 tabStop={
                   selected == null
                     ? accessibleAssistants.length === 0 && index === 0
                     : selected === key
                 }
                 onSelect={() => setSelected(key)}
-                onRemove={() => setRemoveOriginTarget(origin)}
+                onRemove={
+                  // Forgetting the current entry on a native shell relocates
+                  // the app to the baked origin, which the dialog copy does
+                  // not promise. Elsewhere the list is local and inert.
+                  current && nativeMobile
+                    ? undefined
+                    : () => setRemoveOriginTarget(origin)
+                }
               />
             );
           })}
@@ -760,7 +784,7 @@ export function SelectAssistantScreen() {
               onSelect={() => setSelected(CLOUD_SELECTION_KEY)}
             />
           )}
-          {isLocalClient() && (
+          {localClient && (
             <DashedActionButton
               icon={<Plus className="h-4 w-4" />}
               label="Create a new assistant"
@@ -928,38 +952,15 @@ function DashedActionButton({
   );
 }
 
-function AssistantCard({
-  assistant,
-  selected,
-  locked,
-  tabStop,
-  onSelect,
-  loginLabel,
-  loginDisabled,
-  onLogin,
+/** Overflow menu opening the remove-from-this-device confirmation. */
+function RemoveCardMenu({
+  label,
   onRemove,
 }: {
-  assistant: ResolvedAssistant;
-  selected: boolean;
-  /** Not selectable in this session (platform-hosted without a login). */
-  locked: boolean;
-  /** The radiogroup's single roving tab stop lands on this card. */
-  tabStop: boolean;
-  onSelect: () => void;
-  loginLabel: string;
-  loginDisabled: boolean;
-  /** Present only on locked platform cards: log in to unlock this assistant. */
-  onLogin?: () => void;
-  /** Present when the entry can be forgotten on this device: opens the confirm. */
-  onRemove?: () => void;
+  label: string;
+  onRemove: () => void;
 }) {
-  const subtitle = assistantSubtitle(assistant);
-  // Electron compacts the card to the Swift client's onboarding-card metrics
-  // (12px padding, 12px radius, 12px icon→text gap, 11px secondary text) so
-  // the picker reads at the same density as the native windows.
-  const electron = isElectron();
-
-  const removeMenu = onRemove && (
+  return (
     <Menu.Root>
       <Menu.Trigger asChild>
         <Button
@@ -967,7 +968,7 @@ function AssistantCard({
           size="regular"
           className="text-[var(--content-tertiary)]"
           iconOnly={<EllipsisVertical />}
-          aria-label={`Actions for ${assistantLabel(assistant)}`}
+          aria-label={`Actions for ${label}`}
         />
       </Menu.Trigger>
       <Menu.Content align="end" sideOffset={4}>
@@ -980,6 +981,43 @@ function AssistantCard({
       </Menu.Content>
     </Menu.Root>
   );
+}
+
+/**
+ * Radio-card shell every chooser entry renders through: icon, title,
+ * subtitle, the roving tab stop, and the right-hand affordance cluster. A
+ * locked card (a platform assistant with no session) drops the radio
+ * semantics and the selected dot, keeping only its actions.
+ */
+function ChooserCard({
+  icon,
+  title,
+  subtitle,
+  selected,
+  locked = false,
+  tabStop,
+  onSelect,
+  action,
+  removeMenu,
+}: {
+  icon: ReactNode;
+  title: string;
+  subtitle: string;
+  selected: boolean;
+  /** Not selectable in this session (platform-hosted without a login). */
+  locked?: boolean;
+  /** The radiogroup's single roving tab stop lands on this card. */
+  tabStop: boolean;
+  onSelect: () => void;
+  /** Leading right-hand affordance, e.g. a locked card's log-in button. */
+  action?: ReactNode;
+  /** Present when the entry can be forgotten on this device. */
+  removeMenu?: ReactNode;
+}) {
+  // Electron compacts the card to the Swift client's onboarding-card metrics
+  // (12px padding, 12px radius, 12px icon→text gap, 11px secondary text) so
+  // the picker reads at the same density as the native windows.
+  const electron = isElectron();
 
   return (
     <div
@@ -1022,18 +1060,12 @@ function AssistantCard({
             : "bg-[var(--surface-active)]/40 text-[var(--content-secondary)]",
         ].join(" ")}
       >
-        {assistant.isPaired ? (
-          <Link2 className="h-5 w-5" />
-        ) : assistant.isLocal ? (
-          <Laptop className="h-5 w-5" />
-        ) : (
-          <Cloud className="h-5 w-5" />
-        )}
+        {icon}
       </div>
 
       <div className="min-w-0 flex-1">
         <span className="block text-body-medium-default text-[var(--content-default)]">
-          {assistantLabel(assistant)}
+          {title}
         </span>
         <span
           className={`mt-1 block text-[var(--content-tertiary)] ${electron ? "text-label-medium-default font-normal" : "text-body-small-lighter"}`}
@@ -1042,23 +1074,12 @@ function AssistantCard({
         </span>
       </div>
 
-      {locked ? (
-        <div className="flex shrink-0 items-center gap-2">
-          {onLogin && (
-            <Button
-              variant="primary"
-              size="regular"
-              onClick={onLogin}
-              disabled={loginDisabled}
-            >
-              {loginLabel}
-            </Button>
-          )}
-          {removeMenu}
-        </div>
-      ) : (
-        <div className="flex shrink-0 items-center gap-2">
-          {removeMenu && (
+      <div className="flex shrink-0 items-center gap-2">
+        {action}
+        {removeMenu &&
+          (locked ? (
+            removeMenu
+          ) : (
             /* The trigger sits inside the radio card: stop clicks and keys
                from bubbling so opening the menu never selects the card and
                the radio's Enter/Space handler never swallows the trigger. */
@@ -1068,7 +1089,8 @@ function AssistantCard({
             >
               {removeMenu}
             </div>
-          )}
+          ))}
+        {!locked && (
           <div
             className={[
               "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200",
@@ -1084,18 +1106,80 @@ function AssistantCard({
               />
             )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
 
+function AssistantCard({
+  assistant,
+  selected,
+  locked,
+  tabStop,
+  onSelect,
+  loginLabel,
+  loginDisabled,
+  onLogin,
+  onRemove,
+}: {
+  assistant: ResolvedAssistant;
+  selected: boolean;
+  /** Not selectable in this session (platform-hosted without a login). */
+  locked: boolean;
+  /** The radiogroup's single roving tab stop lands on this card. */
+  tabStop: boolean;
+  onSelect: () => void;
+  loginLabel: string;
+  loginDisabled: boolean;
+  /** Present only on locked platform cards: log in to unlock this assistant. */
+  onLogin?: () => void;
+  /** Present when the entry can be forgotten on this device: opens the confirm. */
+  onRemove?: () => void;
+}) {
+  const label = assistantLabel(assistant);
+  return (
+    <ChooserCard
+      icon={
+        assistant.isPaired ? (
+          <Link2 className="h-5 w-5" />
+        ) : assistant.isLocal ? (
+          <Laptop className="h-5 w-5" />
+        ) : (
+          <Cloud className="h-5 w-5" />
+        )
+      }
+      title={label}
+      subtitle={assistantSubtitle(assistant)}
+      selected={selected}
+      locked={locked}
+      tabStop={tabStop}
+      onSelect={onSelect}
+      action={
+        locked && onLogin ? (
+          <Button
+            variant="primary"
+            size="regular"
+            onClick={onLogin}
+            disabled={loginDisabled}
+          >
+            {loginLabel}
+          </Button>
+        ) : undefined
+      }
+      removeMenu={
+        onRemove && <RemoveCardMenu label={label} onRemove={onRemove} />
+      }
+    />
+  );
+}
+
 /**
- * Chooser card for a remote origin, in the `AssistantCard` visual language. An
- * origin is only an address: it is always selectable (no session is needed to
- * navigate away), and its menu removal only forgets the entry on this device.
- * The native shell's baked Vellum Cloud origin reuses the card without a menu,
- * since there is no device-local entry to forget.
+ * Chooser card for a remote origin. An origin is only an address: it is
+ * always selectable (no session is needed to navigate away), and its menu
+ * removal only forgets the entry on this device. The native shell's baked
+ * Vellum Cloud origin reuses the card without a menu, since there is no
+ * device-local entry to forget.
  */
 function RemoteOriginCard({
   origin,
@@ -1118,102 +1202,18 @@ function RemoteOriginCard({
   /** Opens the remove-from-this-device confirmation, when there is one. */
   onRemove?: () => void;
 }) {
-  const electron = isElectron();
-  const hostname = new URL(origin.url).hostname;
-
+  const label = originLabel(origin);
   return (
-    <div
-      role="radio"
-      aria-checked={selected}
-      tabIndex={tabStop ? 0 : -1}
-      onClick={onSelect}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onSelect();
-        }
-      }}
-      className={[
-        "group flex w-full items-center border text-left",
-        electron
-          ? "gap-3 rounded-lg px-[10px] py-3"
-          : "gap-4 rounded-2xl px-[18px] py-4",
-        "transition-all duration-200 ease-out",
-        "cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary-base)]",
-        selected
-          ? "border-[var(--primary-base)] bg-[var(--surface-lift)]"
-          : "border-[var(--border-base)] bg-[var(--surface-lift)]/60 hover:border-[var(--border-element)] hover:bg-[var(--surface-lift)]",
-      ].join(" ")}
-    >
-      <div
-        className={[
-          "flex shrink-0 items-center justify-center transition-colors duration-200",
-          "h-12 w-12 rounded-[10px]",
-          selected
-            ? "bg-[var(--primary-base)] text-[var(--surface-base)]"
-            : "bg-[var(--surface-active)]/40 text-[var(--content-secondary)]",
-        ].join(" ")}
-      >
-        {icon ?? <Globe className="h-5 w-5" />}
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <span className="block text-body-medium-default text-[var(--content-default)]">
-          {originLabel(origin)}
-        </span>
-        <span
-          className={`mt-1 block text-[var(--content-tertiary)] ${electron ? "text-label-medium-default font-normal" : "text-body-small-lighter"}`}
-        >
-          {`${current ? "Current" : "Remote"} · ${hostname}`}
-        </span>
-      </div>
-
-      <div className="flex shrink-0 items-center gap-2">
-        {onRemove && (
-          /* The trigger sits inside the radio card: stop clicks and keys from
-             bubbling so opening the menu never selects the card and the
-             radio's Enter/Space handler never swallows the trigger. */
-          <div
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
-            <Menu.Root>
-              <Menu.Trigger asChild>
-                <Button
-                  variant="ghost"
-                  size="regular"
-                  className="text-[var(--content-tertiary)]"
-                  iconOnly={<EllipsisVertical />}
-                  aria-label={`Actions for ${originLabel(origin)}`}
-                />
-              </Menu.Trigger>
-              <Menu.Content align="end" sideOffset={4}>
-                <Menu.Item
-                  onSelect={onRemove}
-                  className="text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-strong)]"
-                >
-                  Remove from this device…
-                </Menu.Item>
-              </Menu.Content>
-            </Menu.Root>
-          </div>
-        )}
-        <div
-          className={[
-            "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200",
-            selected
-              ? "border-[var(--primary-base)] bg-[var(--primary-base)]"
-              : "border-[var(--border-element)] group-hover:border-[var(--content-tertiary)]",
-          ].join(" ")}
-        >
-          {selected && (
-            <Check
-              className="h-3 w-3 text-[var(--surface-base)]"
-              strokeWidth={3}
-            />
-          )}
-        </div>
-      </div>
-    </div>
+    <ChooserCard
+      icon={icon ?? <Globe className="h-5 w-5" />}
+      title={label}
+      subtitle={`${current ? "Current" : "Remote"} · ${originHostname(origin)}`}
+      selected={selected}
+      tabStop={tabStop}
+      onSelect={onSelect}
+      removeMenu={
+        onRemove && <RemoveCardMenu label={label} onRemove={onRemove} />
+      }
+    />
   );
 }

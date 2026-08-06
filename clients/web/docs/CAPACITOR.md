@@ -245,9 +245,13 @@ server. Changing one means changing the other.
 
 **Switching is per surface, and every surface has a working answer.**
 
-- Browser and Electron: `switchToOrigin` navigates to the origin's SPA root. A
-  remembered origin is a separate deployment, so this is a full navigation, not
-  a route change.
+- Browser: `switchToOrigin` navigates to the origin's SPA root. A remembered
+  origin is a separate deployment, so this is a full navigation, not a route
+  change.
+- Electron: the same navigation, but it does not land in the app window. The
+  main window's `will-navigate` guard
+  ([`main-window.ts`](../../macos/src/main/main-window.ts)) sends any
+  cross-origin https target to the system browser, so the origin opens there.
 - Native mobile with the plugin: `nativeSwitchToOrigin` hands the url to the
   shell, which reloads the web view in place. The user never leaves the app,
   and a "Vellum Cloud" card sourced from `list().bakedUrl` is the way back.
@@ -278,12 +282,13 @@ make is the same answer one turn earlier. `nativeSwitchToOrigin` resolving
 `false` and `nativeVellumCloudOrigin` resolving `null` already cover every
 reason there is no native side.
 
-The plugin module is reached lazily. `switch-origin.ts` imports it with a
-dynamic `import()` inside the native branch so a browser surface never pulls it
-into its graph, and `registerPlugin` itself only builds the bridge Proxy, so
-nothing reaches the shell before the flag-gated install. The inline-destructure
-rule at the top of this document applies to every call: only results cross an
-`async` boundary, never the plugin Proxy.
+The module is a plain static import from both the chooser and
+`switch-origin.ts`: the chooser needs it on mount to install the provider, and
+`registerPlugin` only builds the bridge Proxy, so importing it reaches nothing
+on any surface. Every method call sits behind `isNativeMobile()` or the
+flag-gated install. The inline-destructure rule at the top of this document
+applies to every call: only results cross an `async` boundary, never the plugin
+Proxy.
 
 ---
 

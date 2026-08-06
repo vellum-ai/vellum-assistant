@@ -27,6 +27,12 @@ import type { ResolvedAssistant } from "@/stores/resolved-assistants-store";
 
 const navigateMock = mock((_to: string, _opts?: unknown) => {});
 let searchParams = new URLSearchParams();
+const setSearchParamsMock = mock(
+  (
+    _next: (prev: URLSearchParams) => URLSearchParams,
+    _opts?: { replace?: boolean },
+  ) => {},
+);
 let hasPlatformSessionValue = false;
 let assistantsValue: ResolvedAssistant[] = [];
 let localModeHostAvailableValue = false;
@@ -78,7 +84,7 @@ const addOriginMock = mock(
   }),
 );
 const switchToOriginMock = mock(async (_origin: RememberedOrigin) => {});
-const switchToVellumCloudMock = mock(async () => true);
+const nativeSwitchToOriginMock = mock(async (_url: string | null) => true);
 let isNativeMobileValue = false;
 const installNativeRememberedOriginsMock = mock(() => {});
 /** What the native shell reports as its baked Vellum Cloud origin, if any. */
@@ -100,7 +106,7 @@ class MockGuardianTokenError extends Error {
 
 mock.module("react-router", () => ({
   useNavigate: () => navigateMock,
-  useSearchParams: () => [searchParams],
+  useSearchParams: () => [searchParams, setSearchParamsMock],
 }));
 
 mock.module("@/assistant/selection", () => ({
@@ -169,7 +175,6 @@ mock.module("@/stores/remembered-origins-store", () => ({
 
 mock.module("@/assistant/switch-origin", () => ({
   switchToOrigin: switchToOriginMock,
-  switchToVellumCloud: switchToVellumCloudMock,
   isCurrentOrigin: (origin: RememberedOrigin) =>
     origin.url === currentOriginUrl,
 }));
@@ -180,6 +185,7 @@ mock.module("@/runtime/platform-detection", () => ({
 
 mock.module("@/runtime/self-hosted-servers", () => ({
   installNativeRememberedOrigins: installNativeRememberedOriginsMock,
+  nativeSwitchToOrigin: nativeSwitchToOriginMock,
   nativeVellumCloudOrigin: async () => nativeCloudOriginValue,
 }));
 
@@ -416,6 +422,12 @@ function makePlatformAssistant(
 const REPAIR_COPY =
   "This pairing has expired. Run vellum pair on the assistant's machine and import it again with vellum connect import.";
 
+/**
+ * What a shell reports as its baked Vellum Cloud origin. It is the Capacitor
+ * `server.url`, which is the hub's `/assistant` root rather than a bare base.
+ */
+const BAKED_CLOUD_URL = "https://www.vellum.ai/assistant";
+
 function makeOrigin(
   overrides: Partial<RememberedOrigin> = {},
 ): RememberedOrigin {
@@ -436,6 +448,7 @@ beforeEach(() => {
   connectLocalAssistantMock.mockClear();
   connectPlatformAssistantMock.mockClear();
   searchParams = new URLSearchParams();
+  setSearchParamsMock.mockClear();
   hasPlatformSessionValue = false;
   assistantsValue = [];
   localModeHostAvailableValue = false;
@@ -461,7 +474,8 @@ beforeEach(() => {
     },
   }));
   switchToOriginMock.mockClear();
-  switchToVellumCloudMock.mockClear();
+  nativeSwitchToOriginMock.mockClear();
+  nativeSwitchToOriginMock.mockImplementation(async () => true);
   isNativeMobileValue = false;
   nativeCloudOriginValue = null;
   installNativeRememberedOriginsMock.mockClear();
@@ -1001,6 +1015,33 @@ describe("SelectAssistantScreen remembered origins", () => {
     expect(switchToOriginMock).not.toHaveBeenCalled();
   });
 
+  test("the current-origin card offers no remove menu on a native shell", () => {
+    // A native shell always lists the origin it serves, and forgetting that
+    // one relocates the app, which the removal copy promises it will not do.
+    assistantSwitcherValue = true;
+    isNativeMobileValue = true;
+    currentOriginUrl = "https://assistant.example.com";
+    originsValue = [makeOrigin()];
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.queryByLabelText("Actions for Home Server")).toBeNull();
+  });
+
+  test("the current-origin card keeps its remove menu in a browser", () => {
+    // The browser list is local and inert: forgetting the entry cannot move
+    // the page, so the user keeps the affordance.
+    assistantSwitcherValue = true;
+    currentOriginUrl = "https://assistant.example.com";
+    originsValue = [makeOrigin()];
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.getByLabelText("Actions for Home Server")).toBeTruthy();
+  });
+
   test("removing an origin shows the origin copy and forgets the entry", async () => {
     assistantSwitcherValue = true;
     originsValue = [makeOrigin()];
@@ -1083,6 +1124,29 @@ describe("SelectAssistantScreen remembered origins", () => {
     );
     expect(connectPairedAssistantMock).not.toHaveBeenCalled();
   });
+
+  test("auto-skip holds until the feature flags hydrate", async () => {
+    // The flag store boots to the registry default (off), so a targeted `on`
+    // lands after mount; skipping before then would strand this device's
+    // remembered origins behind an auto-connect.
+    flagsHydratedValue = false;
+    assistantsValue = [makePairedAssistant()];
+
+    const { rerender } = render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
+    );
+    expect(connectPairedAssistantMock).not.toHaveBeenCalled();
+
+    flagsHydratedValue = true;
+    assistantSwitcherValue = true;
+    originsValue = [makeOrigin()];
+    rerender(<SelectAssistantScreen />);
+
+    await waitFor(() => expect(screen.getByText("Home Server")).toBeTruthy());
+    expect(connectPairedAssistantMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("SelectAssistantScreen native mobile", () => {
@@ -1106,7 +1170,7 @@ describe("SelectAssistantScreen native mobile", () => {
   test("a shell serving a self-hosted origin offers a Vellum Cloud card", async () => {
     assistantSwitcherValue = true;
     isNativeMobileValue = true;
-    nativeCloudOriginValue = "https://app.vellum.ai";
+    nativeCloudOriginValue = BAKED_CLOUD_URL;
     assistantsValue = [];
 
     render(<SelectAssistantScreen />);
@@ -1118,16 +1182,20 @@ describe("SelectAssistantScreen native mobile", () => {
     fireEvent.click(screen.getByText("Vellum Cloud"));
     fireEvent.click(screen.getByText("Continue"));
 
-    await waitFor(() => expect(switchToVellumCloudMock).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(nativeSwitchToOriginMock).toHaveBeenCalledWith(null),
+    );
     expect(switchToOriginMock).not.toHaveBeenCalled();
   });
 
-  test("a rejected cloud switch falls back to a plain navigation", async () => {
+  test("a rejected cloud switch navigates to the baked url as-is", async () => {
     assistantSwitcherValue = true;
     isNativeMobileValue = true;
-    nativeCloudOriginValue = "https://app.vellum.ai";
+    // The shell's baked `server.url` already carries the hub's `/assistant`
+    // root, so the fallback must not append the route a second time.
+    nativeCloudOriginValue = BAKED_CLOUD_URL;
     assistantsValue = [];
-    switchToVellumCloudMock.mockImplementation(async () => false);
+    nativeSwitchToOriginMock.mockImplementation(async () => false);
     const assignSpy = mock((_url: string) => {});
     const originalLocation = window.location;
     Object.defineProperty(window, "location", {
@@ -1145,18 +1213,57 @@ describe("SelectAssistantScreen native mobile", () => {
       fireEvent.click(screen.getByText("Continue"));
 
       await waitFor(() =>
-        expect(assignSpy).toHaveBeenCalledWith(
-          "https://app.vellum.ai/assistant",
-        ),
+        expect(assignSpy).toHaveBeenCalledWith(BAKED_CLOUD_URL),
       );
     } finally {
       Object.defineProperty(window, "location", {
         configurable: true,
         value: originalLocation,
       });
-      // mockClear keeps the implementation, so restore the default here.
-      switchToVellumCloudMock.mockImplementation(async () => true);
     }
+  });
+
+  test("an origins-only chooser defaults its selection so Continue can act", async () => {
+    assistantSwitcherValue = true;
+    isNativeMobileValue = true;
+    nativeCloudOriginValue = BAKED_CLOUD_URL;
+    originsValue = [makeOrigin()];
+    assistantsValue = [];
+
+    render(<SelectAssistantScreen />);
+
+    // The first origin card wins the default, ahead of the cloud card.
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByRole("radio")
+          .find((r) => r.textContent?.includes("Home Server"))
+          ?.getAttribute("aria-checked"),
+      ).toBe("true"),
+    );
+    expect(
+      (screen.getByText("Continue") as HTMLButtonElement).disabled,
+    ).toBe(false);
+
+    fireEvent.click(screen.getByText("Continue"));
+
+    await waitFor(() => expect(switchToOriginMock).toHaveBeenCalled());
+  });
+
+  test("with only the cloud card the selection defaults to it", async () => {
+    assistantSwitcherValue = true;
+    isNativeMobileValue = true;
+    nativeCloudOriginValue = BAKED_CLOUD_URL;
+    assistantsValue = [];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() => expect(screen.getByText("Vellum Cloud")).toBeTruthy());
+    fireEvent.click(screen.getByText("Continue"));
+
+    await waitFor(() =>
+      expect(nativeSwitchToOriginMock).toHaveBeenCalledWith(null),
+    );
   });
 
   test("no Vellum Cloud card when the shell already serves the baked origin", async () => {
@@ -1174,7 +1281,7 @@ describe("SelectAssistantScreen native mobile", () => {
 
   test("no Vellum Cloud card on a browser surface", async () => {
     assistantSwitcherValue = true;
-    nativeCloudOriginValue = "https://app.vellum.ai";
+    nativeCloudOriginValue = BAKED_CLOUD_URL;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
     render(<SelectAssistantScreen />);
@@ -1264,32 +1371,17 @@ describe("SelectAssistantScreen add-remote-assistant affordance", () => {
 });
 
 describe("SelectAssistantScreen register handoff", () => {
-  const replaceStateSpy = mock(
-    (_data: unknown, _unused: string, _url?: string | URL | null) => {},
-  );
-  let originalReplaceState: typeof window.history.replaceState;
+  /** The query string the screen's updater produces from the current one. */
+  function strippedQuery(): string {
+    const [update] = setSearchParamsMock.mock.calls[0];
+    return update(searchParams).toString();
+  }
 
-  beforeEach(() => {
-    replaceStateSpy.mockClear();
-    originalReplaceState = window.history.replaceState;
-    Object.defineProperty(window.history, "replaceState", {
-      configurable: true,
-      value: replaceStateSpy,
-    });
-  });
-
-  afterEach(() => {
-    Object.defineProperty(window.history, "replaceState", {
-      configurable: true,
-      value: originalReplaceState,
-    });
-  });
-
-  test("a valid register param records the origin with its label and cleans the address bar", async () => {
+  test("a valid register param records the origin with its label and strips the params through the router", async () => {
     assistantSwitcherValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
     searchParams = new URLSearchParams(
-      "register=https%3A%2F%2Fhost.example%2Fassistant-1&name=Homelab",
+      "register=https%3A%2F%2Fhost.example%2Fassistant-1&name=Homelab&keep=1",
     );
 
     render(<SelectAssistantScreen />);
@@ -1302,7 +1394,11 @@ describe("SelectAssistantScreen register handoff", () => {
         name: "Homelab",
       }),
     );
-    expect(replaceStateSpy).toHaveBeenCalled();
+    await waitFor(() => expect(setSearchParamsMock).toHaveBeenCalled());
+    // Only the consumed params go; the rest of the query survives, and the
+    // strip replaces the entry rather than pushing a new one.
+    expect(strippedQuery()).toBe("keep=1");
+    expect(setSearchParamsMock.mock.calls[0][1]).toEqual({ replace: true });
     // Records only; the user stays on the chooser to see the updated list.
     expect(switchToOriginMock).not.toHaveBeenCalled();
     expect(navigateMock).not.toHaveBeenCalled();
@@ -1321,7 +1417,7 @@ describe("SelectAssistantScreen register handoff", () => {
     await waitFor(() => expect(addOriginMock).toHaveBeenCalled());
     // The handoff params are the only copy of the registration; a failed
     // persistence keeps them so a reload retries.
-    expect(replaceStateSpy).not.toHaveBeenCalled();
+    expect(setSearchParamsMock).not.toHaveBeenCalled();
   });
 
   test("a name-less register param records the origin without a label", async () => {
@@ -1360,7 +1456,8 @@ describe("SelectAssistantScreen register handoff", () => {
       expect(addOriginMock).not.toHaveBeenCalled();
       expect(screen.queryByText(/Failed|Please try again/)).toBeNull();
       // The consumed params still leave the address bar.
-      expect(replaceStateSpy).toHaveBeenCalled();
+      expect(setSearchParamsMock).toHaveBeenCalled();
+      expect(strippedQuery()).toBe("");
     },
   );
 
@@ -1376,7 +1473,7 @@ describe("SelectAssistantScreen register handoff", () => {
       expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
     );
     expect(addOriginMock).not.toHaveBeenCalled();
-    expect(replaceStateSpy).not.toHaveBeenCalled();
+    expect(setSearchParamsMock).not.toHaveBeenCalled();
   });
 });
 
