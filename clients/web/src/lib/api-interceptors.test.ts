@@ -118,6 +118,7 @@ import {
   authorizeRemoteGatewayRequest,
   daemonErrorInterceptor,
   daemonRequestInterceptor,
+  jsonContentTypeFallbackInterceptor,
   localGatewayAuthRecoveryInterceptor,
   platformAuthRecoveryInterceptor,
   platformFeaturesGate,
@@ -2107,4 +2108,88 @@ describe("api-interceptors / post-resume request counting", () => {
     expect(output.url).toBe(input.url);
     expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
   });
+});
+
+describe("api-interceptors / jsonContentTypeFallbackInterceptor", () => {
+  test("defaults an absent Content-Type to application/json", async () => {
+    const input = new Response('{"ok":true}', { status: 200 });
+    input.headers.delete("content-type");
+
+    const output = jsonContentTypeFallbackInterceptor(input);
+
+    expect(output.headers.get("content-type")).toBe("application/json");
+    expect(await output.text()).toBe('{"ok":true}');
+  });
+
+  test("an absent Content-Type with an empty body still parses as JSON", async () => {
+    // The LUM-2371 shape: under `parseAs: "auto"` a missing header selects
+    // "stream", handing back `response.body` (which serializes to `null`).
+    // With the header defaulted, the client's JSON branch yields `{}`.
+    const input = new Response("", { status: 200 });
+    input.headers.delete("content-type");
+
+    const output = jsonContentTypeFallbackInterceptor(input);
+
+    expect(output.headers.get("content-type")).toBe("application/json");
+    expect(await output.text()).toBe("");
+  });
+
+  test("preserves status and statusText", () => {
+    const input = new Response("{}", { status: 201, statusText: "Created" });
+    input.headers.delete("content-type");
+
+    const output = jsonContentTypeFallbackInterceptor(input);
+
+    expect(output.status).toBe(201);
+    expect(output.statusText).toBe("Created");
+  });
+
+  test("preserves other headers while adding Content-Type", () => {
+    const input = new Response("{}", {
+      status: 200,
+      headers: { "x-vellum-request-id": "abc123" },
+    });
+    input.headers.delete("content-type");
+
+    const output = jsonContentTypeFallbackInterceptor(input);
+
+    expect(output.headers.get("x-vellum-request-id")).toBe("abc123");
+    expect(output.headers.get("content-type")).toBe("application/json");
+  });
+
+  test.each([
+    ["application/zip"],
+    ["application/pdf"],
+    ["image/png"],
+    ["application/octet-stream"],
+    ["application/gzip"],
+    ["text/event-stream"],
+    ["application/json"],
+  ])("leaves a declared %s response untouched", (contentType) => {
+    // Load-bearing: rewriting these would break `auto` inference, which is
+    // the whole reason binary downloads need no per-call-site `parseAs`.
+    const input = new Response("payload", {
+      status: 200,
+      headers: { "content-type": contentType },
+    });
+
+    const output = jsonContentTypeFallbackInterceptor(input);
+
+    expect(output).toBe(input);
+    expect(output.headers.get("content-type")).toBe(contentType);
+  });
+
+  test.each([[204], [205], [304]])(
+    "returns a %i response untouched rather than rebuilding it",
+    (status) => {
+      // Constructing a Response with a body and a null-body status throws.
+      const input = new Response(null, { status });
+      input.headers.delete("content-type");
+
+      const output = jsonContentTypeFallbackInterceptor(input);
+
+      expect(output).toBe(input);
+      expect(output.status).toBe(status);
+    },
+  );
 });

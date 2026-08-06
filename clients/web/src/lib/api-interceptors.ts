@@ -468,6 +468,49 @@ export function daemonUnreachableInterceptor(response: Response): Response {
 }
 
 /**
+ * Statuses that must not carry a body. Constructing a `Response` with a body
+ * and one of these throws, so they are handed back untouched.
+ */
+const NULL_BODY_STATUSES = new Set([204, 205, 304]);
+
+/**
+ * Default a missing response `Content-Type` to `application/json`.
+ *
+ * The generated clients parse with HeyAPI's `parseAs: "auto"`, which picks the
+ * strategy from the response `Content-Type`: `application/json` parses as JSON,
+ * `application/zip` / `image/png` / `application/pdf` and friends as a blob,
+ * and an unrecognized type falls back to JSON. That inference is correct for
+ * every endpoint in these specs, and it is what lets a binary download work
+ * without the call site restating what the route already declares in its
+ * `RouteDefinition.responseBody` `contentType`.
+ *
+ * Its one wrong answer is an **absent** header, where `getParseAs()` returns
+ * `"stream"` and the client hands back `response.body` as data (a value that
+ * serializes to `null` when the body is empty). Defaulting the header here
+ * fixes that single case at the seam, so no call site has to compensate for it.
+ *
+ * The response is only rebuilt when the header is genuinely missing; otherwise
+ * the original object is returned as-is.
+ *
+ * Reference: https://heyapi.dev/openapi-ts/clients/fetch#parser
+ */
+export function jsonContentTypeFallbackInterceptor(response: Response): Response {
+  if (response.headers.get("content-type")) {
+    return response;
+  }
+  if (NULL_BODY_STATUSES.has(response.status)) {
+    return response;
+  }
+  const headers = new Headers(response.headers);
+  headers.set("content-type", "application/json");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+/**
  * Daemon response interceptor for local gateway 401 recovery.
  *
  * When the local gateway rejects a request with 401 (stale or invalid
@@ -903,24 +946,23 @@ gatewayClient.interceptors.response.use(daemonUnreachableInterceptor);
 gatewayClient.interceptors.response.use(platformAuthRecoveryInterceptor);
 gatewayClient.interceptors.error.use(daemonErrorInterceptor);
 
-// Force JSON body parsing for all three generated clients. The default
-// `parseAs: 'auto'` infers the parsing strategy from the Content-Type
-// response header. When the header is absent (observed on iOS WKWebView
-// under concurrent fetch load), the client falls back to `'stream'`
-// mode and returns `response.body` (a ReadableStream or null) as
-// `data` — producing the "body=null" errors reported in LUM-2371.
+// Keep HeyAPI's `parseAs: "auto"` (the client default) so each response is
+// parsed according to the Content-Type the route declares, and repair the one
+// case `auto` gets wrong: an absent header, which it treats as `"stream"`.
 //
-// Every endpoint in these OpenAPI specs returns JSON; non-JSON call
-// sites (blob downloads) explicitly override `parseAs` per-request.
+// Forcing `parseAs: "json"` here instead would discard correct inference for
+// every binary endpoint (zip / pdf / png / octet-stream / gzip) and make each
+// download depend on its call site restating a content type the route already
+// declares in `RouteDefinition.responseBody`.
 //
-// Reference: https://heyapi.dev/openapi-ts/clients/fetch#parser
+// See {@link jsonContentTypeFallbackInterceptor}.
 for (const apiClient of [
   daemonClient,
   gatewayClient,
   platformClient,
   authClient,
 ]) {
-  apiClient.setConfig({ parseAs: "json" });
+  apiClient.interceptors.response.use(jsonContentTypeFallbackInterceptor);
 }
 
 for (const apiClient of [authClient, platformClient]) {
