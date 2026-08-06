@@ -7,6 +7,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
+import { MODELS_BY_PROVIDER } from "@/assistant/llm-model-catalog";
 import type {
   ConfigGetResponse,
   ProviderConnection,
@@ -452,6 +453,113 @@ describe("mix rungs (per-conversation seeded pick)", () => {
         },
       }),
     ).toBeNull();
+  });
+});
+
+describe("mainAgent call-site tweak composition", () => {
+  // Real catalog ids: the composition's serves-model check reads the client
+  // model catalog, so fake ids would always look foreign.
+  const ANTHROPIC_MODEL = MODELS_BY_PROVIDER.anthropic[0]?.id ?? "";
+  const OPENAI_MODEL = MODELS_BY_PROVIDER.openai[0]?.id ?? "";
+
+  const BYOK_WINNER_LLM = (
+    callSites: NonNullable<LlmConfig>["callSites"],
+  ): LlmConfig => ({
+    activeProfile: "p",
+    callSites,
+    profiles: {
+      p: {
+        provider: "anthropic",
+        model: ANTHROPIC_MODEL,
+        provider_connection: "my-anthropic",
+      },
+    },
+  });
+
+  test("a model tweak served by the winner's provider keeps the BYOK verdict", () => {
+    expect(
+      classify({
+        llm: BYOK_WINNER_LLM({ mainAgent: { model: ANTHROPIC_MODEL } }),
+        connections: [BYOK_ANTHROPIC],
+      }),
+    ).toBe(false);
+  });
+
+  test("a model tweak owned by another provider voids the BYOK proof", () => {
+    // The daemon stamps the model's catalog owner and drops the winner's
+    // binding, so the availability proof no longer attests the dispatch
+    // route and the verdict degrades to unknown (banners up).
+    expect(
+      classify({
+        llm: BYOK_WINNER_LLM({ mainAgent: { model: OPENAI_MODEL } }),
+        connections: [BYOK_ANTHROPIC],
+      }),
+    ).toBeNull();
+  });
+
+  test("a foreign model tweak classifies by the implied provider's connections", () => {
+    // Unbound implied dispatch consults the implied provider's connections:
+    // a platform-auth openai connection makes the route managed, while an
+    // api-key one leaves a BYOK-looking route whose proof was voided.
+    expect(
+      classify({
+        llm: BYOK_WINNER_LLM({ mainAgent: { model: OPENAI_MODEL } }),
+        connections: [
+          BYOK_ANTHROPIC,
+          conn({
+            name: "managed-openai",
+            provider: "openai",
+            auth: { type: "platform" },
+          }),
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      classify({
+        llm: BYOK_WINNER_LLM({ mainAgent: { model: OPENAI_MODEL } }),
+        connections: [
+          BYOK_ANTHROPIC,
+          conn({ name: "my-openai", provider: "openai" }),
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  test("an explicit provider tweak voids the BYOK proof but keeps a managed binding decisive", () => {
+    expect(
+      classify({
+        llm: BYOK_WINNER_LLM({ mainAgent: { provider: "openai" } }),
+        connections: [BYOK_ANTHROPIC],
+      }),
+    ).toBeNull();
+    expect(
+      classify({
+        llm: {
+          activeProfile: "p",
+          callSites: { mainAgent: { provider: "openai" } },
+          profiles: {
+            p: {
+              provider: "anthropic",
+              model: ANTHROPIC_MODEL,
+              provider_connection: "managed-anthropic",
+            },
+          },
+        },
+        connections: [PLATFORM_ANTHROPIC],
+      }),
+    ).toBe(true);
+  });
+
+  test("a vellum winner keeps managed routing under a concrete provider tweak", () => {
+    expect(
+      classify({
+        llm: {
+          activeProfile: "p",
+          callSites: { mainAgent: { provider: "anthropic" } },
+          profiles: { p: { provider: "vellum", model: ANTHROPIC_MODEL } },
+        },
+      }),
+    ).toBe(true);
   });
 });
 
