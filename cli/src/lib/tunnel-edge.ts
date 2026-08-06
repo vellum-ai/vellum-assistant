@@ -56,9 +56,11 @@ function wantsTunnelEdge(workspaceDir: string): boolean {
  * URL; `ensureTunnelEdge` picks SPA vs webhooks-only mode off the
  * `web-remote-ingress` flag, retrying the lookup through the gateway's startup
  * window. A healthy edge whose recorded state already targets the requested
- * gateway port is reused without any flag lookup; flag-driven mode drift is
- * repaired by the next explicit `vellum tunnel` or `vellum nginx-ingress up`
- * (which always resolve the flag), not by background wakes. Edge failures warn
+ * gateway port is reused without the flag lookup or the `remoteWebConfigHash`
+ * comparison `startRemoteWebIngress` performs; both flag-driven mode drift
+ * and injected-config drift (a renamed assistant, a changed hub URL) are
+ * repaired by the next explicit `vellum tunnel` or `vellum nginx-ingress up`,
+ * not by background wakes. Edge failures warn
  * (with the error's install or diagnostic text) and fall back to tunneling the
  * gateway port directly, which `maybeStartNgrokTunnel` only does when webhook
  * integrations are configured, so webhook channels on nginx-less machines

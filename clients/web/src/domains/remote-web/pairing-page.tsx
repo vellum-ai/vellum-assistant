@@ -158,21 +158,24 @@ function buildAppHandoffUrl(
   deviceCode: string,
   platform: AppHandoffPlatform,
 ): string {
-  const query = new URLSearchParams({
+  const params = new URLSearchParams({
     url: remoteGatewayPublicBaseUrl(),
     code: deviceCode,
   });
   const assistantName = getRemoteGatewayAssistantName();
   if (assistantName) {
-    query.set("name", assistantName);
+    params.set("name", assistantName);
   }
+  // Percent-encode spaces: URLSearchParams form-encodes them as `+`, which
+  // the iOS app's Foundation URLComponents parser keeps as a literal plus.
+  const query = params.toString().replace(/\+/g, "%20");
   if (platform === "ios") {
-    return `${VELLUM_APP_SCHEME}://connect?${query.toString()}`;
+    return `${VELLUM_APP_SCHEME}://connect?${query}`;
   }
 
   const fallbackUrl = encodeURIComponent(window.location.href);
   return (
-    `intent://connect?${query.toString()}` +
+    `intent://connect?${query}` +
     `#Intent;scheme=${VELLUM_APP_SCHEME};` +
     `package=${VELLUM_ANDROID_PACKAGE};` +
     `S.browser_fallback_url=${fallbackUrl};end`

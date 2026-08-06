@@ -36,11 +36,23 @@ const whatsapp = {
 const a2a = {
   deliverA2AReply: mock((..._args: unknown[]) => Promise.resolve({ ok: true })),
 };
+const discord = {
+  sendDiscordReply: mock((..._args: unknown[]) =>
+    Promise.resolve({ lastMessageId: "discord-id" }),
+  ),
+  sendDiscordTypingIndicator: mock((..._args: unknown[]) =>
+    Promise.resolve(true),
+  ),
+  sendDiscordAttachments: mock((..._args: unknown[]) =>
+    Promise.resolve({ allFailed: false, failureCount: 0, totalCount: 0 }),
+  ),
+};
 
 mock.module("../slack/send.js", () => slack);
 mock.module("../telegram-bot/send.js", () => telegram);
 mock.module("../whatsapp/send.js", () => whatsapp);
 mock.module("../a2a/deliver.js", () => a2a);
+mock.module("../discord/send.js", () => discord);
 mock.module("../../../util/logger.js", () => ({
   getLogger: () => ({ debug() {}, info() {}, warn() {}, error() {} }),
 }));
@@ -57,7 +69,7 @@ function payload(
 }
 
 beforeEach(() => {
-  for (const group of [slack, telegram, whatsapp, a2a]) {
+  for (const group of [slack, telegram, whatsapp, a2a, discord]) {
     for (const spy of Object.values(group)) {
       spy.mockClear();
     }
@@ -78,19 +90,25 @@ describe("routing", () => {
     expect(
       getTransportForCallback(`${BASE}/deliver/a2a?taskId=t1`)?.channel,
     ).toBe("a2a");
+    expect(getTransportForCallback(`${BASE}/deliver/discord`)?.channel).toBe(
+      "discord",
+    );
   });
 
   test("isDirectDelivery is true for owned paths, false otherwise", () => {
     expect(isDirectDelivery(`${BASE}/deliver/slack`)).toBe(true);
     expect(isDirectDelivery(`${BASE}/deliver/a2a?taskId=t1`)).toBe(true);
-    expect(isDirectDelivery(`${BASE}/deliver/discord`)).toBe(false);
+    expect(isDirectDelivery(`${BASE}/deliver/discord`)).toBe(true);
     expect(isDirectDelivery(`${BASE}/v1/messages`)).toBe(false);
     expect(
       isDirectDelivery(
         `${BASE}/v1/internal/managed-gateway/outbound-send/?route_id=r1`,
       ),
     ).toBe(false);
-    expect(getTransportForCallback(`${BASE}/deliver/discord`)).toBeUndefined();
+    // `phone` is a canonical channel with no direct-delivery transport, so it
+    // stands in for the never-registered case discord used to cover.
+    expect(isDirectDelivery(`${BASE}/deliver/phone`)).toBe(false);
+    expect(getTransportForCallback(`${BASE}/deliver/phone`)).toBeUndefined();
   });
 });
 
@@ -203,12 +221,56 @@ describe("capability gating across channels", () => {
     expect(a2a.deliverA2AReply).toHaveBeenCalledTimes(1);
     expect(a2a.deliverA2AReply.mock.calls[0][0]).toBe(url);
   });
+
+  test("Discord text routes to sendDiscordReply, targeting the channel", async () => {
+    await deliverDirect(`${BASE}/deliver/discord`, payload({ text: "hi" }));
+    expect(discord.sendDiscordReply).toHaveBeenCalledTimes(1);
+    expect(discord.sendDiscordReply.mock.calls[0][0]).toEqual({
+      channelId: "C1",
+    });
+    expect(discord.sendDiscordReply.mock.calls[0][1]).toBe("hi");
+  });
+
+  test("Discord threads a reply to the thread id, not the parent channel", async () => {
+    await deliverDirect(
+      `${BASE}/deliver/discord?threadId=T9`,
+      payload({ text: "hi" }),
+    );
+    expect(discord.sendDiscordReply).toHaveBeenCalledTimes(1);
+    // A Discord thread is itself a channel: the reply must post to the thread
+    // snowflake, never to the parent channel the payload's chatId carries.
+    expect(discord.sendDiscordReply.mock.calls[0][0]).toEqual({
+      channelId: "T9",
+    });
+  });
+
+  test("a typing payload to Discord falls through to deliver (no sendTyping)", async () => {
+    // Only the Telegram heartbeat produces `chatAction: "typing"`, and it is
+    // gated on sourceChannel === "telegram", so Discord can never receive one.
+    // The transport implements no sendTyping, so this falls through.
+    await deliverDirect(
+      `${BASE}/deliver/discord`,
+      payload({ chatAction: "typing", text: "hi" }),
+    );
+    expect(discord.sendDiscordReply).toHaveBeenCalledTimes(1);
+  });
+
+  test("a Slack-only stream payload to Discord falls through to deliver", async () => {
+    await deliverDirect(
+      `${BASE}/deliver/discord`,
+      payload({
+        text: "hi",
+        slackStream: { action: "start", threadTs: "1700.5" },
+      }),
+    );
+    expect(discord.sendDiscordReply).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("unsupported callback", () => {
   test("throws when no transport owns the callback", async () => {
     await expect(
-      deliverDirect(`${BASE}/deliver/discord`, payload({ text: "hi" })),
+      deliverDirect(`${BASE}/deliver/phone`, payload({ text: "hi" })),
     ).rejects.toThrow(/unsupported callback/);
   });
 });

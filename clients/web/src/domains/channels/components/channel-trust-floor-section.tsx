@@ -1,4 +1,4 @@
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Typography } from "@vellumai/design-library/components/typography";
 
@@ -73,7 +73,7 @@ export function ChannelTrustFloorSection({
       ) : (
         <>
           <div style={{ maxWidth: 280 }}>
-            <Dropdown<AdmissionPolicy>
+            <Select<AdmissionPolicy>
               value={value}
               onChange={onChange}
               options={options}

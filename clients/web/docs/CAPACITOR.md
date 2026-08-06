@@ -155,7 +155,7 @@ The shell registers **six** Capacitor plugins in [`MyViewController.capacitorDid
 | `VoiceAudioSession` | [`src/runtime/native-audio-session.ts`](../src/runtime/native-audio-session.ts) | iOS interruption events and Android foreground audio focus. See the background-audio contract below |
 | `VoiceLiveActivity` | [`src/runtime/native-live-activity.ts`](../src/runtime/native-live-activity.ts) | One ActivityKit activity on iOS or ongoing notification on Android |
 | `ApnsEnvironment` | [`src/runtime/apns-environment.ts`](../src/runtime/apns-environment.ts) | The build's real APNs entitlement environment (`development` / `production` / `unknown`), read from the embedded provisioning profile |
-| `SelfHostedServers` | none yet (web wiring ships separately) | List, add, remove, and switch between self-hosted server origins; `switchTo` swaps the shell's configured origin and reloads in place |
+| `SelfHostedServers` | [`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts) | List, add, remove, and switch between self-hosted server origins; `switchTo` swaps the shell's configured origin and reloads in place. See the section below |
 
 The two voice plugins are consumed only through `use-live-voice-session-controller.ts` (audio session) and `use-live-activity-mirror.ts` (Live Activity), both mounted at `ChatLayout` scope so their lifetime is exactly the session's.
 
@@ -209,6 +209,86 @@ References:
 - Apple — [Playing audio in the background](https://developer.apple.com/documentation/avfaudio/audio_session/enabling_background_audio).
 - Apple — [`AVAudioSession.Mode.voiceChat`](https://developer.apple.com/documentation/avfaudio/avaudiosession/mode/voicechat).
 - Apple — [ActivityKit](https://developer.apple.com/documentation/activitykit).
+
+---
+
+## Self-hosted origins (`SelfHostedServers`)
+
+The assistant chooser offers every origin this device knows about. On a native
+mobile shell those origins live natively, not in web storage, because the shell
+is the only thing that can point its `WKWebView` somewhere else without leaving
+the app, and because the same list is written by the native Settings pane and
+the `<scheme>://connect` deep link. The web side is
+[`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts);
+the native side is
+[`SelfHostedServersPlugin.swift`](../../../clients/ios/App/App/SelfHostedServersPlugin.swift)
+over [`SelfHostedServer.swift`](../../../clients/ios/App/App/SelfHostedServer.swift).
+
+The bridge contract:
+
+| Method | Resolves | Notes |
+| --- | --- | --- |
+| `list()` | `{ servers: [{name?, url}], activeUrl, bakedUrl }` | `activeUrl` is the configured self-hosted slot (`null` means the shell serves its baked origin); `bakedUrl` is the Vellum Cloud origin the build ships with |
+| `add({url, name?})` | `{ ok }` | Deduped by canonical url. A nameless re-add keeps the stored label |
+| `remove({url})` | `{ ok }` | Forgetting the active url also clears the active slot, so the shell returns to the baked origin |
+| `switchTo({url?})` | `{ ok }` | Swaps the active slot and reloads in place. An absent or empty `url` returns to the baked origin |
+
+Only genuinely invalid caller input rejects (an `add` or `switchTo` url that
+fails `SelfHostedServer.validate`). Empty state resolves with an empty list and
+nulls, so there is no "not configured" error branch to write.
+
+Urls cross the bridge in one canonical form: `SelfHostedServer.canonicalize` and
+the store's `normalizeOriginUrl` implement the same rules (lowercase scheme and
+host, userinfo dropped, trailing slashes stripped, query and fragment dropped,
+path and port preserved), so both sides agree on which strings mean the same
+server. Changing one means changing the other.
+
+**Switching is per surface, and every surface has a working answer.**
+
+- Browser: `switchToOrigin` navigates to the origin's SPA root. A remembered
+  origin is a separate deployment, so this is a full navigation, not a route
+  change.
+- Electron: the same navigation, but it does not land in the app window. The
+  main window's `will-navigate` guard
+  ([`main-window.ts`](../../macos/src/main/main-window.ts)) sends any
+  cross-origin https target to the system browser, so the origin opens there.
+- Native mobile with the plugin: `nativeSwitchToOrigin` hands the url to the
+  shell, which reloads the web view in place. The user never leaves the app,
+  and a "Vellum Cloud" card sourced from `list().bakedUrl` is the way back.
+- Native mobile without the plugin: the same navigation the browser takes. That
+  leaves the app for the system browser, which is degraded but is exactly what
+  the pair-page path already does there.
+
+**Storage follows the same fork.** The chooser calls
+`installNativeRememberedOrigins()` from its flag-gated mount, which swaps the
+remembered-origins store onto a plugin-backed provider on native mobile only.
+The store persists a whole list while the plugin exposes per-entry `add` and
+`remove`, so the provider's `save` diffs the desired list against `list()` and
+issues the delta. A rejected write propagates, because the store treats a failed
+save as a failed mutation and must not publish an entry the shell does not hold.
+
+**The skew rule from the voice section applies verbatim.** The plugin may always
+be absent, so every bridge call is wrapped: a failure logs `console.debug`
+(never `captureError`, since an older App Store shell is an expected state on
+every web deploy) and falls back to the behavior that shell already had, which
+is the localStorage provider for storage and a plain navigation for switching.
+`load()` in particular degrades to localStorage data rather than rejecting: the
+store treats a rejected load as transient and would otherwise stay unhydrated
+and retry forever.
+
+**No availability probe.** There is no `isAvailable` and there must not be one:
+a probe can itself be absent, and the failure of the call the caller wanted to
+make is the same answer one turn earlier. `nativeSwitchToOrigin` resolving
+`false` and `nativeVellumCloudOrigin` resolving `null` already cover every
+reason there is no native side.
+
+The module is a plain static import from both the chooser and
+`switch-origin.ts`: the chooser needs it on mount to install the provider, and
+`registerPlugin` only builds the bridge Proxy, so importing it reaches nothing
+on any surface. Every method call sits behind `isNativeMobile()` or the
+flag-gated install. The inline-destructure rule at the top of this document
+applies to every call: only results cross an `async` boundary, never the plugin
+Proxy.
 
 ---
 

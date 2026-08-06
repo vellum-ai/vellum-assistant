@@ -976,7 +976,9 @@ describe("pair command", () => {
     ).toBe(
       "vellum-assistant-dev://connect?url=https%3A%2F%2Fhost.example.ts.net%2Fassistant-123&code=a%2Bb%2Fc%3D",
     );
-    // A label rides along as an encoded `name` param; an empty one is omitted.
+    // A label rides along as an encoded `name` param (spaces percent-encoded,
+    // not form-encoded, for the app's URLComponents parser); an empty one is
+    // omitted.
     expect(
       buildAppConnectUrl(
         "vellum-assistant",
@@ -985,7 +987,7 @@ describe("pair command", () => {
         "My Homelab",
       ),
     ).toBe(
-      "vellum-assistant://connect?url=https%3A%2F%2Fpair.example.ts.net&code=device-code&name=My+Homelab",
+      "vellum-assistant://connect?url=https%3A%2F%2Fpair.example.ts.net&code=device-code&name=My%20Homelab",
     );
     expect(
       buildAppConnectUrl(

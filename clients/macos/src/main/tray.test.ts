@@ -121,7 +121,6 @@ mock.module("./logger", () => ({
 let featureFlags: Record<string, boolean> | null = null;
 mock.module("./settings", () => ({
   readSetting: (key: string) => (key === "featureFlags" ? featureFlags : null),
-  readHotkeyOverride: () => null,
   writeSetting: () => {},
   onSettingChange: () => () => {},
 }));

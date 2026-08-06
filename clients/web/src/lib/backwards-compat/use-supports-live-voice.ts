@@ -66,7 +66,7 @@ export function useSupportsLiveVoice(
  * Callers must have a *resolved* version in hand: the snapshot collapses
  * "unknown" and "known-old" into `false`, so a caller running before the
  * identity fetch lands has to await `whenAssistantVersionKnown()` first (see
- * `start-voice-deep-link.ts`).
+ * `start-voice-request.ts`).
  */
 export function supportsLiveVoice(
   ownerAssistantId: string | null | undefined,

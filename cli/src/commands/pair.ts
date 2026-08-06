@@ -158,7 +158,10 @@ export function buildAppConnectUrl(
   if (name) {
     params.set("name", name);
   }
-  return `${scheme}://connect?${params.toString()}`;
+  // Percent-encode spaces: URLSearchParams form-encodes them as `+`, which
+  // the app's Foundation URLComponents parser keeps as a literal plus.
+  const query = params.toString().replace(/\+/g, "%20");
+  return `${scheme}://connect?${query}`;
 }
 
 /**
