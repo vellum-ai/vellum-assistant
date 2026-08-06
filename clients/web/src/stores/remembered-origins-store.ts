@@ -165,7 +165,9 @@ function withCrossTabLock<T>(mutation: () => Promise<T>): Promise<T> {
   if (!locks) {
     return mutation();
   }
-  return locks.request(MUTATION_LOCK_NAME, mutation);
+  // TS infers the lock's generic as `Promise<T>`, typing the result
+  // `Promise<Promise<T>>`; the runtime promise is already flattened.
+  return locks.request(MUTATION_LOCK_NAME, mutation) as Promise<T>;
 }
 
 function enqueueMutation<T>(mutation: () => Promise<T>): Promise<T> {

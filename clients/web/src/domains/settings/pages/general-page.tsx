@@ -47,8 +47,8 @@ import {
 } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
 import {
-  isNativeMobile,
   useIsNativeAndroid,
+  useIsNativeMobile,
 } from "@/runtime/platform-detection";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useIsAuthenticated } from "@/stores/auth-store";
@@ -72,17 +72,22 @@ export function GeneralPage() {
   const settingsSleepPolicy =
     useAssistantFeatureFlagStore.use.settingsSleepPolicy();
   const isAuthenticated = useIsAuthenticated();
+  const isNativeMobile = useIsNativeMobile();
   // The assistant-switcher flag gates every chooser surface; the card
   // supersedes the in-page picker so the two never render together. On
   // remote-gateway origins and native shells the client flag store settles to
   // registry defaults (no LD fetch), so the registry default / env /
   // localStorage override governs there, not per-user LD targeting.
+  //
+  // Deliberately wider than `useGatedSelectedAssistantId` in
+  // `assistant/selection.ts`: that gate closes under `isGatewayAuthMode()`,
+  // which is exactly where this card hands off to the hub chooser.
   const showAssistantSwitcherCard =
     assistantSwitcher &&
     (isLocalClient() ||
       isAuthenticated ||
       isRemoteGatewayMode() ||
-      isNativeMobile());
+      isNativeMobile);
   const navigate = useNavigate();
   const platformGate = usePlatformGate();
   const infraGate = usePlatformGate({ platformHostedOnly: true });
@@ -143,17 +148,22 @@ export function GeneralPage() {
 
   const openAssistantChooser = () => {
     const hubUrl = getRemoteGatewayHubUrl();
-    if (isRemoteGatewayMode() && !isNativeMobile() && hubUrl) {
+    if (isRemoteGatewayMode() && !isNativeMobile && hubUrl) {
       // Self-registration handoff: landing on the hub chooser records this
       // origin in the hub's remembered list. `hubUrl` is the hub SPA's
-      // assistant root (`<origin>/assistant`), so the chooser's sub-path is
-      // appended onto it rather than the absolute route.
-      const chooserPath = routes.selectAssistant.slice(routes.assistant.length);
+      // assistant root (`<origin>/assistant`), so the absolute chooser route
+      // hangs off its origin.
+      const params = new URLSearchParams({
+        register: remoteGatewayPublicBaseUrl(),
+      });
       const assistantName = getRemoteGatewayAssistantName();
-      const params =
-        `register=${encodeURIComponent(remoteGatewayPublicBaseUrl())}` +
-        (assistantName ? `&name=${encodeURIComponent(assistantName)}` : "");
-      window.location.assign(`${hubUrl}${chooserPath}?${params}`);
+      if (assistantName) {
+        params.set("name", assistantName);
+      }
+      const hubOrigin = new URL(hubUrl).origin;
+      window.location.assign(
+        `${hubOrigin}${routes.selectAssistant}?${params.toString()}`,
+      );
       return;
     }
     void navigate(`${routes.selectAssistant}?noAutoSkip=1`);
