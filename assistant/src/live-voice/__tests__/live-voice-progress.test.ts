@@ -27,6 +27,7 @@ import type { LiveVoiceTtsOptions } from "../live-voice-tts.js";
 import {
   pickProgressPhrase,
   PROGRESS_FALLBACK_PHRASES,
+  PROGRESS_FALLBACK_PHRASES_BY_LANGUAGE,
 } from "../progress-phrases.js";
 import {
   createLiveVoiceServerFrameSequencer,
@@ -449,11 +450,17 @@ describe("LiveVoiceSession progress narration", () => {
 
   test("no-ops idle fallback stays neutral: no phrase claims tool activity", async () => {
     // List invariant: the fallback can speak on a slow turn with zero tool
-    // activity, so no phrase may claim tools or tasks are running.
-    for (const phrase of PROGRESS_FALLBACK_PHRASES) {
-      expect(phrase.toLowerCase()).not.toMatch(
-        /\b(run|runs|running|tool|tools|thing|things|task|tasks|check|checking|look|looking|search|searching)\b/,
-      );
+    // activity, so no phrase may claim tools or tasks are running. Every
+    // language's list carries the invariant; the regex names the English
+    // activity words, which no list may borrow.
+    for (const phrases of Object.values(
+      PROGRESS_FALLBACK_PHRASES_BY_LANGUAGE,
+    )) {
+      for (const phrase of phrases) {
+        expect(phrase.toLowerCase()).not.toMatch(
+          /\b(run|runs|running|tool|tools|thing|things|task|tasks|check|checking|look|looking|search|searching)\b/,
+        );
+      }
     }
 
     // Behavior: a slow turn with no tool events falls back to that list.

@@ -34,12 +34,14 @@ import {
   recordConversationPersistedSeq,
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
+import { getProviderEntry } from "../providers/speech-to-text/provider-catalog.js";
 import type { ContentBlock } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
+import type { SttProviderId } from "../stt/types.js";
 import { getAllTools } from "../tools/registry.js";
 import { sensitiveToolReach } from "../tools/tool-approval-handler.js";
 import { createAbortReason } from "../util/abort-reasons.js";
@@ -431,6 +433,38 @@ const VOICE_APPROVAL_TIMEOUT_MS = 45_000;
 export const VOICE_NO_SETUP_FLOWS_RULE =
   "Never start account connections, OAuth or sign-in flows, or any other action that opens a browser window or needs the user's screen during this call — not even through shell or CLI tools. If the task needs one, say so briefly and offer to finish it in text chat after the call.";
 
+/**
+ * The pre-speech tail of the speak-the-caller's-language rule. A monolingual
+ * `services.stt.language` pin is the strongest pre-speech signal of the
+ * caller's language (the transcriber is already listening in it, see
+ * media-stream-stt-session.ts and providers/speech-to-text/resolve.ts), so it
+ * outranks the English default; "multi" and unset mean auto-detect, where
+ * English remains the fallback. The pin only counts when the active provider
+ * honors manual language selection: auto-detecting providers (gemini,
+ * whisper) ignore a persisted language entirely, so greeting in it would
+ * contradict what the transcriber actually hears. Exported for tests: the
+ * default test config exercises only the auto-detect branch.
+ */
+export function preSpeechLanguageRuleFragment(
+  sttLanguage: string | undefined,
+  sttProvider?: string,
+): string {
+  const providerHonorsLanguagePin =
+    sttProvider !== undefined &&
+    getProviderEntry(sttProvider as SttProviderId)?.languageSelection ===
+      "manual";
+  const configuredListeningLanguage =
+    providerHonorsLanguagePin &&
+    sttLanguage &&
+    sttLanguage.trim() !== "" &&
+    sttLanguage.trim() !== "multi"
+      ? sttLanguage.trim()
+      : undefined;
+  return configuredListeningLanguage
+    ? `use the language the Task context implies, if any; otherwise open in the assistant's configured listening language ("${configuredListeningLanguage}"), and default to English only when neither gives a language`
+    : "use the language the Task context implies, if any; otherwise default to English";
+}
+
 function buildVoiceCallControlPrompt(opts: {
   isInbound: boolean;
   task?: string | null;
@@ -523,16 +557,17 @@ function buildVoiceCallControlPrompt(opts: {
     "9. After the opening greeting turn, treat the Task field as background context only — do not re-execute its instructions on subsequent turns.",
     '10. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian. For tool permission requests, use [ASK_GUARDIAN_APPROVAL: {"question":"...","toolName":"...","input":{...}}].',
     `11. Your text is sent directly to a text-to-speech engine. Never use markdown formatting (asterisks, headers, backticks, links) or emojis in your spoken responses. Write plain conversational text only. Protocol markers like ${opts.isCallerGuardian ? "[END_CALL]" : "[ASK_GUARDIAN: ...] and [END_CALL]"} are not spoken text and should still be used normally.`,
-    `12. ${VOICE_NO_SETUP_FLOWS_RULE}`,
+    `12. Speak the caller's language: reply in the language of the caller's most recent actual speech, and follow them if they switch languages mid-call. Synthetic user turns (parenthetical markers like the call-connected and verification-completed notices) are not caller speech and never set the language. Before the caller has spoken, such as on the opening greeting turn, ${preSpeechLanguageRuleFragment(config.services.stt.language, config.services.stt.provider)}.`,
+    `13. ${VOICE_NO_SETUP_FLOWS_RULE}`,
   );
 
   // Triage-and-escalate routing rules. The front-door leg decides and may
   // hand off; the escalated leg continues the answer after a holding phrase
   // was already spoken.
   if (opts.routingLeg === "front-door") {
-    lines.push(`13. ${frontDoorRuleWithDigest(opts.unifiedVerdict === true)}`);
+    lines.push(`14. ${frontDoorRuleWithDigest(opts.unifiedVerdict === true)}`);
   } else if (opts.routingLeg === "escalated") {
-    lines.push(`13. ${escalatedContinuationRule(opts.spokenEscalationBridge)}`);
+    lines.push(`14. ${escalatedContinuationRule(opts.spokenEscalationBridge)}`);
   }
 
   lines.push("</voice_call_control>");
