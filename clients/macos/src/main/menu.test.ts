@@ -74,7 +74,6 @@ mock.module("./main-window", () => ({
 // via the global module registry — doesn't break sibling modules.
 mock.module("./settings", () => ({
   readSetting: () => null,
-  readHotkeyOverride: () => null,
   writeSetting: () => {},
   onSettingChange: () => () => {},
 }));

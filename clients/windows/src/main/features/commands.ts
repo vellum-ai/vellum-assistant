@@ -27,8 +27,11 @@ import { installWindowsMenu } from "../menu";
 const commandsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
   id: "commands",
   install: (capabilities) => {
-    configureHotkeySettings(capabilities.get(HOTKEY_SETTINGS));
-    installHotkeysIpc({ handle });
+    const hotkeySettings = capabilities.get(HOTKEY_SETTINGS);
+    configureHotkeySettings(hotkeySettings);
+    if (hotkeySettings) {
+      installHotkeysIpc({ handle });
+    }
 
     configureAboutRuntime({
       rendererBase: () =>

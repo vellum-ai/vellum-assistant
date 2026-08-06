@@ -228,7 +228,6 @@ mock.module("./main-window", () => ({
 }));
 
 mock.module("./settings", () => ({
-  readHotkeyOverride: () => null,
   readSetting: () => null,
   writeSetting: () => {},
   onSettingChange: () => () => {},

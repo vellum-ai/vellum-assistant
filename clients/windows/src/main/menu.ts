@@ -21,9 +21,11 @@ let hasPlatformSession = false;
 const commandItem = (
   label: string,
   command: VellumCommand,
+  enabled?: boolean,
 ): MenuItemConstructorOptions => ({
   label,
   ...acceleratorOption(command.kind),
+  ...(enabled === undefined ? {} : { enabled }),
   click: () => dispatchToFocused(command),
 });
 
@@ -100,7 +102,7 @@ export const buildWindowsMenu = ({
       { role: "minimize" },
       { role: "close" },
       { type: "separator" },
-      commandItem("Pop Out Conversation", { kind: "popOut" }),
+      commandItem("Pop Out Conversation", { kind: "popOut" }, false),
     ],
   },
   ...(!app.isPackaged
