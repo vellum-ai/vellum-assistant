@@ -705,6 +705,13 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           closing the camera reveals it already in the right state rather than
           replaying its entrance.
 
+          `z-[2]` puts it above every layer of both looks — the color field and
+          the void avatar sit at `z-0`, the giant eyes and the state caption at
+          `z-[1]` — while staying under the room's chrome at `z-10`, so the
+          transcript and the controls keep reading over the feed. Ordering it
+          by DOM position alone is not enough: the void look's centred avatar
+          renders after this and would paint straight over the viewfinder.
+
           `object-cover` because the video track's aspect ratio is the camera's,
           not the room's — letterboxing a viewfinder makes it read as a photo
           already taken. The front camera is mirrored, matching every other
@@ -724,7 +731,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           muted
           playsInline
           className={cn(
-            "absolute inset-0 z-0 size-full object-cover",
+            "absolute inset-0 z-[2] size-full object-cover",
             camera.facing === "user" && "-scale-x-100",
           )}
         />

@@ -1489,6 +1489,50 @@ describe("VoiceRoom — camera", () => {
     expect(useLiveVoiceStore.getState().state).toBe("listening");
   });
 
+  test("the viewfinder paints above the look rather than under the avatar", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    // The void look's centred avatar renders AFTER the viewfinder in the DOM
+    // and sits at z-0, so DOM order alone would let it paint over the feed.
+    expect(viewfinder()?.className).toContain("z-[2]");
+  });
+
+  test("a failed flip falls back to the camera the user already had", async () => {
+    // A phone that cannot hold two captures at once: the first camera opens,
+    // the flip's request fails, and reopening the original succeeds.
+    let call = 0;
+    stubMediaDevices(async () => {
+      call += 1;
+      if (call === 2) {
+        throw new DOMException("in use", "NotReadableError");
+      }
+      return fakeStream();
+    });
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Flip camera" }));
+    });
+
+    // Still aiming, at the camera that works — a flip is a convenience and
+    // must not close the viewfinder mid-conversation.
+    expect(viewfinder()).not.toBeNull();
+    expect(screen.queryByTestId("voice-room-shutter")).not.toBeNull();
+    expect(call).toBe(3);
+  });
+
   test("a denied camera permission surfaces and leaves the viewfinder closed", async () => {
     stubMediaDevices(async () => {
       throw new DOMException("denied", "NotAllowedError");

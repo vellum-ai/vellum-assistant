@@ -495,6 +495,12 @@ interface ActiveAssistantTurn {
   // leg persists its own user message, so without the latch the same photo
   // would be attached twice and shown to the model twice.
   attachmentsClaimed: boolean;
+  // What it took, so a rollback can give it back. A speculative turn is
+  // dispatched before the endpoint verdict is known and unwound if the verdict
+  // is `hold` (the user was mid-thought), and the utterance is then re-sent by
+  // a later turn — so the photos have to return to the session's queue with it,
+  // or the picture the pause was in the middle of asking about is silently gone.
+  claimedAttachmentIds: string[];
   // When the turn launched, for narration's turnElapsedMs.
   launchedAtMs: number;
   progress: TurnProgressState;
@@ -1325,8 +1331,36 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     activeTurn.attachmentsClaimed = true;
     const claimed = this.pendingAttachmentIds;
+    activeTurn.claimedAttachmentIds = claimed;
     this.pendingAttachmentIds = [];
     return claimed;
+  }
+
+  /**
+   * Give a rolled-back turn's photos back to the session.
+   *
+   * A speculative turn dispatches before the endpoint verdict is in, so a
+   * `hold` (the user was only pausing mid-thought) unwinds it and a later turn
+   * re-sends the same utterance. The photos have to travel with it: without
+   * this, a picture taken just before the pause is claimed by the dispatch that
+   * is then thrown away, and the sentence it belonged to eventually arrives
+   * with nothing attached.
+   *
+   * Restored to the FRONT, because they were taken before anything still
+   * queued, and the order photos were taken in is the order they are about to
+   * be talked about. The cap still keeps the newest, as parking does — a
+   * rollback must not become a way to pin old photos ahead of newer ones.
+   */
+  private restoreClaimedAttachments(activeTurn: ActiveAssistantTurn): void {
+    if (activeTurn.claimedAttachmentIds.length === 0) {
+      return;
+    }
+    this.pendingAttachmentIds = [
+      ...activeTurn.claimedAttachmentIds,
+      ...this.pendingAttachmentIds,
+    ].slice(-MAX_PENDING_ATTACHMENTS);
+    activeTurn.claimedAttachmentIds = [];
+    activeTurn.attachmentsClaimed = false;
   }
 
   /**
@@ -2966,9 +3000,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   ): void {
     turn.speculativePending = false;
     // The dispatch is being unwound, so the barge-in merge note, the finished
-    // continuation's answer, and its queued announcement all go back to the
-    // session — the turn that would have delivered them is gone.
+    // continuation's answer, its queued announcement, and any photos it claimed
+    // all go back to the session — the turn that would have delivered them is
+    // gone, and the utterance they belong to is about to be sent by another.
     this.restorePendingTurnContext(turn);
+    this.restoreClaimedAttachments(turn);
     // Latched before the handle check: when the discard beats the bridge
     // handle's resolution (startVoiceTurn still persisting), the handle's
     // arrival in startAssistantLeg completes the rollback via discard().
@@ -3710,6 +3746,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       assistantCompleted: false,
       ttsDone: false,
       attachmentsClaimed: false,
+      claimedAttachmentIds: [],
       minimizeRequested: false,
       activityLabel: "",
       publishedApprovalRequestId: null,

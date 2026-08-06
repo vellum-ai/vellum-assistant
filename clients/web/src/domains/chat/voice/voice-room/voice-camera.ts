@@ -181,13 +181,21 @@ export function useVoiceCamera(
     }
   }, [videoRef]);
 
-  const start = useCallback(
-    async (nextFacing: VoiceCameraFacing): Promise<void> => {
-      if (!isVoiceCameraSupported()) {
-        setError("unsupported");
-        setOpen(false);
-        return;
-      }
+  /**
+   * Acquire one camera and attach it. Returns the failure rather than
+   * surfacing it, so a flip can try to fall back before anything reaches the
+   * user.
+   *
+   * Releases the current capture BEFORE requesting the replacement. Phones
+   * routinely cannot hold the front and rear cameras open at once, so
+   * requesting the second while the first is live fails with
+   * `NotReadableError` — and unwinding from there is what would strand a live
+   * stream behind a closed viewfinder, leaving the camera indicator lit with
+   * nothing on screen.
+   */
+  const acquire = useCallback(
+    async (nextFacing: VoiceCameraFacing): Promise<VoiceCameraError | null> => {
+      stopStream();
 
       let stream: MediaStream;
       try {
@@ -201,23 +209,37 @@ export function useVoiceCamera(
           video: { facingMode: nextFacing },
         });
       } catch (cause) {
-        setError(classifyError(cause));
-        setOpen(false);
-        return;
+        return classifyError(cause);
       }
 
-      // Release whatever was running before attaching the replacement, so a
-      // flip does not briefly hold both cameras.
-      stopStream();
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
       setFacing(nextFacing);
+      return null;
+    },
+    [stopStream, videoRef],
+  );
+
+  const start = useCallback(
+    async (nextFacing: VoiceCameraFacing): Promise<void> => {
+      if (!isVoiceCameraSupported()) {
+        setError("unsupported");
+        setOpen(false);
+        return;
+      }
+
+      const failure = await acquire(nextFacing);
+      if (failure) {
+        setError(failure);
+        setOpen(false);
+        return;
+      }
       setError(null);
       setOpen(true);
     },
-    [stopStream, videoRef],
+    [acquire],
   );
 
   const openCamera = useCallback(async () => {
@@ -230,9 +252,32 @@ export function useVoiceCamera(
     setError(null);
   }, [stopStream]);
 
+  /**
+   * Switch cameras, keeping the viewfinder up.
+   *
+   * A failed flip reopens the camera the user already had. Flipping is a
+   * convenience — a device that turns out to have only one usable camera
+   * should leave the user aiming the one that works, not close the viewfinder
+   * mid-conversation and make them find the button again.
+   */
   const flipCamera = useCallback(async () => {
-    await start(facing === "environment" ? "user" : "environment");
-  }, [facing, start]);
+    if (!isVoiceCameraSupported() || !streamRef.current) {
+      return;
+    }
+    const previous = facing;
+    const next = previous === "environment" ? "user" : "environment";
+
+    if (!(await acquire(next))) {
+      return;
+    }
+    // The replacement failed and the old capture is already released, so the
+    // fallback is a fresh acquire of what was running a moment ago.
+    const fallbackFailure = await acquire(previous);
+    if (fallbackFailure) {
+      setError(fallbackFailure);
+      setOpen(false);
+    }
+  }, [acquire, facing]);
 
   const captureFrame = useCallback(async () => {
     const video = videoRef.current;
