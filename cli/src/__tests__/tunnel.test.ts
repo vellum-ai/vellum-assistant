@@ -962,12 +962,14 @@ describe("ngrok --domain spawn args", () => {
       string[],
     ];
     expect(cmd).toBe("ngrok");
-    expect(args).toEqual([
+    expect(args.slice(0, 4)).toEqual([
       "http",
       "7831",
       "--log=stdout",
       "--domain=foo.ngrok.app",
     ]);
+    expect(args[4]).toMatch(/^--web-addr=127\.0\.0\.1:\d+$/);
+    expect(args).toHaveLength(5);
 
     const config = JSON.parse(
       readFileSync(join(ws, "config.json"), "utf-8"),
@@ -1102,13 +1104,29 @@ describe("ngrok --domain spawn args", () => {
     expect(config.ingress.ngrok?.domain).toBe("foo.ngrok.app");
   });
 
-  test("maybeStartNgrokTunnel skips when an existing agent tunnels a different port", async () => {
+  const foreignAgentTunnel: StubTunnel = {
+    public_url: "https://foreign.ngrok-free.app",
+    config: { addr: "localhost:7840" },
+  };
+
+  test("maybeStartNgrokTunnel coexists with a foreign agent tunneling a different port", async () => {
     const ws = makeWorkspace({
       telegram: { botUsername: "example_bot" },
     });
-    // A stale pre-upgrade agent still tunnels the raw gateway port; the edge
-    // port (18080) has no tunnel.
-    mockTunnelListFetch("https://stale.ngrok-free.app", "localhost:7830");
+    // A foreign agent holds the default :4040 API and tunnels another local
+    // port; our own agent comes up on a dedicated web-addr and reports the
+    // tunnel for the requested port.
+    mockNgrokApiFetch([
+      { tunnels: [foreignAgentTunnel] },
+      {
+        tunnels: [
+          {
+            public_url: "https://edge.ngrok-free.app",
+            config: { addr: "localhost:18080" },
+          },
+        ],
+      },
+    ]);
 
     const warnings: string[] = [];
     const warnSpy = spyOn(console, "warn").mockImplementation(
@@ -1124,60 +1142,72 @@ describe("ngrok --domain spawn args", () => {
       warnSpy.mockRestore();
     }
 
-    expect(child).toBeNull();
-    expect(spawnMock).not.toHaveBeenCalled();
-    const combined = warnings.join("\n");
-    expect(combined).toContain("different local port");
-    expect(combined).toContain(
-      "https://stale.ngrok-free.app -> localhost:7830",
+    expect(child).not.toBeNull();
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const [, args] = spawnMock.mock.calls[0] as unknown as [string, string[]];
+    expect(args).toContain("18080");
+    expect(args.some((a) => /^--web-addr=127\.0\.0\.1:\d+$/.test(a))).toBe(
+      true,
     );
-    expect(combined).toContain("not 18080");
-    expect(combined).toContain("vellum tunnel --provider ngrok");
+
+    const combined = warnings.join("\n");
+    expect(combined).toContain("another ngrok agent is running");
+    expect(combined).toContain(
+      "https://foreign.ngrok-free.app -> localhost:7840",
+    );
 
     const config = JSON.parse(
       readFileSync(join(ws, "config.json"), "utf-8"),
     ) as { ingress?: { publicBaseUrl?: string } };
-    expect(config.ingress?.publicBaseUrl).toBeUndefined();
+    expect(config.ingress?.publicBaseUrl).toBe("https://edge.ngrok-free.app");
   });
 
-  test("runNgrokTunnel fails loudly when an existing agent tunnels a different port", async () => {
+  test("runNgrokTunnel warns and coexists when a foreign agent tunnels a different port", async () => {
     const ws = makeWorkspace({});
-    mockTunnelListFetch("https://stale.ngrok-free.app", "localhost:7830");
+    mockNgrokApiFetch([
+      { tunnels: [foreignAgentTunnel] },
+      {
+        tunnels: [
+          {
+            public_url: "https://edge.ngrok-free.app",
+            config: { addr: "localhost:18080" },
+          },
+        ],
+      },
+    ]);
 
-    const errors: string[] = [];
-    const errSpy = spyOn(console, "error").mockImplementation(
+    const warnings: string[] = [];
+    const warnSpy = spyOn(console, "warn").mockImplementation(
       (...a: unknown[]) => {
-        errors.push(a.join(" "));
+        warnings.push(a.join(" "));
       },
     );
-    const exitSpy = spyOn(process, "exit").mockImplementation(((
-      code?: number,
-    ) => {
-      throw new Error(`exit:${code}`);
-    }) as never);
 
+    const run = realNgrok.runNgrokTunnel({ port: 18080, workspaceDir: ws });
+    const pump = setInterval(() => lastChild?.emit("exit", 0), 10);
     try {
-      await expect(
-        realNgrok.runNgrokTunnel({ port: 18080, workspaceDir: ws }),
-      ).rejects.toThrow("exit:1");
+      await run;
     } finally {
-      errSpy.mockRestore();
-      exitSpy.mockRestore();
+      clearInterval(pump);
+      warnSpy.mockRestore();
     }
 
-    const combined = errors.join("\n");
-    expect(combined).toContain("different local port");
+    const combined = warnings.join("\n");
+    expect(combined).toContain("another ngrok agent is running");
     expect(combined).toContain(
-      "https://stale.ngrok-free.app -> localhost:7830",
+      "https://foreign.ngrok-free.app -> localhost:7840",
     );
-    expect(combined).toContain("not 18080");
-    expect(combined).toContain("Stop the existing ngrok agent");
-    expect(spawnMock).not.toHaveBeenCalled();
+
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const [, args] = spawnMock.mock.calls[0] as unknown as [string, string[]];
+    expect(args.some((a) => /^--web-addr=127\.0\.0\.1:\d+$/.test(a))).toBe(
+      true,
+    );
 
     const config = JSON.parse(
       readFileSync(join(ws, "config.json"), "utf-8"),
     ) as { ingress?: { publicBaseUrl?: string } };
-    expect(config.ingress?.publicBaseUrl).toBeUndefined();
+    expect(config.ingress?.publicBaseUrl).toBe("https://edge.ngrok-free.app");
   });
 
   test("maybeStartNgrokTunnel passes the saved domain to the spawn args", async () => {
@@ -1207,12 +1237,14 @@ describe("ngrok --domain spawn args", () => {
       string[],
     ];
     expect(cmd).toBe("ngrok");
-    expect(args).toEqual([
+    expect(args.slice(0, 4)).toEqual([
       "http",
       "7830",
       "--log=stdout",
       "--domain=foo.ngrok.app",
     ]);
+    expect(args[4]).toMatch(/^--web-addr=127\.0\.0\.1:\d+$/);
+    expect(args).toHaveLength(5);
 
     const config = JSON.parse(
       readFileSync(join(ws, "config.json"), "utf-8"),
@@ -1246,12 +1278,14 @@ describe("ngrok --domain spawn args", () => {
 
     expect(spawnMock).toHaveBeenCalledTimes(1);
     const [, args] = spawnMock.mock.calls[0] as unknown as [string, string[]];
-    expect(args).toEqual([
+    expect(args.slice(0, 4)).toEqual([
       "http",
       "7831",
       "--log=stdout",
       "--domain=foo.ngrok.app",
     ]);
+    expect(args[4]).toMatch(/^--web-addr=127\.0\.0\.1:\d+$/);
+    expect(args).toHaveLength(5);
 
     const config = JSON.parse(
       readFileSync(join(ws, "config.json"), "utf-8"),

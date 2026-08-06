@@ -1,5 +1,6 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
+import { createServer } from "node:net";
 import { dirname, join } from "node:path";
 
 import { GATEWAY_PORT } from "./constants.js";
@@ -17,7 +18,7 @@ const NGROK_API_URL = "http://127.0.0.1:4040/api/tunnels";
 const NGROK_POLL_INTERVAL_MS = 500;
 const NGROK_POLL_TIMEOUT_MS = 15_000;
 
-interface NgrokTunnel {
+export interface NgrokTunnel {
   public_url: string;
   config?: { addr?: string };
 }
@@ -43,13 +44,40 @@ export function getNgrokVersion(): string | null {
   }
 }
 
+/** Local API URL for an ngrok agent bound to a dedicated web-addr port. */
+function ngrokApiUrl(webAddrPort: number): string {
+  return `http://127.0.0.1:${webAddrPort}/api/tunnels`;
+}
+
+/** Bind to an OS-assigned loopback port, release it, and return its number. */
+export function pickFreeLoopbackPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      server.close((err) => {
+        if (err) {
+          reject(err);
+        } else if (address && typeof address === "object") {
+          resolve(address.port);
+        } else {
+          reject(new Error("could not determine a free loopback port"));
+        }
+      });
+    });
+  });
+}
+
 /**
- * Query the ngrok local API for running tunnels.
+ * Query an ngrok agent's local API for running tunnels.
  * Returns the list of tunnels, or null if the API is unreachable.
  */
-async function queryNgrokTunnels(): Promise<NgrokTunnel[] | null> {
+async function queryNgrokTunnels(
+  apiUrl: string = NGROK_API_URL,
+): Promise<NgrokTunnel[] | null> {
   try {
-    const res = await loopbackSafeFetch(NGROK_API_URL, {
+    const res = await loopbackSafeFetch(apiUrl, {
       signal: AbortSignal.timeout(2_000),
     });
     if (!res.ok) return null;
@@ -72,7 +100,7 @@ function tunnelTargetsPort(tunnel: NgrokTunnel, targetPort: number): boolean {
 }
 
 /** Pick the tunnel for the target port (and domain, when set), HTTPS first. */
-function pickMatchingTunnel(
+export function pickMatchingTunnel(
   tunnels: NgrokTunnel[],
   targetPort: number,
   domain?: string,
@@ -94,9 +122,26 @@ function describeTunnels(tunnels: NgrokTunnel[]): string {
     .join(", ");
 }
 
-/** Diagnostic for a running ngrok agent whose tunnels all miss the target port. */
-function staleAgentDiagnostic(tunnels: NgrokTunnel[], port: number): string {
-  return `an ngrok agent is already running but tunnels a different local port (${describeTunnels(tunnels)}), not ${port}. It was likely started before the tunnel edge unification or by an external process.`;
+/**
+ * How a running agent's tunnel list relates to the requested target port:
+ * `reuse` when it already tunnels the port (and domain, when set), `coexist`
+ * when it only serves other targets (e.g. a foreign agent on :4040), `none`
+ * when no tunnels are listed.
+ */
+export function classifyExistingAgent(
+  tunnels: NgrokTunnel[],
+  targetPort: number,
+  domain?: string,
+): "reuse" | "coexist" | "none" {
+  if (tunnels.length === 0) {
+    return "none";
+  }
+  return pickMatchingTunnel(tunnels, targetPort, domain) ? "reuse" : "coexist";
+}
+
+/** Notice for a running agent that does not tunnel the target port. */
+function coexistNotice(tunnels: NgrokTunnel[]): string {
+  return `another ngrok agent is running (${describeTunnels(tunnels)}); starting a separate ngrok agent for the local edge.`;
 }
 
 /** Recovery copy for a saved domain whose reservation may have lapsed. */
@@ -115,6 +160,22 @@ function urlMatchesDomain(publicUrl: string, domain: string): boolean {
   }
 }
 
+/** Build the ngrok CLI argument list for an HTTP tunnel. */
+export function buildNgrokArgs(
+  targetPort: number,
+  domain?: string,
+  webAddrPort?: number,
+): string[] {
+  const args = ["http", String(targetPort), "--log=stdout"];
+  if (domain) {
+    args.push(`--domain=${domain}`);
+  }
+  if (webAddrPort !== undefined) {
+    args.push(`--web-addr=127.0.0.1:${webAddrPort}`);
+  }
+  return args;
+}
+
 /**
  * Start an ngrok process tunneling HTTP traffic to the given local port.
  *
@@ -126,12 +187,17 @@ function urlMatchesDomain(publicUrl: string, domain: string): boolean {
  * When `domain` is set, the tunnel binds that reserved ngrok domain via
  * `--domain=<domain>`.
  *
+ * When `webAddrPort` is set, the agent's local web UI/API binds
+ * `127.0.0.1:<webAddrPort>` instead of the default :4040, so this agent can
+ * coexist with a foreign agent that already holds the default address.
+ *
  * Returns the spawned child process.
  */
 export function startNgrokProcess(
   targetPort: number,
   logFilePath?: string,
   domain?: string,
+  webAddrPort?: number,
 ): ChildProcess {
   let stdio: ("ignore" | "pipe" | number)[] = ["ignore", "pipe", "pipe"];
   let fd: number | undefined;
@@ -142,15 +208,14 @@ export function startNgrokProcess(
     stdio = ["ignore", fd, fd];
   }
 
-  const args = ["http", String(targetPort), "--log=stdout"];
-  if (domain) {
-    args.push(`--domain=${domain}`);
-  }
-
-  const child = spawn("ngrok", args, {
-    detached: true,
-    stdio,
-  });
+  const child = spawn(
+    "ngrok",
+    buildNgrokArgs(targetPort, domain, webAddrPort),
+    {
+      detached: true,
+      stdio,
+    },
+  );
 
   // The child process inherits a duplicate of the fd via dup2, so the
   // parent's copy is no longer needed. Close it to avoid leaking the
@@ -163,18 +228,19 @@ export function startNgrokProcess(
 }
 
 /**
- * Poll the ngrok local API until a tunnel appears for the target port (and
- * reserved domain, when one is requested), preferring HTTPS.
+ * Poll an ngrok agent's local API until a tunnel appears for the target port
+ * (and reserved domain, when one is requested), preferring HTTPS.
  * Returns the public URL, or throws if the timeout is exceeded.
  */
 export async function waitForNgrokUrl(
   targetPort: number,
   domain?: string,
+  apiUrl: string = NGROK_API_URL,
   timeoutMs: number = NGROK_POLL_TIMEOUT_MS,
 ): Promise<string> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const tunnels = await queryNgrokTunnels();
+    const tunnels = await queryNgrokTunnels(apiUrl);
     if (tunnels && tunnels.length > 0) {
       const url = pickMatchingTunnel(tunnels, targetPort, domain);
       if (url) return url;
@@ -271,14 +337,11 @@ export async function maybeStartNgrokTunnel(
     saveIngressUrl(workspaceDir, existingUrl);
     return null;
   }
-  if (runningTunnels.length > 0) {
-    // An agent is up but tunnels some other local port (likely started before
-    // the edge unification, or by an external process). Spawning a second
-    // agent would collide (ERR_NGROK_334) on single-agent plans, so skip.
-    console.warn(
-      `   ⚠ ${staleAgentDiagnostic(runningTunnels, targetPort)} Stop that ngrok agent, then run \`vellum tunnel --provider ngrok\` to tunnel the local edge.`,
-    );
-    return null;
+  if (classifyExistingAgent(runningTunnels, targetPort) === "coexist") {
+    // An agent is up but only tunnels other local targets (e.g. a foreign
+    // agent holding :4040). Spawn our own agent on a dedicated web-addr; a
+    // single-agent plan limit still surfaces via ngrok's own exit error.
+    console.warn(`   ⚠ ${coexistNotice(runningTunnels)}`);
   }
 
   console.log(`   Starting ngrok tunnel for webhook integrations...`);
@@ -290,11 +353,23 @@ export async function maybeStartNgrokTunnel(
   // Writing to a log file sidesteps both issues — the file descriptor is
   // inherited by the detached ngrok process and remains valid after CLI exit.
   const ngrokLogPath = join(workspaceDir, "data", "logs", "ngrok.log");
-  const ngrokProcess = startNgrokProcess(targetPort, ngrokLogPath, savedDomain);
+  // A dedicated web-addr keeps this agent's local API separate from any
+  // other agent's, so discovery below polls our own agent's tunnels.
+  const webAddrPort = await pickFreeLoopbackPort();
+  const ngrokProcess = startNgrokProcess(
+    targetPort,
+    ngrokLogPath,
+    savedDomain,
+    webAddrPort,
+  );
   ngrokProcess.unref();
 
   try {
-    const publicUrl = await waitForNgrokUrl(targetPort, savedDomain);
+    const publicUrl = await waitForNgrokUrl(
+      targetPort,
+      savedDomain,
+      ngrokApiUrl(webAddrPort),
+    );
     saveIngressUrl(workspaceDir, publicUrl);
     console.log(`   Tunnel established: ${publicUrl}`);
 
@@ -362,14 +437,11 @@ export async function runNgrokTunnel(
   // Check for an existing ngrok tunnel pointing at the local edge
   const runningTunnels = (await queryNgrokTunnels()) ?? [];
   const existingUrl = pickMatchingTunnel(runningTunnels, port);
-  if (!existingUrl && runningTunnels.length > 0) {
-    // Spawning a second agent would collide (ERR_NGROK_334) on single-agent
-    // plans; fail loudly instead, matching the domain-mismatch path.
-    console.error(`Error: ${staleAgentDiagnostic(runningTunnels, port)}`);
-    console.error(
-      "Stop the existing ngrok agent first, then re-run this command to tunnel the local edge.",
-    );
-    process.exit(1);
+  if (classifyExistingAgent(runningTunnels, port) === "coexist") {
+    // An agent is up but only tunnels other local targets (e.g. a foreign
+    // agent holding :4040). Spawn our own agent on a dedicated web-addr; a
+    // single-agent plan limit still surfaces via ngrok's own exit error.
+    console.warn(`Warning: ${coexistNotice(runningTunnels)}`);
   }
   if (existingUrl) {
     if (domain && !urlMatchesDomain(existingUrl, domain)) {
@@ -404,7 +476,10 @@ export async function runNgrokTunnel(
 
   let publicUrl: string | undefined;
 
-  const ngrokProcess = startNgrokProcess(port, undefined, domain);
+  // A dedicated web-addr keeps this agent's local API separate from any
+  // other agent's, so discovery below polls our own agent's tunnels.
+  const webAddrPort = await pickFreeLoopbackPort();
+  const ngrokProcess = startNgrokProcess(port, undefined, domain, webAddrPort);
 
   const cleanup = () => {
     if (!ngrokProcess.killed) {
@@ -451,7 +526,7 @@ export async function runNgrokTunnel(
   });
 
   try {
-    publicUrl = await waitForNgrokUrl(port, domain);
+    publicUrl = await waitForNgrokUrl(port, domain, ngrokApiUrl(webAddrPort));
   } catch (err) {
     cleanup();
     if (domain && !opts.domain) {
