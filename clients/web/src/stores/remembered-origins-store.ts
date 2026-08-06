@@ -153,12 +153,8 @@ async function withCrossTabLock<T>(mutation: () => Promise<T>): Promise<T> {
   if (!locks) {
     return mutation();
   }
-  // Awaited rather than returned directly. `LockManager.request` infers its
-  // type parameter from what the callback returns, and this callback returns
-  // `Promise<T>`, so the call itself is typed `Promise<Promise<T>>`. Awaiting
-  // collapses that to `T`, which is what the signature promises and what
-  // every caller already receives at runtime. A cast would hide the nesting
-  // rather than resolve it.
+  // `LockManager.request` infers its type parameter from the callback's
+  // return, so the call is typed `Promise<Promise<T>>`; awaiting collapses it.
   return await locks.request(MUTATION_LOCK_NAME, mutation);
 }
 

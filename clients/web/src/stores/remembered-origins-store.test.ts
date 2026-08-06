@@ -1,13 +1,11 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 
 /**
- * Holds a callback the provider hands us from inside its own `watch` call.
+ * Holds a callback the provider hands back from inside its own `watch` call.
  *
- * A plain `let` initialized to `null` narrows to `null`, and the compiler
- * cannot prove the provider ever invokes the assignment, so a later
- * `callback?.()` types as `never` and the assertion it guards is treated as
- * unreachable. Reading through a property sidesteps the narrowing without a
- * cast.
+ * A `let` initialized to `null` narrows to `null` for the rest of the scope,
+ * since the compiler cannot prove the provider ever runs the assignment. A
+ * property read carries the full union, so calling it stays type-checked.
  */
 type WatchRef = { fn: (() => void) | null };
 
