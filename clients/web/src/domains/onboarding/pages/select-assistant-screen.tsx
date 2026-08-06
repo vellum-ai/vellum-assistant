@@ -225,7 +225,9 @@ export function SelectAssistantScreen() {
   // navigates, so the user sees the updated list. Consumed at most once,
   // and only once the flag is known on: with the flag off the params are
   // ignored and left untouched. Only a name and an https URL ride the
-  // params; anything failing `normalizeOriginUrl` is dropped silently.
+  // params; anything failing `normalizeOriginUrl` is dropped silently
+  // (and stripped, since retrying cannot fix it). A failed add keeps the
+  // params and releases the ref so a reload can retry the registration.
   const registerHandledRef = useRef(false);
   useEffect(() => {
     if (!assistantSwitcher || registerHandledRef.current) {
@@ -237,13 +239,26 @@ export function SelectAssistantScreen() {
       return;
     }
     const normalized = normalizeOriginUrl(register);
-    if (normalized !== null) {
-      void useRememberedOriginsStore.getState().addOrigin({
+    if (normalized === null) {
+      clearRegisterParamsFromUrl();
+      return;
+    }
+    void useRememberedOriginsStore
+      .getState()
+      .addOrigin({
         url: normalized,
         name: searchParams.get("name") ?? undefined,
+      })
+      .then((result) => {
+        if (result.ok) {
+          clearRegisterParamsFromUrl();
+        } else {
+          registerHandledRef.current = false;
+        }
+      })
+      .catch(() => {
+        registerHandledRef.current = false;
       });
-    }
-    clearRegisterParamsFromUrl();
   }, [assistantSwitcher, searchParams]);
 
   // Default selection: the app's known selected assistant when accessible,

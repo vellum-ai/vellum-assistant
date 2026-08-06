@@ -1188,6 +1188,22 @@ describe("SelectAssistantScreen register handoff", () => {
     expect(navigateMock).not.toHaveBeenCalled();
   });
 
+  test("a failed add keeps the register params for a retry", async () => {
+    assistantSwitcherValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+    searchParams = new URLSearchParams(
+      "register=https%3A%2F%2Fhost.example%2Fassistant-1&name=Homelab",
+    );
+    addOriginMock.mockImplementation(async () => ({ ok: false }) as const);
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() => expect(addOriginMock).toHaveBeenCalled());
+    // The handoff params are the only copy of the registration; a failed
+    // persistence keeps them so a reload retries.
+    expect(replaceStateSpy).not.toHaveBeenCalled();
+  });
+
   test("a name-less register param records the origin without a label", async () => {
     assistantSwitcherValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
