@@ -160,6 +160,9 @@ describe("AddRemoteOriginDialog", () => {
       "https://host.example/assistant-1",
     ],
     ["https://host.example/assistant-1", "https://host.example/assistant-1"],
+    // Only the full app route reduces: a prefix that merely ends in /pair
+    // is somebody's deployment path, not our pairing page.
+    ["https://host.example/tenant/pair", "https://host.example/tenant/pair"],
   ])("reduces %s to the public base", async (typed, expected) => {
     renderDialog();
 

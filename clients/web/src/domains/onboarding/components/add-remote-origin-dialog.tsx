@@ -22,10 +22,12 @@ const ADD_FAILED_COPY = "Failed to add the assistant. Please try again.";
  * `https://host/assistant-123`.
  */
 function stripAppRouteSuffix(base: string): string {
-  const withoutPair = base.endsWith("/pair") ? base.slice(0, -5) : base;
-  return withoutPair.endsWith("/assistant")
-    ? withoutPair.slice(0, -"/assistant".length)
-    : withoutPair;
+  for (const route of ["/assistant/pair", "/assistant"]) {
+    if (base.endsWith(route)) {
+      return base.slice(0, -route.length);
+    }
+  }
+  return base;
 }
 
 interface AddRemoteOriginDialogProps {
