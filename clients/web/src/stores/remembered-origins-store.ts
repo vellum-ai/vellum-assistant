@@ -36,8 +36,10 @@ export const REMEMBERED_ORIGINS_STORAGE_KEY = "vellum:remembered-origins";
 
 /**
  * Normalize a candidate origin URL to its canonical stored form, or `null`
- * when it is not a usable `https:` base (mirrors the validation stance of
- * `SelfHostedServer.validate` in the iOS shell).
+ * when it is not a usable `https:` base. Mirrors the iOS shell: the
+ * validation stance of `SelfHostedServer.validate` and the canonical form
+ * of `SelfHostedServer.canonicalize`, so both stores agree on which
+ * strings mean the same server.
  *
  * Canonical form: lowercase scheme and host (via `URL.origin`, which also
  * drops any userinfo), path prefix preserved with trailing slashes

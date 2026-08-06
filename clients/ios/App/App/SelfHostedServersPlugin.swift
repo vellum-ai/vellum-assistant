@@ -63,7 +63,7 @@ public class SelfHostedServersPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc public func remove(_ call: CAPPluginCall) {
         var removedActive = false
         if let url = SelfHostedServer.validate(call.getString("url")) {
-            removedActive = SelfHostedServer.configuredURL()?.absoluteString == url.absoluteString
+            removedActive = SelfHostedServer.isActive(url)
             SelfHostedServer.remove(url: url)
         }
         guard removedActive else {
