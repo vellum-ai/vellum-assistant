@@ -633,6 +633,36 @@ describe("emitAssistantReplyNotification", () => {
       );
     });
 
+    // A `vellum://` embed becomes an attachment row and a remote one does not,
+    // so the two sources have to be counted together, and the tracked embed
+    // must not be counted twice.
+    test("counts local and remote media together", async () => {
+      assistantRow = makeAssistantRow([
+        {
+          type: "text",
+          text: "![local](vellum://workspace/a.mp4) ![remote](https://e.com/b.png)",
+        },
+      ] as ContentBlock[]);
+      assistantAttachments = [{ originalFilename: "a.mp4" }];
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent 2 attachments",
+      );
+    });
+
+    test("does not double count an embed that became an attachment", async () => {
+      assistantRow = makeAssistantRow([
+        { type: "text", text: "![local](vellum://workspace/a.mp4)" },
+      ] as ContentBlock[]);
+      assistantAttachments = [{ originalFilename: "a.mp4" }];
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe("Sent a.mp4");
+    });
+
     test("prefers the attachment row over the alt text when both exist", async () => {
       assistantRow = makeAssistantRow([
         { type: "text", text: "![scene](vellum://workspace/cut.mp4)" },
