@@ -1076,8 +1076,7 @@ export function createConversation(
     throw err;
   }
 
-  // The row carries its own origin now, so the disk view records the same
-  // value the database holds rather than a hardcoded null.
+  // The disk view records the same origin the row holds.
   initConversationDir(conversation);
 
   return conversation;
@@ -1090,17 +1089,23 @@ export function createConversation(
  * `inheritFrom` reads the parent's value, which is how a fork, a subagent
  * spawn, or a scheduled wake lands on the surface its parent belongs to.
  *
- * An unreadable parent throws rather than defaulting. Defaulting here would
- * be a trust grant, not a cosmetic guess: `recoverRestingTrustContext` reads
- * this column, and both the native channel and an unset column recover
- * `INTERNAL_GUARDIAN_TRUST_CONTEXT` on every later wake and boot-resume. So
- * a fork of a remote conversation whose parent we failed to read would come
- * back as the guardian's own. Parent ids on this path come from daemon
- * internals rather than user input, so a missing one is a programming error,
- * and failing the insert is the fail-closed answer.
+ * A parent whose own origin is unset yields an unset origin: the child
+ * inherits the parent's state faithfully, including "not yet attributed".
+ * Most rows are in exactly that state until they are claimed by a message or
+ * swept at startup, so treating it as an error would fail the majority of
+ * forks and subagent spawns.
  *
- * `undefined` maps to NULL for now, preserving the pre-parameter behavior
- * for call sites still to be migrated. See JARVIS-1466.
+ * A parent that does not exist throws. That is not the same condition: it
+ * means a caller named a conversation that is not there, and guessing an
+ * origin for it would be a trust grant rather than a cosmetic default.
+ * `recoverRestingTrustContext` reads this column, and the native channel
+ * recovers `INTERNAL_GUARDIAN_TRUST_CONTEXT` on every later wake and
+ * boot-resume, so a fork of a remote conversation that silently defaulted
+ * would come back as the guardian's own. Parent ids here come from daemon
+ * internals rather than user input, so a missing one is a programming error.
+ *
+ * `undefined` maps to NULL, for the callers that cannot yet state an origin.
+ * See JARVIS-1466.
  */
 function resolveConversationOrigin(
   origin: ConversationOrigin | undefined,
@@ -1111,14 +1116,14 @@ function resolveConversationOrigin(
   if (typeof origin === "string") {
     return origin;
   }
-  const inherited = getConversationOriginChannel(origin.inheritFrom);
-  if (inherited === null) {
+  const parent = getConversation(origin.inheritFrom);
+  if (!parent) {
     throw new Error(
       `Cannot inherit conversation origin from ${origin.inheritFrom}: ` +
-        "parent is missing or its origin is unreadable",
+        "no such conversation",
     );
   }
-  return inherited;
+  return parent.originChannel;
 }
 
 /**
@@ -1152,7 +1157,7 @@ export const ADOPTABLE_CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
  */
 export function ensureConversationExists(
   id: string,
-  origin: ConversationOrigin,
+  origin: ConversationOrigin | undefined,
 ): boolean {
   if (getConversation(id)) {
     return false;

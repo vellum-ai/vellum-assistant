@@ -60,17 +60,27 @@ const conversationOptions = new Map<string, ConversationCreateOptions>();
  * conversation actually arrived on. This is the moment that fact is known,
  * and the caller is the only party that holds it.
  *
- * Its absence means no channel message is involved: a desktop, web, or CLI
- * turn, which is native. That is the same conclusion migration 288 reaches
- * at startup for a row nothing ever claimed, and the same one
- * `recoverRestingTrustContext` reaches for an unset column, so recording it
- * here changes no behavior. It states the fact when it is known instead of
- * leaving it to be inferred twice, differently, later.
+ * Returns `undefined` when there is no trust context, which does NOT mean
+ * native. `handleSendMessage` materializes a conversation before the route
+ * resolves trust, so a Slack or phone send reaches here with no
+ * `sourceChannel` yet. Assuming native there would stamp a remote
+ * conversation as the guardian's own, and nothing could repair it:
+ * `setConversationOriginChannelIfUnset` only writes over NULL, and
+ * `recoverRestingTrustContext` grants INTERNAL_GUARDIAN_TRUST_CONTEXT to the
+ * native channel on every later wake and boot-resume.
+ *
+ * `transport.channelId` is not a substitute. It is the external Slack
+ * conversation id, not a {@link ChannelId}.
+ *
+ * So this states the origin only where it is genuinely known, and leaves the
+ * rest to attribution exactly as before. The remaining callers get their
+ * origin when they are migrated with real knowledge of it, not by guessing
+ * here.
  */
 function originFromStoredOptions(
   storedOptions: ConversationCreateOptions | undefined,
-): ConversationOrigin {
-  return storedOptions?.trustContext?.sourceChannel ?? "vellum";
+): ConversationOrigin | undefined {
+  return storedOptions?.trustContext?.sourceChannel;
 }
 
 /**

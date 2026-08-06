@@ -83,7 +83,21 @@ describe("inheriting the origin from a parent", () => {
     expect(rawOriginChannel(fork.id)).toBe("vellum");
   });
 
-  test("an unreadable parent fails the insert rather than defaulting", () => {
+  test("a parent whose own origin is unset yields an unset origin", () => {
+    // Faithful inheritance, not an error. Most rows sit unattributed until a
+    // message claims them or startup sweeps them, so treating this as a
+    // failure would break the majority of forks and subagent spawns.
+    const parent = createConversation({ title: "unattributed-parent" });
+
+    const fork = createConversation({
+      title: "fork",
+      origin: { inheritFrom: parent.id },
+    });
+
+    expect(rawOriginChannel(fork.id)).toBeNull();
+  });
+
+  test("a parent that does not exist fails the insert rather than defaulting", () => {
     // Defaulting here would be a trust grant, not a cosmetic guess:
     // `recoverRestingTrustContext` recovers INTERNAL_GUARDIAN_TRUST_CONTEXT
     // for the native channel, so a fork of a remote conversation whose parent
