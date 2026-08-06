@@ -12,6 +12,7 @@ import {
   type LiveVoiceStreamingTranscriberResolver,
 } from "../live-voice-session.js";
 import type { LiveVoiceSessionFactoryContext } from "../live-voice-session-manager.js";
+import type { LiveVoiceTtsOptions } from "../live-voice-tts.js";
 import {
   createLiveVoiceServerFrameSequencer,
   type LiveVoiceClientStartFrame,
@@ -133,6 +134,39 @@ function completingVoiceTurnStarter() {
     });
     return { turnId: "bridge-turn-1", abort: mock() };
   });
+}
+
+// A starter whose leg streams one spoken sentence so the turn reaches TTS.
+function speakingVoiceTurnStarter(reply = "Okay.") {
+  return mock(async (options: VoiceTurnOptions) => {
+    options.callbacks?.assistant_text_delta?.({
+      type: "assistant_text_delta",
+      text: reply,
+      conversationId: options.conversationId,
+    });
+    options.callbacks?.message_complete?.({
+      type: "message_complete",
+      conversationId: options.conversationId,
+      messageId: "assistant-message-123",
+    });
+    return { turnId: "bridge-turn-1", abort: mock() };
+  });
+}
+
+// Records the exact options object of every TTS synthesis request.
+function recordingTtsStreamer() {
+  const ttsCalls: LiveVoiceTtsOptions[] = [];
+  const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+    ttsCalls.push(options);
+    return {
+      provider: "fish-audio" as const,
+      contentType: "audio/pcm",
+      sampleRate: 24_000,
+      chunks: 0,
+      bytes: 0,
+    };
+  });
+  return { streamTtsAudio, ttsCalls };
 }
 
 function createContext(overrides: Partial<LiveVoiceClientStartFrame> = {}): {
@@ -1335,6 +1369,93 @@ describe("LiveVoiceSession STT", () => {
       "utterance 1",
       "utterance 1",
     ]);
+  });
+
+  test("finals tagged with a detected language carry it to TTS and the control prompt", async () => {
+    const transcriber = new MockStreamingTranscriber();
+    const startVoiceTurn = speakingVoiceTurnStarter();
+    const { streamTtsAudio, ttsCalls } = recordingTtsStreamer();
+    const { context } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1]));
+    transcriber.emit({ type: "final", text: "नमस्ते", languages: ["hi"] });
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => ttsCalls.length >= 1);
+
+    expect(ttsCalls[0]?.language).toBe("hi");
+    expect(startVoiceTurn.mock.calls[0]?.[0]?.voiceControlPrompt).toContain(
+      'speaking the language with code "hi"',
+    );
+  });
+
+  test("a monolingual services.stt.language pin is the turn language when finals carry no tags", async () => {
+    const originalRaw = loadRawConfig();
+    const rawServices = (originalRaw.services ?? {}) as Record<string, unknown>;
+    saveRawConfig({
+      ...originalRaw,
+      services: {
+        ...rawServices,
+        stt: {
+          ...((rawServices.stt ?? {}) as Record<string, unknown>),
+          language: "ja",
+        },
+      },
+    });
+    const transcriber = new MockStreamingTranscriber();
+    const startVoiceTurn = speakingVoiceTurnStarter();
+    const { streamTtsAudio, ttsCalls } = recordingTtsStreamer();
+    const { context } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    try {
+      await session.start();
+      await session.handleBinaryAudio(new Uint8Array([1]));
+      await session.handleClientFrame({ type: "ptt_release" });
+      await waitFor(() => ttsCalls.length >= 1);
+
+      expect(ttsCalls[0]?.language).toBe("ja");
+      expect(startVoiceTurn.mock.calls[0]?.[0]?.voiceControlPrompt).toContain(
+        'speaking the language with code "ja"',
+      );
+    } finally {
+      await session.close("websocket_close");
+      saveRawConfig(originalRaw);
+    }
+  });
+
+  test('the default "multi" with tag-less finals leaves every language-aware path untouched', async () => {
+    const transcriber = new MockStreamingTranscriber();
+    const startVoiceTurn = speakingVoiceTurnStarter();
+    const { streamTtsAudio, ttsCalls } = recordingTtsStreamer();
+    const { context } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1]));
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => ttsCalls.length >= 1);
+
+    // With the language unknown the TTS request carries no language key at
+    // all and the control prompt has no per-turn language note: byte-for-byte
+    // the language-blind behavior.
+    expect("language" in ttsCalls[0]!).toBe(false);
+    expect(startVoiceTurn.mock.calls[0]?.[0]?.voiceControlPrompt).not.toContain(
+      "language with code",
+    );
   });
 
   test("uses the production streaming transcriber resolver by default", () => {

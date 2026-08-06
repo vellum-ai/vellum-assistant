@@ -25,7 +25,7 @@ import {
   classifyFrontDoorLeading,
   ESCALATE_VERDICT_TOKEN,
   ESCALATION_CONTINUATION_CONTENT,
-  FALLBACK_ESCALATION_BRIDGE,
+  fallbackEscalationBridgeFor,
   isEscalationBridgeComplete,
   MIN_SPOKEN_BRIDGE_CHARS,
   type VoiceRoutingLeg,
@@ -51,6 +51,7 @@ import {
 import type { ResolveStreamingTranscriberOptions } from "../providers/speech-to-text/resolve.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { publishConversationListAndMetadataChanged } from "../runtime/sync/resource-sync-events.js";
+import { normalizeLanguageTag } from "../stt/language-metadata.js";
 import { detectPcm16SpeechActivity } from "../stt/speech-energy.js";
 import type {
   StreamingTranscriber,
@@ -369,6 +370,10 @@ interface UtteranceCycle {
   // text replays the boundary immediately — the hold was judged on stale
   // text, so waiting out the extension only adds silence.
   heldSpeculativeContent: string | null;
+  // Count per normalized detected-language tag (see normalizeLanguageTag)
+  // across this cycle's final transcript events. Resolves the turn's spoken
+  // language (see turnLanguageFor); empty when the provider tags nothing.
+  languageTally: Map<string, number>;
   turnId: string | null;
   userMessageId: string | null;
   userAudioChunks: Buffer[];
@@ -483,6 +488,13 @@ interface ActiveAssistantTurn {
   token: symbol;
   turnId: string;
   utterance: UtteranceCycle;
+  // The caller's spoken language for this turn as a lowercase base subtag
+  // (see turnLanguageFor): the dominant STT-detected language, else a
+  // monolingual services.stt.language pin. Undefined when unknown, which
+  // disables every language-aware path (prompt note, TTS hint, localized
+  // fallbacks). Re-resolved when a speculative turn commits, since finals
+  // can land between dispatch and verdict.
+  language: string | undefined;
   abortController: AbortController;
   handle: VoiceTurnHandle | null;
   // When the turn launched, for narration's turnElapsedMs.
@@ -688,7 +700,7 @@ function createControlMarkerHoldback(
 const APPROVAL_PENDING_PHRASE = "I need your okay for that one. Take a look.";
 
 const LIVE_VOICE_CONTROL_PROMPT_BASE =
-  "You are speaking in a local live voice session. Keep replies brief and conversational. Speech is the main channel: say the answer, and do not narrate a surface instead of answering. You can also put something on screen when it genuinely helps (a form, a list to pick from, a progress card for long work); the call overlay minimizes by itself once you finish speaking, so the user sees it without doing anything. Never tell the user you cannot show them something. ";
+  "You are speaking in a local live voice session. Keep replies brief and conversational. Speech is the main channel: say the answer, and do not narrate a surface instead of answering. You can also put something on screen when it genuinely helps (a form, a list to pick from, a progress card for long work); the call overlay minimizes by itself once you finish speaking, so the user sees it without doing anything. Never tell the user you cannot show them something. Reply in the language the caller is speaking; if they switch languages, switch with them. ";
 
 // Appended for the legs that can actually put something on screen: the main
 // leg and the escalated leg. The front-door (fast) leg never receives it, for
@@ -777,6 +789,9 @@ function buildVoiceControlPrompt(
     LIVE_VOICE_CONTROL_PROMPT_BASE +
     (leg.frontDoor === true ? "" : LIVE_VOICE_SCREEN_REVEAL_TEACHING) +
     VOICE_NO_SETUP_FLOWS_RULE;
+  if (turn.language !== undefined) {
+    prompt = `${prompt}\n\nThe caller has been speaking the language with code "${turn.language}" this turn. Reply in that language unless they clearly switch to another.`;
+  }
   if (turn.interruptedRequest) {
     prompt = `${prompt}\n\n${buildInterruptionMergeNote(turn.interruptedRequest)}`;
   }
@@ -825,6 +840,7 @@ function createUtteranceCycle(): UtteranceCycle {
     latestPartialText: null,
     endpointExtensionCount: 0,
     heldSpeculativeContent: null,
+    languageTally: new Map(),
     turnId: null,
     userMessageId: null,
     userAudioChunks: [],
@@ -2851,6 +2867,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // are skipped; the thinking frame and timers still apply.
     const alreadyReleased = utterance.released;
     turn.speculativePending = false;
+    // Finals can land between the speculative dispatch and this verdict, so
+    // the committed turn re-reads the tally: TTS, the front model, and any
+    // escalated leg see the full utterance's language.
+    turn.language = this.turnLanguageFor(utterance);
     if (turn.verdictDeadlineTimer !== null) {
       clearTimeout(turn.verdictDeadlineTimer);
       turn.verdictDeadlineTimer = null;
@@ -3193,7 +3213,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         await this.sendFrame({ type: "stt_partial", text: event.text });
         return;
       case "final":
-        await this.recordFinalTranscript(utterance, event.text);
+        await this.recordFinalTranscript(
+          utterance,
+          event.text,
+          event.languages,
+        );
         return;
       case "finalized":
         // Per-cycle transcribers are torn down with stop(); the finalize
@@ -3277,7 +3301,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           // newer cycle.
           const owner = this.finalizeQueue[0];
           if (owner && !owner.assistantTurnStarted && !owner.completed) {
-            await this.recordFinalTranscript(owner, event.text);
+            await this.recordFinalTranscript(
+              owner,
+              event.text,
+              event.languages,
+            );
           } else {
             log.warn(
               "Dropping a late finalize flush segment: its assistant turn already dispatched",
@@ -3294,7 +3322,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           );
           return;
         }
-        await this.recordFinalTranscript(target, event.text);
+        await this.recordFinalTranscript(target, event.text, event.languages);
         return;
       }
       case "finalized": {
@@ -3363,10 +3391,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private async recordFinalTranscript(
     utterance: UtteranceCycle,
     text: string,
+    languages?: readonly string[],
   ): Promise<void> {
     const transcript = text.trim();
     if (transcript.length > 0) {
       utterance.finalTranscriptSegments.push(transcript);
+    }
+    for (const tag of languages ?? []) {
+      const normalized = normalizeLanguageTag(tag);
+      if (!normalized) {
+        continue;
+      }
+      utterance.languageTally.set(
+        normalized,
+        (utterance.languageTally.get(normalized) ?? 0) + 1,
+      );
     }
     // The final commits (and supersedes) whatever partial was trailing it.
     utterance.latestPartialText = null;
@@ -3403,6 +3442,35 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
     }
     await this.startAssistantTurnIfReady();
+  }
+
+  /**
+   * The caller's spoken language for a turn on this utterance, as a
+   * lowercase base subtag: the dominant tallied STT-detected language
+   * (most final-event counts, ties by first appearance), else a monolingual
+   * `services.stt.language` pin (a pinned language IS the spoken language),
+   * else undefined ("multi" with no tags, non-tagging providers, silence).
+   */
+  private turnLanguageFor(utterance: UtteranceCycle): string | undefined {
+    let dominant: string | undefined;
+    let dominantCount = 0;
+    for (const [tag, count] of utterance.languageTally) {
+      if (count > dominantCount) {
+        dominant = tag;
+        dominantCount = count;
+      }
+    }
+    if (dominant !== undefined) {
+      return dominant;
+    }
+    const configured = getConfig().services.stt.language;
+    if (configured && configured !== "multi") {
+      const normalized = normalizeLanguageTag(configured);
+      if (normalized) {
+        return normalized;
+      }
+    }
+    return undefined;
   }
 
   // Providers emit `error` mid-stream and may keep streaming; `closed` /
@@ -3660,6 +3728,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       token,
       turnId,
       utterance,
+      language: this.turnLanguageFor(utterance),
       abortController,
       handle: null,
       launchedAtMs: Date.now(),
@@ -4312,7 +4381,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // deleted row for a bridge the model never produced).
     const usesFallbackBridge = cappedBridge.length < MIN_SPOKEN_BRIDGE_CHARS;
     const spokenBridge = usesFallbackBridge
-      ? FALLBACK_ESCALATION_BRIDGE
+      ? fallbackEscalationBridgeFor(activeTurn.language)
       : cappedBridge;
     if (!usesFallbackBridge) {
       this.markFirstAssistantDelta(activeTurn.utterance, activeTurn.turnId);
@@ -4690,6 +4759,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           : null,
         turnElapsedMs: now - turn.launchedAtMs,
         updateIndex: progress.updatesSpoken + 1,
+        ...(turn.language !== undefined ? { languageHint: turn.language } : {}),
       };
       const generated = await frontDecider
         .generateProgressText(input, turn.abortController.signal)
@@ -4722,7 +4792,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         if (trigger !== "idle") {
           return;
         }
-        raw = pickProgressPhrase(this.progressPhraseCounter++);
+        raw = pickProgressPhrase(this.progressPhraseCounter++, turn.language);
       }
       if (!this.enqueueFillerPhrase(turn, raw)) {
         return;
@@ -4784,6 +4854,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           {
             transcriptSoFar: transcript,
             toolName,
+            ...(activeTurn.language !== undefined
+              ? { languageHint: activeTurn.language }
+              : {}),
           },
           activeTurn.abortController.signal,
         )
@@ -5012,6 +5085,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       try {
         synthesis = streamTtsAudio({
           text: job.text,
+          ...(activeTurn.language !== undefined
+            ? { language: activeTurn.language }
+            : {}),
           signal: activeTurn.abortController.signal,
           outputFormat: "pcm",
           sampleRate: this.context.startFrame.audio.sampleRate,

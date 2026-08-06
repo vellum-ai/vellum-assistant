@@ -14,6 +14,7 @@ import type {
   SttStreamServerEvent,
 } from "../../stt/types.js";
 import type {
+  VoiceAckTextInput,
   VoiceFrontDecider,
   VoiceProgressTextInput,
 } from "../front-decision.js";
@@ -62,6 +63,13 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   readonly boundaryId = "daemon-streaming" as const;
   private onEvent: ((event: SttStreamServerEvent) => void) | null = null;
 
+  constructor(
+    private readonly stopEvents: SttStreamServerEvent[] = [
+      { type: "final", text: "hello" },
+      { type: "closed" },
+    ],
+  ) {}
+
   async start(onEvent: (event: SttStreamServerEvent) => void): Promise<void> {
     this.onEvent = onEvent;
   }
@@ -69,8 +77,9 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   sendAudio(): void {}
 
   stop(): void {
-    this.onEvent?.({ type: "final", text: "hello" });
-    this.onEvent?.({ type: "closed" });
+    for (const event of this.stopEvents) {
+      this.onEvent?.(event);
+    }
   }
 }
 
@@ -166,6 +175,9 @@ function createProgressHarness(options: {
   frontDecider: VoiceFrontDecider;
   emitMetrics?: boolean;
   gateTtsText?: (text: string) => Promise<void> | null;
+  // Events the transcriber flushes at utterance release; defaults to a plain
+  // untagged "hello" final.
+  sttStopEvents?: SttStreamServerEvent[];
 }) {
   const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
   const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer(
@@ -173,7 +185,9 @@ function createProgressHarness(options: {
   );
   const { context, frames } = createContext();
   const session = new LiveVoiceSession(context, {
-    resolveTranscriber: mock(async () => new MockStreamingTranscriber()),
+    resolveTranscriber: mock(
+      async () => new MockStreamingTranscriber(options.sttStopEvents),
+    ),
     startVoiceTurn,
     streamTtsAudio,
     frontModelConfig: options.frontModelConfig,
@@ -478,6 +492,99 @@ describe("LiveVoiceSession progress narration", () => {
     expect(
       PROGRESS_FALLBACK_PHRASES.map((phrase) => sanitizeForTts(phrase).trim()),
     ).toContain(ttsTexts[0]);
+
+    emitMessageComplete(getCallbacks);
+  });
+
+  test("a Hindi turn's idle fallback speaks the Hindi phrase and hints the decider", async () => {
+    const inputs: VoiceProgressTextInput[] = [];
+    const generateProgressText = mock(async (input: VoiceProgressTextInput) => {
+      inputs.push(input);
+      return null;
+    });
+    const { session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({
+        idleIntervalMs: 40,
+        minGapMs: 60_000,
+      }),
+      frontDecider: makeProgressDecider(generateProgressText),
+      sttStopEvents: [
+        { type: "final", text: "नमस्ते", languages: ["hi"] },
+        { type: "closed" },
+      ],
+    });
+
+    await startReleasedTurn(session, getCallbacks);
+    await waitFor(() => ttsTexts.length === 1);
+
+    // The static fallback rotates through the caller's language's list, not
+    // the English default, and the decider was told the language too.
+    expect(pickProgressPhrase(0, "hi")).toBe(
+      PROGRESS_FALLBACK_PHRASES_BY_LANGUAGE.hi![0]!,
+    );
+    expect(ttsTexts).toEqual([
+      sanitizeForTts(pickProgressPhrase(0, "hi")).trim(),
+    ]);
+    expect(inputs[0]?.languageHint).toBe("hi");
+
+    emitMessageComplete(getCallbacks);
+  });
+
+  test("the tool-start ack passes the turn's language hint to the decider", async () => {
+    const ackInputs: VoiceAckTextInput[] = [];
+    const frontDecider: VoiceFrontDecider = {
+      generateAckText: async (input) => {
+        ackInputs.push(input);
+        return GENERATED_TOOL_ACK;
+      },
+      generateProgressText: async () => null,
+    };
+    const { session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig(),
+      frontDecider,
+      sttStopEvents: [
+        { type: "final", text: "नमस्ते", languages: ["hi"] },
+        { type: "closed" },
+      ],
+    });
+
+    await startReleasedTurn(session, getCallbacks);
+    emitToolStart(getCallbacks, "web_search", "tool-1");
+    await waitFor(() => ttsTexts.length === 1);
+
+    expect(ackInputs[0]?.languageHint).toBe("hi");
+
+    emitMessageComplete(getCallbacks);
+  });
+
+  test("with no detected language the decider inputs carry no hint and the fallback stays English", async () => {
+    const inputs: VoiceProgressTextInput[] = [];
+    const ackInputs: VoiceAckTextInput[] = [];
+    const frontDecider: VoiceFrontDecider = {
+      generateAckText: async (input) => {
+        ackInputs.push(input);
+        return GENERATED_TOOL_ACK;
+      },
+      generateProgressText: async (input) => {
+        inputs.push(input);
+        return null;
+      },
+    };
+    const { session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({ idleIntervalMs: 40, minGapMs: 10 }),
+      frontDecider,
+    });
+
+    await startReleasedTurn(session, getCallbacks);
+    emitToolStart(getCallbacks, "web_search", "tool-1");
+    await waitFor(() => ttsTexts.length === 1);
+    await waitFor(() => ttsTexts.length === 2);
+
+    // Language unknown: the inputs are exactly the language-blind shape (no
+    // languageHint key at all) and the static fallback is the English list.
+    expect(ackInputs[0]).not.toHaveProperty("languageHint");
+    expect(inputs[0]).not.toHaveProperty("languageHint");
+    expect(ttsTexts).toEqual([EXPECTED_TOOL_ACK, EXPECTED_PROGRESS_FALLBACK]);
 
     emitMessageComplete(getCallbacks);
   });

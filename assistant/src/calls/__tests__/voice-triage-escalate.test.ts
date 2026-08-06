@@ -289,6 +289,15 @@ describe("capEscalationBridge", () => {
   test("strips internal markers before capping", () => {
     expect(capEscalationBridge("[END_CALL] One moment.")).toBe("One moment.");
   });
+
+  test("cuts just after a non-Latin sentence terminator", () => {
+    expect(capEscalationBridge("少し考えさせてください。その間の余談")).toBe(
+      "少し考えさせてください。",
+    );
+    expect(capEscalationBridge("मुझे एक पल सोचने दीजिए। और कुछ बातें")).toBe(
+      "मुझे एक पल सोचने दीजिए।",
+    );
+  });
 });
 
 describe("isEscalationBridgeComplete", () => {
@@ -303,6 +312,23 @@ describe("isEscalationBridgeComplete", () => {
     expect(
       isEscalationBridgeComplete("a".repeat(MAX_ESCALATION_BRIDGE_CHARS)),
     ).toBe(true);
+  });
+
+  test("a Japanese bridge ending in 。 completes without waiting for the cap", () => {
+    expect(isEscalationBridgeComplete("少し考えさせてください")).toBe(false);
+    expect(isEscalationBridgeComplete("少し考えさせてください。")).toBe(true);
+  });
+
+  test("every localized fallback bridge ends in a recognized terminator", () => {
+    // A model-spoken bridge in any roster language must hand off at its
+    // terminator, never by buffering to the char cap; the canned bridges are
+    // the canonical sample of each language's ender.
+    for (const bridge of Object.values(
+      FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
+    )) {
+      expect(isEscalationBridgeComplete(bridge)).toBe(true);
+      expect(capEscalationBridge(bridge)).toBe(bridge);
+    }
   });
 });
 
