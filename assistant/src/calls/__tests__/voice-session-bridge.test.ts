@@ -498,24 +498,24 @@ describe("startVoiceTurn hiddenSyntheticPrompt", () => {
   });
 });
 
+// The turn installs its resolved control prompt, then cleanup resets it to
+// null — so capture every applied value and read the installed (non-null) one.
+function captureInstalledPrompt(): () => string | undefined {
+  const fake = makeFakeConversation({ processing: false });
+  fakeConversation = fake.conversation;
+  const applied: Array<string | null> = [];
+  fake.conversation.setVoiceCallControlPrompt = (prompt) => {
+    applied.push(prompt);
+  };
+  return () => applied.find((p): p is string => typeof p === "string");
+}
+
 describe("startVoiceTurn triage-and-escalate control prompt", () => {
   // Live-voice supplies its own voiceControlPrompt, bypassing
   // buildVoiceCallControlPrompt where the routing-leg rule is normally injected.
   // The rule must still be appended, or the front-door model never learns the
   // verdict protocol and can't hold or hand off.
   const LIVE_VOICE_PROMPT = "You are speaking in a local live voice session.";
-
-  // The turn installs its resolved control prompt, then cleanup resets it to
-  // null — so capture every applied value and read the installed (non-null) one.
-  function captureInstalledPrompt(): () => string | undefined {
-    const fake = makeFakeConversation({ processing: false });
-    fakeConversation = fake.conversation;
-    const applied: Array<string | null> = [];
-    fake.conversation.setVoiceCallControlPrompt = (prompt) => {
-      applied.push(prompt);
-    };
-    return () => applied.find((p): p is string => typeof p === "string");
-  }
 
   test("appends the front-door decision rule to a caller-supplied prompt", async () => {
     const installed = captureInstalledPrompt();
@@ -557,6 +557,29 @@ describe("startVoiceTurn triage-and-escalate control prompt", () => {
       voiceControlPrompt: LIVE_VOICE_PROMPT,
     });
     expect(installed()).toBe(LIVE_VOICE_PROMPT);
+  });
+});
+
+describe("default call protocol numbered rules", () => {
+  // With no caller-supplied voiceControlPrompt the bridge builds the numbered
+  // CALL PROTOCOL RULES itself. Pin the speak-the-caller's-language rule and
+  // keep the numbering gapless so no rule silently shadows another.
+  test("teaches speaking the caller's language as its own numbered rule", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn(makeTurnOptions());
+    expect(installed()).toContain(
+      "12. Speak the caller's language: reply in the language of their latest turn, and follow them if they switch languages mid-call.",
+    );
+  });
+
+  test("rule numbers stay sequential from 0, including the routing rule", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn({ ...makeTurnOptions(), routingLeg: "escalated" });
+    const numbers = [...installed()!.matchAll(/^(\d+)\. /gm)].map((match) =>
+      Number(match[1]),
+    );
+    expect(numbers.length).toBeGreaterThan(12);
+    expect(numbers).toEqual(numbers.map((_, index) => index));
   });
 });
 
