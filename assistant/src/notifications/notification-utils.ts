@@ -95,9 +95,14 @@ function nodeText(node: RootContent): string {
       return "";
     // Media carries no prose. A caller names it separately when the flattened
     // text comes up empty; see {@link mediaEmbedAltTexts}.
+    //
+    // A space rather than nothing: an embed needs no surrounding whitespace, so
+    // `before![alt](url)after` would otherwise flatten to one run-on word. The
+    // callers collapse and trim, so an embed-only reply still reduces to empty
+    // and still reaches its media fallback.
     case "image":
     case "imageReference":
-      return "";
+      return " ";
     case "break":
       return "\n";
     case "thematicBreak":
