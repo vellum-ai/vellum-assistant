@@ -374,6 +374,13 @@ interface UtteranceCycle {
   // across this cycle's final transcript events. Resolves the turn's spoken
   // language (see turnLanguageFor); empty when the provider tags nothing.
   languageTally: Map<string, number>;
+  // Detected languages of the most recent partial that carried any, already
+  // normalized, dominance order. Speculative turns dispatch from partials
+  // before the first tagged final lands, so turnLanguageFor falls back to
+  // this when the final tally is still empty. Never cleared: the tally
+  // outranks it once finals arrive, and a revising partial without tags
+  // must not wipe an earlier partial's detection.
+  latestPartialLanguages: readonly string[] | null;
   turnId: string | null;
   userMessageId: string | null;
   userAudioChunks: Buffer[];
@@ -841,6 +848,7 @@ function createUtteranceCycle(): UtteranceCycle {
     endpointExtensionCount: 0,
     heldSpeculativeContent: null,
     languageTally: new Map(),
+    latestPartialLanguages: null,
     turnId: null,
     userMessageId: null,
     userAudioChunks: [],
@@ -3209,6 +3217,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     switch (event.type) {
       case "partial":
         utterance.latestPartialText = event.text;
+        this.capturePartialLanguages(utterance, event.languages);
         this.markFirstPartial(utterance);
         await this.sendFrame({ type: "stt_partial", text: event.text });
         return;
@@ -3286,6 +3295,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           return;
         }
         target.latestPartialText = event.text;
+        this.capturePartialLanguages(target, event.languages);
         this.markFirstPartial(target);
         await this.sendFrame({ type: "stt_partial", text: event.text });
         return;
@@ -3444,12 +3454,35 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     await this.startAssistantTurnIfReady();
   }
 
+  // Record a partial event's detected languages (normalized, deduped,
+  // order preserved) so speculative dispatch has a detection before the
+  // first tagged final. Partials revise each other, so this overwrites
+  // rather than tallies, and a tag-less partial keeps the previous value.
+  private capturePartialLanguages(
+    utterance: UtteranceCycle,
+    languages: readonly string[] | undefined,
+  ): void {
+    if (!languages || languages.length === 0) {
+      return;
+    }
+    const normalized = [
+      ...new Set(
+        languages.map(normalizeLanguageTag).filter((tag) => tag.length > 0),
+      ),
+    ];
+    if (normalized.length > 0) {
+      utterance.latestPartialLanguages = normalized;
+    }
+  }
+
   /**
    * The caller's spoken language for a turn on this utterance, as a
    * lowercase base subtag: the dominant tallied STT-detected language
-   * (most final-event counts, ties by first appearance), else a monolingual
-   * `services.stt.language` pin (a pinned language IS the spoken language),
-   * else undefined ("multi" with no tags, non-tagging providers, silence).
+   * (most final-event counts, ties by first appearance), else the latest
+   * tagged partial's dominant language (speculative turns dispatch from
+   * partials), else a monolingual `services.stt.language` pin (a pinned
+   * language IS the spoken language), else undefined ("multi" with no tags,
+   * non-tagging providers, silence).
    */
   private turnLanguageFor(utterance: UtteranceCycle): string | undefined {
     let dominant: string | undefined;
@@ -3462,6 +3495,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     if (dominant !== undefined) {
       return dominant;
+    }
+    // No tagged final yet (speculative turns dispatch from partials): the
+    // latest tagged partial is the best detection available and outranks a
+    // static pin for the same reason the tally does.
+    const partialDominant = utterance.latestPartialLanguages?.[0];
+    if (partialDominant !== undefined) {
+      return partialDominant;
     }
     const configured = getConfig().services.stt.language;
     if (configured && configured !== "multi") {

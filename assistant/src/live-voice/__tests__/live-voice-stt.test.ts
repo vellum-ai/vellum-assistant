@@ -1394,6 +1394,50 @@ describe("LiveVoiceSession STT", () => {
     );
   });
 
+  test("a tagged partial supplies the turn language when finals carry no tags", async () => {
+    // Speculative turns dispatch from partials before the first tagged
+    // final, so the latest tagged partial must resolve the language.
+    const transcriber = new MockStreamingTranscriber();
+    const startVoiceTurn = speakingVoiceTurnStarter();
+    const { streamTtsAudio, ttsCalls } = recordingTtsStreamer();
+    const { context } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1]));
+    transcriber.emit({ type: "partial", text: "hola", languages: ["es"] });
+    transcriber.emit({ type: "final", text: "hola amigo" });
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => ttsCalls.length >= 1);
+
+    expect(ttsCalls[0]?.language).toBe("es");
+  });
+
+  test("a tagged final outranks an earlier tagged partial", async () => {
+    const transcriber = new MockStreamingTranscriber();
+    const startVoiceTurn = speakingVoiceTurnStarter();
+    const { streamTtsAudio, ttsCalls } = recordingTtsStreamer();
+    const { context } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1]));
+    transcriber.emit({ type: "partial", text: "hola", languages: ["es"] });
+    transcriber.emit({ type: "final", text: "नमस्ते", languages: ["hi"] });
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => ttsCalls.length >= 1);
+
+    expect(ttsCalls[0]?.language).toBe("hi");
+  });
+
   test("a monolingual services.stt.language pin is the turn language when finals carry no tags", async () => {
     const originalRaw = loadRawConfig();
     const rawServices = (originalRaw.services ?? {}) as Record<string, unknown>;
