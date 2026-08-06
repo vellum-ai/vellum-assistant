@@ -589,6 +589,26 @@ describe("resolveLanguageVoiceOverride", () => {
     expect(resolveLanguageVoiceOverride(map, "HI")).toBe("voice-hindi");
   });
 
+  test("normalizes user-entered regional or uppercase MAP KEYS too", () => {
+    // The schema accepts any string key, so "hi-IN" or "HI" in config must
+    // still match a spoken "hi" instead of silently never applying.
+    expect(resolveLanguageVoiceOverride({ "hi-IN": "voice-hindi" }, "hi")).toBe(
+      "voice-hindi",
+    );
+    expect(resolveLanguageVoiceOverride({ HI: "voice-hindi" }, "hi-IN")).toBe(
+      "voice-hindi",
+    );
+  });
+
+  test("an exact base-subtag key outranks a normalized regional key", () => {
+    expect(
+      resolveLanguageVoiceOverride(
+        { "hi-IN": "voice-regional", hi: "voice-base" },
+        "hi",
+      ),
+    ).toBe("voice-base");
+  });
+
   test("returns undefined without a language", () => {
     expect(
       resolveLanguageVoiceOverride({ hi: "voice-hindi" }, undefined),

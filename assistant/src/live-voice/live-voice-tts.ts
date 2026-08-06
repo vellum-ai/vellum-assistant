@@ -76,9 +76,13 @@ interface ResolvedStreamingTtsProvider {
 
 /**
  * Look up a per-language voice override in a provider config's
- * `languageVoices` map. Returns the voice for the language's lowercase
- * base subtag, or undefined when the language is unset, the map is not a
- * record, or its entry for the language is not a non-empty string.
+ * `languageVoices` map. Map KEYS are normalized to their lowercase base
+ * subtag before matching, so a user-entered "hi-IN" or "HI" key still
+ * matches a spoken "hi" (the schema accepts any string key). An exact
+ * base-subtag key wins over a normalized regional one; otherwise the
+ * first matching entry in insertion order applies. Returns undefined when
+ * the language is unset, the map is not a record, or the matching entry
+ * is not a non-empty string.
  */
 export function resolveLanguageVoiceOverride(
   languageVoices: unknown,
@@ -89,16 +93,28 @@ export function resolveLanguageVoiceOverride(
     !base ||
     typeof languageVoices !== "object" ||
     languageVoices === null ||
-    Array.isArray(languageVoices) ||
-    !Object.hasOwn(languageVoices, base)
+    Array.isArray(languageVoices)
   ) {
     return undefined;
   }
-  const voice = (languageVoices as Record<string, unknown>)[base];
-  if (typeof voice !== "string") {
-    return undefined;
+  const asVoice = (value: unknown): string | undefined =>
+    typeof value === "string" ? value.trim() || undefined : undefined;
+  const record = languageVoices as Record<string, unknown>;
+  if (Object.hasOwn(record, base)) {
+    const exact = asVoice(record[base]);
+    if (exact !== undefined) {
+      return exact;
+    }
   }
-  return voice.trim() || undefined;
+  for (const [key, value] of Object.entries(record)) {
+    if (baseLanguageSubtag(key) === base) {
+      const voice = asVoice(value);
+      if (voice !== undefined) {
+        return voice;
+      }
+    }
+  }
+  return undefined;
 }
 
 export async function streamLiveVoiceTtsAudio(
