@@ -26,7 +26,6 @@ import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
-import type { MemoryForkStrategy } from "../config/schemas/memory-retrospective.js";
 import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
@@ -1727,13 +1726,6 @@ export async function forkConversationForRetrospective(params: {
   title?: string;
   conversationType?: ConversationCreateType;
   groupId?: string;
-  /**
-   * `"reference"` builds the fork referentially: the inherited window stays on
-   * the source and is read through `forkParentMessageId`, so the fork writes
-   * one conversation row and copies no messages or attachments. Defaults to
-   * `memory.retrospective.forkStrategy`.
-   */
-  forkStrategy?: MemoryForkStrategy;
 }): Promise<ConversationRow> {
   const { conversationId, throughMessageId } = params;
   const db = getDb();
@@ -1810,9 +1802,12 @@ export async function forkConversationForRetrospective(params: {
   const hiddenRowIds = new Set(
     loadOrderIds.slice(0, inheritedCompaction?.compactedMessageCount ?? 0),
   );
+  // Read straight from config rather than taking a caller-supplied strategy:
+  // how a fork is materialized is a workspace-wide storage decision, and a
+  // per-call override would let two callers disagree about it on the same
+  // workspace.
   const isReferential =
-    (params.forkStrategy ?? getConfig().memory.retrospective.forkStrategy) ===
-    "reference";
+    getConfig().memory.retrospective.forkStrategy === "reference";
   // A referential fork copies nothing: its inherited window is read back
   // through `forkParentMessageId` by the lineage resolver.
   const rowsToCopy = isReferential
@@ -2010,6 +2005,31 @@ export function listReferentialForkChildren(conversationId: string): string[] {
     .map((row) => row.id);
 }
 
+/**
+ * Refuse to delete a conversation that referential forks read their history
+ * from. Shared by both delete paths: `deleteConversation` and the off-loop
+ * `deleteConversationGently` are separate implementations of the same
+ * operation, so an invariant living in only one of them is enforced only for
+ * whichever callers happen to pick that one.
+ *
+ * Blocking rather than cascading or copying on delete. A referential fork
+ * reads its prefix from this conversation, so deleting it silently truncates
+ * every child; cascading would instead delete conversations the caller never
+ * named. Refusing keeps the destructive choice with the caller, and costs one
+ * indexed lookup on a path already doing far more work.
+ */
+function assertNoReferentialForkChildren(id: string): void {
+  const children = listReferentialForkChildren(id);
+  if (children.length === 0) {
+    return;
+  }
+  throw new UserError(
+    `Conversation ${id} cannot be deleted while ${children.length} ` +
+      `referential fork(s) read their history from it: ` +
+      `${children.join(", ")}. Delete those first.`,
+  );
+}
+
 export function deleteConversation(id: string): DeletedMemoryIds {
   const db = getDb();
   const result: DeletedMemoryIds = {
@@ -2017,19 +2037,7 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     deletedSummaryIds: [],
   };
 
-  // Block rather than cascade or copy-on-delete. A referential fork reads its
-  // prefix from this conversation, so deleting it silently truncates every
-  // child; cascading would instead delete conversations the caller never named.
-  // Refusing keeps the destructive choice with the caller, and costs one
-  // indexed lookup on a path that is already doing far more work.
-  const referentialChildren = listReferentialForkChildren(id);
-  if (referentialChildren.length > 0) {
-    throw new UserError(
-      `Conversation ${id} cannot be deleted while ${referentialChildren.length} ` +
-        `referential fork(s) read their history from it: ` +
-        `${referentialChildren.join(", ")}. Delete those first.`,
-    );
-  }
+  assertNoReferentialForkChildren(id);
 
   // Capture createdAt before the transaction deletes the row — needed to
   // resolve the conversation's disk-view directory path after deletion.
@@ -2140,6 +2148,8 @@ export async function deleteConversationGently(
     segmentIds: [],
     deletedSummaryIds: [],
   };
+
+  assertNoReferentialForkChildren(id);
 
   // Capture createdAt before deletion — needed to resolve the conversation's
   // disk-view directory path afterwards.

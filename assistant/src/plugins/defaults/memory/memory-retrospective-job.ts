@@ -413,7 +413,6 @@ export async function runForkBasedRetrospective(
       title: `${sourceConversation.title ?? "Untitled"} (Retrospective)`,
       conversationType: "background",
       groupId: MEMORY_RETROSPECTIVE_GROUP_ID,
-      forkStrategy: config.memory.retrospective.forkStrategy,
     });
   } catch (err) {
     await bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());

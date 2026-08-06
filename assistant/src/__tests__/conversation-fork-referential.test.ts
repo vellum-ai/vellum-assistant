@@ -10,15 +10,18 @@
  * against the cloning path is what pins that.
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { rmSync, writeFileSync } from "node:fs";
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
+import { invalidateConfigCache } from "../config/loader.js";
 import {
   addMessage,
   countMessagesAfter,
   createConversation,
   deleteConversation,
+  deleteConversationGently,
   forkConversationForRetrospective,
   getMessages,
   getMessagesAfter,
@@ -35,8 +38,35 @@ import {
   memoryRetrospectiveState,
   messages,
 } from "../persistence/schema/index.js";
+import { getWorkspaceConfigPath } from "../util/platform.js";
 
 await initializeDb();
+
+const configPath = getWorkspaceConfigPath();
+
+/**
+ * Point `memory.retrospective.forkStrategy` at a strategy. The fork path reads
+ * it from config rather than taking a parameter, so exercising both branches
+ * means writing the workspace config the loader reads.
+ */
+function setForkStrategy(strategy: "cloning" | "reference"): void {
+  writeFileSync(
+    configPath,
+    JSON.stringify(
+      { memory: { retrospective: { forkStrategy: strategy } } },
+      null,
+      2,
+    ) + "\n",
+  );
+  invalidateConfigCache();
+}
+
+function clearConfig(): void {
+  rmSync(configPath, { force: true });
+  invalidateConfigCache();
+}
+
+afterAll(clearConfig);
 
 function resetTables(): void {
   const db = getDb();
@@ -94,14 +124,15 @@ function textOf(rows: Array<{ content: unknown }>): string[] {
 describe("referential forking", () => {
   beforeEach(() => {
     resetTables();
+    clearConfig();
   });
 
   test("copies no message rows and stamps the strategy", async () => {
     const source = await seedSource("Launch");
 
+    setForkStrategy("reference");
     const fork = await forkConversationForRetrospective({
       conversationId: source.id,
-      forkStrategy: "reference",
     });
 
     expect(ownedRowCount(fork.id)).toBe(0);
@@ -113,9 +144,9 @@ describe("referential forking", () => {
   test("reads the source's history through the fork pointer", async () => {
     const source = await seedSource("Launch");
 
+    setForkStrategy("reference");
     const fork = await forkConversationForRetrospective({
       conversationId: source.id,
-      forkStrategy: "reference",
     });
 
     expect(textOf(getMessages(fork.id))).toEqual([
@@ -130,13 +161,13 @@ describe("referential forking", () => {
   test("presents the same messages a cloning fork does", async () => {
     const source = await seedSource("Launch");
 
+    setForkStrategy("cloning");
     const cloned = await forkConversationForRetrospective({
       conversationId: source.id,
-      forkStrategy: "cloning",
     });
+    setForkStrategy("reference");
     const referenced = await forkConversationForRetrospective({
       conversationId: source.id,
-      forkStrategy: "reference",
     });
 
     expect(textOf(getMessages(referenced.id))).toEqual(
@@ -149,9 +180,9 @@ describe("referential forking", () => {
 
   test("rows written on the fork interleave after the inherited ones", async () => {
     const source = await seedSource("Launch");
+    setForkStrategy("reference");
     const fork = await forkConversationForRetrospective({
       conversationId: source.id,
-      forkStrategy: "reference",
     });
 
     await addMessage(fork.id, "user", "review this conversation", {
@@ -166,9 +197,9 @@ describe("referential forking", () => {
 
   test("messages written on the source after the fork point are excluded", async () => {
     const source = await seedSource("Launch");
+    setForkStrategy("reference");
     const fork = await forkConversationForRetrospective({
       conversationId: source.id,
-      forkStrategy: "reference",
     });
 
     await addMessage(source.id, "user", "written after the fork", {
@@ -184,10 +215,10 @@ describe("referential forking", () => {
     const source = await seedSource("Launch");
     const sourceRows = getMessages(source.id);
 
+    setForkStrategy("reference");
     const fork = await forkConversationForRetrospective({
       conversationId: source.id,
       throughMessageId: sourceRows[1]!.id,
-      forkStrategy: "reference",
     });
 
     expect(textOf(getMessages(fork.id))).toEqual([
@@ -199,9 +230,9 @@ describe("referential forking", () => {
   test("getMessagesAfter and countMessagesAfter cross the lineage boundary", async () => {
     const source = await seedSource("Launch");
     const sourceRows = getMessages(source.id);
+    setForkStrategy("reference");
     const fork = await forkConversationForRetrospective({
       conversationId: source.id,
-      forkStrategy: "reference",
     });
     await addMessage(fork.id, "user", "own row", { skipIndexing: true });
 
@@ -215,9 +246,9 @@ describe("referential forking", () => {
 
   test("pagination returns the inherited rows", async () => {
     const source = await seedSource("Launch");
+    setForkStrategy("reference");
     const fork = await forkConversationForRetrospective({
       conversationId: source.id,
-      forkStrategy: "reference",
     });
 
     const unlimited = getMessagesPaginated(fork.id, undefined);
@@ -232,9 +263,9 @@ describe("referential forking", () => {
 
   test("deleting the source is refused while a referential fork reads it", async () => {
     const source = await seedSource("Launch");
+    setForkStrategy("reference");
     const fork = await forkConversationForRetrospective({
       conversationId: source.id,
-      forkStrategy: "reference",
     });
 
     expect(listReferentialForkChildren(source.id)).toEqual([fork.id]);
@@ -253,11 +284,24 @@ describe("referential forking", () => {
     ).toHaveLength(0);
   });
 
+  test("the gentle delete path enforces the same guard", async () => {
+    const source = await seedSource("Launch");
+    setForkStrategy("reference");
+    await forkConversationForRetrospective({ conversationId: source.id });
+
+    // `deleteConversationGently` is a separate implementation of the same
+    // operation and is what the plugin facade exposes, so the invariant has to
+    // hold there too or plugins can strip a fork of its history.
+    await expect(deleteConversationGently(source.id)).rejects.toThrow(
+      /referential fork/,
+    );
+  });
+
   test("a cloning fork does not block deleting its source", async () => {
     const source = await seedSource("Launch");
+    setForkStrategy("cloning");
     await forkConversationForRetrospective({
       conversationId: source.id,
-      forkStrategy: "cloning",
     });
 
     expect(listReferentialForkChildren(source.id)).toEqual([]);
