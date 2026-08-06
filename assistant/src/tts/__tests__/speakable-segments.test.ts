@@ -433,6 +433,105 @@ describe("extractSpeakableSegments", () => {
       expect(remainder).toBe("次");
     });
 
+    test("non-Latin enders inside a Markdown link label do not split the link", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "[詳細。こちら](https://example.com)を確認。次",
+        false,
+      );
+
+      expect(segments).toEqual(["[詳細。こちら](https://example.com)を確認。"]);
+      expect(remainder).toBe("次");
+      // The intact link sanitizes to its label; a split would have left
+      // markup or the raw URL in a fragment.
+      expect(sanitizeForTts(segments[0] ?? "")).toBe("詳細。こちらを確認。");
+    });
+
+    test("enders inside image alt text do not split the image link", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "![代替。テキスト](https://example.com/a.png)です。次",
+        false,
+      );
+
+      expect(segments).toEqual([
+        "![代替。テキスト](https://example.com/a.png)です。",
+      ]);
+      expect(remainder).toBe("次");
+    });
+
+    test("a stray bracket splits at the suppressed boundary once a newline cancels it", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "これは[メモ。次です。\nそして",
+        false,
+      );
+
+      expect(segments).toEqual(["これは[メモ。", "次です。"]);
+      expect(remainder).toBe("そして");
+    });
+
+    test("a closing bracket without a paren reopens the suppressed boundary", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "これは[メモ。です]ね。次",
+        false,
+      );
+
+      expect(segments).toEqual(["これは[メモ。", "です]ね。"]);
+      expect(remainder).toBe("次");
+    });
+
+    test("a stray bracket in a long buffer splits at the suppressed boundary at the cap", () => {
+      const filler = "あ".repeat(DEFAULT_CHAR_THRESHOLD);
+      const { segments, remainder } = extractSpeakableSegments(
+        `これは[メモ。${filler}`,
+        false,
+      );
+
+      expect(segments).toEqual(["これは[メモ。", filler]);
+      expect(remainder).toBe("");
+    });
+
+    test("a label split across deltas defers, then completes", () => {
+      const firstDelta = extractSpeakableSegments("[詳細。こち", false);
+      expect(firstDelta.segments).toEqual([]);
+      expect(firstDelta.remainder).toBe("[詳細。こち");
+
+      const afterNextDelta = extractSpeakableSegments(
+        `${firstDelta.remainder}ら](https://example.com)を確認。次`,
+        false,
+      );
+      expect(afterNextDelta.segments).toEqual([
+        "[詳細。こちら](https://example.com)を確認。",
+      ]);
+      expect(afterNextDelta.remainder).toBe("次");
+    });
+
+    test("a buffer-final closing bracket keeps buffering for the paren", () => {
+      const firstDelta = extractSpeakableSegments("[詳細。こちら]", false);
+      expect(firstDelta.segments).toEqual([]);
+      expect(firstDelta.remainder).toBe("[詳細。こちら]");
+
+      const afterNextDelta = extractSpeakableSegments(
+        `${firstDelta.remainder}(https://example.com)を確認。次`,
+        false,
+      );
+      expect(afterNextDelta.segments).toEqual([
+        "[詳細。こちら](https://example.com)を確認。",
+      ]);
+      expect(afterNextDelta.remainder).toBe("次");
+    });
+
+    test("force flushes a buffer-final open label", () => {
+      const openLabel = extractSpeakableSegments("[詳細。こち", true);
+      expect(openLabel.segments).toEqual(["[詳細。こち"]);
+      expect(openLabel.remainder).toBe("");
+
+      const openUrl = extractSpeakableSegments(
+        "[詳細。こちら](https://exa",
+        true,
+      );
+      expect(openUrl.segments).toEqual(["[詳細。こちら](https://exa"]);
+      expect(openUrl.remainder).toBe("");
+    });
+
     test("adjacent enders stay in one segment", () => {
       // 本当！？ must not emit 本当！ and then a punctuation-only ？ segment.
       const { segments, remainder } = extractSpeakableSegments(

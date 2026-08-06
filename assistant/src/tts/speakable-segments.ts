@@ -16,7 +16,7 @@ const EAGER_CHAR_THRESHOLD = 60;
 // with their own terminators (Devanagari danda, Arabic-script marks). Unlike
 // ASCII `. ! ?`, these are unambiguous: a boundary after one is valid even
 // with no following whitespace.
-const NON_LATIN_SENTENCE_ENDING_PUNCTUATION = new Set([
+export const NON_LATIN_SENTENCE_ENDING_PUNCTUATION = new Set([
   "。", // ideographic full stop
   "｡", // halfwidth ideographic full stop
   "！", // fullwidth exclamation mark
@@ -157,6 +157,19 @@ function findSpeakableBoundary(
   // (https://example.com/a_(b)/c) and the suppression must cover the same
   // links. 0 = not inside a URL.
   let linkUrlDepth = 0;
+  // Inside a potential Markdown link label (`[label](url)`, `![alt](url)`),
+  // between `[` and `](`. Terminators there are label text, and a boundary
+  // splits the link the same way a URL split does. The state resolves
+  // deterministically so a stray `[` in prose cannot suppress boundaries
+  // forever: `](` hands off to the URL state; `]` without `(` or a newline
+  // cancels the label, splitting at the first boundary it suppressed; a
+  // buffer-final `]` or an unterminated label keeps buffering (the rest may
+  // arrive in the next delta), bounded by the force flush and the length
+  // cap.
+  let inLinkLabel = false;
+  // First boundary suppressed while the current label is open; returned when
+  // the label turns out not to be a link.
+  let suppressedLabelBoundary: number | null = null;
 
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
@@ -167,8 +180,13 @@ function findSpeakableBoundary(
 
     if (char === "\n") {
       // A URL never spans a line: an unclosed link stops suppressing here so
-      // malformed markup cannot defer the newline split.
+      // malformed markup cannot defer the newline split. Labels do not span
+      // lines either; a suppressed boundary reopens ahead of the newline.
       linkUrlDepth = 0;
+      inLinkLabel = false;
+      if (suppressedLabelBoundary !== null) {
+        return suppressedLabelBoundary;
+      }
       if (!inOpenSpan) {
         return index + 1;
       }
@@ -182,11 +200,30 @@ function findSpeakableBoundary(
       }
       continue;
     }
+    if (char === "]" && inLinkLabel && text[index + 1] !== "(") {
+      if (index + 1 === text.length) {
+        // A buffer-final `]` is ambiguous while streaming: the `(` may open
+        // the next delta. Keep buffering; force and the length cap below
+        // still flush.
+        break;
+      }
+      // Not a link after all: the label text is plain prose, so the first
+      // boundary it suppressed becomes the split point again.
+      inLinkLabel = false;
+      if (suppressedLabelBoundary !== null) {
+        return suppressedLabelBoundary;
+      }
+    }
     if (char === "]" && text[index + 1] === "(") {
+      inLinkLabel = false;
+      suppressedLabelBoundary = null;
       linkUrlDepth = 1;
       // Skip the opening paren so it does not double-count the depth.
       index += 1;
       continue;
+    }
+    if (char === "[" && !inLinkLabel) {
+      inLinkLabel = true;
     }
 
     if (
@@ -198,7 +235,11 @@ function findSpeakableBoundary(
         isWhitespace(text[index + 1] ?? "")) &&
       !isFullwidthGroupingComma(text, index)
     ) {
-      return index + 1;
+      if (inLinkLabel) {
+        suppressedLabelBoundary ??= index + 1;
+      } else {
+        return index + 1;
+      }
     }
 
     if (!inOpenSpan && SENTENCE_ENDING_PUNCTUATION.has(char)) {
@@ -235,7 +276,11 @@ function findSpeakableBoundary(
         // buffer. ASCII enders keep their end-of-text boundary: whitespace
         // scripts do not attach closers across deltas the same way.
         if (boundary < text.length) {
-          return boundary;
+          if (inLinkLabel) {
+            suppressedLabelBoundary ??= boundary;
+          } else {
+            return boundary;
+          }
         }
       }
       if (!isNonLatinEnder) {
@@ -249,7 +294,11 @@ function findSpeakableBoundary(
           boundary += 1;
         }
         if (boundary === text.length || isWhitespace(text[boundary] ?? "")) {
-          return boundary;
+          if (inLinkLabel) {
+            suppressedLabelBoundary ??= boundary;
+          } else {
+            return boundary;
+          }
         }
       }
     }
@@ -299,6 +348,12 @@ function findSpeakableBoundary(
 
   if (text.length < charThreshold) {
     return null;
+  }
+
+  // The length cap bounds how long an open label can defer: past it, the
+  // first boundary the label suppressed beats an arbitrary mid-text split.
+  if (suppressedLabelBoundary !== null) {
+    return suppressedLabelBoundary;
   }
 
   // Length-threshold splits are a hard cap and must flush even inside an
