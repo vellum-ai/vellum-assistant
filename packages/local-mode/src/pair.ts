@@ -52,7 +52,11 @@ export function normalizePairLabel(raw: unknown): string | undefined {
     return undefined;
   }
   const label = raw.trim();
-  return label && label.length <= MAX_PAIR_LABEL_LENGTH ? label : undefined;
+  // Count code points, not UTF-16 units, so emoji-heavy labels get the
+  // documented 64-character budget.
+  return label && [...label].length <= MAX_PAIR_LABEL_LENGTH
+    ? label
+    : undefined;
 }
 
 /**

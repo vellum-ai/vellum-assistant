@@ -179,6 +179,14 @@ describe("normalizePairLabel", () => {
     expect(normalizePairLabel(null)).toBeUndefined();
     expect(normalizePairLabel(42)).toBeUndefined();
   });
+
+  test("counts code points, not UTF-16 units", () => {
+    const emojiLabel = "😀".repeat(MAX_PAIR_LABEL_LENGTH);
+    expect(normalizePairLabel(emojiLabel)).toBe(emojiLabel);
+    expect(
+      normalizePairLabel("😀".repeat(MAX_PAIR_LABEL_LENGTH + 1)),
+    ).toBeUndefined();
+  });
 });
 
 describe("pairAssistant", () => {
