@@ -2,6 +2,7 @@ import {
   lazy,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -470,9 +471,14 @@ export function ChatLayout({
   // Publish for surfaces that render outside this tree and would otherwise
   // paint over the drawer; see `mobile-drawer-store`. Mirrors the same
   // condition the drawer itself mounts on, so the two can't disagree.
+  //
+  // Layout effect, not passive: a passive effect runs after the browser can
+  // paint, so the drawer's first frame would go up with the store still
+  // reporting false and the peek still portaled over it. Publishing before
+  // paint means the two never disagree on screen.
   const drawerPresented = drawerVisible || drawerDragging;
   const setDrawerPresented = useMobileDrawerStore.use.setPresented();
-  useEffect(() => {
+  useLayoutEffect(() => {
     setDrawerPresented(drawerPresented);
     return () => {
       setDrawerPresented(false);
