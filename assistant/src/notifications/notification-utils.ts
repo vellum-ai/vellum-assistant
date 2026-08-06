@@ -143,34 +143,65 @@ export function stripMarkdownForPreview(value: string): string {
   return parseMarkdown(value).children.map(nodeText).join("\n\n");
 }
 
-/** Collect the alt text of every image node, depth first. */
-function collectImageAlts(node: Root | RootContent, into: string[]): void {
-  if (node.type === "image" || node.type === "imageReference") {
-    into.push(node.alt ?? "");
+/**
+ * Destinations the assistant resolves into attachment rows. Mirrors the link
+ * forms `daemon/assistant-attachments.ts` extracts.
+ */
+const TRACKED_MEDIA_URL_RE = /^vellum:\/\/(?:workspace|host)\//i;
+
+/** A media embed the flattener dropped, kept so a caller can name it. */
+export interface MediaEmbed {
+  /**
+   * Image description, already plain text: the parser resolves a formatted
+   * description rather than handing back its markers.
+   */
+  alt: string;
+  /**
+   * Whether the destination resolves through the attachment store. A
+   * `vellum://` embed becomes an attachment row, so a caller holding
+   * attachment metadata has already counted it; a remote one leaves no row
+   * there and its alt is the only label it has.
+   */
+  tracked: boolean;
+}
+
+/** Collect every image node, depth first. */
+function collectMediaEmbeds(
+  node: Root | RootContent,
+  into: MediaEmbed[],
+): void {
+  if (node.type === "image") {
+    into.push({
+      alt: node.alt ?? "",
+      tracked: TRACKED_MEDIA_URL_RE.test(node.url),
+    });
+    return;
+  }
+  // A reference embed names a definition rather than a destination, so it
+  // cannot be matched against the attachment store.
+  if (node.type === "imageReference") {
+    into.push({ alt: node.alt ?? "", tracked: false });
     return;
   }
   if ("children" in node) {
     for (const child of node.children) {
-      collectImageAlts(child, into);
+      collectMediaEmbeds(child, into);
     }
   }
 }
 
 /**
- * Alt texts of the media embeds in `value`, in order, empty alts included.
+ * The media embeds in `value`, in order, empty alts included.
  *
  * Lets a caller describe copy whose entire content was embeds. Remote
  * `https://` embeds are as valid as `vellum://` ones and register nothing in
  * the attachment store, so without this a reply of one remote image would go
  * out with no copy at all rather than merely an unhelpful one.
- *
- * The alts come from the parser, which resolves an image description to plain
- * text, so formatted alt text arrives already flattened.
  */
-export function mediaEmbedAltTexts(value: string): string[] {
-  const alts: string[] = [];
-  collectImageAlts(parseMarkdown(value), alts);
-  return alts;
+export function mediaEmbeds(value: string): MediaEmbed[] {
+  const embeds: MediaEmbed[] = [];
+  collectMediaEmbeds(parseMarkdown(value), embeds);
+  return embeds;
 }
 
 /**

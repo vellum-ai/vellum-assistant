@@ -33,7 +33,7 @@ import { safeParseRecord } from "../util/json.js";
 import { emitNotificationSignal } from "./emit-signal.js";
 import {
   describeMedia,
-  mediaEmbedAltTexts,
+  mediaEmbeds,
   sanitizeMessagePreview,
   sanitizeNotificationTitle,
   stripMarkdownForPreview,
@@ -54,17 +54,30 @@ function collapseWhitespace(value: string): string {
 }
 
 /**
- * Filenames of the attachments linked to a reply. Generated files and images
- * are linked to the assistant row by `resolveAssistantAttachments` before the
- * turn's terminal SSE, and are exposed separately from the row's content
- * blocks, so a file-generation reply reaches this producer with no text to
- * preview. Reads attachment metadata only (no base64), and only once the text
- * preview has already come up empty.
+ * Body naming every piece of media a reply produced, for a reply whose text
+ * flattened away.
+ *
+ * Two sources, counted together so a reply mixing them is not undercounted.
+ * Attachment rows cover generated files, `<vellum-attachment />` directives,
+ * and `vellum://` embeds alike; they are linked to the assistant row by
+ * `resolveAssistantAttachments` before the turn's terminal SSE and exposed
+ * separately from its content blocks. Remote embeds leave no row, so their alt
+ * text is the only label they have.
+ *
+ * Tracked embeds are dropped from the second source rather than added twice:
+ * a `vellum://` embed is already one of the attachment rows.
+ *
+ * Reads attachment metadata only (no base64), and the caller invokes this only
+ * once the text preview has come up empty.
  */
-function attachmentFilenames(assistantMessageId: string): string[] {
-  return getAttachmentMetadataForMessage(assistantMessageId).map(
+function describeReplyMedia(text: string, assistantMessageId: string): string {
+  const filenames = getAttachmentMetadataForMessage(assistantMessageId).map(
     (attachment) => attachment.originalFilename,
   );
+  const untracked = mediaEmbeds(text)
+    .filter((embed) => !embed.tracked)
+    .map((embed) => embed.alt);
+  return describeMedia([...filenames, ...untracked]);
 }
 
 /**
@@ -172,24 +185,16 @@ export async function emitAssistantReplyNotification(params: {
       return;
     }
 
-    // A reply whose output is entirely media has no text to preview, so fall
-    // back to naming it rather than suppressing a real reply. Markdown is
-    // flattened first: a lock screen renders none of it, and an embed-only
-    // reply has to reduce to empty for either fallback to be reachable.
-    //
-    // The two fallbacks cover the two embed forms the system prompt offers.
-    // `vellum://` embeds resolve into attachment rows; remote `https://` ones
-    // never touch the attachment store, so their alt text is all there is to
-    // name them by. A reply with none of the three stays silent.
+    // A reply whose output is entirely media has no text to preview, so name
+    // the media rather than suppressing a real reply. Markdown is flattened
+    // first: a lock screen renders none of it, and an embed-only reply has to
+    // reduce to empty for the fallback to be reachable. A reply with neither
+    // text nor media stays silent.
     const text = stringifyMessageContent(assistantRow.content);
     const preview =
       sanitizeMessagePreview(
         collapseWhitespace(stripMarkdownForPreview(text)),
-      ) ||
-      sanitizeMessagePreview(
-        describeMedia(attachmentFilenames(assistantMessageId)),
-      ) ||
-      sanitizeMessagePreview(describeMedia(mediaEmbedAltTexts(text)));
+      ) || sanitizeMessagePreview(describeReplyMedia(text, assistantMessageId));
     if (!preview) {
       return;
     }
