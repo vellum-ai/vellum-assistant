@@ -3409,15 +3409,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // Tally only finals that committed transcript: empty silence frames
       // can still carry container-level language tags describing no emitted
       // words, and counting those would let silence outvote real speech
-      // (same choice as the adapter's boundary-final aggregation).
-      for (const tag of languages ?? []) {
-        const normalized = normalizeLanguageTag(tag);
-        if (!normalized) {
-          continue;
-        }
+      // (same choice as the adapter's boundary-final aggregation). Each
+      // final casts one vote, for its dominant language only: `languages`
+      // is dominance-ranked, so giving secondary tags full votes would let
+      // a minority language outvote the utterance's dominant one.
+      const dominant = normalizeLanguageTag(languages?.[0] ?? "");
+      if (dominant) {
         utterance.languageTally.set(
-          normalized,
-          (utterance.languageTally.get(normalized) ?? 0) + 1,
+          dominant,
+          (utterance.languageTally.get(dominant) ?? 0) + 1,
         );
       }
     }

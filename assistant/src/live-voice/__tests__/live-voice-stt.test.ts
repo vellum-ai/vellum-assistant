@@ -1441,6 +1441,35 @@ describe("LiveVoiceSession STT", () => {
     expect(ttsCalls[0]?.language).toBe("en");
   });
 
+  test("only each final's dominant language votes", async () => {
+    // `languages` is dominance-ranked per event: a Spanish-dominant segment
+    // tagged ["es", "en"] plus a short English segment tagged ["en"] must
+    // resolve to Spanish (one vote each, tie broken by first appearance),
+    // not English by counting the secondary tag as a full vote.
+    const transcriber = new MockStreamingTranscriber();
+    const startVoiceTurn = speakingVoiceTurnStarter();
+    const { streamTtsAudio, ttsCalls } = recordingTtsStreamer();
+    const { context } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1]));
+    transcriber.emit({
+      type: "final",
+      text: "hola amigo como estas hoy",
+      languages: ["es", "en"],
+    });
+    transcriber.emit({ type: "final", text: "ok", languages: ["en"] });
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => ttsCalls.length >= 1);
+
+    expect(ttsCalls[0]?.language).toBe("es");
+  });
+
   test("a tagged final outranks an earlier tagged partial", async () => {
     const transcriber = new MockStreamingTranscriber();
     const startVoiceTurn = speakingVoiceTurnStarter();
