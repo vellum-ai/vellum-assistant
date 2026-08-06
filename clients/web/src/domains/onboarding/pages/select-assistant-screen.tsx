@@ -25,6 +25,7 @@ import {
   removePlatformAssistantFromLockfile,
   UnresolvedLocalGatewayError,
 } from "@/lib/local-mode";
+import { AddRemoteOriginDialog } from "@/domains/onboarding/components/add-remote-origin-dialog";
 import { ConnectAssistantDialog } from "@/domains/onboarding/components/connect-assistant-dialog";
 import { ConnectRecoveryDialog } from "@/domains/onboarding/components/connect-recovery-dialog";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
@@ -42,6 +43,7 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConnectDialogStore } from "@/stores/connect-dialog-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import {
+  normalizeOriginUrl,
   useRememberedOriginsStore,
   type RememberedOrigin,
 } from "@/stores/remembered-origins-store";
@@ -91,6 +93,27 @@ function originSelectionKey(origin: RememberedOrigin): string {
 // Stable empty list for the flag-off render so effects keyed on the origin
 // entries do not re-run every render.
 const NO_ORIGINS: RememberedOrigin[] = [];
+
+/**
+ * Strip the consumed `register`/`name` handoff params from the address bar,
+ * preserving everything else, so a reload does not re-run the registration.
+ * Mirrors `clearDeviceCodeFromUrl` on the pairing page: a plain
+ * `history.replaceState`, never a navigation.
+ */
+function clearRegisterParamsFromUrl(): void {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("register");
+    url.searchParams.delete("name");
+    window.history.replaceState(
+      null,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+  } catch {
+    // history.replaceState unavailable; the leftover params are inert.
+  }
+}
 
 export function SelectAssistantScreen() {
   const navigate = useNavigate();
@@ -152,6 +175,9 @@ export function SelectAssistantScreen() {
   );
   const [removePending, setRemovePending] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  // The URL-only "Add a remote assistant" dialog (hub surfaces without a
+  // local-mode host).
+  const [addOriginOpen, setAddOriginOpen] = useState(false);
   // Target of the remembered-origin removal confirmation dialog.
   const [removeOriginTarget, setRemoveOriginTarget] =
     useState<RememberedOrigin | null>(null);
@@ -192,6 +218,33 @@ export function SelectAssistantScreen() {
       void useRememberedOriginsStore.getState().hydrate();
     }
   }, [assistantSwitcher]);
+
+  // `?register=<url>&name=<label>` handoff: another origin's Switch
+  // Assistant action self-registers here so the hub lists it. Records the
+  // entry (renaming an existing one) and cleans the address bar; it never
+  // navigates, so the user sees the updated list. Consumed at most once,
+  // and only once the flag is known on: with the flag off the params are
+  // ignored and left untouched. Only a name and an https URL ride the
+  // params; anything failing `normalizeOriginUrl` is dropped silently.
+  const registerHandledRef = useRef(false);
+  useEffect(() => {
+    if (!assistantSwitcher || registerHandledRef.current) {
+      return;
+    }
+    registerHandledRef.current = true;
+    const register = searchParams.get("register");
+    if (register === null) {
+      return;
+    }
+    const normalized = normalizeOriginUrl(register);
+    if (normalized !== null) {
+      void useRememberedOriginsStore.getState().addOrigin({
+        url: normalized,
+        name: searchParams.get("name") ?? undefined,
+      });
+    }
+    clearRegisterParamsFromUrl();
+  }, [assistantSwitcher, searchParams]);
 
   // Default selection: the app's known selected assistant when accessible,
   // else the first accessible assistant. Also reconciles an existing
@@ -427,6 +480,12 @@ export function SelectAssistantScreen() {
     );
   };
 
+  const handleOriginAdded = (origin: RememberedOrigin) => {
+    setAddOriginOpen(false);
+    // Landing on the origin runs its own pair flow when no session exists.
+    switchToOrigin(origin);
+  };
+
   // Auto-skip when there's exactly one assistant and it's accessible.
   // Don't skip when the user just logged in or navigated here deliberately
   // (e.g. from settings or the Developer menu): let them see the chooser.
@@ -622,6 +681,17 @@ export function SelectAssistantScreen() {
               }
             />
           )}
+          {/* Hostless surfaces (hub browser, remote-gateway mode, native
+              mobile) add origins by URL; local desktop clients keep the
+              bundle-paste connect flow above instead. */}
+          {assistantSwitcher && !localModeHostAvailable && (
+            <DashedActionButton
+              icon={<Globe className="h-4 w-4" />}
+              label="Add a remote assistant"
+              disabled={connecting || loginLoading}
+              onClick={() => setAddOriginOpen(true)}
+            />
+          )}
         </div>
 
         {hasSelectableEntries && (
@@ -657,6 +727,11 @@ export function SelectAssistantScreen() {
         </div>
         </div>
       </div>
+      <AddRemoteOriginDialog
+        open={addOriginOpen}
+        onClose={() => setAddOriginOpen(false)}
+        onAdded={handleOriginAdded}
+      />
       <ConnectAssistantDialog
         open={connectDialogOpen}
         initialBundle={connectInitialBundle ?? undefined}
