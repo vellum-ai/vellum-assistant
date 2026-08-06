@@ -1,4 +1,4 @@
-import { BrowserWindow, Notification } from "electron";
+import { BrowserWindow, Notification, type WebContents } from "electron";
 import { z } from "zod";
 
 import {
@@ -9,7 +9,7 @@ import {
   showNotificationPayloadSchema,
 } from "@vellumai/ipc-contract";
 
-import { handle } from "./ipc";
+import { handle, on } from "./ipc";
 import { ensureVisible } from "./main-window";
 import log from "./logger";
 
@@ -175,7 +175,40 @@ let deliveryTimeoutMs = DELIVERY_TIMEOUT_MS;
 // Show notification
 // ---------------------------------------------------------------------------
 
+/**
+ * Taps arriving before a renderer is listening, queued for the drain the
+ * renderer performs on mount.
+ *
+ * A tap is the one notification event with nowhere else to go: clicking a
+ * banner while the app is closed (or still booting) is precisely when the
+ * user most expects to land on the conversation, and it is also when no
+ * renderer exists to receive the broadcast. `ensureVisible()` opens the
+ * window, but `webContents.send` on the next line reaches a renderer that
+ * has not yet subscribed -- and an un-listened `send` is dropped, not
+ * queued. Buffering here is the same shape `deep-links.ts` uses for
+ * `vellum://thread/...`, which has the identical cold-launch problem.
+ *
+ * Bounded because a buffered tap is only worth replaying while it still
+ * describes what the user just clicked; past the cap the oldest go.
+ */
+const MAX_PENDING_ACTIONS = 16;
+const pendingActions: NotificationActionEvent[] = [];
+
+/**
+ * Renderers listening for taps, tracked by `WebContents` rather than a
+ * count so a window torn down without running its React cleanup cannot
+ * leak a subscriber and silently flip buffering off for every later tap.
+ * Mirrors the subscriber model in `deep-links.ts`.
+ */
+const actionSubscribers = new Set<WebContents>();
+
 const broadcastAction = (event: NotificationActionEvent): void => {
+  if (actionSubscribers.size === 0) {
+    pendingActions.push(event);
+    if (pendingActions.length > MAX_PENDING_ACTIONS) {
+      pendingActions.shift();
+    }
+  }
   for (const win of BrowserWindow.getAllWindows()) {
     if (win.isDestroyed()) {
       continue;
@@ -292,12 +325,38 @@ export const installNotifications = (): void => {
     ([payload]) => showNotification(payload),
   );
 
+  // Renderer drains on mount; returns AND clears the buffer. Whether a
+  // later tap is buffered is governed by `actionSubscribers`, not by
+  // whether drain has run.
+  handle("vellum:notifications:drainActions", z.tuple([]), () =>
+    pendingActions.splice(0, pendingActions.length),
+  );
+
+  // Subscriber accounting. The preload sends these around its
+  // `ipcRenderer.on` registration; the `destroyed` listener covers the
+  // window-close path, where the JS context dies before React effect
+  // cleanup can run.
+  on("vellum:notifications:subscribeActions", z.tuple([]), (_args, event) => {
+    if (actionSubscribers.has(event.sender)) {
+      return;
+    }
+    actionSubscribers.add(event.sender);
+    event.sender.once("destroyed", () => {
+      actionSubscribers.delete(event.sender);
+    });
+  });
+  on("vellum:notifications:unsubscribeActions", z.tuple([]), (_args, event) => {
+    actionSubscribers.delete(event.sender);
+  });
+
   pruneTimer = setInterval(pruneStaleEntries, PRUNE_INTERVAL_MS);
 };
 
 // Test seam
 export const __resetForTesting = (): void => {
   recentNotifications.clear();
+  actionSubscribers.clear();
+  pendingActions.length = 0;
   deliveryTimeoutMs = DELIVERY_TIMEOUT_MS;
   if (pruneTimer) {
     clearInterval(pruneTimer);

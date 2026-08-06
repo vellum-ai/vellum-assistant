@@ -236,6 +236,13 @@ export interface VellumBridge {
       payload: ShowNotificationPayload,
     ): Promise<{ success: boolean; errorMessage?: string }>;
     onAction(callback: (event: NotificationActionEvent) => void): () => void;
+    /**
+     * Return AND clear the taps main buffered while no renderer was
+     * listening — a click that launched the app, or landed while it was
+     * still booting. Subscribe first, then drain, so a tap arriving
+     * between the two is broadcast rather than lost.
+     */
+    drainActions(): Promise<NotificationActionEvent[]>;
   };
   bundleConfirm: {
     getData(): Promise<BundleScanData | null>;

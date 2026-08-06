@@ -116,7 +116,22 @@ const handleMock = mock(
     handleRegistrations.push({ channel, schema, fn });
   },
 );
-mock.module("./ipc", () => ({ handle: handleMock }));
+type OnRegistration = {
+  channel: string;
+  schema: z.ZodType<unknown[]>;
+  fn: (args: unknown[], event: { sender: unknown }) => unknown;
+};
+const onRegistrations: OnRegistration[] = [];
+const onMock = mock(
+  (
+    channel: string,
+    schema: z.ZodType<unknown[]>,
+    fn: (args: unknown[], event: { sender: unknown }) => unknown,
+  ) => {
+    onRegistrations.push({ channel, schema, fn });
+  },
+);
+mock.module("./ipc", () => ({ handle: handleMock, on: onMock }));
 
 // --- Mock: ./main-window (ensureVisible spy) -------------------------------
 
@@ -171,7 +186,9 @@ beforeEach(() => {
   constructed.length = 0;
   sentMessages.length = 0;
   handleRegistrations.length = 0;
+  onRegistrations.length = 0;
   handleMock.mockClear();
+  onMock.mockClear();
   ensureVisibleMock.mockClear();
   at(0);
   installNotifications();
@@ -396,5 +413,142 @@ describe("interaction broadcast", () => {
       actionText: "Deny",
       deliveryId: "del-9",
     });
+  });
+});
+
+// --- Tap buffering ---------------------------------------------------------
+//
+// Clicking a banner while the app is closed (or still booting) is exactly
+// when the user most expects to land on the conversation, and exactly when
+// no renderer is subscribed to receive the broadcast. An un-listened
+// `webContents.send` is dropped, not queued, so main buffers the tap for
+// the drain the renderer performs on mount.
+
+describe("tap buffering for taps that beat the renderer", () => {
+  const DRAIN_CHANNEL = "vellum:notifications:drainActions";
+  const SUBSCRIBE_CHANNEL = "vellum:notifications:subscribeActions";
+  const UNSUBSCRIBE_CHANNEL = "vellum:notifications:unsubscribeActions";
+
+  const registrationFor = (channel: string): HandleRegistration => {
+    const reg = handleRegistrations.find((r) => r.channel === channel);
+    if (!reg) throw new Error(`no handler registered for ${channel}`);
+    return reg;
+  };
+  const listenerFor = (channel: string): OnRegistration => {
+    const reg = onRegistrations.find((r) => r.channel === channel);
+    if (!reg) throw new Error(`no listener registered for ${channel}`);
+    return reg;
+  };
+
+  const drain = () =>
+    registrationFor(DRAIN_CHANNEL).fn([]) as Array<{ kind: string }>;
+  const subscribe = (sender: unknown) =>
+    listenerFor(SUBSCRIBE_CHANNEL).fn([], { sender });
+  const unsubscribe = (sender: unknown) =>
+    listenerFor(UNSUBSCRIBE_CHANNEL).fn([], { sender });
+
+  /** A `WebContents` stand-in whose `once("destroyed", …)` main relies on. */
+  const makeSender = () => {
+    const destroyedHandlers: Array<() => void> = [];
+    return {
+      once: (event: string, cb: () => void) => {
+        if (event === "destroyed") destroyedHandlers.push(cb);
+      },
+      destroy: () => {
+        for (const cb of destroyedHandlers) cb();
+      },
+    };
+  };
+
+  const clickPayload = {
+    category: "notificationIntent",
+    title: "Zoom assets",
+    body: "Needs your review",
+    deliveryId: "del-1",
+    conversationId: "conv-1",
+  };
+
+  test("registers the drain, subscribe, and unsubscribe channels", () => {
+    expect(handleRegistrations.map((r) => r.channel)).toContain(DRAIN_CHANNEL);
+    expect(onRegistrations.map((r) => r.channel)).toEqual([
+      SUBSCRIBE_CHANNEL,
+      UNSUBSCRIBE_CHANNEL,
+    ]);
+  });
+
+  test("buffers a tap when no renderer is subscribed, and drain returns it", async () => {
+    await show(clickPayload);
+    constructed[0]!.emit("click");
+
+    expect(drain()).toMatchObject([{ kind: "click", conversationId: "conv-1" }]);
+  });
+
+  test("drain clears the buffer so a tap is never replayed twice", async () => {
+    await show(clickPayload);
+    constructed[0]!.emit("click");
+
+    expect(drain()).toHaveLength(1);
+    expect(drain()).toHaveLength(0);
+  });
+
+  test("does not buffer once a renderer is subscribed — it gets the live broadcast", async () => {
+    subscribe(makeSender());
+
+    await show(clickPayload);
+    constructed[0]!.emit("click");
+
+    expect(
+      sentMessages.filter((m) => m.channel === ACTION_CHANNEL),
+    ).toHaveLength(1);
+    expect(drain()).toHaveLength(0);
+  });
+
+  test("buffers again after the last renderer unsubscribes", async () => {
+    const sender = makeSender();
+    subscribe(sender);
+    unsubscribe(sender);
+
+    await show(clickPayload);
+    constructed[0]!.emit("click");
+
+    expect(drain()).toHaveLength(1);
+  });
+
+  // A window closed without running its React cleanup kills the JS context
+  // before the unsubscribe IPC is sent. Without the `destroyed` fallback the
+  // subscriber would leak and every later tap would be silently dropped.
+  test("a destroyed renderer stops counting as a subscriber", async () => {
+    const sender = makeSender();
+    subscribe(sender);
+    sender.destroy();
+
+    await show(clickPayload);
+    constructed[0]!.emit("click");
+
+    expect(drain()).toHaveLength(1);
+  });
+
+  test("re-subscribing the same renderer does not double-register", async () => {
+    const sender = makeSender();
+    subscribe(sender);
+    subscribe(sender);
+    unsubscribe(sender);
+
+    await show(clickPayload);
+    constructed[0]!.emit("click");
+
+    expect(drain()).toHaveLength(1);
+  });
+
+  test("caps the buffer, keeping the most recent taps", async () => {
+    for (let i = 0; i < 20; i++) {
+      await show({ ...clickPayload, deliveryId: `del-${i}`, body: `b-${i}` });
+      constructed[i]!.emit("click");
+    }
+
+    const drained = drain();
+    expect(drained).toHaveLength(16);
+    expect(drained.at(-1)).toMatchObject({ deliveryId: "del-19" });
+    expect(drained[0]).toMatchObject({ deliveryId: "del-4" });
   });
 });

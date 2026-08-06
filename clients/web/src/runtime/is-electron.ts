@@ -278,6 +278,12 @@ declare global {
         onAction(
           callback: (event: NotificationActionEvent) => void,
         ): () => void;
+        /**
+         * Return AND clear the taps main buffered while no renderer was
+         * listening — a click that launched the app, or landed while it
+         * was still booting.
+         */
+        drainActions(): Promise<NotificationActionEvent[]>;
       };
       popout?: {
         open(conversationId: string): Promise<void>;

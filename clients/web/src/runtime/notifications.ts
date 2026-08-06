@@ -35,7 +35,11 @@ import {
   ANDROID_ALERTS_CHANNEL_ID,
   ensureAndroidAlertsChannel,
 } from "@/runtime/android-notification-channels";
-import { isElectron } from "@/runtime/is-electron";
+import { captureError } from "@/lib/sentry/capture-error";
+import {
+  isElectron,
+  type ElectronNotificationActionEvent,
+} from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { isNativeAndroid } from "@/runtime/platform-detection";
 import {
@@ -61,6 +65,35 @@ let cachedPermission: PermissionState | null = null;
 let permissionPromptIssued = false;
 let tapListenersRegistered = false;
 let tapHandler: ((payload: NotificationTapPayload) => void) | null = null;
+
+/**
+ * A tap that arrived with no handler registered, replayed the moment one
+ * is. Defensive rather than load-bearing: today every platform listener is
+ * registered *from* `setNotificationTapHandler`, which assigns `tapHandler`
+ * first, so a tap can only outrun the handler if that ordering changes.
+ * The cold-launch drop this guards against is fixed in the main process,
+ * which buffers taps until a renderer subscribes.
+ *
+ * It exists because the failure is silent and expensive: the previous
+ * `if (!tapHandler) return` in each path discarded the tap with no log, no
+ * telemetry, and no user-visible signal beyond the app opening to the
+ * wrong place. One slot is enough — taps are user clicks, and the newest
+ * is the one whose destination they are waiting on.
+ */
+let pendingTap: NotificationTapPayload | null = null;
+
+/**
+ * Route a tap to the handler, or hold it until one registers.
+ * Every platform tap path funnels through here so none of them can
+ * reintroduce a silent drop.
+ */
+function dispatchTap(payload: NotificationTapPayload): void {
+  if (!tapHandler) {
+    pendingTap = payload;
+    return;
+  }
+  tapHandler(payload);
+}
 const recentNativeDeliveryIds = new Set<string>();
 const nativeDeliveryPromises = new Map<string, Promise<void>>();
 const MAX_RECENT_DELIVERY_IDS = 128;
@@ -193,16 +226,33 @@ async function registerTapListeners(): Promise<void> {
   // `NotificationTapPayload` so the same `tapHandler` is invoked
   // regardless of platform. The listener is permanent (app lifetime).
   if (isElectron() && window.vellum?.notifications) {
-    window.vellum.notifications.onAction((event) => {
-      if (!tapHandler) {
-        return;
-      }
-      tapHandler({
-        conversationId: event.conversationId,
-        sourceEventName: `electron:${event.category}:${event.kind}`,
-        deliveryId: event.deliveryId,
-      });
+    const toPayload = (
+      event: ElectronNotificationActionEvent,
+    ): NotificationTapPayload => ({
+      conversationId: event.conversationId,
+      sourceEventName: `electron:${event.category}:${event.kind}`,
+      deliveryId: event.deliveryId,
     });
+    window.vellum.notifications.onAction((event) => {
+      dispatchTap(toPayload(event));
+    });
+    // Subscribe first (above), then drain: a tap landing between the two
+    // is broadcast to the live listener rather than lost, and main stops
+    // buffering as soon as the subscribe IPC lands. Best-effort — a
+    // failed drain costs the launching tap, not the live ones.
+    void window.vellum.notifications
+      .drainActions()
+      .then((buffered) => {
+        for (const event of buffered) {
+          dispatchTap(toPayload(event));
+        }
+      })
+      .catch((error: unknown) => {
+        captureError(error, {
+          context: "notifications.drainActions",
+          bestEffort: true,
+        });
+      });
     return;
   }
 
@@ -215,8 +265,8 @@ async function registerTapListeners(): Promise<void> {
       (action) => {
         const extra = action.notification.extra as
           NotificationTapPayload | undefined;
-        if (extra && tapHandler) {
-          tapHandler(extra);
+        if (extra) {
+          dispatchTap(extra);
         }
       },
     );
@@ -238,6 +288,13 @@ export function setNotificationTapHandler(
 ): void {
   tapHandler = handler;
   void registerTapListeners();
+  // Replay a tap that beat this registration. Cleared before dispatch so a
+  // handler that re-registers during the call cannot replay it twice.
+  if (pendingTap) {
+    const replayed = pendingTap;
+    pendingTap = null;
+    handler(replayed);
+  }
 }
 
 /**
@@ -519,9 +576,7 @@ export async function postLocalNotification(
       });
       n.onclick = () => {
         window.focus();
-        if (tapHandler) {
-          tapHandler(tapPayload);
-        }
+        dispatchTap(tapPayload);
         n.close();
       };
     } catch (err) {
@@ -575,6 +630,7 @@ export function __resetNotificationsStateForTests(): void {
   permissionPromptIssued = false;
   tapListenersRegistered = false;
   tapHandler = null;
+  pendingTap = null;
   recentNativeDeliveryIds.clear();
   nativeDeliveryPromises.clear();
 }

@@ -472,6 +472,10 @@ const bridge: VellumBridge = {
         "vellum:notifications:show",
         payload,
       ) as Promise<{ success: boolean; errorMessage?: string }>,
+    drainActions: (): Promise<NotificationActionEvent[]> =>
+      ipcRenderer.invoke("vellum:notifications:drainActions") as Promise<
+        NotificationActionEvent[]
+      >,
     onAction: (callback) => {
       const handler = (
         _event: IpcRendererEvent,
@@ -480,8 +484,13 @@ const bridge: VellumBridge = {
         callback(event);
       };
       ipcRenderer.on("vellum:notifications:action", handler);
+      // Tell main a renderer is listening so it stops buffering taps.
+      // Without this every live tap would also enter the buffer and be
+      // replayed on a later drain (renderer reload, logout-relogin).
+      ipcRenderer.send("vellum:notifications:subscribeActions");
       return () => {
         ipcRenderer.off("vellum:notifications:action", handler);
+        ipcRenderer.send("vellum:notifications:unsubscribeActions");
       };
     },
   },
