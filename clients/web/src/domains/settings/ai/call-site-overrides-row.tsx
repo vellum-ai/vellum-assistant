@@ -1,4 +1,4 @@
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import {
@@ -127,7 +127,7 @@ export function CallSiteOverrideRow({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {overrideOn && (
-            <Dropdown
+            <Select
               value={profileVal}
               onChange={handleProfilePickerChange}
               options={profileOptions}
@@ -152,7 +152,7 @@ export function CallSiteOverrideRow({
               <label className="mb-1 block text-body-small-default text-[var(--content-tertiary)]">
                 Provider
               </label>
-              <Dropdown
+              <Select
                 value={currentProvider ?? ""}
                 onChange={handleProviderChange}
                 options={selectableInferenceProviders.map((p) => ({
@@ -165,7 +165,7 @@ export function CallSiteOverrideRow({
               <label className="mb-1 block text-body-small-default text-[var(--content-tertiary)]">
                 Model
               </label>
-              <Dropdown
+              <Select
                 value={draft?.model ?? ""}
                 onChange={handleModelChange}
                 options={modelOptions}

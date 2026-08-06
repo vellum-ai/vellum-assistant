@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { ChevronRight, Loader2 } from "lucide-react";
@@ -127,7 +127,7 @@ export function ProviderEditorApiKeySection({
                     <label className="block text-body-small-default text-[var(--content-tertiary)]">
                       Credential Reference
                     </label>
-                    <Dropdown
+                    <Select
                       aria-label="Credential reference"
                       value={credential}
                       onChange={(v) => {

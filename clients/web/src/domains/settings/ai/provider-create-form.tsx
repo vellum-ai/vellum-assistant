@@ -2,7 +2,7 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -378,7 +378,7 @@ export function ProviderCreateForm({
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Provider
           </label>
-          <Dropdown
+          <Select
             aria-label="Provider"
             value={selected}
             onChange={(newSelected) => {

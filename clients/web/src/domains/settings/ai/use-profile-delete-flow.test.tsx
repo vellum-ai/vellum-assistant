@@ -108,14 +108,18 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { configGetQueryKey } =
-  await import("@/generated/daemon/@tanstack/react-query.gen");
-const { ProfilesSection } =
-  await import("@/domains/settings/ai/profiles-section");
-const { MIN_VERSION } =
-  await import("@/lib/backwards-compat/use-supports-schedule-profile-moves");
-const { useAssistantIdentityStore } =
-  await import("@/stores/assistant-identity-store");
+const { configGetQueryKey } = await import(
+  "@/generated/daemon/@tanstack/react-query.gen"
+);
+const { ProfilesSection } = await import(
+  "@/domains/settings/ai/profiles-section"
+);
+const { MIN_VERSION } = await import(
+  "@/lib/backwards-compat/use-supports-schedule-profile-moves"
+);
+const { useAssistantIdentityStore } = await import(
+  "@/stores/assistant-identity-store"
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -504,7 +508,10 @@ describe("profile delete flow - disabled replacements", () => {
     const option = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
     ).find((o) => o.textContent?.trim() === "Retired (Disabled)");
-    expect(option?.getAttribute("aria-disabled")).toBe("false");
+    // Radix omits `aria-disabled` on enabled options rather than setting it
+    // to "false", so assert it is not disabled. The click below is the real
+    // proof that a disabled profile stays choosable as a replacement.
+    expect(option?.getAttribute("aria-disabled")).not.toBe("true");
 
     fireEvent.click(option!);
     expect(selectedReplacementLabel()).toBe("Retired (Disabled)");
