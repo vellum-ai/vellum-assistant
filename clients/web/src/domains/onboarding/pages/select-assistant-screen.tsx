@@ -759,7 +759,12 @@ export function SelectAssistantScreen() {
                 }
                 onSelect={() => setSelected(key)}
                 onRemove={
-                  current ? undefined : () => setRemoveOriginTarget(origin)
+                  // Forgetting the current entry on a native shell relocates
+                  // the app to the baked origin, which the dialog copy does
+                  // not promise. Elsewhere the list is local and inert.
+                  current && nativeMobile
+                    ? undefined
+                    : () => setRemoveOriginTarget(origin)
                 }
               />
             );

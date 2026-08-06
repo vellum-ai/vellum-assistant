@@ -1015,10 +1015,11 @@ describe("SelectAssistantScreen remembered origins", () => {
     expect(switchToOriginMock).not.toHaveBeenCalled();
   });
 
-  test("the current-origin card offers no remove menu", () => {
+  test("the current-origin card offers no remove menu on a native shell", () => {
     // A native shell always lists the origin it serves, and forgetting that
     // one relocates the app, which the removal copy promises it will not do.
     assistantSwitcherValue = true;
+    isNativeMobileValue = true;
     currentOriginUrl = "https://assistant.example.com";
     originsValue = [makeOrigin()];
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
@@ -1026,6 +1027,19 @@ describe("SelectAssistantScreen remembered origins", () => {
     render(<SelectAssistantScreen />);
 
     expect(screen.queryByLabelText("Actions for Home Server")).toBeNull();
+  });
+
+  test("the current-origin card keeps its remove menu in a browser", () => {
+    // The browser list is local and inert: forgetting the entry cannot move
+    // the page, so the user keeps the affordance.
+    assistantSwitcherValue = true;
+    currentOriginUrl = "https://assistant.example.com";
+    originsValue = [makeOrigin()];
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.getByLabelText("Actions for Home Server")).toBeTruthy();
   });
 
   test("removing an origin shows the origin copy and forgets the entry", async () => {
