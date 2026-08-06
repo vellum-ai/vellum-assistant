@@ -652,6 +652,39 @@ describe("emitAssistantReplyNotification", () => {
       );
     });
 
+    // `resolveAssistantAttachments` skips a file that is missing, oversized,
+    // unreadable, or denied at the host-read approval, so a `vellum://` embed
+    // can leave no row. Its alt is then the only label the reply has.
+    test("names a tracked embed whose attachment never resolved", async () => {
+      assistantRow = makeAssistantRow([
+        { type: "text", text: "![the diagram](vellum://workspace/gone.png)" },
+      ] as ContentBlock[]);
+      assistantAttachments = [];
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent the diagram",
+      );
+    });
+
+    test("counts only the tracked embeds that failed to resolve", async () => {
+      assistantRow = makeAssistantRow([
+        {
+          type: "text",
+          text: "![one](vellum://workspace/1.png) ![two](vellum://workspace/2.png)",
+        },
+      ] as ContentBlock[]);
+      assistantAttachments = [{ originalFilename: "1.png" }];
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent 2 attachments",
+      );
+    });
+
     test("does not double count an embed that became an attachment", async () => {
       assistantRow = makeAssistantRow([
         { type: "text", text: "![local](vellum://workspace/a.mp4)" },

@@ -74,10 +74,22 @@ function describeReplyMedia(text: string, assistantMessageId: string): string {
   const filenames = getAttachmentMetadataForMessage(assistantMessageId).map(
     (attachment) => attachment.originalFilename,
   );
-  const untracked = mediaEmbeds(text)
-    .filter((embed) => !embed.tracked)
-    .map((embed) => embed.alt);
-  return describeMedia([...filenames, ...untracked]);
+  const embeds = mediaEmbeds(text);
+  const tracked = embeds.filter((embed) => embed.tracked);
+
+  // Resolution is allowed to fail: `resolveAssistantAttachments` skips a file
+  // that is missing, oversized, unreadable, or denied at the host-read
+  // approval, leaving a tracked embed with no row to stand for it. Rows at
+  // least matching the tracked embeds means each one resolved (any surplus
+  // being generated files); a shortfall is that many embeds falling back to
+  // their own alt rather than vanishing from the count.
+  const unresolved = Math.max(0, tracked.length - filenames.length);
+
+  return describeMedia([
+    ...filenames,
+    ...tracked.slice(tracked.length - unresolved).map((embed) => embed.alt),
+    ...embeds.filter((embed) => !embed.tracked).map((embed) => embed.alt),
+  ]);
 }
 
 /**
