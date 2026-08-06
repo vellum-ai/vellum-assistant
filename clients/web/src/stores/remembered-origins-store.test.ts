@@ -517,7 +517,7 @@ describe("providers and hydration", () => {
 
   it("a watch event after a failed hydration retries hydration", async () => {
     let failLoads = true;
-    let watchCallback: (() => void) | null = null;
+    const watchRef: { fn: (() => void) | null } = { fn: null };
     const provider: RememberedOriginsProvider = {
       load: async () => {
         if (failLoads) {
@@ -532,7 +532,7 @@ describe("providers and hydration", () => {
       },
       save: async () => {},
       watch: (onChange) => {
-        watchCallback = onChange;
+        watchRef.fn = onChange;
         return () => {};
       },
     };
@@ -543,7 +543,7 @@ describe("providers and hydration", () => {
     // The provider recovers and announces a change; no caller invokes
     // hydrate() manually.
     failLoads = false;
-    watchCallback?.();
+    watchRef.fn?.();
     await new Promise((resolve) => setTimeout(resolve, 5));
 
     expect(store().hydrated).toBe(true);
@@ -556,7 +556,7 @@ describe("providers and hydration", () => {
     let entries: RememberedOrigin[] = [
       { url: "https://example.com/new", addedAt: "2026-01-02T00:00:00Z" },
     ];
-    let watchCallback: (() => void) | null = null;
+    const watchRef: { fn: (() => void) | null } = { fn: null };
     let releaseHydrateLoad = () => {};
     const hydrateGate = new Promise<void>((resolve) => {
       releaseHydrateLoad = resolve;
@@ -579,14 +579,14 @@ describe("providers and hydration", () => {
         entries = next;
       },
       watch: (onChange) => {
-        watchCallback = onChange;
+        watchRef.fn = onChange;
         return () => {};
       },
     };
     setRememberedOriginsProvider(provider);
 
     // The provider's value changes while hydration is still loading.
-    watchCallback?.();
+    watchRef.fn?.();
     await new Promise((resolve) => setTimeout(resolve, 1));
     releaseHydrateLoad();
     await store().hydrate();
@@ -601,7 +601,7 @@ describe("providers and hydration", () => {
     let entries: RememberedOrigin[] = [
       { url: "https://example.com/a", addedAt: "2026-01-01T00:00:00Z" },
     ];
-    let watchCallback: (() => void) | null = null;
+    const watchRef: { fn: (() => void) | null } = { fn: null };
     let gate: Promise<void> | null = null;
     let releaseGate = () => {};
     const provider: RememberedOriginsProvider = {
@@ -617,7 +617,7 @@ describe("providers and hydration", () => {
         entries = next;
       },
       watch: (onChange) => {
-        watchCallback = onChange;
+        watchRef.fn = onChange;
         return () => {};
       },
     };
@@ -628,7 +628,7 @@ describe("providers and hydration", () => {
     gate = new Promise((resolve) => {
       releaseGate = resolve;
     });
-    watchCallback?.();
+    watchRef.fn?.();
     const add = store().addOrigin({ url: "https://example.com/b" });
     releaseGate();
     await add;

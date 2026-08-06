@@ -148,12 +148,18 @@ const MUTATION_LOCK_NAME = "vellum:remembered-origins:mutate";
  * API. Without it (non-browser test envs, very old engines) the in-tab
  * queue still applies and concurrent-tab writes fall back to last-writer.
  */
-function withCrossTabLock<T>(mutation: () => Promise<T>): Promise<T> {
+async function withCrossTabLock<T>(mutation: () => Promise<T>): Promise<T> {
   const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
   if (!locks) {
     return mutation();
   }
-  return locks.request(MUTATION_LOCK_NAME, mutation);
+  // Awaited rather than returned directly. `LockManager.request` infers its
+  // type parameter from what the callback returns, and this callback returns
+  // `Promise<T>`, so the call itself is typed `Promise<Promise<T>>`. Awaiting
+  // collapses that to `T`, which is what the signature promises and what
+  // every caller already receives at runtime. A cast would hide the nesting
+  // rather than resolve it.
+  return await locks.request(MUTATION_LOCK_NAME, mutation);
 }
 
 function enqueueMutation<T>(mutation: () => Promise<T>): Promise<T> {
