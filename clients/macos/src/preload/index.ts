@@ -5,10 +5,7 @@ import {
   type IpcRendererEvent,
 } from "electron";
 
-import type {
-  Lockfile,
-  LockfileWriteResult,
-} from "@vellumai/local-mode";
+import { createLocalModeBridge } from "@vellumai/electron-desktop/local-mode-bridge";
 import type {
   AppVersionInfo,
   AssistantStatus,
@@ -25,9 +22,6 @@ import type {
   HelperState,
   HotkeyEvent,
   LocalAssistantStatusResult,
-  LocalConnectImportResult,
-  LocalUpgradeOptions,
-  LocalWakeOptions,
   NotificationActionEvent,
   PowerEvent,
   ResolvedHotkey,
@@ -296,83 +290,7 @@ const bridge: VellumBridge = {
     shareFile: (bytes: Uint8Array, filename: string): Promise<void> =>
       ipcRenderer.invoke("vellum:share:file", bytes, filename),
   },
-  localMode: {
-    hatch: (species: string, remote?: string) =>
-      ipcRenderer.invoke("vellum:localMode:hatch", species, remote) as Promise<{
-        ok: boolean;
-        assistantId?: string;
-        error?: string;
-      }>,
-    readLockfile: () =>
-      ipcRenderer.invoke("vellum:localMode:readLockfile") as Promise<Lockfile>,
-    saveLockfileAssistant: (
-      assistant: Record<string, unknown>,
-      activeAssistant?: string,
-    ) =>
-      ipcRenderer.invoke(
-        "vellum:localMode:saveLockfileAssistant",
-        assistant,
-        activeAssistant,
-      ) as Promise<LockfileWriteResult>,
-    replacePlatformAssistants: (
-      platformAssistants: Array<Record<string, unknown>>,
-      organizationId?: string,
-    ) =>
-      ipcRenderer.invoke(
-        "vellum:localMode:replacePlatformAssistants",
-        platformAssistants,
-        organizationId,
-      ) as Promise<LockfileWriteResult>,
-    wake: (assistantId: string, options?: LocalWakeOptions) =>
-      ipcRenderer.invoke("vellum:localMode:wake", assistantId, options) as Promise<{
-        ok: boolean;
-        error?: string;
-      }>,
-    upgrade: (assistantId: string, options?: LocalUpgradeOptions) =>
-      ipcRenderer.invoke(
-        "vellum:localMode:upgrade",
-        assistantId,
-        options,
-      ) as Promise<{
-        ok: boolean;
-        version?: string;
-        error?: string;
-      }>,
-    status: (assistantId: string) =>
-      ipcRenderer.invoke(
-        "vellum:localMode:status",
-        assistantId,
-      ) as Promise<LocalAssistantStatusResult>,
-    retire: (assistantId: string) =>
-      ipcRenderer.invoke("vellum:localMode:retire", assistantId) as Promise<{
-        ok: boolean;
-        error?: string;
-      }>,
-    unpair: (assistantId: string) =>
-      ipcRenderer.invoke(
-        "vellum:localMode:unpair",
-        assistantId,
-      ) as Promise<LockfileWriteResult>,
-    connectImport: (bundle: string, name?: string) =>
-      ipcRenderer.invoke(
-        "vellum:localMode:connectImport",
-        bundle,
-        name,
-      ) as Promise<LocalConnectImportResult>,
-    sleep: (assistantId: string) =>
-      ipcRenderer.invoke("vellum:localMode:sleep", assistantId) as Promise<{
-        ok: boolean;
-        error?: string;
-      }>,
-    guardianToken: (assistantId: string) =>
-      ipcRenderer.invoke(
-        "vellum:localMode:guardianToken",
-        assistantId,
-      ) as Promise<
-        | { ok: true; accessToken: string }
-        | { ok: false; status: number; error: string }
-      >,
-  },
+  localMode: createLocalModeBridge(ipcRenderer),
   menu: {
     setPlatformSession: (has: boolean): Promise<void> =>
       ipcRenderer.invoke("vellum:menu:setPlatformSession", has) as Promise<void>,

@@ -9,39 +9,27 @@ import {
   test,
 } from "bun:test";
 import fs from "node:fs";
+import { EventEmitter } from "node:events";
 import os from "node:os";
 import path from "node:path";
+import type { IpcHandle } from "./ipc";
 
-// `./local-mode` resolves the CLI command from `app` (packaged vs dev) and
-// registers its handler on `ipcMain`, then spawns the CLI via
-// `node:child_process`. Stub all three so the spawn + stdout-parsing logic
-// can be exercised without Electron or a real CLI. Mocks must be installed
-// before the `await import` below (see `commands.test.ts` for the ordering
-// rationale).
+// Exercise the shared spawn and stdout parsing without Electron or a real CLI.
 const appState = { isPackaged: false, appPath: "/repo/clients/macos" };
 const handlers: Record<
   string,
   (event: unknown, ...args: unknown[]) => unknown
 > = {};
+const handle: IpcHandle = (channel, schema, fn): void => {
+  handlers[channel] = (event, ...args) =>
+    fn(schema.parse(args), event as never);
+};
 
-mock.module("electron", () => ({
-  app: {
-    get isPackaged() {
-      return appState.isPackaged;
-    },
-    getAppPath: () => appState.appPath,
-  },
-  ipcMain: {
-    handle: (
-      channel: string,
-      handler: (event: unknown, ...args: unknown[]) => unknown,
-    ) => {
-      handlers[channel] = handler;
-    },
-  },
-}));
-
-import { FakeChild } from "./test-helpers";
+class FakeChild extends EventEmitter {
+  stdout = new EventEmitter();
+  stderr = new EventEmitter();
+  kill = mock(() => true);
+}
 
 let lastChild: FakeChild;
 const spawnArgs: Array<[string, string[]]> = [];
@@ -64,15 +52,10 @@ const cliInstallerState = {
   bundledBunPath: "/fake/resources/bun",
 };
 const ensureCliInstalledMock = mock(async () => {
-  if (cliInstallerState.installError) throw cliInstallerState.installError;
+  if (cliInstallerState.installError) {
+    throw cliInstallerState.installError;
+  }
 });
-
-mock.module("./cli-installer", () => ({
-  ensureCliInstalled: ensureCliInstalledMock,
-  isCliInstalled: () => cliInstallerState.isInstalled,
-  getCliBinPath: () => cliInstallerState.cliBinPath,
-  getBundledBunPath: () => cliInstallerState.bundledBunPath,
-}));
 
 // The module under test imports { existsSync } from "node:fs" to check
 // whether the dev source tree exists. Wrap the real implementation so
@@ -81,11 +64,28 @@ mock.module("./cli-installer", () => ({
 const realExistsSync = fs.existsSync.bind(fs);
 const existsSyncOverrides: Record<string, boolean> = {};
 
-mock.module("node:fs", () => ({
-  ...fs,
-  existsSync: (p: string) =>
-    p in existsSyncOverrides ? existsSyncOverrides[p] : realExistsSync(p),
-}));
+const resolveInvocation = async () => {
+  const envPath = process.env.VELLUM_CLI_PATH;
+  if (envPath) {
+    return { command: "bun", baseArgs: ["run", envPath] };
+  }
+  if (!appState.isPackaged) {
+    const repoRoot = path.resolve(appState.appPath, "..", "..");
+    const cliEntry = path.join(repoRoot, "cli", "src", "index.ts");
+    const exists =
+      cliEntry in existsSyncOverrides
+        ? existsSyncOverrides[cliEntry]
+        : realExistsSync(cliEntry);
+    if (exists) {
+      return { command: "bun", baseArgs: ["run", cliEntry] };
+    }
+  }
+  await ensureCliInstalledMock();
+  return {
+    command: cliInstallerState.bundledBunPath,
+    baseArgs: ["run", cliInstallerState.cliBinPath],
+  };
+};
 
 // Point the lockfile transport at a throwaway dir so the lockfile handlers
 // exercise the real shared read/write logic without touching a real config
@@ -106,36 +106,27 @@ const lockfilePath = path.join(lockfileDir, ".vellum.lock.json");
 const configDir = path.join(configHomeDir, "vellum");
 
 let mockSessionToken: string | null = null;
-mock.module("./session-token-store", () => ({
-  getSessionToken: () => mockSessionToken,
-}));
 
-// The unpair handler refreshes the lockfile watcher so the paired-gateway
-// allowlist reflects the removal immediately. Stub the watcher module so
-// the test asserts the hook fires without installing a real poller.
 const refreshLockfileNowMock = mock(() => {});
-mock.module("./lockfile-watcher", () => ({
-  refreshLockfileNow: refreshLockfileNowMock,
-}));
 
-const { getPairedGuardianAccessToken, installLocalMode } =
+const { configureLocalMode, getPairedGuardianAccessToken, installLocalMode } =
   await import("./local-mode");
-const { resolveAllowedOrigin } = await import("./app-origin");
 const { guardianTokenPath } = await import("@vellumai/local-mode");
 
-// The IPC wrappers reject any sender whose frame origin isn't the build's
-// renderer origin. Tests drive the registered handlers directly, so they
-// must present a frame at that origin; deriving it from the guard's own
-// resolver keeps the fake sender correct across the dev/packaged toggle
-// (`appState.isPackaged`) without hard-coding either origin here.
-const allowedEvent = {
-  get senderFrame() {
-    const { protocol, host } = resolveAllowedOrigin();
-    return { origin: `${protocol}//${host}` };
-  },
-};
+const allowedEvent = {};
 
 beforeAll(() => {
+  configureLocalMode({
+    cli: { resolveInvocation },
+    handle,
+    paths: {
+      configDir,
+      environment: "production",
+      lockfilePaths: [lockfilePath],
+    },
+    refreshLockfile: refreshLockfileNowMock,
+    session: { getToken: () => mockSessionToken },
+  });
   installLocalMode();
 });
 
@@ -468,7 +459,9 @@ describe("lockfile IPC handlers", () => {
     );
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.lockfile.activeAssistant).toBe("asst-1");
     expect(result.lockfile.assistants).toEqual([
       {
@@ -493,7 +486,9 @@ describe("lockfile IPC handlers", () => {
     const result = saveLockfileAssistant({ cloud: "local" });
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error).toContain("assistantId");
     expect(fs.existsSync(lockfilePath)).toBe(false);
   });
@@ -542,7 +537,9 @@ describe("lockfile IPC handlers", () => {
     ]);
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     const ids = (
       result.lockfile.assistants as Array<{ assistantId: string }>
     ).map((a) => a.assistantId);

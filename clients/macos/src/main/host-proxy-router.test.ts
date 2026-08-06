@@ -24,7 +24,7 @@ mock.module("@vellumai/local-mode", () => ({
 
 // Minimal lockfile-watcher stub — capture the listener
 let lockfileListener: ((lockfile: import("@vellumai/local-mode/contract").Lockfile) => void) | null = null;
-mock.module("./lockfile-watcher", () => ({
+mock.module("./lockfile-watcher.client", () => ({
   onLockfileChange: (listener: typeof lockfileListener) => {
     lockfileListener = listener;
     return () => { lockfileListener = null; };

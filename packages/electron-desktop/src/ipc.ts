@@ -5,6 +5,7 @@ import { isAllowedOrigin, type AllowedOrigin } from "./app-origin";
 
 export type AllowedOriginResolver = () => AllowedOrigin;
 export type OriginValidator = typeof isAllowedOrigin;
+export type IpcHandle = ReturnType<typeof createIpcRegistrar>["handle"];
 
 /**
  * Registration helpers for the renderer-to-main IPC surface.

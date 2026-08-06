@@ -17,7 +17,7 @@ import {
 } from "@vellumai/local-mode";
 
 import { BUNDLES_DIR_NAME } from "./app-config";
-import { resolveCliInvocation } from "./local-mode";
+import { resolveCliInvocation } from "./local-mode.client";
 import { openBundleConfirmation, installBundleConfirmation } from "./bundle-confirmation";
 import { unpackBundle, type BundleScanData } from "./bundle-manager";
 import { openBundleWindow } from "./bundle-window";

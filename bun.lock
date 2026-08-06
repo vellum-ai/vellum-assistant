@@ -498,6 +498,8 @@
       "version": "0.0.1",
       "dependencies": {
         "@vellumai/electron-utils": "workspace:*",
+        "@vellumai/ipc-contract": "workspace:*",
+        "@vellumai/local-mode": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "1.3.14",

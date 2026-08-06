@@ -1,6 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 
-import type { Lockfile } from "@vellumai/local-mode/contract";
 import type {
   AppVersionInfo,
   VellumBridge,
@@ -10,8 +9,6 @@ import type {
 import { composePreloadFeatures } from "./features";
 
 export type { AppVersionInfo, VellumBridge, VellumCommand };
-
-const NOT_AVAILABLE = "Local mode is not available on the Windows client yet";
 
 const noopUnsubscribe = (): (() => void) => () => undefined;
 
@@ -40,7 +37,6 @@ const coreBridge: Pick<
   | "dock"
   | "menu"
   | "mainWindow"
-  | "localMode"
 > = {
   platform: "electron",
   hostOS: "windows",
@@ -87,31 +83,6 @@ const coreBridge: Pick<
     // Stub: onboarding window sizing needs the window-state port
     // (`clients/macos/src/main/window-state.ts`).
     setOnboarding: () => Promise.resolve(),
-  },
-  // Stub: local assistants need the CLI provisioning + lockfile IPC port
-  // (`clients/macos/src/main/local-mode.ts`). The empty lockfile renders an
-  // empty assistant list; mutations report a structured failure the
-  // renderer already surfaces by message.
-  localMode: {
-    hatch: () => Promise.resolve({ ok: false, error: NOT_AVAILABLE }),
-    readLockfile: (): Promise<Lockfile> =>
-      Promise.resolve({ assistants: [], activeAssistant: null }),
-    saveLockfileAssistant: () =>
-      Promise.resolve({ ok: false as const, error: NOT_AVAILABLE }),
-    replacePlatformAssistants: () =>
-      Promise.resolve({ ok: false as const, error: NOT_AVAILABLE }),
-    wake: () => Promise.resolve({ ok: false, error: NOT_AVAILABLE }),
-    upgrade: () => Promise.resolve({ ok: false, error: NOT_AVAILABLE }),
-    status: () =>
-      Promise.resolve({ ok: false as const, status: 501, error: NOT_AVAILABLE }),
-    retire: () => Promise.resolve({ ok: false, error: NOT_AVAILABLE }),
-    sleep: () => Promise.resolve({ ok: false, error: NOT_AVAILABLE }),
-    unpair: () =>
-      Promise.resolve({ ok: false as const, error: NOT_AVAILABLE }),
-    connectImport: () =>
-      Promise.resolve({ ok: false as const, error: NOT_AVAILABLE }),
-    guardianToken: () =>
-      Promise.resolve({ ok: false as const, status: 501, error: NOT_AVAILABLE }),
   },
 };
 

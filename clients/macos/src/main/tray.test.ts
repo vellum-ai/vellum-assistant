@@ -106,7 +106,7 @@ let watchedLockfile: {
   assistants: Array<Record<string, unknown>>;
   activeAssistant: string | null;
 } = { assistants: [], activeAssistant: null };
-mock.module("./lockfile-watcher", () => ({
+mock.module("./lockfile-watcher.client", () => ({
   getWatchedLockfile: () => watchedLockfile,
 }));
 
