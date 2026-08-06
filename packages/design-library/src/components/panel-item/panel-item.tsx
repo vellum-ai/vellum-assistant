@@ -49,6 +49,15 @@ import { MarqueeText } from "./marquee-text";
  * provides the interactive state layer (hover, active, focus-ring,
  * aria-current, `group` modifier).
  *
+ * ### `shape`
+ *
+ * - `"row"` (default): a full-width 6px-radius row, for lists and nav trees.
+ * - `"pill"`: a capsule that hugs its content and carries a resting
+ *   `--surface-lift` surface, for navigation chips that sit inline rather
+ *   than filling a column. Everything else (hover, active, badge, trailing
+ *   action, link/button semantics) is unchanged, which is the point: a pill
+ *   is a differently-shaped row, not a different component.
+ *
  * ### `activeVariant`
  *
  * Controls how the active (`aria-current="page"`) state is styled:
@@ -103,6 +112,13 @@ interface PanelItemProps {
    * layout space next to `badge`, which reads as broken.
    */
   trailingAction?: ReactNode;
+  /**
+   * Row geometry.
+   * - `"row"` fills its container at a 6px radius.
+   * - `"pill"` hugs its content as a capsule on `--surface-lift`.
+   * @default "row"
+   */
+  shape?: "row" | "pill";
   /** Selected state. Sets `aria-current="page"` automatically. */
   active?: boolean;
   /**
@@ -162,6 +178,18 @@ const INTERACTIVE_CLASSES = [
   "[@media(hover:hover)]:hover:bg-[var(--surface-hover)]",
   "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
   "cursor-pointer select-none",
+].join(" ");
+
+/**
+ * {@link PanelItemProps.shape} `"pill"`: a capsule that sizes to its content
+ * and carries a resting surface, so it reads as a chip sitting in a column
+ * rather than a row filling one. Radius, width, and surface only, so hover,
+ * active, and every slot behave exactly as they do on a row.
+ */
+const PILL_SHAPE_CLASSES = [
+  "w-auto rounded-full",
+  "bg-[var(--surface-lift)]",
+  "pr-3",
 ].join(" ");
 
 const ACTIVE_DEFAULT_CLASSES = [
@@ -248,6 +276,7 @@ function PanelItem({
   badge,
   badgeBare = false,
   trailingAction,
+  shape = "row",
   active = false,
   activeVariant = "default",
   disabled = false,
@@ -334,6 +363,7 @@ function PanelItem({
     ROW_BASE_CLASSES,
     isInteractive && INTERACTIVE_CLASSES,
     activeClasses,
+    shape === "pill" && PILL_SHAPE_CLASSES,
     className,
   );
 

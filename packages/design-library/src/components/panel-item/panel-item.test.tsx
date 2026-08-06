@@ -94,3 +94,51 @@ describe("PanelItem badge", () => {
   });
 });
 
+describe("PanelItem shape", () => {
+  function renderShaped(
+    shape?: "row" | "pill",
+    className?: string,
+  ): string {
+    return renderToStaticMarkup(
+      createElement(PanelItem, {
+        label: "Row",
+        onSelect: () => {},
+        shape,
+        className,
+      }),
+    );
+  }
+
+  test("defaults to a full-width row", () => {
+    const html = renderShaped();
+    expect(html).toContain("rounded-[6px]");
+    expect(html).toContain("w-full");
+    expect(html).not.toContain("rounded-full");
+  });
+
+  /* The row's own radius and width must be *replaced*, not merely joined by
+     the pill's. Emitting both leaves the winner to stylesheet order, which is
+     how a capsule silently renders as a 6px row. */
+  test("pill replaces the row's radius and width rather than stacking on them", () => {
+    const html = renderShaped("pill");
+    expect(html).toContain("rounded-full");
+    expect(html).toContain("w-auto");
+    expect(html).not.toContain("rounded-[6px]");
+    expect(html).not.toContain("w-full");
+  });
+
+  test("pill keeps the row's interaction treatment", () => {
+    const html = renderShaped("pill");
+    expect(html).toContain("[@media(hover:hover)]:hover:bg-[var(--surface-hover)]");
+    expect(html).toContain("aria-[current=page]:bg-[var(--surface-active)]");
+  });
+
+  /* Consumers override the shape's surface (e.g. the assistant pill's tint),
+     so their className has to win over PILL_SHAPE_CLASSES. */
+  test("a consumer className overrides the pill surface", () => {
+    const html = renderShaped("pill", "bg-[var(--surface-active)]");
+    expect(html).toContain("bg-[var(--surface-active)]");
+    expect(html).not.toContain("bg-[var(--surface-lift)]");
+  });
+});
+

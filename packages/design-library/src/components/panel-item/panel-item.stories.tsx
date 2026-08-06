@@ -1,0 +1,117 @@
+import { LayoutGrid, Plus, Settings } from "lucide-react";
+import type { Meta, StoryObj } from "@storybook/react-vite";
+
+import { PanelItem } from "./panel-item";
+
+/**
+ * The navigation row primitive: sidebars, settings nav, admin trees.
+ *
+ * `shape` is the only geometry switch. A pill is the same row with a capsule
+ * radius, content-hugging width, and a resting surface, so hover, active
+ * state, badges, and trailing actions behave identically either way.
+ *
+ * Rows are pinned to a narrow column here because that is the context they
+ * ship in, and because a full-width row and a content-hugging pill only read
+ * differently when there is a column edge to sit against.
+ */
+const meta: Meta<typeof PanelItem> = {
+  title: "Components/PanelItem",
+  component: PanelItem,
+  args: {
+    label: "Conversations",
+    shape: "row",
+  },
+  argTypes: {
+    shape: { control: "inline-radio", options: ["row", "pill"] },
+    activeVariant: { control: "inline-radio", options: ["default", "branded"] },
+    label: { control: "text" },
+    active: { control: "boolean" },
+  },
+  globals: {
+    viewport: { value: "sbDesktop", isRotated: false },
+  },
+  parameters: {
+    viewport: {
+      options: {
+        sbDesktop: {
+          name: "Desktop",
+          styles: { width: "1280px", height: "760px" },
+          type: "desktop",
+        },
+      },
+    },
+    /* PanelItem carries `max-md:` variants for mobile drawers (16px type at
+       44px tall instead of 14px at 32px), and those key off the *viewport*.
+       The Canvas iframe is far narrower than the browser window, so without
+       a pinned viewport these stories silently document the mobile metrics.
+       Read them in Canvas; a Docs page shares one iframe and cannot honor
+       this. */
+  },
+  decorators: [
+    (Story) => (
+      <div style={{ width: 248 }}>
+        <Story />
+      </div>
+    ),
+  ],
+};
+
+export default meta;
+
+type Story = StoryObj<typeof PanelItem>;
+
+/** Arg-driven: flip `shape` and `active` from the Controls panel. */
+export const Default: Story = {
+  args: { icon: LayoutGrid, onSelect: () => {} },
+};
+
+/** The two shapes against the same column, which is the only fair comparison. */
+export const Shapes: Story = {
+  render: () => (
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+      <PanelItem shape="row" icon={LayoutGrid} label="Row" onSelect={() => {}} />
+      <PanelItem
+        shape="pill"
+        icon={LayoutGrid}
+        label="Pill"
+        onSelect={() => {}}
+      />
+    </div>
+  ),
+};
+
+/** A pill carries selected state exactly as a row does. */
+export const PillStates: Story = {
+  render: () => (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "flex-start",
+        gap: "0.5rem",
+      }}
+    >
+      <PanelItem shape="pill" icon={Plus} label="New Chat" onSelect={() => {}} />
+      <PanelItem
+        shape="pill"
+        icon={LayoutGrid}
+        label="Memory"
+        onSelect={() => {}}
+      />
+      <PanelItem
+        shape="pill"
+        icon={LayoutGrid}
+        label="Memory"
+        active
+        onSelect={() => {}}
+      />
+      <PanelItem
+        shape="pill"
+        icon={Settings}
+        label="Preferences"
+        badge="3"
+        onSelect={() => {}}
+      />
+    </div>
+  ),
+};
