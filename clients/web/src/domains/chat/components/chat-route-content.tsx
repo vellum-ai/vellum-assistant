@@ -350,7 +350,16 @@ export function ChatMainPanel({
   const messages = useTranscriptMessages();
   const error = useChatSessionStore.use.error();
   const notice = useChatSessionStore.use.notice();
-  const isLoadingHistory = useChatSessionStore.use.isLoadingHistory();
+  // A client-minted draft has no server row, so there is no history to wait
+  // for and no transcript skeleton to show. Derived during render rather than
+  // lowered from an effect: the store seeds `isLoadingHistory` true, so an
+  // effect would only clear it after the first commit had already painted the
+  // skeleton, which is the flash this is here to prevent.
+  const rawIsLoadingHistory = useChatSessionStore.use.isLoadingHistory();
+  const draftConversationIds = useConversationStore.use.draftConversationIds();
+  const isLoadingHistory =
+    rawIsLoadingHistory &&
+    !(activeConversationId && draftConversationIds.has(activeConversationId));
   const contextWindowUsage = useChatSessionStore.use.contextWindowUsage();
   const compactionCircuitOpenUntil =
     useChatSessionStore.use.compactionCircuitOpenUntil();
