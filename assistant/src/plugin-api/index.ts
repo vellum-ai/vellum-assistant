@@ -173,6 +173,18 @@ export {
   CredentialResolutionError,
   resolveCredential,
 } from "./resolve-credential.js";
+// Resolve the public URL a third party should deliver to for one of the
+// plugin's own ingress routes. Plugins must not compose this from
+// `ingress.publicBaseUrl`: on a platform-connected assistant that value holds
+// the Velay tunnel URL, so a vendor webhook registered against it looks correct
+// while every delivery goes somewhere the gateway is not serving. Follows the
+// same order as `webhooks register` — platform pods first, then a configured
+// public ingress, then a managed callback route for a platform-connected
+// assistant — and registers the callback route on the managed branches.
+export {
+  type PluginWebhookUrlOptions,
+  resolvePluginWebhookUrl,
+} from "./plugin-webhook-url.js";
 // Resolve a provider for a call site (optionally overriding the profile) so a
 // plugin can run inference through the workspace's configured profiles and
 // credentials — managed-proxy or BYOK — without supplying its own API key.
