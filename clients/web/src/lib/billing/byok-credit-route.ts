@@ -31,6 +31,13 @@ function entryBurnsManagedCredits(
     return true;
   }
   if (entry.provider_connection) {
+    // The canonical connection name is managed regardless of the stored row:
+    // the daemon ignores a user-owned row claiming "vellum" and resolves the
+    // route through platform auth anyway (`isManagedConnectionRoute` in
+    // assistant/src/providers/connection-resolution.ts).
+    if (entry.provider_connection === "vellum") {
+      return true;
+    }
     const bound = connections.find((c) => c.name === entry.provider_connection);
     if (!bound) {
       return null;
@@ -111,12 +118,12 @@ function usableProfileName(
 /**
  * Whether the assistant's default chat route spends managed Vellum credits.
  * Follows the daemon's `mainAgent` selection chain (`selectWinningProfile` in
- * assistant/src/config/llm-resolver.ts) minus the per-turn override, which no
- * app-level banner can know: `llm.activeProfile`, then the
- * `llm.callSites.mainAgent.profile` pin, then the default-provider anchor
- * that the shipped intent rungs resolve through (plus the legacy top-level
- * `llm.default` entry). `null` when the loaded config can't settle the
- * question.
+ * assistant/src/config/llm-resolver.ts): `overrideProfile` (the active
+ * conversation's `inferenceProfile` pin, when the caller has one), then
+ * `llm.activeProfile`, then the `llm.callSites.mainAgent.profile` pin, then
+ * the default-provider anchor that the shipped intent rungs resolve through
+ * (plus the legacy top-level `llm.default` entry). `null` when the loaded
+ * config can't settle the question.
  *
  * Depends on the config GET wire view materializing effective profile bodies
  * (`overlayEffectiveProfilesForWire` daemon-side): code-owned default
@@ -129,8 +136,10 @@ function usableProfileName(
 export function defaultChatRouteBurnsManagedCredits(
   llm: LlmConfig,
   connections: readonly ProviderConnection[],
+  overrideProfile?: string | null,
 ): boolean | null {
   const winner =
+    usableProfileName(llm, overrideProfile) ??
     usableProfileName(llm, llm?.activeProfile) ??
     usableProfileName(llm, llm?.callSites?.mainAgent?.profile);
   if (winner) {

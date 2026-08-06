@@ -66,15 +66,19 @@ export function useBillingBalanceQueryEnabled(): boolean {
  * from the event bus's `app.resume` signal, so a user coming back to an
  * already-open app sees the daily-limit banner without a reload.
  *
- * The balance flags additionally stay down when the default chat route is
+ * The balance flags additionally stay down when the effective chat route is
  * provably BYOK and no managed credits were burned in the last day (see
  * {@link useSuppressCreditBannersForByok}): chat turns that dispatch on the
  * user's own key never fail on the managed wallet, so the credit wall would
- * be a false alarm. `dailyLimitReached` is exempt, since it can only be true
+ * be a false alarm. Chat surfaces pass their active `conversationId` so a
+ * managed per-conversation profile pin keeps the banners up over a BYOK
+ * global default. `dailyLimitReached` is exempt, since it can only be true
  * with managed spend today, which is exactly the burn that re-arms the
  * others.
  */
-export function useBillingBalanceStatus(): BillingBalanceStatus {
+export function useBillingBalanceStatus(
+  opts: { conversationId?: string | null } = {},
+): BillingBalanceStatus {
   const enabled = useBillingBalanceQueryEnabled();
   const { data: summary } = useQuery({
     ...organizationsBillingSummaryRetrieveOptions(),
@@ -84,6 +88,7 @@ export function useBillingBalanceStatus(): BillingBalanceStatus {
   const isLowBalance = !!summary && summary.low_balance_warning === true;
   const suppressed = useSuppressCreditBannersForByok(
     enabled && (isExhausted || isLowBalance),
+    opts.conversationId,
   );
   if (!enabled || !summary) {
     return { ...INERT_STATUS, enabled };

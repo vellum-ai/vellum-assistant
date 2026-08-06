@@ -669,8 +669,11 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Single balance-status read shared by every proactive billing surface in
   // this component: the transcript's tail card, the empty state's card, and
-  // the low-balance composer banner.
-  const balanceStatus = useBillingBalanceStatus();
+  // the low-balance composer banner. The active conversation is passed so
+  // the BYOK suppression respects a per-conversation managed profile pin.
+  const balanceStatus = useBillingBalanceStatus({
+    conversationId: activeConversationId,
+  });
 
   const { sanitizedMessages, transcriptItems } = useTranscriptData({
     messages,

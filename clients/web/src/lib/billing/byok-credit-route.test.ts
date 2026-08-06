@@ -72,6 +72,18 @@ describe("profileBurnsManagedCredits", () => {
     );
   });
 
+  test("a binding to the canonical vellum name is managed even when a user-owned row claims it", () => {
+    // The daemon ignores a user-owned row named "vellum" and routes through
+    // platform auth regardless, so the row's BYOK auth must not win here.
+    const claimedName = conn({ name: "vellum" });
+    const llm: LlmConfig = {
+      profiles: {
+        p: { provider: "anthropic", provider_connection: "vellum" },
+      },
+    };
+    expect(profileBurnsManagedCredits(llm, "p", [claimedName])).toBe(true);
+  });
+
   test("profile bound to an api-key connection is BYOK", () => {
     const llm: LlmConfig = {
       profiles: {
@@ -168,6 +180,39 @@ describe("defaultChatRouteBurnsManagedCredits", () => {
       profiles: { p: { provider: "vellum", model: "claude" } },
     };
     expect(defaultChatRouteBurnsManagedCredits(llm, [])).toBe(true);
+  });
+
+  test("a managed conversation override outranks a BYOK active profile", () => {
+    const llm: LlmConfig = {
+      activeProfile: "byok",
+      profiles: {
+        byok: {
+          provider: "anthropic",
+          model: "claude",
+          provider_connection: "my-anthropic",
+        },
+        pinned: { provider: "vellum", model: "claude" },
+      },
+    };
+    expect(
+      defaultChatRouteBurnsManagedCredits(llm, [BYOK_ANTHROPIC], "pinned"),
+    ).toBe(true);
+  });
+
+  test("an unusable conversation override falls through to the active profile", () => {
+    const llm: LlmConfig = {
+      activeProfile: "byok",
+      profiles: {
+        byok: {
+          provider: "anthropic",
+          model: "claude",
+          provider_connection: "my-anthropic",
+        },
+      },
+    };
+    expect(
+      defaultChatRouteBurnsManagedCredits(llm, [BYOK_ANTHROPIC], "gone"),
+    ).toBe(false);
   });
 
   test("a disabled active profile falls through to the mainAgent call-site pin", () => {

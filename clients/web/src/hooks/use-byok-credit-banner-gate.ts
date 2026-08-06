@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { organizationsBillingUsageTotalsRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import {
   configGetOptions,
+  conversationsByIdGetOptions,
   inferenceProviderconnectionsGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { defaultChatRouteBurnsManagedCredits } from "@/lib/billing/byok-credit-route";
@@ -63,8 +64,17 @@ function useUtcDay(): string {
  * for a managed one. All queries stay idle until `candidate` is true (a
  * banner would actually show), so the common healthy-balance path costs
  * nothing.
+ *
+ * @param conversationId The active conversation, when the caller has one.
+ *   Its `inferenceProfile` pin outranks the global default in the daemon's
+ *   resolver, so a managed pin on a BYOK-default assistant must keep the
+ *   banners up; the query shares its cache entry with
+ *   `useActiveProfileModel`.
  */
-export function useSuppressCreditBannersForByok(candidate: boolean): boolean {
+export function useSuppressCreditBannersForByok(
+  candidate: boolean,
+  conversationId?: string | null,
+): boolean {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const routeQueriesEnabled = candidate && assistantId != null;
   const configQuery = useQuery({
@@ -79,12 +89,19 @@ export function useSuppressCreditBannersForByok(candidate: boolean): boolean {
     enabled: routeQueriesEnabled,
     staleTime: 30_000,
   });
+  const conversationQuery = useQuery({
+    ...conversationsByIdGetOptions({
+      path: { assistant_id: assistantId ?? "", id: conversationId ?? "" },
+    }),
+    enabled: routeQueriesEnabled && conversationId != null,
+  });
 
   const burnsManaged =
     configQuery.data && connectionsQuery.data
       ? defaultChatRouteBurnsManagedCredits(
           configQuery.data.llm,
           connectionsQuery.data.connections,
+          conversationQuery.data?.conversation.inferenceProfile ?? null,
         )
       : null;
 
@@ -110,7 +127,11 @@ export function useSuppressCreditBannersForByok(candidate: boolean): boolean {
   // `isLoading` (pending AND fetching) distinguishes the initial in-flight
   // load, which suppresses to avoid a flash, from a disabled or errored
   // query, which must fail open below.
-  if (configQuery.isLoading || connectionsQuery.isLoading) {
+  if (
+    configQuery.isLoading ||
+    connectionsQuery.isLoading ||
+    conversationQuery.isLoading
+  ) {
     return true;
   }
   if (burnsManaged !== false) {
