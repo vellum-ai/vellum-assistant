@@ -185,29 +185,27 @@ export function NotificationsBell() {
   }, []);
 
   // Radix restores focus to the trigger when the popover closes, and Radix
-  // Tooltip opens on focus unless the focus followed a pointerdown on the
-  // trigger itself. Closing by clicking inside the panel (or outside it) puts
-  // focus back on the bell while the cursor is somewhere else entirely, so the
-  // "Notifications" tooltip springs open with no pointerleave ever coming to
-  // dismiss it, and it then rides along over whatever the click navigated to.
-  // This ref marks those pointer-driven closes so the focus restore can be
-  // skipped; Escape still restores focus, which keyboard users need to keep
-  // their place in the top bar. Same shape as the fix in the design library's
-  // `Menu.Content`.
-  //
-  // Not covered by a test: happy-dom's `fireEvent.click` never moves focus, so
-  // the FocusScope this turns on captures `<body>` rather than the trigger and
-  // no test in this file can reproduce the restore. Verified in Chromium
-  // instead. Unguarded left the tooltip open indefinitely after the close,
-  // guarded left it shut, and Escape still landed focus back on the trigger.
+  // Tooltip opens on focus unless that focus followed a pointerdown on the
+  // trigger. A close driven by a pointer that is somewhere else (a click on a
+  // panel control, or outside the panel) therefore lands focus on the bell
+  // with the cursor away from it, opening the "Notifications" tooltip with no
+  // pointerleave coming to dismiss it. Marks such a close so the focus
+  // restore can be skipped for it.
   const closedByPointerRef = useRef(false);
+
+  // Activation modality of the last interaction inside the panel. The panel's
+  // controls close it from `onClick`, which fires for Enter and Space as well
+  // as for a pointer, so the close handlers cannot infer a pointer on their
+  // own. Keyboard closes keep the focus restore, which keyboard users need to
+  // hold their place in the top bar.
+  const isPointerInteractionRef = useRef(false);
 
   const handleOpenChange = (open: boolean) => {
     setIsOpen(open);
     if (open) {
-      // Reopening starts a fresh close cycle. Guards against a stale `true`
-      // left behind by a close whose focus restore never ran.
+      // A fresh close cycle: neither flag carries over from the last one.
       closedByPointerRef.current = false;
+      isPointerInteractionRef.current = false;
     } else {
       // Reopening always lands on the list, at the top.
       setSelectedItemId(null);
@@ -215,9 +213,8 @@ export function NotificationsBell() {
     }
   };
 
-  // Every in-panel close is a click, so each one needs the tooltip suppressed.
-  const closePanelFromPointer = () => {
-    closedByPointerRef.current = true;
+  const closePanel = () => {
+    closedByPointerRef.current = isPointerInteractionRef.current;
     handleOpenChange(false);
   };
 
@@ -229,12 +226,12 @@ export function NotificationsBell() {
   };
 
   const handleGoToConversation = (conversationId: string) => {
-    closePanelFromPointer();
+    closePanel();
     navigateToConversation(navigate, conversationId);
   };
 
   const handleViewSchedule = (scheduleId: string) => {
-    closePanelFromPointer();
+    closePanel();
     navigate(routes.schedules.detail(scheduleId));
   };
 
@@ -265,7 +262,7 @@ export function NotificationsBell() {
       { itemId: selectedItem.id, actionId },
       {
         onSuccess: (data) => {
-          closePanelFromPointer();
+          closePanel();
           navigateToConversation(navigate, data.conversationId);
         },
         onError: () => {
@@ -464,6 +461,12 @@ export function NotificationsBell() {
           const content = event.currentTarget as HTMLElement | null;
           event.preventDefault();
           content?.focus();
+        }}
+        onPointerDownCapture={() => {
+          isPointerInteractionRef.current = true;
+        }}
+        onKeyDownCapture={() => {
+          isPointerInteractionRef.current = false;
         }}
         onPointerDownOutside={() => {
           closedByPointerRef.current = true;
