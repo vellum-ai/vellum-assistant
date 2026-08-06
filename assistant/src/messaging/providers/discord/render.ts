@@ -24,34 +24,55 @@
 export const DISCORD_MAX_MESSAGE_LENGTH = 2000;
 
 /** A fence line: three or more backticks, optionally indented. */
-const FENCE_PATTERN = /^\s*```/;
+const FENCE_PATTERN = /^\s*(`{3,})/;
 
-/** A fence line carrying no info string, which closes an open block. */
-const BARE_FENCE_PATTERN = /^\s*```+\s*$/;
+/** A fence line carrying no info string, which can close an open block. */
+const BARE_FENCE_PATTERN = /^\s*`{3,}\s*$/;
 
-const FENCE_CLOSE = "```";
+/**
+ * Length of a line's opening backtick run, or 0 when it is not a fence.
+ *
+ * The run length matters on both ends: a closing fence must be at least as
+ * long as the one it closes, so a block opened with four or more backticks is
+ * not terminated by a three-backtick line.
+ */
+function fenceRun(line: string): number {
+  return FENCE_PATTERN.exec(line)?.[1].length ?? 0;
+}
 
-/** Cost of appending the closing fence to a chunk: the line plus its newline. */
-const FENCE_CLOSE_COST = FENCE_CLOSE.length + 1;
+/** The closing fence for an open block: its own delimiter, no info string. */
+function closeFor(openFence: string): string {
+  return "`".repeat(fenceRun(openFence));
+}
+
+/** Cost of appending a block's closing fence to a chunk: the line plus its newline. */
+function closeCostFor(openFence: string | undefined): number {
+  return openFence === undefined ? 0 : fenceRun(openFence) + 1;
+}
 
 /**
  * The open-fence state after `line` is appended, given the state before it.
  * `undefined` means no code block is open; otherwise it is the opening fence
- * line verbatim, so a split can reopen the block with its original language.
+ * line verbatim, so a split can reopen the block with its original delimiter
+ * and info string.
  */
 function fenceStateAfter(
   line: string,
   openFence: string | undefined,
 ): string | undefined {
-  if (!FENCE_PATTERN.test(line)) {
+  const run = fenceRun(line);
+  if (run === 0) {
     return openFence;
   }
   if (openFence === undefined) {
     return line;
   }
-  // Only a bare fence closes a block; a second fence carrying an info string
-  // is content inside the open one.
-  return BARE_FENCE_PATTERN.test(line) ? undefined : openFence;
+  // A fence closes the block only when it carries no info string and its run
+  // is at least as long as the opener. Anything else is content inside it,
+  // which is the whole point of opening with a longer run.
+  return BARE_FENCE_PATTERN.test(line) && run >= fenceRun(openFence)
+    ? undefined
+    : openFence;
 }
 
 /**
@@ -84,7 +105,7 @@ export function renderDiscordMessages(
       return;
     }
     if (fenceToReopen !== undefined) {
-      current.push(FENCE_CLOSE);
+      current.push(closeFor(fenceToReopen));
     }
     chunks.push(current.join("\n"));
     current = [];
@@ -114,7 +135,7 @@ export function renderDiscordMessages(
     // Room the closing fence needs once this line is placed, which is why the
     // fence state is computed first: an opening fence must budget for its own
     // close.
-    const closeCost = nextFence === undefined ? 0 : FENCE_CLOSE_COST;
+    const closeCost = closeCostFor(nextFence);
     // Room the reopened fence takes at the head of a fresh chunk. Charged
     // against the state *before* this line, because that is the fence a flush
     // would carry over.
@@ -141,7 +162,7 @@ export function renderDiscordMessages(
     openFence !== undefined && current.length === 1 && current[0] === openFence;
   if (current.length > 0 && !onlyReopenedFence) {
     if (openFence !== undefined) {
-      current.push(FENCE_CLOSE);
+      current.push(closeFor(openFence));
     }
     chunks.push(current.join("\n"));
   }

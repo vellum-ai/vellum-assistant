@@ -76,6 +76,55 @@ describe("renderDiscordMessages", () => {
       expect(chunks.map(withoutFences).join("\n")).toBe(body.join("\n"));
     });
 
+    test("closes a four-backtick block with four backticks, not three", () => {
+      // A closing fence must be at least as long as its opener, so a block
+      // opened with ```` is not terminated by a ``` line: every chunk would
+      // render as one unterminated code block.
+      const body = Array.from({ length: 8 }, (_, i) => `line ${i}`);
+      const chunks = renderDiscordMessages(
+        ["````ts", ...body, "````"].join("\n"),
+        MAX,
+      );
+
+      expect(chunks.length).toBeGreaterThan(1);
+      for (const chunk of chunks) {
+        expect(chunk.length).toBeLessThanOrEqual(MAX);
+        const fences = chunk.split("\n").filter((l) => /^\s*`{3,}/.test(l));
+        expect(fences.length % 2).toBe(0);
+        // Both ends of every chunk use the opener's own delimiter.
+        for (const fence of fences) {
+          expect(fence.trimStart().startsWith("````")).toBe(true);
+        }
+      }
+    });
+
+    test("a three-backtick line is content inside a four-backtick block", () => {
+      // Opening with a longer run is exactly how a code block containing a
+      // fence is written, so the inner ``` must not close the outer block.
+      // The cap is small enough to force the splitter through its fence
+      // bookkeeping rather than returning the text whole.
+      const body = Array.from({ length: 6 }, (_, i) => `inner line ${i}`);
+      const chunks = renderDiscordMessages(
+        ["````md", "```ts", ...body, "```", "````"].join("\n"),
+        MAX,
+      );
+
+      expect(chunks.length).toBeGreaterThan(1);
+      // The outer block stays open throughout, so every continuation chunk
+      // reopens with ````. Treating the inner ``` as a close would end the
+      // block early and leave later chunks reopening with the wrong delimiter,
+      // or not at all.
+      for (const chunk of chunks.slice(1)) {
+        expect(chunk.startsWith("````md")).toBe(true);
+      }
+      for (const chunk of chunks) {
+        expect(chunk.length).toBeLessThanOrEqual(MAX);
+        expect(chunk.trimEnd().endsWith("````")).toBe(true);
+      }
+      // The inner fences survive as content rather than being consumed.
+      expect(chunks.join("\n")).toContain("```ts");
+    });
+
     test("does not treat a fence inside an open block as a close", () => {
       // A fence line carrying an info string cannot close a block, so this
       // stays one code block rather than becoming two.

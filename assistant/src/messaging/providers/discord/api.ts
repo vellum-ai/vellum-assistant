@@ -17,6 +17,7 @@ import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyResultAsync } from "../../../security/secure-keys.js";
 import { BackendUnavailableError, ConfigError } from "../../../util/errors.js";
 import { getLogger } from "../../../util/logger.js";
+import { computeRetryDelayMs, isRetryableStatus } from "../retry-policy.js";
 
 const log = getLogger("discord-api");
 
@@ -84,39 +85,19 @@ function parseErrorBody(body: string): DiscordErrorBody {
 }
 
 /**
- * Milliseconds to wait before the next attempt.
+ * The wait Discord asked for, as a `Retry-After` seconds value.
  *
- * Discord expresses `retry_after` in **seconds** (fractional), in both the
- * `Retry-After` header and the 429 JSON body, so it is scaled here. Without a
- * server hint the delay is exponential with jitter.
+ * Discord carries it in the 429 JSON body as well as the header, in seconds
+ * (fractional) either way, and the body is the more precise of the two.
  */
-function computeDelay(
-  attempt: number,
-  retryAfterSeconds: number | undefined,
-): number {
-  if (retryAfterSeconds !== undefined && retryAfterSeconds > 0) {
-    return Math.min(retryAfterSeconds * 1000, DISCORD_MAX_RETRY_AFTER_MS);
-  }
-  const exponential = DISCORD_DEFAULT_INITIAL_BACKOFF_MS * 2 ** (attempt - 1);
-  const jitter = Math.random() * exponential * 0.5;
-  return exponential + jitter;
-}
-
-function retryAfterSecondsFrom(
+function retryAfterFrom(
   response: Response,
   body: DiscordErrorBody,
-): number | undefined {
+): string | null {
   if (typeof body.retry_after === "number" && body.retry_after > 0) {
-    return body.retry_after;
+    return String(body.retry_after);
   }
-  const header = response.headers.get("retry-after");
-  if (header) {
-    const seconds = Number(header);
-    if (Number.isFinite(seconds) && seconds > 0) {
-      return seconds;
-    }
-  }
-  return undefined;
+  return response.headers.get("retry-after");
 }
 
 /**
@@ -133,16 +114,21 @@ async function retryableFetch<T>(
   doFetch: () => Promise<Response>,
 ): Promise<T | undefined> {
   let lastError: Error | null = null;
-  let retryAfterSeconds: number | undefined;
+  let retryAfter: string | null = null;
 
   for (let attempt = 0; attempt <= DISCORD_DEFAULT_MAX_RETRIES; attempt++) {
     if (attempt > 0) {
-      const delay = computeDelay(attempt, retryAfterSeconds);
+      const delay = computeRetryDelayMs(
+        attempt,
+        DISCORD_DEFAULT_INITIAL_BACKOFF_MS,
+        retryAfter,
+        DISCORD_MAX_RETRY_AFTER_MS,
+      );
       log.debug({ attempt, delay, route }, "Retrying Discord API call");
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
 
-    retryAfterSeconds = undefined;
+    retryAfter = null;
 
     let response: Response;
     try {
@@ -174,8 +160,8 @@ async function retryableFetch<T>(
     const parsed = parseErrorBody(body);
     const detail = parsed.message ?? body;
 
-    if (response.status === 429 || response.status >= 500) {
-      retryAfterSeconds = retryAfterSecondsFrom(response, parsed);
+    if (isRetryableStatus(response.status)) {
+      retryAfter = retryAfterFrom(response, parsed);
       lastError = new Error(
         detail
           ? `Discord ${route} failed with status ${response.status}: ${detail}`
@@ -186,7 +172,7 @@ async function retryableFetch<T>(
           status: response.status,
           attempt,
           route,
-          retryAfterSeconds,
+          retryAfter,
           global: parsed.global,
         },
         "Discord API returned retryable error",

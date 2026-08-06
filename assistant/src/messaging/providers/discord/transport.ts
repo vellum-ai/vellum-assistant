@@ -24,12 +24,8 @@ const log = getLogger("discord-transport");
  * so a threaded reply posts to the thread id and everything else to the
  * channel id.
  *
- * These two coordinates are the delivery-bearing half of the Discord address
- * shape fixtured on LUM-2911 (`application + guild + channel + threadId`); the
- * names here are kept identical so a future channel-address contract can adopt
- * them rather than migrate off different ones. `application` and `guild` are
- * not encoded because `POST /channels/{id}/messages` does not need them, and a
- * param nothing reads is debt.
+ * `channel` and `threadId` are the only coordinates delivery needs;
+ * `POST /channels/{id}/messages` addresses a channel and nothing more.
  */
 function sendTarget(ctx: CallbackContext, chatId: string): DiscordSendTarget {
   return { channelId: ctx.params.threadId?.trim() || chatId };
@@ -47,10 +43,9 @@ export const discordTransport: ChannelTransport = {
       const result = await sendDiscordReply(target, text);
       sentId = result.lastMessageId;
     } else if (approval) {
-      // Approvals deliver as plain text: interactive components are out of
-      // this slice, so the prompt is readable but not clickable here. Discord
-      // is not a guardian channel, so approval prompts escalate to the
-      // guardian's own channel rather than being actioned from Discord.
+      // Approvals deliver as plain text, so the prompt is readable but not
+      // clickable. Discord is not a guardian channel: approval prompts are
+      // actioned from the guardian's own channel, not from here.
       const result = await sendDiscordReply(
         target,
         approval.plainTextFallback || "Approval required",

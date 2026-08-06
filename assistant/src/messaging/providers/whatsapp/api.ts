@@ -10,6 +10,7 @@
 import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import { getLogger } from "../../../util/logger.js";
+import { computeRetryDelayMs, isRetryableStatus } from "../retry-policy.js";
 
 const log = getLogger("whatsapp-api");
 
@@ -46,35 +47,8 @@ interface WhatsAppApiErrorResponse {
   error?: WhatsAppApiErrorDetail;
 }
 
-function isRetryable(status: number): boolean {
-  return status === 429 || status >= 500;
-}
-
 function isAuthError(status: number): boolean {
   return status === 401 || status === 403;
-}
-
-function computeDelay(
-  attempt: number,
-  initialBackoffMs: number,
-  retryAfterHeader: string | null,
-): number {
-  if (retryAfterHeader) {
-    const seconds = Number(retryAfterHeader);
-    if (Number.isFinite(seconds) && seconds > 0) {
-      return Math.min(seconds * 1000, 2_147_483_647);
-    }
-    const targetTime = new Date(retryAfterHeader).getTime();
-    if (Number.isFinite(targetTime)) {
-      const delayMs = targetTime - Date.now();
-      if (delayMs > 0) {
-        return Math.min(delayMs, 2_147_483_647);
-      }
-    }
-  }
-  const exponential = initialBackoffMs * Math.pow(2, attempt - 1);
-  const jitter = Math.random() * exponential * 0.5;
-  return exponential + jitter;
 }
 
 async function retryableFetch<T>(
@@ -86,7 +60,7 @@ async function retryableFetch<T>(
 
   for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
     if (attempt > 0) {
-      const delay = computeDelay(
+      const delay = computeRetryDelayMs(
         attempt,
         DEFAULT_INITIAL_BACKOFF_MS,
         lastRetryAfter,
@@ -110,7 +84,7 @@ async function retryableFetch<T>(
       continue;
     }
 
-    if (!isRetryable(response.status) && !response.ok) {
+    if (!isRetryableStatus(response.status) && !response.ok) {
       const body = await response.text().catch(() => "");
       let errorMessage: string | undefined;
       try {
@@ -131,7 +105,7 @@ async function retryableFetch<T>(
       throw new WhatsAppNonRetryableError(message);
     }
 
-    if (isRetryable(response.status)) {
+    if (isRetryableStatus(response.status)) {
       lastRetryAfter = response.headers.get("retry-after");
       const body = await response.text().catch(() => "");
       let errorMessage: string | undefined;

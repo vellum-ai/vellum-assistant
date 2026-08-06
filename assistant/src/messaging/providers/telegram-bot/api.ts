@@ -11,6 +11,7 @@ import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyResultAsync } from "../../../security/secure-keys.js";
 import { BackendUnavailableError, ConfigError } from "../../../util/errors.js";
 import { getLogger } from "../../../util/logger.js";
+import { computeRetryDelayMs, isRetryableStatus } from "../retry-policy.js";
 
 const log = getLogger("telegram-api");
 
@@ -71,33 +72,6 @@ interface TelegramApiResponse<T> {
   parameters?: { retry_after?: number };
 }
 
-function isRetryable(status: number): boolean {
-  return status === 429 || status >= 500;
-}
-
-function computeDelay(
-  attempt: number,
-  initialBackoffMs: number,
-  retryAfterHeader: string | null,
-): number {
-  if (retryAfterHeader) {
-    const seconds = Number(retryAfterHeader);
-    if (Number.isFinite(seconds) && seconds > 0) {
-      return Math.min(seconds * 1000, 2_147_483_647);
-    }
-    const targetTime = new Date(retryAfterHeader).getTime();
-    if (Number.isFinite(targetTime)) {
-      const delayMs = targetTime - Date.now();
-      if (delayMs > 0) {
-        return Math.min(delayMs, 2_147_483_647);
-      }
-    }
-  }
-  const exponential = initialBackoffMs * Math.pow(2, attempt - 1);
-  const jitter = Math.random() * exponential * 0.5;
-  return exponential + jitter;
-}
-
 async function retryableFetch<T>(
   method: string,
   doFetch: () => Promise<Response>,
@@ -107,7 +81,7 @@ async function retryableFetch<T>(
 
   for (let attempt = 0; attempt <= TELEGRAM_DEFAULT_MAX_RETRIES; attempt++) {
     if (attempt > 0) {
-      const delay = computeDelay(
+      const delay = computeRetryDelayMs(
         attempt,
         TELEGRAM_DEFAULT_INITIAL_BACKOFF_MS,
         lastRetryAfter,
@@ -133,7 +107,7 @@ async function retryableFetch<T>(
       continue;
     }
 
-    if (!isRetryable(response.status) && !response.ok) {
+    if (!isRetryableStatus(response.status) && !response.ok) {
       const body = await response.text().catch(() => "");
       let description: string | undefined;
       try {
@@ -151,7 +125,7 @@ async function retryableFetch<T>(
       throw new TelegramNonRetryableError(message, description);
     }
 
-    if (isRetryable(response.status)) {
+    if (isRetryableStatus(response.status)) {
       const body = await response.text().catch(() => "");
       let description: string | undefined;
       let retryAfterParam: number | undefined;
