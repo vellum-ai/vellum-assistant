@@ -2,6 +2,7 @@ package ai.vellum.assistant;
 
 import android.app.UiModeManager;
 import android.content.Context;
+import android.content.res.Configuration;
 import android.os.Build;
 import androidx.appcompat.app.AppCompatDelegate;
 import com.getcapacitor.Plugin;
@@ -11,6 +12,8 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 
 @CapacitorPlugin(name = "NativeLaunchScreen")
 public class NativeLaunchScreenPlugin extends Plugin {
+    private static final int APPLICATION_NIGHT_MODE_UNSPECIFIED =
+        Configuration.UI_MODE_NIGHT_UNDEFINED >> 4;
     private static final String PREFERENCES = "vellum_launch_screen";
     private static final String THEME_KEY = "theme";
 
@@ -81,7 +84,7 @@ public class NativeLaunchScreenPlugin extends Plugin {
         if ("light".equals(theme)) {
             return UiModeManager.MODE_NIGHT_NO;
         }
-        return UiModeManager.MODE_NIGHT_AUTO;
+        return APPLICATION_NIGHT_MODE_UNSPECIFIED;
     }
 
     private static int appCompatNightMode(String theme) {
