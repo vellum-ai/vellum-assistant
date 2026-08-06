@@ -110,15 +110,19 @@ function syncNativeGate(consented: boolean): void {
 
 /**
  * Directories the installed `@sentry/electron` minidump loader scans on its
- * startup sweep (darwin). Mirrors getMinidumpLoader() in
+ * startup sweep. Mirrors getMinidumpLoader() in
  * `@sentry/electron/main/integrations/sentry-minidump/minidump-loader.js`:
- * Crashpad writes completed/pending `.dmp` files under `crashDumps`, and the
- * loader uploads any it finds (via core.captureEvent) on the next init when
- * `enabled !== false`.
+ * Windows uses `reports`, other platforms use `completed`, and macOS also
+ * scans `pending`.
  */
 function queuedMinidumpDirs(): string[] {
   const crashDumps = app.getPath("crashDumps");
-  return [path.join(crashDumps, "completed"), path.join(crashDumps, "pending")];
+  const completedDir = process.platform === "win32" ? "reports" : "completed";
+  const dirs = [path.join(crashDumps, completedDir)];
+  if (process.platform === "darwin") {
+    dirs.push(path.join(crashDumps, "pending"));
+  }
+  return dirs;
 }
 
 /**

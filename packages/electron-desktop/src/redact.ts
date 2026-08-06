@@ -10,7 +10,7 @@ const PATTERNS: [RegExp, string][] = [
   [/(?:ghp|github_pat)_[A-Za-z0-9_]{20,}/g, "[REDACTED_TOKEN]"],
   [/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, "[REDACTED_EMAIL]"],
   [/\/Users\/[^/\s]+/g, "~"],
-  [/[A-Za-z]:\\Users\\[^\\\s]+/gi, "~"],
+  [/[A-Za-z]:\\Users\\[^\\\r\n]+/gi, "~"],
 ];
 
 export function redactText(input: string): string {

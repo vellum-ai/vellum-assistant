@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 /**
  * Unit coverage for the main-process Sentry consent gate, backed by
@@ -29,6 +29,11 @@ const enabledConfiguration = {
   environment: "test",
   release: "test-sha",
 };
+const hostPlatform = process.platform;
+
+function setPlatform(platform: NodeJS.Platform): void {
+  Object.defineProperty(process, "platform", { value: platform });
+}
 
 let sentryClient:
   | { getOptions: () => { enabled?: boolean }; close: () => Promise<boolean> }
@@ -118,6 +123,10 @@ beforeEach(() => {
   settingChangeCb = null;
 });
 
+afterEach(() => {
+  setPlatform(hostPlatform);
+});
+
 describe("initSentryMain (before any consent)", () => {
   test("does not register the watcher when the DSN is empty", () => {
     configureSentryMain({ ...enabledConfiguration, dsn: "" });
@@ -145,7 +154,21 @@ describe("initSentryMain (before any consent)", () => {
 // Runs BEFORE the lifecycle test below, which permanently sets the module's
 // one-shot `initialized` singleton.
 describe("opted-out boot purges queued minidumps (never-initialized path)", () => {
+  test("Windows consent=false purges reports before a later opt-in", () => {
+    setPlatform("win32");
+    initSentryMain();
+    minidumpFs = {
+      "/fake/crash-dumps/reports": ["windows.dmp", "metadata"],
+    };
+
+    setShareDiagnostics(false);
+
+    expect(unlinkMock).toHaveBeenCalledTimes(1);
+    expect(minidumpFs["/fake/crash-dumps/reports"]).toEqual(["metadata"]);
+  });
+
   test("first consent=false with no client deletes queued dumps so a later opt-in can't upload them", () => {
+    setPlatform("darwin");
     initSentryMain();
     expect(initMock).not.toHaveBeenCalled();
 

@@ -32,6 +32,11 @@ describe("redactText", () => {
     expect(redactText(input)).toBe("Reading ~\\AppData\\Local\\Vellum");
   });
 
+  test("redacts Windows user paths containing spaces", () => {
+    const input = "Reading C:\\Users\\Example User\\AppData\\Local\\Vellum";
+    expect(redactText(input)).toBe("Reading ~\\AppData\\Local\\Vellum");
+  });
+
   test("redacts assigned session tokens", () => {
     const input = "session_token=secret-value access-token: another-secret";
     expect(redactText(input)).toBe(
