@@ -30,13 +30,19 @@ const START_FRAME = {
 } as const satisfies LiveVoiceClientStartFrame;
 
 class MockStreamingTranscriber implements StreamingTranscriber {
-  readonly providerId = "deepgram" as const;
+  // Configurable: the session gates the language-pin fallback on the DIALED
+  // transcriber's providerId (see turnLanguageFor).
+  readonly providerId: StreamingTranscriber["providerId"];
   readonly boundaryId = "daemon-streaming" as const;
   readonly audioChunks: Buffer[] = [];
   readonly mimeTypes: string[] = [];
   started = false;
   stopped = false;
   private onEvent: ((event: SttStreamServerEvent) => void) | null = null;
+
+  constructor(providerId: StreamingTranscriber["providerId"] = "deepgram") {
+    this.providerId = providerId;
+  }
 
   async start(onEvent: (event: SttStreamServerEvent) => void): Promise<void> {
     this.started = true;
@@ -1546,7 +1552,7 @@ describe("LiveVoiceSession STT", () => {
         },
       },
     });
-    const transcriber = new MockStreamingTranscriber();
+    const transcriber = new MockStreamingTranscriber("google-gemini");
     const startVoiceTurn = speakingVoiceTurnStarter();
     const { streamTtsAudio, ttsCalls } = recordingTtsStreamer();
     const { context } = createContext();
@@ -1563,6 +1569,46 @@ describe("LiveVoiceSession STT", () => {
       await waitFor(() => ttsCalls.length >= 1);
 
       expect(ttsCalls[0] && "language" in ttsCalls[0]).toBe(false);
+    } finally {
+      await session.close("websocket_close");
+      saveRawConfig(originalRaw);
+    }
+  });
+
+  test("the pin gate follows the dialed provider, not the configured one", async () => {
+    // A BYOK gemini config without credentials silently dials the managed
+    // vellum transcriber, which DOES honor the pin; the gate must follow
+    // what was dialed, not what was configured.
+    const originalRaw = loadRawConfig();
+    const rawServices = (originalRaw.services ?? {}) as Record<string, unknown>;
+    saveRawConfig({
+      ...originalRaw,
+      services: {
+        ...rawServices,
+        stt: {
+          ...((rawServices.stt ?? {}) as Record<string, unknown>),
+          provider: "google-gemini",
+          language: "es",
+        },
+      },
+    });
+    const transcriber = new MockStreamingTranscriber("vellum");
+    const startVoiceTurn = speakingVoiceTurnStarter();
+    const { streamTtsAudio, ttsCalls } = recordingTtsStreamer();
+    const { context } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    try {
+      await session.start();
+      await session.handleBinaryAudio(new Uint8Array([1]));
+      await session.handleClientFrame({ type: "ptt_release" });
+      await waitFor(() => ttsCalls.length >= 1);
+
+      expect(ttsCalls[0]?.language).toBe("es");
     } finally {
       await session.close("websocket_close");
       saveRawConfig(originalRaw);

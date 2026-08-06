@@ -383,6 +383,12 @@ interface UtteranceCycle {
   // outranks it once finals arrive, and a revising partial without tags
   // must not wipe an earlier partial's detection.
   latestPartialLanguages: readonly string[] | null;
+  // The provider that actually transcribed this cycle, recorded when its
+  // transcriber is assigned and kept after teardown nulls `transcriber`.
+  // The resolver can silently dial managed vellum when a BYOK provider has
+  // no credential, so the language-pin gate in turnLanguageFor must follow
+  // this, not the configured provider.
+  dialedSttProvider: SttProviderId | null;
   turnId: string | null;
   userMessageId: string | null;
   userAudioChunks: Buffer[];
@@ -851,6 +857,7 @@ function createUtteranceCycle(): UtteranceCycle {
     heldSpeculativeContent: null,
     languageTally: new Map(),
     latestPartialLanguages: null,
+    dialedSttProvider: null,
     turnId: null,
     userMessageId: null,
     userAudioChunks: [],
@@ -1413,6 +1420,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // Persistent re-arm: the shared stream is already open, so the cycle
         // goes straight to streaming with no resolve/start round-trip.
         utterance.transcriber = shared;
+        utterance.dialedSttProvider = shared.providerId;
         return await this.activateUtterance(utterance, replayTurnEnd);
       }
       // The shared stream is pinned to the old language, so retire it and
@@ -1445,6 +1453,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
 
       utterance.transcriber = transcriber;
+      utterance.dialedSttProvider = transcriber.providerId;
       if (
         this.turnDetector &&
         typeof transcriber.finalizeUtterance === "function"
@@ -3509,16 +3518,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (partialDominant !== undefined) {
       return partialDominant;
     }
-    // A persisted pin only counts when the active provider honors manual
-    // language selection: auto-detecting providers (gemini, whisper) ignore
-    // the setting entirely, so treating it as the caller's language would
-    // force every turn into a stale pin. Same gate as the telephony
-    // pre-speech rule (voice-session-bridge.ts).
+    // A persisted pin only counts when the provider that actually
+    // transcribed honors manual language selection: auto-detecting
+    // providers (gemini, whisper) ignore the setting entirely, so treating
+    // it as the caller's language would force every turn into a stale pin.
+    // The DIALED transcriber's providerId is authoritative, because the
+    // resolver silently falls back to managed vellum (which honors the pin)
+    // when a BYOK provider has no credential; the configured provider is
+    // only the last resort when no transcriber reference survives. Same
+    // gate as the telephony pre-speech rule (voice-session-bridge.ts).
     const { language: configured, provider: sttProvider } =
       getConfig().services.stt;
+    const dialedProvider =
+      utterance.dialedSttProvider ??
+      this.sharedTranscriber?.providerId ??
+      (sttProvider as SttProviderId);
     const providerHonorsLanguagePin =
-      getProviderEntry(sttProvider as SttProviderId)?.languageSelection ===
-      "manual";
+      getProviderEntry(dialedProvider)?.languageSelection === "manual";
     if (providerHonorsLanguagePin && configured && configured !== "multi") {
       const normalized = normalizeLanguageTag(configured);
       if (normalized) {
