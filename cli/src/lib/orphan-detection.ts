@@ -56,7 +56,8 @@ export function classifyProcess(command: string): string {
  * logs in the terminal).
  */
 export function isInteractiveCliSession(command: string): boolean {
-  const vellumToken = /(?:^|\/)vellum(?:-cli)?(?:\s+--(?:no-color|plain))*/;
+  const vellumToken =
+    /(?:^|[\\/])vellum(?:-cli)?(?:\.exe)?["']?(?:\s+--(?:no-color|plain))*/;
   const interactiveSubcommand = new RegExp(
     vellumToken.source +
       String.raw`\s+(?:tunnel|events|logs|client|terminal|ssh|exec|message|workflows)\b`,

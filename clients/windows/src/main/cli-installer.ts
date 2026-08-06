@@ -97,12 +97,17 @@ export function provisionCliRuntime(paths: CliRuntimePaths) {
   }
 
   if (!isValidCliRuntime(sourceDir, version)) {
-    if (priorState && isValidCliRuntime(priorState.currentInstallDir)) {
-      return {
-        installDir: priorState.currentInstallDir,
-        previousInstallDir: priorState.previousInstallDir,
-        reused: true,
-      };
+    for (const fallback of [
+      priorState?.currentInstallDir,
+      priorState?.previousInstallDir,
+    ]) {
+      if (fallback && isValidCliRuntime(fallback)) {
+        return {
+          installDir: fallback,
+          previousInstallDir: priorState?.previousInstallDir,
+          reused: true,
+        };
+      }
     }
     throw new Error("The packaged Windows CLI runtime is missing or invalid.");
   }

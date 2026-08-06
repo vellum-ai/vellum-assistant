@@ -78,8 +78,9 @@ test("installs, upgrades, and falls back from paths with spaces", () => {
   expect(v2.previousInstallDir).toBe(v1.installDir);
   expect(v2.reused).toBeFalse();
   rmSync(second.sourceDir, { recursive: true });
+  rmSync(path.join(v2.installDir, "vellum.exe"));
   const fallback = provisionCliRuntime(runtimePaths(root, "3.0.0"));
-  expect(fallback.installDir).toBe(v2.installDir);
+  expect(fallback.installDir).toBe(v1.installDir);
   expect(fallback.reused).toBeTrue();
 });
 

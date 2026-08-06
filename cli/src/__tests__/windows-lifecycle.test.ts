@@ -9,7 +9,11 @@ import {
   pathListDelimiter,
   parseTasklistCsv,
 } from "../lib/process";
-import { parseRemotePs, processTableCommand } from "../lib/orphan-detection";
+import {
+  isInteractiveCliSession,
+  parseRemotePs,
+  processTableCommand,
+} from "../lib/orphan-detection";
 
 test("uses Windows executable suffixes without changing Unix names", () => {
   expect(executableName("vellum-daemon", "win32")).toBe("vellum-daemon.exe");
@@ -44,6 +48,11 @@ test("preserves command lines containing spaces and Unicode usernames", () => {
   expect(parsed.command).toContain(
     "Example User 用户\\Vellum\\vellum-daemon.exe",
   );
+  expect(
+    isInteractiveCliSession(
+      '"C:\\Users\\Example User 用户\\Vellum\\vellum.exe" exec -it --service vellum-gateway',
+    ),
+  ).toBeTrue();
 });
 
 test("rejects a stale PID file", () => {

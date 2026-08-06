@@ -10,6 +10,7 @@ import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
 import { z } from "zod";
 
 import { APP_PROTOCOL } from "./app-config";
+import { provisionCliForCurrentUser } from "./cli-path-flow";
 import { installMainFeatures } from "./features";
 import { handle, handleSync } from "./ipc.client";
 import log from "./logger";
@@ -194,6 +195,23 @@ app
       registerAppProtocol();
     }
     installAppInfoIpc();
+    if (app.isPackaged && process.platform === "win32") {
+      try {
+        const result = provisionCliForCurrentUser({
+          userDataDir: app.getPath("userData"),
+          resourcesDir: process.resourcesPath,
+          localAppData:
+            process.env.LOCALAPPDATA ??
+            path.join(app.getPath("home"), "AppData", "Local"),
+          version: app.getVersion(),
+        });
+        if (["foreign", "shadowed"].includes(result.launcherState)) {
+          log.warn(`[cli] Windows launcher is ${result.launcherState}`);
+        }
+      } catch (error) {
+        log.error("[cli] Failed to provision the Windows CLI:", error);
+      }
+    }
     installMainFeatures();
     installMainWindow();
   })
