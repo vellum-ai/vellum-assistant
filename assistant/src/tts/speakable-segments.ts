@@ -7,7 +7,7 @@
  * as soon as it is complete, so speech starts before the full response lands.
  */
 
-import { isHighSurrogate } from "../util/unicode.js";
+import { isHighSurrogate, isLowSurrogate } from "../util/unicode.js";
 
 const DEFAULT_CHAR_THRESHOLD = 180;
 const EAGER_CHAR_THRESHOLD = 60;
@@ -20,7 +20,7 @@ const NON_LATIN_SENTENCE_ENDING_PUNCTUATION = new Set([
   "。", // ideographic full stop
   "！", // fullwidth exclamation mark
   "？", // fullwidth question mark
-  "．", // fullwidth full stop
+  "．", // fullwidth full stop (digit-guarded below: also a decimal point)
   "।", // Devanagari danda
   "॥", // Devanagari double danda
   "؟", // Arabic question mark
@@ -32,7 +32,30 @@ const SENTENCE_ENDING_PUNCTUATION = new Set([
   "?",
   ...NON_LATIN_SENTENCE_ENDING_PUNCTUATION,
 ]);
+// Unlike the other non-Latin enders, the fullwidth full stop also serves as
+// a decimal point in fullwidth numbers (３．１４), so it is not a boundary
+// when a digit follows. The ideographic full stop 。 never marks decimals
+// and stays unconditional.
+const FULLWIDTH_FULL_STOP = "．";
 const TRAILING_SENTENCE_PUNCTUATION = new Set(['"', "'", ")", "]"]);
+// After a non-Latin ender, locale closers (CJK corner brackets, curly
+// quotes, guillemets) belong to the sentence they follow, exactly like the
+// ASCII closers above; without this, 「こんにちは。」 would orphan 」 into
+// the next segment. Superset of the ASCII closers so mixed-script text still
+// consumes those too.
+const NON_LATIN_TRAILING_SENTENCE_PUNCTUATION = new Set([
+  ...TRAILING_SENTENCE_PUNCTUATION,
+  "」",
+  "』",
+  "）",
+  "】",
+  "〕",
+  "〙",
+  "〗",
+  "”",
+  "’",
+  "»",
+]);
 // Clause punctuation in whitespace-free scripts is likewise a valid eager
 // boundary regardless of what follows.
 const NON_LATIN_EAGER_CLAUSE_PUNCTUATION = new Set([
@@ -138,22 +161,36 @@ function findSpeakableBoundary(
     }
 
     if (!inOpenSpan && SENTENCE_ENDING_PUNCTUATION.has(char)) {
-      let boundary = index + 1;
-      while (
-        boundary < text.length &&
-        TRAILING_SENTENCE_PUNCTUATION.has(text[boundary] ?? "")
-      ) {
-        boundary += 1;
-      }
-      // ASCII enders require following whitespace so decimals (3.14) and
-      // file names don't split; the non-Latin enders are valid boundaries
-      // regardless of what follows.
-      if (
-        NON_LATIN_SENTENCE_ENDING_PUNCTUATION.has(char) ||
-        boundary === text.length ||
-        isWhitespace(text[boundary] ?? "")
-      ) {
+      const isNonLatinEnder = NON_LATIN_SENTENCE_ENDING_PUNCTUATION.has(char);
+      // The fullwidth full stop doubles as a decimal point in fullwidth
+      // numbers (３．１４です), so a following digit suppresses the boundary.
+      const isDecimalPoint =
+        char === FULLWIDTH_FULL_STOP && isDecimalDigit(text[index + 1]);
+      if (isNonLatinEnder && !isDecimalPoint) {
+        // Non-Latin enders are valid boundaries regardless of what follows;
+        // consume locale closers so they stay with their sentence.
+        let boundary = index + 1;
+        while (
+          boundary < text.length &&
+          NON_LATIN_TRAILING_SENTENCE_PUNCTUATION.has(text[boundary] ?? "")
+        ) {
+          boundary += 1;
+        }
         return boundary;
+      }
+      if (!isNonLatinEnder) {
+        // ASCII enders require following whitespace so decimals (3.14) and
+        // file names don't split.
+        let boundary = index + 1;
+        while (
+          boundary < text.length &&
+          TRAILING_SENTENCE_PUNCTUATION.has(text[boundary] ?? "")
+        ) {
+          boundary += 1;
+        }
+        if (boundary === text.length || isWhitespace(text[boundary] ?? "")) {
+          return boundary;
+        }
       }
     }
 
@@ -162,8 +199,8 @@ function findSpeakableBoundary(
     } else if (char === "`") {
       inBacktick = !inBacktick;
     } else if (char === "*") {
-      const prev = text[index - 1];
-      const next = text[index + 1];
+      const prev = codePointBefore(text, index);
+      const next = codePointAfter(text, index);
       if (next === "*") {
         inBold = !inBold;
         skipSpanChar = true;
@@ -184,8 +221,8 @@ function findSpeakableBoundary(
     } else if (char === "_") {
       // Same word-boundary rule as `*`. Since `_` neighbors in identifiers
       // like `my_var` are word chars, they never open or close a span.
-      const prev = text[index - 1];
-      const next = text[index + 1];
+      const prev = codePointBefore(text, index);
+      const next = codePointAfter(text, index);
       if (inUnderscore) {
         if (prev !== undefined && !isWhitespace(prev) && !isWordChar(next)) {
           inUnderscore = false;
@@ -218,8 +255,54 @@ function findSpeakableBoundary(
   return charThreshold;
 }
 
+/**
+ * Accepts a full code point (one or two UTF-16 units) so non-BMP letters
+ * like 𠮟 count as word chars, matching the sanitizer's Unicode lookarounds
+ * in calls/tts-text-sanitizer.ts.
+ */
 function isWordChar(value: string | undefined): boolean {
   return value !== undefined && /[\p{L}\p{N}_]/u.test(value);
+}
+
+function isDecimalDigit(value: string | undefined): boolean {
+  return value !== undefined && /[0-9０-９]/.test(value);
+}
+
+/**
+ * The full code point ending just before `index`. When the preceding unit is
+ * a low surrogate, includes its high surrogate so `isWordChar` sees the
+ * whole character instead of half a pair.
+ */
+function codePointBefore(text: string, index: number): string | undefined {
+  const unit = text[index - 1];
+  if (unit === undefined) {
+    return undefined;
+  }
+  if (isLowSurrogate(unit.charCodeAt(0))) {
+    const high = text[index - 2];
+    if (high !== undefined && isHighSurrogate(high.charCodeAt(0))) {
+      return high + unit;
+    }
+  }
+  return unit;
+}
+
+/**
+ * The full code point starting just after `index`. When the following unit
+ * is a high surrogate, includes its low surrogate.
+ */
+function codePointAfter(text: string, index: number): string | undefined {
+  const unit = text[index + 1];
+  if (unit === undefined) {
+    return undefined;
+  }
+  if (isHighSurrogate(unit.charCodeAt(0))) {
+    const low = text[index + 2];
+    if (low !== undefined && isLowSurrogate(low.charCodeAt(0))) {
+      return unit + low;
+    }
+  }
+  return unit;
 }
 
 function findLastWhitespaceBoundary(

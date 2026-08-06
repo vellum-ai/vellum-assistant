@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { sanitizeForTts } from "../../calls/tts-text-sanitizer.js";
 import { extractSpeakableSegments } from "../speakable-segments.js";
 
 const DEFAULT_CHAR_THRESHOLD = 180;
@@ -277,6 +278,81 @@ describe("extractSpeakableSegments", () => {
 
       expect(segments).toEqual(["_変数_ です。"]);
       expect(remainder).toBe("まだ続きます");
+    });
+
+    test("does not split a fullwidth decimal number", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "３．１４です",
+        false,
+      );
+
+      expect(segments).toEqual([]);
+      expect(remainder).toBe("３．１４です");
+    });
+
+    test("the fullwidth full stop still ends a genuine sentence", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "終わりです．次です",
+        false,
+      );
+
+      expect(segments).toEqual(["終わりです．"]);
+      expect(remainder).toBe("次です");
+    });
+
+    test("keeps a CJK closing bracket with its sentence", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "「こんにちは。」次です。",
+        false,
+      );
+
+      expect(segments).toEqual(["「こんにちは。」", "次です。"]);
+      expect(remainder).toBe("");
+    });
+
+    test("keeps a closing curly quote with its sentence", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "“早く！”と言った。まだ続く",
+        false,
+      );
+
+      expect(segments).toEqual(["“早く！”", "と言った。"]);
+      expect(remainder).toBe("まだ続く");
+    });
+
+    test("a span closer touching an astral word char keeps the span open", () => {
+      // 𠮟 is a non-BMP letter (surrogate pair). The sanitizer's Unicode
+      // lookarounds see it as \p{L} and leave *note*𠮟 unstripped, so the
+      // segmenter must agree and defer the boundary at the period.
+      const text = "*note*𠮟. Next";
+
+      const { segments, remainder } = extractSpeakableSegments(text, false);
+
+      expect(segments).toEqual([]);
+      expect(remainder).toBe(text);
+
+      // Forced flush keeps the whole span in one segment, so per-segment
+      // sanitization matches whole-text sanitization: no unbalanced marker
+      // is spoken.
+      const forced = extractSpeakableSegments(text, true);
+      expect(forced.segments.map(sanitizeForTts).join("")).toBe(
+        sanitizeForTts(text),
+      );
+    });
+
+    test("astral underscore spans toggle like BMP ones", () => {
+      // prev/next of both `_` markers are surrogate-pair halves; assembled
+      // code points make the span open and close exactly as the sanitizer's
+      // lookarounds do, so the split after 。 leaks no markers.
+      const { segments, remainder } = extractSpeakableSegments(
+        "_𠮟_ です。まだ続く",
+        false,
+      );
+
+      expect(segments).toEqual(["_𠮟_ です。"]);
+      expect(remainder).toBe("まだ続く");
+      // The sanitizer strips the balanced span, so nothing leaks.
+      expect(sanitizeForTts(segments[0] ?? "")).toBe("𠮟 です。");
     });
 
     test("a span closer touching a CJK word char keeps the span open", () => {
