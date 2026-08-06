@@ -12,7 +12,12 @@
  * height at the bottom.
  */
 
-import { createContext, useContext, useEffect, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useLayoutEffect,
+  type ReactNode,
+} from "react";
 import { cn } from "@vellumai/design-library";
 
 import { useElementSize, type StageSize } from "@/hooks/use-element-size";
@@ -99,8 +104,11 @@ export function AssistantStage({
   // personality), so hand its color to the app shell and let it run into the
   // safe areas rather than stopping at the stage's edge. Native mobile only.
   // See `page-surface-store`.
+  // Layout effect, not passive: the stage commits and can paint before a
+  // passive effect runs, so the safe areas would trail the stage by a frame,
+  // both on arrival and whenever the avatar color resolves.
   const setPageSurface = usePageSurfaceStore.use.setSurface();
-  useEffect(() => {
+  useLayoutEffect(() => {
     setPageSurface(bg);
     return () => {
       setPageSurface(null);

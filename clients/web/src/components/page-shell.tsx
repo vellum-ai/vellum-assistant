@@ -1,4 +1,4 @@
-import { useEffect, type CSSProperties, type ReactNode } from "react";
+import { useLayoutEffect, type CSSProperties, type ReactNode } from "react";
 
 import { cn } from "@vellumai/design-library";
 
@@ -41,7 +41,11 @@ export function PageShell({
 }) {
   const setPageSurface = usePageSurfaceStore.use.setSurface();
   const surface = style?.backgroundColor ?? DEFAULT_SURFACE;
-  useEffect(() => {
+  // Layout effect, not passive: the page commits and can paint before a
+  // passive effect runs, so the safe areas would hold the previous route's
+  // color for a frame. Publishing before paint moves the canvas and the
+  // content together.
+  useLayoutEffect(() => {
     if (!bleed) {
       return;
     }
