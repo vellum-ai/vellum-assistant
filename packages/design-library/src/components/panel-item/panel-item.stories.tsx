@@ -116,11 +116,13 @@ export const PillStates: Story = {
         active
         onSelect={() => {}}
       />
+      {/* No badge: nothing in the sidebar puts a count on a pill, and a
+          fabricated one would document an affordance the product does not
+          have. `badge` is covered by the badge tests. */}
       <PanelItem
         shape="pill"
         icon={Settings}
         label="Preferences"
-        badge="3"
         onSelect={() => {}}
       />
     </div>
