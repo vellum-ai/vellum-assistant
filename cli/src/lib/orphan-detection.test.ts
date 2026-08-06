@@ -34,6 +34,11 @@ describe("classifyProcess", () => {
     expect(classifyProcess("/usr/bin/vellum sleep")).toBe("vellum");
   });
 
+  test("interactive names in later argv tokens do not trigger the exemption", () => {
+    expect(classifyProcess("vellum hatch --name logs")).toBe("vellum");
+    expect(classifyProcess("vellum sleep logs")).toBe("vellum");
+  });
+
   test("service process classifications are unchanged", () => {
     expect(classifyProcess("/opt/homebrew/bin/qdrant --config foo")).toBe(
       "qdrant",

@@ -29,13 +29,15 @@ export function classifyProcess(command: string): string {
   // `vellum tunnel` in someone's terminal): they have no PID-file
   // registration, so `vellum clean` would otherwise kill them mid-session.
   // The command line may be "bun /path/to/bin/vellum tunnel ...", so match
-  // the subcommand after the script path, not just argv[0].
+  // the first argument after the vellum binary/script path — later argv
+  // tokens (e.g. "vellum hatch --name logs") must not trigger the exemption.
   if (
-    /(?:^|\/)vellum(?:-cli)?(?:\s+\S+)*?\s+(?:tunnel|events|logs|client|terminal|ssh|exec|message|workflows)\b/.test(
+    /(?:^|\/)vellum(?:-cli)?\s+(?:tunnel|events|logs|client|terminal|ssh|exec|message|workflows)\b/.test(
       command,
     )
-  )
+  ) {
     return "unknown";
+  }
   if (/vellum-cli/.test(command)) return "vellum";
   // Exclude macOS desktop app processes — their path contains .app/Contents/MacOS/
   // but they are not background service processes.
