@@ -77,7 +77,8 @@ const meta: Meta<StoryArgs> = {
         <div
           className="relative h-[340px] w-[560px] overflow-hidden rounded-xl"
           style={{
-            background: BACKDROPS[(context.args as StoryArgs).backdrop ?? "dark"],
+            background:
+              BACKDROPS[(context.args as StoryArgs).backdrop ?? "dark"],
           }}
         >
           <Story />
@@ -273,7 +274,7 @@ function HoverDrivenSurface(args: StoryArgs) {
  */
 export const DemoReel: Story = {
   args: {
-    phase: "call",
+    phase: "resting",
   },
 
   parameters: { layout: "fullscreen" },
@@ -286,11 +287,27 @@ const DEMO_BEATS: {
   hold: number;
   app: string;
 }[] = [
-  { phase: "resting", hold: 2000, app: "Browser: it is just there" },
-  { phase: "hover", hold: 2000, app: "Notes: Talk or Type" },
-  { phase: "call", hold: 2000, app: "Slack: listening" },
-  { phase: "typing", hold: 2200, app: "Editor: say something" },
+  { phase: "resting", hold: 2100, app: "Browser: it is just there" },
+  { phase: "hover", hold: 1900, app: "Notes: Talk or Type" },
+  { phase: "call", hold: 2200, app: "Slack: listening" },
+  { phase: "typing", hold: 2000, app: "Editor: say something" },
 ];
+
+/**
+ * How far the surface's state trails the app behind it.
+ *
+ * Switching both on the same frame reads as one cut, as though the surface were
+ * part of the app that just appeared. Letting the backdrop land first and the
+ * surface follow a beat later reads as what is actually being claimed: the
+ * computer changed, and the companion carried on and responded in its own time.
+ * Short in the finale, where a long lag would leave the surface a whole app
+ * behind.
+ *
+ * The holds above are uneven for the same reason. Four identical intervals read
+ * as a slideshow on a timer.
+ */
+const PHASE_LAG = 620;
+const FINALE_PHASE_LAG = 190;
 
 /** The payoff: the same states again, faster than the apps behind them. */
 const DEMO_FINALE: CompanionSurfacePhase[] = [
@@ -318,6 +335,9 @@ const DEMO_TURNS = [
 function DemoReelPlayer(args: StoryArgs) {
   const [shots, setShots] = useState<string[]>([]);
   const [step, setStep] = useState<number | null>(null);
+  // Trails `step`. The backdrop is switched by `step` directly; the surface
+  // waits out the lag before catching up, so the two never cut together.
+  const [phaseStep, setPhaseStep] = useState(0);
 
   // The whole timeline up front, so playback is one timer walking an array
   // rather than two phases with their own bookkeeping. Built once: it is a
@@ -328,11 +348,13 @@ function DemoReelPlayer(args: StoryArgs) {
       ...DEMO_BEATS.map((beat, index) => ({
         phase: beat.phase,
         hold: beat.hold,
+        lag: PHASE_LAG,
         shot: index,
       })),
       ...DEMO_FINALE.map((phase, index) => ({
         phase,
         hold: FINALE_HOLD,
+        lag: FINALE_PHASE_LAG,
         shot: index,
       })),
     ],
@@ -350,6 +372,18 @@ function DemoReelPlayer(args: StoryArgs) {
     const timer = setTimeout(() => {
       setStep(step + 1);
     }, timeline[step].hold);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [step, timeline]);
+
+  useEffect(() => {
+    if (step === null || step >= timeline.length) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      setPhaseStep(step);
+    }, timeline[step].lag);
     return () => {
       clearTimeout(timer);
     };
@@ -375,7 +409,8 @@ function DemoReelPlayer(args: StoryArgs) {
 
   const playing = step !== null && step < timeline.length;
   const current = playing ? timeline[step] : null;
-  const phase = current?.phase ?? "resting";
+  // The surface reads from the trailing index, the backdrop from the live one.
+  const phase = playing ? timeline[phaseStep].phase : "resting";
   // Screenshots cycle rather than run out, so three apps still carry four beats.
   const shotIndex =
     shots.length === 0 ? -1 : (current?.shot ?? 0) % shots.length;
@@ -392,13 +427,17 @@ function DemoReelPlayer(args: StoryArgs) {
         />
       ))}
       {shots.length === 0 && (
-        <div className="absolute inset-0 grid place-items-center text-[13px] text-white/40">
+        // Held off centre, which is where the surface now sits.
+        <div className="absolute inset-x-0 top-[30%] text-center text-[13px] text-white/40">
           Add screenshots below, then play.
         </div>
       )}
 
-      {/* Parked where the real one parks: near the Dock, bottom right. */}
-      <div className="absolute right-[12%] bottom-[14%] size-11">
+      {/* Centred rather than parked in a corner. The real surface lives near
+          the Dock, but a corner puts it at the edge of frame where a viewer's
+          eye is not, and the whole point of the clip is that the thing in the
+          middle stays while everything around it moves. */}
+      <div className="absolute top-1/2 left-1/2 size-11 -translate-x-1/2 -translate-y-1/2">
         <CompanionSurface
           {...args}
           phase={phase}
@@ -424,6 +463,7 @@ function DemoReelPlayer(args: StoryArgs) {
             className="rounded-md bg-white/10 px-2 py-1 disabled:opacity-40"
             disabled={shots.length === 0}
             onClick={() => {
+              setPhaseStep(0);
               setStep(0);
             }}
           >
