@@ -58,12 +58,22 @@ public class SelfHostedServersPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /// Forgetting a URL that is not (or cannot be) in the list is a no-op, so
-    /// this never rejects.
+    /// this never rejects. Removing the active server clears the active slot,
+    /// so the shell reloads back to the baked origin like `switchTo({})`.
     @objc public func remove(_ call: CAPPluginCall) {
+        var removedActive = false
         if let url = SelfHostedServer.validate(call.getString("url")) {
+            removedActive = SelfHostedServer.configuredURL()?.absoluteString == url.absoluteString
             SelfHostedServer.remove(url: url)
         }
-        call.resolve(["ok": true])
+        guard removedActive else {
+            call.resolve(["ok": true])
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            (self?.bridge?.viewController as? MyViewController)?.applyConfiguredOrigin()
+            call.resolve(["ok": true])
+        }
     }
 
     /// Switching to a URL implies remembering it, so the target is appended to
