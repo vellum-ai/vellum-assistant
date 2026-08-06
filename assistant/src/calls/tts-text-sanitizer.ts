@@ -49,11 +49,18 @@ export function sanitizeForTts(text: string): string {
   result = result.replace(/^[-*]\s+/gm, "");
 
   // 7. Italic: *text* or _text_ → text
-  //    Word-boundary-aware with non-whitespace content edges, so arithmetic
-  //    like `5 * 3 and 4 * 2` and identifiers like `my_var` survive. Mirrors
-  //    the open-span rule in tts/speakable-segments.ts.
-  result = result.replace(/(?<!\w)\*([^\s*](?:[^*]*[^\s*])?)\*(?!\w)/g, "$1");
-  result = result.replace(/(?<!\w)_([^\s_](?:[^_]*[^\s_])?)_(?!\w)/g, "$1");
+  //    Word-boundary-aware (Unicode letters/digits, so café and 変数 count as
+  //    word chars) with non-whitespace content edges, so arithmetic like
+  //    `5 * 3 and 4 * 2` and identifiers like `my_var` survive. Mirrors the
+  //    open-span rule in tts/speakable-segments.ts.
+  result = result.replace(
+    /(?<![\p{L}\p{N}_])\*([^\s*](?:[^*]*[^\s*])?)\*(?![\p{L}\p{N}_])/gu,
+    "$1",
+  );
+  result = result.replace(
+    /(?<![\p{L}\p{N}_])_([^\s_](?:[^_]*[^\s_])?)_(?![\p{L}\p{N}_])/gu,
+    "$1",
+  );
 
   // 8. Emojis: strip extended pictographic characters, variation selectors,
   //    zero-width joiners, skin tone modifiers, and regional indicator symbols (flags).

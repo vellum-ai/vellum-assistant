@@ -20,7 +20,7 @@ export function isHighSurrogate(code: number): boolean {
   return code >= HIGH_SURROGATE_START && code <= HIGH_SURROGATE_END;
 }
 
-function isLowSurrogate(code: number): boolean {
+export function isLowSurrogate(code: number): boolean {
   return code >= LOW_SURROGATE_START && code <= LOW_SURROGATE_END;
 }
 
