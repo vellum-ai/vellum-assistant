@@ -228,9 +228,13 @@ describe("CollapsedGroupIcon disabled state", () => {
         <div data-testid="popover-body">Should not render</div>
       </CollapsedGroupIcon>,
     );
-    // Nothing to open: the tile is disabled, so it takes no click and no
-    // focus, and there is no popover trigger or content behind it.
-    expect(html).toContain("disabled");
+    /* Nothing to open, expressed as `aria-disabled` and never as the native
+       attribute. The tile is its own tooltip trigger, and a natively disabled
+       control dispatches no pointer events, so the "No conversations" hint
+       explaining why it does nothing would be the one thing unreachable. */
+    expect(html).toContain('aria-disabled="true"');
+    expect(html).not.toContain('disabled=""');
+    expect(html).toContain('tabindex="-1"');
     expect(html).not.toContain('aria-haspopup="dialog"');
     expect(html).not.toContain("Should not render");
     // Muted, disabled styling on the bare icon.

@@ -29,7 +29,8 @@ const SHAPE_CLASSES = {
   round: "rounded-full",
 } as const;
 
-export interface IconTileProps extends ComponentProps<"button"> {
+export interface IconTileProps
+  extends Omit<ComponentProps<"button">, "disabled"> {
   /** Tooltip content and accessible label. */
   label: string;
   side?: ComponentProps<typeof Tooltip>["side"];
@@ -38,14 +39,26 @@ export interface IconTileProps extends ComponentProps<"button"> {
    * @default "square"
    */
   shape?: keyof typeof SHAPE_CLASSES;
+  /**
+   * Nothing to open. Blocks activation, drops the tile from the tab order,
+   * and mutes it, matching what native `disabled` would do.
+   *
+   * It is expressed as `aria-disabled` rather than the native attribute
+   * because this tile is a tooltip trigger, and a natively disabled control
+   * dispatches no pointer events: the tooltip explaining *why* the tile does
+   * nothing would be the one thing a user could not reach.
+   */
+  disabled?: boolean;
 }
 
 export function IconTile({
   label,
   side,
   shape = "square",
+  disabled = false,
   className,
   children,
+  onClick,
   ...props
 }: IconTileProps) {
   return (
@@ -53,14 +66,22 @@ export function IconTile({
       <button
         type="button"
         aria-label={label}
+        aria-disabled={disabled || undefined}
+        tabIndex={disabled ? -1 : undefined}
+        onClick={(event) => {
+          if (disabled) {
+            event.preventDefault();
+            return;
+          }
+          onClick?.(event);
+        }}
         className={cn(
           "relative flex h-[30px] w-[30px] cursor-pointer items-center justify-center text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)]",
           SHAPE_CLASSES[shape],
           "aria-[expanded=true]:bg-[var(--surface-active)] aria-[expanded=true]:text-[var(--content-default)]",
           "aria-[pressed=true]:bg-[var(--surface-active)] aria-[pressed=true]:text-[var(--content-default)] aria-[pressed=true]:ring-1 aria-[pressed=true]:ring-[var(--border-active)]",
-          // A tile with nothing to open still occupies its slot, so it keeps
-          // the geometry and drops only the affordances.
-          "disabled:cursor-default disabled:text-[var(--content-disabled)] disabled:hover:bg-transparent",
+          // Keeps its slot and its hover target, drops only the affordances.
+          "aria-disabled:cursor-default aria-disabled:text-[var(--content-disabled)] aria-disabled:hover:bg-transparent",
           className,
         )}
         {...props}

@@ -295,6 +295,13 @@ export function useSidebarState({
       });
     }
     for (const group of grouped.customGroups) {
+      // An empty group has nothing to show, in the list or on the rail, so it
+      // waits for its first conversation exactly as Pinned does. It stays a
+      // "Move to group" target throughout: those come from the groups API via
+      // `buildMoveToGroupTargets`, which never consults the section list.
+      if (group.conversations.length === 0) {
+        continue;
+      }
       list.push({
         type: "group",
         key: group.id,
