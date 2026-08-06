@@ -20,6 +20,8 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionAnchor,
+  CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
   DictationOverlayMessage,
@@ -62,6 +64,8 @@ export type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionAnchor,
+  CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
   DictationOverlayMessage,
@@ -323,6 +327,11 @@ declare global {
         activate?(): void;
         dismiss?(): void;
         setCollapsed?(collapsed: boolean): void;
+      };
+      companion?: {
+        getState(): Promise<CompanionSurfaceState | null>;
+        onState(callback: (state: CompanionSurfaceState) => void): () => void;
+        setInteractive?(interactive: boolean): void;
       };
     };
   }

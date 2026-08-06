@@ -95,6 +95,10 @@ import { installPermissionHandler } from "./permissions";
 import { installPermissionsService } from "./permissions-service";
 import { installPowerEvents } from "./power-events";
 import { installIdentityIpc } from "./identity";
+import {
+  installCompanionWindow,
+  openCompanionWindow,
+} from "./companion-window";
 import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTextInsertionIpc } from "./textInsertion";
 import { installTray } from "./tray";
@@ -485,6 +489,7 @@ app
     installQuickInput();
     installDictationOverlay({ onRecordingLifecycle: setDictationRecording });
     installVoiceActivityWindow();
+    installCompanionWindow();
     installPopoutWindows();
     installGlobalShortcuts();
     // Register the avatar channel before the Dock and Tray install so their
@@ -521,6 +526,11 @@ app
     });
     installNativeAuth();
     installMainWindow();
+
+    // After the main window, so the surface opens over a running app rather
+    // than being the first thing on screen at launch. It is always present
+    // from here on: the app being frontmost is not one of its states.
+    openCompanionWindow();
 
     // Runs after the main window so the recovery dialog has a window to sit in
     // front of, and so a user who declines lands on a working app rather than

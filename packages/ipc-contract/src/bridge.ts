@@ -17,6 +17,7 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
   DictationOverlayMessage,
@@ -307,6 +308,18 @@ export interface VellumBridge {
     dismiss(): void;
     /** Shrink to the chip, or restore. */
     setCollapsed(collapsed: boolean): void;
+  };
+  /**
+   * The always-present companion surface (macOS). Only the surface's own route
+   * uses it: it reads the anchor main computed from the window's position, and
+   * reports whether the pointer is over the pill so main can make the window
+   * clickable without the transparent canvas swallowing clicks meant for
+   * whatever is behind it.
+   */
+  companion: {
+    getState(): Promise<CompanionSurfaceState | null>;
+    onState(callback: (state: CompanionSurfaceState) => void): () => void;
+    setInteractive(interactive: boolean): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;

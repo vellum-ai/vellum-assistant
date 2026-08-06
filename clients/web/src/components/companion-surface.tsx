@@ -1,5 +1,5 @@
 import { AudioLines, Mic, MessageSquareText, Volume2, X } from "lucide-react";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, ReactNode, Ref } from "react";
 
 /**
  * The macOS companion surface (LUM-3086): the assistant's avatar floating from
@@ -27,26 +27,28 @@ import type { CSSProperties, ReactNode } from "react";
  * main process through `setIgnoreMouseEvents(true, { forward: true })`, which
  * delivers mouse-move without capturing clicks meant for whatever is behind.
  *
- * **The glass here does not survive the port.** `backdrop-blur` samples what is
- * behind it *within the page*. In an Electron window it samples nothing,
- * because the desktop is not in the page. The real surface takes its blur from
- * the window's native vibrancy material, which is only visible over a
- * transparent window backing (LUM-3073 shipped an entire build where an opaque
- * backing hid it). Treat `backdrop-blur` as a stand-in for `vibrancy`.
+ * **Solid, not glass, and that is forced.** An earlier pass used
+ * `backdrop-blur`, which samples what is behind it *within the page*; in an
+ * Electron window that is nothing, because the desktop is not in the page. The
+ * only real blur is the window's native vibrancy material, and a window's
+ * material fills the window. This one is a canvas many times the size of the
+ * pill, so asking for glass would frost a rectangle across the desktop instead.
+ * Sizing the window to the pill would buy real glass at the cost of resizing it
+ * on every expansion, which is the thing the fixed canvas exists to avoid.
+ *
+ * So the pill paints its own near-opaque background, as the dictation overlay
+ * does and as Wispr's own pill does. That also settles what used to be the open
+ * contrast question: a surface that carries its own background is readable over
+ * a pale desktop and a busy one alike.
  *
  * Open, and reproducible from the stories:
  *
- * 1. **Light desktops.** The pill assumes a dark backdrop; white on a 35% black
- *    scrim stops being readable over a pale one. Either the scrim stays dark
- *    whatever is behind it, or the surface adapts and the content adapts too.
- * 2. **The microphone glyph means two things in a call**, "listening" and
+ * 1. **The microphone glyph means two things in a call**, "listening" and
  *    "mute", forty pixels apart. The shipped voice panel has the same
  *    collision, so it is worth solving once rather than twice.
- * 3. **Nothing marks a live call while resting.** The circle looks identical
+ * 2. **Nothing marks a live call while resting.** The circle looks identical
  *    whether or not the microphone is open, which is the state this surface
  *    exists to make visible.
- * 4. **Screen edges**, per the clearance note above. The `AgainstTheLeftEdge`
- *    story reproduces it.
  */
 
 export type CompanionSurfacePhase = "resting" | "hover" | "call";
@@ -108,6 +110,16 @@ export interface CompanionSurfaceProps {
   onHoverEnd?: () => void;
   /** Which way the pill may grow. See {@link CompanionSurfaceAnchor}. */
   anchor?: CompanionSurfaceAnchor;
+  /**
+   * The pill's own element.
+   *
+   * The Electron host needs to hit-test the pointer against the pill rather
+   * than trust `mouseenter`: its window is click-through, and what a
+   * click-through window delivers is forwarded mouse-move. Only this component
+   * knows where the pill ended up, so it hands the element out instead of
+   * restating the geometry at the call site.
+   */
+  rootRef?: Ref<HTMLDivElement>;
 }
 
 export function CompanionSurface({
@@ -118,6 +130,7 @@ export function CompanionSurface({
   onHoverStart,
   onHoverEnd,
   anchor = "center",
+  rootRef,
 }: CompanionSurfaceProps) {
   const expanded = phase !== "resting";
   const width = WIDTHS[phase];
@@ -145,9 +158,10 @@ export function CompanionSurface({
 
   return (
     <div
-      className="absolute top-1/2 flex h-11 items-center rounded-full border border-white/15 bg-black/35 backdrop-blur-xl transition-[width,margin-left] duration-300 will-change-[width,margin-left]"
+      className="absolute top-1/2 flex h-11 items-center rounded-full border border-white/10 bg-[#17181b]/95 shadow-lg shadow-black/40 transition-[width,margin-left] duration-300 will-change-[width,margin-left]"
       style={style}
       onMouseLeave={onHoverEnd}
+      ref={rootRef}
     >
       <Avatar
         glow={glow && !expanded}

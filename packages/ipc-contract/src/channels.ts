@@ -146,6 +146,11 @@ export const VOICE_ACTIVITY_DISMISS = "vellum:voiceActivity:dismiss";
 export const VOICE_ACTIVITY_SET_COLLAPSED =
   "vellum:voiceActivity:setCollapsed";
 
+// Companion surface: the always-present floating avatar
+export const COMPANION_GET_STATE = "vellum:companion:getState";
+export const COMPANION_STATE_EVENT = "vellum:companion:state";
+export const COMPANION_SET_INTERACTIVE = "vellum:companion:setInteractive";
+
 // Popout
 export const POPOUT_OPEN = "vellum:popout:open";
 
