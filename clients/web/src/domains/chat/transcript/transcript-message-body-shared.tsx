@@ -431,13 +431,22 @@ const DOCUMENT_MUTATION_TOOLS: ReadonlySet<string> = new Set([
   "document_replace_text",
 ]);
 
+/** The mutating document tools that write into an already-created document. */
+const DOCUMENT_EDIT_TOOLS: ReadonlySet<string> = new Set([
+  "document_update",
+  "document_replace_text",
+]);
+
 /**
- * Detect a call to a document tool that changes content. Document tools ship in
- * the bundled `document-editor` skill, so a call arrives either under its raw
- * tool name or inside a `skill_execute` envelope whose `input.tool` names it.
+ * Detect a call to one of `tools`. Document tools ship in the bundled
+ * `document-editor` skill, so a call arrives either under its raw tool name or
+ * inside a `skill_execute` envelope whose `input.tool` names it.
  */
-function isDocumentMutationCall(toolCall: ChatMessageToolCall): boolean {
-  if (DOCUMENT_MUTATION_TOOLS.has(toolCall.name)) {
+function isDocumentToolCall(
+  toolCall: ChatMessageToolCall,
+  tools: ReadonlySet<string>,
+): boolean {
+  if (tools.has(toolCall.name)) {
     return true;
   }
   if (toolCall.name !== "skill_execute") {
@@ -448,15 +457,15 @@ function isDocumentMutationCall(toolCall: ChatMessageToolCall): boolean {
     return false;
   }
   const tool = (input as Record<string, unknown>).tool;
-  return typeof tool === "string" && DOCUMENT_MUTATION_TOOLS.has(tool);
+  return typeof tool === "string" && tools.has(tool);
 }
 
 /**
- * Extract the `surface_id` a mutating document tool call wrote to. The
- * executors return `JSON.stringify({ ..., surface_id })` (see
+ * Extract the `surface_id` a call to one of `tools` wrote to. The executors
+ * return `JSON.stringify({ ..., surface_id })` (see
  * `assistant/src/tools/document/document-tool.ts`). Returns `undefined` for a
- * non-document call, a call that failed, a replace that matched nothing, or a
- * non-JSON/malformed result, so callers anchor only on documents that really
+ * call outside `tools`, a call that failed, a replace that matched nothing, or
+ * a non-JSON/malformed result, so callers anchor only on documents that really
  * changed.
  *
  * Only `document_replace_text` reports `content_changed`, and it succeeds with
@@ -467,8 +476,9 @@ function isDocumentMutationCall(toolCall: ChatMessageToolCall): boolean {
  */
 function extractDocumentSurfaceIdFromResult(
   toolCall: ChatMessageToolCall,
+  tools: ReadonlySet<string>,
 ): string | undefined {
-  if (!isDocumentMutationCall(toolCall) || toolCall.isError === true) {
+  if (!isDocumentToolCall(toolCall, tools) || toolCall.isError === true) {
     return undefined;
   }
   if (typeof toolCall.result !== "string" || !toolCall.result) {
@@ -507,10 +517,40 @@ export function resolveChangedDocuments(
   const surfaceIds: string[] = [];
 
   for (const tc of toolCalls) {
-    const surfaceId = extractDocumentSurfaceIdFromResult(tc);
+    const surfaceId = extractDocumentSurfaceIdFromResult(
+      tc,
+      DOCUMENT_MUTATION_TOOLS,
+    );
     if (surfaceId && !claimed.has(surfaceId)) {
       surfaceIds.push(surfaceId);
       claimed.add(surfaceId);
+    }
+  }
+
+  return surfaceIds;
+}
+
+/**
+ * The ids of the documents `toolCalls` wrote into with `document_update` or
+ * `document_replace_text`, ignoring the create that opened them.
+ *
+ * An inline `document_preview` card renders where its tool ran, so it stands in
+ * for the end-of-response reopen link only on a document the turn leaves alone
+ * afterwards. A document the turn keeps writing to is changed below its card
+ * and still owes a link at the end.
+ */
+export function resolveEditedDocuments(
+  toolCalls: ChatMessageToolCall[],
+): Set<string> {
+  const surfaceIds = new Set<string>();
+
+  for (const tc of toolCalls) {
+    const surfaceId = extractDocumentSurfaceIdFromResult(
+      tc,
+      DOCUMENT_EDIT_TOOLS,
+    );
+    if (surfaceId) {
+      surfaceIds.add(surfaceId);
     }
   }
 

@@ -4,6 +4,7 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import {
   computeCardBackedWorkflowRunIds,
   resolveChangedDocuments,
+  resolveEditedDocuments,
   workflowRunIdForCall,
   type WorkflowCardBackingState,
 } from "@/domains/chat/transcript/transcript-message-body-shared";
@@ -290,5 +291,58 @@ describe("resolveChangedDocuments", () => {
       "doc-1",
       "doc-2",
     ]);
+  });
+});
+
+describe("resolveEditedDocuments", () => {
+  test("returns the documents an update and a replace wrote to", () => {
+    const calls = [
+      docCall("tc-a", "document_update", "doc-1"),
+      docCall("tc-b", "document_replace_text", "doc-2", {
+        result: JSON.stringify({
+          success: true,
+          surface_id: "doc-2",
+          content_changed: true,
+        }),
+      }),
+    ];
+    expect([...resolveEditedDocuments(calls)]).toEqual(["doc-1", "doc-2"]);
+  });
+
+  test("omits a document the turn only created", () => {
+    const calls = [docCall("tc-a", "document_create", "doc-1")];
+    expect(resolveEditedDocuments(calls).size).toBe(0);
+  });
+
+  test("includes a created document the turn goes on to write into", () => {
+    const calls = [
+      docCall("tc-a", "document_create", "doc-1"),
+      docCall("tc-b", "document_update", "doc-1"),
+    ];
+    expect([...resolveEditedDocuments(calls)]).toEqual(["doc-1"]);
+  });
+
+  test("resolves an edit delivered inside a skill_execute envelope", () => {
+    const tc = call({
+      id: "tc-a",
+      name: "skill_execute",
+      input: { tool: "document_update", surface_id: "doc-1" },
+      result: JSON.stringify({ success: true, surface_id: "doc-1" }),
+    });
+    expect([...resolveEditedDocuments([tc])]).toEqual(["doc-1"]);
+  });
+
+  test("omits an errored edit and a replace that changed nothing", () => {
+    const calls = [
+      docCall("tc-a", "document_update", "doc-1", { isError: true }),
+      docCall("tc-b", "document_replace_text", "doc-2", {
+        result: JSON.stringify({
+          success: true,
+          surface_id: "doc-2",
+          content_changed: false,
+        }),
+      }),
+    ];
+    expect(resolveEditedDocuments(calls).size).toBe(0);
   });
 });

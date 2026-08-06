@@ -78,6 +78,7 @@ import {
   resolveAcpRunIds,
   resolveBackgroundTaskIds,
   resolveChangedDocuments,
+  resolveEditedDocuments,
   resolveSpawnedSubagentIds,
   resolveWorkflowRunIds,
   SlackMessageAttribution,
@@ -379,6 +380,12 @@ export function TranscriptMessageBody({
   // Document surface ids claim in their own namespace. Sharing a Set with the
   // process kinds above would let an unrelated id suppress a reopen link.
   const claimedDocumentIds = new Set<string>();
+  // Resolved before the render pass so a `document_preview` card knows whether
+  // the turn writes to its document past the point where the card renders.
+  const editedDocumentIds = useMemo(
+    () => resolveEditedDocuments(message.toolCalls ?? []),
+    [message.toolCalls],
+  );
   const cardBackedWorkflowRunId = (tc: ChatMessageToolCall): string | null => {
     const rid = workflowRunIdForCall(tc, byToolUseIdWf);
     return rid !== null && cardBackedWorkflowRunIds.has(rid) ? rid : null;
@@ -746,13 +753,19 @@ export function TranscriptMessageBody({
   ): ReactNode => {
     // A `document_preview` card opens its own document, so claim that document
     // before the end-of-message resolution runs and the reopen link would
-    // otherwise repeat the same affordance right beside the card. The preview's
-    // own `surfaceId` is the surface (`preview-<doc id>`); the document it
-    // opens rides in `data.surfaceId`, which is what a document tool call
-    // reports in its result.
+    // otherwise repeat the same affordance right beside the card. A document
+    // the turn also edits is left unclaimed: the card sits where its tool ran,
+    // above the edits, so that turn still ends with a link. The preview's own
+    // `surfaceId` is the surface (`preview-<doc id>`); the document it opens
+    // rides in `data.surfaceId`, which is what a document tool call reports in
+    // its result.
     if (surface.surfaceType === "document_preview") {
       const documentSurfaceId = surface.data?.surfaceId;
-      if (typeof documentSurfaceId === "string" && documentSurfaceId !== "") {
+      if (
+        typeof documentSurfaceId === "string" &&
+        documentSurfaceId !== "" &&
+        !editedDocumentIds.has(documentSurfaceId)
+      ) {
         claimedDocumentIds.add(documentSurfaceId);
       }
     }
