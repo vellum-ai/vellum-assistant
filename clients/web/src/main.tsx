@@ -10,6 +10,7 @@ import { RouterProvider } from "react-router";
 
 import { AppProviders } from "@/components/providers";
 import { WindowDragRegion } from "@/components/window-drag-region";
+import { initI18n } from "@/i18n";
 import { isChunkLoadError } from "@/lib/chunk-errors";
 import { setupClientFlagScopeSync } from "@/lib/feature-flags/client-flag-scope";
 import { installConsentRefreshListeners } from "@/lib/consent/consent-refresh";
@@ -39,6 +40,10 @@ async function boot() {
 
   initInputModality();
   initNativePlatformAttributes();
+  // Awaited before the first render so no component observes an
+  // uninitialized i18next and no untranslated key is ever painted. Resolves
+  // one bundled JSON chunk; it does not touch the network.
+  await initI18n();
   await initSafeAreaBridge();
   // First render waits on this bridge, so it is the first boot gate worth a
   // number. See `lib/telemetry/boot-telemetry.ts` for the mark family.

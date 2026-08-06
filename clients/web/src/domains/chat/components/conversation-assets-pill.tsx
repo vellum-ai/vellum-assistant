@@ -23,6 +23,7 @@ import {
 } from "@/domains/chat/components/conversation-asset-actions";
 import { useAppDelete } from "@/hooks/use-app-delete";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTranslation } from "@/i18n";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
 
@@ -119,6 +120,7 @@ export function ConversationAssetsPill({
 
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
+  const { t } = useTranslation();
 
   const handleSelect = useCallback(
     (asset: ConversationAsset) => {
@@ -138,8 +140,13 @@ export function ConversationAssetsPill({
     return null;
   }
 
-  const label = assets.length === 1 ? "1 asset" : `${assets.length} assets`;
-  const ariaLabel = `Conversation assets, ${assets.length} items`;
+  // ICU `plural` picks the category through `Intl.PluralRules` for the active
+  // locale, so this reads correctly in languages with more than two forms —
+  // and the aria-label no longer says "1 items".
+  const label = t("conversationAssets.label", { count: assets.length });
+  const ariaLabel = t("conversationAssets.ariaLabel", {
+    count: assets.length,
+  });
 
   const assetItems = assets.map((asset) => (
     <PanelItem
