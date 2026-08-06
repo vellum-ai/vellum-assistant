@@ -26,7 +26,10 @@ module.exports = {
     output: "dist",
   },
   // Requires `bun run build:web` first so resources/web-dist exists.
-  extraResources: [{ from: "resources/web-dist", to: "web-dist" }],
+  extraResources: [
+    { from: "resources/web-dist", to: "web-dist" },
+    { from: "resources/cli-runtime", to: "cli-runtime" },
+  ],
   win: {
     target: [
       {

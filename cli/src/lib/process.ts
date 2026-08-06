@@ -1,5 +1,6 @@
 import { execFileSync } from "child_process";
 import { existsSync, readFileSync, unlinkSync } from "fs";
+import { platform } from "os";
 
 import {
   httpHealthCheck,
@@ -13,8 +14,60 @@ import {
  * command line via `ps`. Prevents killing unrelated processes when a PID file
  * is stale and the OS has reused the PID.
  */
-export function isVellumProcess(pid: number): boolean {
+export function executableName(
+  name: string,
+  hostPlatform: NodeJS.Platform = platform(),
+): string {
+  return hostPlatform === "win32" && !name.endsWith(".exe")
+    ? `${name}.exe`
+    : name;
+}
+
+export function pathListDelimiter(
+  hostPlatform: NodeJS.Platform = platform(),
+): string {
+  return hostPlatform === "win32" ? ";" : ":";
+}
+
+export interface TasklistProcess {
+  imageName: string;
+  pid: number;
+}
+
+export function parseTasklistCsv(output: string): TasklistProcess[] {
+  const processes: TasklistProcess[] = [];
+  for (const line of output.split(/\r?\n/)) {
+    const match = line.match(/^"([^"]+)","(\d+)"/);
+    if (match) {
+      processes.push({ imageName: match[1], pid: Number(match[2]) });
+    }
+  }
+  return processes;
+}
+
+function readWindowsProcesses(pid?: number): TasklistProcess[] {
+  const args = pid
+    ? ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"]
+    : ["/FO", "CSV", "/NH"];
+  const output = execFileSync("tasklist.exe", args, {
+    encoding: "utf-8",
+    timeout: 5000,
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  return parseTasklistCsv(output);
+}
+
+export function isVellumProcess(
+  pid: number,
+  hostPlatform: NodeJS.Platform = platform(),
+): boolean {
   try {
+    if (hostPlatform === "win32") {
+      const imageName = readWindowsProcesses(pid)[0]?.imageName ?? "";
+      return /^(?:vellum|vellum-cli|vellum-daemon|vellum-gateway|credential-executor|qdrant)\.exe$/i.test(
+        imageName,
+      );
+    }
     const output = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
       encoding: "utf-8",
       timeout: 3000,
@@ -183,6 +236,7 @@ export async function stopProcess(
   pid: number,
   label: string,
   timeoutMs: number = 2000,
+  hostPlatform: NodeJS.Platform = platform(),
 ): Promise<boolean> {
   try {
     process.kill(pid, 0);
@@ -191,7 +245,16 @@ export async function stopProcess(
   }
 
   console.log(`Stopping ${label} (pid ${pid})...`);
-  process.kill(pid, "SIGTERM");
+  if (hostPlatform === "win32") {
+    try {
+      execFileSync("taskkill.exe", ["/PID", String(pid), "/T"], {
+        timeout: timeoutMs,
+        stdio: "ignore",
+      });
+    } catch {}
+  } else {
+    process.kill(pid, "SIGTERM");
+  }
 
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -205,8 +268,16 @@ export async function stopProcess(
 
   try {
     process.kill(pid, 0);
-    console.log(`${label} did not exit after SIGTERM, sending SIGKILL...`);
-    process.kill(pid, "SIGKILL");
+    if (hostPlatform === "win32") {
+      console.log(`${label} did not exit, terminating its process tree...`);
+      execFileSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], {
+        timeout: timeoutMs,
+        stdio: "ignore",
+      });
+    } else {
+      console.log(`${label} did not exit after SIGTERM, sending SIGKILL...`);
+      process.kill(pid, "SIGKILL");
+    }
   } catch {
     // Already dead
   }
@@ -265,7 +336,26 @@ export async function stopProcessByPidFile(
  *
  * Returns true if at least one process was stopped.
  */
-export async function stopOrphanedDaemonProcesses(): Promise<boolean> {
+export async function stopOrphanedDaemonProcesses(
+  hostPlatform: NodeJS.Platform = platform(),
+): Promise<boolean> {
+  if (hostPlatform === "win32") {
+    try {
+      const results = await Promise.all(
+        readWindowsProcesses()
+          .filter(
+            ({ imageName, pid }) =>
+              pid !== process.pid && /^vellum-daemon\.exe$/i.test(imageName),
+          )
+          .map(({ pid }) =>
+            stopProcess(pid, "orphaned assistant", 2000, hostPlatform),
+          ),
+      );
+      return results.some(Boolean);
+    } catch {
+      return false;
+    }
+  }
   let output: string;
   try {
     output = execFileSync("ps", ["-axww", "-o", "pid=,command="], {

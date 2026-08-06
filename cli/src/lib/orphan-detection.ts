@@ -154,6 +154,28 @@ export interface DetectOrphansOptions {
    * avoid touching the real on-host lockfiles.
    */
   excludePids?: Set<string>;
+  platform?: NodeJS.Platform;
+}
+
+const WINDOWS_PROCESS_LIST_SCRIPT =
+  'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.CommandLine)" }';
+
+export function processTableCommand(hostPlatform: NodeJS.Platform): {
+  command: string;
+  args: string[];
+} {
+  if (hostPlatform === "win32") {
+    return {
+      command: "powershell.exe",
+      args: [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        WINDOWS_PROCESS_LIST_SCRIPT,
+      ],
+    };
+  }
+  return { command: "ps", args: ["ax", "-o", "pid=,ppid=,args="] };
 }
 
 export async function detectOrphanedProcesses(
@@ -173,14 +195,10 @@ export async function detectOrphanedProcesses(
   // Process table scan — discover orphaned processes by scanning the OS
   // process table rather than reading PID files from the workspace.
   try {
-    const output = await execOutput(
-      "sh",
-      [
-        "-c",
-        "ps ax -o pid=,ppid=,args= | grep -E 'vellum|qdrant|openclaw' | grep -v grep",
-      ],
-      { timeoutMs: 5_000 },
-    );
+    const table = processTableCommand(options.platform ?? process.platform);
+    const output = await execOutput(table.command, table.args, {
+      timeoutMs: 5_000,
+    });
     const procs = parseRemotePs(output);
     const ownPid = String(process.pid);
 
