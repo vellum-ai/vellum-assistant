@@ -45,6 +45,7 @@ import {
 import { isInstalledStaticSkillLoad } from "../permissions/checker.js";
 import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
+  getProviderEntry,
   listProviderIds,
   supportsBoundary,
 } from "../providers/speech-to-text/provider-catalog.js";
@@ -55,6 +56,7 @@ import { normalizeLanguageTag } from "../stt/language-metadata.js";
 import { detectPcm16SpeechActivity } from "../stt/speech-energy.js";
 import type {
   StreamingTranscriber,
+  SttProviderId,
   SttStreamServerErrorEvent,
   SttStreamServerEvent,
 } from "../stt/types.js";
@@ -3507,8 +3509,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (partialDominant !== undefined) {
       return partialDominant;
     }
-    const configured = getConfig().services.stt.language;
-    if (configured && configured !== "multi") {
+    // A persisted pin only counts when the active provider honors manual
+    // language selection: auto-detecting providers (gemini, whisper) ignore
+    // the setting entirely, so treating it as the caller's language would
+    // force every turn into a stale pin. Same gate as the telephony
+    // pre-speech rule (voice-session-bridge.ts).
+    const { language: configured, provider: sttProvider } =
+      getConfig().services.stt;
+    const providerHonorsLanguagePin =
+      getProviderEntry(sttProvider as SttProviderId)?.languageSelection ===
+      "manual";
+    if (providerHonorsLanguagePin && configured && configured !== "multi") {
       const normalized = normalizeLanguageTag(configured);
       if (normalized) {
         return normalized;

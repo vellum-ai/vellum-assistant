@@ -1530,6 +1530,45 @@ describe("LiveVoiceSession STT", () => {
     }
   });
 
+  test("a pin on an auto-detecting provider does not become the turn language", async () => {
+    // google-gemini and openai-whisper ignore services.stt.language, so a
+    // stale persisted pin must not force every turn into that language.
+    const originalRaw = loadRawConfig();
+    const rawServices = (originalRaw.services ?? {}) as Record<string, unknown>;
+    saveRawConfig({
+      ...originalRaw,
+      services: {
+        ...rawServices,
+        stt: {
+          ...((rawServices.stt ?? {}) as Record<string, unknown>),
+          provider: "google-gemini",
+          language: "es",
+        },
+      },
+    });
+    const transcriber = new MockStreamingTranscriber();
+    const startVoiceTurn = speakingVoiceTurnStarter();
+    const { streamTtsAudio, ttsCalls } = recordingTtsStreamer();
+    const { context } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    try {
+      await session.start();
+      await session.handleBinaryAudio(new Uint8Array([1]));
+      await session.handleClientFrame({ type: "ptt_release" });
+      await waitFor(() => ttsCalls.length >= 1);
+
+      expect(ttsCalls[0] && "language" in ttsCalls[0]).toBe(false);
+    } finally {
+      await session.close("websocket_close");
+      saveRawConfig(originalRaw);
+    }
+  });
+
   test('the default "multi" with tag-less finals leaves every language-aware path untouched', async () => {
     const transcriber = new MockStreamingTranscriber();
     const startVoiceTurn = speakingVoiceTurnStarter();
