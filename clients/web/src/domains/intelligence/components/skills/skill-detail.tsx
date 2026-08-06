@@ -85,7 +85,6 @@ export function SkillDetail({
   // Falling back to Files when history turns out to be unsupported keeps the
   // page coherent if the query answers after a tab was already chosen.
   const activeTab = isHistoryUnsupported ? "files" : selectedTab;
-  const setActiveTab = setSelectedTab;
 
   const header = (
     <div className="mb-4 flex items-start gap-3">
@@ -259,19 +258,15 @@ export function SkillDetail({
     <div className="flex h-[calc(100vh-14rem)] flex-col">
       {header}
       {/*
-        The files panel stays mounted across tab switches and across the
-        history query resolving. Radix unmounts an inactive panel by default,
-        and `SkillFileContent` holds the in-progress edit in local state, so a
-        remount would silently discard unsaved text. `forceMount` keeps it
-        alive and an inline `display` drives visibility, which beats fighting
-        class precedence between `hidden` and `flex`. The files panel is also
-        never moved between branches: only the tab strip and the history panel
-        appear once the query answers, so `isHistoryUnsupported` flipping
-        cannot remount the editor either.
+        `SkillFileContent` holds the in-progress edit in local state, and Radix
+        unmounts an inactive panel, so the files panel is force-mounted and
+        only the tab strip and history panel are conditional. Visibility rides
+        an inline `display` to avoid a precedence fight between `hidden` and
+        `flex`.
       */}
       <Tabs.Root
         value={activeTab}
-        onValueChange={setActiveTab}
+        onValueChange={setSelectedTab}
         className="flex min-h-0 flex-1 flex-col"
       >
         {!isHistoryUnsupported && (

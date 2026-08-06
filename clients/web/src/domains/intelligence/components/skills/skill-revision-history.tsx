@@ -11,59 +11,17 @@
  * recent changes and never presented as a complete record.
  */
 
-import { ChevronRight, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { ChevronRight } from "lucide-react";
+import { useMemo } from "react";
 
+import { SkillsLoadingState } from "@/domains/intelligence/components/skills/skills-loading-state";
 import {
   parseUnifiedDiff,
   type DiffRow,
 } from "@/domains/intelligence/skills/parse-unified-diff";
 import { useSkillHistory, type SkillRevision } from "@/hooks/use-skill-history";
-import { cn } from "@/utils/misc";
-
-/** Absolute date, since a revision is a point in time worth citing exactly. */
-const DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-
-const RELATIVE_FORMAT = new Intl.RelativeTimeFormat(undefined, {
-  numeric: "auto",
-});
-
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
-
-/**
- * "2 days ago" for a recent change, falling back to nothing for anything the
- * absolute date already communicates better.
- */
-function formatRelative(iso: string, now: number): string | null {
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) {
-    return null;
-  }
-  const elapsed = now - then;
-  if (elapsed < MINUTE) {
-    return "just now";
-  }
-  if (elapsed < HOUR) {
-    return RELATIVE_FORMAT.format(-Math.floor(elapsed / MINUTE), "minute");
-  }
-  if (elapsed < DAY) {
-    return RELATIVE_FORMAT.format(-Math.floor(elapsed / HOUR), "hour");
-  }
-  if (elapsed < 30 * DAY) {
-    return RELATIVE_FORMAT.format(-Math.floor(elapsed / DAY), "day");
-  }
-  return null;
-}
-
-function formatAbsolute(iso: string): string {
-  const parsed = Date.parse(iso);
-  return Number.isNaN(parsed) ? iso : DATE_FORMAT.format(parsed);
-}
+import { formatFullLocalDate, formatRelativeDate } from "@/utils/format-date";
+import { Collapsible } from "@vellumai/design-library";
 
 export function SkillRevisionHistory({
   assistantId,
@@ -76,25 +34,11 @@ export function SkillRevisionHistory({
     useSkillHistory(assistantId, skillId);
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-10">
-        <Loader2
-          className="h-5 w-5 animate-spin"
-          style={{ color: "var(--content-tertiary)" }}
-        />
-      </div>
-    );
+    return <SkillsLoadingState />;
   }
 
   if (isError) {
-    return (
-      <p
-        className="px-3 py-10 text-center text-body-medium-lighter"
-        style={{ color: "var(--content-tertiary)" }}
-      >
-        Couldn&apos;t load revision history.
-      </p>
-    );
+    return <EmptyNote>Couldn&apos;t load revision history.</EmptyNote>;
   }
 
   return (
@@ -119,31 +63,14 @@ export function SkillRevisionList({
   revisions: SkillRevision[];
   truncatedByCompaction: boolean;
 }) {
-  // Read the clock once per mount rather than on each render: "2 days ago"
-  // only needs to be right when the list is opened, and a bare `Date.now()`
-  // in the render body is an impure call.
-  const [now] = useState(() => Date.now());
-
   if (revisions.length === 0) {
-    return (
-      <p
-        className="px-3 py-10 text-center text-body-medium-lighter"
-        style={{ color: "var(--content-tertiary)" }}
-      >
-        No changes recorded yet.
-      </p>
-    );
+    return <EmptyNote>No changes recorded yet.</EmptyNote>;
   }
 
   return (
-    <div className="flex flex-col gap-2 p-3">
+    <Collapsible.Root type="multiple" className="flex flex-col gap-2 p-3">
       {revisions.map((revision) => (
-        <RevisionRow
-          key={revision.id}
-          revision={revision}
-          skillId={skillId}
-          now={now}
-        />
+        <RevisionRow key={revision.id} revision={revision} skillId={skillId} />
       ))}
       {truncatedByCompaction && (
         <p
@@ -154,39 +81,44 @@ export function SkillRevisionList({
           this may not reach back to when the skill was created.
         </p>
       )}
-    </div>
+    </Collapsible.Root>
+  );
+}
+
+function EmptyNote({ children }: { children: React.ReactNode }) {
+  return (
+    <p
+      className="px-3 py-10 text-center text-body-medium-lighter"
+      style={{ color: "var(--content-tertiary)" }}
+    >
+      {children}
+    </p>
   );
 }
 
 function RevisionRow({
   revision,
   skillId,
-  now,
 }: {
   revision: SkillRevision;
   skillId: string;
-  now: number;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const parsed = parseUnifiedDiff(revision.diff, skillId);
-  const relative = formatRelative(revision.changedAt, now);
+  // Parsing walks the whole diff, and the collapsed row needs it only for the
+  // +/- counts, so keep it off the render path for a list that may hold 20.
+  const parsed = useMemo(
+    () => parseUnifiedDiff(revision.diff, skillId),
+    [revision.diff, skillId],
+  );
 
   return (
-    <div
+    <Collapsible.Item
+      value={revision.id}
       className="overflow-hidden rounded-md border"
       style={{ borderColor: "var(--border-base)" }}
     >
-      <button
-        type="button"
-        onClick={() => setIsOpen((open) => !open)}
-        aria-expanded={isOpen}
-        className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[var(--surface-hover)]"
-      >
+      <Collapsible.Trigger className="group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[var(--surface-hover)]">
         <ChevronRight
-          className={cn(
-            "h-4 w-4 shrink-0 transition-transform",
-            isOpen && "rotate-90",
-          )}
+          className="h-4 w-4 shrink-0 transition-transform group-data-[state=open]:rotate-90"
           style={{ color: "var(--content-tertiary)" }}
           aria-hidden
         />
@@ -195,7 +127,7 @@ function RevisionRow({
             className="block truncate text-body-medium-default"
             style={{ color: "var(--content-default)" }}
           >
-            {relative ?? formatAbsolute(revision.changedAt)}
+            {formatRelativeDate(revision.changedAt)}
           </span>
           <span
             className="mt-0.5 block truncate text-body-small-lighter"
@@ -220,54 +152,55 @@ function RevisionRow({
             &minus;{parsed.removed}
           </span>
         )}
-      </button>
+      </Collapsible.Trigger>
 
-      {isOpen && (
-        <div className="border-t" style={{ borderColor: "var(--border-base)" }}>
+      <Collapsible.Content
+        className="border-t"
+        style={{ borderColor: "var(--border-base)" }}
+      >
+        <p
+          className="px-3 py-2 text-body-small-lighter"
+          style={{ color: "var(--content-tertiary)" }}
+        >
+          {formatFullLocalDate(revision.changedAt)}
+        </p>
+        {parsed.files.length === 0 ? (
           <p
-            className="px-3 py-2 text-body-small-lighter"
+            className="px-3 pb-3 text-body-small-lighter"
             style={{ color: "var(--content-tertiary)" }}
           >
-            {formatAbsolute(revision.changedAt)}
+            No preview available for this change.
           </p>
-          {parsed.files.length === 0 ? (
-            <p
-              className="px-3 pb-3 text-body-small-lighter"
-              style={{ color: "var(--content-tertiary)" }}
-            >
-              No preview available for this change.
-            </p>
-          ) : (
-            parsed.files.map((file) => (
-              <div key={file.path}>
-                <p
-                  className="border-t px-3 py-1.5 font-mono text-body-small-default"
-                  style={{
-                    borderColor: "var(--border-base)",
-                    backgroundColor: "var(--surface-base)",
-                    color: "var(--content-secondary)",
-                  }}
-                >
-                  {file.path}
-                </p>
-                <div className="overflow-x-auto py-1 font-mono text-body-small-lighter">
-                  {file.rows.map((row, index) => (
-                    <DiffLine key={index} row={row} />
-                  ))}
-                </div>
+        ) : (
+          parsed.files.map((file) => (
+            <div key={file.path}>
+              <p
+                className="border-t px-3 py-1.5 font-mono text-body-small-default"
+                style={{
+                  borderColor: "var(--border-base)",
+                  backgroundColor: "var(--surface-base)",
+                  color: "var(--content-secondary)",
+                }}
+              >
+                {file.path}
+              </p>
+              <div className="overflow-x-auto py-1 font-mono text-body-small-lighter">
+                {file.rows.map((row, index) => (
+                  <DiffLine key={index} row={row} />
+                ))}
               </div>
-            ))
-          )}
-        </div>
-      )}
-    </div>
+            </div>
+          ))
+        )}
+      </Collapsible.Content>
+    </Collapsible.Item>
   );
 }
 
 /**
- * One diff line: two line-number gutters, a marker column, then the text.
- * Mirrors the gutter layout the chat file-diff view already uses so a diff
- * reads the same wherever it appears in the app.
+ * Mirrors the gutter layout of the chat file-diff view so a diff reads the same
+ * wherever it appears. That component computes its diff from two texts and
+ * keeps its row renderer private, so there is nothing to import here.
  */
 function DiffLine({ row }: { row: DiffRow }) {
   if (row.type === "meta") {
