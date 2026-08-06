@@ -185,9 +185,14 @@ const INTERACTIVE_CLASSES = [
  * and carries a resting surface, so it reads as a chip sitting in a column
  * rather than a row filling one. Radius, width, and surface only, so hover,
  * active, and every slot behave exactly as they do on a row.
+ *
+ * `w-fit` rather than `w-auto`: the root is a block-level flex container, and
+ * `width: auto` on one fills its containing block, so a pill would stretch to
+ * row width in every ordinary layout. `width: fit-content` shrink-wraps while
+ * leaving `display: flex` alone, which the row's internal layout depends on.
  */
 const PILL_SHAPE_CLASSES = [
-  "w-auto rounded-full",
+  "w-fit rounded-full",
   "bg-[var(--surface-lift)]",
   "pr-3",
 ].join(" ");

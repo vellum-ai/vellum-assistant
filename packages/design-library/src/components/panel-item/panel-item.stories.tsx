@@ -65,8 +65,13 @@ export const Default: Story = {
   args: { icon: LayoutGrid, onSelect: () => {} },
 };
 
-/** The two shapes against the same column, which is the only fair comparison. */
+/**
+ * The two shapes in the same stretching column, which is the comparison that
+ * matters: the parent here does nothing to shrink its children, so a row fills
+ * the 248px column and a pill sizes to its label on its own.
+ */
 export const Shapes: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
       <PanelItem shape="row" icon={LayoutGrid} label="Row" onSelect={() => {}} />
@@ -80,14 +85,20 @@ export const Shapes: Story = {
   ),
 };
 
-/** A pill carries selected state exactly as a row does. */
+/**
+ * A pill carries selected state exactly as a row does.
+ *
+ * The column deliberately stretches its children rather than setting
+ * `align-items: flex-start`: a shrink-wrapping parent would size these pills
+ * from the outside and hide whether the shape does it itself.
+ */
 export const PillStates: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <div
       style={{
         display: "flex",
         flexDirection: "column",
-        alignItems: "flex-start",
         gap: "0.5rem",
       }}
     >
