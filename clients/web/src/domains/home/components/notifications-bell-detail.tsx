@@ -10,7 +10,6 @@ import {
 import {
   formatCompactLocalDate,
   formatFullLocalDate,
-  formatRelativeDate,
 } from "@/utils/format-date";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import { Button, Typography } from "@vellumai/design-library";
@@ -248,9 +247,7 @@ export function NotificationsBellDetail({
           className="min-w-0 truncate text-[var(--content-tertiary)]"
           title={formatFullLocalDate(item.timestamp)}
         >
-          {`${formatRelativeDate(item.timestamp)} · ${formatCompactLocalDate(
-            item.timestamp,
-          )}`}
+          {formatCompactLocalDate(item.timestamp)}
         </Typography>
 
         {/* `ml-auto` keeps the links against the right edge on the second row

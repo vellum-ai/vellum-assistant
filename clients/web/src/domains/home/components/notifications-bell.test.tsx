@@ -453,7 +453,9 @@ describe("NotificationsBell detail", () => {
     expect(
       screen.getByText("The watcher job could not reach the upstream service."),
     ).toBeTruthy();
-    expect(detailFooter().textContent).toContain("3h ago");
+    expect(detailFooter().textContent).toContain(
+      formatCompactLocalDate(FIRST.timestamp),
+    );
     // The list is gone, so its other row went with it.
     expect(screen.queryByText("Backup finished")).toBeNull();
     expect(screen.queryByRole("heading", { name: "Notifications" })).toBeNull();
@@ -728,7 +730,9 @@ describe("NotificationsBell detail", () => {
     // it stays and only the links go.
     const footer = detailFooter();
     expect(footerLinkLabels(footer)).toEqual([]);
-    expect(footer.textContent).toContain("3h ago");
+    expect(footer.textContent).toContain(
+      formatCompactLocalDate(FIRST.timestamp),
+    );
     expect(
       screen.queryByRole("button", { name: "Go to Conversation" }),
     ).toBeNull();
@@ -742,7 +746,9 @@ describe("NotificationsBell detail", () => {
 
     const footer = detailFooter();
     expect(footerLinkLabels(footer)).toEqual([]);
-    expect(footer.textContent).toContain("3h ago");
+    expect(footer.textContent).toContain(
+      formatCompactLocalDate(FIRST.timestamp),
+    );
   });
 
   test("the timestamp rides in the footer rather than the body", async () => {
@@ -751,11 +757,12 @@ describe("NotificationsBell detail", () => {
     await openDetail("Watcher job failed");
 
     const footer = detailFooter();
-    expect(footer.textContent).toContain("3h ago");
-    expect(footer.textContent).toContain(
-      formatCompactLocalDate(FIRST.timestamp),
-    );
-    expect(detailContent().textContent).not.toContain("3h ago");
+    const absolute = formatCompactLocalDate(FIRST.timestamp);
+    expect(footer.textContent).toContain(absolute);
+    // The absolute form only. The relative label is the list row's treatment,
+    // and repeating it here crowds the strip the links share.
+    expect(footer.textContent).not.toContain("3h ago");
+    expect(detailContent().textContent).not.toContain(absolute);
   });
 
   test("the content region is a fixed frame rather than a cap", async () => {
@@ -851,7 +858,9 @@ describe("NotificationsBell detail", () => {
     // budget is a bare `dvh` length, which happy-dom drops from the CSSOM, so
     // the height value itself is only observable on the popover path above.
     expect(detailContent().style.maxHeight).toBe("");
-    expect(detailFooter().textContent).toContain("3h ago");
+    expect(detailFooter().textContent).toContain(
+      formatCompactLocalDate(FIRST.timestamp),
+    );
   });
 });
 
