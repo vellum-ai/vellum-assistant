@@ -2,7 +2,6 @@ import {
   Brain,
   Check,
   CornerUpLeft,
-  Minus,
   Mic,
   MicOff,
   MessageSquareText,
@@ -16,7 +15,6 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import {
   activateVoiceActivityApp,
-  dismissVoiceActivityPanel,
   getVoiceActivityState,
   sendVoiceActivityControl,
   setVoiceActivityCollapsed,
@@ -123,31 +121,15 @@ export function VoiceActivityPanelPage() {
       className="relative flex h-screen w-screen flex-col gap-1 overflow-hidden rounded-xl border border-white/15 bg-white/[0.07] px-3 pb-2.5 pt-1.5 [-webkit-app-region:drag] before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/40 before:to-transparent"
       style={surfaceStyle}
     >
-      {/* Window chrome. Minimize shrinks to the chip and close hides the
-          window; neither touches the call, because the button a user reaches
-          for when a panel is in the way must never hang up on them. */}
-      <div className="flex items-center gap-1">
-        <WindowButton
-          label="Minimize voice panel"
-          onClick={() => {
-            setVoiceActivityCollapsed(true);
-          }}
-        >
-          <Minus className="size-3" aria-hidden />
-        </WindowButton>
-        <WindowButton
-          label="Close voice panel"
-          onClick={dismissVoiceActivityPanel}
-        >
-          <X className="size-3" aria-hidden />
-        </WindowButton>
-      </div>
-
+      {/* No window chrome of its own: the macOS traffic lights are the
+          window's controls. Red hides it without ending the call, yellow
+          minimizes to the Dock, green is disabled because a fixed-size readout
+          has no meaningful zoom. The row below is inset to clear them. */}
       {/* Identity and state on one line: who is on the call and what the call
           is doing are read together. The name gives up its width first, since
           a truncated name is still recognizable while a truncated phase is
           not. */}
-      <div className="flex min-w-0 items-center gap-1.5">
+      <div className="flex min-w-0 items-center gap-1.5 pl-[62px]">
         <Identity
           assistantName={state.assistantName}
           avatarBase64={state.avatarBase64}
@@ -174,35 +156,6 @@ export function VoiceActivityPanelPage() {
         <SessionControls muted={state.muted} outputMuted={state.outputMuted} />
       )}
     </div>
-  );
-}
-
-/**
- * Minimize and close.
- *
- * Quieter than the session controls and set apart from them, because they act
- * on the window while everything below acts on the call. Confusing the two is
- * the one mistake this surface can make that a user cannot undo.
- */
-function WindowButton({
-  label,
-  onClick,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      className="flex size-4 items-center justify-center rounded-full text-[var(--content-tertiary)] transition-colors [-webkit-app-region:no-drag] hover:bg-white/15 hover:text-[var(--content-secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--voice-accent)]"
-      onClick={onClick}
-    >
-      {children}
-    </button>
   );
 }
 

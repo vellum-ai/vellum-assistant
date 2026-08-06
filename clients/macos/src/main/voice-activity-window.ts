@@ -11,9 +11,10 @@ import {
   type VoiceActivityState,
 } from "@vellumai/ipc-contract";
 
-import { createFloatingWindow, getFloatingWindow } from "./floating-window";
 import { ensureVisible as ensureMainWindowVisible } from "./main-window";
+import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
 import { handle, on } from "./ipc";
+import { createWindow } from "./windows";
 import { restoreBounds, track } from "./window-state";
 
 /**
@@ -41,7 +42,6 @@ import { restoreBounds, track } from "./window-state";
  * the desktop reading of the state an island exists for.
  */
 
-const PANEL_KIND = "voice-activity";
 const PANEL_PATH = "/floating/voice-activity";
 const WINDOW_STATE_KEY = "voice-activity";
 
@@ -193,7 +193,17 @@ export const createVoiceActivityController = (
 // Window plumbing
 // ---------------------------------------------------------------------------
 
-const panelWindow = (): BrowserWindow | null => getFloatingWindow(PANEL_KIND);
+let panel: BrowserWindow | null = null;
+
+const panelWindow = (): BrowserWindow | null => {
+  if (panel === null) {
+    return null;
+  }
+  if (panel.isDestroyed() || panel.webContents.isDestroyed()) {
+    panel = null;
+  }
+  return panel;
+};
 
 /**
  * Where a panel with no remembered position opens: the top-right of the
@@ -232,81 +242,102 @@ export const openingPosition = (): { x: number; y: number } => {
   return { x: saved.x, y: saved.y };
 };
 
-/** Whether the geometry tracker has been bound to the current panel window. */
-let tracked = false;
+const panelUrl = (): string => {
+  const base = app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase();
+  return `${base}${PANEL_PATH}`;
+};
 
-const ensurePanel = (): BrowserWindow => {
-  const win = createFloatingWindow({
-    kind: PANEL_KIND,
-    route: PANEL_PATH,
-    width: PANEL_WIDTH,
-    height: PANEL_HEIGHT,
-    // Never steals focus from whatever the user is actually doing. `panel` is
-    // a non-activating panel on macOS, so the controls can be clicked without
-    // bringing Vellum forward, which for this surface is the entire point.
-    focusOnShow: false,
-    // Above ordinary windows, below the system's own overlays. The dictation
-    // HUD reaches for `screen-saver` because it is transient and modal in
-    // spirit; a panel that stays up for the length of a call should not
-    // outrank a screen saver.
-    alwaysOnTopLevel: "floating",
+/**
+ * The panel window, created on first use.
+ *
+ * **Built directly rather than through `createFloatingWindow`**, which fixes
+ * `frame: false`, `transparent: true` and `type: "panel"`. None of those can
+ * carry traffic lights: a transparent frameless panel has no window surface
+ * for macOS to draw them on, and a non-activating panel would leave them
+ * inert. This is a real window that happens to float.
+ *
+ * The traffic lights are the window controls, so the page draws none of its
+ * own. Red hides it (see the `close` interception below), yellow minimizes to
+ * the Dock, and green is disabled through `maximizable` and `fullscreenable`:
+ * a fixed-size readout has no meaningful zoom, and macOS grays the button out
+ * rather than needing it hidden.
+ */
+const createPanel = (): BrowserWindow => {
+  const { x, y } = openingPosition();
+  const win = createWindow({
     browserWindow: {
-      // Repositionable, which is the whole reason geometry is persisted. The
-      // drag itself comes from the route's `-webkit-app-region: drag`; this
-      // only permits the window to move.
-      movable: true,
-      minimizable: false,
+      width: PANEL_WIDTH,
+      height: PANEL_HEIGHT,
+      x,
+      y,
+      // Frameless *with* traffic lights, the standard macOS shape for a window
+      // that wants no title bar and still wants its controls.
+      titleBarStyle: "hidden",
+      trafficLightPosition: { x: 10, y: 10 },
+      resizable: false,
+      minimizable: true,
       maximizable: false,
+      fullscreenable: false,
+      movable: true,
+      show: false,
       hasShadow: true,
-      // **Without this, every control on this panel is dead on first press.**
-      // macOS defaults to swallowing the click that activates an inactive
-      // window, delivering only the second one to its content. That rule
-      // exists so a stray click on a background app cannot act on it. This
-      // panel is the exception the rule was not written for: it is *only ever*
-      // on screen while the app is inactive, so every press it receives is a
-      // first press, and "click once to wake it, again to mean it" is the
-      // whole interaction. The user aimed at Mute; the click is not stray.
+      // Focusable, unlike the panel this replaces: traffic lights on a window
+      // that cannot take key status are drawn inert.
+      focusable: true,
       acceptFirstMouse: true,
-      // The panel never takes key status, so it never activates the app. That
-      // is what stops a press on it from flickering the menu bar to Vellum
-      // while leaving every real window behind, and it keeps app activation
-      // meaning what the visibility gate reads it as: a real window came
-      // forward. Clicking the panel still reaches the page, and foregrounding
-      // is now something a click asks for explicitly rather than a side
-      // effect of touching the surface. The dictation overlay is non-focusable
-      // for the same reason and keeps a working control.
-      focusable: false,
-      // The glass. `under-window` samples what is behind the panel, which for
-      // a surface floating over *other apps* is the material that reads as
-      // glass rather than as a tinted rectangle. `active` keeps it live while
-      // Vellum is in the background, which for this panel is always.
+      // The glass. `under-window` samples what is behind the window, which for
+      // a surface floating over *other apps* reads as glass rather than as a
+      // tinted rectangle. `active` keeps it live while Vellum is in the
+      // background, which is most of this window's life.
       vibrancy: "under-window",
       visualEffectState: "active",
       roundedCorners: true,
     },
-    // Only on creation. Re-applying on every show would drag the panel back to
-    // its saved corner mid-session, undoing a move the user made minutes ago.
-    // The position is persisted precisely so it survives.
-    position: panelWindow() === null ? openingPosition() : undefined,
+    navigation: "deny-all",
   });
 
-  if (!tracked) {
-    tracked = true;
-    track(WINDOW_STATE_KEY, win);
-    win.on("closed", () => {
-      tracked = false;
-    });
-  }
+  win.setAlwaysOnTop(true, "floating");
+  win.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+    skipTransformProcessType: true,
+  });
 
+  // Red hides the window; it never destroys it and never ends the call. The
+  // button a user reaches for when a window is in the way must not hang up on
+  // them, and the tray offers the way back while a session is live.
+  win.on("close", (event) => {
+    if (win.isDestroyed()) {
+      return;
+    }
+    event.preventDefault();
+    win.hide();
+    voiceActivityController?.dismiss();
+  });
+
+  track(WINDOW_STATE_KEY, win);
+  panel = win;
+  win.on("closed", () => {
+    panel = null;
+  });
+
+  void win.loadURL(panelUrl());
   return win;
+};
+
+const ensurePanel = (): BrowserWindow => {
+  const existing = panelWindow();
+  if (existing !== null) {
+    return existing;
+  }
+  return createPanel();
 };
 
 /**
  * The live controller, for callers outside the IPC surface.
  *
- * The tray needs to reopen a panel the user closed, and the tray is built long
- * before any session exists, so it reaches the controller through this rather
- * than being handed one at install.
+ * The tray needs to reopen a window the user closed, and the tray is built
+ * long before any session exists, so it reaches the controller through this
+ * rather than being handed one at install.
  */
 let voiceActivityController: VoiceActivityController | null = null;
 
@@ -315,10 +346,10 @@ export const isVoiceActivityRunning = (): boolean =>
   voiceActivityController?.currentState() != null;
 
 /**
- * Show the panel again for a session already running.
+ * Show the window again for a session already running.
  *
- * The way back from the close button. Without one, closing the panel would
- * leave a live microphone with no floating control until the call ended.
+ * The way back from the red button, which hides the window without ending the
+ * call.
  */
 export const reopenVoiceActivityPanel = (): void => {
   voiceActivityController?.reopen();
@@ -334,7 +365,12 @@ export const installVoiceActivityWindow = (): void => {
 
   const controller = createVoiceActivityController({
     showPanel: () => {
-      ensurePanel();
+      const win = ensurePanel();
+      // `showInactive` rather than `show`: the window appears because the user
+      // left the app, so it must not pull them back into it.
+      if (!win.isVisible()) {
+        win.showInactive();
+      }
     },
     hidePanel: () => {
       const win = panelWindow();
