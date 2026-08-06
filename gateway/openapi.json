@@ -387,6 +387,7 @@
                                 "handshake": { "type": "string" },
                                 "description": { "type": "string" },
                                 "credential": { "type": "string" },
+                                "served": { "type": "boolean" },
                                 "verification": {
                                   "type": "object",
                                   "properties": {
@@ -404,7 +405,8 @@
                                 "signer",
                                 "handshake",
                                 "description",
-                                "credential"
+                                "credential",
+                                "served"
                               ],
                               "additionalProperties": false
                             }

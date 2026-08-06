@@ -16,6 +16,7 @@
  */
 
 import {
+  findServableRoute,
   resolvePluginIngress,
   type PluginIngressResolution,
 } from "../../channels/plugin-ingress-approvals.js";
@@ -42,7 +43,7 @@ const log = getLogger("channel-ingress");
 const ApproveBodySchema = ApproveChannelIngressRequestSchema;
 
 // ---------------------------------------------------------------------------
-// GET /v1/channel-ingress — what has been declared, and what is being served
+// GET /v1/channel-ingress: what has been declared, and what is being served
 // ---------------------------------------------------------------------------
 
 /**
@@ -55,8 +56,18 @@ const ApproveBodySchema = ApproveChannelIngressRequestSchema;
  * same view. The verification descriptor is summarised rather than echoed
  * whole: the algorithm, the header a signature arrives in, and which credential
  * keys it are what a decision turns on.
+ *
+ * `served` is answered by asking `findServableRoute` the same question the
+ * request path asks, rather than by restating its rule. A `signer: "vellum"`
+ * route is served out of a pending declaration, so approval state alone does
+ * not say whether a route is live, and a listing that reimplemented the
+ * exception could come to disagree with the surface it describes.
  */
-function routeView(plugin: string, route: IngressRoute) {
+function routeView(
+  resolution: PluginIngressResolution,
+  plugin: string,
+  route: IngressRoute,
+) {
   return {
     path: route.path,
     publicPath: pluginWebhookPath(plugin, route.path),
@@ -64,6 +75,9 @@ function routeView(plugin: string, route: IngressRoute) {
     signer: route.signer,
     handshake: route.handshake,
     description: route.description,
+    served:
+      findServableRoute(resolution, plugin, route.path, route.kind) !==
+      undefined,
     credential: route.verification
       ? credentialKey(plugin, route.verification.secret.field)
       : credentialKey(
@@ -83,10 +97,16 @@ function routeView(plugin: string, route: IngressRoute) {
  * Every declaration the gateway can see, with its state.
  *
  * Without this a guardian has no way to learn that something is waiting, nor
- * the digest they would have to approve — the pending state is otherwise
+ * the digest they would have to approve. The pending state is otherwise
  * visible only in a gateway log line, and a route held back by it 404s exactly
  * like one nobody declared. That is right for the public surface, where the
  * caller is anyone on the internet, and wrong here.
+ *
+ * `state` is the approval state and nothing more, because approval and
+ * servability are not the same question: a `signer: "vellum"` route is served
+ * out of a pending declaration. Each route carries its own `served`, so a
+ * source can report accurately that it is waiting on a decision while some of
+ * what it declared is already live.
  *
  * `pending` covers two situations worth telling apart, so a source that holds a
  * grant for some earlier manifest reports the digest it was granted for under
@@ -102,10 +122,13 @@ export function createChannelIngressListHandler(
 ) {
   return async (): Promise<Response> => {
     try {
-      const { approved, pending, problems } = resolve();
+      const resolution = resolve();
+      const { approved, pending, problems } = resolution;
       const approvals = new Map(
         listPluginIngressApprovals().map((a) => [a.plugin, a]),
       );
+      const routes = (plugin: string, declared: readonly IngressRoute[]) =>
+        declared.map((r) => routeView(resolution, plugin, r));
 
       return Response.json({
         sources: [
@@ -114,14 +137,14 @@ export function createChannelIngressListHandler(
             state: "approved" as const,
             digest: d.digest,
             approvedAt: approvals.get(d.plugin)?.approvedAt,
-            routes: d.routes.map((r) => routeView(d.plugin, r)),
+            routes: routes(d.plugin, d.routes),
           })),
           ...pending.map((d) => ({
             source: d.plugin,
             state: "pending" as const,
             digest: d.digest,
             approvedDigest: approvals.get(d.plugin)?.digest,
-            routes: d.routes.map((r) => routeView(d.plugin, r)),
+            routes: routes(d.plugin, d.routes),
           })),
         ],
         problems: problems.map((p) => ({ source: p.plugin, reason: p.reason })),

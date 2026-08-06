@@ -1597,9 +1597,9 @@ async function main() {
     // assistant-scoped variants, because the guardian reaches these directly
     // rather than through the platform proxy. Deliberately absent from the IPC
     // surface for the same reason as the auth choice. Approve and revoke are
-    // POST verb paths — a grant has no id of its own until a guardian creates
-    // one. The listing is guardian-only for a different reason: it says which
-    // declarations are waiting, which the public surface will not.
+    // POST verb paths because a grant has no id of its own until a guardian
+    // creates one. The listing is guardian-only for a different reason: it says
+    // which declarations are waiting, which the public surface will not.
     {
       path: /^\/v1\/channel-ingress\/?$/,
       method: "GET",

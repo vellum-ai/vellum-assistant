@@ -52,6 +52,11 @@ const IngressRouteViewSchema = z.object({
   description: z.string(),
   /** Credential the route's signatures are verified against. */
   credential: z.string(),
+  /**
+   * Whether the gateway serves this route right now. Not implied by the
+   * source's state: a `vellum`-signed route is served without approval.
+   */
+  served: z.boolean(),
   /** Present when the route declares its own verification scheme. */
   verification: z
     .object({ algorithm: z.string(), signatureHeader: z.string() })
@@ -60,8 +65,9 @@ const IngressRouteViewSchema = z.object({
 
 const IngressSourceViewSchema = z.object({
   source: z.string(),
+  /** Approval state. Whether a given route is live is per-route `served`. */
   state: z.enum(["approved", "pending"]),
-  /** Digest of what the source declares now — the one to approve. */
+  /** Digest of what the source declares now: the one to approve. */
   digest: z.string(),
   approvedAt: z.number().optional(),
   /** On a pending source holding a grant for an earlier declaration. */

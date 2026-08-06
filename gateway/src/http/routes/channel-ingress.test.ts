@@ -228,6 +228,7 @@ describe("list", () => {
             handshake: "signed-headers",
             description: "events",
             credential: "credential/meeting-bot/webhook_secret",
+            served: false,
           },
         ],
       },
@@ -308,5 +309,41 @@ describe("list", () => {
     expect(body.sources).toEqual([]);
     expect(body.problems[0]!.source).toBe("meeting-bot");
     expect(body.problems[0]!.reason).toContain("path");
+  });
+
+  it("reports a vellum-signed route as served while its source waits", async () => {
+    // Approval is the general gate, and a vellum-signed route is the
+    // exception: only a caller holding the platform secret can open it. A
+    // listing that read servability off the source's state would call a live
+    // route dormant, and say nothing about which half of a mixed declaration
+    // is already reachable.
+    writePlugin("meeting-bot", [
+      { ...ROUTES[0]!, path: "ours", signer: "vellum" },
+      { ...ROUTES[0]!, path: "theirs" },
+    ]);
+
+    const body = (await (await list()).json()) as {
+      sources: { state: string; routes: { path: string; served: boolean }[] }[];
+    };
+
+    expect(body.sources[0]!.state).toBe("pending");
+    expect(body.sources[0]!.routes.map((r) => [r.path, r.served])).toEqual([
+      ["ours", true],
+      ["theirs", false],
+    ]);
+  });
+
+  it("reports every route of an approved declaration as served", async () => {
+    writePlugin("meeting-bot");
+    approvePluginIngress({
+      plugin: "meeting-bot",
+      digest: ingressDeclarationDigest(ROUTES),
+    });
+
+    const body = (await (await list()).json()) as {
+      sources: { routes: { served: boolean }[] }[];
+    };
+
+    expect(body.sources[0]!.routes[0]!.served).toBe(true);
   });
 });
