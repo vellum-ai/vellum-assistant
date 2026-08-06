@@ -1033,4 +1033,15 @@ describe("SelectAssistantScreen platform-mode gate", () => {
 
     await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/assistant"));
   });
+
+  test("hides the local-only create action on non-local clients", async () => {
+    assistantSwitcherValue = true;
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
+    );
+    expect(screen.queryByText("Create a new assistant")).toBeNull();
+  });
 });

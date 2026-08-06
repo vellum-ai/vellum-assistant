@@ -593,16 +593,18 @@ export function SelectAssistantScreen() {
               />
             );
           })}
-          <DashedActionButton
-            icon={<Plus className="h-4 w-4" />}
-            label="Create a new assistant"
-            disabled={connecting || loginLoading}
-            onClick={() =>
-              void navigate(
-                `${routes.onboarding.hosting}?from=select-assistant`,
-              )
-            }
-          />
+          {isLocalClient() && (
+            <DashedActionButton
+              icon={<Plus className="h-4 w-4" />}
+              label="Create a new assistant"
+              disabled={connecting || loginLoading}
+              onClick={() =>
+                void navigate(
+                  `${routes.onboarding.hosting}?from=select-assistant`,
+                )
+              }
+            />
+          )}
           {localModeHostAvailable && (
             <DashedActionButton
               icon={<Link2 className="h-4 w-4" />}
