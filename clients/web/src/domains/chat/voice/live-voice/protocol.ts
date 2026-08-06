@@ -107,12 +107,30 @@ export interface LiveVoiceClientUpdateConfigFrame {
   readonly bargeInMinSpeechMs?: number;
 }
 
+/**
+ * A photo taken while the call is running, identified by the id the normal
+ * attachment upload (`POST /v1/assistants/{id}/attachments`) already returned.
+ *
+ * Only the id travels: the bytes go over the same HTTP upload a typed message
+ * uses, which already handles HEIF normalization and size caps, and this
+ * socket is tuned for 50 ms audio frames.
+ *
+ * The daemon parks the id and attaches it to the NEXT turn's user message, so
+ * the photo and the words spoken about it are one message. That is what lets a
+ * bare "what's this?" resolve against the picture.
+ */
+export interface LiveVoiceClientAttachImageFrame {
+  readonly type: "attach_image";
+  readonly attachmentId: string;
+}
+
 export type LiveVoiceClientFrame =
   | LiveVoiceClientStartFrame
   | LiveVoiceClientPttReleaseFrame
   | LiveVoiceClientInterruptFrame
   | LiveVoiceClientEndFrame
-  | LiveVoiceClientUpdateConfigFrame;
+  | LiveVoiceClientUpdateConfigFrame
+  | LiveVoiceClientAttachImageFrame;
 
 // ---------------------------------------------------------------------------
 // Server frames (text/JSON; every frame carries `seq`)

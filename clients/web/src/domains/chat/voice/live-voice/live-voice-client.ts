@@ -349,6 +349,24 @@ export class LiveVoiceChannelClient {
   }
 
   /**
+   * Tell the session about a photo the user just took, by the id its upload
+   * already returned. The daemon parks it and attaches it to the next turn's
+   * user message.
+   *
+   * Callers MUST gate this on `useSupportsVoiceCamera` — an assistant that
+   * predates the frame rejects it with `unknown_type`, which is
+   * indistinguishable on the wire from the `update_config` rejection handled
+   * below and would latch config updates off for the session. The gate hides
+   * the camera entirely on those assistants, so this is never reached.
+   */
+  attachImage(attachmentId: string): void {
+    if (this.state !== "active") {
+      return;
+    }
+    this.trySend(JSON.stringify({ type: "attach_image", attachmentId }));
+  }
+
+  /**
    * End the session gracefully: best-effort send `end`, then always close the
    * socket. A quick-cancel while still CONNECTING simply skips the (impossible)
    * `end` send and resolves as a clean close rather than a timeout failure.
@@ -464,11 +482,20 @@ export class LiveVoiceChannelClient {
         return;
       case "error":
         // An assistant running daemon code older than a client frame we sent
-        // rejects it with `unknown_type`. The only frame we send optimistically
-        // is `update_config` (the voice-room settings), so this is a
+        // rejects it with `unknown_type`. `update_config` (the voice-room
+        // settings) is the only frame we send OPTIMISTICALLY, so this is a
         // forward-compat no-op, not a session failure: latch it off and keep
         // the session alive. Mirrors the `unknown_frame` handling below for the
         // reverse (newer-server) direction.
+        //
+        // This attribution is only safe because every other version-dependent
+        // frame is version-gated before it is sent: the daemon's `sendError`
+        // does not forward the rejected frame's type, so an ungated frame's
+        // rejection would land here and be misread as a settings rejection.
+        // `attach_image` (the voice-room camera) is gated on
+        // `useSupportsVoiceCamera` for exactly this reason. Anything new sent
+        // from this client must be gated the same way, or this branch has to
+        // learn to tell frames apart.
         if (frame.code === "unknown_type") {
           this.configUpdatesUnsupported = true;
           console.warn(

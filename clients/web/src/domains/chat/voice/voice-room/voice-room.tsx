@@ -59,12 +59,24 @@
  * never a dead room.
  *
  * Sessions are hands-free (server-VAD): the user just speaks, so there is no
- * push-to-talk control. One centred row near the bottom carries the three
- * things a caller does mid-call, left to right: mute the mic so it stops
- * hearing you, mute the assistant so you stop hearing it, and end the session.
+ * push-to-talk control. One centred row near the bottom carries what a caller
+ * does mid-call, left to right: mute the mic so it stops hearing you, mute the
+ * assistant so you stop hearing it, show it the camera, and end the session.
  * The end control is a red ✕ — the same glyph the composer bar and the pill
  * end a session with — toned destructively so it never reads as a third
  * neutral toggle beside the two mutes.
+ *
+ * **The camera is a mode of this room, not a place the user goes.** Opening it
+ * swaps the look for a live viewfinder and adds a shutter above the control
+ * row; the transcript, the controls and the call are all untouched, and
+ * closing it reveals the look again. That is what lets it stay open across a
+ * run of photos — "what's this?" … "and this one?" — where the system camera,
+ * being modal and one-shot, would charge a full open/aim/expose cycle per
+ * question. Each photo rides the NEXT turn's user message, so the picture and
+ * the words spoken about it arrive as one thing. See `voice-camera.ts` for the
+ * capture rules (video-only `getUserMedia`, so the call's audio is never
+ * renegotiated) and `use-voice-room-camera.ts` for the send path, which is the
+ * composer's own attachment upload.
  *
  * **Leaving the room and ending the call are different acts, and the room says
  * so in three places.** Minimizing is the light one — the session keeps running
@@ -76,14 +88,30 @@
  * call any more, which is what makes the corner safe to reach for.
  */
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import {
   AnimatePresence,
   motion,
   useReducedMotion,
   type MotionProps,
 } from "motion/react";
-import { ChevronDown, Mic, MicOff, Volume2, VolumeX, X } from "lucide-react";
+import {
+  Camera,
+  CameraOff,
+  ChevronDown,
+  Mic,
+  MicOff,
+  SwitchCamera,
+  Volume2,
+  VolumeX,
+  X,
+} from "lucide-react";
 
 import {
   BottomSheet,
@@ -106,12 +134,15 @@ import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-co
 import { handleSurfaceAction } from "@/domains/chat/surface-actions";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useSupportsNoninteractiveVoiceTurns } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
+import { useSupportsVoiceCamera } from "@/lib/backwards-compat/use-supports-voice-camera";
 import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/avatar-tone";
 
 import { useActiveConnectSurface } from "./use-active-connect-surface";
 import { useChatHeaderBottom } from "./use-chat-header-bottom";
+import { isVoiceCameraSupported } from "./voice-camera";
+import { useVoiceRoomCamera } from "./use-voice-room-camera";
 import { toRoomLocal, useRoomBox } from "./use-room-box";
 import { resolveWaveAccentHex } from "./wave-accent";
 
@@ -460,6 +491,25 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
     useSupportsNoninteractiveVoiceTurns(assistantId);
   const connectSurface = useActiveConnectSurface(!voiceTurnsAreNoninteractive);
 
+  // The camera. Offered only when the device has one AND the session's
+  // assistant understands the `attach_image` frame — see
+  // `use-supports-voice-camera.ts` for why a photo that silently never
+  // arrives is worse than no camera control at all.
+  //
+  // The viewfinder is a layer of THIS room, not a surface of its own, which is
+  // the whole reason it can stay open across as many photos as the user wants:
+  // there is nowhere for the camera to send them and nowhere to come back
+  // from. Closing it returns to the look; the call never notices either way.
+  // And because the stream is owned by a hook inside the room, minimizing (or
+  // ending the call) unmounts this component and releases the camera without
+  // anything having to remember to.
+  const cameraSupported =
+    useSupportsVoiceCamera(assistantId) && isVoiceCameraSupported();
+  const viewfinderRef = useRef<HTMLVideoElement | null>(null);
+  const { camera, sending, errorMessage, shutter, open, close } =
+    useVoiceRoomCamera(assistantId, viewfinderRef);
+  const cameraOpen = camera.open;
+
   // Resolve the assistant's look: color-with-eyes for character avatars, the
   // ambient void otherwise. The accent var is still published for the
   // fallback look's listening waves (null for custom-image / "none" /
@@ -647,6 +697,39 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         </>
       )}
 
+      {/* The viewfinder, when the camera is open.
+
+          Full-bleed over the look rather than beside it: the room is one
+          surface at a time, and a camera squeezed into a corner of the avatar
+          would be too small to aim. The look keeps rendering underneath, so
+          closing the camera reveals it already in the right state rather than
+          replaying its entrance.
+
+          `object-cover` because the video track's aspect ratio is the camera's,
+          not the room's — letterboxing a viewfinder makes it read as a photo
+          already taken. The front camera is mirrored, matching every other
+          selfie viewfinder on the platform; the rear one is not, because it
+          shows the world and a mirrored world is unusable for aiming.
+
+          Muted + playsInline + autoPlay is the combination WebKit requires to
+          play an inline stream without a user gesture per frame; `aria-hidden`
+          because a live camera feed has nothing to announce and the controls
+          below carry the accessible names. */}
+      {cameraOpen ? (
+        <video
+          ref={viewfinderRef}
+          data-testid="voice-room-viewfinder"
+          aria-hidden
+          autoPlay
+          muted
+          playsInline
+          className={cn(
+            "absolute inset-0 z-0 size-full object-cover",
+            camera.facing === "user" && "-scale-x-100",
+          )}
+        />
+      ) : null}
+
       {/* Optional live transcript, rendered into the room's two text zones —
           the user's speech above the eyes, the assistant's below. Pref-gated
           (the captions control above) and absolutely positioned in the margins
@@ -810,6 +893,91 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           circle beside them would collect the mis-tap that cannot be undone.
           Every control here is persistent, so the row never changes shape
           mid-call and none moves out from under a reaching finger. */}
+      {/* The shutter, and the camera's own failures.
+
+          A row of its own, above the session controls. The shutter is the big
+          target because it is the one thing the user does repeatedly while
+          holding a phone at arm's length pointed at something; the session
+          controls below stay their usual size, so the thing you press often
+          never sits flush against the thing that hangs up.
+
+          The row also carries the camera's failures, and so it renders when
+          there is a failure to report even though the viewfinder never came
+          up — a denied permission is precisely the case where it did not, and
+          nesting the message inside the open state left the camera button
+          appearing to do nothing at all.
+
+          The shutter does not close the camera. Taking a photo is a step in a
+          conversation ("what's this?" … "and this one?"), not the end of one,
+          and a viewfinder that dismissed itself per photo would make every
+          follow-up cost another open/aim/expose cycle — which is exactly the
+          system-camera behavior this surface exists to avoid. */}
+      {cameraOpen || errorMessage ? (
+        <div
+          data-testid="voice-room-camera-controls"
+          className="absolute inset-x-0 z-10 flex flex-col items-center gap-3"
+          style={{
+            bottom: `calc(5.5rem + max(${CORNER_GAP}, ${SAFE_AREA_BOTTOM}))`,
+          }}
+        >
+          {errorMessage ? (
+            <p
+              role="status"
+              className="rounded-full bg-[var(--room-wash)] px-3 py-1 text-xs text-[var(--room-fg)]"
+            >
+              {errorMessage}
+            </p>
+          ) : null}
+          {/* The shutter is centred on the room, with flip parked off to the
+              side rather than sharing a row with it — a two-item row would put
+              the shutter off-centre, and the shutter is the target the user
+              reaches for without looking. */}
+          {cameraOpen ? (
+            <div className="relative flex w-full items-center justify-center">
+              <Tooltip content="Take a photo">
+                <button
+                  type="button"
+                  onClick={() => void shutter()}
+                  disabled={sending}
+                  aria-label="Take a photo"
+                  data-testid="voice-room-shutter"
+                  className={cn(
+                    "flex size-16 items-center justify-center rounded-full border-4 transition",
+                    "border-[var(--room-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]",
+                    // The inner disc shrinks while the photo uploads — the
+                    // shutter's own press animation doubling as the progress
+                    // signal, so nothing else has to appear over the viewfinder.
+                    sending ? "opacity-60" : "hover:bg-[var(--room-wash)]",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "rounded-full bg-[var(--room-fg)] transition-all",
+                      sending ? "size-6" : "size-11",
+                    )}
+                  />
+                </button>
+              </Tooltip>
+
+              <Tooltip content="Flip camera">
+                <button
+                  type="button"
+                  onClick={() => void camera.flipCamera()}
+                  aria-label="Flip camera"
+                  className={cn(
+                    "absolute right-8",
+                    SESSION_CONTROL_CLASS,
+                    SESSION_CONTROL_NEUTRAL_CLASS,
+                  )}
+                >
+                  <SwitchCamera className="size-5" />
+                </button>
+              </Tooltip>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <div
         data-testid="voice-room-controls"
         className="absolute inset-x-0 z-10 flex items-center justify-center gap-4"
@@ -854,6 +1022,48 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             )}
           </button>
         </Tooltip>
+
+        {/* Show the assistant what you're looking at.
+
+            Sits with the mutes rather than in the corner because it is the
+            same kind of act — a thing you do TO the running call, reversible,
+            and not the one that ends it.
+
+            Neutral in both states, and the icon names the ACTION rather than
+            the state — the one place this row departs from the mutes beside
+            it. The mutes have to display state because muted-ness is
+            invisible; an open camera is the single most visible thing on the
+            screen, so a second indicator would be telling the user something
+            they are already looking at, and the red "engaged" treatment would
+            put a warning colour on a control that has done nothing alarming.
+
+            No pre-permission sheet stands between this tap and
+            `getUserMedia`, per docs/CAPACITOR.md § OS permission requests on
+            iOS — the button IS the pre-prompt, and pressing it raises the
+            system alert directly. Any explanatory step added here would have
+            to be undismissable to stay compliant, which for a control this
+            self-evident would be worse than nothing. */}
+        {cameraSupported ? (
+          <Tooltip content={cameraOpen ? "Close camera" : "Show the camera"}>
+            <button
+              type="button"
+              onClick={() => (cameraOpen ? close() : void open())}
+              aria-label={cameraOpen ? "Close camera" : "Show the camera"}
+              aria-pressed={cameraOpen}
+              data-testid="voice-room-camera-toggle"
+              className={cn(
+                SESSION_CONTROL_CLASS,
+                SESSION_CONTROL_NEUTRAL_CLASS,
+              )}
+            >
+              {cameraOpen ? (
+                <CameraOff className="size-5" />
+              ) : (
+                <Camera className="size-5" />
+              )}
+            </button>
+          </Tooltip>
+        ) : null}
 
         <Tooltip content="End session">
           <button

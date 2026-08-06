@@ -289,6 +289,7 @@ export function makeControlsSpies() {
         bargeInMinSpeechMs?: number;
       }) => {},
     ),
+    attachImage: mock((_attachmentId: string) => {}),
   } satisfies LiveVoiceSessionControls;
 }
 

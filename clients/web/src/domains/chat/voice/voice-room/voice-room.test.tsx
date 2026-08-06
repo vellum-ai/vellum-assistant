@@ -40,6 +40,7 @@ import {
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { MIN_VERSION as NONINTERACTIVE_VOICE_MIN_VERSION } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
+import { MIN_VERSION as CAMERA_MIN_VERSION } from "@/lib/backwards-compat/use-supports-voice-camera";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
@@ -1355,5 +1356,154 @@ describe("VoiceRoom — no push-to-talk / manual-release affordance (hands-free)
     render(<VoiceRoom />);
     expect(screen.queryByRole("button", { name: "Speak" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Send now/ })).toBeNull();
+  });
+});
+
+/**
+ * The camera — see `use-supports-voice-camera.ts` for why this is a WRITE gate
+ * (an assistant that cannot receive the photo must not be offered a camera
+ * that silently drops it) and `voice-camera.ts` for why the viewfinder lives
+ * inside the room rather than behind the system camera.
+ */
+describe("VoiceRoom — camera", () => {
+  const originalMediaDevices = Object.getOwnPropertyDescriptor(
+    navigator,
+    "mediaDevices",
+  );
+
+  /** Present a camera to the room; `null` removes the API entirely. */
+  function stubMediaDevices(
+    getUserMedia:
+      ((constraints?: MediaStreamConstraints) => Promise<unknown>) | null,
+  ) {
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: getUserMedia ? { getUserMedia } : undefined,
+    });
+  }
+
+  // A real `MediaStream`, because happy-dom's `HTMLMediaElement.srcObject`
+  // setter enforces the same instance check the browser does and a duck-typed
+  // stand-in throws where a real camera would not — but happy-dom's
+  // implementation has no `getTracks()`, which release needs, so that one
+  // method is filled in.
+  function fakeStream() {
+    const stream = new MediaStream();
+    Object.defineProperty(stream, "getTracks", { value: () => [] });
+    return stream;
+  }
+
+  /** An assistant new enough to accept `attach_image`. */
+  function seedCameraCapableAssistant() {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", CAMERA_MIN_VERSION, ASSISTANT_ID);
+  }
+
+  const cameraToggle = () => screen.queryByTestId("voice-room-camera-toggle");
+  const viewfinder = () => screen.queryByTestId("voice-room-viewfinder");
+
+  afterEach(() => {
+    if (originalMediaDevices) {
+      Object.defineProperty(navigator, "mediaDevices", originalMediaDevices);
+    } else {
+      stubMediaDevices(null);
+    }
+  });
+
+  test("offers no camera when the assistant version is unknown", () => {
+    // The conservative branch of the gate. An assistant that turns out to
+    // predate `attach_image` would take the photo and never show it to the
+    // model, which is worse than not offering the camera.
+    stubMediaDevices(async () => fakeStream());
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    expect(cameraToggle()).toBeNull();
+  });
+
+  test("offers no camera when the device has no camera API", () => {
+    stubMediaDevices(null);
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    expect(cameraToggle()).toBeNull();
+  });
+
+  test("offers the camera on a capable assistant and device", () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    expect(cameraToggle()).not.toBeNull();
+    // Closed to start: the room opens on the look, not on a live camera.
+    expect(viewfinder()).toBeNull();
+    expect(screen.queryByTestId("voice-room-shutter")).toBeNull();
+  });
+
+  test("tapping the camera opens the viewfinder and the shutter, and the call keeps running", async () => {
+    const getUserMedia = mock(async (_constraints?: MediaStreamConstraints) =>
+      fakeStream(),
+    );
+    stubMediaDevices(getUserMedia);
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    expect(viewfinder()).not.toBeNull();
+    expect(screen.queryByTestId("voice-room-shutter")).not.toBeNull();
+    // Video only. Requesting audio here would renegotiate the microphone the
+    // live-voice session is streaming from — see `voice-camera.ts`.
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    expect(getUserMedia.mock.calls[0]?.[0]).toEqual({
+      video: { facingMode: "environment" },
+    });
+    // Opening a camera is not an act on the session itself.
+    expect(controls.stop).not.toHaveBeenCalled();
+    expect(controls.interrupt).not.toHaveBeenCalled();
+  });
+
+  test("closing the camera leaves the session alone", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+    expect(viewfinder()).not.toBeNull();
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    expect(viewfinder()).toBeNull();
+    expect(controls.stop).not.toHaveBeenCalled();
+    expect(useLiveVoiceStore.getState().state).toBe("listening");
+  });
+
+  test("a denied camera permission surfaces and leaves the viewfinder closed", async () => {
+    stubMediaDevices(async () => {
+      throw new DOMException("denied", "NotAllowedError");
+    });
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    expect(viewfinder()).toBeNull();
+    // The denial is named where the user is looking, rather than leaving a
+    // control that appears to do nothing.
+    expect(screen.queryByText(/Camera access is off/)).not.toBeNull();
   });
 });

@@ -585,6 +585,20 @@ export function useLiveVoice(
     [],
   );
 
+  /**
+   * Hand the running session a photo the user took mid-call. Delegates to the
+   * transport, which no-ops unless the socket is active.
+   *
+   * A photo taken during the reconnect gap is dropped rather than queued. The
+   * daemon parks attachments against the session it is told about, and a
+   * reconnect starts a fresh one — holding the id across that gap would attach
+   * the photo to a turn arbitrarily far from the sentence it belonged to. The
+   * room surfaces the failure so the user can simply take it again.
+   */
+  const attachImage = useCallback((attachmentId: string) => {
+    sessionRef.current?.client.attachImage(attachmentId);
+  }, []);
+
   const createPlayer = useCallback(
     () =>
       (optionsRef.current.createPlayer ?? (() => new LiveVoiceAudioPlayer()))(),
@@ -675,6 +689,7 @@ export function useLiveVoice(
         setMuted,
         setOutputMuted,
         updateConfig,
+        attachImage,
       });
 
       const opts = optionsRef.current;
@@ -1105,6 +1120,7 @@ export function useLiveVoice(
                 setMuted,
                 setOutputMuted,
                 updateConfig,
+                attachImage,
               });
               console.warn(
                 `live-voice: initial connect failed (${err.reason}); retrying ` +
@@ -1172,6 +1188,7 @@ export function useLiveVoice(
               setMuted,
               setOutputMuted,
               updateConfig,
+              attachImage,
             });
             console.warn(
               `live-voice: transport closed (code ${info.code}); reconnecting ` +
@@ -1223,6 +1240,7 @@ export function useLiveVoice(
       setMuted,
       setOutputMuted,
       updateConfig,
+      attachImage,
       createPlayer,
     ],
   );

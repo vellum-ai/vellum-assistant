@@ -7,6 +7,7 @@ const LIVE_VOICE_CLIENT_FRAME_TYPES = [
   "interrupt",
   "end",
   "update_config",
+  "attach_image",
 ] as const;
 
 type LiveVoiceClientFrameType = (typeof LIVE_VOICE_CLIENT_FRAME_TYPES)[number];
@@ -158,13 +159,35 @@ export interface LiveVoiceClientUpdateConfigFrame {
   readonly bargeInMinSpeechMs?: number;
 }
 
+/**
+ * A photo the user took mid-call, already uploaded over the normal attachment
+ * route (`POST /v1/assistants/{id}/attachments`) — only the resulting id
+ * travels here.
+ *
+ * The bytes deliberately do not: the upload endpoint already normalizes HEIF,
+ * caps size, and stores the blob, and routing an image through this socket
+ * would duplicate all of it on a transport tuned for 50 ms audio frames.
+ *
+ * The id is *parked*, not dispatched. It rides the next turn's own user
+ * message (see {@link LiveVoiceSession}'s pending-attachment handling), so the
+ * photo and the words spoken about it are one message rather than two — which
+ * is what lets "what's this?" resolve, and what keeps the image attached to the
+ * newest user message, the only one a context-overflow retry preserves media on
+ * (`conversation-media-retry.ts`).
+ */
+export interface LiveVoiceClientAttachImageFrame {
+  readonly type: "attach_image";
+  readonly attachmentId: string;
+}
+
 export type LiveVoiceClientFrame =
   | LiveVoiceClientStartFrame
   | LiveVoiceClientAudioFrame
   | LiveVoiceClientPttReleaseFrame
   | LiveVoiceClientInterruptFrame
   | LiveVoiceClientEndFrame
-  | LiveVoiceClientUpdateConfigFrame;
+  | LiveVoiceClientUpdateConfigFrame
+  | LiveVoiceClientAttachImageFrame;
 
 interface LiveVoiceBinaryAudioFrame {
   readonly type: "binary_audio";
@@ -486,7 +509,36 @@ export function validateLiveVoiceClientFrame(
       return { ok: true, frame: { type: "end" } };
     case "update_config":
       return validateUpdateConfigFrame(value);
+    case "attach_image":
+      return validateAttachImageFrame(value);
   }
+}
+
+function validateAttachImageFrame(
+  value: Record<string, unknown>,
+): LiveVoiceParseResult<LiveVoiceClientAttachImageFrame> {
+  if (!("attachmentId" in value)) {
+    return protocolError(
+      "missing_required_field",
+      "attach_image frame is missing required field attachmentId",
+      "attachmentId",
+      "attach_image",
+    );
+  }
+
+  if (!isNonEmptyString(value.attachmentId)) {
+    return protocolError(
+      "invalid_field",
+      "attach_image frame field attachmentId must be a non-empty string",
+      "attachmentId",
+      "attach_image",
+    );
+  }
+
+  return {
+    ok: true,
+    frame: { type: "attach_image", attachmentId: value.attachmentId },
+  };
 }
 
 function validateUpdateConfigFrame(

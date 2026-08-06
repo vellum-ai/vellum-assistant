@@ -167,6 +167,16 @@ export interface LiveVoiceSessionControls {
     silenceThresholdMs?: number;
     bargeInMinSpeechMs?: number;
   }) => void;
+  /**
+   * Tell the session about a photo the user took mid-call, by the id its
+   * upload already returned. The daemon parks it and attaches it to the next
+   * turn's user message, so the photo and the words spoken about it land as
+   * one message. No-op unless the transport is active.
+   *
+   * Callers must gate on `useSupportsVoiceCamera` — see that hook for why an
+   * older assistant's rejection cannot be told apart from `update_config`'s.
+   */
+  attachImage: (attachmentId: string) => void;
 }
 
 /**
@@ -778,6 +788,15 @@ export function updateLiveVoiceSessionConfig(config: {
   bargeInMinSpeechMs?: number;
 }): void {
   useLiveVoiceStore.getState().controls?.updateConfig(config);
+}
+
+/**
+ * Hand the active session a photo the user took mid-call, by attachment id.
+ * No-op when no session exists or the transport isn't active. Module-level for
+ * the same stable-identity reasons as {@link endLiveVoiceSession}.
+ */
+export function attachLiveVoiceImage(attachmentId: string): void {
+  useLiveVoiceStore.getState().controls?.attachImage(attachmentId);
 }
 
 /**
