@@ -19,6 +19,7 @@ import { isChunkLoadError } from "@/lib/chunk-errors";
 import { setupClientFlagScopeSync } from "@/lib/feature-flags/client-flag-scope";
 import { installConsentRefreshListeners } from "@/lib/consent/consent-refresh";
 import { isLocalClient, loadLockfile } from "@/lib/local-mode";
+import { captureError } from "@/lib/sentry/capture-error";
 import { initSentry } from "@/lib/sentry/sentry-init";
 import { markBoot } from "@/lib/telemetry/boot-telemetry";
 import { installTranslateDomGuard } from "@/lib/translate-dom-guard";
@@ -121,9 +122,9 @@ async function boot() {
 
 function showBootFailure(error: unknown): void {
   try {
-    Sentry.captureException(error, { tags: { boundary: "app-boot" } });
-  } catch {
-    console.error("Vellum failed to start", error);
+    captureError(error, { context: "app_boot" });
+  } catch (captureFailure) {
+    console.error("Unable to report the startup failure", captureFailure);
   }
   void markNativeLaunchScreenReady("system");
 

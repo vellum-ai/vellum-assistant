@@ -20,16 +20,22 @@ export async function ensureAndroidAlertsChannel(): Promise<void> {
   if (!isNativeAndroid()) {
     return;
   }
-  if (!Capacitor.isPluginAvailable(ANDROID_NOTIFICATION_CHANNELS_PLUGIN)) {
-    return;
-  }
   if (!channelPromise) {
-    channelPromise = AndroidNotificationChannels.ensureAlertsChannel().catch(
-      (error) => {
-        channelPromise = null;
-        throw error;
-      },
-    );
+    channelPromise = (
+      Capacitor.isPluginAvailable(ANDROID_NOTIFICATION_CHANNELS_PLUGIN)
+        ? AndroidNotificationChannels.ensureAlertsChannel()
+        : import("@capacitor/local-notifications").then(
+            ({ LocalNotifications }) =>
+              LocalNotifications.createChannel({
+                id: ANDROID_ALERTS_CHANNEL_ID,
+                name: "Alerts",
+                importance: 3,
+              }),
+          )
+    ).catch((error) => {
+      channelPromise = null;
+      throw error;
+    });
   }
   await channelPromise;
 }

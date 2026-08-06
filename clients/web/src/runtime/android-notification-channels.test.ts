@@ -3,6 +3,7 @@ import { expect, mock, test } from "bun:test";
 let isAndroid = false;
 let isAvailable = true;
 const ensureAlertsChannelMock = mock(async () => {});
+const createChannelMock = mock(async () => {});
 
 mock.module("@/runtime/platform-detection", () => ({
   isNativeAndroid: () => isAndroid,
@@ -17,23 +18,29 @@ mock.module("@capacitor/core", () => ({
   }),
 }));
 
+mock.module("@capacitor/local-notifications", () => ({
+  LocalNotifications: {
+    createChannel: createChannelMock,
+  },
+}));
+
 const { ensureAndroidAlertsChannel } =
   await import("./android-notification-channels");
 
-test("uses the guarded native channel plugin when available", async () => {
+test("creates the Android channel across native shell versions", async () => {
   await ensureAndroidAlertsChannel();
   expect(ensureAlertsChannelMock).not.toHaveBeenCalled();
+  expect(createChannelMock).not.toHaveBeenCalled();
 
   isAndroid = true;
   isAvailable = false;
-  await ensureAndroidAlertsChannel();
-  expect(ensureAlertsChannelMock).not.toHaveBeenCalled();
+  createChannelMock.mockRejectedValueOnce(new Error("unavailable"));
+  await expect(ensureAndroidAlertsChannel()).rejects.toThrow("unavailable");
+  expect(createChannelMock).toHaveBeenCalledTimes(1);
 
   isAvailable = true;
-  ensureAlertsChannelMock.mockRejectedValueOnce(new Error("unavailable"));
-  await expect(ensureAndroidAlertsChannel()).rejects.toThrow("unavailable");
   await ensureAndroidAlertsChannel();
   await ensureAndroidAlertsChannel();
 
-  expect(ensureAlertsChannelMock).toHaveBeenCalledTimes(2);
+  expect(ensureAlertsChannelMock).toHaveBeenCalledTimes(1);
 });
