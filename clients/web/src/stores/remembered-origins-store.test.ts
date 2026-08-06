@@ -515,6 +515,51 @@ describe("providers and hydration", () => {
     ]);
   });
 
+  it("re-refreshes after hydration when a watch event fired mid-hydration", async () => {
+    let entries: RememberedOrigin[] = [
+      { url: "https://example.com/new", addedAt: "2026-01-02T00:00:00Z" },
+    ];
+    let watchCallback: (() => void) | null = null;
+    let releaseHydrateLoad = () => {};
+    const hydrateGate = new Promise<void>((resolve) => {
+      releaseHydrateLoad = resolve;
+    });
+    let loads = 0;
+    const provider: RememberedOriginsProvider = {
+      load: async () => {
+        loads += 1;
+        if (loads === 1) {
+          // The initial hydration load is slow and returns a snapshot that
+          // is already stale by the time it resolves.
+          await hydrateGate;
+          return [
+            { url: "https://example.com/old", addedAt: "2026-01-01T00:00:00Z" },
+          ];
+        }
+        return entries;
+      },
+      save: async (next) => {
+        entries = next;
+      },
+      watch: (onChange) => {
+        watchCallback = onChange;
+        return () => {};
+      },
+    };
+    setRememberedOriginsProvider(provider);
+
+    // The provider's value changes while hydration is still loading.
+    watchCallback?.();
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    releaseHydrateLoad();
+    await store().hydrate();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    expect(store().origins.map((o) => o.url)).toEqual([
+      "https://example.com/new",
+    ]);
+  });
+
   it("serializes watch refreshes with mutations so a slow refresh cannot publish stale state", async () => {
     let entries: RememberedOrigin[] = [
       { url: "https://example.com/a", addedAt: "2026-01-01T00:00:00Z" },

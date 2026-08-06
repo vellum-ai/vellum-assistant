@@ -171,15 +171,25 @@ let unwatchProvider: (() => void) | null = null;
  * through the mutation queue so a slow refresh load can never publish
  * state that a later mutation's save has already superseded.
  */
+/**
+ * Set when a watch event arrives while the initial hydration load is still
+ * pending: the refresh cannot publish yet (the store is unhydrated), so
+ * hydration completion triggers a follow-up refresh instead of leaving the
+ * store on its possibly older snapshot.
+ */
+let refreshSkippedWhileUnhydrated = false;
+
 function refreshFromProvider(epoch: number): Promise<void> {
   return enqueueMutation(async () => {
     try {
       const origins = await activeProvider.load();
-      if (
-        epoch === hydrationEpoch &&
-        useRememberedOriginsStoreBase.getState().hydrated
-      ) {
+      if (epoch !== hydrationEpoch) {
+        return;
+      }
+      if (useRememberedOriginsStoreBase.getState().hydrated) {
         useRememberedOriginsStoreBase.setState({ origins });
+      } else {
+        refreshSkippedWhileUnhydrated = true;
       }
     } catch {
       // Keep current state; the next mutation or hydrate retries.
@@ -204,6 +214,7 @@ export function setRememberedOriginsProvider(
   activeProvider = provider;
   hydrationEpoch += 1;
   hydrationPromise = null;
+  refreshSkippedWhileUnhydrated = false;
   useRememberedOriginsStoreBase.setState({ hydrated: false });
   watchActiveProvider();
   void useRememberedOriginsStoreBase.getState().hydrate();
@@ -259,6 +270,12 @@ const useRememberedOriginsStoreBase = create<RememberedOriginsStore>()(
           const origins = await activeProvider.load();
           if (epoch === hydrationEpoch) {
             set({ origins, hydrated: true });
+            if (refreshSkippedWhileUnhydrated) {
+              // A watch event fired mid-hydration; our snapshot may already
+              // be stale, so reconcile with the provider's latest.
+              refreshSkippedWhileUnhydrated = false;
+              void refreshFromProvider(epoch);
+            }
           }
         } catch {
           // Stay unhydrated so a later hydrate() retries; never persist a
