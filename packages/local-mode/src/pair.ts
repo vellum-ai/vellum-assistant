@@ -42,6 +42,18 @@ export type DecodePairBundleResult =
 export const MAX_PAIR_LABEL_LENGTH = 64;
 
 /**
+ * The single label normalization shared by the producer (`vellum pair
+ * --label`) and the importer ({@link decodePairBundle}): trimmed label when
+ * valid, undefined when absent, non-string, empty after trimming, or longer
+ * than {@link MAX_PAIR_LABEL_LENGTH}.
+ */
+export function normalizePairLabel(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const label = raw.trim();
+  return label && label.length <= MAX_PAIR_LABEL_LENGTH ? label : undefined;
+}
+
+/**
  * Decode and validate a base64 pairing bundle. Total and non-throwing:
  * malformed input yields a typed failure. `gatewayUrl` is persisted as
  * `runtimeUrl` and used to build fetch URLs, so it must be an absolute http(s)
@@ -71,10 +83,6 @@ export function decodePairBundle(encoded: string): DecodePairBundleResult {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     return { ok: false, error: "Bundle gatewayUrl is not an http(s) URL" };
   }
-  // Dropped (not a bundle failure) when empty or oversized: the label is
-  // cosmetic, so a bad one degrades to the default name rather than refusing
-  // an otherwise valid pairing.
-  const label = typeof b.label === "string" ? b.label.trim() : "";
   return {
     ok: true,
     bundle: {
@@ -92,7 +100,10 @@ export function decodePairBundle(encoded: string): DecodePairBundleResult {
           : undefined,
       refreshAfter:
         typeof b.refreshAfter === "string" ? b.refreshAfter : undefined,
-      label: label && label.length <= MAX_PAIR_LABEL_LENGTH ? label : undefined,
+      // Dropped (not a bundle failure) when invalid: the label is cosmetic,
+      // so a bad one degrades to the default name rather than refusing an
+      // otherwise valid pairing.
+      label: normalizePairLabel(b.label),
     },
   };
 }

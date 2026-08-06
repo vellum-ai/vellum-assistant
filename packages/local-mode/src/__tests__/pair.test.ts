@@ -9,6 +9,7 @@ import {
   decodePairBundle,
   MAX_PAIR_BUNDLE_LENGTH,
   MAX_PAIR_LABEL_LENGTH,
+  normalizePairLabel,
   pairAssistant,
   type PairBundle,
 } from "../pair";
@@ -157,6 +158,26 @@ describe("decodePairBundle", () => {
       decodePairBundle(encodeBundle({ gatewayUrl: "/relative", token: "t" }))
         .ok,
     ).toBe(false);
+  });
+});
+
+describe("normalizePairLabel", () => {
+  test("returns a valid label trimmed", () => {
+    const longest = "a".repeat(MAX_PAIR_LABEL_LENGTH);
+    expect(normalizePairLabel("Office Mac")).toBe("Office Mac");
+    expect(normalizePairLabel("  Office Mac  ")).toBe("Office Mac");
+    expect(normalizePairLabel(longest)).toBe(longest);
+  });
+
+  test("returns undefined for empty, oversized, or non-string values", () => {
+    expect(normalizePairLabel("")).toBeUndefined();
+    expect(normalizePairLabel("   ")).toBeUndefined();
+    expect(
+      normalizePairLabel("a".repeat(MAX_PAIR_LABEL_LENGTH + 1)),
+    ).toBeUndefined();
+    expect(normalizePairLabel(undefined)).toBeUndefined();
+    expect(normalizePairLabel(null)).toBeUndefined();
+    expect(normalizePairLabel(42)).toBeUndefined();
   });
 });
 

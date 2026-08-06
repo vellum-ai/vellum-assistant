@@ -54,6 +54,7 @@ export {
   pairAssistant,
   connectImport,
   MAX_PAIR_LABEL_LENGTH,
+  normalizePairLabel,
 } from "./pair";
 export { runSleep } from "./sleep";
 export type { SleepResult } from "./sleep";

@@ -15,7 +15,10 @@ import { nanoid } from "nanoid";
 // error-correction level off `this`, so a destructured import renders nothing.
 import qrcodeTerminal from "qrcode-terminal";
 
-import { MAX_PAIR_LABEL_LENGTH } from "@vellumai/local-mode";
+import {
+  MAX_PAIR_LABEL_LENGTH,
+  normalizePairLabel,
+} from "@vellumai/local-mode";
 import {
   buildRemoteWebPairingUrl,
   normalizePairingBaseUrl,
@@ -315,14 +318,11 @@ export async function pair(): Promise<void> {
     process.exit(1);
   }
 
-  // Enforce the importer's label constraint here: decodePairBundle() trims and
-  // silently drops empty or oversized labels, so an invalid --label would mint
-  // a bundle that never delivers the promised display name.
-  const label = rawLabel?.trim();
-  if (
-    rawLabel !== undefined &&
-    (!label || label.length > MAX_PAIR_LABEL_LENGTH)
-  ) {
+  // Same normalization as the importer: decodePairBundle() silently drops a
+  // label normalizePairLabel() rejects, so an invalid --label would mint a
+  // bundle that never delivers the promised display name. Fail loud instead.
+  const label = normalizePairLabel(rawLabel);
+  if (rawLabel !== undefined && label === undefined) {
     console.error(
       `Error: --label must be 1-${MAX_PAIR_LABEL_LENGTH} characters after trimming.`,
     );
