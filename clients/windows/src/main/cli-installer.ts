@@ -32,6 +32,7 @@ export const CLI_RUNTIME_ASSETS = [
   "templates",
   "bundled-skills",
   "brain-graph",
+  "default-plugins",
   "web-tree-sitter.wasm",
   "tree-sitter-bash.wasm",
 ] as const;

@@ -182,6 +182,7 @@ export async function isProcessHealthy(
  * - `"migration_failed"` — process is alive and healthy, but its DB migrations
  *   failed: a terminal state that never recovers without a restart. The
  *   process is kept alive (same keep-alive rule as `"unready"`).
+ * - `"stuck"`: process is unresponsive and could not be terminated.
  * - `"needs_start"` — process was dead, hung (and killed), or a stale PID
  *   was cleaned up. Caller should start a fresh process.
  */
@@ -189,6 +190,7 @@ export type ProcessState =
   | { status: "healthy"; pid: number }
   | { status: "unready"; pid: number }
   | { status: "migration_failed"; pid: number }
+  | { status: "stuck"; pid: number }
   | { status: "needs_start"; pid: number | null };
 
 /**
@@ -233,7 +235,10 @@ export async function resolveProcessState(
         console.log(
           `${label} process alive (pid ${result.pid}) but not responding — killing and restarting...`,
         );
-        await stopProcess(result.pid, label);
+        const stopped = await stopProcess(result.pid, label);
+        if (!stopped && isProcessAlive(pidFile).alive) {
+          return { status: "stuck", pid: result.pid };
+        }
       } else {
         console.log(
           `Stale PID file (pid ${result.pid} is not a Vellum process) — cleaning up...`,

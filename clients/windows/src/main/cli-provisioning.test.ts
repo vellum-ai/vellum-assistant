@@ -200,6 +200,30 @@ test("preserves a launcher owned by another installed environment", () => {
   ).toBeTrue();
 });
 
+test("restores owned entries when uninstall cannot update PATH", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const source = writeRuntime(path.join(root, "runtime"), "1.0.0");
+  const userRegistry = registry();
+  installCliLauncher(source, "1.0.0", paths, userRegistry.run);
+  const failingRegistry: RegistryRunner = (_command, args) => {
+    if (args[0] === "QUERY") {
+      return `    Path    REG_EXPAND_SZ    ${userRegistry.value()}\r\n`;
+    }
+    throw new Error("registry unavailable");
+  };
+
+  expect(() => uninstallCliLauncher(paths, failingRegistry)).toThrow(
+    "registry unavailable",
+  );
+  expect(
+    CLI_RUNTIME_ENTRIES.every((name) =>
+      existsSync(path.join(paths.binDir, name)),
+    ),
+  ).toBeTrue();
+  expect(userRegistry.value().split(";")).toContain(paths.binDir);
+});
+
 test("restores the last launcher when PATH registration fails", () => {
   const root = makeTempDir();
   const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));

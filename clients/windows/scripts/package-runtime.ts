@@ -83,6 +83,7 @@ for (const [source, name] of [
   ["assistant/src/prompts/templates", "templates"],
   ["assistant/src/config/bundled-skills", "bundled-skills"],
   ["assistant/src/runtime/routes/brain-graph", "brain-graph"],
+  ["assistant/src/plugins/defaults", "default-plugins"],
 ] as const) {
   cpSync(path.join(repoRoot, source), path.join(outputDir, name), {
     recursive: true,

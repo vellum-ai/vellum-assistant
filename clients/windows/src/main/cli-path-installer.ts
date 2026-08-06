@@ -242,22 +242,52 @@ export function uninstallCliLauncher(
   if (userPath === undefined) {
     throw new Error("Unable to read the Windows user PATH.");
   }
-  for (const name of CLI_RUNTIME_ENTRIES) {
-    try {
-      rmSync(path.join(paths.binDir, name), { recursive: true, force: true });
-    } catch {}
-  }
-  if (
-    CLI_RUNTIME_ENTRIES.some((name) =>
-      existsSync(path.join(paths.binDir, name)),
-    )
-  ) {
+  const pending = CLI_RUNTIME_ENTRIES.filter((name) =>
+    existsSync(path.join(paths.binDir, name)),
+  ).map((name) => ({
+    target: path.join(paths.binDir, name),
+    staging: path.join(paths.binDir, `.${name}.${process.pid}.uninstalling`),
+  }));
+  const moved: typeof pending = [];
+  const restoreMoved = (): void => {
+    for (const file of moved.reverse()) {
+      if (!existsSync(file.target) && existsSync(file.staging)) {
+        try {
+          renameSync(file.staging, file.target);
+        } catch {}
+      }
+    }
+  };
+  try {
+    for (const file of pending) {
+      if (existsSync(file.staging)) {
+        restoreMoved();
+        return false;
+      }
+      renameSync(file.target, file.staging);
+      moved.push(file);
+    }
+  } catch {
+    restoreMoved();
     return false;
   }
   const entries = userPath
     .split(";")
     .filter((entry) => entry && !sameWindowsPath(entry, paths.binDir));
-  writeUserPath(entries.join(";"), run);
+  try {
+    writeUserPath(entries.join(";"), run);
+  } catch (error) {
+    restoreMoved();
+    throw error;
+  }
+  for (const file of moved) {
+    try {
+      rmSync(file.staging, { recursive: true, force: true });
+    } catch {}
+  }
+  if (moved.some((file) => existsSync(file.staging))) {
+    return false;
+  }
   rmSync(paths.ownership, { force: true });
   return true;
 }

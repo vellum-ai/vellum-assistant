@@ -666,7 +666,9 @@ function logAssistantAlreadyRunning(
       ? " but its database migrations failed — restart to recover"
       : status === "unready"
         ? " — database migrations still running"
-        : "";
+        : status === "stuck"
+          ? " but is not responding and could not be stopped"
+          : "";
   console.log(`   Assistant already running (pid ${pid})${suffix}\n`);
 }
 
