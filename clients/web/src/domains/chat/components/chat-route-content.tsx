@@ -112,6 +112,7 @@ import {
   shouldShowGenericChatErrorNotice,
 } from "@/domains/chat/utils/error-classification";
 import { openUrlInPopupOrTab } from "@/domains/chat/utils/oauth-popup-links";
+import type { BillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type {
@@ -123,6 +124,7 @@ import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-hist
 import type { UIContext } from "@/domains/chat/turn-selectors";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
+import { useChatUsesVellumCredits } from "@/domains/chat/hooks/use-chat-uses-vellum-credits";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -634,13 +636,45 @@ export function ChatMainPanel({
     lastCompleteAssistantMsgId,
   });
 
+  // The profile this chat will actually run on — read here because both the
+  // credit surfaces below and the attachment/vision gate further down depend
+  // on it. While a conversation's row hasn't loaded (a draft, or one opened
+  // by URL mid-load), that profile lives in the composer stash rather than on
+  // a server row, so the stash stands in until the row materializes.
+  const pendingDraftProfiles = useConversationStore.use.pendingDraftProfiles();
+  const activeDraftProfile =
+    !activeConversation && activeConversationId
+      ? (pendingDraftProfiles.get(activeConversationId) ?? undefined)
+      : undefined;
+
   // -------------------------------------------------------------------------
   // Transcript data (sanitise + build items)
   // -------------------------------------------------------------------------
   // Single balance-status read shared by every proactive billing surface in
   // this component: the transcript's tail card, the empty state's card, and
   // the low-balance composer banner.
-  const balanceStatus = useBillingBalanceStatus();
+  const rawBalanceStatus = useBillingBalanceStatus();
+  // Every credit surface below speaks for the chat turn ("add credits to pick
+  // up where you left off"), so a chat that spends no Vellum credits — one
+  // running on the user's own API key or ChatGPT subscription — must not show
+  // any of them, however empty the org's balance is. Collapsing the status to
+  // inert here (rather than gating each surface) keeps the three consumers
+  // from drifting apart. The balance itself stays readable elsewhere: the
+  // preferences credits card and the billing settings tab are about the org,
+  // not about this turn.
+  const chatUsesVellumCredits = useChatUsesVellumCredits(
+    assistantId,
+    activeConversation?.conversationId,
+    activeDraftProfile,
+  );
+  const balanceStatus: BillingBalanceStatus = chatUsesVellumCredits
+    ? rawBalanceStatus
+    : {
+        ...rawBalanceStatus,
+        isExhausted: false,
+        isLowBalance: false,
+        dailyLimitReached: false,
+      };
 
   const { sanitizedMessages, transcriptItems } = useTranscriptData({
     messages,
@@ -854,15 +888,6 @@ export function ChatMainPanel({
       />
     ) : null;
 
-  // While a conversation's row hasn't loaded (a draft, or one opened by URL
-  // mid-load), its profile lives in the composer stash, not on a server row —
-  // feed it in so attachment/vision gating reflects the profile the first
-  // message will actually use rather than the global default.
-  const pendingDraftProfiles = useConversationStore.use.pendingDraftProfiles();
-  const activeDraftProfile =
-    !activeConversation && activeConversationId
-      ? (pendingDraftProfiles.get(activeConversationId) ?? undefined)
-      : undefined;
   const activeProfileModel = useActiveProfileModel(
     assistantId,
     activeConversation?.conversationId,

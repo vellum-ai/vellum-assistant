@@ -96,6 +96,7 @@ import { type LogRow } from "../../persistence/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../plugins/defaults/memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../plugins/defaults/memory/v2/activation-log-store.js";
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory/v3/selection-log-store.js";
+import { isManagedRouteForResolvedConfig } from "../../providers/connection-resolution.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
 import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "../../providers/inference/auth.js";
 import {
@@ -642,6 +643,13 @@ function rejectMcpTransportHeaderWrite(patch: unknown): void {
 const WireProfileEntry = ProfileEntry.extend({
   supportsVision: z.boolean().optional(),
   invariant: z.boolean().optional(),
+  /**
+   * Whether a turn on this profile is billed to the org's Vellum credits
+   * (the platform-managed route) rather than to the user's own provider
+   * account. Omitted when the daemon cannot establish it — clients must not
+   * read absence as "not billed to credits".
+   */
+  usesVellumCredits: z.boolean().optional(),
 })
   .passthrough()
   .meta({ id: "ProfileEntry" });
@@ -898,7 +906,11 @@ function overlayEffectiveProfilesForWire(config: unknown): void {
  * `config get` → `config set`/PATCH round-trip isn't rejected for phantom
  * fields; keep the stamp and strip lists in lock-step.
  */
-const WIRE_ONLY_PROFILE_KEYS = new Set(["invariant", "supportsVision"]);
+const WIRE_ONLY_PROFILE_KEYS = new Set([
+  "invariant",
+  "supportsVision",
+  "usesVellumCredits",
+]);
 
 /**
  * Delete the wire-only keys ({@link WIRE_ONLY_PROFILE_KEYS}) from every
@@ -1046,6 +1058,30 @@ export function normalizeManagedProfileWrites(patch: unknown): void {
 }
 
 /**
+ * `usesVellumCredits` for one wire profile entry, or undefined when the
+ * answer is not established. Reading the raw entry (rather than a parsed
+ * profile) keeps the enrichment tolerant of sparse on-disk shapes, and the
+ * catch keeps a config read answering even if the connection lookup fails —
+ * an unstamped flag degrades to the pre-flag behavior, a thrown error would
+ * take the whole settings surface down.
+ */
+function readProfileUsesVellumCredits(
+  entry: Record<string, unknown>,
+): boolean | undefined {
+  const asString = (value: unknown): string | undefined =>
+    typeof value === "string" && value !== "" ? value : undefined;
+  try {
+    return isManagedRouteForResolvedConfig({
+      provider: asString(entry.provider),
+      model: asString(entry.model),
+      provider_connection: asString(entry.provider_connection),
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Annotate each profile in `config.llm.profiles` with wire-only flags
  * (`WIRE_ONLY_PROFILE_KEYS`) — never persisted to disk:
  *
@@ -1057,6 +1093,14 @@ export function normalizeManagedProfileWrites(patch: unknown): void {
  *   match `assertInvariantProfilesPreserved` — a user-owned profile sharing
  *   a managed name is fully editable, so it must render as a normal custom
  *   profile.
+ * - `usesVellumCredits`: whether a turn on this profile dispatches through
+ *   the platform-billed managed route, decided by the same helper dispatch
+ *   uses (`isManagedRouteForResolvedConfig`). Absent when the daemon cannot
+ *   establish it — a profile that names no connection (dispatch would
+ *   auto-resolve one by provider), a dangling name, or an unreadable DB.
+ *   Absence means "unknown", not "billed elsewhere": the chat's credit
+ *   surfaces fall back to showing on an exhausted balance, which is what
+ *   they did before the flag existed.
  */
 function enrichProfilesForWire(config: unknown): void {
   const root = readPlainObject(config);
@@ -1080,6 +1124,12 @@ function enrichProfilesForWire(config: unknown): void {
     if (INVARIANT_PROFILE_NAMES.has(name) && entry.source === "managed") {
       entry.invariant = true;
     }
+
+    const usesVellumCredits = readProfileUsesVellumCredits(entry);
+    if (usesVellumCredits !== undefined) {
+      entry.usesVellumCredits = usesVellumCredits;
+    }
+
     const provider = entry.provider;
     const model = entry.model;
     if (typeof provider !== "string" || typeof model !== "string") {

@@ -276,6 +276,58 @@ export function isManagedConnectionRoute(
 }
 
 /**
+ * The connection a resolved call-site config dispatches through, after
+ * routing-identity translation: an identity (`vellum`, `chatgpt`) overrides
+ * the stored `provider_connection` with its own canonical row, exactly as
+ * {@link tryResolveProviderForConnectionName} does. An identity that cannot
+ * route still names its target, so a misconfigured `chatgpt` profile is
+ * attributed to the subscription connection rather than to nothing.
+ *
+ * Returns undefined when nothing names a connection. Dispatch would then
+ * auto-resolve one by provider; this helper does not, so callers must treat
+ * undefined as "unknown", never as "no connection".
+ */
+export function resolvedDispatchConnectionName(resolved: {
+  provider?: string | undefined;
+  model?: string | undefined;
+  provider_connection?: string | undefined;
+}): string | undefined {
+  try {
+    return (
+      resolveRoutingIdentity(resolved.provider, resolved.model)
+        ?.connectionName ?? resolved.provider_connection
+    );
+  } catch (err) {
+    if (!(err instanceof ConnectionResolutionError)) {
+      throw err;
+    }
+    return err.connectionName;
+  }
+}
+
+/**
+ * Whether a resolved call-site config dispatches through the Vellum-managed
+ * (platform-billed) route, rather than the user's own provider account — a
+ * BYOK key or a ChatGPT subscription. Undefined when it cannot be
+ * established (no connection named, no such row, DB unreachable): a wrong
+ * "no" would tell a caller the org's credit balance is irrelevant when it
+ * is not.
+ *
+ * Managed-ness comes from the connection, matching what dispatch decides.
+ * The profile's own provider can't stand in: a concrete provider tweak over
+ * a managed winner keeps the managed connection while replacing the provider
+ * (`llm-resolver.ts`).
+ */
+export function isManagedRouteForResolvedConfig(resolved: {
+  provider?: string | undefined;
+  model?: string | undefined;
+  provider_connection?: string | undefined;
+}): boolean | undefined {
+  const connectionName = resolvedDispatchConnectionName(resolved);
+  return connectionName ? isManagedConnectionRoute(connectionName) : undefined;
+}
+
+/**
  * Resolve a managed route through platform auth without reading a connection
  * row. Used when the canonical `vellum` row is claimed by a user-owned
  * connection, so the row boot seeding would have written does not exist.

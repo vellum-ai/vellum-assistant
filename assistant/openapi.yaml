@@ -34801,6 +34801,8 @@ components:
           type: boolean
         invariant:
           type: boolean
+        usesVellumCredits:
+          type: boolean
       additionalProperties: {}
     DefaultProviderStatus:
       type: object
