@@ -14,6 +14,18 @@ import com.getcapacitor.annotation.Permission;
 public class SafePushNotificationsPlugin extends PushNotificationsPlugin {
     @Override
     @PluginMethod
+    public void checkPermissions(PluginCall call) {
+        PushRegistrationGuard.run(call, () -> super.checkPermissions(call));
+    }
+
+    @Override
+    @PluginMethod
+    public void requestPermissions(PluginCall call) {
+        PushRegistrationGuard.run(call, () -> super.requestPermissions(call));
+    }
+
+    @Override
+    @PluginMethod
     public void register(PluginCall call) {
         PushRegistrationGuard.run(call, () -> super.register(call));
     }
