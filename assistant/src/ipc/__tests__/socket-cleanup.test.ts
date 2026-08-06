@@ -5,9 +5,12 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
-  assertNoLiveDaemonHoldingSocket,
+  assertNoLiveDaemonHoldingAllTransports,
   isDaemonSocketAlive,
 } from "../socket-cleanup.js";
+
+const httpHealthy = async (): Promise<boolean> => true;
+const httpUnhealthy = async (): Promise<boolean> => false;
 
 const servers: Server[] = [];
 const dirs: string[] = [];
@@ -54,26 +57,37 @@ describe("isDaemonSocketAlive", () => {
   });
 });
 
-describe("assertNoLiveDaemonHoldingSocket", () => {
-  test("throws EADDRINUSE when a live daemon holds the socket", async () => {
+describe("assertNoLiveDaemonHoldingAllTransports", () => {
+  test("throws EADDRINUSE when IPC is alive and HTTP is healthy", async () => {
     const socketPath = tmpSocketPath();
     await listen(socketPath);
-    await expect(assertNoLiveDaemonHoldingSocket(socketPath)).rejects.toThrow(
-      /EADDRINUSE/,
-    );
+    await expect(
+      assertNoLiveDaemonHoldingAllTransports(httpHealthy, socketPath),
+    ).rejects.toThrow(/EADDRINUSE/);
   });
 
-  test("resolves when no socket exists", async () => {
+  test("does not throw when IPC is alive but HTTP is unhealthy (degraded startup allowed)", async () => {
+    const socketPath = tmpSocketPath();
+    await listen(socketPath);
     await expect(
-      assertNoLiveDaemonHoldingSocket(tmpSocketPath("missing.sock")),
+      assertNoLiveDaemonHoldingAllTransports(httpUnhealthy, socketPath),
     ).resolves.toBeUndefined();
   });
 
-  test("resolves for a stale socket and leaves the file in place", async () => {
+  test("does not throw when no socket exists, even if HTTP is healthy", async () => {
+    await expect(
+      assertNoLiveDaemonHoldingAllTransports(
+        httpHealthy,
+        tmpSocketPath("missing.sock"),
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  test("does not throw for a stale socket, and leaves the file in place", async () => {
     const socketPath = tmpSocketPath("stale.sock");
     writeFileSync(socketPath, "");
     await expect(
-      assertNoLiveDaemonHoldingSocket(socketPath),
+      assertNoLiveDaemonHoldingAllTransports(httpHealthy, socketPath),
     ).resolves.toBeUndefined();
     // Read-only: the stale file is left for the authoritative bind-check.
     expect(existsSync(socketPath)).toBe(true);

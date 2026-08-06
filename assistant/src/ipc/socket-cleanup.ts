@@ -130,17 +130,30 @@ export async function isDaemonSocketAlive(
 
 /**
  * Early duplicate-daemon guard for daemon startup. Throws an `EADDRINUSE`-coded
- * error when a live daemon already holds the assistant IPC socket, so startup
- * can abort BEFORE any config.json normalization or PID-file write. Read-only:
- * it never unlinks. The authoritative unlink-and-bind still runs later in
- * `AssistantIpcServer.start()`.
+ * error only when a live daemon already holds BOTH client-facing transports
+ * (the IPC socket AND the HTTP port, probed via the injected `httpHealthy`
+ * predicate), so startup can abort BEFORE any config.json normalization or
+ * PID-file write when a fully-live duplicate is already running.
+ *
+ * Per the daemon startup philosophy (assistant/CLAUDE.md), a process that can
+ * still establish at least one transport must be allowed to come up in degraded
+ * mode, so holding only one transport does not abort here. Read-only: never
+ * unlinks. The authoritative unlink-and-bind still runs later in
+ * `AssistantIpcServer.start()` and remains the backstop for the IPC socket.
  */
-export async function assertNoLiveDaemonHoldingSocket(
+export async function assertNoLiveDaemonHoldingAllTransports(
+  httpHealthy: () => Promise<boolean>,
   socketPath: string = getAssistantSocketPath(),
 ): Promise<void> {
-  if (await isDaemonSocketAlive(socketPath)) {
-    throw makeAddrInUseError(
-      `EADDRINUSE: another assistant is already running at ${socketPath}`,
-    );
+  // Probe IPC first: on a fresh boot the socket is absent, so this returns
+  // without an HTTP request.
+  if (!(await isDaemonSocketAlive(socketPath))) {
+    return;
   }
+  if (!(await httpHealthy())) {
+    return;
+  }
+  throw makeAddrInUseError(
+    `EADDRINUSE: another assistant is already running (IPC socket and HTTP port both held) at ${socketPath}`,
+  );
 }
