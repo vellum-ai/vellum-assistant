@@ -612,7 +612,13 @@ export function SelectAssistantScreen() {
 
   const onContinue = () => {
     if (selected === CLOUD_SELECTION_KEY) {
-      void switchToVellumCloud();
+      // A rejected bridge switch leaves the shell where it is, so fall back
+      // to the plain navigation the card's url already gives us.
+      void switchToVellumCloud().then((switched) => {
+        if (!switched && cloudOriginUrl !== null) {
+          window.location.assign(`${cloudOriginUrl}/assistant`);
+        }
+      });
       return;
     }
     const origin = originEntries.find(

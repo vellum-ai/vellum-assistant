@@ -29,6 +29,7 @@ import {
   normalizeOriginUrl,
   setRememberedOriginsProvider,
   toRememberedOrigins,
+  type RememberedOrigin,
   type RememberedOriginsProvider,
 } from "@/stores/remembered-origins-store";
 
@@ -85,6 +86,66 @@ async function listNativeServers(): Promise<SelfHostedServersList | null> {
 }
 
 /**
+ * Marker for the one-time localStorage-to-native migration. Shells that
+ * predate the plugin remembered their origins in web storage, so the first
+ * successful native load folds those entries in rather than letting the
+ * native list silently drop them.
+ */
+const MIGRATION_MARKER_KEY = "vellum:remembered-origins:native-migrated";
+
+function migrationDone(): boolean {
+  try {
+    return window.localStorage.getItem(MIGRATION_MARKER_KEY) === "true";
+  } catch {
+    // No web storage means nothing to migrate from.
+    return true;
+  }
+}
+
+function markMigrationDone(): void {
+  try {
+    window.localStorage.setItem(MIGRATION_MARKER_KEY, "true");
+  } catch {
+    // A failed marker write only costs a repeat merge, which is idempotent.
+  }
+}
+
+/**
+ * Fold pre-plugin localStorage entries into the native list once, returning
+ * the merged view. Native entries win on name conflicts, since the shell and
+ * its deep links are the newer writer.
+ */
+async function migrateLocalOriginsIntoNative(
+  native: RememberedOrigin[],
+): Promise<RememberedOrigin[]> {
+  if (migrationDone()) {
+    return native;
+  }
+  let local: RememberedOrigin[] = [];
+  try {
+    local = await localStorageProvider.load();
+  } catch {
+    local = [];
+  }
+  const knownUrls = new Set(native.map((o) => o.url));
+  const missing = local.filter((o) => !knownUrls.has(o.url));
+  for (const entry of missing) {
+    try {
+      await SelfHostedServers.add({
+        url: entry.url,
+        ...(entry.name ? { name: entry.name } : {}),
+      });
+    } catch (err) {
+      // Leave the marker unset so the next load retries the merge.
+      console.debug("[self-hosted-servers] migration add failed:", err);
+      return [...native, ...missing];
+    }
+  }
+  markMigrationDone();
+  return [...native, ...missing];
+}
+
+/**
  * Store provider backed by the native list, falling back to the localStorage
  * provider whenever the bridge is unavailable.
  *
@@ -101,7 +162,8 @@ export function nativeRememberedOriginsProvider(): RememberedOriginsProvider {
       if (listed === null) {
         return localStorageProvider.load();
       }
-      return toRememberedOrigins(listed.servers, NATIVE_ADDED_AT);
+      const native = toRememberedOrigins(listed.servers, NATIVE_ADDED_AT);
+      return migrateLocalOriginsIntoNative(native);
     },
 
     save: async (entries) => {

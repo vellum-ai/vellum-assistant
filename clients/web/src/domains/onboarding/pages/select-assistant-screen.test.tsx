@@ -1122,6 +1122,43 @@ describe("SelectAssistantScreen native mobile", () => {
     expect(switchToOriginMock).not.toHaveBeenCalled();
   });
 
+  test("a rejected cloud switch falls back to a plain navigation", async () => {
+    assistantSwitcherValue = true;
+    isNativeMobileValue = true;
+    nativeCloudOriginValue = "https://app.vellum.ai";
+    assistantsValue = [];
+    switchToVellumCloudMock.mockImplementation(async () => false);
+    const assignSpy = mock((_url: string) => {});
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...originalLocation, assign: assignSpy },
+    });
+
+    try {
+      render(<SelectAssistantScreen />);
+
+      await waitFor(() =>
+        expect(screen.getByText("Vellum Cloud")).toBeTruthy(),
+      );
+      fireEvent.click(screen.getByText("Vellum Cloud"));
+      fireEvent.click(screen.getByText("Continue"));
+
+      await waitFor(() =>
+        expect(assignSpy).toHaveBeenCalledWith(
+          "https://app.vellum.ai/assistant",
+        ),
+      );
+    } finally {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: originalLocation,
+      });
+      // mockClear keeps the implementation, so restore the default here.
+      switchToVellumCloudMock.mockImplementation(async () => true);
+    }
+  });
+
   test("no Vellum Cloud card when the shell already serves the baked origin", async () => {
     assistantSwitcherValue = true;
     isNativeMobileValue = true;

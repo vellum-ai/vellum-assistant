@@ -159,6 +159,63 @@ describe("nativeRememberedOriginsProvider load", () => {
     // debug line rather than a captured error.
     expect(consoleDebugSpy).toHaveBeenCalled();
   });
+
+  test("migrates pre-plugin localStorage entries into the native list once", async () => {
+    await localStorageProvider.save([
+      { url: "https://legacy.example", name: "Legacy", addedAt: EPOCH },
+      { url: "https://shared.example", addedAt: EPOCH },
+    ]);
+    listResult = {
+      servers: [{ url: "https://shared.example" }],
+      activeUrl: null,
+      bakedUrl: null,
+    };
+
+    const provider = nativeRememberedOriginsProvider();
+    const first = await provider.load();
+
+    // The entry the native list already holds is not re-added.
+    expect(addMock).toHaveBeenCalledTimes(1);
+    expect(addMock).toHaveBeenCalledWith({
+      url: "https://legacy.example",
+      name: "Legacy",
+    });
+    expect(first.map((o) => o.url)).toEqual([
+      "https://shared.example",
+      "https://legacy.example",
+    ]);
+
+    // Migration is one-time: a later load issues no further writes.
+    addMock.mockClear();
+    listResult = {
+      servers: [
+        { url: "https://shared.example" },
+        { name: "Legacy", url: "https://legacy.example" },
+      ],
+      activeUrl: null,
+      bakedUrl: null,
+    };
+    await provider.load();
+    expect(addMock).not.toHaveBeenCalled();
+  });
+
+  test("retries the migration when a native add fails", async () => {
+    await localStorageProvider.save([
+      { url: "https://legacy.example", addedAt: EPOCH },
+    ]);
+    addRejects = true;
+
+    const provider = nativeRememberedOriginsProvider();
+    // The entry still shows up so the user does not see it vanish.
+    expect((await provider.load()).map((o) => o.url)).toEqual([
+      "https://legacy.example",
+    ]);
+
+    addRejects = false;
+    addMock.mockClear();
+    await provider.load();
+    expect(addMock).toHaveBeenCalledWith({ url: "https://legacy.example" });
+  });
 });
 
 describe("nativeRememberedOriginsProvider save", () => {
