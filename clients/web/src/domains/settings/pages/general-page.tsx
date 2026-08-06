@@ -36,14 +36,20 @@ import {
   useActiveAssistantIsPlatformHosted,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
+import { remoteGatewayPublicBaseUrl } from "@/lib/auth/remote-gateway-session";
 import {
+  getRemoteGatewayAssistantName,
+  getRemoteGatewayHubUrl,
   getSelectedAssistant,
   isLocalAssistant,
   isLocalClient,
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
-import { useIsNativeAndroid } from "@/runtime/platform-detection";
+import {
+  isNativeMobile,
+  useIsNativeAndroid,
+} from "@/runtime/platform-detection";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useIsAuthenticated } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -61,14 +67,22 @@ export function GeneralPage() {
   const multiPlatformAssistant =
     useClientFeatureFlagStore.use.multiPlatformAssistant();
   const assistantSwitcher = useClientFeatureFlagStore.use.assistantSwitcher();
-  // Both flags can be on for the same audience; the switcher card supersedes
-  // the in-page picker so two "Switch Assistant" cards never render together.
-  const showAssistantSwitcherCard = assistantSwitcher && isLocalClient();
   const teleportEnabled = useClientFeatureFlagStore.use.teleport();
   const accountMfaEnabled = useClientFeatureFlagStore.use.accountMfa();
   const settingsSleepPolicy =
     useAssistantFeatureFlagStore.use.settingsSleepPolicy();
   const isAuthenticated = useIsAuthenticated();
+  // The assistant-switcher flag gates every chooser surface; the card
+  // supersedes the in-page picker so the two never render together. On
+  // remote-gateway origins and native shells the client flag store settles to
+  // registry defaults (no LD fetch), so the registry default / env /
+  // localStorage override governs there, not per-user LD targeting.
+  const showAssistantSwitcherCard =
+    assistantSwitcher &&
+    (isLocalClient() ||
+      isAuthenticated ||
+      isRemoteGatewayMode() ||
+      isNativeMobile());
   const navigate = useNavigate();
   const platformGate = usePlatformGate();
   const infraGate = usePlatformGate({ platformHostedOnly: true });
@@ -126,6 +140,24 @@ export function GeneralPage() {
 
   const versionValue =
     healthz?.version ?? assistant?.current_release_version ?? null;
+
+  const openAssistantChooser = () => {
+    const hubUrl = getRemoteGatewayHubUrl();
+    if (isRemoteGatewayMode() && !isNativeMobile() && hubUrl) {
+      // Self-registration handoff: landing on the hub chooser records this
+      // origin in the hub's remembered list. `hubUrl` is the hub SPA's
+      // assistant root (`<origin>/assistant`), so the chooser's sub-path is
+      // appended onto it rather than the absolute route.
+      const chooserPath = routes.selectAssistant.slice(routes.assistant.length);
+      const assistantName = getRemoteGatewayAssistantName();
+      const params =
+        `register=${encodeURIComponent(remoteGatewayPublicBaseUrl())}` +
+        (assistantName ? `&name=${encodeURIComponent(assistantName)}` : "");
+      window.location.assign(`${hubUrl}${chooserPath}?${params}`);
+      return;
+    }
+    void navigate(`${routes.selectAssistant}?noAutoSkip=1`);
+  };
 
   const showRetire =
     ((platformGate === "full" || canRetireLocally) && !!platformAssistant) ||
@@ -330,12 +362,7 @@ export function GeneralPage() {
           title="Switch Assistant"
           subtitle="Choose which assistant this device is connected to."
           accessory={
-            <Button
-              variant="outlined"
-              onClick={() =>
-                void navigate(`${routes.selectAssistant}?noAutoSkip=1`)
-              }
-            >
+            <Button variant="outlined" onClick={openAssistantChooser}>
               Choose Assistant
             </Button>
           }
