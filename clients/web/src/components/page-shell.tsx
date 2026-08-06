@@ -15,13 +15,13 @@ const DEFAULT_SURFACE = "var(--surface-overlay)";
  *
  * Also publishes its own background as the page surface, so on the native
  * mobile shells the color reaches the safe areas instead of stopping at the
- * shell's edge — see `page-surface-store`. Overrides are read from
+ * shell's edge. See `page-surface-store`. Overrides are read from
  * `style.backgroundColor` (how `IdentityOverview` applies its avatar tint); a
  * background applied through `className` instead would not be seen here.
  *
  * The border and rounding come off there for the same reason: once the canvas
  * runs edge to edge, they are a box drawn around content that is no longer in
- * one. Desktop keeps both — the card reading as a card is the point.
+ * one. Desktop keeps both: the card reading as a card is the point.
  */
 export function PageShell({
   children,

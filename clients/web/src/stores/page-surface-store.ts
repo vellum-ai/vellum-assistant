@@ -2,7 +2,7 @@
  * The canvas color the active route wants behind the whole app shell.
  *
  * On the native mobile shells the safe-area strips are padding on
- * `root-layout`'s `.app-shell`, so they show that element's own background —
+ * `root-layout`'s `.app-shell`, so they show that element's own background,
  * `--surface-base`. A page whose content sits on a themed surface therefore
  * reads as a themed card floating on a neutral canvas, with the status bar and
  * the home indicator visibly not part of the page.
@@ -11,7 +11,7 @@
  * element that owns both the insets and the paint. The page decides, the shell
  * applies, and nothing between them has to know about either.
  *
- * Consumed only under `isNativeMobile()` — desktop web and Electron keep the
+ * Consumed only under `isNativeMobile()`: desktop web and Electron keep the
  * neutral canvas that makes `PageShell`'s card read as a card.
  *
  * Publishers register from a `useEffect` and clear on unmount, the same

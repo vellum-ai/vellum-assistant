@@ -8,8 +8,8 @@ import { createSelectors } from "@/utils/create-selectors";
  *
  * The drawer is an overlay, not a route change: the chat page stays mounted
  * underneath it. Anything that decorates the chat page from a `document.body`
- * portal therefore keeps rendering, and keeps painting, over the navigation —
- * z-index cannot arbitrate that, because a body portal and the app subtree sit
+ * portal therefore keeps rendering, and keeps painting, over the navigation.
+ * Z-index cannot arbitrate that, because a body portal and the app subtree sit
  * in different stacking contexts. `ComposerPeek` is the one such surface today.
  *
  * True from the moment a swipe starts dragging the drawer in, not only once it

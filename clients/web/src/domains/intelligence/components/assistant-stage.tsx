@@ -97,8 +97,8 @@ export function AssistantStage({
 
   // The stage is the page's canvas on the full-bleed routes (overview,
   // personality), so hand its color to the app shell and let it run into the
-  // safe areas rather than stopping at the stage's edge. Native mobile only —
-  // see `page-surface-store`.
+  // safe areas rather than stopping at the stage's edge. Native mobile only.
+  // See `page-surface-store`.
   const setPageSurface = usePageSurfaceStore.use.setSurface();
   useEffect(() => {
     setPageSurface(bg);

@@ -22,7 +22,7 @@
  *   action that removes from `processingConversationIds`, so the two
  *   collections stay in sync.
  * - `attentionConversationIds` — conversations with pending interactions
- * - `draftConversationIds` — ids minted client-side that have no server row
+ * - `draftConversationIds`: ids minted client-side that have no server row
  *   yet, so surfaces can tell "this conversation is empty because it is brand
  *   new" apart from "this conversation is empty because history is still
  *   loading" (see the field doc below)
@@ -113,7 +113,7 @@ export interface ConversationListState {
    * wait for and no transcript skeleton to show.
    *
    * Registered at the mint site and cleared once a send resolves the key (see
-   * `use-send-message`). Session-scoped by design — a reload starts with an
+   * `use-send-message`). Session-scoped by design: a reload starts with an
    * empty set, so a key that survived in the URL is treated as a real
    * conversation and loads its history normally.
    */

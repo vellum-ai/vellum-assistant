@@ -144,14 +144,14 @@ export function useConversationHistory({
   // Settle the loading flag immediately on a client-minted draft.
   //
   // `switchToConversation` above raises `isLoadingHistory`, which paints
-  // `ChatSkeleton` until the history fetch commits — a transcript placeholder
+  // `ChatSkeleton` until the history fetch commits: a transcript placeholder
   // that reads as "restoring an existing chat". On a draft there is nothing to
   // restore: the key was invented on this client and has no server row, so the
   // fetch can only ever come back empty. Lowering the flag here lands the
   // composer straight away.
   //
   // Declared after the switch effect so both run in the same commit's effect
-  // phase, in order — React batches them and the skeleton never paints. The
+  // phase, in order. React batches them and the skeleton never paints. The
   // query itself stays enabled: its empty result still seeds the snapshot, the
   // seq baseline, and the cold-start replay anchor that the live stream needs
   // before the first turn.

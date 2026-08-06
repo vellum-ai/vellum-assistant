@@ -26,8 +26,8 @@ interface ResolveBootstrappedConversationIdArgs {
  * record it as a draft.
  *
  * Registering here rather than at each call site keeps the two in lockstep:
- * every path that invents a key — cold launch, new chat, onboarding, voice,
- * app viewer — is minting a draft by definition, so none of them can forget.
+ * every path that invents a key (cold launch, new chat, onboarding, voice,
+ * app viewer) is minting a draft by definition, so none of them can forget.
  */
 export function createDraftConversationId(): string {
   const conversationId =

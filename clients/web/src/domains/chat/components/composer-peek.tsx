@@ -129,7 +129,7 @@ export function ComposerPeek({
   // Deliberately not part of `runnable`: that would tear down the tracking
   // effect, whose cleanup clears `introDone`, and the hello would replay in
   // full every time the drawer was dismissed on the same empty chat. The
-  // drawer hides the peek, it does not end the act — so it gates the render
+  // drawer hides the peek, it does not end the act, so it gates the render
   // below and leaves the lifecycle alone.
   const drawerPresented = useMobileDrawerStore.use.presented();
 
