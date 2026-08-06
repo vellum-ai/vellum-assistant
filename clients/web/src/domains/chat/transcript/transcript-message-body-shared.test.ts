@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import {
   computeCardBackedWorkflowRunIds,
+  resolveChangedDocuments,
   workflowRunIdForCall,
   type WorkflowCardBackingState,
 } from "@/domains/chat/transcript/transcript-message-body-shared";
@@ -126,5 +127,168 @@ describe("computeCardBackedWorkflowRunIds", () => {
       result: "Failed to start workflow: agent cap exceeded",
     });
     expect(computeCardBackedWorkflowRunIds([tc], backingState()).size).toBe(0);
+  });
+});
+
+/** A document tool call whose surface id is recoverable from its result. */
+function docCall(
+  id: string,
+  tool: string,
+  surfaceId: string,
+  overrides: Partial<ChatMessageToolCall> = {},
+): ChatMessageToolCall {
+  return call({
+    id,
+    name: tool,
+    input: { surface_id: surfaceId },
+    result: JSON.stringify({ success: true, surface_id: surfaceId }),
+    ...overrides,
+  });
+}
+
+describe("resolveChangedDocuments", () => {
+  test("resolves the surface id a single update wrote to", () => {
+    const tc = docCall("tc-a", "document_update", "doc-1");
+    expect(resolveChangedDocuments([tc], new Set())).toEqual(["doc-1"]);
+  });
+
+  test("resolves a call delivered inside a skill_execute envelope", () => {
+    const tc = call({
+      id: "tc-a",
+      name: "skill_execute",
+      input: { tool: "document_update", surface_id: "doc-1" },
+      result: JSON.stringify({ success: true, surface_id: "doc-1" }),
+    });
+    expect(resolveChangedDocuments([tc], new Set())).toEqual(["doc-1"]);
+  });
+
+  test("collapses a create then an update of the same document to one entry", () => {
+    const calls = [
+      docCall("tc-a", "document_create", "doc-1"),
+      docCall("tc-b", "document_update", "doc-1"),
+    ];
+    expect(resolveChangedDocuments(calls, new Set())).toEqual(["doc-1"]);
+  });
+
+  test("returns two different documents in first-changed order", () => {
+    const calls = [
+      docCall("tc-a", "document_update", "doc-2"),
+      docCall("tc-b", "document_replace_text", "doc-1"),
+    ];
+    expect(resolveChangedDocuments(calls, new Set())).toEqual([
+      "doc-2",
+      "doc-1",
+    ]);
+  });
+
+  test("a shared claimed Set stops a second group anchoring the same document", () => {
+    const claimed = new Set<string>();
+    const first = docCall("tc-a", "document_update", "doc-1");
+    const second = docCall("tc-b", "document_update", "doc-1");
+    expect(resolveChangedDocuments([first], claimed)).toEqual(["doc-1"]);
+    expect(resolveChangedDocuments([second], claimed)).toEqual([]);
+  });
+
+  test("ignores a malformed, non-JSON result without throwing", () => {
+    const tc = docCall("tc-a", "document_update", "doc-1", {
+      result: "Failed to update document: no document is open",
+    });
+    expect(resolveChangedDocuments([tc], new Set())).toEqual([]);
+  });
+
+  test("ignores a result whose JSON carries no surface_id", () => {
+    const tc = docCall("tc-a", "document_update", "doc-1", {
+      result: JSON.stringify({ success: true }),
+    });
+    expect(resolveChangedDocuments([tc], new Set())).toEqual([]);
+  });
+
+  test("ignores a call whose result has not landed yet", () => {
+    const tc = docCall("tc-a", "document_update", "doc-1", {
+      result: undefined,
+    });
+    expect(resolveChangedDocuments([tc], new Set())).toEqual([]);
+  });
+
+  test("ignores non-document tool calls", () => {
+    const calls = [
+      call({ id: "tc-a", name: "document_read", result: "{}" }),
+      call({
+        id: "tc-b",
+        name: "file_write",
+        result: JSON.stringify({ surface_id: "doc-1" }),
+      }),
+    ];
+    expect(resolveChangedDocuments(calls, new Set())).toEqual([]);
+  });
+
+  test("ignores an errored call even when its result carries a surface id", () => {
+    // A failed document_replace_text still echoes the surface id it targeted,
+    // but nothing changed, so there is no document to reopen.
+    const tc = docCall("tc-a", "document_replace_text", "doc-1", {
+      isError: true,
+      result: JSON.stringify({
+        success: false,
+        surface_id: "doc-1",
+        error: "text not found",
+      }),
+    });
+    expect(resolveChangedDocuments([tc], new Set())).toEqual([]);
+  });
+
+  test("ignores a replace that succeeded without changing content", () => {
+    // document_replace_text succeeds with content_changed: false when `find`
+    // matched nothing, so the document is unchanged.
+    const tc = docCall("tc-a", "document_replace_text", "doc-1", {
+      result: JSON.stringify({
+        success: true,
+        surface_id: "doc-1",
+        replacements_made: 0,
+        content_changed: false,
+      }),
+    });
+    expect(resolveChangedDocuments([tc], new Set())).toEqual([]);
+  });
+
+  test("resolves a replace that reports content_changed", () => {
+    const tc = docCall("tc-a", "document_replace_text", "doc-1", {
+      result: JSON.stringify({
+        success: true,
+        surface_id: "doc-1",
+        replacements_made: 2,
+        content_changed: true,
+      }),
+    });
+    expect(resolveChangedDocuments([tc], new Set())).toEqual(["doc-1"]);
+  });
+
+  test("resolves create and update results, which omit content_changed", () => {
+    const calls = [
+      call({
+        id: "tc-a",
+        name: "document_create",
+        input: { title: "Notes" },
+        result: JSON.stringify({
+          success: true,
+          surface_id: "doc-1",
+          message: "Document created",
+        }),
+      }),
+      call({
+        id: "tc-b",
+        name: "document_update",
+        input: { surface_id: "doc-2" },
+        result: JSON.stringify({
+          success: true,
+          surface_id: "doc-2",
+          mode: "append",
+          message: "Document content updated",
+        }),
+      }),
+    ];
+    expect(resolveChangedDocuments(calls, new Set())).toEqual([
+      "doc-1",
+      "doc-2",
+    ]);
   });
 });

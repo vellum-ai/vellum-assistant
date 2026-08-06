@@ -424,6 +424,99 @@ export function resolveBackgroundTaskIds(
   return ids;
 }
 
+/** The document tools that change a document's content. */
+const DOCUMENT_MUTATION_TOOLS: ReadonlySet<string> = new Set([
+  "document_create",
+  "document_update",
+  "document_replace_text",
+]);
+
+/**
+ * Detect a call to a document tool that changes content. Document tools ship in
+ * the bundled `document-editor` skill, so a call arrives either under its raw
+ * tool name or inside a `skill_execute` envelope whose `input.tool` names it.
+ */
+function isDocumentMutationCall(toolCall: ChatMessageToolCall): boolean {
+  if (DOCUMENT_MUTATION_TOOLS.has(toolCall.name)) {
+    return true;
+  }
+  if (toolCall.name !== "skill_execute") {
+    return false;
+  }
+  const input = toolCall.input;
+  if (input == null || typeof input !== "object") {
+    return false;
+  }
+  const tool = (input as Record<string, unknown>).tool;
+  return typeof tool === "string" && DOCUMENT_MUTATION_TOOLS.has(tool);
+}
+
+/**
+ * Extract the `surface_id` a mutating document tool call wrote to. The
+ * executors return `JSON.stringify({ ..., surface_id })` (see
+ * `assistant/src/tools/document/document-tool.ts`). Returns `undefined` for a
+ * non-document call, a call that failed, a replace that matched nothing, or a
+ * non-JSON/malformed result, so callers anchor only on documents that really
+ * changed.
+ *
+ * Only `document_replace_text` reports `content_changed`, and it succeeds with
+ * `content_changed: false` when `find` matched nothing. `document_create` and
+ * `document_update` omit the field and always write, so an absent field reads
+ * as changed and only an explicit `false` rejects the call. That matches the
+ * daemon, which emits `document_editor_update` on the same condition.
+ */
+function extractDocumentSurfaceIdFromResult(
+  toolCall: ChatMessageToolCall,
+): string | undefined {
+  if (!isDocumentMutationCall(toolCall) || toolCall.isError === true) {
+    return undefined;
+  }
+  if (typeof toolCall.result !== "string" || !toolCall.result) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(toolCall.result) as {
+      surface_id?: unknown;
+      content_changed?: unknown;
+    };
+    if (parsed.content_changed === false) {
+      return undefined;
+    }
+    return typeof parsed.surface_id === "string" && parsed.surface_id !== ""
+      ? parsed.surface_id
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Resolve the ids of the documents `toolCalls` changed, in first-changed order.
+ * Each id rides on its call's persisted `result`, so it survives a history
+ * reseed, unlike the ephemeral `document_editor_update` event.
+ *
+ * The caller owns the `claimed` Set so it persists across every invocation
+ * within a single message. That collapses repeated edits of one document into a
+ * single entry and stops two non-consecutive tool-call groups from both
+ * anchoring the same document.
+ */
+export function resolveChangedDocuments(
+  toolCalls: ChatMessageToolCall[],
+  claimed: Set<string>,
+): string[] {
+  const surfaceIds: string[] = [];
+
+  for (const tc of toolCalls) {
+    const surfaceId = extractDocumentSurfaceIdFromResult(tc);
+    if (surfaceId && !claimed.has(surfaceId)) {
+      surfaceIds.push(surfaceId);
+      claimed.add(surfaceId);
+    }
+  }
+
+  return surfaceIds;
+}
+
 /**
  * The `acpSessionId` a single `acp_spawn` tool call resolves to — its
  * `byToolUseId` anchor (from the `acp_session_spawned` event), else the id
