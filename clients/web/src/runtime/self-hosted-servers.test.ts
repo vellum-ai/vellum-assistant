@@ -35,6 +35,8 @@ let listResult: NativeList = { servers: [], activeUrl: null, bakedUrl: null };
 /** Simulates a shell whose build predates the plugin: every call rejects. */
 let bridgeRejects = false;
 let addRejects = false;
+/** Rejects `add` for one url only, so a partial write can be exercised. */
+let addRejectsUrl: string | null = null;
 
 function bridgeFailure(method: string): Error {
   return new Error(`SelfHostedServers.${method}() is not implemented on ios`);
@@ -46,8 +48,8 @@ const listMock = mock(async (): Promise<NativeList> => {
   }
   return listResult;
 });
-const addMock = mock(async (_options: { url: string; name?: string }) => {
-  if (bridgeRejects || addRejects) {
+const addMock = mock(async (options: { url: string; name?: string }) => {
+  if (bridgeRejects || addRejects || options.url === addRejectsUrl) {
     throw bridgeFailure("add");
   }
   return { ok: true };
@@ -100,6 +102,7 @@ beforeEach(() => {
   listResult = { servers: [], activeUrl: null, bakedUrl: null };
   bridgeRejects = false;
   addRejects = false;
+  addRejectsUrl = null;
   listMock.mockClear();
   addMock.mockClear();
   removeMock.mockClear();
@@ -206,15 +209,27 @@ describe("nativeRememberedOriginsProvider load", () => {
     addRejects = true;
 
     const provider = nativeRememberedOriginsProvider();
-    // The entry still shows up so the user does not see it vanish.
-    expect((await provider.load()).map((o) => o.url)).toEqual([
-      "https://legacy.example",
-    ]);
+    // The shell does not hold the entry, so no card is published for it.
+    expect((await provider.load()).map((o) => o.url)).toEqual([]);
 
     addRejects = false;
     addMock.mockClear();
-    await provider.load();
+    expect((await provider.load()).map((o) => o.url)).toEqual([
+      "https://legacy.example",
+    ]);
     expect(addMock).toHaveBeenCalledWith({ url: "https://legacy.example" });
+  });
+
+  test("a partial migration publishes only the entries the shell accepted", async () => {
+    await localStorageProvider.save([
+      { url: "https://first.example", addedAt: EPOCH },
+      { url: "https://second.example", addedAt: EPOCH },
+    ]);
+    addRejectsUrl = "https://second.example";
+
+    expect(
+      (await nativeRememberedOriginsProvider().load()).map((o) => o.url),
+    ).toEqual(["https://first.example"]);
   });
 });
 

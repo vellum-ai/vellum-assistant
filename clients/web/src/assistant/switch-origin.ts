@@ -3,15 +3,12 @@
  * separate SPA deployment, so selecting one is a full navigation to that
  * base, not an in-app route change. Native mobile shells swap the WKWebView's
  * configured origin instead, which keeps the switch inside the app.
- *
- * Kept dependency-light on the web path: the native seam is reached through a
- * dynamic import, so a browser surface never pulls the Capacitor plugin module
- * into its graph.
  */
 
 import { remoteGatewayPublicBaseUrl } from "@/lib/auth/remote-gateway-session";
 import { isRemoteGatewayMode } from "@/lib/local-mode";
 import { isNativeMobile } from "@/runtime/platform-detection";
+import { nativeSwitchToOrigin } from "@/runtime/self-hosted-servers";
 import {
   normalizeOriginUrl,
   type RememberedOrigin,
@@ -28,6 +25,10 @@ import { routes } from "@/utils/routes";
  * falls back to the same navigation the web takes: leaving the app for the
  * system browser is degraded, but it is what the pair-page path already does
  * there.
+ *
+ * In Electron the navigation does not land in the app window either: the
+ * main process's same-origin guard (`clients/macos/src/main/main-window.ts`)
+ * ejects a cross-origin https target to the system browser.
  */
 export async function switchToOrigin(origin: RememberedOrigin): Promise<void> {
   const navigate = () =>
@@ -36,34 +37,20 @@ export async function switchToOrigin(origin: RememberedOrigin): Promise<void> {
     navigate();
     return;
   }
-  const { nativeSwitchToOrigin } = await import(
-    "@/runtime/self-hosted-servers"
-  );
   if (!(await nativeSwitchToOrigin(origin.url))) {
     navigate();
   }
 }
 
 /**
- * Return a native mobile shell to its baked Vellum Cloud origin, resolving
- * whether the shell took the switch. Offered only where the baked origin is
- * known, which is a shell that carries the plugin.
- */
-export async function switchToVellumCloud(): Promise<boolean> {
-  const { nativeSwitchToOrigin } = await import(
-    "@/runtime/self-hosted-servers"
-  );
-  return nativeSwitchToOrigin(null);
-}
-
-/**
- * Whether `origin` is the deployment serving the running app. In
- * remote-gateway mode the app's base carries the public path prefix, so the
+ * Whether `origin` is the deployment serving the running app. Stored urls are
+ * already canonical, so the running base is the side that needs normalizing.
+ * In remote-gateway mode that base carries the public path prefix, so the
  * comparison includes it.
  */
 export function isCurrentOrigin(origin: RememberedOrigin): boolean {
   const currentBase = isRemoteGatewayMode()
     ? remoteGatewayPublicBaseUrl()
     : window.location.origin;
-  return normalizeOriginUrl(origin.url) === currentBase;
+  return normalizeOriginUrl(currentBase) === origin.url;
 }
