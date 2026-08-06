@@ -1057,6 +1057,15 @@ export function useLiveVoice(
           }
           // Persisted; nothing user-visible to do here.
         }),
+        client.on("attachImageRejected", () => {
+          if (!live()) {
+            return;
+          }
+          // The assistant refused a photo the transport had already sent, so
+          // nothing downstream knows it is gone. Publishing it is what lets the
+          // room retract the thumbnail it has already shown as sent.
+          useLiveVoiceStore.getState().notePhotoRejected();
+        }),
         client.on("busy", () => {
           if (!live()) {
             return;

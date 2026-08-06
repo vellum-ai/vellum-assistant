@@ -378,6 +378,19 @@ export interface LiveVoiceErrorServerFrame extends LiveVoiceServerFrameBase {
   readonly code: LiveVoiceProtocolErrorCode;
   readonly message: string;
   /**
+   * The client frame this error is about, when the failure was a parse or
+   * validation failure of a specific frame. Absent otherwise, and absent from
+   * daemons predating the field.
+   *
+   * It exists so an `unknown_type` is attributable. A client that sends more
+   * than one optional frame (today: `update_config` and `attach_image`) gets
+   * the same code for either, and without this has to assume which one was
+   * refused. The wrong assumption is silent in both directions: settings stop
+   * applying for a session, or a photo the user watched themselves take is
+   * dropped with nothing said.
+   */
+  readonly frameType?: string;
+  /**
    * True when the session continues past the error (e.g. a transient
    * transcriber blip or one failed TTS segment). Absent (including on frames
    * from older daemons) means the error is terminal for the session.

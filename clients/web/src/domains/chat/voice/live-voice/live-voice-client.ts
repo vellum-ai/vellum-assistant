@@ -94,6 +94,12 @@ export interface LiveVoiceClientClosed {
   readonly reason: string;
 }
 
+/** Why a photo the transport accepted will never reach a turn. */
+export interface LiveVoiceAttachImageRejected {
+  readonly reason: "unsupported";
+  readonly message: string;
+}
+
 /**
  * Typed event payloads. Names map 1:1 to the server frame types (camelCased),
  * plus `closed` for transport teardown. Frame `seq` is preserved so consumers
@@ -121,6 +127,13 @@ export interface LiveVoiceClientEventMap {
   minimizeRoom: LiveVoiceMinimizeRoomServerFrame;
   metrics: LiveVoiceMetricsServerFrame;
   archived: LiveVoiceArchivedServerFrame;
+  /**
+   * A photo was accepted by the transport but refused by the assistant, so it
+   * will never reach a turn. Distinct from `attachImage` returning false,
+   * which is the socket declining to send at all: this one fails after the
+   * client believed it had succeeded, and is the only signal the room gets.
+   */
+  attachImageRejected: LiveVoiceAttachImageRejected;
   busy: LiveVoiceBusyServerFrame;
   error: LiveVoiceClientError;
   /** Fired exactly once when the transport closes (clean or otherwise). */
@@ -205,6 +218,7 @@ export class LiveVoiceChannelClient {
     minimizeRoom: new Set(),
     metrics: new Set(),
     archived: new Set(),
+    attachImageRejected: new Set(),
     busy: new Set(),
     error: new Set(),
     closed: new Set(),
@@ -368,9 +382,7 @@ export class LiveVoiceChannelClient {
     if (this.state !== "active") {
       return false;
     }
-    return this.trySend(
-      JSON.stringify({ type: "attach_image", attachmentId }),
-    );
+    return this.trySend(JSON.stringify({ type: "attach_image", attachmentId }));
   }
 
   /**
@@ -489,21 +501,39 @@ export class LiveVoiceChannelClient {
         return;
       case "error":
         // An assistant running daemon code older than a client frame we sent
-        // rejects it with `unknown_type`. `update_config` (the voice-room
-        // settings) is the only frame we send OPTIMISTICALLY, so this is a
-        // forward-compat no-op, not a session failure: latch it off and keep
-        // the session alive. Mirrors the `unknown_frame` handling below for the
-        // reverse (newer-server) direction.
+        // rejects it with `unknown_type`. This client sends two frames that an
+        // older assistant may not know: `update_config` (the voice-room
+        // settings) and `attach_image` (a photo taken mid-call). Neither is a
+        // session failure, but they need opposite handling, so attribution
+        // matters.
         //
-        // This attribution is only safe because every other version-dependent
-        // frame is version-gated before it is sent: the daemon's `sendError`
-        // does not forward the rejected frame's type, so an ungated frame's
-        // rejection would land here and be misread as a settings rejection.
-        // `attach_image` (the voice-room camera) is gated on
-        // `useSupportsVoiceCamera` for exactly this reason. Anything new sent
-        // from this client must be gated the same way, or this branch has to
-        // learn to tell frames apart.
+        // `frameType` is how they are told apart. Daemons predating that field
+        // omit it, and the fallback is to assume the settings frame: it is the
+        // one this client has always sent optimistically, and `attach_image`
+        // is version-gated on `useSupportsVoiceCamera` so it should not be in
+        // flight against an assistant that old in the first place. Anything
+        // new sent from here needs either a version gate or a `frameType`
+        // branch, or its rejection lands in the wrong bucket.
         if (frame.code === "unknown_type") {
+          const rejected =
+            "frameType" in frame && typeof frame.frameType === "string"
+              ? frame.frameType
+              : "update_config";
+          if (rejected === "attach_image") {
+            // A photo the user watched themselves take. Reporting it is the
+            // whole point: the upload succeeded and the shutter already fired,
+            // so silence here is the assistant appearing to have seen
+            // something it never received.
+            console.warn(
+              "live-voice: assistant rejected attach_image (unknown_type); " +
+                "photos cannot be sent until it is upgraded",
+            );
+            this.emit("attachImageRejected", {
+              reason: "unsupported",
+              message: frame.message,
+            });
+            return;
+          }
           this.configUpdatesUnsupported = true;
           console.warn(
             "live-voice: assistant rejected update_config (unknown_type); " +

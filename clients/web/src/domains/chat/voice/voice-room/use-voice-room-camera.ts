@@ -17,11 +17,14 @@
  * about the picture rather than about nothing.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { uploadChatAttachment } from "@/domains/chat/api/messages";
 import { prepareImageAttachmentForUpload } from "@/domains/chat/components/chat-attachments/attachment-image-resize";
-import { attachLiveVoiceImage } from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+  attachLiveVoiceImage,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
 import { captureError } from "@/lib/sentry/capture-error";
 
 import { useVoiceCamera, type VoiceCamera } from "./voice-camera";
@@ -40,12 +43,41 @@ const CAMERA_ERROR_COPY: Record<string, string> = {
   "capture-failed": "Couldn't take that photo.",
   "upload-failed": "Couldn't send that photo.",
   "not-delivered": "Reconnecting. Take that one again.",
+  refused: "Your assistant can't receive photos yet.",
 };
+
+/**
+ * How many recent photos the room keeps on screen.
+ *
+ * Three, because the strip is a receipt and not a gallery: it answers "did
+ * that go?" for the shot just taken and the couple before it, which is the
+ * span a caller is still talking about. Older ones are in the transcript,
+ * which is where looking back belongs.
+ */
+const VISIBLE_PHOTOS = 3;
+
+export type VoiceRoomPhotoStatus = "sending" | "sent" | "failed";
+
+export interface VoiceRoomPhoto {
+  readonly id: number;
+  /** Object URL of the captured frame. Revoked when the photo is dropped. */
+  readonly previewUrl: string;
+  readonly status: VoiceRoomPhotoStatus;
+}
 
 export interface VoiceRoomCamera {
   readonly camera: VoiceCamera;
   /** True while a captured frame is being prepared and uploaded. */
   readonly sending: boolean;
+  /**
+   * The most recent photos, oldest first, capped at {@link VISIBLE_PHOTOS}.
+   *
+   * This is the feature's only confirmation that a shutter press did
+   * anything. Without it a photo is taken into silence: the viewfinder does
+   * not change, the assistant may not speak for seconds, and the transcript
+   * is behind the room.
+   */
+  readonly photos: readonly VoiceRoomPhoto[];
   /** User-facing failure for the camera or the last photo, or null. */
   readonly errorMessage: string | null;
   /** Capture the current frame, upload it, and hand it to the session. */
@@ -64,6 +96,70 @@ export function useVoiceRoomCamera(
   const camera = useVoiceCamera(videoRef);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<readonly VoiceRoomPhoto[]>([]);
+  const nextPhotoId = useRef(0);
+  const photoRejectedSeq = useLiveVoiceStore.use.photoRejectedSeq();
+
+  /**
+   * Add a photo to the strip, dropping and revoking whatever falls off the
+   * end. Revoking is not optional bookkeeping: each preview holds a decoded
+   * full-resolution frame alive, and a long call is a lot of shutter presses.
+   */
+  const pushPhoto = useCallback((photo: VoiceRoomPhoto) => {
+    setPhotos((current) => {
+      const next = [...current, photo];
+      while (next.length > VISIBLE_PHOTOS) {
+        URL.revokeObjectURL(next.shift()!.previewUrl);
+      }
+      return next;
+    });
+  }, []);
+
+  const setPhotoStatus = useCallback(
+    (id: number, status: VoiceRoomPhotoStatus) => {
+      setPhotos((current) =>
+        current.map((photo) =>
+          photo.id === id ? { ...photo, status } : photo,
+        ),
+      );
+    },
+    [],
+  );
+
+  // Release every preview on unmount. The room unmounts on minimize and on the
+  // end of the call, so this is the common path, not the edge case.
+  useEffect(
+    () => () => {
+      setPhotos((current) => {
+        for (const photo of current) {
+          URL.revokeObjectURL(photo.previewUrl);
+        }
+        return [];
+      });
+    },
+    [],
+  );
+
+  // A rejection arrives after the client already believed the photo sent, so
+  // the strip has to be retracted rather than never shown. The newest sent
+  // photo is the one it refers to: rejections are per-frame and the daemon
+  // answers them in order.
+  useEffect(() => {
+    if (photoRejectedSeq === 0) {
+      return;
+    }
+    setPhotos((current) => {
+      for (let index = current.length - 1; index >= 0; index -= 1) {
+        if (current[index]!.status === "sent") {
+          const next = [...current];
+          next[index] = { ...next[index]!, status: "failed" };
+          return next;
+        }
+      }
+      return current;
+    });
+    setSendError("refused");
+  }, [photoRejectedSeq]);
 
   const shutter = useCallback(async () => {
     if (!assistantId || sending) {
@@ -71,12 +167,24 @@ export function useVoiceRoomCamera(
     }
     setSendError(null);
     setSending(true);
+    let photoId: number | null = null;
     try {
       const frame = await camera.captureFrame();
       if (!frame) {
         setSendError("capture-failed");
         return;
       }
+
+      // The thumbnail appears as soon as there are bytes, before the upload
+      // resolves. The press has to acknowledge itself immediately: a shutter
+      // that shows nothing until a round trip completes reads as a dead
+      // button, which is what sends people pressing it again.
+      photoId = nextPhotoId.current++;
+      pushPhoto({
+        id: photoId,
+        previewUrl: URL.createObjectURL(frame),
+        status: "sending",
+      });
 
       // The same preparation a pasted or dragged image gets. A viewfinder
       // frame is normally already under the auto-resize threshold, so this is
@@ -89,6 +197,7 @@ export function useVoiceRoomCamera(
       const uploaded = await uploadChatAttachment(assistantId, file);
       if (!uploaded.ok) {
         setSendError("upload-failed");
+        setPhotoStatus(photoId, "failed");
         return;
       }
 
@@ -97,18 +206,24 @@ export function useVoiceRoomCamera(
       // across the gap (see `attachImage`), so the one thing that must not
       // happen is this returning quietly: the shutter has already fired and
       // the user would carry on talking to an assistant that cannot see it.
-      if (!attachLiveVoiceImage(uploaded.id)) {
+      if (attachLiveVoiceImage(uploaded.id)) {
+        setPhotoStatus(photoId, "sent");
+      } else {
         setSendError("not-delivered");
+        setPhotoStatus(photoId, "failed");
       }
     } catch (error) {
       captureError(error, {
         context: "voice-room camera: capture/upload photo",
       });
       setSendError("upload-failed");
+      if (photoId !== null) {
+        setPhotoStatus(photoId, "failed");
+      }
     } finally {
       setSending(false);
     }
-  }, [assistantId, camera, sending]);
+  }, [assistantId, camera, pushPhoto, sending, setPhotoStatus]);
 
   const open = useCallback(async () => {
     setSendError(null);
@@ -127,6 +242,7 @@ export function useVoiceRoomCamera(
   return {
     camera,
     sending,
+    photos,
     errorMessage: errorKey
       ? (CAMERA_ERROR_COPY[errorKey] ?? CAMERA_ERROR_COPY.unknown!)
       : null,

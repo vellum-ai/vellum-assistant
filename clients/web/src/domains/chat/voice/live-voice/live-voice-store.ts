@@ -258,6 +258,14 @@ export interface LiveVoiceState {
    * (see {@link isLiveVoiceSessionOwnedBy}).
    */
   startedConversationId: string | null;
+  /**
+   * Bumped each time the assistant refuses a photo that the transport had
+   * already accepted. A counter rather than a flag or a payload because the
+   * room's only use is "another one just failed": consecutive rejections must
+   * each register, and there is nothing about a rejection worth carrying
+   * beyond the fact of it.
+   */
+  photoRejectedSeq: number;
   /** Controls registered by the owning controller, `null` when no session. */
   controls: LiveVoiceSessionControls | null;
   /**
@@ -408,6 +416,8 @@ export interface LiveVoiceActions {
    * frame. Leaves `startedConversationId` at its start-time value.
    */
   setConversationId: (conversationId: string) => void;
+  /** Record that the assistant refused a photo. See {@link photoRejectedSeq}. */
+  notePhotoRejected: () => void;
   /** Register (or clear) the owning controller's session controls. */
   setControls: (controls: LiveVoiceSessionControls | null) => void;
   /** Register (or clear) the mounted controller's session starter. */
@@ -553,6 +563,7 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   assistantId: null,
   conversationId: null,
   startedConversationId: null,
+  photoRejectedSeq: 0,
   controls: null,
   partialTranscript: "",
   finalTranscript: "",
@@ -590,6 +601,8 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
       outputMuted: false,
     }),
   setConversationId: (conversationId) => set({ conversationId }),
+  notePhotoRejected: () =>
+    set((state) => ({ photoRejectedSeq: state.photoRejectedSeq + 1 })),
   setControls: (controls) => set({ controls }),
   setStarter: (starter) => set({ starter }),
   setPartialTranscript: (partialTranscript) => set({ partialTranscript }),
@@ -802,7 +815,9 @@ export function updateLiveVoiceSessionConfig(config: {
  * {@link endLiveVoiceSession}.
  */
 export function attachLiveVoiceImage(attachmentId: string): boolean {
-  return useLiveVoiceStore.getState().controls?.attachImage(attachmentId) ?? false;
+  return (
+    useLiveVoiceStore.getState().controls?.attachImage(attachmentId) ?? false
+  );
 }
 
 /**

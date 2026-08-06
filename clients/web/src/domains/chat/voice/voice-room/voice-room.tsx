@@ -208,7 +208,6 @@ function destructiveControlClass(isLight: boolean | undefined): string {
     : "border-red-400/50 bg-red-500/20 text-red-300 hover:bg-red-500/30";
 }
 
-
 /** Placement variant. See the module docstring. */
 export type VoiceRoomVariant = "fullscreen" | "content" | "sheet";
 
@@ -506,7 +505,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const cameraSupported =
     useSupportsVoiceCamera(assistantId) && isVoiceCameraSupported();
   const viewfinderRef = useRef<HTMLVideoElement | null>(null);
-  const { camera, sending, errorMessage, shutter, open, close } =
+  const { camera, sending, photos, errorMessage, shutter, open, close } =
     useVoiceRoomCamera(assistantId, viewfinderRef);
   const cameraOpen = camera.open;
 
@@ -935,6 +934,54 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
               {errorMessage}
             </p>
           ) : null}
+          {/* What the shutter did.
+
+              A photo taken on a call goes somewhere the user cannot see: the
+              viewfinder does not change, the assistant may say nothing for
+              seconds, and the transcript is behind the room. Without this the
+              press is indistinguishable from a dead button, which is what
+              sends people pressing it again.
+
+              A strip of recent frames rather than a confirmation step, because
+              the question is "did that go?", which can only be answered after
+              the fact. A dialog before the send would interrupt the one action
+              this surface is built to repeat, and still would not answer it.
+              The shutter press is the consent.
+
+              Dimmed while in flight, struck through when it failed, plain when
+              the assistant has it. Aligned left so it never sits under the
+              shutter, and `aria-hidden` because the live region already
+              announces failures in words. */}
+          {photos.length > 0 ? (
+            <ul
+              aria-hidden
+              data-testid="voice-room-photo-strip"
+              className="flex items-center gap-2 self-start pl-6"
+            >
+              {photos.map((photo) => (
+                <li key={photo.id} className="relative">
+                  <img
+                    src={photo.previewUrl}
+                    alt=""
+                    data-testid="voice-room-photo"
+                    data-status={photo.status}
+                    className={cn(
+                      "size-11 rounded-lg border object-cover transition",
+                      "border-[var(--room-border)]",
+                      photo.status === "sending" && "opacity-50",
+                      photo.status === "failed" && "opacity-40 grayscale",
+                    )}
+                  />
+                  {photo.status === "failed" ? (
+                    <span className="absolute inset-0 flex items-center justify-center">
+                      <X className="size-5 text-red-300" strokeWidth={3} />
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
           {/* The shutter is centred on the room, with flip parked off to the
               side rather than sharing a row with it: a two-item row would put
               the shutter off-centre, and the shutter is the target the user

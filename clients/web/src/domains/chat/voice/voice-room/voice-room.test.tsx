@@ -1648,6 +1648,93 @@ describe("VoiceRoom: camera", () => {
     }
   });
 
+  test("a sent photo leaves a thumbnail so the press is not silent", async () => {
+    const restoreCapture = stubFrameCapture();
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    try {
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+      // Nothing to show before the first press.
+      expect(screen.queryByTestId("voice-room-photo-strip")).toBeNull();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("voice-room-shutter"));
+      });
+
+      const thumbnails = screen.getAllByTestId("voice-room-photo");
+      expect(thumbnails).toHaveLength(1);
+      expect(thumbnails[0]?.getAttribute("data-status")).toBe("sent");
+    } finally {
+      restoreCapture();
+    }
+  });
+
+  test("a photo the assistant refuses is struck from the strip", async () => {
+    // The rejection lands after the client already believed it sent, so the
+    // thumbnail has to be retracted rather than never shown.
+    const restoreCapture = stubFrameCapture();
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    try {
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("voice-room-shutter"));
+      });
+      expect(
+        screen
+          .getAllByTestId("voice-room-photo")[0]
+          ?.getAttribute("data-status"),
+      ).toBe("sent");
+
+      await act(async () => {
+        useLiveVoiceStore.getState().notePhotoRejected();
+      });
+
+      expect(
+        screen
+          .getAllByTestId("voice-room-photo")[0]
+          ?.getAttribute("data-status"),
+      ).toBe("failed");
+      expect(screen.queryByText(/can't receive photos/)).not.toBeNull();
+    } finally {
+      restoreCapture();
+    }
+  });
+
+  test("the strip keeps only the most recent photos", async () => {
+    const restoreCapture = stubFrameCapture();
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    try {
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+      for (let press = 0; press < 5; press += 1) {
+        await act(async () => {
+          fireEvent.click(screen.getByTestId("voice-room-shutter"));
+        });
+      }
+
+      // A receipt, not a gallery: older shots live in the transcript.
+      expect(screen.getAllByTestId("voice-room-photo")).toHaveLength(3);
+    } finally {
+      restoreCapture();
+    }
+  });
+
   test("a denied camera permission surfaces and leaves the viewfinder closed", async () => {
     stubMediaDevices(async () => {
       throw new DOMException("denied", "NotAllowedError");

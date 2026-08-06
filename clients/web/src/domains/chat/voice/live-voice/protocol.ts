@@ -345,6 +345,17 @@ export interface LiveVoiceErrorServerFrame extends LiveVoiceServerFrameBase {
   readonly code: string;
   readonly message: string;
   /**
+   * The client frame this error is about, when the daemon knows. Absent from
+   * daemons predating the field, which is why the transport still has an
+   * "assume it was the settings frame" fallback.
+   *
+   * What makes an `unknown_type` attributable: this client sends two
+   * optional frames (`update_config` and `attach_image`) and an older
+   * assistant rejects either with the same code. See the handler in
+   * `live-voice-client.ts`.
+   */
+  readonly frameType?: string;
+  /**
    * True when the session continues past the error (e.g. a transient
    * transcriber blip or one failed TTS segment). Absent (including on frames
    * from older daemons) means the error is terminal for the session.
