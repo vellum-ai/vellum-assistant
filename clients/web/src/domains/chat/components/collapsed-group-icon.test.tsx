@@ -189,8 +189,7 @@ describe("CollapsedGroupIcon", () => {
         <div>content</div>
       </CollapsedGroupIcon>,
     );
-    // No rounded-full indicator dot should appear (the button itself has rounded-[6px])
-    expect(html).not.toContain("rounded-full");
+    expect(html).not.toContain('data-slot="group-indicator-dot"');
   });
 
   test("renders popover children", () => {
@@ -229,8 +228,9 @@ describe("CollapsedGroupIcon disabled state", () => {
         <div data-testid="popover-body">Should not render</div>
       </CollapsedGroupIcon>,
     );
-    // No clickable button and no popover content for an empty group.
-    expect(html).not.toContain("<button");
+    // Nothing to open: the tile is disabled, so it takes no click and no
+    // focus, and there is no popover trigger or content behind it.
+    expect(html).toContain("disabled");
     expect(html).not.toContain('aria-haspopup="dialog"');
     expect(html).not.toContain("Should not render");
     // Muted, disabled styling on the bare icon.
@@ -263,6 +263,6 @@ describe("CollapsedGroupIcon disabled state", () => {
         disabled
       />,
     );
-    expect(html).not.toContain("rounded-full");
+    expect(html).not.toContain('data-slot="group-indicator-dot"');
   });
 });
