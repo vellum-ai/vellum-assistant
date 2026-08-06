@@ -45,6 +45,7 @@ import {
 } from "@/hooks/edge-swipe-motion";
 import { useEdgeSwipeDrawer } from "@/hooks/use-edge-swipe-drawer";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
+import { useMobileDrawerStore } from "@/stores/mobile-drawer-store";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
@@ -465,6 +466,18 @@ export function ChatLayout({
   const voiceRoomVisible = useIsVoiceRoomVisible();
 
   const drawerVisible = isMobile && drawerOpen;
+
+  // Publish for surfaces that render outside this tree and would otherwise
+  // paint over the drawer; see `mobile-drawer-store`. Mirrors the same
+  // condition the drawer itself mounts on, so the two can't disagree.
+  const drawerPresented = drawerVisible || drawerDragging;
+  const setDrawerPresented = useMobileDrawerStore.use.setPresented();
+  useEffect(() => {
+    setDrawerPresented(drawerPresented);
+    return () => {
+      setDrawerPresented(false);
+    };
+  }, [drawerPresented, setDrawerPresented]);
 
   const toggleSidebar = useCallback(() => {
     // The tour forces the rail expanded; a toggle would only flip the

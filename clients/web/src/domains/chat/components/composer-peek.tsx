@@ -35,6 +35,7 @@ import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { recordUpdate } from "@/lib/commit-pressure";
 import { useIsNativeMobile } from "@/runtime/platform-detection";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
+import { useMobileDrawerStore } from "@/stores/mobile-drawer-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { avatarPeekMetrics } from "@/utils/avatar-peek-metrics";
 
@@ -121,8 +122,18 @@ export function ComposerPeek({
   const [introRisen, setIntroRisen] = useState(false);
   const [introDone, setIntroDone] = useState(false);
 
+  // The drawer covers the chat page but cannot cover this: the peek renders
+  // from a `document.body` portal, so it sits in a different stacking context
+  // and its z-index never competes with the drawer's. Stand down instead.
+  const drawerPresented = useMobileDrawerStore.use.presented();
+
   const runnable =
-    active && !reduce && !navTourActive && !!components && !!traits;
+    active &&
+    !reduce &&
+    !navTourActive &&
+    !drawerPresented &&
+    !!components &&
+    !!traits;
 
   // Where this avatar's eye ink sits in its rendered square — drives the
   // per-shape crop/size below so the eyes always ride the edge.
