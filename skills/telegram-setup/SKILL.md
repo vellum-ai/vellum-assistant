@@ -15,7 +15,7 @@ metadata:
       - "User wants to send/receive Telegram messages (use messaging skill instead)"
 ---
 
-You are helping your user connect a Telegram bot. The wizard collects the token, the daemon and gateway do the setup, and you confirm it worked.
+You are helping your user connect a Telegram bot. The wizard collects the token, the rest of setup runs automatically, and you confirm it worked.
 
 DO NOT use this skill for runtime Telegram operations (sending, replying, reading). That is the separate messaging skill.
 
@@ -23,14 +23,14 @@ DO NOT use this skill for runtime Telegram operations (sending, replying, readin
 
 Saving the token in the wizard triggers all of this:
 
-| Step                                               | Runs where                        |
-| -------------------------------------------------- | --------------------------------- |
-| Validate the token against `getMe`                 | Daemon, on save                   |
-| Store `telegram.botId` and `telegram.botUsername`  | Daemon, on save                   |
-| Generate the webhook secret                        | Daemon, on save                   |
-| Register the platform callback route               | Daemon, on save                   |
-| Tell Telegram where to send updates (`setWebhook`) | Gateway, on the credential change |
-| Install the bot commands (`setMyCommands`)         | Gateway, on the credential change |
+| Step                                               | Runs                          |
+| -------------------------------------------------- | ----------------------------- |
+| Validate the token against `getMe`                 | Automatically, on save        |
+| Store `telegram.botId` and `telegram.botUsername`  | Automatically, on save        |
+| Generate the webhook secret                        | Automatically, on save        |
+| Register the platform callback route               | Automatically, on save        |
+| Tell Telegram where to send updates (`setWebhook`) | Automatically, after the save |
+| Install the bot commands (`setMyCommands`)         | Automatically, after the save |
 
 ⚠️ CRITICAL: **Never run `setWebhook`, `setMyCommands`, or `assistant webhooks register` yourself, and never generate the webhook secret.** `reconcileTelegramWebhook` is idempotent and already runs on the credential change the save produces. Doing it by hand races it, which is how a webhook ends up pointing somewhere stale.
 
@@ -81,8 +81,16 @@ Triggered by the wizard-closed notification, `[User action on channel_setup surf
    ```
 
    - **`url` set, no `last_error`** → delivering. Continue to Step 4.
-   - **`url` empty** → registration has not landed yet or failed. Wait a few seconds and check once. If still empty, the channel is not live. Tell the user plainly and look at `assistant logs --grep "reconcile Telegram webhook"` for the cause. Do not run `setWebhook` yourself.
+   - **`url` empty** → registration has not landed yet or failed. Wait a few seconds and check once. If still empty, the channel is not live. See the self-hosted case below first. Otherwise tell the user plainly and read `assistant gateway logs tail -n 100 --level warn` for the cause. Do not run `setWebhook` yourself.
    - **`last_error` present** → Telegram is rejecting delivery. Report it verbatim; it usually names the cause (unreachable host, TLS, wrong port).
+
+   **Self-hosted with no public ingress.** Registration needs a public URL to
+   point Telegram at, and a self-hosted assistant without one has nothing to
+   resolve, so the `url` stays empty however long you wait. Check with
+   `assistant config get ingress.enabled`. If ingress is unset or disabled,
+   load the `public-ingress` skill with `skill_load` to walk the user through
+   setting one up. Registration re-runs on its own once ingress is configured,
+   so return to this step afterwards rather than calling `setWebhook`.
 
 ⚠️ CRITICAL: **Do not report success on stored credentials alone.** The channel indicator turns green on credentials, which is not evidence that messages arrive. `getWebhookInfo` is.
 
