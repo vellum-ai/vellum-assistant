@@ -6,7 +6,7 @@
  *      then, so anything scheduled from the resolution outlives the component.
  *   2. A write that resolves while mounted still runs its caller's callback.
  *
- * The failure this guards is quiet: React no longer warns on a setState after
+ * The failure this guards is quiet: React does not warn on a setState after
  * unmount, so the leak is a timer nothing will clear rather than an error
  * anyone would see.
  */

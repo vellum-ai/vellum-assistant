@@ -92,7 +92,7 @@ describe("ChannelSetupWizard", () => {
     expect(document.activeElement).not.toBe(document.body);
   });
 
-  test("labels the panel with the step it now holds", () => {
+  test("labels the panel with the step it holds", () => {
     render(<Harness />);
 
     expect(panel().getAttribute("aria-label")).toBe(

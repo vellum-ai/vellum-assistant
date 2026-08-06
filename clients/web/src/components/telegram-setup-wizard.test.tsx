@@ -130,9 +130,9 @@ describe("TelegramSetupWizard step flow", () => {
   });
 
   test("clears the token once the save succeeds", () => {
-    // Neither surface unmounts this wizard on success. The Channels page in
-    // particular keeps it mounted, and the component it replaced cleared its
-    // field there, so a retained secret would be a regression on that surface.
+    // Neither surface unmounts this wizard on success, and the Channels page
+    // keeps it mounted while readiness catches up, so a retained secret sits
+    // in a live field for as long as that takes.
     function Harness() {
       const [status, setStatus] = useState<"idle" | "success">("idle");
       return (

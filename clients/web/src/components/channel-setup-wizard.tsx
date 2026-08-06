@@ -24,8 +24,8 @@ export interface ChannelSetupWizardProps {
  * A step swaps the panel's entire contents, taking the focused control out of
  * the document with it and dropping focus to `<body>`, which leaves a keyboard
  * user tabbing from the top of the page and tells a screen reader nothing. So
- * a step change moves focus to the panel, labelled with the step it now holds
- * so the move announces something. Mounting does not: the wizard appears in a
+ * a step change moves focus to the panel, labelled with the step it holds, so
+ * the move announces something. Mounting does not: the wizard appears in a
  * drawer the user opened deliberately, and taking focus on arrival fights
  * whatever they were doing.
  */
