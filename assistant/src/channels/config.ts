@@ -75,7 +75,14 @@ const CHANNEL_POLICIES = {
   },
   discord: {
     notification: {
-      deliveryEnabled: true,
+      // Replies to an inbound Discord message do not read this flag: they
+      // route by `replyCallbackUrl` through the channel transport. This gates
+      // proactive notification only, which needs a guardian binding to
+      // address and a destination resolver to reach it. Discord has neither,
+      // and `NotificationChannel` is derived from this flag, so enabling it
+      // early would let the decision engine pick a channel that resolves to
+      // nothing.
+      deliveryEnabled: false,
       conversationStrategy: "continue_existing_conversation",
     },
   },
