@@ -75,6 +75,7 @@ import { ChatBody } from "@/domains/chat/components/chat-body";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
 import { ComposerNotices } from "@/domains/chat/components/composer-notices";
+import { OrphanedHistoryNotice } from "@/domains/chat/components/orphaned-history-notice";
 import { ComposerSecretNotice } from "@/domains/chat/components/composer-secret-notice";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
@@ -104,7 +105,7 @@ import {
   WEB_FOLDER_DROP_ERROR,
 } from "@/domains/chat/components/chat-attachments/handle-folder-drop";
 import { Button } from "@vellumai/design-library";
-import { Link, useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import {
   getChatBillingBannerDecision,
   isManagedCredentialChatError,
@@ -152,6 +153,8 @@ import { useConversationListQuery } from "@/hooks/conversation-queries";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { shouldMintNewChatDraft } from "@/domains/chat/utils/conversation-selection";
+import { isNativeMobile } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
 import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
@@ -350,7 +353,35 @@ export function ChatMainPanel({
   const messages = useTranscriptMessages();
   const error = useChatSessionStore.use.error();
   const notice = useChatSessionStore.use.notice();
-  const isLoadingHistory = useChatSessionStore.use.isLoadingHistory();
+  // A client-minted draft has no server row, so there is no history to wait
+  // for and no transcript skeleton to show. Derived during render rather than
+  // lowered from an effect: the store seeds `isLoadingHistory` true, so an
+  // effect would only clear it after the first commit had already painted the
+  // skeleton, which is the flash this is here to prevent.
+  //
+  // The cold-launch frame needs the same answer one step earlier. A native
+  // shell renders once with nothing selected, before the bootstrap effect
+  // mints the draft, so there is no id to look up yet. Asking the bootstrap's
+  // own predicate whether a draft is what it is about to select covers that
+  // frame, and keeps the two from drifting apart. Every other context (web,
+  // and a native deep link that names a conversation) answers false and keeps
+  // the skeleton, which is correct: those really are resolving which
+  // conversation to load, and the web path waits on the conversation list to
+  // do it.
+  const rawIsLoadingHistory = useChatSessionStore.use.isLoadingHistory();
+  const draftConversationIds = useConversationStore.use.draftConversationIds();
+  const { conversationId: urlConversationId } = useParams<{
+    conversationId: string;
+  }>();
+  const awaitingColdStartDraft = shouldMintNewChatDraft({
+    platformStartsInNewChat: isNativeMobile(),
+    urlConversationId: urlConversationId ?? null,
+    currentConversationId: activeConversationId,
+  });
+  const isLoadingHistory =
+    rawIsLoadingHistory &&
+    !awaitingColdStartDraft &&
+    !(activeConversationId && draftConversationIds.has(activeConversationId));
   const contextWindowUsage = useChatSessionStore.use.contextWindowUsage();
   const compactionCircuitOpenUntil =
     useChatSessionStore.use.compactionCircuitOpenUntil();
@@ -1114,6 +1145,23 @@ export function ChatMainPanel({
     onEditQueueTail: handleEditQueueTail,
   });
 
+  // A conversation whose branch parent was deleted renders its own messages
+  // and nothing before them. Composed into the banner slot rather than
+  // replacing it, and kept undefined when there is nothing to show, because
+  // `ChatBody` decides whether to render the banner container from whether
+  // this node exists.
+  const orphanedHistoryBanner =
+    activeConversation?.historyOrphaned === true ? (
+      <OrphanedHistoryNotice />
+    ) : null;
+  const mainBannerWithNotices =
+    orphanedHistoryBanner || mainBannerSlot ? (
+      <>
+        {orphanedHistoryBanner}
+        {mainBannerSlot}
+      </>
+    ) : undefined;
+
   // -------------------------------------------------------------------------
   // Billing composer banner
   // -------------------------------------------------------------------------
@@ -1352,7 +1400,7 @@ export function ChatMainPanel({
       onRetryRefresh={handleRetryRefreshFromPill}
       genericChatError={genericChatBanner}
       onDismissChatError={handleDismissChatError}
-      bannerSlot={isSidePanel ? undefined : mainBannerSlot}
+      bannerSlot={isSidePanel ? undefined : mainBannerWithNotices}
       queuedDrawerSlot={isSidePanel ? undefined : mainQueuedDrawerSlot}
       startersSlot={startersSlot}
       belowFoldSlot={belowFoldSlot}

@@ -4,6 +4,8 @@ import type {
   FeedItemStatus,
 } from "@vellumai/assistant-api";
 
+import { flattenSummary } from "./feed-preview";
+
 /**
  * Client-side grouping of feed items by recency. Not part of the wire
  * contract — derived in the UI from each item's `createdAt`.
@@ -97,6 +99,42 @@ export function excludeHighUrgency(items: FeedItem[]): FeedItem[] {
  */
 export function getVisibleFeedItems(items: FeedItem[]): FeedItem[] {
   return excludeHighUrgency(items.filter((i) => i.status !== "dismissed"));
+}
+
+/**
+ * Scheduled-run notifications (`schedule.notify`) carry their originating
+ * schedule id in `metadata.scheduleId`, letting a detail view link to the
+ * schedule. Returns null for feed items not tied to a schedule. Shared by the
+ * Activity page and the notifications bell so both offer the link on exactly
+ * the same items.
+ */
+export function getFeedItemScheduleId(item: FeedItem | null): string | null {
+  const id = item?.metadata?.scheduleId;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
+/**
+ * Name for an item with neither a title nor a summary that renders as text, so
+ * the surface showing it always has something to name it by. The category is
+ * not used here: on a card carrying its category chip, repeating it would read
+ * the same word twice.
+ */
+const UNNAMED_ITEM_TITLE = "Notification";
+
+/**
+ * Display name for a feed item: its own title, or its summary when it carries
+ * none. `summary` is markdown, so the fallback goes through the flattener
+ * rather than showing syntax. Shared by the Activity page's rows and the
+ * notifications bell so the title the user clicked is the title they land on.
+ *
+ * Flattening parses markdown, so callers rendering a list memoize the result on
+ * the two fields it reads.
+ */
+export function resolveFeedItemTitle(
+  item: Pick<FeedItem, "title" | "summary">,
+): string {
+  const resolved = item.title ?? flattenSummary(item.summary);
+  return resolved.length > 0 ? resolved : UNNAMED_ITEM_TITLE;
 }
 
 /** Arguments for the feed's bulk status mutation (`markAll`). */

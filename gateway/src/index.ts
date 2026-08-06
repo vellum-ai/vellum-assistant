@@ -143,6 +143,7 @@ import {
 } from "./http/routes/channel-admission-policy.js";
 import {
   createChannelIngressApproveHandler,
+  createChannelIngressListHandler,
   createChannelIngressRevokeHandler,
 } from "./http/routes/channel-ingress.js";
 import { createPluginWebhookHandler } from "./http/routes/plugin-webhook.js";
@@ -617,6 +618,7 @@ async function main() {
     createChannelAdmissionPolicySetHandler();
   const handleChannelAdmissionPolicyDelete =
     createChannelAdmissionPolicyDeleteHandler();
+  const handleChannelIngressList = createChannelIngressListHandler();
   const handleChannelIngressApprove = createChannelIngressApproveHandler();
   const handleChannelIngressRevoke = createChannelIngressRevokeHandler();
   const handlePluginWebhook = createPluginWebhookHandler({
@@ -1594,8 +1596,16 @@ async function main() {
     // is the decision the assistant must not make for itself; and there are no
     // assistant-scoped variants, because the guardian reaches these directly
     // rather than through the platform proxy. Deliberately absent from the IPC
-    // surface for the same reason as the auth choice. POST verb paths — a
-    // grant has no id of its own until a guardian creates one.
+    // surface for the same reason as the auth choice. Approve and revoke are
+    // POST verb paths because a grant has no id of its own until a guardian
+    // creates one. The listing is guardian-only for a different reason: it says
+    // which declarations are waiting, which the public surface will not.
+    {
+      path: /^\/v1\/channel-ingress\/?$/,
+      method: "GET",
+      auth: "edge-guardian",
+      handler: () => handleChannelIngressList(),
+    },
     {
       path: /^\/v1\/channel-ingress\/([^/]+)\/approve\/?$/,
       method: "POST",

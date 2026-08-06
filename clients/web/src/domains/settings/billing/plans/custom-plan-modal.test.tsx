@@ -893,7 +893,9 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     openDropdown("Storage");
 
     expect(findOption("10 GB").getAttribute("aria-disabled")).toBe("true");
-    expect(findOption("30 GB").getAttribute("aria-disabled")).toBe("false");
+    // Enabled options carry no `aria-disabled` at all, so assert the absence
+    // of the disabled state rather than a literal "false".
+    expect(findOption("30 GB").getAttribute("aria-disabled")).not.toBe("true");
   });
 
   test("a failed dispatch keeps the modal open and skips the takeover", async () => {
@@ -957,9 +959,10 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
     // The held legacy bundle appears so the current selection is visible, but
     // it's disabled — a new config can never pick it.
     expect(findOption("25 credits").getAttribute("aria-disabled")).toBe("true");
-    // The live tier stays selectable.
-    expect(findOption("50 credits").getAttribute("aria-disabled")).toBe(
-      "false",
+    // The live tier stays selectable. Enabled options carry no
+    // `aria-disabled`, so assert the absence of the disabled state.
+    expect(findOption("50 credits").getAttribute("aria-disabled")).not.toBe(
+      "true",
     );
   });
 
@@ -1053,7 +1056,7 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
     fireEvent.click(getByRole("button", { name: "Configure" }));
     openDropdown("Storage");
 
-    expect(findOption("250 GB").getAttribute("aria-disabled")).toBe("false");
+    expect(findOption("250 GB").getAttribute("aria-disabled")).not.toBe("true");
     expect(findOption("10 GB").getAttribute("aria-disabled")).toBe("true");
   });
 

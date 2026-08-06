@@ -5,8 +5,9 @@ import WebKit
 /// Custom `CAPBridgeViewController` subclass that:
 ///
 /// 1. Registers `NativeAuthPlugin`, `NativeBiometricPlugin`,
-///    `VoiceAudioSessionPlugin`, `VoiceLiveActivityPlugin`, and
-///    `ApnsEnvironmentPlugin` as local plugin instances at bridge init time.
+///    `VoiceAudioSessionPlugin`, `VoiceLiveActivityPlugin`,
+///    `ApnsEnvironmentPlugin`, and `SelfHostedServersPlugin` as local plugin
+///    instances at bridge init time.
 ///    These plugins live inside the App target (no SPM module) so the bridge
 ///    won't discover them automatically.
 ///
@@ -55,6 +56,12 @@ class MyViewController: CAPBridgeViewController {
     /// any self-hosted override is applied so a cleared preference and the "Use
     /// Vellum Cloud" fallback can always return here.
     private var bakedServerURL: URL?
+
+    /// The baked Vellum Cloud URL as a string, exposed for the
+    /// `SelfHostedServers` plugin's `list` result.
+    var bakedServerURLString: String? {
+        return bakedServerURL?.absoluteString
+    }
 
     /// Retains the navigation-delegate decorator. Capacitor stores its
     /// `navigationDelegate` weakly, so the proxy must be owned here to stay
@@ -160,6 +167,7 @@ class MyViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(VoiceAudioSessionPlugin())
         bridge?.registerPluginInstance(VoiceLiveActivityPlugin())
         bridge?.registerPluginInstance(ApnsEnvironmentPlugin())
+        bridge?.registerPluginInstance(SelfHostedServersPlugin())
         installNavigationDelegateProxy()
         installInputZoomPreventionUserScript()
         installViewportZoomLockUserScript()
@@ -191,12 +199,12 @@ class MyViewController: CAPBridgeViewController {
     /// useful offline state.
     @objc private func reloadIfConfiguredOriginChanged() {
         let destination = SelfHostedServer.configuredURL() ?? bakedServerURL
-        guard let destination else { return }
-        guard destination.absoluteString != appliedServerURL?.absoluteString else {
+        guard let destination,
+              destination.absoluteString != appliedServerURL?.absoluteString
+        else {
             return
         }
-        appliedServerURL = destination
-        webView?.load(URLRequest(url: destination))
+        applyConfiguredOrigin()
     }
 
     /// Apply any deep link that arrived before the web view was ready. A cold
@@ -217,6 +225,30 @@ class MyViewController: CAPBridgeViewController {
     /// re-detected as a change on the next foreground.
     func bindServerTrackingToConfiguredOrigin() {
         appliedServerURL = SelfHostedServer.configuredURL() ?? bakedServerURL
+    }
+
+    /// Load the effective server URL (the configured self-hosted origin or the
+    /// baked default) and re-arm foreground change detection against it. Backs
+    /// the `SelfHostedServers` plugin's `switchTo`; must run on the main queue.
+    func applyConfiguredOrigin() {
+        bindServerTrackingToConfiguredOrigin()
+        guard let destination = appliedServerURL else {
+            return
+        }
+        webView?.load(URLRequest(url: Self.appEntryURL(forBase: destination)))
+    }
+
+    /// The SPA entry point for a server base, `<base>/assistant`. The ingress
+    /// redirects a bare `/` to a prefix-less `/assistant/`, which would drop a
+    /// hosting prefix (base `https://host/assistant-123` → `https://host/assistant/`),
+    /// so the segment is appended here instead. Mirrors `AppDelegate`'s
+    /// pair-page URL; the baked cloud URL already carries the segment, so it is
+    /// returned unchanged. Tracking state keeps the bare base.
+    private static func appEntryURL(forBase base: URL) -> URL {
+        guard base.lastPathComponent != "assistant" else {
+            return base
+        }
+        return base.appendingPathComponent("assistant")
     }
 
     // MARK: - Quote-and-reply edit menu
@@ -443,13 +475,13 @@ extension MyViewController: WebViewNavigationFailureObserver {
             )
             alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
                 self?.appliedServerURL = origin
-                self?.webView?.load(URLRequest(url: origin))
+                self?.webView?.load(URLRequest(url: Self.appEntryURL(forBase: origin)))
             })
             alert.addAction(UIAlertAction(title: "Use Vellum Cloud", style: .default) { [weak self] _ in
                 SelfHostedServer.clear()
                 if let baked = self?.bakedServerURL {
                     self?.appliedServerURL = baked
-                    self?.webView?.load(URLRequest(url: baked))
+                    self?.webView?.load(URLRequest(url: Self.appEntryURL(forBase: baked)))
                 }
             })
             self.present(alert, animated: true)

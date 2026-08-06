@@ -20,12 +20,15 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionAnchor,
+  CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
   DictationOverlayMessage,
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
+  ElectronHostOS,
   FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
@@ -50,12 +53,20 @@ import type {
   UpdateState,
   UpdateStatus,
   VellumCommand,
+  VoiceActivityContent,
+  VoiceActivityControl,
+  VoiceActivityControlAction,
+  VoiceActivityPhase,
+  VoiceActivityStart,
+  VoiceActivityState,
 } from "@vellumai/ipc-contract";
 
 export type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionAnchor,
+  CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
   DictationOverlayMessage,
@@ -79,6 +90,12 @@ export type {
   UpdateState,
   UpdateStatus,
   VellumCommand,
+  VoiceActivityContent,
+  VoiceActivityControl,
+  VoiceActivityControlAction,
+  VoiceActivityPhase,
+  VoiceActivityStart,
+  VoiceActivityState,
 };
 
 // Legacy aliases — existing consumers import these `Electron`-prefixed names.
@@ -99,6 +116,7 @@ declare global {
   interface Window {
     vellum?: {
       platform: "electron";
+      hostOS?: ElectronHostOS;
       app: {
         versionInfo(): Promise<AppVersionInfo>;
         openWebsite(): Promise<void>;
@@ -297,6 +315,26 @@ declare global {
         check(): Promise<void>;
         install(): Promise<void>;
         onState(callback: (state: UpdateState) => void): () => void;
+      };
+      voiceActivity?: {
+        start(state: VoiceActivityStart): void;
+        update(content: VoiceActivityContent): void;
+        end(): void;
+        getState(): Promise<VoiceActivityState | null>;
+        onState(
+          callback: (state: VoiceActivityState | null) => void,
+        ): () => void;
+        control(control: VoiceActivityControl): void;
+        onControl(callback: (control: VoiceActivityControl) => void): () => void;
+        activate?(): void;
+        dismiss?(): void;
+        setCollapsed?(collapsed: boolean): void;
+      };
+      companion?: {
+        getState(): Promise<CompanionSurfaceState | null>;
+        onState(callback: (state: CompanionSurfaceState) => void): () => void;
+        setInteractive?(interactive: boolean): void;
+        moveBy?(dx: number, dy: number): void;
       };
     };
   }

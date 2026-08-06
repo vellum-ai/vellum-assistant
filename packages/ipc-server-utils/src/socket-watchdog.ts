@@ -16,6 +16,9 @@ import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import type { Server } from "node:net";
 import { dirname } from "node:path";
 
+import { isNamedPipePath } from "./endpoint.js";
+import { ipcListenOptions } from "./listen-options.js";
+
 /**
  * Minimal logger surface (pino-compatible). Each method receives a context
  * object plus an optional human-readable message.
@@ -66,6 +69,9 @@ const DEFAULT_INTERVAL_MS = 5000;
  * `mkdir` only applies the mode to directories it creates.
  */
 export function ensureSocketDir(socketPath: string): void {
+  if (isNamedPipePath(socketPath)) {
+    return;
+  }
   const socketDir = dirname(socketPath);
   if (!existsSync(socketDir)) {
     mkdirSync(socketDir, { recursive: true, mode: 0o700 });
@@ -109,7 +115,13 @@ export class SocketWatchdog {
    * watchdog is already running.
    */
   start(): void {
-    if (this.intervalMs <= 0 || this.handle !== null) return;
+    if (
+      this.intervalMs <= 0 ||
+      this.handle !== null ||
+      isNamedPipePath(this.socketPath)
+    ) {
+      return;
+    }
     this.handle = setInterval(() => {
       // The async entry path of rebindIfMissing performs filesystem work
       // (ensureSocketDir, createServer) before its inner try/catch, so a
@@ -143,6 +155,9 @@ export class SocketWatchdog {
    * is not running, or a shutdown/restart raced the rebind.
    */
   async rebindIfMissing(): Promise<boolean> {
+    if (isNamedPipePath(this.socketPath)) {
+      return false;
+    }
     const initialServer = this.getServer();
     if (initialServer === null) return false;
     if (existsSync(this.socketPath)) return false;
@@ -167,7 +182,7 @@ export class SocketWatchdog {
         };
         newServer.once("error", onError);
         newServer.once("listening", onListening);
-        newServer.listen(this.socketPath);
+        newServer.listen(ipcListenOptions(this.socketPath));
       });
     } catch (err) {
       this.log.error(

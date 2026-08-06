@@ -3,6 +3,8 @@
 // ---------------------------------------------------------------------------
 //
 // Enqueue a `memory_retrospective` job for the given conversation. Gates on:
+//   - `memory.enabled` (the whole memory system) and
+//     `memory.retrospective.enabled` (this pass alone).
 //   - Source conversation isn't a memory-retrospective conversation itself
 //     (recursion guard — we never run a retrospective over reflective
 //     musings from the retrospective agent's own writes).
@@ -72,6 +74,14 @@ export function enqueueMemoryRetrospectiveIfEnabled(args: {
     return false;
   }
 
+  if (!isRetrospectiveEnabled()) {
+    log.debug(
+      { conversationId, trigger },
+      "Skipping memory-retrospective enqueue: memory.retrospective.enabled is false",
+    );
+    return false;
+  }
+
   if (isMemoryRetrospectiveConversation(conversationId)) {
     log.debug(
       { conversationId, trigger },
@@ -105,6 +115,25 @@ export function enqueueMemoryRetrospectiveIfEnabled(args: {
     return false;
   }
   return true;
+}
+
+/**
+ * The `memory.retrospective.enabled` kill switch. Deliberately fails CLOSED,
+ * unlike the heuristic gates around it: this flag exists to stop a
+ * fork-driven write burst from locking the DB, so an unreadable config must
+ * not resurrect the very work an operator turned off. A read that throws is
+ * logged rather than swallowed silently.
+ */
+function isRetrospectiveEnabled(): boolean {
+  try {
+    return getConfig().memory.retrospective.enabled;
+  } catch (err) {
+    log.warn(
+      { err },
+      "Could not read memory.retrospective.enabled; treating retrospectives as disabled",
+    );
+    return false;
+  }
 }
 
 /**

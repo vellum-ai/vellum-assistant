@@ -207,13 +207,19 @@ class LiveVoiceConnectionImpl implements LiveVoiceConnection {
   }
 
   private sendError(
-    error: Pick<LiveVoiceProtocolError, "code" | "message">,
+    error: Pick<LiveVoiceProtocolError, "code" | "message" | "frameType">,
   ): void {
     this.sendFrame({
       type: "error",
       seq: this.lastSeq + 1,
       code: error.code,
       message: error.message,
+      // Which frame was rejected, when the parser knows. Without it an
+      // `unknown_type` is unattributable: a client that sends more than one
+      // optional frame cannot tell which of them an older daemon refused, and
+      // has to guess. Guessing wrong is silent, which for a rejected photo
+      // means the user is told nothing at all.
+      ...(error.frameType ? { frameType: error.frameType } : {}),
     });
   }
 

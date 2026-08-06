@@ -5,10 +5,10 @@
  * A sandboxed app may only receive `sync_changed` invalidations for the tags
  * it explicitly subscribed to, and never for the host's reserved sync
  * namespaces — forwarding those would leak host activity (conversation
- * traffic, config/theme/schedule changes, the apps/plugins lists) into
- * untrusted app code. Custom tags an app's own routes emit pass through, so an
- * app can drive live refreshes off its own `publishSyncInvalidation` without
- * polling.
+ * traffic, config/theme/schedule changes, the apps/documents/plugins lists)
+ * into untrusted app code. Custom tags an app's own routes emit pass through,
+ * so an app can drive live refreshes off its own `publishSyncInvalidation`
+ * without polling.
  *
  * `sync_changed` carries no payload — only which resource went stale — and the
  * authenticated fetch proxy remains the real access gate; this filter is
@@ -21,6 +21,7 @@ export const RESERVED_SYNC_TAG_PREFIXES = [
   "conversation:",
   "conversations:",
   "apps:",
+  "documents:",
   "plugins:",
   "feature-flags:",
 ] as const;

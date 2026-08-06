@@ -5,7 +5,7 @@ const enforceRoutingIntentMock = mock();
 const updateDecisionMock = mock();
 const runDeterministicChecksMock = mock();
 const createEventMock = mock();
-const updateEventDedupeKeyMock = mock();
+const setEventDedupeKeyMock = mock();
 const dispatchDecisionMock = mock();
 const isPlatformClientConfiguredMock = mock();
 
@@ -77,8 +77,7 @@ mock.module("../notifications/deterministic-checks.js", () => ({
 
 mock.module("../notifications/events-store.js", () => ({
   createEvent: (...args: unknown[]) => createEventMock(...args),
-  updateEventDedupeKey: (...args: unknown[]) =>
-    updateEventDedupeKeyMock(...args),
+  setEventDedupeKey: (...args: unknown[]) => setEventDedupeKeyMock(...args),
 }));
 
 mock.module("../notifications/runtime-dispatch.js", () => ({
@@ -104,7 +103,7 @@ beforeEach(() => {
   updateDecisionMock.mockReset();
   runDeterministicChecksMock.mockReset();
   createEventMock.mockReset();
-  updateEventDedupeKeyMock.mockReset();
+  setEventDedupeKeyMock.mockReset();
   dispatchDecisionMock.mockReset();
   isPlatformClientConfiguredMock.mockReset();
 

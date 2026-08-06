@@ -114,9 +114,9 @@ import {
   hasMessages,
   isBackgroundEventMetadata,
   isConversationProcessing,
-  isEchoSuppressedUserMessage,
   isHiddenMessageMetadata,
   isProviderErrorMetadata,
+  isSuppressedQueuedMessage,
   isSystemCardMetadata,
   type MessageRow,
   recordConversationPersistedSeq,
@@ -777,14 +777,17 @@ function buildQueuedMessagePayloads(
     return [];
   }
 
-  // Echo-suppressed sends (hidden machine signals and the daemon-injected
-  // subagent/ACP/background-event notifications) are absent from the
-  // transcript at every stage: echo, persisted row, and here the in-memory
-  // queue window. A latest-page fetch while such an item still awaits drain
-  // must not surface it as a queued bubble.
+  // Rows that never render as a user bubble are suppressed at every stage —
+  // echo, persisted row, and here the in-memory queue window: a latest-page
+  // fetch while the item still awaits drain must not surface it as a queued
+  // bubble. That covers hidden sends and the daemon's own injected
+  // notifications (a subagent's completion summary enqueued into a busy
+  // parent, an ACP run outcome, a wake trigger) — the user follows those
+  // through their inline cards, never as a queued message they could steer or
+  // cancel.
   return conversation
     .snapshotQueuedMessages()
-    .filter((item) => !isEchoSuppressedUserMessage(item.metadata))
+    .filter((item) => !isSuppressedQueuedMessage(item.metadata))
     .map((item, index) => {
       const text = item.displayContent ?? item.content;
       const attachments: RuntimeAttachmentMetadata[] = item.attachments.map(
@@ -1618,7 +1621,7 @@ export async function handleSendMessage(
     typeof body.clientTimezone === "string"
       ? (canonicalizeTimeZone(body.clientTimezone) ?? undefined)
       : undefined;
-  // Client OS surface ("web" | "ios" | "macos" | "android"), reported
+  // Client OS surface ("web" | "ios" | "macos" | "windows" | "android"), reported
   // separately from the transport `interface`. Validated against the dedicated
   // `ClientOs` value set (NOT the interface vocabulary) and only kept when it
   // resolves — it drives the per-turn `client_os:` context line, never
@@ -1743,6 +1746,11 @@ export async function handleSendMessage(
     mapping = getOrCreateConversation(resolvedConversationKey, {
       conversationType: "standard",
       title: onboardingTitle,
+      // This route already resolved the channel the message arrived on, and
+      // this is the seam that materializes the row, so the conversation is
+      // attributed from the moment it exists rather than on its first
+      // message.
+      origin: sourceChannel,
     });
   }
 
@@ -3144,7 +3152,7 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .optional()
         .describe(
-          'Client OS surface ("web" | "ios" | "macos" | "android"), reported separately from `interface`. Drives the per-turn `client_os` context only; does not affect transport/host-proxy capabilities.',
+          'Client OS surface ("web" | "ios" | "macos" | "windows" | "android"), reported separately from `interface`. Drives the per-turn `client_os` context only; does not affect transport/host-proxy capabilities.',
         ),
       visibleAppId: z
         .string()

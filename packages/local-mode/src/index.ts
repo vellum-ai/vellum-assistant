@@ -20,11 +20,18 @@ export {
   resolveLocalConfigFromEnv,
   resolveLockfilePaths,
   resolveConfigDir,
+  resolveConfigDirPaths,
+  resolveRuntimeDir,
+  resolveLogDir,
+  resolveAssistantsDir,
+  resolveInstanceDir,
   guardianTokenPath,
 } from "./config";
 export type { LocalEndpointConfig } from "./config";
+export type { LocalPathOptions } from "./paths";
 export {
   defaultEnvironmentFilePath,
+  defaultEnvironmentFilePaths,
   readDefaultEnvironment,
   resolveEnvironmentName,
 } from "./environment";

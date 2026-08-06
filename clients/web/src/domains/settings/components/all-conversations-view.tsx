@@ -29,9 +29,9 @@ import { invalidateConversationQueries } from "@/utils/conversation-cache";
 import { toast } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 import {
-  Dropdown,
-  type DropdownOption,
-} from "@vellumai/design-library/components/dropdown";
+  Select,
+  type SelectOption,
+} from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
 
 export interface AllConversationsViewProps {
@@ -42,7 +42,7 @@ export interface AllConversationsViewProps {
   onOpenConversation: (conversationId: string) => void;
 }
 
-const FILTER_ITEMS: DropdownOption<ConversationFilter>[] = [
+const FILTER_ITEMS: SelectOption<ConversationFilter>[] = [
   { value: "all", label: "All" },
   { value: "active", label: "Active" },
   { value: "archived", label: "Archived" },
@@ -254,7 +254,7 @@ export function AllConversationsView({
           }
           leftIcon={<Search size={16} />}
         />
-        <Dropdown<ConversationFilter>
+        <Select<ConversationFilter>
           aria-label="Filter conversations"
           value={filter}
           onChange={setFilter}

@@ -60,6 +60,7 @@ import {
   unregisterPluginInjectors,
 } from "../plugins/injector-registry.js";
 import { registerDeclaredCredentialKeyPatterns } from "../plugins/mtime-cache.js";
+import { runInPluginContext } from "../plugins/plugin-execution-context.js";
 import { getRegisteredPlugins, unregisterPlugin } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -318,7 +319,12 @@ async function initializePlugin(
 
     if (plugin.hooks?.[HOOKS.INIT]) {
       try {
-        await plugin.hooks[HOOKS.INIT](initContext);
+        // Marked in context for the same reason `runPluginPipeline` marks
+        // every other hook: host APIs the hook reaches (resolveCredential,
+        // resolveWebhookUrl) scope to the calling plugin.
+        await runInPluginContext(name, () =>
+          plugin.hooks![HOOKS.INIT]!(initContext),
+        );
       } catch (err) {
         throw new PluginExecutionError(
           `plugin ${name} init() failed: ${

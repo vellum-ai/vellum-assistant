@@ -52,7 +52,7 @@ mock.module("../daemon/conversation-store.js", () => ({
             | "background",
         });
       } else {
-        ensureConversationExists(conversationId);
+        ensureConversationExists(conversationId, "vellum");
       }
     }
     return {

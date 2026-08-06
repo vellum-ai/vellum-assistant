@@ -19,7 +19,6 @@ import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebViewClient;
 import com.getcapacitor.CapConfig;
-import com.getcapacitor.Logger;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginLoadException;
 import com.getcapacitor.PluginManager;
@@ -46,32 +45,62 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        NativeLaunchScreenPlugin.applySavedTheme(this);
-        boolean recoveredProcess = VoiceLiveActivityPlugin.clearRecoveredStatus(this);
-        if (
-            VoiceDeepLink.shouldSuppressRecoveredStatusLaunch(
-                recoveredProcess,
-                VoiceDeepLink.isStatusNotificationIntent(getIntent())
+        NativeFailureGuard.initialize(this);
+        NativeFailureGuard.run(
+            "Unable to apply the Android launch theme",
+            () -> NativeLaunchScreenPlugin.applySavedTheme(this)
+        );
+        boolean recoveredProcess = NativeFailureGuard.get(
+            "Unable to clear the recovered voice status",
+            () -> VoiceLiveActivityPlugin.clearRecoveredStatus(this),
+            false
+        );
+        NativeFailureGuard.run("Unable to normalize the Android launch intent", () -> {
+            if (
+                VoiceDeepLink.shouldSuppressRecoveredStatusLaunch(
+                    recoveredProcess,
+                    VoiceDeepLink.isStatusNotificationIntent(getIntent())
+                )
+            ) {
+                setIntent(VoiceDeepLink.clearedCommandIntent(getIntent()));
+            }
+        });
+        NativeFailureGuard.run(
+            "Unable to prepare the Android voice launch",
+            () -> prepareVoiceLaunch(getIntent())
+        );
+        pendingConnect = NativeFailureGuard.get(
+            "Unable to read the Android connect launch",
+            () -> {
+                ConnectDeepLink connect = takeRecreationConnect();
+                return connect == null ? consumeConnectIntent(getIntent()) : connect;
+            },
+            null
+        );
+        URI selectedServer = pendingConnect == null
+            ? NativeFailureGuard.get(
+                "Unable to read the saved self-hosted server",
+                () -> SelfHostedServer.configured(this),
+                null
             )
-        ) {
-            setIntent(VoiceDeepLink.clearedCommandIntent(getIntent()));
-        }
-        prepareVoiceLaunch(getIntent());
-        pendingConnect = takeRecreationConnect();
-        if (pendingConnect == null) {
-            pendingConnect = consumeConnectIntent(getIntent());
-        }
-        configureServer(pendingConnect == null ? SelfHostedServer.configured(this) : pendingConnect.server());
-        pendingAppLink = consumeAppLinkIntent(getIntent());
+            : pendingConnect.server();
+        configureServer(selectedServer);
+        pendingAppLink = NativeFailureGuard.get(
+            "Unable to read the Android app link",
+            () -> consumeAppLinkIntent(getIntent()),
+            null
+        );
         super.onCreate(savedInstanceState);
-        showLaunchScreen();
-        deliverPendingVoiceLaunch();
-        if (bridge != null) {
-            bridge.setWebViewClient(new SelfHostedWebViewClient(bridge, this));
-        }
-        deliverPendingAppLink();
-        deliverPendingConnect();
-        deliverPendingNewChat();
+        NativeFailureGuard.run("Unable to show the Android launch screen", this::showLaunchScreen);
+        NativeFailureGuard.run("Unable to deliver the Android voice launch", this::deliverPendingVoiceLaunch);
+        NativeFailureGuard.run("Unable to configure the Android WebView", () -> {
+            if (bridge != null) {
+                bridge.setWebViewClient(new SelfHostedWebViewClient(bridge, this));
+            }
+        });
+        NativeFailureGuard.run("Unable to deliver the Android app link", this::deliverPendingAppLink);
+        NativeFailureGuard.run("Unable to deliver the Android connect launch", this::deliverPendingConnect);
+        NativeFailureGuard.run("Unable to deliver the Android new chat launch", this::deliverPendingNewChat);
     }
 
     @Override
@@ -81,13 +110,15 @@ public class MainActivity extends BridgeActivity {
             plugins = new PluginManager(getAssets()).loadPluginClasses();
             plugins.removeIf(PushNotificationsPlugin.class::equals);
         } catch (PluginLoadException exception) {
-            Logger.error("Unable to load Capacitor plugins", exception);
+            NativeFailureGuard.record("Unable to load Capacitor plugins", exception);
             plugins = new ArrayList<>();
         }
         bridgeBuilder.setPlugins(plugins);
         registerPlugin(NativeAuthPlugin.class);
         registerPlugin(NativeBiometricPlugin.class);
+        registerPlugin(NativeFailureReportsPlugin.class);
         registerPlugin(NativeLaunchScreenPlugin.class);
+        registerPlugin(AndroidNotificationChannelsPlugin.class);
         registerPlugin(AndroidNotificationSettingsPlugin.class);
         registerPlugin(AndroidPushRegistrationPlugin.class);
         registerPlugin(VoiceAudioSessionPlugin.class);
@@ -202,16 +233,25 @@ public class MainActivity extends BridgeActivity {
 
     private void configureServer(URI selectedServer) {
         effectiveServer = selectedServer;
-        if (selectedServer == null) {
-            config = CapConfig.loadDefault(this);
-            return;
-        }
         try {
-            config = SelfHostedServer.overrideCapacitorConfig(this, selectedServer);
-        } catch (IOException | JSONException exception) {
-            Logger.error("Unable to apply the self-hosted server configuration", exception);
+            config = selectedServer == null
+                ? CapConfig.loadDefault(this)
+                : SelfHostedServer.overrideCapacitorConfig(this, selectedServer);
+        } catch (IOException | JSONException | RuntimeException exception) {
+            NativeFailureGuard.record(
+                "Unable to apply the self-hosted server configuration",
+                exception
+            );
             effectiveServer = null;
-            config = CapConfig.loadDefault(this);
+            try {
+                config = CapConfig.loadDefault(this);
+            } catch (RuntimeException fallbackException) {
+                NativeFailureGuard.record(
+                    "Unable to load the Android app configuration",
+                    fallbackException
+                );
+                config = new CapConfig.Builder(this).create();
+            }
         }
     }
 

@@ -102,14 +102,16 @@ describe("CollapsibleNavSection", () => {
     expect(html).toContain("text-body-medium-lighter");
   });
 
-  // No leading icon: the header's only glyph is the trailing disclosure
-  // chevron, whatever `icon` the caller passes.
-  test("renders no leading icon, just the trailing chevron", () => {
+  // Two glyphs: the caller's leading icon and the trailing disclosure
+  // chevron. The icon is the section's identity and the collapsed rail draws
+  // the same one, so a header that dropped it would put the two surfaces in
+  // disagreement.
+  test("renders the caller's leading icon alongside the trailing chevron", () => {
     const html = renderSingleSection({ value: "recents", label: "Recents" });
     const svgCount = (html.match(/<\/svg>/g) ?? []).length;
-    expect(svgCount).toBe(1);
+    expect(svgCount).toBe(2);
     expect(html).toContain("lucide-chevron-down");
-    expect(html).not.toContain("lucide-clock");
+    expect(html).toContain("lucide-clock");
   });
 
   // Regression: a polish pass once made the title a plain drag-only label,
@@ -217,5 +219,43 @@ describe("CollapsibleNavSection", () => {
     const html = renderSingleSection({ value: "recents", label: "Recents" });
     expect(html).toContain('data-slot="collapsible"');
     expect(html).toContain('data-slot="collapsible-nav-section-section"');
+  });
+});
+
+/**
+ * `sectionIcon` is the single answer to "what does this section look like",
+ * and the collapsed rail renders it, so a header must render the same glyph.
+ * A header that drops it puts the two surfaces in disagreement while every
+ * call site still reads as correct, since the `icon` prop is passed either
+ * way.
+ */
+describe("CollapsibleNavSection icon", () => {
+  /* Collapsed is covered above, by the test that counts both glyphs. The icon
+     is a property of the section, not of its open state, so expanded is a
+     distinct assertion rather than a restatement. */
+  test("renders the icon while expanded, not only while collapsed", () => {
+    const html = renderSingleSection({
+      value: "s",
+      label: "Scheduled",
+      defaultValue: ["s"],
+    });
+    expect(html).toContain('data-slot="collapsible-nav-section-icon"');
+  });
+
+  /* Keeps the two assertions above honest: without this, a component that
+     emitted the icon slot unconditionally would still pass them. */
+  test("renders no icon slot when the section has none", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        CollapsibleNavSection.Root,
+        { type: "multiple", defaultValue: [] },
+        createElement(
+          CollapsibleNavSection.Section,
+          { value: "s", label: "Scheduled" },
+          createElement("div", null, "child-content"),
+        ),
+      ),
+    );
+    expect(html).not.toContain('data-slot="collapsible-nav-section-icon"');
   });
 });

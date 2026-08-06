@@ -1,26 +1,33 @@
 import { createHash } from "node:crypto";
+import { unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-
-import { getWorkspaceDir } from "../paths.js";
+import { posix, win32 } from "node:path";
 
 const DARWIN_UNIX_SOCKET_MAX_PATH_BYTES = 103;
 const DEFAULT_UNIX_SOCKET_MAX_PATH_BYTES = 107;
 const IPC_TMP_DIR_NAME = "vellum-ipc";
+const join = posix.join;
 
 export type IpcSocketPathSource =
   | "env-override"
   | "workspace"
   | "tmp-hash"
-  | "tmp-short-hash";
+  | "tmp-short-hash"
+  | "windows-named-pipe";
 
 export interface IpcSocketPathResolution {
   path: string;
   source: IpcSocketPathSource;
 }
 
-function getUnixSocketMaxPathBytes(): number {
-  return process.platform === "darwin"
+export interface IpcEndpointOptions {
+  workspaceDir: string;
+  env?: Record<string, string | undefined>;
+  platform?: NodeJS.Platform;
+}
+
+function getUnixSocketMaxPathBytes(platform: NodeJS.Platform): number {
+  return platform === "darwin"
     ? DARWIN_UNIX_SOCKET_MAX_PATH_BYTES
     : DEFAULT_UNIX_SOCKET_MAX_PATH_BYTES;
 }
@@ -33,37 +40,71 @@ function isPathWithinSocketLimit(path: string, maxPathBytes: number): boolean {
  * Derive the env var name and socket filename from a socket name.
  *
  * Examples (hyphens in the name become underscores in the env var):
- *   "gateway"   → { envVar: "GATEWAY_IPC_SOCKET_DIR", fileName: "gateway.sock" }
- *   "assistant" → { envVar: "ASSISTANT_IPC_SOCKET_DIR", fileName: "assistant.sock" }
  */
 function deriveSocketNames(socketName: string): {
   envVar: string;
   fileName: string;
 } {
+  if (!/^[a-z][a-z0-9-]{0,63}$/.test(socketName)) {
+    throw new Error(`Invalid IPC endpoint name: ${socketName}`);
+  }
   const envVar = `${socketName.toUpperCase().replace(/-/g, "_")}_IPC_SOCKET_DIR`;
   const fileName = `${socketName}.sock`;
   return { envVar, fileName };
+}
+
+function resolveWindowsNamedPipe(
+  socketName: string,
+  workspaceDir: string,
+): IpcSocketPathResolution {
+  const workspaceIdentity = win32
+    .normalize(workspaceDir)
+    .replace(/\\+$/, "")
+    .toLowerCase();
+  const hash = createHash("sha256")
+    .update(`${workspaceIdentity}\0${socketName}`)
+    .digest("hex")
+    .slice(0, 24);
+  return {
+    path: `\\\\.\\pipe\\vellum-${socketName}-${hash}`,
+    source: "windows-named-pipe",
+  };
+}
+
+export function isNamedPipePath(endpointPath: string): boolean {
+  return /^\\\\[.?]\\pipe\\/.test(endpointPath);
+}
+
+export function removeIpcEndpointFile(endpointPath: string): void {
+  if (isNamedPipePath(endpointPath)) {
+    return;
+  }
+  try {
+    unlinkSync(endpointPath);
+  } catch {
+    // Already absent.
+  }
 }
 
 /**
  * Resolve the path to an IPC socket file.
  *
  * Resolution order:
- *   1. `${SOCKET_NAME}_IPC_SOCKET_DIR` env var override — used in
- *      containerized deployments (emptyDir volume) and by hatch on macOS
- *      when the workspace path would exceed the AF_UNIX limit.
- *   2. `{workspaceDir}/{socketName}.sock` — default for local dev.
- *   3. tmpdir fallback — if the workspace path exceeds the platform's
- *      AF_UNIX path limit (103 bytes on macOS, 107 on Linux).
+ * POSIX uses overrides, workspace paths, then bounded temporary paths.
+ * Windows uses deterministic named pipes.
  */
-export function resolveIpcSocketPath(
+export function resolveIpcEndpoint(
   socketName: string,
+  options: IpcEndpointOptions,
 ): IpcSocketPathResolution {
-  const workspaceDir = getWorkspaceDir();
   const { envVar, fileName } = deriveSocketNames(socketName);
+  const platform = options.platform ?? process.platform;
+  if (platform === "win32") {
+    return resolveWindowsNamedPipe(socketName, options.workspaceDir);
+  }
 
   // Explicit override via env var.
-  const envSocketDir = process.env[envVar]?.trim();
+  const envSocketDir = (options.env ?? process.env)[envVar]?.trim();
   if (envSocketDir) {
     return {
       path: join(envSocketDir, fileName),
@@ -71,8 +112,8 @@ export function resolveIpcSocketPath(
     };
   }
 
-  const maxPathBytes = getUnixSocketMaxPathBytes();
-  const workspacePath = join(workspaceDir, fileName);
+  const maxPathBytes = getUnixSocketMaxPathBytes(platform);
+  const workspacePath = join(options.workspaceDir, fileName);
 
   if (isPathWithinSocketLimit(workspacePath, maxPathBytes)) {
     return {
@@ -81,7 +122,7 @@ export function resolveIpcSocketPath(
     };
   }
 
-  // Workspace path exceeds AF_UNIX limit — fall back to tmpdir.
+  // Workspace path exceeds AF_UNIX limit - fall back to tmpdir.
   const hash = createHash("sha256")
     .update(workspacePath)
     .digest("hex")

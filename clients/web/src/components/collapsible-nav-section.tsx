@@ -23,7 +23,11 @@ import { isPointerCoarse } from "@/utils/pointer";
  * Navigation-specific collapsible section — composes the design library
  * `Collapsible` primitive with sidebar-tuned trigger styling:
  *
- *   - No leading icon. The title row is the one toggle target: a click
+ *   - Leading icon, at every state. `sectionIcon` is the single answer to
+ *     "what does this section look like", so a header and its collapsed-rail
+ *     tile show the same glyph; omit `icon` only for a section that has
+ *     none.
+ *   - The title row is the one toggle target: a click
  *     expands or collapses the section, while click-and-hold-and-move
  *     still drags it (see `drag`): HTML5 drag only starts on movement,
  *     so the two coexist on one surface. The chevron on the trailing
@@ -209,6 +213,19 @@ function CollapsibleNavSectionSection({
   // accessible toggle per section.
   const titleTriggerRef = useRef<HTMLButtonElement>(null);
 
+  /* One slot for both header branches. The collapsible and non-collapsible
+     headers show the same glyph on the same axis, so they read it from here
+     rather than each rendering their own copy. */
+  const iconSlot = Icon ? (
+    <span
+      data-slot="collapsible-nav-section-icon"
+      className="relative inline-flex h-[14px] shrink-0 items-center justify-center"
+      style={{ width: SIDEBAR_CHIP_SIZE }}
+    >
+      <Icon size={12} aria-hidden className="text-[var(--content-tertiary)]" />
+    </span>
+  ) : null;
+
   const headerEl = (
     <div
       data-slot="collapsible-nav-section-header"
@@ -252,6 +269,7 @@ function CollapsibleNavSectionSection({
             gap: SIDEBAR_CHIP_GAP,
           }}
         >
+          {iconSlot}
           <span className="min-w-0 flex-1 truncate">{label}</span>
           {collapsedIndicator ? (
             <span className="ml-1 flex shrink-0 items-center group-data-[state=open]/section:hidden">
@@ -277,14 +295,7 @@ function CollapsibleNavSectionSection({
             gap: SIDEBAR_CHIP_GAP,
           }}
         >
-          {Icon ? (
-            <span
-              className="relative inline-flex h-[14px] shrink-0 items-center justify-center"
-              style={{ width: SIDEBAR_CHIP_SIZE }}
-            >
-              <Icon size={12} aria-hidden className="text-[var(--content-tertiary)]" />
-            </span>
-          ) : null}
+          {iconSlot}
           <span className="min-w-0 flex-1 truncate">{label}</span>
         </div>
       )}

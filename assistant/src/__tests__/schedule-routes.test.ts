@@ -1,3 +1,5 @@
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../heartbeat/heartbeat-service.js", () => ({
@@ -63,8 +65,12 @@ import {
   completeScheduleRun,
   createSchedule,
   createScheduleRun,
+  type DeclaredScheduleDefinition,
   listSchedules,
+  upsertDeclaredSchedule,
 } from "../schedule/schedule-store.js";
+import { getWorkspacePluginsDir } from "../util/platform.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 await initializeDb();
 
@@ -1405,6 +1411,242 @@ describe("PATCH /schedules/:id — description", () => {
         body: { expression: "not a schedule" },
       }),
     ).rejects.toThrow(BadRequestError);
+  });
+});
+
+// ── Plugin-sourced schedules ──────────────────────────────────────────────
+
+describe("plugin-sourced schedules over routes", () => {
+  const SOURCE_KEY = "plugin:example-plugin/daily-digest";
+
+  // The store's enable path probes the declaration's on-disk presence and its
+  // plugin's manifest before re-arming, so the suite keeps a declaration
+  // directory and a valid package.json in place.
+  beforeEach(() => {
+    clearTables();
+    const pluginDir = join(getWorkspacePluginsDir(), "example-plugin");
+    rmSync(pluginDir, { recursive: true, force: true });
+    const declarationDir = join(pluginDir, "schedules", "daily-digest");
+    mkdirSync(declarationDir, { recursive: true });
+    writeFileSync(
+      join(declarationDir, "config.json"),
+      JSON.stringify({ expression: "0 9 * * *" }),
+    );
+    writeFileSync(join(declarationDir, "index.md"), "produce the digest\n");
+    writeFileSync(
+      join(pluginDir, "package.json"),
+      JSON.stringify({ name: "example-plugin", version: "1.0.0" }),
+    );
+    // The feature ships off, so the cases below run under an explicit flag.
+    setOverridesForTesting({ "plugin-schedules": true });
+  });
+
+  function seedSourcedSchedule(
+    overrides: Partial<DeclaredScheduleDefinition> = {},
+  ) {
+    return upsertDeclaredSchedule(SOURCE_KEY, {
+      name: "Daily digest",
+      description: "Summarize the day",
+      syntax: "cron",
+      expression: "0 9 * * *",
+      message: "produce the digest",
+      mode: "execute",
+      enabled: true,
+      definitionHash: "hash-1",
+      ...overrides,
+    });
+  }
+
+  type SerializedEntry = {
+    id: string;
+    enabled: boolean;
+    sourceKey: string | null;
+    userEnabled: boolean | null;
+  };
+
+  test("list serializes sourceKey and userEnabled for sourced and imperative rows", async () => {
+    const sourced = await seedSourcedSchedule();
+    const imperative = await createSchedule({
+      name: "Imperative schedule",
+      cronExpression: "* * * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+
+    const route = findRoute("schedules", "GET");
+    const result = (await route.handler({})) as {
+      schedules: SerializedEntry[];
+    };
+    const byId = new Map(result.schedules.map((s) => [s.id, s]));
+
+    expect(byId.get(sourced.id)).toMatchObject({
+      sourceKey: SOURCE_KEY,
+      userEnabled: null,
+    });
+    expect(byId.get(imperative.id)).toMatchObject({
+      sourceKey: null,
+      userEnabled: null,
+    });
+  });
+
+  test("toggle on a sourced row records and round-trips the user override", async () => {
+    const sourced = await seedSourcedSchedule();
+    const route = findRoute("schedules/:id/toggle", "POST");
+
+    const disabled = (await route.handler({
+      pathParams: { id: sourced.id },
+      body: { enabled: false },
+    })) as { schedules: SerializedEntry[] };
+    expect(disabled.schedules.find((s) => s.id === sourced.id)).toMatchObject({
+      enabled: false,
+      userEnabled: false,
+    });
+
+    const enabled = (await route.handler({
+      pathParams: { id: sourced.id },
+      body: { enabled: true },
+    })) as { schedules: SerializedEntry[] };
+    expect(enabled.schedules.find((s) => s.id === sourced.id)).toMatchObject({
+      enabled: true,
+      userEnabled: true,
+    });
+  });
+
+  test("toggle on an imperative row keeps userEnabled null", async () => {
+    const imperative = await createSchedule({
+      name: "Imperative toggle",
+      cronExpression: "* * * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+
+    const route = findRoute("schedules/:id/toggle", "POST");
+    const result = (await route.handler({
+      pathParams: { id: imperative.id },
+      body: { enabled: false },
+    })) as { schedules: SerializedEntry[] };
+
+    expect(result.schedules.find((s) => s.id === imperative.id)).toMatchObject({
+      enabled: false,
+      userEnabled: null,
+    });
+  });
+
+  test("PATCH on a sourced row surfaces the store refusal as a 400", async () => {
+    const sourced = await seedSourcedSchedule();
+    const route = findRoute("schedules/:id", "PATCH");
+    const patch = () =>
+      route.handler({
+        pathParams: { id: sourced.id },
+        body: { name: "Renamed" },
+      });
+
+    await expect(patch()).rejects.toThrow(BadRequestError);
+    await expect(patch()).rejects.toThrow(
+      "This schedule is managed by a plugin. Edit the plugin's schedule file instead.",
+    );
+  });
+
+  test("DELETE on a sourced row surfaces the store refusal as a 400", async () => {
+    const sourced = await seedSourcedSchedule();
+    const route = findRoute("schedules/:id", "DELETE");
+    const remove = () => route.handler({ pathParams: { id: sourced.id } });
+
+    await expect(remove()).rejects.toThrow(BadRequestError);
+    await expect(remove()).rejects.toThrow(
+      "This schedule is managed by a plugin and cannot be deleted. Disable it instead, or remove the plugin's schedule file.",
+    );
+  });
+
+  test("cancel on a sourced row surfaces the store refusal as a 400", async () => {
+    const sourced = await seedSourcedSchedule();
+    const route = findRoute("schedules/:id/cancel", "POST");
+    const cancel = () => route.handler({ pathParams: { id: sourced.id } });
+
+    await expect(cancel()).rejects.toThrow(BadRequestError);
+    await expect(cancel()).rejects.toThrow(
+      "This schedule is managed by a plugin and cannot be cancelled. Disable it instead via the enabled toggle.",
+    );
+  });
+
+  describe("run now", () => {
+    const RUN_MARKER = join(getWorkspacePluginsDir(), "run-now-marker.txt");
+
+    beforeEach(() => {
+      rmSync(RUN_MARKER, { force: true });
+    });
+
+    function seedSourcedScript() {
+      return seedSourcedSchedule({
+        mode: "script",
+        script: `touch ${RUN_MARKER}`,
+        message: "",
+      });
+    }
+
+    async function runNow(id: string) {
+      return findRoute("schedules/:id/run", "POST").handler({
+        pathParams: { id },
+      });
+    }
+
+    test("refuses a sourced row whose plugin is disabled", async () => {
+      const sourced = await seedSourcedScript();
+      writeFileSync(
+        join(getWorkspacePluginsDir(), "example-plugin", ".disabled"),
+        "",
+      );
+
+      await expect(runNow(sourced.id)).rejects.toThrow(BadRequestError);
+      // Refused before execution: the plugin's script never ran.
+      expect(existsSync(RUN_MARKER)).toBe(false);
+    });
+
+    test("refuses a sourced row while the feature flag is off", async () => {
+      const sourced = await seedSourcedScript();
+      setOverridesForTesting({ "plugin-schedules": false });
+
+      await expect(runNow(sourced.id)).rejects.toThrow(BadRequestError);
+      expect(existsSync(RUN_MARKER)).toBe(false);
+    });
+
+    test("refuses a sourced row whose declaration is gone", async () => {
+      const sourced = await seedSourcedScript();
+      rmSync(
+        join(
+          getWorkspacePluginsDir(),
+          "example-plugin",
+          "schedules",
+          "daily-digest",
+        ),
+        { recursive: true, force: true },
+      );
+
+      await expect(runNow(sourced.id)).rejects.toThrow(BadRequestError);
+      expect(existsSync(RUN_MARKER)).toBe(false);
+    });
+
+    test("runs a sourced row whose plugin is healthy", async () => {
+      const sourced = await seedSourcedScript();
+
+      await runNow(sourced.id);
+
+      expect(existsSync(RUN_MARKER)).toBe(true);
+    });
+
+    test("runs an imperative row", async () => {
+      const imperative = await createSchedule({
+        name: "Imperative script",
+        cronExpression: "* * * * *",
+        message: "",
+        mode: "script",
+        script: `touch ${RUN_MARKER}`,
+      });
+
+      await runNow(imperative.id);
+
+      expect(existsSync(RUN_MARKER)).toBe(true);
+    });
   });
 });
 

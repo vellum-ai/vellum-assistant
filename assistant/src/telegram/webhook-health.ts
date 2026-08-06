@@ -79,12 +79,33 @@ const ERROR_RECENCY_WINDOW_MS = 15 * 60_000;
 // ── Types ─────────────────────────────────────────────────────────────
 
 export type TelegramWebhookHealthStatus =
-  /** Webhook registered, no recent delivery errors. */
+  /**
+   * Telegram holds the URL the reconciler last registered, and reports no
+   * recent delivery error. This is the only status that may be presented as
+   * confirmed delivery.
+   */
   | "healthy"
   /** Telegram holds no webhook URL at all — the channel is definitively dark. */
   | "not_registered"
+  /**
+   * Telegram holds a webhook URL, but not the one the reconciler registered.
+   * A stale tunnel address or another deployment's callback delivers to
+   * somewhere this assistant is not listening, which reads identically to a
+   * healthy channel until someone sends a message. This is the case
+   * `last_error_date` cannot see on a quiet channel (see the module header's
+   * known limitation).
+   */
+  | "url_mismatch"
   /** Telegram reported a delivery error inside the recency window. */
   | "delivery_failing"
+  /**
+   * A webhook is registered and not erroring, but the reconciler has not
+   * recorded which URL it registered, so ownership cannot be established.
+   * Expected transiently between the credential save and reconciliation, and
+   * persistently for deployments whose last registration predates recording.
+   * Distinct from `healthy` because "no fault found" is not "verified".
+   */
+  | "unverified"
   /** Preconditions unmet (no bot token / no webhook routing) — nothing to check. */
   | "skipped"
   /** Telegram was unreachable or answered unusably — health is unknown. */
@@ -97,6 +118,10 @@ export interface TelegramWebhookHealthResult {
   lastErrorMessage?: string;
   lastErrorDate?: number;
   pendingUpdateCount?: number;
+  /** The URL Telegram currently holds, when one is registered. */
+  registeredUrl?: string;
+  /** The URL the reconciler recorded, when it has recorded one. */
+  expectedUrl?: string;
 }
 
 /**
@@ -130,6 +155,28 @@ function telegramApiBaseUrl(): string {
     return getConfig().telegram.apiBaseUrl.replace(/\/+$/, "");
   } catch {
     return "https://api.telegram.org";
+  }
+}
+
+/**
+ * The webhook URL the gateway reconciler recorded on its last successful
+ * `setWebhook`, or undefined when it has never recorded one.
+ *
+ * This is deliberately a stored fact rather than a re-derivation. The gateway
+ * and the assistant already maintain mirrored copies of the routing tier order
+ * (`resolveExpectedTelegramWebhookUrl` and `hasWebhookRoutingConfigured`, which
+ * cross-reference each other in comments after LUM-2899), and a third copy here
+ * would be a third thing to keep in agreement. It also lets the managed path be
+ * checked at all: resolving a platform callback URL means POSTing a route
+ * registration, which a read-only health check must not do.
+ */
+function recordedWebhookUrl(): string | undefined {
+  try {
+    const recorded = getConfig().telegram.registeredWebhookUrl;
+    const trimmed = recorded?.trim();
+    return trimmed ? trimmed : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -246,6 +293,27 @@ export async function checkTelegramWebhookHealth(): Promise<TelegramWebhookHealt
     };
   }
 
+  const registeredUrl = info.url.trim();
+  const expectedUrl = recordedWebhookUrl();
+
+  // Ownership is checked before delivery errors on purpose. When Telegram is
+  // pointed somewhere we never registered, any error it reports describes
+  // delivery to that other destination, so reporting the error would name a
+  // symptom while the mismatch is the cause, and the two have different fixes
+  // (re-run reconciliation vs. investigate a reachable ingress).
+  if (expectedUrl && registeredUrl !== expectedUrl) {
+    return {
+      status: "url_mismatch",
+      detail:
+        `${label} is registered with Telegram at a different address than this assistant ` +
+        `last registered, so its messages are being delivered somewhere this assistant is not ` +
+        `listening. ${fixPath(usesManagedCallbacks)}`,
+      registeredUrl,
+      expectedUrl,
+      ...(pendingUpdateCount !== undefined ? { pendingUpdateCount } : {}),
+    };
+  }
+
   const lastErrorDate = info.last_error_date;
   const errorIsRecent =
     lastErrorDate !== undefined &&
@@ -270,9 +338,28 @@ export async function checkTelegramWebhookHealth(): Promise<TelegramWebhookHealt
     };
   }
 
+  if (!expectedUrl) {
+    // A webhook is registered and quiet, but nothing recorded which URL we
+    // registered, so this cannot be distinguished from a stranger's webhook
+    // that happens not to be erroring. Reporting "healthy" here is the
+    // overclaim this status exists to prevent.
+    return {
+      status: "unverified",
+      detail:
+        `${label} has a webhook registered with Telegram and reports no recent delivery errors, ` +
+        `but this assistant has no record of registering it, so it cannot confirm the messages ` +
+        `reach here. Re-running setup records the registration.`,
+      registeredUrl,
+      ...(lastErrorDate !== undefined ? { lastErrorDate } : {}),
+      ...(pendingUpdateCount !== undefined ? { pendingUpdateCount } : {}),
+    };
+  }
+
   return {
     status: "healthy",
-    detail: `${label} webhook is registered and reporting no recent delivery errors`,
+    detail: `${label} is registered at the address this assistant last set, and Telegram reports no recent delivery errors`,
+    registeredUrl,
+    expectedUrl,
     ...(lastErrorDate !== undefined ? { lastErrorDate } : {}),
     ...(pendingUpdateCount !== undefined ? { pendingUpdateCount } : {}),
   };
@@ -385,7 +472,18 @@ export async function runTelegramWebhookHealthCheck(): Promise<TelegramWebhookHe
   // Neither evidence of health nor of failure — leave the latch as-is so an
   // unreachable Telegram (or a channel that isn't set up) can't either raise a
   // false alarm or silently clear a real one.
-  if (result.status === "skipped" || result.status === "unknown") {
+  //
+  // `unverified` belongs here rather than with the failures below: a webhook
+  // that is registered and quiet, on a deployment that never recorded its
+  // registration, is unproven, not broken. Alerting on it would page the
+  // guardian about every install whose last reconciliation predates URL
+  // recording. Note the asymmetry with `url_mismatch`, which falls through to
+  // the alert: there we know the address is wrong, which is a fault.
+  if (
+    result.status === "skipped" ||
+    result.status === "unknown" ||
+    result.status === "unverified"
+  ) {
     log.debug({ status: result.status }, result.detail);
     return result;
   }

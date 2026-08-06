@@ -2,11 +2,12 @@
  * The `VellumBridge` interface — the shape of `window.vellum` as
  * implemented by the Electron preload script.
  *
- * All surfaces are required: the preload implements every method, so this
- * interface type-checks completeness at the implementation site. The
- * renderer's `declare global` makes version-skew-tolerant surfaces
- * optional (older preloads may not expose them), which is a separate
- * concern handled at the consumer site.
+ * Capability surfaces are required: the preload implements every method, so
+ * this interface type-checks completeness at the implementation site.
+ * Compatibility discriminators can be optional when an absent field has a
+ * defined fallback. The renderer's `declare global` also makes
+ * version-skew-tolerant capabilities optional because older preloads may not
+ * expose them.
  *
  * This is the single canonical definition of the bridge shape. The
  * preload types its `contextBridge.exposeInMainWorld` value against this
@@ -17,6 +18,7 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
   DictationOverlayMessage,
@@ -40,6 +42,10 @@ import type {
   TextInsertionResult,
   UpdateState,
   VellumCommand,
+  VoiceActivityContent,
+  VoiceActivityControl,
+  VoiceActivityStart,
+  VoiceActivityState,
 } from "./types";
 
 /**
@@ -58,6 +64,8 @@ export interface LocalUpgradeOptions {
   force?: boolean;
 }
 
+export type ElectronHostOS = "macos" | "windows";
+
 /**
  * Result of `localMode.connectImport`. On success `assistantId` is the unique
  * local id the pairing was registered under, and `accessOnly` is true when the
@@ -69,6 +77,7 @@ export type LocalConnectImportResult =
 
 export interface VellumBridge {
   platform: "electron";
+  hostOS?: ElectronHostOS;
   app: {
     versionInfo(): Promise<AppVersionInfo>;
     openWebsite(): Promise<void>;
@@ -282,6 +291,41 @@ export interface VellumBridge {
     requestStop(): void;
     onStopRequested(callback: () => void): () => void;
     setInteractive(interactive: boolean): void;
+  };
+  /**
+   * The floating live-voice session surface (macOS). Two renderers use
+   * different halves: the main window drives `start`/`update`/`end` and
+   * listens for `onControl`; the panel's own route reads `getState`/`onState`
+   * and sends `control`.
+   */
+  voiceActivity: {
+    start(state: VoiceActivityStart): void;
+    update(content: VoiceActivityContent): void;
+    end(): void;
+    getState(): Promise<VoiceActivityState | null>;
+    onState(callback: (state: VoiceActivityState | null) => void): () => void;
+    control(control: VoiceActivityControl): void;
+    onControl(callback: (control: VoiceActivityControl) => void): () => void;
+    /** Bring the app forward, the panel's way back to the conversation. */
+    activate(): void;
+    /** Hide the window. The session keeps running. */
+    dismiss(): void;
+    /** Shrink to the chip, or restore. */
+    setCollapsed(collapsed: boolean): void;
+  };
+  /**
+   * The always-present companion surface (macOS). Only the surface's own route
+   * uses it: it reads the anchor main computed from the window's position, and
+   * reports whether the pointer is over the pill so main can make the window
+   * clickable without the transparent canvas swallowing clicks meant for
+   * whatever is behind it.
+   */
+  companion: {
+    getState(): Promise<CompanionSurfaceState | null>;
+    onState(callback: (state: CompanionSurfaceState) => void): () => void;
+    setInteractive(interactive: boolean): void;
+    /** Nudge the window, for dragging the surface around the desktop. */
+    moveBy(dx: number, dy: number): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;

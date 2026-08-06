@@ -199,6 +199,37 @@ describe("assistant channels list", () => {
     expect(document.body.textContent).not.toContain("Telegram isn't connected");
   });
 
+  test("a half-finished channel offers to finish rather than pitching setup", () => {
+    // Credentials stored but not delivering resolves to `incomplete`, which is
+    // reachable on any channel with remote checks: Slack lands here when its
+    // scopes are silently dropped, Telegram when the webhook never registers.
+    // Pitching the channel would hide that setup already happened.
+    const prompts: string[] = [];
+    renderList({
+      channels: [
+        { key: "slack", status: "ready", address: "@vex" },
+        { key: "telegram", status: "incomplete" },
+        { key: "phone", status: "not_configured" },
+      ],
+      onSetup: (key, incomplete) =>
+        prompts.push(`${key}:${incomplete ? "finish" : "fresh"}`),
+    });
+
+    fireEvent.click(adapterRow("Telegram"));
+    expect(document.body.textContent).toContain("Telegram isn't working yet");
+    expect(document.body.textContent).not.toContain("Telegram isn't connected");
+
+    const finish = Array.from(document.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("Finish setup with your assistant"),
+    );
+    expect(finish).toBeDefined();
+    fireEvent.click(finish!);
+
+    // The assistant is told setup is part-done, so it picks up where it left
+    // off instead of starting over.
+    expect(prompts).toEqual(["telegram:finish"]);
+  });
+
   test("a setup deep link selects that adapter and opens the setup wizard directly", () => {
     // The mobile chat-drawer handoff navigates to `?setup=<channel>` to
     // continue setup here — it must land on the wizard, not the empty state

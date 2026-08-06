@@ -158,12 +158,11 @@ function snapshotRing(ring: Ring): DiagnosticsEvent[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the runtime platform tag for telemetry ("web" | "ios" | "macos" |
- * "android").
+ * Resolve the runtime platform tag for telemetry.
  *
  * Shares the product `detectClientOs()` so analytics and the assistant's
- * `client_os` context agree — notably it distinguishes mobile-web (iOS/Android
- * phone browsers) and the macOS Electron app, which the previous
+ * `client_os` context agree. It distinguishes mobile-web (iOS/Android phone
+ * browsers) and the Electron desktop apps, which a
  * `Capacitor.getPlatform()`-only tag collapsed into `web`. Wrapped so a
  * telemetry tag never throws into the calling hot path.
  */

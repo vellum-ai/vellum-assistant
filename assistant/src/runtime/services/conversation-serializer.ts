@@ -22,6 +22,7 @@ import {
   getDisplayMetaForConversations,
   isConversationProcessing,
 } from "../../persistence/conversation-crud.js";
+import { isReferentialFork } from "../../persistence/conversation-lineage.js";
 import type { ExternalConversationBinding } from "../../persistence/external-conversation-store.js";
 import { getBindingsForConversations } from "../../persistence/external-conversation-store.js";
 
@@ -64,14 +65,24 @@ function buildAssistantAttention(attentionState: AttentionState | undefined):
   };
 }
 
-function buildForkParent(
+interface ForkLineage {
+  forkParent?: { conversationId: string; messageId: string; title: string };
+  /**
+   * The fork reads its history from a parent that is gone. Only meaningful for
+   * referential forks: a cloning fork holds its own copy, so a deleted parent
+   * costs it nothing and is not worth telling the user about.
+   */
+  historyOrphaned?: true;
+}
+
+function buildForkLineage(
   conversation: ConversationRow,
   parentCache: Map<string, ConversationRow | null>,
-): { conversationId: string; messageId: string; title: string } | undefined {
+): ForkLineage {
   const parentConversationId = conversation.forkParentConversationId;
   const parentMessageId = conversation.forkParentMessageId;
   if (!parentConversationId || !parentMessageId) {
-    return undefined;
+    return {};
   }
 
   let parentConversation: ConversationRow | null | undefined =
@@ -81,13 +92,17 @@ function buildForkParent(
     parentCache.set(parentConversationId, parentConversation);
   }
   if (!parentConversation) {
-    return undefined;
+    // The parent lookup already happened, so reporting the orphan costs
+    // nothing beyond the branch.
+    return isReferentialFork(conversation) ? { historyOrphaned: true } : {};
   }
 
   return {
-    conversationId: parentConversationId,
-    messageId: parentMessageId,
-    title: parentConversation.title ?? "Untitled",
+    forkParent: {
+      conversationId: parentConversationId,
+      messageId: parentMessageId,
+      title: parentConversation.title ?? "Untitled",
+    },
   };
 }
 
@@ -174,7 +189,7 @@ export function serializeConversationSummary(params: {
   } = params;
   const originChannel = parseChannelId(conversation.originChannel);
   const assistantAttention = buildAssistantAttention(attentionState);
-  const forkParent = buildForkParent(conversation, parentCache);
+  const forkLineage = buildForkLineage(conversation, parentCache);
 
   return {
     id: conversation.id,
@@ -208,7 +223,7 @@ export function serializeConversationSummary(params: {
       conversation,
       displayMeta?.groupId ?? null,
     ),
-    ...(forkParent ? { forkParent } : {}),
+    ...forkLineage,
     ...(conversation.archivedAt != null
       ? { archivedAt: conversation.archivedAt }
       : {}),

@@ -176,6 +176,9 @@ export async function startCes(config: AssistantConfig): Promise<void> {
       },
     });
     if (client) {
+      log.info(
+        "CES client injected into credential resolver at startup; credential reads route through CES RPC",
+      );
       setCesClient(client);
     } else {
       // The handshake lost the startup race, so provider init proceeds on the

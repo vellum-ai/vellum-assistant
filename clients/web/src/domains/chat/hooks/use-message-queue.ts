@@ -77,10 +77,13 @@ export function useMessageQueue({
           (m) =>
             m.role === "user" &&
             m.queueStatus === "queued" &&
-            // Daemon-injected run lifecycle notifications (subagent, ACP, wake
-            // trigger) are user-role rows the LLM reads, not sends the user is
-            // waiting on. The transcript already skips them; the drawer must
-            // too, or they show up as messages the user never wrote.
+            // Daemon-injected run lifecycle notifications are internal
+            // scaffolding, not something the user typed: the transcript already
+            // drops them (see `buildTranscriptItems`), and the queue drawer —
+            // which offers steer/cancel on a person's own pending prompts —
+            // must drop them for the same reason. The daemon keeps them out of
+            // its queued snapshot too; this is the client-side half of that
+            // invariant.
             !m.isSubagentNotification &&
             !m.isAcpNotification &&
             !m.isBackgroundEventNotification,

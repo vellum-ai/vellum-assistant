@@ -48,6 +48,10 @@ import {
   startFileDescriptorMonitor,
 } from "./file-descriptors.js";
 import {
+  type PluginAutoUpdateHandle,
+  startPluginAutoUpdate,
+} from "./plugin-auto-update.js";
+import {
   type PluginSourceWatchHandle,
   startPluginSourceWatch,
 } from "./plugin-source-watch.js";
@@ -90,6 +94,7 @@ async function main(): Promise<void> {
   let sampler: ResourceSamplerHandle | null = null;
   let fdMonitor: FileDescriptorMonitorHandle | null = null;
   let sourceWatch: PluginSourceWatchHandle | null = null;
+  let autoUpdate: PluginAutoUpdateHandle | null = null;
   let recovery: RecoveryHandle | null = null;
 
   let shuttingDown = false;
@@ -104,6 +109,7 @@ async function main(): Promise<void> {
     stopConfigSnapshotReporter();
     stopMemoryTierReporter();
     stopDbIntegritySampler();
+    autoUpdate?.stop();
     sourceWatch?.stop();
     fdMonitor?.stop();
     sampler?.stop();
@@ -153,6 +159,10 @@ async function main(): Promise<void> {
   sourceWatch = startPluginSourceWatch(
     config.monitoring.pluginSourceScanIntervalMs,
   );
+  // Unattended plugin upgrades, when the workspace opted in
+  // (`pluginUpdates.mode: "auto"`). The loop starts either way — the pass
+  // reads the mode, so flipping it takes effect without a restart.
+  autoUpdate = startPluginAutoUpdate();
   // Crash recovery runs here, off the daemon's boot path and event loop.
   recovery = startRecovery();
 
@@ -181,6 +191,7 @@ async function main(): Promise<void> {
   process.on("uncaughtException", (err) => {
     log.error({ err }, "Uncaught exception in resource monitor process");
     recovery?.stop();
+    autoUpdate?.stop();
     sourceWatch?.stop();
     fdMonitor?.stop();
     sampler?.stop();
@@ -192,6 +203,7 @@ async function main(): Promise<void> {
   process.on("unhandledRejection", (reason) => {
     log.error({ reason }, "Unhandled rejection in resource monitor process");
     recovery?.stop();
+    autoUpdate?.stop();
     sourceWatch?.stop();
     fdMonitor?.stop();
     sampler?.stop();
@@ -202,6 +214,7 @@ async function main(): Promise<void> {
 
   process.on("exit", () => {
     recovery?.stop();
+    autoUpdate?.stop();
     sourceWatch?.stop();
     fdMonitor?.stop();
     sampler?.stop();

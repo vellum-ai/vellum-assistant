@@ -26,6 +26,7 @@ import {
   addMessage,
   isEchoSuppressedUserMessage,
   isHiddenMessageMetadata,
+  isSuppressedQueuedMessage,
   provenanceFromTrustContext,
   recordConversationPersistedSeq,
   setConversationOriginChannelIfUnset,
@@ -285,9 +286,9 @@ async function buildPassthroughBatch(
       break;
     }
     // The batched turn applies only the head's `clientOs`, so messages from a
-    // different OS surface must not coalesce. The web, iOS, and macOS apps all
+    // different OS surface must not coalesce. Browser, mobile, and desktop apps
     // report `interfaceId: "web"`, so the interface check above no longer
-    // separates them — split on the reported OS explicitly.
+    // separates them, so split on the reported OS explicitly.
     if (candidate.transport?.clientOs !== head.transport?.clientOs) {
       break;
     }
@@ -412,20 +413,20 @@ function repairPendingToolUseBlocks(conversation: Conversation): void {
  * message clients still believe is running from one they never stopped
  * showing as queued. See {@link requeueDrainedMessages}.
  *
- * Queue events come in pairs. An echo-suppressed enqueue (subagent/ACP/
- * background-event notification, hidden machine send) never produced a
- * `message_queued` ack, so releasing one produces no dequeue either: an
- * unpaired dequeue would retire a client's counter entry for a message that is
- * still waiting. Nothing was announced, so the flag stays false and the requeue
- * paths correctly send nothing for it. The activity-state transition callers
- * emit alongside this is unrelated to the queue and always fires: the turn
- * really is starting.
+ * Queue events come in pairs. A row with no client-visible queued counterpart
+ * ({@link isSuppressedQueuedMessage} — hidden sends and the daemon-injected
+ * subagent/ACP/wake notifications) never produced a `message_queued` ack, so
+ * releasing one produces no dequeue either: an unpaired dequeue would retire a
+ * client's counter entry for a message that is still waiting. Nothing was
+ * announced, so the flag stays false and the requeue paths correctly send
+ * nothing for it. The activity-state transition callers emit alongside this is
+ * unrelated to the queue and always fires: the turn really is starting.
  */
 function announceDequeue(
   conversation: Conversation,
   message: QueuedMessage,
 ): void {
-  if (isEchoSuppressedUserMessage(message.metadata)) {
+  if (isSuppressedQueuedMessage(message.metadata)) {
     return;
   }
   message.onEvent({
@@ -452,7 +453,7 @@ function visibleQueuePosition(
 ): number | undefined {
   let position = 0;
   for (const item of conversation.queue.snapshot()) {
-    if (isEchoSuppressedUserMessage(item.metadata)) {
+    if (isSuppressedQueuedMessage(item.metadata)) {
       continue;
     }
     position += 1;
@@ -478,9 +479,10 @@ function visibleQueuePosition(
  * `message_dequeued` and would otherwise see the row vanish until a later
  * drain. Messages requeued before the announcement (the pre-flight
  * processing-lock checks) get nothing, because clients never stopped showing
- * them as queued and an event there would be noise. Echo-suppressed sends
- * (hidden sends and daemon-injected notifications alike) are suppressed for the
- * same reason they get no queued ack: they have no client row.
+ * them as queued and an event there would be noise. Rows with no client-visible
+ * queued counterpart ({@link isSuppressedQueuedMessage} — hidden sends and
+ * daemon-injected subagent/ACP/wake notifications) are suppressed for the same
+ * reason they get no queued ack: they have no client row.
  */
 function requeueDrainedMessages(
   conversation: Conversation,
@@ -507,7 +509,7 @@ function requeueDrainedMessages(
       continue;
     }
     message.dequeueAnnounced = false;
-    if (isEchoSuppressedUserMessage(message.metadata)) {
+    if (isSuppressedQueuedMessage(message.metadata)) {
       continue;
     }
     const position = visibleQueuePosition(conversation, message.requestId);
@@ -673,12 +675,13 @@ export async function kickQueueDrain(
       "drainQueue retry rejected; queued messages remain stranded until the next drain trigger",
     );
     // Only the sends a user is waiting on get the failure notice. A stranded
-    // echo-suppressed enqueue (subagent/ACP/background-event notification,
-    // hidden machine signal) has no queued bubble to explain, so a "your
-    // queued message" error would describe something the user never sent.
+    // row with no client-visible queued counterpart (hidden machine signal,
+    // daemon-injected subagent/ACP/wake notification) has no queued bubble to
+    // explain, so a "your queued message" error would describe something the
+    // user never sent.
     const strandedVisible = conversation.queue
       .snapshot()
-      .filter((queued) => !isEchoSuppressedUserMessage(queued.metadata));
+      .filter((queued) => !isSuppressedQueuedMessage(queued.metadata));
     for (const queued of strandedVisible) {
       queued.onEvent({
         type: "error",

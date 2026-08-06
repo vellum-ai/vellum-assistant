@@ -1,7 +1,7 @@
 import { AlertCircle, Loader2, Search } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
 import {
   profilePickerIssue,
@@ -12,7 +12,11 @@ import {
 } from "@/assistant/profile-pickers";
 import { getDefaultModelForProvider } from "@/assistant/llm-model-catalog";
 import { AdvisorProfileRow } from "@/domains/settings/ai/advisor-profile-row";
-import { CUSTOM_SENTINEL } from "@/domains/settings/ai/call-site-helpers";
+import { BulkOverrideSwapModal } from "@/domains/settings/ai/bulk-override-swap-modal";
+import {
+  CUSTOM_SENTINEL,
+  effectiveCallSiteProfile,
+} from "@/domains/settings/ai/call-site-helpers";
 import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/constants";
 import {
   type CallSiteGroup,
@@ -20,13 +24,15 @@ import {
 } from "@/domains/settings/ai/overrides-call-site-list";
 import { useSelectableInferenceProviders } from "@/domains/settings/ai/provider-availability";
 import { useOverrideDrafts } from "@/domains/settings/ai/use-override-drafts";
-import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
+import {
+  buildOrderedProfiles,
+  profileDisplayLabel,
+} from "@/domains/settings/ai/utils";
 import {
   configGetOptions,
-  configGetSetQueryData,
   configLlmCallsitesGetOptions,
-  useConfigPatchMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useLlmConfigPatch } from "@/domains/settings/ai/use-llm-config-patch";
 import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import { captureError } from "@/lib/sentry/capture-error";
 import { DetailShell } from "@/components/detail-shell";
@@ -51,8 +57,6 @@ export function OverridesDetailPanel({
   assistantId,
   onClose,
 }: OverridesDetailPanelProps) {
-  const queryClient = useQueryClient();
-
   const { data: daemonConfig } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId } }),
     staleTime: 30_000,
@@ -83,19 +87,12 @@ export function OverridesDetailPanel({
     [requireOwnProviderAndModel],
   );
 
-  const configMutation = useConfigPatchMutation({
-    onSuccess: (data) => {
-      configGetSetQueryData(
-        queryClient,
-        { path: { assistant_id: assistantId } },
-        data,
-      );
-    },
-  });
+  const configMutation = useLlmConfigPatch(assistantId);
 
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [showResetConfirmation, setShowResetConfirmation] = useState(false);
+  const [showBulkSwap, setShowBulkSwap] = useState(false);
 
   const {
     data: catalog,
@@ -139,6 +136,7 @@ export function OverridesDetailPanel({
     hasValidationError,
     setDraft,
     setAdvisor,
+    clearEdits,
     buildSavePatch,
     buildResetPatch,
   } = useOverrideDrafts({
@@ -158,8 +156,7 @@ export function OverridesDetailPanel({
   );
 
   const profileLabelFor = useCallback(
-    (name: string) =>
-      orderedProfiles.find((p) => p.name === name)?.label ?? name,
+    (name: string) => profileDisplayLabel(orderedProfiles, name),
     [orderedProfiles],
   );
 
@@ -199,6 +196,18 @@ export function OverridesDetailPanel({
     const q = search.trim().toLowerCase();
     return q === "" || "advisor".includes(q) || "second opinion".includes(q);
   }, [search]);
+
+  // The bulk swap needs at least one action currently running on a named
+  // profile, via an override or its default. Provider/model ("Custom") pins
+  // and sites with no resolvable default are out of its reach.
+  const hasBulkSwapCandidates = useMemo(
+    () =>
+      gatedCallSites.some(
+        (cs) =>
+          effectiveCallSiteProfile(cs, persistedOverrides[cs.id]) !== null,
+      ),
+    [gatedCallSites, persistedOverrides],
+  );
 
   const hasAnyPersistedOverride = useMemo(
     () =>
@@ -398,16 +407,38 @@ export function OverridesDetailPanel({
       </p>
 
       <div>
-        {/* Search */}
-        <div className="mb-4">
-          <Input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search actions…"
-            leftIcon={<Search className="h-4 w-4" />}
-            fullWidth
-          />
+        {/* Search + bulk change. The swap acts on persisted overrides, so it
+            stays disabled while the editor holds unsaved drafts: applying it
+            under a dirty draft would show stale rows and let a later Save
+            silently undo the swap. */}
+        <div className="mb-4 flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <Input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search actions…"
+              leftIcon={<Search className="h-4 w-4" />}
+              fullWidth
+            />
+          </div>
+          <Button
+            variant="outlined"
+            size="compact"
+            onClick={() => setShowBulkSwap(true)}
+            disabled={
+              !isSeeded || saving || hasUnsavedDrafts || !hasBulkSwapCandidates
+            }
+            title={
+              hasUnsavedDrafts
+                ? "Save or reset your changes first"
+                : !hasBulkSwapCandidates
+                  ? "No actions currently use a profile"
+                  : undefined
+            }
+          >
+            Bulk change
+          </Button>
         </div>
 
         {/* Advisor: a top-level selection, not a catalog call site, so it
@@ -467,6 +498,21 @@ export function OverridesDetailPanel({
           />
         )}
       </div>
+
+      {/* Mounted per open so source/target/selection state resets. Clears
+          draft edits on apply: a stale touched-then-reverted edit would pin
+          the pre-swap value over the freshly persisted one. */}
+      {showBulkSwap && catalog && (
+        <BulkOverrideSwapModal
+          assistantId={assistantId}
+          callSites={gatedCallSites}
+          domains={catalog.domains}
+          persistedOverrides={persistedOverrides}
+          orderedProfiles={orderedProfiles}
+          onClose={() => setShowBulkSwap(false)}
+          onApplied={clearEdits}
+        />
+      )}
 
       <ConfirmDialog
         open={showResetConfirmation}

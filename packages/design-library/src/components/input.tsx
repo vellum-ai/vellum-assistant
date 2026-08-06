@@ -1,11 +1,7 @@
 import { cva, type VariantProps } from "class-variance-authority";
-import {
-  type ComponentProps,
-  type ReactNode,
-  useId,
-} from "react";
+import { type ComponentProps, type ReactNode, useId } from "react";
 
-import { Typography } from "./typography";
+import { Field } from "./field";
 import { cn } from "../utils/cn";
 
 /**
@@ -61,83 +57,11 @@ const fieldVariants = cva(
 
 type FieldVariantProps = VariantProps<typeof fieldVariants>;
 
-interface FieldWrapperProps {
-  readonly id: string;
-  readonly label?: ReactNode;
-  readonly helperText?: ReactNode;
-  readonly errorText?: ReactNode;
-  readonly fullWidth: boolean;
-  readonly disabled: boolean;
-  readonly className?: string;
-  readonly children: ReactNode;
-}
-
-function FieldWrapper({
-  id,
-  label,
-  helperText,
-  errorText,
-  fullWidth,
-  disabled,
-  className,
-  children,
-}: FieldWrapperProps) {
-  const descriptionId = errorText
-    ? `${id}-error`
-    : helperText
-      ? `${id}-helper`
-      : undefined;
-
-  return (
-    <div
-      data-slot="field-wrapper"
-      className={cn(
-        "flex flex-col gap-1.5",
-        fullWidth ? "w-full" : "w-fit",
-        className,
-      )}
-    >
-      {label ? (
-        <Typography
-          as="label"
-          variant="body-small-default"
-          htmlFor={id}
-          className={cn(
-            "text-[var(--content-secondary)]",
-            disabled && "opacity-60",
-          )}
-        >
-          {label}
-        </Typography>
-      ) : null}
-      {children}
-      {errorText ? (
-        <span
-          id={descriptionId}
-          role="alert"
-          data-testid="input-error"
-          className="text-body-small-default text-[var(--system-negative-strong)]"
-        >
-          {errorText}
-        </span>
-      ) : helperText ? (
-        <span
-          id={descriptionId}
-          className="text-body-small-default text-[var(--content-tertiary)]"
-        >
-          {helperText}
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Input (single-line)
 // ---------------------------------------------------------------------------
 
-export interface InputProps
-  extends Omit<ComponentProps<"input">, "size"> {
+export interface InputProps extends Omit<ComponentProps<"input">, "size"> {
   label?: ReactNode;
   helperText?: ReactNode;
   errorText?: ReactNode;
@@ -173,7 +97,7 @@ function Input({
       : undefined;
 
   return (
-    <FieldWrapper
+    <Field
       id={inputId}
       label={label}
       helperText={helperText}
@@ -220,7 +144,7 @@ function Input({
           </span>
         ) : null}
       </div>
-    </FieldWrapper>
+    </Field>
   );
 }
 
@@ -260,7 +184,7 @@ function Textarea({
       : undefined;
 
   return (
-    <FieldWrapper
+    <Field
       id={textareaId}
       label={label}
       helperText={helperText}
@@ -287,13 +211,8 @@ function Textarea({
           className,
         )}
       />
-    </FieldWrapper>
+    </Field>
   );
 }
 
-export {
-  Input,
-  Textarea,
-  fieldVariants,
-  type FieldVariantProps,
-};
+export { Input, Textarea, fieldVariants, type FieldVariantProps };

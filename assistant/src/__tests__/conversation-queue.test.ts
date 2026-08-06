@@ -887,7 +887,7 @@ describe("Conversation message queue", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const notifEvents: AssistantEvent[] = [];
+    const notificationEvents: AssistantEvent[] = [];
     const visibleEvents: AssistantEvent[] = [];
 
     const p1 = conversation.processMessage({
@@ -897,25 +897,30 @@ describe("Conversation message queue", () => {
     });
     await waitForPendingRun(1);
 
-    // A daemon-injected subagent update is a user-role turn the orchestrator
-    // reads, not a send the user is waiting on: it queues without an ack so
-    // it never renders in the client's queue drawer.
-    const notif = conversation.enqueueMessage({
-      content: '[Subagent "research" - important] found the cause',
-      onEvent: (e) => notifEvents.push(e),
-      requestId: "req-notif",
+    // A subagent's completion summary injected into a busy parent is daemon
+    // scaffolding: the user follows that run through its inline card, so the
+    // row gets no queued ack and no queue-drawer bubble.
+    const notification = conversation.enqueueMessage({
+      content: '[Subagent "hermes-local-review" — important] review finished',
+      onEvent: (e) => notificationEvents.push(e),
+      requestId: "req-subagent",
       metadata: {
         subagentNotification: {
           subagentId: "sub-1",
-          label: "research",
-          status: "running",
+          label: "hermes-local-review",
+          status: "completed",
+          conversationId: "conv-sub-1",
+          objective: "review the diff",
         },
       },
     });
-    expect(notif.queued).toBe(true);
-    expect(notifEvents.filter((e) => e.type === "message_queued")).toEqual([]);
+    expect(notification.queued).toBe(true);
+    expect(
+      notificationEvents.filter((e) => e.type === "message_queued"),
+    ).toEqual([]);
 
-    // A real send queued behind the notification is position 1.
+    // The user's own send queued behind it is position 1: the notification
+    // does not consume a visible slot, matching the cold-load snapshot.
     const visible = conversation.enqueueMessage({
       content: "visible-msg",
       onEvent: (e) => visibleEvents.push(e),
@@ -923,15 +928,27 @@ describe("Conversation message queue", () => {
     });
     expect(visible.queued).toBe(true);
     expect(conversation.getQueueDepth()).toBe(2);
-    const queuedAck = visibleEvents.find((e) => e.type === "message_queued");
-    expect(queuedAck).toMatchObject({
+    expect(
+      visibleEvents.find((e) => e.type === "message_queued"),
+    ).toMatchObject({
       requestId: "req-visible",
       position: 1,
     });
 
+    // Suppressing the ack changes only what clients are told: the row is
+    // still queued, still drains, and still wakes the parent on the notification
+    // text (delivery is asserted end-to-end in "drained subagent-notification
+    // message persists and wakes the agent but emits no user_message_echo").
     await resolveRun(0);
     await p1;
+    await waitForPendingRun(2);
     await waitForCondition(() => conversation.getQueueDepth() === 0);
+    expect(
+      capturedAddMessages.some((m) =>
+        m.content.includes("hermes-local-review"),
+      ),
+    ).toBe(true);
+
     for (let i = 1; i < pendingRuns.length; i++) {
       await resolveRun(i);
     }
@@ -940,9 +957,9 @@ describe("Conversation message queue", () => {
     // Queue events stay paired: an enqueue that was never acked is never
     // dequeued either, so the client counter can't retire an entry it never
     // took. The visible send keeps both halves.
-    expect(notifEvents.filter((e) => e.type === "message_dequeued")).toEqual(
-      [],
-    );
+    expect(
+      notificationEvents.filter((e) => e.type === "message_dequeued"),
+    ).toEqual([]);
     expect(visibleEvents.some((e) => e.type === "message_dequeued")).toBe(true);
   });
 

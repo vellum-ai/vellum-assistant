@@ -55,16 +55,40 @@ describe("permission policy", () => {
     ).toBe(true);
   });
 
-  test("denies camera and mixed media requests", () => {
+  test("allows camera and mixed capture requests from the app renderer", () => {
+    // The voice room's viewfinder. Denying this does not degrade to asking:
+    // Chromium refuses `getUserMedia` before macOS is consulted, so the camera
+    // button would fail with a prompt the user never saw.
     expect(
       shouldGrantPermissionRequest("media", {
         mediaTypes: ["video"],
         securityOrigin: "app://vellum.ai",
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldGrantPermissionRequest("media", {
         mediaTypes: ["audio", "video"],
+        securityOrigin: "app://vellum.ai",
+      }),
+    ).toBe(true);
+  });
+
+  test("denies camera requests from untrusted origins", () => {
+    expect(
+      shouldGrantPermissionRequest("media", {
+        mediaTypes: ["video"],
+        securityOrigin: "https://example.com",
+      }),
+    ).toBe(false);
+  });
+
+  test("denies media requests carrying an unrecognized capture type", () => {
+    // Audio and video are the two the product has designed for. Anything else
+    // appearing in `mediaTypes` is a capture surface nobody has reviewed, and
+    // it takes the whole request down rather than being ignored.
+    expect(
+      shouldGrantPermissionRequest("media", {
+        mediaTypes: ["audio", "unknown"] as unknown as ("audio" | "video")[],
         securityOrigin: "app://vellum.ai",
       }),
     ).toBe(false);
@@ -114,9 +138,20 @@ describe("permission policy", () => {
     ).toBe(true);
   });
 
-  test("denies video permission checks", () => {
+  test("allows video permission checks", () => {
+    // Chromium runs the check before the request, so a `video` check that
+    // fails here means the request handler above is never consulted and the
+    // camera fails silently. The two must agree.
     expect(
       shouldGrantPermissionCheck("media", "app://vellum.ai", {
+        mediaType: "video",
+      }),
+    ).toBe(true);
+  });
+
+  test("denies video permission checks from untrusted origins", () => {
+    expect(
+      shouldGrantPermissionCheck("media", "https://example.com", {
         mediaType: "video",
       }),
     ).toBe(false);
@@ -124,13 +159,21 @@ describe("permission policy", () => {
 
   test("allows clipboard-sanitized-write checks from the app renderer", () => {
     expect(
-      shouldGrantPermissionCheck("clipboard-sanitized-write", "app://vellum.ai", {}),
+      shouldGrantPermissionCheck(
+        "clipboard-sanitized-write",
+        "app://vellum.ai",
+        {},
+      ),
     ).toBe(true);
   });
 
   test("denies clipboard-sanitized-write checks from untrusted origins", () => {
     expect(
-      shouldGrantPermissionCheck("clipboard-sanitized-write", "https://example.com", {}),
+      shouldGrantPermissionCheck(
+        "clipboard-sanitized-write",
+        "https://example.com",
+        {},
+      ),
     ).toBe(false);
   });
 
@@ -183,9 +226,13 @@ describe("denyAllPermissions", () => {
     expect(targetSession.setPermissionCheckHandler).toHaveBeenCalledTimes(1);
 
     let granted = true;
-    requestHandler!({}, "media", (allowed: boolean) => { granted = allowed; });
+    requestHandler!({}, "media", (allowed: boolean) => {
+      granted = allowed;
+    });
     expect(granted).toBe(false);
 
-    expect(checkHandler!({}, "clipboard-read", "vellumapp://bundle")).toBe(false);
+    expect(checkHandler!({}, "clipboard-read", "vellumapp://bundle")).toBe(
+      false,
+    );
   });
 });

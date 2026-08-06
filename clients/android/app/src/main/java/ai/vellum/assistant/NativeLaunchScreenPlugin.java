@@ -1,5 +1,6 @@
 package ai.vellum.assistant;
 
+import android.app.Activity;
 import android.app.UiModeManager;
 import android.content.Context;
 import android.content.res.Configuration;
@@ -14,26 +15,38 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 public class NativeLaunchScreenPlugin extends Plugin {
     private static final int APPLICATION_NIGHT_MODE_UNSPECIFIED =
         Configuration.UI_MODE_NIGHT_UNDEFINED >> 4;
+    private static final String FAILURE_CODE = "LAUNCH_SCREEN_FAILED";
+    private static final String FAILURE_MESSAGE = "Android launch screen is unavailable";
     private static final String PREFERENCES = "vellum_launch_screen";
     private static final String THEME_KEY = "theme";
 
     @PluginMethod
     public void ready(PluginCall call) {
-        if (!storeTheme(call)) {
-            return;
-        }
-        getActivity().runOnUiThread(() -> {
-            MainActivity activity = (MainActivity) getActivity();
-            activity.hideLaunchScreen();
-            call.resolve();
+        NativeFailureGuard.call(call, FAILURE_MESSAGE, FAILURE_CODE, () -> {
+            if (!storeTheme(call)) {
+                return;
+            }
+            Activity activity = getActivity();
+            if (!(activity instanceof MainActivity)) {
+                call.reject(FAILURE_MESSAGE, FAILURE_CODE);
+                return;
+            }
+            activity.runOnUiThread(() -> {
+                NativeFailureGuard.call(call, FAILURE_MESSAGE, FAILURE_CODE, () -> {
+                    ((MainActivity) activity).hideLaunchScreen();
+                    call.resolve();
+                });
+            });
         });
     }
 
     @PluginMethod
     public void setTheme(PluginCall call) {
-        if (storeTheme(call)) {
-            call.resolve();
-        }
+        NativeFailureGuard.call(call, FAILURE_MESSAGE, FAILURE_CODE, () -> {
+            if (storeTheme(call)) {
+                call.resolve();
+            }
+        });
     }
 
     static int backgroundColor(Context context) {
@@ -71,7 +84,9 @@ public class NativeLaunchScreenPlugin extends Plugin {
     private static void applyTheme(Context context, String theme) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             UiModeManager uiModeManager = context.getSystemService(UiModeManager.class);
-            uiModeManager.setApplicationNightMode(platformNightMode(theme));
+            if (uiModeManager != null) {
+                uiModeManager.setApplicationNightMode(platformNightMode(theme));
+            }
             return;
         }
         AppCompatDelegate.setDefaultNightMode(appCompatNightMode(theme));

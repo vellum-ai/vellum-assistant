@@ -185,7 +185,26 @@ Note: The plugin is dropped immediately.
 
 ## Updating a plugin
 
-Installs are pinned. Because the catalog pins each plugin to an immutable commit, an install never changes on its own. It stays on the commit it was installed at until you explicitly move it. Curators advance a plugin by bumping its `source.ref` in the manifest; your local copy only catches up when you upgrade it.
+Installs are pinned. Because the catalog pins each plugin to an immutable commit, an install never changes on its own. It stays on the commit it was installed at until you explicitly move it — or until an opted-in workspace's automatic sweep moves it (see [Automatic updates](#automatic-updates)). Curators advance a plugin by bumping its `source.ref` in the manifest; your local copy only catches up when you upgrade it.
+
+### Automatic updates
+
+Upgrades are manual by default. A workspace can opt into unattended upgrades through the `pluginUpdates` block in its `config.json`:
+
+```json
+{
+  "pluginUpdates": {
+    "mode": "auto",
+    "strategy": "theirs"
+  }
+}
+```
+
+- `mode`: `manual` (default) never upgrades on its own — every workspace behaves exactly as described above. `auto` lets the resource monitor sweep installed plugins hourly and move each one to its source's current revision.
+- `strategy`: how an automatic upgrade reconciles local edits with the incoming revision — `theirs` (default) three-way merges and resolves conflicting hunks toward the incoming revision, `ours` resolves them toward the local edit, `overwrite` discards local edits and re-installs wholesale. The interactive `--strategy assistant` (which leaves conflict markers for someone to resolve) is deliberately not selectable here: nobody is in the loop to resolve them.
+- `checkIntervalMs`: minimum spacing between sweeps, default `3600000` (1 hour). The last sweep is stamped on disk, so restarting the daemon does not re-run a sweep that already ran within the interval.
+
+Disabled plugins are skipped. The sweep runs in the resource monitor process but asks the daemon to perform each upgrade, so the plugin's `shutdown`/`init` hooks run in the process that loaded it, exactly as they do for a manual upgrade. A plugin that cannot be upgraded (source unreachable, no upstream to advance to) is logged and skipped; the rest of the sweep continues.
 
 ### Drift and local edits
 

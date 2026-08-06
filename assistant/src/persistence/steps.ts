@@ -471,6 +471,8 @@ import { migrateAddDocumentWorkspacePath } from "./migrations/360-add-document-w
 import { migrateNormalizeManagedConnectionRows } from "./migrations/361-normalize-managed-connection-rows.js";
 import { migrateAddConversationSubagentKind } from "./migrations/362-add-conversation-subagent-kind.js";
 import { migrateBackfillScheduleInferenceProfile } from "./migrations/363-backfill-schedule-inference-profile.js";
+import { migrateAddScheduleSourceKey } from "./migrations/364-add-schedule-source-key.js";
+import { migrateAddConversationForkStrategy } from "./migrations/365-add-conversation-fork-strategy.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1569,4 +1571,6 @@ export const migrationSteps: MigrationStep[] = [
     // permanently checkpoint the backfill as a no-op.
     dependsOn: ["migrateScheduleInferenceProfile"],
   },
+  migrateAddScheduleSourceKey,
+  migrateAddConversationForkStrategy,
 ];

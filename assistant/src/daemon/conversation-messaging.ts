@@ -48,7 +48,7 @@ import {
   extractAttachmentStoredPaths,
   extractImageSourcePaths,
   getConversation,
-  isEchoSuppressedUserMessage,
+  isSuppressedQueuedMessage,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
@@ -217,11 +217,11 @@ export interface MessagingConversationContext {
   currentTurnAuthContext?: AuthContext;
   currentTurnSourceActorPrincipalId?: string;
   /**
-   * OS surface reported by the connected client ("web" | "ios" | "macos" |
-   * "android"), re-applied from transport metadata on every inbound message.
+   * OS surface reported by the connected client, re-applied from transport
+   * metadata on every inbound message.
    * Persisted under `metadata.client.os` so turn telemetry can attribute the
-   * real platform — the transport `interfaceId` is "web" for the web, iOS,
-   * and macOS apps alike (they share the web renderer).
+   * real platform. The transport `interfaceId` is "web" for browser, mobile,
+   * and desktop apps because they share the web renderer.
    */
   clientOs?: string;
   getTurnChannelContext(): TurnChannelContext | null;
@@ -636,16 +636,17 @@ export function enqueueMessage(
   }
   // Ack the accepted enqueue on the sender's event sink. Emitting here,
   // rather than at each ingress call site, is what guarantees every path
-  // that queues (HTTP send, surface actions, agent wake) surfaces the queued
-  // row live. Echo-suppressed enqueues (hidden sends and the daemon-injected
-  // subagent/ACP/background-event notifications) are absent from the
-  // transcript at every stage, including this ack, and `position` counts
-  // visible items only: both mirror the list-messages queued-snapshot filter
-  // so a live ack and a cold reload render the same row at the same position.
-  if (!isEchoSuppressedUserMessage(metadata)) {
+  // that queues a person's prompt (HTTP send, surface actions, CLI signal)
+  // surfaces the queued row live. Rows with no client-visible counterpart —
+  // hidden sends and daemon-injected notifications (subagent/ACP/wake) — are
+  // suppressed from the transcript at every stage, including this ack, and
+  // `position` counts visible items only: both mirror the list-messages
+  // queued-snapshot filter so a live ack and a cold reload render the same
+  // row at the same position.
+  if (!isSuppressedQueuedMessage(metadata)) {
     const position = ctx.queue
       .snapshot()
-      .filter((item) => !isEchoSuppressedUserMessage(item.metadata)).length;
+      .filter((item) => !isSuppressedQueuedMessage(item.metadata)).length;
     onEvent?.({
       type: "message_queued",
       conversationId: ctx.conversationId,

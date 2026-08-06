@@ -105,6 +105,8 @@ export interface ProfileEditor {
   saving: boolean;
   saveError: string | null;
   keyError: string | null;
+  /** Why the Provider field blocks Save, or null when it does not. */
+  providerError: string | null;
   isInvalid: boolean;
 
   maxTokens: number | null;
@@ -552,6 +554,28 @@ export function useProfileEditor({
         ? "A profile with this key already exists"
         : null;
 
+  // An untouched create form is blank by definition, so flagging its empty
+  // fields on open would be scolding the user for not having started. Edit
+  // mode is the opposite: an existing profile missing a provider or model is
+  // already broken, the resolver already skips it, and the row that links
+  // here says "Click to fix", so the reason has to be visible on arrival.
+  // The Model field already explains `providerWithoutModel` itself, keyed to
+  // why it is empty (no catalog entries, connection not configured, nothing
+  // picked). Provider is the one blocking state with no copy anywhere.
+  //
+  // An untouched create form is blank by definition, so flagging it on open
+  // would be scolding the user for not having started. Edit mode is the
+  // opposite: a profile with no provider is already broken, the resolver
+  // skips it, and the row that links here says "Click to fix", so the
+  // reason has to be visible on arrival.
+  // Read-only (managed) profiles get no field errors, matching how `keyError`
+  // is suppressed for them: the picker is disabled, so naming a problem the
+  // user cannot act on here is just noise.
+  const showFieldErrors =
+    !isReadOnly && (effectiveMode === "edit" || getDirty());
+  const providerError =
+    showFieldErrors && providerMissing ? "Select a provider" : null;
+
   async function handleSave() {
     if (isInvalid && !isReadOnly) {
       return;
@@ -675,12 +699,17 @@ export function useProfileEditor({
       if (visibility.thinking) {
         entry.thinking = {
           enabled: thinkingEnabled,
-          ...(thinkingEnabled ? { streamThinking: thinkingStreamThinking } : {}),
+          ...(thinkingEnabled
+            ? { streamThinking: thinkingStreamThinking }
+            : {}),
         };
       }
       // Gemini: a chosen level implies thinking is on; "default" omits the
       // field so the daemon applies the model default.
-      if (visibility.thinkingLevel && thinkingLevel !== THINKING_LEVEL_INHERIT) {
+      if (
+        visibility.thinkingLevel &&
+        thinkingLevel !== THINKING_LEVEL_INHERIT
+      ) {
         entry.thinking = { enabled: true, level: thinkingLevel };
       }
       // Status - always include in edit mode; omit in create when active
@@ -721,6 +750,7 @@ export function useProfileEditor({
     saving,
     saveError,
     keyError,
+    providerError,
     isInvalid,
     maxTokens,
     contextWindowMaxInputTokens,

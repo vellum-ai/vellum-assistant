@@ -13,6 +13,7 @@ import {
 import { useState } from "react";
 import { useNavigate } from "react-router";
 
+import { pluginNameFromSourceKey } from "@/domains/schedules/plugin-source";
 import {
   deleteSchedule,
   fetchScheduleRuns,
@@ -487,6 +488,12 @@ export function ScheduleDetailPanel({
   const [isRunning, setIsRunning] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const pluginName = pluginNameFromSourceKey(schedule.sourceKey);
+  // A plugin-sourced schedule is off either because the user turned it off or
+  // because the plugin is disabled. Running it would execute the plugin's
+  // script anyway, which the daemon refuses, so the affordance is disabled
+  // here rather than surfacing that refusal as a failed run.
+  const runNowBlocked = pluginName !== null && !schedule.enabled;
 
   const handleRunNow = async () => {
     setIsRunning(true);
@@ -600,7 +607,13 @@ export function ScheduleDetailPanel({
 
       {/* Footer actions */}
       <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--border-base)] p-[var(--app-spacing-lg)]">
-        {!confirmingDelete ? (
+        {pluginName ? (
+          // Plugin-sourced schedules cannot be deleted here; the plugin's
+          // schedule file is the source of truth, so only attribution shows.
+          <span className="text-body-small-default text-[var(--content-tertiary)]">
+            Managed by plugin {pluginName}
+          </span>
+        ) : !confirmingDelete ? (
           <Button
             variant="dangerOutline"
             leftIcon={<Trash2 className="h-3.5 w-3.5" />}
@@ -637,18 +650,28 @@ export function ScheduleDetailPanel({
             View usage
           </Button>
           {schedule.mode === "script" ? (
-            <Button
-              variant="primary"
-              leftIcon={
-                isRunning ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : undefined
-              }
-              onClick={() => void handleRunNow()}
-              disabled={isRunning}
-            >
-              {isRunning ? "Running…" : "Run now"}
-            </Button>
+            <>
+              {runNowBlocked ? (
+                // Plain text rather than a tooltip: a tooltip on a disabled
+                // button never opens, so the reason would be invisible exactly
+                // when it is needed.
+                <span className="text-body-small-default text-[var(--content-tertiary)]">
+                  Turn this schedule on to run it
+                </span>
+              ) : null}
+              <Button
+                variant="primary"
+                leftIcon={
+                  isRunning ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : undefined
+                }
+                onClick={() => void handleRunNow()}
+                disabled={isRunning || runNowBlocked}
+              >
+                {isRunning ? "Running…" : "Run now"}
+              </Button>
+            </>
           ) : null}
         </div>
       </div>

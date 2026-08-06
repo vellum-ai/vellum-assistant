@@ -207,7 +207,13 @@ export function parseInterfaceId(value: unknown): InterfaceId | null {
  * than polluting the interface vocabulary. Drives only the per-turn
  * `client_os` context line (e.g. app-builder mobile-first for `ios`/`android`).
  */
-export const CLIENT_OS_VALUES = ["web", "ios", "macos", "android"] as const;
+export const CLIENT_OS_VALUES = [
+  "web",
+  "ios",
+  "macos",
+  "windows",
+  "android",
+] as const;
 
 export type ClientOs = (typeof CLIENT_OS_VALUES)[number];
 

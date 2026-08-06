@@ -38,6 +38,7 @@ import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationListQuery } from "@/hooks/conversation-queries";
+import { useResumeGrace } from "@/hooks/use-resume-grace";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Conversation } from "@/types/conversation-types";
 import { ApiError } from "@/utils/api-errors";
@@ -229,7 +230,13 @@ export function useConversationLoader({
   //
   // When the query recovers (data arrives), clear any prior load-failed
   // banner. Other error codes are left untouched.
+  //
+  // A failure inside the resume grace window is held back: the refetch that
+  // fires when the client returns from the background often fails transiently
+  // against a still-waking pod. The banner surfaces once the window expires
+  // and the query is still in error with nothing cached.
   // -------------------------------------------------------------------------
+  const isResumeGraceActive = useResumeGrace();
   useEffect(() => {
     if (assistantStateKind !== "active") {
       return;
@@ -244,6 +251,9 @@ export function useConversationLoader({
         context: "conversationList.bootstrap",
         level: "warning",
       });
+      if (isResumeGraceActive) {
+        return;
+      }
       useChatSessionStore.getState().setError((prev) => {
         if (shouldSuppressGenericChatErrorNotice(prev)) {
           return prev;
@@ -274,6 +284,7 @@ export function useConversationLoader({
     queryConversations,
     conversationListError,
     conversationListIsError,
+    isResumeGraceActive,
     shouldSuppressGenericChatErrorNotice,
   ]);
 

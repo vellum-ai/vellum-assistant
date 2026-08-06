@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-import { guardianTokenPath } from "./config";
+import { guardianTokenPath, resolveConfigDirPaths } from "./config";
 import type { CliInvocation } from "./util";
 
 const GUARDIAN_TOKEN_REFRESH_TIMEOUT_MS = 15_000;
@@ -140,20 +140,51 @@ export function getGuardianAccessToken(
     return Promise.resolve({ ok: false, status: 403, error: "Forbidden" });
   }
 
-  const tokenPath = guardianTokenPath(configDir, assistantId);
-
-  let raw: string;
+  let tokenPaths: string[];
   try {
-    raw = fs.readFileSync(tokenPath, "utf-8");
+    const configDirs = [
+      configDir,
+      ...resolveConfigDirPaths({ ...process.env, ...env }),
+    ];
+    tokenPaths = [...new Set(configDirs)].map((dir) =>
+      guardianTokenPath(dir, assistantId),
+    );
   } catch {
-    return Promise.resolve({ ok: false, status: 404, error: "Guardian token not found" });
+    return Promise.resolve({
+      ok: false,
+      status: 400,
+      error: "Invalid assistant ID",
+    });
+  }
+
+  let raw: string | undefined;
+  let resolvedTokenPath: string | undefined;
+  for (const tokenPath of tokenPaths) {
+    try {
+      raw = fs.readFileSync(tokenPath, "utf-8");
+      resolvedTokenPath = tokenPath;
+      break;
+    } catch {
+      // Try the next compatible location.
+    }
+  }
+  if (raw === undefined || resolvedTokenPath === undefined) {
+    return Promise.resolve({
+      ok: false,
+      status: 404,
+      error: "Guardian token not found",
+    });
   }
 
   let data: GuardianTokenData;
   try {
     data = JSON.parse(raw) as GuardianTokenData;
   } catch {
-    return Promise.resolve({ ok: false, status: 500, error: "Malformed guardian token file" });
+    return Promise.resolve({
+      ok: false,
+      status: 500,
+      error: "Malformed guardian token file",
+    });
   }
 
   if (data.pairedGatewayUrl) {
@@ -205,16 +236,16 @@ export function getGuardianAccessToken(
     });
   }
 
-  const existingRefresh = guardianTokenRefreshes.get(tokenPath);
+  const existingRefresh = guardianTokenRefreshes.get(resolvedTokenPath);
   if (existingRefresh) {
     return existingRefresh;
   }
   const refresh = refreshToken(assistantId, invocation, env).finally(() => {
-    if (guardianTokenRefreshes.get(tokenPath) === refresh) {
-      guardianTokenRefreshes.delete(tokenPath);
+    if (guardianTokenRefreshes.get(resolvedTokenPath) === refresh) {
+      guardianTokenRefreshes.delete(resolvedTokenPath);
     }
   });
-  guardianTokenRefreshes.set(tokenPath, refresh);
+  guardianTokenRefreshes.set(resolvedTokenPath, refresh);
   return refresh;
 }
 
@@ -261,7 +292,11 @@ function refreshToken(
 
     const timeout = setTimeout(() => {
       child.kill("SIGTERM");
-      finish({ ok: false, status: 500, error: "Guardian token refresh timed out" });
+      finish({
+        ok: false,
+        status: 500,
+        error: "Guardian token refresh timed out",
+      });
     }, GUARDIAN_TOKEN_REFRESH_TIMEOUT_MS);
 
     child.stdout.on("data", (chunk: Buffer) => {
@@ -277,12 +312,20 @@ function refreshToken(
           finish({ ok: false, status: 500, error: "CLI returned empty token" });
         }
       } else {
-        finish({ ok: false, status: 401, error: "Failed to refresh guardian token" });
+        finish({
+          ok: false,
+          status: 401,
+          error: "Failed to refresh guardian token",
+        });
       }
     });
 
     child.on("error", (err) => {
-      finish({ ok: false, status: 500, error: `Failed to spawn CLI: ${err.message}` });
+      finish({
+        ok: false,
+        status: 500,
+        error: `Failed to spawn CLI: ${err.message}`,
+      });
     });
   });
 }

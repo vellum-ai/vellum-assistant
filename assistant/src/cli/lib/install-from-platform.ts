@@ -33,6 +33,8 @@ import { getWorkspacePluginsDir } from "../../util/platform.js";
 import { APP_VERSION } from "../../version.js";
 import type { FetchLike } from "./fetch-like.js";
 import {
+  type ConfirmStagedInstall,
+  confirmStagedOrAbort,
   finalizeStagedInstall,
   type InstallPluginResult,
   PluginAlreadyInstalledError,
@@ -123,6 +125,8 @@ export interface InstallFromPlatformDeps {
   readonly maxAttempts?: number;
   /** Sleep between retries. Injected so tests don't wait real time. */
   readonly sleep?: (ms: number) => Promise<void>;
+  /** Consent gate between staging and finalize; see {@link ConfirmStagedInstall}. */
+  readonly confirmStaged?: ConfirmStagedInstall;
 }
 
 /** Total attempts (initial + retries) for a transient upstream status. */
@@ -194,6 +198,8 @@ export async function installPluginFromPlatform(
     throw new PluginNotFoundError(name, meta.ref ?? "", meta.repo ?? name);
   }
 
+  await confirmStagedOrAbort(name, stagingDir, deps.confirmStaged);
+
   // Record provenance for future update/version UX. The endpoint re-roots the
   // tarball to the plugin root, so the recorded ref is the pinned commit and
   // the ETag documents exactly which bytes were verified.
@@ -223,7 +229,7 @@ export async function installPluginFromPlatform(
  */
 export async function installPluginViaPlatform(
   opts: { name: string; force?: boolean; conversationId?: string },
-  deps: { fetch: FetchLike },
+  deps: { fetch: FetchLike; confirmStaged?: ConfirmStagedInstall },
 ): Promise<InstallPluginResult> {
   const platformBaseUrl = getPlatformBaseUrl();
   const apiKey = await resolveAssistantApiKey();
@@ -237,7 +243,12 @@ export async function installPluginViaPlatform(
       ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
       assistantVersion: APP_VERSION,
     },
-    { fetch: deps.fetch, platformBaseUrl, ...(apiKey ? { apiKey } : {}) },
+    {
+      fetch: deps.fetch,
+      platformBaseUrl,
+      ...(apiKey ? { apiKey } : {}),
+      ...(deps.confirmStaged ? { confirmStaged: deps.confirmStaged } : {}),
+    },
   );
 }
 

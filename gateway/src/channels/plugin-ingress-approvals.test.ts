@@ -466,6 +466,29 @@ describe("findServableRoute", () => {
     expect(findServableRoute(res, "other", "hook", "http")).toBeUndefined();
   });
 
+  it("ignores one trailing slash on the requested path", () => {
+    // Senders add it: a provider handed `.../hook` may call `.../hook/`.
+    const res = resolution({
+      approved: [
+        { plugin: "p", routes: [http("plugin")], digest: "d".repeat(32) },
+      ],
+    });
+    expect(findServableRoute(res, "p", "hook/", "http")?.path).toBe("hook");
+  });
+
+  it("does not let a trailing slash reach past a declaration", () => {
+    // A declared path may not end in a slash (see `IngressRouteSchema`), so
+    // dropping one can only ever land back on the path that was declared.
+    const res = resolution({
+      approved: [
+        { plugin: "p", routes: [http("plugin")], digest: "d".repeat(32) },
+      ],
+    });
+    expect(findServableRoute(res, "p", "hook//", "http")).toBeUndefined();
+    expect(findServableRoute(res, "p", "hook/more", "http")).toBeUndefined();
+    expect(findServableRoute(res, "p", "hook/more/", "http")).toBeUndefined();
+  });
+
   it("serves nothing for a declaration that failed validation", () => {
     // A malformed manifest lands in `problems`, never in either list, so a
     // vellum signer cannot smuggle an invalid route through.

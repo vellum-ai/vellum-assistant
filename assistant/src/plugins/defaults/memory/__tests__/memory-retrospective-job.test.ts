@@ -355,12 +355,14 @@ function makeConfig(
     matchConversationProfile?: boolean;
     promptPath?: string;
     requireUserActivity?: boolean;
+    enabled?: boolean;
   } = {},
 ): Parameters<typeof memoryRetrospectiveJob>[1] {
   return {
     memory: {
       v2: { enabled: true },
       retrospective: {
+        enabled: overrides.enabled ?? true,
         keepSupersededRuns: overrides.keepSupersededRuns ?? false,
         matchConversationProfile: overrides.matchConversationProfile ?? false,
         promptPath: overrides.promptPath ?? null,
@@ -511,6 +513,21 @@ describe("memoryRetrospectiveJob", () => {
     // findMostRecentRetrospectiveFor.
     expect(forkCalls).toHaveLength(1);
     expect(forkCalls[0]!.conversationId).toBe("src-conv-1");
+  });
+
+  test("retrospectives disabled: queued row drains as a no-op without forking", async () => {
+    const outcome = await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ enabled: false }),
+    );
+
+    expect(outcome.kind).toBe("disabled");
+    // The whole point of the switch: no fork, no wake, no pointer movement,
+    // so re-enabling reviews the same window the row was queued for.
+    expect(forkCalls).toHaveLength(0);
+    expect(wakeCalls).toHaveLength(0);
+    expect(stateUpserts).toHaveLength(0);
+    expect(lastRunAtBumps).toHaveLength(0);
   });
 
   test("dormant source beyond the sweep lookback: completed as a no-op, both pointers untouched", async () => {

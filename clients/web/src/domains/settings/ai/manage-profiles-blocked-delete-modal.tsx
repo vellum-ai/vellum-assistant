@@ -1,5 +1,5 @@
 import { Button } from "@vellumai/design-library/components/button";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Typography } from "@vellumai/design-library/components/typography";
 
@@ -215,7 +215,7 @@ export function BlockedDeleteModal({
             <label className="block text-body-small-default text-(--content-tertiary)">
               Replacement profile
             </label>
-            <Dropdown
+            <Select
               aria-label="Replacement profile"
               value={replacement}
               onChange={onReplacementChange}

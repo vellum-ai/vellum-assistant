@@ -18,7 +18,10 @@ import {
   remoteGatewayPublicBaseUrl,
   RemoteWebPairingError,
 } from "@/lib/auth/remote-gateway-session";
-import { isRemoteGatewayMode } from "@/lib/local-mode";
+import {
+  getRemoteGatewayAssistantName,
+  isRemoteGatewayMode,
+} from "@/lib/local-mode";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { isAndroidBrowser, isIOSBrowser } from "@/runtime/platform-detection";
 import { sanitizeReturnTo } from "@/utils/return-to";
@@ -148,23 +151,31 @@ type AppHandoffPlatform = "ios" | "android";
  * link the mobile app consumes to persist this server and finish pairing inside
  * the app. `url` is the page's own public base (origin + served path prefix)
  * so the app reconnects to the same self-hosted assistant this browser is
- * already on.
+ * already on. When the served config carries the assistant's display name, a
+ * `name` param rides along so the app can label the server.
  */
 function buildAppHandoffUrl(
   deviceCode: string,
   platform: AppHandoffPlatform,
 ): string {
-  const query = new URLSearchParams({
+  const params = new URLSearchParams({
     url: remoteGatewayPublicBaseUrl(),
     code: deviceCode,
   });
+  const assistantName = getRemoteGatewayAssistantName();
+  if (assistantName) {
+    params.set("name", assistantName);
+  }
+  // Percent-encode spaces: URLSearchParams form-encodes them as `+`, which
+  // the iOS app's Foundation URLComponents parser keeps as a literal plus.
+  const query = params.toString().replace(/\+/g, "%20");
   if (platform === "ios") {
-    return `${VELLUM_APP_SCHEME}://connect?${query.toString()}`;
+    return `${VELLUM_APP_SCHEME}://connect?${query}`;
   }
 
   const fallbackUrl = encodeURIComponent(window.location.href);
   return (
-    `intent://connect?${query.toString()}` +
+    `intent://connect?${query}` +
     `#Intent;scheme=${VELLUM_APP_SCHEME};` +
     `package=${VELLUM_ANDROID_PACKAGE};` +
     `S.browser_fallback_url=${fallbackUrl};end`

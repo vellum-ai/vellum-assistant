@@ -3,7 +3,7 @@ import { decideGuardianRequest } from "../../channels/gateway-guardian-requests.
 import {
   clearAll,
   getConversation,
-  isEchoSuppressedUserMessage,
+  isSuppressedQueuedMessage,
 } from "../../persistence/conversation-crud.js";
 import { resolveConversationId } from "../../persistence/conversation-key-store.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
@@ -284,9 +284,11 @@ function mayActOnQueuedMessage(
  * `message_queued_deleted`. It is the counterpart to the `message_queued` ack
  * and the only signal that closes out a queued row that never runs: without it
  * a client that didn't originate the delete leaves the pending indicator up
- * forever, since no `message_dequeued` is ever coming. Echo-suppressed sends
- * (hidden sends and daemon-injected notifications alike) are suppressed for the
- * same reason they get no ack: they have no client row to close.
+ * forever, since no `message_dequeued` is ever coming. Rows with no
+ * client-visible queued counterpart ({@link isSuppressedQueuedMessage} —
+ * hidden sends and daemon-injected subagent/ACP/wake notifications) are
+ * suppressed for the same reason they get no ack: they have no client row to
+ * close.
  */
 export function deleteQueuedMessage(
   conversationId: string,
@@ -327,11 +329,11 @@ export function deleteQueuedMessage(
   }
   conversation.removeQueuedMessage(requestId);
   // Queue events come in pairs, so an entry that never produced a
-  // `message_queued` ack (echo-suppressed daemon-injected sends and hidden
-  // machine sends) must not produce a delete either: clients have no row to
+  // `message_queued` ack (a suppressed daemon-injected send, or a hidden
+  // machine send) must not produce a delete either: clients have no row to
   // retire and an unpaired event would decrement a counter that was never
   // incremented.
-  if (!isEchoSuppressedUserMessage(queued.metadata)) {
+  if (!isSuppressedQueuedMessage(queued.metadata)) {
     queued.onEvent({
       type: "message_queued_deleted",
       conversationId,
