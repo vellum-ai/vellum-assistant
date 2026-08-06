@@ -6,9 +6,11 @@
  * circular dependencies.
  */
 
+import type { Root, RootContent } from "mdast";
+
+import { parseMarkdown } from "../messaging/content/parse.js";
 import { stripAnsiAndControlChars } from "../util/ansi.js";
 import { isPlainObject } from "../util/object.js";
-import { stripMarkdown } from "../util/short-title.js";
 
 // ── String helpers ──────────────────────────────────────────────────────────
 
@@ -63,93 +65,100 @@ export function truncate(text: string, maxLength: number): string {
 
 // ── Markdown flattening ─────────────────────────────────────────────────────
 
-/** Media embeds: `![alt](url)`, remote or `vellum://`, capturing the alt. */
-const MEDIA_EMBED_RE = /!\[([^\]]*)\]\([^)]*\)/g;
-
-/** Fence openers and closers. Splitting on these isolates the fenced content. */
-const CODE_FENCE_LINE_RE = /^[ \t]{0,3}(?:```|~~~).*$/gm;
-
-/** Table delimiter rows and horizontal rules: punctuation, never words. */
-const RULE_ROW_RE = /^[ \t]*\|?[ \t:|-]*-[ \t:|-]*$/gm;
-
-/** A pipe-delimited table row, matched only when both edge pipes are present. */
-const TABLE_ROW_RE = /^[ \t]*\|(.*)\|[ \t]*$/gm;
-
 /**
- * Remove the line-anchored block markers markdown puts at the start of a line:
- * fences, `#` headings, `>` quotes, and `-`/`1.` list bullets.
- *
- * Shared with `deriveFallbackTitle` in `home-feed-side-effect.ts`, which needs
- * the identical rule set: its output has to keep matching `flattenToPlainText`
- * in workspace migration 138, so that a backfilled feed title and a freshly
- * written one agree. Change these rules and that migration has to move with
- * them.
- *
- * Line-anchored, so this must run before any whitespace collapse, and before
- * `stripMarkdown`, whose inline-code rule would chew a fence into a stray
- * backtick.
+ * Node types whose children are blocks rather than an inline run, so their text
+ * needs a paragraph break between children instead of being butted together.
  */
-export function stripBlockMarkers(value: string): string {
-  return value
-    .replace(/^\s{0,3}(?:```|~~~).*$/gm, "")
-    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
-    .replace(/^\s{0,3}>\s?/gm, "")
-    .replace(/^\s{0,3}(?:[-*+]|\d+[.)])\s+/gm, "");
-}
+const BLOCK_CONTAINER_TYPES = new Set([
+  "blockquote",
+  "listItem",
+  "footnoteDefinition",
+]);
 
-/** Flatten one run of prose, i.e. everything outside a code fence. */
-function flattenProse(segment: string): string {
-  const deblocked = stripBlockMarkers(segment.replace(MEDIA_EMBED_RE, ""))
-    .replace(RULE_ROW_RE, "")
-    .replace(TABLE_ROW_RE, (_match, cells: string) =>
-      cells
-        .split("|")
-        .map((cell) => cell.trim())
-        .filter((cell) => cell.length > 0)
-        .join(" "),
-    );
-  return stripMarkdown(deblocked);
+/** Plain text of one mdast node, markers and media dropped. */
+function nodeText(node: RootContent): string {
+  switch (node.type) {
+    // Literal runs. Code keeps its value: a fenced block previews as its code,
+    // and the parser has already decided what is code, so markdown-looking
+    // lines inside it are safe.
+    case "text":
+    case "inlineCode":
+    case "code":
+    case "html":
+      return node.value;
+    // Media carries no prose. A caller names it separately when the flattened
+    // text comes up empty; see {@link mediaEmbedAltTexts}.
+    case "image":
+    case "imageReference":
+      return "";
+    case "break":
+      return "\n";
+    case "thematicBreak":
+      return "";
+    case "table":
+    case "list":
+      return node.children.map(nodeText).join("\n");
+    case "tableRow":
+      return node.children.map(nodeText).join(" ");
+    default:
+      return "children" in node
+        ? node.children
+            .map(nodeText)
+            .join(BLOCK_CONTAINER_TYPES.has(node.type) ? "\n\n" : "")
+        : "";
+  }
 }
 
 /**
- * Flatten markdown syntax out of untrusted copy bound for a plain-text
- * notification surface, where the markers render as literal punctuation rather
- * than formatting.
+ * Flatten markdown to the plain text a notification surface renders, where
+ * markers would otherwise arrive as literal punctuation.
+ *
+ * Parses with the same remark/GFM processor the web client and the channel
+ * renderers use, rather than matching markers by hand. That is what keeps a
+ * balanced-paren URL, a tilde fence nested in a backtick one, a pipeless GFM
+ * table, and image syntax quoted inside a code span from each needing their own
+ * special case.
  *
  * Media embeds are dropped whole, alt text included. The alt describes the
  * attachment rather than adding prose, so keeping it previews a video as its
- * own caption. A reply that is nothing but embeds therefore flattens to empty,
- * which is the signal for a caller to describe the media instead; see
- * {@link mediaEmbedAltTexts}.
- *
- * Fenced content is passed through verbatim. Flattening it would rewrite the
- * code being previewed: a `# comment` would lose its `#`, a `---` would vanish,
- * and a piped shell expression would be mistaken for a table row.
+ * own caption. Copy that is nothing but embeds therefore flattens to empty,
+ * which is a caller's signal to describe the media instead.
  *
  * Line structure survives, so callers needing multi-line copy keep it; collapse
  * whitespace separately for a single line.
  */
 export function stripMarkdownForPreview(value: string): string {
-  // Splitting on the fence lines drops them and leaves alternating segments,
-  // the odd ones being the fenced bodies.
-  return value
-    .split(CODE_FENCE_LINE_RE)
-    .map((segment, index) =>
-      index % 2 === 0 ? flattenProse(segment) : segment,
-    )
-    .join("\n");
+  return parseMarkdown(value).children.map(nodeText).join("\n\n");
+}
+
+/** Collect the alt text of every image node, depth first. */
+function collectImageAlts(node: Root | RootContent, into: string[]): void {
+  if (node.type === "image" || node.type === "imageReference") {
+    into.push(node.alt ?? "");
+    return;
+  }
+  if ("children" in node) {
+    for (const child of node.children) {
+      collectImageAlts(child, into);
+    }
+  }
 }
 
 /**
  * Alt texts of the media embeds in `value`, in order, empty alts included.
  *
- * Lets a caller describe a reply whose entire content was embeds. Remote
+ * Lets a caller describe copy whose entire content was embeds. Remote
  * `https://` embeds are as valid as `vellum://` ones and register nothing in
  * the attachment store, so without this a reply of one remote image would go
  * out with no copy at all rather than merely an unhelpful one.
+ *
+ * The alts come from the parser, which resolves an image description to plain
+ * text, so formatted alt text arrives already flattened.
  */
 export function mediaEmbedAltTexts(value: string): string[] {
-  return [...value.matchAll(MEDIA_EMBED_RE)].map((match) => match[1] ?? "");
+  const alts: string[] = [];
+  collectImageAlts(parseMarkdown(value), alts);
+  return alts;
 }
 
 /**
