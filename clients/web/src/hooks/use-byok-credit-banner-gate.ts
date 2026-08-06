@@ -4,10 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import { organizationsBillingUsageTotalsRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import {
   configGetOptions,
+  configLlmDefaultproviderGetOptions,
   conversationsByIdGetOptions,
+  inferenceProfilesGetOptions,
   inferenceProviderconnectionsGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
-import { defaultChatRouteBurnsManagedCredits } from "@/lib/billing/byok-credit-route";
+import {
+  type AvailabilityStatus,
+  defaultChatRouteBurnsManagedCredits,
+} from "@/lib/billing/byok-credit-route";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -95,6 +100,35 @@ export function useSuppressCreditBannersForByok(
     }),
     enabled: routeQueriesEnabled && conversationId != null,
   });
+  // Availability is the proof side of a BYOK verdict: dispatch soft-falls
+  // back to the (possibly platform-billed) default transport when a
+  // credential fails at send time, so a BYOK route only counts once its
+  // connection is provably dispatchable. A failed read here just leaves the
+  // proof absent, which the classification treats as unknown (banners up).
+  const profilesQuery = useQuery({
+    ...inferenceProfilesGetOptions({
+      path: { assistant_id: assistantId ?? "" },
+    }),
+    enabled: routeQueriesEnabled,
+    staleTime: 30_000,
+  });
+  const defaultProviderQuery = useQuery({
+    ...configLlmDefaultproviderGetOptions({
+      path: { assistant_id: assistantId ?? "" },
+    }),
+    enabled: routeQueriesEnabled,
+    staleTime: 30_000,
+  });
+
+  const profileAvailability = useMemo(
+    () =>
+      new Map<string, AvailabilityStatus>(
+        (profilesQuery.data?.profiles ?? []).flatMap((p) =>
+          p.availability ? [[p.name, p.availability.status] as const] : [],
+        ),
+      ),
+    [profilesQuery.data],
+  );
 
   // A caller-supplied conversation may carry the highest-precedence managed
   // pin, so classifying without its row (a failed lookup, not just a missing
@@ -104,11 +138,15 @@ export function useSuppressCreditBannersForByok(
     conversationId == null || conversationQuery.data !== undefined;
   const burnsManaged =
     configQuery.data && connectionsQuery.data && overrideKnown
-      ? defaultChatRouteBurnsManagedCredits(
-          configQuery.data.llm,
-          connectionsQuery.data.connections,
-          conversationQuery.data?.conversation.inferenceProfile ?? null,
-        )
+      ? defaultChatRouteBurnsManagedCredits({
+          llm: configQuery.data.llm,
+          connections: connectionsQuery.data.connections,
+          profileAvailability,
+          defaultProviderAvailability:
+            defaultProviderQuery.data?.availability.status,
+          overrideProfile:
+            conversationQuery.data?.conversation.inferenceProfile ?? null,
+        })
       : null;
 
   const utcDay = useUtcDay();
@@ -136,7 +174,9 @@ export function useSuppressCreditBannersForByok(
   if (
     configQuery.isLoading ||
     connectionsQuery.isLoading ||
-    conversationQuery.isLoading
+    conversationQuery.isLoading ||
+    profilesQuery.isLoading ||
+    defaultProviderQuery.isLoading
   ) {
     return true;
   }
