@@ -4,11 +4,11 @@
  * GET /v1/channels/available — return the channels this assistant can
  * surface to clients (Contacts / GuardianChannels views, etc.) along with
  * their display metadata (label, subtitle, icon, verification capability,
- * setup-message copy). Today this is a fixed base list plus `email` when
- * an inbox is registered; eventually the list will be driven by
- * plugins/skills the assistant has loaded. Clients should treat the
- * response as authoritative and stop carrying their own per-channel
- * switches.
+ * setup-message copy). A fixed base list, plus `email` when an inbox is
+ * registered, plus whatever installed plugins declare in
+ * `channels/channel.json` (reported separately under `pluginChannels`).
+ * Clients should treat the response as authoritative and stop carrying
+ * their own per-channel switches.
  *
  * Distinct from `/v1/channels/readiness` (which answers "is this channel
  * configured and working?"). Availability answers "could this channel be
@@ -18,6 +18,10 @@
 import { z } from "zod";
 
 import { isA2AEnabled } from "../../a2a/feature-gate.js";
+import {
+  discoverPluginChannels,
+  type PluginChannelDeclaration,
+} from "../../channels/plugin-channel-declarations.js";
 import {
   CHANNEL_IDS,
   CHANNEL_METADATA,
@@ -71,9 +75,10 @@ async function hasRegisteredInbox(): Promise<boolean> {
   }
 }
 
-async function handleGetChannelAvailability(
-  _args: RouteHandlerArgs,
-): Promise<{ channels: ChannelInfo[] }> {
+async function handleGetChannelAvailability(_args: RouteHandlerArgs): Promise<{
+  channels: ChannelInfo[];
+  pluginChannels: PluginChannelDeclaration[];
+}> {
   const ids: ChannelId[] = [...BASE_AVAILABLE_CHANNELS];
   if (await hasRegisteredInbox()) {
     ids.push("email");
@@ -89,8 +94,22 @@ async function handleGetChannelAvailability(
   const channels = ids
     .map((id) => CHANNEL_METADATA[id])
     .filter((info): info is ChannelInfo => info !== undefined);
-  return { channels };
+  // Reported separately rather than folded in: `ChannelInfo.id` is the closed
+  // `ChannelId` union, and a plugin channel is not one of those. See
+  // `PLUGIN_CHANNEL_ID_PREFIX`. A plugin whose declaration fails to parse is
+  // simply absent here; the problem is the plugin author's to see, and this
+  // endpoint feeds a settings list rather than a diagnostic one.
+  const { channels: pluginChannels } = discoverPluginChannels();
+  return { channels, pluginChannels };
 }
+
+const pluginChannelSchema = z.object({
+  id: z.string().describe("`plugin:<pluginName>`"),
+  plugin: z.string(),
+  label: z.string(),
+  subtitle: z.string(),
+  icon: z.string(),
+});
 
 const channelInfoSchema = z.object({
   id: z.enum(CHANNEL_IDS),
@@ -117,14 +136,25 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Return the channels this assistant can surface to clients, with " +
       "display metadata (label, icon, verification capability, setup " +
-      "copy). Today this is a fixed base list plus `email` when an inbox " +
-      "is registered; will become plugin/skill-driven in future.",
+      "copy). A fixed base list plus `email` when an inbox is registered, " +
+      "with channels declared by installed plugins reported separately " +
+      "under `pluginChannels`.",
     tags: ["channels"],
     handler: handleGetChannelAvailability,
     responseBody: z.object({
       channels: z
         .array(channelInfoSchema)
         .describe("Available channels in display order"),
+      pluginChannels: z
+        .array(pluginChannelSchema)
+        .optional()
+        .describe(
+          "Channels declared by installed plugins, in install order. " +
+            "Namespaced under `plugin:` because they are not members of the " +
+            "channel union the daemon routes and verifies against. Optional " +
+            "so a client can read a response from a daemon that predates " +
+            "the field: absent means the same as empty.",
+        ),
     }),
   },
 ];

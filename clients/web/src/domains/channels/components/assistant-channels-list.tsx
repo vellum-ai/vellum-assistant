@@ -12,10 +12,12 @@ import { useChannelAdapterSelectionStore } from "@/domains/channels/adapter-sele
 import { CHANNEL_META } from "@/domains/channels/channel-meta";
 import { ChannelAdapterList } from "@/domains/channels/components/channel-adapter-list";
 import { ChannelPanel } from "@/domains/channels/components/channel-panel";
+import { PluginChannelPanel } from "@/domains/channels/components/plugin-channel-panel";
 import type { SlackThreadMode } from "@/domains/channels/components/slack-thread-behavior";
 import type { AdmissionPolicy } from "@/lib/channel-admission-policy/types";
 import type {
   AssistantChannelState,
+  PluginChannelSummary,
   SetupChannelId,
 } from "@/types/channel-types";
 import { assistantDisplayName as toAssistantDisplayName } from "@/utils/assistant-display-name";
@@ -66,6 +68,13 @@ export interface AssistantChannelsListProps {
   assistantId: string;
   assistantName: string;
   channels: AssistantChannelState[];
+  /**
+   * Channels declared by installed plugins. Listed alongside the adapters and
+   * selectable, but managed by the plugin that brought them: no credential
+   * form, no disconnect, no trust floor, none of which this client can supply
+   * for a channel it knows nothing about.
+   */
+  pluginChannels?: PluginChannelSummary[];
   pendingChannelKey?: ChannelKey | null;
   slackThreadMode?: SlackThreadMode;
   slackThreadModePending?: boolean;
@@ -115,6 +124,7 @@ export function AssistantChannelsList({
   assistantId,
   assistantName,
   channels,
+  pluginChannels = [],
   pendingChannelKey = null,
   slackThreadMode,
   slackThreadModePending = false,
@@ -183,39 +193,49 @@ export function AssistantChannelsList({
     onChannelPolicyChange?.(channelKey, next);
   };
 
-  const handleSelect = (channelKey: ChannelKey) => {
-    selectAdapter(channelKey);
+  const handleSelect = (channelKey: string) => {
+    selectAdapter(channelKey as ChannelKey);
     setDrawerOpen(false);
   };
 
-  // The persisted selection falls back to the first adapter if it names one
-  // that isn't present (the adapter set is fixed, so this is defensive).
-  const selected =
-    channels.find((channel) => channel.key === selectedAdapter) ?? channels[0];
+  // A plugin channel can be selected, and can also vanish under the selection
+  // when its plugin is uninstalled or disabled, so the lookup falls through to
+  // the adapters rather than leaving the panel empty.
+  const selectedPlugin = pluginChannels.find(
+    (channel) => channel.id === selectedAdapter,
+  );
+  const selected = selectedPlugin
+    ? undefined
+    : (channels.find((channel) => channel.key === selectedAdapter) ??
+      channels[0]);
 
-  if (!selected) {
+  if (!selected && !selectedPlugin) {
     return null;
   }
+
+  const selectedKey = selectedPlugin ? selectedPlugin.id : selected!.key;
 
   // Keyed on the adapter so switching selection remounts the panel: its
   // credential-form state (`initialManualEntry`) is seeded once at mount,
   // and each adapter should start fresh.
-  const detail = (
+  const detail = selectedPlugin ? (
+    <PluginChannelPanel key={selectedPlugin.id} channel={selectedPlugin} />
+  ) : (
     <ChannelPanel
-      key={selected.key}
-      channel={selected}
+      key={selected!.key}
+      channel={selected!}
       assistantId={assistantId}
       assistantName={assistantName}
       assistantDisplayName={displayName}
-      pending={pendingChannelKey === selected.key}
-      initialManualEntry={setupChannel === selected.key}
+      pending={pendingChannelKey === selected!.key}
+      initialManualEntry={setupChannel === selected!.key}
       onSetup={
         onSetup
-          ? () => onSetup(selected.key, selected.status === "incomplete")
+          ? () => onSetup(selected!.key, selected!.status === "incomplete")
           : undefined
       }
       onDisconnect={
-        onDisconnect ? () => setPendingDisconnect(selected.key) : undefined
+        onDisconnect ? () => setPendingDisconnect(selected!.key) : undefined
       }
       onSaveTelegramToken={onSaveTelegramToken}
       telegramSaveStatus={telegramSaveStatus}
@@ -227,13 +247,13 @@ export function AssistantChannelsList({
       slackThreadModePending={slackThreadModePending}
       onSlackThreadModeChange={onSlackThreadModeChange}
       onSaveTwilioCredentials={onSaveTwilioCredentials}
-      policy={channelPolicies?.[selected.key]}
-      policySaving={policySavingKey === selected.key}
+      policy={channelPolicies?.[selected!.key]}
+      policySaving={policySavingKey === selected!.key}
       policyLoading={policiesLoading}
       policyError={policiesError}
       onPolicyChange={
         onChannelPolicyChange
-          ? (next) => handlePolicyChange(selected.key, next)
+          ? (next) => handlePolicyChange(selected!.key, next)
           : undefined
       }
     />
@@ -253,7 +273,8 @@ export function AssistantChannelsList({
         >
           <ChannelAdapterList
             channels={channels}
-            selectedKey={selected.key}
+            pluginChannels={pluginChannels}
+            selectedKey={selectedKey}
             onSelect={handleSelect}
           />
         </MobileSidebarDrawer>
@@ -261,7 +282,8 @@ export function AssistantChannelsList({
         <aside className="hidden min-h-0 w-[320px] shrink-0 overflow-y-auto self-stretch sm:block">
           <ChannelAdapterList
             channels={channels}
-            selectedKey={selected.key}
+            pluginChannels={pluginChannels}
+            selectedKey={selectedKey}
             onSelect={handleSelect}
           />
         </aside>
@@ -271,11 +293,7 @@ export function AssistantChannelsList({
             wrapper. Both scroll as a whole when the stacked content overflows —
             the per-channel list self-bounds its own rows within that. */}
         <section className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-          {selected.key === "slack" ? (
-            detail
-          ) : (
-            <DetailCard>{detail}</DetailCard>
-          )}
+          {selectedKey === "slack" ? detail : <DetailCard>{detail}</DetailCard>}
         </section>
       </div>
 

@@ -2,16 +2,23 @@ import { Card } from "@vellumai/design-library/components/card";
 import { PanelItem } from "@vellumai/design-library/components/panel-item";
 import { Tag } from "@vellumai/design-library/components/tag";
 
-import { ChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
+import {
+  ChannelIcon,
+  PluginChannelIcon,
+  getChannelLabel,
+} from "@/utils/channel-presentation";
 import type {
   AssistantChannelState,
-  SetupChannelId,
+  ChannelRowKey,
+  PluginChannelSummary,
 } from "@/types/channel-types";
 
 export interface ChannelAdapterListProps {
   channels: AssistantChannelState[];
-  selectedKey: SetupChannelId;
-  onSelect: (key: SetupChannelId) => void;
+  /** Channels installed plugins declare. Rendered under their own heading. */
+  pluginChannels?: PluginChannelSummary[];
+  selectedKey: ChannelRowKey;
+  onSelect: (key: ChannelRowKey) => void;
 }
 
 /**
@@ -24,6 +31,7 @@ export interface ChannelAdapterListProps {
  */
 export function ChannelAdapterList({
   channels,
+  pluginChannels = [],
   selectedKey,
   onSelect,
 }: ChannelAdapterListProps) {
@@ -47,6 +55,32 @@ export function ChannelAdapterList({
             />
           ))}
         </div>
+
+        {/* Under their own heading rather than mixed in: these are managed by
+            the plugin that brought them, not by this client, and the detail
+            panel says as much. Absent entirely when nothing declares one, so
+            an assistant with no channel plugins looks exactly as before. */}
+        {pluginChannels.length > 0 ? (
+          <>
+            <h3
+              className="text-label-small"
+              style={{ color: "var(--content-secondary)" }}
+            >
+              From plugins
+            </h3>
+
+            <div className="flex flex-col gap-1">
+              {pluginChannels.map((channel) => (
+                <PluginRow
+                  key={channel.id}
+                  channel={channel}
+                  selected={channel.id === selectedKey}
+                  onClick={() => onSelect(channel.id)}
+                />
+              ))}
+            </div>
+          </>
+        ) : null}
       </Card.Body>
     </Card.Root>
   );
@@ -82,6 +116,38 @@ function AdapterRow({ channel, selected, onClick }: AdapterRowProps) {
         </span>
         <span className="flex shrink-0 items-center">
           <Tag tone={connected ? "positive" : "neutral"}>{statusLabel}</Tag>
+        </span>
+      </button>
+    </PanelItem>
+  );
+}
+
+interface PluginRowProps {
+  channel: PluginChannelSummary;
+  selected: boolean;
+  onClick: () => void;
+}
+
+/**
+ * Sibling of {@link AdapterRow} without the status badge. Nothing in this
+ * client can tell whether a plugin's channel is connected, and a badge that
+ * always read "Not connected" would be a false claim rather than a missing
+ * one. The plugin's own page answers it.
+ */
+function PluginRow({ channel, selected, onClick }: PluginRowProps) {
+  return (
+    <PanelItem asChild active={selected} label={channel.label}>
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex h-auto w-full items-center gap-2 rounded-[6px] px-[8px] py-2 text-left"
+      >
+        <PluginChannelIcon
+          icon={channel.icon}
+          className="h-4 w-4 shrink-0 text-[color:var(--content-secondary)]"
+        />
+        <span className="min-w-0 flex-1 truncate text-body-medium-default">
+          {channel.label}
         </span>
       </button>
     </PanelItem>

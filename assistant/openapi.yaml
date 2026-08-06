@@ -4017,8 +4017,8 @@ paths:
       summary: Get available channels
       description:
         Return the channels this assistant can surface to clients, with display metadata (label, icon, verification
-        capability, setup copy). Today this is a fixed base list plus `email` when an inbox is registered; will become
-        plugin/skill-driven in future.
+        capability, setup copy). A fixed base list plus `email` when an inbox is registered, with channels declared by
+        installed plugins reported separately under `pluginChannels`.
       tags:
         - channels
       responses:
@@ -4074,6 +4074,33 @@ paths:
                         - setupMessages
                       additionalProperties: false
                     description: Available channels in display order
+                  pluginChannels:
+                    description:
+                      "Channels declared by installed plugins, in install order. Namespaced under `plugin:` because they are not
+                      members of the channel union the daemon routes and verifies against. Optional so a client can read
+                      a response from a daemon that predates the field: absent means the same as empty."
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          description: "`plugin:<pluginName>`"
+                        plugin:
+                          type: string
+                        label:
+                          type: string
+                        subtitle:
+                          type: string
+                        icon:
+                          type: string
+                      required:
+                        - id
+                        - plugin
+                        - label
+                        - subtitle
+                        - icon
+                      additionalProperties: false
                 required:
                   - channels
                 additionalProperties: false

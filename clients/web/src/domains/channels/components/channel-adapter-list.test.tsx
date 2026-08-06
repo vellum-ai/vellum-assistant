@@ -3,12 +3,25 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import { ChannelAdapterList } from "@/domains/channels/components/channel-adapter-list";
-import type { AssistantChannelState } from "@/types/channel-types";
+import type {
+  AssistantChannelState,
+  PluginChannelSummary,
+} from "@/types/channel-types";
 
 const CHANNELS: AssistantChannelState[] = [
   { key: "slack", status: "ready", address: "@vex" },
   { key: "telegram", status: "not_configured" },
   { key: "phone", status: "not_configured" },
+];
+
+const PLUGIN_CHANNELS: PluginChannelSummary[] = [
+  {
+    id: "plugin:imessage",
+    plugin: "imessage",
+    label: "iMessage",
+    subtitle: "Reach the assistant by text.",
+    icon: "message-circle",
+  },
 ];
 
 afterEach(() => {
@@ -117,5 +130,68 @@ describe("ChannelAdapterList", () => {
     expect(phone.getAttribute("tabindex")).not.toBe("-1");
     phone.focus();
     expect(document.activeElement).toBe(phone);
+  });
+
+  test("lists channels declared by plugins under their own heading", () => {
+    render(
+      <ChannelAdapterList
+        channels={CHANNELS}
+        pluginChannels={PLUGIN_CHANNELS}
+        selectedKey="slack"
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(document.querySelectorAll('[data-slot="panel-item"]').length).toBe(
+      4,
+    );
+    expect(document.body.textContent).toContain("From plugins");
+    expect(document.body.textContent).toContain("iMessage");
+  });
+
+  test("shows no plugin heading when nothing declares a channel", () => {
+    // The common case, and it has to look exactly as it did before.
+    render(
+      <ChannelAdapterList
+        channels={CHANNELS}
+        selectedKey="slack"
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(document.body.textContent).not.toContain("From plugins");
+  });
+
+  test("selects a plugin channel by its namespaced id", () => {
+    // The id is what keeps a plugin row from colliding with an adapter key.
+    let selected: string | undefined;
+    render(
+      <ChannelAdapterList
+        channels={CHANNELS}
+        pluginChannels={PLUGIN_CHANNELS}
+        selectedKey="slack"
+        onSelect={(key) => {
+          selected = key;
+        }}
+      />,
+    );
+
+    fireEvent.click(rowFor("iMessage"));
+    expect(selected).toBe("plugin:imessage");
+  });
+
+  test("carries no connection badge on a plugin row", () => {
+    // Nothing here can answer it for an arbitrary plugin, and a badge that
+    // always read "Not connected" would be a claim rather than a gap.
+    render(
+      <ChannelAdapterList
+        channels={[]}
+        pluginChannels={PLUGIN_CHANNELS}
+        selectedKey="plugin:imessage"
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(rowFor("iMessage").textContent).not.toContain("Not connected");
   });
 });
