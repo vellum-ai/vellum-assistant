@@ -96,8 +96,14 @@ export function useSuppressCreditBannersForByok(
     enabled: routeQueriesEnabled && conversationId != null,
   });
 
+  // A caller-supplied conversation may carry the highest-precedence managed
+  // pin, so classifying without its row (a failed lookup, not just a missing
+  // pin) would silently drop that rung; requiring the row keeps a fetch
+  // error on the fail-open path below.
+  const overrideKnown =
+    conversationId == null || conversationQuery.data !== undefined;
   const burnsManaged =
-    configQuery.data && connectionsQuery.data
+    configQuery.data && connectionsQuery.data && overrideKnown
       ? defaultChatRouteBurnsManagedCredits(
           configQuery.data.llm,
           connectionsQuery.data.connections,
