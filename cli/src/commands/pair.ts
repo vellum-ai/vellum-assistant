@@ -15,6 +15,7 @@ import { nanoid } from "nanoid";
 // error-correction level off `this`, so a destructured import renders nothing.
 import qrcodeTerminal from "qrcode-terminal";
 
+import { MAX_PAIR_LABEL_LENGTH } from "@vellumai/local-mode";
 import {
   buildRemoteWebPairingUrl,
   normalizePairingBaseUrl,
@@ -90,7 +91,8 @@ OPTIONS:
     --url <url>      Reachable gateway URL to advertise in the bundle
                     (default: the assistant's runtime URL, not loopback)
     --label <name>   Human label for this pairing, carried in the bundle and
-                    used as the imported assistant's display name
+                    used as the imported assistant's display name (1-64
+                    characters after trimming whitespace)
     --web            Create a browser pairing URL for remote web access
     --web-approve <code>
                     Approve a browser pairing code shown by /assistant/pair
@@ -268,7 +270,7 @@ export async function pair(): Promise<void> {
     (a) => a !== "--json" && a !== "--web" && a !== "--qr" && a !== "--app",
   );
 
-  const [label, afterLabel] = extractFlag(args, "--label");
+  const [rawLabel, afterLabel] = extractFlag(args, "--label");
   const [webApproveCode, afterWebApprove] = extractFlag(
     afterLabel,
     "--web-approve",
@@ -310,6 +312,20 @@ export async function pair(): Promise<void> {
   }
   if ((appVariant || appSchemeOverride) && !qrPairing) {
     console.error("Error: --app and --app-scheme only apply to --qr pairing.");
+    process.exit(1);
+  }
+
+  // Enforce the importer's label constraint here: decodePairBundle() trims and
+  // silently drops empty or oversized labels, so an invalid --label would mint
+  // a bundle that never delivers the promised display name.
+  const label = rawLabel?.trim();
+  if (
+    rawLabel !== undefined &&
+    (!label || label.length > MAX_PAIR_LABEL_LENGTH)
+  ) {
+    console.error(
+      `Error: --label must be 1-${MAX_PAIR_LABEL_LENGTH} characters after trimming.`,
+    );
     process.exit(1);
   }
 

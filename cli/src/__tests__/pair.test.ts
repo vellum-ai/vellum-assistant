@@ -156,6 +156,123 @@ describe("pair command", () => {
     expect(out.label).toBe("Office Mac");
   });
 
+  test("--label with surrounding whitespace is trimmed in the minted bundle", async () => {
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          token: "t",
+          expiresAt: "2026-06-04T00:00:00.000Z",
+          guardianId: "g",
+          assistantId: "self",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )) as unknown as typeof fetch;
+
+    const logs: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation(
+      (...a: unknown[]) => {
+        logs.push(a.join(" "));
+      },
+    );
+
+    process.argv = [
+      "bun",
+      "vellum",
+      "pair",
+      "--label",
+      "  Office Mac  ",
+      "--json",
+    ];
+    try {
+      await pair();
+    } finally {
+      logSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    const out = JSON.parse(logs.join("\n"));
+    expect(out.label).toBe("Office Mac");
+  });
+
+  test("whitespace-only --label exits 1 with the constraint, before any network call", async () => {
+    let fetchCalled = false;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation(
+      (...a: unknown[]) => {
+        errors.push(a.join(" "));
+      },
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    process.argv = ["bun", "vellum", "pair", "--label", "   ", "--json"];
+    let exited = false;
+    try {
+      await pair();
+    } catch (e) {
+      exited = (e as Error).message === "exit:1";
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    // The importer would drop a whitespace-only label, so the producer refuses
+    // to mint the bundle at all rather than report a label that won't survive.
+    expect(exited).toBe(true);
+    expect(errors.join("\n")).toContain(
+      "--label must be 1-64 characters after trimming",
+    );
+    expect(fetchCalled).toBe(false);
+  });
+
+  test("over-64-character --label exits 1 with the constraint, before any network call", async () => {
+    let fetchCalled = false;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation(
+      (...a: unknown[]) => {
+        errors.push(a.join(" "));
+      },
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    process.argv = ["bun", "vellum", "pair", "--label", "x".repeat(65)];
+    let exited = false;
+    try {
+      await pair();
+    } catch (e) {
+      exited = (e as Error).message === "exit:1";
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    expect(exited).toBe(true);
+    expect(errors.join("\n")).toContain(
+      "--label must be 1-64 characters after trimming",
+    );
+    expect(fetchCalled).toBe(false);
+  });
+
   test("resolves an unquoted multi-word display name", async () => {
     // Assistant whose display name has a space; passed as separate argv tokens.
     writeFileSync(
