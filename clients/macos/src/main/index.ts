@@ -13,7 +13,7 @@ import {
   resolveLockfilePaths,
 } from "@vellumai/local-mode";
 
-import { installAbout, openAboutWindow } from "./about";
+import { installAbout, openAboutWindow } from "./about.client";
 import { installAutoUpdate } from "./auto-update";
 import { APP_HOST, APP_PROTOCOL, BUNDLES_DIR_NAME, VELLUMAPP_PROTOCOL } from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin";
@@ -51,11 +51,11 @@ import {
 import { installDiagnosticsIpc } from "./diagnostics";
 import { installFeatureFlagsIpc } from "./feature-flags";
 import { installFeedbackIpc } from "./feedback";
-import { installGlobalShortcuts } from "./global-shortcuts";
+import { installGlobalShortcuts } from "./global-shortcuts.client";
 import { installHotkeyHelper } from "./hotkey-helper";
-import { installHotkeysIpc } from "./hotkeys";
-import { installImageContextMenu } from "./image-context-menu";
-import { installTextContextMenu } from "./text-context-menu";
+import { installHotkeysIpc } from "./hotkeys.client";
+import { installImageContextMenu } from "@vellumai/electron-desktop/image-context-menu";
+import { installTextContextMenu } from "@vellumai/electron-desktop/text-context-menu";
 import { installPopoutWindows } from "./popout-window";
 import { installQuickInput } from "./quick-input-window";
 import {
@@ -96,11 +96,6 @@ import {
 import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTextInsertionIpc } from "./textInsertion";
 import { installTray } from "./tray";
-import {
-  installVoiceActivityWindow,
-  isVoiceActivityRunning,
-  reopenVoiceActivityPanel,
-} from "./voice-activity-window";
 import { installWebContentsSecurity } from "./windows";
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
@@ -482,7 +477,6 @@ app
     installApplicationMenu();
     installQuickInput();
     installDictationOverlay({ onRecordingLifecycle: setDictationRecording });
-    installVoiceActivityWindow();
     installCompanionWindow();
     installPopoutWindows();
     installGlobalShortcuts();
@@ -515,8 +509,6 @@ app
       toggleMainWindow: toggleMainWindowVisibility,
       ensureMainWindow: ensureMainWindowVisible,
       openAbout: openAboutWindow,
-      isVoicePanelAvailable: isVoiceActivityRunning,
-      showVoicePanel: reopenVoiceActivityPanel,
     });
     installNativeAuth();
     installMainWindow();

@@ -3,10 +3,26 @@ import { z } from "zod";
 
 import type { AppVersionInfo } from "@vellumai/ipc-contract";
 
-import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
-import { getName, onNameChange } from "./identity";
-import { handle } from "./ipc";
+import type { IpcHandle } from "./ipc";
 import { createWindow } from "./windows";
+
+export interface AboutRuntime {
+  rendererBase: () => string;
+  getAssistantName?: () => string | null;
+  onAssistantNameChange?: (listener: () => void) => void;
+}
+
+export interface AboutIpc {
+  handle: IpcHandle;
+}
+
+let runtime: AboutRuntime = {
+  rendererBase: () => "app://vellum.ai/assistant",
+};
+
+export const configureAboutRuntime = (next: AboutRuntime): void => {
+  runtime = next;
+};
 
 /**
  * Branded About window — replaces Electron's default `aboutPanel`
@@ -69,8 +85,7 @@ export const getVersionInfo = (): AppVersionInfo => ({
 const ABOUT_PATH = "/about";
 
 const aboutWindowUrl = (): string => {
-  const base = app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase();
-  return `${base}${ABOUT_PATH}`;
+  return `${runtime.rendererBase()}${ABOUT_PATH}`;
 };
 
 // Module-scope handle so reopening the menu item focuses the existing
@@ -99,10 +114,9 @@ export const openAboutWindow = (): void => {
       minimizable: false,
       maximizable: false,
       fullscreenable: false,
-      // `hiddenInset` keeps the macOS traffic-light buttons but removes
-      // the title bar's chrome — same effect as Swift's
-      // `titlebarAppearsTransparent = true`.
-      titleBarStyle: "hiddenInset",
+      ...(process.platform === "darwin"
+        ? { titleBarStyle: "hiddenInset" as const }
+        : {}),
       title: `About ${APP_NAME}`,
       show: false,
     },
@@ -126,7 +140,7 @@ export const openAboutWindow = (): void => {
 // falling back to the brand name; everything else is build metadata.
 const applyAboutPanelOptions = (): void => {
   app.setAboutPanelOptions({
-    applicationName: getName() ?? APP_NAME,
+    applicationName: runtime.getAssistantName?.() ?? APP_NAME,
     applicationVersion: app.getVersion(),
     // The native panel renders `version` after an em-dash; the commit SHA
     // identifies the exact build.
@@ -137,14 +151,16 @@ const applyAboutPanelOptions = (): void => {
 };
 
 let installed = false;
-export const installAbout = (): void => {
-  if (installed) return;
+export const installAbout = ({ handle }: AboutIpc): void => {
+  if (installed) {
+    return;
+  }
   installed = true;
 
   applyAboutPanelOptions();
   // Re-seed when the assistant name changes so the native panel tracks the
   // live identity.
-  onNameChange(applyAboutPanelOptions);
+  runtime.onAssistantNameChange?.(applyAboutPanelOptions);
 
   handle("vellum:app:versionInfo", z.tuple([]), () => getVersionInfo());
 

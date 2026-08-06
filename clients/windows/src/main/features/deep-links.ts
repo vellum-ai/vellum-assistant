@@ -1,3 +1,5 @@
+import { app } from "electron";
+
 import type {
   CapabilityModule,
   DesktopCapabilityRegistry,
@@ -38,7 +40,13 @@ const deepLinksFeature: CapabilityModule<DesktopCapabilityRegistry> = {
     });
     installDeepLinks();
 
-    configureLoginItem({ handle });
+    configureLoginItem({
+      handle,
+      identity:
+        !app.isPackaged && process.argv[1]
+          ? { path: process.execPath, args: [process.argv[1]] }
+          : undefined,
+    });
     installLoginItem();
     installLoginItemIpc();
   },

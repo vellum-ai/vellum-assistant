@@ -5,13 +5,20 @@
   "license": "MIT",
   "type": "module",
   "exports": {
+    "./about": "./src/about.ts",
+    "./accelerator": "./src/accelerator.ts",
     "./app-origin": "./src/app-origin.ts",
     "./capability-registry": "./src/capability-registry.ts",
     "./deep-links": "./src/deep-links.ts",
+    "./commands": "./src/commands.ts",
     "./devtools": "./src/devtools.ts",
+    "./global-shortcuts": "./src/global-shortcuts.ts",
+    "./hotkeys": "./src/hotkeys.ts",
+    "./image-context-menu": "./src/image-context-menu.ts",
     "./ipc": "./src/ipc.ts",
     "./login-item": "./src/login-item.ts",
     "./preload": "./src/preload.ts",
+    "./text-context-menu": "./src/text-context-menu.ts",
     "./windows": "./src/windows.ts"
   },
   "scripts": {

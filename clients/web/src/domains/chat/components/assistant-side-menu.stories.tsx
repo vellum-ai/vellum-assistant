@@ -194,6 +194,35 @@ export const GroupedView: Story = {
   args: { ...SHARED_ARGS, assistantId: "asst-grouped" },
 };
 
+/* The collapsed rail: one circle per section, each carrying the same
+   indicator its expanded header shows. The rail's geometry only exists at
+   this width, and it is where the last two geometry bugs shipped, so it gets
+   its own surface rather than living as a control on another story.
+
+   "Archive" is seeded with no conversations to draw the empty-section tile:
+   still a circle in the column and still a hover target, so the tooltip
+   explaining why it does nothing stays reachable. It's muted rather than
+   natively disabled for exactly that reason. */
+export const CollapsedRail: Story = {
+  name: "Collapsed rail",
+  beforeEach: () => seedViewMode("asst-collapsed", "grouped"),
+  args: {
+    ...SHARED_ARGS,
+    assistantId: "asst-collapsed",
+    collapsed: true,
+    conversationGroups: [
+      ...GROUPS,
+      {
+        id: "grp-archive",
+        name: "Archive",
+        icon: "briefcase",
+        sortPosition: 2,
+        isSystemGroup: false,
+      },
+    ],
+  },
+};
+
 /* What a cold load looks like before the conversation list resolves. The list
    is one query that settles only once every page of it is in, so on a busy
    assistant this state holds for seconds, and the placeholders are what keep

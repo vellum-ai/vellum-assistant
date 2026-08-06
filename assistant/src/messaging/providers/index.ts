@@ -5,7 +5,7 @@
  * lives in `callback-routing.ts`. The gateway-client consults
  * `isDirectDelivery()` before falling back to the HTTP proxy path.
  *
- * Supported: Slack, Telegram, WhatsApp, A2A.
+ * Supported: Slack, Telegram, WhatsApp, A2A, Discord.
  */
 
 import type {
@@ -17,6 +17,7 @@ import { a2aTransport } from "./a2a/transport.js";
 import type { DirectDeliveryChannel } from "./callback-routing.js";
 import { channelForCallback } from "./callback-routing.js";
 import type { CallbackContext, ChannelTransport } from "./channel-transport.js";
+import { discordTransport } from "./discord/transport.js";
 import { slackTransport } from "./slack/transport.js";
 import { telegramTransport } from "./telegram-bot/transport.js";
 import { whatsappTransport } from "./whatsapp/transport.js";
@@ -30,6 +31,7 @@ const TRANSPORTS: Record<DirectDeliveryChannel, ChannelTransport> = {
   telegram: telegramTransport,
   whatsapp: whatsappTransport,
   a2a: a2aTransport,
+  discord: discordTransport,
 };
 
 /**

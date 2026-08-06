@@ -12,6 +12,7 @@ export interface LaunchAtLoginStore {
 
 export interface LoginItemRuntime {
   handle: IpcHandle;
+  identity?: { path: string; args: string[] };
   store?: LaunchAtLoginStore;
 }
 
@@ -39,7 +40,7 @@ const requireRuntime = (): LoginItemRuntime => {
 
 const readLaunchAtLogin = (): boolean => {
   const stored = runtime?.store?.read();
-  return stored ?? app.getLoginItemSettings().openAtLogin;
+  return stored ?? app.getLoginItemSettings(runtime?.identity).openAtLogin;
 };
 
 const writeLaunchAtLogin = (enabled: boolean): void => {
@@ -48,11 +49,14 @@ const writeLaunchAtLogin = (enabled: boolean): void => {
     store.write(enabled);
     return;
   }
-  app.setLoginItemSettings({ openAtLogin: enabled });
+  app.setLoginItemSettings({ openAtLogin: enabled, ...runtime?.identity });
 };
 
 const syncLoginItem = (): void => {
-  app.setLoginItemSettings({ openAtLogin: readLaunchAtLogin() });
+  app.setLoginItemSettings({
+    openAtLogin: readLaunchAtLogin(),
+    ...runtime?.identity,
+  });
 };
 
 export const installLoginItemIpc = (): void => {
@@ -64,12 +68,13 @@ export const installLoginItemIpc = (): void => {
 };
 
 export const installLoginItem = (): void => {
-  const { store } = requireRuntime();
+  const configured = requireRuntime();
+  const { store } = configured;
   if (!store || teardown) {
     return;
   }
   if (store.read() === null) {
-    store.write(app.getLoginItemSettings().openAtLogin);
+    store.write(app.getLoginItemSettings(configured.identity).openAtLogin);
   }
   syncLoginItem();
   teardown = store.subscribe(syncLoginItem);

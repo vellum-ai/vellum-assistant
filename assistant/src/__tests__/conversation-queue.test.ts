@@ -953,6 +953,14 @@ describe("Conversation message queue", () => {
       await resolveRun(i);
     }
     await new Promise((r) => setTimeout(r, 10));
+
+    // Queue events stay paired: an enqueue that was never acked is never
+    // dequeued either, so the client counter can't retire an entry it never
+    // took. The visible send keeps both halves.
+    expect(
+      notificationEvents.filter((e) => e.type === "message_dequeued"),
+    ).toEqual([]);
+    expect(visibleEvents.some((e) => e.type === "message_dequeued")).toBe(true);
   });
 
   test("abort() clears the queue and closes out each queued message", async () => {

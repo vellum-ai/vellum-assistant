@@ -3,13 +3,14 @@ import { beforeEach, expect, mock, test } from "bun:test";
 import type { IpcHandle } from "./ipc";
 
 let openAtLogin = false;
+const getLoginItemSettings = mock(() => ({ openAtLogin }));
 const setLoginItemSettings = mock((settings: { openAtLogin: boolean }) => {
   openAtLogin = settings.openAtLogin;
 });
 
 mock.module("electron", () => ({
   app: {
-    getLoginItemSettings: () => ({ openAtLogin }),
+    getLoginItemSettings,
     setLoginItemSettings,
   },
 }));
@@ -32,6 +33,22 @@ beforeEach(() => {
   handlers.clear();
   openAtLogin = false;
   setLoginItemSettings.mockClear();
+  getLoginItemSettings.mockClear();
+});
+
+test("identifies the app entry for an unpackaged login item", () => {
+  const identity = { path: "/path/to/electron", args: ["/path/to/app"] };
+  configureLoginItem({ handle, identity });
+  installLoginItemIpc();
+
+  expect(handlers.get("vellum:launchAtLogin:get")?.([])).toBe(false);
+  handlers.get("vellum:launchAtLogin:set")?.([true]);
+
+  expect(getLoginItemSettings).toHaveBeenCalledWith(identity);
+  expect(setLoginItemSettings).toHaveBeenCalledWith({
+    openAtLogin: true,
+    ...identity,
+  });
 });
 
 test("reads and changes the operating-system login item", () => {
