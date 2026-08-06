@@ -7,6 +7,8 @@
  * Species-gated: delegates to a species-specific implementation.
  */
 
+import { resolveAssistantBin } from "./assistant-bin.ts";
+
 const species = process.env.SPECIES;
 
 type CredentialEntry = {
@@ -22,10 +24,13 @@ type CredentialEnvelope = {
 };
 
 async function checkVellum(): Promise<void> {
-  const proc = Bun.spawn(["assistant", "credentials", "list", "--json"], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const proc = Bun.spawn(
+    [resolveAssistantBin(), "credentials", "list", "--json"],
+    {
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
 
   const stdout = await new Response(proc.stdout).text();
   const exitCode = await proc.exited;

@@ -11,6 +11,8 @@
  * Species-gated: delegates to a species-specific implementation.
  */
 
+import { resolveAssistantBin } from "./assistant-bin.ts";
+
 const species = process.env.SPECIES;
 
 const DISCORD_API = "https://discord.com/api/v10";
@@ -34,7 +36,7 @@ async function revealCredential(
 ): Promise<string> {
   const proc = Bun.spawn(
     [
-      "assistant",
+      resolveAssistantBin(),
       "credentials",
       "reveal",
       "--service",
