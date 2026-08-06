@@ -43,11 +43,15 @@ export const buildWindowsMenu = ({
       commandItem("Next Conversation", { kind: "nextConversation" }),
       { type: "separator" },
       commandItem("Settings...", { kind: "openSettings" }),
-      {
-        label: "Install vellum Command...",
-        enabled: installCli !== undefined,
-        click: installCli,
-      },
+      ...(app.isPackaged
+        ? [
+            {
+              label: "Install vellum Command...",
+              enabled: installCli !== undefined,
+              click: installCli,
+            },
+          ]
+        : []),
       { type: "separator" },
       hasPlatformSession
         ? commandItem("Log Out", { kind: "logout" })
@@ -116,11 +120,15 @@ export const buildWindowsMenu = ({
   {
     label: "Help",
     submenu: [
-      {
-        label: "Check for Updates...",
-        enabled: checkForUpdates !== undefined,
-        click: checkForUpdates,
-      },
+      ...(app.isPackaged
+        ? [
+            {
+              label: "Check for Updates...",
+              enabled: checkForUpdates !== undefined,
+              click: checkForUpdates,
+            },
+          ]
+        : []),
       commandItem("Send Feedback...", { kind: "shareFeedback" }),
       {
         label: "Vellum Documentation",
