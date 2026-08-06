@@ -90,25 +90,29 @@ export function originChannelConversationsQueryKey(
   ] as const;
 }
 
-/** Prefix key matching every per-group conversation cache. */
-export function groupListPrefix(assistantId: string | null) {
-  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "group"] as const;
+/** Prefix key matching every per-section conversation cache. */
+export function sectionListPrefix(assistantId: string | null) {
+  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "section"] as const;
 }
 
 /**
- * Key for one group's conversation cache. A child of
- * {@link groupListPrefix}, so prefix-match invalidation of the `"group"`
- * segment reaches every per-group cache at once.
+ * Key for one section's conversation cache, a child of
+ * {@link sectionListPrefix} so prefix-match invalidation reaches every
+ * section at once.
+ *
+ * Both filter axes are in the key because both can be set at once, and two
+ * sections differing only in channel must not share a cache entry.
  */
-export function groupConversationsQueryKey(
+export function sectionConversationsQueryKey(
   assistantId: string | null,
-  groupId: string,
+  filter: SectionConversationFilter,
 ) {
   return [
     CONVERSATION_LIST_PREFIX,
     assistantId ?? "",
-    "group",
-    groupId,
+    "section",
+    filter.groupId ?? "",
+    filter.originChannel ?? "",
   ] as const;
 }
 
@@ -150,9 +154,29 @@ const CONVERSATION_LIST_MAX_PAGES = 200;
  * Origin channel filter values accepted by the daemon's
  * `GET /v1/conversations?originChannel=` parameter.
  */
-export type OriginChannel = NonNullable<
-  ConversationsGetData["query"]
->["originChannel"];
+type ConversationListQuery = NonNullable<ConversationsGetData["query"]>;
+
+export type OriginChannel = ConversationListQuery["originChannel"];
+
+/**
+ * Group filter accepted by `GET /v1/conversations?groupId=`. Derived from the
+ * generated query type rather than restated, so a schema change surfaces
+ * here as a type error.
+ */
+export type ConversationGroupId = ConversationListQuery["groupId"];
+
+/**
+ * What one sidebar section asks the server for.
+ *
+ * Both axes together, because a section can need both: a channel card is
+ * that channel *and* ungrouped, since `origin_channel` is a separate column
+ * from `group_id` and a Slack conversation filed into a custom group would
+ * otherwise render in two cards.
+ */
+export interface SectionConversationFilter {
+  groupId?: ConversationGroupId;
+  originChannel?: OriginChannel;
+}
 
 type FetchConversationListOptions = {
   conversationType?: "background" | "scheduled";
@@ -177,7 +201,7 @@ type FetchConversationListOptions = {
    * The server orders a group-scoped request by the user's own arrangement
    * (display order, then recency) and never appends pinned rows to it.
    */
-  groupId?: string;
+  groupId?: ConversationGroupId;
 };
 
 /**
@@ -564,23 +588,22 @@ export const SYSTEM_PINNED_GROUP_ID = "system:pinned";
 export const SYSTEM_ALL_GROUP_ID = "system:all";
 
 /**
- * Fetch every active conversation in one group: Pinned, a custom group, or
- * the ungrouped remainder.
+ * Fetch every active conversation matching one section's filter: Pinned, a
+ * custom group, the ungrouped remainder, or a channel within it.
  *
- * Drained in full rather than paginated. Curated membership is a small
- * fraction of a workspace's history, and a section that shows only its first
+ * Drained in full rather than paginated. A section that shows only its first
  * page is a section whose unread indicator and bulk actions silently exclude
  * the rest of its own contents.
  *
- * Deliberately unsorted here: a group-scoped response already arrives in the
+ * Deliberately unsorted: a group-scoped response already arrives in the
  * user's own arrangement (display order, then recency), so re-sorting by
- * recency would discard the ordering they set.
+ * recency here would discard the ordering they set.
  */
-export async function listGroupConversations(
+export async function listSectionConversations(
   assistantId: string,
-  groupId: string,
+  filter: SectionConversationFilter,
 ): Promise<Conversation[]> {
-  return fetchConversationList(assistantId, { groupId });
+  return fetchConversationList(assistantId, filter);
 }
 
 /**
@@ -792,19 +815,20 @@ export function originChannelConversationListOptions(
 }
 
 /**
- * Query options for one group's conversation list.
+ * Query options for one sidebar section's conversations.
  *
- * Generic factory parameterized by group id, so Pinned and every custom
- * group use the same one and each caches independently per
- * `(assistantId, groupId)`.
+ * One factory for every section, parameterized by the filter rather than one
+ * factory per filter axis: a section can constrain both at once, which a
+ * per-axis factory cannot express. Caches independently per
+ * `(assistantId, groupId, originChannel)`.
  */
-export function groupConversationListOptions(
+export function sectionConversationListOptions(
   assistantId: string,
-  groupId: string,
+  filter: SectionConversationFilter,
 ) {
   return queryOptions({
-    queryKey: groupConversationsQueryKey(assistantId, groupId),
-    queryFn: () => listGroupConversations(assistantId, groupId),
+    queryKey: sectionConversationsQueryKey(assistantId, filter),
+    queryFn: () => listSectionConversations(assistantId, filter),
     staleTime: QUERY_STALE_TIME_MS,
   });
 }

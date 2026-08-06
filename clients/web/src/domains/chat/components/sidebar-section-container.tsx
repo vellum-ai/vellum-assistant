@@ -1,8 +1,8 @@
 /**
- * A sidebar section backed by one group: Pinned, or a custom group.
+ * A sidebar section that fetches its own conversations.
  *
- * Owns its own query. The section asks the server for its own rows rather
- * than receiving a slice of somebody else's list, which is what makes its
+ * The section asks the server for its own rows rather than receiving a slice
+ * of somebody else's list, which is what makes its
  * contents, its unread indicator, and its bulk actions describe the same set
  * of conversations. A pinned conversation shows up here even when it sorts
  * many pages deep in the full list, because this never reads that list.
@@ -15,16 +15,21 @@
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { useGroupConversationListQuery } from "@/hooks/conversation-queries";
+import { useSectionConversationListQuery } from "@/hooks/conversation-queries";
 import { SidebarSectionCard } from "@/domains/chat/components/sidebar-section-card";
 import type { GroupMenuItemsProps } from "@/domains/chat/components/group-actions-menu";
+import type { SectionConversationFilter } from "@/utils/conversation-list-fetchers";
 
-export interface GroupSectionCardProps {
+export interface SidebarSectionContainerProps {
   assistantId: string | null;
-  /** `system:pinned`, or a custom group's id. */
-  groupId: string;
-  /** Collapse key. Defaults to `groupId`, which is already unique. */
-  value?: string;
+  /**
+   * What this section asks the server for: a group, a channel, or both at
+   * once. Both axes matter for a channel card, which is that channel within
+   * the ungrouped remainder.
+   */
+  filter: SectionConversationFilter;
+  /** Collapse key, unique per section. */
+  value: string;
   label: string;
   icon: LucideIcon;
   /** This section's own actions, scoped to the rows it fetched. */
@@ -40,9 +45,9 @@ export interface GroupSectionCardProps {
   enabled?: boolean;
 }
 
-export function GroupSectionCard({
+export function SidebarSectionContainer({
   assistantId,
-  groupId,
+  filter,
   value,
   label,
   icon,
@@ -51,16 +56,16 @@ export function GroupSectionCard({
   collapsedIndicator,
   unbounded,
   enabled = true,
-}: GroupSectionCardProps) {
-  const { conversations } = useGroupConversationListQuery(
+}: SidebarSectionContainerProps) {
+  const { conversations } = useSectionConversationListQuery(
     assistantId,
-    groupId,
+    filter,
     enabled,
   );
 
   return (
     <SidebarSectionCard
-      value={value ?? groupId}
+      value={value}
       label={label}
       icon={icon}
       items={conversations}

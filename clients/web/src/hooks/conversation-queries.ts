@@ -36,12 +36,15 @@ import {
   archivedConversationListOptions,
   backgroundConversationListOptions,
   conversationListOptions,
-  groupConversationListOptions,
+  sectionConversationListOptions,
   originChannelConversationListOptions,
   scheduledConversationListOptions,
   unreadConversationCountOptions,
 } from "@/utils/conversation-list-fetchers";
-import type { OriginChannel } from "@/utils/conversation-list-fetchers";
+import type {
+  OriginChannel,
+  SectionConversationFilter,
+} from "@/utils/conversation-list-fetchers";
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -208,21 +211,19 @@ export function useOriginChannelConversationListQuery(
 }
 
 /**
- * Subscribe to one group's conversations: Pinned, a custom group, or the
- * ungrouped remainder. Cached per `(assistantId, groupId)` under
- * `groupConversationsQueryKey`.
+ * Subscribe to one sidebar section's conversations.
  *
- * Each sidebar section that maps to a group mounts its own instance, so a
- * section's contents come from the server rather than from filtering another
- * section's list. That is what lets a pinned conversation appear in Pinned
- * even when it sorts many pages deep in the full list.
+ * Each section mounts its own instance, so its contents come from the server
+ * rather than from filtering another section's list. That is what lets a
+ * pinned conversation appear in Pinned even when it sorts many pages deep in
+ * the full list.
  *
  * `enabled` gates the network fetch; passing `false` keeps the observer
  * subscribed to cache updates without firing a request.
  */
-export function useGroupConversationListQuery(
+export function useSectionConversationListQuery(
   assistantId: string | null,
-  groupId: string,
+  filter: SectionConversationFilter,
   enabled: boolean = true,
 ): {
   conversations: Conversation[];
@@ -231,7 +232,7 @@ export function useGroupConversationListQuery(
 } {
   const isOrgReady = useIsOrgReady();
   const query = useQuery({
-    ...groupConversationListOptions(assistantId!, groupId),
+    ...sectionConversationListOptions(assistantId!, filter),
     enabled: enabled && Boolean(assistantId) && isOrgReady,
   });
   return {
