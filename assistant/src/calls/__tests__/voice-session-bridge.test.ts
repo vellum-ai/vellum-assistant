@@ -568,7 +568,22 @@ describe("default call protocol numbered rules", () => {
     const installed = captureInstalledPrompt();
     await startVoiceTurn(makeTurnOptions());
     expect(installed()).toContain(
-      "12. Speak the caller's language: reply in the language of their latest turn, and follow them if they switch languages mid-call.",
+      "12. Speak the caller's language: reply in the language of the caller's most recent actual speech, and follow them if they switch languages mid-call. Synthetic user turns (parenthetical markers like the call-connected and verification-completed notices) are not caller speech and never set the language. Before the caller has spoken, such as on the opening greeting turn, use the language the Task context implies, if any; otherwise default to English.",
+    );
+  });
+
+  test("the language rule excludes synthetic turns and covers pre-speech turns", async () => {
+    // Outbound calls open with the English "(call connected ...)" sentinel as
+    // the latest user-role turn, and the verification-complete sentinel does
+    // the same mid-call. Neither is caller speech, so neither may pull a
+    // Spanish or Japanese Task into an English opener.
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn(makeTurnOptions());
+    const prompt = installed()!;
+    expect(prompt).toContain("most recent actual speech");
+    expect(prompt).toContain("not caller speech and never set the language");
+    expect(prompt).toContain(
+      "use the language the Task context implies, if any; otherwise default to English",
     );
   });
 

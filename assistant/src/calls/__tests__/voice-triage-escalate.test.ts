@@ -183,6 +183,15 @@ describe("front-door decision rule", () => {
   test("the answer branch demands the caller's language", () => {
     expect(rule).toContain("Answer in the language the caller is speaking.");
   });
+
+  test("the escalation holding phrase demands the caller's language", () => {
+    // The bridge examples are English; without an explicit requirement a
+    // Spanish turn that needs a tool gets an English holding phrase before
+    // the localized answer. The examples stay, labeled as English only.
+    expect(rule).toContain("spoken in the language the caller is speaking");
+    expect(rule).toContain("those examples are English only");
+    expect(rule).toContain(`"${FALLBACK_ESCALATION_BRIDGE}"`);
+  });
 });
 
 describe("escalated continuation rule", () => {
