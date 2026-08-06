@@ -412,11 +412,23 @@ function repairPendingToolUseBlocks(conversation: Conversation): void {
  * we did. The flag is what makes the requeue paths able to distinguish a
  * message clients still believe is running from one they never stopped
  * showing as queued. See {@link requeueDrainedMessages}.
+ *
+ * Queue events come in pairs. A row with no client-visible queued counterpart
+ * ({@link isSuppressedQueuedMessage} — hidden sends and the daemon-injected
+ * subagent/ACP/wake notifications) never produced a `message_queued` ack, so
+ * releasing one produces no dequeue either: an unpaired dequeue would retire a
+ * client's counter entry for a message that is still waiting. Nothing was
+ * announced, so the flag stays false and the requeue paths correctly send
+ * nothing for it. The activity-state transition callers emit alongside this is
+ * unrelated to the queue and always fires: the turn really is starting.
  */
 function announceDequeue(
   conversation: Conversation,
   message: QueuedMessage,
 ): void {
+  if (isSuppressedQueuedMessage(message.metadata)) {
+    return;
+  }
   message.onEvent({
     type: "message_dequeued",
     conversationId: conversation.conversationId,
@@ -662,7 +674,15 @@ export async function kickQueueDrain(
       },
       "drainQueue retry rejected; queued messages remain stranded until the next drain trigger",
     );
-    for (const queued of conversation.queue.snapshot()) {
+    // Only the sends a user is waiting on get the failure notice. A stranded
+    // row with no client-visible queued counterpart (hidden machine signal,
+    // daemon-injected subagent/ACP/wake notification) has no queued bubble to
+    // explain, so a "your queued message" error would describe something the
+    // user never sent.
+    const strandedVisible = conversation.queue
+      .snapshot()
+      .filter((queued) => !isSuppressedQueuedMessage(queued.metadata));
+    for (const queued of strandedVisible) {
       queued.onEvent({
         type: "error",
         conversationId: conversation.conversationId,
@@ -2121,7 +2141,10 @@ export async function processMessage(
       throw err;
     } finally {
       conversation.setProcessing(false);
-      await drainQueue(conversation);
+      // `kickQueueDrain` never rejects, so a failed drain in this `finally`
+      // cannot mask the error the try block is unwinding, and its retry plus
+      // sender notification replace a silently stranded queue.
+      await kickQueueDrain(conversation, "loop_complete", "compact_command");
     }
   }
 
@@ -2195,7 +2218,8 @@ export async function processMessage(
       throw err;
     } finally {
       conversation.setProcessing(false);
-      await drainQueue(conversation);
+      // Same never-rejecting drain as the `/compact` branch above.
+      await kickQueueDrain(conversation, "loop_complete", "clean_command");
     }
   }
 

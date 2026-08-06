@@ -1,7 +1,7 @@
 import { Menu, type MenuItemConstructorOptions, app, shell } from "electron";
 import { z } from "zod";
 
-import { openAboutWindow } from "./about";
+import { openAboutWindow } from "./about.client";
 import { checkForUpdates } from "./auto-update";
 import {
   isCliPathFlowInFlight,
@@ -16,7 +16,7 @@ import {
   acceleratorOption,
   dispatchToFocused,
   type VellumCommand,
-} from "./commands";
+} from "./commands.client";
 import {
   closeCommandPaletteWindow,
   isCommandPaletteWindowFocused,

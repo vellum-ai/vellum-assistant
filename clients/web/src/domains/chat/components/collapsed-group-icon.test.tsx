@@ -189,8 +189,7 @@ describe("CollapsedGroupIcon", () => {
         <div>content</div>
       </CollapsedGroupIcon>,
     );
-    // No rounded-full indicator dot should appear (the button itself has rounded-[6px])
-    expect(html).not.toContain("rounded-full");
+    expect(html).not.toContain('data-slot="group-indicator-dot"');
   });
 
   test("renders popover children", () => {
@@ -229,8 +228,13 @@ describe("CollapsedGroupIcon disabled state", () => {
         <div data-testid="popover-body">Should not render</div>
       </CollapsedGroupIcon>,
     );
-    // No clickable button and no popover content for an empty group.
-    expect(html).not.toContain("<button");
+    /* Nothing to open, expressed as `aria-disabled` and never as the native
+       attribute. The tile is its own tooltip trigger, and a natively disabled
+       control dispatches no pointer events, so the "No conversations" hint
+       explaining why it does nothing would be the one thing unreachable. */
+    expect(html).toContain('aria-disabled="true"');
+    expect(html).not.toContain('disabled=""');
+    expect(html).toContain('tabindex="-1"');
     expect(html).not.toContain('aria-haspopup="dialog"');
     expect(html).not.toContain("Should not render");
     // Muted, disabled styling on the bare icon.
@@ -263,6 +267,6 @@ describe("CollapsedGroupIcon disabled state", () => {
         disabled
       />,
     );
-    expect(html).not.toContain("rounded-full");
+    expect(html).not.toContain('data-slot="group-indicator-dot"');
   });
 });

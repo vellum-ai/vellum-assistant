@@ -4,7 +4,7 @@ import type { LucideIcon } from "lucide-react";
 
 import { IconTile } from "@/domains/chat/components/icon-tile";
 import type { Conversation } from "@/types/conversation-types";
-import { Popover, Tooltip } from "@vellumai/design-library";
+import { Popover } from "@vellumai/design-library";
 import { cn } from "@vellumai/design-library/utils/cn";
 
 // ---------------------------------------------------------------------------
@@ -75,6 +75,7 @@ export function GroupIndicatorDot({
   return (
     <span
       aria-hidden
+      data-slot="group-indicator-dot"
       className={cn(
         "h-2.5 w-2.5 rounded-full",
         INDICATOR_CLASS[state],
@@ -135,26 +136,31 @@ export function CollapsedGroupIcon({
   const close = useCallback(() => setOpen(false), []);
 
   if (disabled) {
-    // Empty group: a muted, non-interactive icon. The tooltip explains why it
-    // does nothing rather than repeating the group name the icon already
-    // conveys. No popover and nothing to click, so the plain convenience
-    // `Tooltip` (matching the active path) is all we need.
+    // Empty group: the same tile, minus the popover it would open. Its
+    // tooltip explains why it does nothing rather than repeating the group
+    // name the icon already conveys.
     return (
-      <Tooltip content="No conversations" side="right">
-        <div
-          aria-label={label}
-          className="relative flex h-[30px] w-[30px] items-center justify-center rounded-[6px] text-[var(--content-disabled)]"
-        >
-          <Icon size={14} />
-        </div>
-      </Tooltip>
+      <IconTile
+        label="No conversations"
+        side="right"
+        shape="round"
+        disabled
+        aria-label={label}
+      >
+        <Icon size={14} />
+      </IconTile>
     );
   }
 
   return (
     <Popover.Root open={open} onOpenChange={handleOpenChange}>
       <Popover.Trigger asChild>
-        <IconTile label={label} side="right" aria-haspopup="dialog">
+        <IconTile
+          label={label}
+          side="right"
+          shape="round"
+          aria-haspopup="dialog"
+        >
           <Icon size={14} />
           <GroupIndicatorDot
             state={indicatorState}

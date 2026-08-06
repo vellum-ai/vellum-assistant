@@ -498,6 +498,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@vellumai/electron-utils": "workspace:*",
+        "@vellumai/ipc-contract": "workspace:*",
         "electron-store": "11.0.2",
       },
       "devDependencies": {
