@@ -13,6 +13,21 @@ import {
 
 const ADD_FAILED_COPY = "Failed to add the assistant. Please try again.";
 
+/**
+ * Drop the app-route tail from an address a user is likely to have copied
+ * out of their browser, so both `<base>/assistant/pair` (what the pairing
+ * page shows) and `<base>/assistant` reduce to the public base the store
+ * remembers. A Velay path prefix survives because it is a different
+ * segment: `https://host/assistant-123/assistant/pair` yields
+ * `https://host/assistant-123`.
+ */
+function stripAppRouteSuffix(base: string): string {
+  const withoutPair = base.endsWith("/pair") ? base.slice(0, -5) : base;
+  return withoutPair.endsWith("/assistant")
+    ? withoutPair.slice(0, -"/assistant".length)
+    : withoutPair;
+}
+
 interface AddRemoteOriginDialogProps {
   open: boolean;
   onClose: () => void;
@@ -59,7 +74,10 @@ function AddRemoteOriginDialog({
     if (!url.trim() || pending) {
       return;
     }
-    const normalized = normalizeOriginUrl(url);
+    const parsed = normalizeOriginUrl(url);
+    // Re-normalize: stripping the route tail can leave a bare origin.
+    const normalized =
+      parsed === null ? null : normalizeOriginUrl(stripAppRouteSuffix(parsed));
     if (normalized === null) {
       setError(
         "Enter the full https address, like https://example.com/assistant-1.",

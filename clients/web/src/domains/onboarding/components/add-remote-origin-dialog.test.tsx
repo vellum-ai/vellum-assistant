@@ -145,6 +145,32 @@ describe("AddRemoteOriginDialog", () => {
     );
   });
 
+  // The dialog tells users to paste the link their pairing page gave them,
+  // so the app-route tail has to reduce to the public base; otherwise
+  // switching would append /assistant to it and land on NotFound.
+  test.each([
+    ["https://host.example/assistant/pair", "https://host.example"],
+    [
+      "https://host.example/assistant/pair#device_code=ABCD-1234",
+      "https://host.example",
+    ],
+    ["https://host.example/assistant", "https://host.example"],
+    [
+      "https://host.example/assistant-1/assistant/pair",
+      "https://host.example/assistant-1",
+    ],
+    ["https://host.example/assistant-1", "https://host.example/assistant-1"],
+  ])("reduces %s to the public base", async (typed, expected) => {
+    renderDialog();
+
+    fillAddress(typed);
+    fireEvent.click(screen.getByText("Add"));
+
+    await waitFor(() =>
+      expect(addOriginMock).toHaveBeenCalledWith({ url: expected }),
+    );
+  });
+
   test.each([
     "http://host.example/assistant-1",
     "javascript:alert(1)",
