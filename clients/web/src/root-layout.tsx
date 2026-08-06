@@ -12,6 +12,11 @@ import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useChannelSetupCloseNotify } from "@/domains/chat/hooks/use-channel-setup-close-notify";
 import {
+  isLiveVoiceSessionActive,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
+import { requestVoiceStart } from "@/domains/chat/voice/live-voice/start-voice-request";
+import {
   useAuthStore,
   useIsSessionInitializing,
   useHasPlatformSession,
@@ -289,6 +294,25 @@ export function RootLayout() {
       void navigate(
         `${routes.conversation(draftId)}?prompt=${encodeURIComponent(command.message)}`,
       );
+    },
+    startVoice: () => {
+      // A session already running is the session the user is in, so the press
+      // is spent: the starter refuses a second one anyway, and navigating
+      // would only walk the app away from the composer that owns it.
+      if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
+        return;
+      }
+      // The draft composer, because the session starts with no conversation
+      // and the server assigns one on `ready`. Navigating is also what mounts
+      // `ChatLayout` and therefore the starter this request is waiting for;
+      // until then it stays parked.
+      //
+      // The window is deliberately not raised. This command comes from the
+      // companion surface, which the user reached for precisely because they
+      // are working somewhere else, and the call gets its own floating readout
+      // from the voice-activity panel.
+      void navigate(routes.assistant);
+      requestVoiceStart();
     },
     replayOnboarding: () => {
       void navigate(`${routes.onboarding.privacy}?preview=true`);

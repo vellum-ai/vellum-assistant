@@ -56,6 +56,16 @@ export type VellumCommand =
   | { kind: "retireAssistant"; assistantId: string }
   | { kind: "removePairedAssistant"; assistantId: string }
   | { kind: "quickInputSubmit"; message: string }
+  /**
+   * Start a live-voice session, the way the companion surface's Talk asks for
+   * one.
+   *
+   * Carries no conversation: the session starts against a draft and the server
+   * assigns the conversation on its `ready` frame, which is the same shape the
+   * `startVoice` deep link uses. A press that lands while a session is already
+   * running is a no-op, because the running session is the one the user is in.
+   */
+  | { kind: "startVoice" }
   | { kind: "cancelDictation" }
   | { kind: "replayOnboarding" }
   | { kind: "replayHatchFailure" }

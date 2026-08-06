@@ -326,6 +326,14 @@ export interface VellumBridge {
     setInteractive(interactive: boolean): void;
     /** Nudge the window, for dragging the surface around the desktop. */
     moveBy(dx: number, dy: number): void;
+    /**
+     * Ask for a live-voice session, which is what Talk does.
+     *
+     * The surface is its own renderer and holds no session, so the press is
+     * handed to main and dispatched to the window that does. Nothing comes
+     * back: the session's readout is the voice-activity panel.
+     */
+    startVoice(): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;

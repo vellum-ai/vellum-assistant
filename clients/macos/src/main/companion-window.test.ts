@@ -1,6 +1,23 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
-import { anchorFor } from "./companion-window";
+// The module under test reaches `main-window.ts` to hand Talk to the renderer
+// that owns the live-voice session, and that chain loads `electron-store`, a
+// real module that imports the Electron binary's default export and cannot
+// resolve off-Electron. Only the import chain needs satisfying here: these
+// cases exercise the anchor, which touches no store. Same shape as
+// `voice-activity-window.test.ts`, which mocks it for the same reason.
+mock.module("electron-store", () => ({
+  default: class {
+    get(_key: string, fallback?: unknown) {
+      return fallback;
+    }
+    set() {}
+  },
+}));
+
+// Dynamic, so the mock above is installed before the module graph loads:
+// static imports hoist above it.
+const { anchorFor } = await import("./companion-window");
 
 /**
  * The anchor is the only rule in the companion window worth testing without a
