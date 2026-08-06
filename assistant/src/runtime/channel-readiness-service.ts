@@ -531,7 +531,13 @@ export class ChannelReadinessService {
         ...localChecks,
         ...(remoteChecks && remoteChecksAffectReadiness ? remoteChecks : []),
       ];
-      const anyCheckPassed = consideredChecks.some((c) => c.passed);
+      // Also `verified`, not `passed`. A check that established nothing is not
+      // evidence that setup has begun: an install with no bot token at all
+      // returns `skipped` from the Telegram probe, and counting that as
+      // progress reports an untouched workspace as `incomplete`, which is what
+      // sends the Channels UI down the "finish setup" path instead of the
+      // normal setup flow.
+      const anyCheckPassed = consideredChecks.some(verified);
       const setupStatus: SetupStatus = !anyCheckPassed
         ? "not_configured"
         : ready

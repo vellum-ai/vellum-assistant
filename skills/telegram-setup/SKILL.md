@@ -46,11 +46,16 @@ Otherwise, run `assistant credentials list --search telegram` (via the bash tool
 - **Both present** → credentials existing does not mean Telegram works, so
   check before saying so. Run Step 3's `assistant channels get telegram --json`
   and read `webhook_delivery`.
-  - **Passing** → already set up. Offer to show status or reconfigure, and stop
-    here unless the user wants a reset.
-  - **Failing** → configured but not delivering. This is what the Channels page
-    shows as incomplete, and it is why the user may have asked. Go to Step 3 and
-    work the recovery rather than reporting it as already set up.
+  - **`passed: true`, no `indeterminate`** → already set up and confirmed.
+    Offer to show status or reconfigure, and stop here unless the user wants a
+    reset.
+  - **`passed: true` with `indeterminate: true`** → do NOT stop here. Nothing
+    is broken, but nothing is confirmed: the registration record is missing, or
+    Telegram was unreachable just now. Stopping would skip both the recovery in
+    Step 3 and the identity verification in Step 4. Go to Step 3 and re-check.
+  - **`passed: false`** → configured but not delivering. This is what the
+    Channels page shows as incomplete, and it is why the user may have asked. Go
+    to Step 3 and work the recovery rather than reporting it as already set up.
 
 > ✓ Checkpoint: You named which fields are present before branching. Do not skip the call and guess.
 

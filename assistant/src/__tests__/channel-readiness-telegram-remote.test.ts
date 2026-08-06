@@ -129,6 +129,19 @@ describe("telegram remote probe (webhook delivery)", () => {
     });
   }
 
+  test("an untouched install stays not_configured rather than incomplete", async () => {
+    // setupStatus separates not_configured from incomplete by asking whether
+    // any check passed. Counting an indeterminate check there reported a
+    // workspace with no Telegram credentials at all as half-finished, which is
+    // what routes the Channels UI to the "finish setup" prompt instead of the
+    // normal setup flow.
+    health = { status: "skipped", detail: "no bot token stored" };
+
+    const [snapshot] = await runTelegramRemoteProbe();
+    expect(snapshot.setupStatus).toBe("not_configured");
+    expect(snapshot.ready).toBe(false);
+  });
+
   test("a verified healthy result is not marked indeterminate", async () => {
     // Sensitivity check for the cases above: if `indeterminate` were set
     // unconditionally they would pass while proving nothing.
