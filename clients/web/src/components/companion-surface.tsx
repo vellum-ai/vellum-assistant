@@ -203,15 +203,21 @@ export function CompanionSurface({
       ? 0
       : (contentWidth ?? FALLBACK_WIDTHS[phase] - AVATAR_BOX) + INNER_GAP);
 
-  // Positioned against the avatar's resting footprint, so `left`/`right` pin
-  // that edge and the body grows away from it, while `center` splits the growth
-  // and drifts the avatar by half. Only `center` needs the negative margin, and
-  // only `center` animates it.
+  // **Every anchor keeps the avatar on the same spot.** The host positions this
+  // window around the avatar, not around the pill, so the avatar's resting box
+  // is always the centre of the canvas and only the direction the body grows in
+  // may change. Pinning the pill to a canvas edge instead throws the avatar
+  // half a canvas away from where the host put it, which at the default
+  // bottom-right launch position is off the screen entirely.
+  //
+  // So each anchor fixes the avatar's own edge to the centre and lets the body
+  // run the other way: right-anchored also reverses the row, because the body
+  // has to end up on the avatar's left.
   const placement: CSSProperties =
     anchor === "left"
-      ? { left: 0 }
+      ? { left: "50%", marginLeft: -(AVATAR_BOX / 2) }
       : anchor === "right"
-        ? { right: 0 }
+        ? { right: "50%", marginRight: -(AVATAR_BOX / 2) }
         : { left: "50%", marginLeft: -(width / 2) };
 
   const style: CSSProperties = {
@@ -229,7 +235,11 @@ export function CompanionSurface({
     // press, so everything that is not a button can be grabbed, which at rest
     // means the avatar and when expanded means the pill around the controls.
     <div
-      className="absolute top-1/2 flex h-11 cursor-grab items-center rounded-full transition-[width,margin-left] duration-300 will-change-[width,margin-left] active:cursor-grabbing"
+      className={`absolute top-1/2 flex h-11 cursor-grab items-center rounded-full transition-[width,margin-left,margin-right] duration-300 will-change-[width,margin-left,margin-right] active:cursor-grabbing ${
+        // The avatar is the row's first child, so growing leftward means
+        // reversing the row rather than repositioning it.
+        anchor === "right" ? "flex-row-reverse" : ""
+      }`}
       style={style}
       onMouseLeave={onHoverEnd}
       onMouseDown={onSurfaceMouseDown}
