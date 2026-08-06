@@ -54,9 +54,11 @@ import type {
  *
  * Standalone (no auth, no RootLayout) like the dictation overlay and Quick
  * Input. The window canvas is transparent with a vibrancy material behind it,
- * so the page paints the glass itself: a translucent wash, a hairline border,
- * and a specular highlight along the top edge. Off-Electron the subscription
- * no-ops and the page stays blank.
+ * and that material is the background. The page adds only what the material
+ * cannot draw for itself, a hairline border and a specular highlight along the
+ * top edge; a wash of its own would double-tint the glass, which is what made
+ * the first build read as a flat translucent rectangle. Off-Electron the
+ * subscription no-ops and the page stays blank.
  */
 export function VoiceActivityPanelPage() {
   const [state, setState] = useState<VoiceActivityState | null>(null);
@@ -90,7 +92,7 @@ export function VoiceActivityPanelPage() {
   if (state.collapsed) {
     return (
       <div
-        className="relative flex h-screen w-screen items-center gap-2 overflow-hidden rounded-full border border-white/15 bg-white/[0.07] px-2 [-webkit-app-region:drag] before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/40 before:to-transparent"
+        className="relative flex h-screen w-screen items-center gap-2 overflow-hidden rounded-full border border-white/15 px-2 [-webkit-app-region:drag] before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/40 before:to-transparent"
         style={surfaceStyle}
       >
         <button
@@ -117,7 +119,7 @@ export function VoiceActivityPanelPage() {
     // The surface drags; every control opts out. The macOS traffic lights are
     // the window's controls, so the page draws none of its own.
     <div
-      className="relative flex h-screen w-screen flex-col overflow-hidden rounded-xl border border-white/15 bg-white/[0.07] [-webkit-app-region:drag] before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/40 before:to-transparent"
+      className="relative flex h-screen w-screen flex-col overflow-hidden rounded-xl border border-white/15 [-webkit-app-region:drag] before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/40 before:to-transparent"
       style={surfaceStyle}
     >
       {/* Identity titles the window, centered over the traffic lights rather

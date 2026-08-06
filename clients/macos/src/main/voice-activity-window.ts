@@ -303,6 +303,16 @@ const createPanel = (): BrowserWindow => {
       // a surface floating over *other apps* reads as glass rather than as a
       // tinted rectangle. `active` keeps it live while Vellum is in the
       // background, which is most of this window's life.
+      //
+      // The material is an NSVisualEffectView *behind* the web contents, so it
+      // is only ever as visible as those contents are transparent. Electron
+      // backs a window with an opaque colour by default, which hides it
+      // completely. `quick-input-window.ts` gets there through `transparent`,
+      // which this window cannot use without giving up its traffic lights, so
+      // it takes the command palette's route instead: a zero-alpha backing
+      // colour. The page then paints no background of its own, because the
+      // material is the background.
+      backgroundColor: "#00000000",
       vibrancy: "under-window",
       visualEffectState: "active",
       roundedCorners: true,
