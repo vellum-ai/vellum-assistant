@@ -46,7 +46,7 @@ export const Edit: Story = {
 /**
  * The state the Profiles list links here for. The profile names no provider,
  * so the resolver skips it and actions fall through to their default. Save is
- * disabled, and the Provider field has to say why — a dead button with no
+ * disabled, and the Provider field has to say why. A dead button with no
  * explanation is the bug this covers (LUM-3076).
  */
 export const MissingProvider: Story = {

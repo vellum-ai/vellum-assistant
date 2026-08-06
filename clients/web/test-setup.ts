@@ -53,7 +53,7 @@ window.location.href = "http://localhost:3000";
 // A Radix Select inside a Radix Dialog hits this: the Select's option is
 // portalled outside the Dialog, the Dialog's focus scope treats that as focus
 // escaping and pulls it back to the trigger, and Radix Select re-focuses the
-// option — option -> trigger -> option, forever. The runner then produces no
+// option: option -> trigger -> option, forever. The runner then produces no
 // output at all, because a synchronous loop is not interruptible by
 // `--timeout`.
 //

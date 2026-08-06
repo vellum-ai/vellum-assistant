@@ -558,7 +558,7 @@ export function useProfileEditor({
   // fields on open would be scolding the user for not having started. Edit
   // mode is the opposite: an existing profile missing a provider or model is
   // already broken, the resolver already skips it, and the row that links
-  // here says "Click to fix" — so the reason has to be visible on arrival.
+  // here says "Click to fix", so the reason has to be visible on arrival.
   // The Model field already explains `providerWithoutModel` itself, keyed to
   // why it is empty (no catalog entries, connection not configured, nothing
   // picked). Provider is the one blocking state with no copy anywhere.
@@ -566,9 +566,13 @@ export function useProfileEditor({
   // An untouched create form is blank by definition, so flagging it on open
   // would be scolding the user for not having started. Edit mode is the
   // opposite: a profile with no provider is already broken, the resolver
-  // skips it, and the row that links here says "Click to fix" — so the
+  // skips it, and the row that links here says "Click to fix", so the
   // reason has to be visible on arrival.
-  const showFieldErrors = effectiveMode === "edit" || getDirty();
+  // Read-only (managed) profiles get no field errors, matching how `keyError`
+  // is suppressed for them: the picker is disabled, so naming a problem the
+  // user cannot act on here is just noise.
+  const showFieldErrors =
+    !isReadOnly && (effectiveMode === "edit" || getDirty());
   const providerError =
     showFieldErrors && providerMissing ? "Select a provider" : null;
 

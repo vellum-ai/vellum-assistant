@@ -1,7 +1,7 @@
 /**
  * Guards the focus re-entrancy shim in `test-setup.ts`.
  *
- * Note the failure mode: if the shim is removed, these do not go red — they
+ * Note the failure mode: if the shim is removed, these do not go red: they
  * hang, because the underlying happy-dom bug is a synchronous loop. That is
  * exactly why the shim exists, and why this file documents the invariant
  * rather than relying on a red test to catch a regression.

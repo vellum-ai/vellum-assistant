@@ -80,6 +80,9 @@ function restrictsToSubscriptionModels(
  * discriminator. The "no-provider" hint is `null` because the hint only
  * renders once a provider is selected.
  */
+const NO_PROVIDER_CONNECTIONS_HINT =
+  "No provider connections. Open Providers to add one.";
+
 const MODEL_EMPTY_STATE_COPY = {
   "no-provider": {
     placeholder: "Select a provider first",
@@ -232,6 +235,11 @@ export function ProfileEditorProviderSection({
   const providerOptionsSource =
     connections === undefined ? allProvidersForPicker : visibleProviders;
 
+  // A confirmed-empty connection list. Read-only profiles cannot act on it,
+  // so they are not told to.
+  const noProviderConnections =
+    providerOptionsSource.length === 0 && !isReadOnly;
+
   // For openai-compatible providers the static catalog is empty — use models
   // from the selected connection instead. When no specific connection is
   // selected, merge models from all available openai-compatible connections.
@@ -356,10 +364,18 @@ export function ProfileEditorProviderSection({
         <Select
           id="profile-editor-provider"
           label="Provider"
-          errorText={providerError}
+          errorText={
+            // With nothing to select, "add a connection" is both the reason
+            // Save is blocked and the way out, so it becomes the error.
+            // Passing it as helper text would hide it: the field shows one
+            // message, and the error wins.
+            providerError && noProviderConnections
+              ? NO_PROVIDER_CONNECTIONS_HINT
+              : providerError
+          }
           helperText={
-            providerOptionsSource.length === 0 && !isReadOnly
-              ? "No provider connections. Open Providers to add one."
+            noProviderConnections && !providerError
+              ? NO_PROVIDER_CONNECTIONS_HINT
               : undefined
           }
           value={

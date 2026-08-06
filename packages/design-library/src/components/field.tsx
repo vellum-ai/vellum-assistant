@@ -9,7 +9,7 @@ import { cn } from "../utils/cn";
  * Internal to this package: controls compose it so that `label`, `helperText`
  * and `errorText` mean the same thing and look the same everywhere, rather
  * than each control reinventing them. Callers use those props on `Input`,
- * `Textarea` or `Select` — they never reach for this directly.
+ * `Textarea` or `Select`. They never reach for this directly.
  *
  * The control owns its own id and wires its own `aria-describedby`; this only
  * renders the surrounding text. `errorText` wins over `helperText` when both

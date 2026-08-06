@@ -297,6 +297,7 @@ function renderEdit(
   initialValues: Record<string, unknown>,
   onSave: (name: string, entry: unknown) => Promise<void> = () =>
     Promise.resolve(),
+  connections: ProviderConnection[] = [makeConnection("anthropic-personal")],
 ) {
   return render(
     <Wrapper>
@@ -306,7 +307,7 @@ function renderEdit(
         profileName={(initialValues.name as string) ?? "balanced"}
         initialValues={initialValues as never}
         existingNames={[(initialValues.name as string) ?? "balanced"]}
-        connections={[makeConnection("anthropic-personal")]}
+        connections={connections}
         assistantId={ASSISTANT_ID}
         onSave={onSave}
         onCancel={() => {}}
@@ -1845,7 +1846,7 @@ describe("ProfileEditorModal — invariant managed profiles in view mode", () =>
 // Why Save is disabled (LUM-3076)
 // ---------------------------------------------------------------------------
 
-describe("ProfileEditorModal — explains why Save is blocked", () => {
+describe("ProfileEditorModal: explains why Save is blocked", () => {
   /**
    * Field errors are announced, so assert on the alert rather than on page
    * text: "Select a provider" is also the picker's placeholder, and matching
@@ -1873,6 +1874,28 @@ describe("ProfileEditorModal — explains why Save is blocked", () => {
       provider: "anthropic",
       model: "claude-opus-5",
     });
+
+    expect(fieldErrors()).toEqual([]);
+  });
+
+  test("with no connections at all, the error is the way out", () => {
+    // The blocking reason and the fix are the same fact here. Passing the
+    // hint as helper text would hide it, since the field shows one message
+    // and the error wins, leaving the user staring at "Select a provider"
+    // above an empty list.
+    renderEdit({ name: "half-built" }, undefined, []);
+
+    expect(fieldErrors()).toContain(
+      "No provider connections. Open Providers to add one.",
+    );
+    expect(fieldErrors()).not.toContain("Select a provider");
+  });
+
+  test("a locked profile is not told to fix a field it cannot edit", () => {
+    // `invariant` forces read-only even in edit mode, so `effectiveMode` is
+    // still "edit" and the error would otherwise render above a disabled
+    // picker. Matches how `keyError` is already suppressed for these.
+    renderEdit({ name: "my-managed", invariant: true });
 
     expect(fieldErrors()).toEqual([]);
   });
