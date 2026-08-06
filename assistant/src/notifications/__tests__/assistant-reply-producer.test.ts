@@ -503,7 +503,8 @@ describe("emitAssistantReplyNotification", () => {
   });
 
   // Blank lines and list indentation would otherwise spend the preview's
-  // length budget on whitespace.
+  // length budget on whitespace. The bullets go with them: a lock screen
+  // renders the marker as literal punctuation, not as a list.
   test("collapses whitespace runs in the preview", async () => {
     assistantRow = makeAssistantRow([
       { type: "text", text: "  Here:\n\n  - item\n  - other  " },
@@ -512,8 +513,89 @@ describe("emitAssistantReplyNotification", () => {
     await run();
 
     expect(emitCalls[0].contextPayload.requestedMessage).toBe(
-      "Here: - item - other",
+      "Here: item other",
     );
+  });
+
+  // A lock screen renders no markdown, so syntax that survives to the APNs
+  // payload reads as punctuation soup. See `stripMarkdownForPreview`.
+  describe("markdown flattening", () => {
+    test("previews a media-only reply as its attachments", async () => {
+      assistantRow = makeAssistantRow([
+        {
+          type: "text",
+          text: [
+            "![vellum scene](vellum://workspace/clients/web/public/cut.mp4)",
+            "![hero animation](vellum://workspace/repos/hero.mp4)",
+          ].join(" "),
+        },
+      ] as ContentBlock[]);
+      assistantAttachments = [
+        { originalFilename: "cut.mp4" },
+        { originalFilename: "hero.mp4" },
+      ];
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent 2 attachments",
+      );
+    });
+
+    test("keeps the prose when a reply mixes text and media", async () => {
+      assistantRow = makeAssistantRow([
+        {
+          type: "text",
+          text: "Here is the scene: ![vellum scene](vellum://workspace/a.mp4)",
+        },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Here is the scene:",
+      );
+      // The text branch produced a preview, so the fallback never ran.
+      expect(attachmentLookups).toEqual([]);
+    });
+
+    test("previews a fenced code reply as its code", async () => {
+      assistantRow = makeAssistantRow([
+        { type: "text", text: "Fixed it:\n```ts\nconst a = 1;\n```" },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Fixed it: const a = 1;",
+      );
+    });
+
+    test("previews a table reply as its cells", async () => {
+      assistantRow = makeAssistantRow([
+        {
+          type: "text",
+          text: "## Keys\n\n| Env | Key |\n|---|---|\n| dev | 4Y4L |",
+        },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Keys Env Key dev 4Y4L",
+      );
+    });
+
+    test("stays silent when a media-only reply has no attachments either", async () => {
+      assistantRow = makeAssistantRow([
+        { type: "text", text: "![orphan](vellum://workspace/gone.png)" },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls).toHaveLength(0);
+      expect(attachmentLookups).toEqual([ASSISTANT_MESSAGE_ID]);
+    });
   });
 
   // Each case asserts the shared classifier's verdict alongside the silence, so

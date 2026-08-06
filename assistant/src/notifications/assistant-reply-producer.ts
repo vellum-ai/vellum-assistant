@@ -34,6 +34,7 @@ import { emitNotificationSignal } from "./emit-signal.js";
 import {
   sanitizeMessagePreview,
   sanitizeNotificationTitle,
+  stripMarkdownForPreview,
 } from "./notification-utils.js";
 
 /** Kill switch for this producer, on by default. */
@@ -186,9 +187,17 @@ export async function emitAssistantReplyNotification(params: {
     // A reply whose output is entirely attachments has no text to preview, so
     // fall back to naming them rather than suppressing a real reply. A reply
     // with neither text nor attachments stays silent.
+    //
+    // Markdown is flattened first: a lock screen renders none of it, and a
+    // reply built only of `![alt](vellum://...)` embeds has to reduce to empty
+    // for the attachment fallback to be reachable at all.
     const preview =
       sanitizeMessagePreview(
-        collapseWhitespace(stringifyMessageContent(assistantRow.content)),
+        collapseWhitespace(
+          stripMarkdownForPreview(
+            stringifyMessageContent(assistantRow.content),
+          ),
+        ),
       ) ||
       sanitizeMessagePreview(describeAttachmentOnlyReply(assistantMessageId));
     if (!preview) {

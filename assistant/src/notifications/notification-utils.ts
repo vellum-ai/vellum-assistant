@@ -8,6 +8,7 @@
 
 import { stripAnsiAndControlChars } from "../util/ansi.js";
 import { isPlainObject } from "../util/object.js";
+import { stripMarkdown } from "../util/short-title.js";
 
 // ── String helpers ──────────────────────────────────────────────────────────
 
@@ -58,6 +59,63 @@ export function truncate(text: string, maxLength: number): string {
     return text;
   }
   return text.slice(0, maxLength - 1) + "…";
+}
+
+// ── Markdown flattening ─────────────────────────────────────────────────────
+
+/** Media embeds: `![alt](url)`, in any of the schemes a reply can carry. */
+const MEDIA_EMBED_RE = /!\[[^\]]*\]\([^)]*\)/g;
+
+/** Fence openers and closers, keeping the fenced content itself. */
+const CODE_FENCE_LINE_RE = /^[ \t]{0,3}(?:```|~~~).*$/gm;
+
+/** Leading `#` through `######`. */
+const HEADING_MARKER_RE = /^[ \t]{0,3}#{1,6}[ \t]+/gm;
+
+/** Leading `>`, one level per pass of the marker itself. */
+const BLOCKQUOTE_MARKER_RE = /^[ \t]{0,3}>[ \t]?/gm;
+
+/** Leading `-`, `*`, `+`, `1.`, `1)`. */
+const LIST_MARKER_RE = /^[ \t]{0,3}(?:[-*+]|\d+[.)])[ \t]+/gm;
+
+/** Table delimiter rows and horizontal rules: punctuation, never words. */
+const RULE_ROW_RE = /^[ \t]*\|?[ \t:|-]*-[ \t:|-]*$/gm;
+
+/** A pipe-delimited table row, matched only when both edge pipes are present. */
+const TABLE_ROW_RE = /^[ \t]*\|(.*)\|[ \t]*$/gm;
+
+/**
+ * Flatten markdown syntax out of untrusted copy bound for a plain-text
+ * notification surface, where the markers render as literal punctuation rather
+ * than formatting.
+ *
+ * Media embeds are dropped whole, alt text included. The alt describes the
+ * attachment rather than adding prose, so keeping it previews a video as its
+ * own caption. Dropping it is also what lets an embed-only reply flatten to
+ * empty and reach its attachment fallback.
+ *
+ * Line structure survives, so callers needing multi-line copy keep it; collapse
+ * whitespace separately for a single line. The block markers below are
+ * line-anchored and so must be removed here, ahead of any such collapse, and
+ * ahead of `stripMarkdown`, whose inline-code rule would otherwise chew a fence
+ * into a stray backtick.
+ */
+export function stripMarkdownForPreview(value: string): string {
+  const deblocked = value
+    .replace(MEDIA_EMBED_RE, "")
+    .replace(CODE_FENCE_LINE_RE, "")
+    .replace(HEADING_MARKER_RE, "")
+    .replace(BLOCKQUOTE_MARKER_RE, "")
+    .replace(LIST_MARKER_RE, "")
+    .replace(RULE_ROW_RE, "")
+    .replace(TABLE_ROW_RE, (_match, cells: string) =>
+      cells
+        .split("|")
+        .map((cell) => cell.trim())
+        .filter((cell) => cell.length > 0)
+        .join(" "),
+    );
+  return stripMarkdown(deblocked);
 }
 
 // ── Sanitization ────────────────────────────────────────────────────────────
