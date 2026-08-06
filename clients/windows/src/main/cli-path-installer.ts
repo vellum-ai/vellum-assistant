@@ -109,9 +109,11 @@ export function readUserPath(
 ): string | undefined {
   try {
     const output = run("reg.exe", ["QUERY", "HKCU\\Environment"]);
-    return (
-      output?.match(/\bPath\s+REG_(?:EXPAND_)?SZ\s+(.+)$/im)?.[1]?.trim() ?? ""
-    );
+    const match = output?.match(/\bPath\s+REG_(?:EXPAND_)?SZ\s+(.+)$/im);
+    if (match) {
+      return match[1].trim();
+    }
+    return /\bPath\s+REG_/i.test(output ?? "") ? undefined : "";
   } catch {
     return undefined;
   }

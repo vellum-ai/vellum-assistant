@@ -63,6 +63,24 @@ function readWindowsProcesses(pid?: number): TasklistProcess[] {
   return parseTasklistCsv(output);
 }
 
+function readWindowsCommandLine(pid: number): string {
+  return execFileSync(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      '(Get-CimInstance Win32_Process -Filter ("ProcessId=" + $args[0])).CommandLine',
+      String(pid),
+    ],
+    {
+      encoding: "utf8",
+      timeout: 3000,
+      stdio: ["ignore", "pipe", "ignore"],
+    },
+  );
+}
+
 export function isVellumProcess(
   pid: number,
   hostPlatform: NodeJS.Platform = platform(),
@@ -80,22 +98,7 @@ export function isVellumProcess(
       if (!/^bun\.exe$/i.test(imageName)) {
         return false;
       }
-      const commandLine = execFileSync(
-        "powershell.exe",
-        [
-          "-NoProfile",
-          "-NonInteractive",
-          "-Command",
-          '(Get-CimInstance Win32_Process -Filter ("ProcessId=" + $args[0])).CommandLine',
-          String(pid),
-        ],
-        {
-          encoding: "utf8",
-          timeout: 3000,
-          stdio: ["ignore", "pipe", "ignore"],
-        },
-      );
-      return isVellumCommandLine(commandLine);
+      return isVellumCommandLine(readWindowsCommandLine(pid));
     }
     const output = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
       encoding: "utf-8",
@@ -372,7 +375,12 @@ export async function stopOrphanedDaemonProcesses(
         readWindowsProcesses()
           .filter(
             ({ imageName, pid }) =>
-              pid !== process.pid && /^vellum-daemon\.exe$/i.test(imageName),
+              pid !== process.pid &&
+              (/^vellum-daemon\.exe$/i.test(imageName) ||
+                (/^bun\.exe$/i.test(imageName) &&
+                  /vellum-daemon|[\\/]assistant[\\/]src[\\/](?:index|daemon[\\/]main)\.ts/i.test(
+                    readWindowsCommandLine(pid),
+                  ))),
           )
           .map(({ pid }) =>
             stopProcess(pid, "orphaned assistant", 2000, hostPlatform),

@@ -12,6 +12,7 @@ import path from "node:path";
 import { provisionCliRuntime, type CliRuntimePaths } from "./cli-installer";
 import {
   getCliLauncherState,
+  ensureUserPath,
   installCliLauncher,
   resolveCliLauncherPaths,
   type RegistryRunner,
@@ -145,4 +146,8 @@ test("restores the last launcher when PATH registration fails", () => {
   expect(readFileSync(paths.executable, "utf8")).toBe("vellum-v1");
   expect(readFileSync(paths.bunExecutable, "utf8")).toBe("bun");
   expect(getCliLauncherState(paths, first)).toBe("installed");
+  const malformed: RegistryRunner = () => "Path REG_EXPAND_SZ";
+  expect(() => ensureUserPath("C:\\Vellum", malformed)).toThrow(
+    "Unable to read the Windows user PATH",
+  );
 });
