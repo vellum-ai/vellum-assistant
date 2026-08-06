@@ -35,6 +35,15 @@ catch (InvalidOperationException)
 {
 }
 
+try
+{
+    _ = new ModuleRegistry([new EchoModule { Methods = [""] }]);
+    throw new Exception("Blank methods were accepted");
+}
+catch (InvalidOperationException)
+{
+}
+
 Console.WriteLine("Native helper registry tests passed");
 
 static void Assert(bool condition)
@@ -47,7 +56,7 @@ static void Assert(bool condition)
 
 public sealed class EchoModule : IRpcModule
 {
-    public IReadOnlyCollection<string> Methods => ["test.echo"];
+    public IReadOnlyCollection<string> Methods { get; init; } = ["test.echo"];
 
     public ValueTask<object?> InvokeAsync(
         string method,
