@@ -29,6 +29,10 @@
  * - All timers and listeners are cleaned up on close to prevent leaks.
  */
 
+import {
+  normalizeLanguageTag,
+  rankLanguages,
+} from "../../stt/language-metadata.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
@@ -208,6 +212,11 @@ interface DeepgramStreamWord {
   confidence?: number;
   start?: number;
   end?: number;
+  /**
+   * BCP-47 tag of the language this word was spoken in. Present only on
+   * code-switching models (nova-3 with `language=multi`).
+   */
+  language?: string;
 }
 
 /**
@@ -225,11 +234,23 @@ interface DeepgramStreamAlternative {
   speaker?: number;
   /** Per-word speaker tags when diarization is enabled. */
   words?: DeepgramStreamWord[];
+  /**
+   * Detected languages for the chunk in dominance order. Emitted by
+   * code-switching models; the container varies by API version, so
+   * {@link DeepgramStreamChannel.languages} is checked as well.
+   */
+  languages?: string[];
 }
 
 /** A channel within a Deepgram streaming response. */
 interface DeepgramStreamChannel {
   alternatives?: DeepgramStreamAlternative[];
+  /**
+   * Detected languages for the chunk in dominance order. Alternate
+   * container for {@link DeepgramStreamAlternative.languages} on some
+   * API versions.
+   */
+  languages?: string[];
 }
 
 /**
@@ -748,6 +769,12 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * words — see {@link extractSpeakerLabel}. Confidence is taken from
    * the top alternative when present.
    *
+   * Code-switching models (nova-3 with `language=multi`) tag detected
+   * languages per word and per container. When present, these become
+   * dominance-ranked `language` / `languages` fields on the emitted
+   * events (see {@link extractLanguages}). Both fields are omitted when
+   * the frame carries no language metadata.
+   *
    * We emit:
    * - `partial` for `is_final: false` frames (if interim results enabled).
    * - `final` for `is_final: true` frames.
@@ -788,6 +815,8 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       typeof alternative?.confidence === "number"
         ? alternative.confidence
         : undefined;
+    const languages = extractLanguages(frame.channel, alternative);
+    const language = languages[0];
 
     if (frame.is_final) {
       if (this.utteranceBoundaryFinals) {
@@ -807,6 +836,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
           text,
           ...(speakerLabel !== undefined ? { speakerLabel } : {}),
           ...(confidence !== undefined ? { confidence } : {}),
+          ...(language !== undefined ? { language, languages } : {}),
           // Mark the finalize flush so consumers can attribute it to the
           // utterance that requested the flush rather than new speech.
           ...(fromFinalize ? { fromFinalize: true } : {}),
@@ -819,6 +849,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
         text,
         ...(speakerLabel !== undefined ? { speakerLabel } : {}),
         ...(confidence !== undefined ? { confidence } : {}),
+        ...(language !== undefined ? { language, languages } : {}),
       });
     }
 
@@ -1222,6 +1253,47 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
  * contract on {@link SttStreamServerPartialEvent} /
  * {@link SttStreamServerFinalEvent}.
  */
+/**
+ * Derive the detected languages for a chunk, most dominant first.
+ *
+ * Code-switching models tag languages in two shapes:
+ *   1. Per-word `language` tags on `alternatives[0].words[]`, the richest
+ *      signal; ranked by frequency via {@link rankLanguages} (ties broken
+ *      by first appearance).
+ *   2. A container-level `languages` array in dominance order, attached to
+ *      the alternative or (on some API versions) the channel. Used as the
+ *      fallback when no word carries a tag; normalized and deduped with
+ *      the provider's order preserved.
+ *
+ * Returns `[]` when the frame carries no language metadata: callers omit
+ * the event fields entirely so absence stays distinguishable from a
+ * detected language.
+ */
+function extractLanguages(
+  channel: DeepgramStreamChannel | undefined,
+  alternative: DeepgramStreamAlternative | undefined,
+): string[] {
+  const wordTags = (alternative?.words ?? []).flatMap((word) =>
+    typeof word.language === "string" ? [word.language] : [],
+  );
+  if (wordTags.length > 0) {
+    return rankLanguages(wordTags);
+  }
+
+  const container = Array.isArray(alternative?.languages)
+    ? alternative.languages
+    : Array.isArray(channel?.languages)
+      ? channel.languages
+      : [];
+  const deduped = new Set(
+    container
+      .filter((tag): tag is string => typeof tag === "string")
+      .map(normalizeLanguageTag)
+      .filter((tag) => tag !== ""),
+  );
+  return [...deduped];
+}
+
 function extractSpeakerLabel(
   alternative: DeepgramStreamAlternative | undefined,
 ): string | undefined {

@@ -263,6 +263,19 @@ export interface SttStreamServerPartialEvent {
    * provider does not surface confidence on interim chunks.
    */
   readonly confidence?: number;
+  /**
+   * Dominant detected language of this chunk as a lowercase base subtag
+   * (e.g. "en", "hi"). Only providers with code-switching metadata
+   * (currently Deepgram nova-3 `multi`) populate this. Consumers must
+   * treat absence as "unknown", never as English.
+   */
+  readonly language?: string;
+  /**
+   * All detected languages of this chunk in dominance order, normalized
+   * to lowercase base subtags. Populated under the same conditions as
+   * {@link language}; absence means "unknown", never English.
+   */
+  readonly languages?: readonly string[];
 }
 
 /**
@@ -279,6 +292,19 @@ export interface SttStreamServerFinalEvent {
    * provider does not surface confidence on this chunk.
    */
   readonly confidence?: number;
+  /**
+   * Dominant detected language of this chunk as a lowercase base subtag
+   * (e.g. "en", "hi"). Only providers with code-switching metadata
+   * (currently Deepgram nova-3 `multi`) populate this. Consumers must
+   * treat absence as "unknown", never as English.
+   */
+  readonly language?: string;
+  /**
+   * All detected languages of this chunk in dominance order, normalized
+   * to lowercase base subtags. Populated under the same conditions as
+   * {@link language}; absence means "unknown", never English.
+   */
+  readonly languages?: readonly string[];
   /**
    * True when this final is the flush response to
    * {@link StreamingTranscriber.finalizeUtterance} — i.e. it commits audio

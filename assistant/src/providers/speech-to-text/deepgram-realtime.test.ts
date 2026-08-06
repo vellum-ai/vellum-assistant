@@ -102,7 +102,11 @@ function resultsFrame(
     is_final?: boolean;
     speech_final?: boolean;
     from_finalize?: boolean;
-    words?: { word: string; speaker?: number }[];
+    words?: { word: string; speaker?: number; language?: string }[];
+    /** Container-level detected languages on the alternative. */
+    alternativeLanguages?: string[];
+    /** Container-level detected languages on the channel. */
+    channelLanguages?: string[];
   } = {},
 ): string {
   return JSON.stringify({
@@ -121,8 +125,14 @@ function resultsFrame(
           transcript,
           confidence: 0.95,
           ...(options.words ? { words: options.words } : {}),
+          ...(options.alternativeLanguages
+            ? { languages: options.alternativeLanguages }
+            : {}),
         },
       ],
+      ...(options.channelLanguages
+        ? { languages: options.channelLanguages }
+        : {}),
     },
   });
 }
@@ -540,6 +550,160 @@ describe("DeepgramRealtimeTranscriber", () => {
     expect(url.searchParams.get("diarize")).toBeNull();
 
     (globalThis as Record<string, unknown>).WebSocket = origWs;
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // Language metadata (nova-3 multi code-switching)
+  // ─────────────────────────────────────────────────────────────────
+
+  describe("language metadata", () => {
+    test("ranks per-word language tags by dominance on final events", async () => {
+      const { events } = await startSession();
+
+      mockWs.simulateMessage(
+        resultsFrame("hello world hola", {
+          is_final: true,
+          words: [
+            { word: "hello", language: "en" },
+            { word: "world", language: "en" },
+            { word: "hola", language: "es" },
+          ],
+        }),
+      );
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toEqual({
+        type: "final",
+        text: "hello world hola",
+        confidence: 0.95,
+        language: "en",
+        languages: ["en", "es"],
+      });
+    });
+
+    test("omits both fields entirely when no language metadata is present", async () => {
+      const { events } = await startSession();
+
+      mockWs.simulateMessage(
+        resultsFrame("hello world", {
+          is_final: true,
+          words: [{ word: "hello" }, { word: "world" }],
+        }),
+      );
+      mockWs.simulateMessage(resultsFrame("still typing", { is_final: false }));
+
+      expect(events).toHaveLength(2);
+      for (const event of events) {
+        // The keys must not exist at all, not just be undefined-valued.
+        expect("language" in event).toBe(false);
+        expect("languages" in event).toBe(false);
+      }
+    });
+
+    test("normalizes regional tags to their base subtag", async () => {
+      const { events } = await startSession();
+
+      mockWs.simulateMessage(
+        resultsFrame("hello", {
+          is_final: true,
+          words: [{ word: "hello", language: "en-US" }],
+        }),
+      );
+
+      expect(events[0]).toEqual({
+        type: "final",
+        text: "hello",
+        confidence: 0.95,
+        language: "en",
+        languages: ["en"],
+      });
+    });
+
+    test("partial events carry the fields when interim results are enabled", async () => {
+      const { events } = await startSession();
+
+      mockWs.simulateMessage(
+        resultsFrame("namaste hello", {
+          is_final: false,
+          words: [
+            { word: "namaste", language: "hi" },
+            { word: "hello", language: "en" },
+            { word: "there", language: "en" },
+          ],
+        }),
+      );
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toEqual({
+        type: "partial",
+        text: "namaste hello",
+        confidence: 0.95,
+        language: "en",
+        languages: ["en", "hi"],
+      });
+    });
+
+    test("falls back to the alternative-level languages array when words carry no tags", async () => {
+      const { events } = await startSession();
+
+      mockWs.simulateMessage(
+        resultsFrame("mixed speech", {
+          is_final: true,
+          words: [{ word: "mixed" }, { word: "speech" }],
+          alternativeLanguages: ["es-419", "en", "ES"],
+        }),
+      );
+
+      expect(events[0]).toEqual({
+        type: "final",
+        text: "mixed speech",
+        confidence: 0.95,
+        language: "es",
+        languages: ["es", "en"],
+      });
+    });
+
+    test("falls back to the channel-level languages array when the alternative has none", async () => {
+      const { events } = await startSession();
+
+      mockWs.simulateMessage(
+        resultsFrame("bonjour", {
+          is_final: true,
+          channelLanguages: ["fr", "en"],
+        }),
+      );
+
+      expect(events[0]).toEqual({
+        type: "final",
+        text: "bonjour",
+        confidence: 0.95,
+        language: "fr",
+        languages: ["fr", "en"],
+      });
+    });
+
+    test("per-word tags take precedence over container arrays", async () => {
+      const { events } = await startSession();
+
+      mockWs.simulateMessage(
+        resultsFrame("hola amigo", {
+          is_final: true,
+          words: [
+            { word: "hola", language: "es" },
+            { word: "amigo", language: "es" },
+          ],
+          alternativeLanguages: ["en", "es"],
+        }),
+      );
+
+      expect(events[0]).toEqual({
+        type: "final",
+        text: "hola amigo",
+        confidence: 0.95,
+        language: "es",
+        languages: ["es"],
+      });
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────
