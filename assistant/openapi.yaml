@@ -24252,7 +24252,7 @@ paths:
                               properties:
                                 name:
                                   type: string
-                                  description: "Schedule name: the flat file's basename or the declaration directory's name."
+                                  description: "Schedule name: the declaration directory's name."
                                 cadence:
                                   type: string
                                   description: Raw schedule `expression` string from the declaration's config.
@@ -24268,9 +24268,9 @@ paths:
                                 - mode
                               additionalProperties: false
                             description:
-                              "Schedules declared under `schedules/`, in either loader form: a flat `<name>.md` with YAML frontmatter, or
-                              a `<name>/` directory with `config.json` plus one entrypoint. Display surface only;
-                              ambiguous or unsupported declarations are omitted."
+                              Schedules declared under `schedules/`, each a `<name>/` directory with `config.json` plus one entrypoint.
+                              Display surface only; files directly under `schedules/` and unsupported declarations are
+                              omitted.
                         required:
                           - skills
                           - hooks

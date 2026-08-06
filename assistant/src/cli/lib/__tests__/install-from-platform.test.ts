@@ -317,9 +317,10 @@ describe("installPluginFromPlatform - staged-install consent", () => {
       entries: [
         { name: "plugin.json", content: '{"name":"reading-pal"}' },
         {
-          name: "schedules/daily.md",
-          content: "---\nexpression: 0 9 * * *\n---\nDo it.\n",
+          name: "schedules/daily/config.json",
+          content: '{"expression": "0 9 * * *"}',
         },
+        { name: "schedules/daily/index.md", content: "Do it.\n" },
       ],
     });
     const stagingDirs: string[] = [];
@@ -334,7 +335,9 @@ describe("installPluginFromPlatform - staged-install consent", () => {
           confirmStaged: async (staged) => {
             stagingDirs.push(staged.stagingDir);
             expect(
-              existsSync(join(staged.stagingDir, "schedules", "daily.md")),
+              existsSync(
+                join(staged.stagingDir, "schedules", "daily", "index.md"),
+              ),
             ).toBe(true);
             expect(existsSync(join(pluginsDir, "reading-pal"))).toBe(false);
             return false;

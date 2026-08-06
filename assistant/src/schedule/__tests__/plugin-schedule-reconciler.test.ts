@@ -95,32 +95,37 @@ function writePlugin(name: string, files: Record<string, string>): string {
   return dir;
 }
 
-function digestMd(body: string): string {
-  return [
-    "---",
-    'expression: "* * * * *"',
-    "description: Daily digest",
-    "---",
-    "",
+/**
+ * A `digest` declaration: a `config.json` holding the given config plus an
+ * `index.md` carrying the prompt body.
+ */
+function digestFiles(
+  config: Record<string, unknown>,
+  body = "Summarize the day.",
+): Record<string, string> {
+  return {
+    "digest/config.json": JSON.stringify(config),
+    "digest/index.md": `${body}\n`,
+  };
+}
+
+/** The every-minute digest most cases converge. */
+function digest(body = "Summarize the day."): Record<string, string> {
+  return digestFiles(
+    { expression: "* * * * *", description: "Daily digest" },
     body,
-    "",
-  ].join("\n");
+  );
 }
 
 /**
  * A digest declaration whose recurrence has nothing left to fire: five daily
  * occurrences, all of them in 2020. Well-formed, just finished.
  */
-function endedDigestMd(): string {
-  return [
-    "---",
-    'expression: "DTSTART:20200101T090000Z\\nRRULE:FREQ=DAILY;COUNT=5"',
-    "expression_syntax: rrule",
-    "---",
-    "",
-    "Summarize the day.",
-    "",
-  ].join("\n");
+function endedDigest(): Record<string, string> {
+  return digestFiles({
+    expression: "DTSTART:20200101T090000Z\nRRULE:FREQ=DAILY;COUNT=5",
+    expression_syntax: "rrule",
+  });
 }
 
 /**
@@ -128,17 +133,20 @@ function endedDigestMd(): string {
  * given DTSTART. A declaration with `enabled: false` inserts its row unarmed:
  * the clock is zeroed, no run sits behind it, and no user choice is recorded.
  */
-function disabledDigestMd(dtstart: string): string {
-  return [
-    "---",
-    `expression: "DTSTART:${dtstart}\\nRRULE:FREQ=DAILY;COUNT=5"`,
-    "expression_syntax: rrule",
-    "enabled: false",
-    "---",
-    "",
-    "Summarize the day.",
-    "",
-  ].join("\n");
+function disabledDigest(dtstart: string): Record<string, string> {
+  return digestFiles({
+    expression: `DTSTART:${dtstart}\nRRULE:FREQ=DAILY;COUNT=5`,
+    expression_syntax: "rrule",
+    enabled: false,
+  });
+}
+
+/** A digest declaration the parser refuses: its config.json is not JSON. */
+function brokenDigest(): Record<string, string> {
+  return {
+    "digest/config.json": "{not json",
+    "digest/index.md": "Summarize the day.\n",
+  };
 }
 
 const DIGEST_KEY = "plugin:news/digest";
@@ -167,9 +175,9 @@ describe("reconcilePluginSchedules", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
 
-  test("converges both declaration forms into rows the engine claims", async () => {
+  test("converges execute and script declarations into rows the engine claims", async () => {
     writePlugin("news", {
-      "digest.md": digestMd("Summarize the day."),
+      ...digest(),
       "sync/config.json": JSON.stringify({ expression: "0 */2 * * *" }),
       "sync/index.sh": "#!/bin/sh\necho synced\n",
     });
@@ -179,13 +187,13 @@ describe("reconcilePluginSchedules", () => {
     const rows = listDeclaredSchedules();
     expect(rows).toHaveLength(2);
 
-    const digest = rows.find((r) => r.sourceKey === DIGEST_KEY)!;
-    expect(digest.mode).toBe("execute");
-    expect(digest.message).toBe("Summarize the day.");
-    expect(digest.description).toBe("Daily digest");
-    expect(digest.enabled).toBe(true);
-    expect(digest.userEnabled).toBeNull();
-    expect(digest.definitionHash).toMatch(/^[0-9a-f]{64}$/);
+    const digestRow = rows.find((r) => r.sourceKey === DIGEST_KEY)!;
+    expect(digestRow.mode).toBe("execute");
+    expect(digestRow.message).toBe("Summarize the day.");
+    expect(digestRow.description).toBe("Daily digest");
+    expect(digestRow.enabled).toBe(true);
+    expect(digestRow.userEnabled).toBeNull();
+    expect(digestRow.definitionHash).toMatch(/^[0-9a-f]{64}$/);
 
     const sync = rows.find((r) => r.sourceKey === "plugin:news/sync")!;
     expect(sync.mode).toBe("script");
@@ -201,7 +209,7 @@ describe("reconcilePluginSchedules", () => {
       (s) => s.sourceContextId === DIGEST_KEY,
     )!;
     expect(digestDeclared.dedupeKey).toBe(
-      `schedule-declared:${DIGEST_KEY}:${digest.definitionHash}`,
+      `schedule-declared:${DIGEST_KEY}:${digestRow.definitionHash}`,
     );
     expect(digestDeclared.contextPayload).toEqual({
       pluginName: "news",
@@ -213,11 +221,11 @@ describe("reconcilePluginSchedules", () => {
     // The untouched engine picks the row up: an every-minute cron is always
     // due within a two-minute claim horizon.
     const claimed = await claimDueSchedules(Date.now() + 120_000);
-    expect(claimed.map((j) => j.id)).toContain(digest.id);
+    expect(claimed.map((j) => j.id)).toContain(digestRow.id);
   });
 
   test("a repeat pass with unchanged declarations is a no-op", async () => {
-    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    writePlugin("news", digest());
     await reconcilePluginSchedules();
     const row = listDeclaredSchedules()[0]!;
     const before = rawJob(row.id);
@@ -230,12 +238,12 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("an upgrade updates by hash and emits definition_changed for the armed row", async () => {
-    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    writePlugin("news", digest());
     await reconcilePluginSchedules();
     const created = listDeclaredSchedules()[0]!;
     emittedSignals.length = 0;
 
-    writePlugin("news", { "digest.md": digestMd("Summarize the WEEK.") });
+    writePlugin("news", digest("Summarize the WEEK."));
     await reconcilePluginSchedules();
 
     const updated = listDeclaredSchedules()[0]!;
@@ -257,7 +265,7 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("uninstall disarms without deleting rows or runs; reinstall re-links and re-arms", async () => {
-    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    writePlugin("news", digest());
     await reconcilePluginSchedules();
     const created = listDeclaredSchedules()[0]!;
     await createScheduleRun(created.id, "conv-1");
@@ -275,7 +283,7 @@ describe("reconcilePluginSchedules", () => {
     expect(runs.n).toBe(1);
 
     emittedSignals.length = 0;
-    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    writePlugin("news", digest());
     await reconcilePluginSchedules();
 
     const relinked = listDeclaredSchedules();
@@ -290,7 +298,7 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("user_enabled survives upgrades and disarm/re-arm cycles", async () => {
-    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    writePlugin("news", digest());
     await reconcilePluginSchedules();
     const created = listDeclaredSchedules()[0]!;
 
@@ -299,7 +307,7 @@ describe("reconcilePluginSchedules", () => {
 
     // Upgrade: definition columns update, the user override keeps the row
     // disabled, and no definition_changed emits for an unarmed row.
-    writePlugin("news", { "digest.md": digestMd("Summarize the WEEK.") });
+    writePlugin("news", digest("Summarize the WEEK."));
     await reconcilePluginSchedules();
     let row = listDeclaredSchedules()[0]!;
     expect(row.message).toBe("Summarize the WEEK.");
@@ -310,7 +318,7 @@ describe("reconcilePluginSchedules", () => {
     // Disarm (uninstall) then re-arm (reinstall): the override still wins.
     rmSync(join(pluginsDir, "news"), { recursive: true, force: true });
     await reconcilePluginSchedules();
-    writePlugin("news", { "digest.md": digestMd("Summarize the WEEK.") });
+    writePlugin("news", digest("Summarize the WEEK."));
     await reconcilePluginSchedules();
     row = listDeclaredSchedules()[0]!;
     expect(row.id).toBe(created.id);
@@ -319,22 +327,15 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("an upgrade that flips a disarmed declaration to enabled arms it and notifies", async () => {
-    writePlugin("news", {
-      "digest.md": [
-        "---",
-        'expression: "* * * * *"',
-        "enabled: false",
-        "---",
-        "",
-        "Summarize the day.",
-        "",
-      ].join("\n"),
-    });
+    writePlugin(
+      "news",
+      digestFiles({ expression: "* * * * *", enabled: false }),
+    );
     await reconcilePluginSchedules();
     expect(listDeclaredSchedules()[0]!.enabled).toBe(false);
     expect(emittedSignals).toHaveLength(0);
 
-    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    writePlugin("news", digest());
     await reconcilePluginSchedules();
 
     const armed = listDeclaredSchedules()[0]!;
@@ -348,17 +349,10 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("a user override enables a declaration shipped disabled", async () => {
-    writePlugin("news", {
-      "digest.md": [
-        "---",
-        'expression: "* * * * *"',
-        "enabled: false",
-        "---",
-        "",
-        "Summarize the day.",
-        "",
-      ].join("\n"),
-    });
+    writePlugin(
+      "news",
+      digestFiles({ expression: "* * * * *", enabled: false }),
+    );
     await reconcilePluginSchedules();
     const created = listDeclaredSchedules()[0]!;
     expect(created.enabled).toBe(false);
@@ -372,9 +366,7 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("disabling a plugin pauses its schedules; re-enabling restores them", async () => {
-    const dir = writePlugin("news", {
-      "digest.md": digestMd("Summarize the day."),
-    });
+    const dir = writePlugin("news", digest());
     await reconcilePluginSchedules();
     const created = listDeclaredSchedules()[0]!;
 
@@ -391,14 +383,14 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("a parse error keeps the last-good row running and emits a deduped notification", async () => {
-    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    writePlugin("news", digest());
     await reconcilePluginSchedules();
     const created = listDeclaredSchedules()[0]!;
     const before = rawJob(created.id);
     emittedSignals.length = 0;
 
-    // Break the declaration: no frontmatter means no config.
-    writePlugin("news", { "digest.md": "Just a body, no config." });
+    // Break the declaration: a config.json the parser cannot read.
+    writePlugin("news", brokenDigest());
     await reconcilePluginSchedules();
 
     expect(rawJob(created.id)).toEqual(before);
@@ -417,7 +409,7 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("engine-latched rows are left untouched by definition changes", async () => {
-    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    writePlugin("news", digest());
     await reconcilePluginSchedules();
     const created = listDeclaredSchedules()[0]!;
     emittedSignals.length = 0;
@@ -430,7 +422,7 @@ describe("reconcilePluginSchedules", () => {
     );
     const latched = rawJob(created.id);
 
-    writePlugin("news", { "digest.md": digestMd("Summarize the WEEK.") });
+    writePlugin("news", digest("Summarize the WEEK."));
     await reconcilePluginSchedules();
 
     expect(rawJob(created.id)).toEqual(latched);
@@ -446,7 +438,7 @@ describe("reconcilePluginSchedules", () => {
     });
     const before = rawJob(imperative.id);
 
-    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    writePlugin("news", digest());
     await reconcilePluginSchedules();
     rmSync(join(pluginsDir, "news"), { recursive: true, force: true });
     await reconcilePluginSchedules();
@@ -455,7 +447,7 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("concurrent reconciles serialize into one row per declaration", async () => {
-    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    writePlugin("news", digest());
 
     await Promise.all([reconcilePluginSchedules(), reconcilePluginSchedules()]);
 
@@ -465,9 +457,7 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("a manifest-rejected plugin disarms its schedules and surfaces the failure", async () => {
-    const dir = writePlugin("news", {
-      "digest.md": digestMd("Summarize the day."),
-    });
+    const dir = writePlugin("news", digest());
     await reconcilePluginSchedules();
     const created = listDeclaredSchedules()[0]!;
     expect(created.enabled).toBe(true);
@@ -504,9 +494,7 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("a plugin with an unparseable package.json creates no rows and surfaces the failure", async () => {
-    const dir = writePlugin("news", {
-      "digest.md": digestMd("Summarize the day."),
-    });
+    const dir = writePlugin("news", digest());
     writeFileSync(join(dir, "package.json"), "{not json");
 
     await reconcilePluginSchedules();
@@ -530,7 +518,7 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("an upgrade that adds a schedule arms it and emits schedule.declared", async () => {
-    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    writePlugin("news", digest());
     await reconcilePluginSchedules();
     emittedSignals.length = 0;
 
@@ -559,17 +547,10 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("a declaration shipped disabled creates its row silently", async () => {
-    writePlugin("news", {
-      "digest.md": [
-        "---",
-        'expression: "* * * * *"',
-        "enabled: false",
-        "---",
-        "",
-        "Summarize the day.",
-        "",
-      ].join("\n"),
-    });
+    writePlugin(
+      "news",
+      digestFiles({ expression: "* * * * *", enabled: false }),
+    );
 
     await reconcilePluginSchedules();
 
@@ -578,7 +559,7 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("a persistently broken declaration emits its error once, not per pass", async () => {
-    writePlugin("news", { "digest.md": "Just a body, no config." });
+    writePlugin("news", brokenDigest());
 
     await reconcilePluginSchedules();
     expect(emittedSignals).toHaveLength(1);
@@ -593,7 +574,7 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("a pipeline-failed error emit does not latch the day guard; the next pass retries", async () => {
-    writePlugin("news", { "digest.md": "Just a body, no config." });
+    writePlugin("news", brokenDigest());
     emitResultOverride = {
       dispatched: false,
       pipelineFailed: true,
@@ -613,7 +594,7 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("a pipeline-failed declared emit is retried on later passes until a verdict", async () => {
-    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    writePlugin("news", digest());
     emitResultOverride = {
       dispatched: false,
       pipelineFailed: true,
@@ -637,7 +618,7 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("a declared emit still in flight is not duplicated by the next pass", async () => {
-    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    writePlugin("news", digest());
     let releaseGate!: () => void;
     emitGate = new Promise<void>((resolve) => {
       releaseGate = resolve;
@@ -676,7 +657,7 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("a pipeline-failed definition_changed emit is retried on later passes until a verdict", async () => {
-    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    writePlugin("news", digest());
     await reconcilePluginSchedules();
     emittedSignals.length = 0;
     const changed = () =>
@@ -689,7 +670,7 @@ describe("reconcilePluginSchedules", () => {
       pipelineFailed: true,
       reason: "Signal pipeline failed: transient outage",
     };
-    writePlugin("news", { "digest.md": digestMd("Summarize the WEEK.") });
+    writePlugin("news", digest("Summarize the WEEK."));
     await reconcilePluginSchedules();
     expect(changed()).toHaveLength(1);
 
@@ -705,7 +686,7 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("a completed bounded recurrence stays silent across passes", async () => {
-    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    writePlugin("news", digest());
     await reconcilePluginSchedules();
     const created = listDeclaredSchedules()[0]!;
 
@@ -720,7 +701,7 @@ describe("reconcilePluginSchedules", () => {
 
     // The declaration is unchanged in spirit: its last occurrence simply
     // passed, so the parser now reports it as ended.
-    writePlugin("news", { "digest.md": endedDigestMd() });
+    writePlugin("news", endedDigest());
     await reconcilePluginSchedules();
     await reconcilePluginSchedules();
 
@@ -729,14 +710,14 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("an ended recurrence on a still-armed row surfaces the error", async () => {
-    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    writePlugin("news", digest());
     await reconcilePluginSchedules();
     expect(listDeclaredSchedules()[0]!.enabled).toBe(true);
     emittedSignals.length = 0;
 
     // The armed row expects more firings; an upgrade that ends the
     // recurrence stops them, which the user has to hear about.
-    writePlugin("news", { "digest.md": endedDigestMd() });
+    writePlugin("news", endedDigest());
     await reconcilePluginSchedules();
 
     expect(emittedSignals).toHaveLength(1);
@@ -746,9 +727,7 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("an ended recurrence on a row this pass disarmed still surfaces", async () => {
-    const dir = writePlugin("news", {
-      "digest.md": digestMd("Summarize the day."),
-    });
+    const dir = writePlugin("news", digest());
     await reconcilePluginSchedules();
     const created = listDeclaredSchedules()[0]!;
 
@@ -764,7 +743,7 @@ describe("reconcilePluginSchedules", () => {
 
     // The recurrence runs out while the plugin is off. Re-enabling brings back
     // a schedule that can never fire, so the user has to hear about it.
-    writePlugin("news", { "digest.md": endedDigestMd() });
+    writePlugin("news", endedDigest());
     rmSync(join(dir, ".disabled"));
     await reconcilePluginSchedules();
 
@@ -776,7 +755,7 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("a user-disabled row keeps an ended recurrence quiet", async () => {
-    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    writePlugin("news", digest());
     await reconcilePluginSchedules();
     const created = listDeclaredSchedules()[0]!;
     await setUserEnabled(created.id, false);
@@ -784,14 +763,14 @@ describe("reconcilePluginSchedules", () => {
 
     // The user turned the schedule off, so its recurrence running out costs
     // no firing they expected.
-    writePlugin("news", { "digest.md": endedDigestMd() });
+    writePlugin("news", endedDigest());
     await reconcilePluginSchedules();
 
     expect(emittedSignals).toHaveLength(0);
   });
 
   test("a declaration that shipped disabled keeps an ended recurrence quiet", async () => {
-    writePlugin("news", { "digest.md": disabledDigestMd("20990101T090000Z") });
+    writePlugin("news", disabledDigest("20990101T090000Z"));
     await reconcilePluginSchedules();
 
     const created = listDeclaredSchedules()[0]!;
@@ -804,7 +783,7 @@ describe("reconcilePluginSchedules", () => {
     // The row was never armed, so the recurrence running out costs no firing
     // the user was going to get. Telling them every day about a schedule they
     // never turned on is noise.
-    writePlugin("news", { "digest.md": disabledDigestMd("20200101T090000Z") });
+    writePlugin("news", disabledDigest("20200101T090000Z"));
     await reconcilePluginSchedules();
     await reconcilePluginSchedules();
 
@@ -812,7 +791,7 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("a freshly installed declaration that is already expired errors", async () => {
-    writePlugin("news", { "digest.md": endedDigestMd() });
+    writePlugin("news", endedDigest());
 
     await reconcilePluginSchedules();
 
@@ -829,7 +808,7 @@ describe("reconcilePluginSchedules", () => {
   });
 
   test("a suppressed error emit still latches the day guard", async () => {
-    writePlugin("news", { "digest.md": "Just a body, no config." });
+    writePlugin("news", brokenDigest());
     emitResultOverride = {
       dispatched: false,
       pipelineFailed: false,
@@ -852,7 +831,7 @@ describe("reconcilePluginSchedules under the plugin-schedules flag", () => {
 
   test("a flag-off pass disarms armed declared rows and creates nothing", async () => {
     setOverridesForTesting({ "plugin-schedules": true });
-    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    writePlugin("news", digest());
     await reconcilePluginSchedules();
     const armed = listDeclaredSchedules();
     expect(armed).toHaveLength(1);
@@ -862,7 +841,10 @@ describe("reconcilePluginSchedules under the plugin-schedules flag", () => {
     setOverridesForTesting({ "plugin-schedules": false });
     // A second plugin lands while the feature is off, so the pass has both a
     // row to disarm and a declaration it must refuse to pick up.
-    writePlugin("weather", { "forecast.md": digestMd("Forecast the day.") });
+    writePlugin("weather", {
+      "forecast/config.json": JSON.stringify({ expression: "* * * * *" }),
+      "forecast/index.md": "Forecast the day.\n",
+    });
     await reconcilePluginSchedules();
 
     const rows = listDeclaredSchedules();
@@ -874,7 +856,7 @@ describe("reconcilePluginSchedules under the plugin-schedules flag", () => {
 
   test("a flag-off pass emits nothing for a broken declaration", async () => {
     setOverridesForTesting({ "plugin-schedules": false });
-    writePlugin("news", { "digest.md": "Just a body, no config." });
+    writePlugin("news", brokenDigest());
 
     await reconcilePluginSchedules();
 
@@ -884,7 +866,7 @@ describe("reconcilePluginSchedules under the plugin-schedules flag", () => {
 
   test("turning the flag back on re-arms the rows it disarmed", async () => {
     setOverridesForTesting({ "plugin-schedules": true });
-    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    writePlugin("news", digest());
     await reconcilePluginSchedules();
     const created = listDeclaredSchedules()[0]!;
 
@@ -904,7 +886,7 @@ describe("reconcilePluginSchedules under the plugin-schedules flag", () => {
 
   test("a user's off choice survives the flag going off and back on", async () => {
     setOverridesForTesting({ "plugin-schedules": true });
-    writePlugin("news", { "digest.md": digestMd("Summarize the day.") });
+    writePlugin("news", digest());
     await reconcilePluginSchedules();
     const created = listDeclaredSchedules()[0]!;
     await setUserEnabled(created.id, false);

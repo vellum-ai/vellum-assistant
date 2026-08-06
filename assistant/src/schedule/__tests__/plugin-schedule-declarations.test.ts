@@ -31,21 +31,32 @@ function makePlugin(files: Record<string, string>): string {
   return pluginDir;
 }
 
-const FLAT_MD = [
-  "---",
-  'expression: "0 9 * * *"',
-  "description: Daily digest",
-  "timezone: America/New_York",
-  "max_retries: 2",
-  "retry_backoff_ms: 5000",
-  "quiet: true",
-  "inference_profile: fast",
-  "timeout_ms: 30000",
-  "---",
-  "",
-  "Summarize the day.",
-  "",
-].join("\n");
+/** A directory declaration exercising every config field. */
+const FULL_DIGEST: Record<string, string> = {
+  "digest/config.json": JSON.stringify({
+    expression: "0 9 * * *",
+    description: "Daily digest",
+    timezone: "America/New_York",
+    max_retries: 2,
+    retry_backoff_ms: 5000,
+    quiet: true,
+    inference_profile: "fast",
+    timeout_ms: 30000,
+  }),
+  "digest/index.md": "Summarize the day.\n",
+};
+
+/** A minimal directory declaration: `config.json` plus an `index.md` prompt. */
+function execDeclaration(
+  name: string,
+  config: Record<string, unknown>,
+  body = "Prompt.",
+): Record<string, string> {
+  return {
+    [`${name}/config.json`]: JSON.stringify(config),
+    [`${name}/index.md`]: body,
+  };
+}
 
 describe("parsePluginScheduleDeclarations", () => {
   test("returns empty results when schedules/ is absent", () => {
@@ -57,8 +68,8 @@ describe("parsePluginScheduleDeclarations", () => {
     });
   });
 
-  test("parses a flat .md declaration with full config", () => {
-    const pluginDir = makePlugin({ "digest.md": FLAT_MD });
+  test("parses a declaration with full config", () => {
+    const pluginDir = makePlugin(FULL_DIGEST);
     const { declarations, errors } = parsePluginScheduleDeclarations(
       pluginDir,
       "news",
@@ -87,9 +98,9 @@ describe("parsePluginScheduleDeclarations", () => {
   });
 
   test("applies defaults: optional fields null, enabled true, syntax auto-detected", () => {
-    const pluginDir = makePlugin({
-      "simple.md": '---\nexpression: "*/5 * * * *"\n---\nPing.',
-    });
+    const pluginDir = makePlugin(
+      execDeclaration("simple", { expression: "*/5 * * * *" }, "Ping."),
+    );
     const { declarations, errors } = parsePluginScheduleDeclarations(
       pluginDir,
       "p",
@@ -110,19 +121,29 @@ describe("parsePluginScheduleDeclarations", () => {
   });
 
   test("honors declared enabled: false", () => {
-    const pluginDir = makePlugin({
-      "paused.md": '---\nexpression: "0 9 * * *"\nenabled: false\n---\nHi.',
-    });
+    const pluginDir = makePlugin(
+      execDeclaration(
+        "paused",
+        { expression: "0 9 * * *", enabled: false },
+        "Hi.",
+      ),
+    );
     const { declarations } = parsePluginScheduleDeclarations(pluginDir, "p");
     expect(declarations[0]!.config.enabled).toBe(false);
   });
 
   test("parses an RRULE declaration with explicit syntax", () => {
-    const expression =
-      "DTSTART;TZID=America/New_York:20260101T090000\nRRULE:FREQ=WEEKLY;BYDAY=MO";
-    const pluginDir = makePlugin({
-      "weekly.md": `---\nexpression: "${expression.replace("\n", "\\n")}"\nexpression_syntax: rrule\n---\nWeekly.`,
-    });
+    const pluginDir = makePlugin(
+      execDeclaration(
+        "weekly",
+        {
+          expression:
+            "DTSTART;TZID=America/New_York:20260101T090000\nRRULE:FREQ=WEEKLY;BYDAY=MO",
+          expression_syntax: "rrule",
+        },
+        "Weekly.",
+      ),
+    );
     const { declarations, errors } = parsePluginScheduleDeclarations(
       pluginDir,
       "p",
@@ -131,7 +152,7 @@ describe("parsePluginScheduleDeclarations", () => {
     expect(declarations[0]!.config.syntax).toBe("rrule");
   });
 
-  test("parses a directory declaration with index.md", () => {
+  test("parses a declaration with index.md", () => {
     const pluginDir = makePlugin({
       "report/config.json": JSON.stringify({ expression: "0 8 * * 1" }),
       "report/index.md": "Write the weekly report.\n",
@@ -148,7 +169,7 @@ describe("parsePluginScheduleDeclarations", () => {
     expect(decl.scriptInvocation).toBeNull();
   });
 
-  test("parses a directory declaration with index.sh, honoring a direct shebang", () => {
+  test("parses a declaration with index.sh, honoring a direct shebang", () => {
     const pluginDir = makePlugin({
       "backup/config.json": JSON.stringify({ expression: "0 3 * * *" }),
       "backup/index.sh": "#!/bin/bash\necho backup\n",
@@ -202,12 +223,10 @@ describe("parsePluginScheduleDeclarations", () => {
   });
 
   describe("fail-closed cases", () => {
-    test("basename collision between .md and directory loads neither", () => {
+    test("a markdown file directly under schedules/ errors, siblings still load", () => {
       const pluginDir = makePlugin({
-        "dup.md": '---\nexpression: "0 9 * * *"\n---\nFlat.',
-        "dup/config.json": JSON.stringify({ expression: "0 9 * * *" }),
-        "dup/index.md": "Dir.",
-        "ok.md": '---\nexpression: "0 9 * * *"\n---\nFine.',
+        "digest.md": '---\nexpression: "0 9 * * *"\n---\nPrompt.',
+        ...execDeclaration("ok", { expression: "0 9 * * *" }),
       });
       const { declarations, errors } = parsePluginScheduleDeclarations(
         pluginDir,
@@ -217,10 +236,10 @@ describe("parsePluginScheduleDeclarations", () => {
       expect(errors).toHaveLength(1);
       expect(errors[0]).toMatchObject({
         pluginName: "p",
-        scheduleName: "dup",
-        sourceKey: "plugin:p/dup",
+        scheduleName: "digest.md",
+        sourceKey: "plugin:p/digest.md",
       });
-      expect(errors[0]!.reason).toContain("both");
+      expect(errors[0]!.reason).toContain("must be directories");
     });
 
     test("directory with no entrypoint errors", () => {
@@ -261,7 +280,7 @@ describe("parsePluginScheduleDeclarations", () => {
     test("stray non-md file in schedules/ errors", () => {
       const pluginDir = makePlugin({ "notes.txt": "hi" });
       const { errors } = parsePluginScheduleDeclarations(pluginDir, "p");
-      expect(errors[0]!.reason).toContain("unsupported entry");
+      expect(errors[0]!.reason).toContain("must be directories");
     });
 
     test("directory missing config.json errors", () => {
@@ -288,59 +307,49 @@ describe("parsePluginScheduleDeclarations", () => {
       expect(errors[0]!.reason).toContain("must not contain frontmatter");
     });
 
-    test("flat .md without frontmatter errors", () => {
-      const pluginDir = makePlugin({ "plain.md": "Just a prompt." });
-      const { errors } = parsePluginScheduleDeclarations(pluginDir, "p");
-      expect(errors[0]!.reason).toContain("missing frontmatter");
-    });
-
-    test("malformed YAML frontmatter errors", () => {
-      const pluginDir = makePlugin({
-        "broken.md": "---\nexpression: [unclosed\n---\nPrompt.",
-      });
-      const { errors } = parsePluginScheduleDeclarations(pluginDir, "p");
-      expect(errors[0]!.reason).toContain("invalid YAML frontmatter");
-    });
-
     test("missing expression errors", () => {
-      const pluginDir = makePlugin({
-        "noexpr.md": "---\ndescription: nope\n---\nPrompt.",
-      });
+      const pluginDir = makePlugin(
+        execDeclaration("noexpr", { description: "nope" }),
+      );
       const { errors } = parsePluginScheduleDeclarations(pluginDir, "p");
       expect(errors[0]!.reason).toContain("expression");
     });
 
     test("invalid cron expression errors", () => {
-      const pluginDir = makePlugin({
-        "badcron.md": '---\nexpression: "99 99 * * *"\n---\nPrompt.',
-      });
+      const pluginDir = makePlugin(
+        execDeclaration("badcron", { expression: "99 99 * * *" }),
+      );
       const { errors } = parsePluginScheduleDeclarations(pluginDir, "p");
       expect(errors[0]!.reason).toContain("invalid cron expression");
       expect(errors[0]!.kind).toBe("invalid");
     });
 
     test("RRULE without DTSTART errors", () => {
-      const pluginDir = makePlugin({
-        "badrrule.md":
-          "---\nexpression: RRULE:FREQ=DAILY\nexpression_syntax: rrule\n---\nPrompt.",
-      });
+      const pluginDir = makePlugin(
+        execDeclaration("badrrule", {
+          expression: "RRULE:FREQ=DAILY",
+          expression_syntax: "rrule",
+        }),
+      );
       const { errors } = parsePluginScheduleDeclarations(pluginDir, "p");
       expect(errors[0]!.reason).toContain("DTSTART");
     });
 
     test("unknown config key errors", () => {
-      const pluginDir = makePlugin({
-        "typo.md":
-          '---\nexpression: "0 9 * * *"\nexpresion_syntax: cron\n---\nHi.',
-      });
+      const pluginDir = makePlugin(
+        execDeclaration("typo", {
+          expression: "0 9 * * *",
+          expresion_syntax: "cron",
+        }),
+      );
       const { errors } = parsePluginScheduleDeclarations(pluginDir, "p");
       expect(errors[0]!.reason).toContain("invalid config");
     });
 
     test("timeout_ms below the script minimum errors", () => {
-      const pluginDir = makePlugin({
-        "fast.md": '---\nexpression: "0 9 * * *"\ntimeout_ms: 500\n---\nHi.',
-      });
+      const pluginDir = makePlugin(
+        execDeclaration("fast", { expression: "0 9 * * *", timeout_ms: 500 }),
+      );
       const { declarations, errors } = parsePluginScheduleDeclarations(
         pluginDir,
         "p",
@@ -350,35 +359,44 @@ describe("parsePluginScheduleDeclarations", () => {
     });
 
     test("timeout_ms above the script maximum errors", () => {
-      const pluginDir = makePlugin({
-        "slow.md":
-          '---\nexpression: "0 9 * * *"\ntimeout_ms: 1800001\n---\nHi.',
-      });
+      const pluginDir = makePlugin(
+        execDeclaration("slow", {
+          expression: "0 9 * * *",
+          timeout_ms: 1800001,
+        }),
+      );
       const { errors } = parsePluginScheduleDeclarations(pluginDir, "p");
       expect(errors[0]!.reason).toContain("timeout_ms must be between");
     });
 
     test("single-fire RRULE (COUNT=1) errors; larger counts stay valid", () => {
-      const single = makePlugin({
-        "once.md":
-          '---\nexpression: "DTSTART:21260101T090000Z\\nRRULE:FREQ=DAILY;COUNT=1"\nexpression_syntax: rrule\n---\nHi.',
-      });
+      const single = makePlugin(
+        execDeclaration("once", {
+          expression: "DTSTART:21260101T090000Z\nRRULE:FREQ=DAILY;COUNT=1",
+          expression_syntax: "rrule",
+        }),
+      );
       const parsed = parsePluginScheduleDeclarations(single, "p");
       expect(parsed.declarations).toEqual([]);
       expect(parsed.errors[0]!.reason).toContain("must be recurring");
 
-      const thrice = makePlugin({
-        "thrice.md":
-          '---\nexpression: "DTSTART:21260101T090000Z\\nRRULE:FREQ=DAILY;COUNT=3"\nexpression_syntax: rrule\n---\nHi.',
-      });
+      const thrice = makePlugin(
+        execDeclaration("thrice", {
+          expression: "DTSTART:21260101T090000Z\nRRULE:FREQ=DAILY;COUNT=3",
+          expression_syntax: "rrule",
+        }),
+      );
       expect(parsePluginScheduleDeclarations(thrice, "p").errors).toEqual([]);
     });
 
     test("an RRULE whose UNTIL is already past errors", () => {
-      const pluginDir = makePlugin({
-        "expired.md":
-          '---\nexpression: "DTSTART:20200101T090000Z\\nRRULE:FREQ=DAILY;UNTIL=20200201T000000Z"\nexpression_syntax: rrule\n---\nHi.',
-      });
+      const pluginDir = makePlugin(
+        execDeclaration("expired", {
+          expression:
+            "DTSTART:20200101T090000Z\nRRULE:FREQ=DAILY;UNTIL=20200201T000000Z",
+          expression_syntax: "rrule",
+        }),
+      );
       const { declarations, errors } = parsePluginScheduleDeclarations(
         pluginDir,
         "p",
@@ -391,10 +409,12 @@ describe("parsePluginScheduleDeclarations", () => {
     });
 
     test("a COUNT-bounded RRULE with every occurrence consumed reports 'ended'", () => {
-      const pluginDir = makePlugin({
-        "consumed.md":
-          '---\nexpression: "DTSTART:20200101T090000Z\\nRRULE:FREQ=DAILY;COUNT=5"\nexpression_syntax: rrule\n---\nHi.',
-      });
+      const pluginDir = makePlugin(
+        execDeclaration("consumed", {
+          expression: "DTSTART:20200101T090000Z\nRRULE:FREQ=DAILY;COUNT=5",
+          expression_syntax: "rrule",
+        }),
+      );
       const { declarations, errors } = parsePluginScheduleDeclarations(
         pluginDir,
         "p",
@@ -404,17 +424,17 @@ describe("parsePluginScheduleDeclarations", () => {
     });
 
     test("empty prompt body errors", () => {
-      const pluginDir = makePlugin({
-        "hollow.md": '---\nexpression: "0 9 * * *"\n---\n   \n',
-      });
+      const pluginDir = makePlugin(
+        execDeclaration("hollow", { expression: "0 9 * * *" }, "   \n"),
+      );
       const { errors } = parsePluginScheduleDeclarations(pluginDir, "p");
       expect(errors[0]!.reason).toContain("prompt body is empty");
     });
 
     test("one bad declaration never blocks siblings", () => {
       const pluginDir = makePlugin({
-        "bad.md": "---\nexpression: nonsense\n---\nPrompt.",
-        "good.md": '---\nexpression: "0 9 * * *"\n---\nPrompt.',
+        ...execDeclaration("bad", { expression: "nonsense" }),
+        ...execDeclaration("good", { expression: "0 9 * * *" }),
         "also-good/config.json": JSON.stringify({ expression: "0 10 * * *" }),
         "also-good/index.md": "Prompt.",
       });
@@ -430,7 +450,7 @@ describe("parsePluginScheduleDeclarations", () => {
   describe("definitionHash", () => {
     test("is stable across parses of identical content", () => {
       const files = {
-        "digest.md": FLAT_MD,
+        ...FULL_DIGEST,
         "backup/config.json": JSON.stringify({ expression: "0 3 * * *" }),
         "backup/index.sh": "echo backup\n",
       };
@@ -442,13 +462,13 @@ describe("parsePluginScheduleDeclarations", () => {
       }
     });
 
-    test("changes when the flat file body is edited", () => {
-      const pluginDir = makePlugin({ "digest.md": FLAT_MD });
+    test("changes when the prompt body is edited", () => {
+      const pluginDir = makePlugin(FULL_DIGEST);
       const before = parsePluginScheduleDeclarations(pluginDir, "p")
         .declarations[0]!.definitionHash;
       writeFileSync(
-        join(pluginDir, "schedules", "digest.md"),
-        FLAT_MD.replace("Summarize the day.", "Summarize the week."),
+        join(pluginDir, "schedules", "digest", "index.md"),
+        "Summarize the week.\n",
       );
       const after = parsePluginScheduleDeclarations(pluginDir, "p")
         .declarations[0]!.definitionHash;
@@ -485,8 +505,11 @@ describe("parsePluginScheduleDeclarations", () => {
     });
 
     test("differs between two schedules with different names but same content", () => {
-      const body = '---\nexpression: "0 9 * * *"\n---\nSame.';
-      const pluginDir = makePlugin({ "a.md": body, "b.md": body });
+      const config = { expression: "0 9 * * *" };
+      const pluginDir = makePlugin({
+        ...execDeclaration("a", config, "Same."),
+        ...execDeclaration("b", config, "Same."),
+      });
       const { declarations } = parsePluginScheduleDeclarations(pluginDir, "p");
       expect(declarations[0]!.definitionHash).not.toBe(
         declarations[1]!.definitionHash,

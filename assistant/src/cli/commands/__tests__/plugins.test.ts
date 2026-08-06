@@ -210,13 +210,10 @@ const { registerPluginsCommand } = await import("../plugins.js");
 // Test helpers
 // ---------------------------------------------------------------------------
 
-/** Write a two-schedule fixture (one flat execute, one directory script). */
+/** Write a two-schedule fixture (one execute entrypoint, one script). */
 function writeScheduleFixture(dir: string): void {
+  stageSchedule("daily-report", "0 9 * * *")(dir);
   mkdirSync(join(dir, "schedules", "cleanup"), { recursive: true });
-  writeFileSync(
-    join(dir, "schedules", "daily-report.md"),
-    '---\nexpression: "0 9 * * *"\n---\nSend the daily report.\n',
-  );
   writeFileSync(
     join(dir, "schedules", "cleanup", "config.json"),
     '{"expression": "0 0 * * 0"}',
@@ -224,17 +221,19 @@ function writeScheduleFixture(dir: string): void {
   writeFileSync(join(dir, "schedules", "cleanup", "index.sh"), "#!/bin/sh\n");
 }
 
-/** Stage a single flat schedule declaration with the given raw expression. */
-function stageFlatSchedule(
+/** Stage a single declaration directory with the given raw expression. */
+function stageSchedule(
   name: string,
   expression: string,
 ): (dir: string) => void {
   return (dir) => {
-    mkdirSync(join(dir, "schedules"), { recursive: true });
+    const declarationDir = join(dir, "schedules", name);
+    mkdirSync(declarationDir, { recursive: true });
     writeFileSync(
-      join(dir, "schedules", `${name}.md`),
-      `---\nexpression: "${expression}"\n---\nBody.\n`,
+      join(declarationDir, "config.json"),
+      JSON.stringify({ expression }),
     );
+    writeFileSync(join(declarationDir, "index.md"), "Body.\n");
   };
 }
 
@@ -380,10 +379,10 @@ describe("plugins install - declared-schedules consent", () => {
 
   test("strips terminal escape sequences from the listed declarations", async () => {
     // The cadence carries a clear-screen CSI plus an OSC title write, aimed at
-    // rewriting the consent prompt. YAML's \u escapes decode to real bytes.
-    stageFixture = stageFlatSchedule(
+    // rewriting the consent prompt.
+    stageFixture = stageSchedule(
       "sneaky",
-      "0 9 * * *\\u001b[2J\\u001b]0;pwned\\u0007 SAFE",
+      "0 9 * * *\u001b[2J\u001b]0;pwned\u0007 SAFE",
     );
     confirmResults = ["confirmed"];
 
@@ -398,7 +397,7 @@ describe("plugins install - declared-schedules consent", () => {
   });
 
   test("caps listing cell width so a long expression cannot flood the prompt", async () => {
-    stageFixture = stageFlatSchedule("wall", `0 9 * * * ${"x".repeat(200)}`);
+    stageFixture = stageSchedule("wall", `0 9 * * * ${"x".repeat(200)}`);
     confirmResults = ["confirmed"];
 
     const r = await runCommand(["plugins", "install", "example"]);
@@ -550,9 +549,9 @@ describe("plugins upgrade - declared-schedules consent (local fallback)", () => 
     process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
     try {
       const installedDir = join(workspaceDir, "plugins", "example");
-      stageFlatSchedule("daily-report", "0 9 * * *")(installedDir);
-      stageFlatSchedule("daily-report", "0 9 * * *")(upgradedDir);
-      stageFlatSchedule("weekly-new", "0 8 * * 1")(upgradedDir);
+      stageSchedule("daily-report", "0 9 * * *")(installedDir);
+      stageSchedule("daily-report", "0 9 * * *")(upgradedDir);
+      stageSchedule("weekly-new", "0 8 * * 1")(upgradedDir);
       ipcResults = [
         {
           ok: true,
@@ -590,7 +589,7 @@ describe("plugins upgrade - declared-schedules consent (local fallback)", () => 
   test("a daemon-routed dry run prints no schedule listing", async () => {
     const upgradedDir = mkdtempSync(join(tmpdir(), "plugins-cmd-dry-"));
     try {
-      stageFlatSchedule("daily-report", "0 9 * * *")(upgradedDir);
+      stageSchedule("daily-report", "0 9 * * *")(upgradedDir);
       ipcResults = [
         {
           ok: true,

@@ -379,7 +379,8 @@ describe("installPlugin - staged-install consent", () => {
 
   const CLONE_TREE = {
     "package.json": '{"name":"caveman"}',
-    "schedules/daily.md": "---\nexpression: 0 9 * * *\n---\nDo it.\n",
+    "schedules/daily/config.json": '{"expression": "0 9 * * *"}',
+    "schedules/daily/index.md": "Do it.\n",
   };
 
   test("confirmStaged sees the staged tree before anything is finalized", async () => {
@@ -398,7 +399,7 @@ describe("installPlugin - staged-install consent", () => {
           // The staged tree is fully materialized, but nothing has been
           // swapped into the served plugins dir yet.
           expect(
-            existsSync(join(staged.stagingDir, "schedules/daily.md")),
+            existsSync(join(staged.stagingDir, "schedules/daily/index.md")),
           ).toBe(true);
           expect(existsSync(join(pluginsDir, "caveman"))).toBe(false);
           return true;
@@ -409,7 +410,9 @@ describe("installPlugin - staged-install consent", () => {
     expect(observed.length).toBe(1);
     expect(observed[0]!.name).toBe("caveman");
     expect(result.target).toBe(join(pluginsDir, "caveman"));
-    expect(existsSync(join(result.target, "schedules/daily.md"))).toBe(true);
+    expect(existsSync(join(result.target, "schedules/daily/index.md"))).toBe(
+      true,
+    );
   });
 
   test("declining aborts cleanly: no target, staging removed", async () => {

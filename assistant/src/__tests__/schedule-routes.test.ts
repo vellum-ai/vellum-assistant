@@ -1420,15 +1420,19 @@ describe("plugin-sourced schedules over routes", () => {
   const SOURCE_KEY = "plugin:example-plugin/daily-digest";
 
   // The store's enable path probes the declaration's on-disk presence and its
-  // plugin's manifest before re-arming, so the suite keeps a flat-file
-  // declaration and a valid package.json in place.
+  // plugin's manifest before re-arming, so the suite keeps a declaration
+  // directory and a valid package.json in place.
   beforeEach(() => {
     clearTables();
     const pluginDir = join(getWorkspacePluginsDir(), "example-plugin");
     rmSync(pluginDir, { recursive: true, force: true });
-    const schedulesDir = join(pluginDir, "schedules");
-    mkdirSync(schedulesDir, { recursive: true });
-    writeFileSync(join(schedulesDir, "daily-digest.md"), "declaration");
+    const declarationDir = join(pluginDir, "schedules", "daily-digest");
+    mkdirSync(declarationDir, { recursive: true });
+    writeFileSync(
+      join(declarationDir, "config.json"),
+      JSON.stringify({ expression: "0 9 * * *" }),
+    );
+    writeFileSync(join(declarationDir, "index.md"), "produce the digest\n");
     writeFileSync(
       join(pluginDir, "package.json"),
       JSON.stringify({ name: "example-plugin", version: "1.0.0" }),
@@ -1613,9 +1617,9 @@ describe("plugin-sourced schedules over routes", () => {
           getWorkspacePluginsDir(),
           "example-plugin",
           "schedules",
-          "daily-digest.md",
+          "daily-digest",
         ),
-        { force: true },
+        { recursive: true, force: true },
       );
 
       await expect(runNow(sourced.id)).rejects.toThrow(BadRequestError);

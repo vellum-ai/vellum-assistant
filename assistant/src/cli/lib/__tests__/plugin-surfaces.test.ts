@@ -36,8 +36,8 @@ function touch(rel: string, content = ""): void {
   writeFileSync(path, content);
 }
 
-/** A flat schedule declaration body with frontmatter carrying `expression`. */
-function flatSchedule(expression: string): string {
+/** A prompt body carrying YAML frontmatter, which `index.md` must not have. */
+function withFrontmatter(expression: string): string {
   return `---\nexpression: "${expression}"\n---\nDo the thing.\n`;
 }
 
@@ -124,9 +124,8 @@ describe("detectPluginSurfaces", () => {
     });
   });
 
-  test("lists declared schedules in both forms with cadence and mode", () => {
-    // GIVEN a flat markdown declaration and both directory-form entrypoints
-    touch("schedules/daily-report.md", flatSchedule("0 9 * * *"));
+  test("lists declared schedules with cadence and mode for both entrypoints", () => {
+    // GIVEN two declaration directories, one per entrypoint kind
     touch(
       "schedules/cleanup/config.json",
       '{"expression": "0 0 * * 0", "timezone": "UTC"}',
@@ -141,33 +140,27 @@ describe("detectPluginSurfaces", () => {
     // THEN each declaration reports its raw expression and entrypoint mode
     expect(surfaces.schedules).toEqual([
       { name: "cleanup", cadence: "0 0 * * 0", mode: "script" },
-      { name: "daily-report", cadence: "0 9 * * *", mode: "execute" },
       { name: "digest", cadence: "0 8 * * 1", mode: "execute" },
     ]);
   });
 
-  test("skips a schedule basename declared in both forms", () => {
-    // GIVEN the same basename as a flat file and a directory (ambiguous)
-    touch("schedules/dupe.md", flatSchedule("0 9 * * *"));
-    touch("schedules/dupe/config.json", '{"expression": "0 9 * * *"}');
-    touch("schedules/dupe/index.md", "body\n");
-    touch("schedules/keeper.md", flatSchedule("30 7 * * *"));
+  test("skips a markdown file sitting directly under schedules/", () => {
+    // GIVEN a flat declaration file, which is not a declaration form
+    touch("schedules/dupe.md", withFrontmatter("0 9 * * *"));
+    touch("schedules/keeper/config.json", '{"expression": "30 7 * * *"}');
+    touch("schedules/keeper/index.md", "body\n");
 
     // WHEN its surfaces are detected
     const surfaces = detectPluginSurfaces(pluginDir);
 
-    // THEN neither ambiguous form is listed, and the sibling still is
+    // THEN only the declaration directory is listed
     expect(surfaces.schedules).toEqual([
       { name: "keeper", cadence: "30 7 * * *", mode: "execute" },
     ]);
   });
 
   test("skips structurally malformed schedule declarations (frontmatter, entrypoint, config, body)", () => {
-    // GIVEN a flat file without frontmatter
-    touch("schedules/no-frontmatter.md", "just a body\n");
-    // AND a flat file whose prompt body after the frontmatter is empty
-    touch("schedules/empty-body.md", '---\nexpression: "0 9 * * *"\n---\n  \n');
-    // AND a directory with both entrypoints
+    // GIVEN a directory with both entrypoints
     touch("schedules/two-entries/config.json", '{"expression": "0 9 * * *"}');
     touch("schedules/two-entries/index.md", "body\n");
     touch("schedules/two-entries/index.sh", "#!/bin/sh\n");
@@ -180,7 +173,7 @@ describe("detectPluginSurfaces", () => {
       "schedules/md-frontmatter/config.json",
       '{"expression": "0 9 * * *"}',
     );
-    touch("schedules/md-frontmatter/index.md", flatSchedule("0 9 * * *"));
+    touch("schedules/md-frontmatter/index.md", withFrontmatter("0 9 * * *"));
     // AND a directory whose index.md prompt body is empty
     touch("schedules/md-empty/config.json", '{"expression": "0 9 * * *"}');
     touch("schedules/md-empty/index.md", "\n  \n");

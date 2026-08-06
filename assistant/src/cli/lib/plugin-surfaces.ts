@@ -10,8 +10,7 @@
  *                                (see the external plugin loader's tool walk).
  * - `skills/<id>/SKILL.md`     → a skill owned by the plugin (see the skills
  *                                catalog's `discoverPluginResidentSkills`).
- * - `schedules/<name>.md` or
- *   `schedules/<name>/`        → a declared schedule (see the daemon's plugin
+ * - `schedules/<name>/`        → a declared schedule (see the daemon's plugin
  *                                schedule declaration parser).
  *
  * This module re-derives those same sets so `plugins inspect` can report exactly
@@ -24,11 +23,9 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { parse as parseYaml } from "yaml";
-
 /** A schedule the plugin declares under `schedules/`. */
 export interface PluginScheduleSurface {
-  /** Schedule name: the flat file's basename or the declaration directory's name. */
+  /** Schedule name: the declaration directory's name. */
   readonly name: string;
   /** Raw schedule `expression` string from the declaration's config. */
   readonly cadence: string;
@@ -52,16 +49,15 @@ export interface PluginSurfaces {
    */
   readonly tools: readonly string[];
   /**
-   * Schedules declared under `schedules/`, in either of the loader's two forms:
-   * a flat `<name>.md` with YAML frontmatter (mode `execute`), or a `<name>/`
-   * directory with a `config.json` plus exactly one `index.md` (`execute`) or
-   * `index.sh` (`script`) entrypoint. This is a display surface, not the arming
-   * path: structurally malformed declarations (a basename in both forms, a bad
-   * entrypoint set, an empty prompt body, frontmatter in a directory-form
-   * `index.md`, an unreadable config, a missing `expression`) are skipped
-   * rather than reported as errors. Detection stays permissive beyond
-   * structure: `expression` validity is not checked CLI-side, so a declaration
-   * whose expression the daemon rejects is still listed here.
+   * Schedules declared under `schedules/`, each a `<name>/` directory with a
+   * `config.json` plus exactly one `index.md` (`execute`) or `index.sh`
+   * (`script`) entrypoint. This is a display surface, not the arming path:
+   * a file directly under `schedules/` and structurally malformed directories
+   * (a bad entrypoint set, an empty prompt body, frontmatter in `index.md`, an
+   * unreadable config, a missing `expression`) are skipped rather than reported
+   * as errors. Detection stays permissive beyond structure: `expression`
+   * validity is not checked CLI-side, so a declaration whose expression the
+   * daemon rejects is still listed here.
    */
   readonly schedules: readonly PluginScheduleSurface[];
 }
@@ -140,34 +136,6 @@ function readConfigExpression(config: unknown): string | null {
 }
 
 /**
- * Read the cadence of a flat `<name>.md` declaration: the `expression` field of
- * its YAML frontmatter. `null` when the file is unreadable, carries no
- * frontmatter, has an empty prompt body, or declares no expression.
- */
-function readFlatScheduleCadence(filePath: string): string | null {
-  let content: string;
-  try {
-    content = readFileSync(filePath, "utf8");
-  } catch {
-    return null;
-  }
-  const match = FRONTMATTER_REGEX.exec(content);
-  if (!match) {
-    return null;
-  }
-  if (!content.slice(match[0].length).trim()) {
-    return null;
-  }
-  let fields: unknown;
-  try {
-    fields = parseYaml(match[1]!);
-  } catch {
-    return null;
-  }
-  return readConfigExpression(fields);
-}
-
-/**
  * Read a `<name>/` directory declaration: `config.json` supplies the cadence
  * and the single `index.md`/`index.sh` entrypoint decides the mode. `null` for
  * anything the loader would refuse (zero or multiple `index.*` entries, an
@@ -221,9 +189,9 @@ function readDirectorySchedule(
 
 /**
  * List the schedules a plugin declares under `schedules/`, mirroring the
- * declaration parser's two forms. A basename declared in both forms is
- * ambiguous (the loader refuses it), so neither form is listed. Returns
- * schedules sorted by name; a missing directory yields `[]`.
+ * declaration parser's directory-only form. A file directly under
+ * `schedules/` is not a declaration, so it is skipped. Returns schedules
+ * sorted by name; a missing directory yields `[]`.
  */
 function listSchedules(schedulesDir: string): PluginScheduleSurface[] {
   let entries;
@@ -233,36 +201,14 @@ function listSchedules(schedulesDir: string): PluginScheduleSurface[] {
     return [];
   }
 
-  const flatNames = new Map<string, string>();
-  const dirNames = new Set<string>();
+  const schedules: PluginScheduleSurface[] = [];
   for (const entry of entries) {
-    if (entry.name.startsWith(".")) {
+    if (entry.name.startsWith(".") || !entry.isDirectory()) {
       continue;
     }
-    if (entry.isDirectory()) {
-      dirNames.add(entry.name);
-    } else if (entry.isFile() && entry.name.endsWith(".md")) {
-      flatNames.set(entry.name.slice(0, -".md".length), entry.name);
-    }
-  }
-  for (const name of [...flatNames.keys()]) {
-    if (dirNames.has(name)) {
-      flatNames.delete(name);
-      dirNames.delete(name);
-    }
-  }
-
-  const schedules: PluginScheduleSurface[] = [];
-  for (const [name, fileName] of flatNames) {
-    const cadence = readFlatScheduleCadence(join(schedulesDir, fileName));
-    if (cadence !== null) {
-      schedules.push({ name, cadence, mode: "execute" });
-    }
-  }
-  for (const name of dirNames) {
-    const parsed = readDirectorySchedule(join(schedulesDir, name));
+    const parsed = readDirectorySchedule(join(schedulesDir, entry.name));
     if (parsed) {
-      schedules.push({ name, ...parsed });
+      schedules.push({ name: entry.name, ...parsed });
     }
   }
   return schedules.sort((a, b) =>

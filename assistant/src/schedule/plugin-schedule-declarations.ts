@@ -1,19 +1,18 @@
 /**
  * Parser for plugin-declared schedules under `<pluginDir>/schedules/`.
  *
- * Two declaration forms are supported:
- * - Flat file: `<name>.md` with YAML frontmatter (the schedule config) and a
- *   markdown body (the prompt message). Mode is `execute`.
- * - Directory: `<name>/` containing `config.json` (the schedule config) plus
- *   exactly one entrypoint, `index.md` (mode `execute`, body is the prompt)
- *   or `index.sh` (mode `script`, invoked by absolute path via its shebang
- *   interpreter, or `sh` when it has none).
+ * A declaration is a directory: `<name>/` containing `config.json` (the
+ * schedule config) plus exactly one entrypoint, `index.md` (mode `execute`,
+ * body is the prompt) or `index.sh` (mode `script`, invoked by absolute path
+ * via its shebang interpreter, or `sh` when it has none). A file sitting
+ * directly under `schedules/` is not a declaration; it yields a
+ * {@link DeclarationError} of its own so the author is told rather than left
+ * wondering why nothing loaded.
  *
- * Ambiguity fails closed, never resolves by precedence: a basename declared
- * in both forms, a directory with zero or multiple entrypoints, or an
- * unsupported entrypoint each yield a {@link DeclarationError} and the
- * schedule does not load. Errors are per-schedule; one bad declaration never
- * blocks siblings.
+ * Ambiguity fails closed, never resolves by precedence: a directory with zero
+ * or multiple entrypoints, or an unsupported entrypoint, yields a
+ * {@link DeclarationError} and the schedule does not load. Errors are
+ * per-schedule; one bad declaration never blocks siblings.
  *
  * Declared schedules are recurring only: `expression` is required, a
  * single-fire RRULE (COUNT=1) is rejected, and there is no one-shot form.
@@ -23,7 +22,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { z } from "zod";
@@ -31,10 +30,7 @@ import { z } from "zod";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { parsePluginManifest } from "../plugins/external-plugin-loader.js";
 import { walkPluginTree } from "../plugins/plugin-tree-walk.js";
-import {
-  FRONTMATTER_REGEX,
-  parseFrontmatterFields,
-} from "../skills/frontmatter.js";
+import { FRONTMATTER_REGEX } from "../skills/frontmatter.js";
 import { getWorkspacePluginsDir } from "../util/platform.js";
 import {
   computeNextRunAt,
@@ -48,7 +44,7 @@ import { validateScriptTimeoutMs } from "./run-script.js";
 
 export type PluginScheduleMode = "execute" | "script";
 
-/** Normalized schedule config parsed from frontmatter or config.json. */
+/** Normalized schedule config parsed from a declaration's config.json. */
 export interface PluginScheduleConfig {
   expression: string;
   syntax: ScheduleSyntax;
@@ -126,14 +122,14 @@ function pluginScheduleSourceKey(
 
 /**
  * True when the declaration behind `sourceKey`
- * (`plugin:<pluginName>/<scheduleName>`) is available to arm a row: it is
- * present on disk in either declaration form (a flat `<name>.md` or a
- * `<name>/` directory), the plugin is not disabled, and the plugin's
- * manifest parses. Each of the latter two counts as absent for the same
- * reason: the reconciler disarms the schedules of a disabled plugin and of
- * one whose `package.json` the loader rejects, so neither may be re-armed
- * from a stale row while its files sit on disk. Presence and sourceability
- * only; the declaration's own validity is the reconciler's business.
+ * (`plugin:<pluginName>/<scheduleName>`) is available to arm a row: its
+ * `schedules/<scheduleName>/` directory is present on disk, the plugin is not
+ * disabled, and the plugin's manifest parses. Each of the latter two counts as
+ * absent for the same reason: the reconciler disarms the schedules of a
+ * disabled plugin and of one whose `package.json` the loader rejects, so
+ * neither may be re-armed from a stale row while its files sit on disk.
+ * Presence and sourceability only; the declaration's own validity is the
+ * reconciler's business.
  */
 export async function declarationExistsOnDisk(
   sourceKey: string,
@@ -147,11 +143,8 @@ export async function declarationExistsOnDisk(
     return false;
   }
   const pluginDir = join(getWorkspacePluginsDir(), pluginName!);
-  const schedulesDir = join(pluginDir, "schedules");
-  const declared =
-    existsSync(join(schedulesDir, `${scheduleName!}.md`)) ||
-    existsSync(join(schedulesDir, scheduleName!));
-  if (!declared) {
+  const declarationDir = join(pluginDir, "schedules", scheduleName!);
+  if (!statSync(declarationDir, { throwIfNoEntry: false })?.isDirectory()) {
     return false;
   }
   return (await parsePluginManifest(pluginDir, { quiet: true })) !== undefined;
@@ -335,39 +328,6 @@ interface ParsedDeclarationBody {
   files: DeclarationFile[];
 }
 
-function parseFlatDeclaration(
-  schedulesDir: string,
-  fileName: string,
-): ParsedDeclarationBody | DeclarationFailure {
-  const content = readFileSync(join(schedulesDir, fileName), "utf8");
-  const parsed = parseFrontmatterFields(content);
-  if (!parsed) {
-    // parseFrontmatterFields returns null for both a missing block and
-    // malformed YAML; the regex distinguishes the two.
-    return FRONTMATTER_REGEX.test(content)
-      ? { error: "invalid YAML frontmatter" }
-      : {
-          error:
-            "missing frontmatter: schedule config (expression, ...) is required",
-        };
-  }
-  const configResult = parseScheduleConfig(parsed.fields);
-  if ("error" in configResult) {
-    return configResult;
-  }
-  const message = parsed.body.trim();
-  if (!message) {
-    return { error: "prompt body is empty" };
-  }
-  return {
-    mode: "execute",
-    message,
-    scriptInvocation: null,
-    config: configResult.config,
-    files: [{ relPath: fileName, content: Buffer.from(content) }],
-  };
-}
-
 function parseDirectoryDeclaration(
   schedulesDir: string,
   dirName: string,
@@ -483,32 +443,18 @@ export function parsePluginScheduleDeclarations(
     });
   };
 
-  const flatNames = new Map<string, string>();
-  const dirNames = new Set<string>();
+  const dirNames: string[] = [];
   for (const entry of entries) {
     if (entry.name.startsWith(".")) {
       continue;
     }
     if (entry.isDirectory()) {
-      dirNames.add(entry.name);
-    } else if (entry.isFile() && entry.name.endsWith(".md")) {
-      flatNames.set(entry.name.slice(0, -".md".length), entry.name);
+      dirNames.push(entry.name);
     } else {
       fail(
         entry.name,
-        `unsupported entry "${entry.name}": expected <name>.md or a <name>/ directory`,
+        `schedule declarations must be directories (schedules/<name>/ holding config.json and one index.md or index.sh): "${entry.name}" is a file`,
       );
-    }
-  }
-
-  for (const name of flatNames.keys()) {
-    if (dirNames.has(name)) {
-      fail(
-        name,
-        `declared as both ${name}.md and ${name}/ directory: remove one form`,
-      );
-      flatNames.delete(name);
-      dirNames.delete(name);
     }
   }
 
@@ -539,9 +485,6 @@ export function parsePluginScheduleDeclarations(
     });
   };
 
-  for (const [name, fileName] of flatNames) {
-    parseOne(name, () => parseFlatDeclaration(schedulesDir, fileName));
-  }
   for (const name of dirNames) {
     parseOne(name, () => parseDirectoryDeclaration(schedulesDir, name));
   }

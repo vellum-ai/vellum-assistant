@@ -530,9 +530,7 @@ const pluginSurfacesSchema = z
         z.object({
           name: z
             .string()
-            .describe(
-              "Schedule name: the flat file's basename or the declaration directory's name.",
-            ),
+            .describe("Schedule name: the declaration directory's name."),
           cadence: z
             .string()
             .describe(
@@ -546,7 +544,7 @@ const pluginSurfacesSchema = z
         }),
       )
       .describe(
-        "Schedules declared under `schedules/`, in either loader form: a flat `<name>.md` with YAML frontmatter, or a `<name>/` directory with `config.json` plus one entrypoint. Display surface only; ambiguous or unsupported declarations are omitted.",
+        "Schedules declared under `schedules/`, each a `<name>/` directory with `config.json` plus one entrypoint. Display surface only; files directly under `schedules/` and unsupported declarations are omitted.",
       ),
   })
   .describe(

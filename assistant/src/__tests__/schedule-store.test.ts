@@ -1559,15 +1559,19 @@ describe("declared schedules", () => {
   const examplePluginDir = () => join(getWorkspacePluginsDir(), "example");
 
   // setUserEnabled's enable path probes the declaration's on-disk presence
-  // and its plugin's manifest, so the suite keeps a flat-file declaration and
+  // and its plugin's manifest, so the suite keeps a declaration directory and
   // a valid package.json in place for SOURCE_KEY; ghost-row tests remove them.
   beforeEach(() => {
     getDb().run("DELETE FROM cron_runs");
     getDb().run("DELETE FROM cron_jobs");
     rmSync(examplePluginDir(), { recursive: true, force: true });
-    const schedulesDir = join(examplePluginDir(), "schedules");
-    mkdirSync(schedulesDir, { recursive: true });
-    writeFileSync(join(schedulesDir, "daily.md"), "declaration");
+    const declarationDir = join(examplePluginDir(), "schedules", "daily");
+    mkdirSync(declarationDir, { recursive: true });
+    writeFileSync(
+      join(declarationDir, "config.json"),
+      JSON.stringify({ expression: "0 9 * * *" }),
+    );
+    writeFileSync(join(declarationDir, "index.md"), "produce the digest\n");
     writeFileSync(
       join(examplePluginDir(), "package.json"),
       JSON.stringify({ name: "example", version: "1.0.0" }),
@@ -1825,17 +1829,17 @@ describe("declared schedules", () => {
     expect(result!.enabled).toBe(false);
   });
 
-  test("a directory-form declaration also satisfies the enable probe", async () => {
+  test("a flat markdown file does not satisfy the enable probe", async () => {
     const created = await upsertDeclaredSchedule(SOURCE_KEY, makeDefinition());
     await setUserEnabled(created.id, false);
     const schedulesDir = join(examplePluginDir(), "schedules");
-    rmSync(join(schedulesDir, "daily.md"));
-    mkdirSync(join(schedulesDir, "daily"), { recursive: true });
+    rmSync(join(schedulesDir, "daily"), { recursive: true, force: true });
+    writeFileSync(join(schedulesDir, "daily.md"), "declaration");
 
     const result = await setUserEnabled(created.id, true);
 
-    expect(result!.enabled).toBe(true);
-    expect(result!.nextRunAt).toBeGreaterThan(Date.now());
+    expect(result!.userEnabled).toBe(true);
+    expect(result!.enabled).toBe(false);
   });
 
   test("enabling a schedule of a disabled plugin records the override without re-arming", async () => {

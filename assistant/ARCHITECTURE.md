@@ -865,13 +865,13 @@ graph LR
 
 ## Plugin-Declared Schedules: Declaration → Reconciler → cron_jobs
 
-Plugins contribute recurring schedules as a surface: files under
-`<pluginDir>/schedules/`, either flat `<name>.md` (YAML frontmatter config,
-body is the prompt, runs as `execute`) or a `<name>/` directory
-(`config.json` plus exactly one `index.md` or `index.sh` entrypoint).
-Ambiguity fails closed: basename collisions, zero/multiple/unsupported
-entrypoints, and malformed config produce per-schedule `DeclarationError`s
-without affecting siblings (`src/schedule/plugin-schedule-declarations.ts`).
+Plugins contribute recurring schedules as a surface: directories under
+`<pluginDir>/schedules/`, each a `<name>/` holding `config.json` plus
+exactly one `index.md` (runs as `execute`) or `index.sh` (runs as `script`)
+entrypoint. Ambiguity fails closed: a file sitting directly under
+`schedules/`, zero/multiple/unsupported entrypoints, and malformed config
+produce per-schedule `DeclarationError`s without affecting siblings
+(`src/schedule/plugin-schedule-declarations.ts`).
 
 A level-based reconciler (`src/schedule/plugin-schedule-reconciler.ts`)
 converges declarations into ordinary `cron_jobs` rows keyed by the nullable
@@ -888,7 +888,7 @@ Reconcile lag never lets a disabled plugin run. The disable path writes a
 the scheduler re-reads the sentinel at fire time and records a skipped run
 instead of executing a claimed row whose plugin is off. Run-now applies the
 same boundary through `declarationExistsOnDisk`, which also covers a plugin
-whose manifest no longer parses or whose declaration file is gone.
+whose manifest no longer parses or whose declaration directory is gone.
 
 Ownership boundaries: the reconciler owns definition columns (expression,
 timezone, message/script, retry policy, `definition_hash`); the execution
