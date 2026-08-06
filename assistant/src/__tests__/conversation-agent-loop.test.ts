@@ -865,6 +865,24 @@ function makeCtx(
   return ctx;
 }
 
+/**
+ * What `classifyConversationError` returns for a daily-credit-limit 402 (see
+ * `dailyLimitClassification` in conversation-error.ts). Its `userMessage` is
+ * banner voice; the loop swaps in {@link DAILY_LIMIT_ASSISTANT_REPLY} for the
+ * transcript row.
+ */
+const DAILY_LIMIT_CLASSIFICATION = {
+  code: "PROVIDER_BILLING",
+  userMessage:
+    "You've hit your daily credit limit. Raise the limit in Billing settings to keep going today.",
+  retryable: false,
+  errorCategory: "daily_limit_reached",
+};
+
+/** Mirrors `DAILY_LIMIT_REACHED_ASSISTANT_REPLY` in conversation-agent-loop.ts. */
+const DAILY_LIMIT_ASSISTANT_REPLY =
+  "I had to stop because you hit your daily credit limit. Raise the limit in Settings → Billing and we can pick up where we left off, or I can continue once it resets.";
+
 type CompactionResult = Parameters<typeof applyCompactionResult>[1];
 
 function makeCompactionResult(
@@ -2435,6 +2453,134 @@ describe("session-agent-loop", () => {
         messageKind: "provider_error",
         providerErrorCode: "PROVIDER_BILLING",
         providerErrorCategory: "credits_exhausted",
+      });
+    });
+
+    test("persists assistant-voice daily-limit copy on a first-call rejection", async () => {
+      mockConversationErrorClassification = DAILY_LIMIT_CLASSIFICATION;
+
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("Payment Required");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(addMessageMock).toHaveBeenCalledTimes(1);
+      const addCall = addMessageMock.mock.calls[0] as unknown as [
+        string,
+        string,
+        string,
+        { metadata?: Record<string, unknown> },
+      ];
+      expect(addCall[1]).toBe("assistant");
+      // Like the credits-exhausted row, the daily-limit row re-enters LLM
+      // history and renders as assistant speech, so it carries first-person
+      // copy rather than the banner-voice classification text.
+      const persistedBlocks = JSON.parse(addCall[2]) as Array<{
+        type: string;
+        text: string;
+      }>;
+      expect(persistedBlocks[0]?.text).toBe(DAILY_LIMIT_ASSISTANT_REPLY);
+      expect(addCall[3]?.metadata).toMatchObject({
+        messageKind: "provider_error",
+        providerErrorCode: "PROVIDER_BILLING",
+        providerErrorCategory: "daily_limit_reached",
+      });
+    });
+
+    test("persists the synthetic error row when a daily-limit error kills the run mid-turn", async () => {
+      // Mid-turn shape: the run already carries assistant `tool_use` messages
+      // from the completed tool round-trip, and only the failing follow-up
+      // call lacks a reply. The synthetic error row must persist for this
+      // shape too, so a reload explains why the assistant stopped instead of
+      // ending on a bare tool call.
+      reserveMessageMock
+        .mockImplementationOnce(async () => ({ id: "msg-reserve-1" }))
+        .mockImplementationOnce(async () => ({ id: "msg-reserve-2" }))
+        .mockImplementationOnce(async () => ({ id: "msg-reserve-3" }));
+      mockConversationErrorClassification = DAILY_LIMIT_CLASSIFICATION;
+
+      // GIVEN a run whose first call asks for a tool, the tool succeeds, and
+      // the follow-up call is rejected with a daily-limit 402.
+      const ctx = makeCtx({
+        providerResponses: [
+          toolUseResponse("tu-1", "file_read", {}),
+          new Error("Payment Required"),
+        ],
+        loopTools: [
+          {
+            name: "file_read",
+            description: "Read a file",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+        toolExecutor: async () => ({ content: "file content", isError: false }),
+      } as unknown as Partial<Conversation>);
+
+      await runAgentLoopImpl(ctx, "hello", "msg-user-daily", () => {});
+
+      // (a) The synthetic provider-error row is persisted with the
+      // assistant-voice daily-limit copy and the classification metadata.
+      expect(addMessageMock).toHaveBeenCalledTimes(1);
+      const addCall = addMessageMock.mock.calls[0] as unknown as [
+        string,
+        string,
+        string,
+        { metadata?: Record<string, unknown> },
+      ];
+      expect(addCall[1]).toBe("assistant");
+      const persistedBlocks = JSON.parse(addCall[2]) as Array<{
+        type: string;
+        text: string;
+      }>;
+      expect(persistedBlocks[0]?.text).toBe(DAILY_LIMIT_ASSISTANT_REPLY);
+      expect(addCall[3]?.metadata).toMatchObject({
+        messageKind: "provider_error",
+        providerErrorCode: "PROVIDER_BILLING",
+        providerErrorCategory: "daily_limit_reached",
+      });
+
+      // (b) The empty row the failing call reserved at `llm_call_started` is
+      // dropped, so the transcript carries the error row instead of a stranded
+      // blank bubble. The failing call reserves last (after the first call's
+      // assistant row and the grouped tool-result row).
+      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
+      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
+        string,
+      ];
+      expect(deleteCall[0]).toBe("msg-reserve-3");
+
+      // (c) The turn is stamped failed with the classified code.
+      const outcomeStamps = (
+        updateMessageMetadataMock.mock.calls as unknown as Array<
+          [string, Record<string, unknown>]
+        >
+      ).filter((call) => call[1]?.turnOutcome !== undefined);
+      expect(outcomeStamps).toHaveLength(1);
+      expect(outcomeStamps[0]?.[0]).toBe("msg-user-daily");
+      expect(outcomeStamps[0]?.[1]).toMatchObject({
+        turnOutcome: "failed",
+        turnFailureCode: "PROVIDER_BILLING",
+      });
+
+      // (d) History ends tool_use -> tool_result -> error text, so the row
+      // never lands between a tool_use and its tool_result on replay.
+      const tail = ctx.messages.slice(-3) as Array<{
+        role: string;
+        content: Array<{ type: string; text?: string }>;
+      }>;
+      expect(tail[0]?.role).toBe("assistant");
+      expect(tail[0]?.content[0]?.type).toBe("tool_use");
+      expect(tail[1]?.role).toBe("user");
+      expect(tail[1]?.content[0]?.type).toBe("tool_result");
+      expect(tail[2]?.role).toBe("assistant");
+      expect(tail[2]?.content[0]).toEqual({
+        type: "text",
+        text: DAILY_LIMIT_ASSISTANT_REPLY,
       });
     });
 

@@ -152,6 +152,43 @@ const DISK_PRESSURE_ERROR_CATEGORY = "disk_pressure";
 const OUT_OF_CREDITS_ASSISTANT_REPLY =
   "I couldn't reply because you ran out of credits. Add credits in Settings → Billing and we can pick up where we left off.";
 
+/**
+ * Assistant-voice wording persisted as the synthetic assistant row when a turn
+ * terminates because the daily credit limit is reached. The shared
+ * classification (`dailyLimitClassification` in conversation-error.ts) keeps
+ * its `userMessage` in banner voice because it also feeds the live
+ * `conversation_error` event the composer renders; here the row re-enters LLM
+ * history and is displayed as assistant speech, so first-person copy is
+ * accurate. Says "stop" rather than "reply" because the row can land mid-turn,
+ * after a tool round-trip the user already saw. Phrased about the past failure,
+ * not the current limit, because the row stays in the transcript (and renders
+ * as a plain bubble) after the limit resets.
+ */
+const DAILY_LIMIT_REACHED_ASSISTANT_REPLY =
+  "I had to stop because you hit your daily credit limit. Raise the limit in Settings → Billing and we can pick up where we left off, or I can continue once it resets.";
+
+/**
+ * The assistant-voice text a managed-billing failure persists in place of the
+ * classification's own `userMessage`, or `null` when the classification copy is
+ * already right for a transcript row.
+ */
+function managedBillingAssistantReply(
+  providerErrorCode: string | null,
+  providerErrorCategory: string | null,
+): string | null {
+  if (providerErrorCode !== "PROVIDER_BILLING") {
+    return null;
+  }
+  switch (providerErrorCategory) {
+    case "credits_exhausted":
+      return OUT_OF_CREDITS_ASSISTANT_REPLY;
+    case "daily_limit_reached":
+      return DAILY_LIMIT_REACHED_ASSISTANT_REPLY;
+    default:
+      return null;
+  }
+}
+
 /** Title-cased friendly labels for tool names, used in confirmation chips. */
 const TOOL_FRIENDLY_LABEL: Record<string, string> = {
   bash: "Run Command",
@@ -1360,9 +1397,16 @@ export async function runAgentLoopImpl(
       return { ...msg, content: cleanedBlocks };
     });
 
-    const hasAssistantResponse = newMessages.some(
-      (msg) => msg.role === "assistant",
-    );
+    // "The run delivered a final assistant reply", not "the run produced any
+    // assistant-role message". A run that called tools already carries
+    // assistant `tool_use` messages, and those are not a delivered reply: a
+    // provider error that kills the run mid-turn leaves the tail as the
+    // tool_result (user role), while a run that replied normally ends on the
+    // assistant message. Testing only the tail keeps the synthetic error row
+    // below reachable for mid-turn failures, which is the only durable record
+    // of why the turn stopped.
+    const hasAssistantResponse =
+      newMessages[newMessages.length - 1]?.role === "assistant";
     if (
       !hasAssistantResponse &&
       state.providerErrorUserMessage &&
@@ -1422,13 +1466,13 @@ export async function runAgentLoopImpl(
           providerErrorCategory: state.providerErrorCategory ?? undefined,
         };
         // The persisted row re-enters LLM history and is displayed as
-        // assistant speech, so managed-credits exhaustion swaps the
-        // context-neutral classification copy for assistant-voice wording.
+        // assistant speech, so the managed-billing categories swap the
+        // banner-voice classification copy for assistant-voice wording.
         const persistedErrorText =
-          state.providerErrorCode === "PROVIDER_BILLING" &&
-          state.providerErrorCategory === "credits_exhausted"
-            ? OUT_OF_CREDITS_ASSISTANT_REPLY
-            : state.providerErrorUserMessage;
+          managedBillingAssistantReply(
+            state.providerErrorCode,
+            state.providerErrorCategory,
+          ) ?? state.providerErrorUserMessage;
         const errorAssistantMessage =
           createAssistantMessage(persistedErrorText);
         const errorRow = await addMessage(

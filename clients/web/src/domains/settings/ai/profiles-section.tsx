@@ -107,6 +107,7 @@ export function ProfilesSection({
               isActiveProfile={profile.name === activeProfile}
               selected={profile.name === selectedProfileName}
               connections={connections}
+              deletePending={deleteFlow.pendingDeleteName === profile.name}
               onOpen={() => onOpenProfile(profile.name)}
               onMakeActive={() =>
                 void actions.makeActive(profile.name).catch(alreadyReported)

@@ -5,6 +5,7 @@ import {
   useAssistantScopedSupports,
   useAssistantSupports,
   whenAssistantVersionKnown,
+  whenAssistantVersionKnownFor,
 } from "@/lib/backwards-compat/utils";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
@@ -193,5 +194,57 @@ describe("whenAssistantVersionKnown", () => {
     await whenAssistantVersionKnown(20);
     expect(Date.now() - start).toBeGreaterThanOrEqual(15);
     expect(useAssistantIdentityStore.getState().version).toBeNull();
+  });
+});
+
+// The scoped wait is what a scoped *write* gate needs: the unscoped wait
+// returns immediately while the store still holds the assistant the user just
+// switched away from, which is exactly the pairing the scoped read rejects.
+describe("whenAssistantVersionKnownFor", () => {
+  const OWNER_ID = "asst-owner";
+  const OTHER_ID = "asst-other";
+
+  function setIdentity(version: string | null, assistantId: string | null) {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", version, assistantId);
+  }
+
+  test("resolves immediately when the owner's version is already known", async () => {
+    setIdentity("0.8.6", OWNER_ID);
+    let resolved = false;
+    await whenAssistantVersionKnownFor(OWNER_ID, 50).then(() => {
+      resolved = true;
+    });
+    expect(resolved).toBe(true);
+  });
+
+  test("keeps waiting while the store holds another assistant's version", async () => {
+    setIdentity("0.8.6", OTHER_ID);
+    let resolved = false;
+    const promise = whenAssistantVersionKnownFor(OWNER_ID, 1_000).then(() => {
+      resolved = true;
+    });
+
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    setIdentity("0.8.7", OWNER_ID);
+    await promise;
+    expect(resolved).toBe(true);
+  });
+
+  test("resolves on the timeout when the owner's identity never lands", async () => {
+    const start = Date.now();
+    await whenAssistantVersionKnownFor(OWNER_ID, 20);
+    expect(Date.now() - start).toBeGreaterThanOrEqual(15);
+  });
+
+  test("resolves immediately without an owner to wait for", async () => {
+    let resolved = false;
+    await whenAssistantVersionKnownFor(null).then(() => {
+      resolved = true;
+    });
+    expect(resolved).toBe(true);
   });
 });

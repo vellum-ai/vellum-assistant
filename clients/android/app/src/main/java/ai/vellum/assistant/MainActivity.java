@@ -4,11 +4,16 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.net.http.SslError;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.View;
+import android.view.ViewGroup;
 import android.webkit.SslErrorHandler;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
+import android.widget.ImageView;
 import com.capacitorjs.plugins.pushnotifications.PushNotificationsPlugin;
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
@@ -25,17 +30,23 @@ import java.util.List;
 import org.json.JSONException;
 
 public class MainActivity extends BridgeActivity {
+    private static final long LAUNCH_SCREEN_LOAD_FALLBACK_MS = 2_000;
+    private static final long LAUNCH_SCREEN_TIMEOUT_MS = 15_000;
     private static ConnectDeepLink recreationConnect;
 
+    private final Handler launchScreenHandler = new Handler(Looper.getMainLooper());
     private AlertDialog unreachableDialog;
     private URI effectiveServer;
     private URI pendingAppLink;
     private ConnectDeepLink pendingConnect;
     private boolean pendingNewChat;
     private Intent pendingVoiceLaunch;
+    private View launchScreen;
+    private boolean launchScreenReady;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        NativeLaunchScreenPlugin.applySavedTheme(this);
         boolean recoveredProcess = VoiceLiveActivityPlugin.clearRecoveredStatus(this);
         if (
             VoiceDeepLink.shouldSuppressRecoveredStatusLaunch(
@@ -53,6 +64,7 @@ public class MainActivity extends BridgeActivity {
         configureServer(pendingConnect == null ? SelfHostedServer.configured(this) : pendingConnect.server());
         pendingAppLink = consumeAppLinkIntent(getIntent());
         super.onCreate(savedInstanceState);
+        showLaunchScreen();
         deliverPendingVoiceLaunch();
         if (bridge != null) {
             bridge.setWebViewClient(new SelfHostedWebViewClient(bridge, this));
@@ -75,12 +87,55 @@ public class MainActivity extends BridgeActivity {
         bridgeBuilder.setPlugins(plugins);
         registerPlugin(NativeAuthPlugin.class);
         registerPlugin(NativeBiometricPlugin.class);
+        registerPlugin(NativeLaunchScreenPlugin.class);
         registerPlugin(AndroidNotificationSettingsPlugin.class);
         registerPlugin(AndroidPushRegistrationPlugin.class);
         registerPlugin(VoiceAudioSessionPlugin.class);
         registerPlugin(VoiceLiveActivityPlugin.class);
         registerPlugin(SafePushNotificationsPlugin.class);
         super.load();
+    }
+
+    private void showLaunchScreen() {
+        if (launchScreenReady) {
+            return;
+        }
+        ImageView view = new ImageView(this);
+        view.setBackgroundColor(NativeLaunchScreenPlugin.backgroundColor(this));
+        view.setImageResource(R.drawable.vellum_mark);
+        view.setColorFilter(NativeLaunchScreenPlugin.foregroundColor(this));
+        view.setScaleType(ImageView.ScaleType.CENTER);
+        view.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        addContentView(
+            view,
+            new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        );
+        launchScreen = view;
+        scheduleLaunchScreenFallback(LAUNCH_SCREEN_TIMEOUT_MS);
+    }
+
+    void hideLaunchScreen() {
+        launchScreenReady = true;
+        launchScreenHandler.removeCallbacksAndMessages(null);
+        if (launchScreen == null) {
+            return;
+        }
+        ViewGroup parent = (ViewGroup) launchScreen.getParent();
+        if (parent != null) {
+            parent.removeView(launchScreen);
+        }
+        launchScreen = null;
+    }
+
+    private void scheduleLaunchScreenFallback(long delayMs) {
+        if (launchScreenReady) {
+            return;
+        }
+        launchScreenHandler.removeCallbacksAndMessages(null);
+        launchScreenHandler.postDelayed(this::hideLaunchScreen, delayMs);
     }
 
     @Override
@@ -137,6 +192,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onDestroy() {
+        launchScreenHandler.removeCallbacksAndMessages(null);
         if (unreachableDialog != null) {
             unreachableDialog.dismiss();
             unreachableDialog = null;
@@ -333,6 +389,7 @@ public class MainActivity extends BridgeActivity {
 
         @Override
         public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+            activity.scheduleLaunchScreenFallback(LAUNCH_SCREEN_TIMEOUT_MS);
             mainFrameUrl = url;
             mainFrameFailed = false;
             super.onPageStarted(view, url, favicon);
@@ -343,6 +400,7 @@ public class MainActivity extends BridgeActivity {
             super.onPageFinished(view, url);
             if (!mainFrameFailed) {
                 activity.finishPendingConnect(url);
+                activity.scheduleLaunchScreenFallback(LAUNCH_SCREEN_LOAD_FALLBACK_MS);
             }
         }
 
@@ -376,6 +434,7 @@ public class MainActivity extends BridgeActivity {
 
         private void fail(String url) {
             mainFrameFailed = true;
+            activity.hideLaunchScreen();
             activity.handleServerFailure(url);
         }
     }

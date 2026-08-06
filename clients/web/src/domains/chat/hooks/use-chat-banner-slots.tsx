@@ -27,7 +27,6 @@ export interface UseChatBannerSlotsParams {
   onCancelAllQueued: () => void;
   onSteerMessage: (messageId: string) => void;
   onEditQueueTail: () => void;
-  queueSteering: boolean;
 }
 
 export interface ChatBannerSlots {
@@ -46,7 +45,6 @@ export function useChatBannerSlots({
   onCancelAllQueued,
   onSteerMessage,
   onEditQueueTail,
-  queueSteering,
 }: UseChatBannerSlotsParams): ChatBannerSlots {
   const {
     showBanner,
@@ -115,7 +113,6 @@ export function useChatBannerSlots({
         onCancelMessage={onCancelQueuedMessage}
         onCancelAll={onCancelAllQueued}
         onSteer={onSteerMessage}
-        showSteer={queueSteering}
         onEditTail={onEditQueueTail}
       />
     ),
@@ -124,7 +121,6 @@ export function useChatBannerSlots({
       onCancelQueuedMessage,
       onCancelAllQueued,
       onSteerMessage,
-      queueSteering,
       onEditQueueTail,
     ],
   );

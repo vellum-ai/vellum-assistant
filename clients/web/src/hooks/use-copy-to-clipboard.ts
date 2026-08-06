@@ -27,9 +27,15 @@ export function useCopyToClipboard({
 }: UseCopyToClipboardOptions) {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mounted = useRef(true);
 
   useEffect(() => {
+    // Set on the way in as well as cleared on the way out: StrictMode mounts,
+    // cleans up, and mounts again, so a flag only cleared on unmount would
+    // leave the second mount believing it had already gone.
+    mounted.current = true;
     return () => {
+      mounted.current = false;
       if (timerRef.current) {
         clearTimeout(timerRef.current);
       }
@@ -41,6 +47,12 @@ export function useCopyToClipboard({
       copyToClipboard(text, {
         errorMessage,
         onCopied: () => {
+          // The write resolves on its own schedule. If the drawer closed in
+          // the meantime the cleanup has already run, so arming a timer here
+          // would leave one nothing will clear.
+          if (!mounted.current) {
+            return;
+          }
           setCopied(true);
           if (timerRef.current) {
             clearTimeout(timerRef.current);

@@ -88,6 +88,7 @@ export function LibraryDetailPage() {
     onBack: handleClose,
     enabled: isMobile,
     navKey: pathname,
+    prefetchHref: routes.library.root,
   });
 
   const editApp = useEditApp();

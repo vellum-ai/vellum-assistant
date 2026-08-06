@@ -422,10 +422,13 @@ export function registerConversationsCommand(program: Command): void {
             json?: boolean;
           },
         ) => {
-          // A script-mode schedule injects __SCHEDULE_RUN_ID into its env
-          // (see schedule/run-script.ts). When set, thread it through so the
-          // woken turn's usage is attributed to the firing.
+          // A script-mode schedule injects __SCHEDULE_RUN_ID and __SCHEDULE_ID
+          // into its env (see schedule/run-script.ts). The run id attributes the
+          // woken turn's usage to the firing; the schedule id lets the turn run
+          // on the schedule's pinned inference profile, the same profile
+          // execute-mode and wake-mode runs of that schedule use.
           const cronRunId = process.env.__SCHEDULE_RUN_ID;
+          const scheduleId = process.env.__SCHEDULE_ID;
 
           // Fencing only exists on the persisted-event path, so
           // --external-content implies --persist.
@@ -442,6 +445,7 @@ export function registerConversationsCommand(program: Command): void {
               hint: opts.hint,
               source: opts.source,
               ...(cronRunId ? { cronRunId } : {}),
+              ...(scheduleId ? { scheduleId } : {}),
               ...(persist ? { persist: true } : {}),
               ...(externalContent !== undefined ? { externalContent } : {}),
             },

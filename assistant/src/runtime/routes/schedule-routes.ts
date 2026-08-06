@@ -136,6 +136,11 @@ const scheduleSchema = z.object({
   wakeConversationId: z.string().nullable(),
   workflowName: z.string().nullable(),
   isOneShot: z.boolean(),
+  // A deferred wake ("remind me about this tomorrow") is an ordinary schedule
+  // row created by the defer path, distinguishable only by `createdBy`, which
+  // is not otherwise projected. Clients need it to separate the user's named
+  // schedules from their reminders when listing what a change affects.
+  isDeferred: z.boolean(),
 });
 
 const scheduleRunSchema = z.object({
@@ -219,6 +224,15 @@ function getCadenceDescription(
 }
 
 /**
+ * Whether a schedule still has a firing ahead of it. `fired` and `cancelled`
+ * are the two terminal states a one-shot lands in; everything else (including
+ * a disabled row, which fires again once re-enabled) can still run.
+ */
+function canScheduleStillRun(job: Pick<ScheduleJob, "status">): boolean {
+  return job.status !== "fired" && job.status !== "cancelled";
+}
+
+/**
  * Presentation-layer one-shot flag. A COUNT=1 rrule fires exactly once and
  * should read as one-time in clients, even though the scheduler internally
  * treats expression-backed jobs as recurring (retry policy, conversation
@@ -272,12 +286,16 @@ function serializeSchedule(
     wakeConversationId: j.wakeConversationId,
     workflowName: j.workflowName,
     isOneShot: isOneShotForDisplay(j),
+    isDeferred: isDeferSchedule(j.createdBy),
   };
 }
 
 function handleListSchedules(queryParams: Record<string, string>) {
   const includeAll = queryParams.include_all === "true";
-  const jobs = listSchedules();
+  const inferenceProfile = queryParams.inference_profile?.trim();
+  const jobs = listSchedules(
+    inferenceProfile ? { inferenceProfile } : undefined,
+  );
   const filtered = includeAll
     ? jobs
     : jobs.filter((j) => !isDeferSchedule(j.createdBy));
@@ -298,6 +316,88 @@ function handleGetSchedule(id: string) {
     throw new NotFoundError("Schedule not found");
   }
   return { schedule: serializeSchedule(job, new Map()) };
+}
+
+/**
+ * Move schedules onto the `to` inference profile.
+ *
+ * `from` narrows the move to the schedules pinned to that profile. It is the
+ * companion to deleting an inference profile: without it the profile's
+ * schedules keep a pin that no longer names anything. The dangling pin is not
+ * fatal (the resolver drops a missing override and falls through to the call
+ * site's own selection), so this exists to keep the user's stated model choice
+ * rather than to prevent a failure.
+ *
+ * Omitting `from` selects every schedule that can still run, which is what
+ * re-pinning the whole set onto the current default needs: schedules pinned by
+ * earlier defaults name several different profiles, so there is no single
+ * source to move from. A one-shot that already fired and a cancelled row are
+ * left out: their profile is history, and rewriting them would report a move
+ * larger than the set the user was looking at. An explicit `from` still
+ * selects exactly the rows pinned to it, dead or not, since a deleted profile
+ * has to be swept out of every row that names it. Rows already pinned to `to`
+ * are skipped either way, so the returned count is the number of schedules
+ * whose model actually changed.
+ *
+ * Each row goes through `updateSchedule`, so the store's profile validation
+ * and re-snapshot semantics apply exactly as they do to a single-row PATCH.
+ * Deferred-wake rows are moved too, since a defer inherits the profile of the
+ * conversation it was created in and would otherwise be the one row left
+ * dangling. Callers that warn a user before deleting a profile must count
+ * those rows as well, which is what `include_all` plus the serialized
+ * `isDeferred` flag on the list route are for. Moving one is a guardian-owned
+ * state change, so the whole call requires owner authority as soon as a wake
+ * row is in the selected set.
+ */
+async function handleReassignScheduleInferenceProfile(
+  body: Record<string, unknown>,
+  headers?: Record<string, string>,
+) {
+  const hasFrom = body.from !== undefined && body.from !== null;
+  const from = typeof body.from === "string" ? body.from.trim() : "";
+  const to = typeof body.to === "string" ? body.to.trim() : "";
+  if (hasFrom && !from) {
+    throw new BadRequestError(
+      "from must name an inference profile when provided",
+    );
+  }
+  if (!to) {
+    throw new BadRequestError("to is required");
+  }
+  // `to` must name a configured profile; `from` deliberately is not validated
+  // so an already-deleted profile's leftover pins can still be swept up.
+  const profileError = validateScheduleInferenceProfile(to);
+  if (profileError) {
+    throw new BadRequestError(profileError);
+  }
+
+  const selected = hasFrom
+    ? listSchedules({ inferenceProfile: from })
+    : listSchedules().filter(canScheduleStillRun);
+  const matches = selected.filter((job) => job.inferenceProfile !== to);
+  // The guard depends only on the caller, so its answer is the same for every
+  // row: settle it once for the whole set. Checking per row would spend a
+  // cache-bypassing gateway round trip per matching reminder, and a profile
+  // that many reminders point at would take seconds to move or time out.
+  // All-or-nothing either way: one wake row in scope refuses the whole call
+  // before anything moves.
+  const wakeMatch = matches.find((job) => job.mode === "wake") ?? null;
+  await assertWakeMutationAllowed(wakeMatch, undefined, headers);
+
+  let reassigned = 0;
+  for (const job of matches) {
+    const updated = await updateSchedule(job.id, { inferenceProfile: to });
+    if (updated) {
+      reassigned += 1;
+    }
+  }
+  if (reassigned > 0) {
+    log.info(
+      { from: hasFrom ? from : null, to, reassigned },
+      "Schedules reassigned to new profile",
+    );
+  }
+  return { reassigned };
 }
 
 async function handleCreateSchedule(body: Record<string, unknown>) {
@@ -763,6 +863,12 @@ export const ROUTES: RouteDefinition[] = [
         description:
           "When 'true', include deferred schedules that are normally hidden.",
       },
+      {
+        name: "inference_profile",
+        schema: { type: "string" },
+        description:
+          "Return only schedules pinned to this inference profile (llm.profiles key).",
+      },
     ],
     responseBody: z.object({
       schedules: z.array(scheduleSchema).describe("Schedule objects"),
@@ -804,8 +910,38 @@ export const ROUTES: RouteDefinition[] = [
     handler: ({ queryParams }: RouteHandlerArgs) =>
       handleScheduleUsageSummary(queryParams ?? {}),
   },
-  // Must stay after literal `schedules/*` GET siblings (e.g. usage-summary):
-  // the router matches in declaration order and `:id` would shadow them.
+  {
+    operationId: "reassignScheduleInferenceProfile",
+    endpoint: "schedules/reassign-profile",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Reassign schedules to another inference profile",
+    description:
+      "Move schedules onto one inference profile. Pass 'from' to move only the schedules pinned to that profile, so deleting a profile does not leave its schedules pointing at a name that no longer exists. Omit 'from' to move every schedule, which re-pins the whole set onto one profile. Schedules already pinned to the target are skipped.",
+    tags: ["schedules"],
+    requestBody: z.object({
+      from: z
+        .string()
+        .optional()
+        .describe(
+          "Inference profile key the schedules are pinned to now; omit to select every schedule",
+        ),
+      to: z
+        .string()
+        .describe("Inference profile key to move them to; must be configured"),
+    }),
+    responseBody: z.object({
+      reassigned: z.number().describe("Number of schedules moved"),
+    }),
+    handler: ({ body, headers }: RouteHandlerArgs) =>
+      handleReassignScheduleInferenceProfile(body ?? {}, headers),
+  },
+  // Must stay after literal `schedules/*` siblings (e.g. usage-summary,
+  // reassign-profile): the router matches in declaration order and `:id`
+  // would shadow them.
   {
     operationId: "getSchedule",
     endpoint: "schedules/:id",

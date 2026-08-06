@@ -20,6 +20,12 @@ interface ProfileRowProps {
   selected: boolean;
   /** Connection rows, for resolving openai-compatible model display names. */
   connections?: ProviderConnection[];
+  /**
+   * A delete of this profile is scanning for references. The row dims and
+   * stops responding until the scan resolves, so the round trip does not read
+   * as a dead menu item.
+   */
+  deletePending?: boolean;
   /** Open the profile in the sidepanel (view for managed, edit for user). */
   onOpen: () => void;
   onMakeActive: () => void;
@@ -47,6 +53,7 @@ export function ProfileRow({
   isActiveProfile,
   selected,
   connections,
+  deletePending = false,
   onOpen,
   onMakeActive,
   onSetStatus,
@@ -95,6 +102,7 @@ export function ProfileRow({
       onClick={onOpen}
       showChevron={false}
       selected={selected}
+      disabled={deletePending}
       contentAriaLabel={`Open profile ${displayName}`}
       trailingInteractive
       trailing={
@@ -133,6 +141,9 @@ export function ProfileRow({
                 size="compact"
                 iconOnly={<EllipsisVertical />}
                 aria-label={`Actions for ${displayName}`}
+                // The kebab sits outside the row's interactive content area,
+                // so ListRow's own `disabled` does not reach it.
+                disabled={deletePending}
               />
             </Menu.Trigger>
             <Menu.Content align="end" sideOffset={4}>

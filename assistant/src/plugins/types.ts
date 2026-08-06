@@ -163,10 +163,13 @@ export interface TurnContext {
     /** Canonical id the app tools key off (an opaque UUID for workspace apps). */
     appId: string;
     name: string;
-    /** Directory stem: the readable handle for an otherwise opaque id. */
+    /**
+     * Directory stem: the readable handle for an otherwise opaque id, and the
+     * piece the model joins with the workspace root and the app-builder skill's
+     * `data/apps/<slug>/` layout to reach the app's files. The resolved
+     * directory itself is not sent, being derivable from those three.
+     */
     slug: string;
-    /** Absolute path of the app's source directory. */
-    sourceDir: string;
     /** Owning plugin, when the app is plugin-bundled rather than sandbox-built. */
     pluginName?: string;
   } | null;

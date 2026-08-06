@@ -1395,6 +1395,37 @@ describe("listSchedules new filters", () => {
     expect(conv123Only[0].name).toBe("Wake for conv-123");
     expect(conv123Only[0].wakeConversationId).toBe("conv-123");
   });
+
+  test("inferenceProfile filter returns only schedules pinned to that profile", async () => {
+    const defaultProfile = resolveDefaultScheduleInferenceProfile();
+    expect(defaultProfile).not.toBe("cost-optimized");
+
+    await createSchedule({
+      name: "Cheap digest",
+      message: "digest",
+      cronExpression: "0 * * * *",
+      inferenceProfile: "cost-optimized",
+    });
+    await createSchedule({
+      name: "Second cheap digest",
+      message: "digest",
+      cronExpression: "30 * * * *",
+      inferenceProfile: "cost-optimized",
+    });
+    await createSchedule({
+      name: "Default profile schedule",
+      message: "hi",
+      cronExpression: "0 9 * * *",
+    });
+
+    const cheapOnly = listSchedules({ inferenceProfile: "cost-optimized" });
+    expect(cheapOnly.map((j) => j.name).sort()).toEqual([
+      "Cheap digest",
+      "Second cheap digest",
+    ]);
+    expect(listSchedules({ inferenceProfile: "no-such-profile" })).toEqual([]);
+    expect(listSchedules().length).toBe(3);
+  });
 });
 
 // ── describeCronExpression ──────────────────────────────────────────
