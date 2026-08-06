@@ -7,16 +7,21 @@
   "exports": {
     "./app-origin": "./src/app-origin.ts",
     "./capability-registry": "./src/capability-registry.ts",
+    "./deep-links": "./src/deep-links.ts",
     "./devtools": "./src/devtools.ts",
     "./ipc": "./src/ipc.ts",
+    "./login-item": "./src/login-item.ts",
+    "./preload": "./src/preload.ts",
     "./windows": "./src/windows.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit",
-    "test": "bun test src/capability-registry.test.ts"
+    "test": "bun scripts/run-tests.ts"
   },
   "dependencies": {
-    "@vellumai/electron-utils": "workspace:*"
+    "@vellumai/electron-utils": "workspace:*",
+    "@vellumai/ipc-contract": "workspace:*",
+    "@vellumai/local-mode": "workspace:*"
   },
   "peerDependencies": {
     "electron": ">=42.2.0",

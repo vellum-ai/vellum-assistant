@@ -5,6 +5,16 @@ import { isAllowedOrigin, type AllowedOrigin } from "./app-origin";
 
 export type AllowedOriginResolver = () => AllowedOrigin;
 export type OriginValidator = typeof isAllowedOrigin;
+export type IpcHandle = <Args extends unknown[], Result>(
+  channel: string,
+  schema: z.ZodType<Args>,
+  fn: (args: Args, event: IpcMainInvokeEvent) => Result,
+) => void;
+export type IpcOn = <Args extends unknown[]>(
+  channel: string,
+  schema: z.ZodType<Args>,
+  fn: (args: Args, event: IpcMainEvent) => void,
+) => void;
 
 /**
  * Registration helpers for the renderer-to-main IPC surface.
@@ -21,12 +31,8 @@ export const createIpcRegistrar = (
     validateOrigin(event.senderFrame?.origin, resolveAllowedOrigin());
 
   /** Register an invocable handler with sender and argument validation. */
-  const handle = <Args extends unknown[], R>(
-    channel: string,
-    schema: z.ZodType<Args>,
-    fn: (args: Args, event: IpcMainInvokeEvent) => R,
-  ): void => {
-    ipcMain.handle(channel, (event, ...args: unknown[]): R => {
+  const handle: IpcHandle = (channel, schema, fn): void => {
+    ipcMain.handle(channel, (event, ...args: unknown[]) => {
       if (!isAllowedSender(event)) {
         throw new Error(`Rejected ${channel}: sender is not the app renderer`);
       }
@@ -42,11 +48,7 @@ export const createIpcRegistrar = (
   };
 
   /** Register a fire-and-forget listener that drops invalid messages. */
-  const on = <Args extends unknown[]>(
-    channel: string,
-    schema: z.ZodType<Args>,
-    fn: (args: Args, event: IpcMainEvent) => void,
-  ): void => {
+  const on: IpcOn = (channel, schema, fn): void => {
     ipcMain.on(channel, (event, ...args: unknown[]) => {
       if (!isAllowedSender(event)) {
         return;

@@ -35,12 +35,7 @@ import {
   planPlatformForward,
 } from "./platform-forward";
 import { installPairedGatewayRequestGuard } from "./paired-gateway-request-guard";
-import {
-  extractDeepLinkFromArgv,
-  handleDeepLink,
-  hasPendingDeepLinks,
-  installDeepLinks,
-} from "./deep-links";
+import { hasPendingDeepLinks, installDeepLinks } from "./deep-links.client";
 import { handleBundleFile, installBundleFlow } from "./bundle-flow";
 import { handleFileOpen, hasPendingFiles, installFileOpen, onFileOpen } from "./file-open";
 import { installAvatarIpc } from "./avatar";
@@ -68,7 +63,7 @@ import {
   installLocalMode,
   resolveCliInvocation,
 } from "./local-mode";
-import { installLoginItem, installLoginItemIpc } from "./login-item";
+import { installLoginItem, installLoginItemIpc } from "./login-item.client";
 import {
   getWatchedLockfileSnapshot,
   installLockfileWatcher,
@@ -559,13 +554,6 @@ app.on("second-instance", (_event, argv) => {
   // we recreate so the user always sees a window in response to
   // re-launching the app.
   ensureMainWindowVisible();
-  // Cross-platform deep-link delivery: macOS routes second-launch
-  // deep links via a fresh `open-url` on the primary instance (argv
-  // is empty). Windows / Linux deliver the URL via argv and
-  // `open-url` never fires. Always check argv here so the buffered
-  // / broadcast pipeline is platform-agnostic.
-  const deepLink = extractDeepLinkFromArgv(argv);
-  if (deepLink) handleDeepLink(deepLink);
   // Forward .vellum file paths from second-instance argv so the
   // buffer/broadcast pipeline handles them identically to open-file.
   for (const arg of argv) {

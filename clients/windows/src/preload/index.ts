@@ -36,7 +36,6 @@ const coreBridge: Pick<
   | "app"
   | "commands"
   | "power"
-  | "deepLinks"
   | "dock"
   | "menu"
   | "mainWindow"
@@ -65,12 +64,6 @@ const coreBridge: Pick<
   // ported. The subscription never fires; the unsubscribe is a no-op.
   power: {
     onEvent: noopUnsubscribe,
-  },
-  // Stub: deep links need `vellum://` protocol registration plus
-  // second-instance argv parsing (`clients/macos/src/main/deep-links.ts`).
-  deepLinks: {
-    drain: () => Promise.resolve([]),
-    onLink: noopUnsubscribe,
   },
   // Stub: the Windows analogue is a taskbar overlay icon
   // (`win.setOverlayIcon`), not a dock badge.
