@@ -2,6 +2,7 @@ import {
   Check,
   Cloud,
   EllipsisVertical,
+  Globe,
   Laptop,
   Link2,
   Plus,
@@ -11,6 +12,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { resolveSelectedAssistantId } from "@/assistant/selection";
 import { retireAssistant } from "@/assistant/retire-service";
+import { isCurrentOrigin, switchToOrigin } from "@/assistant/switch-origin";
 import { removePairedAssistant } from "@/assistant/switch-service";
 import { RemoveFromDeviceDialog } from "@/components/remove-from-device-dialog";
 import {
@@ -19,6 +21,7 @@ import {
 } from "@/lib/auth/gateway-session";
 import {
   isCliWakeableAssistant,
+  isLocalClient,
   removePlatformAssistantFromLockfile,
   UnresolvedLocalGatewayError,
 } from "@/lib/local-mode";
@@ -35,8 +38,13 @@ import {
   wakeLocalAssistantHost,
 } from "@/runtime/local-mode-host";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConnectDialogStore } from "@/stores/connect-dialog-store";
 import { useOrganizationStore } from "@/stores/organization-store";
+import {
+  useRememberedOriginsStore,
+  type RememberedOrigin,
+} from "@/stores/remembered-origins-store";
 import {
   useResolvedAssistantsStore,
   type ResolvedAssistant,
@@ -68,16 +76,41 @@ function assistantSubtitle(a: ResolvedAssistant): string {
   return `${hosting} · Created ${formatRelativeDate(a.hatchedAt)}`;
 }
 
+function originLabel(origin: RememberedOrigin): string {
+  return origin.name ?? new URL(origin.url).hostname;
+}
+
+/**
+ * Selection key for a remembered-origin card in the shared radio group.
+ * Assistant ids never carry a scheme, so the prefixed url cannot collide.
+ */
+function originSelectionKey(origin: RememberedOrigin): string {
+  return `origin:${origin.url}`;
+}
+
+// Stable empty list for the flag-off render so effects keyed on the origin
+// entries do not re-run every render.
+const NO_ORIGINS: RememberedOrigin[] = [];
+
 export function SelectAssistantScreen() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const fromLogin = searchParams.get("fromLogin") === "1";
   const noAutoSkip = searchParams.get("noAutoSkip") === "1";
   const electron = isElectron();
+  const localClient = isLocalClient();
   const hasPlatformSession = useHasPlatformSession();
   const assistants = useResolvedAssistantsStore.use.assistants();
   const currentOrganizationId =
     useOrganizationStore.use.currentOrganizationId();
+  const assistantSwitcher = useClientFeatureFlagStore.use.assistantSwitcher();
+  const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
+  const origins = useRememberedOriginsStore.use.origins();
+  const originsHydrated = useRememberedOriginsStore.use.hydrated();
+  // Origin-UI gate: every remembered-origin surface renders only behind the
+  // flag, in every mode, so the flag-off screen is pixel-identical to a
+  // build without origin support.
+  const originEntries = assistantSwitcher ? origins : NO_ORIGINS;
   const {
     loading: loginLoading,
     error: loginError,
@@ -89,6 +122,10 @@ export function SelectAssistantScreen() {
     a.isLocal || a.isPaired || hasPlatformSession;
 
   const accessibleAssistants = assistants.filter(isAccessible);
+  // Origin cards are always selectable, so either kind of entry gives
+  // Continue something to act on.
+  const hasSelectableEntries =
+    accessibleAssistants.length > 0 || originEntries.length > 0;
 
   // Unpairing and importing a pairing bundle both rewrite the lockfile
   // through the local-mode host, and a pairing is device-local regardless of
@@ -115,6 +152,13 @@ export function SelectAssistantScreen() {
   );
   const [removePending, setRemovePending] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  // Target of the remembered-origin removal confirmation dialog.
+  const [removeOriginTarget, setRemoveOriginTarget] =
+    useState<RememberedOrigin | null>(null);
+  const [removeOriginPending, setRemoveOriginPending] = useState(false);
+  const [removeOriginError, setRemoveOriginError] = useState<string | null>(
+    null,
+  );
   // The "Connect a remote assistant" paste-a-bundle dialog. Store-driven
   // rather than local state so a `<scheme>://connect` deep link parked by
   // the global consumer opens it on mount, carrying a bundle prefill or
@@ -131,11 +175,36 @@ export function SelectAssistantScreen() {
   // the auto-skip stands down for the rest of the visit.
   const removedThisVisitRef = useRef(false);
 
+  // Platform-mode access gate: the hub chooser exists only behind the
+  // assistant-switcher flag, whose real value lands asynchronously, so a
+  // flag-off decision waits for hydration before bouncing. Local clients
+  // (including the packaged remote-gateway dist) skip this gate.
+  const platformGateBlocked =
+    !localClient && (!flagsHydrated || !assistantSwitcher);
+  useEffect(() => {
+    if (!localClient && flagsHydrated && !assistantSwitcher) {
+      void navigate(routes.assistant, { replace: true });
+    }
+  }, [localClient, flagsHydrated, assistantSwitcher, navigate]);
+
+  useEffect(() => {
+    if (assistantSwitcher) {
+      void useRememberedOriginsStore.getState().hydrate();
+    }
+  }, [assistantSwitcher]);
+
   // Default selection: the app's known selected assistant when accessible,
   // else the first accessible assistant. Also reconciles an existing
   // selection that stops being accessible (an in-place logout locks the
-  // platform cards), so Continue can never target a locked assistant.
+  // platform cards), so Continue can never target a locked assistant. A
+  // selected remembered origin needs no session, so it stands.
   useEffect(() => {
+    if (
+      selected != null &&
+      originEntries.some((o) => originSelectionKey(o) === selected)
+    ) {
+      return;
+    }
     if (accessibleAssistants.length === 0) {
       if (selected != null) {
         setSelected(null);
@@ -151,7 +220,7 @@ export function SelectAssistantScreen() {
     const resolved = resolveSelectedAssistantId(currentOrganizationId);
     const match = accessibleAssistants.find((a) => a.id === resolved);
     setSelected(match?.id ?? accessibleAssistants[0].id);
-  }, [selected, accessibleAssistants, currentOrganizationId]);
+  }, [selected, accessibleAssistants, currentOrganizationId, originEntries]);
 
   const handleConnect = async (assistant: ResolvedAssistant) => {
     setConnecting(true);
@@ -312,6 +381,35 @@ export function SelectAssistantScreen() {
     setRemovePending(false);
   };
 
+  const closeRemoveOriginDialog = () => {
+    if (removeOriginPending) {
+      return;
+    }
+    setRemoveOriginTarget(null);
+    setRemoveOriginError(null);
+  };
+
+  const handleRemoveOriginConfirm = async () => {
+    if (!removeOriginTarget || removeOriginPending) {
+      return;
+    }
+    setRemoveOriginPending(true);
+    setRemoveOriginError(null);
+    await useRememberedOriginsStore.getState().removeOrigin(removeOriginTarget.url);
+    // removeOrigin resolves silently on a persistence failure, so the entry
+    // still being listed is the failure signal.
+    const stillListed = useRememberedOriginsStore
+      .getState()
+      .origins.some((o) => o.url === removeOriginTarget.url);
+    if (stillListed) {
+      setRemoveOriginError("Failed to remove. Please try again.");
+    } else {
+      removedThisVisitRef.current = true;
+      setRemoveOriginTarget(null);
+    }
+    setRemoveOriginPending(false);
+  };
+
   const handleImported = (assistantId: string) => {
     useConnectDialogStore.getState().closeConnectDialog();
     // The import refreshes the lockfile before resolving, so the store already
@@ -337,6 +435,19 @@ export function SelectAssistantScreen() {
     if (fromLogin || noAutoSkip || removedThisVisitRef.current) {
       return;
     }
+    // The platform hub always shows the chooser rather than auto-connecting.
+    if (!localClient) {
+      return;
+    }
+    // Remembered origins are alternatives a sole assistant does not account
+    // for, so the chooser stays up whenever any exist. Persisted entries
+    // publish only after hydration, so hold the skip until then.
+    if (assistantSwitcher && !originsHydrated) {
+      return;
+    }
+    if (originEntries.length > 0) {
+      return;
+    }
     // On a cold Electron start the buffered deep links publish after mount;
     // hold the skip until the drain settles so a parked connect link wins
     // (it opens the dialog, which stands the auto-skip down below).
@@ -354,9 +465,28 @@ export function SelectAssistantScreen() {
       void handleConnect(accessibleAssistants[0]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assistants.length, accessibleAssistants.length, deepLinkDrainSettled]);
+  }, [
+    assistants.length,
+    accessibleAssistants.length,
+    deepLinkDrainSettled,
+    localClient,
+    originEntries.length,
+    assistantSwitcher,
+    originsHydrated,
+  ]);
 
   const onContinue = () => {
+    const origin = originEntries.find(
+      (o) => originSelectionKey(o) === selected,
+    );
+    if (origin) {
+      if (isCurrentOrigin(origin)) {
+        void navigate(routes.assistant, { replace: true });
+      } else {
+        switchToOrigin(origin);
+      }
+      return;
+    }
     const assistant = assistants.find((a) => a.id === selected);
     if (assistant) {
       void handleConnect(assistant);
@@ -364,23 +494,23 @@ export function SelectAssistantScreen() {
   };
 
   const onBack = () => {
-    void navigate(routes.welcome);
+    // welcome is local-only; the platform hub's way back is the app itself.
+    void navigate(localClient ? routes.welcome : routes.assistant);
   };
 
   const displayError = loginError ?? error;
 
+  // Holding state while the platform gate waits on flag hydration (and while
+  // the flag-off redirect above lands), so a direct URL on the cloud origin
+  // shows nothing new when the flag is off.
+  if (platformGateBlocked) {
+    return <ConnectingHold />;
+  }
+
   // Loading state during auto-skip. A pending recovery falls through to the
   // chooser so the dialog can render.
   if (autoSkipping && !displayError && !recoveryAssistant) {
-    return (
-      <OnboardingLayout>
-        <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 text-[var(--content-default)]">
-          <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-            Connecting to your assistant…
-          </p>
-        </div>
-      </OnboardingLayout>
-    );
+    return <ConnectingHold />;
   }
 
   return (
@@ -452,16 +582,36 @@ export function SelectAssistantScreen() {
               />
             );
           })}
-          <DashedActionButton
-            icon={<Plus className="h-4 w-4" />}
-            label="Create a new assistant"
-            disabled={connecting || loginLoading}
-            onClick={() =>
-              void navigate(
-                `${routes.onboarding.hosting}?from=select-assistant`,
-              )
-            }
-          />
+          {originEntries.map((origin, index) => {
+            const key = originSelectionKey(origin);
+            return (
+              <RemoteOriginCard
+                key={origin.url}
+                origin={origin}
+                selected={selected === key}
+                current={isCurrentOrigin(origin)}
+                tabStop={
+                  selected == null
+                    ? accessibleAssistants.length === 0 && index === 0
+                    : selected === key
+                }
+                onSelect={() => setSelected(key)}
+                onRemove={() => setRemoveOriginTarget(origin)}
+              />
+            );
+          })}
+          {isLocalClient() && (
+            <DashedActionButton
+              icon={<Plus className="h-4 w-4" />}
+              label="Create a new assistant"
+              disabled={connecting || loginLoading}
+              onClick={() =>
+                void navigate(
+                  `${routes.onboarding.hosting}?from=select-assistant`,
+                )
+              }
+            />
+          )}
           {localModeHostAvailable && (
             <DashedActionButton
               icon={<Link2 className="h-4 w-4" />}
@@ -474,7 +624,7 @@ export function SelectAssistantScreen() {
           )}
         </div>
 
-        {accessibleAssistants.length > 0 && (
+        {hasSelectableEntries && (
           <div
             className="mt-8 w-full"
             style={{ animation: "fadeInUp 0.5s ease-out 0.4s both" }}
@@ -492,7 +642,7 @@ export function SelectAssistantScreen() {
           </div>
         )}
         <div
-          className={accessibleAssistants.length > 0 ? "mt-3" : "mt-8"}
+          className={hasSelectableEntries ? "mt-3" : "mt-8"}
           style={{ animation: "fadeInUp 0.5s ease-out 0.5s both" }}
         >
           <Button
@@ -536,6 +686,30 @@ export function SelectAssistantScreen() {
         onConfirm={() => void handleRemoveConfirm()}
         onCancel={closeRemoveDialog}
       />
+      <RemoveFromDeviceDialog
+        open={removeOriginTarget != null}
+        kind="origin"
+        assistantName={
+          removeOriginTarget ? originLabel(removeOriginTarget) : "the assistant"
+        }
+        errorMessage={removeOriginError ?? undefined}
+        isPending={removeOriginPending}
+        onConfirm={() => void handleRemoveOriginConfirm()}
+        onCancel={closeRemoveOriginDialog}
+      />
+    </OnboardingLayout>
+  );
+}
+
+/** Full-screen "Connecting…" hold shown while a decision or connect lands. */
+function ConnectingHold() {
+  return (
+    <OnboardingLayout>
+      <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 text-[var(--content-default)]">
+        <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
+          Connecting to your assistant…
+        </p>
+      </div>
     </OnboardingLayout>
   );
 }
@@ -736,6 +910,128 @@ function AssistantCard({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Chooser card for a remembered remote origin, in the `AssistantCard` visual
+ * language. An origin is only an address remembered on this device: it is
+ * always selectable (no session is needed to navigate away), and its menu
+ * removal only forgets the entry here.
+ */
+function RemoteOriginCard({
+  origin,
+  selected,
+  current,
+  tabStop,
+  onSelect,
+  onRemove,
+}: {
+  origin: RememberedOrigin;
+  selected: boolean;
+  /** Whether this origin is the deployment serving the running app. */
+  current: boolean;
+  /** The radiogroup's single roving tab stop lands on this card. */
+  tabStop: boolean;
+  onSelect: () => void;
+  /** Opens the remove-from-this-device confirmation. */
+  onRemove: () => void;
+}) {
+  const electron = isElectron();
+  const hostname = new URL(origin.url).hostname;
+
+  return (
+    <div
+      role="radio"
+      aria-checked={selected}
+      tabIndex={tabStop ? 0 : -1}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      className={[
+        "group flex w-full items-center border text-left",
+        electron
+          ? "gap-3 rounded-lg px-[10px] py-3"
+          : "gap-4 rounded-2xl px-[18px] py-4",
+        "transition-all duration-200 ease-out",
+        "cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary-base)]",
+        selected
+          ? "border-[var(--primary-base)] bg-[var(--surface-lift)]"
+          : "border-[var(--border-base)] bg-[var(--surface-lift)]/60 hover:border-[var(--border-element)] hover:bg-[var(--surface-lift)]",
+      ].join(" ")}
+    >
+      <div
+        className={[
+          "flex shrink-0 items-center justify-center transition-colors duration-200",
+          "h-12 w-12 rounded-[10px]",
+          selected
+            ? "bg-[var(--primary-base)] text-[var(--surface-base)]"
+            : "bg-[var(--surface-active)]/40 text-[var(--content-secondary)]",
+        ].join(" ")}
+      >
+        <Globe className="h-5 w-5" />
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <span className="block text-body-medium-default text-[var(--content-default)]">
+          {originLabel(origin)}
+        </span>
+        <span
+          className={`mt-1 block text-[var(--content-tertiary)] ${electron ? "text-label-medium-default font-normal" : "text-body-small-lighter"}`}
+        >
+          {`${current ? "Current" : "Remote"} · ${hostname}`}
+        </span>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-2">
+        {/* The trigger sits inside the radio card: stop clicks and keys from
+            bubbling so opening the menu never selects the card and the
+            radio's Enter/Space handler never swallows the trigger. */}
+        <div
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
+          <Menu.Root>
+            <Menu.Trigger asChild>
+              <Button
+                variant="ghost"
+                size="regular"
+                className="text-[var(--content-tertiary)]"
+                iconOnly={<EllipsisVertical />}
+                aria-label={`Actions for ${originLabel(origin)}`}
+              />
+            </Menu.Trigger>
+            <Menu.Content align="end" sideOffset={4}>
+              <Menu.Item
+                onSelect={onRemove}
+                className="text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-strong)]"
+              >
+                Remove from this device…
+              </Menu.Item>
+            </Menu.Content>
+          </Menu.Root>
+        </div>
+        <div
+          className={[
+            "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200",
+            selected
+              ? "border-[var(--primary-base)] bg-[var(--primary-base)]"
+              : "border-[var(--border-element)] group-hover:border-[var(--content-tertiary)]",
+          ].join(" ")}
+        >
+          {selected && (
+            <Check
+              className="h-3 w-3 text-[var(--surface-base)]"
+              strokeWidth={3}
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }

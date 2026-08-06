@@ -238,14 +238,44 @@ describe("resolveNavigation", () => {
         to: "/assistant",
       });
       expect(
-        guard(s({ isLocalClient: false }), "/assistant/select-assistant"),
-      ).toEqual({ action: "redirect", to: "/assistant" });
-      expect(
         guard(s({ isLocalClient: false }), "/assistant/onboarding/hosting"),
       ).toEqual({ action: "redirect", to: "/assistant" });
       expect(
         guard(s({ isLocalClient: false }), "/assistant/onboarding/api-key"),
       ).toEqual({ action: "redirect", to: "/assistant" });
+    });
+
+    // The platform build hosts the hub chooser: the route admits an
+    // authenticated user in every mode. The assistant-switcher flag gate for
+    // platform-mode access lives in the screen, which can wait on flag
+    // hydration; the resolver has no hydration signal to gate on.
+    test("allows an authenticated non-local user on select-assistant", () => {
+      expect(
+        guard(s({ isLocalClient: false }), "/assistant/select-assistant"),
+      ).toEqual(ALLOW);
+      // The hub shows the chooser even with nothing resolved for this org.
+      expect(
+        guard(
+          s({
+            isLocalClient: false,
+            hasAssistants: false,
+            hasPlatformHostedAssistant: false,
+          }),
+          "/assistant/select-assistant",
+        ),
+      ).toEqual(ALLOW);
+    });
+
+    test("sends an unauthenticated non-local select-assistant visit to login with returnTo", () => {
+      expect(
+        guard(
+          s({ isLocalClient: false, isAuthenticated: false }),
+          "/assistant/select-assistant",
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: "/account/login?returnTo=%2Fassistant%2Fselect-assistant",
+      });
     });
 
     test("allows non-local user on onboarding screens regardless of assistant count", () => {

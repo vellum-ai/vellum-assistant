@@ -20,6 +20,7 @@ import {
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ReactNode } from "react";
 
+import type { RememberedOrigin } from "@/stores/remembered-origins-store";
 import type { ResolvedAssistant } from "@/stores/resolved-assistants-store";
 
 // --- Mutable per-test state, reset in beforeEach ------------------------------
@@ -29,6 +30,13 @@ let searchParams = new URLSearchParams();
 let hasPlatformSessionValue = false;
 let assistantsValue: ResolvedAssistant[] = [];
 let localModeHostAvailableValue = false;
+let isLocalClientValue = true;
+let assistantSwitcherValue = false;
+let flagsHydratedValue = true;
+let originsValue: RememberedOrigin[] = [];
+let originsHydratedValue = true;
+/** The origin url `isCurrentOrigin` reports as the serving deployment. */
+let currentOriginUrl: string | null = null;
 let activeAssistantIdValue: string | null = null;
 const setActiveAssistantIdMock = mock((id: string | null) => {
   activeAssistantIdValue = id;
@@ -48,6 +56,13 @@ const removePlatformAssistantFromLockfileMock = mock(
 const connectPairedAssistantMock = mock(async (_id: string) => {});
 const connectLocalAssistantMock = mock(async (_id: string) => {});
 const connectPlatformAssistantMock = mock(async (_id: string) => {});
+
+const hydrateOriginsMock = mock(async () => {});
+// Success path mirrors the real store: the removed entry leaves the list.
+const removeOriginMock = mock(async (url: string) => {
+  originsValue = originsValue.filter((o) => o.url !== url);
+});
+const switchToOriginMock = mock((_origin: RememberedOrigin) => {});
 
 // Stands in for the real error class (the screen's `instanceof` check runs
 // against this mocked module's export).
@@ -92,11 +107,41 @@ mock.module("@/lib/local-mode", () => ({
   getLockfileAssistant: () => undefined,
   getSelectedAssistant: () => undefined,
   isCliWakeableAssistant: () => false,
+  isLocalClient: () => isLocalClientValue,
   isPairedAssistant: (a: { cloud?: string }) => a?.cloud === "paired",
   loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
   removePairedAssistantFromLockfile: removePairedAssistantFromLockfileMock,
   removePlatformAssistantFromLockfile: removePlatformAssistantFromLockfileMock,
   UnresolvedLocalGatewayError: MockUnresolvedLocalGatewayError,
+}));
+
+mock.module("@/stores/client-feature-flag-store", () => ({
+  useClientFeatureFlagStore: {
+    use: {
+      assistantSwitcher: () => assistantSwitcherValue,
+      hydrated: () => flagsHydratedValue,
+    },
+  },
+}));
+
+mock.module("@/stores/remembered-origins-store", () => ({
+  useRememberedOriginsStore: {
+    use: {
+      origins: () => originsValue,
+      hydrated: () => originsHydratedValue,
+    },
+    getState: () => ({
+      origins: originsValue,
+      hydrate: hydrateOriginsMock,
+      removeOrigin: removeOriginMock,
+    }),
+  },
+}));
+
+mock.module("@/assistant/switch-origin", () => ({
+  switchToOrigin: switchToOriginMock,
+  isCurrentOrigin: (origin: RememberedOrigin) =>
+    origin.url === currentOriginUrl,
 }));
 
 mock.module("@/domains/onboarding/components/connect-recovery-dialog", () => ({
@@ -302,32 +347,55 @@ function makePlatformAssistant(
 const REPAIR_COPY =
   "This pairing has expired. Run vellum pair on the assistant's machine and import it again with vellum connect import.";
 
+function makeOrigin(
+  overrides: Partial<RememberedOrigin> = {},
+): RememberedOrigin {
+  return {
+    url: "https://assistant.example.com",
+    name: "Home Server",
+    addedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
 // --- Suite --------------------------------------------------------------------
 
-describe("SelectAssistantScreen paired assistants", () => {
-  beforeEach(() => {
-    navigateMock.mockClear();
-    connectPairedAssistantMock.mockClear();
-    connectPairedAssistantMock.mockImplementation(async () => {});
-    connectLocalAssistantMock.mockClear();
-    connectPlatformAssistantMock.mockClear();
-    searchParams = new URLSearchParams();
-    hasPlatformSessionValue = false;
-    assistantsValue = [];
-    localModeHostAvailableValue = false;
-    isElectronValue = false;
-    removePairedAssistantFromLockfileMock.mockClear();
-    removePairedAssistantFromLockfileMock.mockImplementation(async () => ({
-      ok: true,
-    }));
-    removePlatformAssistantFromLockfileMock.mockClear();
-    activeAssistantIdValue = null;
-    setActiveAssistantIdMock.mockClear();
-    __resetConnectDialogForTesting();
+beforeEach(() => {
+  navigateMock.mockClear();
+  connectPairedAssistantMock.mockClear();
+  connectPairedAssistantMock.mockImplementation(async () => {});
+  connectLocalAssistantMock.mockClear();
+  connectPlatformAssistantMock.mockClear();
+  searchParams = new URLSearchParams();
+  hasPlatformSessionValue = false;
+  assistantsValue = [];
+  localModeHostAvailableValue = false;
+  isElectronValue = false;
+  isLocalClientValue = true;
+  assistantSwitcherValue = false;
+  flagsHydratedValue = true;
+  originsValue = [];
+  originsHydratedValue = true;
+  currentOriginUrl = null;
+  hydrateOriginsMock.mockClear();
+  removeOriginMock.mockClear();
+  removeOriginMock.mockImplementation(async (url: string) => {
+    originsValue = originsValue.filter((o) => o.url !== url);
   });
+  switchToOriginMock.mockClear();
+  removePairedAssistantFromLockfileMock.mockClear();
+  removePairedAssistantFromLockfileMock.mockImplementation(async () => ({
+    ok: true,
+  }));
+  removePlatformAssistantFromLockfileMock.mockClear();
+  activeAssistantIdValue = null;
+  setActiveAssistantIdMock.mockClear();
+  __resetConnectDialogForTesting();
+});
 
-  afterEach(cleanup);
+afterEach(cleanup);
 
+describe("SelectAssistantScreen paired assistants", () => {
   test("a paired card renders unlocked with the paired subtitle and no login button while logged out", () => {
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
@@ -770,5 +838,229 @@ describe("SelectAssistantScreen paired assistants", () => {
       ),
     );
     expect(removePairedAssistantFromLockfileMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("SelectAssistantScreen remembered origins", () => {
+  test("origin cards render from the store when the assistant-switcher flag is on", () => {
+    assistantSwitcherValue = true;
+    originsValue = [makeOrigin()];
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.getByText("Home Server")).toBeTruthy();
+    expect(
+      screen.getByText("Remote · assistant.example.com"),
+    ).toBeTruthy();
+    expect(hydrateOriginsMock).toHaveBeenCalled();
+  });
+
+  test("no origin UI renders with the flag off, even with stored origins", () => {
+    originsValue = [makeOrigin()];
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.queryByText("Home Server")).toBeNull();
+    expect(screen.queryByText(/assistant\.example\.com/)).toBeNull();
+    expect(hydrateOriginsMock).not.toHaveBeenCalled();
+  });
+
+  test("an unnamed origin falls back to its hostname as the title", () => {
+    assistantSwitcherValue = true;
+    originsValue = [makeOrigin({ name: undefined })];
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.getByText("assistant.example.com")).toBeTruthy();
+  });
+
+  test("Continue on a selected origin card performs the origin switch", async () => {
+    assistantSwitcherValue = true;
+    originsValue = [makeOrigin()];
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Home Server"));
+    fireEvent.click(screen.getByText("Continue"));
+
+    await waitFor(() =>
+      expect(switchToOriginMock).toHaveBeenCalledWith(
+        expect.objectContaining({ url: "https://assistant.example.com" }),
+      ),
+    );
+    expect(connectPairedAssistantMock).not.toHaveBeenCalled();
+    expect(connectPlatformAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("the current-origin card shows Current and Continue stays in-app", async () => {
+    assistantSwitcherValue = true;
+    currentOriginUrl = "https://assistant.example.com";
+    originsValue = [makeOrigin()];
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(
+      screen.getByText("Current · assistant.example.com"),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Home Server"));
+    fireEvent.click(screen.getByText("Continue"));
+
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith("/assistant", {
+        replace: true,
+      }),
+    );
+    expect(switchToOriginMock).not.toHaveBeenCalled();
+  });
+
+  test("removing an origin shows the origin copy and forgets the entry", async () => {
+    assistantSwitcherValue = true;
+    originsValue = [makeOrigin()];
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByLabelText("Actions for Home Server"));
+    fireEvent.click(screen.getByText("Remove from this device…"));
+
+    expect(
+      screen.getByText(/It only forgets the entry on this device/),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Confirm remove"));
+
+    await waitFor(() =>
+      expect(removeOriginMock).toHaveBeenCalledWith(
+        "https://assistant.example.com",
+      ),
+    );
+  });
+
+  test("a persistence failure keeps the dialog open with an error", async () => {
+    assistantSwitcherValue = true;
+    originsValue = [makeOrigin()];
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+    // The store's removeOrigin resolves silently on failure and leaves the
+    // entry listed, which is the screen's failure signal.
+    removeOriginMock.mockImplementation(async () => {});
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByLabelText("Actions for Home Server"));
+    fireEvent.click(screen.getByText("Remove from this device…"));
+    fireEvent.click(screen.getByText("Confirm remove"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Failed to remove. Please try again."),
+      ).toBeTruthy(),
+    );
+  });
+
+  test("a flagged origin suppresses the sole-assistant auto-skip", async () => {
+    assistantSwitcherValue = true;
+    originsValue = [makeOrigin()];
+    assistantsValue = [makePairedAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
+    );
+    expect(connectPairedAssistantMock).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  test("with the flag off, stored origins leave the auto-skip untouched", async () => {
+    originsValue = [makeOrigin()];
+    assistantsValue = [makePairedAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(connectPairedAssistantMock).toHaveBeenCalledWith(PAIRED_ID),
+    );
+  });
+
+  test("auto-skip holds until the origins store hydrates when the flag is on", async () => {
+    assistantSwitcherValue = true;
+    originsHydratedValue = false;
+    originsValue = [];
+    assistantsValue = [makePairedAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
+    );
+    expect(connectPairedAssistantMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("SelectAssistantScreen platform-mode gate", () => {
+  beforeEach(() => {
+    isLocalClientValue = false;
+    hasPlatformSessionValue = true;
+    assistantsValue = [makePlatformAssistant()];
+  });
+
+  test("holds on the connecting state until the flag hydrates", () => {
+    flagsHydratedValue = false;
+
+    render(<SelectAssistantScreen />);
+
+    expect(screen.getByText("Connecting to your assistant…")).toBeTruthy();
+    expect(screen.queryByText("Choose an Assistant")).toBeNull();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  test("redirects to /assistant once hydration lands with the flag off", async () => {
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith("/assistant", {
+        replace: true,
+      }),
+    );
+    expect(screen.queryByText("Choose an Assistant")).toBeNull();
+  });
+
+  test("with the flag on the hub renders the chooser and never auto-connects", async () => {
+    assistantSwitcherValue = true;
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
+    );
+    expect(connectPlatformAssistantMock).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  test("Back leaves for /assistant instead of the local-only welcome", async () => {
+    assistantSwitcherValue = true;
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Back"));
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/assistant"));
+  });
+
+  test("hides the local-only create action on non-local clients", async () => {
+    assistantSwitcherValue = true;
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
+    );
+    expect(screen.queryByText("Create a new assistant")).toBeNull();
   });
 });
