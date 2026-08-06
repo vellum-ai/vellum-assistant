@@ -172,6 +172,16 @@ export function buildStoragePolyfill(): string {
  * alone — the former are in-page navigation, the latter are already blocked
  * by the sandbox.
  *
+ * Which of the two paths a frame takes follows from its sandbox tokens, and
+ * they differ by surface. The `visual` frame carries no popup tokens and
+ * relays; the dynamic-page and app-viewer frames keep
+ * `allow-popups allow-popups-to-escape-sandbox` and open directly, so for
+ * those a link click leaves through a top-level navigation that no
+ * `frame-src` constrains and no host-side scheme check sees. That is a
+ * deliberate split, not an oversight: an installed app is a different trust
+ * tier from model-authored illustration markup. Keep the two in step if that
+ * ever stops being true.
+ *
  * @param frameId The iframe identifier, included in `vellum_open_link`
  *   messages so the parent knows which surface sent the request.
  * @param options.relayExternal Relay external links to the parent as
