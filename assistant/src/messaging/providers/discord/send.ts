@@ -13,6 +13,7 @@ import {
   callDiscordApi,
   callDiscordApiMultipart,
   type DiscordMessage,
+  DiscordNonRetryableError,
 } from "./api.js";
 import { renderDiscordMessages } from "./render.js";
 
@@ -118,6 +119,17 @@ export async function sendDiscordAttachments(
 ): Promise<DiscordAttachmentResult> {
   const failures: string[] = [];
 
+  /**
+   * Name a failed file for the channel notice. A refusal Discord explains
+   * (over the guild's upload limit, missing Attach Files) is worth passing on,
+   * since the reader can act on it; anything else stays bare, because the
+   * detail is a transport error the reader cannot do anything about.
+   */
+  const describeFailure = (name: string, err: unknown): string =>
+    err instanceof DiscordNonRetryableError
+      ? `${name} (Discord returned ${err.status})`
+      : name;
+
   for (const meta of attachments) {
     const displayName = meta.filename ?? meta.id;
 
@@ -177,7 +189,7 @@ export async function sendDiscordAttachments(
         { err, attachmentId: meta.id, filename: displayName },
         "Failed to send attachment to Discord",
       );
-      failures.push(displayName);
+      failures.push(describeFailure(displayName, err));
     }
   }
 

@@ -50,19 +50,18 @@ const DISCORD_MAX_RETRY_AFTER_MS = 60_000;
  * is not a 429. The request itself is the problem (the channel, the
  * permissions, or the payload), so retrying the same call is pointless.
  *
- * `code` carries Discord's JSON error code when present. Branch on this type
- * rather than on the numeric code: the docs treat the code list as open, and
- * new codes are added without notice.
+ * Callers branch on this type to degrade gracefully, e.g. an attachment that
+ * Discord refuses is reported to the channel instead of retried. Branch on the
+ * type rather than on Discord's numeric error code: the docs treat that code
+ * list as open, and new codes are added without notice.
  */
 export class DiscordNonRetryableError extends Error {
   readonly status: number;
-  readonly code: number | undefined;
 
-  constructor(status: number, message: string, code?: number) {
+  constructor(status: number, message: string) {
     super(message);
     this.name = "DiscordNonRetryableError";
     this.status = status;
-    this.code = code;
   }
 }
 
@@ -72,7 +71,6 @@ export class DiscordNonRetryableError extends Error {
 
 interface DiscordErrorBody {
   message?: string;
-  code?: number;
   retry_after?: number;
   global?: boolean;
 }
@@ -157,11 +155,9 @@ async function retryableFetch<T>(
     }
 
     if (response.ok) {
-      // 204 No Content, or any empty body, has nothing to decode.
-      if (response.status === 204) {
-        return undefined;
-      }
       const body = await response.text().catch(() => "");
+      // Several routes answer 204 with no body (the typing indicator), so an
+      // empty body is success with nothing to decode.
       if (!body) {
         return undefined;
       }
@@ -203,7 +199,6 @@ async function retryableFetch<T>(
       detail
         ? `Discord ${route} failed with status ${response.status}: ${detail}`
         : `Discord ${route} failed with status ${response.status}`,
-      parsed.code,
     );
   }
 
@@ -238,7 +233,6 @@ async function resolveBotToken(): Promise<string> {
 /** The subset of Discord's message object that delivery reads back. */
 export interface DiscordMessage {
   id: string;
-  channel_id?: string;
 }
 
 /** Call a Discord REST route with a JSON body. */

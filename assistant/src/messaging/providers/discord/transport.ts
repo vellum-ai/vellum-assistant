@@ -32,8 +32,7 @@ const log = getLogger("discord-transport");
  * param nothing reads is debt.
  */
 function sendTarget(ctx: CallbackContext, chatId: string): DiscordSendTarget {
-  const threadId = ctx.params.threadId?.trim();
-  return { channelId: threadId ? threadId : chatId };
+  return { channelId: ctx.params.threadId?.trim() || chatId };
 }
 
 export const discordTransport: ChannelTransport = {
@@ -73,7 +72,7 @@ export const discordTransport: ChannelTransport = {
       { channelId: target.channelId, hasText: !!text },
       "Discord reply delivered (direct)",
     );
-    return sentId !== undefined ? { ok: true, ts: sentId } : { ok: true };
+    return { ok: true, ts: sentId };
   },
 
   async sendTyping(ctx, payload) {
