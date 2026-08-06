@@ -8,8 +8,7 @@ and exchanges newline-delimited JSON-RPC 2.0 frames over standard input and
 output. The helper never requests elevation. Capabilities must return an
 unavailable result when an elevated or protected target cannot be accessed.
 
-RPC modules implement `IRpcModule` and are discovered from the helper assembly.
-Each module is concrete and has a parameterless constructor.
+RPC modules implement `IRpcModule`, are discovered from the helper assembly, and are concrete with a parameterless constructor.
 Adding a module must not require edits to `Program.cs` or a central method
 switch. Shared capability interfaces let later modules exchange input, text,
 dictation, and notification providers without coupling their protocols.
