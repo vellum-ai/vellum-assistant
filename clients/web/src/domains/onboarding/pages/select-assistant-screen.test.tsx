@@ -77,7 +77,12 @@ const addOriginMock = mock(
     },
   }),
 );
-const switchToOriginMock = mock((_origin: RememberedOrigin) => {});
+const switchToOriginMock = mock(async (_origin: RememberedOrigin) => {});
+const switchToVellumCloudMock = mock(async () => true);
+let isNativeMobileValue = false;
+const installNativeRememberedOriginsMock = mock(() => {});
+/** What the native shell reports as its baked Vellum Cloud origin, if any. */
+let nativeCloudOriginValue: string | null = null;
 
 // Stands in for the real error class (the screen's `instanceof` check runs
 // against this mocked module's export).
@@ -164,8 +169,18 @@ mock.module("@/stores/remembered-origins-store", () => ({
 
 mock.module("@/assistant/switch-origin", () => ({
   switchToOrigin: switchToOriginMock,
+  switchToVellumCloud: switchToVellumCloudMock,
   isCurrentOrigin: (origin: RememberedOrigin) =>
     origin.url === currentOriginUrl,
+}));
+
+mock.module("@/runtime/platform-detection", () => ({
+  useIsNativeMobile: () => isNativeMobileValue,
+}));
+
+mock.module("@/runtime/self-hosted-servers", () => ({
+  installNativeRememberedOrigins: installNativeRememberedOriginsMock,
+  nativeVellumCloudOrigin: async () => nativeCloudOriginValue,
 }));
 
 mock.module("@/domains/onboarding/components/connect-recovery-dialog", () => ({
@@ -446,6 +461,10 @@ beforeEach(() => {
     },
   }));
   switchToOriginMock.mockClear();
+  switchToVellumCloudMock.mockClear();
+  isNativeMobileValue = false;
+  nativeCloudOriginValue = null;
+  installNativeRememberedOriginsMock.mockClear();
   removePairedAssistantFromLockfileMock.mockClear();
   removePairedAssistantFromLockfileMock.mockImplementation(async () => ({
     ok: true,
@@ -1063,6 +1082,70 @@ describe("SelectAssistantScreen remembered origins", () => {
       expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
     );
     expect(connectPairedAssistantMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("SelectAssistantScreen native mobile", () => {
+  test("the flag-gated mount installs the native origins provider", () => {
+    assistantSwitcherValue = true;
+    assistantsValue = [makePairedAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(installNativeRememberedOriginsMock).toHaveBeenCalled();
+  });
+
+  test("with the flag off nothing reaches the native bridge", () => {
+    assistantsValue = [makePairedAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    expect(installNativeRememberedOriginsMock).not.toHaveBeenCalled();
+  });
+
+  test("a shell serving a self-hosted origin offers a Vellum Cloud card", async () => {
+    assistantSwitcherValue = true;
+    isNativeMobileValue = true;
+    nativeCloudOriginValue = "https://app.vellum.ai";
+    assistantsValue = [];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() => expect(screen.getByText("Vellum Cloud")).toBeTruthy());
+    // No device-local entry to forget, so the card carries no actions menu.
+    expect(screen.queryByLabelText("Actions for Vellum Cloud")).toBeNull();
+
+    fireEvent.click(screen.getByText("Vellum Cloud"));
+    fireEvent.click(screen.getByText("Continue"));
+
+    await waitFor(() => expect(switchToVellumCloudMock).toHaveBeenCalled());
+    expect(switchToOriginMock).not.toHaveBeenCalled();
+  });
+
+  test("no Vellum Cloud card when the shell already serves the baked origin", async () => {
+    assistantSwitcherValue = true;
+    isNativeMobileValue = true;
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
+    );
+    expect(screen.queryByText("Vellum Cloud")).toBeNull();
+  });
+
+  test("no Vellum Cloud card on a browser surface", async () => {
+    assistantSwitcherValue = true;
+    nativeCloudOriginValue = "https://app.vellum.ai";
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Choose an Assistant")).toBeTruthy(),
+    );
+    expect(screen.queryByText("Vellum Cloud")).toBeNull();
   });
 });
 

@@ -12,7 +12,11 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { resolveSelectedAssistantId } from "@/assistant/selection";
 import { retireAssistant } from "@/assistant/retire-service";
-import { isCurrentOrigin, switchToOrigin } from "@/assistant/switch-origin";
+import {
+  isCurrentOrigin,
+  switchToOrigin,
+  switchToVellumCloud,
+} from "@/assistant/switch-origin";
 import { removePairedAssistant } from "@/assistant/switch-service";
 import { RemoveFromDeviceDialog } from "@/components/remove-from-device-dialog";
 import {
@@ -38,6 +42,11 @@ import {
   requiresGuardianReprovision,
   wakeLocalAssistantHost,
 } from "@/runtime/local-mode-host";
+import { useIsNativeMobile } from "@/runtime/platform-detection";
+import {
+  installNativeRememberedOrigins,
+  nativeVellumCloudOrigin,
+} from "@/runtime/self-hosted-servers";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConnectDialogStore } from "@/stores/connect-dialog-store";
@@ -78,7 +87,14 @@ function assistantSubtitle(a: ResolvedAssistant): string {
   return `${hosting} · Created ${formatRelativeDate(a.hatchedAt)}`;
 }
 
-function originLabel(origin: RememberedOrigin): string {
+/**
+ * What an origin card renders from. The baked Vellum Cloud origin a native
+ * shell reports has no `addedAt` of its own, so the card asks only for the
+ * identity and the label.
+ */
+type OriginCardEntry = Pick<RememberedOrigin, "name" | "url">;
+
+function originLabel(origin: OriginCardEntry): string {
   return origin.name ?? new URL(origin.url).hostname;
 }
 
@@ -86,9 +102,12 @@ function originLabel(origin: RememberedOrigin): string {
  * Selection key for a remembered-origin card in the shared radio group.
  * Assistant ids never carry a scheme, so the prefixed url cannot collide.
  */
-function originSelectionKey(origin: RememberedOrigin): string {
+function originSelectionKey(origin: OriginCardEntry): string {
   return `origin:${origin.url}`;
 }
+
+/** Selection key for the native shell's baked Vellum Cloud card. */
+const CLOUD_SELECTION_KEY = "origin:vellum-cloud";
 
 // Stable empty list for the flag-off render so effects keyed on the origin
 // entries do not re-run every render.
@@ -130,6 +149,7 @@ export function SelectAssistantScreen() {
   const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
   const origins = useRememberedOriginsStore.use.origins();
   const originsHydrated = useRememberedOriginsStore.use.hydrated();
+  const nativeMobile = useIsNativeMobile();
   // Origin-UI gate: every remembered-origin surface renders only behind the
   // flag, in every mode, so the flag-off screen is pixel-identical to a
   // build without origin support.
@@ -141,14 +161,25 @@ export function SelectAssistantScreen() {
     cancel: cancelLogin,
   } = useOnboardingLogin();
 
+  // The native shell's baked Vellum Cloud origin, present only while the shell
+  // is pointed somewhere else and only on a build carrying the plugin. Behind
+  // the same origin-UI gate as the remembered entries.
+  const [cloudOriginUrl, setCloudOriginUrl] = useState<string | null>(null);
+  const cloudOrigin: OriginCardEntry | null =
+    assistantSwitcher && cloudOriginUrl !== null
+      ? { url: cloudOriginUrl, name: "Vellum Cloud" }
+      : null;
+
   const isAccessible = (a: ResolvedAssistant): boolean =>
     a.isLocal || a.isPaired || hasPlatformSession;
 
   const accessibleAssistants = assistants.filter(isAccessible);
-  // Origin cards are always selectable, so either kind of entry gives
-  // Continue something to act on.
+  // Origin cards are always selectable, so any kind of entry gives Continue
+  // something to act on.
   const hasSelectableEntries =
-    accessibleAssistants.length > 0 || originEntries.length > 0;
+    accessibleAssistants.length > 0 ||
+    originEntries.length > 0 ||
+    cloudOrigin !== null;
 
   // Unpairing and importing a pairing bundle both rewrite the lockfile
   // through the local-mode host, and a pairing is device-local regardless of
@@ -215,9 +246,30 @@ export function SelectAssistantScreen() {
 
   useEffect(() => {
     if (assistantSwitcher) {
+      // Native mobile keeps its origins in the shell rather than in web
+      // storage, so the provider swap happens before the first load. Both
+      // calls sit behind the flag so nothing reaches the bridge with it off.
+      installNativeRememberedOrigins();
       void useRememberedOriginsStore.getState().hydrate();
     }
   }, [assistantSwitcher]);
+
+  // The way back to Vellum Cloud, offered only by a shell that is currently
+  // serving a self-hosted origin.
+  useEffect(() => {
+    if (!assistantSwitcher || !nativeMobile) {
+      return;
+    }
+    let cancelled = false;
+    void nativeVellumCloudOrigin().then((url) => {
+      if (!cancelled) {
+        setCloudOriginUrl(url);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [assistantSwitcher, nativeMobile]);
 
   // `?register=<url>&name=<label>` handoff: another origin's Switch
   // Assistant action self-registers here so the hub lists it. Records the
@@ -267,6 +319,9 @@ export function SelectAssistantScreen() {
   // platform cards), so Continue can never target a locked assistant. A
   // selected remembered origin needs no session, so it stands.
   useEffect(() => {
+    if (selected === CLOUD_SELECTION_KEY && cloudOriginUrl !== null) {
+      return;
+    }
     if (
       selected != null &&
       originEntries.some((o) => originSelectionKey(o) === selected)
@@ -288,7 +343,13 @@ export function SelectAssistantScreen() {
     const resolved = resolveSelectedAssistantId(currentOrganizationId);
     const match = accessibleAssistants.find((a) => a.id === resolved);
     setSelected(match?.id ?? accessibleAssistants[0].id);
-  }, [selected, accessibleAssistants, currentOrganizationId, originEntries]);
+  }, [
+    selected,
+    accessibleAssistants,
+    currentOrganizationId,
+    originEntries,
+    cloudOriginUrl,
+  ]);
 
   const handleConnect = async (assistant: ResolvedAssistant) => {
     setConnecting(true);
@@ -498,7 +559,7 @@ export function SelectAssistantScreen() {
   const handleOriginAdded = (origin: RememberedOrigin) => {
     setAddOriginOpen(false);
     // Landing on the origin runs its own pair flow when no session exists.
-    switchToOrigin(origin);
+    void switchToOrigin(origin);
   };
 
   // Auto-skip when there's exactly one assistant and it's accessible.
@@ -550,6 +611,10 @@ export function SelectAssistantScreen() {
   ]);
 
   const onContinue = () => {
+    if (selected === CLOUD_SELECTION_KEY) {
+      void switchToVellumCloud();
+      return;
+    }
     const origin = originEntries.find(
       (o) => originSelectionKey(o) === selected,
     );
@@ -557,7 +622,7 @@ export function SelectAssistantScreen() {
       if (isCurrentOrigin(origin)) {
         void navigate(routes.assistant, { replace: true });
       } else {
-        switchToOrigin(origin);
+        void switchToOrigin(origin);
       }
       return;
     }
@@ -674,6 +739,21 @@ export function SelectAssistantScreen() {
               />
             );
           })}
+          {cloudOrigin && (
+            <RemoteOriginCard
+              origin={cloudOrigin}
+              icon={<Cloud className="h-5 w-5" />}
+              selected={selected === CLOUD_SELECTION_KEY}
+              current={false}
+              tabStop={
+                selected == null
+                  ? accessibleAssistants.length === 0 &&
+                    originEntries.length === 0
+                  : selected === CLOUD_SELECTION_KEY
+              }
+              onSelect={() => setSelected(CLOUD_SELECTION_KEY)}
+            />
+          )}
           {isLocalClient() && (
             <DashedActionButton
               icon={<Plus className="h-4 w-4" />}
@@ -1005,28 +1085,32 @@ function AssistantCard({
 }
 
 /**
- * Chooser card for a remembered remote origin, in the `AssistantCard` visual
- * language. An origin is only an address remembered on this device: it is
- * always selectable (no session is needed to navigate away), and its menu
- * removal only forgets the entry here.
+ * Chooser card for a remote origin, in the `AssistantCard` visual language. An
+ * origin is only an address: it is always selectable (no session is needed to
+ * navigate away), and its menu removal only forgets the entry on this device.
+ * The native shell's baked Vellum Cloud origin reuses the card without a menu,
+ * since there is no device-local entry to forget.
  */
 function RemoteOriginCard({
   origin,
+  icon,
   selected,
   current,
   tabStop,
   onSelect,
   onRemove,
 }: {
-  origin: RememberedOrigin;
+  origin: OriginCardEntry;
+  /** Defaults to the remote-origin globe. */
+  icon?: ReactNode;
   selected: boolean;
   /** Whether this origin is the deployment serving the running app. */
   current: boolean;
   /** The radiogroup's single roving tab stop lands on this card. */
   tabStop: boolean;
   onSelect: () => void;
-  /** Opens the remove-from-this-device confirmation. */
-  onRemove: () => void;
+  /** Opens the remove-from-this-device confirmation, when there is one. */
+  onRemove?: () => void;
 }) {
   const electron = isElectron();
   const hostname = new URL(origin.url).hostname;
@@ -1064,7 +1148,7 @@ function RemoteOriginCard({
             : "bg-[var(--surface-active)]/40 text-[var(--content-secondary)]",
         ].join(" ")}
       >
-        <Globe className="h-5 w-5" />
+        {icon ?? <Globe className="h-5 w-5" />}
       </div>
 
       <div className="min-w-0 flex-1">
@@ -1079,33 +1163,35 @@ function RemoteOriginCard({
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
-        {/* The trigger sits inside the radio card: stop clicks and keys from
-            bubbling so opening the menu never selects the card and the
-            radio's Enter/Space handler never swallows the trigger. */}
-        <div
-          onClick={(e) => e.stopPropagation()}
-          onKeyDown={(e) => e.stopPropagation()}
-        >
-          <Menu.Root>
-            <Menu.Trigger asChild>
-              <Button
-                variant="ghost"
-                size="regular"
-                className="text-[var(--content-tertiary)]"
-                iconOnly={<EllipsisVertical />}
-                aria-label={`Actions for ${originLabel(origin)}`}
-              />
-            </Menu.Trigger>
-            <Menu.Content align="end" sideOffset={4}>
-              <Menu.Item
-                onSelect={onRemove}
-                className="text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-strong)]"
-              >
-                Remove from this device…
-              </Menu.Item>
-            </Menu.Content>
-          </Menu.Root>
-        </div>
+        {onRemove && (
+          /* The trigger sits inside the radio card: stop clicks and keys from
+             bubbling so opening the menu never selects the card and the
+             radio's Enter/Space handler never swallows the trigger. */
+          <div
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <Menu.Root>
+              <Menu.Trigger asChild>
+                <Button
+                  variant="ghost"
+                  size="regular"
+                  className="text-[var(--content-tertiary)]"
+                  iconOnly={<EllipsisVertical />}
+                  aria-label={`Actions for ${originLabel(origin)}`}
+                />
+              </Menu.Trigger>
+              <Menu.Content align="end" sideOffset={4}>
+                <Menu.Item
+                  onSelect={onRemove}
+                  className="text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-strong)]"
+                >
+                  Remove from this device…
+                </Menu.Item>
+              </Menu.Content>
+            </Menu.Root>
+          </div>
+        )}
         <div
           className={[
             "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200",
