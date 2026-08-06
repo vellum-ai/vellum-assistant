@@ -152,8 +152,11 @@ function findSpeakableBoundary(
   // Inside a Markdown link URL (`](...)`), non-Latin terminators are path
   // characters, not sentence enders: splitting there leaves both fragments
   // unmatchable by the sanitizer's complete-link pattern, so markup or the
-  // raw URL gets spoken.
-  let inLinkUrl = false;
+  // raw URL gets spoken. Tracked as a paren depth, not a boolean, because
+  // the sanitizer's link pattern accepts balanced parens inside the URL
+  // (https://example.com/a_(b)/c) and the suppression must cover the same
+  // links. 0 = not inside a URL.
+  let linkUrlDepth = 0;
 
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
@@ -165,20 +168,24 @@ function findSpeakableBoundary(
     if (char === "\n") {
       // A URL never spans a line: an unclosed link stops suppressing here so
       // malformed markup cannot defer the newline split.
-      inLinkUrl = false;
+      linkUrlDepth = 0;
       if (!inOpenSpan) {
         return index + 1;
       }
     }
 
-    if (inLinkUrl) {
-      if (char === ")") {
-        inLinkUrl = false;
+    if (linkUrlDepth > 0) {
+      if (char === "(") {
+        linkUrlDepth += 1;
+      } else if (char === ")") {
+        linkUrlDepth -= 1;
       }
       continue;
     }
     if (char === "]" && text[index + 1] === "(") {
-      inLinkUrl = true;
+      linkUrlDepth = 1;
+      // Skip the opening paren so it does not double-count the depth.
+      index += 1;
       continue;
     }
 

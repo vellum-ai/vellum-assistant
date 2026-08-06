@@ -418,6 +418,21 @@ describe("extractSpeakableSegments", () => {
       expect(remainder).toBe("次");
     });
 
+    test("balanced parens inside a link URL keep suppressing boundaries", () => {
+      // The sanitizer's link pattern accepts balanced parens inside URLs
+      // (Wikipedia-style paths), so the segmenter must not exit the URL at
+      // the inner closing paren and split at a later terminator.
+      const { segments, remainder } = extractSpeakableSegments(
+        "[記事](https://example.com/a_(b)/前編。後編)を読んで。次",
+        false,
+      );
+
+      expect(segments).toEqual([
+        "[記事](https://example.com/a_(b)/前編。後編)を読んで。",
+      ]);
+      expect(remainder).toBe("次");
+    });
+
     test("adjacent enders stay in one segment", () => {
       // 本当！？ must not emit 本当！ and then a punctuation-only ？ segment.
       const { segments, remainder } = extractSpeakableSegments(
