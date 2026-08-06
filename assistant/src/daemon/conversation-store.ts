@@ -113,9 +113,17 @@ export async function getOrCreateConversation(
     mergeConversationOptions(conversationId, persistentOptions);
   }
 
+  // A stale conversation is rebuilt only once it is genuinely idle. Queued
+  // messages live in memory on the instance being disposed, and the queue
+  // drains via an async dispatch after the current turn releases, so
+  // `isProcessing()` can read false while a queued turn is still pending:
+  // rebuilding in that gap would silently drop those messages. The conversation
+  // stays stale and is rebuilt on a later call.
   if (
     !conversation ||
-    (conversation.isStale() && !conversation.isProcessing())
+    (conversation.isStale() &&
+      !conversation.isProcessing() &&
+      !conversation.hasQueuedMessages())
   ) {
     if (conversation) {
       // Stale rebuild: the conversation id lives on, so abort in-flight
@@ -318,7 +326,12 @@ export function clearAllActiveConversations(): number {
 export function evictConversationsForReload(): void {
   const subagentManager = getSubagentManager();
   for (const [id, conversation] of conversationEntries()) {
-    if (!conversation.isProcessing()) {
+    // A conversation with queued messages is not idle: the queue drains via an
+    // async dispatch after the current turn releases, so `isProcessing()` can
+    // read false while a queued turn is still pending. Disposing in that gap
+    // would silently drop the queued messages, so mark it stale instead and
+    // let it rebuild once the queue has run.
+    if (!conversation.isProcessing() && !conversation.hasQueuedMessages()) {
       subagentManager.abortAllForParent(id);
       conversation.dispose();
       deleteConversation(id);

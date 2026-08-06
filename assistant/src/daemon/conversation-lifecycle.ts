@@ -129,6 +129,38 @@ export interface DisposeContext extends AbortContext {
 
 // ── abort ─────────────────────────────────────────────────────────────
 
+/** The conversation surface {@link forceClearStaleProcessing} needs. */
+export interface StaleProcessingContext {
+  readonly conversationId: string;
+  setProcessing(value: boolean): void;
+}
+
+/**
+ * Release a processing flag that no live turn owns.
+ *
+ * Callers reach this when `isProcessing()` is true but `abortController` is
+ * null: the turn that owned the flag already tore its controller down (the
+ * agent loop nulls `abortController` before clearing the flag) or died without
+ * ever installing one. Either way no agent-loop release is going to run to
+ * clear it, so signalling the controller would be a silent no-op (`?.abort()`
+ * on null does nothing) and the conversation would stay wedged: every later
+ * submit is rejected with "already processing" and Stop appears dead.
+ * `setProcessing(false)` also nulls the persisted column and emits the metadata
+ * invalidation that drives clients to idle.
+ *
+ * `origin` names the calling site for log correlation.
+ */
+export function forceClearStaleProcessing(
+  ctx: StaleProcessingContext,
+  origin: string,
+): void {
+  log.warn(
+    { conversationId: ctx.conversationId, origin },
+    "Processing latched with no live abort controller; force-clearing the stale processing flag",
+  );
+  ctx.setProcessing(false);
+}
+
 export function abortConversation(
   ctx: AbortContext,
   reason?: AbortReason,
@@ -153,21 +185,7 @@ export function abortConversation(
       // clear it here and risk clobbering a client's optimistic state.
       ctx.abortController.abort(effectiveReason);
     } else {
-      // The flag is set but there is no live controller to signal: the turn
-      // that owned it already tore its controller down (the agent-loop
-      // `finally` nulls `abortController` before clearing the flag) or died
-      // without ever installing one. Either way no agent-loop `finally` is
-      // going to run to clear the flag. Without this branch the abort is a
-      // silent no-op — `?.abort()` does nothing — and the conversation stays
-      // wedged: every later submit is rejected with "already processing" and
-      // Stop appears dead. Force-clear the flag directly so the conversation
-      // frees up. `setProcessing(false)` also nulls the persisted column and
-      // emits the metadata invalidation that drives clients to idle.
-      log.warn(
-        { conversationId: ctx.conversationId },
-        "Abort requested while processing but no live abort controller — force-clearing stale processing flag",
-      );
-      ctx.setProcessing(false);
+      forceClearStaleProcessing(ctx, "abortConversation");
     }
     ctx.prompter.dispose();
     ctx.secretPrompter.dispose();

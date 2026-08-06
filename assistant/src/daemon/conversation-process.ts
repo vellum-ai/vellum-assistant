@@ -2001,7 +2001,10 @@ export async function processMessage(
       throw err;
     } finally {
       conversation.setProcessing(false);
-      await drainQueue(conversation);
+      // `kickQueueDrain` never rejects, so a failed drain in this `finally`
+      // cannot mask the error the try block is unwinding, and its retry plus
+      // sender notification replace a silently stranded queue.
+      await kickQueueDrain(conversation, "loop_complete", "compact_command");
     }
   }
 
@@ -2075,7 +2078,8 @@ export async function processMessage(
       throw err;
     } finally {
       conversation.setProcessing(false);
-      await drainQueue(conversation);
+      // Same never-rejecting drain as the `/compact` branch above.
+      await kickQueueDrain(conversation, "loop_complete", "clean_command");
     }
   }
 

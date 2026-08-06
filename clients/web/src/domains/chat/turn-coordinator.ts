@@ -18,14 +18,15 @@
  * paths can't accidentally skip the conversation-store cleanup — there
  * is only one call to make.
  *
- * The five terminal reasons map 1:1 onto turn-store's terminal actions:
+ * The six terminal reasons map 1:1 onto turn-store's terminal actions:
  *
  *   reason            | turn-store action       | extra args
  *   ------------------|-------------------------|------------------------
- *   "complete"        | completeTurn()          | —
- *   "cancelled"       | cancelGeneration()      | —
- *   "error"           | onStreamError()         | —
- *   "session_error"   | onSessionError()        | —
+ *   "complete"        | completeTurn()          | none
+ *   "cancelled"       | cancelGeneration()      | none
+ *   "error"           | onStreamError()         | none
+ *   "session_error"   | onSessionError()        | none
+ *   "timeout"         | onTurnTimeout()         | none
  *   "rescued"         | onPollReconciled(id)    | rescuedTurnId (required)
  */
 
@@ -33,7 +34,12 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 
 export type TurnTerminalReason =
-  "complete" | "cancelled" | "error" | "session_error" | "rescued";
+  | "complete"
+  | "cancelled"
+  | "error"
+  | "session_error"
+  | "timeout"
+  | "rescued";
 
 export interface EndTurnArgs {
   /**
@@ -56,8 +62,8 @@ export interface EndTurnArgs {
 export function endTurn(args: EndTurnArgs): void {
   const turn = useTurnStore.getState();
 
-  // `rescued` is the only non-definitive reason. The other four
-  // (`complete`, `cancelled`, `error`, `session_error`) are sent
+  // `rescued` is the only non-definitive reason. The other five
+  // (`complete`, `cancelled`, `error`, `session_error`, `timeout`) are sent
   // from terminal-event handlers and represent definitive "this turn
   // is over" signals — the processing-key clear is always correct.
   //
@@ -92,6 +98,9 @@ export function endTurn(args: EndTurnArgs): void {
         break;
       case "session_error":
         turn.onSessionError();
+        break;
+      case "timeout":
+        turn.onTurnTimeout();
         break;
     }
   }
