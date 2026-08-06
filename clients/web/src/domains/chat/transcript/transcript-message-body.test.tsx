@@ -2403,4 +2403,105 @@ describe("TranscriptMessageBody: changed-document reopen links", () => {
 
     expect(reopenLinks(container).length).toBe(0);
   });
+
+  /** A settled `document_create` whose result names the document it opened. */
+  function documentCreateCall(
+    id: string,
+    surfaceId: string,
+  ): ChatMessageToolCall {
+    return {
+      id,
+      name: "document_create",
+      input: { title: "Notes" },
+      result: JSON.stringify({ surface_id: surfaceId, opened: true }),
+      completedAt: 1,
+    };
+  }
+
+  /**
+   * The inline `document_preview` surface `document_create` emits alongside its
+   * result. The card carries its own `preview-` surface id; the document it
+   * opens rides in `data.surfaceId`.
+   */
+  function documentPreviewBlock(surfaceId: string): ConversationContentBlock {
+    return {
+      type: "surface",
+      surface: {
+        surfaceId: `preview-${surfaceId}`,
+        surfaceType: "document_preview",
+        title: "Notes",
+        data: { title: "Notes", surfaceId, subtitle: "Document" },
+      },
+    };
+  }
+
+  /** A turn that runs `toolCalls` and renders `surfaceBlocks` between them. */
+  function surfaceTurn(
+    toolCalls: ChatMessageToolCall[],
+    surfaceBlocks: ConversationContentBlock[],
+  ) {
+    return render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-doc-surface-turn",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("Writing your notes."),
+            ...toolCalls.map(toolUseBlock),
+            ...surfaceBlocks,
+            textBlock("Done."),
+          ],
+          toolCalls,
+          timestamp: 1_000,
+        }}
+        conversationId={DOC_CONVERSATION_ID}
+        assistantId={DOC_ASSISTANT_ID}
+        onOpenDocument={onOpenDocumentMock}
+        onSurfaceAction={noop}
+      />,
+    );
+  }
+
+  test("renders no reopen link for a document its inline preview card already opens", () => {
+    const { container } = surfaceTurn(
+      [documentCreateCall("tc-doc", "surf-notes")],
+      [documentPreviewBlock("surf-notes")],
+    );
+
+    // The card is the turn's only affordance for this document.
+    expect(
+      container.querySelector("[data-surface-id='preview-surf-notes']"),
+    ).not.toBeNull();
+    expect(reopenLinks(container).length).toBe(0);
+  });
+
+  test("renders a reopen link for a changed document no preview card covers", () => {
+    const { container } = surfaceTurn(
+      [
+        documentCreateCall("tc-doc-a", "surf-notes"),
+        documentUpdateCall("tc-doc-b", "surf-plan"),
+      ],
+      [documentPreviewBlock("surf-notes")],
+    );
+
+    expect(reopenSurfaceIds(container)).toEqual(["surf-plan"]);
+  });
+
+  test("keeps the reopen link when a non-preview surface names the same id", () => {
+    const { container } = surfaceTurn(
+      [documentUpdateCall("tc-doc", "surf-notes")],
+      [
+        {
+          type: "surface",
+          surface: {
+            surfaceId: "card-1",
+            surfaceType: "card",
+            data: { surfaceId: "surf-notes" },
+          },
+        },
+      ],
+    );
+
+    expect(reopenSurfaceIds(container)).toEqual(["surf-notes"]);
+  });
 });

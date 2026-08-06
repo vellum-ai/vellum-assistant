@@ -743,19 +743,33 @@ export function TranscriptMessageBody({
   const renderSurfaceNode = (
     surface: ConversationMessageSurface,
     key: string,
-  ): ReactNode => (
-    <div key={key} className="w-full">
-      <SurfaceRouter
-        surface={wireSurfaceToDisplay(surface)}
-        onAction={onSurfaceAction}
-        onOpenApp={onOpenApp}
-        onOpenDocument={onOpenDocument}
-        assistantId={assistantId}
-        toolCalls={message.toolCalls}
-        onVellumLinkClick={handleVellumLinkClick}
-      />
-    </div>
-  );
+  ): ReactNode => {
+    // A `document_preview` card opens its own document, so claim that document
+    // before the end-of-message resolution runs and the reopen link would
+    // otherwise repeat the same affordance right beside the card. The preview's
+    // own `surfaceId` is the surface (`preview-<doc id>`); the document it
+    // opens rides in `data.surfaceId`, which is what a document tool call
+    // reports in its result.
+    if (surface.surfaceType === "document_preview") {
+      const documentSurfaceId = surface.data?.surfaceId;
+      if (typeof documentSurfaceId === "string" && documentSurfaceId !== "") {
+        claimedDocumentIds.add(documentSurfaceId);
+      }
+    }
+    return (
+      <div key={key} className="w-full">
+        <SurfaceRouter
+          surface={wireSurfaceToDisplay(surface)}
+          onAction={onSurfaceAction}
+          onOpenApp={onOpenApp}
+          onOpenDocument={onOpenDocument}
+          assistantId={assistantId}
+          toolCalls={message.toolCalls}
+          onVellumLinkClick={handleVellumLinkClick}
+        />
+      </div>
+    );
+  };
 
   // Render one `activity` group (a contiguous thinking + tool run) into its
   // combined `MultiActivityGroup`, a lone inline link, or a bare thinking
