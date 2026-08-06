@@ -144,7 +144,7 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()((
           return { [key]: confirmedValue };
         });
         toast.error(
-          `Couldn't update "${getFlagDefinition(key)?.label ?? key}" — change reverted.`,
+          `Couldn't update "${getFlagDefinition(key)?.label ?? key}". Your change was reverted.`,
         );
       };
       const flagKey = storeKeyToFlagKey(key);
@@ -219,7 +219,7 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()((
           };
         });
         toast.error(
-          `Couldn't update "${getFlagDefinition(key)?.label ?? key}" — change reverted.`,
+          `Couldn't update "${getFlagDefinition(key)?.label ?? key}". Your change was reverted.`,
         );
       };
       const flagKey = storeKeyToFlagKey(key);

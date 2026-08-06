@@ -1,7 +1,7 @@
 import { Loader2 } from "lucide-react";
 import { Suspense, useCallback, useEffect, useState } from "react";
 
-import { useNavigate, useSearchParams } from "react-router";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -312,7 +312,9 @@ function UsagePanel() {
 
 export function BillingPage() {
   const billingGate = usePlatformGate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const { hash } = useLocation();
   // Shown when signed in (`"full"`); for a signed-out-but-reachable viewer
   // (`"disabled"`) it stays reachable only when the URL carries billing intent
   // (a deeplink / upgrade CTA / Stripe return), so the BillingTab login notice
@@ -344,14 +346,17 @@ export function BillingPage() {
     if (searchParams.get("tab") !== activeTab) {
       const next = new URLSearchParams(searchParams);
       next.set("tab", activeTab);
-      setSearchParams(next, { replace: true });
+      // Not `setSearchParams` — that drops the URL hash, and anchor deep
+      // links (`#daily-credit-limit` from the daily-limit email) must survive
+      // this normalization however late the anchored card mounts.
+      void navigate({ search: `?${next}`, hash }, { replace: true });
     }
-  }, [isPlatformSessionSettled, searchParams, activeTab, setSearchParams]);
+  }, [isPlatformSessionSettled, searchParams, activeTab, navigate, hash]);
 
   const handleTabChange = (value: string) => {
     const next = new URLSearchParams(searchParams);
     next.set("tab", value);
-    setSearchParams(next, { replace: true });
+    void navigate({ search: `?${next}`, hash }, { replace: true });
   };
 
   return (

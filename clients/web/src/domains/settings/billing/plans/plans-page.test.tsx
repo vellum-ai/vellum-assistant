@@ -430,7 +430,6 @@ describe("PlansPage — full catalog render", () => {
     const html = renderStatic(freeSubscription(), fullCatalog());
     expect(html).toContain("Custom Plan");
     expect(html).toContain("Configure");
-    expect(html).toContain("Billed monthly");
     expect(html).toContain("Read our Docs.");
   });
 });
@@ -643,9 +642,7 @@ afterEach(() => {
 describe("PlansPage on native Android", () => {
   test("redirects to billing without exposing plan actions", async () => {
     nativeAndroid = true;
-    const { getByTestId, queryByRole } = renderInteractive(
-      freeSubscription(),
-    );
+    const { getByTestId, queryByRole } = renderInteractive(freeSubscription());
 
     await waitFor(() =>
       expect(getByTestId("loc").textContent).toBe(
@@ -992,7 +989,9 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     // Capture only stashes for a hydrated list holding exactly one assistant.
     useResolvedAssistantsStore.setState({
       activeAssistantId: "a1",
-      assistants: [{ id: "a1", isLocal: false, isPlatformHosted: true }],
+      assistants: [
+        { id: "a1", isLocal: false, isPlatformHosted: true, isPaired: false },
+      ],
       assistantsHydrated: true,
     });
     client.setQueryData([...avatarQueryKey("a1"), true], {

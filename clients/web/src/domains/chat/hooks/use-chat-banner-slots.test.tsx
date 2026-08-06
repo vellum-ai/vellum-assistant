@@ -17,8 +17,8 @@ mock.module("@/components/nudges/discord-nudge-banner", () => ({
 mock.module("@/components/nudges/github-nudge-banner", () => ({
   GitHubNudgeBanner: () => null,
 }));
-mock.module("@/components/nudges/ios-app-banner", () => ({
-  IOSAppBanner: () => null,
+mock.module("@/components/nudges/native-app-banner", () => ({
+  NativeAppBanner: () => null,
 }));
 mock.module("@/components/nudges/macos-app-banner", () => ({
   MacOSAppBanner: () => null,
@@ -39,8 +39,10 @@ const noop = () => {};
 function makeNudges(overrides: Partial<Nudges> = {}): Nudges {
   return {
     isOnIOS: false,
+    isOnAndroid: false,
     isOnMacOS: true,
     isOnNudgePlatform: true,
+    nativeAppPlatform: null,
     nudge: {
       bannerShouldShow: false,
       handleDownload: noop,
@@ -71,7 +73,6 @@ function makeParams(nudges: Nudges): UseChatBannerSlotsParams {
     onCancelAllQueued: noop,
     onSteerMessage: noop,
     onEditQueueTail: noop,
-    queueSteering: false,
   };
 }
 

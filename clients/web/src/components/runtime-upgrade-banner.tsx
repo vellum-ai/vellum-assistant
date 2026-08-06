@@ -219,7 +219,7 @@ export function RuntimeUpgradeBanner({
         }
       } else {
         await localUpgrade.upgrade();
-        toast.success("Update complete — assistant is healthy.", {
+        toast.success("Update complete. Your assistant is healthy.", {
           id: "runtime-upgrade-complete",
           tone: "strong",
         });
@@ -351,7 +351,7 @@ function usePlatformRuntimeUpgrade({
           }
           targetVersionRef.current = null;
           setIsPollingUpgrade(false);
-          toast.success("Update complete — assistant is healthy.", {
+          toast.success("Update complete. Your assistant is healthy.", {
             id: "runtime-upgrade-complete",
             tone: "strong",
           });

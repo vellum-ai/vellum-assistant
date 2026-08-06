@@ -12,7 +12,7 @@ import {
   IMAGE_EXTENSIONS,
   readImageFile,
 } from "../shared/filesystem/image-read.js";
-import { sandboxPolicyWithHostFallback } from "../shared/filesystem/path-policy.js";
+import { sandboxReadPolicy } from "../shared/filesystem/path-policy.js";
 import {
   invalidToolInputResult,
   toToolInputSchema,
@@ -43,7 +43,7 @@ export const fileReadInputSchema = z.looseObject({
     .catch(undefined),
   limit: z
     .number()
-    .describe("Maximum number of lines to read")
+    .describe("Maximum number of lines to read (defaults to 2000)")
     .optional()
     .catch(undefined),
   activity: z
@@ -58,7 +58,7 @@ export const fileReadInputSchema = z.looseObject({
 export const fileReadTool = {
   name: "file_read",
   description:
-    "Read the contents of a file on your own machine. For image files (JPEG, PNG, GIF, WebP), returns the image for visual analysis. For audio files (MP3, WAV, OGG, FLAC, AAC, M4A), returns the audio for listening. Use host_file_read for files on your guardian's device instead.",
+    "Read the contents of a file on your own machine. Text reads return the first 2000 lines unless you pass `limit`; when a read stops short the result says so, and `offset` pages on from there. For image files (JPEG, PNG, GIF, WebP), returns the image for visual analysis. For audio files (MP3, WAV, OGG, FLAC, AAC, M4A), returns the audio for listening. Use host_file_read for files on your guardian's device instead.",
   category: "filesystem",
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Low,
@@ -80,10 +80,7 @@ export const fileReadTool = {
     // For image files, delegate to the shared image reader.
     const ext = extname(rawPath).toLowerCase();
     if (IMAGE_EXTENSIONS.has(ext)) {
-      const pathCheck = sandboxPolicyWithHostFallback(
-        rawPath,
-        context.workingDir,
-      );
+      const pathCheck = sandboxReadPolicy(rawPath, context.workingDir);
       if (!pathCheck.ok) {
         return {
           content: `Error: ${pathCheck.error}. To read files outside the workspace, use the host_file_read tool instead.`,
@@ -95,10 +92,7 @@ export const fileReadTool = {
 
     // For audio files, delegate to the shared audio reader.
     if (AUDIO_EXTENSIONS.has(ext)) {
-      const pathCheck = sandboxPolicyWithHostFallback(
-        rawPath,
-        context.workingDir,
-      );
+      const pathCheck = sandboxReadPolicy(rawPath, context.workingDir);
       if (!pathCheck.ok) {
         return {
           content: `Error: ${pathCheck.error}. To read files outside the workspace, use the host_file_read tool instead.`,
@@ -109,10 +103,10 @@ export const fileReadTool = {
     }
 
     const ops = new FileSystemOps((path, opts) =>
-      sandboxPolicyWithHostFallback(path, context.workingDir, opts),
+      sandboxReadPolicy(path, context.workingDir, opts),
     );
 
-    const result = ops.readFileSafe({ path: rawPath, offset, limit });
+    const result = await ops.readFileSafe({ path: rawPath, offset, limit });
 
     if (!result.ok) {
       const { error } = result;

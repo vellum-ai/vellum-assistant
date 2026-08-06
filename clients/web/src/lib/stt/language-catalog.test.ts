@@ -12,10 +12,10 @@ import {
 } from "./language-catalog";
 
 describe("STT_LANGUAGES", () => {
-  test("has exactly 50 entries: 2 sentinel rows + 48 monolinguals", () => {
-    // The verified nova-3 monolingual roster is 49 base codes; English rides
-    // the default-sentinel row, so 48 monolingual entries remain.
-    expect(STT_LANGUAGES).toHaveLength(50);
+  test("has exactly 51 entries: 2 sentinel rows + 49 monolinguals", () => {
+    // The verified nova-3 monolingual roster is 50 base codes; English rides
+    // the default-sentinel row, so 49 monolingual entries remain.
+    expect(STT_LANGUAGES).toHaveLength(51);
   });
 
   test("monolingual entries are ordered A-Z by English label", () => {
@@ -76,21 +76,23 @@ describe("STT_LANGUAGES", () => {
 });
 
 describe("sttLanguageOptionsFor", () => {
-  test("returns the catalog unchanged for a catalog code", () => {
-    expect(sttLanguageOptionsFor("es", "deepgram")).toBe(STT_LANGUAGES);
+  test("keeps every monolingual entry for a catalog code", () => {
+    // The sentinel rows are reframed per provider, but the monolingual body
+    // of the catalog passes through untouched.
+    const codes = sttLanguageOptionsFor("es", "deepgram").map((o) => o.code);
+    for (const option of STT_LANGUAGES) {
+      if (option.code === "" || option.code === STT_MULTI_CODE) {
+        continue;
+      }
+      expect(codes).toContain(option.code);
+    }
   });
 
-  test("returns the catalog unchanged for the default code", () => {
-    expect(sttLanguageOptionsFor("", "deepgram")).toBe(STT_LANGUAGES);
-  });
-
-  test("includes Multilingual and the extended roster for deepgram and vellum", () => {
+  test("includes the extended roster for deepgram and vellum", () => {
     // Both run Deepgram nova-3 (vellum relays with the model pinned
-    // server-side): the only place "multi" code-switching works, and the
-    // roster the extended entries were verified against.
+    // server-side), the roster the extended entries were verified against.
     for (const providerId of ["deepgram", "vellum"]) {
       const codes = sttLanguageOptionsFor("", providerId).map((o) => o.code);
-      expect(codes).toContain(STT_MULTI_CODE);
       expect(codes).toContain("ta");
       expect(codes).toContain("ko");
       expect(codes).toContain("zh");
@@ -140,17 +142,32 @@ describe("sttLanguageOptionsFor", () => {
     expect(options[2]?.code).toBe("nl");
   });
 
-  test("deepgram keeps the English-framed default row and Multilingual on top", () => {
-    // The auto-detect reframe is xai-scoped: deepgram and the managed relay
-    // decode unset audio as English, so their sentinel rows must not change.
-    const options = sttLanguageOptionsFor("", "deepgram");
-    expect(options[0]).toEqual({
-      code: "",
-      label: "English (default)",
-      description: "Speech recognition defaults to English.",
-    });
+  test("offers Multilingual and English as separate rows, with no sentinel", () => {
+    // Config always carries a real language now, so there is no "default"
+    // state for a sentinel row to stand in for, and Multilingual is a thing
+    // you pick rather than a thing you fall back to.
+    for (const providerId of ["deepgram", "vellum"]) {
+      const options = sttLanguageOptionsFor("multi", providerId);
+      const codes = options.map((o) => o.code);
+      expect(codes).not.toContain("");
+      expect(codes).toContain(STT_MULTI_CODE);
+      expect(codes).toContain("en");
+    }
+  });
+
+  test("leads with English and Multilingual ahead of the monolinguals", () => {
+    const options = sttLanguageOptionsFor("multi", "deepgram");
+    expect(options[0]).toEqual({ code: "en", label: "English" });
     expect(options[1]?.code).toBe(STT_MULTI_CODE);
     expect(options[1]?.label).toBe("Multilingual");
+    // Arabic leads the A-Z monolinguals on the extended roster.
+    expect(options[2]?.code).toBe("ar");
+  });
+
+  test("Multilingual keeps the roster in its description", () => {
+    const options = sttLanguageOptionsFor("multi", "deepgram");
+    const multi = options.find((o) => o.code === STT_MULTI_CODE);
+    expect(multi?.description).toContain("mid-sentence");
   });
 
   test("a persisted multi under xai still renders via the custom fallback", () => {
@@ -189,44 +206,45 @@ describe("sttLanguageOptionsFor", () => {
 });
 
 describe("sttLanguageGroupsFor", () => {
-  test("features the default row and Multilingual for a fresh deepgram config", () => {
-    const groups = sttLanguageGroupsFor("", "deepgram");
-    expect(groups.featured.map((o) => o.code)).toEqual(["", STT_MULTI_CODE]);
-    // Everything else lands in the A-Z remainder, nothing lost.
+  test("features Multilingual and English for a fresh deepgram config", () => {
+    const groups = sttLanguageGroupsFor("multi", "deepgram", null);
+    expect(groups.featured.map((o) => o.code)).toEqual([STT_MULTI_CODE, "en"]);
+    // Everything else lands in the A-Z remainder, nothing lost: the catalog
+    // trades its sentinel row for the English pin, so the total is unchanged.
     expect(groups.rest).toHaveLength(STT_LANGUAGES.length - 2);
     const labels = groups.rest.map((o) => o.label);
     expect(labels).toEqual([...labels].sort((a, b) => a.localeCompare(b)));
   });
 
   test("puts the current value first and removes it from the remainder", () => {
-    const groups = sttLanguageGroupsFor("ta", "deepgram");
+    const groups = sttLanguageGroupsFor("ta", "deepgram", null);
     expect(groups.featured.map((o) => o.code)).toEqual([
       "ta",
-      "",
       STT_MULTI_CODE,
+      "en",
     ]);
     expect(groups.rest.some((o) => o.code === "ta")).toBe(false);
   });
 
   test("features the locale suggestion after the pinned rows", () => {
-    const groups = sttLanguageGroupsFor("", "deepgram", "ta");
+    const groups = sttLanguageGroupsFor("multi", "deepgram", "ta");
     expect(groups.featured.map((o) => o.code)).toEqual([
-      "",
       STT_MULTI_CODE,
+      "en",
       "ta",
     ]);
   });
 
   test("deduplicates a suggestion that is already featured", () => {
-    const groups = sttLanguageGroupsFor("", "deepgram", STT_MULTI_CODE);
-    expect(groups.featured.map((o) => o.code)).toEqual(["", STT_MULTI_CODE]);
+    const groups = sttLanguageGroupsFor("multi", "deepgram", "en");
+    expect(groups.featured.map((o) => o.code)).toEqual([STT_MULTI_CODE, "en"]);
   });
 
   test("skips a suggested code the provider does not offer", () => {
     // xai never offers the extended roster, so a "ta" suggestion cannot be
     // invented for it.
     const groups = sttLanguageGroupsFor("", "xai", "ta");
-    expect(groups.featured.map((o) => o.code)).toEqual([""]);
+    expect(groups.featured.map((o) => o.code)).toEqual(["", "en"]);
     expect(groups.rest.some((o) => o.code === "ta")).toBe(false);
   });
 
@@ -239,7 +257,7 @@ describe("sttLanguageGroupsFor", () => {
   });
 
   test("featured plus rest is exactly the provider option set", () => {
-    const groups = sttLanguageGroupsFor("ta", "deepgram", STT_MULTI_CODE);
+    const groups = sttLanguageGroupsFor("ta", "deepgram", "en");
     const together = [...groups.featured, ...groups.rest]
       .map((o) => o.code)
       .sort();
@@ -297,18 +315,22 @@ describe("sttLanguageLabelForCode", () => {
     expect(sttLanguageLabelForCode("ta", "deepgram")).toBe("Tamil (தமிழ்)");
   });
 
-  test("labels the default code", () => {
-    expect(sttLanguageLabelForCode("", "deepgram")).toBe("English (default)");
-  });
-
-  test("labels multi under a multi-capable provider", () => {
+  test("labels multi as Multilingual on the providers that run it", () => {
+    expect(sttLanguageLabelForCode(STT_MULTI_CODE, "deepgram")).toBe(
+      "Multilingual",
+    );
     expect(sttLanguageLabelForCode(STT_MULTI_CODE, "vellum")).toBe(
       "Multilingual",
     );
   });
 
-  test("labels multi under xai via the custom fallback", () => {
-    // The xai catalog omits Multilingual, so the synthetic entry carries it.
+  test("labels en under deepgram as the English pin", () => {
+    // A persisted "en" is now a deliberate pin rather than the default, so
+    // the trigger row has to say English, not "Multilingual (default)".
+    expect(sttLanguageLabelForCode("en", "deepgram")).toBe("English");
+  });
+
+  test("labels multi via the custom fallback under xai, which never offers it", () => {
     expect(sttLanguageLabelForCode(STT_MULTI_CODE, "xai")).toBe(
       "multi (custom)",
     );
@@ -364,20 +386,27 @@ describe("suggestedLanguageForLocale", () => {
     expect(suggestedLanguageForLocale("cy-GB", "deepgram")).toBeNull();
   });
 
-  test("returns multi for a code-switching-roster locale under a multi-capable provider", () => {
-    // A multi-roster-language speaker talking to an English-speaking
-    // assistant is exactly the code-switching case.
-    expect(suggestedLanguageForLocale("hi-IN", "deepgram")).toBe(
-      STT_MULTI_CODE,
-    );
-    expect(suggestedLanguageForLocale("hi-IN", "vellum")).toBe(STT_MULTI_CODE);
+  test("returns null for a code-switching-roster locale when already on multi", () => {
+    // A Hindi speaker on code-switching is already understood, so there is
+    // nothing to suggest and the first-run row stays hidden.
+    expect(
+      suggestedLanguageForLocale("hi-IN", "deepgram", STT_MULTI_CODE),
+    ).toBeNull();
+    expect(
+      suggestedLanguageForLocale("hi-IN", "vellum", STT_MULTI_CODE),
+    ).toBeNull();
   });
 
-  test("falls back to the monolingual pin where the provider lacks multi", () => {
-    // xai's option set omits Multilingual, but "hi" is in every
-    // language-selectable provider's set, so the suggestion degrades to the
-    // pin instead of vanishing.
-    expect(suggestedLanguageForLocale("hi-IN", "xai")).toBe("hi");
+  test("returns null under xai while unset, which is native detection", () => {
+    // xai's unset state detects the language from the audio, so this speaker
+    // is already understood and there is nothing to propose.
+    expect(suggestedLanguageForLocale("hi-IN", "xai")).toBeNull();
+  });
+
+  test("returns the monolingual pin when xai has English pinned", () => {
+    // A real pin overrides native detection, so the row comes back for the
+    // one thing xai's option set can offer.
+    expect(suggestedLanguageForLocale("hi-IN", "xai", "en")).toBe("hi");
   });
 
   test("returns the monolingual pin for an extended-roster locale where nova-3 runs", () => {
@@ -396,12 +425,42 @@ describe("suggestedLanguageForLocale", () => {
   });
 
   test("normalizes case", () => {
-    expect(suggestedLanguageForLocale("HI", "deepgram")).toBe(STT_MULTI_CODE);
+    expect(suggestedLanguageForLocale("TA", "deepgram")).toBe("ta");
   });
 
   test("takes the primary subtag of a regional locale", () => {
-    expect(suggestedLanguageForLocale("pt-BR", "deepgram")).toBe(
+    // zh is extended-roster, so a regional Chinese locale still suggests.
+    expect(suggestedLanguageForLocale("zh-TW", "deepgram")).toBe("zh");
+  });
+});
+
+describe("suggestions follow the current selection, not just the default", () => {
+  // The provider default only settles whether a speaker is covered when the
+  // user is actually on it. Someone who pinned a language is transcribed as
+  // that language regardless of what unset would have meant.
+
+  test("an explicit English pin still gets a suggestion on a Hindi locale", () => {
+    // The case the row exists for: a persisted "en" (the old picker's default
+    // row wrote exactly this) means the session keeps hearing English.
+    expect(suggestedLanguageForLocale("hi-IN", "deepgram", "en")).toBe(
       STT_MULTI_CODE,
     );
+  });
+
+  test("a pin that does not cover the locale points at code-switching", () => {
+    expect(suggestedLanguageForLocale("hi-IN", "deepgram", "es")).toBe(
+      STT_MULTI_CODE,
+    );
+  });
+
+  test("an explicit multi pin suggests nothing", () => {
+    expect(
+      suggestedLanguageForLocale("hi-IN", "deepgram", STT_MULTI_CODE),
+    ).toBeNull();
+  });
+
+  test("a pin matching the locale exactly suggests nothing", () => {
+    expect(suggestedLanguageForLocale("ta-IN", "deepgram", "ta")).toBeNull();
+    expect(suggestedLanguageForLocale("hi-IN", "deepgram", "hi")).toBeNull();
   });
 });

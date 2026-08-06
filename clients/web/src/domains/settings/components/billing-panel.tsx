@@ -16,7 +16,10 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { StatSquare } from "@vellumai/design-library/components/stat-square";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
-import { DailyCreditLimitCard } from "./daily-credit-limit-card";
+import {
+  DAILY_CREDIT_LIMIT_ANCHOR_ID,
+  DailyCreditLimitCard,
+} from "./daily-credit-limit-card";
 import { LowBalanceAlertCard } from "./low-balance-alert-card";
 import { ReferralModal } from "./referral-modal";
 
@@ -219,7 +222,10 @@ export function BillingPanel() {
         <div className="mt-6 border-t border-[var(--border-base)] pt-6">
           <AutoTopUpCard />
         </div>
-        <div className="mt-6 border-t border-[var(--border-base)] pt-6">
+        <div
+          id={DAILY_CREDIT_LIMIT_ANCHOR_ID}
+          className="mt-6 scroll-mt-4 border-t border-[var(--border-base)] pt-6"
+        >
           <DailyCreditLimitCard />
         </div>
       </Card>

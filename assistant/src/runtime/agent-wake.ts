@@ -1411,10 +1411,14 @@ export async function wakeAgentForOpportunity(
       // user turn or a later background read never inherits the wake's stamps.
       const priorCallSite = conversation.currentCallSite;
       const priorTurnOverrideProfile = conversation.currentTurnOverrideProfile;
+      const priorTurnCronRunId = conversation.currentTurnCronRunId;
       const priorHasNoClient = conversation.hasNoClient;
       const priorTurnTrust = conversation.currentTurnTrustContext;
       conversation.currentCallSite = callSite;
       conversation.currentTurnOverrideProfile = overrideProfile;
+      // Same reason as the stamps above: a wake triggered by a schedule firing
+      // delegates work to subagents whose usage must attribute to that firing.
+      conversation.currentTurnCronRunId = opts.cronRunId ?? null;
       if (opts.clientless) {
         conversation.hasNoClient = true;
       }
@@ -1503,6 +1507,7 @@ export async function wakeAgentForOpportunity(
         // at the start of the next normal turn regardless.)
         conversation.currentCallSite = priorCallSite;
         conversation.currentTurnOverrideProfile = priorTurnOverrideProfile;
+        conversation.currentTurnCronRunId = priorTurnCronRunId;
         conversation.hasNoClient = priorHasNoClient;
         conversation.currentTurnTrustContext = priorTurnTrust;
       }

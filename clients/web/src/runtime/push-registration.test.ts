@@ -10,6 +10,9 @@ import { subscribe } from "@/lib/event-bus";
 
 let isNative = true;
 let platform = "ios";
+let androidPushRegistrationAvailable = true;
+const androidRegisterMock = mock(async () => {});
+const androidUnregisterMock = mock(async () => {});
 
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => isNative,
@@ -18,6 +21,17 @@ mock.module("@capacitor/core", () => ({
   Capacitor: {
     isNativePlatform: () => isNative,
     getPlatform: () => platform,
+    isPluginAvailable: (name: string) =>
+      name === "AndroidPushRegistration" && androidPushRegistrationAvailable,
+  },
+  registerPlugin: (name: string) => {
+    if (name !== "AndroidPushRegistration") {
+      throw new Error(`Unexpected plugin: ${name}`);
+    }
+    return {
+      register: androidRegisterMock,
+      unregister: androidUnregisterMock,
+    };
   },
 }));
 
@@ -193,6 +207,7 @@ afterEach(() => {
 beforeEach(() => {
   isNative = true;
   platform = "ios";
+  androidPushRegistrationAvailable = true;
   bundleId = "ai.vocify-inc.vellum-assistant-ios";
   permissionState = "granted";
   resolvedApnsEnvironment = "production";
@@ -210,6 +225,8 @@ beforeEach(() => {
   requestPermissionsMock.mockClear();
   registerMock.mockClear();
   unregisterMock.mockClear();
+  androidRegisterMock.mockClear();
+  androidUnregisterMock.mockClear();
   ensureAndroidAlertsChannelMock.mockClear();
   callOrder.length = 0;
   getInfoMock.mockClear();
@@ -270,7 +287,7 @@ describe("registerForRemotePush", () => {
     bundleId = "ai.vellum.assistant.dev";
     const handler = mock(() => {});
     setForegroundPushHandler(handler);
-    registerMock.mockImplementationOnce(async () => {
+    androidRegisterMock.mockImplementationOnce(async () => {
       callOrder.push("register");
     });
     await registerForRemotePush("assistant-1");
@@ -278,6 +295,7 @@ describe("registerForRemotePush", () => {
     await flushMicrotasks();
 
     expect(callOrder).toEqual(["channel", "register"]);
+    expect(registerMock).not.toHaveBeenCalled();
     expect(lastUpsertArg?.body).toEqual({
       token: "fcm-token-abc",
       platform: "android",
@@ -286,6 +304,31 @@ describe("registerForRemotePush", () => {
     expect(resolveSignedApnsEnvironmentMock).not.toHaveBeenCalled();
     receivedHandler?.({ id: "message-1", data: { delivery_id: "delivery-1" } });
     expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  test("installs listeners but skips registration on Android shells without the guarded plugin", async () => {
+    platform = "android";
+    androidPushRegistrationAvailable = false;
+
+    await registerForRemotePush("assistant-1");
+
+    expect(addListenerMock).toHaveBeenCalledTimes(4);
+    expect(requestPermissionsMock).not.toHaveBeenCalled();
+    expect(ensureAndroidAlertsChannelMock).not.toHaveBeenCalled();
+    expect(registerMock).not.toHaveBeenCalled();
+    expect(androidRegisterMock).not.toHaveBeenCalled();
+  });
+
+  test("reports a guarded Android registration failure without throwing", async () => {
+    platform = "android";
+    androidRegisterMock.mockImplementationOnce(async () => {
+      throw new Error("Firebase is unavailable");
+    });
+
+    await registerForRemotePush("assistant-1");
+
+    expect(captureErrorMock).toHaveBeenCalledTimes(1);
+    expect(registerMock).not.toHaveBeenCalled();
   });
 
   test("does not register when notification permission is denied", async () => {
@@ -500,7 +543,18 @@ describe("unregisterFromRemotePush", () => {
     expect(lastDeleteArg?.path.token).toBe("fcm-old");
     await unregisterFromRemotePush();
     expect(lastDeleteArg?.path.token).toBe("fcm-new");
-    expect(unregisterMock).toHaveBeenCalledTimes(1);
+    expect(androidUnregisterMock).toHaveBeenCalledTimes(1);
+    expect(unregisterMock).not.toHaveBeenCalled();
+  });
+
+  test("skips FCM unregister on Android shells without the guarded plugin", async () => {
+    platform = "android";
+    androidPushRegistrationAvailable = false;
+
+    await unregisterFromRemotePush();
+
+    expect(androidUnregisterMock).not.toHaveBeenCalled();
+    expect(unregisterMock).not.toHaveBeenCalled();
   });
 
   test("falls back to the persisted token after a process reload (empty module memory)", async () => {

@@ -1,25 +1,24 @@
 @import "tailwindcss";
 @import "@vellumai/design-library/tokens.css";
 
-/* Capacitor iOS shell variant. Keys off the data-native-platform marker
+/* Capacitor mobile shell variant. Keys off the data-native-platform marker
  * set by initNativePlatformAttributes() at boot. Deliberately :is(), not
  * :where(): the selector must carry :root[attr] specificity (0,3,0 with
- * the utility class) so native-ios: utilities outrank the design
+ * the utility class) so native-mobile: utilities outrank the design
  * library's touch-mobile: pill classes, which are single-class rules
  * inside a media query (0,1,0) and would otherwise win or lose on
  * emission order. */
-@custom-variant native-ios (&:is(:root[data-native-platform="ios"] *));
+@custom-variant native-mobile (&:is(:root[data-native-platform="ios"] *, :root[data-native-platform="android"] *));
 
 /* Base element styles — theme-aware defaults inherited by all descendants. */
 body {
   color: var(--content-default);
 }
 
-/* Capacitor iOS shell: the app shell shrinks ahead of the keyboard plugin's
- * deferred web view resize, briefly exposing the canvas, which unpainted falls
- * through (isOpaque = false) to the near-white native SurfaceOverlay backdrop.
- * Gated because Electron's transparent floating windows need an unpainted canvas. */
-:root[data-native-platform="ios"] body {
+/* Capacitor shells briefly expose the document canvas while their web views
+ * resize for the keyboard. Paint it to prevent the native backdrop flashing
+ * through. Electron's transparent floating windows remain unpainted. */
+:root:is([data-native-platform="ios"], [data-native-platform="android"]) body {
   background: var(--surface-base);
 }
 
@@ -116,6 +115,89 @@ body {
   height: 100%;
 }
 
+/* Notifications bell popover swapping between the list and one notification's
+   detail. The detail arrives from the right and the list fades back in behind
+   it, so the two views read as one container moving laterally. `backwards`
+   for the same reason as `.home-detail-drawer` above: nothing here should be
+   left holding a transform once the entrance ends. */
+@keyframes notifications-panel-detail-in {
+  0% { transform: translateX(8px); opacity: 0; }
+  100% { transform: none; opacity: 1; }
+}
+
+.notifications-panel-detail-enter {
+  animation: notifications-panel-detail-in var(--anim-fast) var(--anim-ease-out) backwards;
+}
+
+.notifications-panel-list-enter {
+  animation: fadeIn var(--anim-fast) var(--anim-ease-out) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notifications-panel-detail-enter,
+  .notifications-panel-list-enter {
+    animation: none;
+  }
+}
+
+/* Page transitions — the two snapshots the View Transitions API creates for a
+   router navigation, driven by `lib/page-transition.ts`, which writes the
+   direction attribute and asks React Router for the transition.
+
+   Both snapshots are live at once, so the pages travel together: the arriving
+   one crosses the full viewport while the departing one drifts a quarter of
+   it, the parallax that reads as one page sitting behind another. `z-index`
+   gives the arriving page the top layer on a push and the departing page the
+   top layer on a pop, matching which one a finger would be dragging.
+
+   Duration and easing mirror the edge-swipe gestures
+   (`hooks/edge-swipe-motion.ts`) so a tapped navigation and a swiped one land
+   on the same motion. Keep the two in step.
+
+   Inert wherever nothing requests a view transition: the pseudo-elements are
+   only created for a navigation that asked for one. */
+:root {
+  --page-transition-duration: 200ms;
+}
+
+/* Drop the default cross-fade. These are opaque pages sliding past each
+   other, not two images blending through one another. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+html[data-page-transition="push"]::view-transition-old(root) {
+  animation: page-depart-leading var(--page-transition-duration) ease-out both;
+}
+html[data-page-transition="push"]::view-transition-new(root) {
+  z-index: 1;
+  animation: page-arrive-trailing var(--page-transition-duration) ease-out both;
+}
+html[data-page-transition="pop"]::view-transition-old(root) {
+  z-index: 1;
+  animation: page-depart-trailing var(--page-transition-duration) ease-out both;
+}
+html[data-page-transition="pop"]::view-transition-new(root) {
+  animation: page-arrive-leading var(--page-transition-duration) ease-out both;
+}
+
+@keyframes page-arrive-trailing { from { transform: translateX(100%); } }
+@keyframes page-depart-leading { to { transform: translateX(-25%); } }
+@keyframes page-arrive-leading { from { transform: translateX(-25%); } }
+@keyframes page-depart-trailing { to { transform: translateX(100%); } }
+
+/* Snap to the destination. The transition still runs, so React Router's
+   snapshot still covers the router's own latency; only the travel is dropped. */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(root),
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
+}
+
 @keyframes typing-dot-pulse {
   0%, 100% { opacity: 0.45; transform: scale(0.6); }
   50% { opacity: 1; transform: scale(1); }
@@ -170,46 +252,6 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .voice-caret-blink {
     animation: none;
-  }
-}
-
-/* Chat-loading skeleton shimmer — a soft gradient band sweeping left→right
- * over the placeholder bars while conversation history loads. The highlight
- * mixes the surface toward `--foreground` so it reads in every theme:
- * lighter band in dark/velvet, darker in light. */
-@keyframes skeleton-shimmer {
-  from { background-position: 150% 0; }
-  to { background-position: -50% 0; }
-}
-
-.skeleton-shimmer {
-  background-color: var(--surface-active);
-  /* Fallback band for engines without color-mix() (WKWebView before
-   * iOS 16.2, per the iOS 15.0 deployment target): a neutral translucent
-   * highlight over the surface color — no token expresses this without
-   * color-mix, hence the raw rgba. Engines that parse color-mix() take the
-   * declaration below instead. */
-  background-image: linear-gradient(
-    90deg,
-    transparent 35%,
-    rgba(128, 128, 128, 0.12) 50%,
-    transparent 65%
-  );
-  background-image: linear-gradient(
-    90deg,
-    var(--surface-active) 35%,
-    color-mix(in srgb, var(--surface-active), var(--foreground) 12%) 50%,
-    var(--surface-active) 65%
-  );
-  background-size: 200% 100%;
-  background-repeat: no-repeat;
-  animation: skeleton-shimmer 1.6s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .skeleton-shimmer {
-    animation: none;
-    background-image: none;
   }
 }
 
@@ -304,8 +346,8 @@ body {
   width: calc(var(--provision-avatar-size) * 0.8);
   margin-inline: auto;
   /* Fallback first for engines without color-mix(), see the skeleton-shimmer
-   * note above. The takeover is always dark-themed, so a translucent white
-   * stands in for the emphasised mix. */
+   * note in the design library's tokens.css. The takeover is always
+   * dark-themed, so a translucent white stands in for the emphasised mix. */
   background: radial-gradient(
     closest-side,
     rgba(255, 255, 255, 0.12),
@@ -669,23 +711,43 @@ body {
   background-clip: padding-box;
 }
 
-/* Capacitor iOS shell: hide scrollbars entirely. Styling
- * ::-webkit-scrollbar above replaces WKWebView's auto-hiding overlay
- * indicator with an always-visible bar, which reads as broken on iOS.
- * Scrolling and momentum are unaffected. The
- * :root[data-native-platform="ios"] prefix covers the document scrollbar,
- * every inner scroller, and the ::before / ::after pseudo-elements, mirroring
- * the :root * selector list above, and outranks both it and the [data-theme]
- * scrollbar rules on specificity. */
-:root[data-native-platform="ios"],
-:root[data-native-platform="ios"] *,
-:root[data-native-platform="ios"] *::before,
-:root[data-native-platform="ios"] *::after {
+/* Sidebar menu scrollbar: hidden permanently, not just at rest. A native
+ * scrollbar can't both take zero layout space at every moment (hover
+ * included) and be visible on hover: toggling its width to reveal it
+ * shifts row content on hover, and reserving its width at a constant
+ * non-zero size to avoid that shift instead leaves a permanent one-sided
+ * inset. Neither keeps row width truly constant and symmetric, so there's
+ * no visible thumb at all here: trackpad/wheel/touch scrolling is
+ * unaffected. Scoped to the menu's own scroll container rather than
+ * changed globally. */
+[data-slot="side-menu-body"] {
+  scrollbar-width: none;
+}
+[data-slot="side-menu-body"]::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* Capacitor mobile shells hide scrollbars entirely. The global scrollbar
+ * styling above replaces native auto-hiding overlay indicators with visible
+ * browser chrome. Scrolling and momentum are unaffected. The native-platform
+ * prefix covers the document scrollbar, every inner scroller, and pseudo
+ * elements while outranking the global and theme scrollbar rules. */
+:root:is([data-native-platform="ios"], [data-native-platform="android"]),
+:root:is([data-native-platform="ios"], [data-native-platform="android"]) *,
+:root:is([data-native-platform="ios"], [data-native-platform="android"])
+  *::before,
+:root:is([data-native-platform="ios"], [data-native-platform="android"])
+  *::after {
   scrollbar-width: none;
 }
 
-:root[data-native-platform="ios"]::-webkit-scrollbar,
-:root[data-native-platform="ios"] ::-webkit-scrollbar {
+:root:is(
+    [data-native-platform="ios"],
+    [data-native-platform="android"]
+  )::-webkit-scrollbar,
+:root:is([data-native-platform="ios"], [data-native-platform="android"])
+  ::-webkit-scrollbar {
   display: none;
   width: 0;
   height: 0;

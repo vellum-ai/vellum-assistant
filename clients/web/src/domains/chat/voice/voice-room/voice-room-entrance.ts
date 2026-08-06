@@ -50,6 +50,47 @@ const SHEET_SLIDE_SECONDS = 0.18;
 const SHELL_FADE_SECONDS = 0.4;
 
 /**
+ * How far the sheet must be pulled down, in pixels, before letting go minimizes
+ * the room rather than springing it back.
+ *
+ * Roughly a thumb's travel: far enough that the stray vertical component of a
+ * reach across the control row does not dismiss a live call, short enough that
+ * the gesture completes without a deliberate haul. A fast flick clears the bar
+ * on speed alone (see {@link SHEET_MINIMIZE_VELOCITY}), so this only governs
+ * the slow, deliberate drag.
+ */
+const SHEET_MINIMIZE_DISTANCE_PX = 88;
+
+/**
+ * Downward speed, in px/s, that minimizes the sheet however short the drag was.
+ * A flick is a complete gesture on its own; requiring it to also cover
+ * {@link SHEET_MINIMIZE_DISTANCE_PX} would make the sheet spring back from the
+ * fastest, most confident version of the gesture.
+ */
+const SHEET_MINIMIZE_VELOCITY = 520;
+
+/**
+ * Whether a finished drag on the mobile sheet should minimize the room.
+ *
+ * Distance OR speed, both downward only: a drag that ends above where it
+ * started is someone pushing the sheet against its ceiling, and an upward flick
+ * must never resolve as a dismissal. Nothing here can end a call — the sheet
+ * gesture is a minimize, and the session outlives it.
+ *
+ * Split out of the component as a pure function so the thresholds can be tested
+ * without a synthetic pointer sequence: Motion resolves these from a gesture
+ * jsdom has no way to produce.
+ */
+export function sheetDragMinimizes(
+  offsetY: number,
+  velocityY: number,
+): boolean {
+  return (
+    offsetY > SHEET_MINIMIZE_DISTANCE_PX || velocityY > SHEET_MINIMIZE_VELOCITY
+  );
+}
+
+/**
  * Everything the room needs to know about its own motion, resolved once from
  * the placement variant.
  */

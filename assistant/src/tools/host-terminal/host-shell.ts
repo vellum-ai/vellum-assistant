@@ -121,7 +121,7 @@ export const hostShellInputSchema = z.looseObject({
     z
       .string()
       .describe(
-        "Optional absolute host working directory (defaults to user home)",
+        "Optional absolute path on the host's filesystem, which is separate from your workspace (defaults to the host user's home).",
       ),
   ),
   timeout_seconds: z
@@ -150,7 +150,7 @@ export const hostShellInputSchema = z.looseObject({
 export const hostShellTool = {
   name: "host_bash",
   description:
-    "LAST RESORT — Execute a shell command directly on the host machine. You MUST strongly prefer the regular `bash` tool for all commands. Only use `host_bash` when you are absolutely certain the command MUST run on the host machine and CANNOT run in the workspace (e.g., managing host-level system services, accessing host-only peripherals, or interacting with host paths outside the workspace). If in doubt, use `bash` instead. Approval-gated: each invocation must be explicitly approved. Do not use for commands that require injected credentials or secrets.",
+    "LAST RESORT — Execute a shell command directly on the host machine. You MUST strongly prefer the regular `bash` tool for all commands. Only use `host_bash` when you are absolutely certain the command MUST run on the host machine and CANNOT run in the workspace (e.g., managing host-level system services, accessing host-only peripherals, or interacting with host paths outside the workspace). If in doubt, use `bash` instead. Paths resolve on the host's filesystem, which is separate from your workspace; write output somewhere on the host and read it back with `host_file_read`. Approval-gated: each invocation must be explicitly approved. Do not use for commands that require injected credentials or secrets.",
   category: "host-terminal",
   executionTarget: "host",
   defaultRiskLevel: RiskLevel.Medium,

@@ -1518,10 +1518,7 @@ describe("ensurePromptFiles", () => {
     writeFileSync(join(TEST_DIR, "SOUL.md"), "My soul");
     writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# Stale bootstrap");
 
-    // Create a conversations directory with at least one entry
-    const convDir = join(TEST_DIR, "conversations");
-    mkdirSync(convDir, { recursive: true });
-    writeFileSync(join(convDir, "conv-001.json"), "{}");
+    writeConversationDir("conv-001", "standard");
 
     ensurePromptFiles();
 
@@ -1533,13 +1530,91 @@ describe("ensurePromptFiles", () => {
     // will be re-seeded from templates) but still carries prior
     // conversations.  Existing conversation history signals a non-fresh
     // install, so onboarding must not re-trigger.
-    const convDir = join(TEST_DIR, "conversations");
-    mkdirSync(convDir, { recursive: true });
-    writeFileSync(join(convDir, "conv-001.json"), "{}");
+    writeConversationDir("conv-001", "standard");
 
     ensurePromptFiles();
 
     expect(existsSync(join(TEST_DIR, "BOOTSTRAP.md"))).toBe(false);
+  });
+
+  /** Project a conversation onto disk the way `initConversationDir` does. */
+  function writeConversationDir(id: string, type: string): void {
+    const dir = join(
+      TEST_DIR,
+      "conversations",
+      `2026-01-01T00-00-00.000Z_${id}`,
+    );
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "meta.json"), JSON.stringify({ id, type }));
+  }
+
+  test("keeps BOOTSTRAP.md when the only conversations are background side threads", () => {
+    // Onboarding mints throwaway background threads (research, personality and
+    // identity rewrites) before the user's first visible chat, and each gets a
+    // disk-view directory.  A daemon restart in that window must not read them
+    // as evidence that onboarding ended.
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "My identity");
+    writeFileSync(join(TEST_DIR, "SOUL.md"), "My soul");
+    writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# Bootstrap");
+    writeConversationDir("bg-001", "background");
+    writeConversationDir("bg-002", "background");
+
+    ensurePromptFiles();
+
+    expect(existsSync(join(TEST_DIR, "BOOTSTRAP.md"))).toBe(true);
+  });
+
+  test("keeps BOOTSTRAP.md when a stray file sits beside background side threads", () => {
+    // The disk view is browsable, so a file explorer can drop `.DS_Store` into
+    // the conversations directory.  It is not a conversation and must not be
+    // classified as one.
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "My identity");
+    writeFileSync(join(TEST_DIR, "SOUL.md"), "My soul");
+    writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# Bootstrap");
+    writeConversationDir("bg-001", "background");
+    writeFileSync(join(TEST_DIR, "conversations", ".DS_Store"), "junk");
+
+    ensurePromptFiles();
+
+    expect(existsSync(join(TEST_DIR, "BOOTSTRAP.md"))).toBe(true);
+  });
+
+  test("auto-deletes stale BOOTSTRAP.md when a conversation directory has no meta.json", () => {
+    // A directory the daemon cannot classify counts as standard: it is far
+    // likelier to be legacy history than a side thread, and over-counting only
+    // suppresses an onboarding re-run.
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "My identity");
+    writeFileSync(join(TEST_DIR, "SOUL.md"), "My soul");
+    writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# Stale bootstrap");
+    mkdirSync(join(TEST_DIR, "conversations", "2026-01-01T00-00-00.000Z_old"), {
+      recursive: true,
+    });
+
+    ensurePromptFiles();
+
+    expect(existsSync(join(TEST_DIR, "BOOTSTRAP.md"))).toBe(false);
+  });
+
+  test("auto-deletes stale BOOTSTRAP.md when a standard conversation sits alongside background ones", () => {
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "My identity");
+    writeFileSync(join(TEST_DIR, "SOUL.md"), "My soul");
+    writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# Stale bootstrap");
+    writeConversationDir("bg-001", "background");
+    writeConversationDir("std-001", "standard");
+
+    ensurePromptFiles();
+
+    expect(existsSync(join(TEST_DIR, "BOOTSTRAP.md"))).toBe(false);
+  });
+
+  test("seeds BOOTSTRAP.md on a fresh workspace whose only conversations are background", () => {
+    // Background side threads must not make a fresh workspace look like an
+    // upgraded one, or onboarding never gets its bootstrap file at all.
+    writeConversationDir("bg-001", "background");
+
+    ensurePromptFiles();
+
+    expect(existsSync(join(TEST_DIR, "BOOTSTRAP.md"))).toBe(true);
   });
 
   test("keeps BOOTSTRAP.md when no conversations exist yet", () => {

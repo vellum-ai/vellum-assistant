@@ -1,6 +1,9 @@
 import { Menu, Tray, app, nativeTheme, shell } from "electron";
 
-import type { LockfileAssistant } from "@vellumai/local-mode/contract";
+import {
+  pairedHostLabel,
+  type LockfileAssistant,
+} from "@vellumai/local-mode/contract";
 
 import {
   MENU_ICON_CIRCLECHECK,
@@ -95,6 +98,19 @@ const assistantDisplayTitle = (assistant: LockfileAssistant): string => {
 };
 
 /**
+ * Switcher label for a lockfile assistant. Paired entries carry a suffix
+ * naming the remote host (the chooser's paired labeling) so they read as
+ * remote pairings, not managed assistants.
+ */
+const assistantMenuLabel = (assistant: LockfileAssistant): string => {
+  const title = assistantDisplayTitle(assistant);
+  if (assistant.cloud !== "paired") {
+    return title;
+  }
+  return `${title} (${pairedHostLabel(assistant.runtimeUrl)})`;
+};
+
+/**
  * Whether the multi-platform-assistant feature flag is currently enabled.
  * Checked at menu-build time so toggling the flag takes effect on the next
  * right-click without requiring an app restart.
@@ -130,23 +146,24 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
   // Reads from the lockfile watcher's in-memory cache (no disk I/O).
   if (isMultiAssistantEnabled() && !onboarding) {
     const lockfile = getWatchedLockfile();
-    // Only managed (platform-hosted) assistants belong in the switcher,
-    // mirroring the native client's `isManaged` filter (cloud === "vellum").
-    // Local/Docker lockfile entries are handled by separate flows and would
-    // mis-route through the platform selection path.
-    const assistants = lockfile.assistants.filter((a) => a.cloud === "vellum");
+    // Managed (platform-hosted) and paired (remote, imported) assistants
+    // belong in the switcher. Local/Docker lockfile entries are handled by
+    // separate flows and would mis-route through the platform selection path.
+    const assistants = lockfile.assistants.filter(
+      (a) => a.cloud === "vellum" || a.cloud === "paired",
+    );
     const activeId = lockfile.activeAssistant;
 
     items.push({ type: "separator" });
     items.push({ label: "Assistants", enabled: false });
 
     if (assistants.length === 0) {
-      items.push({ label: "No managed assistants", enabled: false });
+      items.push({ label: "No managed or paired assistants", enabled: false });
     } else {
       for (const assistant of assistants) {
         const isActive = assistant.assistantId === activeId;
         items.push({
-          label: assistantDisplayTitle(assistant),
+          label: assistantMenuLabel(assistant),
           type: "radio",
           checked: isActive,
           click: async () => {
@@ -173,7 +190,23 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
       const activeAssistant = assistants.find(
         (a) => a.assistantId === activeId,
       );
-      if (activeAssistant) {
+      if (activeAssistant?.cloud === "paired") {
+        // A paired entry is a pairing record on this machine, so forget it
+        // rather than retire the remote assistant. The renderer owns the
+        // removal (confirm dialog + unpair host op + session cleanup) \u2014
+        // unpairing here in main would leave the window selected on, and
+        // still authenticated to, the removed assistant.
+        items.push({
+          label: "Remove from this Mac\u2026",
+          click: async () => {
+            await handlers.ensureMainWindow();
+            dispatchToMain({
+              kind: "removePairedAssistant",
+              assistantId: activeAssistant.assistantId,
+            });
+          },
+        });
+      } else if (activeAssistant) {
         items.push({
           label: `Retire ${assistantDisplayTitle(activeAssistant)}\u2026`,
           click: async () => {

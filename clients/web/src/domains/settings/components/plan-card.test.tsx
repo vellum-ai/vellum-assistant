@@ -1,8 +1,9 @@
 /**
- * Tests for the PlanCard: verifies the plan name, renewal text, the plan-row
- * action button, and the recommended-upgrade banner render correctly, plus the
- * action button's navigation wiring. The card shows no credit bundle label and
- * no invoices button; invoices render in an inline table on the billing page.
+ * Tests for the PlanCard: verifies the plan name, renewal text, the header's
+ * "View All Plans" button, and the side-by-side current / next plan tiles
+ * render correctly, plus the header button's navigation wiring. The card shows
+ * no credit bundle label and no invoices button; invoices render in an inline
+ * table on the billing page.
  *
  * Content tests pre-populate the React Query cache so the card's `useQuery`
  * calls resolve synchronously — `renderToStaticMarkup` is single-pass, so a
@@ -32,7 +33,6 @@ import {
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
-  CreditTier,
   PackageChangeResponse,
   PlanListResponse,
   SubscriptionResponse,
@@ -87,16 +87,6 @@ let changePackageImpl: () => Promise<{
 });
 let currentSub: SubscriptionResponse = baseSubscription();
 let currentPlans: PlanListResponse = basePlansResponse();
-// Change-tier mutation captures for the customize (CustomPlanModal) flow. Each
-// records the request body so a test can assert which dimension(s) a
-// `changeTiers` dispatch actually posted.
-let changeCreditTierCall: Captured | null = null;
-let changeMachineTierCall: Captured | null = null;
-let changeStorageTierCall: Captured | null = null;
-// The onboarding retrieve carries the current machine/storage tiers that seed
-// the CustomPlanModal. Defaults to empty (no seed) so existing tests are
-// unaffected; the customize tests set it to seed a starting configuration.
-let onboardingResponse: Record<string, unknown> = {};
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -112,36 +102,14 @@ mock.module("@/generated/api/sdk.gen", () => ({
     Promise.resolve({ data: currentSub, response: { ok: true } }),
   organizationsBillingPlansRetrieve: () =>
     Promise.resolve({ data: currentPlans, response: { ok: true } }),
-  organizationsBillingSubscriptionOnboardingRetrieve: () =>
-    Promise.resolve({ data: onboardingResponse, response: { ok: true } }),
-  // The three change-tier endpoints back the customize flow's `changeTiers`.
-  organizationsBillingSubscriptionChangeCreditTierCreate: (opts: Captured) => {
-    changeCreditTierCall = opts;
-    return Promise.resolve({
-      data: { status: "ok", credit_tier: null },
-      response: { ok: true },
-    });
-  },
-  organizationsBillingSubscriptionChangeMachineTierCreate: (opts: Captured) => {
-    changeMachineTierCall = opts;
-    return Promise.resolve({ data: { status: "ok" }, response: { ok: true } });
-  },
-  organizationsBillingSubscriptionChangeStorageTierCreate: (opts: Captured) => {
-    changeStorageTierCall = opts;
-    return Promise.resolve({ data: { status: "ok" }, response: { ok: true } });
-  },
 }));
 
-// Capture success toasts so the customize flow's credit-only vs resize branch
-// can be asserted (the resize takeover is opened via `onTierUpgraded`, not a
-// toast, so a credit-only change is the only one that toasts here).
-let toastSuccessCalls: string[] = [];
+// Stub the toaster: the no_op change-package branch toasts, and no <Toaster />
+// is mounted in these tests.
 mock.module("@vellumai/design-library/components/toast", () => ({
   ...toastModule,
   toast: Object.assign((..._args: unknown[]) => {}, {
-    success: (message: string) => {
-      toastSuccessCalls.push(String(message));
-    },
+    success: () => {},
     error: () => {},
     info: () => {},
     warning: () => {},
@@ -256,97 +224,6 @@ function proUltraSubscription(): SubscriptionResponse {
   };
 }
 
-const CUSTOMIZE_CREDIT_TIERS: CreditTier[] = [
-  {
-    tier: "credits_25",
-    label: "$25 in credits",
-    credits_usd: 25,
-    price_cents: 2500,
-    lookup_key: "credits_25_lk",
-    legacy: false,
-  },
-  {
-    tier: "credits_45",
-    label: "$45 in credits",
-    credits_usd: 45,
-    price_cents: 4500,
-    lookup_key: "credits_45_lk",
-    legacy: false,
-  },
-];
-
-/**
- * A Pro catalog whose machine/storage/credit tier LISTS are populated (the
- * package-only fixtures leave them empty), so a seeded CustomPlanModal can drive
- * a real tier change through `changeTiers`. Extends `plansWithSuper()` so the
- * sub stays switch-eligible (Mighty → Super) and the customize card renders.
- */
-function plansForCustomize(): PlanListResponse {
-  const plans = plansWithSuper();
-  const pro = plans.plans.find((p) => p.id === "pro");
-  if (pro && "machine_tiers" in pro) {
-    pro.machine_tiers = [
-      {
-        tier: "medium",
-        label: "Medium",
-        description: "Medium machine",
-        price_cents: 3500,
-        lookup_key: "machine_medium_lk",
-        cpu_limit: "2",
-        memory_gib: 4,
-      },
-      {
-        tier: "large",
-        label: "Large",
-        description: "Large machine",
-        price_cents: 7000,
-        lookup_key: "machine_large_lk",
-        cpu_limit: "4",
-        memory_gib: 8,
-      },
-    ];
-    pro.storage_tiers = [
-      {
-        tier: "xs",
-        label: "10 GB storage",
-        storage_gib: 10,
-        price_cents: 0,
-        lookup_key: "storage_xs_lk",
-        legacy: false,
-      },
-      {
-        tier: "s",
-        label: "30 GB storage",
-        storage_gib: 30,
-        price_cents: 1000,
-        lookup_key: "storage_s_lk",
-        legacy: false,
-      },
-    ];
-    pro.credit_tiers = CUSTOMIZE_CREDIT_TIERS;
-  }
-  return plans;
-}
-
-/**
- * A customized (switch-eligible) Pro sub seeded on the Mighty package with an
- * existing credit bundle, so the CustomPlanModal opens pre-filled.
- */
-function proCustomizeSubscription(): SubscriptionResponse {
-  return {
-    ...proMightySubscription(),
-    package: { key: "mighty", name: "Mighty", version: 1, customized: true },
-    selected_credit_tier: "credits_25",
-  };
-}
-
-/** The onboarding response that seeds the CustomPlanModal's current tiers. */
-const CUSTOMIZE_ONBOARDING: Record<string, unknown> = {
-  max_machine_tier: "medium",
-  selected_storage_tier: "xs",
-  selected_storage_gib: 10,
-};
-
 /** A catalog with the `pro-packages` flag off — the Pro plan has no packages. */
 function emptyCatalogPlans(): PlanListResponse {
   const plans = basePlansResponse();
@@ -397,8 +274,8 @@ function renderCard(
 
 /**
  * The static markup parsed into a detached DOM node, so an assertion can be
- * scoped to one card. Both cards render spec chips, so a whole-document text
- * match cannot tell the current card's chips from the promo card's.
+ * scoped to one tile. Both tiles render spec chips, so a whole-document text
+ * match cannot tell the current tile's chips from the next tile's.
  */
 function renderCardDom(
   subscription: SubscriptionResponse,
@@ -409,28 +286,41 @@ function renderCardDom(
   return host;
 }
 
-/** The current-plan card: PlanSpecCard's forced light scope. */
-function currentCard(host: HTMLElement): HTMLElement {
-  const card = host.querySelector<HTMLElement>('[data-theme="light"]');
-  if (!card) {
-    throw new Error("expected a current-plan card");
+/** The current-plan tile, which inherits the app theme. */
+function currentTile(host: HTMLElement): HTMLElement {
+  const tile = host.querySelector<HTMLElement>(
+    '[data-testid="plan-tile-current"]',
+  );
+  if (!tile) {
+    throw new Error("expected a current-plan tile");
   }
-  return card;
+  return tile;
 }
 
-/** The recommended card: PlanPromoCard's forced dark scope. */
-function promoCard(host: HTMLElement): HTMLElement {
-  const card = host.querySelector<HTMLElement>('[data-theme="dark"]');
-  if (!card) {
-    throw new Error("expected a recommended promo card");
+/** The next-plan tile, whose nested scope inverts the app theme. */
+function nextTile(host: HTMLElement): HTMLElement {
+  const tile = host.querySelector<HTMLElement>(
+    '[data-testid="plan-tile-next"]',
+  );
+  if (!tile) {
+    throw new Error("expected a next-plan tile");
   }
-  return card;
+  return tile;
 }
 
-/** `packageSpecs` chip labels for the free baseline and each fixture package. */
-const FREE_BASELINE_CHIPS = ["Small Machine", "$0 credits", "4 GB"];
-const MIGHTY_CHIPS = ["Small Machine", "$25 credits", "10 GB"];
-const SUPER_CHIPS = ["Medium Machine", "$45 credits", "30 GB"];
+/** `freePlanSpecs` / `packageSpecs` chip labels for each fixture plan. */
+const FREE_CHIPS = ["Small Machine", "4 GB Storage", "Pay as you go credits"];
+const MIGHTY_CHIPS = [
+  "Small Machine",
+  "10 GB Storage",
+  "$25 in credits included",
+];
+const SUPER_CHIPS = [
+  "Medium Machine",
+  "30 GB Storage",
+  "$45 in credits included",
+  "Assistant email and subdomain",
+];
 
 function renderCardInteractive(
   subscription: SubscriptionResponse,
@@ -448,28 +338,6 @@ function renderCardInteractive(
       <PlanCard onManage={onManage} onTierUpgraded={onTierUpgraded} />
     </QueryClientProvider>,
   );
-}
-
-/** Opens a CustomPlanModal dropdown by its combobox aria-label. */
-function getDropdownTrigger(label: string): HTMLButtonElement {
-  const trigger = document.querySelector<HTMLButtonElement>(
-    `button[role="combobox"][aria-label="${label}"]`,
-  );
-  if (!trigger) {
-    throw new Error(`expected a ${label} dropdown trigger`);
-  }
-  return trigger;
-}
-
-/** Clicks the first open dropdown option whose text starts with `prefix`. */
-function clickOptionStartingWith(prefix: string): void {
-  const option = Array.from(
-    document.querySelectorAll<HTMLElement>('[role="option"]'),
-  ).find((o) => o.textContent?.trim().startsWith(prefix));
-  if (!option) {
-    throw new Error(`expected option starting with "${prefix}"`);
-  }
-  fireEvent.click(option);
 }
 
 /** Waits for the PackageSwitchConfirmModal (portaled) to open. */
@@ -501,11 +369,6 @@ beforeEach(() => {
     response: { ok: true },
   });
   openedUrl = null;
-  changeCreditTierCall = null;
-  changeMachineTierCall = null;
-  changeStorageTierCall = null;
-  onboardingResponse = {};
-  toastSuccessCalls = [];
   captureStashCalls = 0;
 });
 
@@ -518,14 +381,14 @@ describe("PlanCard", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
     expect(html).toContain("plan-card-name");
     expect(html).toContain("Free");
-    expect(html).toContain("Current Plan");
+    expect(html).toContain("Current");
     expect(html).toContain("plan-card-renews");
     expect(html).toContain("auto renew");
   });
 
-  test("shows the upgrade button for a base plan", () => {
+  test("shows the plans button for a base plan", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
-    expect(html).toContain("plan-card-upgrade-button");
+    expect(html).toContain("plan-card-plans-button");
     expect(html).toContain("View All Plans");
   });
 
@@ -534,87 +397,100 @@ describe("PlanCard", () => {
     expect(html).not.toContain("plan-card-invoices-button");
   });
 
-  test("renders the recommended-upgrade promo card (Mighty from Free)", () => {
+  test("renders the next-plan tile (Mighty from Free)", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
+    expect(html).toContain("plan-tile-next");
     expect(html).toContain("recommended-upgrade-button");
-    expect(html).toContain("Upgrade to Mighty");
-    // The dark promo card carries no "Recommended" tag.
+    expect(html).toContain("Next Plan");
+    // The tile names the package alone, and its CTA quotes the delta from the
+    // free baseline (Mighty is $30/month).
+    expect(html).toContain("Power Up for +$30/month");
+    expect(html).not.toContain("Upgrade to Mighty");
     expect(html).not.toContain("Recommended");
   });
 
-  test("no upgrade banner when the package catalog is empty (flag off)", () => {
+  test("no next tile when the package catalog is empty (flag off)", () => {
     const html = renderCard(baseSubscription(), emptyCatalogPlans());
-    // Only the current card renders; the recommended card (and its CTA) is gone.
+    // Only the current tile renders; the next tile (and its CTA) is gone.
+    expect(html).toContain("plan-tile-current");
+    expect(html).not.toContain("plan-tile-next");
     expect(html).not.toContain("recommended-upgrade-button");
   });
 
-  test("Free current card is chip-less; recommended shows the package chips", () => {
+  test("Free current tile shows the free chips and price; next tile shows Mighty's", () => {
     const host = renderCardDom(baseSubscription(), basePlansResponse());
-    // The current (Free) card is a minimal centered card with NO spec chips:
-    // none of the free-baseline chip labels appear inside it.
-    const current = within(currentCard(host));
-    for (const label of FREE_BASELINE_CHIPS) {
-      expect(current.queryByText(label)).toBeNull();
+    // The current (Free) tile carries the free baseline chips, the "Current"
+    // tag, and a "Free Forever" price footer.
+    const current = within(currentTile(host));
+    for (const label of FREE_CHIPS) {
+      expect(current.getByText(label)).toBeTruthy();
     }
-    // The recommended (Mighty) promo card shows "Upgrade to Mighty" plus the
-    // package's spec chips, and carries no tag.
-    const promo = within(promoCard(host));
-    expect(promo.getByText("Upgrade to Mighty")).toBeTruthy();
-    for (const label of MIGHTY_CHIPS) {
-      expect(promo.getByText(label)).toBeTruthy();
-    }
-    expect(promoCard(host).textContent).not.toContain(
-      "more credits and storage",
+    expect(current.getByText("Current")).toBeTruthy();
+    expect(current.getByTestId("plan-card-price").textContent).toBe(
+      "Free Forever",
     );
+    // The next (Mighty) tile names the package, tags it "Next Plan", and shows
+    // the package's spec chips above its CTA instead of a price footer.
+    const next = within(nextTile(host));
+    expect(next.getByText("Mighty")).toBeTruthy();
+    expect(next.getByText("Next Plan")).toBeTruthy();
+    for (const label of MIGHTY_CHIPS) {
+      expect(next.getByText(label)).toBeTruthy();
+    }
+    expect(next.queryByTestId("plan-card-price")).toBeNull();
     expect(host.innerHTML).not.toContain("Recommended");
-    // The centered free card still shows its "Current Plan" tag.
-    expect(current.getByText("Current Plan")).toBeTruthy();
   });
 
-  test("Mighty → Super: current keeps its chips, recommended shows the promo card", () => {
+  test("the next tile inverts the app theme; the current tile inherits it", () => {
+    // The static render snapshots the document theme as "light", so the next
+    // tile scopes itself to "dark" while the current tile forces nothing.
+    const host = renderCardDom(baseSubscription(), basePlansResponse());
+    expect(nextTile(host).getAttribute("data-theme")).toBe("dark");
+    expect(currentTile(host).hasAttribute("data-theme")).toBe(false);
+  });
+
+  test("Mighty → Super: current tile keeps its chips, next tile shows Super's", () => {
     const host = renderCardDom(proMightySubscription(), plansWithSuper());
-    // On Mighty, the recommended upgrade is the next catalog package, Super.
-    expect(host.innerHTML).toContain("recommended-upgrade-button");
-    const promo = within(promoCard(host));
-    expect(promo.getByText("Upgrade to Super")).toBeTruthy();
+    // On Mighty, the next package up is Super, priced $70/month above it.
+    const next = within(nextTile(host));
+    expect(next.getByText("Super")).toBeTruthy();
+    expect(next.getByText("Next Plan")).toBeTruthy();
     for (const label of SUPER_CHIPS) {
-      expect(promo.getByText(label)).toBeTruthy();
+      expect(next.getByText(label)).toBeTruthy();
     }
-    // The promo card carries no "Recommended" tag and no summary chip.
+    expect(
+      next.getByTestId("recommended-upgrade-button").textContent,
+    ).toContain("Power Up for +$70/month");
     expect(host.innerHTML).not.toContain("Recommended");
-    expect(promoCard(host).textContent).not.toContain(
-      "more credits, storage, and a stronger machine",
-    );
-    // The current (Mighty) card keeps its own absolute chips, and names the
-    // actual package ("Mighty"), not the generic plan name "Pro".
-    const current = within(currentCard(host));
+    // The current (Mighty) tile keeps its own absolute chips and price, and
+    // names the actual package ("Mighty"), not the generic plan name "Pro".
+    const current = within(currentTile(host));
     for (const label of MIGHTY_CHIPS) {
       expect(current.getByText(label)).toBeTruthy();
     }
     expect(current.getByTestId("plan-card-name").textContent).toBe("Mighty");
+    expect(current.getByTestId("plan-card-price").textContent).toBe(
+      "$30/month",
+    );
   });
 
-  test("an unpinned Custom sub gets the customize promo card", () => {
-    // A legacy unpinned Pro sub's real tiers can diverge from any stock package,
-    // so instead of a named-package upgrade it gets the "Create a custom plan"
-    // promo card whose "Customize" CTA opens the CustomPlanModal.
+  test("an unpinned Custom sub renders no next tile", () => {
+    // A legacy unpinned Pro sub's real tiers can diverge from any stock
+    // package, so it gets no next tile to step up to; the plans takeover owns
+    // that switch. Its own tile shows no chips and no price either.
     const subscription: SubscriptionResponse = {
       ...proMightySubscription(),
       package: null,
     };
     const html = renderCard(subscription, plansWithSuper());
-    expect(html).toContain("recommended-customize-button");
-    expect(html).toContain("Create a custom plan");
-    expect(html).toContain("Customize");
-    // No upgrade/switch framing, no tag, and no chips.
+    expect(html).not.toContain("plan-tile-next");
     expect(html).not.toContain("recommended-upgrade-button");
-    expect(html).not.toContain("Recommended");
-    expect(html).not.toContain("Switch plan");
-    expect(html).not.toContain("Switch to");
-    expect(html).not.toContain("more credits");
+    expect(html).not.toContain("Next Plan");
+    expect(html).not.toContain("plan-card-price");
+    expect(html).not.toContain("Small Machine");
   });
 
-  test("a customized Pro sub gets the customize promo card", () => {
+  test("a customized Pro sub renders no next tile", () => {
     const subscription = proMightySubscription();
     subscription.package = {
       key: "mighty",
@@ -623,28 +499,23 @@ describe("PlanCard", () => {
       customized: true,
     };
     const html = renderCard(subscription, plansWithSuper());
-    // A customized pin's tiers can differ from stock, so it gets the customize
-    // promo card rather than a named-package upgrade.
-    expect(html).toContain("recommended-customize-button");
-    expect(html).toContain("Create a custom plan");
-    expect(html).toContain("Customize");
+    // A customized pin's tiers can differ from stock, so a stock delta could
+    // misstate the change: no next tile, no chips, and no price.
+    expect(html).not.toContain("plan-tile-next");
     expect(html).not.toContain("recommended-upgrade-button");
-    expect(html).not.toContain("Recommended");
-    expect(html).not.toContain("Switch to");
-    expect(html).not.toContain("more credits");
+    expect(html).not.toContain("Next Plan");
+    expect(html).not.toContain("plan-card-price");
   });
 
-  test("a base user's banner keeps the upgrade CTA (not a customize)", () => {
-    // Base → Pro is a genuine Stripe-checkout upgrade, so the recommended card
-    // stays on the "Upgrade to X" variant (no customize path).
-    const html = renderCard(baseSubscription(), basePlansResponse());
-    expect(html).toContain("recommended-upgrade-button");
-    expect(html).toContain("Upgrade to Mighty");
-    expect(html).not.toContain("recommended-customize-button");
-    expect(html).not.toContain("Create a custom plan");
-    expect(html).not.toContain("Switch plan");
-    expect(html).not.toContain("Switch to");
-    expect(html).not.toContain("Recommended");
+  test("a top-of-catalog (Ultra) clean pin renders no next tile", () => {
+    // Ultra is the highest catalog package, so there is nothing to step up to.
+    const html = renderCard(proUltraSubscription(), plansWithUltra());
+    expect(html).not.toContain("plan-tile-next");
+    expect(html).not.toContain("recommended-upgrade-button");
+    // Its own tile still carries the package's chips and price.
+    expect(html).toContain("plan-card-price");
+    expect(html).toContain("$200/month");
+    expect(html).toContain("Large Machine");
   });
 
   test("current-plan row labels a customized package as custom", () => {
@@ -678,42 +549,48 @@ describe("PlanCard", () => {
   test("a clean-pinned Pro sub whose package is absent from the catalog shows no chips", () => {
     // A clean pin on Mighty, but the catalog has no packages (e.g. the
     // `pro-packages` flag is off, or the pinned key isn't in this response). The
-    // package lookup misses, so the current card's specs are unknowable and it
-    // must render NO chips — crucially NOT the free baseline, which would
-    // mislabel this paid Pro sub as $0 credits / 4 GB / Small Machine.
+    // package lookup misses, so the current tile's specs are unknowable and it
+    // must render NO chips and NO price. Crucially not the free baseline,
+    // which would mislabel this paid Pro sub as a 4 GB pay-as-you-go plan.
     const html = renderCard(proMightySubscription(), emptyCatalogPlans());
-    // The current card still names the pinned package ("Mighty"), not "Custom".
+    // The current tile still names the pinned package ("Mighty"), not "Custom".
     expect(html).toContain("plan-card-name");
     expect(html).toContain("Mighty");
-    // No free-baseline chips leak onto the paid sub's current card.
-    expect(html).not.toContain("$0 credits");
-    expect(html).not.toContain("4 GB");
-    expect(html).not.toContain("Small Machine");
+    // No free-baseline chips leak onto the paid sub's current tile.
+    for (const label of FREE_CHIPS) {
+      expect(html).not.toContain(label);
+    }
+    expect(html).not.toContain("plan-card-price");
   });
 
-  test("a free user's current card is centered and chip-less", () => {
-    const host = renderCardDom(baseSubscription(), basePlansResponse());
-    // The free current card is a minimal centered card: centering classes on the
-    // card and its "Current Plan" tag, but NO chips.
-    const current = currentCard(host);
-    expect(current.className).toContain("justify-center");
-    expect(within(current).getByText("Current Plan")).toBeTruthy();
-    for (const label of FREE_BASELINE_CHIPS) {
-      expect(within(current).queryByText(label)).toBeNull();
+  test("a clean pin on an older package version shows no chips or price", () => {
+    // The org is pinned to Mighty v1 while the live catalog carries v2. The
+    // pinned version's price and specs are grandfathered, so the catalog entry
+    // must not describe this sub: no chips, no price, and a delta-less CTA.
+    const plans = plansWithSuper();
+    const pro = plans.plans.find((p) => p.id === "pro");
+    if (pro && "packages" in pro && pro.packages) {
+      pro.packages = pro.packages.map((p) => ({ ...p, version: 2 }));
     }
-    // The recommended (Mighty) promo card shows the package's spec chips.
-    const promo = promoCard(host);
-    expect(within(promo).getByText("Upgrade to Mighty")).toBeTruthy();
+    const host = renderCardDom(proMightySubscription(), plans);
+    // The current tile still names the pinned package.
+    const current = within(currentTile(host));
+    expect(current.getByTestId("plan-card-name").textContent).toBe("Mighty");
     for (const label of MIGHTY_CHIPS) {
-      expect(within(promo).getByText(label)).toBeTruthy();
+      expect(current.queryByText(label)).toBeNull();
     }
-    expect(promo.textContent).not.toContain("more credits and storage");
-    expect(promo.textContent).not.toContain("stronger machine");
+    expect(current.queryByTestId("plan-card-price")).toBeNull();
+    // Super is still the next package up, but its CTA quotes no delta.
+    const next = within(nextTile(host));
+    expect(next.getByText("Super")).toBeTruthy();
+    expect(next.getByTestId("recommended-upgrade-button").textContent).toBe(
+      "Power Up",
+    );
   });
 });
 
 describe("PlanCard action button", () => {
-  test("a Pro user's Manage click opens the plan-aware plans takeover", async () => {
+  test("a Pro user's View All Plans click opens the plan-aware takeover", async () => {
     const onManage = mock(() => {});
     const { findByTestId } = renderCardInteractive(
       proMightySubscription(),
@@ -721,7 +598,7 @@ describe("PlanCard action button", () => {
       onManage,
     );
 
-    fireEvent.click(await findByTestId("plan-card-manage-button"));
+    fireEvent.click(await findByTestId("plan-card-plans-button"));
 
     // navigate() fires from the click handler; await it so the assertion never
     // races the handler's commit in the CI runner.
@@ -731,7 +608,7 @@ describe("PlanCard action button", () => {
     expect(onManage).not.toHaveBeenCalled();
   });
 
-  test("a base user's View Plans click opens the plans takeover", async () => {
+  test("a base user's View All Plans click opens the plans takeover", async () => {
     const onManage = mock(() => {});
     const { findByTestId } = renderCardInteractive(
       baseSubscription(),
@@ -739,7 +616,7 @@ describe("PlanCard action button", () => {
       onManage,
     );
 
-    fireEvent.click(await findByTestId("plan-card-upgrade-button"));
+    fireEvent.click(await findByTestId("plan-card-plans-button"));
 
     // navigate() fires from the click handler; await it so the assertion never
     // races the handler's commit in the CI runner.
@@ -757,7 +634,7 @@ describe("PlanCard action button", () => {
       onManage,
     );
 
-    fireEvent.click(await findByTestId("plan-card-manage-button"));
+    fireEvent.click(await findByTestId("plan-card-plans-button"));
 
     // The empty catalog wires the button to onManage; await it so the assertion
     // never races the handler's commit in the CI runner.
@@ -767,7 +644,7 @@ describe("PlanCard action button", () => {
     expect(navigateArgs).toEqual([]);
   });
 
-  test("a customized Pro sub's Manage opens the plans takeover", async () => {
+  test("a customized Pro sub's View All Plans opens the plans takeover", async () => {
     const onManage = mock(() => {});
     // A customized pin routes to the takeover alongside every other Pro sub; the
     // takeover's own CTAs handle the customized state's transitions.
@@ -784,7 +661,7 @@ describe("PlanCard action button", () => {
       onManage,
     );
 
-    fireEvent.click(await findByTestId("plan-card-manage-button"));
+    fireEvent.click(await findByTestId("plan-card-plans-button"));
 
     await waitFor(() => {
       expect(navigateArgs).toEqual([[routes.plans, undefined]]);
@@ -803,7 +680,7 @@ describe("PlanCard action button", () => {
       onManage,
     );
 
-    fireEvent.click(await findByTestId("plan-card-manage-button"));
+    fireEvent.click(await findByTestId("plan-card-plans-button"));
 
     await waitFor(() => {
       expect(navigateArgs).toEqual([[routes.plans, undefined]]);
@@ -811,7 +688,7 @@ describe("PlanCard action button", () => {
     expect(onManage).not.toHaveBeenCalled();
   });
 
-  test("a from-scratch custom Pro sub's Manage opens the plans takeover", async () => {
+  test("a from-scratch custom Pro sub's View All Plans opens the takeover", async () => {
     const onManage = mock(() => {});
     // A Pro sub built from scratch — no stock lineage, pinned but customized —
     // routes to the takeover like every other Pro sub with a live catalog.
@@ -828,7 +705,7 @@ describe("PlanCard action button", () => {
       onManage,
     );
 
-    fireEvent.click(await findByTestId("plan-card-manage-button"));
+    fireEvent.click(await findByTestId("plan-card-plans-button"));
 
     await waitFor(() => {
       expect(navigateArgs).toEqual([[routes.plans, undefined]]);
@@ -836,7 +713,7 @@ describe("PlanCard action button", () => {
     expect(onManage).not.toHaveBeenCalled();
   });
 
-  test("a cancelling custom Pro sub's Manage stays on the manage fallback", async () => {
+  test("a cancelling custom Pro sub's View All Plans stays on the fallback", async () => {
     const onManage = mock(() => {});
     // A customized/unpinned sub pending cancellation keeps the manage modal,
     // which surfaces the cancellation state and the "Keep your Plan" action; the
@@ -855,7 +732,7 @@ describe("PlanCard action button", () => {
       onManage,
     );
 
-    fireEvent.click(await findByTestId("plan-card-manage-button"));
+    fireEvent.click(await findByTestId("plan-card-plans-button"));
 
     await waitFor(() => {
       expect(onManage).toHaveBeenCalledTimes(1);
@@ -875,7 +752,7 @@ describe("PlanCard action button", () => {
       onManage,
     );
 
-    fireEvent.click(await findByTestId("plan-card-manage-button"));
+    fireEvent.click(await findByTestId("plan-card-plans-button"));
 
     await waitFor(() => {
       expect(navigateArgs).toEqual([[routes.plans, undefined]]);
@@ -883,7 +760,7 @@ describe("PlanCard action button", () => {
     expect(onManage).not.toHaveBeenCalled();
   });
 
-  test("an unpaid custom Pro sub's Manage stays on the manage fallback", async () => {
+  test("an unpaid custom Pro sub's View All Plans stays on the fallback", async () => {
     const onManage = mock(() => {});
     // A custom sub in a non-entitlement status (e.g. unpaid) is switch-ineligible,
     // so it keeps the manage modal — the takeover would bounce every CTA back to
@@ -902,7 +779,7 @@ describe("PlanCard action button", () => {
       onManage,
     );
 
-    fireEvent.click(await findByTestId("plan-card-manage-button"));
+    fireEvent.click(await findByTestId("plan-card-plans-button"));
 
     await waitFor(() => {
       expect(onManage).toHaveBeenCalledTimes(1);
@@ -921,11 +798,11 @@ describe("PlanCard recommended upgrade — change-package", () => {
       onTierUpgraded,
     );
 
-    // The banner CTA opens a confirm dialog (no immediate mutation). A clean pin
-    // keeps the directional upgrade copy.
+    // The next tile's CTA opens a confirm dialog (no immediate mutation). A
+    // clean pin keeps the directional upgrade copy.
     fireEvent.click(await findByTestId("recommended-upgrade-button"));
-    // Assert on copy unique to the dialog — the promo card behind it already
-    // renders the "Upgrade to Super" heading, so the title alone matches twice.
+    // Assert on copy unique to the dialog. The next tile behind it already
+    // names Super, so the dialog title alone would match twice.
     await findByText(UPGRADE_CAPTION);
     await findByText(PLAN_TIER_COPY.super.tagline);
     expect(changePackageBody).toBeNull();
@@ -968,7 +845,7 @@ describe("PlanCard recommended upgrade — change-package", () => {
     fireEvent.click(await findByTestId("recommended-upgrade-button"));
     fireEvent.click(await findConfirmDialogButton());
 
-    // In-flight: the confirm button and the banner CTA both disable.
+    // In-flight: the confirm button and the next tile's CTA both disable.
     await waitFor(() => {
       const confirm = document.querySelector<HTMLButtonElement>(
         "[data-testid='confirm-package-switch-button']",
@@ -977,10 +854,10 @@ describe("PlanCard recommended upgrade — change-package", () => {
         throw new Error("confirm not disabled yet");
       }
     });
-    const banner = (await findByTestId(
+    const nextCta = (await findByTestId(
       "recommended-upgrade-button",
     )) as HTMLButtonElement;
-    expect(banner.disabled).toBe(true);
+    expect(nextCta.disabled).toBe(true);
 
     // Resolving completes the flow and raises the takeover.
     await act(async () => {
@@ -1037,253 +914,11 @@ describe("PlanCard recommended upgrade — change-package", () => {
     expect(onTierUpgraded).not.toHaveBeenCalled();
   });
 
-  test("an unpinned Pro sub's customize CTA opens the CustomPlanModal", async () => {
-    const onManage = mock(() => {});
-    const onTierUpgraded = mock(() => {});
-    // An unpinned (Custom) Pro sub is switch-eligible, so the customize CTA opens
-    // the CustomPlanModal (not the change-package confirm, not the manage
-    // fallback). A healthy sub's current tiers load, so seed them.
-    onboardingResponse = CUSTOMIZE_ONBOARDING;
-    const subscription: SubscriptionResponse = {
-      ...proMightySubscription(),
-      package: null,
-    };
-    const { findByTestId, findByText } = renderCardInteractive(
-      subscription,
-      plansWithSuper(),
-      onManage,
-      onTierUpgraded,
-    );
-
-    const cta = (await findByTestId(
-      "recommended-customize-button",
-    )) as HTMLButtonElement;
-    // The CTA enables once the current tiers settle; opening it reveals the
-    // CustomPlanModal (its unique "Just better." subtitle).
-    await waitFor(() => expect(cta.disabled).toBe(false));
-    fireEvent.click(cta);
-
-    await findByText("Just better.");
-    // Never the change-package confirm nor the manage fallback.
-    expect(
-      document.querySelector("[data-testid='confirm-package-switch-button']"),
-    ).toBeNull();
-    expect(changePackageBody).toBeNull();
-    expect(onManage).not.toHaveBeenCalled();
-    expect(navigateArgs).toEqual([]);
-  });
-
-  test("a customized Pro sub's customize CTA opens the CustomPlanModal", async () => {
-    const onManage = mock(() => {});
-    const onTierUpgraded = mock(() => {});
-    // A customized pin is switch-eligible; the customize CTA edits its tiers in
-    // place via the CustomPlanModal. A healthy sub's current tiers load, so seed
-    // them.
-    onboardingResponse = CUSTOMIZE_ONBOARDING;
-    const subscription = proMightySubscription();
-    subscription.package = {
-      key: "mighty",
-      name: "Mighty",
-      version: 1,
-      customized: true,
-    };
-    const { findByTestId, findByText } = renderCardInteractive(
-      subscription,
-      plansWithSuper(),
-      onManage,
-      onTierUpgraded,
-    );
-
-    const cta = (await findByTestId(
-      "recommended-customize-button",
-    )) as HTMLButtonElement;
-    await waitFor(() => expect(cta.disabled).toBe(false));
-    fireEvent.click(cta);
-
-    await findByText("Just better.");
-    expect(changePackageBody).toBeNull();
-    expect(onManage).not.toHaveBeenCalled();
-    expect(navigateArgs).toEqual([]);
-  });
-
-  test("a top-tier (Ultra) clean pin's customize CTA opens the CustomPlanModal", async () => {
-    const onManage = mock(() => {});
-    const onTierUpgraded = mock(() => {});
-    // Ultra is the top catalog package, so there's no package to upgrade to; the
-    // top-tier sub gets the customize card instead of an "Upgrade to X" card. A
-    // healthy sub's current tiers load, so seed them.
-    onboardingResponse = CUSTOMIZE_ONBOARDING;
-    const { findByTestId, findByText } = renderCardInteractive(
-      proUltraSubscription(),
-      plansWithUltra(),
-      onManage,
-      onTierUpgraded,
-    );
-
-    expect(
-      document.querySelector("[data-testid='recommended-upgrade-button']"),
-    ).toBeNull();
-    const cta = (await findByTestId(
-      "recommended-customize-button",
-    )) as HTMLButtonElement;
-    await waitFor(() => expect(cta.disabled).toBe(false));
-    fireEvent.click(cta);
-
-    await findByText("Just better.");
-    expect(onManage).not.toHaveBeenCalled();
-    expect(navigateArgs).toEqual([]);
-  });
-
-  test("a switch-eligible sub whose current tiers fail to load routes customize to onManage", async () => {
-    const onManage = mock(() => {});
-    const onTierUpgraded = mock(() => {});
-    // `currentReady` flips true even when the onboarding read settles without a
-    // storage tier (an error or a degraded response), leaving the seed null.
-    // Opening the configurator unseeded would let a submit overwrite the tiers
-    // the user already holds, so the customize CTA must route to manage instead.
-    onboardingResponse = {}; // settled, but no selected_storage_tier → null seed
-    const { findByTestId } = renderCardInteractive(
-      proUltraSubscription(),
-      plansWithUltra(),
-      onManage,
-      onTierUpgraded,
-    );
-
-    const cta = (await findByTestId(
-      "recommended-customize-button",
-    )) as HTMLButtonElement;
-    // The CTA is enabled (the read settled, nothing pending) but routes to manage.
-    await waitFor(() => expect(cta.disabled).toBe(false));
-    fireEvent.click(cta);
-
-    await waitFor(() => {
-      expect(onManage).toHaveBeenCalledTimes(1);
-    });
-    // The configurator never opened.
-    expect(document.body.textContent).not.toContain("Just better.");
-    expect(
-      document.querySelector("[data-testid='confirm-package-switch-button']"),
-    ).toBeNull();
-    expect(navigateArgs).toEqual([]);
-  });
-
-  test("a switch-ineligible custom sub's customize CTA falls back to onManage", async () => {
-    const onManage = mock(() => {});
-    const onTierUpgraded = mock(() => {});
-    // A customized sub pending cancellation can't change tiers, so the customize
-    // CTA routes to the manage modal (AdjustPlanModal) — the same fallback the
-    // upgrade CTA uses — instead of opening the configurator.
-    const subscription = proMightySubscription();
-    subscription.package = {
-      key: "mighty",
-      name: "Mighty",
-      version: 1,
-      customized: true,
-    };
-    subscription.cancel_at = "2026-08-23T12:36:05Z";
-    const { findByTestId } = renderCardInteractive(
-      subscription,
-      plansWithSuper(),
-      onManage,
-      onTierUpgraded,
-    );
-
-    fireEvent.click(await findByTestId("recommended-customize-button"));
-
-    await waitFor(() => {
-      expect(onManage).toHaveBeenCalledTimes(1);
-    });
-    // No configurator opened, no navigation.
-    expect(
-      document.querySelector("[data-testid='confirm-package-switch-button']"),
-    ).toBeNull();
-    expect(navigateArgs).toEqual([]);
-  });
-
-  test("a customize credit-only change toasts and does NOT open the resize takeover", async () => {
-    const onManage = mock(() => {});
-    const onTierUpgraded = mock(() => {});
-    // The billing-page resize takeover is credit-agnostic (`onTierUpgraded` is
-    // argument-less), so a credit-only change must toast "Credit bundle updated."
-    // — like AdjustPlanModal — instead of popping a blank takeover.
-    onboardingResponse = CUSTOMIZE_ONBOARDING;
-    const { findByTestId, findByText, findByRole } = renderCardInteractive(
-      proCustomizeSubscription(),
-      plansForCustomize(),
-      onManage,
-      onTierUpgraded,
-    );
-
-    const cta = (await findByTestId(
-      "recommended-customize-button",
-    )) as HTMLButtonElement;
-    await waitFor(() => expect(cta.disabled).toBe(false));
-    fireEvent.click(cta);
-    await findByText("Just better.");
-
-    // Swap ONLY the credit bundle, then Continue — a credit-only change.
-    fireEvent.click(getDropdownTrigger("Credit bundle"));
-    clickOptionStartingWith("$45 in credits");
-    fireEvent.click(await findByRole("button", { name: "Continue" }));
-
-    await waitFor(() => {
-      if (!changeCreditTierCall) {
-        throw new Error("credit-tier change not called");
-      }
-    });
-    // Only the credit dimension posts...
-    expect(
-      (changeCreditTierCall!.body as Record<string, unknown>).credit_tier,
-    ).toBe("credits_45");
-    expect(changeMachineTierCall).toBeNull();
-    expect(changeStorageTierCall).toBeNull();
-    // ...and it toasts rather than opening the credit-agnostic resize takeover.
-    await waitFor(() => {
-      expect(toastSuccessCalls).toContain("Credit bundle updated.");
-    });
-    expect(onTierUpgraded).not.toHaveBeenCalled();
-  });
-
-  test("a customize storage upgrade opens the resize takeover", async () => {
-    const onManage = mock(() => {});
-    const onTierUpgraded = mock(() => {});
-    // A real machine/storage resize DOES hand off to the takeover via
-    // `onTierUpgraded` (and does not toast the credit-bundle message).
-    onboardingResponse = CUSTOMIZE_ONBOARDING;
-    const { findByTestId, findByText, findByRole } = renderCardInteractive(
-      proCustomizeSubscription(),
-      plansForCustomize(),
-      onManage,
-      onTierUpgraded,
-    );
-
-    const cta = (await findByTestId(
-      "recommended-customize-button",
-    )) as HTMLButtonElement;
-    await waitFor(() => expect(cta.disabled).toBe(false));
-    fireEvent.click(cta);
-    await findByText("Just better.");
-
-    // Bump storage to a larger tier — a real resize.
-    fireEvent.click(getDropdownTrigger("Storage"));
-    clickOptionStartingWith("30 GB storage");
-    fireEvent.click(await findByRole("button", { name: "Continue" }));
-
-    await waitFor(() => {
-      expect(onTierUpgraded).toHaveBeenCalledTimes(1);
-    });
-    expect(
-      (changeStorageTierCall!.body as Record<string, unknown>).storage_tier,
-    ).toBe("s");
-    // A resize hands off to the takeover — no credit-bundle toast.
-    expect(toastSuccessCalls).not.toContain("Credit bundle updated.");
-  });
-
   test("a cancelling Pro sub's recommended upgrade stays on the manage path", async () => {
     const onManage = mock(() => {});
     const onTierUpgraded = mock(() => {});
     // A sub pending cancellation 409s on change-package, so the confirm can only
-    // fail. The banner CTA must fall back to the manage path.
+    // fail. The next tile's CTA must fall back to the manage path.
     const subscription = {
       ...proMightySubscription(),
       cancel_at_period_end: true,
@@ -1314,9 +949,9 @@ describe("PlanCard recommended upgrade — change-package", () => {
     const onManage = mock(() => {});
     const onTierUpgraded = mock(() => {});
     // A packaged, non-customized, non-cancelling Pro sub in a non-entitlement
-    // status (`unpaid`) can't change package — the endpoint 4xxs. The banner CTA
-    // must gate on TIER_CHANGE_ELIGIBLE_STATUSES and fall back to the manage path
-    // instead of confirming a mutation that can only fail.
+    // status (`unpaid`) can't change package: the endpoint 4xxs. The next
+    // tile's CTA must gate on TIER_CHANGE_ELIGIBLE_STATUSES and fall back to
+    // the manage path instead of confirming a mutation that can only fail.
     const subscription: SubscriptionResponse = {
       ...proMightySubscription(),
       status: "unpaid",

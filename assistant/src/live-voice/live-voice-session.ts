@@ -38,6 +38,10 @@ import {
 import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
 import { isRefusedInReadOnlyPass } from "../daemon/conversation-tool-setup.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import {
+  recordLiveVoiceSessionEnded,
+  recordLiveVoiceSessionStarted,
+} from "../onboarding/onboarding-events-store.js";
 import { isInstalledStaticSkillLoad } from "../permissions/checker.js";
 import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
@@ -54,12 +58,14 @@ import type {
   SttStreamServerEvent,
 } from "../stt/types.js";
 import { getSubagentManager } from "../subagent/index.js";
+import { liveVoiceEndScreen } from "../telemetry/live-voice-funnel.js";
 import { getToolOwner } from "../tools/registry.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import {
   activityLabelForTool,
+  approvalActivityLabel,
   dismissesUiSurface,
   revealsUiSurface,
 } from "./activity-label.js";
@@ -491,10 +497,29 @@ interface ActiveAssistantTurn {
   // map to the same line sends one frame rather than one per call. Empty means
   // the client believes nothing is running, which is also where a turn ends.
   activityLabel: string;
-  // Set while the turn is blocked on a decision the user has to make. Suppresses
-  // progress narration, whose entire vocabulary ("still on it", "almost there")
-  // describes work in flight and would be false here.
-  awaitingApproval: boolean;
+  // The approval id that went out with it, so the de-duplication covers the
+  // whole frame rather than its wording. What the CLIENT believes, as against
+  // `pendingApproval`, which is what is true.
+  publishedApprovalRequestId: string | null;
+  // Set while the turn is blocked on a decision the user has to make, and null
+  // when it is not. Suppresses progress narration, whose entire vocabulary
+  // ("still on it", "almost there") describes work in flight and would be
+  // false here.
+  //
+  // Carries the request id so a surface that is not the app — the Live
+  // Activity's buttons — can answer *that* request rather than whatever is
+  // pending by the time the tap arrives, and the wording that named it, which
+  // is captured once at the reveal rather than recomputed: a parallel op
+  // starting mid-wait moves `currentActivityLabel` on, and the line beside an
+  // Approve button must keep naming the thing being approved.
+  //
+  // The FIRST one, on a turn that leaves two decisions pending at once: the
+  // wait is announced once (see `revealRoomForPendingApproval`) and the pair
+  // resolves as one. A tap answering the first after it has already been
+  // decided is dropped client-side by the id check, which is the safe end of
+  // a rare case — the island never silently answers a request other than the
+  // one it named.
+  pendingApproval: { requestId: string; label: string } | null;
   // A tts_audio frame actually went out to the client — latches on the first
   // forwarded chunk so the firstTtsAudio metric is marked exactly once per turn.
   ttsAudioStarted: boolean;
@@ -952,6 +977,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private outboundFrames: Promise<void> = Promise.resolve();
   private activeAssistantTurn: ActiveAssistantTurn | null = null;
   private sessionEndMetricsEmitted = false;
+  /**
+   * Protocol error code of the failure that killed the session, latched by
+   * {@link sendFrame} when an error frame goes out on an already-`failed`
+   * session. Both fatal paths (`failStartup` before `ready`, a failed
+   * utterance arm after it) set `state = "failed"` before sending, and no
+   * other error frame does, so this catches exactly the session-ending
+   * failures and ignores the recoverable mid-session ones. `null` on a
+   * session that never failed.
+   */
+  private failureCode: LiveVoiceProtocolErrorCode | null = null;
   // Non-null iff the start frame requested turnDetection "server_vad".
   private readonly turnDetector: MediaTurnDetector | null;
   // Energy gate for server-VAD speech classification; undefined defers to
@@ -1164,6 +1199,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
+    // Before the preflight, not after: a session rejected for missing
+    // credentials is precisely the one the failure rate needs to count, and
+    // recording the start only once `ready` goes out would hide every such
+    // session from both the numerator and the denominator.
+    recordLiveVoiceSessionStarted(this.context.sessionId);
+
     if (this.resolveCredentialReadiness) {
       const readiness = await this.resolveCredentialReadiness();
       if (readiness.status === "not-ready") {
@@ -1241,10 +1282,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     await this.handleAudio(Buffer.from(chunk));
   }
 
-  async close(_reason: LiveVoiceSessionCloseReason): Promise<void> {
+  async close(reason: LiveVoiceSessionCloseReason): Promise<void> {
     if (this.isClosed) {
       return;
     }
+
+    // Recorded first, and independently of `shouldEmitSessionEndMetrics`
+    // below: that flag governs the client-facing `metrics` frame, and a
+    // failed session (which suppresses the frame) is the one whose end
+    // telemetry matters most. Session duration downstream is this row's
+    // `recorded_at` minus the started row's, so it must be written before the
+    // teardown below, which awaits a pending continuation and can run long.
+    const failed = this.state === "failed";
+    recordLiveVoiceSessionEnded({
+      sessionId: this.context.sessionId,
+      screen: liveVoiceEndScreen(reason, failed ? this.failureCode : null),
+      outcome: failed ? "failed" : "completed",
+    });
 
     const shouldEmitSessionEndMetrics = this.state !== "failed";
     this.state = "closed";
@@ -2350,6 +2404,54 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   /**
+   * The line for a turn that is waiting on a decision about its newest running
+   * op.
+   *
+   * The approval gate sits behind `tool_use_start`, so the tool being waited on
+   * is the one the turn last said it was running — which is precisely why the
+   * wait has to be published at all: without it the surfaces keep showing that
+   * tool as *running* for the whole time it is doing nothing of the kind.
+   * Falls back to the tool-less phrase when no op is open, which is the case
+   * for a confirmation raised by a prompter outside the tool pipeline.
+   *
+   * Read once, at the reveal — see `pendingApproval` for why it is then held
+   * rather than recomputed.
+   */
+  private pendingApprovalLabel(turn: ActiveAssistantTurn): string {
+    for (let i = turn.progress.ops.length - 1; i >= 0; i -= 1) {
+      const op = turn.progress.ops[i];
+      if (op !== undefined && op.completedAtMs === undefined) {
+        return approvalActivityLabel(op.toolName);
+      }
+    }
+    return approvalActivityLabel("");
+  }
+
+  /**
+   * Publish whatever the turn's activity line should be right now: the
+   * decision it is waiting on if it is waiting, and its newest running tool if
+   * it is not.
+   *
+   * The single entry point for every caller that would otherwise reach for
+   * `currentActivityLabel` directly. A turn can start and finish other ops
+   * while it is blocked on an approval — a parallel `tool_use_start` or
+   * `tool_result` lands mid-wait — and each of those would otherwise publish a
+   * line composed as if nothing were pending, taking the request id down with
+   * it and retiring the island's buttons while the turn was still waiting.
+   */
+  private refreshActivity(turn: ActiveAssistantTurn): void {
+    if (turn.pendingApproval !== null) {
+      this.publishActivity(
+        turn,
+        turn.pendingApproval.label,
+        turn.pendingApproval.requestId,
+      );
+      return;
+    }
+    this.publishActivity(turn, this.currentActivityLabel(turn));
+  }
+
+  /**
    * Open the room because a decision is waiting behind it.
    *
    * The approval card renders in the app, and the room covers the app, so
@@ -2362,12 +2464,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * The latch is cleared as well, so a turn that also showed a surface does
    * not send a second minimize once its speech ends; the room is already open.
    */
-  private revealRoomForPendingApproval(turn: ActiveAssistantTurn): void {
-    if (turn.awaitingApproval) {
+  private revealRoomForPendingApproval(
+    turn: ActiveAssistantTurn,
+    requestId: string,
+  ): void {
+    if (turn.pendingApproval !== null) {
       return;
     }
-    turn.awaitingApproval = true;
+    turn.pendingApproval = {
+      requestId,
+      label: this.pendingApprovalLabel(turn),
+    };
     turn.minimizeRequested = false;
+    // Say what the turn is actually doing on the surfaces that are not the
+    // app. Without this the island keeps showing the tool as running for the
+    // whole wait — and it is the surface most likely to be the only one the
+    // user can see, since the case this exists for is a phone put down.
+    // Carrying the request id is what makes the line answerable there rather
+    // than merely accurate.
+    this.refreshActivity(turn);
     void this.sendFrame(
       { type: "minimize_room", turnId: turn.turnId },
       () => !this.isClosed,
@@ -2381,7 +2496,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   /** Clear the wait once a decision lands, so the turn narrates normally again. */
   private clearAwaitingApproval(turn: ActiveAssistantTurn): void {
-    turn.awaitingApproval = false;
+    turn.pendingApproval = null;
+    // Put the activity line back to whatever the turn resumed doing, and
+    // retire the request id with it, so the island's Approve/Deny buttons go
+    // away the moment the decision is no longer the user's to make — including
+    // when it was made somewhere else entirely (the card in the app, the
+    // 45-second fallback, a superseding message).
+    this.refreshActivity(turn);
   }
 
   /**
@@ -2394,14 +2515,37 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    *
    * Fire-and-forget. An activity label is a flourish, and nothing about the
    * conversation may wait on one.
+   *
+   * Callers whose line depends on turn state go through
+   * {@link refreshActivity}; this is called directly only to clear the line
+   * outright, which a cancelled or finished turn does regardless of what it
+   * was waiting on.
    */
-  private publishActivity(turn: ActiveAssistantTurn, label: string): void {
-    if (turn.activityLabel === label) {
+  private publishActivity(
+    turn: ActiveAssistantTurn,
+    label: string,
+    approvalRequestId?: string,
+  ): void {
+    // De-duplicated on the request id as well as the wording. The two move
+    // independently: a wait can be entered and left without the tool line
+    // changing at all, and a label-only check would swallow the frame that
+    // retires the approval — leaving the island's buttons up with nothing
+    // behind them.
+    if (
+      turn.activityLabel === label &&
+      turn.publishedApprovalRequestId === (approvalRequestId ?? null)
+    ) {
       return;
     }
     turn.activityLabel = label;
+    turn.publishedApprovalRequestId = approvalRequestId ?? null;
     void this.sendFrame(
-      { type: "activity", turnId: turn.turnId, label },
+      {
+        type: "activity",
+        turnId: turn.turnId,
+        label,
+        ...(approvalRequestId !== undefined ? { approvalRequestId } : {}),
+      },
       () => !this.isClosed,
     );
   }
@@ -3499,7 +3643,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       ttsDone: false,
       minimizeRequested: false,
       activityLabel: "",
-      awaitingApproval: false,
+      publishedApprovalRequestId: null,
+      pendingApproval: null,
       ttsAudioStarted: false,
       finalized: false,
       speculativePending: opts?.speculative === true,
@@ -3696,13 +3841,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         voiceSessionId: this.context.sessionId,
         userMessageChannel: "vellum",
         assistantMessageChannel: "vellum",
+        // Fixed, and NOT the originating client: this pair resolves the turn's
+        // channel capabilities, where `macos` is what grants a live-voice turn
+        // desktop UI and dynamic surfaces. Reporting the true client here would
+        // strip `supportsDynamicUi` from every iOS session: a behavior change
+        // wearing an attribution fix's clothes. The originating client travels
+        // as telemetry instead, on `voiceTelemetry` below.
         userMessageInterface: "macos",
         assistantMessageInterface: "macos",
+        voiceTelemetry: {
+          sessionId: this.context.sessionId,
+          ...(this.context.startFrame.client
+            ? { client: this.context.startFrame.client }
+            : {}),
+        },
         voiceControlPrompt: buildVoiceControlPrompt(activeTurn, {
           ...(leg.frontDoor !== undefined ? { frontDoor: leg.frontDoor } : {}),
         }),
-        onApprovalPending: () => {
-          this.revealRoomForPendingApproval(activeTurn);
+        onApprovalPending: (requestId) => {
+          this.revealRoomForPendingApproval(activeTurn, requestId);
         },
         onApprovalsResolved: () => {
           this.clearAwaitingApproval(activeTurn);
@@ -3932,7 +4089,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             });
             current.progress.opsSinceNarration += 1;
             current.progress.stateEpoch += 1;
-            this.publishActivity(current, this.currentActivityLabel(current));
+            this.refreshActivity(current);
             log.debug({ turnId, toolName }, "Live voice turn started tool use");
             // Definitive tool use means the turn is guaranteed slow: speak
             // the floor-holding ack now instead of waiting out the
@@ -4007,7 +4164,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
                 current.minimizeRequested = false;
               }
             }
-            this.publishActivity(current, this.currentActivityLabel(current));
+            this.refreshActivity(current);
             this.maybeNarrateProgress(current, trigger);
           },
         },
@@ -4382,7 +4539,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // Nothing is in flight while a decision is pending, so every phrase
       // narration has would be a lie about who the call is waiting on. The
       // turn says so once, when it starts waiting, and is quiet after that.
-      !turn.awaitingApproval &&
+      turn.pendingApproval === null &&
       this.turnAudioIdle(turn)
     );
   }
@@ -5395,6 +5552,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // method, and a per-call-site hook would drift from it on the first frame
     // anyone added. Fire-and-forget by contract — see the reporter.
     this.liveActivityReporter.report(frame);
+    // Latched here for the same reason: both fatal paths mark the session
+    // `failed` and then send their error frame through this method, so the
+    // code that ended the session is readable at close without either path
+    // having to remember to stash it.
+    if (frame.type === "error" && this.state === "failed") {
+      this.failureCode ??= frame.code;
+    }
     let sent = false;
     this.outboundFrames = this.outboundFrames
       .catch(() => {})
@@ -5564,6 +5728,12 @@ export async function defaultSpawnBackgroundContinuation(args: {
       objective: args.objective,
       fork: true,
       sendResultToUser: false,
+      // Distinct spawn mode so this unattended continuation is separable in
+      // cost telemetry from a tool-initiated fork. Mechanically both are
+      // forks, but they come from different call sites with different cost
+      // profiles, and lumping them together is what made delegated spend
+      // opaque in the first place.
+      spawnMode: "voice_continuation",
       // Full subagent abilities: the continuation runs like any other
       // background subagent, so it can genuinely finish build-shaped work
       // (JARVIS-1354). Side effects are governed by the standard

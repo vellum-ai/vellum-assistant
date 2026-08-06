@@ -15,6 +15,7 @@ import {
   resolveRealPath,
   sandboxPolicy,
   sandboxPolicyWithHostFallback,
+  sandboxReadPolicy,
 } from "../tools/shared/filesystem/path-policy.js";
 import { getDotEnvPath } from "../util/platform.js";
 
@@ -507,6 +508,162 @@ describe("sandboxPolicyWithHostFallback", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Sandbox read policy
+// ---------------------------------------------------------------------------
+
+describe("sandboxReadPolicy", () => {
+  afterEach(() => {
+    delete process.env.IS_CONTAINERIZED;
+    delete process.env.GATEWAY_SECURITY_DIR;
+    delete process.env.CREDENTIAL_SECURITY_DIR;
+  });
+
+  test("matches sandboxPolicy for in-bounds paths", () => {
+    const boundary = makeTempDir();
+    mkdirSync(join(boundary, "sub"));
+
+    const result = sandboxReadPolicy("sub/file.txt", boundary);
+    expect(result).toEqual(sandboxPolicy("sub/file.txt", boundary));
+    expect(result.ok).toBe(true);
+  });
+
+  test("reads outside the boundary when containerized", () => {
+    const boundary = makeTempDir();
+    const installTree = makeTempDir();
+    const target = join(installTree, "SKILL.md");
+    writeFileSync(target, "# skill");
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy(target, boundary);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.resolved).toBe(target);
+    }
+  });
+
+  test("follows an in-boundary symlink that points outside", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    const target = join(outside, "reference.md");
+    writeFileSync(target, "reference body");
+    symlinkSync(target, join(boundary, "link.md"));
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy(join(boundary, "link.md"), boundary);
+    expect(result.ok).toBe(true);
+  });
+
+  test("denies the gateway security dir when containerized", () => {
+    const boundary = makeTempDir();
+    const securityDir = makeTempDir();
+    writeFileSync(join(securityDir, "trust.json"), "{}");
+    process.env.GATEWAY_SECURITY_DIR = securityDir;
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy(join(securityDir, "trust.json"), boundary);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("denies a symlink that resolves into the credential security dir", () => {
+    const boundary = makeTempDir();
+    const securityDir = makeTempDir();
+    writeFileSync(join(securityDir, "keys.enc"), "cipher");
+    symlinkSync(join(securityDir, "keys.enc"), join(boundary, "innocent.txt"));
+    process.env.CREDENTIAL_SECURITY_DIR = securityDir;
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy(join(boundary, "innocent.txt"), boundary);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("denies a denylisted basename outside the boundary", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    writeFileSync(join(outside, "backup.key"), "key");
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy(join(outside, "backup.key"), boundary);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("fails closed to the hard boundary when a security-dir override is relative", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    writeFileSync(join(outside, "file.txt"), "x");
+    // Unmirrorable deny set: the real security dir could be anywhere, so the
+    // read allowance must not widen past the boundary.
+    process.env.GATEWAY_SECURITY_DIR = "relative/security-dir";
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy(join(outside, "file.txt"), boundary);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("out_of_bounds");
+    }
+  });
+
+  // The daemon's own environment carries the actor token signing key, the CES
+  // service token, the guardian bootstrap secret, and forwarded provider API
+  // keys, so no policy may serve a process environment block.
+  test.each([
+    "/proc/self/environ",
+    "/proc/thread-self/environ",
+    "/proc/1/environ",
+    "/proc/4242/environ",
+  ])("denies %s", (path) => {
+    const boundary = makeTempDir();
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy(path, boundary, { mustExist: false });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("denies a process environ path reached through a symlink", () => {
+    const boundary = makeTempDir();
+    symlinkSync("/proc/self/environ", join(boundary, "innocent.txt"));
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy(join(boundary, "innocent.txt"), boundary, {
+      mustExist: false,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("still allows other /proc entries", () => {
+    const boundary = makeTempDir();
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxReadPolicy("/proc/self/status", boundary, {
+      mustExist: false,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test("does not deny an unrelated file named environ", () => {
+    const boundary = makeTempDir();
+    writeFileSync(join(boundary, "environ"), "notes");
+
+    const result = sandboxReadPolicy("environ", boundary);
+    expect(result.ok).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Host policy
 // ---------------------------------------------------------------------------
 
@@ -575,7 +732,13 @@ describe("resolveRealPath", () => {
   });
 
   test("falls back to the lexical path when nothing on it exists", () => {
-    const phantom = join(tmpdir(), "definitely-not-here-12345", "nope.txt");
+    // realpath the temp root so a symlinked prefix (macOS /var -> /private/var)
+    // is not mistaken for the resolution under test.
+    const phantom = join(
+      realpathSync(tmpdir()),
+      "definitely-not-here-12345",
+      "nope.txt",
+    );
     expect(resolveRealPath(phantom)).toBe(phantom);
   });
 });

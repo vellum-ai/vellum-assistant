@@ -344,7 +344,7 @@ describe("StoreCredentialDialog", () => {
     expect(toasts).toEqual([
       {
         kind: "success",
-        message: "Stored securely — the key never entered the chat",
+        message: "Stored securely. The key never entered the chat.",
       },
     ]);
   });

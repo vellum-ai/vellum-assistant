@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { Maximize2, Minimize2 } from "lucide-react";
 
-import { Card } from "@vellumai/design-library";
+import { Card, Skeleton } from "@vellumai/design-library";
 
 export interface ScheduleSummaryCardProps {
   title: string;
@@ -82,9 +82,10 @@ function CostDisplay({
 }) {
   if (costStatus === "loading") {
     return (
-      <span
+      <Skeleton
+        as="span"
         aria-label="Loading cost"
-        className="h-7 w-44 animate-pulse rounded-md bg-[var(--surface-muted)]"
+        className="h-7 w-44 rounded-md"
       />
     );
   }

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 
 import { getConfig } from "../config/loader.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
@@ -484,18 +484,19 @@ export function computePerToolTimeoutMs(
  * confirmation payload — ahead of approval. Host file tools have no preview
  * for the same reason.
  */
-function computePreviewDiff(
+async function computePreviewDiff(
   toolName: string,
   input: Record<string, unknown>,
   workingDir: string,
-):
+): Promise<
   | {
       filePath: string;
       oldContent: string;
       newContent: string;
       isNewFile: boolean;
     }
-  | undefined {
+  | undefined
+> {
   try {
     if (toolName === "file_write") {
       // Parse with the tool's own schema so the preview reads the same shape
@@ -519,7 +520,7 @@ function computePreviewDiff(
           return undefined;
         }
       }
-      const oldContent = isNewFile ? "" : readFileSync(filePath, "utf-8");
+      const oldContent = isNewFile ? "" : await readFile(filePath, "utf-8");
       return { filePath, oldContent, newContent: content, isNewFile };
     }
 
@@ -545,7 +546,7 @@ function computePreviewDiff(
       if (stat.size > MAX_FILE_SIZE_BYTES) {
         return undefined;
       }
-      const content = readFileSync(filePath, "utf-8");
+      const content = await readFile(filePath, "utf-8");
       const replaceAll = parsed.data.replace_all === true;
       const result = applyEdit(content, oldString, newString, replaceAll);
       if (!result.ok) {

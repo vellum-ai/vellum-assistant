@@ -230,7 +230,7 @@ export function usePullToRefresh({
         })
       ) {
         drag.hasFiredThresholdHaptic = true;
-        void haptic.light();
+        void haptic.refreshThreshold();
       }
       setPullDistance(visualPullHeight(pullExtent));
       setIsAtThreshold(cls.atThreshold);

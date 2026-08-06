@@ -12,20 +12,21 @@ import { describe, expect, test } from "bun:test";
 
 import type { OpenPanelEvent } from "../api/events/open-panel.js";
 import type { AssistantEvent } from "../api/index.js";
+import type { Conversation } from "../daemon/conversation.js";
 import {
   createSurfaceMutex,
   handleSurfaceAction,
   openChannelSetupPanel,
-  type SurfaceConversationContext,
   surfaceProxyResolver,
 } from "../daemon/conversation-surfaces.js";
 import type { SurfaceType } from "../daemon/message-protocol.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 function makeContext(
   sent: AssistantEvent[] = [],
-  overrides: Partial<SurfaceConversationContext> = {},
-): SurfaceConversationContext {
-  return {
+  overrides: Partial<Conversation> = {},
+): Conversation {
+  return asConversation({
     conversationId: "session-1",
     sendToClient: (msg) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
@@ -46,7 +47,7 @@ function makeContext(
     processMessage: async () => "ok",
     withSurface: createSurfaceMutex(),
     ...overrides,
-  };
+  });
 }
 
 function findOpenPanel(sent: AssistantEvent[]): OpenPanelEvent | undefined {

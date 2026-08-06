@@ -25,16 +25,16 @@ import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { ensureAppSourceWatcher } from "./app-source-watcher.js";
+import type { Conversation } from "./conversation.js";
 import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import { isDoordashCommand, updateDoordashProgress } from "./doordash-steps.js";
-import type { ToolSetupContext } from "./tool-setup-types.js";
 
 const log = getLogger("tool-side-effects");
 
 // ── Types ────────────────────────────────────────────────────────────
 
 export interface SideEffectContext {
-  ctx: ToolSetupContext;
+  ctx: Conversation;
 }
 
 export type PostExecutionHook = (
@@ -57,7 +57,7 @@ export type PostExecutionHook = (
  * and would race with the executor's own output (LUM-1153).
  */
 function notifyAppChanged(
-  ctx: ToolSetupContext,
+  ctx: Conversation,
   appId: string,
   opts?: { fileChange?: boolean; status?: string },
 ): void {

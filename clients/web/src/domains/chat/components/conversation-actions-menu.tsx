@@ -490,7 +490,7 @@ export function renderConversationMenuItemsAsPanelItems({
   const moveToGroupBlock = showMoveToGroup ? (
     <>
       <PanelMenuDivider />
-      <div className="flex items-center gap-2 px-2 pt-1 pb-1 text-body-small-default uppercase tracking-wide text-[var(--content-tertiary)]">
+      <div className="flex items-center gap-2 px-2 pt-2 pb-1 text-body-small-default uppercase tracking-wide text-[var(--content-tertiary)]">
         <FolderInput size={14} aria-hidden />
         Move to group
       </div>
@@ -671,11 +671,25 @@ export function ConversationActionsSheet({
       {trigger ? (
         <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
       ) : null}
-      <BottomSheet.Content aria-describedby={undefined}>
+      {/* This sheet's item list is open-ended (bulk actions, "Move to
+          group" targets, …), so it grows with its content rather than
+          taking the shared default's 50dvh ceiling. `!` forces this over
+          that default: cross-package Tailwind generation order doesn't
+          reliably favor a plain (unmarked) override here. Once content
+          would come within 120px of the top of the screen, the sheet stops
+          growing and its body scrolls instead. */}
+      <BottomSheet.Content
+        aria-describedby={undefined}
+        className="max-h-[calc(100dvh-120px)]!"
+      >
         <BottomSheet.Header className="sr-only">
           <BottomSheet.Title>Conversation actions</BottomSheet.Title>
         </BottomSheet.Header>
-        <BottomSheet.Body className="pt-0">
+        {/* Scrollbar hidden, not just at rest: this sheet has no fixed
+            track-width budget to spare, so a hover-revealed thumb would
+            shift the row content instead. Scroll itself (wheel/trackpad/
+            touch) is unaffected. */}
+        <BottomSheet.Body className="pt-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {renderConversationMenuItemsAsPanelItems({
             ...itemProps,
             onClose: () => onOpenChange(false),
@@ -720,9 +734,9 @@ export function ConversationActionsMenu({
         event.stopPropagation();
         event.preventDefault();
       }}
-      className="flex h-6 w-6 items-center justify-center rounded-[4px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] aria-[expanded=true]:bg-[var(--surface-active)] aria-[expanded=true]:text-[var(--content-emphasised)]"
+      className="flex h-6 w-6 items-center justify-center rounded-[4px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] aria-[expanded=true]:bg-[var(--surface-active)] aria-[expanded=true]:text-[var(--content-emphasised)] max-md:h-[30px] max-md:w-[30px]"
     >
-      <MoreHorizontal size={14} aria-hidden />
+      <MoreHorizontal size={14} aria-hidden className="max-md:h-[21px] max-md:w-[21px]" />
     </button>
   );
 

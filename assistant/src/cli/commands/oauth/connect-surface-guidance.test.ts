@@ -36,5 +36,21 @@ describe("OAuth connect surface guidance", () => {
     expect(hint).toContain('surface_type "oauth_connect"');
     expect(hint).toContain('data.providerKey "google"');
     expect(hint).toContain("paste an OAuth URL");
+    expect(hint).not.toContain("requestedScopes");
+  });
+
+  test("hint with scopes teaches the full replacement set semantics", () => {
+    const hint = oauthConnectSurfaceHint("google", ["a", "b"]);
+    expect(hint).toContain("data.requestedScopes");
+    expect(hint).toContain("full replacement set");
+  });
+
+  test("redirect with scopes carries requestedScopes in the next action", () => {
+    const redirect = buildOAuthConnectSurfaceRedirect("google", ["a", "b"]);
+    expect(redirect.nextAction.data).toEqual({
+      providerKey: "google",
+      requestedScopes: ["a", "b"],
+    });
+    expect(redirect.hint).toBe(oauthConnectSurfaceHint("google", ["a", "b"]));
   });
 });

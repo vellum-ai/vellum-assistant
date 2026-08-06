@@ -1,3 +1,5 @@
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
+
 /**
  * Stands in for an inline visual while the `ui_show` call that authors it is
  * still streaming.
@@ -10,13 +12,13 @@
  */
 export function VisualPlaceholder() {
   return (
-    <div
-      className="skeleton-shimmer flex h-[120px] w-full items-center justify-center rounded-lg"
+    <Skeleton
+      className="flex h-[120px] w-full items-center justify-center rounded-lg"
       role="status"
     >
       <span className="text-body-small-default text-[var(--content-quiet)]">
         Sketching a visual...
       </span>
-    </div>
+    </Skeleton>
   );
 }

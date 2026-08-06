@@ -41,6 +41,7 @@ export function makeSchedule(overrides: Partial<Schedule> = {}): Schedule {
     sourceKey: null,
     userEnabled: null,
     isOneShot: false,
+    isDeferred: false,
     ...overrides,
   };
 }

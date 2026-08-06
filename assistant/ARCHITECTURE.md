@@ -67,8 +67,10 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
 | `actor_client_v1`    | `chat.{read,write}`, `approval.{read,write}`, `settings.{read,write}`, `attachments.{read,write}`, `calls.{read,write}`, `feature_flags.{read,write}` | Desktop, CLI clients                         |
 | `gateway_ingress_v1` | `ingress.write`, `internal.write`                                                                                                                     | Gateway channel inbound + webhook forwarding |
-| `gateway_service_v1` | `settings.read`, `settings.write`, `internal.write`                                                                                                   | Gateway service-to-daemon calls              |
-| `internal_v1`        | `internal.all`                                                                                                                                        | Internal service connections                 |
+| `gateway_service_v1` | `chat.{read,write}`, `settings.{read,write}`, `attachments.{read,write}`, `internal.write`                                                            | Gateway service-to-daemon calls              |
+| `local_v1`           | `local.all`                                                                                                                                           | Local (loopback) conversation sessions       |
+| `speech_relay_v1`    | `speech.relay`                                                                                                                                        | Daemon dial of the gateway speech relay only |
+| `ui_page_v1`         | `settings.read`                                                                                                                                       | Served UI pages                              |
 
 **Identity lifecycle:**
 

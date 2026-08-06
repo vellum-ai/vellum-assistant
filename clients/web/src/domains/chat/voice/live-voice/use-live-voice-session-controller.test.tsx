@@ -55,7 +55,18 @@ mock.module("@/runtime/native-audio-session", () => ({
   },
 }));
 
+// Spread over the real module rather than listing three exports, because
+// `mock.module` replaces a module *wholesale*: anything the controller's graph
+// imports from here and this factory omits fails to resolve at import time, as
+// a `SyntaxError` naming an export that plainly does exist. The graph grows on
+// its own — the island's control handler reaching `confirmation-actions` pulled
+// in `api/messages`, and with it `detectClientOs` — so enumerating exports here
+// makes an unrelated import a test failure. Only the three platform predicates
+// need to be steerable; the rest should behave normally.
+const actualPlatformDetection = await import("@/runtime/platform-detection");
+
 mock.module("@/runtime/platform-detection", () => ({
+  ...actualPlatformDetection,
   isNativeAndroid: () => onNativeAndroid,
   isNativeIOS: () => onNativeIOS,
   isNativeMobile: () => onNativeAndroid || onNativeIOS,

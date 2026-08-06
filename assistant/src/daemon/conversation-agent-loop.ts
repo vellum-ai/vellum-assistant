@@ -152,6 +152,43 @@ const DISK_PRESSURE_ERROR_CATEGORY = "disk_pressure";
 const OUT_OF_CREDITS_ASSISTANT_REPLY =
   "I couldn't reply because you ran out of credits. Add credits in Settings → Billing and we can pick up where we left off.";
 
+/**
+ * Assistant-voice wording persisted as the synthetic assistant row when a turn
+ * terminates because the daily credit limit is reached. The shared
+ * classification (`dailyLimitClassification` in conversation-error.ts) keeps
+ * its `userMessage` in banner voice because it also feeds the live
+ * `conversation_error` event the composer renders; here the row re-enters LLM
+ * history and is displayed as assistant speech, so first-person copy is
+ * accurate. Says "stop" rather than "reply" because the row can land mid-turn,
+ * after a tool round-trip the user already saw. Phrased about the past failure,
+ * not the current limit, because the row stays in the transcript (and renders
+ * as a plain bubble) after the limit resets.
+ */
+const DAILY_LIMIT_REACHED_ASSISTANT_REPLY =
+  "I had to stop because you hit your daily credit limit. Raise the limit in Settings → Billing and we can pick up where we left off, or I can continue once it resets.";
+
+/**
+ * The assistant-voice text a managed-billing failure persists in place of the
+ * classification's own `userMessage`, or `null` when the classification copy is
+ * already right for a transcript row.
+ */
+function managedBillingAssistantReply(
+  providerErrorCode: string | null,
+  providerErrorCategory: string | null,
+): string | null {
+  if (providerErrorCode !== "PROVIDER_BILLING") {
+    return null;
+  }
+  switch (providerErrorCategory) {
+    case "credits_exhausted":
+      return OUT_OF_CREDITS_ASSISTANT_REPLY;
+    case "daily_limit_reached":
+      return DAILY_LIMIT_REACHED_ASSISTANT_REPLY;
+    default:
+      return null;
+  }
+}
+
 /** Title-cased friendly labels for tool names, used in confirmation chips. */
 const TOOL_FRIENDLY_LABEL: Record<string, string> = {
   bash: "Run Command",
@@ -560,6 +597,11 @@ export async function runAgentLoopImpl(
   // applies to later tool executions and nested subagents in the same turn.
   ctx.currentTurnOverrideProfile = turnOverrideProfile;
 
+  // Mirrored onto the live conversation for `createToolExecutor` to read into
+  // `ToolContext.cronRunId`, so a tool that delegates LLM work (subagent spawn
+  // or message) stamps the delegated usage with this firing.
+  ctx.currentTurnCronRunId = turnCronRunId;
+
   // Capture the turn channel context *before* any awaits so a second
   // message from a different channel can't overwrite it mid-flight.
   // When context is unavailable (e.g. regenerate after daemon restart),
@@ -637,6 +679,7 @@ export async function runAgentLoopImpl(
   );
   ctx.diskPressureCleanupModeActive =
     diskPressureDecision.action === "allow-cleanup-mode";
+  const toolsDisabledForTurn = ctx.toolsDisabledDepth > 0;
 
   ctx.lastAssistantAttachments = [];
   ctx.lastAttachmentWarnings = [];
@@ -717,14 +760,20 @@ export async function runAgentLoopImpl(
       return;
     }
 
-    // Ensure workspace git repo is initialized before any tools run.
-    try {
-      const getWorkspaceGitServiceFn =
-        ctx.getWorkspaceGitService ?? getWorkspaceGitService;
-      const gitService = getWorkspaceGitServiceFn(ctx.workingDir);
-      await gitService.ensureInitialized();
-    } catch (err) {
-      rlog.warn({ err }, "Failed to initialize workspace git repo (non-fatal)");
+    // Workspace Git readiness is required only when tools can run. Tool-less
+    // callers use the same depth gate consumed by tool resolution.
+    if (!toolsDisabledForTurn) {
+      try {
+        const getWorkspaceGitServiceFn =
+          ctx.getWorkspaceGitService ?? getWorkspaceGitService;
+        const gitService = getWorkspaceGitServiceFn(ctx.workingDir);
+        await gitService.ensureInitialized();
+      } catch (err) {
+        rlog.warn(
+          { err },
+          "Failed to initialize workspace git repo (non-fatal)",
+        );
+      }
     }
 
     // Auto-complete stale interactive surfaces from previous turns.
@@ -737,13 +786,20 @@ export async function runAgentLoopImpl(
         if (entry.surfaceType === "dynamic_page") {
           continue;
         }
+        // Persist before announcing: a client told the card was dismissed
+        // while the write failed would watch the next reseed revert it.
+        // An unannounced dismissal keeps its pending entry so client and
+        // daemon agree the card is still live and the one-interactive-surface
+        // gate keeps holding; the next user message sweeps it again.
+        if (!markSurfaceCompleted(ctx, surfaceId, "Dismissed")) {
+          continue;
+        }
         onEvent({
           type: "ui_surface_complete",
           conversationId: ctx.conversationId,
           surfaceId,
           summary: "Dismissed",
         });
-        markSurfaceCompleted(ctx, surfaceId, "Dismissed");
         ctx.pendingSurfaceActions.delete(surfaceId);
       }
     }
@@ -1341,9 +1397,16 @@ export async function runAgentLoopImpl(
       return { ...msg, content: cleanedBlocks };
     });
 
-    const hasAssistantResponse = newMessages.some(
-      (msg) => msg.role === "assistant",
-    );
+    // "The run delivered a final assistant reply", not "the run produced any
+    // assistant-role message". A run that called tools already carries
+    // assistant `tool_use` messages, and those are not a delivered reply: a
+    // provider error that kills the run mid-turn leaves the tail as the
+    // tool_result (user role), while a run that replied normally ends on the
+    // assistant message. Testing only the tail keeps the synthetic error row
+    // below reachable for mid-turn failures, which is the only durable record
+    // of why the turn stopped.
+    const hasAssistantResponse =
+      newMessages[newMessages.length - 1]?.role === "assistant";
     if (
       !hasAssistantResponse &&
       state.providerErrorUserMessage &&
@@ -1403,13 +1466,13 @@ export async function runAgentLoopImpl(
           providerErrorCategory: state.providerErrorCategory ?? undefined,
         };
         // The persisted row re-enters LLM history and is displayed as
-        // assistant speech, so managed-credits exhaustion swaps the
-        // context-neutral classification copy for assistant-voice wording.
+        // assistant speech, so the managed-billing categories swap the
+        // banner-voice classification copy for assistant-voice wording.
         const persistedErrorText =
-          state.providerErrorCode === "PROVIDER_BILLING" &&
-          state.providerErrorCategory === "credits_exhausted"
-            ? OUT_OF_CREDITS_ASSISTANT_REPLY
-            : state.providerErrorUserMessage;
+          managedBillingAssistantReply(
+            state.providerErrorCode,
+            state.providerErrorCategory,
+          ) ?? state.providerErrorUserMessage;
         const errorAssistantMessage =
           createAssistantMessage(persistedErrorText);
         const errorRow = await addMessage(
@@ -1686,28 +1749,45 @@ export async function runAgentLoopImpl(
 
     if (turnStarted) {
       ctx.turnCount++;
-      const config = getConfig();
-      const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
-      const deadlineMs = Date.now() + maxWait;
+      const runTurnCommit = async (): Promise<void> => {
+        const config = getConfig();
+        const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
+        const deadlineMs = Date.now() + maxWait;
 
-      const commitTurnChangesFn = ctx.commitTurnChanges ?? commitTurnChanges;
-      const commitPromise = commitTurnChangesFn(
-        ctx.workingDir,
-        ctx.conversationId,
-        ctx.turnCount,
-        undefined,
-        deadlineMs,
-      );
-      const outcome = await raceWithTimeout(commitPromise, maxWait);
-      if (outcome === "timed_out") {
-        rlog.warn(
-          {
-            turnNumber: ctx.turnCount,
-            maxWaitMs: maxWait,
-            conversationId: ctx.conversationId,
-          },
-          "Turn-boundary commit timed out — continuing without waiting (commit still runs in background)",
+        const commitTurnChangesFn = ctx.commitTurnChanges ?? commitTurnChanges;
+        const commitPromise = commitTurnChangesFn(
+          ctx.workingDir,
+          ctx.conversationId,
+          ctx.turnCount,
+          undefined,
+          deadlineMs,
         );
+        const outcome = await raceWithTimeout(commitPromise, maxWait);
+        if (outcome === "timed_out") {
+          rlog.warn(
+            {
+              turnNumber: ctx.turnCount,
+              maxWaitMs: maxWait,
+              conversationId: ctx.conversationId,
+            },
+            "Turn-boundary commit timed out; continuing without waiting (commit still runs in background)",
+          );
+        }
+      };
+
+      if (toolsDisabledForTurn) {
+        // Let the caller and queue drain claim an immediate follow-up turn
+        // before starting Git. That turn will commit the accumulated disk view.
+        setImmediate(() => {
+          if (ctx.isProcessing()) {
+            return;
+          }
+          void runTurnCommit().catch((err) => {
+            rlog.warn({ err }, "Deferred turn-boundary commit failed");
+          });
+        });
+      } else {
+        await runTurnCommit();
       }
 
       // Recompute relationship-state.json at turn boundary (fire-and-forget).
@@ -1734,6 +1814,7 @@ export async function runAgentLoopImpl(
     ctx.diskPressureCleanupModeActive = false;
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
+    ctx.currentTurnCronRunId = undefined;
     ctx.currentTurnModelProfileNoticeKey = undefined;
     // Turn-scoped interactivity. Clear it so paths that bypass this loop (e.g.
     // opportunity wakes calling `agentLoop.run` directly) don't inherit a stale

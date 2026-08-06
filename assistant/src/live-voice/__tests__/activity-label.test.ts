@@ -12,6 +12,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   activityLabelForTool,
+  approvalActivityLabel,
   GENERIC_ACTIVITY_LABEL,
 } from "../activity-label.js";
 
@@ -64,5 +65,31 @@ describe("activityLabelForTool", () => {
       expect(label.length).toBeLessThanOrEqual(32);
       expect(label).not.toMatch(/[.!?]$/);
     }
+  });
+});
+
+describe("approvalActivityLabel", () => {
+  // The turn is not running the tool, it is waiting to be allowed to. Saying
+  // the former is the misstatement this exists to stop — and the line has to
+  // name *something*, or the island asks the user to approve a blank.
+  test("keeps the tool's phrase and says who is being waited on", () => {
+    expect(approvalActivityLabel("bash")).toBe(
+      "Running a command — needs your okay",
+    );
+    expect(approvalActivityLabel("web_search")).toBe(
+      "Searching the web — needs your okay",
+    );
+  });
+
+  test("an unrecognized tool still reads as a wait", () => {
+    expect(approvalActivityLabel("some_vendor_tool")).toBe(
+      `${GENERIC_ACTIVITY_LABEL} — needs your okay`,
+    );
+  });
+
+  // A confirmation from a proxy or network prompter has no tool behind it, and
+  // "Working on it — needs your okay" would claim work that is not happening.
+  test("drops the phrase entirely when there is no tool to name", () => {
+    expect(approvalActivityLabel("")).toBe("Needs your okay");
   });
 });

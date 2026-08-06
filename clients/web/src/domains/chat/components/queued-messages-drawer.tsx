@@ -3,6 +3,7 @@ import { useCallback, useMemo, type ReactNode } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
+import { useSupportsQueueSteering } from "@/lib/backwards-compat/use-supports-queue-steering";
 import { Button } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
@@ -14,7 +15,6 @@ export interface QueuedMessagesDrawerProps {
   onCancelMessage: (messageId: string) => void;
   onCancelAll: () => void;
   onSteer: (messageId: string) => void;
-  showSteer: boolean;
   onEditTail: () => void;
 }
 
@@ -28,7 +28,6 @@ interface QueuedMessageRowProps {
   isTail: boolean;
   onCancel: () => void;
   onSteer: () => void;
-  showSteer: boolean;
   onEdit: () => void;
 }
 
@@ -38,10 +37,10 @@ function QueuedMessageRow({
   isTail,
   onCancel,
   onSteer,
-  showSteer,
   onEdit,
 }: QueuedMessageRowProps) {
   const preview = useMemo(() => messagePlainText(message), [message]);
+  const supportsSteer = useSupportsQueueSteering();
   return (
     <div className="flex items-center gap-1.5 rounded-md py-0.5 md:gap-2 md:px-2 md:py-1.5">
       {/* Accent bar */}
@@ -59,7 +58,7 @@ function QueuedMessageRow({
 
       {/* Action icons */}
       <div className="flex shrink-0 items-center gap-0.5">
-        {showSteer && (
+        {supportsSteer && (
           <Button
             variant="ghost"
             size="compact"
@@ -101,7 +100,6 @@ export function QueuedMessagesDrawer({
   onCancelMessage,
   onCancelAll,
   onSteer,
-  showSteer,
   onEditTail,
 }: QueuedMessagesDrawerProps): ReactNode {
   const handleCancelMessage = useCallback(
@@ -143,7 +141,6 @@ export function QueuedMessagesDrawer({
               isTail={idx === queuedMessages.length - 1}
               onCancel={() => handleCancelMessage(msg.id)}
               onSteer={() => onSteer(msg.id)}
-              showSteer={showSteer}
               onEdit={onEditTail}
             />
           ))}

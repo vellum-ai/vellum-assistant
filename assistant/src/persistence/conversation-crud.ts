@@ -75,6 +75,8 @@ import {
   BACKGROUND_CONVERSATION_TYPES,
   type ConversationCreateType,
   isHiddenMessageMetadata,
+  PINNED_GROUP_ID,
+  UNGROUPED_GROUP_ID,
 } from "./conversation-types.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
@@ -264,6 +266,20 @@ export const messageMetadataSchema = z
      * require a migration -- dbt can unpack later via JSON_VALUE.
      */
     client: z.record(z.string(), z.unknown()).optional(),
+    /**
+     * True when the `client.os` above was reported by this row's own request
+     * or transport rather than inherited from the conversation's live client
+     * state. `Conversation.clientOs` is refreshed only by a message that
+     * carries transport metadata, so a transport-less turn (surface action,
+     * signal ingress) stamps the OS of an earlier send. Consumers that must
+     * not misattribute a turn to a surface require this marker (the
+     * `chat.assistant_reply` presence gate, which drops the push when the Mac
+     * that opened the turn is attended). Absent reads as "origin unknown".
+     * Deliberately a sibling of `client` rather than an entry inside it:
+     * `turn-events-store` forwards `$.client` verbatim onto
+     * `TurnTelemetryEvent.client`.
+     */
+    clientOsFromRequest: z.boolean().optional(),
     subagentNotification: subagentNotificationSchema.optional(),
     acpNotification: acpNotificationSchema.optional(),
     /**
@@ -958,6 +974,14 @@ export function createConversation(
          * `forkParentConversationId` it implies no history inheritance.
          */
         parentConversationId?: string;
+        /**
+         * Role of the subagent that owns this conversation, and how it was
+         * spawned. Persisted here (not only on the ephemeral `subagents` row)
+         * so usage telemetry can decompose delegated spend by variety long
+         * after the subagent record is disposed. See migration 362.
+         */
+        subagentRole?: string;
+        subagentSpawnMode?: string;
       },
 ) {
   const db = getDb();
@@ -1001,6 +1025,8 @@ export function createConversation(
     scheduleJobId: opts.scheduleJobId ?? null,
     forkParentConversationId: opts.forkParentConversationId ?? null,
     parentConversationId: opts.parentConversationId ?? null,
+    subagentRole: opts.subagentRole ?? null,
+    subagentSpawnMode: opts.subagentSpawnMode ?? null,
     // Snapshot↔stream alignment baseline, captured at the creation instant.
     // 0 (nothing stamped yet this process) is stored as NULL so `/messages`
     // reports null and the client cold-starts rather than aligning to seq 0.
@@ -1016,7 +1042,7 @@ export function createConversation(
   // write-contended paths wrap the call in `withSqliteRetry`, and because the
   // insert+update are atomic here, such a retry re-runs the whole thing cleanly
   // (a failed attempt rolls back, so no half-written row is ever left behind).
-  const effectiveGroupId = groupId ?? "system:all";
+  const effectiveGroupId = groupId ?? UNGROUPED_GROUP_ID;
   const raw = getSqliteFrom(db);
   raw.exec("SAVEPOINT create_conv");
   try {
@@ -1025,7 +1051,7 @@ export function createConversation(
       "conversation:create:setGroup",
       "UPDATE conversations SET group_id = ?, is_pinned = ? WHERE id = ?",
       effectiveGroupId,
-      effectiveGroupId === "system:pinned" ? 1 : 0,
+      effectiveGroupId === PINNED_GROUP_ID ? 1 : 0,
       id,
     );
     raw.exec("RELEASE create_conv");
@@ -2825,6 +2851,21 @@ export function isConversationProcessing(id: string): boolean {
 }
 
 /**
+ * The persisted `processing_started_at` stamp, or null when idle or missing.
+ * Deliberately reads only the column (no in-memory fallback): consumers use
+ * it to age a flag {@link isConversationProcessing} already reported set, and
+ * the column is the only signal that carries a start time.
+ */
+export function getConversationProcessingStartedAt(id: string): number | null {
+  const row = rawGet<{ processing_started_at: number | null }>(
+    "conversation:getProcessingStartedAt",
+    "SELECT processing_started_at FROM conversations WHERE id = ?",
+    id,
+  );
+  return row?.processing_started_at ?? null;
+}
+
+/**
  * Conversations currently mid-turn, longest-running first. Throws on a read
  * failure — drain callers must distinguish "nothing processing" from "could
  * not read", so this does not degrade to an empty list.
@@ -3212,6 +3253,50 @@ export function getConversationOverrideProfile(
   conversationId: string,
 ): string | undefined {
   return resolveOverrideProfile(getConversation(conversationId));
+}
+
+/**
+ * The conversation fields needed to tell a durable inference-profile pin from
+ * a session-backed one. Extends {@link OverrideProfileFields} with the session
+ * marker, so callers can decide from a {@link ConversationRow} or a live
+ * in-memory `Conversation` without a redundant row fetch.
+ */
+export interface DurableProfileFields extends OverrideProfileFields {
+  inferenceProfileSessionId?: string | null;
+}
+
+/**
+ * Resolve a conversation's inference-profile pin only when the user set it to
+ * stick, ignoring a TTL-limited profile session.
+ *
+ * {@link resolveOverrideProfile} is read at use time, so a lapsed session
+ * simply reads as absent on the next turn. Anything that copies a pin into a
+ * record outliving that read (a schedule row that fires days later) needs the
+ * stricter question: a copied session would keep billing the model the user
+ * picked for ten minutes long after the session ended.
+ *
+ * A session-backed pin carries a non-null `inferenceProfileSessionId`;
+ * {@link setConversationInferenceProfile}, the sticky setter, clears those
+ * columns. So a null session id is exactly the durable case.
+ */
+export function resolveDurableProfile(
+  fields: DurableProfileFields | null,
+): string | undefined {
+  if (fields?.inferenceProfileSessionId != null) {
+    return undefined;
+  }
+  return resolveOverrideProfile(fields);
+}
+
+/**
+ * Resolve a conversation's durable inference-profile pin by id. Convenience
+ * wrapper over {@link resolveDurableProfile} for callers that don't already
+ * hold the row.
+ */
+export function getConversationDurableProfile(
+  conversationId: string,
+): string | undefined {
+  return resolveDurableProfile(getConversation(conversationId));
 }
 
 export function setLastNotifiedInferenceProfile(
@@ -3992,7 +4077,7 @@ export function batchSetDisplayOrders(
         // the entire batch.
         let safeGroupId = update.groupId;
         if (safeGroupId === null) {
-          safeGroupId = "system:all";
+          safeGroupId = UNGROUPED_GROUP_ID;
         } else if (
           !rawGet<{ id: string }>(
             "conversation:batchSetDisplayOrders:groupCheck",
@@ -4000,7 +4085,7 @@ export function batchSetDisplayOrders(
             safeGroupId,
           )
         ) {
-          safeGroupId = "system:all";
+          safeGroupId = UNGROUPED_GROUP_ID;
         }
         // Moving a conversation into the Scheduled/Background system groups
         // is an explicit demotion out of Recents, so clear any `surfaced_at`
@@ -4010,15 +4095,49 @@ export function batchSetDisplayOrders(
         const clearsSurfaced =
           safeGroupId === "system:background" ||
           safeGroupId === "system:scheduled";
+        // Filing a conversation into a section the user reads (Pinned or one
+        // of their own groups) is the mirror image: an explicit promotion, so
+        // it stamps `surfaced_at` the way the surface API does.
+        //
+        // The stamp is what makes the promotion durable. Visibility must not
+        // depend on where the row currently sits, or removing it from a group
+        // would hide it instead of returning it to Recents, and pinning would
+        // not show it at all: `system:pinned` fails the custom-group arm of
+        // `standardListingVisibilitySql` on that arm's `system:` prefix check.
+        //
+        // Only background and scheduled rows need it: everything else is
+        // already visible, and stamping them would leave `surfaced_at`
+        // meaning nothing. `COALESCE` keeps the original promotion time when
+        // the row is re-filed later.
+        const promotes =
+          !clearsSurfaced &&
+          safeGroupId !== UNGROUPED_GROUP_ID &&
+          (safeGroupId === PINNED_GROUP_ID ||
+            !safeGroupId.startsWith("system:"));
+        const setClauses = [
+          "display_order = ?",
+          "is_pinned = ?",
+          "group_id = ?",
+        ];
+        const params: Array<string | number | null> = [
+          update.displayOrder,
+          safeGroupId === PINNED_GROUP_ID ? 1 : 0,
+          safeGroupId,
+        ];
+        if (clearsSurfaced) {
+          setClauses.push("surfaced_at = NULL");
+        } else if (promotes) {
+          setClauses.push(
+            "surfaced_at = CASE WHEN conversation_type IN ('background', 'scheduled')" +
+              " THEN COALESCE(surfaced_at, ?) ELSE surfaced_at END",
+          );
+          params.push(Date.now());
+        }
+        params.push(update.id);
         rawRun(
           "conversation:batchSetDisplayOrders:group",
-          `UPDATE conversations SET display_order = ?, is_pinned = ?, group_id = ?${
-            clearsSurfaced ? ", surfaced_at = NULL" : ""
-          } WHERE id = ?`,
-          update.displayOrder,
-          safeGroupId === "system:pinned" ? 1 : 0,
-          safeGroupId,
-          update.id,
+          `UPDATE conversations SET ${setClauses.join(", ")} WHERE id = ?`,
+          ...params,
         );
       } else if (update.isPinned === undefined) {
         // Only displayOrder provided — preserve existing pin state and group.

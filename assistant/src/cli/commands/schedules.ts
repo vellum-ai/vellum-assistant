@@ -211,6 +211,11 @@ export function registerSchedulesCommand(program: Command): void {
             return;
           }
 
+          // Lazily loaded so the schedule module stays out of the CLI's
+          // static graph (cli/no-daemon-internals).
+          const { formatScheduleInferenceProfile } =
+            await import("../../schedule/inference-profile.js");
+
           const fields: Array<[string, string]> = [
             ["ID", schedule.id],
             ["Name", schedule.name],
@@ -230,7 +235,7 @@ export function registerSchedulesCommand(program: Command): void {
             ["Script", schedule.script ?? "—"],
             [
               "Inference profile",
-              schedule.inferenceProfile ?? "default (mainAgent)",
+              formatScheduleInferenceProfile(schedule.inferenceProfile),
             ],
             ["Routing intent", schedule.routingIntent],
             ["Reuse conversation", schedule.reuseConversation ? "yes" : "no"],
@@ -509,7 +514,7 @@ export function registerSchedulesCommand(program: Command): void {
 
           if (opts.clearProfile && opts.profile != null) {
             fail(
-              "--profile and --clear-profile are mutually exclusive; pass --profile to set a profile or --clear-profile to revert to the default mainAgent model selection",
+              "--profile and --clear-profile are mutually exclusive; pass --profile to pin a specific profile or --clear-profile to re-pin the schedule to your current default profile",
             );
             return;
           }

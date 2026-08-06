@@ -29,6 +29,19 @@ export interface BootstrapConversationOptions {
    * implies no history inheritance.
    */
   parentConversationId?: string;
+  /**
+   * Role the subagent that owns this conversation was spawned with. Persisted
+   * on the conversation row (not only on the ephemeral `subagents` row) so
+   * usage telemetry can attribute delegated spend per role long after the
+   * subagent record is disposed.
+   */
+  subagentRole?: string;
+  /**
+   * How the subagent that owns this conversation was spawned, one of the modes
+   * described on `SubagentSpawnMode` in `subagent/types.ts`. Orthogonal to
+   * {@link subagentRole}; persisted for the same reason.
+   */
+  subagentSpawnMode?: string;
 }
 
 /**
@@ -63,6 +76,10 @@ export async function bootstrapConversation(
         }),
         ...(opts.parentConversationId && {
           parentConversationId: opts.parentConversationId,
+        }),
+        ...(opts.subagentRole && { subagentRole: opts.subagentRole }),
+        ...(opts.subagentSpawnMode && {
+          subagentSpawnMode: opts.subagentSpawnMode,
         }),
       }),
     { op: "bootstrapConversation" },

@@ -23,6 +23,7 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { resolveDefaultScheduleInferenceProfile } from "../schedule/inference-profile.js";
 import {
   createOwnerDeferredWake,
   createSchedule,
@@ -82,6 +83,9 @@ describe("scheduler wake mode", () => {
       source: "defer",
       persistTriggerAsEvent: true,
       trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
+      // Every schedule is pinned at creation, so the row always carries a
+      // profile for the woken turn to run under.
+      forceOverrideProfile: resolveDefaultScheduleInferenceProfile()!,
     });
 
     // AND processMessage is never called (wake mode doesn't use it)
@@ -113,6 +117,7 @@ describe("scheduler wake mode", () => {
       hint: "Follow up",
       source: "defer",
       persistTriggerAsEvent: true,
+      forceOverrideProfile: resolveDefaultScheduleInferenceProfile()!,
     });
   });
 

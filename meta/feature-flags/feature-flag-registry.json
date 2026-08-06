@@ -198,27 +198,11 @@
       "defaultEnabled": false
     },
     {
-      "id": "queue-steering",
-      "scope": "assistant",
-      "key": "queue-steering",
-      "label": "Queue Steering",
-      "description": "Enable the 'Push to agent' button on queued messages, allowing users to steer the assistant to a specific queued message by aborting the current generation and promoting the message to the head of the queue.",
-      "defaultEnabled": false
-    },
-    {
       "id": "chat-pull-to-refresh-enabled",
       "scope": "client",
       "key": "chat-pull-to-refresh-enabled",
       "label": "Chat Pull to Refresh",
       "description": "Enable pull-to-refresh gesture in the chat view.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "platform-notifications",
-      "scope": "client",
-      "key": "platform-notifications",
-      "label": "Platform Notifications",
-      "description": "Enable the Notifications tab in settings.",
       "defaultEnabled": false
     },
     {
@@ -363,6 +347,14 @@
       "key": "assistant-reply-push",
       "label": "Assistant Reply Push",
       "description": "Gates the `chat.assistant_reply` push notification the assistant sends at the end of a user-initiated turn whose reply the user has not seen. On by default; turn it off to silence the push without disabling the rest of the notification pipeline.",
+      "defaultEnabled": true
+    },
+    {
+      "id": "desktop-presence-suppression",
+      "scope": "assistant",
+      "key": "desktop-presence-suppression",
+      "label": "Desktop Presence Suppression",
+      "description": "Gates whether a `chat.assistant_reply` push is suppressed while a Mac desktop client reports itself attended. On by default; turn it off to restore unconditional reply pushes.",
       "defaultEnabled": true
     }
   ]

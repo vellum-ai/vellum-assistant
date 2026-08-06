@@ -96,6 +96,8 @@ export function ProfileDetailPanel({
   const deleteFlow = useProfileDeleteFlow(assistantId, config, {
     onDeleted: () => onClose(),
   });
+  const deletePending =
+    profileName != null && deleteFlow.pendingDeleteName === profileName;
 
   // The open profile can vanish underneath the panel (deleted from a row
   // kebab, or removed on another device). Close rather than editing a ghost.
@@ -138,9 +140,9 @@ export function ProfileDetailPanel({
                   deleteFlow.requestDelete(profileName);
                 }
               }}
-              disabled={editor.saving}
+              disabled={editor.saving || deletePending}
             >
-              Delete
+              {deletePending ? "Deleting…" : "Delete"}
             </Button>
           ) : null
         }

@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { createApp, deleteApp, getAppDirPath } from "../apps/app-store.js";
+import { createApp, deleteApp } from "../apps/app-store.js";
 import {
   clearConversations,
   setConversation,
@@ -56,7 +56,7 @@ afterEach(() => {
 });
 
 describe("buildVisibleAppContext", () => {
-  test("resolves the app's name, readable slug, and source directory", () => {
+  test("resolves the app's name and readable slug, without a host path", () => {
     // A workspace app id is an opaque UUID; the slug is the handle a human
     // (or the model) recognizes, so both have to come back.
     const app = createApp({
@@ -69,8 +69,25 @@ describe("buildVisibleAppContext", () => {
       appId: app.id,
       name: "Grocery List",
       slug: "grocery-list",
-      sourceDir: getAppDirPath(app.id),
     });
+  });
+
+  test("carries no resolved directory, only derivable handles", () => {
+    // Only derivable handles ship: a workspace app's directory is the
+    // workspace `Root:` joined with the app-builder skill's
+    // `data/apps/<slug>/` layout, so no value here may be an absolute path.
+    const app = createApp({
+      name: "Grocery List",
+      schemaJson: "{}",
+      htmlDefinition: "<h1>Hello</h1>",
+    });
+
+    const context = buildVisibleAppContext(app.id);
+
+    expect(context).not.toBeNull();
+    for (const value of Object.values(context ?? {})) {
+      expect(value.startsWith("/")).toBe(false);
+    }
   });
 
   test("returns null when no app is in view", () => {
@@ -109,7 +126,6 @@ describe("buildVisibleAppContext", () => {
       appId: "plugins~acme~acme-dashboard",
       name: "acme-dashboard",
       slug: "acme-dashboard",
-      sourceDir: join(pluginDir, "apps", "acme-dashboard"),
       pluginName: "acme",
     });
   });

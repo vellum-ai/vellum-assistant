@@ -36,7 +36,9 @@ export function PairDeviceCard() {
     webRemoteIngressOn,
     target?.ingressUrl ?? null,
   );
-  const { copy, copied } = useCopyToClipboard();
+  const { copy, copied } = useCopyToClipboard({
+    errorMessage: "Could not copy the pairing address.",
+  });
 
   if (!target || !supported) {
     return null;

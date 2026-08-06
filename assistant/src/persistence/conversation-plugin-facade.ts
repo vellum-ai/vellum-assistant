@@ -59,6 +59,20 @@ export async function isConversationProcessing(id: string): Promise<boolean> {
   return fn(id);
 }
 
+/**
+ * The persisted `processing_started_at` stamp for a conversation, or null
+ * when the conversation is idle (or the row does not exist). Lets background
+ * consumers age-gate the processing flag: a stamp far in the past is a
+ * stranded flag (a swallowed turn-end clear), not a live turn.
+ */
+export async function getConversationProcessingStartedAt(
+  id: string,
+): Promise<number | null> {
+  const { getConversationProcessingStartedAt: fn } =
+    await import("./conversation-crud.js");
+  return fn(id);
+}
+
 /** Parse a stored message-metadata JSON string; undefined when absent/invalid. */
 export async function parseMessageMetadata(
   metadataJson: string | null,
@@ -122,7 +136,13 @@ export async function deleteConversation(id: string): Promise<void> {
   }
 }
 
-/** List conversation rows, newest first. */
+/**
+ * List conversation rows, newest first.
+ *
+ * The positional signature is part of the plugin API surface and stays
+ * stable; the underlying query takes a named filter, which this maps onto.
+ * Omitted arguments stay omitted so the query's own defaults apply.
+ */
 export async function listConversations(
   limit?: number,
   conversationType?: ConversationType,
@@ -131,8 +151,13 @@ export async function listConversations(
   originChannel?: string,
 ): Promise<ConversationRow[]> {
   const { listConversations: fn } = await import("./conversation-queries.js");
-  // Explicit `undefined` arguments fall through to the underlying defaults.
-  return fn(limit, conversationType, offset, archiveStatus, originChannel);
+  return fn({
+    ...(limit !== undefined ? { limit } : {}),
+    ...(conversationType !== undefined ? { conversationType } : {}),
+    ...(offset !== undefined ? { offset } : {}),
+    ...(archiveStatus !== undefined ? { archiveStatus } : {}),
+    ...(originChannel !== undefined ? { originChannel } : {}),
+  });
 }
 
 /** Sparse lexical search over stored message text; ranked message-id hits. */

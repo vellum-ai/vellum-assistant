@@ -31,6 +31,7 @@ import {
   useState,
 } from "react";
 
+import { markBoot } from "@/lib/telemetry/boot-telemetry";
 import { useAcpRunRehydration } from "@/domains/chat/hooks/use-acp-run-rehydration";
 import { useBackgroundTaskRehydration } from "@/domains/chat/hooks/use-background-task-rehydration";
 import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
@@ -56,6 +57,7 @@ import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachmen
 import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
 import { recordCommit } from "@/lib/commit-pressure";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { useSwitchPaintMeasurement } from "@/lib/telemetry/switch-telemetry";
 import { NewChatPluginsSection } from "@/domains/chat/components/new-chat-plugins/new-chat-plugins-section";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveProcessOverlay } from "@/domains/chat/process-registry/active-process-overlay";
@@ -116,7 +118,6 @@ import type {
   DisplayAttachment,
   DisplayMessage,
 } from "@/domains/chat/types/types";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
 import type { UIContext } from "@/domains/chat/turn-selectors";
@@ -442,8 +443,8 @@ export function ChatMainPanel({
     void navigate(routes.settings.ai);
   }, [navigate]);
 
-  const pushToBillingSettings = useCallback(() => {
-    void navigate(routes.settings.usageBilling);
+  const pushToDailyLimitSettings = useCallback(() => {
+    void navigate(routes.settings.usageBillingDailyLimit);
   }, [navigate]);
 
   const checkAssistant = useCallback(
@@ -502,10 +503,32 @@ export function ChatMainPanel({
 
   // Commit counter for the chat-route subtree. Deliberately dependency-less:
   // it has to run on every commit to measure how tightly they are packed,
-  // which is what `Maximum update depth exceeded` actually reacts to. Records
-  // nothing but two integers — see `lib/commit-pressure.ts`.
-  useEffect(() => {
+  // which is what `Maximum update depth exceeded` actually reacts to. A layout
+  // effect rather than a passive one, so the commit is recorded before
+  // ResizeObserver, rAF, and timer callbacks can fire: an instrumented update
+  // landing in that window would otherwise be consumed as attribution of the
+  // commit that just finished instead of the commit it causes. Records nothing
+  // but a few integers; see `lib/commit-pressure.ts`.
+  useLayoutEffect(() => {
     recordCommit();
+  });
+
+  // Closes the switch measurement `switchToConversation` opened. That action
+  // blanks the snapshot and sets `isLoadingHistory` in one commit, so the first
+  // render that is not an empty loading transcript is the incoming
+  // conversation's first paint. It runs from an ancestor effect
+  // (`ActiveChatView`), which React commits after this one, so the render that
+  // first carries the new id finds no pending window and measures nothing.
+  // A history fetch that errored with nothing on screen reads exactly like an
+  // instant empty conversation, so it has to veto the paint; an error that
+  // still has a painted transcript behind it (a failed older page, a failed
+  // background refetch) does not.
+  const historyLoadFailed = historyPagination.isError && messages.length === 0;
+  useSwitchPaintMeasurement({
+    conversationId: activeConversationId,
+    historyLoadFailed,
+    transcriptPainted: !(isLoadingHistory && messages.length === 0),
+    hadHistory: messages.length > 0,
   });
 
   // Clear staged quotes and dismiss the reply bubble when the active
@@ -523,11 +546,6 @@ export function ChatMainPanel({
     () => void sendMessage("/clean"),
     [sendMessage],
   );
-
-  // -------------------------------------------------------------------------
-  // Feature flags
-  // -------------------------------------------------------------------------
-  const queueSteering = useAssistantFeatureFlagStore.use.queueSteering();
 
   // -------------------------------------------------------------------------
   // Draft secret detection: owns the composer warning's matches/dismissal
@@ -657,6 +675,18 @@ export function ChatMainPanel({
     status: diskPressure.status,
   });
   const diskPressureInputDisabled = diskPressureChatBlockReason !== null;
+
+  // First meaningful transcript paint: the exact condition under which
+  // `ChatScrollArea` stops rendering `<ChatSkeleton />`. On the new-conversation
+  // draft there is no history to wait for, so this lands immediately; on an
+  // existing conversation it is the history fetch. `markBoot` is first-write-wins,
+  // so later conversation switches within the page load do not overwrite it.
+  const transcriptPainted = !(isLoadingHistory && messages.length === 0);
+  useEffect(() => {
+    if (transcriptPainted) {
+      markBoot("transcript_painted");
+    }
+  }, [transcriptPainted]);
 
   const typingDisabled =
     isLoadingHistory ||
@@ -1082,7 +1112,6 @@ export function ChatMainPanel({
     onCancelAllQueued: handleCancelAllQueued,
     onSteerMessage: handleSteerMessage,
     onEditQueueTail: handleEditQueueTail,
-    queueSteering,
   });
 
   // -------------------------------------------------------------------------
@@ -1098,6 +1127,9 @@ export function ChatMainPanel({
     billingBannerDecision,
     isLowBalance: balanceStatus.isLowBalance,
     dismissed: lowBalanceBannerDismissed,
+    // State-driven, so the banner is already up when the user returns to an
+    // app whose daily cap was reached by background turns.
+    dailyLimitReached: balanceStatus.dailyLimitReached,
   });
 
   // -------------------------------------------------------------------------
@@ -1235,7 +1267,7 @@ export function ChatMainPanel({
             onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
             billingBannerSlot={
               composerBillingBanner === "daily_limit" ? (
-                <DailyLimitBanner onAdjustLimit={pushToBillingSettings} />
+                <DailyLimitBanner onAdjustLimit={pushToDailyLimitSettings} />
               ) : composerBillingBanner === "provider_billing" ? (
                 <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
               ) : composerBillingBanner === "low_balance" ? (

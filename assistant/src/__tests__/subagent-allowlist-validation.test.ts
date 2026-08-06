@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import { SUBAGENT_ROLE_REGISTRY } from "../subagent/index.js";
 import { findUnknownAllowlistTools } from "../subagent/validate-allowlists.js";
+import { notifyParentTool } from "../tools/subagent/notify-parent.js";
+import { explicitTools } from "../tools/tool-manifest.js";
 
 /** Union of every tool name referenced by any role allowlist. */
 function allReferencedToolNames(): Set<string> {
@@ -40,10 +42,30 @@ describe("findUnknownAllowlistTools", () => {
     expect(flaggedRoles).toEqual(expectedRoles);
   });
 
-  test("skips roles with no allowlist (general imposes no filter)", () => {
-    // `general` has allowedTools: undefined, so even against an empty registry
-    // it contributes no entries.
+  test("a role that imposes no filter contributes no entries", () => {
+    // The builder declares no allowlist, so even against an empty registry it
+    // has nothing that could fail to resolve.
     const unknown = findUnknownAllowlistTools(new Set());
-    expect(unknown.some((u) => u.role === "general")).toBe(false);
+    expect(unknown.some((u) => u.role === "builder")).toBe(false);
+    // Every allowlisted role's entries are all flagged against an empty registry.
+    expect(unknown.length).toBeGreaterThan(0);
+    expect(unknown.some((u) => u.role === "advisor")).toBe(true);
+  });
+
+  test("every allowlisted core tool name is a real registered tool", () => {
+    // What the boot-time check does, minus standing up the registry: a name
+    // that resolves to nothing costs the role that tool in silence. In
+    // particular `skill_execute` has to exist, or a role's preactivated
+    // skills project tools it can never call.
+    const registeredNames = new Set([
+      ...explicitTools.map((tool) => tool.name),
+      // Registered with the subagent skill rather than the core manifest.
+      notifyParentTool.name,
+    ]);
+    expect(registeredNames.has("skill_execute")).toBe(true);
+    const unresolved = [...allReferencedToolNames()].filter(
+      (name) => !registeredNames.has(name),
+    );
+    expect(unresolved).toEqual([]);
   });
 });

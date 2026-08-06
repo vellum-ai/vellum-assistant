@@ -19,6 +19,15 @@ mock.module("../../assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
+// Pinning consults connection availability, which reads the credential store.
+// Report a stored key so a seeded connection counts as credentialed.
+mock.module("../../../security/secure-keys.js", () => ({
+  getSecureKeyResultAsync: async () => ({
+    value: "test-key",
+    unreachable: false,
+  }),
+}));
+
 import { eq } from "drizzle-orm";
 
 import { setConfig } from "../../../__tests__/helpers/set-config.js";
@@ -26,6 +35,7 @@ import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import {
   conversations,
+  providerConnections,
   scheduleJobs,
 } from "../../../persistence/schema/index.js";
 import {
@@ -49,7 +59,31 @@ await initializeDb();
 // keeps its schema default (`maxTtlSeconds: 43200`).
 // ---------------------------------------------------------------------------
 
+/**
+ * A credentialed connection for `provider`. Pinning a profile to a
+ * conversation is refused when the profile provably cannot dispatch, so a
+ * profile is only a valid pin target with a connection behind it.
+ */
+function seedKeyedConnection(provider: string): void {
+  const now = Date.now();
+  getDb()
+    .insert(providerConnections)
+    .values({
+      name: `${provider}-personal`,
+      provider,
+      auth: JSON.stringify({
+        type: "api_key",
+        credential: `credential/${provider}/api_key`,
+      }),
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing()
+    .run();
+}
+
 function seedProfiles(profiles: Record<string, unknown>): void {
+  seedKeyedConnection("anthropic");
   setConfig("llm", { profiles });
 }
 
@@ -120,6 +154,7 @@ describe("POST /v1/conversations (createConversation)", () => {
       .select({
         title: conversations.title,
         isAutoTitle: conversations.isAutoTitle,
+        conversationType: conversations.conversationType,
       })
       .from(conversations)
       .where(eq(conversations.id, id))
@@ -169,15 +204,75 @@ describe("POST /v1/conversations (createConversation)", () => {
     ).toThrow(/title must be a string/);
     expect(getDb().select().from(conversations).all()).toHaveLength(0);
   });
+
+  test("conversationType: background → persists a background row and echoes it back", async () => {
+    const result = (await createHandler({
+      body: {
+        conversationType: "background",
+        title: "Updating personality",
+      },
+    })) as { id: string; conversationType: string; created: boolean };
+
+    expect(result.created).toBe(true);
+    expect(result.conversationType).toBe("background");
+    const row = readConversation(result.id);
+    expect(row?.conversationType).toBe("background");
+    // An explicit title stays user-set on a background row too.
+    expect(row?.title).toBe("Updating personality");
+    expect(row?.isAutoTitle).toBe(0);
+  });
+
+  test("omitted conversationType still creates a standard row", async () => {
+    const result = (await createHandler({
+      body: { title: "Visible thread" },
+    })) as { id: string; conversationType: string };
+
+    expect(result.conversationType).toBe("standard");
+    expect(readConversation(result.id)?.conversationType).toBe("standard");
+  });
+
+  test("explicit conversationType: null behaves exactly like an omitted one", async () => {
+    const result = (await createHandler({
+      body: { conversationType: null, title: "Visible thread" },
+    })) as { id: string; conversationType: string };
+
+    expect(result.conversationType).toBe("standard");
+    expect(readConversation(result.id)?.conversationType).toBe("standard");
+  });
+
+  test.each(["scheduled", "nonsense"])(
+    "conversationType: %p → BadRequestError, no row created",
+    (conversationType) => {
+      expect(() => createHandler({ body: { conversationType } })).toThrow(
+        /conversationType must be one of standard, background/,
+      );
+      expect(getDb().select().from(conversations).all()).toHaveLength(0);
+    },
+  );
 });
 
 describe("PUT /v1/conversations/:id/inference-profile", () => {
   beforeEach(() => {
     clearConversations();
     seedProfiles({
-      fast: { model: "model-a" },
-      slow: { model: "model-b" },
+      fast: { provider: "anthropic", model: "model-a" },
+      slow: { provider: "anthropic", model: "model-b" },
     });
+  });
+
+  // The resolver skips a profile carrying no provider and model, so pinning
+  // one would leave the conversation running something other than what was
+  // chosen. The pin is refused rather than silently honoured.
+  test("PUT rejects a profile that cannot dispatch", async () => {
+    seedProfiles({ "half-made": { provider: "anthropic" } });
+    const convId = crypto.randomUUID();
+    seedConversation(convId);
+    await expect(
+      putHandler({
+        pathParams: { id: convId },
+        body: { profile: "half-made", ttlSeconds: 600 },
+      }),
+    ).rejects.toThrow(/provider and a model/);
   });
 
   test("PUT with ttlSeconds=600 → response includes sessionId (UUID), expiresAt, ttlSeconds=600", async () => {
@@ -265,7 +360,7 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
 describe("POST /v1/conversations/inference-profile-session (inference_profile_open)", () => {
   beforeEach(() => {
     clearConversations();
-    seedProfiles({ fast: { model: "model-a" } });
+    seedProfiles({ fast: { provider: "anthropic", model: "model-a" } });
   });
 
   test("POST with ttlSeconds=600 → same shape as PUT: sessionId UUID, expiresAt, ttlSeconds=600", async () => {
@@ -297,7 +392,7 @@ describe("POST /v1/conversations/inference-profile-session (inference_profile_op
 describe("GET /v1/conversations/inference-profile-sessions (inference_profile_list)", () => {
   beforeEach(() => {
     clearConversations();
-    seedProfiles({ fast: { model: "model-a" } });
+    seedProfiles({ fast: { provider: "anthropic", model: "model-a" } });
   });
 
   test("GET inference-profile-sessions → returns sessions array with remainingSeconds", async () => {
@@ -332,7 +427,7 @@ describe("GET /v1/conversations/inference-profile-sessions (inference_profile_li
 describe("POST /v1/conversations/inference-profile-session/close (inference_profile_close)", () => {
   beforeEach(() => {
     clearConversations();
-    seedProfiles({ fast: { model: "model-a" } });
+    seedProfiles({ fast: { provider: "anthropic", model: "model-a" } });
   });
 
   test("POST inference_profile_close → { noop: false, closed: { profile, sessionId } } after an open", async () => {

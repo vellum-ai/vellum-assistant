@@ -16,10 +16,10 @@ const log = getLogger("disk-pressure-guard-lifecycle");
 
 let diskPressureStartupSampleTimer: ReturnType<typeof setTimeout> | null = null;
 
-function runDeferredDiskPressureStartupSample(): void {
+async function runDeferredDiskPressureStartupSample(): Promise<void> {
   diskPressureStartupSampleTimer = null;
   try {
-    const status = evaluateDiskPressureNow();
+    const status = await evaluateDiskPressureNow();
     if (status.error) {
       log.warn(
         { error: status.error },

@@ -17,6 +17,7 @@ import type {
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
 import type {
   ChannelId,
+  ClientOs,
   InterfaceId,
   TurnChannelContext,
   TurnInterfaceContext,
@@ -265,6 +266,22 @@ export interface VoiceTurnOptions {
   userMessageInterface?: InterfaceId;
   /** Source interface for persisted assistant messages. Defaults to userMessageInterface. */
   assistantMessageInterface?: InterfaceId;
+  /**
+   * Analytics attribution for a live-voice turn: which client opened the
+   * session, and that session's id. Persisted into the user message's
+   * `metadata.client` bag, which `turn-events-store` projects onto
+   * `TurnTelemetryEvent.client`, so a live-voice turn is countable per client
+   * and joinable to its session's start/end funnel rows.
+   *
+   * Deliberately separate from {@link userMessageInterface}: that field feeds
+   * `resolveChannelCapabilities` and decides what the turn may do, so it is not
+   * free to carry attribution. Absent for phone calls and for clients that send
+   * no identity on the start frame.
+   */
+  voiceTelemetry?: {
+    sessionId: string;
+    client?: ClientOs;
+  };
   /** Per-turn control prompt. Undefined uses the phone prompt; null disables it. */
   voiceControlPrompt?: string | null;
   /** The transcribed caller utterance or synthetic marker. */
@@ -945,6 +962,27 @@ export async function startVoiceTurn(
         // `isVoiceSessionUserMessage` for why the channel fields cannot carry it.
         voiceSessionTurn: true,
         ...(isHiddenSyntheticPrompt ? { hidden: true } : {}),
+        ...(opts.voiceTelemetry
+          ? {
+              // Projected onto `TurnTelemetryEvent.client` by
+              // `turn-events-store`. `voice_session_id` is what joins these
+              // turn rows to the session's funnel rows, so a session's turn
+              // count is a count of rows carrying its id, never a field
+              // anyone has to keep correct.
+              //
+              // `os` is the standard per-platform dimension the HTTP send
+              // path already fills from the same `detectClientOs()` value, so
+              // a voice turn reports its platform in the column existing turn
+              // analytics read rather than one only voice knows about.
+              client: {
+                voice: true,
+                voice_session_id: opts.voiceTelemetry.sessionId,
+                ...(opts.voiceTelemetry.client
+                  ? { os: opts.voiceTelemetry.client }
+                  : {}),
+              },
+            }
+          : {}),
       },
     });
     return persistResult.id;

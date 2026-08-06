@@ -54,6 +54,7 @@ export type VellumCommand =
   | { kind: "chooseAssistant" }
   | { kind: "createAssistant" }
   | { kind: "retireAssistant"; assistantId: string }
+  | { kind: "removePairedAssistant"; assistantId: string }
   | { kind: "quickInputSubmit"; message: string }
   | { kind: "cancelDictation" }
   | { kind: "replayOnboarding" }
@@ -199,6 +200,15 @@ export type DeepLink =
   | { kind: "openThread"; threadId: string }
   | { kind: "billingCheckoutComplete"; status: "success"; sessionId: string }
   | { kind: "billingCheckoutComplete"; status: "cancel"; sessionId: null }
+  /**
+   * `<scheme>://connect`: the pair-page "Open in the Vellum app" hand-off
+   * and `vellum pair --qr --app` QR codes. `url` is a validated https server
+   * base; `bundle` (pairing bundle) is secret material and must never be
+   * logged or breadcrumbed. Fields absent when their query params were
+   * missing or malformed. The link never carries the `code` query param
+   * (device code): the renderer has no consumer for it.
+   */
+  | { kind: "connect"; url?: string; bundle?: string }
   | { kind: "unknown"; url: string };
 
 // ---------------------------------------------------------------------------

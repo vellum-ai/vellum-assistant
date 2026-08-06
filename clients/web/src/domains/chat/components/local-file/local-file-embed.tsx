@@ -13,6 +13,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { toast } from "@vellumai/design-library";
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
 
 import { LocalFileCard } from "@/domains/chat/components/local-file/local-file-card";
 import { localFileKindFromFilename } from "@/domains/chat/components/local-file/local-file-icon";
@@ -144,10 +145,11 @@ export function LocalFileEmbed({
   );
 
   const placeholder = (
-    <span
+    <Skeleton
+      as="span"
       role="status"
       aria-label={`Loading ${mediaLabel}`}
-      className="my-2 inline-block h-7 w-40 animate-pulse rounded-lg bg-[var(--surface-lift)] align-middle"
+      className="my-2 inline-block h-7 w-40 rounded-lg align-middle"
     />
   );
 

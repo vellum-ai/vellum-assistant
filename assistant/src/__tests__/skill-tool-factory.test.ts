@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +7,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { SkillToolEntry } from "../config/skills.js";
 import { RiskLevel } from "../permissions/types.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
+import { resolveSubagentRole } from "../subagent/role-resolution.js";
+import type { SubagentRole } from "../subagent/types.js";
+import { bundledToolInputMisuseKeys } from "../tools/shared/input-misuse.js";
 import {
   createSkillTool,
   createSkillToolsFromManifest,
@@ -487,6 +491,249 @@ describe("createSkillTool — required/type/enum validation", () => {
     expect(result.isError).toBe(false);
     const parsed = JSON.parse(result.content);
     expect(parsed.input).toEqual({ mode: "a" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createSkillTool: parameter misuse redirects
+// ---------------------------------------------------------------------------
+
+/**
+ * The subagent skill's real `subagent_read` manifest entry. Its redirect keys
+ * are absent from the advertised `properties`, so manifest validation is the
+ * layer that has to surface the redirect: nothing downstream of it runs.
+ */
+function subagentReadEntry(): SkillToolEntry {
+  const manifest = JSON.parse(
+    readFileSync(
+      join(import.meta.dir, "../config/bundled-skills/subagent/TOOLS.json"),
+      "utf-8",
+    ),
+  ) as { tools: SkillToolEntry[] };
+  const entry = manifest.tools.find((t) => t.name === "subagent_read");
+  if (!entry) {
+    throw new Error("subagent_read is missing from the subagent TOOLS.json");
+  }
+  return entry;
+}
+
+function subagentReadTool() {
+  return createSkillTool(
+    subagentReadEntry(),
+    "/skills/subagent",
+    "v1:test",
+    BUNDLED,
+  );
+}
+
+describe("createSkillTool: parameter misuse redirects", () => {
+  for (const key of ["path", "file", "filename"]) {
+    test(`subagent_read sends "${key}" to file_read`, async () => {
+      const result = await subagentReadTool().execute(
+        { [key]: "/tmp/notes.md" },
+        makeContext(),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toBe(
+        "subagent_read returns a subagent's output, it does not read files. Use file_read for files. Pass subagent_id or label here.",
+      );
+    });
+  }
+
+  for (const key of ["subagentId", "agent_id"]) {
+    test(`subagent_read names "${key}" as a misspelling of subagent_id`, async () => {
+      const result = await subagentReadTool().execute(
+        { [key]: "sa-1" },
+        makeContext(),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toBe(
+        "Unknown parameter. Use subagent_id (snake_case) or label.",
+      );
+    });
+  }
+
+  test("a key with no redirect keeps the generic validation error", async () => {
+    const result = await subagentReadTool().execute(
+      { subagent_id: "sa-1", nonsense: 1 },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "subagent_read"');
+    expect(result.content).toContain('Unknown parameter "nonsense"');
+  });
+
+  test("redirect keys stay out of the advertised schema", () => {
+    const properties = (
+      subagentReadEntry().input_schema as {
+        properties: Record<string, unknown>;
+      }
+    ).properties;
+
+    for (const key of bundledToolInputMisuseKeys("subagent_read")) {
+      expect(properties[key]).toBeUndefined();
+    }
+  });
+
+  test("a non-bundled skill reusing the name keeps the generic validation error", async () => {
+    // Tool names are not reserved, so a workspace skill can define its own
+    // `subagent_read` where `path` is a declared parameter. Its validation
+    // errors must describe its own manifest, not Vellum's file-reader redirect.
+    const tool = createSkillTool(
+      makeEntry({
+        name: "subagent_read",
+        input_schema: {
+          type: "object",
+          properties: { path: { type: "string" } },
+          required: ["path"],
+        },
+      }),
+      "/workspace/skills/notes",
+      "v1:test",
+      false,
+    );
+
+    const result = await tool.execute(
+      { path: "/tmp/notes.md", nonsense: 1 },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "subagent_read"');
+    expect(result.content).toContain('Unknown parameter "nonsense"');
+  });
+
+  test("an unspecified owner keeps the generic validation error", async () => {
+    const tool = createSkillTool(
+      subagentReadEntry(),
+      "/skills/subagent",
+      "v1:test",
+    );
+
+    const result = await tool.execute({ path: "/tmp/notes.md" }, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "subagent_read"');
+    expect(result.content).toContain('Unknown parameter "path"');
+  });
+
+  test("a tool with no rules keeps the generic validation error", async () => {
+    const hash = computeSkillVersionHash(tempDir);
+    const tool = createSkillTool(
+      makeEntry({ executor: "echo.ts" }),
+      tempDir,
+      hash,
+      BUNDLED,
+    );
+
+    const result = await tool.execute(
+      { query: "hello", path: "/tmp/notes.md" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "test_tool"');
+    expect(result.content).toContain('Unknown parameter "path"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createSkillTool: subagent_spawn roles survive manifest validation
+// ---------------------------------------------------------------------------
+
+/** The subagent skill's real `subagent_spawn` manifest entry. */
+function subagentSpawnEntry(): SkillToolEntry {
+  const manifest = JSON.parse(
+    readFileSync(
+      join(import.meta.dir, "../config/bundled-skills/subagent/TOOLS.json"),
+      "utf-8",
+    ),
+  ) as { tools: SkillToolEntry[] };
+  const entry = manifest.tools.find((t) => t.name === "subagent_spawn");
+  if (!entry) {
+    throw new Error("subagent_spawn is missing from the subagent TOOLS.json");
+  }
+  return entry;
+}
+
+/**
+ * The real `subagent_spawn` schema wired to a stub executor. Only the schema
+ * is under test here, so the manifest's own executor (which would really spawn)
+ * is swapped for the echo script.
+ */
+function subagentSpawnTool() {
+  return createSkillTool(
+    { ...subagentSpawnEntry(), executor: "echo.ts" },
+    tempDir,
+    computeSkillVersionHash(tempDir),
+    BUNDLED,
+  );
+}
+
+/**
+ * Every `role` string {@link resolveSubagentRole} defines an answer for has to
+ * clear manifest validation first: `createSkillTool` validates against the
+ * manifest BEFORE the executor runs, so a constraint there that is narrower
+ * than the resolver silently deletes the resolver's behavior, and every test
+ * that calls `executeSubagentSpawn` directly still passes.
+ */
+describe("createSkillTool: subagent_spawn role validation", () => {
+  const ROLE_CASES: ReadonlyArray<readonly [string, SubagentRole]> = [
+    ["researcher", "researcher"],
+    ["builder", "builder"],
+    ["advisor", "advisor"],
+    ["planner", "researcher"],
+    ["investigator", "researcher"],
+    ["coder", "builder"],
+    ["general", "builder"],
+    ["a skeptical security reviewer", "researcher"],
+    ["Researcher", "researcher"],
+  ];
+
+  test.each(ROLE_CASES)(
+    'role "%s" passes manifest validation and resolves to %s',
+    async (role, expected) => {
+      const result = await subagentSpawnTool().execute(
+        { label: "Check", objective: "Do the thing", role },
+        makeContext(),
+      );
+
+      // Reached the executor at all, so validation let the role through.
+      expect(result.isError).toBe(false);
+      expect(JSON.parse(result.content).input.role).toBe(role);
+      // And the value the executor receives lands where the tool description
+      // and the docs say it does.
+      expect(resolveSubagentRole(role).role).toBe(expected);
+    },
+  );
+
+  test("role declares no enum, so the resolver stays reachable", () => {
+    const role = (
+      subagentSpawnEntry().input_schema as {
+        properties: Record<string, { type?: string; enum?: unknown }>;
+      }
+    ).properties.role;
+
+    expect(role.type).toBe("string");
+    // An enum here is enforced by `validateInputAgainstSchema` ahead of the
+    // executor, so any list short of "every string" rejects the legacy names
+    // and free-text personas the resolver exists to handle.
+    expect(role.enum).toBeUndefined();
+  });
+
+  test("output_contract keeps its enum, which the resolver has no fallback for", () => {
+    // The counterpart constraint: unlike `role`, an unrecognized contract has
+    // no defined behavior, so rejecting it at the boundary is correct.
+    const contract = (
+      subagentSpawnEntry().input_schema as {
+        properties: Record<string, { enum?: string[] }>;
+      }
+    ).properties.output_contract;
+
+    expect(contract.enum).toEqual(["report", "verdict", "artifact"]);
   });
 });
 

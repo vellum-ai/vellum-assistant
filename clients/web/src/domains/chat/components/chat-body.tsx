@@ -1,10 +1,4 @@
-import {
-  useLayoutEffect,
-  useRef,
-  useState,
-  type DragEventHandler,
-  type ReactNode,
-} from "react";
+import { useLayoutEffect, type DragEventHandler, type ReactNode } from "react";
 
 import { Paperclip } from "lucide-react";
 
@@ -125,8 +119,8 @@ export interface ChatBodyProps {
 
   /**
    * Optional pre-rendered banner stack (mobile-app nudge / GitHub / Discord)
-   * rendered alongside the scroll-to-latest button in the absolute-positioned
-   * overlay above the composer. Omitted by the app-editing side panel.
+   * rendered in flow directly above the composer, so the flex column sizes
+   * the transcript around it. Omitted by the app-editing side panel.
    * While mounted (non-empty state), visibility is mirrored into the shared
    * banner-visibility store so tip surfaces can stay mutually exclusive.
    */
@@ -222,37 +216,11 @@ export function ChatBody({
 }: ChatBodyProps) {
   const isEmptyState = scrollAreaProps.showEmptyState;
   const keyboardOpen = useKeyboardOpen();
-  const bottomBannerOverlayRef = useRef<HTMLDivElement | null>(null);
-  const [bottomBannerOverlayHeight, setBottomBannerOverlayHeight] = useState(0);
-
-  useLayoutEffect(() => {
-    if (isEmptyState || !bannerSlot) {
-      setBottomBannerOverlayHeight(0);
-      return;
-    }
-
-    const el = bottomBannerOverlayRef.current;
-    if (!el) {
-      return;
-    }
-
-    const updateHeight = () => {
-      const nextHeight = Math.ceil(el.getBoundingClientRect().height);
-      setBottomBannerOverlayHeight((currentHeight) =>
-        currentHeight === nextHeight ? currentHeight : nextHeight,
-      );
-    };
-
-    updateHeight();
-
-    if (typeof ResizeObserver === "undefined") {
-      return;
-    }
-
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [bannerSlot, isEmptyState]);
+  // Banners (app-download nudge, GitHub star, Discord) show once the user
+  // sends a message and the empty state clears. They stay out of the empty
+  // state, where the outer container centers greeting + composer + starters
+  // as one group and a banner above the composer would split it.
+  const bannerRendered = !isEmptyState && Boolean(bannerSlot);
 
   // When the empty state is visible, center greeting + composer + starters
   // as one group. `safe center` falls back to start-alignment when the
@@ -291,20 +259,6 @@ export function ChatBody({
   const nonDockedInnerClass = isEmptyState
     ? `flex min-h-full flex-col ${nonDockedAlignmentClass}`
     : "flex min-h-0 flex-1 flex-col";
-
-  // Suppress the absolutely-positioned overlay on the empty state: its
-  // `bottom-full` positioning would overlap the greeting when the outer
-  // container centers greeting + composer + starters as a group.
-  // Banners (app-download nudge, GitHub star, Discord) show once the
-  // user sends a message and the empty state clears. `showScrollToLatest`
-  // is already false on the empty state (gated on `messages.length > 0`
-  // at the call site), so this only affects `bannerSlot`.
-  const bannerRendered = !isEmptyState && Boolean(bannerSlot);
-  const hasOverlay = bannerRendered || (!isEmptyState && showScrollToLatest);
-  const bottomOverlayReservePx =
-    bannerRendered && bottomBannerOverlayHeight > 0
-      ? bottomBannerOverlayHeight
-      : undefined;
 
   // Mirror the mounted banner — not the candidate slot — into the shared
   // store so tip surfaces stay mutually exclusive with nudge banners.
@@ -351,56 +305,57 @@ export function ChatBody({
   // `trailingStarters` lets the docked layout render the starters elsewhere
   // (its own bottom dock) instead of directly below the composer.
   const renderComposerStack = (trailingStarters: ReactNode) => (
-    <div className="relative px-3 pt-1 pb-2 sm:px-6 sm:pb-0">
-      {refreshFeedback && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center pb-2">
-          <RefreshFeedbackPill
-            feedback={refreshFeedback}
-            onDismiss={onDismissRefreshFeedback}
-            onRetry={onRetryRefresh}
-          />
+    // The banner is a flow child here because it is an opaque full-width
+    // card that always occupies its own height: the `flex-1` scroll area
+    // then gives back exactly that height at every viewport size, with
+    // nothing measured. The pill is the opposite and floats, so it anchors
+    // to the top of this group to clear the banner.
+    <div className="relative">
+      {showScrollToLatest && !isEmptyState && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center">
+          <div className="pointer-events-auto pb-2.5">
+            <ScrollToLatestButton
+              onClick={onScrollToLatest}
+              isAssistantBusy={isAssistantBusy}
+            />
+          </div>
         </div>
       )}
-      {hasOverlay && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex flex-col items-center">
-          {showScrollToLatest && (
-            <div className="pointer-events-auto pb-2.5">
-              <ScrollToLatestButton
-                onClick={onScrollToLatest}
-                isAssistantBusy={isAssistantBusy}
-              />
-            </div>
-          )}
-          {bannerSlot && (
-            <div ref={bottomBannerOverlayRef} className="w-full">
-              {bannerSlot}
-            </div>
-          )}
-        </div>
-      )}
-      <div className="mx-auto max-w-[var(--chat-max-width)]">
-        {genericChatError && (
-          <div className="mb-2">
-            <Notice
-              tone={genericChatError.tone ?? "error"}
-              onDismiss={onDismissChatError}
-              actions={genericChatError.actions}
-            >
-              {genericChatError.message}
-            </Notice>
+      {bannerRendered && bannerSlot}
+      <div className="relative px-3 pt-1 pb-2 sm:px-6 sm:pb-0">
+        {refreshFeedback && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center pb-2">
+            <RefreshFeedbackPill
+              feedback={refreshFeedback}
+              onDismiss={onDismissRefreshFeedback}
+              onRetry={onRetryRefresh}
+            />
           </div>
         )}
-        {queuedDrawerSlot}
-        <QuestionPromptSlot />
-        {channelFooterSlot}
-        <StagedQuotesStrip />
-        {composerSlot}
-        {pluginPillsSlot &&
-          renderKeyboardCollapse(
-            "new-chat-plugins",
-            <div className="mt-4">{pluginPillsSlot}</div>,
+        <div className="mx-auto max-w-[var(--chat-max-width)]">
+          {genericChatError && (
+            <div className="mb-2">
+              <Notice
+                tone={genericChatError.tone ?? "error"}
+                onDismiss={onDismissChatError}
+                actions={genericChatError.actions}
+              >
+                {genericChatError.message}
+              </Notice>
+            </div>
           )}
-        {trailingStarters}
+          {queuedDrawerSlot}
+          <QuestionPromptSlot />
+          {channelFooterSlot}
+          <StagedQuotesStrip />
+          {composerSlot}
+          {pluginPillsSlot &&
+            renderKeyboardCollapse(
+              "new-chat-plugins",
+              <div className="mt-4">{pluginPillsSlot}</div>,
+            )}
+          {trailingStarters}
+        </div>
       </div>
     </div>
   );
@@ -437,10 +392,7 @@ export function ChatBody({
           <div
             className={`flex flex-1 flex-col ${keyboardOpen ? "justify-end" : "[justify-content:safe_center]"}`}
           >
-            <ChatScrollArea
-              {...scrollAreaProps}
-              bottomOverlayReservePx={bottomOverlayReservePx}
-            />
+            <ChatScrollArea {...scrollAreaProps} />
             {renderComposerStack(null)}
           </div>
           {startersSlot &&
@@ -475,10 +427,7 @@ export function ChatBody({
       onDrop={dragHandlers.onDrop}
     >
       <div className={nonDockedInnerClass}>
-        <ChatScrollArea
-          {...scrollAreaProps}
-          bottomOverlayReservePx={bottomOverlayReservePx}
-        />
+        <ChatScrollArea {...scrollAreaProps} />
 
         {!isEmptyState && activeProcessOverlaysSlot && (
           <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center gap-2 px-3 pt-2">

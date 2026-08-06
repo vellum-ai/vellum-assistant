@@ -177,13 +177,13 @@ describe("computeVisualOffset", () => {
   });
 
   test("damps travel past the threshold", () => {
-    // 100 + (150 - 100) * 0.3 = 115.
-    expect(computeVisualOffset(150, 100)).toBe(115);
+    // 100 + (150 - 100) * 0.5 = 125.
+    expect(computeVisualOffset(150, 100)).toBe(125);
   });
 
   test("never returns more than threshold + damped overdrag", () => {
     const offset = computeVisualOffset(1000, 100);
-    expect(offset).toBe(100 + 900 * 0.3);
+    expect(offset).toBe(100 + 900 * 0.5);
     expect(offset).toBeLessThan(1000);
   });
 });

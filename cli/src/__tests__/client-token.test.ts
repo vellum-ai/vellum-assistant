@@ -27,10 +27,35 @@ const testDir = mkdtempSync(join(tmpdir(), "client-token-test-"));
 const ORIGINAL_LOCKFILE_DIR = process.env.VELLUM_LOCKFILE_DIR;
 const ORIGINAL_ARGV = [...process.argv];
 
-import { parseArgs } from "../commands/client.js";
+import { isSameOriginRequest, parseArgs } from "../commands/client.js";
 
 // A clearly non-local URL so maybeSwapToLocalhost won't rewrite it to 127.0.0.1.
 const REMOTE_URL = "http://192.0.2.50:7830";
+
+describe("client web proxy credential proof", () => {
+  test("rejects a request without browser same-origin proof", () => {
+    expect(
+      isSameOriginRequest(
+        new Request("http://127.0.0.1:3000/assistant", {
+          headers: { host: "127.0.0.1:3000" },
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  test("accepts a request with a matching Origin", () => {
+    expect(
+      isSameOriginRequest(
+        new Request("http://127.0.0.1:3000/assistant", {
+          headers: {
+            host: "127.0.0.1:3000",
+            origin: "http://127.0.0.1:3000",
+          },
+        }),
+      ),
+    ).toBe(true);
+  });
+});
 
 describe("client --token (ephemeral)", () => {
   beforeEach(() => {

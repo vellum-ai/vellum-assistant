@@ -29,6 +29,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
 import { toast } from "@vellumai/design-library/components/toast";
 
 // Debounce window before firing the availability check. Tight enough that
@@ -544,21 +545,20 @@ function AssistantHandleSection({
 
 /**
  * Loading skeleton — mirrors the resolved layout so there is no
- * content-shift when fetchMe() returns. Uses the design-system pulse
- * pattern; no inline animation styles.
+ * content-shift when fetchMe() returns.
  */
 function ProfileCardSkeleton() {
   return (
     <div className="flex flex-col gap-4" aria-busy aria-live="polite">
       <div className="flex flex-col gap-2">
-        <div className="h-3 w-16 animate-pulse rounded bg-[var(--surface-muted)]" />
-        <div className="h-9 w-full animate-pulse rounded-md bg-[var(--surface-muted)]" />
-        <div className="h-3 w-72 animate-pulse rounded bg-[var(--surface-muted)]" />
+        <Skeleton className="h-3 w-16" />
+        <Skeleton className="h-9 w-full rounded-md" />
+        <Skeleton className="h-3 w-72" />
       </div>
-      <div className="h-9 w-full animate-pulse rounded-md bg-[var(--surface-muted)]" />
+      <Skeleton className="h-9 w-full rounded-md" />
       <div className="flex items-center justify-between gap-3">
-        <div className="h-3 w-60 animate-pulse rounded bg-[var(--surface-muted)]" />
-        <div className="h-7 w-16 animate-pulse rounded-md bg-[var(--surface-muted)]" />
+        <Skeleton className="h-3 w-60" />
+        <Skeleton className="h-7 w-16 rounded-md" />
       </div>
       <span className="sr-only">Loading your profile…</span>
     </div>

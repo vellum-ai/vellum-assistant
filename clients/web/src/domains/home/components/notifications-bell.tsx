@@ -1,12 +1,21 @@
+import { useQuery } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
-import { useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 
+import { schedulesListQueryOptions } from "@/domains/settings/api/schedules";
+import {
+  useBackgroundConversationListQuery,
+  useConversationListQuery,
+  useScheduledConversationListQuery,
+} from "@/hooks/conversation-queries";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-status";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { mergeConversationLists } from "@/utils/conversation-cache";
+import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
-import type { FeedItem } from "@vellumai/assistant-api";
+import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import {
   BottomSheet,
   Button,
@@ -14,6 +23,7 @@ import {
   Tooltip,
   Typography,
 } from "@vellumai/design-library";
+import { toast } from "@vellumai/design-library/components/toast";
 
 import { HomeRecapRow } from "../home-recap-row";
 import { useHomeFeedQuery } from "../hooks/use-home-feed-query";
@@ -21,27 +31,36 @@ import {
   clearAllArgs,
   getVisibleFeedItems,
   markAllReadArgs,
+  resolveFeedItemTitle,
   sortFeedItems,
 } from "../utils";
+import {
+  NOTIFICATIONS_PANEL_HEADER_CLASS,
+  NotificationsBellDetail,
+} from "./notifications-bell-detail";
 
 /**
- * Router state consumed by `HomePageRoute`: opening a notification from the
- * bell lands on the Activity page with that item's detail drawer open.
+ * Router state read by `HomePageRoute`: arriving at the Activity page with a
+ * `feedItemId` opens that item's detail drawer.
  */
 export interface ActivityLocationState {
   feedItemId?: string;
 }
 
-// Caps the visible list at roughly five rows (48px rows + 4px gaps);
-// older notifications stay reachable by scrolling.
-const LIST_MAX_HEIGHT_CLASS = "max-h-[280px]";
+// Caps the visible list at five compact cards plus the four 8px gaps between
+// them. A compact card is 73px tall: 2px borders, 16px padding, a 32px title
+// line (sized by the h-8 hover actions that share it with the timestamp), a 2px
+// gap, and a 21px preview line. 5 * 73 + 4 * 8 = 397. Older notifications stay
+// reachable by scrolling. The detail view's body takes the same cap, so the
+// panel keeps its height across the swap.
+const SCROLL_MAX_HEIGHT_CLASS = "max-h-[397px]";
 
 /**
  * Notification bell for the top nav: a ghost icon button with an unread dot
  * that opens the latest notifications in a popover (desktop) or bottom sheet
  * (mobile) — the same split the sidebar preferences menu uses. Rows reuse
- * `HomeRecapRow`, so mark-read and dismiss work inline; clicking a row (or
- * "View all") continues to the full Activity page.
+ * `HomeRecapRow`, so mark-read and dismiss work inline; selecting one swaps
+ * the panel to that notification's detail, which a back control returns from.
  *
  * Owned by the home domain (it renders the home feed), so the chat layout
  * can't import it directly (cross-domain); `routes.tsx` injects it into
@@ -51,9 +70,9 @@ const LIST_MAX_HEIGHT_CLASS = "max-h-[280px]";
  */
 export function NotificationsBell() {
   const [isOpen, setIsOpen] = useState(false);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const isMobile = useIsMobile();
   const navigate = useNavigate();
-  const location = useLocation();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const feedQuery = useHomeFeedQuery(assistantId);
   const supportsBulkStatus = useSupportsBulkFeedStatus();
@@ -68,24 +87,138 @@ export function NotificationsBell() {
   );
   const hasUnread = visibleItems.some((item) => item.status === "new");
 
-  const openActivityPage = (item?: FeedItem) => {
-    setIsOpen(false);
-    void navigate(routes.home, {
-      // Re-clicking from the Activity page itself must not stack history
-      // entries (each carrying stale feedItemId state that would replay
-      // closed drawers on Back).
-      replace: location.pathname === routes.home,
-      state: item
-        ? ({ feedItemId: item.id } satisfies ActivityLocationState)
-        : undefined,
-    });
+  // Tracked by id, not by value: the feed is the one owner of an item's
+  // status, so the detail follows a mark-read without a second copy to
+  // reconcile. Resolved against the whole feed rather than the visible slice,
+  // because the detail's own status actions can take the item out of that
+  // slice: an item dismissed from another surface keeps its detail open and
+  // offering Restore, and only an item the feed drops entirely closes it.
+  // Dismissing from here returns to the list explicitly, in `handleDismiss`.
+  const selectedItem = selectedItemId
+    ? ((items ?? []).find((item) => item.id === selectedItemId) ?? null)
+    : null;
+  const isDetailOpen = selectedItem !== null;
+
+  // A notification can point at a conversation that has since been deleted, so
+  // the detail's "Go to Conversation" link is checked against the same three
+  // lists the Activity page merges. They load only while a detail is open: the
+  // bell renders in the top bar on every route, and the list view has no use
+  // for the ids. Disabled, these stay subscribed to the caches without
+  // fetching, so the foreground list the chat layout already loaded is read
+  // for free and opening a detail costs the background and scheduled lists at
+  // most.
+  const {
+    conversations: foregroundConversations,
+    isPending: isForegroundPending,
+  } = useConversationListQuery(assistantId, isDetailOpen);
+  const {
+    conversations: backgroundConversations,
+    isPending: isBackgroundPending,
+  } = useBackgroundConversationListQuery(assistantId, isDetailOpen);
+  const {
+    conversations: scheduledConversations,
+    isPending: isScheduledPending,
+  } = useScheduledConversationListQuery(assistantId, isDetailOpen);
+  const validConversationIds = useMemo(
+    () =>
+      new Set(
+        mergeConversationLists(
+          foregroundConversations,
+          backgroundConversations,
+          scheduledConversations,
+        ).map((conversation) => conversation.conversationId),
+      ),
+    [foregroundConversations, backgroundConversations, scheduledConversations],
+  );
+  const areConversationListsPending =
+    isForegroundPending || isBackgroundPending || isScheduledPending;
+
+  // A scheduled-run notification links back to the schedule that produced it,
+  // which may since have been deleted, so the link is checked against the same
+  // list the Schedules page renders (shared options, shared cache entry). Same
+  // gate as the conversation lists: the list view has no use for schedule ids.
+  const { data: schedules, isPending: isScheduleListPending } = useQuery({
+    ...schedulesListQueryOptions(assistantId ?? undefined),
+    enabled: isDetailOpen,
+  });
+  const validScheduleIds = useMemo(
+    () => new Set((schedules ?? []).map((schedule) => schedule.id)),
+    [schedules],
+  );
+
+  // The list unmounts while the detail is open, so its scroll offset is parked
+  // here and written back when the list mounts again.
+  const listScrollTopRef = useRef(0);
+  const restoreListScroll = useCallback((node: HTMLDivElement | null) => {
+    if (node) {
+      node.scrollTop = listScrollTopRef.current;
+    }
+  }, []);
+
+  const handleOpenChange = (open: boolean) => {
+    setIsOpen(open);
+    if (!open) {
+      // Reopening always lands on the list, at the top.
+      setSelectedItemId(null);
+      listScrollTopRef.current = 0;
+    }
   };
 
   const handleSelectItem = (item: FeedItem) => {
     if (item.status === "new") {
       feedQuery.updateStatus.mutate({ itemId: item.id, status: "seen" });
     }
-    openActivityPage(item);
+    setSelectedItemId(item.id);
+  };
+
+  const handleGoToConversation = (conversationId: string) => {
+    handleOpenChange(false);
+    navigateToConversation(navigate, conversationId);
+  };
+
+  const handleViewSchedule = (scheduleId: string) => {
+    handleOpenChange(false);
+    navigate(routes.schedules.detail(scheduleId));
+  };
+
+  const handleUpdateStatus = (itemId: string, status: FeedItemStatus) => {
+    feedQuery.updateStatus.mutate({ itemId, status });
+  };
+
+  const handleDismiss = (itemId: string) => {
+    feedQuery.updateStatus.mutate({ itemId, status: "dismissed" });
+    // A dismissed item is gone from the list behind the detail, so the detail
+    // has nothing left to return to. Closing it here rather than letting the
+    // lookup drop out keeps the list from flickering back if the mutation
+    // fails and the feed rolls the status back.
+    setSelectedItemId(null);
+  };
+
+  // Guards the mutation rather than the button: `isPending` reaches the button
+  // only on the next render, so a second click landing in the same tick would
+  // still get through and open a second conversation.
+  const isTriggeringActionRef = useRef(false);
+
+  const handleTriggerAction = (actionId: string) => {
+    if (!selectedItem || isTriggeringActionRef.current) {
+      return;
+    }
+    isTriggeringActionRef.current = true;
+    feedQuery.triggerAction.mutate(
+      { itemId: selectedItem.id, actionId },
+      {
+        onSuccess: (data) => {
+          handleOpenChange(false);
+          navigateToConversation(navigate, data.conversationId);
+        },
+        onError: () => {
+          toast.error("Couldn't start that conversation. Try again.");
+        },
+        onSettled: () => {
+          isTriggeringActionRef.current = false;
+        },
+      },
+    );
   };
 
   const handleMarkAllRead = () => {
@@ -115,13 +248,20 @@ export function NotificationsBell() {
             // icon-only buttons grow on touch-mobile. The 2px ring eats into
             // the box (border-box), so size/offset grow by 2px each to keep
             // the 6px amber core in place.
-            <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)] touch-mobile:border-[var(--surface-lift)]" />
+            <span
+              data-testid="notifications-bell-unread-dot"
+              className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)] touch-mobile:border-[var(--surface-lift)]"
+            />
           ) : null}
         </span>
       }
       aria-label={hasUnread ? "Notifications (unread)" : "Notifications"}
     />
   );
+
+  const scrollMaxHeightClass = isMobile
+    ? "max-h-[60dvh]"
+    : SCROLL_MAX_HEIGHT_CLASS;
 
   const list =
     visibleItems.length === 0 ? (
@@ -135,14 +275,17 @@ export function NotificationsBell() {
       </Typography>
     ) : (
       <div
-        className={`flex flex-col gap-[var(--app-spacing-xs)] overflow-y-auto ${
-          isMobile ? "max-h-[60dvh]" : LIST_MAX_HEIGHT_CLASS
-        }`}
+        ref={restoreListScroll}
+        onScroll={(event) => {
+          listScrollTopRef.current = event.currentTarget.scrollTop;
+        }}
+        className={`flex flex-col gap-[var(--app-spacing-sm)] overflow-y-auto ${scrollMaxHeightClass}`}
       >
         {visibleItems.map((item) => (
           <HomeRecapRow
             key={item.id}
             item={item}
+            density="compact"
             onSelect={handleSelectItem}
             onDismiss={(itemId) =>
               feedQuery.updateStatus.mutate({ itemId, status: "dismissed" })
@@ -155,59 +298,86 @@ export function NotificationsBell() {
       </div>
     );
 
+  // Keyed so the swap remounts the incoming view and replays its entrance.
   const panel = (
-    <div className="flex min-w-0 flex-col">
-      <div className="flex items-center justify-between gap-2 pb-[var(--app-spacing-sm)] pl-[var(--app-spacing-md)]">
-        <Typography
-          variant="body-medium-default"
-          as="h2"
-          className="text-[var(--content-default)]"
-        >
-          Notifications
-        </Typography>
-        <Button
-          variant="ghost"
-          size="compact"
-          onClick={() => openActivityPage()}
-        >
-          View all
-        </Button>
-      </div>
-
-      {list}
-
-      {supportsBulkStatus && visibleItems.length > 0 ? (
-        <div className="mt-[var(--app-spacing-sm)] flex items-center justify-end gap-[var(--app-spacing-sm)] border-t border-[var(--border-base)] pt-[var(--app-spacing-sm)]">
-          {hasUnread ? (
-            <Button
-              variant="ghost"
-              size="compact"
-              onClick={handleMarkAllRead}
-              disabled={feedQuery.markAll.isPending}
-            >
-              Mark all as read
-            </Button>
-          ) : null}
-          <Button
-            variant="ghost"
-            size="compact"
-            onClick={handleClearAll}
-            disabled={feedQuery.markAll.isPending}
+    <div
+      key={selectedItem ? "detail" : "list"}
+      className={`flex min-w-0 flex-col ${
+        selectedItem
+          ? "notifications-panel-detail-enter"
+          : "notifications-panel-list-enter"
+      }`}
+    >
+      {selectedItem ? (
+        <NotificationsBellDetail
+          item={selectedItem}
+          bodyMaxHeightClass={scrollMaxHeightClass}
+          validConversationIds={validConversationIds}
+          areConversationListsPending={areConversationListsPending}
+          validScheduleIds={validScheduleIds}
+          isScheduleListPending={isScheduleListPending}
+          isActionPending={feedQuery.triggerAction.isPending}
+          onBack={() => setSelectedItemId(null)}
+          onGoToConversation={handleGoToConversation}
+          onViewSchedule={handleViewSchedule}
+          onUpdateStatus={handleUpdateStatus}
+          onDismiss={handleDismiss}
+          onTriggerAction={handleTriggerAction}
+        />
+      ) : (
+        <>
+          <div
+            className={`${NOTIFICATIONS_PANEL_HEADER_CLASS} pl-[var(--app-spacing-md)]`}
           >
-            Clear all
-          </Button>
-        </div>
-      ) : null}
+            <Typography
+              variant="body-medium-default"
+              as="h2"
+              className="text-[var(--content-default)]"
+            >
+              Notifications
+            </Typography>
+          </div>
+
+          {list}
+
+          {supportsBulkStatus && visibleItems.length > 0 ? (
+            <div className="mt-[var(--app-spacing-sm)] flex items-center justify-end gap-[var(--app-spacing-sm)] border-t border-[var(--border-base)] pt-[var(--app-spacing-sm)]">
+              {hasUnread ? (
+                <Button
+                  variant="ghost"
+                  size="compact"
+                  onClick={handleMarkAllRead}
+                  disabled={feedQuery.markAll.isPending}
+                >
+                  Mark all as read
+                </Button>
+              ) : null}
+              <Button
+                variant="ghost"
+                size="compact"
+                onClick={handleClearAll}
+                disabled={feedQuery.markAll.isPending}
+              >
+                Clear all
+              </Button>
+            </div>
+          ) : null}
+        </>
+      )}
     </div>
   );
 
   if (isMobile) {
     return (
-      <BottomSheet.Root open={isOpen} onOpenChange={setIsOpen}>
+      <BottomSheet.Root open={isOpen} onOpenChange={handleOpenChange}>
         <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
         <BottomSheet.Content className="max-h-[85dvh]">
           <BottomSheet.Header className="sr-only">
-            <BottomSheet.Title>Notifications</BottomSheet.Title>
+            <BottomSheet.Title>
+              {selectedItem
+                ? resolveFeedItemTitle(selectedItem)
+                : "Notifications"}
+            </BottomSheet.Title>
           </BottomSheet.Header>
           <BottomSheet.Body className="pt-0">{panel}</BottomSheet.Body>
         </BottomSheet.Content>
@@ -216,7 +386,7 @@ export function NotificationsBell() {
   }
 
   return (
-    <Popover.Root open={isOpen} onOpenChange={setIsOpen}>
+    <Popover.Root open={isOpen} onOpenChange={handleOpenChange}>
       <Tooltip content="Notifications">
         <Popover.Trigger asChild>{trigger}</Popover.Trigger>
       </Tooltip>

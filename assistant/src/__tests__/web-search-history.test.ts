@@ -328,4 +328,100 @@ describe("stripHistoricalWebSearchResults", () => {
     const afterTypes = messages[0].content.map((b) => b.type);
     expect(afterTypes).toEqual(beforeTypes);
   });
+
+  test("drops the server_tool_use of a cross-message pair from a deferred execution", () => {
+    // Deferred execution places the web_search_tool_result at the head of the
+    // assistant message after the client tool round-trip. Both sides of the
+    // pair must go together, or the leftover server_tool_use reads as an
+    // orphan and gets a synthetic error result downstream.
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Check both" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "On it" },
+          { type: "tool_use", id: "tu_read", name: "file_read", input: {} },
+          {
+            type: "server_tool_use",
+            id: "stu_deferred",
+            name: "web_search",
+            input: { query: "deferred query" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tu_read", content: "file" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "stu_deferred",
+            content: [
+              {
+                type: "web_search_result",
+                url: "https://example.com",
+                title: "Deferred",
+                encrypted_content: "tok",
+              },
+            ],
+          },
+          { type: "text", text: "Found it." },
+        ],
+      },
+    ];
+
+    const { messages: result, stats } =
+      stripHistoricalWebSearchResults(messages);
+
+    // The use in the earlier assistant message is dropped with its result
+    expect(result[1].content.map((b) => b.type)).toEqual(["text", "tool_use"]);
+    const summarized = result[3].content[0];
+    expect(summarized.type).toBe("text");
+    expect((summarized as { text: string }).text).toContain("deferred query");
+    expect((summarized as { text: string }).text).toContain(
+      "https://example.com",
+    );
+    expect(stats.serverToolUsesDropped).toBe(1);
+    expect(stats.blocksStripped).toBe(1);
+    expect(stats.messagesModified).toBe(2);
+  });
+
+  test("leaves a pending server_tool_use with no result anywhere untouched", () => {
+    // A resultless use at the tail is a deferred search the provider executes
+    // on this request; stripping it would cancel the search.
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Check both" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu_read", name: "file_read", input: {} },
+          {
+            type: "server_tool_use",
+            id: "stu_pending",
+            name: "web_search",
+            input: { query: "pending" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tu_read", content: "file" },
+        ],
+      },
+    ];
+
+    const { messages: result, stats } =
+      stripHistoricalWebSearchResults(messages);
+
+    expect(result).toEqual(messages);
+    expect(stats.serverToolUsesDropped).toBe(0);
+    expect(stats.blocksStripped).toBe(0);
+    expect(stats.messagesModified).toBe(0);
+  });
 });

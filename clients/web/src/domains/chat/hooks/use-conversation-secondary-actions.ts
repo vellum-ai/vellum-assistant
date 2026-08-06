@@ -158,7 +158,7 @@ export function useConversationSecondaryActions({
         captureError(err, { context: "summarize_up_to_here" });
         toast.error(
           err instanceof ApiError && err.status === 409
-            ? "The assistant is busy — try again when the current response finishes"
+            ? "Your assistant is busy. Try again when it finishes replying."
             : "Couldn't summarize the conversation",
         );
       }
@@ -189,7 +189,7 @@ export function useConversationSecondaryActions({
       captureError(err, { context: "retry_latest_turn" });
       toast.error(
         err instanceof ApiError && err.status === 409
-          ? "The assistant is busy — try again when the current response finishes"
+          ? "Your assistant is busy. Try again when it finishes replying."
           : "Couldn't retry the response",
       );
     }

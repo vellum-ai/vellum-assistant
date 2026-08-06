@@ -3,10 +3,7 @@ import { Loader2, Play, Settings, X } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import { SCHEDULE_RUNS_PAGE_SIZE } from "@/domains/settings/api/schedules";
-import {
-  ModelProfileRow,
-  type ScheduleModelProfileCallSite,
-} from "@/domains/settings/components/model-profile-row";
+import { ModelProfileRow } from "@/domains/settings/components/model-profile-row";
 import { RecentRunsCard } from "@/domains/settings/components/recent-runs-card";
 import {
   consolidationSubtitle,
@@ -29,11 +26,12 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import type { SystemTaskKind } from "@/domains/settings/types/schedules";
+import type { ResolvableCallSite } from "@/hooks/use-call-site-default-profile";
 
 // Each system task resolves its model from a dedicated LLM call site.
 const SYSTEM_TASK_PROFILE_CALL_SITES: Record<
   SystemTaskKind,
-  ScheduleModelProfileCallSite
+  ResolvableCallSite
 > = {
   heartbeat: "heartbeatAgent",
   consolidation: "memoryV2Consolidation",

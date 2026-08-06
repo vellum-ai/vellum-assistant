@@ -257,7 +257,7 @@ describe("conversation_move_to_group tool", () => {
     expect(result.content).toContain("no conversation found");
   });
 
-  test("notes hidden conversation types", async () => {
+  test("tells the model a custom group surfaces a hidden conversation", async () => {
     createConversation({ id: "conv-bg", conversationType: "background" });
     await executeConversationGroupCreate({ name: "Visible" }, ctx);
 
@@ -267,7 +267,37 @@ describe("conversation_move_to_group tool", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("hidden from the sidebar");
+    expect(result.content).toContain("surfaces it into the sidebar");
+  });
+
+  test("does not claim a move to Recents surfaces a hidden conversation", async () => {
+    // Recents is a removal target, not a promotion: the write path leaves an
+    // unpromoted background row hidden there, so saying otherwise would report
+    // an outcome to the model that did not happen.
+    createConversation({ id: "conv-bg-all", conversationType: "background" });
+
+    const result = await executeConversationMoveToGroup(
+      { group: "system:all", conversation_id: "conv-bg-all" },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).not.toContain("surfaces it into the sidebar");
+  });
+
+  test("does not claim a move to Background surfaces a hidden conversation", async () => {
+    createConversation({
+      id: "conv-bg-demote",
+      conversationType: "background",
+    });
+
+    const result = await executeConversationMoveToGroup(
+      { group: "system:background", conversation_id: "conv-bg-demote" },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).not.toContain("surfaces it into the sidebar");
   });
 
   test("rejects missing group", async () => {

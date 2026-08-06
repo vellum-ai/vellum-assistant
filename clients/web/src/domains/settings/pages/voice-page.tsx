@@ -16,6 +16,7 @@ import { SegmentControl } from "@vellumai/design-library/components/segment-cont
 import { Slider } from "@vellumai/design-library/components/slider";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
+import { ListeningLanguageCard } from "@/domains/settings/pages/listening-language-card";
 import { VoicePickerCard } from "@/domains/settings/pages/voice-picker-card";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
@@ -84,14 +85,17 @@ const labelClasses = "text-body-small-default text-[var(--content-tertiary)]";
  * output settings and input settings don't sit in one undifferentiated stack:
  *
  *  - **Output** — how the assistant sounds (its voice).
- *  - **Input** — how you talk to it (mic, push to talk, turn taking).
+ *  - **Input**: how you talk to it (mic, spoken language, push to talk, turn
+ *    taking).
  *  - **Captions** — reading along, which belongs to neither half, so it trails
  *    on its own.
  *
  * Deliberately NOT here: the BYO text-to-speech / speech-to-text provider forms
  * (they live with every other provider on Models & Services) and the event
  * sound effects (their own Sounds page — they're notification feedback, not
- * voice).
+ * voice). The listening language is the one speech-to-text setting that does
+ * belong: it describes the speaker rather than the service, and someone whose
+ * assistant is mishearing them looks for it here, not among the API keys.
  */
 export function VoicePage() {
   // Honor legacy deep links from when this page carried Sounds and Services
@@ -121,6 +125,7 @@ export function VoiceSections() {
         description="How you talk to your assistant."
       >
         <MicrophoneCard />
+        <ListeningLanguageCard />
         <PushToTalkCard />
         <ConversationTuningCard />
       </VoiceSection>

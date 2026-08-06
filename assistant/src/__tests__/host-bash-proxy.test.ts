@@ -742,8 +742,11 @@ describe("HostBashProxy", () => {
   });
 
   describe("same-user binding (sourceActorPrincipalId)", () => {
-    const SAME_USER_REJECTION =
-      "Submitting actor does not match the target client's actor for this request. The targeted client's authenticated user must submit the result.";
+    // The proxy path names which comparison failed, so each rejection asserts
+    // its own reason — a turn with no actor, a client registered without one,
+    // and two genuinely different users are three different problems.
+    const CROSS_USER_REJECTION =
+      "Submitting actor does not match the target client's actor for this request. The target client is signed in as a different user — run `assistant clients list` to see which connected clients you own.";
 
     test("same-user targeted request succeeds", async () => {
       setup();
@@ -784,7 +787,7 @@ describe("HostBashProxy", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toBe(SAME_USER_REJECTION);
+      expect(result.content).toBe(CROSS_USER_REJECTION);
       // No broadcast and no pending registration
       expect(sentMessages).toHaveLength(0);
     });
@@ -807,7 +810,9 @@ describe("HostBashProxy", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toBe(SAME_USER_REJECTION);
+      expect(result.content).toContain(
+        "registered without an authenticated user",
+      );
       expect(sentMessages).toHaveLength(0);
     });
 
@@ -823,7 +828,7 @@ describe("HostBashProxy", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toBe(SAME_USER_REJECTION);
+      expect(result.content).toContain("no authenticated actor");
       expect(sentMessages).toHaveLength(0);
     });
 

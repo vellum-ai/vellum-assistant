@@ -46,10 +46,10 @@
  * converted to room-local space before the entrance grows from it. The sheet
  * reads no origin: it presents the look rather than growing it.
  *
- * The room is not exit-only. Minimizing (the "show transcript" control or
- * Escape) dismisses the room while the session keeps running, handing the
- * session to the composer's voice bar or the title-bar pill; ending the
- * session (the ✕ control) tears the whole call down.
+ * The room is not exit-only. Minimizing (the corner chevron, Escape, or — on
+ * the sheet — pulling it down) dismisses the room while the session keeps
+ * running, handing the session to the composer's voice bar or the title-bar
+ * pill; ending the session (the control row's ✕) tears the whole call down.
  *
  * Visibility is a pure function of {@link useIsVoiceRoomVisible} — active
  * session, owned by the on-screen composer, main window, not minimized. Any
@@ -61,14 +61,19 @@
  * Sessions are hands-free (server-VAD): the user just speaks, so there is no
  * push-to-talk control. One centred row near the bottom carries the three
  * things a caller does mid-call, left to right: mute the mic so it stops
- * hearing you, mute the assistant so you stop hearing it, and show the
- * transcript, which minimizes the room to reveal the conversation with the call
- * still running. All three are persistent toggles, so the row never changes
- * shape mid-call. Exit is first-class and kept away from that row: the
- * persistent ✕ sits alone top-right, always rendered even while the
- * avatar/assistant data is loading or failed. Escape maps to the same lesser
- * dismissal as show transcript, leaving the call live. The key handler
- * attaches only while the room is mounted.
+ * hearing you, mute the assistant so you stop hearing it, and end the session.
+ * The end control is a red ✕ — the same glyph the composer bar and the pill
+ * end a session with — toned destructively so it never reads as a third
+ * neutral toggle beside the two mutes.
+ *
+ * **Leaving the room and ending the call are different acts, and the room says
+ * so in three places.** Minimizing is the light one — the session keeps running
+ * on the composer's voice bar or the title-bar pill — and it is what the corner
+ * chevron does, what Escape does (every variant; the key handler attaches only
+ * while the room is mounted), and what pulling the mobile sheet down does. All
+ * three are the same call to `minimizeVoiceRoom`. Ending is the heavy one, and
+ * it lives in one place only: the row's ✕. Nothing in the corner ends a
+ * call any more, which is what makes the corner safe to reach for.
  */
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
@@ -78,7 +83,7 @@ import {
   useReducedMotion,
   type MotionProps,
 } from "motion/react";
-import { Captions, Mic, MicOff, Volume2, VolumeX, X } from "lucide-react";
+import { ChevronDown, Mic, MicOff, Volume2, VolumeX, X } from "lucide-react";
 
 import {
   BottomSheet,
@@ -120,6 +125,7 @@ import {
 import { toVoiceAvatarVisual } from "./voice-avatar-state";
 import {
   resolveVoiceRoomChoreography,
+  sheetDragMinimizes,
   voidAvatarMotion,
 } from "./voice-room-entrance";
 import { VoiceAmbientTranscript } from "./voice-ambient-transcript";
@@ -155,6 +161,22 @@ const SESSION_CONTROL_CLASS =
   "flex size-12 items-center justify-center rounded-full border transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]";
 const SESSION_CONTROL_NEUTRAL_CLASS =
   "border-[var(--room-border)] text-[var(--room-fg-muted)] hover:bg-[var(--room-wash)] hover:text-[var(--room-fg)]";
+
+/**
+ * The red treatment worn by a control that is doing something to the call: the
+ * two mutes while engaged, and the end control always.
+ *
+ * Two variants because the room's background is the assistant's avatar color,
+ * which can be a light one (yellow). A single red picked against the dark look
+ * washes out over that; `isLight` swaps to the darker red the tone helper's
+ * foreground colors are chosen against.
+ */
+function destructiveControlClass(isLight: boolean | undefined): string {
+  return isLight
+    ? "border-red-700/50 bg-red-600/15 text-red-800 hover:bg-red-600/25"
+    : "border-red-400/50 bg-red-500/20 text-red-300 hover:bg-red-500/30";
+}
+
 
 /** Placement variant. See the module docstring. */
 export type VoiceRoomVariant = "fullscreen" | "content" | "sheet";
@@ -286,6 +308,16 @@ export function VoiceRoom({
  * portals the content out of the layout and positions it `fixed`, so it is the
  * outermost thing the sheet owns; sliding the room's box instead would travel
  * the look downward inside a stationary sheet and expose the page behind it.
+ *
+ * **The drag also rides this element, for the same reason.** A sheet that
+ * slides up on its own should come back down under a finger, so the whole
+ * chrome follows a downward pull and then either minimizes or springs back per
+ * {@link sheetDragMinimizes}. It is pinned upward —
+ * `dragConstraints` of zero in both directions with elasticity only on the
+ * bottom — because there is nothing above the sheet to reveal: it already rests
+ * against the header, and letting it travel up would open a gap under it. The
+ * gesture is a *minimize*, never an end: pulling a live call off the screen
+ * must not hang it up.
  */
 function VoiceRoomSheet({
   headerBottom,
@@ -302,6 +334,26 @@ function VoiceRoomSheet({
     <BottomSheet.Root open modal={false} onOpenChange={minimizeVoiceRoom}>
       <MotionBottomSheetContent
         {...motionProps}
+        drag="y"
+        // A voice room is a tall surface with controls near its bottom edge;
+        // without the lock, the small vertical component of a horizontal
+        // reach across the row starts the sheet moving under the finger.
+        dragDirectionLock
+        // Zero in both directions: the sheet has no resting position other
+        // than "up". Downward travel is entirely `dragElastic`'s, which is
+        // what makes let-go spring back rather than leaving the room parked
+        // halfway down.
+        dragConstraints={{ top: 0, bottom: 0 }}
+        // Near-1:1 downward so the sheet tracks the finger, immovable upward.
+        dragElastic={{ top: 0, bottom: 0.9 }}
+        // The room is not a scroll view being flung; it should stop where the
+        // finger stops and then resolve, not coast.
+        dragMomentum={false}
+        onDragEnd={(_event, info) => {
+          if (sheetDragMinimizes(info.offset.y, info.velocity.y)) {
+            minimizeVoiceRoom();
+          }
+        }}
         // The room is a surface in its own right: a full-bleed color fill and
         // bands that must reach the sheet's rounded corners.
         padded={false}
@@ -317,10 +369,10 @@ function VoiceRoomSheet({
         onEscapeKeyDown={(event) => event.preventDefault()}
         onInteractOutside={(event) => event.preventDefault()}
         // Radix focuses the first focusable child on open, which here is the
-        // top-right exit. That drew its focus ring and popped its "End voice
-        // session" tooltip over a room the user had only just opened, so the
-        // first thing the room said was how to leave it. Focus goes to the
-        // sheet itself instead (Radix gives the content `tabIndex={-1}`), which
+        // top-right minimize. That drew its focus ring and popped its tooltip
+        // over a room the user had only just opened, so the first thing the
+        // room said was how to leave it. Focus goes to the sheet itself
+        // instead (Radix gives the content `tabIndex={-1}`), which
         // still announces the room and leaves Escape to the window handler
         // above.
         onOpenAutoFocus={(event) => {
@@ -629,13 +681,38 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         ) : null}
       </AnimatePresence>
 
-      {/* Top-right: the exit, alone. ✕ is never gated behind avatar readiness,
-          so ending works even mid-load / on failure.
-          Nothing else shares the corner. Minimize moved into the centred row
-          below as "show transcript", named for what the user wants rather than
-          for what the window does, and the in-session settings gear was deleted
-          with it: a corner of small controls competed with the room's own cast
-          for attention. Voice and listening language are Settings' now. */}
+      {/* The sheet's grabber: the whole affordance for the pull-down, and the
+          only thing on the surface that says the room can be pulled at all.
+          A caption telling the user to swipe would be read by nobody; the bar
+          every sheet on the platform wears is the shape they already know.
+
+          Decorative, and deliberately not a hit target of its own: the drag
+          lives on the sheet chrome and so the ENTIRE room answers the gesture,
+          which is what makes it findable without aiming. Sheet only — the
+          desktop panel and the fullscreen room have no chrome to pull. */}
+      {sheet ? (
+        <div
+          aria-hidden
+          data-testid="voice-room-grabber"
+          className="pointer-events-none absolute left-1/2 top-2 z-10 h-1 w-9 -translate-x-1/2 rounded-full bg-[var(--room-fg-muted)] opacity-60"
+        />
+      ) : null}
+
+      {/* Top-right: minimize, alone.
+
+          The corner is where every other surface in the app puts "get this off
+          my screen", and that is now exactly what it does — the session keeps
+          running on the composer's voice bar or the title-bar pill. It used to
+          END the call, which put the most destructive act in the room at the
+          one spot muscle memory reaches for without looking; hanging up moved
+          into the control row below, where it sits among the other things you
+          do to a call and has to be aimed at.
+
+          Never gated behind avatar readiness, so the room can always be
+          dismissed even mid-load / on failure. Nothing else shares the corner:
+          the in-session settings gear was deleted because a cluster of small
+          chrome competed with the room's own cast for attention. Voice and
+          listening language are Settings' now. */}
       <div
         // An equal gap from both edges, so the control reads as sitting in the
         // corner rather than floating near it.
@@ -652,14 +729,14 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         }}
         className="absolute z-10 flex items-center gap-1"
       >
-        <Tooltip content="End voice session">
+        <Tooltip content="Minimize (session keeps going)">
           <button
             type="button"
-            onClick={endLiveVoiceSession}
-            aria-label="Exit voice session"
+            onClick={minimizeVoiceRoom}
+            aria-label="Minimize voice room"
             className={ROOM_CONTROL_CLASS}
           >
-            <X className="size-5" />
+            <ChevronDown className="size-5" />
           </button>
         </Tooltip>
       </div>
@@ -715,15 +792,24 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           - mute the assistant, so you stop hearing it. Its reply keeps running
             underneath and the transcript keeps filling, so unmuting drops you
             back in wherever it has reached,
-          - show the transcript, which minimizes the room to reveal the
-            conversation underneath. The session keeps running on the
-            composer's voice bar; this is the same move the old − made, named
-            for what the user wants rather than what the window does.
+          - end the session.
 
-          All three are persistent toggles, so the row never changes shape
-          mid-call and a control never moves out from under a reaching finger.
-          The two mutes are deliberately a symmetric pair: one per direction of
-          the conversation, reading left to right as you and then it. */}
+          The two mutes are a symmetric pair: one per direction of the
+          conversation, reading left to right as you and then it. The end
+          control closes the row, and it is the room's ONLY one, so there is
+          exactly one place a session can be ended from.
+
+          A red ✕, not a hang-up receiver. This is not truly a phone call —
+          it is a session you are in, the same one the composer's ✕ ends and
+          the same one the pill's ✕ ends — and a receiver glyph would be the
+          only place in the app that called it something else.
+
+          It wears the destructive tone unconditionally, rather than the
+          neutral one the mutes wear until engaged, precisely because the row
+          it joined is otherwise all reversible toggles: a third identical
+          circle beside them would collect the mis-tap that cannot be undone.
+          Every control here is persistent, so the row never changes shape
+          mid-call and none moves out from under a reaching finger. */}
       <div
         data-testid="voice-room-controls"
         className="absolute inset-x-0 z-10 flex items-center justify-center gap-4"
@@ -740,9 +826,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             className={cn(
               SESSION_CONTROL_CLASS,
               muted
-                ? tone?.isLight
-                  ? "border-red-700/50 bg-red-600/15 text-red-800 hover:bg-red-600/25"
-                  : "border-red-400/50 bg-red-500/20 text-red-300 hover:bg-red-500/30"
+                ? destructiveControlClass(tone?.isLight)
                 : SESSION_CONTROL_NEUTRAL_CLASS,
             )}
           >
@@ -759,9 +843,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             className={cn(
               SESSION_CONTROL_CLASS,
               outputMuted
-                ? tone?.isLight
-                  ? "border-red-700/50 bg-red-600/15 text-red-800 hover:bg-red-600/25"
-                  : "border-red-400/50 bg-red-500/20 text-red-300 hover:bg-red-500/30"
+                ? destructiveControlClass(tone?.isLight)
                 : SESSION_CONTROL_NEUTRAL_CLASS,
             )}
           >
@@ -773,14 +855,17 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           </button>
         </Tooltip>
 
-        <Tooltip content="Show transcript (session keeps going)">
+        <Tooltip content="End session">
           <button
             type="button"
-            onClick={minimizeVoiceRoom}
-            aria-label="Show transcript"
-            className={cn(SESSION_CONTROL_CLASS, SESSION_CONTROL_NEUTRAL_CLASS)}
+            onClick={endLiveVoiceSession}
+            aria-label="End voice session"
+            className={cn(
+              SESSION_CONTROL_CLASS,
+              destructiveControlClass(tone?.isLight),
+            )}
           >
-            <Captions className="size-5" />
+            <X className="size-5" strokeWidth={2.5} />
           </button>
         </Tooltip>
       </div>

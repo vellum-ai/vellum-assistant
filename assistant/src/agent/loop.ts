@@ -1,8 +1,8 @@
-import { getConfig } from "../config/loader.js";
-import { isMemoryV3Live } from "../config/memory-v3-gate.js";
+import type { AnsweredQuestion } from "../api/events/question-answered.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { preModelCallSanitize } from "../context/outbound-sanitize.js";
+import { turnStartUserMessageHasSpotlight } from "../context/strip-injections.js";
 import {
   estimatePromptTokensRaw,
   estimatePromptTokensWithTools,
@@ -116,9 +116,9 @@ export interface AgentLoopConfig {
    * This is a SERVER tool the provider runs itself, distinct from the client
    * tool list (`tools` / `resolveTools`): it is never executed by
    * {@link AgentLoopConstructorOptions.toolExecutor} and does not require any
-   * client-tool allowlist entry. Used by the tool-less advisor consult to
-   * ground its guidance with live web access while staying one-shot for client
-   * tools. Defaults to false — existing behavior.
+   * client-tool allowlist entry. Used by the advisor consult to ground its
+   * guidance with live web access on top of its read-only client tools.
+   * Defaults to false.
    */
   enableNativeWebSearch?: boolean;
 }
@@ -289,6 +289,8 @@ export type AgentEvent =
       approvalReason?: string;
       riskThreshold?: string;
       activityMetadata?: ToolActivityMetadata;
+      /** Answered `ask_question` record (see `ToolExecutionResult.answeredQuestion`). */
+      answeredQuestion?: AnsweredQuestion;
       /** Stable machine-readable error classification (see `ToolExecutionResult.errorCode`). */
       errorCode?: string;
       /**
@@ -698,6 +700,7 @@ export type LoopToolExecutor = (
   approvalReason?: string;
   riskThreshold?: string;
   activityMetadata?: ToolActivityMetadata;
+  answeredQuestion?: AnsweredQuestion;
   errorCode?: string;
 }>;
 
@@ -1355,9 +1358,9 @@ export class AgentLoop {
         // `this.provider.supportsNativeWebSearch` snapshot; providers without
         // the routing-aware probe fall back to the static flag. This is a SERVER
         // tool — it bypasses the client allowlist and the tool executor — so the
-        // tool-less advisor consult can ground its guidance with live web access
-        // while staying one-shot for client tools. Skip when a `web_search` tool
-        // is already present so we never duplicate the name.
+        // advisor consult can ground its guidance with live web access on top of
+        // its read-only client tools. Skip when a `web_search` tool is already
+        // present so we never duplicate the name.
         const supportsRoutedNativeWebSearch = this.provider
           .supportsNativeWebSearchFor
           ? this.provider.supportsNativeWebSearchFor(
@@ -1420,9 +1423,7 @@ export class AgentLoop {
         if (this.config.toolChoice) {
           providerConfig.tool_choice = this.config.toolChoice;
         } else if (attachNativeWebSearch) {
-          // The native web-search tool is the only tool on this turn (the
-          // advisor consult is otherwise tool-less). Let the model decide
-          // whether to search rather than forcing it.
+          // Let the model decide whether to search rather than forcing it.
           providerConfig.tool_choice = { type: "auto" };
         }
 
@@ -1430,14 +1431,18 @@ export class AgentLoop {
           providerConfig.cacheTtl = this.config.cacheTtl;
         }
 
-        // Cache-anchor signal for volatile latest-user-message turns: when
-        // memory-v3 is live it injects a per-turn `<memory>` block into the
-        // latest user message, so the provider must anchor its long-TTL cache
-        // breakpoint on the most recent STABLE user message instead of the
-        // volatile latest one. Read here alongside the rest of the provider
-        // config; only set when true so the wire/config stays byte-identical
-        // when off.
-        if (isMemoryV3Live(getConfig())) {
+        // Cache-anchor signal for turns whose opening message is volatile. The
+        // memory-v3 `<memory_spotlight>` block is the only injected block that
+        // is strip-and-replaced from every user message each turn, so when it
+        // is present that message's bytes do not recur next turn and a
+        // long-TTL breakpoint on it could never be read back. The provider
+        // marks it at the short TTL instead. Derived from the history actually
+        // being sent rather than from configuration, so turns where memory
+        // contributed no spotlight keep a normal anchor. Read off the
+        // turn-starting message, so the signal holds for every request in the
+        // turn rather than flipping once tool results arrive. Only set when
+        // true so the wire/config stays byte-identical when absent.
+        if (turnStartUserMessageHasSpotlight(history)) {
           providerConfig.mutableLatestUserMessage = true;
         }
 
@@ -1459,8 +1464,17 @@ export class AgentLoop {
           // conversation id). Absent for standalone `AgentLoop` instances
           // (unit tests constructed without a conversation id) — those fall
           // back to per-call random mix selection.
+          //
+          // The same id also travels as `conversationId`, which
+          // `RetryProvider.normalizeSendMessageOptions` uses to resolve the
+          // conversation's subagent role and spawn mode for the runtime
+          // proxy's billing-attribution headers. Both are stripped before any
+          // provider wire request; they are carried separately because
+          // `selectionSeed` is an opaque hashing input that callers may set to
+          // something other than a conversation id.
           if (this.conversationId) {
             providerConfig.selectionSeed = this.conversationId;
+            providerConfig.conversationId = this.conversationId;
           }
         }
 
@@ -2201,13 +2215,16 @@ export class AgentLoop {
         // message between calls would invalidate the prompt-cache prefix on
         // every iteration).
         if (conversationDir) {
-          const toolNameByUseId = new Map(
-            toolUseBlocks.map((tu) => [tu.id, tu.name]),
+          const toolCallByUseId = new Map(
+            toolUseBlocks.map((tu) => [
+              tu.id,
+              { name: tu.name, input: tu.input },
+            ]),
           );
           try {
             spoolAndStubOversizedToolResults(rawResultBlocks, {
               conversationDir,
-              toolNameById: (id) => toolNameByUseId.get(id),
+              toolCallById: (id) => toolCallByUseId.get(id),
             });
           } catch (err) {
             rlog.warn(
@@ -2286,6 +2303,7 @@ export class AgentLoop {
             approvalReason: result.approvalReason,
             riskThreshold: result.riskThreshold,
             activityMetadata: result.activityMetadata,
+            answeredQuestion: result.answeredQuestion,
             errorCode: result.errorCode,
           });
         }

@@ -70,9 +70,9 @@ export function RouteErrorBoundary() {
     <div
       data-slot="route-error-boundary"
       data-variant="full-page"
-      className="flex min-h-svh flex-col items-center justify-center gap-4 p-6 text-center"
+      className="flex min-h-svh flex-col items-center justify-center gap-4 bg-[var(--surface-base)] p-6 text-center"
     >
-      <h1 className="text-2xl font-semibold text-[var(--content-primary)]">
+      <h1 className="text-2xl font-semibold text-[var(--content-emphasised)]">
         {heading}
       </h1>
       <p className="max-w-md text-[var(--content-secondary)]">{message}</p>

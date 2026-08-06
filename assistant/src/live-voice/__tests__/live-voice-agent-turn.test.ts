@@ -154,6 +154,21 @@ async function waitFor(
   throw new Error(message);
 }
 
+/**
+ * The most recent `activity` frame, or `undefined` when none has been sent.
+ * `findLast` is past this project's lib target, so the filter-and-take-last
+ * form stands in for it.
+ */
+function lastActivityFrame(
+  frames: LiveVoiceServerFrame[],
+): Extract<LiveVoiceServerFrame, { type: "activity" }> | undefined {
+  const activity = frames.filter(
+    (frame): frame is Extract<LiveVoiceServerFrame, { type: "activity" }> =>
+      frame.type === "activity",
+  );
+  return activity[activity.length - 1];
+}
+
 function createCapturingTurnStarter(): {
   startVoiceTurn: LiveVoiceTurnStarter;
   getCallbacks: () => VoiceTurnCallbacks | undefined;
@@ -817,6 +832,116 @@ describe("LiveVoiceSession room reveal", () => {
 
     announceApprovalsResolved();
     await flushAsyncCallbacks();
+  });
+
+  // `tool_use_start` fires before the approval gate blocks, so without this the
+  // island keeps saying "Running a command" for the whole wait — a claim about
+  // work in flight made at the one moment nothing is in flight. The request id
+  // is what turns that line from accurate into answerable: it is what the Live
+  // Activity's Approve and Deny send back.
+  test("a pending approval publishes an answerable activity line", async () => {
+    const { startVoiceTurn, getCallbacks, announceApprovalPending } =
+      createCapturingTurnStarter();
+    const { frames, session } = createSessionHarness({ startVoiceTurn });
+
+    await session.start();
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    getCallbacks()?.tool_use_start?.("bash");
+    await waitFor(() =>
+      frames.some(
+        (frame) => frame.type === "activity" && frame.label.length > 0,
+      ),
+    );
+    announceApprovalPending();
+    await waitFor(() =>
+      frames.some(
+        (frame) =>
+          frame.type === "activity" && frame.approvalRequestId === "req-1",
+      ),
+    );
+
+    const waiting = lastActivityFrame(frames);
+    // The tool's own phrase, kept, plus who is being waited on — so the line
+    // beside the buttons names what is being approved without naming the tool
+    // or its arguments to a Lock Screen.
+    expect(waiting).toMatchObject({
+      label: "Running a command — needs your okay",
+      approvalRequestId: "req-1",
+    });
+  });
+
+  // However the decision is made — the card in the app, the daemon's own
+  // timeout, a superseding message — the buttons must go with it. They are
+  // rendered from the id, so retiring the id is what retires them.
+  test("resolving the approval retires the request id", async () => {
+    const {
+      startVoiceTurn,
+      getCallbacks,
+      announceApprovalPending,
+      announceApprovalsResolved,
+    } = createCapturingTurnStarter();
+    const { frames, session } = createSessionHarness({ startVoiceTurn });
+
+    await session.start();
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    getCallbacks()?.tool_use_start?.("bash");
+    announceApprovalPending();
+    await waitFor(() =>
+      frames.some(
+        (frame) =>
+          frame.type === "activity" && frame.approvalRequestId === "req-1",
+      ),
+    );
+
+    announceApprovalsResolved();
+    await waitFor(
+      () => lastActivityFrame(frames)?.approvalRequestId === undefined,
+    );
+
+    const resumed = lastActivityFrame(frames);
+    // Back to the tool that is now genuinely running, with nothing to answer.
+    expect(resumed).toMatchObject({ label: "Running a command" });
+    expect(resumed?.approvalRequestId).toBeUndefined();
+  });
+
+  // A turn can start and finish other work while it is blocked. Each of those
+  // events republishes the activity line, and a republish composed as if
+  // nothing were pending would take the request id down with it — retiring the
+  // island's buttons while the turn was still waiting on them.
+  test("a parallel tool event mid-wait does not retire the buttons", async () => {
+    const { startVoiceTurn, getCallbacks, announceApprovalPending } =
+      createCapturingTurnStarter();
+    const { frames, session } = createSessionHarness({ startVoiceTurn });
+
+    await session.start();
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    getCallbacks()?.tool_use_start?.("bash");
+    announceApprovalPending();
+    await waitFor(() =>
+      frames.some(
+        (frame) =>
+          frame.type === "activity" && frame.approvalRequestId === "req-1",
+      ),
+    );
+
+    getCallbacks()?.tool_use_start?.("web_search");
+    getCallbacks()?.tool_result?.({
+      toolName: "web_search",
+      resultPreview: "",
+    });
+    await flushAsyncCallbacks();
+
+    const latest = lastActivityFrame(frames);
+    expect(latest?.approvalRequestId).toBe("req-1");
+    // And still naming the tool the decision is about, not the one that ran
+    // alongside it.
+    expect(latest?.label).toBe("Running a command — needs your okay");
   });
 
   test("dismissing a surface does not reveal the screen", async () => {

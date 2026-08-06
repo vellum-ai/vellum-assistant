@@ -5,14 +5,30 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const feedbackRequests: unknown[] = [];
+let capacitorPlatform: "web" | "ios" | "android" = "web";
+let rejectAndroidFeedbackClient = false;
 
 mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   feedbackCreateMutation: () => ({
     mutationFn: async (request: unknown) => {
       feedbackRequests.push(request);
+      if (
+        rejectAndroidFeedbackClient &&
+        (request as { body?: { client?: string } }).body?.client === "android"
+      ) {
+        throw { client: ["Unsupported client."] };
+      }
       return { id: "feedback-1" };
     },
   }),
+}));
+
+mock.module("@capacitor/core", () => ({
+  Capacitor: {
+    getPlatform: () => capacitorPlatform,
+    isNativePlatform: () => capacitorPlatform !== "web",
+  },
+  registerPlugin: () => ({}),
 }));
 
 mock.module("@/stores/auth-store", () => ({
@@ -23,12 +39,14 @@ mock.module("@/stores/auth-store", () => ({
   },
 }));
 
-const { ShareFeedbackModal, stripBulkBase64 } =
+const { ShareFeedbackModal, stripBulkBase64, dedupeAgainstClientMessages } =
   await import("@/components/share-feedback-modal");
 
 afterEach(() => {
   cleanup();
   feedbackRequests.length = 0;
+  capacitorPlatform = "web";
+  rejectAndroidFeedbackClient = false;
   delete (window as unknown as { _vellumDebug?: unknown })._vellumDebug;
 });
 
@@ -83,6 +101,62 @@ describe("ShareFeedbackModal", () => {
       (screen.getByLabelText("What's on your mind?") as HTMLTextAreaElement)
         .value,
     ).toBe("The app colors are ugly.");
+  });
+
+  test("reports Android shell feedback as android", async () => {
+    capacitorPlatform = "android";
+    const client = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <ShareFeedbackModal
+          open
+          onClose={() => {}}
+          initialReason="other"
+          initialMessage="The app colors are ugly."
+        />
+      </QueryClientProvider>,
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Email"), "user@example.com");
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+
+    await waitFor(() => expect(feedbackRequests).toHaveLength(1));
+    const request = feedbackRequests[0] as { body: { client?: string } };
+    expect(request.body.client).toBe("android");
+  });
+
+  test("falls back to web when the platform rejects Android", async () => {
+    capacitorPlatform = "android";
+    rejectAndroidFeedbackClient = true;
+    const client = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <ShareFeedbackModal
+          open
+          onClose={() => {}}
+          initialReason="other"
+          initialMessage="The app colors are ugly."
+        />
+      </QueryClientProvider>,
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Email"), "user@example.com");
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+
+    await waitFor(() => expect(feedbackRequests).toHaveLength(2));
+    expect(
+      feedbackRequests.map(
+        (request) => (request as { body: { client?: string } }).body.client,
+      ),
+    ).toEqual(["android", "web"]);
   });
 
   test("submits Doctor session id and transcript diagnostics", async () => {
@@ -193,14 +267,19 @@ describe("diagnostics capture base64 stripping", () => {
     expect(logsText).not.toContain(bigBase64);
     expect(logsText).toContain("[stripped data URI image/png,");
     expect(logsText).toContain("[stripped base64,");
-    // The diagnostic signal survives IN BOTH SURFACES: transcript items
-    // embed the same message objects clientMessages lists, and a shared
-    // reference is not a cycle. Each capture surface must carry the full
-    // message, so the text and both stripped markers appear twice.
+    // The message ships once, via clientMessages (text appears twice there:
+    // textSegments + contentBlocks). The transcript item that embeds the
+    // same object by reference carries a pointer, not a second copy, and a
+    // shared reference is never misread as a cycle.
     expect(logsText).not.toContain("[cyclic]");
-    expect(logsText.split("look at this photo").length - 1).toBe(4);
-    expect(logsText.split("[stripped data URI image/png,").length - 1).toBe(2);
-    expect(logsText.split("[stripped base64,").length - 1).toBe(2);
+    expect(logsText.split("look at this photo").length - 1).toBe(2);
+    expect(logsText.split("[stripped data URI image/png,").length - 1).toBe(1);
+    expect(logsText.split("[stripped base64,").length - 1).toBe(1);
+    expect(logsText).toContain(
+      "[deduplicated: see clientMessages msg-1]",
+    );
+    // The item-layer structure survives alongside the pointer.
+    expect(logsText).toContain('"kind": "message"');
     expect(logsText).toContain('"photo.png"');
   });
 
@@ -226,6 +305,38 @@ describe("diagnostics capture base64 stripping", () => {
 
     expect(logsText).toContain(prose);
     expect(logsText).not.toContain("[stripped");
+  });
+});
+
+describe("dedupeAgainstClientMessages", () => {
+  test("replaces identity-shared messages, keeps structurally-equal copies", () => {
+    const shared = { id: "msg-1", text: "hello" };
+    const copy = { id: "msg-1", text: "hello" };
+    const items = [
+      { kind: "message", key: "a", message: shared },
+      { kind: "message", key: "b", message: copy },
+      { kind: "thinking", key: "c", active: true },
+    ];
+    const result = dedupeAgainstClientMessages(items, [shared]) as Array<
+      Record<string, unknown>
+    >;
+
+    // Identity match becomes a pointer; the item wrapper survives.
+    expect(result[0]).toEqual({
+      kind: "message",
+      key: "a",
+      message: "[deduplicated: see clientMessages msg-1]",
+    });
+    // A structurally-equal but distinct object is NOT deduplicated: any
+    // divergence between the surfaces must be captured in full.
+    expect(result[1].message).toEqual(copy);
+    // Non-message items pass through untouched.
+    expect(result[2]).toEqual({ kind: "thinking", key: "c", active: true });
+  });
+
+  test("passes items through when clientMessages is unavailable", () => {
+    const items = [{ kind: "message", message: { id: "m" } }];
+    expect(dedupeAgainstClientMessages(items, null)).toBe(items);
   });
 });
 

@@ -12,13 +12,15 @@ name: Deploy Web SPA (reusable)
 # in the post-auth publish step and exfiltrate the short-lived GCP credentials.
 #
 # Three single-environment callers, one per environment: `deploy-web-spa` in
-# dev-release.yaml deploys `dev` on every hourly dev release (gated on ci-web +
-# register-release); release.yml's `deploy-web-spa-staging` deploys `staging`
-# on staging releases and `deploy-web-spa-production` deploys `production` when
-# a release goes live — last, after the GitHub Release is published and the
-# release is registered with the platform, so a failed go-live never leaves
-# the prod UI ahead of the backend. The `environment:` binding only resolves each
-# environment's secrets/vars; no environment gates on required reviewers.
+# dev-release.yaml deploys `dev` on every hourly dev release (hard-gated on
+# ci-web alone, ordered after register-release, so web changes still reach dev
+# when the backend half of the release fails); release.yml's
+# `deploy-web-spa-staging` deploys `staging` on staging releases and
+# `deploy-web-spa-production` deploys `production` when a release goes live —
+# last, after the GitHub Release is published and the release is registered
+# with the platform, so a failed go-live never leaves the prod UI ahead of the
+# backend. The `environment:` binding only resolves each environment's
+# secrets/vars; no environment gates on required reviewers.
 on:
   workflow_call:
     inputs:
@@ -66,6 +68,9 @@ jobs:
       #                              surfaces (web/Electron/iOS). Unset disables
       #                              session replay. Public, so baking it in is
       #                              expected.
+      #   - VITE_ANDROID_PLAY_STORE_URL  environment variable set only after
+      #                              the production Play listing is live.
+      #                              Unset keeps Android promotion disabled.
       #   - VITE_STRIPE_PUBLISHABLE_KEY  per-environment secret; publishable keys
       #                              are public, so embedding them is expected
       #   - VITE_VELAY_HOST          per-environment variable: the live-voice
@@ -97,6 +102,7 @@ jobs:
           VITE_SENTRY_DSN_ANDROID: ${{ secrets.SENTRY_DSN_ANDROID }}
           VITE_SENTRY_ENVIRONMENT: ${{ vars.VITE_SENTRY_ENVIRONMENT }}
           VITE_SESSION_REPLAY_APP_ID: ${{ vars.VITE_SESSION_REPLAY_APP_ID }}
+          VITE_ANDROID_PLAY_STORE_URL: ${{ vars.VITE_ANDROID_PLAY_STORE_URL }}
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           VITE_VELAY_HOST: ${{ vars.VITE_VELAY_HOST }}
           VITE_APP_VERSION: ${{ github.sha }}

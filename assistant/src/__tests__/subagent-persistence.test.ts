@@ -5,10 +5,12 @@ import { migrateCreateSubagentsTable } from "../persistence/migrations/311-creat
 import { migrateAddSubagentParentToolUseId } from "../persistence/migrations/356-add-subagent-parent-tool-use-id.js";
 import { resetTestTables } from "../persistence/raw-query.js";
 import {
+  countRecentSimilarSpawns,
   deleteSubagentRecordsByParent,
   getSubagentRecordById,
   getSubagentRecordByLabel,
   loadAllSubagentRecords,
+  normalizeSpawnObjective,
   type SubagentRecord,
   upsertSubagentRecord,
 } from "../persistence/subagent-store.js";
@@ -131,6 +133,145 @@ describe("subagent-store", () => {
     deleteSubagentRecordsByParent("parent-1");
 
     expect(loadAllSubagentRecords().map((r) => r.id)).toEqual(["s2"]);
+  });
+});
+
+describe("recent similar spawn tallies", () => {
+  const OBJECTIVE = "Audit the billing pipeline for drift";
+
+  /** A completed row for `OBJECTIVE`, spelled however the caller wants it. */
+  function spawn(
+    id: string,
+    over: Partial<SubagentRecord> = {},
+  ): SubagentRecord {
+    return record({
+      id,
+      conversationId: `conv-${id}`,
+      objective: OBJECTIVE,
+      status: "completed",
+      createdAt: Date.now(),
+      completedAt: Date.now(),
+      estimatedCost: 0.5,
+      ...over,
+    });
+  }
+
+  function tally(parentConversationId = "parent-1") {
+    return countRecentSimilarSpawns({
+      parentConversationId,
+      normalizedObjective: normalizeSpawnObjective(OBJECTIVE),
+      sinceMs: Date.now() - 24 * 60 * 60 * 1000,
+    });
+  }
+
+  test("normalization folds case and whitespace over the whole objective", () => {
+    expect(normalizeSpawnObjective("  Audit   the\nBILLING pipeline ")).toBe(
+      "audit the billing pipeline",
+    );
+    expect(normalizeSpawnObjective("x".repeat(200))).toHaveLength(200);
+  });
+
+  test("counts both scopes and sums their cost", () => {
+    upsertSubagentRecord(spawn("a"));
+    upsertSubagentRecord(
+      spawn("b", { objective: "  AUDIT the Billing\tpipeline for drift  " }),
+    );
+    upsertSubagentRecord(spawn("c", { parentConversationId: "parent-2" }));
+
+    expect(tally()).toEqual({
+      conversation: { count: 2, estimatedCost: 1, inFlight: 0 },
+      assistant: { count: 3, estimatedCost: 1.5, inFlight: 0 },
+    });
+  });
+
+  test("a genuinely different objective is not a match", () => {
+    upsertSubagentRecord(spawn("a"));
+    upsertSubagentRecord(
+      spawn("b", { objective: "Audit the payouts pipeline for drift" }),
+    );
+
+    expect(tally().conversation.count).toBe(1);
+  });
+
+  test("a shared boilerplate prefix does not fold distinct objectives together", () => {
+    const preamble =
+      "Follow the audit checklist to the letter and report ".repeat(3);
+    upsertSubagentRecord(
+      spawn("a", { objective: `${preamble} on the billing service` }),
+    );
+    upsertSubagentRecord(
+      spawn("b", { objective: `${preamble} on the payouts service` }),
+    );
+
+    const forBilling = countRecentSimilarSpawns({
+      parentConversationId: "parent-1",
+      normalizedObjective: normalizeSpawnObjective(
+        `${preamble} on the billing service`,
+      ),
+      sinceMs: Date.now() - 24 * 60 * 60 * 1000,
+    });
+
+    expect(forBilling.conversation.count).toBe(1);
+  });
+
+  test("the same objective still matches however long its preamble", () => {
+    const objective = `${"e".repeat(200)} tail`;
+    upsertSubagentRecord(spawn("a", { objective }));
+    upsertSubagentRecord(spawn("b", { objective: `  ${objective}  ` }));
+
+    expect(
+      countRecentSimilarSpawns({
+        parentConversationId: "parent-1",
+        normalizedObjective: normalizeSpawnObjective(objective),
+        sinceMs: Date.now() - 24 * 60 * 60 * 1000,
+      }).conversation.count,
+    ).toBe(2);
+  });
+
+  test("spawns older than the cutoff and advisor consults are left out", () => {
+    upsertSubagentRecord(spawn("fresh"));
+    upsertSubagentRecord(
+      spawn("stale", { createdAt: Date.now() - 90_000_000 }),
+    );
+    upsertSubagentRecord(spawn("consult", { role: "advisor" }));
+
+    expect(tally().assistant.count).toBe(1);
+  });
+
+  test("runs that ended without an answer are left out of both scopes", () => {
+    upsertSubagentRecord(spawn("done"));
+    for (const status of ["failed", "aborted", "interrupted"]) {
+      upsertSubagentRecord(
+        spawn(`ended-${status}`, { status, completedAt: Date.now() }),
+      );
+    }
+
+    expect(tally()).toEqual({
+      conversation: { count: 1, estimatedCost: 0.5, inFlight: 0 },
+      assistant: { count: 1, estimatedCost: 0.5, inFlight: 0 },
+    });
+  });
+
+  test("runs still under way are tallied apart from completed ones", () => {
+    // The burst shape the loop guard exists for: copies fired faster than any
+    // of them can finish are invisible to a completed-only count.
+    upsertSubagentRecord(spawn("done"));
+    upsertSubagentRecord(spawn("running", { status: "running" }));
+    upsertSubagentRecord(spawn("queued", { status: "pending" }));
+    upsertSubagentRecord(spawn("asking", { status: "awaiting_input" }));
+    upsertSubagentRecord(
+      spawn("running-elsewhere", {
+        status: "running",
+        parentConversationId: "parent-2",
+      }),
+    );
+
+    expect(tally()).toEqual({
+      // An unfinished run has no cost recorded yet, so it adds nothing to the
+      // completed tally's spend.
+      conversation: { count: 1, estimatedCost: 0.5, inFlight: 3 },
+      assistant: { count: 1, estimatedCost: 0.5, inFlight: 4 },
+    });
   });
 });
 
