@@ -386,6 +386,20 @@ export function processChannelMessageInBackground(
 // Telegram typing heartbeat
 // ---------------------------------------------------------------------------
 
+/**
+ * How often the typing status is re-sent while a turn runs.
+ *
+ * `sendChatAction` sets a status that expires on its own after a few seconds,
+ * and the Bot API offers no stop/start pair to hold one open, so showing
+ * typing across a multi-second turn means re-sending on a timer. The interval
+ * has to stay under that expiry or the indicator blinks off between beats;
+ * anyone changing it should check the current window first.
+ *
+ * No explicit stop is needed on the delivery path: Telegram clears the status
+ * as soon as the bot sends a message.
+ *
+ * https://core.telegram.org/bots/api#sendchataction
+ */
 const TELEGRAM_TYPING_INTERVAL_MS = 4_000;
 
 function shouldEmitTelegramTyping(

@@ -136,6 +136,15 @@ describe("extractVellumFilePathsFromArgv", () => {
       ]),
     ).toEqual([]);
   });
+
+  test("resolves relative paths from the launching working directory", () => {
+    expect(
+      extractVellumFilePathsFromArgv(
+        ["Vellum.exe", "exports/example.vellum"],
+        "/launching-directory",
+      ),
+    ).toEqual(["/launching-directory/exports/example.vellum"]);
+  });
 });
 
 describe("handleFileOpen", () => {

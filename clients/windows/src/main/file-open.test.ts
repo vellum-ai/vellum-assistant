@@ -74,9 +74,15 @@ test("delivers canonical first-instance and second-instance file paths once", ()
   ]);
   firstEvent.destroy();
 
-  const secondPath = path.resolve("exports/second.vellum");
+  const secondWorkingDirectory = path.resolve("secondary-launch");
+  const secondRelativePath = "exports/second.vellum";
+  const secondPath = path.resolve(secondWorkingDirectory, secondRelativePath);
   for (const listener of appListeners.get("second-instance") ?? []) {
-    listener({}, ["Vellum.exe", secondPath, secondPath, "archive.vellum.bak"]);
+    listener(
+      {},
+      ["Vellum.exe", secondRelativePath, secondRelativePath, "archive.vellum.bak"],
+      secondWorkingDirectory,
+    );
   }
 
   expect(invokeListeners.get(FILE_OPEN_DRAIN)?.(makeEvent().event)).toEqual([

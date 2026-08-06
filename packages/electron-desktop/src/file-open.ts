@@ -53,20 +53,24 @@ const getDependencies = (): FileOpenDependencies => {
   return dependencies;
 };
 
-export const canonicalizeVellumFilePath = (filePath: string): string | null => {
+export const canonicalizeVellumFilePath = (
+  filePath: string,
+  workingDirectory = process.cwd(),
+): string | null => {
   if (!VELLUM_EXT_RE.test(filePath)) {
     return null;
   }
-  return path.resolve(filePath);
+  return path.resolve(workingDirectory, filePath);
 };
 
 export const extractVellumFilePathsFromArgv = (
   argv: readonly string[],
+  workingDirectory = process.cwd(),
 ): string[] => {
   const seen = new Set<string>();
   const paths: string[] = [];
   for (const arg of argv) {
-    const filePath = canonicalizeVellumFilePath(arg);
+    const filePath = canonicalizeVellumFilePath(arg, workingDirectory);
     if (!filePath) {
       continue;
     }
@@ -117,8 +121,14 @@ export const handleFileOpen = (filePath: string): void => {
   }
 };
 
-export const handleFileOpenArgv = (argv: readonly string[]): void => {
-  for (const filePath of extractVellumFilePathsFromArgv(argv)) {
+export const handleFileOpenArgv = (
+  argv: readonly string[],
+  workingDirectory = process.cwd(),
+): void => {
+  for (const filePath of extractVellumFilePathsFromArgv(
+    argv,
+    workingDirectory,
+  )) {
     handleFileOpen(filePath);
   }
 };

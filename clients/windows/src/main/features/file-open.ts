@@ -20,8 +20,8 @@ const module: CapabilityModule<DesktopCapabilityRegistry> = {
     installFileOpen();
 
     handleFileOpenArgv(process.argv);
-    app.on("second-instance", (_event, argv) => {
-      handleFileOpenArgv(argv);
+    app.on("second-instance", (_event, argv, workingDirectory) => {
+      handleFileOpenArgv(argv, workingDirectory);
     });
   },
 };

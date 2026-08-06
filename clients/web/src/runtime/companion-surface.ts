@@ -60,3 +60,16 @@ export function setCompanionInteractive(interactive: boolean): void {
 export function moveCompanionBy(dx: number, dy: number): void {
   bridge()?.moveBy?.(dx, dy);
 }
+
+/**
+ * Ask for a live-voice session, which is what Talk does.
+ *
+ * The surface is a renderer of its own with no session in it, so the press is
+ * handed to main and dispatched to the window that owns one. Nothing is
+ * returned and nothing is awaited: whether a session actually starts is the
+ * receiving window's decision, and the panel that surface opens is the answer
+ * the user sees.
+ */
+export function startCompanionVoice(): void {
+  bridge()?.startVoice?.();
+}

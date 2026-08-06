@@ -99,6 +99,16 @@ const { getVersionInfo, installAbout, openAboutWindow } = await import(
   "./about"
 );
 
+const aboutIpc = {
+  handle: (
+    channel: string,
+    _schema: unknown,
+    handler: unknown,
+  ): void => {
+    ipcHandleMock(channel, handler);
+  },
+};
+
 beforeEach(() => {
   constructed = [];
   showMock.mockClear();
@@ -136,9 +146,9 @@ describe("getVersionInfo", () => {
 // across multiple `test()` blocks. One call, multiple assertions.
 describe("installAbout", () => {
   test("registers IPC handlers, populates the About panel, and is idempotent on repeated calls", () => {
-    installAbout();
-    installAbout();
-    installAbout();
+    installAbout(aboutIpc);
+    installAbout(aboutIpc);
+    installAbout(aboutIpc);
 
     const channels = ipcHandleMock.mock.calls.map((c) => c[0]);
     expect(channels).toContain("vellum:app:versionInfo");

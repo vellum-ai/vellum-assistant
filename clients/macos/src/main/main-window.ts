@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getRendererRootUrl } from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin";
 import { decideNavigation } from "./auth-nav";
-import { type VellumCommand } from "./commands";
+import { type VellumCommand } from "@vellumai/electron-desktop/commands";
 import { getName, onNameChange } from "./identity";
 import { handle } from "./ipc";
 import { createWindow } from "./windows";
