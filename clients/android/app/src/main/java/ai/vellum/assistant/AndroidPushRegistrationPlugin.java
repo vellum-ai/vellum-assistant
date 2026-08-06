@@ -20,7 +20,7 @@ public class AndroidPushRegistrationPlugin extends Plugin {
     }
 
     private void invokeSafely(PluginCall call, Consumer<PushNotificationsPlugin> operation) {
-        PushRegistrationGuard.run(call, () -> {
+        PushRegistrationGuard.call(call, () -> {
             PushNotificationsPlugin plugin = PushNotificationsPlugin.getPushNotificationsInstance();
             if (plugin == null) {
                 PushRegistrationGuard.reject(call);

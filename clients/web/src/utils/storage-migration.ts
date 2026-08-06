@@ -267,13 +267,17 @@ export function runStorageMigrations(): void {
   // legacy mode into the equivalent provider so a previously-managed
   // browser does not fall back to the BYOK default before the daemon
   // config loads.
-  if (localStorage.getItem("vellum:ai:imageGenProvider") === null) {
-    const legacyImageGenMode = localStorage.getItem("vellum:ai:imageGenMode");
-    if (legacyImageGenMode === "managed") {
-      localStorage.setItem("vellum:ai:imageGenProvider", "vellum");
-    } else if (legacyImageGenMode === "your-own") {
-      localStorage.setItem("vellum:ai:imageGenProvider", "gemini");
+  try {
+    if (localStorage.getItem("vellum:ai:imageGenProvider") === null) {
+      const legacyImageGenMode = localStorage.getItem("vellum:ai:imageGenMode");
+      if (legacyImageGenMode === "managed") {
+        localStorage.setItem("vellum:ai:imageGenProvider", "vellum");
+      } else if (legacyImageGenMode === "your-own") {
+        localStorage.setItem("vellum:ai:imageGenProvider", "gemini");
+      }
     }
+  } catch {
+    // Storage unavailable. Retry on next load.
   }
   migrateKey("vellum_web_search_mode", "vellum:ai:webSearchMode");
   migrateKey("vellum_web_search_provider", "vellum:ai:webSearchProvider");
