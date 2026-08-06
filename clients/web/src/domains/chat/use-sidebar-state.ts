@@ -273,11 +273,12 @@ export function useSidebarState({
      this assistant so a version still held for the outgoing one cannot
      authorize a filtered fetch against the incoming one mid-switch. */
   const supportsGroupFilter = useSupportsGroupFilter(assistantId);
-  const { conversations: pinnedFromQuery } = useSectionConversationListQuery(
-    assistantId,
-    PINNED_FILTER,
-    isAssistantActive && supportsGroupFilter,
-  );
+  const { conversations: pinnedFromQuery, isPending: pinnedPending } =
+    useSectionConversationListQuery(
+      assistantId,
+      PINNED_FILTER,
+      isAssistantActive && supportsGroupFilter,
+    );
 
   const allConversations = useMemo(
     () =>
@@ -300,9 +301,15 @@ export function useSidebarState({
     [allConversations, conversationGroups, viewMode],
   );
 
-  const pinnedConversations = supportsGroupFilter
-    ? pinnedFromQuery
-    : grouped.pinned;
+  /* Keep painting the derived rows until the section query has answered once.
+     `pinnedFromQuery` is empty while pending, and an empty Pinned section is
+     dropped entirely below, so switching on the gate alone would hide Pinned
+     on every cold load until a multi-page drain finished. The derived list is
+     a subset (the pinned rows that happen to be in the foreground page), so
+     this paints immediately and fills in. `isPending` is false once data has
+     landed, so a later refetch never falls back. */
+  const pinnedConversations =
+    supportsGroupFilter && !pinnedPending ? pinnedFromQuery : grouped.pinned;
 
   // --- Section order ---
 
