@@ -277,6 +277,9 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
 
   return (
     <PageShell
+      // The photo backdrop is an image, not a flat color, so there is nothing
+      // the shell could paint into the safe areas that would continue it.
+      bleed={!photoBackdrop}
       className={photoBackdrop ? "relative overflow-hidden" : undefined}
       style={
         avatarHex
