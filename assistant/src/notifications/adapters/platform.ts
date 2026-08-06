@@ -18,7 +18,11 @@ import {
   isRetryableStatus,
   sleep,
 } from "../../util/retry.js";
-import { stripMarkdownForPreview } from "../notification-utils.js";
+import {
+  describeMedia,
+  mediaEmbedAltTexts,
+  stripMarkdownForPreview,
+} from "../notification-utils.js";
 import type {
   ChannelAdapter,
   ChannelDeliveryObserver,
@@ -38,6 +42,30 @@ const RETRY_DELAYS_MS = [250, 1_000, 4_000] as const;
 // its own, and the broadcaster defers the urgent local banner on this
 // dispatch's outcome -- a hung platform must fail the attempt, not stall it.
 const ATTEMPT_TIMEOUT_MS = 5_000;
+
+/**
+ * Flatten one alert field for a plain-text surface, recovering copy when
+ * flattening leaves nothing behind.
+ *
+ * An APNs/FCM alert renders no markdown, so markers arrive as literal
+ * punctuation. Flattening here covers every event routed to this channel
+ * without altering what other channels receive, some of which render markdown
+ * deliberately. Newlines survive: iOS renders them, and guardian copy carries a
+ * deliberate paragraph break.
+ *
+ * The recovery is load-bearing rather than cosmetic. Copy composed entirely of
+ * media embeds, which the pass-through path copies into both the title and the
+ * body, flattens to nothing, and the pipeline's empty-copy guards all run
+ * upstream of this adapter. The platform's serializer rejects a blank title,
+ * so an unrecovered field costs the whole notification, not just its wording.
+ */
+function flattenAlertField(value: string): string {
+  const flattened = stripMarkdownForPreview(value);
+  if (flattened.trim().length > 0) {
+    return flattened;
+  }
+  return describeMedia(mediaEmbedAltTexts(value)) || value;
+}
 
 /** Whether a fetch error is the per-attempt abort timeout firing. */
 function isAttemptTimeout(err: unknown): boolean {
@@ -106,16 +134,11 @@ export class PlatformPushAdapter implements ChannelAdapter {
         ? guardianPrincipalId
         : undefined;
 
-    // An APNs/FCM alert is plain text, so markdown markers reach the lock
-    // screen as literal punctuation. Flattening here covers every event routed
-    // to this channel without altering what the other channels receive, some of
-    // which render markdown deliberately. Newlines are kept: iOS renders them,
-    // and some copy carries a deliberate paragraph break.
     const body: DispatchBody = {
       delivery_id: payload.correlationId ?? payload.deliveryId,
       source_event_name: payload.sourceEventName,
-      title: stripMarkdownForPreview(payload.copy.title),
-      body: stripMarkdownForPreview(payload.copy.body),
+      title: flattenAlertField(payload.copy.title),
+      body: flattenAlertField(payload.copy.body),
       deep_link_metadata: payload.deepLinkTarget,
       context_payload: payload.contextPayload,
       target_guardian_principal_id: targetGuardianPrincipalId,

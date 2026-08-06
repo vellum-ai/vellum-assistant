@@ -401,6 +401,47 @@ describe("PlatformPushAdapter", () => {
       expect(fetchCalls[0]!.body.title).toBe("Reminder");
       expect(fetchCalls[0]!.body.body).toBe("Check the oven!");
     });
+
+    // The pass-through path copies a verbatim `requestedMessage` into both the
+    // title and the body, so media-only copy flattens both to nothing. Every
+    // empty-copy guard in the pipeline runs upstream of this adapter, and the
+    // platform's serializer rejects a blank title, so an unrecovered field
+    // costs the whole notification.
+    describe("copy that flattens to nothing", () => {
+      test("names the media instead of dispatching blank fields", async () => {
+        const adapter = new PlatformPushAdapter();
+        const embed = "![clip](vellum://workspace/a.mp4)";
+        const payload = makePayload({ copy: { title: embed, body: embed } });
+
+        const result = await adapter.send(payload, makeDestination());
+
+        expect(result.success).toBe(true);
+        expect(fetchCalls[0]!.body.title).toBe("Sent clip");
+        expect(fetchCalls[0]!.body.body).toBe("Sent clip");
+      });
+
+      test("counts several embeds", async () => {
+        const adapter = new PlatformPushAdapter();
+        const embeds =
+          "![one](vellum://workspace/1.mp4) ![two](https://e.com/2.png)";
+        const payload = makePayload({ copy: { title: embeds, body: embeds } });
+
+        await adapter.send(payload, makeDestination());
+
+        expect(fetchCalls[0]!.body.title).toBe("Sent 2 attachments");
+      });
+
+      // Nothing nameable is left, so the original beats a blank field: ugly
+      // copy still delivers, an empty title is a 400.
+      test("keeps the original when there is no media to name", async () => {
+        const adapter = new PlatformPushAdapter();
+        const payload = makePayload({ copy: { title: "###", body: "###" } });
+
+        await adapter.send(payload, makeDestination());
+
+        expect(fetchCalls[0]!.body.title).toBe("###");
+      });
+    });
   });
 
   test("omits optional fields when absent from payload", async () => {
