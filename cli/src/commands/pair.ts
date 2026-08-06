@@ -40,6 +40,7 @@ import {
   getClientRegistrationHeaders,
 } from "../lib/client-identity.js";
 import { GATEWAY_PORT } from "../lib/constants.js";
+import { resolveEnvironmentSource } from "../lib/environments/resolve.js";
 import {
   formatFeatureFlagGateMessage,
   isAssistantFeatureFlagEnabled,
@@ -47,6 +48,7 @@ import {
 } from "../lib/feature-flags.js";
 import { getLocalLanIPv4 } from "../lib/local.js";
 import { isLoopbackUrl, loopbackSafeFetch } from "../lib/loopback-fetch.js";
+import { formatWebApproveFailure, parseGatewayErrorCode } from "../lib/pair.js";
 import { STALE_CLI_UPDATE_HINT } from "../lib/stale-cli-hint.js";
 
 function assistantDisplayName(entry: AssistantEntry): string {
@@ -152,19 +154,18 @@ export function buildAppConnectUrl(
 
 /**
  * POST a JSON body to a loopback gateway route, exiting with a clear message
- * when the gateway is unreachable or answers non-2xx. Every pairing subcommand
- * talks to the gateway this way, so the reachability + HTTP-error handling has
- * a single home.
+ * when the gateway is unreachable. Non-2xx responses are returned to the
+ * caller; use {@link gatewayPostOrExit} unless the call site prints its own
+ * HTTP-error diagnostics.
  */
-async function gatewayPostOrExit(
+async function gatewayPost(
   gatewayUrl: string,
   path: string,
   body: unknown,
   headers?: Record<string, string>,
 ): Promise<Response> {
-  let response: Response;
   try {
-    response = await loopbackSafeFetch(`${gatewayUrl}${path}`, {
+    return await loopbackSafeFetch(`${gatewayUrl}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify(body),
@@ -177,6 +178,20 @@ async function gatewayPostOrExit(
     console.error("Is the assistant running? Try `vellum wake`.");
     process.exit(1);
   }
+}
+
+/**
+ * {@link gatewayPost}, but also exiting with a generic message on non-2xx.
+ * Every pairing subcommand talks to the gateway this way, so the reachability
+ * + HTTP-error handling has a single home.
+ */
+async function gatewayPostOrExit(
+  gatewayUrl: string,
+  path: string,
+  body: unknown,
+  headers?: Record<string, string>,
+): Promise<Response> {
+  const response = await gatewayPost(gatewayUrl, path, body, headers);
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "");
@@ -206,9 +221,11 @@ async function createRemoteWebPairingChallenge(
 }
 
 /**
- * Approve a pending pairing challenge by its user code — the local-presence
- * proof for the device-code flow. Shared by `--web-approve` and `--qr` (which
- * approves the challenge it just minted so one scan completes pairing).
+ * Approve a pending pairing challenge by its user code, the local-presence
+ * proof for the device-code flow. Used by `--qr`, which approves the
+ * challenge it just minted so one scan completes pairing. `--web-approve`
+ * approves user-supplied codes instead and prints mismatch diagnostics on
+ * rejection (see {@link formatWebApproveFailure}).
  */
 async function approveRemoteWebPairing(
   gatewayUrl: string,
@@ -399,7 +416,32 @@ export async function pair(): Promise<void> {
   if (webApproveCode) {
     await assertWebRemoteIngressEnabled(entry.assistantId, mintUrl);
 
-    const result = await approveRemoteWebPairing(mintUrl, webApproveCode);
+    // Rejections are diagnosed here rather than by gatewayPostOrExit: a
+    // rejected code must name the gateway that was asked, or an
+    // assistant/environment mismatch is indistinguishable from a typo.
+    const response = await gatewayPost(
+      mintUrl,
+      "/v1/remote-web/pairing-verification",
+      {
+        userCode: webApproveCode,
+      } satisfies RemoteWebPairingVerificationRequest,
+    );
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => "");
+      const diagnostic = formatWebApproveFailure(
+        mintUrl,
+        assistantDisplayName(entry),
+        resolveEnvironmentSource().name,
+        parseGatewayErrorCode(errorBody),
+      );
+      console.error(
+        diagnostic ??
+          `Error: HTTP ${response.status}: ${errorBody || response.statusText}`,
+      );
+      process.exit(1);
+    }
+    const result =
+      (await response.json()) as RemoteWebPairingVerificationResponse;
     if (jsonOutput) {
       console.log(JSON.stringify(result, null, 2));
       return;
