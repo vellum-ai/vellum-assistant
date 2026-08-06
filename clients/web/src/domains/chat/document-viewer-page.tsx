@@ -80,7 +80,7 @@ export function DocumentViewerPage() {
         // in-chat viewer, so it clears the unseen record itself.
         useUnseenDocumentChangesStore
           .getState()
-          .clearDocument(result.conversationId, surfaceId);
+          .clearDocumentEverywhere(surfaceId);
       } catch {
         if (!cancelled) {
           setError("Failed to load document.");

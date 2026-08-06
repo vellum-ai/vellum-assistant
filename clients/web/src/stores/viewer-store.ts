@@ -1173,7 +1173,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       });
       useUnseenDocumentChangesStore
         .getState()
-        .clearDocument(result.conversationId, result.surfaceId);
+        .clearDocumentEverywhere(result.surfaceId);
     } catch {
       if (!sameDocumentTarget(get().activeDocumentTarget, target)) {
         return;
@@ -1250,7 +1250,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       });
       useUnseenDocumentChangesStore
         .getState()
-        .clearDocument(result.conversationId, result.surfaceId);
+        .clearDocumentEverywhere(result.surfaceId);
     } catch (err) {
       giveUp(err);
     }

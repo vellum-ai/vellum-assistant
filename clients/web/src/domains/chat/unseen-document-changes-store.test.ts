@@ -152,6 +152,66 @@ describe("unseen document changes", () => {
     expect(unseen("conv-1")).toBe(false);
   });
 
+  test("clearing everywhere clears a conversation the reader never opened", () => {
+    act(() => {
+      useUnseenDocumentChangesStore
+        .getState()
+        .markDocumentChanged("conv-2", "doc-a");
+      useUnseenDocumentChangesStore.getState().clearDocumentEverywhere("doc-a");
+    });
+
+    expect(unseen("conv-2")).toBe(false);
+    expect(useUnseenDocumentChangesStore.getState().changedDocuments).toEqual(
+      {},
+    );
+  });
+
+  test("clearing everywhere clears the surface from every conversation", () => {
+    act(() => {
+      const store = useUnseenDocumentChangesStore.getState();
+      store.markDocumentChanged("conv-1", "doc-a");
+      store.markDocumentChanged("conv-2", "doc-a");
+      store.markDocumentChanged("conv-3", "doc-b");
+      store.clearDocumentEverywhere("doc-a");
+    });
+
+    expect(unseen("conv-1")).toBe(false);
+    expect(unseen("conv-2")).toBe(false);
+    expect(unseen("conv-3")).toBe(true);
+  });
+
+  test("clearing everywhere leaves the conversation's other documents unseen", () => {
+    act(() => {
+      const store = useUnseenDocumentChangesStore.getState();
+      store.markDocumentChanged("conv-1", "doc-a");
+      store.markDocumentChanged("conv-1", "doc-b");
+      store.clearDocumentEverywhere("doc-a");
+    });
+
+    expect(unseen("conv-1")).toBe(true);
+    expect(
+      useUnseenDocumentChangesStore.getState().changedDocuments["conv-1"],
+    ).toEqual(new Set(["doc-b"]));
+  });
+
+  test("clearing everywhere for an unmarked surface is a no-op", () => {
+    act(() => {
+      useUnseenDocumentChangesStore
+        .getState()
+        .markDocumentChanged("conv-1", "doc-a");
+    });
+    const before = useUnseenDocumentChangesStore.getState().changedDocuments;
+
+    act(() => {
+      useUnseenDocumentChangesStore.getState().clearDocumentEverywhere("doc-b");
+    });
+
+    expect(useUnseenDocumentChangesStore.getState().changedDocuments).toBe(
+      before,
+    );
+    expect(unseen("conv-1")).toBe(true);
+  });
+
   test("a null conversation id is never unseen", () => {
     act(() => {
       useUnseenDocumentChangesStore

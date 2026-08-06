@@ -210,12 +210,22 @@ export function isDocumentOpen(
   openedDocument: OpenedDocumentState | null,
   surfaceId: string,
 ): boolean {
-  return (
-    mainView === "document" &&
-    openedDocument !== null &&
-    openedDocument.source === "document" &&
-    openedDocument.surfaceId === surfaceId
-  );
+  return openedDocumentSurfaceId(mainView, openedDocument) === surfaceId;
+}
+
+/**
+ * The document surface the drawer is showing, or `null` when it shows nothing
+ * or a read-only preview. The identity behind {@link isDocumentOpen}, for
+ * callers that need to know *which* document rather than ask about one.
+ */
+export function openedDocumentSurfaceId(
+  mainView: MainView,
+  openedDocument: OpenedDocumentState | null,
+): string | null {
+  if (mainView !== "document" || openedDocument?.source !== "document") {
+    return null;
+  }
+  return openedDocument.surfaceId;
 }
 
 /**

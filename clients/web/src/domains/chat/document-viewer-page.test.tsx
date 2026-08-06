@@ -105,6 +105,19 @@ describe("DocumentViewerPage", () => {
     expect(unseenFor("conv-1")).toEqual(["surf-2"]);
   });
 
+  test("clears a change recorded against a conversation other than the document's", async () => {
+    useUnseenDocumentChangesStore
+      .getState()
+      .markDocumentChanged("conv-2", "surf-1");
+    documentResult = () =>
+      Promise.resolve({ data: documentSurface({ conversationId: "conv-1" }) });
+
+    const { findByTestId } = renderPage("surf-1");
+    await findByTestId("viewer");
+
+    expect(unseenFor("conv-2")).toEqual([]);
+  });
+
   test("keeps the unseen change when the load fails", async () => {
     useUnseenDocumentChangesStore
       .getState()

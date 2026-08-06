@@ -7,6 +7,12 @@
  * Entries are keyed by conversation so a change in a background conversation
  * cannot light the affordance on the conversation currently on screen.
  *
+ * A document is reachable from every conversation it is linked to, and an edit
+ * is recorded against the conversation the assistant made it from, which need
+ * not be the one the reader opens it from. Opening a document therefore clears
+ * it from every conversation, which surface ids being globally unique makes
+ * unambiguous.
+ *
  * Wrapped with `createSelectors` for auto-generated per-field hooks.
  *
  * @see {@link https://zustand.docs.pmnd.rs/}
@@ -29,8 +35,14 @@ export interface UnseenDocumentChangesState {
 export interface UnseenDocumentChangesActions {
   /** Record that a document changed while the user was not looking at it. */
   markDocumentChanged: (conversationId: string, surfaceId: string) => void;
-  /** Clear one document, for "the user opened that document". */
+  /** Clear one document within one conversation. */
   clearDocument: (conversationId: string, surfaceId: string) => void;
+  /**
+   * Clear one document from every conversation, for "the user opened that
+   * document". The reader may have opened it from a conversation other than
+   * the one the edit was recorded against.
+   */
+  clearDocumentEverywhere: (surfaceId: string) => void;
   /** Clear a whole conversation, for "the user opened the assets sheet". */
   clearConversation: (conversationId: string) => void;
 }
@@ -69,6 +81,31 @@ const useUnseenDocumentChangesStoreBase = create<UnseenDocumentChangesStore>()(
           delete changedDocuments[conversationId];
         } else {
           changedDocuments[conversationId] = next;
+        }
+        return { changedDocuments };
+      });
+    },
+
+    clearDocumentEverywhere: (surfaceId) => {
+      set((s) => {
+        const changedDocuments: Record<string, ReadonlySet<string>> = {};
+        let found = false;
+        for (const [conversationId, surfaces] of Object.entries(
+          s.changedDocuments,
+        )) {
+          if (!surfaces.has(surfaceId)) {
+            changedDocuments[conversationId] = surfaces;
+            continue;
+          }
+          found = true;
+          const next = new Set(surfaces);
+          next.delete(surfaceId);
+          if (next.size > 0) {
+            changedDocuments[conversationId] = next;
+          }
+        }
+        if (!found) {
+          return s;
         }
         return { changedDocuments };
       });
