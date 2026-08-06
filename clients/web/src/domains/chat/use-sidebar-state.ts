@@ -60,7 +60,9 @@ import { mergeConversationLists } from "@/utils/conversation-cache";
 import {
   useBackgroundConversationListQuery,
   useScheduledConversationListQuery,
+  useSectionConversationListQuery,
 } from "@/hooks/conversation-queries";
+import { SYSTEM_PINNED_GROUP_ID } from "@/utils/conversation-list-fetchers";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { getChannelLabel } from "@/utils/channel-presentation";
 import { RECENTS_SECTION_LABEL } from "@/domains/chat/utils/sidebar-section-icon";
@@ -75,6 +77,9 @@ import { RECENTS_SECTION_LABEL } from "@/domains/chat/utils/sidebar-section-icon
  * each render.
  */
 const EMPTY_KEYS: string[] = [];
+
+/** Stable reference so the Pinned query's options are not rebuilt each render. */
+const PINNED_FILTER = { groupId: SYSTEM_PINNED_GROUP_ID } as const;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -255,6 +260,17 @@ export function useSidebarState({
       isAssistantActive && scheduledReady,
     );
 
+  /* Pinned asks the server for its own members rather than taking whatever
+     pinned rows happen to be in the foreground page. Pinning is stored as
+     group membership, so one filter answers it, and a pinned conversation
+     that sorts many pages deep still appears here. */
+  const { conversations: pinnedConversations } =
+    useSectionConversationListQuery(
+      assistantId,
+      PINNED_FILTER,
+      isAssistantActive,
+    );
+
   const allConversations = useMemo(
     () =>
       mergeConversationLists(
@@ -286,12 +302,12 @@ export function useSidebarState({
   // below them.
   const defaultSections = useMemo((): SidebarSection[] => {
     const list: SidebarSection[] = [];
-    if (grouped.pinned.length > 0) {
+    if (pinnedConversations.length > 0) {
       list.push({
         type: "pinned",
         key: "pinned",
         label: "Pinned",
-        all: grouped.pinned,
+        all: pinnedConversations,
       });
     }
     for (const group of grouped.customGroups) {
@@ -323,7 +339,7 @@ export function useSidebarState({
     return list;
   }, [
     viewMode,
-    grouped.pinned,
+    pinnedConversations,
     grouped.customGroups,
     grouped.recents,
     grouped.channelSections,
@@ -343,8 +359,9 @@ export function useSidebarState({
 
   const curatedSectionCount = useMemo(
     () =>
-      sections.filter((section) => classifySectionKey(section.key) === "curated")
-        .length,
+      sections.filter(
+        (section) => classifySectionKey(section.key) === "curated",
+      ).length,
     [sections],
   );
 
@@ -413,9 +430,7 @@ export function useSidebarState({
     }
     const keys = sections
       .filter((section) =>
-        section.all.some((c) =>
-          attentionConversationIds.has(c.conversationId),
-        ),
+        section.all.some((c) => attentionConversationIds.has(c.conversationId)),
       )
       .map((section) => section.key);
     return keys.length > 0 ? keys : EMPTY_KEYS;

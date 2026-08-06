@@ -7,6 +7,16 @@ import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 // The Background/Scheduled sections own their lazy queries; stub both so the
 // hook resolves without a QueryClient and these tests stay focused on the
 // foreground grouping/pagination they exercise.
+/* Pinned asks the server for its own members, so the mock answers the way the
+   server does: the pinned rows of whatever the test set up. Section rows no
+   longer come from the `conversations` fixture by client-side filtering, which
+   is the coupling being removed. */
+let sectionRows: Conversation[] = [];
+
+function setSectionRows(conversations: Conversation[]) {
+  sectionRows = conversations.filter((c) => c.isPinned);
+}
+
 mock.module("@/hooks/conversation-queries", () => ({
   useBackgroundConversationListQuery: () => ({
     conversations: [],
@@ -14,6 +24,11 @@ mock.module("@/hooks/conversation-queries", () => ({
   }),
   useScheduledConversationListQuery: () => ({
     conversations: [],
+    isPending: false,
+  }),
+  useSectionConversationListQuery: () => ({
+    conversations: sectionRows,
+    isLoading: false,
     isPending: false,
   }),
 }));
@@ -241,6 +256,7 @@ describe("useSidebarState all view", () => {
   ];
 
   function renderSidebar() {
+    setSectionRows(conversations);
     return renderHook(() =>
       useSidebarState({
         assistantId: "asst-1",
@@ -316,6 +332,7 @@ describe("useSidebarState section order", () => {
 
   function renderSidebar() {
     seedGroupedView();
+    setSectionRows(conversations);
     return renderHook(() =>
       useSidebarState({
         assistantId: "asst-1",
@@ -339,11 +356,7 @@ describe("useSidebarState section order", () => {
     const { result } = renderSidebar();
 
     act(() =>
-      result.current.onReorderSections([
-        "grp-a",
-        "channel:slack",
-        "recents",
-      ]),
+      result.current.onReorderSections(["grp-a", "channel:slack", "recents"]),
     );
 
     expect(useSidebarLayoutStore.getState().sectionOrder).toEqual([
@@ -362,11 +375,7 @@ describe("useSidebarState section order", () => {
     const { result } = renderSidebar();
 
     act(() =>
-      result.current.onReorderSections([
-        "channel:slack",
-        "grp-a",
-        "recents",
-      ]),
+      result.current.onReorderSections(["channel:slack", "grp-a", "recents"]),
     );
 
     expect(result.current.sections.map((s) => s.key)).toEqual([
@@ -425,11 +434,7 @@ describe("useSidebarState section order", () => {
     const { result, rerender } = renderSidebar();
 
     act(() =>
-      result.current.onReorderSections([
-        "grp-a",
-        "channel:slack",
-        "recents",
-      ]),
+      result.current.onReorderSections(["grp-a", "channel:slack", "recents"]),
     );
 
     // Slack goes quiet: its section stops rendering entirely.
@@ -448,9 +453,7 @@ describe("useSidebarState section order", () => {
     ]);
 
     // Reordering while it's gone must not forget where it lived.
-    act(() =>
-      quiet.result.current.onReorderSections(["grp-a", "recents"]),
-    );
+    act(() => quiet.result.current.onReorderSections(["grp-a", "recents"]));
     expect(useSidebarLayoutStore.getState().sectionOrder).toContain(
       "channel:slack",
     );

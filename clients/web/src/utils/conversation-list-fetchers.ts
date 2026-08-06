@@ -216,7 +216,7 @@ type DrainListKind =
   | "scheduled"
   | "archived"
   | "origin_channel"
-  | "group";
+  | "section";
 
 /**
  * Label a drain by the list it is fetching. Archive status is checked first
@@ -236,7 +236,7 @@ function drainListKind(options: FetchConversationListOptions): DrainListKind {
     return "origin_channel";
   }
   if (options.groupId !== undefined) {
-    return "group";
+    return "section";
   }
   return "foreground";
 }
