@@ -104,6 +104,13 @@ export const conversationSummarySchema = z.object({
   displayOrder: z.number().nullable().optional(),
   groupId: z.string().nullable(),
   forkParent: forkParentSchema.optional(),
+  /**
+   * Present only on a referential fork whose parent conversation was deleted.
+   * The fork keeps the messages it owns and the lineage read truncates at the
+   * missing parent, so it renders as a conversation that starts mid-thought.
+   * Clients surface this so that reads as a deletion rather than as data loss.
+   */
+  historyOrphaned: z.literal(true).optional(),
   archivedAt: z.number().optional(),
   /**
    * Epoch-ms timestamp set when a background/scheduled conversation was

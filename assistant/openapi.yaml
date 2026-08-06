@@ -6772,6 +6772,9 @@ paths:
                             - messageId
                             - title
                           additionalProperties: false
+                        historyOrphaned:
+                          type: boolean
+                          const: true
                         archivedAt:
                           type: number
                         surfacedAt:
@@ -7132,6 +7135,9 @@ paths:
                           - messageId
                           - title
                         additionalProperties: false
+                      historyOrphaned:
+                        type: boolean
+                        const: true
                       archivedAt:
                         type: number
                       surfacedAt:
@@ -8342,6 +8348,9 @@ paths:
                           - messageId
                           - title
                         additionalProperties: false
+                      historyOrphaned:
+                        type: boolean
+                        const: true
                       archivedAt:
                         type: number
                       surfacedAt:

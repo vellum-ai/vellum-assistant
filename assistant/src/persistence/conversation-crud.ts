@@ -72,6 +72,7 @@ import {
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
 import {
+  isReferentialFork,
   type LineageBound,
   type LineageConversationRow,
   lineageMessageFilter,
@@ -1987,47 +1988,30 @@ export async function forkConversationForRetrospective(params: {
  * the corresponding Qdrant vector entries.
  */
 /**
- * Ids of the referential forks whose inherited history lives on this
- * conversation. Deleting it would strip those forks of every message before
- * their fork point, so the delete is refused while any exist.
- */
-export function listReferentialForkChildren(conversationId: string): string[] {
-  return getDb()
-    .select({ id: conversations.id })
-    .from(conversations)
-    .where(
-      and(
-        eq(conversations.forkParentConversationId, conversationId),
-        eq(conversations.forkStrategy, REFERENTIAL_FORK_STRATEGY),
-      ),
-    )
-    .all()
-    .map((row) => row.id);
-}
-
-/**
- * Refuse to delete a conversation that referential forks read their history
- * from. Shared by both delete paths: `deleteConversation` and the off-loop
- * `deleteConversationGently` are separate implementations of the same
- * operation, so an invariant living in only one of them is enforced only for
- * whichever callers happen to pick that one.
+ * Whether this conversation reads its inherited history from a parent that no
+ * longer exists.
  *
- * Blocking rather than cascading or copying on delete. A referential fork
- * reads its prefix from this conversation, so deleting it silently truncates
- * every child; cascading would instead delete conversations the caller never
- * named. Refusing keeps the destructive choice with the caller, and costs one
- * indexed lookup on a path already doing far more work.
+ * Deleting a conversation ORPHANS the referential forks taken from it: the
+ * delete touches only what it names, and each fork keeps the rows it owns
+ * while the lineage walk truncates at the missing parent. Cascading would make
+ * a delete cost time proportional to how many forks were ever taken from a
+ * conversation, and refusing would make most active conversations undeletable,
+ * since a retrospective forks every few minutes. Neither is worth paying on
+ * every delete for a state that renders fine and can be explained.
+ *
+ * Explaining it is what this is for: an orphan otherwise looks like a
+ * conversation that mysteriously starts mid-thought. Costs nothing on ordinary
+ * conversations, which fail `isReferentialFork` before any query runs.
  */
-function assertNoReferentialForkChildren(id: string): void {
-  const children = listReferentialForkChildren(id);
-  if (children.length === 0) {
-    return;
+export function isReferentialHistoryOrphaned(row: {
+  forkStrategy: string | null;
+  forkParentConversationId: string | null;
+  forkParentMessageId: string | null;
+}): boolean {
+  if (!isReferentialFork(row)) {
+    return false;
   }
-  throw new UserError(
-    `Conversation ${id} cannot be deleted while ${children.length} ` +
-      `referential fork(s) read their history from it: ` +
-      `${children.join(", ")}. Delete those first.`,
-  );
+  return getConversation(row.forkParentConversationId as string) === null;
 }
 
 export function deleteConversation(id: string): DeletedMemoryIds {
@@ -2036,8 +2020,6 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     segmentIds: [],
     deletedSummaryIds: [],
   };
-
-  assertNoReferentialForkChildren(id);
 
   // Capture createdAt before the transaction deletes the row — needed to
   // resolve the conversation's disk-view directory path after deletion.
@@ -2148,8 +2130,6 @@ export async function deleteConversationGently(
     segmentIds: [],
     deletedSummaryIds: [],
   };
-
-  assertNoReferentialForkChildren(id);
 
   // Capture createdAt before deletion — needed to resolve the conversation's
   // disk-view directory path afterwards.

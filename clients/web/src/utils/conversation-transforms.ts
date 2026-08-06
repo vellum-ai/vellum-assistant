@@ -108,6 +108,7 @@ export function toConversation(raw: RawConversationSummary): Conversation {
     channelBinding: mapChannelBinding(raw.channelBinding),
     originChannel,
     isProcessing: raw.isProcessing,
+    historyOrphaned: raw.historyOrphaned,
   };
 }
 
