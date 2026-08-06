@@ -665,8 +665,8 @@ export type SurfaceData =
  * side-effect command forwarded to the setup panel), `task_preferences` (a
  * fixed grid that reads no data), `voice_picker` (a settings card that reads
  * its own config), and `skill_card` / `call_summary` (cards the daemon appends
- * to history directly — the memory retrospective and a call summary — and
- * whose data shape is owned by their client renderers).
+ * to history directly, the memory retrospective and a call summary, whose
+ * data shape is owned by their client renderers).
  */
 export interface SurfaceDataByType {
   card: CardSurfaceData;
