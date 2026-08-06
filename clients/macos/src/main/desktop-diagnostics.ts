@@ -18,7 +18,7 @@ import {
   writeSetting,
 } from "@vellumai/electron-desktop/settings";
 
-import { getVersionInfo } from "./about";
+import { getVersionInfo } from "./about.client";
 import { getInstallLocation } from "./install-location";
 import { handle, on } from "./ipc";
 import { getLogFilePaths } from "./logger";

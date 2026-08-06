@@ -144,6 +144,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     /// Parse `<scheme>://connect?url=&code=` into the validated https server
     /// base, the pair-page URL to load, and the optional `name` label for the
     /// remembered-server list. Returns `nil` for a malformed or non-https link.
+    ///
+    /// `name` alone tolerates form encoding: a raw `+` (a space from a sender
+    /// that form-encoded the query) decodes to a space, while an encoded
+    /// `%2B` stays a literal plus. `url` and `code` are machine-generated and
+    /// never form-encoded, so they take the strict percent decode.
     private static func parseConnectDeepLink(_ url: URL) -> (base: URL, pairURL: URL, name: String?)? {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let serverParam = components.queryItems?.first(where: { $0.name == "url" })?.value,
@@ -154,7 +159,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         else {
             return nil
         }
-        let name = components.queryItems?.first(where: { $0.name == "name" })?.value
+        let name = components.percentEncodedQueryItems?
+            .first(where: { $0.name == "name" })?.value?
+            .replacingOccurrences(of: "+", with: "%20")
+            .removingPercentEncoding
         return (base, pairURL, name)
     }
 

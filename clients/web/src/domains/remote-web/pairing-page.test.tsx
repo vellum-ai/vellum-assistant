@@ -418,6 +418,9 @@ describe("RemoteWebPairingPage", () => {
     const query = new URLSearchParams(href.slice(href.indexOf("?") + 1));
     expect(query.get("name")).toBe("My Homelab");
     expect(query.get("code")).toBe("device-1");
+    // Spaces are percent-encoded, not form-encoded: iOS URLComponents keeps
+    // a raw `+` as a literal plus.
+    expect(href).toContain("name=My%20Homelab");
   });
 
   test("the Android app handoff url carries the assistant name too", async () => {

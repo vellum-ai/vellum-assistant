@@ -5,21 +5,28 @@
   "license": "MIT",
   "type": "module",
   "exports": {
+    "./about": "./src/about.ts",
+    "./accelerator": "./src/accelerator.ts",
     "./app-origin": "./src/app-origin.ts",
     "./capability-registry": "./src/capability-registry.ts",
+    "./commands": "./src/commands.ts",
     "./devtools": "./src/devtools.ts",
     "./diagnostics": "./src/diagnostics.ts",
     "./feature-flags": "./src/feature-flags.ts",
     "./feedback": "./src/feedback.ts",
+    "./global-shortcuts": "./src/global-shortcuts.ts",
+    "./hotkeys": "./src/hotkeys.ts",
+    "./image-context-menu": "./src/image-context-menu.ts",
     "./ipc": "./src/ipc.ts",
     "./redact": "./src/redact.ts",
     "./sentry": "./src/sentry.ts",
     "./settings": "./src/settings.ts",
+    "./text-context-menu": "./src/text-context-menu.ts",
     "./windows": "./src/windows.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit",
-    "test": "bun test src/sentry.test.ts && bun test src/capability-registry.test.ts src/feature-flags.test.ts src/feedback.test.ts src/redact.test.ts src/settings.test.ts"
+    "test": "bun scripts/run-tests.ts"
   },
   "dependencies": {
     "@vellumai/electron-utils": "workspace:*",

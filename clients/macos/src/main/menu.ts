@@ -6,7 +6,7 @@ import {
   readSetting,
 } from "@vellumai/electron-desktop/settings";
 
-import { openAboutWindow } from "./about";
+import { openAboutWindow } from "./about.client";
 import { checkForUpdates } from "./auto-update";
 import {
   isCliPathFlowInFlight,
@@ -21,7 +21,7 @@ import {
   acceleratorOption,
   dispatchToFocused,
   type VellumCommand,
-} from "./commands";
+} from "./commands.client";
 import {
   closeCommandPaletteWindow,
   isCommandPaletteWindowFocused,

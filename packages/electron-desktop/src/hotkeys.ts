@@ -1,21 +1,23 @@
 import { BrowserWindow } from "electron";
 import { z } from "zod";
 
-import {
-  onSettingChange,
-  readHotkeyOverride,
-  readSetting,
-  writeSetting,
-} from "@vellumai/electron-desktop/settings";
 import type { HotkeyScope, ResolvedHotkey } from "@vellumai/ipc-contract";
 
 import { isValidAccelerator } from "./accelerator";
 import {
   DEFAULT_ACCELERATORS,
   GLOBAL_SHORTCUT_DEFAULTS,
+  onHotkeyOverridesChange,
+  readHotkeyOverride,
+  readHotkeyOverrides,
   type VellumCommandKind,
+  writeHotkeyOverrides,
 } from "./commands";
-import { handle } from "./ipc";
+import type { IpcHandle } from "./ipc";
+
+export interface HotkeysIpc {
+  handle: IpcHandle;
+}
 
 export type { HotkeyScope, ResolvedHotkey };
 
@@ -125,13 +127,13 @@ const writeHotkey = (key: string, accelerator: string | null): void => {
     throw new Error(`Invalid accelerator: ${accelerator}`);
   }
 
-  const next = { ...(readSetting("hotkeys") ?? {}) };
+  const next = readHotkeyOverrides();
   if (accelerator === null) {
     delete next[key];
   } else {
     next[key] = accelerator;
   }
-  writeSetting("hotkeys", next);
+  writeHotkeyOverrides(next);
 };
 
 const broadcastCatalog = (): void => {
@@ -149,8 +151,10 @@ let teardown: (() => void) | null = null;
  * broadcast to every window whenever the hotkeys setting changes (including
  * changes a different window initiated) so open settings views stay in sync.
  */
-export const installHotkeysIpc = (): void => {
-  if (teardown) return;
+export const installHotkeysIpc = ({ handle }: HotkeysIpc): void => {
+  if (teardown) {
+    return;
+  }
 
   handle("vellum:hotkeys:get", z.tuple([]), () => resolveHotkeyCatalog());
   handle(
@@ -161,7 +165,7 @@ export const installHotkeysIpc = (): void => {
     },
   );
 
-  teardown = onSettingChange("hotkeys", () => {
+  teardown = onHotkeyOverridesChange(() => {
     broadcastCatalog();
   });
 };

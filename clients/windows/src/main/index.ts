@@ -7,11 +7,10 @@ import path from "node:path";
 
 import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
 import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
-import { z } from "zod";
 
 import { APP_PROTOCOL, WINDOWS_RELEASE_INFO } from "./app-config";
 import { installMainFeatures } from "./features";
-import { handle, handleSync } from "./ipc.client";
+import { handleSync } from "./ipc.client";
 import log from "./logger";
 import { ensureVisible, installMainWindow } from "./main-window";
 import { installWebContentsSecurity } from "./windows.client";
@@ -29,7 +28,7 @@ import { installWebContentsSecurity } from "./windows.client";
  * Not ported from the macOS client yet (see `clients/macos/src/main/` for the
  * reference implementations): gateway/platform request forwarding for
  * packaged builds, native auth, deep links, tray, auto-update, CSP,
- * notifications, hotkeys, local-mode IPC, window-state persistence.
+ * notifications, local-mode IPC, window-state persistence.
  */
 
 // Dev-only: override the package `name` (`@vellumai/windows`) so
@@ -154,26 +153,6 @@ handleSync("vellum:config:get", () => ({
   deviceId: null,
 }));
 
-const WEBSITE = "https://vellum.ai";
-
-// Injected by `electron.vite.config.ts` at build time.
-const installAppInfoIpc = (): void => {
-  handle("vellum:app:versionInfo", z.tuple([]), () => ({
-    appName: app.getName(),
-    version: app.getVersion(),
-    commitSha: WINDOWS_RELEASE_INFO.commitSha,
-    copyright: `© ${new Date().getFullYear()} Vellum AI`,
-    website: WEBSITE,
-  }));
-
-  // The renderer is sandboxed - `shell.openExternal` only works from main.
-  // The target is a fixed constant, never a renderer-supplied URL, so there's
-  // no open-redirect surface here.
-  handle("vellum:app:openWebsite", z.tuple([]), () =>
-    shell.openExternal(WEBSITE),
-  );
-};
-
 // ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------
@@ -184,7 +163,6 @@ app
     if (!isDev) {
       registerAppProtocol();
     }
-    installAppInfoIpc();
     installMainFeatures();
     installMainWindow();
   })

@@ -234,7 +234,7 @@ mock.module("@vellumai/electron-desktop/settings", () => ({
   onSettingChange: () => () => {},
 }));
 
-mock.module("./about", () => ({
+mock.module("./about.client", () => ({
   openAboutWindow: mock(() => undefined),
 }));
 

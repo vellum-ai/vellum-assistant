@@ -1,13 +1,10 @@
-import { useMemo } from "react";
-
 import {
-  Dropdown,
-  type DropdownOption,
-} from "@vellumai/design-library/components/dropdown";
+  Select,
+  type SelectOption,
+} from "@vellumai/design-library/components/select";
 
 import { getEffectiveTimezone } from "@/utils/effective-timezone";
 import { resolveLastTimezoneCalendarDays } from "@/utils/usage-window";
-import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 
 export interface DateRange {
   readonly from: string;
@@ -15,13 +12,14 @@ export interface DateRange {
 }
 
 interface DateRangeSelectProps {
-  readonly value: DateRange;
   /**
-   * Called when the user picks a preset. Emits both the computed range and the
-   * preset identity (`days`) so consumers can persist the active preset and
-   * recompute its bounds on a timezone change without reverse-matching.
+   * The active preset's identity (`days`), not its bounds. Deriving bounds is
+   * the consumer's job, because only the consumer knows when they need
+   * recomputing. Recovering the identity by measuring a range's span cannot
+   * distinguish the 30-day preset from any other span that rounds to it.
    */
-  readonly onChange: (range: DateRange, presetDays: number) => void;
+  readonly value: number;
+  readonly onChange: (presetDays: number) => void;
 }
 
 /**
@@ -36,8 +34,9 @@ export const DEFAULT_PRESET_DAYS = 30;
 
 type PresetDays = `${(typeof PRESET_DAYS)[number]}`;
 
-const PRESET_OPTIONS: ReadonlyArray<DropdownOption<PresetDays>> =
-  PRESET_DAYS.map((days) => ({ value: `${days}`, label: `Last ${days} days` }));
+const PRESET_OPTIONS: ReadonlyArray<SelectOption<PresetDays>> = PRESET_DAYS.map(
+  (days) => ({ value: `${days}`, label: `Last ${days} days` }),
+);
 
 /**
  * Compute a "last N days" range whose calendar bounds are expressed in the
@@ -55,48 +54,17 @@ export function computeRangeInTimezone(
   return { from: fromDate, to: toDate };
 }
 
-function daysBetween(from: string, to: string): number {
-  const msPerDay = 86_400_000;
-  const fromDate = new Date(from);
-  const toDate = new Date(to);
-  return Math.round((toDate.getTime() - fromDate.getTime()) / msPerDay) + 1;
-}
-
-/**
- * Map a range's span to the preset identity (`days`) this control would show
- * for it, defaulting to `DEFAULT_PRESET_DAYS` for any span that isn't 7 or 90.
- * Shared so consumers can derive the active preset with the same rule the
- * dropdown uses for its selected option.
- */
-export function presetDaysFromRange({ from, to }: DateRange): number {
-  const days = daysBetween(from, to);
-  if (days === 7) {
-    return 7;
-  }
-  if (days === 90) {
-    return 90;
-  }
-  return DEFAULT_PRESET_DAYS;
-}
-
 export function DateRangeSelect({ value, onChange }: DateRangeSelectProps) {
-  const tz = useEffectiveTimezone();
-
-  const selectedPreset = useMemo<PresetDays>(
-    () => `${presetDaysFromRange(value)}` as PresetDays,
-    [value],
-  );
-
-  const handleChange = (preset: PresetDays) => {
-    const days = Number(preset);
-    onChange(computeRangeInTimezone(days, tz), days);
-  };
+  // A value that is not one of the presets has no row to show, so fall back to
+  // the default rather than render a blank trigger.
+  const selected =
+    PRESET_DAYS.find((days) => days === value) ?? DEFAULT_PRESET_DAYS;
 
   return (
-    <Dropdown<PresetDays>
+    <Select<PresetDays>
       options={PRESET_OPTIONS}
-      value={selectedPreset}
-      onChange={handleChange}
+      value={`${selected}`}
+      onChange={(preset) => onChange(Number(preset))}
       aria-label="Date range"
     />
   );

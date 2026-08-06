@@ -542,3 +542,32 @@ export type LocalAssistantStatusResult =
       pid?: number;
     }
   | { ok: false; status: number; error: string };
+
+// ---------------------------------------------------------------------------
+// Companion surface
+// ---------------------------------------------------------------------------
+
+/**
+ * Which way the companion pill may grow, against the avatar's resting spot.
+ *
+ * `center` blooms both ways and is the shape the surface is designed around.
+ * The other two are what it degrades to when a screen edge is closer than the
+ * clearance bloom needs. Main decides: it owns the window position and is the
+ * only side that knows which display the surface is on.
+ */
+export const COMPANION_ANCHORS = ["center", "left", "right"] as const;
+
+export type CompanionAnchor = (typeof COMPANION_ANCHORS)[number];
+
+/** What main tells the companion renderer. */
+export interface CompanionSurfaceState {
+  anchor: CompanionAnchor;
+  /**
+   * The assistant's avatar as a base64 PNG, or `undefined` when there is none.
+   *
+   * Reuses the cache main already keeps for the Dock and Tray icons, which the
+   * renderer publishes over `vellum:icon:setAvatar`. One avatar feeds every
+   * surface, so the companion cannot drift from the icon in the Dock beside it.
+   */
+  avatarBase64?: string;
+}
