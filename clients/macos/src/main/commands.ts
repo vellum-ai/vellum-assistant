@@ -1,8 +1,7 @@
 import { BrowserWindow } from "electron";
 
+import { readHotkeyOverride } from "@vellumai/electron-desktop/settings";
 import type { VellumCommand } from "@vellumai/ipc-contract";
-
-import { readHotkeyOverride } from "./settings";
 
 export type { VellumCommand };
 

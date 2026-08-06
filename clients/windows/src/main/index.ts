@@ -9,7 +9,7 @@ import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
 import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
 import { z } from "zod";
 
-import { APP_PROTOCOL } from "./app-config";
+import { APP_PROTOCOL, WINDOWS_RELEASE_INFO } from "./app-config";
 import { installMainFeatures } from "./features";
 import { handle, handleSync } from "./ipc.client";
 import log from "./logger";
@@ -48,12 +48,8 @@ const isDev = !app.isPackaged;
 // environment. Append an environment suffix for non-production builds so
 // dev/staging/production installs can run side-by-side; production keeps the
 // original path for backwards compatibility.
-declare const __VELLUM_ENVIRONMENT__: string;
 if (app.isPackaged) {
-  const env =
-    typeof __VELLUM_ENVIRONMENT__ === "string"
-      ? __VELLUM_ENVIRONMENT__
-      : "production";
+  const env = WINDOWS_RELEASE_INFO.releaseChannel;
   if (env !== "production") {
     const base = app.getPath("userData");
     app.setPath("userData", `${base}-${env}`);
@@ -161,16 +157,11 @@ handleSync("vellum:config:get", () => ({
 const WEBSITE = "https://vellum.ai";
 
 // Injected by `electron.vite.config.ts` at build time.
-declare const __VELLUM_BUILD_SHA__: string;
-
 const installAppInfoIpc = (): void => {
   handle("vellum:app:versionInfo", z.tuple([]), () => ({
     appName: app.getName(),
     version: app.getVersion(),
-    commitSha:
-      typeof __VELLUM_BUILD_SHA__ === "string"
-        ? __VELLUM_BUILD_SHA__
-        : "unknown",
+    commitSha: WINDOWS_RELEASE_INFO.commitSha,
     copyright: `© ${new Date().getFullYear()} Vellum AI`,
     website: WEBSITE,
   }));

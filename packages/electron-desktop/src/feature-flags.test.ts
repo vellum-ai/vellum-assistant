@@ -1,38 +1,28 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { z } from "zod";
 
-// In-memory settings store shared by the mock below.
 let store: Record<string, unknown> = {};
-mock.module("./settings", () => ({
-  writeSetting: (key: string, value: unknown) => {
-    store[key] = value;
-  },
-}));
 
-// Capture the `on` registrations and the schema each is installed with, so we
-// can drive the handler body and assert the schema rejects malformed payloads.
-// The sender-origin guard inside the real `on` is covered by `ipc.test.ts`.
 type Registration = {
   channel: string;
   schema: z.ZodType<unknown[]>;
   fn: (args: unknown[]) => unknown;
 };
 const onRegistrations: Registration[] = [];
-// `handle` is included (as a no-op) even though `feature-flags.ts` only uses
-// `on`: this mock leaks into co-run test files via the global module registry,
-// so the full `./ipc` surface keeps siblings that import `handle` (e.g.
-// `hotkeys.ts`) resolvable regardless of file order.
-mock.module("./ipc", () => ({
-  on: (
+const ipc = {
+  on: <Args extends unknown[]>(
     channel: string,
-    schema: z.ZodType<unknown[]>,
-    fn: (args: unknown[]) => unknown,
-  ) => {
-    onRegistrations.push({ channel, schema, fn });
+    schema: z.ZodType<Args>,
+    fn: (args: Args) => unknown,
+  ): void => {
+    onRegistrations.push({
+      channel,
+      schema: schema as z.ZodType<unknown[]>,
+      fn: fn as (args: unknown[]) => unknown,
+    });
   },
-  handle: () => {},
-}));
+};
 
 const { installFeatureFlagsIpc } = await import("./feature-flags");
 
@@ -45,7 +35,11 @@ const registrationFor = (channel: string): Registration => {
 beforeEach(() => {
   store = {};
   onRegistrations.length = 0;
-  installFeatureFlagsIpc();
+  installFeatureFlagsIpc(ipc, {
+    write: (flags) => {
+      store["featureFlags"] = flags;
+    },
+  });
 });
 
 describe("vellum:featureFlags:set", () => {
@@ -57,6 +51,13 @@ describe("vellum:featureFlags:set", () => {
   test("accepts an empty map", () => {
     const { schema } = registrationFor("vellum:featureFlags:set");
     expect(schema.safeParse([{}]).success).toBe(true);
+  });
+
+  test("replaces stale flags on refresh", () => {
+    const registration = registrationFor("vellum:featureFlags:set");
+    registration.fn([{ oldFlag: true }]);
+    registration.fn([{ newFlag: false }]);
+    expect(store["featureFlags"]).toEqual({ newFlag: false });
   });
 
   test("rejects non-boolean flag values", () => {

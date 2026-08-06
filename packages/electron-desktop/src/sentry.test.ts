@@ -24,12 +24,11 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
  * process (scripts/run-tests.ts), so these `mock.module` overrides don't leak.
  */
 
-// Build-time globals injected by the bundler; define them so resolveOptions
-// produces a non-null options object.
-(globalThis as Record<string, unknown>).__SENTRY_DSN_MACOS__ =
-  "https://public@example.test/1";
-(globalThis as Record<string, unknown>).__VELLUM_ENVIRONMENT__ = "test";
-(globalThis as Record<string, unknown>).__VELLUM_BUILD_SHA__ = "test-sha";
+const enabledConfiguration = {
+  dsn: "https://public@example.test/1",
+  environment: "test",
+  release: "test-sha",
+};
 
 let sentryClient:
   | { getOptions: () => { enabled?: boolean }; close: () => Promise<boolean> }
@@ -95,7 +94,10 @@ mock.module("./settings", () => ({
   writeSetting: writeSettingMock,
 }));
 
-const { initSentryMain, setShareDiagnostics } = await import("./sentry");
+const { configureSentryMain, initSentryMain, setShareDiagnostics } =
+  await import("./sentry");
+
+configureSentryMain(enabledConfiguration);
 
 // NOTE: `sentry.ts` holds module-level singleton state (`initialized`, the live
 // `enabled` flag, cached options) by design — init must run AT MOST ONCE per
@@ -118,12 +120,11 @@ beforeEach(() => {
 
 describe("initSentryMain (before any consent)", () => {
   test("does not register the watcher when the DSN is empty", () => {
-    (globalThis as Record<string, unknown>).__SENTRY_DSN_MACOS__ = "";
+    configureSentryMain({ ...enabledConfiguration, dsn: "" });
     initSentryMain();
     expect(initMock).not.toHaveBeenCalled();
     expect(settingChangeCb).toBeNull();
-    (globalThis as Record<string, unknown>).__SENTRY_DSN_MACOS__ =
-      "https://public@example.test/1";
+    configureSentryMain(enabledConfiguration);
   });
 
   test("starts fail-closed: does not initialize Sentry at boot", () => {

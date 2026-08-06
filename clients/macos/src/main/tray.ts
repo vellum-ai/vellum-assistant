@@ -1,5 +1,6 @@
 import { Menu, Tray, app, nativeTheme, shell } from "electron";
 
+import { readSetting } from "@vellumai/electron-desktop/settings";
 import {
   pairedHostLabel,
   type LockfileAssistant,
@@ -20,7 +21,6 @@ import { getName, onNameChange } from "./identity";
 import { getWatchedLockfile } from "./lockfile-watcher";
 import { dispatchToMain } from "./main-window";
 import { menuIcon } from "./menu-icon";
-import { readSetting } from "./settings";
 import {
   getStatus,
   onStatusChange,

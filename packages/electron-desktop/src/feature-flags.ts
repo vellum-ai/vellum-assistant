@@ -1,7 +1,18 @@
 import { z } from "zod";
 
-import { on } from "./ipc";
-import { writeSetting } from "./settings";
+import { FEATURE_FLAGS_SET } from "@vellumai/ipc-contract";
+
+export interface FeatureFlagsIpc {
+  on: <Args extends unknown[]>(
+    channel: string,
+    schema: z.ZodType<Args>,
+    listener: (args: Args) => void,
+  ) => void;
+}
+
+export interface FeatureFlagsSettings {
+  write: (flags: Record<string, boolean>) => void;
+}
 
 /**
  * Install the typed feature-flag IPC surface. The renderer owns the source of
@@ -15,12 +26,15 @@ import { writeSetting } from "./settings";
  * now accepts only a `Record<string, boolean>`, so the renderer can no longer
  * write arbitrary settings keys with arbitrary values across the bridge.
  */
-export const installFeatureFlagsIpc = (): void => {
-  on(
-    "vellum:featureFlags:set",
+export const installFeatureFlagsIpc = (
+  ipc: FeatureFlagsIpc,
+  settings: FeatureFlagsSettings,
+): void => {
+  ipc.on(
+    FEATURE_FLAGS_SET,
     z.tuple([z.record(z.string(), z.boolean())]),
     ([flags]) => {
-      writeSetting("featureFlags", flags);
+      settings.write(flags);
     },
   );
 };

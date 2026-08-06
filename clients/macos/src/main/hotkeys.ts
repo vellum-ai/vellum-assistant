@@ -1,6 +1,12 @@
 import { BrowserWindow } from "electron";
 import { z } from "zod";
 
+import {
+  onSettingChange,
+  readHotkeyOverride,
+  readSetting,
+  writeSetting,
+} from "@vellumai/electron-desktop/settings";
 import type { HotkeyScope, ResolvedHotkey } from "@vellumai/ipc-contract";
 
 import { isValidAccelerator } from "./accelerator";
@@ -10,7 +16,6 @@ import {
   type VellumCommandKind,
 } from "./commands";
 import { handle } from "./ipc";
-import { onSettingChange, readHotkeyOverride, readSetting, writeSetting } from "./settings";
 
 export type { HotkeyScope, ResolvedHotkey };
 

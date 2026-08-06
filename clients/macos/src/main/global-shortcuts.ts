@@ -1,10 +1,14 @@
 import { app, globalShortcut } from "electron";
 
+import {
+  onSettingChange,
+  readHotkeyOverride,
+} from "@vellumai/electron-desktop/settings";
+
 import { GLOBAL_SHORTCUT_DEFAULTS } from "./commands";
 import log from "./logger";
 import { ensureVisible } from "./main-window";
 import { toggleQuickInput } from "./quick-input-window";
-import { onSettingChange, readHotkeyOverride } from "./settings";
 
 /**
  * Resolve the accelerator for a global shortcut key, preferring the user

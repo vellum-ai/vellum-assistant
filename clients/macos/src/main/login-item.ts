@@ -1,8 +1,13 @@
 import { app } from "electron";
 import { z } from "zod";
 
+import {
+  onSettingChange,
+  readSetting,
+  writeSetting,
+} from "@vellumai/electron-desktop/settings";
+
 import { handle } from "./ipc";
-import { readSetting, onSettingChange, writeSetting } from "./settings";
 
 const syncLoginItem = (): void => {
   app.setLoginItemSettings({ openAtLogin: readSetting("launchAtLogin") ?? false });

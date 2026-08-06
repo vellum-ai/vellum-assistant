@@ -35,6 +35,9 @@ export const LAUNCH_AT_LOGIN_SET = "vellum:launchAtLogin:set";
 // Feature flags
 export const FEATURE_FLAGS_SET = "vellum:featureFlags:set";
 
+// Diagnostics
+export const DIAGNOSTICS_SET_SHARE = "vellum:diagnostics:setShareDiagnostics";
+
 // Helper (native sidecar)
 export const HELPER_PING = "vellum:helper:ping";
 export const HELPER_GET_STATE = "vellum:helper:state:get";

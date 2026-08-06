@@ -15,7 +15,7 @@ let mockHotkeys: unknown = null;
 // export surface (not just the one function this file exercises) so a sibling
 // module — e.g. `hotkeys.ts`, which imports `writeSetting`/`onSettingChange` —
 // still resolves its imports regardless of file order.
-mock.module("./settings", () => ({
+mock.module("@vellumai/electron-desktop/settings", () => ({
   readHotkeyOverride: (key: string) => {
     if (mockHotkeys && typeof mockHotkeys === "object") {
       const value = (mockHotkeys as Record<string, unknown>)[key];

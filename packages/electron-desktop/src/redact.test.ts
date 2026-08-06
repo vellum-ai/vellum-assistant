@@ -27,6 +27,18 @@ describe("redactText", () => {
     expect(redactText(input)).toBe("Reading ~/Library/Application Support/config");
   });
 
+  test("redacts Windows user paths", () => {
+    const input = "Reading C:\\Users\\Alice\\AppData\\Local\\Vellum";
+    expect(redactText(input)).toBe("Reading ~\\AppData\\Local\\Vellum");
+  });
+
+  test("redacts assigned session tokens", () => {
+    const input = "session_token=secret-value access-token: another-secret";
+    expect(redactText(input)).toBe(
+      "session_token=[REDACTED] access-token: [REDACTED]",
+    );
+  });
+
   test("redacts combined input with multiple patterns", () => {
     const input = [
       "Bearer sk-proj-AAAAAAAAAAAAAAAAAAAAAAAA",

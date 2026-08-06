@@ -6,7 +6,7 @@ import type { z } from "zod";
 // mirrors the real module's semantics (an explicit "" is a real value; only an
 // absent key is `null`) so the catalog/merge logic is exercised faithfully.
 let store: Record<string, unknown> = {};
-mock.module("./settings", () => ({
+mock.module("@vellumai/electron-desktop/settings", () => ({
   readSetting: (key: string) => (key in store ? store[key] : null),
   writeSetting: (key: string, value: unknown) => {
     store[key] = value;

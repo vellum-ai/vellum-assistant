@@ -1,19 +1,36 @@
-import { app, powerMonitor } from "electron";
-import os from "node:os";
-import fs from "node:fs/promises";
 import { z } from "zod";
 
-import { handle } from "./ipc";
-import { getVersionInfo } from "./about";
-import { readSetting } from "./settings";
-import { getLogFilePaths } from "./logger";
+import { FEEDBACK_DIAGNOSTICS, FEEDBACK_LOGS } from "@vellumai/ipc-contract";
+
+import type { FeedbackDependencies, FeedbackIpc } from "./diagnostics-contract";
 import { redactText, REDACTION_VERSION } from "./redact";
+
+export type { FeedbackDependencies } from "./diagnostics-contract";
+
+let app: FeedbackDependencies["app"];
+let powerMonitor: FeedbackDependencies["powerMonitor"];
+let os: FeedbackDependencies["os"];
+let fs: { readFile: FeedbackDependencies["readFile"] };
+let getVersionInfo: FeedbackDependencies["getVersionInfo"];
+let getLogFilePaths: FeedbackDependencies["getLogFilePaths"];
+let readSetting: () => Record<string, boolean> | null;
+let hasSession: FeedbackDependencies["hasSession"];
+let handle: FeedbackIpc["handle"];
+
+export const configureFeedback = (dependencies: FeedbackDependencies): void => {
+  ({ app, powerMonitor, os, getVersionInfo, getLogFilePaths, hasSession } =
+    dependencies);
+  fs = { readFile: dependencies.readFile };
+  readSetting = dependencies.getFeatureFlags;
+  handle = dependencies.ipc.handle;
+};
 
 export interface ElectronDiagnostics {
   app: {
     name: string;
     version: string;
     commitSha: string;
+    releaseChannel: string;
   };
   process: {
     node: string;
@@ -33,6 +50,7 @@ export interface ElectronDiagnostics {
   appMetrics: Electron.ProcessMetric[];
   idleTime: number;
   featureFlags: Record<string, boolean> | null;
+  session: { authenticated: boolean };
   redactionVersion: number;
 }
 
@@ -43,6 +61,7 @@ export function collectDiagnostics(): ElectronDiagnostics {
       name: versionInfo.appName,
       version: versionInfo.version,
       commitSha: versionInfo.commitSha,
+      releaseChannel: versionInfo.releaseChannel,
     },
     process: {
       node: process.versions.node,
@@ -61,7 +80,8 @@ export function collectDiagnostics(): ElectronDiagnostics {
     },
     appMetrics: app.getAppMetrics(),
     idleTime: powerMonitor.getSystemIdleTime(),
-    featureFlags: readSetting("featureFlags"),
+    featureFlags: readSetting(),
+    session: { authenticated: hasSession() },
     redactionVersion: REDACTION_VERSION,
   };
 }
@@ -69,12 +89,19 @@ export function collectDiagnostics(): ElectronDiagnostics {
 export async function collectRedactedLogs(): Promise<string> {
   const paths = getLogFilePaths();
   const parts: string[] = [];
-  for (const p of paths) {
-    try {
-      const content = await fs.readFile(p, "utf-8");
+  const contents = await Promise.all(
+    paths.map(async (filePath) => {
+      try {
+        return await fs.readFile(filePath, "utf-8");
+      } catch {
+        // Missing or unreadable log file, skip gracefully.
+        return null;
+      }
+    }),
+  );
+  for (const content of contents) {
+    if (content !== null) {
       parts.push(content);
-    } catch {
-      // Missing or unreadable log file — skip gracefully
     }
   }
   return redactText(parts.join("\n"));
@@ -83,12 +110,14 @@ export async function collectRedactedLogs(): Promise<string> {
 let installed = false;
 
 export function installFeedbackIpc(): void {
-  if (installed) return;
+  if (installed) {
+    return;
+  }
   installed = true;
 
-  handle("vellum:feedback:diagnostics", z.tuple([]), () =>
+  handle(FEEDBACK_DIAGNOSTICS, z.tuple([]), () =>
     collectDiagnostics(),
   );
 
-  handle("vellum:feedback:logs", z.tuple([]), () => collectRedactedLogs());
+  handle(FEEDBACK_LOGS, z.tuple([]), () => collectRedactedLogs());
 }

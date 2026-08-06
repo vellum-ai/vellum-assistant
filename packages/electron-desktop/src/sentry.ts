@@ -4,12 +4,23 @@ import path from "node:path";
 import * as Sentry from "@sentry/electron/main";
 import { app } from "electron";
 
-import { getInstallLocation } from "./install-location";
 import { onSettingChange, writeSetting } from "./settings";
 
-declare const __VELLUM_BUILD_SHA__: string;
-declare const __VELLUM_ENVIRONMENT__: string;
-declare const __SENTRY_DSN_MACOS__: string;
+export interface SentryConfiguration {
+  dsn: string;
+  environment: string;
+  release?: string;
+  tags?: () => Record<string, string | number | boolean>;
+}
+
+let configuration: SentryConfiguration = {
+  dsn: "",
+  environment: "production",
+};
+
+export function configureSentryMain(next: SentryConfiguration): void {
+  configuration = next;
+}
 
 /**
  * Resolved Sentry init options — cached once so the first consented enable
@@ -29,22 +40,14 @@ declare const __SENTRY_DSN_MACOS__: string;
  * Classic IPC is both required and sufficient.
  */
 function resolveOptions(): Sentry.ElectronMainOptions | null {
-  const dsn =
-    typeof __SENTRY_DSN_MACOS__ === "string" ? __SENTRY_DSN_MACOS__ : "";
-  if (!dsn) return null;
-
-  const environment =
-    typeof __VELLUM_ENVIRONMENT__ === "string"
-      ? __VELLUM_ENVIRONMENT__
-      : "production";
-
-  const release =
-    typeof __VELLUM_BUILD_SHA__ === "string" ? __VELLUM_BUILD_SHA__ : undefined;
+  if (!configuration.dsn) {
+    return null;
+  }
 
   return {
-    dsn,
-    environment,
-    release,
+    dsn: configuration.dsn,
+    environment: configuration.environment,
+    release: configuration.release,
     tracesSampleRate: 0,
     attachStacktrace: true,
     ipcMode: Sentry.IPCMode.Classic,
@@ -56,11 +59,9 @@ function applyTags(): void {
   Sentry.setTag("arch", process.arch);
   Sentry.setTag("electron", process.versions.electron ?? "unknown");
   Sentry.setTag("packaged", String(app.isPackaged));
-  // Consent (and therefore init) arrives from the renderer well after the
-  // relocation runs at the head of `whenReady`, so the outcome is settled by
-  // the time this reads it. It names which branch left a packaged app outside
-  // /Applications, where the updater refuses to run.
-  Sentry.setTag("install_location", getInstallLocation());
+  for (const [key, value] of Object.entries(configuration.tags?.() ?? {})) {
+    Sentry.setTag(key, value);
+  }
 }
 
 let cachedOptions: Sentry.ElectronMainOptions | null = null;
@@ -81,7 +82,9 @@ let enabled = false;
  * closed or re-inited, so crash listeners are installed at most once.
  */
 function ensureInitialized(): void {
-  if (initialized || !cachedOptions) return;
+  if (initialized || !cachedOptions) {
+    return;
+  }
   Sentry.init({
     ...cachedOptions,
     enabled: true,
@@ -100,7 +103,9 @@ function ensureInitialized(): void {
  */
 function syncNativeGate(consented: boolean): void {
   const options = Sentry.getClient()?.getOptions();
-  if (options) options.enabled = consented;
+  if (options) {
+    options.enabled = consented;
+  }
 }
 
 /**
@@ -135,31 +140,33 @@ function purgeQueuedMinidumps(): void {
       continue;
     }
     for (const entry of entries) {
-      if (!entry.endsWith(".dmp")) continue;
+      if (!entry.endsWith(".dmp")) {
+        continue;
+      }
       try {
         unlinkSync(path.join(dir, entry));
       } catch {
-        // Best effort: a dump we cannot delete here is still gated by the
-        // native `enabled` flag once a client exists.
+        // The native gate still prevents upload after a client exists.
       }
     }
   }
 }
 
 function applyConsent(consented: boolean): void {
-  if (!cachedOptions) return;
+  if (!cachedOptions) {
+    return;
+  }
   enabled = consented;
   if (consented) {
     ensureInitialized();
     syncNativeGate(consented);
     return;
   }
-  // Opted out. If a client exists, its minidump integration deletes queued
-  // dumps when the native gate is false. If not (never initialized — fail-
-  // closed boot, or first consent after restart is false), no integration
-  // runs, so we purge the queued dumps from disk ourselves.
-  if (Sentry.getClient()) syncNativeGate(consented);
-  else purgeQueuedMinidumps();
+  if (Sentry.getClient()) {
+    syncNativeGate(consented);
+  } else {
+    purgeQueuedMinidumps();
+  }
 }
 
 /**
@@ -174,7 +181,9 @@ function applyConsent(consented: boolean): void {
  */
 export function initSentryMain(): void {
   cachedOptions = resolveOptions();
-  if (!cachedOptions) return;
+  if (!cachedOptions) {
+    return;
+  }
 
   onSettingChange("shareDiagnostics", (newValue) => {
     applyConsent(newValue === true);
