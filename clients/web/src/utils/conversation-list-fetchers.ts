@@ -90,6 +90,28 @@ export function originChannelConversationsQueryKey(
   ] as const;
 }
 
+/** Prefix key matching every per-group conversation cache. */
+export function groupListPrefix(assistantId: string | null) {
+  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "group"] as const;
+}
+
+/**
+ * Key for one group's conversation cache. A child of
+ * {@link groupListPrefix}, so prefix-match invalidation of the `"group"`
+ * segment reaches every per-group cache at once.
+ */
+export function groupConversationsQueryKey(
+  assistantId: string | null,
+  groupId: string,
+) {
+  return [
+    CONVERSATION_LIST_PREFIX,
+    assistantId ?? "",
+    "group",
+    groupId,
+  ] as const;
+}
+
 /**
  * Key for the server-side unread conversation count
  * (`GET /v1/conversations/unread-count`). The cache holds `number | null`
@@ -145,6 +167,17 @@ type FetchConversationListOptions = {
    * exact `origin_channel` value are returned.
    */
   originChannel?: OriginChannel;
+  /**
+   * Filter to one group: {@link SYSTEM_PINNED_GROUP_ID} for Pinned,
+   * {@link SYSTEM_ALL_GROUP_ID} for what no group claimed, or a custom
+   * group's id.
+   *
+   * A conversation carries exactly one `group_id`, so group-scoped lists are
+   * disjoint by construction and no section needs to subtract another's rows.
+   * The server orders a group-scoped request by the user's own arrangement
+   * (display order, then recency) and never appends pinned rows to it.
+   */
+  groupId?: string;
 };
 
 /**
@@ -158,7 +191,8 @@ type DrainListKind =
   | "background"
   | "scheduled"
   | "archived"
-  | "origin_channel";
+  | "origin_channel"
+  | "group";
 
 /**
  * Label a drain by the list it is fetching. Archive status is checked first
@@ -176,6 +210,9 @@ function drainListKind(options: FetchConversationListOptions): DrainListKind {
   }
   if (options.originChannel !== undefined) {
     return "origin_channel";
+  }
+  if (options.groupId !== undefined) {
+    return "group";
   }
   return "foreground";
 }
@@ -249,7 +286,7 @@ async function fetchConversationListPage(
   source: ListFetchSource,
   options: FetchConversationListOptions = {},
 ): Promise<TimedConversationListPage> {
-  const { conversationType, archiveStatus, originChannel } = options;
+  const { conversationType, archiveStatus, originChannel, groupId } = options;
   const startedAt = performance.now();
   const { data, error, response } = await conversationsGet({
     path: { assistant_id: assistantId },
@@ -259,6 +296,7 @@ async function fetchConversationListPage(
       ...(conversationType ? { conversationType } : {}),
       ...(archiveStatus ? { archiveStatus } : {}),
       ...(originChannel ? { originChannel } : {}),
+      ...(groupId ? { groupId } : {}),
     },
     throwOnError: false,
   });
@@ -518,6 +556,34 @@ export async function listScheduledConversations(
 }
 
 /**
+ * The two group ids the daemon owns. Pinning is stored as group membership,
+ * and `system:all` is what no group claimed, so a conversation belongs to
+ * exactly one group and group-scoped lists never overlap.
+ */
+export const SYSTEM_PINNED_GROUP_ID = "system:pinned";
+export const SYSTEM_ALL_GROUP_ID = "system:all";
+
+/**
+ * Fetch every active conversation in one group: Pinned, a custom group, or
+ * the ungrouped remainder.
+ *
+ * Drained in full rather than paginated. Curated membership is a small
+ * fraction of a workspace's history, and a section that shows only its first
+ * page is a section whose unread indicator and bulk actions silently exclude
+ * the rest of its own contents.
+ *
+ * Deliberately unsorted here: a group-scoped response already arrives in the
+ * user's own arrangement (display order, then recency), so re-sorting by
+ * recency would discard the ordering they set.
+ */
+export async function listGroupConversations(
+  assistantId: string,
+  groupId: string,
+): Promise<Conversation[]> {
+  return fetchConversationList(assistantId, { groupId });
+}
+
+/**
  * Fetch all active (non-archived) conversations for a given origin channel
  * (e.g. `"slack"`, `"telegram"`), sorted newest-first.
  *
@@ -721,6 +787,24 @@ export function originChannelConversationListOptions(
   return queryOptions({
     queryKey: originChannelConversationsQueryKey(assistantId, channel),
     queryFn: () => listOriginChannelConversations(assistantId, channel),
+    staleTime: QUERY_STALE_TIME_MS,
+  });
+}
+
+/**
+ * Query options for one group's conversation list.
+ *
+ * Generic factory parameterized by group id, so Pinned and every custom
+ * group use the same one and each caches independently per
+ * `(assistantId, groupId)`.
+ */
+export function groupConversationListOptions(
+  assistantId: string,
+  groupId: string,
+) {
+  return queryOptions({
+    queryKey: groupConversationsQueryKey(assistantId, groupId),
+    queryFn: () => listGroupConversations(assistantId, groupId),
     staleTime: QUERY_STALE_TIME_MS,
   });
 }

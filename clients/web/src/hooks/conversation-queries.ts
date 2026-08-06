@@ -36,6 +36,7 @@ import {
   archivedConversationListOptions,
   backgroundConversationListOptions,
   conversationListOptions,
+  groupConversationListOptions,
   originChannelConversationListOptions,
   scheduledConversationListOptions,
   unreadConversationCountOptions,
@@ -197,6 +198,40 @@ export function useOriginChannelConversationListQuery(
   const isOrgReady = useIsOrgReady();
   const query = useQuery({
     ...originChannelConversationListOptions(assistantId!, channel),
+    enabled: enabled && Boolean(assistantId) && isOrgReady,
+  });
+  return {
+    conversations: query.data ?? EMPTY_CONVERSATIONS,
+    isLoading: query.isLoading,
+    isPending: query.isPending,
+  };
+}
+
+/**
+ * Subscribe to one group's conversations: Pinned, a custom group, or the
+ * ungrouped remainder. Cached per `(assistantId, groupId)` under
+ * `groupConversationsQueryKey`.
+ *
+ * Each sidebar section that maps to a group mounts its own instance, so a
+ * section's contents come from the server rather than from filtering another
+ * section's list. That is what lets a pinned conversation appear in Pinned
+ * even when it sorts many pages deep in the full list.
+ *
+ * `enabled` gates the network fetch; passing `false` keeps the observer
+ * subscribed to cache updates without firing a request.
+ */
+export function useGroupConversationListQuery(
+  assistantId: string | null,
+  groupId: string,
+  enabled: boolean = true,
+): {
+  conversations: Conversation[];
+  isLoading: boolean;
+  isPending: boolean;
+} {
+  const isOrgReady = useIsOrgReady();
+  const query = useQuery({
+    ...groupConversationListOptions(assistantId!, groupId),
     enabled: enabled && Boolean(assistantId) && isOrgReady,
   });
   return {
