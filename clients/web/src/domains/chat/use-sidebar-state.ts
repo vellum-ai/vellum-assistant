@@ -63,6 +63,7 @@ import {
   useSectionConversationListQuery,
 } from "@/hooks/conversation-queries";
 import { SYSTEM_PINNED_GROUP_ID } from "@/utils/conversation-list-fetchers";
+import { useSupportsGroupFilter } from "@/lib/backwards-compat/use-supports-group-filter";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { getChannelLabel } from "@/utils/channel-presentation";
 import { RECENTS_SECTION_LABEL } from "@/domains/chat/utils/sidebar-section-icon";
@@ -263,13 +264,20 @@ export function useSidebarState({
   /* Pinned asks the server for its own members rather than taking whatever
      pinned rows happen to be in the foreground page. Pinning is stored as
      group membership, so one filter answers it, and a pinned conversation
-     that sorts many pages deep still appears here. */
-  const { conversations: pinnedConversations } =
-    useSectionConversationListQuery(
-      assistantId,
-      PINNED_FILTER,
-      isAssistantActive,
-    );
+     that sorts many pages deep still appears here.
+
+     Gated: an assistant that predates the filter ignores the unrecognized
+     parameter and returns the entire conversation list, which would render
+     in full inside Pinned. Below the gate the section keeps deriving from
+     the list it is handed, exactly as it did before. The gate is scoped to
+     this assistant so a version still held for the outgoing one cannot
+     authorize a filtered fetch against the incoming one mid-switch. */
+  const supportsGroupFilter = useSupportsGroupFilter(assistantId);
+  const { conversations: pinnedFromQuery } = useSectionConversationListQuery(
+    assistantId,
+    PINNED_FILTER,
+    isAssistantActive && supportsGroupFilter,
+  );
 
   const allConversations = useMemo(
     () =>
@@ -291,6 +299,10 @@ export function useSidebarState({
       }),
     [allConversations, conversationGroups, viewMode],
   );
+
+  const pinnedConversations = supportsGroupFilter
+    ? pinnedFromQuery
+    : grouped.pinned;
 
   // --- Section order ---
 
