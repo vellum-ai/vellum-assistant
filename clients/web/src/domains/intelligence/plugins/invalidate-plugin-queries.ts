@@ -14,30 +14,39 @@ import {
  * just that plugin's; omitting `name` (a broad, name-agnostic `plugins:list`
  * sync or a reconnect reconcile) invalidates every open plugin detail for the
  * assistant, since any of them may have changed on another client.
+ *
+ * `refetchType` defaults to TanStack's own default: observed queries refetch
+ * now, unobserved ones only go stale. Pass `"none"` to mark stale without
+ * issuing any request.
  */
 export function invalidatePluginQueries(
   queryClient: QueryClient,
   assistantId: string,
   name?: string,
+  refetchType: "active" | "none" = "active",
 ): void {
   void queryClient.invalidateQueries({
     queryKey: pluginsGetQueryKey({ path: { assistant_id: assistantId } }),
+    refetchType,
   });
   void queryClient.invalidateQueries({
     queryKey: pluginsSearchGetQueryKey({
       path: { assistant_id: assistantId },
     }),
+    refetchType,
   });
   if (name) {
     void queryClient.invalidateQueries({
       queryKey: pluginsByNameGetQueryKey({
         path: { assistant_id: assistantId, name },
       }),
+      refetchType,
     });
     void queryClient.invalidateQueries({
       queryKey: pluginsByNameInspectGetQueryKey({
         path: { assistant_id: assistantId, name },
       }),
+      refetchType,
     });
     return;
   }
@@ -48,10 +57,12 @@ export function invalidatePluginQueries(
     queryKey: [
       { _id: "pluginsByNameGet", path: { assistant_id: assistantId } },
     ],
+    refetchType,
   });
   void queryClient.invalidateQueries({
     queryKey: [
       { _id: "pluginsByNameInspectGet", path: { assistant_id: assistantId } },
     ],
+    refetchType,
   });
 }
