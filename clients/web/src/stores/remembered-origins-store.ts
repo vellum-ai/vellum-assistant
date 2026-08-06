@@ -1,5 +1,5 @@
 /**
- * Remembered-origins store — the client-local list of remote assistant
+ * Remembered-origins store: the client-local list of remote assistant
  * origins the chooser can offer alongside platform-API assistants and the
  * same-machine lockfile.
  *
@@ -126,6 +126,18 @@ let hydrationPromise: Promise<void> | null = null;
 let hydrationEpoch = 0;
 
 /**
+ * Mutations run one at a time through this chain so a slow async save can
+ * never land after a later mutation's save and roll persisted state back.
+ */
+let mutationQueue: Promise<unknown> = Promise.resolve();
+
+function enqueueMutation<T>(mutation: () => Promise<T>): Promise<T> {
+  const run = mutationQueue.then(mutation, mutation);
+  mutationQueue = run.catch(() => undefined);
+  return run;
+}
+
+/**
  * Swap the persistence provider (e.g. for a native Capacitor-backed store)
  * and re-hydrate from it.
  */
@@ -153,12 +165,17 @@ export type AddOriginResult =
   | { ok: false };
 
 export interface RememberedOriginsActions {
-  /** Load from the provider once; concurrent calls share one promise. */
+  /**
+   * Load from the provider; concurrent calls share one promise. A failed
+   * load leaves the store unhydrated and a later call retries.
+   */
   hydrate: () => Promise<void>;
   /**
-   * Remember an origin. Invalid urls return `{ ok: false }`. Re-adding an
-   * already-remembered url keeps its original `addedAt` and updates `name`
-   * only when a new one is provided.
+   * Remember an origin. Invalid urls return `{ ok: false }`, as does a
+   * mutation attempted while the provider cannot be read (so a failed load
+   * can never be overwritten with a list built from empty state). Re-adding
+   * an already-remembered url keeps its original `addedAt` and updates
+   * `name` only when a new one is provided.
    */
   addOrigin: (input: { url: string; name?: string }) => Promise<AddOriginResult>;
   removeOrigin: (url: string) => Promise<void>;
@@ -175,14 +192,17 @@ const useRememberedOriginsStoreBase = create<RememberedOriginsStore>()(
     hydrate: () => {
       hydrationPromise ??= (async () => {
         const epoch = hydrationEpoch;
-        let origins: RememberedOrigin[] = [];
         try {
-          origins = await activeProvider.load();
+          const origins = await activeProvider.load();
+          if (epoch === hydrationEpoch) {
+            set({ origins, hydrated: true });
+          }
         } catch {
-          // A failed load hydrates empty rather than blocking callers.
-        }
-        if (epoch === hydrationEpoch) {
-          set({ origins, hydrated: true });
+          // Stay unhydrated so a later hydrate() retries; never persist a
+          // list built from state the provider was not able to load.
+          if (epoch === hydrationEpoch) {
+            hydrationPromise = null;
+          }
         }
       })();
       return hydrationPromise;
@@ -193,21 +213,33 @@ const useRememberedOriginsStoreBase = create<RememberedOriginsStore>()(
       if (normalized === null) {
         return { ok: false };
       }
-      await get().hydrate();
-      const trimmedName = name?.trim();
-      const current = get().origins;
-      const existing = current.find((o) => o.url === normalized);
-      const base: RememberedOrigin = existing ?? {
-        url: normalized,
-        addedAt: new Date().toISOString(),
-      };
-      const origin = trimmedName ? { ...base, name: trimmedName } : base;
-      const origins = existing
-        ? current.map((o) => (o.url === normalized ? origin : o))
-        : [...current, origin];
-      set({ origins });
-      await activeProvider.save(origins);
-      return { ok: true, origin };
+      return enqueueMutation(async (): Promise<AddOriginResult> => {
+        await get().hydrate();
+        if (!get().hydrated) {
+          return { ok: false };
+        }
+        // Re-load so the working list includes entries another tab (or
+        // provider client) persisted after this tab hydrated.
+        let current: RememberedOrigin[];
+        try {
+          current = await activeProvider.load();
+        } catch {
+          return { ok: false };
+        }
+        const trimmedName = name?.trim();
+        const existing = current.find((o) => o.url === normalized);
+        const base: RememberedOrigin = existing ?? {
+          url: normalized,
+          addedAt: new Date().toISOString(),
+        };
+        const origin = trimmedName ? { ...base, name: trimmedName } : base;
+        const origins = existing
+          ? current.map((o) => (o.url === normalized ? origin : o))
+          : [...current, origin];
+        set({ origins });
+        await activeProvider.save(origins);
+        return { ok: true, origin };
+      });
     },
 
     removeOrigin: async (url) => {
@@ -215,13 +247,23 @@ const useRememberedOriginsStoreBase = create<RememberedOriginsStore>()(
       if (normalized === null) {
         return;
       }
-      await get().hydrate();
-      const remaining = get().origins.filter((o) => o.url !== normalized);
-      if (remaining.length === get().origins.length) {
-        return;
-      }
-      set({ origins: remaining });
-      await activeProvider.save(remaining);
+      await enqueueMutation(async () => {
+        await get().hydrate();
+        if (!get().hydrated) {
+          return;
+        }
+        let current: RememberedOrigin[];
+        try {
+          current = await activeProvider.load();
+        } catch {
+          return;
+        }
+        const remaining = current.filter((o) => o.url !== normalized);
+        set({ origins: remaining });
+        if (remaining.length !== current.length) {
+          await activeProvider.save(remaining);
+        }
+      });
     },
   }),
 );

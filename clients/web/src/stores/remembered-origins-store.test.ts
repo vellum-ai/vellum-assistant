@@ -274,4 +274,120 @@ describe("providers and hydration", () => {
     expect(fake.getLoadCount()).toBe(1);
     expect(store().hydrated).toBe(true);
   });
+
+  it("a failed load leaves the store unhydrated and a later hydrate retries", async () => {
+    let failLoads = true;
+    const provider: RememberedOriginsProvider = {
+      load: async () => {
+        if (failLoads) {
+          throw new Error("provider unavailable");
+        }
+        return [
+          { url: "https://example.com/real", addedAt: "2026-01-01T00:00:00Z" },
+        ];
+      },
+      save: async () => {},
+    };
+    setRememberedOriginsProvider(provider);
+
+    await store().hydrate();
+    expect(store().hydrated).toBe(false);
+
+    failLoads = false;
+    await store().hydrate();
+    expect(store().hydrated).toBe(true);
+    expect(store().origins.map((o) => o.url)).toEqual([
+      "https://example.com/real",
+    ]);
+  });
+
+  it("a mutation after a failed hydration does not overwrite provider data", async () => {
+    let saved: RememberedOrigin[] | null = null;
+    const provider: RememberedOriginsProvider = {
+      load: async () => {
+        throw new Error("provider unavailable");
+      },
+      save: async (next) => {
+        saved = next;
+      },
+    };
+    setRememberedOriginsProvider(provider);
+
+    const result = await store().addOrigin({ url: "https://example.com/b" });
+    expect(result).toEqual({ ok: false });
+    await store().removeOrigin("https://example.com/b");
+    expect(saved).toBeNull();
+    expect(store().hydrated).toBe(false);
+  });
+
+  it("merges the provider's latest value before saving a mutation", async () => {
+    const fake = makeFakeProvider([]);
+    setRememberedOriginsProvider(fake.provider);
+    await store().hydrate();
+
+    // Another tab persists A after this tab hydrated.
+    await fake.provider.save([
+      { url: "https://example.com/a", addedAt: "2026-01-01T00:00:00Z" },
+    ]);
+
+    await store().addOrigin({ url: "https://example.com/b" });
+    expect(fake.getEntries().map((o) => o.url)).toEqual([
+      "https://example.com/a",
+      "https://example.com/b",
+    ]);
+    expect(store().origins.map((o) => o.url)).toEqual([
+      "https://example.com/a",
+      "https://example.com/b",
+    ]);
+
+    // Same for removals: the other tab's entry survives.
+    await fake.provider.save([
+      { url: "https://example.com/a", addedAt: "2026-01-01T00:00:00Z" },
+      { url: "https://example.com/b", addedAt: "2026-01-02T00:00:00Z" },
+      { url: "https://example.com/c", addedAt: "2026-01-03T00:00:00Z" },
+    ]);
+    await store().removeOrigin("https://example.com/b");
+    expect(fake.getEntries().map((o) => o.url)).toEqual([
+      "https://example.com/a",
+      "https://example.com/c",
+    ]);
+  });
+
+  it("serializes async saves so a later mutation's save always lands last", async () => {
+    let entries: RememberedOrigin[] = [];
+    const saveLog: string[][] = [];
+    let pendingSaves = 0;
+    const provider: RememberedOriginsProvider = {
+      load: async () => entries,
+      save: async (next) => {
+        // First save is slow; without serialization it would finish after
+        // the second save and roll persisted state back to just [a].
+        pendingSaves += 1;
+        const delayMs = pendingSaves === 1 ? 20 : 0;
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        entries = next;
+        saveLog.push(next.map((o) => o.url));
+      },
+    };
+    setRememberedOriginsProvider(provider);
+    await store().hydrate();
+
+    await Promise.all([
+      store().addOrigin({ url: "https://example.com/a" }),
+      store().addOrigin({ url: "https://example.com/b" }),
+    ]);
+
+    expect(saveLog).toEqual([
+      ["https://example.com/a"],
+      ["https://example.com/a", "https://example.com/b"],
+    ]);
+    expect(entries.map((o) => o.url)).toEqual([
+      "https://example.com/a",
+      "https://example.com/b",
+    ]);
+    expect(store().origins.map((o) => o.url)).toEqual([
+      "https://example.com/a",
+      "https://example.com/b",
+    ]);
+  });
 });
