@@ -191,8 +191,20 @@ export function ConversationAssetsPill({
   // color of the surface behind it so the ring reads as a gap carved out of
   // the icon. The dot mounts only while changes are unseen, so the CSS pulse
   // runs on appearance and needs no restart bookkeeping.
+  //
+  // This wrapper is the dot's positioning context and the element the Button
+  // sizes in place of the glyph. `iconOnly` sizes the glyph with its own
+  // `[&_svg]` rule, which reaches through the wrapper, so a size rule here
+  // would only compete with it. `leftIcon` sizes just the box it provides, so
+  // there the wrapper fills that box and hands the size down to the glyph.
   const layersIcon = (
-    <span className="relative flex" aria-hidden>
+    <span
+      className={cn(
+        "relative flex",
+        !isMobile && "size-full [&_svg]:size-full",
+      )}
+      aria-hidden
+    >
       <Layers />
       {hasUnseenChanges ? (
         <span
