@@ -1,10 +1,22 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useState } from "react";
+import { useState, type ChangeEvent } from "react";
 
 import {
   CompanionSurface,
   type CompanionSurfacePhase,
 } from "@/components/companion-surface";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { composeSvg } from "@/utils/avatar-svg-compositor";
+
+/**
+ * A real assistant avatar, composed from the same bundled character components
+ * the hatching screen uses, so what is on the pill is a genuine avatar rather
+ * than a stand-in that happens to be round. Composed once at module scope: it
+ * is a pure function of constants.
+ */
+const EXAMPLE_AVATAR = `data:image/svg+xml;utf8,${encodeURIComponent(
+  composeSvg(BUNDLED_COMPONENTS, "burst", "curious", "teal", 128),
+)}`;
 
 /**
  * The surface floats over other applications, so every story sits on a
@@ -39,6 +51,10 @@ const meta: Meta<StoryArgs> = {
       control: "inline-radio",
       options: ["dark", "light", "busy"],
     },
+    anchor: {
+      control: "inline-radio",
+      options: ["center", "left", "right"],
+    },
     accentHex: { control: "color" },
     glow: { control: "boolean" },
   },
@@ -46,6 +62,7 @@ const meta: Meta<StoryArgs> = {
     phase: "resting",
     glow: true,
     backdrop: "dark",
+    avatarSrc: EXAMPLE_AVATAR,
   },
   decorators: [
     (Story, context) => (
@@ -90,9 +107,49 @@ export const OnALightDesktop: Story = {
 };
 
 /**
+ * The circle parked hard against a screen edge, where bloom cannot bloom.
+ *
+ * It wants 72px of clearance either side expanded and 126px in a call, and
+ * there is none to the left, so `anchor: "left"` pins that edge and grows the
+ * body rightward instead. The avatar stays exactly where the user put it.
+ *
+ * **Set `anchor` to `center` to see why this exists.** Unclamped, the pill
+ * grows straight past the edge and takes the avatar with it, so the surface
+ * disappears off the side of the screen at the moment it is reached for.
+ */
+export const AgainstTheLeftEdge: Story = {
+  args: { phase: "hover", anchor: "left" },
+  decorators: [
+    (Story) => (
+      // A 44px column at the stage's left edge: the avatar's own footprint,
+      // with the screen ending immediately to its left.
+      <div className="absolute top-0 left-0 h-full w-11">
+        <Story />
+      </div>
+    ),
+  ],
+};
+
+/** The mirror case, where the body has to grow leftward instead. */
+export const AgainstTheRightEdge: Story = {
+  args: { phase: "call", anchor: "right" },
+  decorators: [
+    (Story) => (
+      <div className="absolute top-0 right-0 h-full w-11">
+        <Story />
+      </div>
+    ),
+  ],
+};
+
+/**
  * The move itself, which is the thing being designed and the one thing a
- * static story cannot show. Hovering the desktop expands the surface, the same
- * trigger the real window gets from forwarded mouse-move.
+ * static story cannot show. Expansion arms on the avatar alone, so the rest of
+ * the desktop is dead space exactly as it is in the real window.
+ *
+ * Drop in an image to see the surface wearing a particular assistant. It never
+ * leaves the browser: the file is read to a data URL and handed straight to the
+ * component, which is also the shape the Electron payload arrives in.
  */
 export const Interactive: Story = {
   args: { phase: "resting" },
@@ -106,19 +163,58 @@ export const Interactive: Story = {
  */
 function HoverDrivenSurface(args: StoryArgs) {
   const [hovered, setHovered] = useState(false);
+  const [uploaded, setUploaded] = useState<string | undefined>();
+
+  const onFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setUploaded(
+        typeof reader.result === "string" ? reader.result : undefined,
+      );
+    };
+    reader.readAsDataURL(file);
+  };
+
   const phase: CompanionSurfacePhase =
     args.phase === "call" ? "call" : hovered ? "hover" : "resting";
+
   return (
-    <div
-      className="absolute inset-0"
-      onMouseEnter={() => {
-        setHovered(true);
-      }}
-      onMouseLeave={() => {
-        setHovered(false);
-      }}
-    >
-      <CompanionSurface {...args} phase={phase} />
-    </div>
+    <>
+      <CompanionSurface
+        {...args}
+        phase={phase}
+        avatarSrc={uploaded ?? args.avatarSrc}
+        onHoverStart={() => {
+          setHovered(true);
+        }}
+        onHoverEnd={() => {
+          setHovered(false);
+        }}
+      />
+      <label className="absolute bottom-2 left-2 cursor-pointer rounded-md bg-black/50 px-2 py-1 text-[11px] text-white/80 backdrop-blur-sm">
+        Use my own avatar
+        <input
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={onFile}
+        />
+      </label>
+      {uploaded !== undefined && (
+        <button
+          type="button"
+          className="absolute bottom-2 left-[132px] rounded-md bg-black/50 px-2 py-1 text-[11px] text-white/80 backdrop-blur-sm"
+          onClick={() => {
+            setUploaded(undefined);
+          }}
+        >
+          Reset
+        </button>
+      )}
+    </>
   );
 }
