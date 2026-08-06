@@ -386,6 +386,37 @@ describe("extractSpeakableSegments", () => {
       expect(remainder).toBe("次です");
     });
 
+    test("adjacent enders stay in one segment", () => {
+      // 本当！？ must not emit 本当！ and then a punctuation-only ？ segment.
+      const { segments, remainder } = extractSpeakableSegments(
+        "本当！？次です",
+        false,
+      );
+
+      expect(segments).toEqual(["本当！？"]);
+      expect(remainder).toBe("次です");
+    });
+
+    test("adjacent enders followed by a closer stay together", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "「本当！？」次です",
+        false,
+      );
+
+      expect(segments).toEqual(["「本当！？」"]);
+      expect(remainder).toBe("次です");
+    });
+
+    test("a fullwidth stop inside a filename-style token does not split", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "添付のreport．pdfを見てください。次です",
+        false,
+      );
+
+      expect(segments).toEqual(["添付のreport．pdfを見てください。"]);
+      expect(remainder).toBe("次です");
+    });
+
     test("keeps a CJK closing bracket with its sentence", () => {
       const { segments, remainder } = extractSpeakableSegments(
         "「こんにちは。」次です。",

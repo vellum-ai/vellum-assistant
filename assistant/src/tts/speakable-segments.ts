@@ -174,15 +174,25 @@ function findSpeakableBoundary(
       const isNonLatinEnder = NON_LATIN_SENTENCE_ENDING_PUNCTUATION.has(char);
       // The fullwidth full stop doubles as a decimal point in fullwidth
       // numbers (３．１４です), so a following digit suppresses the boundary.
+      // It also appears inside Latin filename-style tokens (report．pdf):
+      // ASCII word chars on both sides mark it as part of the token, not a
+      // sentence end. CJK neighbors keep the boundary, since Japanese
+      // sentences legitimately end in ． between CJK words.
       const isAmbiguousDecimalPoint =
-        char === FULLWIDTH_FULL_STOP && isDecimalDigit(text[index + 1]);
+        char === FULLWIDTH_FULL_STOP &&
+        (isDecimalDigit(text[index + 1]) ||
+          (isAsciiWordChar(text[index - 1]) &&
+            isAsciiWordChar(text[index + 1])));
       if (isNonLatinEnder && !isAmbiguousDecimalPoint) {
         // Non-Latin enders are valid boundaries regardless of what follows;
+        // consume adjacent enders (本当！？) so combined punctuation keeps
+        // its prosody and never becomes a punctuation-only segment, then
         // consume locale closers so they stay with their sentence.
         let boundary = index + 1;
         while (
           boundary < text.length &&
-          NON_LATIN_TRAILING_SENTENCE_PUNCTUATION.has(text[boundary] ?? "")
+          (NON_LATIN_SENTENCE_ENDING_PUNCTUATION.has(text[boundary] ?? "") ||
+            NON_LATIN_TRAILING_SENTENCE_PUNCTUATION.has(text[boundary] ?? ""))
         ) {
           boundary += 1;
         }
@@ -285,6 +295,12 @@ function isWordChar(value: string | undefined): boolean {
 
 function isDecimalDigit(value: string | undefined): boolean {
   return value !== undefined && /[0-9０-９]/.test(value);
+}
+
+// ASCII-only on purpose: filename-style tokens (report．pdf) are Latin
+// script, while CJK neighbors around ． mark real sentence text.
+function isAsciiWordChar(value: string | undefined): boolean {
+  return value !== undefined && /[A-Za-z0-9_]/.test(value);
 }
 
 /**
