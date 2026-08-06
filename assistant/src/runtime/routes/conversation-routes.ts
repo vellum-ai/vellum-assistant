@@ -1715,6 +1715,11 @@ export async function handleSendMessage(
     mapping = getOrCreateConversation(resolvedConversationKey, {
       conversationType: "standard",
       title: onboardingTitle,
+      // This route already resolved the channel the message arrived on, and
+      // this is the seam that materializes the row, so the conversation is
+      // attributed from the moment it exists rather than on its first
+      // message.
+      origin: sourceChannel,
     });
   }
 
