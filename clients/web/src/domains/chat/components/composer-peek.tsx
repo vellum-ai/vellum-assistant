@@ -125,15 +125,16 @@ export function ComposerPeek({
   // The drawer covers the chat page but cannot cover this: the peek renders
   // from a `document.body` portal, so it sits in a different stacking context
   // and its z-index never competes with the drawer's. Stand down instead.
+  //
+  // Deliberately not part of `runnable`: that would tear down the tracking
+  // effect, whose cleanup clears `introDone`, and the hello would replay in
+  // full every time the drawer was dismissed on the same empty chat. The
+  // drawer hides the peek, it does not end the act — so it gates the render
+  // below and leaves the lifecycle alone.
   const drawerPresented = useMobileDrawerStore.use.presented();
 
   const runnable =
-    active &&
-    !reduce &&
-    !navTourActive &&
-    !drawerPresented &&
-    !!components &&
-    !!traits;
+    active && !reduce && !navTourActive && !!components && !!traits;
 
   // Where this avatar's eye ink sits in its rendered square — drives the
   // per-shape crop/size below so the eyes always ride the edge.
@@ -268,7 +269,7 @@ export function ComposerPeek({
   }, [introReady]);
 
   // `components`/`traits` re-checked for narrowing — `runnable` implies both.
-  if (!runnable || !rect || !components || !traits) {
+  if (!runnable || drawerPresented || !rect || !components || !traits) {
     return null;
   }
 
