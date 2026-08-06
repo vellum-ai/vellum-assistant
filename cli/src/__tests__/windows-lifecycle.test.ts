@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   executableName,
   isProcessAlive,
+  isVellumCommandLine,
   pathListDelimiter,
   parseTasklistCsv,
 } from "../lib/process";
@@ -61,4 +62,15 @@ test("rejects a stale PID file", () => {
   writeFileSync(pidFile, "2147483647\n", "utf8");
   expect(isProcessAlive(pidFile)).toEqual({ alive: false, pid: null });
   rmSync(dir, { recursive: true, force: true });
+});
+
+test("recognizes only Vellum Bun-hosted process command lines", () => {
+  expect(
+    isVellumCommandLine(
+      "bun.exe C:\\Users\\Example User 用户\\.vellum\\runtime\\assistant\\src\\daemon\\main.ts",
+    ),
+  ).toBeTrue();
+  expect(
+    isVellumCommandLine("bun.exe C:\\work\\unrelated\\server.ts"),
+  ).toBeFalse();
 });

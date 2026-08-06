@@ -9,6 +9,12 @@ import {
   waitForDaemonReady,
 } from "./http-client.js";
 
+const VELLUM_COMMAND_PATTERN =
+  /vellum-daemon|vellum-cli|vellum-gateway|credential-executor|@vellumai|[\\/]\.?vellum[\\/]|[\\/]daemon[\\/]main|[\\/]\.vellum[\\/].*qdrant[\\/]bin[\\/]qdrant/;
+
+export const isVellumCommandLine = (command: string): boolean =>
+  VELLUM_COMMAND_PATTERN.test(command);
+
 /**
  * Verify that a PID belongs to a vellum-related process by inspecting its
  * command line via `ps`. Prevents killing unrelated processes when a PID file
@@ -64,18 +70,39 @@ export function isVellumProcess(
   try {
     if (hostPlatform === "win32") {
       const imageName = readWindowsProcesses(pid)[0]?.imageName ?? "";
-      return /^(?:vellum|vellum-cli|vellum-daemon|vellum-gateway|credential-executor|qdrant)\.exe$/i.test(
-        imageName,
+      if (
+        /^(?:vellum|vellum-cli|vellum-daemon|vellum-gateway|credential-executor|qdrant)\.exe$/i.test(
+          imageName,
+        )
+      ) {
+        return true;
+      }
+      if (!/^bun\.exe$/i.test(imageName)) {
+        return false;
+      }
+      const commandLine = execFileSync(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          '(Get-CimInstance Win32_Process -Filter ("ProcessId=" + $args[0])).CommandLine',
+          String(pid),
+        ],
+        {
+          encoding: "utf8",
+          timeout: 3000,
+          stdio: ["ignore", "pipe", "ignore"],
+        },
       );
+      return isVellumCommandLine(commandLine);
     }
     const output = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
       encoding: "utf-8",
       timeout: 3000,
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
-    return /vellum-daemon|vellum-cli|vellum-gateway|credential-executor|@vellumai|\/\.?vellum\/|\/daemon\/main|\/\.vellum\/.*qdrant\/bin\/qdrant/.test(
-      output,
-    );
+    return isVellumCommandLine(output);
   } catch {
     return false;
   }
