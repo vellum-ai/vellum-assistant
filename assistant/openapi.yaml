@@ -6585,6 +6585,16 @@ paths:
           description:
             Filter by origin channel. When provided, only conversations with this exact origin_channel value are
             returned. Omit to include all channels.
+        - name: groupId
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            Filter to a single group, so each sidebar section can load independently of the paginated list. Pass
+            "system:all" for conversations in no group, "system:pinned" for the Pinned section, or a custom group id. A
+            group-scoped request is ordered by the user's arrangement (display order, then recency) and never has pinned
+            rows appended to it. Omit to span every group.
       responses:
         "200":
           description: Successful response
@@ -9611,6 +9621,9 @@ paths:
                   default: cli
                   type: string
                 cronRunId:
+                  type: string
+                  minLength: 1
+                scheduleId:
                   type: string
                   minLength: 1
                 persist:
@@ -20870,6 +20883,10 @@ paths:
       responses:
         "200":
           description: Successful response
+        "403":
+          description: The queued message was enqueued by a different actor principal.
+        "404":
+          description: Conversation or queued message not found.
   /v1/migrations/export:
     post:
       operationId: migrations_export_post
@@ -24228,14 +24245,43 @@ paths:
                             description:
                               Registered tool names from `tools/<name>.{ts,js}` (filenames derived to tool names, e.g. `create-issue` →
                               `create_issue`).
+                          schedules:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                name:
+                                  type: string
+                                  description: "Schedule name: the declaration directory's name."
+                                cadence:
+                                  type: string
+                                  description: Raw schedule `expression` string from the declaration's config.
+                                mode:
+                                  type: string
+                                  enum:
+                                    - execute
+                                    - script
+                                  description: "`execute` for a markdown prompt entrypoint, `script` for `index.sh`."
+                              required:
+                                - name
+                                - cadence
+                                - mode
+                              additionalProperties: false
+                            description:
+                              Schedules declared under `schedules/`, each a `<name>/` directory with `config.json` plus one entrypoint.
+                              Display surface only; files directly under `schedules/` and unsupported declarations are
+                              omitted.
                         required:
                           - skills
                           - hooks
                           - tools
+                          - schedules
                         additionalProperties: false
                         description: Surfaces the installed copy contributes, read from its on-disk tree.
                       - type: "null"
-                    description: Surfaces the installed copy contributes (skills, hooks, tools); null when the plugin is not installed.
+                    description:
+                      Surfaces the installed copy contributes (skills, hooks, tools, schedules); null when the plugin is not
+                      installed.
                 required:
                   - name
                   - installed
@@ -25173,8 +25219,9 @@ paths:
         per conversation after activity (time/message thresholds, pre-compaction) — there is no global schedule, so
         `nextRunAt` is always null and no run-now endpoint exists. `intervalMs` is the per-conversation time threshold
         (`memory.retrospective.timeThresholdMs`), `lastRunAt` is the `createdAt` of the most recent retrospective
-        conversation across both legacy and fork sources, and `available` gates on `memory.enabled` (not
-        `memory.v2.enabled`).
+        conversation across both legacy and fork sources, `available` gates on `memory.enabled` (not
+        `memory.v2.enabled`), and `enabled` narrows that by `memory.retrospective.enabled`, the per-pass kill switch
+        that stops retrospectives without disabling the rest of memory.
       tags:
         - retrospective
       responses:
@@ -25460,6 +25507,12 @@ paths:
           schema:
             type: string
           description: When 'true', include deferred schedules that are normally hidden.
+        - name: inference_profile
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Return only schedules pinned to this inference profile (llm.profiles key).
       responses:
         "200":
           description: Successful response
@@ -25575,7 +25628,23 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        sourceKey:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description:
+                            Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                            schedules
+                        userEnabled:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                          description:
+                            User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                            applies. Always null for user-created schedules.
                         isOneShot:
+                          type: boolean
+                        isDeferred:
                           type: boolean
                       required:
                         - id
@@ -25607,7 +25676,10 @@ paths:
                         - reuseConversation
                         - wakeConversationId
                         - workflowName
+                        - sourceKey
+                        - userEnabled
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Schedule objects
                 required:
@@ -25669,8 +25741,10 @@ paths:
                     - type: string
                     - type: "null"
                   description:
-                    Inference profile (llm.profiles key) the schedule's runs use. Omitted or null = default, i.e. the mainAgent
-                    call-site model selection.
+                    Inference profile (llm.profiles key) the schedule's runs use. Omitted or null pins the schedule to the
+                    currently resolved default profile, so its model does not move when that default changes.
+                    Workflow-mode schedules resolve a model per workflow step, so the pin is recorded but does not
+                    govern their runs.
               required:
                 - name
                 - expression
@@ -25787,7 +25861,23 @@ paths:
                         anyOf:
                           - type: string
                           - type: "null"
+                      sourceKey:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                        description:
+                          Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                          schedules
+                      userEnabled:
+                        anyOf:
+                          - type: boolean
+                          - type: "null"
+                        description:
+                          User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                          applies. Always null for user-created schedules.
                       isOneShot:
+                        type: boolean
+                      isDeferred:
                         type: boolean
                     required:
                       - id
@@ -25819,7 +25909,10 @@ paths:
                       - reuseConversation
                       - wakeConversationId
                       - workflowName
+                      - sourceKey
+                      - userEnabled
                       - isOneShot
+                      - isDeferred
                     additionalProperties: false
                     description: The created schedule
                 required:
@@ -25953,7 +26046,23 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        sourceKey:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description:
+                            Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                            schedules
+                        userEnabled:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                          description:
+                            User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                            applies. Always null for user-created schedules.
                         isOneShot:
+                          type: boolean
+                        isDeferred:
                           type: boolean
                       required:
                         - id
@@ -25985,7 +26094,10 @@ paths:
                         - reuseConversation
                         - wakeConversationId
                         - workflowName
+                        - sourceKey
+                        - userEnabled
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Updated schedule list
                 required:
@@ -26116,7 +26228,23 @@ paths:
                         anyOf:
                           - type: string
                           - type: "null"
+                      sourceKey:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                        description:
+                          Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                          schedules
+                      userEnabled:
+                        anyOf:
+                          - type: boolean
+                          - type: "null"
+                        description:
+                          User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                          applies. Always null for user-created schedules.
                       isOneShot:
+                        type: boolean
+                      isDeferred:
                         type: boolean
                     required:
                       - id
@@ -26148,7 +26276,10 @@ paths:
                       - reuseConversation
                       - wakeConversationId
                       - workflowName
+                      - sourceKey
+                      - userEnabled
                       - isOneShot
+                      - isDeferred
                     additionalProperties: false
                     description: Schedule object
                 required:
@@ -26221,8 +26352,9 @@ paths:
                     - type: string
                     - type: "null"
                   description:
-                    Inference profile (llm.profiles key) the schedule's runs use; null clears it back to the default mainAgent
-                    call-site model selection
+                    Inference profile (llm.profiles key) the schedule's runs use; null re-pins the schedule to the currently
+                    resolved default profile. Workflow-mode schedules resolve a model per workflow step, so the pin is
+                    recorded but does not govern their runs.
       responses:
         "200":
           description: Successful response
@@ -26338,7 +26470,23 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        sourceKey:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description:
+                            Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                            schedules
+                        userEnabled:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                          description:
+                            User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                            applies. Always null for user-created schedules.
                         isOneShot:
+                          type: boolean
+                        isDeferred:
                           type: boolean
                       required:
                         - id
@@ -26370,7 +26518,10 @@ paths:
                         - reuseConversation
                         - wakeConversationId
                         - workflowName
+                        - sourceKey
+                        - userEnabled
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Updated schedule list
                 required:
@@ -26504,7 +26655,23 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        sourceKey:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description:
+                            Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                            schedules
+                        userEnabled:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                          description:
+                            User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                            applies. Always null for user-created schedules.
                         isOneShot:
+                          type: boolean
+                        isDeferred:
                           type: boolean
                       required:
                         - id
@@ -26536,7 +26703,10 @@ paths:
                         - reuseConversation
                         - wakeConversationId
                         - workflowName
+                        - sourceKey
+                        - userEnabled
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Updated schedule list
                 required:
@@ -26546,7 +26716,9 @@ paths:
     post:
       operationId: schedules_by_id_run_post
       summary: Run schedule now
-      description: Trigger an immediate execution of a schedule.
+      description:
+        Trigger an immediate execution of a schedule. A plugin-sourced schedule is rejected with a 400 when its
+        plugin is disabled or no longer declares it.
       tags:
         - schedules
       parameters:
@@ -26670,7 +26842,23 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        sourceKey:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description:
+                            Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                            schedules
+                        userEnabled:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                          description:
+                            User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                            applies. Always null for user-created schedules.
                         isOneShot:
+                          type: boolean
+                        isDeferred:
                           type: boolean
                       required:
                         - id
@@ -26702,7 +26890,10 @@ paths:
                         - reuseConversation
                         - wakeConversationId
                         - workflowName
+                        - sourceKey
+                        - userEnabled
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Updated schedule list
                 required:
@@ -26837,7 +27028,7 @@ paths:
     post:
       operationId: schedules_by_id_toggle_post
       summary: Toggle schedule
-      description: Enable or disable a schedule.
+      description: Enable or disable a schedule. On a plugin-managed schedule this records the user's override (userEnabled).
       tags:
         - schedules
       parameters:
@@ -26973,7 +27164,23 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        sourceKey:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description:
+                            Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created
+                            schedules
+                        userEnabled:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                          description:
+                            User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value
+                            applies. Always null for user-created schedules.
                         isOneShot:
+                          type: boolean
+                        isDeferred:
                           type: boolean
                       required:
                         - id
@@ -27005,11 +27212,54 @@ paths:
                         - reuseConversation
                         - wakeConversationId
                         - workflowName
+                        - sourceKey
+                        - userEnabled
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Updated schedule list
                 required:
                   - schedules
+                additionalProperties: false
+  /v1/schedules/reassign-profile:
+    post:
+      operationId: schedules_reassignprofile_post
+      summary: Reassign schedules to another inference profile
+      description:
+        Move schedules onto one inference profile. Pass 'from' to move only the schedules pinned to that profile,
+        so deleting a profile does not leave its schedules pointing at a name that no longer exists. Omit 'from' to move
+        every schedule, which re-pins the whole set onto one profile. Schedules already pinned to the target are
+        skipped.
+      tags:
+        - schedules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from:
+                  description: Inference profile key the schedules are pinned to now; omit to select every schedule
+                  type: string
+                to:
+                  type: string
+                  description: Inference profile key to move them to; must be configured
+              required:
+                - to
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reassigned:
+                    type: number
+                    description: Number of schedules moved
+                required:
+                  - reassigned
                 additionalProperties: false
   /v1/schedules/usage-summary:
     get:
@@ -29155,6 +29405,73 @@ paths:
                   - mimeType
                   - isBinary
                   - content
+                additionalProperties: false
+  /v1/skills/{id}/history:
+    get:
+      operationId: skills_by_id_history_get
+      summary: Get skill revision history
+      description:
+        "Return a skill's recent updates, newest first, each with a combined diff across the skill directory.
+        Read-only: revisions come from the workspace git repository, which already retains prior content. Commits whose
+        only in-skill change is the `lastUsedAt` usage stamp are omitted, so entries are edits rather than loads."
+      tags:
+        - skills
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Maximum revisions to return, newest first. Defaults to 20 and is clamped to 100.
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skillId:
+                    type: string
+                    description: The skill these revisions belong to
+                  revisions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          description: Opaque revision identifier
+                        changedAt:
+                          type: string
+                          description: ISO-8601 time of the update
+                        files:
+                          type: array
+                          items:
+                            type: string
+                          description: Paths changed, relative to the skill directory
+                        diff:
+                          type: string
+                          description: Unified diff of this update, scoped to the skill
+                      required:
+                        - id
+                        - changedAt
+                        - files
+                        - diff
+                      additionalProperties: false
+                    description: Recent updates, newest first
+                  truncatedByCompaction:
+                    type: boolean
+                    description: Older history was squashed away, so the oldest entry is a floor rather than the skill's creation
+                required:
+                  - skillId
+                  - revisions
+                  - truncatedByCompaction
                 additionalProperties: false
   /v1/skills/{id}/inspect:
     get:
@@ -34586,13 +34903,14 @@ components:
               type: string
               enum:
                 - ok
-                - missing_default
+                - incomplete
                 - missing_connection
                 - missing_credential
                 - provider_mismatch
                 - unsupported_auth
                 - vellum_unauthenticated
                 - unknown
+                - missing_default
             message:
               type: string
           required:
@@ -34818,6 +35136,7 @@ components:
           type: string
           enum:
             - ok
+            - incomplete
             - missing_connection
             - missing_credential
             - provider_mismatch

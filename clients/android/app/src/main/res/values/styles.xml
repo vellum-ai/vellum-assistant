@@ -20,10 +20,14 @@
     <style name="AppTheme.NoActionBar" parent="@style/AppThemeNoActionBarBase" />
 
 
-    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">@color/launcher_background</item>
+    <style name="AppThemeNoActionBarLaunchBase" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/launch_screen_background</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/vellum_mark</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
         <item name="android:background">@drawable/splash_screen</item>
+    </style>
+
+    <style name="AppTheme.NoActionBarLaunch" parent="@style/AppThemeNoActionBarLaunchBase">
+        <item name="android:windowDisablePreview">true</item>
     </style>
 </resources>

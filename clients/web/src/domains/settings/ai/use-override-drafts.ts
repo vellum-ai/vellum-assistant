@@ -37,6 +37,13 @@ export interface OverrideDrafts {
   hasValidationError: boolean;
   setDraft: (id: string, draft: CallSiteOverrideDraft | null) => void;
   setAdvisor: (profile: string) => void;
+  /**
+   * Drop every session edit so each row falls back through to the persisted
+   * override. Callers use this after a write they did not route through
+   * `buildSavePatch`, so a touched-then-reverted row cannot pin a stale
+   * value over the freshly persisted config.
+   */
+  clearEdits: () => void;
   buildSavePatch: () => CallSiteDraftMap;
   buildResetPatch: () => Record<string, null>;
 }
@@ -182,6 +189,11 @@ export function useOverrideDrafts({
     setAdvisorEdit(profile);
   }, []);
 
+  const clearEdits = useCallback(() => {
+    setDraftEdits({});
+    setAdvisorEdit(undefined);
+  }, []);
+
   const savePatchBuilder = useCallback(
     () => buildCallSiteSavePatch(drafts, draftEdits),
     [drafts, draftEdits],
@@ -201,6 +213,7 @@ export function useOverrideDrafts({
     hasValidationError,
     setDraft,
     setAdvisor,
+    clearEdits,
     buildSavePatch: savePatchBuilder,
     buildResetPatch: resetPatchBuilder,
   };

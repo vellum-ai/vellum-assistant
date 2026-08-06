@@ -38,7 +38,12 @@ import type {
  * "untargeted".
  */
 export const hostFileReadInputSchema = z.looseObject({
-  path: z.string().min(1).describe("Absolute path to the host file to read"),
+  path: z
+    .string()
+    .min(1)
+    .describe(
+      "Absolute path on the guardian's device, which is a separate filesystem from your workspace, to read.",
+    ),
   offset: z
     .number()
     .describe("Line number to start reading from (1-indexed)")

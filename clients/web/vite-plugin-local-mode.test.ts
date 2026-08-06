@@ -1,9 +1,7 @@
 /**
- * Tests for the dev-server guardian-token route: the middleware classifies the
- * assistant from the lockfile and passes {paired} to getGuardianAccessToken,
- * so expired pairings get re-pair guidance instead of hatch/wake. The exact
- * guidance copy is pinned in the package's guardian-token tests; here a
- * distinguishing marker proves the route passed the paired flag.
+ * Tests for the dev-server guardian-token route. Local assistant credentials
+ * support the renderer's loopback token exchange, while paired credentials
+ * stay inside the trusted host proxy.
  */
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
@@ -49,12 +47,15 @@ interface DispatchResult {
 }
 
 /** Drive a loopback GET through the captured connect chain. */
-function dispatch(url: string): Promise<DispatchResult> {
+function dispatch(
+  url: string,
+  headers: Record<string, string> = {},
+): Promise<DispatchResult> {
   return new Promise((resolve, reject) => {
     const req = Object.assign(new EventEmitter(), {
       url,
       method: "GET",
-      headers: { host: "127.0.0.1:5173" },
+      headers: { host: "127.0.0.1:5173", ...headers },
       socket: { remoteAddress: "127.0.0.1" },
     }) as unknown as Connect.IncomingMessage;
     const res = {
@@ -145,18 +146,76 @@ describe("guardian-token middleware", () => {
     expect(error).not.toContain("vellum pair");
   });
 
-  test("expired refresh token for a paired entry yields re-pair guidance", async () => {
+  test("never returns a paired credential to the renderer", async () => {
     writeLockfile([{ assistantId: "paired-g", cloud: "paired" }]);
+    writeToken("paired-g", {});
+
+    const result = await dispatch("/__local/guardian-token/paired-g");
+
+    expect(result.status).toBe(403);
+    const { error } = JSON.parse(result.body) as { error: string };
+    expect(error).toContain("paired gateway proxy");
+  });
+
+  test("stored pairing metadata blocks a credential after lockfile reclassification", async () => {
+    writeLockfile([{ assistantId: "paired-g", cloud: "local" }]);
     writeToken("paired-g", {
-      accessTokenExpiresAt: PAST,
-      refreshTokenExpiresAt: PAST,
+      pairedGatewayUrl: "https://gateway.example.com",
     });
 
     const result = await dispatch("/__local/guardian-token/paired-g");
 
-    expect(result.status).toBe(401);
+    expect(result.status).toBe(403);
     const { error } = JSON.parse(result.body) as { error: string };
-    expect(error).toContain("vellum pair");
-    expect(error).not.toContain("vellum hatch");
+    expect(error).toContain("paired gateway proxy");
+  });
+});
+
+describe("paired gateway proxy", () => {
+  beforeEach(() => {
+    fs.rmSync(lockfilePath, { force: true });
+    fs.rmSync(path.join(configDir, "assistants"), {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  test("rejects a browser request without positive same-origin proof", async () => {
+    writeLockfile([
+      {
+        assistantId: "paired-g",
+        cloud: "paired",
+        paired: true,
+        runtimeUrl: "https://gateway.example.com",
+      },
+    ]);
+    writeToken("paired-g", {
+      pairedGatewayUrl: "https://gateway.example.com",
+    });
+
+    const result = await dispatch("/__gateway-paired/paired-g/readyz");
+
+    expect(result).toEqual({ status: 403, body: "Forbidden" });
+  });
+
+  test("rejects a browser request from another loopback origin", async () => {
+    writeLockfile([
+      {
+        assistantId: "paired-g",
+        cloud: "paired",
+        paired: true,
+        runtimeUrl: "https://gateway.example.com",
+      },
+    ]);
+    writeToken("paired-g", {
+      pairedGatewayUrl: "https://gateway.example.com",
+    });
+
+    const result = await dispatch("/__gateway-paired/paired-g/readyz", {
+      origin: "http://127.0.0.1:9999",
+      "sec-fetch-site": "same-site",
+    });
+
+    expect(result).toEqual({ status: 403, body: "Forbidden" });
   });
 });

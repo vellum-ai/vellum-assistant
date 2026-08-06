@@ -883,6 +883,78 @@ describe("Conversation message queue", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
+  test("subagent notifications are never acked with message_queued and don't shift visible positions", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const notificationEvents: AssistantEvent[] = [];
+    const visibleEvents: AssistantEvent[] = [];
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // A subagent's completion summary injected into a busy parent is daemon
+    // scaffolding: the user follows that run through its inline card, so the
+    // row gets no queued ack and no queue-drawer bubble.
+    const notification = conversation.enqueueMessage({
+      content: '[Subagent "hermes-local-review" — important] review finished',
+      onEvent: (e) => notificationEvents.push(e),
+      requestId: "req-subagent",
+      metadata: {
+        subagentNotification: {
+          subagentId: "sub-1",
+          label: "hermes-local-review",
+          status: "completed",
+          conversationId: "conv-sub-1",
+          objective: "review the diff",
+        },
+      },
+    });
+    expect(notification.queued).toBe(true);
+    expect(
+      notificationEvents.filter((e) => e.type === "message_queued"),
+    ).toEqual([]);
+
+    // The user's own send queued behind it is position 1: the notification
+    // does not consume a visible slot, matching the cold-load snapshot.
+    const visible = conversation.enqueueMessage({
+      content: "visible-msg",
+      onEvent: (e) => visibleEvents.push(e),
+      requestId: "req-visible",
+    });
+    expect(visible.queued).toBe(true);
+    expect(conversation.getQueueDepth()).toBe(2);
+    expect(
+      visibleEvents.find((e) => e.type === "message_queued"),
+    ).toMatchObject({
+      requestId: "req-visible",
+      position: 1,
+    });
+
+    // Suppressing the ack changes only what clients are told: the row is
+    // still queued, still drains, and still wakes the parent on the notification
+    // text (delivery is asserted end-to-end in "drained subagent-notification
+    // message persists and wakes the agent but emits no user_message_echo").
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+    await waitForCondition(() => conversation.getQueueDepth() === 0);
+    expect(
+      capturedAddMessages.some((m) =>
+        m.content.includes("hermes-local-review"),
+      ),
+    ).toBe(true);
+
+    for (let i = 1; i < pendingRuns.length; i++) {
+      await resolveRun(i);
+    }
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
   test("abort() clears the queue and closes out each queued message", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();

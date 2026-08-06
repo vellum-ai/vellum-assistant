@@ -23,9 +23,8 @@ function renderPicker(
       open
       onOpenChange={(open) => openChanges.push(open)}
       title="Listening language"
-      currentCode=""
+      currentCode="multi"
       configuredProviderId="vellum"
-      daemonDefaultsToMulti
       selectLanguage={(code) => picks.push(code)}
       selecting={false}
       {...props}
@@ -57,11 +56,11 @@ describe("SttLanguagePicker (in its modal host)", () => {
     renderPicker();
     expect(screen.getByText("Featured")).toBeTruthy();
     expect(screen.getByText("All languages")).toBeTruthy();
-    // Featured for a fresh multi-capable config: the multilingual default
-    // row, then the explicit English pin; the extended roster sits in the
-    // A-Z remainder.
+    // Featured for a fresh multi-capable config: Multilingual (the current
+    // value) then the English row; the extended roster sits in the A-Z
+    // remainder.
     const labels = optionLabels();
-    expect(labels[0]).toContain("Multilingual (default)");
+    expect(labels[0]).toContain("Multilingual");
     expect(labels[1]).toContain("English");
     expect(labels[2]).toContain("Arabic");
     expect(labels.some((label) => label.includes("Tamil"))).toBe(true);
@@ -124,8 +123,8 @@ describe("SttLanguagePicker (in its modal host)", () => {
     const activeId = searchInput().getAttribute("aria-activedescendant");
     expect(activeId).toBeTruthy();
     const active = document.getElementById(activeId!);
-    // Two steps from the top of the visible list: the multilingual default
-    // row, then the explicit English pin.
+    // Two steps from the top of the visible list: Multilingual (current),
+    // then the English row.
     expect(active?.textContent).toContain("English");
     await user.keyboard("{Enter}");
     expect(picks).toEqual(["en"]);
@@ -175,7 +174,9 @@ describe("SttLanguagePicker (in its modal host)", () => {
   });
 
   test("an xai provider offers no Multilingual row and no extended roster", () => {
-    renderPicker({ configuredProviderId: "xai" });
+    // xai keeps its sentinel row, since unset means native detection there
+    // and no language code expresses that.
+    renderPicker({ configuredProviderId: "xai", currentCode: "" });
     const labels = optionLabels();
     expect(labels.some((label) => label.includes("Multilingual"))).toBe(false);
     expect(labels.some((label) => label.includes("Tamil"))).toBe(false);

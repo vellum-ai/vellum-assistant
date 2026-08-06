@@ -48,6 +48,7 @@ import { refreshRemoteGatewaySession } from "@/lib/auth/remote-gateway-session";
 import {
   getSelectedAssistant,
   getAuthGatewayIngressUrl,
+  getPairedGatewayUrl,
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
 import { getLocalAssistantStatusHost } from "@/runtime/local-mode-host";
@@ -590,6 +591,7 @@ class AssistantLifecycleService {
   private applyGatewayAuthShortCircuit(): void {
     let ingressUrl = window.location.origin;
     let resolvedAssistantId = "self";
+    let rendererToken = getGatewayToken();
     if (isRemoteGatewayMode()) {
       ingressUrl = getRemoteGatewayIngressUrl();
     } else {
@@ -598,9 +600,12 @@ class AssistantLifecycleService {
       if (resolved) {
         ingressUrl = resolved;
         resolvedAssistantId = assistant?.assistantId ?? resolvedAssistantId;
+        if (getPairedGatewayUrl(assistant) != null) {
+          rendererToken = null;
+        }
       }
     }
-    setSelfHostedConnection({ url: ingressUrl, token: getGatewayToken() });
+    setSelfHostedConnection({ url: ingressUrl, token: rendererToken });
     this.setOperationalStatusAssistantId(null);
     useResolvedAssistantsStore
       .getState()

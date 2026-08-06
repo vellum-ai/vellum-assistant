@@ -7,7 +7,32 @@
 // `resolveConversationKind` classifier, and the pure predicates over a
 // persisted message's `metadata` record.
 
-import { parseChannelId, parseClientOs } from "../channels/types.js";
+import {
+  type ChannelId,
+  parseChannelId,
+  parseClientOs,
+} from "../channels/types.js";
+
+/**
+ * Where a conversation came from, stated by whoever creates it.
+ *
+ * `conversations.origin_channel` records this. It is the caller's job to
+ * supply it, because the caller is the only party that knows: an inbound
+ * Slack message creates a conversation *because* it is Slack, and nothing
+ * downstream can recover that fact once the moment has passed.
+ *
+ * A bare {@link ChannelId} covers the cases where the origin is known
+ * outright, including `"vellum"` for a conversation started in the app.
+ * `inheritFrom` covers the derived ones, where the conversation belongs to
+ * whatever surface its parent belongs to: forks, subagent spawns, and
+ * scheduled wakes.
+ *
+ * Deliberately closed, and deliberately not optional. An optional string
+ * would let a caller decline to answer, which is how the column came to
+ * carry a third "not yet attributed" state that different readers resolve
+ * in contradictory directions. See JARVIS-1466.
+ */
+export type ConversationOrigin = ChannelId | { readonly inheritFrom: string };
 
 /**
  * Canonical `conversations.source` string for background memory v2
@@ -138,6 +163,29 @@ export function isEchoSuppressedUserMessage(
 }
 
 /**
+ * True when a queued message has no client-visible queued row, so every event
+ * and snapshot that describes the queue to clients must skip it.
+ *
+ * Same set as {@link isEchoSuppressedUserMessage}: a row that never renders as
+ * a user bubble must not render as a queued one either. A subagent's
+ * completion notification injected into a busy parent (`subagent/notify.ts`)
+ * is the common case — the user sees that run through its inline card, and a
+ * `[Subagent "…" — …]` row in the queue drawer is daemon scaffolding leaking
+ * into the transcript's place.
+ *
+ * Named separately from the echo predicate for the queue sites that must
+ * agree: the `message_queued` ack and its visible-position count, the
+ * corrective `message_requeued` position, the terminal
+ * `message_queued_deleted` on user delete and on abort discard, and the
+ * list-messages queued snapshot a cold reload reads.
+ */
+export function isSuppressedQueuedMessage(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  return isEchoSuppressedUserMessage(metadata);
+}
+
+/**
  * True when a role-`"user"` row was persisted by the voice bridge for a live
  * phone call or in-app voice session (every row `startVoiceTurn` persists, see
  * `calls/voice-session-bridge.ts`).
@@ -257,3 +305,13 @@ export function isReplyPushIneligibleUserMessage(
     (!options?.replyDeliveredInAppOnly && isReplyDeliveredOffApp(metadata))
   );
 }
+
+/**
+ * The reserved `group_id` values the sidebar's system sections use.
+ *
+ * `group_id` is nullable, and a conversation that has never been filed
+ * carries NULL rather than {@link UNGROUPED_GROUP_ID}, so predicates over the
+ * column read it through `COALESCE(group_id, 'system:all')`.
+ */
+export const UNGROUPED_GROUP_ID = "system:all";
+export const PINNED_GROUP_ID = "system:pinned";

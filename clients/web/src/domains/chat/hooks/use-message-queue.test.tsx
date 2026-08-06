@@ -142,6 +142,45 @@ describe("useMessageQueue", () => {
     expect(result.current.queuedMessages).toHaveLength(0);
   });
 
+  test("omits daemon-injected notification rows from the queue", () => {
+    // A subagent completion summary queued behind an in-flight turn is
+    // internal scaffolding: the transcript already drops it, and the queue
+    // drawer — steer/cancel over the user's own pending prompts — must too.
+    useChatSessionStore.setState({
+      snapshot: {
+        messages: [
+          {
+            ...queuedMessage("request-subagent", "client-subagent"),
+            isSubagentNotification: true,
+          },
+          {
+            ...queuedMessage("request-acp", "client-acp", 2),
+            isAcpNotification: true,
+          },
+          {
+            ...queuedMessage("request-wake", "client-wake", 3),
+            isBackgroundEventNotification: true,
+          },
+          queuedMessage("request-1", "client-1", 4),
+        ],
+        hasMore: false,
+        oldestTimestamp: null,
+        oldestMessageId: null,
+        seq: 1,
+      },
+    });
+    const { result } = renderHook(() =>
+      useMessageQueue({
+        assistantId: "assistant-1",
+        activeConversationId: "conversation-1",
+      }),
+    );
+
+    expect(result.current.queuedMessages.map((message) => message.id)).toEqual([
+      "request-1",
+    ]);
+  });
+
   test("steers a snapshot-backed queued message by its request id", () => {
     useChatSessionStore.setState({
       snapshot: {

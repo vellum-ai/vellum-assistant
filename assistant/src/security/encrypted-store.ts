@@ -419,8 +419,71 @@ function decrypt(entry: EncryptedEntry, key: Buffer): string {
 }
 
 // ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown by `readKey()` when the store is UNAVAILABLE: the store file exists
+ * but cannot be read, the key material is missing, or an entry fails to
+ * decrypt. Distinct from a credential being ABSENT (no store file, or the
+ * store reads cleanly but lacks the requested key), which returns `undefined`.
+ *
+ * Mirrors the CES-side `StoreUnavailableError` so managed pods and local mode
+ * report the same absent-vs-unavailable distinction: an unavailable store must
+ * surface as `unreachable` (presence indeterminate), never as "no key".
+ */
+export class StoreUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StoreUnavailableError";
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+/**
+ * Retrieve a secret, distinguishing a genuinely-absent credential (returns
+ * `undefined`) from a store that exists but cannot be read or decrypted
+ * (throws {@link StoreUnavailableError}).
+ */
+export function readKey(account: string): string | undefined {
+  // `readStore()` returns null for a missing store (or a corrupt store it has
+  // just reset) and throws on transient I/O errors (EACCES, EMFILE, EIO). A
+  // missing store is genuinely absent; a transient read error is unavailable
+  // and propagates.
+  const store = readStore();
+  if (!store) {
+    return undefined;
+  }
+
+  let effectiveStore: StoreFile = store;
+  if (store.version === 1) {
+    const migrated = migrateV1ToV2(store);
+    if (migrated) {
+      writeStore(migrated);
+      effectiveStore = migrated;
+    }
+    // Migration failed: fall through and read with the legacy PBKDF2 key.
+  }
+
+  const entry = effectiveStore.entries[account];
+  if (!entry) {
+    return undefined;
+  }
+
+  const key = getKeyForStore(effectiveStore);
+  if (!key) {
+    throw new StoreUnavailableError(
+      "credential store entry present but key material is unavailable",
+    );
+  }
+  // A decrypt failure means corrupt data or wrong key material, so the credential
+  // exists but its value cannot be produced. Let it propagate as unavailable
+  // rather than swallowing it into a false "not found".
+  return decrypt(entry, key);
+}
 
 /**
  * Retrieve a secret from the encrypted store.
@@ -428,48 +491,7 @@ function decrypt(entry: EncryptedEntry, key: Buffer): string {
  */
 export function getKey(account: string): string | undefined {
   try {
-    const store = readStore();
-    if (!store) {
-      return undefined;
-    }
-
-    // If v1, trigger migration
-    if (store.version === 1) {
-      const migrated = migrateV1ToV2(store);
-      if (migrated) {
-        writeStore(migrated);
-        const entry = migrated.entries[account];
-        if (!entry) {
-          return undefined;
-        }
-        const key = getKeyForStore(migrated);
-        if (!key) {
-          return undefined;
-        }
-        return decrypt(entry, key);
-      }
-      // Migration failed -- try reading with legacy key
-      const entry = store.entries[account];
-      if (!entry) {
-        return undefined;
-      }
-      const key = getKeyForStore(store);
-      if (!key) {
-        return undefined;
-      }
-      return decrypt(entry, key);
-    }
-
-    const entry = store.entries[account];
-    if (!entry) {
-      return undefined;
-    }
-
-    const key = getKeyForStore(store);
-    if (!key) {
-      return undefined;
-    }
-    return decrypt(entry, key);
+    return readKey(account);
   } catch (err) {
     log.debug({ err, account }, "Failed to read from encrypted store");
     return undefined;

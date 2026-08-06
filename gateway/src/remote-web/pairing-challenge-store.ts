@@ -1,12 +1,13 @@
 import { createHash, randomBytes, randomInt } from "node:crypto";
 
-import type {
-  RemoteWebPairingChallengeResponse,
-  RemoteWebPairingTokenPendingResponse,
-  RemoteWebPairingVerificationResponse,
+import {
+  REMOTE_WEB_PAIRING_CODE_TTL_MS,
+  type RemoteWebPairingChallengeResponse,
+  type RemoteWebPairingTokenPendingResponse,
+  type RemoteWebPairingVerificationResponse,
 } from "@vellumai/service-contracts/remote-web-pairing";
 
-const CODE_TTL_MS = 10 * 60 * 1000;
+const CODE_TTL_MS = REMOTE_WEB_PAIRING_CODE_TTL_MS;
 const MAX_ACTIVE_CHALLENGES = 200;
 const USER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const USER_CODE_LENGTH = 8;

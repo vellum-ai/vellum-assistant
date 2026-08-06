@@ -3,7 +3,7 @@
  * deduplicated against prior firings of the same schedule.
  *
  * The scheduler supplies a unique per-firing dedupeKey
- * (`schedule:notify:<id>:<timestamp>`) so `updateEventDedupeKey` is never
+ * (`schedule:notify:<id>:<timestamp>`) so `setEventDedupeKey` is never
  * called for schedule signals and `checkDedupe` never finds a matching
  * row when the LLM decision engine generates a stable key like
  * `schedule:notify:<id>`.

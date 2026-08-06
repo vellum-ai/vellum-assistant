@@ -5,9 +5,13 @@ import type {
   MessageFilesPayload,
   ToolDetailPayload,
 } from "@/stores/viewer-store";
-import type { DocumentsForworkspacefilePostResponse } from "@/generated/daemon/types.gen";
+import type {
+  DocumentsByIdGetResponse,
+  DocumentsForworkspacefilePostResponse,
+} from "@/generated/daemon/types.gen";
 import { ApiError } from "@/utils/api-errors";
 import { makeDisplayAttachment } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
+import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 
 // The store opens file-backed documents through the daemon SDK. Spread the
 // real module so the actions this file does not exercise keep their real
@@ -18,12 +22,20 @@ type FileDocumentResult = {
   data: DocumentsForworkspacefilePostResponse | null;
 };
 
+type DocumentResult = {
+  data: DocumentsByIdGetResponse | null;
+};
+
 let fileDocumentResult: () => Promise<FileDocumentResult> = () =>
   Promise.reject(new Error("not stubbed"));
 const fileDocumentCalls: unknown[] = [];
 
+let documentResult: () => Promise<DocumentResult> = () =>
+  Promise.reject(new Error("not stubbed"));
+
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
+  documentsByIdGet: () => documentResult(),
   documentsForworkspacefilePost: (options: unknown) => {
     fileDocumentCalls.push(options);
     return fileDocumentResult();
@@ -54,11 +66,19 @@ function getState() {
   return useViewerStore.getState();
 }
 
+/** The surface ids a conversation currently holds unseen changes for. */
+function unseenFor(conversationId: string): string[] {
+  const changed =
+    useUnseenDocumentChangesStore.getState().changedDocuments[conversationId];
+  return [...(changed ?? [])];
+}
+
 beforeEach(() => {
   getState().reset();
   fileDocumentCalls.length = 0;
   toastError.mockClear();
   openWorkspaceFile.mockClear();
+  useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
 });
 
 const SAMPLE_APP = {
@@ -1042,6 +1062,78 @@ describe("openWorkspaceFilePreview", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Document viewer: document surfaces
+// ---------------------------------------------------------------------------
+
+/** The daemon's answer for a document surface fetched by id. */
+function documentSurface(
+  overrides: Partial<DocumentsByIdGetResponse> = {},
+): DocumentsByIdGetResponse {
+  return {
+    success: true,
+    surfaceId: "surf-1",
+    conversationId: "conv-1",
+    title: "Notes",
+    content: "# Notes",
+    wordCount: 2,
+    createdAt: 1,
+    updatedAt: 2,
+    workspacePath: null,
+    ...overrides,
+  };
+}
+
+describe("loadDocument", () => {
+  it("clears the unseen change for the document it opened", async () => {
+    useUnseenDocumentChangesStore
+      .getState()
+      .markDocumentChanged("conv-1", "surf-1");
+    documentResult = () => Promise.resolve({ data: documentSurface() });
+
+    await getState().loadDocument("asst-1", "surf-1");
+
+    expect(getState().mainView).toBe("document");
+    expect(unseenFor("conv-1")).toEqual([]);
+  });
+
+  it("leaves the conversation's other unseen documents alone", async () => {
+    const unseen = useUnseenDocumentChangesStore.getState();
+    unseen.markDocumentChanged("conv-1", "surf-1");
+    unseen.markDocumentChanged("conv-1", "surf-2");
+    documentResult = () => Promise.resolve({ data: documentSurface() });
+
+    await getState().loadDocument("asst-1", "surf-1");
+
+    expect(unseenFor("conv-1")).toEqual(["surf-2"]);
+  });
+
+  it("clears a change recorded against a conversation other than the document's", async () => {
+    // The daemon records the edit against the conversation the tool ran in,
+    // while the document row keeps the conversation that created it.
+    useUnseenDocumentChangesStore
+      .getState()
+      .markDocumentChanged("conv-2", "surf-1");
+    documentResult = () =>
+      Promise.resolve({ data: documentSurface({ conversationId: "conv-1" }) });
+
+    await getState().loadDocument("asst-1", "surf-1");
+
+    expect(unseenFor("conv-2")).toEqual([]);
+  });
+
+  it("keeps the unseen change when the open fails", async () => {
+    useUnseenDocumentChangesStore
+      .getState()
+      .markDocumentChanged("conv-1", "surf-1");
+    documentResult = () => Promise.reject(new ApiError(404, "Not found"));
+
+    await getState().loadDocument("asst-1", "surf-1");
+
+    expect(unseenFor("conv-1")).toEqual(["surf-1"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Document viewer: workspace files
 // ---------------------------------------------------------------------------
 
@@ -1095,6 +1187,39 @@ describe("loadWorkspaceFileDocument", () => {
       body: { path: "drafts/notes.md", conversationId: "conv-1" },
     });
     expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("clears the unseen change for the document it opened", async () => {
+    useUnseenDocumentChangesStore
+      .getState()
+      .markDocumentChanged("conv-1", "surf-file");
+    fileDocumentResult = () => Promise.resolve({ data: fileDocument() });
+
+    await getState().loadWorkspaceFileDocument(
+      "asst-1",
+      "drafts/notes.md",
+      "conv-1",
+    );
+
+    expect(unseenFor("conv-1")).toEqual([]);
+  });
+
+  it("clears a change recorded against a conversation other than the document's", async () => {
+    // Opening the file from another conversation still answers with the
+    // conversation that created the document.
+    useUnseenDocumentChangesStore
+      .getState()
+      .markDocumentChanged("conv-2", "surf-file");
+    fileDocumentResult = () =>
+      Promise.resolve({ data: fileDocument({ conversationId: "conv-1" }) });
+
+    await getState().loadWorkspaceFileDocument(
+      "asst-1",
+      "drafts/notes.md",
+      "conv-2",
+    );
+
+    expect(unseenFor("conv-2")).toEqual([]);
   });
 
   it("names an untitled document rather than showing an empty navbar", async () => {
@@ -1238,18 +1363,6 @@ describe("loadWorkspaceFileDocument", () => {
 
     expect(getState().openedDocumentState).toBe(SAMPLE_DOC);
     expect(toastError).not.toHaveBeenCalled();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Assets
-// ---------------------------------------------------------------------------
-
-describe("refreshAssets", () => {
-  it("increments the refresh key", () => {
-    useViewerStore.setState({ assetsRefreshKey: 5 });
-    getState().refreshAssets();
-    expect(getState().assetsRefreshKey).toBe(6);
   });
 });
 

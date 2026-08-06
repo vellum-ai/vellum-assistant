@@ -110,7 +110,7 @@
           },
           "inference_profile": {
             "type": "string",
-            "description": "Inference profile (a key from llm.profiles) the schedule's LLM-executed runs should use, e.g. to run a heavy task on a cheaper model. When omitted, runs use the default mainAgent model selection. Must name a configured profile."
+            "description": "Inference profile (a key from llm.profiles) the schedule's LLM-executed runs should use, e.g. to run a heavy task on a cheaper model. When omitted, the schedule is pinned to the user's current default profile so its model does not change later. Must name a configured profile. Workflow-mode schedules resolve a model per workflow step, so the pin does not govern their runs."
           },
           "group": {
             "type": "string",
@@ -233,7 +233,7 @@
           },
           "inference_profile": {
             "type": ["string", "null"],
-            "description": "Inference profile (a key from llm.profiles) the schedule's LLM-executed runs should use. Pass null to clear the override and revert to the default mainAgent model selection. Must name a configured profile."
+            "description": "Inference profile (a key from llm.profiles) the schedule's LLM-executed runs should use. Pass null to re-pin the schedule to the user's current default profile. Must name a configured profile. Workflow-mode schedules resolve a model per workflow step, so the pin does not govern their runs."
           },
           "group": {
             "type": ["string", "null"],

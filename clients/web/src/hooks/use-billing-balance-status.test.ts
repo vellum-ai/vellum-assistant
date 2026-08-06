@@ -9,7 +9,7 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
 import type { BillingSummaryResponse } from "@/generated/api/types.gen";
@@ -104,7 +104,12 @@ function setup({ seed }: { seed?: BillingSummaryResponse } = {}) {
   }
   const wrapper = ({ children }: { children: ReactNode }) =>
     createElement(QueryClientProvider, { client }, children);
-  return renderHook(() => useBillingBalanceStatus(), { wrapper });
+  return {
+    ...renderHook(() => useBillingBalanceStatus(), { wrapper }),
+    // Exposed so a test can stand in for a summary invalidation refetch by
+    // writing the refreshed response into the same cache entry.
+    client,
+  };
 }
 
 describe("useBillingBalanceStatus", () => {
@@ -124,6 +129,7 @@ describe("useBillingBalanceStatus", () => {
     expect(result.current).toEqual({
       isExhausted: false,
       isLowBalance: false,
+      dailyLimitReached: false,
       balance: "20.00",
       enabled: true,
     });
@@ -136,6 +142,7 @@ describe("useBillingBalanceStatus", () => {
     expect(result.current).toEqual({
       isExhausted: false,
       isLowBalance: true,
+      dailyLimitReached: false,
       balance: "3.00",
       enabled: true,
     });
@@ -173,6 +180,99 @@ describe("useBillingBalanceStatus", () => {
     ).toBeNull();
   });
 
+  test("daily limit: reflects the server-computed daily_limit_reached flag", () => {
+    // Orthogonal to the balance: the cap can be hit with credits to spare.
+    const { result } = setup({
+      seed: summary({ effective_balance: "20.00", daily_limit_reached: true }),
+    });
+    expect(result.current).toEqual({
+      isExhausted: false,
+      isLowBalance: false,
+      dailyLimitReached: true,
+      balance: "20.00",
+      enabled: true,
+    });
+  });
+
+  test("daily limit drives the composer banner with no chat error present", () => {
+    // The proactive path: background turns reached the cap while the user was
+    // away, so the banner must be up before any send fails.
+    const { result } = setup({
+      seed: summary({ daily_limit_reached: true }),
+    });
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: null,
+        isLowBalance: result.current.isLowBalance,
+        dismissed: false,
+        dailyLimitReached: result.current.dailyLimitReached,
+      }),
+    ).toBe("daily_limit");
+  });
+
+  test("daily limit outranks a co-reported low-balance warning", () => {
+    const { result } = setup({
+      seed: summary({
+        effective_balance: "3.00",
+        low_balance_warning: true,
+        daily_limit_reached: true,
+      }),
+    });
+    expect(result.current.isLowBalance).toBe(true);
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: null,
+        isLowBalance: result.current.isLowBalance,
+        dismissed: false,
+        dailyLimitReached: result.current.dailyLimitReached,
+      }),
+    ).toBe("daily_limit");
+  });
+
+  test("a gated-off hook never raises the daily-limit banner", () => {
+    // Cached summary, gated-off query: the inert status keeps the banner down
+    // for self-hosted and org-not-ready contexts.
+    isPlatformHosted = false;
+    const { result } = setup({ seed: summary({ daily_limit_reached: true }) });
+    expect(result.current.dailyLimitReached).toBe(false);
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: null,
+        isLowBalance: result.current.isLowBalance,
+        dismissed: false,
+        dailyLimitReached: result.current.dailyLimitReached,
+      }),
+    ).toBeNull();
+  });
+
+  test("raising the limit clears the banner once the summary refetches", () => {
+    // The settings card invalidates the summary on save; the refreshed
+    // response flips the flag and the banner drops on the next read.
+    const { result, rerender, client } = setup({
+      seed: summary({ daily_limit_reached: true }),
+    });
+    expect(result.current.dailyLimitReached).toBe(true);
+    act(() => {
+      client.setQueryData(
+        BILLING_SUMMARY_KEY,
+        summary({ daily_limit_reached: false }),
+      );
+    });
+    // Bun's preload does not set `IS_REACT_ACT_ENVIRONMENT`, so the query
+    // notification does not flush on its own here; the explicit rerender
+    // reads the hook against the refreshed cache entry.
+    rerender();
+    expect(result.current.dailyLimitReached).toBe(false);
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: null,
+        isLowBalance: result.current.isLowBalance,
+        dismissed: false,
+        dailyLimitReached: result.current.dailyLimitReached,
+      }),
+    ).toBeNull();
+  });
+
   test("all-false while the summary is unresolved", () => {
     // No seeded data + a hanging fetch keeps the query pending.
     summaryHangs = true;
@@ -180,6 +280,7 @@ describe("useBillingBalanceStatus", () => {
     expect(result.current).toEqual({
       isExhausted: false,
       isLowBalance: false,
+      dailyLimitReached: false,
       balance: null,
       enabled: true,
     });
@@ -217,6 +318,7 @@ describe("useBillingBalanceStatus", () => {
     expect(result.current).toEqual({
       isExhausted: false,
       isLowBalance: false,
+      dailyLimitReached: false,
       balance: null,
       enabled: false,
     });
@@ -232,6 +334,7 @@ describe("useBillingBalanceStatus", () => {
     expect(result.current).toEqual({
       isExhausted: false,
       isLowBalance: false,
+      dailyLimitReached: false,
       balance: null,
       enabled: false,
     });

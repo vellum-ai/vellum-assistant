@@ -104,7 +104,7 @@ import {
   WEB_FOLDER_DROP_ERROR,
 } from "@/domains/chat/components/chat-attachments/handle-folder-drop";
 import { Button } from "@vellumai/design-library";
-import { Link, useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import {
   getChatBillingBannerDecision,
   isManagedCredentialChatError,
@@ -118,7 +118,6 @@ import type {
   DisplayAttachment,
   DisplayMessage,
 } from "@/domains/chat/types/types";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
 import type { UIContext } from "@/domains/chat/turn-selectors";
@@ -153,6 +152,8 @@ import { useConversationListQuery } from "@/hooks/conversation-queries";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { shouldMintNewChatDraft } from "@/domains/chat/utils/conversation-selection";
+import { isNativeMobile } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
 import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
@@ -351,7 +352,35 @@ export function ChatMainPanel({
   const messages = useTranscriptMessages();
   const error = useChatSessionStore.use.error();
   const notice = useChatSessionStore.use.notice();
-  const isLoadingHistory = useChatSessionStore.use.isLoadingHistory();
+  // A client-minted draft has no server row, so there is no history to wait
+  // for and no transcript skeleton to show. Derived during render rather than
+  // lowered from an effect: the store seeds `isLoadingHistory` true, so an
+  // effect would only clear it after the first commit had already painted the
+  // skeleton, which is the flash this is here to prevent.
+  //
+  // The cold-launch frame needs the same answer one step earlier. A native
+  // shell renders once with nothing selected, before the bootstrap effect
+  // mints the draft, so there is no id to look up yet. Asking the bootstrap's
+  // own predicate whether a draft is what it is about to select covers that
+  // frame, and keeps the two from drifting apart. Every other context (web,
+  // and a native deep link that names a conversation) answers false and keeps
+  // the skeleton, which is correct: those really are resolving which
+  // conversation to load, and the web path waits on the conversation list to
+  // do it.
+  const rawIsLoadingHistory = useChatSessionStore.use.isLoadingHistory();
+  const draftConversationIds = useConversationStore.use.draftConversationIds();
+  const { conversationId: urlConversationId } = useParams<{
+    conversationId: string;
+  }>();
+  const awaitingColdStartDraft = shouldMintNewChatDraft({
+    platformStartsInNewChat: isNativeMobile(),
+    urlConversationId: urlConversationId ?? null,
+    currentConversationId: activeConversationId,
+  });
+  const isLoadingHistory =
+    rawIsLoadingHistory &&
+    !awaitingColdStartDraft &&
+    !(activeConversationId && draftConversationIds.has(activeConversationId));
   const contextWindowUsage = useChatSessionStore.use.contextWindowUsage();
   const compactionCircuitOpenUntil =
     useChatSessionStore.use.compactionCircuitOpenUntil();
@@ -444,8 +473,8 @@ export function ChatMainPanel({
     void navigate(routes.settings.ai);
   }, [navigate]);
 
-  const pushToBillingSettings = useCallback(() => {
-    void navigate(routes.settings.usageBilling);
+  const pushToDailyLimitSettings = useCallback(() => {
+    void navigate(routes.settings.usageBillingDailyLimit);
   }, [navigate]);
 
   const checkAssistant = useCallback(
@@ -547,11 +576,6 @@ export function ChatMainPanel({
     () => void sendMessage("/clean"),
     [sendMessage],
   );
-
-  // -------------------------------------------------------------------------
-  // Feature flags
-  // -------------------------------------------------------------------------
-  const queueSteering = useAssistantFeatureFlagStore.use.queueSteering();
 
   // -------------------------------------------------------------------------
   // Draft secret detection: owns the composer warning's matches/dismissal
@@ -1118,7 +1142,6 @@ export function ChatMainPanel({
     onCancelAllQueued: handleCancelAllQueued,
     onSteerMessage: handleSteerMessage,
     onEditQueueTail: handleEditQueueTail,
-    queueSteering,
   });
 
   // -------------------------------------------------------------------------
@@ -1134,6 +1157,9 @@ export function ChatMainPanel({
     billingBannerDecision,
     isLowBalance: balanceStatus.isLowBalance,
     dismissed: lowBalanceBannerDismissed,
+    // State-driven, so the banner is already up when the user returns to an
+    // app whose daily cap was reached by background turns.
+    dailyLimitReached: balanceStatus.dailyLimitReached,
   });
 
   // -------------------------------------------------------------------------
@@ -1271,7 +1297,7 @@ export function ChatMainPanel({
             onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
             billingBannerSlot={
               composerBillingBanner === "daily_limit" ? (
-                <DailyLimitBanner onAdjustLimit={pushToBillingSettings} />
+                <DailyLimitBanner onAdjustLimit={pushToDailyLimitSettings} />
               ) : composerBillingBanner === "provider_billing" ? (
                 <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
               ) : composerBillingBanner === "low_balance" ? (

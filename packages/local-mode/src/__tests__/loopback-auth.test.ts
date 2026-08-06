@@ -3,7 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { headerHostIsLoopback, originIsAllowed } from "../util";
+import {
+  hasSameOriginCredentialProof,
+  headerHostIsLoopback,
+  originIsAllowed,
+} from "../util";
 import { isActiveAssistant } from "../lockfile";
 
 describe("headerHostIsLoopback", () => {
@@ -38,6 +42,47 @@ describe("originIsAllowed", () => {
 
   test("allows absent origin (non-browser clients)", () => {
     expect(originIsAllowed(undefined)).toBe(true);
+  });
+});
+
+describe("hasSameOriginCredentialProof", () => {
+  test("requires an Origin or explicit same-origin Fetch Metadata", () => {
+    expect(
+      hasSameOriginCredentialProof("127.0.0.1:3000", undefined, undefined),
+    ).toBe(false);
+    expect(
+      hasSameOriginCredentialProof("127.0.0.1:3000", undefined, "same-origin"),
+    ).toBe(true);
+    expect(
+      hasSameOriginCredentialProof(undefined, undefined, "same-origin"),
+    ).toBe(false);
+  });
+
+  test("accepts only the exact loopback HTTP origin named by Host", () => {
+    expect(
+      hasSameOriginCredentialProof(
+        "127.0.0.1:3000",
+        "http://127.0.0.1:3000",
+        undefined,
+      ),
+    ).toBe(true);
+    expect(
+      hasSameOriginCredentialProof(
+        "127.0.0.1:3000",
+        "http://127.0.0.1:9999",
+        undefined,
+      ),
+    ).toBe(false);
+  });
+
+  test("rejects conflicting Fetch Metadata", () => {
+    expect(
+      hasSameOriginCredentialProof(
+        "127.0.0.1:3000",
+        "http://127.0.0.1:3000",
+        "same-site",
+      ),
+    ).toBe(false);
   });
 });
 

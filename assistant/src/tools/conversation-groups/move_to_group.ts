@@ -93,9 +93,15 @@ export async function executeConversationMoveToGroup(
       `Moving into ${group.name} demotes it out of the Recents listing.`,
     );
   }
-  if (conversation.conversationType !== "standard") {
+  // Only Pinned and custom groups surface a hidden conversation. Recents is a
+  // removal target, and the Scheduled/Background groups are demotions, so
+  // claiming any of them made the conversation visible would misreport the
+  // outcome to the model and the user.
+  const surfacesConversation =
+    group.id === "system:pinned" || !group.id.startsWith("system:");
+  if (conversation.conversationType !== "standard" && surfacesConversation) {
     notes.push(
-      `Note: this is a ${conversation.conversationType} conversation, which stays hidden from the sidebar regardless of group.`,
+      `Note: this is a ${conversation.conversationType} conversation, so filing it here also surfaces it into the sidebar.`,
     );
   }
 

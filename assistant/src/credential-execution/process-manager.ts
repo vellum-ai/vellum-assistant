@@ -29,6 +29,8 @@ import {
 
 const log = getLogger("ces-process-manager");
 
+type PmLogger = ReturnType<typeof getLogger>;
+
 const SOCKET_CONNECT_TIMEOUT_MS = 5_000;
 
 // ---------------------------------------------------------------------------
@@ -57,6 +59,9 @@ export interface CesProcessManagerConfig {
    * Reserved for future feature-flag checks or config-driven behavior.
    */
   assistantConfig?: AssistantConfig;
+
+  /** Logger override. Defaults to the module logger; injected in tests. */
+  logger?: PmLogger;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,12 +104,13 @@ export interface CesProcessManager {
 // ---------------------------------------------------------------------------
 
 export function createCesProcessManager(
-  _config: CesProcessManagerConfig,
+  config: CesProcessManagerConfig,
 ): CesProcessManager {
+  const pmLog = config.logger ?? log;
   let managedSocket: Socket | null = null;
   let discoveryResult: DiscoveryResult | null = null;
   let running = false;
-  let currentTransport: CesTransport | null = null;
+  let currentTransport: SocketTransport | null = null;
   const transportCloseHandlers: Array<() => void> = [];
 
   return {
@@ -136,24 +142,28 @@ export function createCesProcessManager(
       }
 
       if (managedSocket) {
+        // Mark the close as intentional so the transport-death log is debug,
+        // not a misleading WARN, on routine shutdown/reconnect.
+        currentTransport?.markClosing();
         managedSocket.destroy();
         managedSocket = null;
       }
 
       currentTransport = null;
       running = false;
-      log.info("CES process manager stopped");
+      pmLog.info("CES process manager stopped");
     },
 
     async forceStop(): Promise<void> {
       if (managedSocket) {
+        currentTransport?.markClosing();
         managedSocket.destroy();
         managedSocket = null;
       }
 
       currentTransport = null;
       running = false;
-      log.info("CES process manager force-stopped");
+      pmLog.info("CES process manager force-stopped");
     },
 
     getDiscoveryResult(): DiscoveryResult | null {
@@ -195,8 +205,8 @@ export function createCesProcessManager(
 
   async function connectManagedSocket(
     discovery: ManagedDiscoverySuccess | SiblingDiscoverySuccess,
-  ): Promise<CesTransport> {
-    log.info(
+  ): Promise<SocketTransport> {
+    pmLog.info(
       { socketPath: discovery.socketPath, mode: discovery.mode },
       "Connecting to CES over socket",
     );
@@ -207,9 +217,14 @@ export function createCesProcessManager(
     );
     managedSocket = socket;
 
-    log.info("Connected to CES over socket");
+    pmLog.info("Connected to CES over socket");
 
-    return createSocketTransport(socket);
+    // Assign currentTransport synchronously here (no await between socket
+    // assignment and this line) so stop()/forceStop() can always mark an
+    // intentional close, even if they race the connect.
+    const transport = createSocketTransport(socket, pmLog);
+    currentTransport = transport;
+    return transport;
   }
 }
 
@@ -221,23 +236,43 @@ export function createCesProcessManager(
  * Tracks the transport `alive` state and notifies registered handlers exactly
  * once when the transport dies, so the RPC client can fail-fast any in-flight
  * calls instead of waiting out their timeouts.
+ *
+ * `markClosing()` records that an imminent close was initiated by us (shutdown,
+ * reconnect, handshake rejection). A close so marked logs at debug; an
+ * unmarked death (remote socket close, socket error) logs at WARN.
  */
-function createCloseNotifier(): {
+function createCloseNotifier(log: PmLogger): {
   isAlive: () => boolean;
-  markDead: () => void;
+  markClosing: () => void;
+  markDead: (reason?: string) => void;
   onClose: (handler: () => void) => void;
 } {
   let alive = true;
   let notified = false;
+  let intentional = false;
   const handlers: Array<() => void> = [];
   return {
     isAlive: () => alive,
-    markDead() {
+    markClosing() {
+      intentional = true;
+    },
+    markDead(reason?: string) {
       alive = false;
       if (notified) {
         return;
       }
       notified = true;
+      if (intentional) {
+        log.debug(
+          { reason: reason ?? "intentional" },
+          "CES socket transport closed",
+        );
+      } else {
+        log.warn(
+          { reason: reason ?? "unknown" },
+          "CES socket transport died unexpectedly; credential ops will fail over or reconnect",
+        );
+      }
       for (const handler of handlers) {
         try {
           handler();
@@ -256,10 +291,18 @@ function createCloseNotifier(): {
 // Socket transport (managed mode)
 // ---------------------------------------------------------------------------
 
-function createSocketTransport(socket: Socket): CesTransport {
+/**
+ * A CesTransport plus `markClosing()`, which the process manager calls before
+ * an intentional socket destroy so the ensuing close logs at debug, not WARN.
+ */
+interface SocketTransport extends CesTransport {
+  markClosing(): void;
+}
+
+function createSocketTransport(socket: Socket, log: PmLogger): SocketTransport {
   const messageHandlers: Array<(message: string) => void> = [];
   let buffer = "";
-  const death = createCloseNotifier();
+  const death = createCloseNotifier(log);
 
   const decoder = new StringDecoder("utf8");
 
@@ -278,12 +321,12 @@ function createSocketTransport(socket: Socket): CesTransport {
   });
 
   socket.on("close", () => {
-    death.markDead();
+    death.markDead("socket closed");
   });
 
   socket.on("error", (err) => {
     log.warn({ err }, "CES socket transport error");
-    death.markDead();
+    death.markDead("socket error");
   });
 
   return {
@@ -304,8 +347,11 @@ function createSocketTransport(socket: Socket): CesTransport {
 
     onClose: death.onClose,
 
+    markClosing: death.markClosing,
+
     close(): void {
-      death.markDead();
+      death.markClosing();
+      death.markDead("transport.close() called");
       socket.destroy();
     },
   };

@@ -16,6 +16,7 @@ import {
   lte,
   notInArray,
   or,
+  type SQL,
   sql,
 } from "drizzle-orm";
 import { v4 as uuid, v7 as uuidv7 } from "uuid";
@@ -70,11 +71,23 @@ import {
 } from "./conversation-disk-view.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
+import {
+  type LineageBound,
+  type LineageConversationRow,
+  lineageMessageFilter,
+  lineageMessagesAfterFilter,
+  type LineageSegment,
+  REFERENTIAL_FORK_STRATEGY,
+  resolveConversationLineage,
+} from "./conversation-lineage.js";
 import { deleteConversationRowsInBatches } from "./conversation-row-batch-delete.js";
 import {
   BACKGROUND_CONVERSATION_TYPES,
   type ConversationCreateType,
+  type ConversationOrigin,
   isHiddenMessageMetadata,
+  PINNED_GROUP_ID,
+  UNGROUPED_GROUP_ID,
 } from "./conversation-types.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
@@ -393,6 +406,7 @@ export {
   isBackgroundEventMetadata,
   isEchoSuppressedUserMessage,
   isHiddenMessageMetadata,
+  isSuppressedQueuedMessage,
   isVoiceSessionUserMessage,
 } from "./conversation-types.js";
 
@@ -585,6 +599,8 @@ export interface ConversationRow {
   originInterface: string | null;
   forkParentConversationId: string | null;
   forkParentMessageId: string | null;
+  /** `"reference"` on referential forks; `"cloning"` or null on copied ones. */
+  forkStrategy: string | null;
   isAutoTitle: number;
   scheduleJobId: string | null;
   lastMessageAt: number | null;
@@ -625,6 +641,7 @@ export const parseConversation = createRowMapper<
   originInterface: "originInterface",
   forkParentConversationId: "forkParentConversationId",
   forkParentMessageId: "forkParentMessageId",
+  forkStrategy: "forkStrategy",
   isAutoTitle: "isAutoTitle",
   scheduleJobId: "scheduleJobId",
   lastMessageAt: "lastMessageAt",
@@ -965,6 +982,17 @@ export function createConversation(
         source?: string;
         scheduleJobId?: string;
         groupId?: string;
+        /**
+         * Where this conversation came from. Stamped into
+         * `origin_channel` at insert, so the row is attributed from the
+         * moment it exists.
+         *
+         * Pass it whenever the origin is known. Omitting it leaves the
+         * column unset, and the conversation is instead attributed by
+         * `setConversationOriginChannelIfUnset` when its first inbound
+         * message arrives.
+         */
+        origin?: ConversationOrigin;
         forkParentConversationId?: string;
         /**
          * Id of the conversation that spawned this one (subagent spawns).
@@ -994,6 +1022,7 @@ export function createConversation(
     requestedConversationType ?? "standard";
   const source = opts.source ?? "user";
   const groupId = opts.groupId;
+  const originChannel = resolveConversationOrigin(opts.origin);
   // Time-ordered UUIDv7 for server-minted conversation ids (see message id).
   const id = opts.id ?? uuidv7();
 
@@ -1020,6 +1049,7 @@ export function createConversation(
     slackContextCompactionWatermarkAt: null as number | null,
     conversationType,
     source,
+    originChannel,
     scheduleJobId: opts.scheduleJobId ?? null,
     forkParentConversationId: opts.forkParentConversationId ?? null,
     parentConversationId: opts.parentConversationId ?? null,
@@ -1040,7 +1070,7 @@ export function createConversation(
   // write-contended paths wrap the call in `withSqliteRetry`, and because the
   // insert+update are atomic here, such a retry re-runs the whole thing cleanly
   // (a failed attempt rolls back, so no half-written row is ever left behind).
-  const effectiveGroupId = groupId ?? "system:all";
+  const effectiveGroupId = groupId ?? UNGROUPED_GROUP_ID;
   const raw = getSqliteFrom(db);
   raw.exec("SAVEPOINT create_conv");
   try {
@@ -1049,7 +1079,7 @@ export function createConversation(
       "conversation:create:setGroup",
       "UPDATE conversations SET group_id = ?, is_pinned = ? WHERE id = ?",
       effectiveGroupId,
-      effectiveGroupId === "system:pinned" ? 1 : 0,
+      effectiveGroupId === PINNED_GROUP_ID ? 1 : 0,
       id,
     );
     raw.exec("RELEASE create_conv");
@@ -1059,9 +1089,53 @@ export function createConversation(
     throw err;
   }
 
-  initConversationDir({ ...conversation, originChannel: null });
+  // The disk view records the same origin the row holds.
+  initConversationDir(conversation);
 
   return conversation;
+}
+
+/**
+ * Resolve a caller's {@link ConversationOrigin} to the string stored in
+ * `origin_channel`.
+ *
+ * `inheritFrom` reads the parent's value, which is how a fork, a subagent
+ * spawn, or a scheduled wake lands on the surface its parent belongs to.
+ *
+ * A parent whose own origin is unset yields an unset origin: the child
+ * inherits the parent's state faithfully, including "not yet attributed".
+ * Most rows are in exactly that state until they are claimed by a message or
+ * swept at startup, so treating it as an error would fail the majority of
+ * forks and subagent spawns.
+ *
+ * A parent that does not exist throws. That is not the same condition: it
+ * means a caller named a conversation that is not there, and guessing an
+ * origin for it would be a trust grant rather than a cosmetic default.
+ * `recoverRestingTrustContext` reads this column, and the native channel
+ * recovers `INTERNAL_GUARDIAN_TRUST_CONTEXT` on every later wake and
+ * boot-resume, so a fork of a remote conversation that silently defaulted
+ * would come back as the guardian's own. Parent ids here come from daemon
+ * internals rather than user input, so a missing one is a programming error.
+ *
+ * `undefined` maps to NULL, leaving the row for first-message attribution.
+ */
+function resolveConversationOrigin(
+  origin: ConversationOrigin | undefined,
+): string | null {
+  if (origin === undefined) {
+    return null;
+  }
+  if (typeof origin === "string") {
+    return origin;
+  }
+  const parent = getConversation(origin.inheritFrom);
+  if (!parent) {
+    throw new Error(
+      `Cannot inherit conversation origin from ${origin.inheritFrom}: ` +
+        "no such conversation",
+    );
+  }
+  return parent.originChannel;
 }
 
 /**
@@ -1093,7 +1167,10 @@ export const ADOPTABLE_CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
  * is validated first — a value like `../../tmp/x` would otherwise write
  * `meta.json` outside the conversations directory.
  */
-export function ensureConversationExists(id: string): boolean {
+export function ensureConversationExists(
+  id: string,
+  origin: ConversationOrigin | undefined,
+): boolean {
   if (getConversation(id)) {
     return false;
   }
@@ -1103,7 +1180,7 @@ export function ensureConversationExists(id: string): boolean {
     );
   }
   try {
-    createConversation({ id });
+    createConversation({ id, origin });
     return true;
   } catch (err) {
     // A concurrent caller may have created the row between the check and the
@@ -1725,9 +1802,26 @@ export async function forkConversationForRetrospective(params: {
   const hiddenRowIds = new Set(
     loadOrderIds.slice(0, inheritedCompaction?.compactedMessageCount ?? 0),
   );
-  const rowsToCopy = messagesToCopy.filter(
-    (message) => !hiddenRowIds.has(message.id),
-  );
+  // Read straight from config rather than taking a caller-supplied strategy:
+  // how a fork is materialized is a workspace-wide storage decision, and a
+  // per-call override would let two callers disagree about it on the same
+  // workspace.
+  const isReferential =
+    getConfig().memory.retrospective.forkStrategy === "reference";
+  // A referential fork copies nothing: its inherited window is read back
+  // through `forkParentMessageId` by the lineage resolver.
+  const rowsToCopy = isReferential
+    ? []
+    : messagesToCopy.filter((message) => !hiddenRowIds.has(message.id));
+  // The compacted prefix is dropped from a copied fork, so its own row count
+  // behind the boundary is 0. A referential fork reads the source's rows
+  // through the fork point, prefix included, so it must carry the source's
+  // own count for the render to hide the same rows the source hides. Getting
+  // this wrong does not lose data, it re-shows compacted history the summary
+  // already covers.
+  const forkCompactedMessageCount = isReferential
+    ? (inheritedCompaction?.compactedMessageCount ?? 0)
+    : 0;
   const forkParentMessageId = messagesToCopy.at(-1)?.id ?? null;
   const forkTitle =
     params.title ?? `${sourceConversation.title ?? "Untitled"} (Fork)`;
@@ -1768,11 +1862,12 @@ export async function forkConversationForRetrospective(params: {
             // value from the copied rows when the tail is non-empty.
             lastMessageAt: boundaryMessageCreatedAt,
             contextSummary: inheritedCompaction?.summary ?? null,
-            // Zero of the fork's own rows sit behind the boundary (the
-            // compacted prefix is not copied). The summary still renders:
-            // the history render keys on `contextSummary` presence, not on
-            // this count.
-            contextCompactedMessageCount: 0,
+            // On a copied fork zero of its own rows sit behind the boundary
+            // (the compacted prefix is not copied). The summary still
+            // renders: the history render keys on `contextSummary` presence,
+            // not on this count.
+            contextCompactedMessageCount: forkCompactedMessageCount,
+            forkStrategy: isReferential ? REFERENTIAL_FORK_STRATEGY : null,
             contextCompactedAt: inheritedCompaction?.compactedAt ?? null,
             slackContextCompactionWatermarkTs: inheritsLatestCompaction
               ? sourceConversation.slackContextCompactionWatermarkTs
@@ -1797,15 +1892,20 @@ export async function forkConversationForRetrospective(params: {
 
   try {
     // Phase 2 (off the event loop): copy the message rows in a sqlite3
-    // subprocess so the daemon stays responsive during the heavy copy.
-    const copy = await copyForkMessagesViaSubprocess({
-      forkConversationId: fork.id,
-      idPairs,
-    });
-    if (!copy.ok) {
-      throw new Error(
-        `fork message copy failed (${copy.backend}): ${copy.error ?? "unknown"}`,
-      );
+    // subprocess so the daemon stays responsive during the heavy copy. The
+    // referential fork has no rows to copy, which is the whole point of it:
+    // the write burst this phase exists to keep off the event loop does not
+    // happen at all.
+    if (!isReferential) {
+      const copy = await copyForkMessagesViaSubprocess({
+        forkConversationId: fork.id,
+        idPairs,
+      });
+      if (!copy.ok) {
+        throw new Error(
+          `fork message copy failed (${copy.backend}): ${copy.error ?? "unknown"}`,
+        );
+      }
     }
 
     // Phase 3 (in-process): attachments + memory-state seeding, reusing the
@@ -1837,7 +1937,7 @@ export async function forkConversationForRetrospective(params: {
               isFullHistoryFork:
                 copyBoundaryIndex === sourceMessages.length - 1,
               // The copied range already starts at the visible window.
-              inheritedCompactedMessageCount: 0,
+              inheritedCompactedMessageCount: forkCompactedMessageCount,
               skipCompactionLedgerCopy: inheritedCompaction != null,
             });
             // The fork owns none of the source's ledger events — their
@@ -1855,7 +1955,7 @@ export async function forkConversationForRetrospective(params: {
               appendCompactionEvent(fork.id, {
                 compactedAt: inheritedCompaction.compactedAt,
                 summary: inheritedCompaction.summary,
-                compactedMessageCount: 0,
+                compactedMessageCount: forkCompactedMessageCount,
               });
             }
           },
@@ -1886,12 +1986,58 @@ export async function forkConversationForRetrospective(params: {
  * artifacts (embeddings). Returns segment IDs so callers can clean up
  * the corresponding Qdrant vector entries.
  */
+/**
+ * Ids of the referential forks whose inherited history lives on this
+ * conversation. Deleting it would strip those forks of every message before
+ * their fork point, so the delete is refused while any exist.
+ */
+export function listReferentialForkChildren(conversationId: string): string[] {
+  return getDb()
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.forkParentConversationId, conversationId),
+        eq(conversations.forkStrategy, REFERENTIAL_FORK_STRATEGY),
+      ),
+    )
+    .all()
+    .map((row) => row.id);
+}
+
+/**
+ * Refuse to delete a conversation that referential forks read their history
+ * from. Shared by both delete paths: `deleteConversation` and the off-loop
+ * `deleteConversationGently` are separate implementations of the same
+ * operation, so an invariant living in only one of them is enforced only for
+ * whichever callers happen to pick that one.
+ *
+ * Blocking rather than cascading or copying on delete. A referential fork
+ * reads its prefix from this conversation, so deleting it silently truncates
+ * every child; cascading would instead delete conversations the caller never
+ * named. Refusing keeps the destructive choice with the caller, and costs one
+ * indexed lookup on a path already doing far more work.
+ */
+function assertNoReferentialForkChildren(id: string): void {
+  const children = listReferentialForkChildren(id);
+  if (children.length === 0) {
+    return;
+  }
+  throw new UserError(
+    `Conversation ${id} cannot be deleted while ${children.length} ` +
+      `referential fork(s) read their history from it: ` +
+      `${children.join(", ")}. Delete those first.`,
+  );
+}
+
 export function deleteConversation(id: string): DeletedMemoryIds {
   const db = getDb();
   const result: DeletedMemoryIds = {
     segmentIds: [],
     deletedSummaryIds: [],
   };
+
+  assertNoReferentialForkChildren(id);
 
   // Capture createdAt before the transaction deletes the row — needed to
   // resolve the conversation's disk-view directory path after deletion.
@@ -2002,6 +2148,8 @@ export async function deleteConversationGently(
     segmentIds: [],
     deletedSummaryIds: [],
   };
+
+  assertNoReferentialForkChildren(id);
 
   // Capture createdAt before deletion — needed to resolve the conversation's
   // disk-view directory path afterwards.
@@ -2222,18 +2370,73 @@ export async function addMessage(
   return message;
 }
 
+/**
+ * Load only the columns the lineage walk reads. A conversation-row primary-key
+ * lookup per message read is the cost of referential forks; selecting four
+ * columns instead of the full row keeps it to an index hit.
+ */
+function loadLineageRow(id: string): LineageConversationRow | null {
+  const row = getDb()
+    .select({
+      id: conversations.id,
+      forkStrategy: conversations.forkStrategy,
+      forkParentConversationId: conversations.forkParentConversationId,
+      forkParentMessageId: conversations.forkParentMessageId,
+    })
+    .from(conversations)
+    .where(eq(conversations.id, id))
+    .get();
+  return row ?? null;
+}
+
+/** The `(createdAt, id)` bound of a single message, or null when it is gone. */
+function loadMessageBound(messageId: string): LineageBound | null {
+  const row = getDb()
+    .select({ createdAt: messages.createdAt, id: messages.id })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .get();
+  return row ?? null;
+}
+
+/**
+ * The segments making up a conversation's logical message set. Non-forks and
+ * copied forks resolve to a single unbounded segment after one row lookup, so
+ * the referential path costs them nothing beyond that lookup.
+ */
+function resolveLineage(conversationId: string): LineageSegment[] {
+  return resolveConversationLineage(conversationId, {
+    loadConversation: loadLineageRow,
+    loadMessageBound,
+  });
+}
+
+/** `messages` predicate covering every row a conversation logically owns. */
+function lineageFilter(conversationId: string): SQL {
+  return lineageMessageFilter(resolveLineage(conversationId));
+}
+
 export function getMessages(conversationId: string): MessageRow[] {
   const db = getDb();
   // Synchronous read of every row for the conversation — the dominant
   // per-turn main-thread cost on large conversations. Timed so a freeze the
   // event-loop watchdog detects can be attributed here (see slow-sync-log).
+  //
+  // Ordered by `createdAt` ALONE. Rows sharing a millisecond fall back to
+  // SQLite's rowid order, which is insertion order, and callers depend on
+  // that: the compaction render slices a row count off the front of this
+  // exact order, and a fork's copied prefix must match the order the source
+  // renders. Adding an `id` tiebreak here reorders same-millisecond rows and
+  // silently shifts that boundary. A lineage read inherits the same rule, and
+  // an ancestor's rows sort ahead of the fork's own on a tie because they were
+  // inserted first.
   return timeSyncSection(
     "conversation-crud:get-messages",
     () =>
       db
         .select()
         .from(messages)
-        .where(eq(messages.conversationId, conversationId))
+        .where(lineageFilter(conversationId))
         .orderBy(asc(messages.createdAt))
         .all()
         .map(parseMessage),
@@ -2266,7 +2469,7 @@ export function selectSlackMetaCandidateMetadata(
     .from(messages)
     .where(
       and(
-        eq(messages.conversationId, conversationId),
+        lineageFilter(conversationId),
         opts?.includeFlatLegacy
           ? or(
               like(messages.metadata, '%"slackMeta"%'),
@@ -2304,19 +2507,16 @@ export function countMessagesAfter(
   afterMessageId: string | null,
 ): number {
   const db = getDb();
+  const segments = resolveLineage(conversationId);
   if (afterMessageId === null || afterMessageId === "") {
     const row = db
       .select({ c: count() })
       .from(messages)
-      .where(eq(messages.conversationId, conversationId))
+      .where(lineageMessageFilter(segments))
       .get();
     return row?.c ?? 0;
   }
-  const ref = db
-    .select({ createdAt: messages.createdAt })
-    .from(messages)
-    .where(eq(messages.id, afterMessageId))
-    .get();
+  const ref = loadMessageBound(afterMessageId);
   if (!ref) {
     return 0;
   }
@@ -2327,18 +2527,7 @@ export function countMessagesAfter(
   const row = db
     .select({ c: count() })
     .from(messages)
-    .where(
-      and(
-        eq(messages.conversationId, conversationId),
-        or(
-          gt(messages.createdAt, ref.createdAt),
-          and(
-            eq(messages.createdAt, ref.createdAt),
-            gt(messages.id, afterMessageId),
-          ),
-        ),
-      ),
-    )
+    .where(lineageMessagesAfterFilter(segments, ref))
     .get();
   return row?.c ?? 0;
 }
@@ -2355,6 +2544,7 @@ export function getMessagesAfter(
   afterMessageId: string | null,
 ): MessageRow[] {
   const db = getDb();
+  const segments = resolveLineage(conversationId);
   if (afterMessageId === null || afterMessageId === "") {
     // Secondary `asc(messages.id)` matches the non-null path's cursor
     // ordering, so callers tracking `cutoffMessageId` across runs see a
@@ -2362,16 +2552,12 @@ export function getMessagesAfter(
     return db
       .select()
       .from(messages)
-      .where(eq(messages.conversationId, conversationId))
+      .where(lineageMessageFilter(segments))
       .orderBy(asc(messages.createdAt), asc(messages.id))
       .all()
       .map(parseMessage);
   }
-  const ref = db
-    .select({ createdAt: messages.createdAt })
-    .from(messages)
-    .where(eq(messages.id, afterMessageId))
-    .get();
+  const ref = loadMessageBound(afterMessageId);
   if (!ref) {
     return [];
   }
@@ -2380,18 +2566,7 @@ export function getMessagesAfter(
   return db
     .select()
     .from(messages)
-    .where(
-      and(
-        eq(messages.conversationId, conversationId),
-        or(
-          gt(messages.createdAt, ref.createdAt),
-          and(
-            eq(messages.createdAt, ref.createdAt),
-            gt(messages.id, afterMessageId),
-          ),
-        ),
-      ),
-    )
+    .where(lineageMessagesAfterFilter(segments, ref))
     .orderBy(asc(messages.createdAt), asc(messages.id))
     .all()
     .map(parseMessage);
@@ -2407,7 +2582,7 @@ export function hasMessages(conversationId: string): boolean {
   const row = db
     .select({ one: sql`1` })
     .from(messages)
-    .where(eq(messages.conversationId, conversationId))
+    .where(lineageFilter(conversationId))
     .limit(1)
     .get();
   return row !== undefined;
@@ -2448,8 +2623,10 @@ export function getMessagesPaginated(
 ): PaginatedMessagesResult {
   const db = getDb();
 
+  const segments = resolveLineage(conversationId);
+
   if (limit === undefined) {
-    const conditions = [eq(messages.conversationId, conversationId)];
+    const conditions = [lineageMessageFilter(segments)];
     if (beforeTimestamp !== undefined) {
       conditions.push(lt(messages.createdAt, beforeTimestamp));
     }
@@ -2509,7 +2686,7 @@ export function getMessagesPaginated(
     const chunk = db
       .select()
       .from(messages)
-      .where(and(eq(messages.conversationId, conversationId), cursorPredicate))
+      .where(and(lineageMessageFilter(segments), cursorPredicate))
       .orderBy(desc(messages.createdAt), desc(messages.id))
       .limit(chunkSize)
       .all()
@@ -3251,6 +3428,50 @@ export function getConversationOverrideProfile(
   conversationId: string,
 ): string | undefined {
   return resolveOverrideProfile(getConversation(conversationId));
+}
+
+/**
+ * The conversation fields needed to tell a durable inference-profile pin from
+ * a session-backed one. Extends {@link OverrideProfileFields} with the session
+ * marker, so callers can decide from a {@link ConversationRow} or a live
+ * in-memory `Conversation` without a redundant row fetch.
+ */
+export interface DurableProfileFields extends OverrideProfileFields {
+  inferenceProfileSessionId?: string | null;
+}
+
+/**
+ * Resolve a conversation's inference-profile pin only when the user set it to
+ * stick, ignoring a TTL-limited profile session.
+ *
+ * {@link resolveOverrideProfile} is read at use time, so a lapsed session
+ * simply reads as absent on the next turn. Anything that copies a pin into a
+ * record outliving that read (a schedule row that fires days later) needs the
+ * stricter question: a copied session would keep billing the model the user
+ * picked for ten minutes long after the session ended.
+ *
+ * A session-backed pin carries a non-null `inferenceProfileSessionId`;
+ * {@link setConversationInferenceProfile}, the sticky setter, clears those
+ * columns. So a null session id is exactly the durable case.
+ */
+export function resolveDurableProfile(
+  fields: DurableProfileFields | null,
+): string | undefined {
+  if (fields?.inferenceProfileSessionId != null) {
+    return undefined;
+  }
+  return resolveOverrideProfile(fields);
+}
+
+/**
+ * Resolve a conversation's durable inference-profile pin by id. Convenience
+ * wrapper over {@link resolveDurableProfile} for callers that don't already
+ * hold the row.
+ */
+export function getConversationDurableProfile(
+  conversationId: string,
+): string | undefined {
+  return resolveDurableProfile(getConversation(conversationId));
 }
 
 export function setLastNotifiedInferenceProfile(
@@ -4031,7 +4252,7 @@ export function batchSetDisplayOrders(
         // the entire batch.
         let safeGroupId = update.groupId;
         if (safeGroupId === null) {
-          safeGroupId = "system:all";
+          safeGroupId = UNGROUPED_GROUP_ID;
         } else if (
           !rawGet<{ id: string }>(
             "conversation:batchSetDisplayOrders:groupCheck",
@@ -4039,7 +4260,7 @@ export function batchSetDisplayOrders(
             safeGroupId,
           )
         ) {
-          safeGroupId = "system:all";
+          safeGroupId = UNGROUPED_GROUP_ID;
         }
         // Moving a conversation into the Scheduled/Background system groups
         // is an explicit demotion out of Recents, so clear any `surfaced_at`
@@ -4049,15 +4270,49 @@ export function batchSetDisplayOrders(
         const clearsSurfaced =
           safeGroupId === "system:background" ||
           safeGroupId === "system:scheduled";
+        // Filing a conversation into a section the user reads (Pinned or one
+        // of their own groups) is the mirror image: an explicit promotion, so
+        // it stamps `surfaced_at` the way the surface API does.
+        //
+        // The stamp is what makes the promotion durable. Visibility must not
+        // depend on where the row currently sits, or removing it from a group
+        // would hide it instead of returning it to Recents, and pinning would
+        // not show it at all: `system:pinned` fails the custom-group arm of
+        // `standardListingVisibilitySql` on that arm's `system:` prefix check.
+        //
+        // Only background and scheduled rows need it: everything else is
+        // already visible, and stamping them would leave `surfaced_at`
+        // meaning nothing. `COALESCE` keeps the original promotion time when
+        // the row is re-filed later.
+        const promotes =
+          !clearsSurfaced &&
+          safeGroupId !== UNGROUPED_GROUP_ID &&
+          (safeGroupId === PINNED_GROUP_ID ||
+            !safeGroupId.startsWith("system:"));
+        const setClauses = [
+          "display_order = ?",
+          "is_pinned = ?",
+          "group_id = ?",
+        ];
+        const params: Array<string | number | null> = [
+          update.displayOrder,
+          safeGroupId === PINNED_GROUP_ID ? 1 : 0,
+          safeGroupId,
+        ];
+        if (clearsSurfaced) {
+          setClauses.push("surfaced_at = NULL");
+        } else if (promotes) {
+          setClauses.push(
+            "surfaced_at = CASE WHEN conversation_type IN ('background', 'scheduled')" +
+              " THEN COALESCE(surfaced_at, ?) ELSE surfaced_at END",
+          );
+          params.push(Date.now());
+        }
+        params.push(update.id);
         rawRun(
           "conversation:batchSetDisplayOrders:group",
-          `UPDATE conversations SET display_order = ?, is_pinned = ?, group_id = ?${
-            clearsSurfaced ? ", surfaced_at = NULL" : ""
-          } WHERE id = ?`,
-          update.displayOrder,
-          safeGroupId === "system:pinned" ? 1 : 0,
-          safeGroupId,
-          update.id,
+          `UPDATE conversations SET ${setClauses.join(", ")} WHERE id = ?`,
+          ...params,
         );
       } else if (update.isPinned === undefined) {
         // Only displayOrder provided — preserve existing pin state and group.

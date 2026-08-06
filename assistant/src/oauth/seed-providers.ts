@@ -726,7 +726,15 @@ export const PROVIDER_SEED_DATA: Record<
     ],
     availableScopes:
       "https://learn.microsoft.com/en-us/graph/permissions-reference",
-    authorizeParams: { prompt: "consent" },
+    // `select_account`, not `consent`: the Microsoft identity platform accepts
+    // a single prompt value, and `consent` honours an existing session cookie —
+    // it re-asks for consent but never for *which* account, so a user who
+    // already signed in cannot connect a second mailbox. `select_account`
+    // always shows the account picker with its "Use another account" option.
+    // Consent is still collected for an account that has not granted it, and
+    // refresh tokens come from the `offline_access` scope above, so nothing is
+    // lost by dropping `consent`.
+    authorizeParams: { prompt: "select_account" },
     tokenEndpointAuthMethod: "client_secret_post",
     loopbackPort: 17334,
     managedServiceConfigKey: "outlook-oauth",

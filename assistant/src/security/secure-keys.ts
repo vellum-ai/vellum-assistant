@@ -50,7 +50,10 @@ import type {
   CredentialListResult,
   DeleteResult,
 } from "./credential-backend.js";
-import { createEncryptedStoreBackend } from "./credential-backend.js";
+import {
+  createEncryptedStoreBackend,
+  createUnavailableBackend,
+} from "./credential-backend.js";
 import { credentialKey } from "./credential-key.js";
 
 export type {
@@ -148,6 +151,10 @@ export function setCesClient(client: CesClient | undefined): void {
   _resolvedBackend = undefined;
   _resolvePromise = undefined;
   _cesHttpUnreachable = false;
+  log.info(
+    { hasClient: !!client },
+    "CES client updated; resetting resolved credential backend cache",
+  );
   _cesClientListener?.(client);
 }
 
@@ -239,6 +246,21 @@ async function resolveBackendAsync(
         return _resolvedBackend;
       }
     } else if (
+      _resolvedBackend.name === "encrypted-store" &&
+      _cesClient?.isReady()
+    ) {
+      // A CES client became ready after we fell back to the encrypted store
+      // (e.g. a worker/CLI whose handshake completed post-fallback, or a
+      // client injected before its handshake finished). No reconnect callback
+      // is needed, since the live client already exists. Drop the fallback and
+      // re-resolve so the CES RPC path wins.
+      log.info(
+        "CES client is ready; upgrading credential backend from encrypted store to CES RPC",
+      );
+      _resolvedBackend = undefined;
+      _resolvePromise = undefined;
+      // Fall through to re-resolve.
+    } else if (
       _cesReconnect &&
       (_resolvedBackend.name === "encrypted-store" ||
         (_resolvedBackend.name === "ces-http" && _cesHttpUnreachable))
@@ -264,7 +286,16 @@ async function resolveBackendAsync(
     }
   }
   if (!_resolvePromise) {
-    _resolvePromise = doResolveBackend();
+    _resolvePromise = doResolveBackend().then((backend) => {
+      // The containerized guard returns an unreachable backend without caching
+      // it (`_resolvedBackend` stays unset). Clear the memoized promise so the
+      // next credential op re-attempts CES rather than pinning the unreachable
+      // result to a pod whose CES may since have come up.
+      if (backend.name === "unavailable") {
+        _resolvePromise = undefined;
+      }
+      return backend;
+    });
   }
   return _resolvePromise;
 }
@@ -456,10 +487,11 @@ async function doResolveBackend(): Promise<CredentialBackend> {
     const cesRpc = new CesRpcCredentialBackend(_cesClient);
     if (cesRpc.isAvailable()) {
       _resolvedBackend = cesRpc;
+      log.info("Resolved credential backend: ces-rpc");
       return cesRpc;
     }
     log.warn(
-      "CES RPC client is set but not ready — falling back to local credential store",
+      "CES RPC client is set but not ready; trying the next credential backend",
     );
   }
 
@@ -468,11 +500,12 @@ async function doResolveBackend(): Promise<CredentialBackend> {
     const ces = createCesCredentialBackend();
     if (ces.isAvailable()) {
       _resolvedBackend = ces;
+      log.info("Resolved credential backend: ces-http");
       return ces;
     }
     log.warn(
-      "CES_CREDENTIAL_URL is set but CES backend is not available — " +
-        "falling back to local credential store",
+      "CES_CREDENTIAL_URL is set but CES backend is not available; " +
+        "trying the next credential backend",
     );
   }
 
@@ -488,14 +521,29 @@ async function doResolveBackend(): Promise<CredentialBackend> {
       const cesRpc = new CesRpcCredentialBackend(lazyClient);
       if (cesRpc.isAvailable()) {
         _resolvedBackend = cesRpc;
+        log.info("Resolved credential backend: ces-rpc (lazy connect)");
         return cesRpc;
       }
     }
-    // Lazy connect failed — fall through to encrypted file store.
+    // Lazy connect failed; fall through.
   }
 
-  // 3. Encrypted file store — fallback when CES is unavailable
+  // 3. On a containerized pod the local encrypted store does not exist and CES
+  //    owns credentials. Never resolve to the encrypted store here; it would
+  //    report a provisioned credential as absent. Return an unreachable backend
+  //    (presence indeterminate, which callers retry) WITHOUT caching it, so the
+  //    next credential op re-attempts CES rather than pinning the dead answer.
+  if (getIsContainerized()) {
+    log.error(
+      "No CES credential backend is ready on a containerized pod; reporting credentials as unreachable (indeterminate). The local encrypted store is not used in managed mode.",
+    );
+    return createUnavailableBackend();
+  }
+
+  // 4. Encrypted file store: the legitimate backend for local / self-hosted
+  //    mode when CES is unavailable.
   _resolvedBackend = getEncryptedStoreBackend();
+  log.info("Resolved credential backend: encrypted-store (local mode)");
   return _resolvedBackend;
 }
 

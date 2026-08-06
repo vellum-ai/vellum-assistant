@@ -10,13 +10,15 @@ import {
   isLoopbackAddr,
   headerHostIsLoopback,
   originIsAllowed,
+  hasSameOriginCredentialProof,
   connectImport,
   getLockfileData,
   getLocalAssistantStatus,
-  upsertLockfileAssistant,
+  upsertRendererLockfileAssistant,
   replacePlatformAssistants,
   isActiveAssistant,
   isPairedLockfileEntry,
+  PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
   runHatch,
   runRetire,
   runSleep,
@@ -24,11 +26,12 @@ import {
   runWake,
   unpairAssistant,
   getGuardianAccessToken,
+  getPairedGuardianAccessToken,
   resolveGatewayProxyTarget,
   resolvePairedGatewayProxyTarget,
   readAllowedGatewayPorts,
   readPairedGatewayTargets,
-  sanitizePairedForwardHeaders,
+  authorizePairedForwardHeaders,
   type CliInvocation,
 } from "@vellumai/local-mode";
 
@@ -49,20 +52,20 @@ export function getDevPlatformToken(): string | null {
 }
 
 /**
- * Whether a proxied request is same-origin SPA traffic that may carry the
- * platform credential. A cross-site page must not be able to use the dev proxy
- * as a confused deputy. Mirrors the Bun server's check.
+ * Whether a proxied request is same-origin SPA traffic that may carry a
+ * host-owned credential. A cross-origin page must not be able to use the dev
+ * proxy as a confused deputy. Mirrors the Bun server's check.
  */
 export function isSameOriginProxyRequest(req: http.IncomingMessage): boolean {
+  const host = Array.isArray(req.headers.host)
+    ? req.headers.host[0]
+    : req.headers.host;
   const origin = Array.isArray(req.headers.origin)
     ? req.headers.origin[0]
     : req.headers.origin;
-  if (!originIsAllowed(origin)) {
-    return false;
-  }
   const site = req.headers["sec-fetch-site"];
   const siteValue = Array.isArray(site) ? site[0] : site;
-  return !siteValue || siteValue === "same-origin" || siteValue === "none";
+  return hasSameOriginCredentialProof(host, origin, siteValue);
 }
 
 export function localModePlugin(env: Record<string, string>): Plugin {
@@ -119,7 +122,14 @@ export function localModePlugin(env: Record<string, string>): Plugin {
         ),
       );
       server.middlewares.use(gatewayProxyMiddleware(config.lockfilePaths));
-      server.middlewares.use(pairedGatewayProxyMiddleware(config.lockfilePaths));
+      server.middlewares.use(
+        pairedGatewayProxyMiddleware(
+          config.lockfilePaths,
+          config.configDir,
+          baseDir,
+          env,
+        ),
+      );
       server.middlewares.use(accountSpaFallback(server));
     },
   };
@@ -340,7 +350,7 @@ function lockfileMiddleware(
             body.organizationId as string | undefined,
           );
         } else {
-          result = upsertLockfileAssistant(
+          result = upsertRendererLockfileAssistant(
             lockfilePaths,
             body.assistant as Record<string, unknown>,
             body.activeAssistant as string | undefined,
@@ -871,6 +881,13 @@ function guardianTokenMiddleware(
 
     const assistantId = decodeURIComponent(match[1]!);
 
+    if (isPairedLockfileEntry(lockfilePaths, assistantId)) {
+      res.statusCode = 403;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR }));
+      return;
+    }
+
     let invocation: CliInvocation;
     try {
       invocation = resolveDevCliInvocation(baseDir, import.meta.url);
@@ -886,19 +903,17 @@ function guardianTokenMiddleware(
     }
 
     getGuardianAccessToken(assistantId, configDir, invocation, true, env, {
-      paired: isPairedLockfileEntry(lockfilePaths, assistantId),
-    }).then(
-      (result) => {
-        if (result.ok) {
-          res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ accessToken: result.accessToken }));
-        } else {
-          res.statusCode = result.status;
-          res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ error: result.error }));
-        }
-      },
-    );
+      paired: false,
+    }).then((result) => {
+      if (result.ok) {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ accessToken: result.accessToken }));
+      } else {
+        res.statusCode = result.status;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: result.error }));
+      }
+    });
   };
 }
 
@@ -949,12 +964,14 @@ function gatewayProxyMiddleware(
 // Paired-gateway data plane (`/__gateway-paired/{assistantId}/*`): same
 // posture as the loopback gateway proxy above, but the target is the remote
 // gateway an imported pairing recorded as its `runtimeUrl`. The lockfile's
-// paired entries are the allowlist. Browser-ambient headers (`Origin`,
-// `Referer`, `Cookie`, `Sec-Fetch-*`) are stripped on this server-to-server
-// hop via the shared sanitizer; the guardian `Authorization` bearer passes
-// through untouched for the remote gateway to validate.
+// paired entries are the allowlist. Renderer authorization and browser-ambient
+// headers are stripped on this server-to-server hop. The dev-server host reads
+// the paired guardian bearer from disk and installs it after sanitization.
 function pairedGatewayProxyMiddleware(
   lockfilePaths: string[],
+  configDir: string,
+  baseDir: string,
+  env: Record<string, string>,
 ): Connect.NextHandleFunction {
   return (req, res, next) => {
     const decision = resolvePairedGatewayProxyTarget(req.url ?? "", () =>
@@ -974,6 +991,21 @@ function pairedGatewayProxyMiddleware(
       return;
     }
 
+    if (!isSameOriginProxyRequest(req)) {
+      res.statusCode = 403;
+      res.end("Forbidden");
+      return;
+    }
+
+    let invocation: CliInvocation;
+    try {
+      invocation = resolveDevCliInvocation(baseDir, import.meta.url);
+    } catch (err) {
+      res.statusCode = 500;
+      res.end(err instanceof Error ? err.message : String(err));
+      return;
+    }
+
     const target = new URL(decision.url);
     const headers = new Headers();
     for (const [name, value] of Object.entries(req.headers)) {
@@ -988,22 +1020,41 @@ function pairedGatewayProxyMiddleware(
         headers.set(name, value);
       }
     }
-    sanitizePairedForwardHeaders(headers);
-    headers.set("host", target.host);
-    pipeGatewayProxy(
-      req,
-      res,
-      target.protocol === "https:" ? https : http,
-      {
-        protocol: target.protocol,
-        hostname: target.hostname,
-        port: target.port || undefined,
-        path: target.pathname + target.search,
-        method: req.method,
-        headers: Object.fromEntries(headers.entries()),
-      },
-      "Paired gateway proxy error",
-    );
+    void authorizePairedForwardHeaders(
+      decision.assistantId,
+      decision.runtimeUrl,
+      headers,
+      (assistantId, runtimeUrl) =>
+        getPairedGuardianAccessToken(
+          assistantId,
+          runtimeUrl,
+          configDir,
+          invocation,
+          true,
+          env,
+        ),
+    ).then((result) => {
+      if (!result.ok) {
+        res.statusCode = result.status;
+        res.end(result.error);
+        return;
+      }
+      headers.set("host", target.host);
+      pipeGatewayProxy(
+        req,
+        res,
+        target.protocol === "https:" ? https : http,
+        {
+          protocol: target.protocol,
+          hostname: target.hostname,
+          port: target.port || undefined,
+          path: target.pathname + target.search,
+          method: req.method,
+          headers: Object.fromEntries(headers.entries()),
+        },
+        "Paired gateway proxy error",
+      );
+    });
   };
 }
 

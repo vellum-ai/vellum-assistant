@@ -19,6 +19,7 @@ import {
   ensureConversationExists,
   getConversation,
 } from "../persistence/conversation-crud.js";
+import type { ConversationOrigin } from "../persistence/conversation-types.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import {
   mainAgentResolutionError,
@@ -50,6 +51,37 @@ import { buildTransportHints } from "./transport-hints.js";
 // ── Per-conversation persistent options ────────────────────────────
 
 const conversationOptions = new Map<string, ConversationCreateOptions>();
+
+/**
+ * The channel a conversation created here belongs to.
+ *
+ * A trust context is stamped per inbound message from the gateway verdict,
+ * so `sourceChannel` names the channel the message creating this
+ * conversation actually arrived on. This is the moment that fact is known,
+ * and the caller is the only party that holds it.
+ *
+ * Returns `undefined` when there is no trust context, which does NOT mean
+ * native. `handleSendMessage` materializes a conversation before the route
+ * resolves trust, so a Slack or phone send reaches here with no
+ * `sourceChannel` yet. Assuming native there would stamp a remote
+ * conversation as the guardian's own, and nothing could repair it:
+ * `setConversationOriginChannelIfUnset` only writes over NULL, and
+ * `recoverRestingTrustContext` grants INTERNAL_GUARDIAN_TRUST_CONTEXT to the
+ * native channel on every later wake and boot-resume.
+ *
+ * `transport.channelId` is not a substitute. It is the external Slack
+ * conversation id, not a {@link ChannelId}.
+ *
+ * So this states the origin only where it is genuinely known, and leaves the
+ * rest to attribution exactly as before. The remaining callers get their
+ * origin when they are migrated with real knowledge of it, not by guessing
+ * here.
+ */
+function originFromStoredOptions(
+  storedOptions: ConversationCreateOptions | undefined,
+): ConversationOrigin | undefined {
+  return storedOptions?.trustContext?.sourceChannel;
+}
 
 /**
  * Drops the transport fields that describe what the client had on screen for a
@@ -229,9 +261,13 @@ export async function getOrCreateConversation(
           createConversation({
             id: conversationId,
             conversationType: storedOptions.conversationType,
+            origin: originFromStoredOptions(storedOptions),
           });
         } else {
-          ensureConversationExists(conversationId);
+          ensureConversationExists(
+            conversationId,
+            originFromStoredOptions(storedOptions),
+          );
         }
       }
 

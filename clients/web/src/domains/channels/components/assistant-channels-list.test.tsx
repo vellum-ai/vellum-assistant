@@ -175,12 +175,19 @@ describe("assistant channels list", () => {
     expect(document.body.textContent).not.toContain("Auth Token");
   });
 
-  test("selecting a disconnected adapter swaps the empty state for the manual form on request", () => {
+  // Setup opens on its first step, so the token field is a step away. What
+  // these two protect is which surface renders, not which field: the setup
+  // wizard rather than the empty state, whose Set up button starts a
+  // conversation instead of continuing this one.
+  const setupWizardShown = () =>
+    document.querySelector('[data-slot="channel-setup-wizard"]') !== null;
+
+  test("selecting a disconnected adapter swaps the empty state for the setup wizard on request", () => {
     renderList();
 
     fireEvent.click(adapterRow("Telegram"));
     expect(document.body.textContent).toContain("Telegram isn't connected");
-    expect(document.body.textContent).not.toContain("Bot Token");
+    expect(setupWizardShown()).toBe(false);
 
     const manualButton = Array.from(document.querySelectorAll("button")).find(
       (b) => b.textContent?.includes("or connect manually"),
@@ -188,16 +195,16 @@ describe("assistant channels list", () => {
     expect(manualButton).toBeDefined();
     fireEvent.click(manualButton!);
 
-    expect(document.body.textContent).toContain("Bot Token");
+    expect(setupWizardShown()).toBe(true);
     expect(document.body.textContent).not.toContain("Telegram isn't connected");
   });
 
-  test("a setup deep link selects that adapter and opens the manual form directly", () => {
+  test("a setup deep link selects that adapter and opens the setup wizard directly", () => {
     // The mobile chat-drawer handoff navigates to `?setup=<channel>` to
-    // continue credential entry here — it must land on the form, not the
-    // empty state whose Set up button would start another conversation.
+    // continue setup here — it must land on the wizard, not the empty state
+    // whose Set up button would start another conversation.
     renderList({ initialChannel: "telegram" });
-    expect(document.body.textContent).toContain("Bot Token");
+    expect(setupWizardShown()).toBe(true);
     expect(document.body.textContent).not.toContain("Telegram isn't connected");
   });
 });

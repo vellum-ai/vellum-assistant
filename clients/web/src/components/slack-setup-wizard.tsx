@@ -1,11 +1,20 @@
-import { Check, ClipboardCopy, ExternalLink } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Button, Input, Typography } from "@vellumai/design-library";
+import { type StepperStep } from "@vellumai/design-library";
+import {
+  ChannelSetupWizard,
+  type MutationStatus,
+} from "@/components/channel-setup-wizard";
+import { SlackSetupCreateStep } from "@/components/slack-setup-create-step";
+import { SlackSetupNameStep } from "@/components/slack-setup-name-step";
+import { SlackSetupOpenStep } from "@/components/slack-setup-open-step";
+import { SlackSetupTokensStep } from "@/components/slack-setup-tokens-step";
+import { useChannelSetupSteps } from "@/hooks/use-channel-setup-steps";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { openExternalUrl } from "@/runtime/browser";
 import { buildSlackManifest } from "@/utils/slack-manifest";
 
-export type MutationStatus = "idle" | "pending" | "success" | "error";
+export type { MutationStatus };
 
 /**
  * Slack's create-app entry point. Deliberately carries no `manifest_json`
@@ -14,36 +23,15 @@ export type MutationStatus = "idle" | "pending" | "success" | "error";
  */
 const SLACK_NEW_APP_URL = "https://api.slack.com/apps?new_app=1";
 
-const BOT_TOKEN_PREFIX = "xoxb-";
-const APP_TOKEN_PREFIX = "xapp-";
+const WIZARD_STEP_IDS = ["name", "open", "create", "connect"] as const;
+export type SlackSetupStepId = (typeof WIZARD_STEP_IDS)[number];
 
-/**
- * Shortest plausible Slack token. Real tokens run far longer; this only needs
- * to catch a truncated paste, not to validate the credential.
- */
-const TOKEN_MIN_LENGTH = 20;
-
-/**
- * Format-check a pasted Slack token. Returns an error string, or null when the
- * value is acceptable *or* still empty — an untouched field is not an error.
- */
-export function validateSlackToken(
-  value: string,
-  prefix: string,
-  label: string,
-): string | null {
-  const token = value.trim();
-  if (!token) {
-    return null;
-  }
-  if (!token.startsWith(prefix)) {
-    return `${label} should start with "${prefix}".`;
-  }
-  if (token.length < TOKEN_MIN_LENGTH) {
-    return `${label} looks truncated — copy the whole value from Slack.`;
-  }
-  return null;
-}
+const WIZARD_STEPS: StepperStep[] = [
+  { id: "name", label: "Name" },
+  { id: "open", label: "Open" },
+  { id: "create", label: "Create" },
+  { id: "connect", label: "Connect" },
+];
 
 export interface SlackSetupWizardProps {
   assistantName: string;
@@ -53,13 +41,14 @@ export interface SlackSetupWizardProps {
 }
 
 /**
- * Single-step guided setup for connecting a Slack app.
+ * Guided setup for connecting a Slack app, paced across four steps.
  *
  * Slack's create-app modal ignores manifest deep links and mints both the bot
- * and app-level tokens itself on Create and Install, so the flow is: copy the
- * manifest, hand it to the modal's "From a manifest" option, then bring both
- * tokens back here. Settings for an already-connected Slack (thread behavior)
- * live in `SlackThreadBehavior`.
+ * and app-level tokens itself on Create and Install. That makes the flow one
+ * round trip: configure the app here, hand its manifest to Slack's "From a
+ * manifest" option, then bring both tokens back. The steps follow that shape
+ * rather than Slack's old settings pages. Settings for an already-connected
+ * Slack (thread behavior) live in `SlackThreadBehavior`.
  */
 export function SlackSetupWizard({
   assistantName,
@@ -67,6 +56,8 @@ export function SlackSetupWizard({
   saveStatus = "idle",
   saveError = null,
 }: SlackSetupWizardProps) {
+  const { stepId, stepIndex, goTo, onStepSelect } =
+    useChannelSetupSteps(WIZARD_STEP_IDS);
   const [slackAppName, setSlackAppName] = useState(assistantName);
   const [description, setDescription] = useState("");
   const userEditedName = useRef(false);
@@ -77,10 +68,32 @@ export function SlackSetupWizard({
     }
   }, [assistantName]);
 
+  // The exact manifest this wizard last wrote to the clipboard, so the handoff
+  // step can tell "never copied" from "copied, then the name changed". The
+  // transient `copied` flag resets on a timer and cannot. This is what the
+  // wizard did, not what the clipboard now holds: a page cannot read the
+  // clipboard without a permission prompt, and a copy in any other app
+  // replaces it silently.
+  const [copiedManifest, setCopiedManifest] = useState<string | null>(null);
+
   const [botToken, setBotToken] = useState("");
   const [appToken, setAppToken] = useState("");
 
-  const { copy, copied } = useCopyToClipboard();
+  // Drop the credentials once they are saved. The Channels page keeps this
+  // wizard mounted on success, so without this both tokens stay in their
+  // fields, recoverable from a mounted component long after they were handed
+  // over. The chat drawer closes on success and unmounts either way.
+  useEffect(() => {
+    if (saveStatus === "success") {
+      setBotToken("");
+      setAppToken("");
+    }
+  }, [saveStatus]);
+
+  const { copy, copied } = useCopyToClipboard({
+    errorMessage:
+      "Could not copy the manifest. Copy it again before continuing.",
+  });
 
   const manifestJson = useMemo(
     () =>
@@ -88,208 +101,79 @@ export function SlackSetupWizard({
     [slackAppName, description],
   );
 
-  const nameValid = slackAppName.trim().length > 0;
+  // Whether the manifest for the app as currently named was copied from here.
+  // Editing the name or description after a copy invalidates it, so both the
+  // handoff notice and the transient "Copied!" label key off this rather than
+  // off `copied` alone: the flag survives 1.5s and would otherwise keep
+  // confirming a copy of a manifest that no longer exists.
+  const manifestCopiedHere = copiedManifest === manifestJson;
 
-  const botTokenError = validateSlackToken(
-    botToken,
-    BOT_TOKEN_PREFIX,
-    "Bot token",
-  );
-  const appTokenError = validateSlackToken(
-    appToken,
-    APP_TOKEN_PREFIX,
-    "App token",
-  );
-
-  const canSave =
-    botToken.trim().length > 0 &&
-    appToken.trim().length > 0 &&
-    !botTokenError &&
-    !appTokenError &&
-    saveStatus !== "pending";
+  const handleAppNameChange = useCallback((value: string) => {
+    userEditedName.current = true;
+    setSlackAppName(value);
+  }, []);
 
   const handleCopyManifest = useCallback(() => {
-    copy(manifestJson);
+    copy(manifestJson, () => setCopiedManifest(manifestJson));
   }, [copy, manifestJson]);
 
   const handleOpenSlack = useCallback(() => {
-    window.open(SLACK_NEW_APP_URL, "_blank", "noopener,noreferrer");
+    void openExternalUrl(SLACK_NEW_APP_URL);
   }, []);
 
+  const handleContinueToOpen = useCallback(() => goTo("open"), [goTo]);
+  const handleContinueToCreate = useCallback(() => goTo("create"), [goTo]);
+  const handleContinueToConnect = useCallback(() => goTo("connect"), [goTo]);
+
   const handleSave = useCallback(() => {
-    if (!canSave) {
-      return;
-    }
     onSave?.(botToken.trim(), appToken.trim());
-  }, [canSave, onSave, botToken, appToken]);
+  }, [onSave, botToken, appToken]);
 
   return (
-    <div data-slot="slack-setup-wizard">
-      <div className="flex flex-col gap-5 rounded-lg bg-[var(--surface-sunken)] p-4">
-        <div className="flex flex-col gap-4">
-          <Typography
-            as="p"
-            variant="body-medium-lighter"
-            className="text-[color:var(--content-default)]"
-          >
-            Name your Slack app, copy its manifest, then create it in Slack. All
-            permissions and settings come pre-configured.
-          </Typography>
+    <ChannelSetupWizard
+      channelLabel="Slack"
+      steps={WIZARD_STEPS}
+      stepIndex={stepIndex}
+      onStepSelect={onStepSelect}
+      locked={saveStatus === "pending"}
+    >
+      {stepId === "name" && (
+        <SlackSetupNameStep
+          appName={slackAppName}
+          description={description}
+          copied={copied && manifestCopiedHere}
+          onAppNameChange={handleAppNameChange}
+          onDescriptionChange={setDescription}
+          onCopyManifest={handleCopyManifest}
+          onContinue={handleContinueToOpen}
+        />
+      )}
 
-          <Input
-            label="App Name"
-            value={slackAppName}
-            onChange={(e) => {
-              userEditedName.current = true;
-              setSlackAppName(e.target.value.slice(0, 35));
-            }}
-            placeholder="My Assistant"
-            fullWidth
-          />
+      {stepId === "open" && (
+        <SlackSetupOpenStep
+          manifestCopiedHere={manifestCopiedHere}
+          copied={copied && manifestCopiedHere}
+          onCopyManifest={handleCopyManifest}
+          onOpenSlack={handleOpenSlack}
+          onContinue={handleContinueToCreate}
+        />
+      )}
 
-          <Input
-            label="Description (optional)"
-            value={description}
-            onChange={(e) => setDescription(e.target.value.slice(0, 140))}
-            placeholder="What this assistant helps with"
-            helperText="Shown on the app's Slack profile."
-            fullWidth
-          />
-        </div>
+      {stepId === "create" && (
+        <SlackSetupCreateStep onContinue={handleContinueToConnect} />
+      )}
 
-        <div className="flex flex-col gap-3">
-          <Typography
-            as="p"
-            variant="body-medium-lighter"
-            className="text-[color:var(--content-default)]"
-          >
-            In Slack:
-          </Typography>
-          <ol className="list-decimal list-inside space-y-1 text-body-medium-lighter text-[var(--content-default)]">
-            <li>
-              Under <strong>Or start your own way</strong>, pick{" "}
-              <strong>From a manifest</strong>, then <strong>Continue</strong>
-            </li>
-            <li>Choose your workspace and give it the manifest you copied</li>
-            <li>
-              Review the permissions, then click{" "}
-              <strong>Create and Install</strong>
-            </li>
-            <li>
-              Expand <strong>Your app credentials</strong> and copy both the{" "}
-              <strong>Bot token</strong> and <strong>App token</strong>
-            </li>
-          </ol>
-
-          <Typography
-            as="p"
-            variant="body-small-default"
-            className="text-[color:var(--content-faint)]"
-          >
-            Slack&apos;s last screen also offers a command-line walkthrough and
-            a <strong>Download app files</strong> button. Skip both — they set
-            up a separate local app, and this assistant needs only the two
-            tokens.
-          </Typography>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              type="button"
-              variant="outlined"
-              disabled={!nameValid}
-              onClick={handleCopyManifest}
-              leftIcon={
-                copied ? (
-                  <Check aria-hidden className="size-4" />
-                ) : (
-                  <ClipboardCopy aria-hidden className="size-4" />
-                )
-              }
-            >
-              {copied ? "Copied!" : "Copy manifest JSON"}
-            </Button>
-            <Button
-              type="button"
-              disabled={!nameValid}
-              onClick={handleOpenSlack}
-              rightIcon={<ExternalLink aria-hidden className="size-4" />}
-            >
-              Open Slack
-            </Button>
-          </div>
-
-          <Typography
-            as="p"
-            variant="body-small-default"
-            className="text-[color:var(--content-faint)]"
-          >
-            If Slack shows &ldquo;Request approval&rdquo; instead of{" "}
-            <strong>Install</strong>, a workspace admin needs to approve the app
-            first.
-          </Typography>
-        </div>
-
-        <div className="flex flex-col gap-3">
-          <Typography
-            as="p"
-            variant="body-medium-lighter"
-            className="text-[color:var(--content-default)]"
-          >
-            Paste both tokens from Slack&apos;s{" "}
-            <strong>Your app credentials</strong> panel:
-          </Typography>
-
-          <Input
-            label="Bot Token"
-            type="password"
-            value={botToken}
-            onChange={(e) => setBotToken(e.target.value)}
-            placeholder={`${BOT_TOKEN_PREFIX}...`}
-            errorText={botTokenError ?? undefined}
-            fullWidth
-          />
-
-          <Input
-            label="App Token"
-            type="password"
-            value={appToken}
-            onChange={(e) => setAppToken(e.target.value)}
-            placeholder={`${APP_TOKEN_PREFIX}...`}
-            errorText={appTokenError ?? undefined}
-            fullWidth
-          />
-
-          <div className="flex items-center gap-3">
-            <Button
-              type="button"
-              variant="primary"
-              onClick={handleSave}
-              disabled={!canSave}
-            >
-              {saveStatus === "pending" ? "Connecting…" : "Connect Slack"}
-            </Button>
-          </div>
-
-          {saveStatus === "success" && (
-            <Typography
-              as="p"
-              variant="body-small-default"
-              className="text-[color:var(--content-positive)]"
-            >
-              Credentials saved.
-            </Typography>
-          )}
-          {saveStatus === "error" && saveError && (
-            <Typography
-              as="p"
-              variant="body-small-default"
-              className="text-[color:var(--system-negative-strong)]"
-            >
-              {saveError}
-            </Typography>
-          )}
-        </div>
-      </div>
-    </div>
+      {stepId === "connect" && (
+        <SlackSetupTokensStep
+          botToken={botToken}
+          appToken={appToken}
+          saveStatus={saveStatus}
+          saveError={saveError}
+          onBotTokenChange={setBotToken}
+          onAppTokenChange={setAppToken}
+          onSave={handleSave}
+        />
+      )}
+    </ChannelSetupWizard>
   );
 }

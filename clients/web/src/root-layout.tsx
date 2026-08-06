@@ -57,6 +57,11 @@ import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
 import { subscribeAndroidBackButtonSource } from "@/runtime/event-sources/android-back-button";
 import { isElectron } from "@/runtime/is-electron";
+import { isNativeMobile } from "@/runtime/platform-detection";
+import {
+  resolveShellBackground,
+  usePageSurfaceStore,
+} from "@/stores/page-surface-store";
 import { isPopoutWindow } from "@/runtime/popout-window";
 import { GlobalPushToTalkBridge } from "@/domains/chat/voice/global-push-to-talk-bridge";
 import { TimezoneSync } from "@/components/timezone-sync";
@@ -357,6 +362,13 @@ export function RootLayout() {
   // stacked on top of the keyboard offset when the keyboard is open.
   const topSafeAreaInset =
     "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))";
+  // This element owns the safe-area padding, so its background is what fills
+  // the strips beside the notch and the home indicator. A route that renders on
+  // a themed surface can publish that color and have it run edge to edge rather
+  // than stopping at its content's rounded corner. Native mobile only: on
+  // desktop the neutral canvas is what makes a page read as a card on a page.
+  const pageSurface = usePageSurfaceStore.use.surface();
+  const shellBackground = resolveShellBackground(pageSurface, isNativeMobile());
   const shellPaddingTop =
     keyboardOffsetTop > 0
       ? appShellOwnsTopInset
@@ -371,7 +383,7 @@ export function RootLayout() {
       data-slot="root-layout"
       className="app-shell"
       style={{
-        background: "var(--surface-base)",
+        background: shellBackground,
         height:
           keyboardOpen && visibleViewport
             ? `${visibleViewport.height + keyboardOffsetTop}px`

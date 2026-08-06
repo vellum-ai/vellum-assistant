@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 let connectionsByName: Record<string, unknown> = {};
 let secureKeys: Record<string, string | undefined> = {};
@@ -74,6 +74,11 @@ beforeEach(() => {
   secureKeys = { "credential/anthropic/api_key": "sk-ant" };
   cesUnreachable = false;
   platformLoggedIn = false;
+  delete process.env.IS_PLATFORM;
+});
+
+afterEach(() => {
+  delete process.env.IS_PLATFORM;
 });
 
 describe("preflightResolvedConfig", () => {
@@ -298,5 +303,57 @@ describe("preflightResolvedConfig", () => {
       auth: { type: "none" },
     };
     expect(await preflightError(resolved())).toBeUndefined();
+  });
+});
+
+describe("preflightResolvedConfig platform-managed credential messaging", () => {
+  const platformManaged = () => {
+    connectionsByName = {
+      vellum: {
+        name: "vellum",
+        provider: "vellum",
+        auth: { type: "platform" },
+      },
+    };
+    process.env.IS_PLATFORM = "true";
+  };
+  const managedRoute = () => resolved({ provider_connection: "vellum" });
+
+  test("store unreachable surfaces a retriable message with no login text", async () => {
+    platformManaged();
+    cesUnreachable = true;
+    const err = await preflightError(managedRoute());
+    expect(err?.reason).toBe("platform_unauthenticated");
+    expect(err?.message).toContain("temporarily unavailable");
+    expect(err?.message).not.toContain("log in");
+  });
+
+  test("credential absent asks for platform re-provisioning, not a login", async () => {
+    platformManaged();
+    // Logged out with a reachable store means the credential is genuinely absent.
+    const err = await preflightError(managedRoute());
+    expect(err?.reason).toBe("platform_unauthenticated");
+    expect(err?.message).toContain("must be re-provisioned");
+    expect(err?.message).not.toContain("log in");
+  });
+
+  test("a healthy platform login passes silently", async () => {
+    platformManaged();
+    platformLoggedIn = true;
+    expect(await preflightError(managedRoute())).toBeUndefined();
+  });
+
+  test("non-platform install keeps the log-in-or-switch wording", async () => {
+    connectionsByName = {
+      vellum: {
+        name: "vellum",
+        provider: "vellum",
+        auth: { type: "platform" },
+      },
+    };
+    // IS_PLATFORM left unset covers both local and self-hosted Docker installs.
+    const err = await preflightError(managedRoute());
+    expect(err?.reason).toBe("platform_unauthenticated");
+    expect(err?.message).toContain("log in or pick a different provider");
   });
 });

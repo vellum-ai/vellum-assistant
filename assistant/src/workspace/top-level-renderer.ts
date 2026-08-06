@@ -1,5 +1,6 @@
 import { homedir, userInfo } from "node:os";
 
+import { getIsContainerized } from "../config/env-registry.js";
 import type { TopLevelSnapshot } from "./top-level-scanner.js";
 
 // `os.userInfo()` throws `SystemError` when the current UID has no passwd
@@ -52,10 +53,22 @@ export function renderWorkspaceTopLevelContext(
   if (snapshot.truncated) {
     lines.push("(list truncated — more entries exist)");
   }
-  lines.push(`Host home directory: ${options.hostHomeDir ?? homedir()}`);
+  // The daemon's own `homedir()` / `userInfo()` describe the HOST only when
+  // the daemon runs on it. In a container they describe the container, and
+  // labelling them "Host …" invites host-side tools (`host_bash`,
+  // `host_file_*`, computer use) to be handed a path that exists nowhere on
+  // the user's machine. Fall back only when the two are the same machine;
+  // otherwise say the value is unknown and name the way to find it, which is
+  // cheaper than a failed write on the user's Mac.
+  const hostHomeDir =
+    options.hostHomeDir ?? (getIsContainerized() ? undefined : homedir());
+  const hostUsername =
+    options.hostUsername ??
+    (getIsContainerized() ? undefined : safeUserInfoUsername());
   lines.push(
-    `Host username: ${options.hostUsername ?? safeUserInfoUsername()}`,
+    `Host home directory: ${hostHomeDir ?? "unknown (ask the host shell: `host_bash` with `echo $HOME`)"}`,
   );
+  lines.push(`Host username: ${hostUsername ?? "unknown"}`);
   lines.push("</workspace>");
   return lines.join("\n");
 }

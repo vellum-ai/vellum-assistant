@@ -39,9 +39,8 @@ mock.module("@/components/speech/use-managed-voice-selection", () => ({
 // CI's bun), so its shape is swapped through this mutable seed instead.
 const languageSelection = {
   available: false,
-  currentCode: "",
+  currentCode: "multi",
   configuredProviderId: "deepgram",
-  daemonDefaultsToMulti: true,
   selectLanguage: () => {},
   selecting: false,
 };
@@ -65,7 +64,7 @@ function renderPage() {
 
 beforeEach(() => {
   languageSelection.available = false;
-  languageSelection.currentCode = "";
+  languageSelection.currentCode = "multi";
   languageSelection.configuredProviderId = "deepgram";
   localStorage.clear();
   useVoicePrefsStore.setState({
@@ -182,14 +181,14 @@ describe("VoiceSections listening language", () => {
 
   test("shows the current language in the Input section when selectable", () => {
     languageSelection.available = true;
-    languageSelection.currentCode = "";
+    languageSelection.currentCode = "multi";
 
     renderPage();
 
     expect(screen.getByText("Listening language")).toBeTruthy();
-    // The unset code reads as the provider's resolved default rather than as
-    // a blank row.
-    expect(screen.getByText("Multilingual (default)")).toBeTruthy();
+    // Multilingual is a real selection now, not a sentinel standing in for
+    // one, so the card names it plainly.
+    expect(screen.getByText("Multilingual")).toBeTruthy();
   });
 
   test("names a deliberate pin rather than the default", () => {

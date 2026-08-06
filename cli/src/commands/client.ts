@@ -29,25 +29,28 @@ import {
 } from "../lib/client-identity";
 import {
   getLockfileData,
-  upsertLockfileAssistant,
+  upsertRendererLockfileAssistant,
   replacePlatformAssistants,
   isActiveAssistant,
   isPairedLockfileEntry,
+  PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
   runHatch,
   runRetire,
   connectImport,
   unpairAssistant,
   getGuardianAccessToken,
+  getPairedGuardianAccessToken,
   parseGatewayUrl,
   parsePairedGatewayUrl,
   resolveGatewayProxyTarget,
   resolvePairedGatewayProxyTarget,
   readAllowedGatewayPorts,
   readPairedGatewayTargets,
-  sanitizePairedForwardHeaders,
+  authorizePairedForwardHeaders,
   isLoopbackAddr,
   headerHostIsLoopback,
   originIsAllowed,
+  hasSameOriginCredentialProof,
   resolveDevCliInvocation,
   resolveLockfilePaths,
   resolveConfigDir,
@@ -471,15 +474,14 @@ function currentPlatformToken(): string | null {
   return platformSessionToken;
 }
 
-// Whether to attach the platform credential to a proxied request. Only
-// same-origin (SPA) traffic qualifies — a cross-site page must not be able to
-// use the local proxy as a confused deputy for authenticated platform calls.
-// Cross-origin fetches always send an Origin; `Sec-Fetch-Site` is a belt-and-
-// braces check for browsers that send it.
-function isSameOriginRequest(req: Request): boolean {
-  if (!originIsAllowed(req.headers.get("origin") ?? undefined)) return false;
-  const site = req.headers.get("sec-fetch-site");
-  return !site || site === "same-origin" || site === "none";
+// Whether to attach a host-owned credential to a proxied request. The browser
+// must positively identify the request as coming from this server's origin.
+export function isSameOriginRequest(req: Request): boolean {
+  return hasSameOriginCredentialProof(
+    req.headers.get("host") ?? undefined,
+    req.headers.get("origin") ?? undefined,
+    req.headers.get("sec-fetch-site") ?? undefined,
+  );
 }
 
 function getEnvRecord(): Record<string, string> {
@@ -585,7 +587,7 @@ async function handleLocalEndpoints(
           body.organizationId as string | undefined,
         );
       } else {
-        result = upsertLockfileAssistant(
+        result = upsertRendererLockfileAssistant(
           lockfilePaths,
           body.assistant as Record<string, unknown>,
           body.activeAssistant as string | undefined,
@@ -767,6 +769,13 @@ async function handleLocalEndpoints(
 
     const assistantId = decodeURIComponent(guardianMatch[1]!);
 
+    if (isPairedLockfileEntry(lockfilePaths, assistantId)) {
+      return Response.json(
+        { error: PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR },
+        { status: 403 },
+      );
+    }
+
     let invocation: CliInvocation;
     try {
       invocation = resolveDevCliInvocation(_baseDir);
@@ -783,7 +792,7 @@ async function handleLocalEndpoints(
       invocation,
       true,
       _localEnv,
-      { paired: isPairedLockfileEntry(lockfilePaths, assistantId) },
+      { paired: false },
     );
     if (result.ok) {
       return Response.json({ accessToken: result.accessToken });
@@ -815,9 +824,9 @@ async function handleLocalEndpoints(
   // Paired-gateway proxy: same shared decision as the web (Vite middleware)
   // and Electron (`app://` handler) hosts, forwarding to the remote gateway an
   // imported pairing recorded as its `runtimeUrl`. The lockfile's paired
-  // entries are the allowlist. Browser-ambient headers (Origin, Referer,
-  // Cookie, Sec-Fetch-*) are stripped on the server-to-server hop; the
-  // guardian bearer passes through for the remote gateway to validate.
+  // entries are the allowlist. Renderer authorization and browser-ambient
+  // headers are stripped on the server-to-server hop. This CLI host reads the
+  // paired guardian bearer from disk and installs it after sanitization.
   const pairedDecision = resolvePairedGatewayProxyTarget(
     pathname + url.search,
     () => readPairedGatewayTargets(lockfilePaths),
@@ -828,8 +837,35 @@ async function handleLocalEndpoints(
     });
   }
   if (pairedDecision.kind === "forward") {
+    if (!isSameOriginRequest(req)) {
+      return Response.json({ error: "Forbidden" }, { status: 403 });
+    }
+    let invocation: CliInvocation;
+    try {
+      invocation = resolveDevCliInvocation(_baseDir);
+    } catch (err) {
+      return new Response(err instanceof Error ? err.message : String(err), {
+        status: 500,
+      });
+    }
     const headers = new Headers(req.headers);
-    sanitizePairedForwardHeaders(headers);
+    const tokenResult = await authorizePairedForwardHeaders(
+      pairedDecision.assistantId,
+      pairedDecision.runtimeUrl,
+      headers,
+      (assistantId, runtimeUrl) =>
+        getPairedGuardianAccessToken(
+          assistantId,
+          runtimeUrl,
+          configDir,
+          invocation,
+          true,
+          _localEnv,
+        ),
+    );
+    if (!tokenResult.ok) {
+      return new Response(tokenResult.error, { status: tokenResult.status });
+    }
     headers.set("host", new URL(pairedDecision.url).host);
     return proxyGatewayFetch(
       req,

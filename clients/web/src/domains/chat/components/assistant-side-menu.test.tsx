@@ -222,7 +222,11 @@ describe("AssistantSideMenu · All view", () => {
   });
 
   const conversations = [
-    makeConversation({ conversationId: "p1", title: "Pin one", isPinned: true }),
+    makeConversation({
+      conversationId: "p1",
+      title: "Pin one",
+      isPinned: true,
+    }),
     makeConversation({ conversationId: "r1", title: "Recent one" }),
     makeConversation({
       conversationId: "s1",
@@ -351,7 +355,9 @@ describe("AssistantSideMenu · scrollport top inset", () => {
   // glyphs. So the inset lives on the cluster rather than the scrollport.
   test("the rail's scrollport carries no top inset", () => {
     const container = parse(
-      renderMenu({ conversations: [makeConversation({ conversationId: "r1" })] }),
+      renderMenu({
+        conversations: [makeConversation({ conversationId: "r1" })],
+      }),
     );
     const body = container.querySelector<HTMLElement>(
       '[data-slot="side-menu-body"]',
@@ -824,7 +830,10 @@ describe("AssistantSideMenu · section header menus", () => {
     }),
   ];
 
-  function renderWithGroupActions() {
+  function renderWithGroupActions(capture?: {
+    markAllRead?: (conversations: Conversation[]) => void;
+    archiveAll?: (label: string, conversations: Conversation[]) => void;
+  }) {
     return render(
       createElement(AssistantSideMenu, {
         assistantId: "asst-1",
@@ -832,8 +841,8 @@ describe("AssistantSideMenu · section header menus", () => {
         variant: "rail" as const,
         conversations,
         onSelectConversation: () => {},
-        onMarkAllReadInGroup: () => {},
-        onArchiveAllInGroup: () => {},
+        onMarkAllReadInGroup: capture?.markAllRead ?? (() => {}),
+        onArchiveAllInGroup: capture?.archiveAll ?? (() => {}),
       }),
     );
   }
@@ -851,8 +860,83 @@ describe("AssistantSideMenu · section header menus", () => {
     return match;
   }
 
-  // Every section header carries the same bulk actions, Pinned and Chats
-  // included — not just the channel sections.
+  /**
+   * Fire a header's Archive All and return the conversation ids it was handed.
+   *
+   * Asserting on the payload rather than the menu's text is the point: a
+   * presence check passes whether the action covers the right conversations,
+   * none of them, or the entire database. Archive All rather than Mark All as
+   * Read because it is enabled for any non-empty section, so the assertion
+   * turns on scope alone.
+   */
+  async function archiveScopeOf(
+    container: HTMLElement,
+    label: string,
+    received: Array<[string, Conversation[]]>,
+  ): Promise<string[]> {
+    act(() => {
+      headerFor(container, label).dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, button: 2 }),
+      );
+    });
+    let item: HTMLElement | undefined;
+    await waitFor(() => {
+      item = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).find((el) => el.textContent?.includes("Archive All"));
+      expect(item).toBeDefined();
+    });
+    act(() => {
+      item!.click();
+    });
+    const last = received.at(-1);
+    if (!last) {
+      throw new Error(`Archive All under "${label}" fired no handler`);
+    }
+    return last[1].map((c) => c.conversationId).sort();
+  }
+
+  test("the Conversations header covers the same set in either view", async () => {
+    // The header sits above Chats and the channel sections, so its bulk
+    // actions have to reach every conversation it contains. Scoping them to
+    // the `all` view's flat list drops the channel sections in `grouped`,
+    // where those conversations have moved into sections of their own, and a
+    // user who archives "all conversations" is told their Slack threads are
+    // handled when they are not.
+    const scopes: Record<string, string[]> = {};
+    for (const mode of ["all", "grouped"] as const) {
+      localStorage.setItem("vellum:sidebar-view-mode:asst-1", mode);
+      const received: Array<[string, Conversation[]]> = [];
+      const { container, unmount } = renderWithGroupActions({
+        archiveAll: (label, c) => received.push([label, c]),
+      });
+      scopes[mode] = await archiveScopeOf(container, "Conversations", received);
+      unmount();
+      cleanup();
+    }
+
+    expect(scopes.grouped).toContain("s1");
+    expect(scopes.grouped).toEqual(scopes.all);
+  });
+
+  test("a section header covers only that section", async () => {
+    localStorage.setItem("vellum:sidebar-view-mode:asst-1", "grouped");
+    const received: Array<[string, Conversation[]]> = [];
+    const { container } = renderWithGroupActions({
+      archiveAll: (label, c) => received.push([label, c]),
+    });
+    try {
+      expect(await archiveScopeOf(container, "Slack", received)).toEqual([
+        "s1",
+      ]);
+      expect(await archiveScopeOf(container, "Pinned", received)).toEqual([
+        "p1",
+      ]);
+    } finally {
+      cleanup();
+    }
+  });
+
   test.each(["Pinned", "Chats", "Slack"])(
     "%s exposes the same bulk actions on right-click",
     async (label) => {
@@ -920,7 +1004,11 @@ const LAYOUT_CONVERSATIONS = [
     originChannel: "slack",
     groupId: "system:all",
   }),
-  makeConversation({ conversationId: "g1", title: "Group one", groupId: "grp-a" }),
+  makeConversation({
+    conversationId: "g1",
+    title: "Group one",
+    groupId: "grp-a",
+  }),
 ];
 
 const LAYOUT_GROUPS = [
@@ -1280,9 +1368,9 @@ describe("AssistantSideMenu · section reordering", () => {
       (_, index) => labels[index] !== "Conversations",
     );
     expect(draggable).toHaveLength(4);
-    expect(
-      draggable.every((h) => h.getAttribute("draggable") === "true"),
-    ).toBe(true);
+    expect(draggable.every((h) => h.getAttribute("draggable") === "true")).toBe(
+      true,
+    );
   });
 
   test("a lone section isn't draggable - there's nothing to reorder against", () => {
@@ -1302,9 +1390,9 @@ describe("AssistantSideMenu · section reordering", () => {
       ),
     );
     expect(headers).toHaveLength(2);
-    expect(
-      headers.every((h) => h.getAttribute("draggable") !== "true"),
-    ).toBe(true);
+    expect(headers.every((h) => h.getAttribute("draggable") !== "true")).toBe(
+      true,
+    );
   });
 
   // Regression guard. The handlers first sat on the section root, where
@@ -1333,7 +1421,11 @@ describe("AssistantSideMenu · section reordering", () => {
 
       // Minimal DataTransfer stand-in: `onDragStart` only sets an effect and
       // a payload (Firefox needs the latter to begin a drag at all).
-      const dataTransfer = { effectAllowed: "", dropEffect: "", setData: () => {} };
+      const dataTransfer = {
+        effectAllowed: "",
+        dropEffect: "",
+        setData: () => {},
+      };
       const fire = (el: HTMLElement, type: string) => {
         const event = new Event(type, { bubbles: true, cancelable: true });
         Object.assign(event, { dataTransfer, clientY: 10 });

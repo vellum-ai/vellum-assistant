@@ -2699,7 +2699,10 @@ jobs:
     needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, build-chrome-extension]
     if: >-
       ${{
-        vars.ANDROID_RELEASE_ENABLED == 'true'
+        (
+          (needs.extract-version.outputs.is_staging == 'true' && vars.ANDROID_STAGING_RELEASE_ENABLED == 'true')
+          || (needs.extract-version.outputs.is_staging != 'true' && vars.ANDROID_PRODUCTION_RELEASE_ENABLED == 'true')
+        )
         && always() && !cancelled()
         && needs.extract-version.result == 'success'
         && needs.push-assistant-manifest.result == 'success'
@@ -2712,6 +2715,9 @@ jobs:
         && (needs.publish-plugin-api-prod.result == 'success' || needs.publish-plugin-api-prod.result == 'skipped')
         && (needs.push-dockerhub-image.result == 'success' || needs.push-dockerhub-image.result == 'skipped')
       }}
+    permissions:
+      contents: read
+      id-token: write
     uses: ./.github/workflows/release-android.yaml
     with:
       environment: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}

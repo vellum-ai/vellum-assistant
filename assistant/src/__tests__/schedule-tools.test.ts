@@ -9,6 +9,7 @@ import { createGroup, deleteGroup } from "../persistence/group-crud.js";
 import {
   getSchedule,
   resolveScheduleConversationGroupId,
+  upsertDeclaredSchedule,
 } from "../schedule/schedule-store.js";
 import {
   __clearRegistryForTesting,
@@ -1885,6 +1886,108 @@ describe("schedule_delete tool", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Schedule not found");
+  });
+});
+
+// ── plugin-sourced schedules ────────────────────────────────────────
+
+describe("schedule tools on plugin-sourced schedules", () => {
+  beforeEach(() => {
+    getRawDb().run("DELETE FROM cron_runs");
+    getRawDb().run("DELETE FROM cron_jobs");
+  });
+
+  function createSourcedSchedule() {
+    return upsertDeclaredSchedule("plugin:example/daily", {
+      name: "daily",
+      syntax: "cron",
+      expression: "0 9 * * *",
+      message: "Do the daily thing.",
+      mode: "execute",
+      enabled: true,
+      definitionHash: "hash-1",
+    });
+  }
+
+  test("schedule_update toggles enabled via the user_enabled override", async () => {
+    const job = await createSourcedSchedule();
+
+    const result = await executeScheduleUpdate(
+      { job_id: job.id, enabled: false },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Schedule updated successfully");
+    expect(result.content).toContain("Enabled: false");
+
+    const row = getRawDb()
+      .query("SELECT enabled, user_enabled FROM cron_jobs WHERE id = ?")
+      .get(job.id) as { enabled: number; user_enabled: number };
+    expect(row.enabled).toBe(0);
+    expect(row.user_enabled).toBe(0);
+  });
+
+  test("schedule_update refuses definition fields with a message naming the enabled toggle", async () => {
+    const job = await createSourcedSchedule();
+
+    const result = await executeScheduleUpdate(
+      { job_id: job.id, name: "renamed" },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("managed by a plugin");
+    expect(result.content).toContain("only enabled can be changed");
+    expect(getSchedule(job.id)?.name).toBe("daily");
+  });
+
+  test("schedule_update refuses enabled mixed with definition fields", async () => {
+    const job = await createSourcedSchedule();
+
+    const result = await executeScheduleUpdate(
+      { job_id: job.id, enabled: false, message: "rewritten" },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("managed by a plugin");
+    expect(getSchedule(job.id)?.enabled).toBe(true);
+  });
+
+  test("schedule_delete surfaces the store refusal as a normal tool error", async () => {
+    const job = await createSourcedSchedule();
+
+    const result = await executeScheduleDelete({ job_id: job.id }, ctx);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("managed by a plugin");
+    expect(getSchedule(job.id)).not.toBeNull();
+  });
+
+  test("schedule_list marks plugin-managed rows in list and detail modes", async () => {
+    const job = await createSourcedSchedule();
+
+    const list = await executeScheduleList({}, ctx);
+    expect(list.isError).toBe(false);
+    expect(list.content).toContain("(managed by plugin example)");
+
+    const detail = await executeScheduleList({ job_id: job.id }, ctx);
+    expect(detail.isError).toBe(false);
+    expect(detail.content).toContain("Managed by plugin: example");
+    expect(detail.content).toContain("only enabled can be changed");
+  });
+
+  test("schedule_list carries no plugin marker on imperative rows", async () => {
+    const created = await executeScheduleCreate(
+      { name: "imperative", expression: "0 9 * * *", message: "Do the thing." },
+      ctx,
+    );
+    expect(created.isError).toBe(false);
+
+    const list = await executeScheduleList({}, ctx);
+    expect(list.isError).toBe(false);
+    expect(list.content).not.toContain("managed by plugin");
   });
 });
 

@@ -7,11 +7,11 @@
  *   from the top edge of the screen, eyes half cut off by the edge with
  *   the rest of the body exposed, breathing and blinking over the
  *   chrome.
- * - **Resting, Capacitor iOS**: no top perch. The native shell draws
- *   under the Dynamic Island, which sits exactly where that avatar's
- *   eyes would be, so instead the avatar says hello once from behind
- *   the input's bottom edge, off toward the right and hanging upside
- *   down off the rim, then tucks back up and stays behind the card.
+ * - **Resting, native mobile**: no top perch. Native shells draw under
+ *   the system status area, which can cover that avatar's eyes, so the
+ *   avatar says hello once from behind the input's bottom edge, off
+ *   toward the right and hanging upside down off the rim, then tucks
+ *   back up and stays behind the card.
  * - **Focused** (the input is active): on both shells the avatar
  *   surfaces over the input's top edge, its lower half hidden behind
  *   the rim, while the input casts a soft unoffset shadow over it so
@@ -33,8 +33,9 @@ import { motion, useReducedMotion } from "motion/react";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { recordUpdate } from "@/lib/commit-pressure";
-import { useIsNativeIOS } from "@/runtime/platform-detection";
+import { useIsNativeMobile } from "@/runtime/platform-detection";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
+import { useMobileDrawerStore } from "@/stores/mobile-drawer-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { avatarPeekMetrics } from "@/utils/avatar-peek-metrics";
 
@@ -113,15 +114,24 @@ export function ComposerPeek({
   const reduce = useReducedMotion();
   // The onboarding tour floods the composer itself — never compete with it.
   const navTourActive = useInChatOnboardingStore.use.navTourActive();
-  // The top perch hangs its eyes off the screen's top edge, which is where
-  // the Dynamic Island sits once a Capacitor shell draws under the status
-  // bar. Browsers (including mobile Safari, where the Island is above the
-  // page) keep it; the native shell gets the bottom-edge hello instead.
-  const nativeIOS = useIsNativeIOS();
+  // Native shells can place the system status area over the top perch.
+  // Browsers keep it; native mobile gets the bottom-edge hello instead.
+  const nativeMobile = useIsNativeMobile();
   const [rect, setRect] = useState<TargetRect | null>(null);
   const [mode, setMode] = useState<Mode>("rest");
   const [introRisen, setIntroRisen] = useState(false);
   const [introDone, setIntroDone] = useState(false);
+
+  // The drawer covers the chat page but cannot cover this: the peek renders
+  // from a `document.body` portal, so it sits in a different stacking context
+  // and its z-index never competes with the drawer's. Stand down instead.
+  //
+  // Deliberately not part of `runnable`: that would tear down the tracking
+  // effect, whose cleanup clears `introDone`, and the hello would replay in
+  // full every time the drawer was dismissed on the same empty chat. The
+  // drawer hides the peek, it does not end the act, so it gates the render
+  // below and leaves the lifecycle alone.
+  const drawerPresented = useMobileDrawerStore.use.presented();
 
   const runnable =
     active && !reduce && !navTourActive && !!components && !!traits;
@@ -238,10 +248,10 @@ export function ComposerPeek({
     };
   }, [runnable]);
 
-  // The iOS hello runs off the first rect, since that's when the avatar
-  // first has an edge to peek over. It always runs to completion: a fresh
-  // chat autofocuses its composer, so gating it on focus would skip it.
-  const introReady = nativeIOS && rect !== null;
+  // The native mobile hello runs off the first rect, when the avatar first
+  // has an edge to peek over. It always runs to completion: a fresh chat
+  // autofocuses its composer, so gating it on focus would skip it.
+  const introReady = nativeMobile && rect !== null;
   useEffect(() => {
     if (!introReady) {
       return;
@@ -259,14 +269,14 @@ export function ComposerPeek({
   }, [introReady]);
 
   // `components`/`traits` re-checked for narrowing — `runnable` implies both.
-  if (!runnable || !rect || !components || !traits) {
+  if (!runnable || drawerPresented || !rect || !components || !traits) {
     return null;
   }
 
   const focused = mode === "focus";
   // The hello owns the avatar until it has ducked away, so the focus peek
   // stays out of the way rather than putting a second one on screen.
-  const introActive = nativeIOS && !introDone;
+  const introActive = nativeMobile && !introDone;
 
   // Input peek geometry: expose down to just below the eye ink, capped —
   // low-faced bodies scale down rather than exposing a taller slab.
@@ -334,7 +344,7 @@ export function ComposerPeek({
 
   return createPortal(
     <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-30">
-      {!nativeIOS && (
+      {!nativeMobile && (
         /* Top-of-screen dude, shown while the input is idle. */
         <motion.div
           className="absolute"
@@ -365,8 +375,8 @@ export function ComposerPeek({
         </motion.div>
       )}
       {introActive && (
-        /* The iOS hello: a mirror column below the input, clipped at its
-           bottom rim, so the avatar comes out of the other edge.
+        /* The native mobile hello: a mirror column below the input, clipped
+           at its bottom rim, so the avatar comes out of the other edge.
 
            Keyed apart from the focus peek below so React remounts rather
            than reconciling the two into one element. Without the keys a

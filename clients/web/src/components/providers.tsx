@@ -26,6 +26,7 @@ import { Toaster } from "@vellumai/design-library/components/toast";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { ProfileQuickAddProvider } from "@/components/profile-quick-add-provider";
+import { useNativeLaunchScreenReady } from "@/hooks/use-native-launch-screen-ready";
 import { installQueryPressureProbe } from "@/lib/commit-pressure";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
 import { useRequestOrganizationId } from "@/stores/organization-store";
@@ -93,6 +94,7 @@ function ScopeKeyedQueryClientProvider({ children }: { children: ReactNode }) {
 }
 
 export function AppProviders({ children }: { children: ReactNode }) {
+  useNativeLaunchScreenReady();
   const isAuthenticated = useIsAuthenticated();
   const user = useAuthStore.use.user();
   const authScopeKey = isAuthenticated

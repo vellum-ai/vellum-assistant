@@ -74,21 +74,27 @@ export const SttServiceSchema = z
      * Hinglish). Providers that auto-detect natively and take no language
      * option (Gemini, Whisper) ignore this field.
      *
-     * Left unset, the resolver fills in the provider's default rather than
-     * sending nothing: `"multi"` on Deepgram and the managed relay, where
-     * sending nothing would mean English rather than detection, and nothing
-     * at all on providers that detect natively. See `effectiveSttLanguage` in
-     * `providers/speech-to-text/resolve.ts`. Unset is kept meaningful here on
-     * purpose: it records that the user has not chosen, which is what lets
-     * the settings surfaces label a row "default".
+     * Defaults to `"multi"` rather than staying unset, so there is no state
+     * where the answer to "what language is this assistant listening for"
+     * has to be inferred. Every config carries the answer, and the settings
+     * surfaces render a real selection rather than a sentinel standing in
+     * for one.
+     *
+     * The default applies on load, not just at creation, so an existing
+     * config that never set a language materializes `"multi"` on its next
+     * start. That changes no behavior: `effectiveSttLanguage` already
+     * resolved unset to `"multi"` on Deepgram and the managed relay, and the
+     * providers that detect natively ignore the field either way. It only
+     * makes the value explicit. An assistant that has chosen a language
+     * keeps it, since a default fills nothing that is already set.
      */
     language: z
       .string({ error: "services.stt.language must be a string" })
       .trim()
       .min(1, { error: "services.stt.language must not be empty" })
-      .optional()
+      .default("multi")
       .describe(
-        "BCP-47 language code (e.g. 'en-US', 'hi') or 'multi' for code-switching across languages. Unset resolves to 'multi' on Deepgram/managed and to native auto-detection elsewhere",
+        "BCP-47 language code (e.g. 'en-US', 'hi') or 'multi' for code-switching across languages. Defaults to 'multi'; providers that detect natively ignore it",
       ),
     providers: SttProvidersSchema.default({}),
   })

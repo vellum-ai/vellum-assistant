@@ -19,6 +19,7 @@ import { runSequencesOnce } from "../sequence/engine.js";
 import type { TurnFailure } from "../telemetry/turn-outcome.js";
 import { recordWatchdogEvent } from "../telemetry/watchdog-events-store.js";
 import { getLogger } from "../util/logger.js";
+import { describeScheduleSource } from "../util/schedule-source-key.js";
 import {
   createWorkerSupervisor,
   type WorkerSupervisor,
@@ -26,6 +27,8 @@ import {
 import { runWatchersOnce } from "../watcher/engine.js";
 import { normalizeCapabilityManifest } from "../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
+import { declarationExistsOnDisk } from "./plugin-schedule-declarations.js";
+import { isPluginSchedulesEnabled } from "./plugin-schedules-gate.js";
 import { hasSetConstructs } from "./recurrence-engine.js";
 import { applyRetryDecision, decideRetry } from "./retry-policy.js";
 import { runScript, type ScriptResult } from "./run-script.js";
@@ -37,6 +40,7 @@ import {
   deferClaimedSchedule,
   failOneShotPermanently,
   getLastScheduleConversationId,
+  recordAdministrativeSkipRun,
   resetRetryCount,
   resolveScheduleConversationGroupId,
   retryOneShot,
@@ -520,6 +524,40 @@ export async function runDueSchedulesOnce(
         );
       }
       result.skipped += 1;
+      continue;
+    }
+
+    // Fire-time gate for plugin-sourced rows, covering every way the source
+    // can go away under an armed row. `declarationExistsOnDisk` is the probe
+    // the run-now route and the enable path use, and it answers for all of
+    // them: a `.disabled` sentinel, a plugin directory a local uninstall
+    // removed, a manifest that no longer parses, and a declaration that is
+    // simply gone. Turning the feature flag off retires the whole surface.
+    // The reconciler is what disarms the rows any of these own, and it runs
+    // on its own schedule, so re-reading here is what makes the change take
+    // effect immediately: a row still armed (or already claimed) at that
+    // moment cannot run the plugin's code. The probe costs a stat and a
+    // manifest read, paid only when a sourced row fires.
+    const sourceKey = job.sourceKey;
+    if (
+      sourceKey !== null &&
+      (!isPluginSchedulesEnabled() ||
+        !(await declarationExistsOnDisk(sourceKey)))
+    ) {
+      const sourcePlugin = describeScheduleSource(sourceKey) ?? sourceKey;
+      log.info(
+        { jobId: job.id, name: job.name, plugin: sourcePlugin },
+        "Schedule not run: its plugin schedule source is unavailable",
+      );
+      // cron_runs has no skip status, so the skip is recorded as an error run
+      // to stay visible in the schedule's history. It is an administrative
+      // skip, not an attempt: the retry budget is left alone and no retry is
+      // scheduled, so the row stays on its normal cadence.
+      await recordAdministrativeSkipRun(
+        job.id,
+        `Schedule not run: plugin "${sourcePlugin}" is disabled, uninstalled, or no longer declares this schedule.`,
+      );
+      mark("skipped");
       continue;
     }
 

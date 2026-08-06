@@ -107,12 +107,31 @@ export interface LiveVoiceClientUpdateConfigFrame {
   readonly bargeInMinSpeechMs?: number;
 }
 
+/**
+ * A photo taken while the call is running, identified by the id the normal
+ * attachment upload (`POST /v1/assistants/{id}/attachments`) already returned.
+ *
+ * Only the id travels: the bytes go over the same HTTP upload a typed message
+ * uses, which already handles HEIF normalization and size caps, and this
+ * socket is tuned for 50 ms audio frames.
+ *
+ * The daemon persists it into the conversation as its own user message and
+ * runs no turn. That is what makes the order of shutter and speech
+ * irrelevant: whatever the user says next, before or after the snap, is
+ * answered by a model whose history already has the image.
+ */
+export interface LiveVoiceClientAttachImageFrame {
+  readonly type: "attach_image";
+  readonly attachmentId: string;
+}
+
 export type LiveVoiceClientFrame =
   | LiveVoiceClientStartFrame
   | LiveVoiceClientPttReleaseFrame
   | LiveVoiceClientInterruptFrame
   | LiveVoiceClientEndFrame
-  | LiveVoiceClientUpdateConfigFrame;
+  | LiveVoiceClientUpdateConfigFrame
+  | LiveVoiceClientAttachImageFrame;
 
 // ---------------------------------------------------------------------------
 // Server frames (text/JSON; every frame carries `seq`)
@@ -326,6 +345,17 @@ export interface LiveVoiceErrorServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "error";
   readonly code: string;
   readonly message: string;
+  /**
+   * The client frame this error is about, when the daemon knows. Absent from
+   * daemons predating the field, which is why the transport still has an
+   * "assume it was the settings frame" fallback.
+   *
+   * What makes an `unknown_type` attributable: this client sends two
+   * optional frames (`update_config` and `attach_image`) and an older
+   * assistant rejects either with the same code. See the handler in
+   * `live-voice-client.ts`.
+   */
+  readonly frameType?: string;
   /**
    * True when the session continues past the error (e.g. a transient
    * transcriber blip or one failed TTS segment). Absent (including on frames

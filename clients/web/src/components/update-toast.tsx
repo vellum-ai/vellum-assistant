@@ -48,7 +48,7 @@ function UpdateToastContent({
       <div className="min-w-0 flex-1 space-y-2">
         {state.status === "available" && (
           <p className="text-body-medium-default">
-            Update available — downloading will begin shortly.
+            Update available. Starting download…
           </p>
         )}
 

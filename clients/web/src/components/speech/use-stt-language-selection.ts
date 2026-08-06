@@ -18,8 +18,6 @@
  * pretending to save a language the daemon would ignore.
  */
 
-import { useMemo } from "react";
-
 import { useQuery } from "@tanstack/react-query";
 
 import {
@@ -28,82 +26,54 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import {
-  AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS,
   MULTI_DEFAULT_DAEMON_PROVIDERS,
   STT_LANGUAGE_DEFAULT_CODE,
-  STT_MULTI_CODE,
+  STT_PINNED_ENGLISH_CODE,
 } from "@/lib/stt/language-catalog";
 
 import { useSerializedConfigSelection } from "@/components/speech/use-serialized-config-selection";
-import {
-  resolveSupportsMultilingualSttDefault,
-  useSupportsMultilingualSttDefault,
-} from "@/lib/backwards-compat/use-supports-multilingual-stt-default";
 
 /**
- * The code written when the user picks the default option, and the code a
- * read collapses back into it. The daemon cannot delete
- * `services.stt.language`: `config_patch` deep-merges, and a `null` leaf
- * lands as a literal null in raw config.json, which then fails the
- * `z.string().min(1)` schema on every subsequent load. So the default pick
- * writes whatever code the daemon would have resolved the unset state to,
- * and reads treat that code and unset as the same default row.
+ * How a config value reads on the picker, per provider.
  *
- * Which code that is depends on the provider:
+ * Under `MULTI_DEFAULT_DAEMON_PROVIDERS` there is no sentinel row: config
+ * always carries a real language (the schema defaults it to `"multi"`), so
+ * Multilingual and English are concrete, separately selectable rows and each
+ * reads as itself. An absent language can only come from a daemon predating
+ * that default, and on those it meant English, so that is what it shows. The
+ * Multilingual row stays one click away and writes a real `"multi"`, which
+ * those daemons have honored since language selection shipped.
  *
- * - Code-switching providers (`MULTI_DEFAULT_DAEMON_PROVIDERS`) resolve unset
- *   to `"multi"`, so that is both the write and the collapse. `"en"` under
- *   them is a deliberate English pin and reads back as itself.
- * - Natively auto-detecting providers have no code that means detection, so
- *   nothing collapses and the default row is unreachable once a language is
- *   pinned (`STT_AUTO_DETECT_OPTION` says so plainly).
- * - Anything else keeps the historical English equivalence.
+ * Natively detecting providers keep their sentinel: unset means detection
+ * there, which no language code expresses.
  */
-function defaultCodeForProvider(
+function configuredCodeForProvider(
   daemonProviderId: string,
-  daemonDefaultsToMulti: boolean,
-): string | null {
-  if (
-    daemonDefaultsToMulti &&
-    MULTI_DEFAULT_DAEMON_PROVIDERS.has(daemonProviderId)
-  ) {
-    return STT_MULTI_CODE;
+  configured: string | undefined,
+): string {
+  if (configured) {
+    return configured;
   }
-  if (AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS.has(daemonProviderId)) {
-    return null;
+  if (MULTI_DEFAULT_DAEMON_PROVIDERS.has(daemonProviderId)) {
+    return STT_PINNED_ENGLISH_CODE;
   }
-  return "en";
+  return STT_LANGUAGE_DEFAULT_CODE;
 }
 
 /**
- * The write body for a picked code. The default row carries no code of its
- * own, so it writes the provider's resolved default instead; a provider with
- * no such code (native detection) writes explicit English, the only thing
- * `config_patch` can express.
- *
- * Async because which code that is depends on the assistant version, and the
- * render-time gate reads `false` until identity hydrates. A default pick
- * during that window would otherwise persist explicit English on an assistant
- * whose real default is code-switching, and `config_patch` cannot delete the
- * key afterwards. So the write resolves the version instead of sampling it.
+ * The write body for a picked code. The sentinel row (natively detecting
+ * providers only) carries no code of its own, so it writes explicit English,
+ * the only thing `config_patch` can express: it cannot delete the key,
+ * because a `null` leaf lands in raw config.json and fails the
+ * `z.string().min(1)` schema on every subsequent load.
  */
-const buildPatchBodyForProvider =
-  (daemonProviderId: string, assistantId: string | null) =>
-  async (code: string) => {
-    if (code !== STT_LANGUAGE_DEFAULT_CODE) {
-      return { services: { stt: { language: code } } };
-    }
-    const defaultsToMulti =
-      await resolveSupportsMultilingualSttDefault(assistantId);
-    return {
-      services: {
-        stt: {
-          language:
-            defaultCodeForProvider(daemonProviderId, defaultsToMulti) ?? "en",
-        },
-      },
-    };
-  };
+const buildLanguagePatchBody = (code: string) => ({
+  services: {
+    stt: {
+      language: code === STT_LANGUAGE_DEFAULT_CODE ? "en" : code,
+    },
+  },
+});
 
 export interface UseSttLanguageSelection {
   /**
@@ -129,14 +99,6 @@ export interface UseSttLanguageSelection {
    */
   configuredProviderId: string;
   /**
-   * Whether the connected assistant resolves an unset language to
-   * code-switching rather than English. Surfaces pass this alongside
-   * `configuredProviderId` to every catalog helper, so a bundle talking to a
-   * pre-0.12.0 assistant keeps describing the English default that assistant
-   * still applies. See `use-supports-multilingual-stt-default.ts`.
-   */
-  daemonDefaultsToMulti: boolean;
-  /**
    * Persist a language; hot-applies from the next spoken turn. Safe to call
    * again before the last one lands, writes are serialized in call order.
    */
@@ -150,10 +112,6 @@ export function useSttLanguageSelection(
 ): UseSttLanguageSelection {
   const isOrgReady = useIsOrgReady();
   const enabled = isOrgReady && !!assistantId;
-  // Scoped to the assistant whose config this hook reads, and conservative
-  // until its version hydrates: the pre-0.12.0 English framing is what every
-  // assistant did before, so showing it briefly is the safe direction.
-  const daemonDefaultsToMulti = useSupportsMultilingualSttDefault(assistantId);
 
   const { data: providerCatalog } = useQuery({
     ...sttProvidersGetOptions({ path: { assistant_id: assistantId ?? "" } }),
@@ -191,30 +149,9 @@ export function useSttLanguageSelection(
   // provider is a guess, and the control must not flash in and out.
   const available = enabled && !!daemonConfig && providerAcceptsLanguage;
 
-  // Unset and the provider's resolved default code both read as the default
-  // row (display equivalence, see `defaultCodeForProvider`). Under a
-  // code-switching provider that code is "multi", so a persisted "en" is a
-  // real English pin and reads as itself; under a natively detecting one
-  // nothing collapses at all.
-  const configured = daemonStt?.language;
-  const defaultCode = defaultCodeForProvider(
+  const configuredCode = configuredCodeForProvider(
     configuredProvider,
-    daemonDefaultsToMulti,
-  );
-  const configuredCode =
-    !configured || (defaultCode !== null && configured === defaultCode)
-      ? STT_LANGUAGE_DEFAULT_CODE
-      : configured;
-
-  // Memoized rather than module-level (the body now depends on the provider)
-  // so `select` identity still only tracks real state, per
-  // `useSerializedConfigSelection`.
-  // Keyed on the provider and the owning assistant only: the gate value is
-  // resolved inside the write rather than captured here, so a version that
-  // hydrates mid-flight cannot leave a stale builder behind.
-  const buildLanguagePatchBody = useMemo(
-    () => buildPatchBodyForProvider(configuredProvider, assistantId),
-    [configuredProvider, assistantId],
+    daemonStt?.language,
   );
 
   const {
@@ -232,7 +169,6 @@ export function useSttLanguageSelection(
     available,
     currentCode,
     configuredProviderId: configuredProvider,
-    daemonDefaultsToMulti,
     selectLanguage,
     selecting,
   };

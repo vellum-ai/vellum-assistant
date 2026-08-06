@@ -1993,6 +1993,29 @@ export class WorkspaceGitService {
   }
 
   /**
+   * Run a read-only git command WITHOUT initializing the repository.
+   *
+   * `runReadOnlyGit` is read-only in the sense that its git command does not
+   * write, but it still awaits `ensureInitialized()`, which will create the
+   * repository, write `.gitignore` and the hooks directory, make the initial
+   * commit, and schedule a history compaction when the workspace is not yet a
+   * repo. That makes it unusable from an HTTP GET, which
+   * `src/runtime/AGENTS.md` requires to be side-effect-free.
+   *
+   * This variant skips initialization entirely and throws when the workspace
+   * is not a repository, so a caller that merely wants to *observe* history
+   * can degrade instead of bringing a repo into existence.
+   */
+  async runReadOnlyGitWithoutInit(
+    args: string[],
+  ): Promise<{ stdout: string; stderr: string }> {
+    if (!existsSync(join(this.workspaceDir, ".git"))) {
+      throw new Error("Workspace is not a git repository");
+    }
+    return this.execGit(args);
+  }
+
+  /**
    * Run a sequence of git commands atomically under the workspace mutex.
    * Use this for write operations that need serialization with other
    * git mutations (e.g. checkout + commit).

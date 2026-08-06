@@ -193,6 +193,52 @@ export function useIsWorkspaceFileOpen(workspacePath: string | null): boolean {
 }
 
 /**
+ * Whether the document drawer is currently showing the document surface
+ * `surfaceId`. Pure predicate so an affordance that hides itself while its own
+ * document is visible and anything acting on that document can never disagree
+ * about what "open" means.
+ *
+ * A read-only preview carries no surface id, so it matches nothing.
+ *
+ * This answers for the in-chat viewer only. The standalone
+ * `/assistant/documents/:surfaceId` route is a separate surface that does not
+ * set `mainView`, so a consumer that needs "open anywhere" also matches the
+ * route.
+ */
+export function isDocumentOpen(
+  mainView: MainView,
+  openedDocument: OpenedDocumentState | null,
+  surfaceId: string,
+): boolean {
+  return openedDocumentSurfaceId(mainView, openedDocument) === surfaceId;
+}
+
+/**
+ * The document surface the drawer is showing, or `null` when it shows nothing
+ * or a read-only preview. The identity behind {@link isDocumentOpen}, for
+ * callers that need to know *which* document rather than ask about one.
+ */
+export function openedDocumentSurfaceId(
+  mainView: MainView,
+  openedDocument: OpenedDocumentState | null,
+): string | null {
+  if (mainView !== "document" || openedDocument?.source !== "document") {
+    return null;
+  }
+  return openedDocument.surfaceId;
+}
+
+/**
+ * Reactive form of {@link isDocumentOpen}, composed over atomic selectors so a
+ * consumer only re-renders when the view or the opened document changes.
+ */
+export function useIsDocumentOpen(surfaceId: string): boolean {
+  const mainView = useViewerStore.use.mainView();
+  const openedDocument = useViewerStore.use.openedDocumentState();
+  return isDocumentOpen(mainView, openedDocument, surfaceId);
+}
+
+/**
  * Open a workspace file the assistant referenced: a document bound to the file
  * for markdown, the drawer's read-only preview for everything else.
  *

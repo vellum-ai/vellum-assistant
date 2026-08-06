@@ -95,6 +95,17 @@ export interface LiveVoiceClientClosed {
 }
 
 /**
+ * Why a photo the transport accepted never reached the conversation.
+ *
+ * - `unsupported`: the assistant predates the frame entirely.
+ * - `failed`: the assistant knows the frame but could not store the photo.
+ */
+export interface LiveVoiceAttachImageRejected {
+  readonly reason: "unsupported" | "failed";
+  readonly message: string;
+}
+
+/**
  * Typed event payloads. Names map 1:1 to the server frame types (camelCased),
  * plus `closed` for transport teardown. Frame `seq` is preserved so consumers
  * can order or dedupe.
@@ -121,6 +132,13 @@ export interface LiveVoiceClientEventMap {
   minimizeRoom: LiveVoiceMinimizeRoomServerFrame;
   metrics: LiveVoiceMetricsServerFrame;
   archived: LiveVoiceArchivedServerFrame;
+  /**
+   * A photo was accepted by the transport but refused by the assistant, so it
+   * will never reach a turn. Distinct from `attachImage` returning false,
+   * which is the socket declining to send at all: this one fails after the
+   * client believed it had succeeded, and is the only signal the room gets.
+   */
+  attachImageRejected: LiveVoiceAttachImageRejected;
   busy: LiveVoiceBusyServerFrame;
   error: LiveVoiceClientError;
   /** Fired exactly once when the transport closes (clean or otherwise). */
@@ -205,6 +223,7 @@ export class LiveVoiceChannelClient {
     minimizeRoom: new Set(),
     metrics: new Set(),
     archived: new Set(),
+    attachImageRejected: new Set(),
     busy: new Set(),
     error: new Set(),
     closed: new Set(),
@@ -349,6 +368,29 @@ export class LiveVoiceChannelClient {
   }
 
   /**
+   * Tell the session about a photo the user just took, by the id its upload
+   * already returned. The daemon persists it into the conversation as its own
+   * user message and runs no turn.
+   *
+   * Returns whether the frame actually went out. A session that is connecting
+   * or reconnecting cannot take it, and the caller has to know: the photo was
+   * uploaded and the shutter has already animated, so a silent false start
+   * would leave the user believing the assistant can see something it cannot.
+   *
+   * Callers MUST gate this on `useSupportsVoiceCamera`. An assistant that
+   * predates the frame rejects it with `unknown_type`, which is
+   * indistinguishable on the wire from the `update_config` rejection handled
+   * below and would latch config updates off for the session. The gate hides
+   * the camera entirely on those assistants, so this is never reached.
+   */
+  attachImage(attachmentId: string): boolean {
+    if (this.state !== "active") {
+      return false;
+    }
+    return this.trySend(JSON.stringify({ type: "attach_image", attachmentId }));
+  }
+
+  /**
    * End the session gracefully: best-effort send `end`, then always close the
    * socket. A quick-cancel while still CONNECTING simply skips the (impossible)
    * `end` send and resolves as a clean close rather than a timeout failure.
@@ -462,13 +504,37 @@ export class LiveVoiceChannelClient {
       case "archived":
         this.emit("archived", frame);
         return;
-      case "error":
-        // An assistant running daemon code older than a client frame we sent
-        // rejects it with `unknown_type`. The only frame we send optimistically
-        // is `update_config` (the voice-room settings), so this is a
-        // forward-compat no-op, not a session failure: latch it off and keep
-        // the session alive. Mirrors the `unknown_frame` handling below for the
-        // reverse (newer-server) direction.
+      case "error": {
+        // `frameType` names what the error is about, which is what keeps a
+        // failed photo out of the buckets it would otherwise land in.
+        //
+        // Two cases reach here for a photo. An assistant too old to know the
+        // frame rejects it with `unknown_type`, which is byte-identical to the
+        // `update_config` rejection this client has always sent
+        // optimistically; and a current assistant that could not store the
+        // photo answers with a `recoverable` error, which would otherwise be
+        // filed with the transient transcriber and TTS blips that share that
+        // flag. Both leave the user believing the assistant can see something
+        // it never received, so both are reported.
+        const about =
+          "frameType" in frame && typeof frame.frameType === "string"
+            ? frame.frameType
+            : null;
+        if (about === "attach_image") {
+          console.warn(`live-voice: photo not attached: ${frame.message}`);
+          this.emit("attachImageRejected", {
+            reason: frame.code === "unknown_type" ? "unsupported" : "failed",
+            message: frame.message,
+          });
+          return;
+        }
+        // Daemons predating `frameType` omit it, so an unattributed
+        // `unknown_type` falls back to the settings frame. That is the safe
+        // guess: it is the only frame this client sends without a version
+        // gate, and `attach_image` is gated on `useSupportsVoiceCamera` so it
+        // should never be in flight against an assistant that old. Anything
+        // new sent from here needs a gate or a `frameType`, or its rejection
+        // lands in the wrong bucket.
         if (frame.code === "unknown_type") {
           this.configUpdatesUnsupported = true;
           console.warn(
@@ -495,6 +561,7 @@ export class LiveVoiceChannelClient {
         }
         this.fail("protocol-error", frame.message, frame.code);
         return;
+      }
       case "unknown_frame":
         // Frame types from a newer server than this client. Ignore so
         // protocol additions never kill older clients.
@@ -544,11 +611,13 @@ export class LiveVoiceChannelClient {
    * `InvalidStateError` in browsers, so guarding on `readyState` keeps a
    * quick-cancel during connect (and any late send) from throwing.
    */
-  private trySend(data: string | ArrayBuffer): void {
+  private trySend(data: string | ArrayBuffer): boolean {
     const ws = this.ws;
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(data);
+      return true;
     }
+    return false;
   }
 
   private fail(

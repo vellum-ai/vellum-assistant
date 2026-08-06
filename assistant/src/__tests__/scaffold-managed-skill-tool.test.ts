@@ -32,6 +32,26 @@ mock.module("../daemon/skill-memory-refresh.js", () => ({
   refreshSkillCapabilityMemories: mockRefreshSkillCapabilityMemories,
 }));
 
+// Background skill updates route through the notification pipeline; record
+// the signals rather than standing up delivery.
+let emittedSignals: Array<{
+  sourceEventName: string;
+  sourceContextId: string;
+  dedupeKey?: string;
+  contextPayload?: Record<string, unknown>;
+}> = [];
+mock.module("../notifications/emit-signal.js", () => ({
+  emitNotificationSignal: async (params: {
+    sourceEventName: string;
+    sourceContextId: string;
+    dedupeKey?: string;
+    contextPayload?: Record<string, unknown>;
+  }) => {
+    emittedSignals.push(params);
+    return { signalId: "test-signal" };
+  },
+}));
+
 // The retrospective dedup path calls the skill matcher, which would otherwise
 // reach a live embedding backend and Qdrant. Default it to an empty shortlist
 // (the same value the real matcher degrades to when its scorer fails), so
@@ -115,6 +135,7 @@ beforeEach(() => {
   skillCardJobUpserts = [];
   skillCardUpsertThrows = false;
   watchdogEvents.length = 0;
+  emittedSignals = [];
 });
 
 afterEach(() => {
@@ -1479,6 +1500,151 @@ describe("scaffold_managed_skill tool", () => {
         (u.payload.skills as Array<{ skillId: string }>).map((s) => s.skillId),
       ),
     ).toEqual(["run-skill-a", "run-skill-b"]);
+  });
+});
+
+// ── Background skill updates are announced ─────────────────────────────────
+//
+// A background pass runs inside a hidden retrospective fork, so its tool call
+// renders in a conversation the user never opens. Creates reach the source
+// conversation as a `skill_card`; updates reach the background activity feed.
+
+describe("background skill update notification", () => {
+  /** Seed an assistant-authored skill the background pass may overwrite. */
+  async function seedAssistantSkill(id: string, body: string): Promise<void> {
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: id,
+        name: "Weekly Report Export",
+        description: `seeded ${id}`,
+        body_markdown: body,
+      },
+      makeContext(),
+    );
+    writeInstallMeta(join(TEST_DIR, "skills", id), {
+      origin: "custom",
+      installedAt: new Date().toISOString(),
+      author: "assistant",
+    });
+    watchdogEvents.length = 0;
+    skillCardJobUpserts = [];
+    emittedSignals = [];
+  }
+
+  const lineage = () => ({
+    getConversation: (id: string) =>
+      id === "retro-run-conv"
+        ? { forkParentConversationId: "source-conv" }
+        : null,
+  });
+
+  test("a background overwrite of an existing skill notifies, keyed to the source conversation", async () => {
+    await seedAssistantSkill("weekly-export", "Old body.");
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "weekly-export",
+        name: "Weekly Report Export",
+        description: "export the weekly usage report",
+        body_markdown: "1. Refined steps.",
+        overwrite: true,
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineage(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(emittedSignals).toHaveLength(1);
+    const signal = emittedSignals[0]!;
+    expect(signal.sourceEventName).toBe("activity.complete");
+    // The feed item's "Go to Convo" target resolves through this id, so it
+    // must be the conversation the work came from, not the hidden fork.
+    expect(signal.sourceContextId).toBe("source-conv");
+    expect(signal.contextPayload?.skillId).toBe("weekly-export");
+    expect(String(signal.contextPayload?.summary)).toContain(
+      "Weekly Report Export",
+    );
+    // The home feed falls back to `title`/`body` when no channel copy was
+    // rendered, which is the intended quiet shape for this signal. Without
+    // them a suppressed delivery would leave the feed item unwritten.
+    // Named so the row is scannable in a feed several entries deep.
+    expect(signal.contextPayload?.title).toBe(
+      "Skill updated: Weekly Report Export",
+    );
+    expect(String(signal.contextPayload?.body)).toContain(
+      "Weekly Report Export",
+    );
+    // Deduped per skill per day so repeated refinements cannot flood the feed.
+    expect(signal.dedupeKey).toBe(
+      `skill-updated:weekly-export:${new Date().toISOString().slice(0, 10)}`,
+    );
+  });
+
+  test("it falls back to the run conversation when fork lineage does not resolve", async () => {
+    await seedAssistantSkill("weekly-export", "Old body.");
+
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "weekly-export",
+        name: "Weekly Report Export",
+        description: "export the weekly usage report",
+        body_markdown: "1. Refined steps.",
+        overwrite: true,
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      { getConversation: () => null },
+    );
+
+    // Still a real conversation id, so the deep link resolves rather than
+    // falling through to an unrelated target.
+    expect(emittedSignals).toHaveLength(1);
+    expect(emittedSignals[0]!.sourceContextId).toBe("retro-run-conv");
+  });
+
+  test("a background CREATE gets the skill card instead, with no duplicate signal", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "brand-new-skill",
+        name: "Brand New Skill",
+        description: "something never seen before",
+        body_markdown: "1. Do it.",
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineage(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(skillCardJobUpserts).toHaveLength(1);
+    expect(emittedSignals).toHaveLength(0);
+  });
+
+  test("a user-directed overwrite does not notify: it is not unattended work", async () => {
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "user-skill",
+        name: "User Skill",
+        description: "asked for",
+        body_markdown: "V1.",
+      },
+      makeContext(),
+    );
+    emittedSignals = [];
+
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "user-skill",
+        name: "User Skill",
+        description: "asked for",
+        body_markdown: "V2.",
+        overwrite: true,
+      },
+      makeContext(),
+    );
+
+    expect(
+      readFileSync(join(TEST_DIR, "skills", "user-skill", "SKILL.md"), "utf-8"),
+    ).toContain("V2.");
+    expect(emittedSignals).toHaveLength(0);
   });
 });
 

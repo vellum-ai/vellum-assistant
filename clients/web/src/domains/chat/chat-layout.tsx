@@ -2,6 +2,7 @@ import {
   lazy,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -40,10 +41,12 @@ import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-s
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import {
-  DRAWER_SLIDE_MS,
-  useEdgeSwipeDrawer,
-} from "@/hooks/use-edge-swipe-drawer";
+  EDGE_SWIPE_EASING,
+  EDGE_SWIPE_SLIDE_MS,
+} from "@/hooks/edge-swipe-motion";
+import { useEdgeSwipeDrawer } from "@/hooks/use-edge-swipe-drawer";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
+import { useMobileDrawerStore } from "@/stores/mobile-drawer-store";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
@@ -464,6 +467,23 @@ export function ChatLayout({
   const voiceRoomVisible = useIsVoiceRoomVisible();
 
   const drawerVisible = isMobile && drawerOpen;
+
+  // Publish for surfaces that render outside this tree and would otherwise
+  // paint over the drawer; see `mobile-drawer-store`. Mirrors the same
+  // condition the drawer itself mounts on, so the two can't disagree.
+  //
+  // Layout effect, not passive: a passive effect runs after the browser can
+  // paint, so the drawer's first frame would go up with the store still
+  // reporting false and the peek still portaled over it. Publishing before
+  // paint means the two never disagree on screen.
+  const drawerPresented = drawerVisible || drawerDragging;
+  const setDrawerPresented = useMobileDrawerStore.use.setPresented();
+  useLayoutEffect(() => {
+    setDrawerPresented(drawerPresented);
+    return () => {
+      setDrawerPresented(false);
+    };
+  }, [drawerPresented, setDrawerPresented]);
 
   const toggleSidebar = useCallback(() => {
     // The tour forces the rail expanded; a toggle would only flip the
@@ -1050,7 +1070,7 @@ export function ChatLayout({
               style={{
                 zIndex: 40,
                 transform: drawerOpen ? "translateX(0)" : "translateX(-100%)",
-                transition: `transform ${DRAWER_SLIDE_MS}ms ease-out`,
+                transition: `transform ${EDGE_SWIPE_SLIDE_MS}ms ${EDGE_SWIPE_EASING}`,
               }}
               role="dialog"
               aria-modal="true"

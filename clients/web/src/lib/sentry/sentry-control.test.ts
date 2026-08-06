@@ -50,6 +50,7 @@ let authSubscriber:
   | null = null;
 
 const syncDiagnosticsToMainMock = mock((_enabled: boolean) => {});
+const disableNativeFailureReportForwardingMock = mock(() => Promise.resolve());
 
 mock.module("@/utils/device-settings", () => ({
   getDeviceBool: (name: string, fallback: boolean) => {
@@ -71,6 +72,10 @@ mock.module("@/utils/device-settings", () => ({
 
 mock.module("@/runtime/diagnostics", () => ({
   syncDiagnosticsToMain: syncDiagnosticsToMainMock,
+}));
+mock.module("@/runtime/native-failure-reports", () => ({
+  disableNativeFailureReportForwarding:
+    disableNativeFailureReportForwardingMock,
 }));
 
 // Whether a consent sync (or explicit acceptance) has hydrated the flags —
@@ -97,7 +102,8 @@ mock.module("@/stores/auth-store", () => ({
 
 const { syncSentryClient, installSentryControlListeners } =
   await import("@/lib/sentry/sentry-control");
-const { diagnosticsConsentGranted } = await import("@/lib/sentry/consent-gate");
+const { diagnosticsConsentGranted, diagnosticsReportingResolvedOff } =
+  await import("@/lib/sentry/consent-gate");
 
 const OPTIONS: BrowserOptions = { dsn: "https://public@example.test/1" };
 
@@ -106,6 +112,7 @@ beforeEach(() => {
   closeMock.mockClear();
   selectSentryFlavorMock.mockClear();
   syncDiagnosticsToMainMock.mockReset();
+  disableNativeFailureReportForwardingMock.mockClear();
   readNames.length = 0;
   watchedNames.length = 0;
   deviceWatchCallback = null;
@@ -176,6 +183,33 @@ describe("diagnosticsConsentGranted (composed gate)", () => {
   });
 });
 
+describe("diagnosticsReportingResolvedOff", () => {
+  test("preserves native reports while the platform session is unresolved", () => {
+    platformSession = "unknown";
+    deviceDiagnostics = null;
+    expect(diagnosticsReportingResolvedOff()).toBe(false);
+  });
+
+  test("clears native reports after an explicit opt-out", () => {
+    platformSession = "unknown";
+    deviceDiagnostics = false;
+    expect(diagnosticsReportingResolvedOff()).toBe(true);
+  });
+
+  test("clears native reports after the platform session settles absent", () => {
+    platformSession = "absent";
+    deviceDiagnostics = true;
+    expect(diagnosticsReportingResolvedOff()).toBe(true);
+  });
+
+  test("preserves native reports during an offline-restored session", () => {
+    platformSession = "present";
+    restoredOffline = true;
+    deviceDiagnostics = true;
+    expect(diagnosticsReportingResolvedOff()).toBe(false);
+  });
+});
+
 describe("syncSentryClient", () => {
   test("dispatches through the selected flavor", () => {
     deviceDiagnostics = true;
@@ -184,12 +218,13 @@ describe("syncSentryClient", () => {
     expect(selectSentryFlavorMock).toHaveBeenCalled();
   });
 
-  test("no-ops when dsn is absent (never touches the flavor)", () => {
+  test("dsn absent disables native reporting without touching the flavor", () => {
     deviceDiagnostics = true;
     platformSession = "present";
     syncSentryClient({});
     expect(initMock).not.toHaveBeenCalled();
     expect(closeMock).not.toHaveBeenCalled();
+    expect(disableNativeFailureReportForwardingMock).toHaveBeenCalledTimes(1);
   });
 
   test("confirmed-live session + gate on: inits the flavor when no client is enabled", () => {

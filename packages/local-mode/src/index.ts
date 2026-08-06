@@ -12,6 +12,7 @@ export {
   isLoopbackAddr,
   headerHostIsLoopback,
   originIsAllowed,
+  hasSameOriginCredentialProof,
   resolveDevCliInvocation,
 } from "./util";
 export type { CliInvocation } from "./util";
@@ -30,6 +31,7 @@ export {
 export {
   getLockfileData,
   upsertLockfileAssistant,
+  upsertRendererLockfileAssistant,
   replacePlatformAssistants,
   isActiveAssistant,
   isPairedLockfileEntry,
@@ -61,7 +63,10 @@ export type {
 } from "./status";
 export {
   getGuardianAccessToken,
+  getPairedGuardianAccessToken,
   isConfidentialRefreshUrl,
+  PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
+  PAIRED_GUARDIAN_TARGET_MISMATCH_ERROR,
   saveGuardianToken,
 } from "./guardian-token";
 export type {
@@ -70,6 +75,7 @@ export type {
   GuardianTokenOptions,
 } from "./guardian-token";
 export {
+  authorizePairedForwardHeaders,
   parseGatewayUrl,
   readAllowedGatewayPorts,
   resolveGatewayProxyTarget,
@@ -83,4 +89,6 @@ export type {
   GatewayTarget,
   GatewayParseResult,
   GatewayProxyDecision,
+  PairedForwardAuthorizationResult,
+  PairedGuardianTokenProvider,
 } from "./gateway-proxy";

@@ -60,10 +60,10 @@ const SLACK_MANIFEST_USER_SCOPES = [
 const SLACK_USER_SCOPES_OPTIONAL = ["reactions:read", "search:read"] as const;
 
 /** Slack caps `display_information.name` at 35 characters. */
-const MAX_NAME_LENGTH = 35;
+export const SLACK_APP_NAME_MAX_LENGTH = 35;
 
 /** Slack caps `display_information.description` at 140 characters. */
-const MAX_DESCRIPTION_LENGTH = 140;
+export const SLACK_APP_DESCRIPTION_MAX_LENGTH = 140;
 
 /** Slack caps `features.agent_view.agent_description` at 300 characters. */
 const MAX_AGENT_DESCRIPTION_LENGTH = 300;
@@ -78,12 +78,15 @@ const MAX_AGENT_DESCRIPTION_LENGTH = 300;
  * Keep both in sync when changing scopes, events, or manifest shape.
  */
 export function buildSlackManifest(name: string, desc = "") {
-  const safeName = name.trim().slice(0, MAX_NAME_LENGTH) || "My Assistant";
+  const safeName =
+    name.trim().slice(0, SLACK_APP_NAME_MAX_LENGTH) || "My Assistant";
 
   return {
     display_information: {
       name: safeName,
-      ...(desc ? { description: desc.slice(0, MAX_DESCRIPTION_LENGTH) } : {}),
+      ...(desc
+        ? { description: desc.slice(0, SLACK_APP_DESCRIPTION_MAX_LENGTH) }
+        : {}),
       background_color: "#1a1a2e",
     },
     features: {
