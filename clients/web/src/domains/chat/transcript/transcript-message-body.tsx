@@ -42,6 +42,7 @@ import {
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
 import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
+import { DocumentReopenLink } from "@/domains/chat/transcript/document-reopen-link";
 import { hasRenderableAnswer } from "@/domains/chat/answered-question";
 import { AnsweredQuestionCard } from "@/domains/chat/components/answered-question-card";
 import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
@@ -76,6 +77,7 @@ import {
   acpRunIdForCall,
   resolveAcpRunIds,
   resolveBackgroundTaskIds,
+  resolveChangedDocuments,
   resolveSpawnedSubagentIds,
   resolveWorkflowRunIds,
   SlackMessageAttribution,
@@ -374,6 +376,9 @@ export function TranscriptMessageBody({
   const claimedWorkflowIds = new Set<string>();
   const claimedAcpIds = new Set<string>();
   const claimedBackgroundTaskIds = new Set<string>();
+  // Document surface ids claim in their own namespace. Sharing a Set with the
+  // process kinds above would let an unrelated id suppress a reopen link.
+  const claimedDocumentIds = new Set<string>();
   const cardBackedWorkflowRunId = (tc: ChatMessageToolCall): string | null => {
     const rid = workflowRunIdForCall(tc, byToolUseIdWf);
     return rid !== null && cardBackedWorkflowRunIds.has(rid) ? rid : null;
@@ -1102,6 +1107,25 @@ export function TranscriptMessageBody({
         })
       : renderedGroups;
 
+  // Resolved after the group render pass, so every inline affordance has taken
+  // its claims first. Without a handler the link opens nothing, so it does not
+  // render.
+  const documentReopenLinks =
+    isAssistant && onOpenDocument
+      ? resolveChangedDocuments(
+          message.toolCalls ?? [],
+          claimedDocumentIds,
+        ).map((surfaceId) => (
+          <DocumentReopenLink
+            key={`document-reopen-${surfaceId}`}
+            surfaceId={surfaceId}
+            assistantId={assistantId}
+            conversationId={conversationId}
+            onOpenDocument={onOpenDocument}
+          />
+        ))
+      : null;
+
   return (
     <div
       ref={wrapperRef}
@@ -1128,6 +1152,9 @@ export function TranscriptMessageBody({
             messageId={message.id}
           />
         )}
+        {/* Outside the `AssistantContentDisclosure` collapse, so a turn whose
+            document edit lands in "Earlier activity" still ends with the link. */}
+        {documentReopenLinks}
         {trailer}
       </div>
       {vellumFileModal}
