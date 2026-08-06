@@ -64,10 +64,7 @@ function testArchitectureSelection() {
 function argValue(flag: string) {
   const index = process.argv.indexOf(flag);
   const inline = process.argv.find((arg) => arg.startsWith(`${flag}=`));
-  return (
-    inline?.slice(flag.length + 1) ??
-    (index >= 0 ? process.argv[index + 1] : undefined)
-  );
+  return inline?.slice(flag.length + 1) ?? (index >= 0 ? process.argv[index + 1] : undefined);
 }
 
 async function run(command: string[]) {
@@ -79,31 +76,6 @@ async function run(command: string[]) {
   if ((await child.exited) !== 0) {
     throw new Error(`Command failed: ${command.join(" ")}`);
   }
-}
-
-async function runMsbuild(
-  executable: string,
-  project: string,
-  platform: string,
-  configuration: string,
-) {
-  await run([
-    executable,
-    project,
-    `/p:Configuration=${configuration}`,
-    `/p:Platform=${platform}`,
-    "/m",
-  ]);
-}
-
-function findMsbuild() {
-  const path = process.env.MSBUILD_EXE_PATH ?? Bun.which("msbuild");
-  if (!path) {
-    throw new Error(
-      "MSBuild is required in PATH (run from a Visual Studio developer shell)",
-    );
-  }
-  return path;
 }
 
 async function portableTest() {
@@ -143,12 +115,19 @@ async function main() {
       "Preview handler builds require Windows; use --native-test for the portable parser suite",
     );
   }
-  const msbuild = findMsbuild();
+  const msbuild = process.env.MSBUILD_EXE_PATH ?? Bun.which("msbuild");
+  if (!msbuild) {
+    throw new Error("MSBuild is required in a Visual Studio developer shell");
+  }
   for (const architecture of resolveArchitectures(argValue("--arch"))) {
     const platform = architecture === "arm64" ? "ARM64" : "x64";
     const project = join(handlerRoot, "Vellum.PreviewHandler.vcxproj");
-    await runMsbuild(msbuild, project, platform, "Release");
-    await runMsbuild(msbuild, project, platform, "Tests");
+    await run([
+      msbuild, project, "/p:Configuration=Release", `/p:Platform=${platform}`, "/m",
+    ]);
+    await run([
+      msbuild, project, "/p:Configuration=Tests", `/p:Platform=${platform}`, "/m",
+    ]);
     const output = join(handlerRoot, "build", platform, "Release");
     await writeFile(
       join(output, "registration.json"),

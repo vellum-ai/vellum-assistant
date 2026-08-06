@@ -1,4 +1,5 @@
 #pragma once
+#include <ocidl.h>
 #include <shobjidl.h>
 #include <windows.h>
 #include <atomic>

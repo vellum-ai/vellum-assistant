@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <new>
 #include <vector>
+#include <wrl/client.h>
+using Microsoft::WRL::ComPtr;
 std::atomic<long> gModuleRefs{0};
 const CLSID CLSID_VellumPreview = {
     0x5888df89, 0x8ad1, 0x4d76,
@@ -42,6 +44,7 @@ HRESULT LoadBundle(IStream* stream, vellum::BundleResult& bundle) {
 }
 class PreviewHandler final : public IPreviewHandler,
                              public IInitializeWithStream,
+                             public IObjectWithSite,
                              public IOleWindow,
                              public RefCounted {
  public:
@@ -55,6 +58,8 @@ class PreviewHandler final : public IPreviewHandler,
       *value = static_cast<IPreviewHandler*>(this);
     } else if (id == IID_IInitializeWithStream) {
       *value = static_cast<IInitializeWithStream*>(this);
+    } else if (id == IID_IObjectWithSite) {
+      *value = static_cast<IObjectWithSite*>(this);
     } else if (id == IID_IOleWindow) {
       *value = static_cast<IOleWindow*>(this);
     }
@@ -66,6 +71,21 @@ class PreviewHandler final : public IPreviewHandler,
   }
   ULONG STDMETHODCALLTYPE AddRef() override { return AddRefImpl(); }
   ULONG STDMETHODCALLTYPE Release() override { return ReleaseImpl(); }
+  HRESULT STDMETHODCALLTYPE SetSite(IUnknown* site) override {
+    site_ = site;
+    frame_.Reset();
+    if (site != nullptr) {
+      site->QueryInterface(IID_PPV_ARGS(&frame_));
+    }
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE GetSite(REFIID id, void** value) override {
+    if (value == nullptr) {
+      return E_POINTER;
+    }
+    *value = nullptr;
+    return site_ ? site_->QueryInterface(id, value) : E_FAIL;
+  }
   HRESULT STDMETHODCALLTYPE Initialize(IStream* stream, DWORD) override {
     if (initialized_) {
       return HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED);
@@ -142,7 +162,9 @@ class PreviewHandler final : public IPreviewHandler,
     *window = GetFocus();
     return S_OK;
   }
-  HRESULT STDMETHODCALLTYPE TranslateAccelerator(MSG*) override { return S_FALSE; }
+  HRESULT STDMETHODCALLTYPE TranslateAccelerator(MSG* message) override {
+    return frame_ ? frame_->TranslateAccelerator(message) : S_FALSE;
+  }
   HRESULT STDMETHODCALLTYPE GetWindow(HWND* window) override {
     if (window == nullptr) {
       return E_POINTER;
@@ -153,6 +175,8 @@ class PreviewHandler final : public IPreviewHandler,
   HRESULT STDMETHODCALLTYPE ContextSensitiveHelp(BOOL) override { return E_NOTIMPL; }
  private:
   bool initialized_ = false;
+  ComPtr<IUnknown> site_;
+  ComPtr<IPreviewHandlerFrame> frame_;
   vellum::BundleResult bundle_;
   HWND parent_ = nullptr;
   HWND window_ = nullptr;

@@ -97,7 +97,7 @@ bool Extract(const std::uint8_t* data, std::size_t size, const Entry& entry,
   return crc32(0, output.data(), static_cast<uInt>(output.size())) == entry.crc;
 }
 bool StringField(const nlohmann::json& json, const char* key,
-                 std::size_t limit, std::string& output, bool required) {
+                 std::string& output, bool required) {
   const auto item = json.find(key);
   if (item == json.end()) {
     return !required;
@@ -106,7 +106,7 @@ bool StringField(const nlohmann::json& json, const char* key,
     return false;
   }
   output = item->get<std::string>();
-  return output.size() <= limit && (!required || !output.empty());
+  return !required || !output.empty();
 }
 bool ParseManifest(const std::vector<std::uint8_t>& bytes,
                    BundleMetadata& metadata) {
@@ -118,12 +118,12 @@ bool ParseManifest(const std::vector<std::uint8_t>& bytes,
     return false;
   }
   std::string createdAt;
-  return StringField(json, "name", 256, metadata.name, true) &&
-         StringField(json, "created_at", 128, createdAt, true) &&
-         StringField(json, "created_by", 256, metadata.createdBy, true) &&
-         StringField(json, "entry", 512, metadata.entry, true) &&
-         StringField(json, "description", 2048, metadata.description, false) &&
-         StringField(json, "version", 128, metadata.version, false) &&
+  return StringField(json, "name", metadata.name, true) &&
+         StringField(json, "created_at", createdAt, true) &&
+         StringField(json, "created_by", metadata.createdBy, true) &&
+         StringField(json, "entry", metadata.entry, true) &&
+         StringField(json, "description", metadata.description, false) &&
+         StringField(json, "version", metadata.version, false) &&
          SafePath(metadata.entry);
 }
 BundleResult ReadBundleImpl(const std::uint8_t* data, std::size_t size) {
