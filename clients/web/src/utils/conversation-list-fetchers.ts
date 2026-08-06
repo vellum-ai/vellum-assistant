@@ -569,9 +569,17 @@ export const SYSTEM_ALL_GROUP_ID = "system:all";
  * Fetch every active conversation matching one section's filter: Pinned, a
  * custom group, the ungrouped remainder, or a channel within it.
  *
- * Drained in full rather than paginated. A section that shows only its first
- * page is a section whose unread indicator and bulk actions silently exclude
- * the rest of its own contents.
+ * Drained rather than paginated. A section that shows only its first page is
+ * a section whose unread indicator and bulk actions silently exclude the rest
+ * of its own contents.
+ *
+ * "Drained" means up to `CONVERSATION_LIST_MAX_PAGES` pages
+ * (200 x 50 = 10,000 rows), the shared watchdog bound on every list drain, and
+ * the loop stops there without signalling truncation. Pinned and custom groups
+ * do not realistically reach it. `system:all` is the ungrouped remainder, so on
+ * a heavy account it is the one section that can, and past 10,000 rows its
+ * unread indicator and bulk actions describe only the prefix. Lifting that
+ * needs a windowed section list, not a bigger cap.
  *
  * Deliberately unsorted: a group-scoped response already arrives in the
  * user's own arrangement (display order, then recency), so re-sorting by
