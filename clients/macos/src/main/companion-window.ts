@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import type { CompanionAnchor, CompanionSurfaceState } from "@vellumai/ipc-contract";
 
+import { getAvatarPng, onAvatarChange } from "./avatar";
 import { createFloatingWindow, getFloatingWindow } from "./floating-window";
 import { handle, on } from "./ipc";
 
@@ -20,9 +21,11 @@ import { handle, on } from "./ipc";
  * **Non-activating**, through `createFloatingWindow`'s `type: "panel"` and
  * `frame: false` / `transparent: true`. Clicking it must never pull Vellum
  * forward: the surface exists precisely for when the user is working somewhere
- * else. That transparency is also what makes the vibrancy material visible;
- * LUM-3073 shipped a whole build whose material was hidden behind an opaque
- * window backing.
+ * else.
+ *
+ * **No vibrancy**, deliberately. See the note at the `browserWindow` options:
+ * a window's material fills the window, and this window is a canvas many times
+ * the size of the pill.
  */
 
 const COMPANION_KIND = "companion";
@@ -54,7 +57,22 @@ const CANVAS_HEIGHT = AVATAR_BOX + CANVAS_PAD * 2;
 /** Gap from the work area's bottom-right on the first ever launch. */
 const DEFAULT_MARGIN = 24;
 
-let state: CompanionSurfaceState = { anchor: "center" };
+let anchor: CompanionAnchor = "center";
+
+/**
+ * The state the renderer sees, rebuilt on demand.
+ *
+ * The avatar is read from the cache main already keeps for the Dock and Tray
+ * rather than carried separately, so the surface cannot show a different
+ * assistant from the icon sitting next to it in the Dock.
+ */
+const currentState = (): CompanionSurfaceState => {
+  const png = getAvatarPng();
+  return {
+    anchor,
+    avatarBase64: png === null ? undefined : png.toString("base64"),
+  };
+};
 
 /**
  * Which way the pill may grow, from where the avatar actually sits.
@@ -105,7 +123,7 @@ const defaultCanvasOrigin = (): { x: number; y: number } => {
 const pushState = (): void => {
   const win = getFloatingWindow(COMPANION_KIND);
   if (win) {
-    win.webContents.send("vellum:companion:state", state);
+    win.webContents.send("vellum:companion:state", currentState());
   }
 };
 
@@ -122,10 +140,10 @@ const refreshAnchor = (): void => {
     y: Math.round(y + CANVAS_HEIGHT / 2),
   });
   const next = anchorFor(avatarCentreX, workArea);
-  if (next === state.anchor) {
+  if (next === anchor) {
     return;
   }
-  state = { anchor: next };
+  anchor = next;
   pushState();
 };
 
@@ -163,9 +181,31 @@ export const installCompanionWindow = (): void => {
     setInteractive(next);
   });
 
+  // Dragging the surface. The renderer sends deltas rather than absolute
+  // positions because it is the side holding the pointer, and main is the side
+  // that knows where the window currently is. Moving fires `move`, which
+  // recomputes the anchor, so dragging toward a screen edge flips the growth
+  // before the user gets there.
+  on(
+    "vellum:companion:moveBy",
+    z.tuple([z.number(), z.number()]),
+    ([dx, dy]) => {
+      const win = getFloatingWindow(COMPANION_KIND);
+      if (!win || win.isDestroyed()) {
+        return;
+      }
+      const [x, y] = win.getPosition();
+      win.setPosition(Math.round(x + dx), Math.round(y + dy));
+    },
+  );
+
+  // One avatar feeds every surface, so a change to the Dock icon is a change
+  // here too.
+  onAvatarChange(pushState);
+
   // The route loads lazily after the window is created, so a state pushed
   // before its subscription registers is dropped. It pulls this once mounted.
-  handle("vellum:companion:getState", z.tuple([]), () => state);
+  handle("vellum:companion:getState", z.tuple([]), () => currentState());
 };
 
 export const openCompanionWindow = (): void => {

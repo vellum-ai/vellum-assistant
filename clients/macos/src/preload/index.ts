@@ -635,6 +635,9 @@ const bridge: VellumBridge = {
     setInteractive: (interactive: boolean): void => {
       ipcRenderer.send("vellum:companion:setInteractive", interactive);
     },
+    moveBy: (dx: number, dy: number): void => {
+      ipcRenderer.send("vellum:companion:moveBy", dx, dy);
+    },
   },
   popout: {
     open: (conversationId: string): Promise<void> =>

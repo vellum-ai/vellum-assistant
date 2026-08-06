@@ -562,4 +562,12 @@ export type CompanionAnchor = (typeof COMPANION_ANCHORS)[number];
 /** What main tells the companion renderer. */
 export interface CompanionSurfaceState {
   anchor: CompanionAnchor;
+  /**
+   * The assistant's avatar as a base64 PNG, or `undefined` when there is none.
+   *
+   * Reuses the cache main already keeps for the Dock and Tray icons, which the
+   * renderer publishes over `vellum:icon:setAvatar`. One avatar feeds every
+   * surface, so the companion cannot drift from the icon in the Dock beside it.
+   */
+  avatarBase64?: string;
 }

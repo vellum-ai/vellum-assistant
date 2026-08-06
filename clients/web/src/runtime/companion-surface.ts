@@ -50,3 +50,13 @@ export function subscribeCompanionState(
 export function setCompanionInteractive(interactive: boolean): void {
   bridge()?.setInteractive?.(interactive);
 }
+
+/**
+ * Nudge the window by a pointer delta, for dragging the surface around.
+ *
+ * Deltas rather than an absolute position: the page is the side holding the
+ * pointer, and main is the side that knows where the window currently is.
+ */
+export function moveCompanionBy(dx: number, dy: number): void {
+  bridge()?.moveBy?.(dx, dy);
+}

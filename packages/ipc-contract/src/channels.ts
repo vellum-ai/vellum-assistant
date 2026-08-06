@@ -150,6 +150,7 @@ export const VOICE_ACTIVITY_SET_COLLAPSED =
 export const COMPANION_GET_STATE = "vellum:companion:getState";
 export const COMPANION_STATE_EVENT = "vellum:companion:state";
 export const COMPANION_SET_INTERACTIVE = "vellum:companion:setInteractive";
+export const COMPANION_MOVE_BY = "vellum:companion:moveBy";
 
 // Popout
 export const POPOUT_OPEN = "vellum:popout:open";

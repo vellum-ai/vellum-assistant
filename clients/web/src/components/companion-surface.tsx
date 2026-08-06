@@ -1,5 +1,10 @@
 import { AudioLines, Mic, MessageSquareText, Volume2, X } from "lucide-react";
-import type { CSSProperties, ReactNode, Ref } from "react";
+import type {
+  CSSProperties,
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+  Ref,
+} from "react";
 
 /**
  * The macOS companion surface (LUM-3086): the assistant's avatar floating from
@@ -120,6 +125,8 @@ export interface CompanionSurfaceProps {
    * restating the geometry at the call site.
    */
   rootRef?: Ref<HTMLDivElement>;
+  /** Begin a drag. The avatar is the handle; the controls are not. */
+  onAvatarMouseDown?: (event: ReactMouseEvent<HTMLDivElement>) => void;
 }
 
 export function CompanionSurface({
@@ -131,6 +138,7 @@ export function CompanionSurface({
   onHoverEnd,
   anchor = "center",
   rootRef,
+  onAvatarMouseDown,
 }: CompanionSurfaceProps) {
   const expanded = phase !== "resting";
   const width = WIDTHS[phase];
@@ -168,9 +176,10 @@ export function CompanionSurface({
         accentHex={accentHex}
         avatarSrc={avatarSrc}
         onMouseEnter={onHoverStart}
+        onMouseDown={onAvatarMouseDown}
       />
       <div
-        className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden pr-2 transition-opacity duration-200"
+        className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden transition-opacity duration-200"
         style={{
           opacity: expanded ? 1 : 0,
           // Contents fade after the body has somewhere to put them, so nothing
@@ -197,16 +206,19 @@ function Avatar({
   accentHex,
   avatarSrc,
   onMouseEnter,
+  onMouseDown,
 }: {
   glow: boolean;
   accentHex: string;
   avatarSrc?: string;
   onMouseEnter?: () => void;
+  onMouseDown?: (event: ReactMouseEvent<HTMLDivElement>) => void;
 }) {
   return (
     <div
-      className="relative grid size-11 shrink-0 place-items-center"
+      className="relative grid size-11 shrink-0 cursor-grab place-items-center active:cursor-grabbing"
       onMouseEnter={onMouseEnter}
+      onMouseDown={onMouseDown}
     >
       {glow && (
         <span

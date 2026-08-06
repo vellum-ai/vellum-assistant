@@ -320,6 +320,8 @@ export interface VellumBridge {
     getState(): Promise<CompanionSurfaceState | null>;
     onState(callback: (state: CompanionSurfaceState) => void): () => void;
     setInteractive(interactive: boolean): void;
+    /** Nudge the window, for dragging the surface around the desktop. */
+    moveBy(dx: number, dy: number): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;
