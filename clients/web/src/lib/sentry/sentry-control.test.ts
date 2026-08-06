@@ -97,7 +97,8 @@ mock.module("@/stores/auth-store", () => ({
 
 const { syncSentryClient, installSentryControlListeners } =
   await import("@/lib/sentry/sentry-control");
-const { diagnosticsConsentGranted } = await import("@/lib/sentry/consent-gate");
+const { diagnosticsConsentGranted, diagnosticsReportingResolvedOff } =
+  await import("@/lib/sentry/consent-gate");
 
 const OPTIONS: BrowserOptions = { dsn: "https://public@example.test/1" };
 
@@ -173,6 +174,33 @@ describe("diagnosticsConsentGranted (composed gate)", () => {
     expect(diagnosticsConsentGranted()).toBe(true);
     deviceDiagnostics = false;
     expect(diagnosticsConsentGranted()).toBe(false);
+  });
+});
+
+describe("diagnosticsReportingResolvedOff", () => {
+  test("preserves native reports while the platform session is unresolved", () => {
+    platformSession = "unknown";
+    deviceDiagnostics = null;
+    expect(diagnosticsReportingResolvedOff()).toBe(false);
+  });
+
+  test("clears native reports after an explicit opt-out", () => {
+    platformSession = "unknown";
+    deviceDiagnostics = false;
+    expect(diagnosticsReportingResolvedOff()).toBe(true);
+  });
+
+  test("clears native reports after the platform session settles absent", () => {
+    platformSession = "absent";
+    deviceDiagnostics = true;
+    expect(diagnosticsReportingResolvedOff()).toBe(true);
+  });
+
+  test("preserves native reports during an offline-restored session", () => {
+    platformSession = "present";
+    restoredOffline = true;
+    deviceDiagnostics = true;
+    expect(diagnosticsReportingResolvedOff()).toBe(false);
   });
 });
 

@@ -3,6 +3,7 @@ import { expect, mock, test } from "bun:test";
 let isAndroid = false;
 let isAvailable = false;
 let consent = false;
+let reportingResolvedOff = false;
 let reports: Array<{
   message: string;
   exceptionType: string;
@@ -40,6 +41,7 @@ mock.module("@capacitor/core", () => ({
 }));
 mock.module("@/lib/sentry/consent-gate", () => ({
   diagnosticsConsentGranted: () => consent,
+  diagnosticsReportingResolvedOff: () => reportingResolvedOff,
 }));
 mock.module("@/lib/sentry/capture-error", () => ({
   captureError: captureErrorMock,
@@ -108,6 +110,10 @@ test("forwards queued Android failures only while diagnostics reporting is enabl
   await flushPendingNativeFailureReports();
   expect(drainMock).toHaveBeenCalledTimes(2);
 
+  await stopNativeFailureReportForwarding();
+  expect(setEnabledMock).not.toHaveBeenCalledWith({ enabled: false });
+
+  reportingResolvedOff = true;
   await stopNativeFailureReportForwarding();
   expect(setEnabledMock).toHaveBeenLastCalledWith({ enabled: false });
 });

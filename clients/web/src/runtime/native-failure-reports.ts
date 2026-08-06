@@ -4,7 +4,10 @@ import {
   type PluginListenerHandle,
 } from "@capacitor/core";
 
-import { diagnosticsConsentGranted } from "@/lib/sentry/consent-gate";
+import {
+  diagnosticsConsentGranted,
+  diagnosticsReportingResolvedOff,
+} from "@/lib/sentry/consent-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { isNativeAndroid } from "@/runtime/platform-detection";
 
@@ -107,7 +110,7 @@ export async function startNativeFailureReportForwarding(): Promise<void> {
 }
 
 export async function stopNativeFailureReportForwarding(): Promise<void> {
-  if (!isAvailable()) {
+  if (!isAvailable() || !diagnosticsReportingResolvedOff()) {
     return;
   }
   try {
