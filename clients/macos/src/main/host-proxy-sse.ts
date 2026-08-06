@@ -12,7 +12,7 @@
 
 import { hostname } from "node:os";
 
-import { getDeviceId } from "./device-id";
+import { getDeviceId } from "@vellumai/electron-desktop/device-id";
 
 export interface HostProxySseOptions {
   /** Full URL for the events endpoint. */

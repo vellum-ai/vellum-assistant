@@ -15,7 +15,7 @@
  * via the optional refreshAuth callback and retries once.
  */
 
-import { getDeviceId } from "./device-id";
+import { getDeviceId } from "@vellumai/electron-desktop/device-id";
 // Type-only, so this stays erased at compile time and the poster picks up no
 // runtime dependency on electron from the presence module.
 import type { PresenceState } from "./presence";

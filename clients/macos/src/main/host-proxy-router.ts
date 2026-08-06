@@ -33,7 +33,7 @@ import { hostCuExecutor } from "./executors/host-cu-executor";
 import { hostAppControlExecutor } from "./executors/host-app-control-executor";
 import { hostUiSnapshotExecutor } from "./executors/host-ui-snapshot-executor";
 import { shutdownSharedCuHelper } from "./sidecar/shared-cu-helper";
-import { getSessionToken } from "./session-token-store";
+import { getSessionToken } from "./session-token-store.client";
 import { installPresenceMonitor, type PresenceState } from "./presence";
 import log from "./logger";
 

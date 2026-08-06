@@ -2,7 +2,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 // Stub device-id so we don't touch the filesystem.
 const MOCK_DEVICE_ID = "test-device-00000000-0000-0000-0000-000000000000";
-mock.module("./device-id", () => ({
+mock.module("@vellumai/electron-desktop/device-id", () => ({
   getDeviceId: () => MOCK_DEVICE_ID,
 }));
 

@@ -25,9 +25,11 @@ fs.writeFileSync(
 );
 
 // Import device-id first so the cache is seeded, then import the poster.
-const { resetDeviceIdCache } = await import("./device-id");
+const { resetDeviceIdCache } = await import(
+  "@vellumai/electron-desktop/device-id"
+);
 resetDeviceIdCache();
-const { getDeviceId } = await import("./device-id");
+const { getDeviceId } = await import("@vellumai/electron-desktop/device-id");
 // Prime the cache with our fake ID
 getDeviceId();
 
