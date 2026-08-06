@@ -163,6 +163,13 @@ export function useSuppressCreditBannersForByok(
       query: usageWindow,
     }),
     enabled: candidate && burnsManaged === false,
+    // Managed spend can also happen outside conversation turns (speech,
+    // background call-sites in other clients), which no turn-end
+    // invalidation covers, so poll while enabled. The query is only enabled
+    // in the rare exhausted-or-low BYOK state, so the interval costs nothing
+    // on the healthy path and bounds how long a cached zero can keep
+    // suppressing after such a burn.
+    refetchInterval: 5 * 60_000,
   });
 
   if (!candidate) {
