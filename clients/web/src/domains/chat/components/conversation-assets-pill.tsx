@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppWindow, FileText, Layers } from "lucide-react";
+import { useReducedMotion } from "motion/react";
 import {
   useCallback,
   useEffect,
@@ -35,8 +36,12 @@ import { useAppDelete } from "@/hooks/use-app-delete";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
+import { cn } from "@/utils/misc";
 
 export const ASSETS_PILL_UNSEEN_DOT_TESTID = "assets-pill-unseen-dot";
+
+/** Bounded attention pulse defined in `src/index.css`. */
+export const ASSETS_PILL_UNSEEN_DOT_PULSE_CLASS = "unseen-dot-pulse";
 
 interface ConversationAsset {
   id: string;
@@ -142,6 +147,7 @@ export function ConversationAssetsPill({
   }, [conversationId]);
 
   const isMobile = useIsMobile();
+  const reduceMotion = useReducedMotion();
   const hasUnseenChanges = useHasUnseenDocumentChanges(conversationId);
   const clearConversation =
     useUnseenDocumentChangesStore.use.clearConversation();
@@ -183,14 +189,18 @@ export function ConversationAssetsPill({
 
   // Same dot as the notifications bell in this header cluster: ringed in the
   // color of the surface behind it so the ring reads as a gap carved out of
-  // the icon.
+  // the icon. The dot mounts only while changes are unseen, so the CSS pulse
+  // runs on appearance and needs no restart bookkeeping.
   const layersIcon = (
     <span className="relative flex" aria-hidden>
       <Layers />
       {hasUnseenChanges ? (
         <span
           data-testid={ASSETS_PILL_UNSEEN_DOT_TESTID}
-          className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)] touch-mobile:border-[var(--surface-lift)]"
+          className={cn(
+            "absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)] touch-mobile:border-[var(--surface-lift)]",
+            !reduceMotion && ASSETS_PILL_UNSEEN_DOT_PULSE_CLASS,
+          )}
         />
       ) : null}
     </span>
