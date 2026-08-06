@@ -181,10 +181,7 @@ BundleResult ReadBundleImpl(const std::uint8_t* data, std::size_t size) {
         (entry.method != 0 && entry.method != 8)) {
       return Fail(BundleError::UnsupportedArchive);
     }
-    if (entry.name == "icon.png" && entry.uncompressed > kMaxIcon) {
-      return Fail(BundleError::OversizedImage);
-    }
-    expanded += entry.uncompressed;
+    expanded += entry.name == "icon.png" && entry.uncompressed > kMaxIcon ? 0 : entry.uncompressed;
     if (expanded > kMaxBundle || expanded > size * 100ULL) {
       return Fail(BundleError::BoundsExceeded);
     }
@@ -218,7 +215,7 @@ BundleResult ReadBundleImpl(const std::uint8_t* data, std::size_t size) {
       std::find(names.begin(), names.end(), result.metadata.entry) == names.end()) {
     return Fail(BundleError::MalformedManifest);
   }
-  if (!hasIcon) {
+  if (!hasIcon || icon.uncompressed > kMaxIcon) {
     return result;
   }
   if (!Extract(data, size, icon, kMaxIcon, result.iconPng)) {

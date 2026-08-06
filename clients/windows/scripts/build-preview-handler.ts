@@ -41,10 +41,7 @@ export function registrationMetadata(architecture: PreviewArchitecture) {
         appId: "{534A1E02-D58F-44F0-B58B-36CBED287C7C}",
         threadingModel: "Apartment",
       },
-      [thumbnailClsid]: {
-        name: "Vellum Bundle Thumbnail",
-        threadingModel: "Apartment",
-      },
+      [thumbnailClsid]: { name: "Vellum Bundle Thumbnail", threadingModel: "Apartment" },
     },
     associations: {
       "{8895B1C6-B41F-4C1C-A562-0D564250836F}": previewClsid,
@@ -79,8 +76,17 @@ async function run(command: string[]) {
 }
 
 async function portableTest() {
+  const vcpkgRoot = process.env.VCPKG_ROOT ?? process.env.VCPKG_INSTALLATION_ROOT;
+  const vcpkg = vcpkgRoot ? join(vcpkgRoot, "vcpkg") : Bun.which("vcpkg");
+  if (!vcpkg) {
+    throw new Error("vcpkg is required for portable parser tests");
+  }
+  const triplet = `${process.arch}-${process.platform === "darwin" ? "osx" : "linux"}`;
   const scratch = await mkdtemp(join(tmpdir(), "vellum-preview-test-"));
+  const installed = join(scratch, "vcpkg");
   try {
+    await run([vcpkg, "install", `--x-manifest-root=${handlerRoot}`,
+      `--x-install-root=${installed}`, `--triplet=${triplet}`]);
     const executable = join(scratch, "BundleReaderTests");
     await run([
       "c++",
@@ -91,6 +97,8 @@ async function portableTest() {
       join(handlerRoot, "BundleReader.cpp"),
       join(nativeRoot, "Vellum.PreviewHandler.Tests", "BundleReaderTests.cpp"),
       `-I${handlerRoot}`,
+      `-I${join(installed, triplet, "include")}`,
+      `-L${join(installed, triplet, "lib")}`,
       "-lz",
       "-o",
       executable,
@@ -111,9 +119,7 @@ async function main() {
       await portableTest();
       return;
     }
-    throw new Error(
-      "Preview handler builds require Windows; use --native-test for the portable parser suite",
-    );
+    throw new Error("Preview handler builds require Windows; use --native-test for the portable parser suite");
   }
   const msbuild = process.env.MSBUILD_EXE_PATH ?? Bun.which("msbuild");
   if (!msbuild) {

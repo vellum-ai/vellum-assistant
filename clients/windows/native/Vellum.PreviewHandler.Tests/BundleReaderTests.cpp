@@ -33,10 +33,10 @@ int main(int argc, char** argv) {
   passed &= Expect("golden name", valid.metadata.name == "Golden App");
   passed &= Expect("golden entry", valid.metadata.entry == "index.html");
   passed &= Expect("golden icon", !valid.iconPng.empty());
+  passed &= Expect("oversized icon ignored", static_cast<bool>(Parse(root, "oversized-image.vellum")));
   const std::pair<const char*, vellum::BundleError> failures[] = {
       {"malformed.vellum", vellum::BundleError::InvalidArchive},
       {"traversal.vellum", vellum::BundleError::Traversal},
-      {"oversized-image.vellum", vellum::BundleError::OversizedImage},
       {"missing-manifest.vellum", vellum::BundleError::MissingManifest},
       {"malformed-manifest.vellum", vellum::BundleError::MalformedManifest},
   };
