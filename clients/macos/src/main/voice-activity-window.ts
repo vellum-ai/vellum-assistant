@@ -269,12 +269,41 @@ const ensurePanel = (): BrowserWindow => {
  * it does not activate the app, and therefore does not fire either event.
  * The behavior the exclusion was hand-rolling is what these give for free.
  *
- * Seeded in `installVoiceActivityWindow` rather than here. The seed reads an
- * Electron API, and a module scope that calls one runs it at import time,
- * before `app.whenReady()` and before any test has a chance to say what it
- * should return.
+ * **Until the first of those events lands there is nothing to report**, and
+ * the honest answer then is whatever the window server says right now. A
+ * launch that macOS activated before this module was installed has already
+ * missed its `did-become-active`, and nothing else will fire until the user
+ * switches away and back, so a tracker that assumed "not frontmost" would open
+ * the panel over a focused app for the whole first session. Asking at the
+ * moment the question is put is what makes this independent of where in the
+ * startup sequence the install happens to sit, and of whether a window existed
+ * when it did.
+ *
+ * Injected rather than read directly so the fallback has a seam to be tested
+ * through, which the sequencing bug this replaces went unnoticed for want of.
  */
-let appFrontmost = false;
+export const createFrontmostTracker = (
+  anyWindowFocused: () => boolean,
+): {
+  isFrontmost: () => boolean;
+  becameActive: () => void;
+  resignedActive: () => void;
+} => {
+  let observed = false;
+  let frontmost = false;
+
+  return {
+    isFrontmost: () => (observed ? frontmost : anyWindowFocused()),
+    becameActive: () => {
+      observed = true;
+      frontmost = true;
+    },
+    resignedActive: () => {
+      observed = true;
+      frontmost = false;
+    },
+  };
+};
 
 let installed = false;
 
@@ -284,9 +313,9 @@ export const installVoiceActivityWindow = (): void => {
   }
   installed = true;
 
-  // Install runs after `app.whenReady()`, so a focused window here means the
-  // app is active. The two activation events correct it from then on.
-  appFrontmost = BrowserWindow.getFocusedWindow() !== null;
+  const frontmost = createFrontmostTracker(
+    () => BrowserWindow.getFocusedWindow() !== null,
+  );
 
   const controller = createVoiceActivityController({
     showPanel: () => {
@@ -301,7 +330,7 @@ export const installVoiceActivityWindow = (): void => {
     sendState: (state) => {
       panelWindow()?.webContents.send("vellum:voiceActivity:state", state);
     },
-    isAppFrontmost: () => appFrontmost,
+    isAppFrontmost: frontmost.isFrontmost,
     now: () => Date.now(),
   });
 
@@ -362,11 +391,11 @@ export const installVoiceActivityWindow = (): void => {
   // once per actual application activation, so there is no blur/focus gap to
   // ride out and nothing to coalesce.
   app.on("did-become-active", () => {
-    appFrontmost = true;
+    frontmost.becameActive();
     controller.focusChanged();
   });
   app.on("did-resign-active", () => {
-    appFrontmost = false;
+    frontmost.resignedActive();
     controller.focusChanged();
   });
 };

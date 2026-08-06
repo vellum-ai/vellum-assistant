@@ -23,7 +23,7 @@ mock.module("electron-store", () => ({
 
 // Dynamic, so the mock above is installed before the module graph loads:
 // static imports hoist above it. Same pattern as `window-state.test.ts`.
-const { createVoiceActivityController } =
+const { createVoiceActivityController, createFrontmostTracker } =
   await import("./voice-activity-window");
 
 const CONTENT: VoiceActivityContent = {
@@ -213,5 +213,54 @@ describe("createVoiceActivityController", () => {
     });
 
     expect(h.sent.at(-1)).toMatchObject({ approvalRequestId: "req-42" });
+  });
+});
+
+describe("createFrontmostTracker", () => {
+  test("falls back to the window server before any activation event", () => {
+    const focused = createFrontmostTracker(() => true);
+    const unfocused = createFrontmostTracker(() => false);
+
+    expect(focused.isFrontmost()).toBe(true);
+    expect(unfocused.isFrontmost()).toBe(false);
+  });
+
+  test("a launch that activated before install still reads as frontmost", () => {
+    // The install runs before `installMainWindow`, so at install time there is
+    // no window to focus and the launch's `did-become-active` has already
+    // fired. A tracker that latched "not frontmost" there would open the panel
+    // over a focused app for the whole first session.
+    let windowExists = false;
+    const tracker = createFrontmostTracker(() => windowExists);
+
+    expect(tracker.isFrontmost()).toBe(false);
+
+    windowExists = true;
+
+    expect(tracker.isFrontmost()).toBe(true);
+  });
+
+  test("activation events win over the fallback once one lands", () => {
+    // The fallback asks which window holds key status, which is the question
+    // the events exist to stop this from depending on: a non-activating panel
+    // can hold key while the app is genuinely in the background.
+    const tracker = createFrontmostTracker(() => true);
+
+    tracker.resignedActive();
+
+    expect(tracker.isFrontmost()).toBe(false);
+  });
+
+  test("tracks activation back and forth", () => {
+    const tracker = createFrontmostTracker(() => false);
+
+    tracker.becameActive();
+    expect(tracker.isFrontmost()).toBe(true);
+
+    tracker.resignedActive();
+    expect(tracker.isFrontmost()).toBe(false);
+
+    tracker.becameActive();
+    expect(tracker.isFrontmost()).toBe(true);
   });
 });
