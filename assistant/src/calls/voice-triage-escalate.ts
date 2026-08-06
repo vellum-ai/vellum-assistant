@@ -108,8 +108,13 @@ export const MIN_SPOKEN_BRIDGE_CHARS = 3;
  */
 export const MAX_ESCALATION_BRIDGE_CHARS = 140;
 
-/** Sentence terminators that end an escalation bridge. */
-const BRIDGE_SENTENCE_END_REGEX = /[.!?…]/;
+/**
+ * Sentence terminators that end an escalation bridge, including the
+ * non-Latin enders the localized bridges use (the set mirrors
+ * tts/speakable-segments.ts). Without them a Japanese or Hindi bridge never
+ * hits a terminator and buffers to the char cap before hand-off.
+ */
+const BRIDGE_SENTENCE_END_REGEX = /[.!?…。｡！？．।॥؟۔]/;
 
 /**
  * Normalize a raw post-`[1]` stream into the bridge that is actually
