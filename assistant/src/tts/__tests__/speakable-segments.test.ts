@@ -5,6 +5,12 @@ import { extractSpeakableSegments } from "../speakable-segments.js";
 const DEFAULT_CHAR_THRESHOLD = 180;
 const EAGER_CHAR_THRESHOLD = 60;
 
+// The compile target's lib predates String.prototype.isWellFormed; Bun
+// supports it at runtime.
+function isWellFormedUtf16(value: string): boolean {
+  return (value as string & { isWellFormed(): boolean }).isWellFormed();
+}
+
 describe("extractSpeakableSegments", () => {
   test("splits complete sentences and keeps the trailing fragment as remainder", () => {
     const { segments, remainder } = extractSpeakableSegments(
@@ -246,9 +252,9 @@ describe("extractSpeakableSegments", () => {
 
       expect(segments).toHaveLength(1);
       for (const segment of segments) {
-        expect(segment.isWellFormed()).toBe(true);
+        expect(isWellFormedUtf16(segment)).toBe(true);
       }
-      expect(remainder.isWellFormed()).toBe(true);
+      expect(isWellFormedUtf16(remainder)).toBe(true);
       // No text is lost or reordered across the split.
       expect(segments.join("") + remainder).toBe(text);
     });
