@@ -11,6 +11,7 @@
 
 import { getConfig } from "../../config/loader.js";
 import type { TtsXaiProviderConfig } from "../../config/schemas/tts.js";
+import { DEEPGRAM_MULTI_LANGUAGE_CODES } from "../../providers/speech-to-text/deepgram.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
@@ -149,12 +150,29 @@ function resolveVoiceId(
   return request.voiceId?.trim() || config.voiceId || "eve";
 }
 
-/** Resolve the synthesis language: request override > configured default. */
+/**
+ * Language codes a request-level hint may carry into the xAI API. xAI does
+ * not document a supported-language roster, so the hint is bounded by the
+ * Deepgram code-switching set: languages the STT layer detects are always in
+ * it, and only an out-of-roster `services.stt.language` pin can exceed it.
+ */
+const REQUEST_LANGUAGE_CODES: ReadonlySet<string> = new Set(
+  DEEPGRAM_MULTI_LANGUAGE_CODES,
+);
+
+/**
+ * Resolve the synthesis language: request override > configured default.
+ * A request language outside {@link REQUEST_LANGUAGE_CODES} is dropped in
+ * favor of the configured value (default "auto", which self-detects).
+ */
 function resolveLanguage(
   request: TtsSynthesisRequest,
   config: TtsXaiProviderConfig,
 ): string {
-  return request.language ?? config.language;
+  if (request.language && REQUEST_LANGUAGE_CODES.has(request.language)) {
+    return request.language;
+  }
+  return config.language;
 }
 
 /** Resolve the xAI API key, throwing `XAI_TTS_NO_API_KEY` when unset. */

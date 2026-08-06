@@ -180,6 +180,50 @@ const LANGUAGE_ENFORCEMENT_MODEL_IDS = new Set([
   "eleven_turbo_v2_5",
 ]);
 
+/**
+ * ISO 639-1 codes for the 32 languages the v2.5 flash/turbo models accept in
+ * `language_code` (per the ElevenLabs models documentation: the Multilingual
+ * v2 roster plus Hungarian, Norwegian, and Vietnamese; Filipino uses the
+ * ISO 639-2 code `fil` since 639-1 has none). The request-level language is
+ * a hint sourced from the wider STT roster, so codes outside this set are
+ * dropped rather than forwarded: ElevenLabs rejects unknown codes with a 400,
+ * which would fail every synthesis segment in a session.
+ */
+const ELEVENLABS_V2_5_LANGUAGE_CODES = new Set([
+  "en",
+  "ja",
+  "zh",
+  "de",
+  "hi",
+  "fr",
+  "ko",
+  "pt",
+  "it",
+  "es",
+  "id",
+  "nl",
+  "tr",
+  "fil",
+  "pl",
+  "sv",
+  "bg",
+  "ro",
+  "ar",
+  "cs",
+  "el",
+  "fi",
+  "hr",
+  "ms",
+  "sk",
+  "da",
+  "ta",
+  "uk",
+  "ru",
+  "hu",
+  "no",
+  "vi",
+]);
+
 /** ElevenLabs `pcm_*` rates available on every subscription tier. */
 const UNRESTRICTED_PCM_SAMPLE_RATES_HZ = [16_000, 22_050, 24_000] as const;
 
@@ -273,7 +317,11 @@ async function performTtsRequest(
       speed: config.speed,
     },
   };
-  if (request.language && LANGUAGE_ENFORCEMENT_MODEL_IDS.has(modelId)) {
+  if (
+    request.language &&
+    LANGUAGE_ENFORCEMENT_MODEL_IDS.has(modelId) &&
+    ELEVENLABS_V2_5_LANGUAGE_CODES.has(request.language)
+  ) {
     body.language_code = request.language;
   }
 
