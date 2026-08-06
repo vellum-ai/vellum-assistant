@@ -164,10 +164,15 @@ function loadDocumentPayload(surfaceId: string): Record<string, unknown> {
  * content has drifted from the bytes on disk (the file was edited outside the
  * editor), the row is refreshed from the file before it is returned. Writes go
  * the other way — the document store writes through to the file.
+ *
+ * The publishes here carry no origin client id on purpose. The only caller,
+ * `viewer-store.loadWorkspaceFileDocument`, opens the file and never
+ * invalidates its own document queries, so the client that creates the row is
+ * the one that most needs to hear about it: suppressing its own echo would
+ * leave its assets pill and Library without the document it just opened.
  */
 function handleDocumentForWorkspaceFile({
   body,
-  headers,
 }: RouteHandlerArgs): Record<string, unknown> {
   const { path, conversationId } = (body ?? {}) as {
     path?: string;
@@ -225,7 +230,7 @@ function handleDocumentForWorkspaceFile({
     // Reopening an unchanged, already-linked file writes nothing, so it must
     // not invalidate every client's document list on each open.
     if (!alreadyLinked || refreshed) {
-      publishDocumentsChanged(getOriginClientId(headers));
+      publishDocumentsChanged();
     }
     return loadDocumentPayload(existing.surfaceId);
   }
@@ -251,7 +256,7 @@ function handleDocumentForWorkspaceFile({
     );
     addDocumentConversation(raced.surfaceId, conversationId);
     if (!racedAlreadyLinked) {
-      publishDocumentsChanged(getOriginClientId(headers));
+      publishDocumentsChanged();
     }
     return loadDocumentPayload(raced.surfaceId);
   }
@@ -260,7 +265,7 @@ function handleDocumentForWorkspaceFile({
     { surfaceId, workspacePath: relativePath, conversationId },
     "Bound workspace file to a new document",
   );
-  publishDocumentsChanged(getOriginClientId(headers));
+  publishDocumentsChanged();
   return loadDocumentPayload(surfaceId);
 }
 
@@ -377,6 +382,8 @@ export const ROUTES: RouteDefinition[] = [
         throw new BadRequestError("wordCount is required");
       }
 
+      const before = getDocumentById(surfaceId);
+
       const result = saveDocument({
         surfaceId,
         conversationId,
@@ -388,7 +395,15 @@ export const ROUTES: RouteDefinition[] = [
       if (!result.success) {
         throw new InternalError(result.error);
       }
-      publishDocumentsChanged(getOriginClientId(headers));
+      // This is the web editor's autosave, which fires roughly once a second
+      // while the user types and always resends the title it opened with. The
+      // list surfaces render title and surface id, so a content-only save
+      // changes nothing they show, and broadcasting it would make every other
+      // client drain its document queries on each keystroke burst. A new row or
+      // a retitled one does change the list, so those still publish.
+      if (!before || before.title !== title) {
+        publishDocumentsChanged(getOriginClientId(headers));
+      }
       return result;
     },
   },
@@ -439,7 +454,7 @@ export const ROUTES: RouteDefinition[] = [
       conversationId: z.string().describe("Conversation to link"),
     }),
     responseBody: z.object({ success: z.literal(true) }),
-    handler: ({ pathParams, body, headers }) => {
+    handler: ({ pathParams, body }) => {
       const { conversationId } = (body ?? {}) as { conversationId?: string };
       if (!conversationId) {
         throw new BadRequestError("conversationId is required");
@@ -453,7 +468,12 @@ export const ROUTES: RouteDefinition[] = [
         { surfaceId: pathParams!.id, conversationId },
         "Linked document to conversation",
       );
-      publishDocumentsChanged(getOriginClientId(headers));
+      // No origin client id: the only caller, `document-viewer-page`, links the
+      // document and then navigates to the conversation whose assets pill must
+      // now list it, without invalidating anything itself. Suppressing its own
+      // echo would land it on a conversation whose pill is missing the document
+      // it just linked.
+      publishDocumentsChanged();
       return { success: true as const };
     },
   },
