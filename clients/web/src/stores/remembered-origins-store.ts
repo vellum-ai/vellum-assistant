@@ -250,6 +250,11 @@ const useRememberedOriginsStoreBase = create<RememberedOriginsStore>()(
     hydrate: () => {
       hydrationPromise ??= (async () => {
         const epoch = hydrationEpoch;
+        // Yield before calling the provider so a synchronous load() throw is
+        // caught only after the ??= above has installed this promise;
+        // otherwise the catch's reset would be overwritten and later
+        // hydrate() calls could never retry.
+        await Promise.resolve();
         try {
           const origins = await activeProvider.load();
           if (epoch === hydrationEpoch) {

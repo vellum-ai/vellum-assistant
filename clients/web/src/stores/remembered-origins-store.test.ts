@@ -301,6 +301,35 @@ describe("providers and hydration", () => {
     ]);
   });
 
+  it("a synchronous load() throw still allows a later hydrate to retry", async () => {
+    let failLoads = true;
+    const provider: RememberedOriginsProvider = {
+      load: () => {
+        if (failLoads) {
+          throw new Error("synchronous failure");
+        }
+        return Promise.resolve([
+          {
+            url: "https://example.com/recovered",
+            addedAt: "2026-01-01T00:00:00Z",
+          },
+        ]);
+      },
+      save: async () => {},
+    };
+    setRememberedOriginsProvider(provider);
+
+    await store().hydrate();
+    expect(store().hydrated).toBe(false);
+
+    failLoads = false;
+    await store().hydrate();
+    expect(store().hydrated).toBe(true);
+    expect(store().origins.map((o) => o.url)).toEqual([
+      "https://example.com/recovered",
+    ]);
+  });
+
   it("a mutation after a failed hydration does not overwrite provider data", async () => {
     let saved: RememberedOrigin[] | null = null;
     const provider: RememberedOriginsProvider = {
