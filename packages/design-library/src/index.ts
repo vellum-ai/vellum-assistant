@@ -42,6 +42,7 @@ export {
   Textarea,
   fieldVariants,
   type InputProps,
+  type InputSize,
   type TextareaProps,
   type FieldVariantProps,
 } from "./components/input";

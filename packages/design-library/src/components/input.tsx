@@ -36,19 +36,39 @@ const fieldVariants = cva(
         ].join(" "),
       },
       density: {
-        input: "h-9 px-3 py-1.5",
+        input: "",
         textarea: "min-h-[72px] px-3 py-2 resize-y",
+      },
+      /**
+       * Matches `Select`'s scale rather than `Button`'s: a field lines up with
+       * the fields around it, and `Select` is the control most often beside
+       * one. `regular` is 36px, `compact` 28px. Ignored by `Textarea`, whose
+       * height follows its content.
+       */
+      size: {
+        regular: "",
+        compact: "",
       },
       hasLeftIcon: { true: "", false: "" },
       hasRightIcon: { true: "", false: "" },
     },
     compoundVariants: [
-      { density: "input", hasLeftIcon: true, class: "pl-9" },
-      { density: "input", hasRightIcon: true, class: "pr-9" },
+      { density: "input", size: "regular", class: "h-9 px-3 py-1.5" },
+      {
+        density: "input",
+        size: "compact",
+        class: "h-7 px-2.5 py-1 text-body-small-default",
+      },
+      // Icon insets track the horizontal padding of the size they sit in.
+      { density: "input", size: "regular", hasLeftIcon: true, class: "pl-9" },
+      { density: "input", size: "regular", hasRightIcon: true, class: "pr-9" },
+      { density: "input", size: "compact", hasLeftIcon: true, class: "pl-8" },
+      { density: "input", size: "compact", hasRightIcon: true, class: "pr-8" },
     ],
     defaultVariants: {
       invalid: false,
       density: "input",
+      size: "regular",
       hasLeftIcon: false,
       hasRightIcon: false,
     },
@@ -57,11 +77,16 @@ const fieldVariants = cva(
 
 type FieldVariantProps = VariantProps<typeof fieldVariants>;
 
+/** Field heights: `regular` is 36px, `compact` 28px. Mirrors `SelectSize`. */
+export type InputSize = "regular" | "compact";
+
 // ---------------------------------------------------------------------------
 // Input (single-line)
 // ---------------------------------------------------------------------------
 
 export interface InputProps extends Omit<ComponentProps<"input">, "size"> {
+  /** Field height. Defaults to `regular` (36px); `compact` is 28px. */
+  size?: InputSize;
   label?: ReactNode;
   helperText?: ReactNode;
   errorText?: ReactNode;
@@ -72,6 +97,7 @@ export interface InputProps extends Omit<ComponentProps<"input">, "size"> {
 }
 
 function Input({
+  size = "regular",
   label,
   helperText,
   errorText,
@@ -111,7 +137,10 @@ function Input({
           <span
             aria-hidden
             data-testid="input-left-icon"
-            className="pointer-events-none absolute left-3 flex items-center text-[var(--content-tertiary)]"
+            className={cn(
+              "pointer-events-none absolute flex items-center text-[var(--content-tertiary)]",
+              size === "compact" ? "left-2.5" : "left-3",
+            )}
           >
             {leftIcon}
           </span>
@@ -128,6 +157,7 @@ function Input({
             fieldVariants({
               invalid: isInvalid,
               density: "input",
+              size,
               hasLeftIcon: leftIcon != null,
               hasRightIcon: rightIcon != null,
             }),
@@ -138,7 +168,10 @@ function Input({
           <span
             aria-hidden
             data-testid="input-right-icon"
-            className="pointer-events-none absolute right-3 flex items-center text-[var(--content-tertiary)]"
+            className={cn(
+              "pointer-events-none absolute flex items-center text-[var(--content-tertiary)]",
+              size === "compact" ? "right-2.5" : "right-3",
+            )}
           >
             {rightIcon}
           </span>

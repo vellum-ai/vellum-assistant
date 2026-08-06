@@ -16,6 +16,7 @@ const meta: Meta<typeof Input> = {
     disabled: false,
   },
   argTypes: {
+    size: { control: "inline-radio", options: ["regular", "compact"] },
     // Slots/handlers aren't editable text; hide them from Controls.
     leftIcon: { control: false },
     rightIcon: { control: false },
@@ -42,6 +43,14 @@ type Story = StoryObj<typeof Input>;
 
 /** Arg-driven: type in the field or edit label/placeholder/helper in Controls. */
 export const Default: Story = {};
+
+/**
+ * 28px instead of 36px, for dense surfaces. Matches `Select`'s `compact`, so
+ * the two line up when a form mixes them.
+ */
+export const Compact: Story = {
+  args: { size: "compact" },
+};
 
 /** Helper text below the field. */
 export const WithHelperText: Story = {
