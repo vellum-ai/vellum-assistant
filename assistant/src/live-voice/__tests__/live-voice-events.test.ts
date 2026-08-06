@@ -255,7 +255,7 @@ describe("LiveVoiceSession archive and metrics events", () => {
       // Pins the full production control prompt for the FRONT-DOOR leg (the
       // first leg of every routed turn): the speech-first rule, and nothing
       // else. This leg is toolless, so both the screen-reveal and setup-flow
-      // teachings are deliberately absent — it has nothing to show and no
+      // teachings are deliberately absent. It has nothing to show and no
       // connection to run, and its capability digest already routes anything
       // needing a tool to the escalated leg (see
       // live-voice-triage-escalate.test.ts).

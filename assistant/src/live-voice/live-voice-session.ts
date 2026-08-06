@@ -744,18 +744,18 @@ const LIVE_VOICE_SCREEN_REVEAL_TEACHING =
   "The call renders as a full-screen overlay covering the app. Whenever you put something on screen, the overlay minimizes by itself as soon as you finish speaking, and the user is looking at what you made. So speak as if you are showing it to them right now (for example, close with something like: take a look), and never say you cannot show it, that this is a voice call, or that they should check it later. Never emit bracketed markers of any kind. ";
 
 // The setup-flow case, spelled out because it is the one the model gets wrong
-// on its own: connecting an account reads as something a call cannot do, so
-// without this it declines and offers to do it later in text — while the base
-// prompt above is telling it never to say exactly that.
+// on its own: connecting an account reads as something a call cannot do, so it
+// declines and offers to do it later in text, which is the exact thing the base
+// prompt above forbids.
 //
 // It can do it. The connect card is a ui surface like any other, so showing it
 // minimizes the room on the same latch (`revealsUiSurface`), and the user is at
 // the screen the browser window opens on. Appended alongside the screen-reveal
 // teaching, to the same legs, for the same reason: the front-door leg is
-// toolless, so a setup flow is not its to run — its capability digest already
-// tells it to escalate anything needing a tool rather than refuse.
+// toolless, so a setup flow is not its to run, and its capability digest
+// already tells it to escalate anything needing a tool rather than refuse.
 const LIVE_VOICE_SETUP_FLOW_TEACHING =
-  "This includes connecting accounts. If a task needs an account connected or a sign-in completed, put the connection up on screen and let the user do it now — do not decline it, and do not defer it to text chat. Say what you are connecting and that it is in front of them. ";
+  "This includes connecting accounts. If a task needs an account connected or a sign-in completed, put the connection up on screen and let the user do it now. Do not decline it, and do not defer it to text chat. Say what you are connecting and that it is in front of them. ";
 
 // System-level guidance appended to a barge-in turn's control prompt so the
 // model treats the new utterance as a continuation of the request it was cut

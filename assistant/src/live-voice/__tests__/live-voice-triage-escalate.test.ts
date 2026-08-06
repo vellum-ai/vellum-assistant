@@ -206,16 +206,15 @@ describe("live-voice triage-and-escalate routing", () => {
     const escalatedPrompt =
       starter.mock.calls[1]?.[0]?.voiceControlPrompt ?? "";
     // The phone's no-setup-flows rule must not leak onto a channel that has a
-    // screen. It contradicts the base prompt's "never tell the user you cannot
-    // show them something", and it is what made the model decline an account
-    // connection and offer to finish it in text instead.
+    // screen: it contradicts the base prompt's "never tell the user you cannot
+    // show them something".
     expect(frontDoorPrompt).not.toContain("Never start account connections");
     expect(escalatedPrompt).not.toContain("Never start account connections");
     expect(frontDoorPrompt).not.toContain("finish it in text chat");
     expect(escalatedPrompt).not.toContain("finish it in text chat");
     // The leg that can actually run one is told to.
     expect(escalatedPrompt).toContain("This includes connecting accounts");
-    // The toolless fast leg is not — a connection is not its to run, and its
+    // The toolless fast leg is not: a connection is not its to run, and its
     // capability digest already routes anything needing a tool here.
     expect(frontDoorPrompt).not.toContain("This includes connecting accounts");
   });

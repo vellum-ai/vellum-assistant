@@ -425,7 +425,7 @@ const VOICE_APPROVAL_TIMEOUT_MS = 45_000;
  *
  * Scoped to the phone because the screen is what decides it. A phone call has
  * no screen, so the `open_url` signal a CLI tool can reach lands somewhere the
- * caller will never see — and that signal bus carries no capability or
+ * caller will never see, and that signal bus carries no capability or
  * conversation context, so this rule is the only thing standing in front of it
  * here. A live-voice call is the opposite case: the user is holding the screen,
  * and the room minimizes itself to hand it back (see
