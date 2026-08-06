@@ -36,9 +36,11 @@ const DISCORD_DEFAULT_TIMEOUT_MS = 15_000;
 
 /**
  * Cap on a server-advertised `retry_after`. Discord can hand back a multi-hour
- * wait when a bot is globally limited; sleeping that long inside a delivery
- * would hold the per-conversation single-flight open indefinitely. Past this
- * bound the call fails and the channel retry sweep owns the redelivery.
+ * wait when a bot is globally limited, and sleeping that long inside a
+ * delivery would hold the per-conversation single-flight open the whole time.
+ * A longer wait is clamped to this and still retried, so a globally-limited
+ * bot spends at most a few bounded waits before the attempts run out and the
+ * channel retry sweep owns the redelivery.
  */
 const DISCORD_MAX_RETRY_AFTER_MS = 60_000;
 
@@ -133,16 +135,6 @@ function discordCall<T>(
     },
   });
 }
-
-/**
- * Run a Discord REST call with retries.
- *
- * Retryable: 429 (rate limited) and 5xx, plus transport failures. Everything
- * else surfaces as {@link DiscordNonRetryableError}.
- *
- * `T | undefined` because an endpoint may answer 204 with no body; callers
- * that need a response shape assert on it themselves.
- */
 
 // ---------------------------------------------------------------------------
 // Credential resolution

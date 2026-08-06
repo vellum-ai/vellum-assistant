@@ -97,9 +97,16 @@ function telegramCall<T>(
     // Telegram errors can echo the bot token, which is in the request URL.
     redact: redactBotTokens,
     detailFrom: (body) => parseTelegramBody<T>(body)?.description,
-    retryAfterFrom: (_response, body) => {
-      const retryAfter = parseTelegramBody<T>(body)?.parameters?.retry_after;
-      return retryAfter != null ? String(retryAfter) : null;
+    // Header first, envelope second. That is the order the Bot API client
+    // used before this shaping was extracted, and the extraction is not the
+    // place to change which source wins.
+    retryAfterFrom: (response, body) => {
+      const header = response.headers.get("retry-after");
+      if (header) {
+        return header;
+      }
+      const param = parseTelegramBody<T>(body)?.parameters?.retry_after;
+      return param != null ? String(param) : null;
     },
     nonRetryableError: ({ message, detail }) =>
       new TelegramNonRetryableError(message, detail),

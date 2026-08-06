@@ -40,9 +40,6 @@ const discord = {
   sendDiscordReply: mock((..._args: unknown[]) =>
     Promise.resolve({ lastMessageId: "discord-id" }),
   ),
-  sendDiscordTypingIndicator: mock((..._args: unknown[]) =>
-    Promise.resolve(true),
-  ),
   sendDiscordAttachments: mock((..._args: unknown[]) =>
     Promise.resolve({ allFailed: false, failureCount: 0, totalCount: 0 }),
   ),
