@@ -21,10 +21,16 @@ import {
   AppAssetActions,
   DocumentAssetActions,
 } from "@/domains/chat/components/conversation-asset-actions";
+import {
+  useHasUnseenDocumentChanges,
+  useUnseenDocumentChangesStore,
+} from "@/domains/chat/unseen-document-changes-store";
 import { useAppDelete } from "@/hooks/use-app-delete";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
+
+export const ASSETS_PILL_UNSEEN_DOT_TESTID = "assets-pill-unseen-dot";
 
 interface ConversationAsset {
   id: string;
@@ -119,6 +125,21 @@ export function ConversationAssetsPill({
 
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
+  const hasUnseenChanges = useHasUnseenDocumentChanges(conversationId);
+  const clearConversation =
+    useUnseenDocumentChangesStore.use.clearConversation();
+
+  // Opening the disclosure is the user looking at the asset list, so whatever
+  // changed is no longer unseen.
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      if (nextOpen) {
+        clearConversation(conversationId);
+      }
+    },
+    [clearConversation, conversationId],
+  );
 
   const handleSelect = useCallback(
     (asset: ConversationAsset) => {
@@ -139,7 +160,24 @@ export function ConversationAssetsPill({
   }
 
   const label = assets.length === 1 ? "1 asset" : `${assets.length} assets`;
-  const ariaLabel = `Conversation assets, ${assets.length} items`;
+  const ariaLabel = hasUnseenChanges
+    ? `Conversation assets, ${assets.length} items (unseen changes)`
+    : `Conversation assets, ${assets.length} items`;
+
+  // Same dot as the notifications bell in this header cluster: ringed in the
+  // color of the surface behind it so the ring reads as a gap carved out of
+  // the icon.
+  const layersIcon = (
+    <span className="relative flex" aria-hidden>
+      <Layers />
+      {hasUnseenChanges ? (
+        <span
+          data-testid={ASSETS_PILL_UNSEEN_DOT_TESTID}
+          className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)] touch-mobile:border-[var(--surface-lift)]"
+        />
+      ) : null}
+    </span>
+  );
 
   const assetItems = assets.map((asset) => (
     <PanelItem
@@ -170,12 +208,12 @@ export function ConversationAssetsPill({
   if (isMobile) {
     return (
       <>
-        <BottomSheet.Root open={open} onOpenChange={setOpen}>
+        <BottomSheet.Root open={open} onOpenChange={handleOpenChange}>
           <BottomSheet.Trigger asChild>
             <Button
               variant="ghost"
               active
-              iconOnly={<Layers />}
+              iconOnly={layersIcon}
               tintColor="var(--content-default)"
               aria-label={ariaLabel}
             />
@@ -199,12 +237,12 @@ export function ConversationAssetsPill({
 
   return (
     <>
-      <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Root open={open} onOpenChange={handleOpenChange}>
         <Popover.Trigger asChild>
           <Button
             variant="ghost"
             active
-            leftIcon={<Layers />}
+            leftIcon={layersIcon}
             className="rounded-full"
             tintColor="var(--content-default)"
             aria-label={ariaLabel}
