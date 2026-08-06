@@ -411,10 +411,12 @@ function localHealthBannerConfig(
 ): BannerConfig | null {
   // A paired entry is reached over a tunnel to a remote host, so a failed
   // health probe only proves the link is down; there is no meaningful
-  // sleeping/unreachable distinction, and Wake can't help from here.
+  // sleeping/unreachable distinction, and Wake can't help from here. Wake is
+  // never offered for paired entries, so any wakeError belongs to a
+  // previously-viewed local assistant and must not color this banner.
   if (isPaired && (health === "sleeping" || health === "unreachable")) {
     return {
-      tone: wakeError ? "error" : "neutral",
+      tone: "neutral",
       title: "Your assistant can't be reached",
       icon: <CloudOff className="h-4 w-4" aria-hidden="true" />,
       children:
