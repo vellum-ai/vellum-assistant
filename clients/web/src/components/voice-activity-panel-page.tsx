@@ -114,47 +114,50 @@ export function VoiceActivityPanelPage() {
   }
 
   return (
-    // The surface drags; every control opts out. With the window carrying its
-    // own close and minimize, and a button back to the conversation, dragging
-    // is the only thing left for the background to mean.
+    // The surface drags; every control opts out. The macOS traffic lights are
+    // the window's controls, so the page draws none of its own.
     <div
-      className="relative flex h-screen w-screen flex-col gap-1 overflow-hidden rounded-xl border border-white/15 bg-white/[0.07] px-3 pb-2.5 pt-1.5 [-webkit-app-region:drag] before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/40 before:to-transparent"
+      className="relative flex h-screen w-screen flex-col overflow-hidden rounded-xl border border-white/15 bg-white/[0.07] [-webkit-app-region:drag] before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/40 before:to-transparent"
       style={surfaceStyle}
     >
-      {/* No window chrome of its own: the macOS traffic lights are the
-          window's controls. Red hides it without ending the call, yellow
-          minimizes to the Dock, green is disabled because a fixed-size readout
-          has no meaningful zoom. The row below is inset to clear them. */}
-      {/* Identity and state on one line: who is on the call and what the call
-          is doing are read together. The name gives up its width first, since
-          a truncated name is still recognizable while a truncated phase is
-          not. */}
-      <div className="flex min-w-0 items-center gap-1.5 pl-[62px]">
+      {/* Identity titles the window, centered over the traffic lights rather
+          than sharing a row with the session's state. Who is on the call is the
+          one fact here that never changes, so it reads as the window's name;
+          everything that moves lives below. */}
+      <div className="relative flex h-[34px] shrink-0 items-center justify-center gap-1.5">
         <Identity
           assistantName={state.assistantName}
           avatarBase64={state.avatarBase64}
         />
-        <span className="shrink truncate text-[12px] font-medium text-[var(--content-primary)]">
+        <span className="max-w-[150px] truncate text-[13px] font-semibold tracking-[-0.01em] text-[var(--content-primary)]">
           {state.assistantName}
         </span>
-        <PhaseGlyph phase={state.phase} />
-        <span className="min-w-0 shrink-0 truncate text-[11px] text-[var(--content-secondary)]">
-          {state.label}
-        </span>
-        <Elapsed startedAt={state.startedAt} />
       </div>
 
-      {state.detail !== "" && (
-        <span className="min-w-0 truncate text-[10px] text-[var(--content-tertiary)]">
-          {state.detail}
-        </span>
-      )}
+      <div className="flex min-w-0 flex-col gap-2 px-3.5 pb-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <PhaseGlyph phase={state.phase} />
+          <span className="min-w-0 truncate text-[12px] text-[var(--content-secondary)]">
+            {state.label}
+          </span>
+          <Elapsed startedAt={state.startedAt} />
+        </div>
 
-      {pendingApproval ? (
-        <ApprovalControls requestId={state.approvalRequestId} />
-      ) : (
-        <SessionControls muted={state.muted} outputMuted={state.outputMuted} />
-      )}
+        {state.detail !== "" && (
+          <span className="min-w-0 truncate text-[11px] text-[var(--content-tertiary)]">
+            {state.detail}
+          </span>
+        )}
+
+        {pendingApproval ? (
+          <ApprovalControls requestId={state.approvalRequestId} />
+        ) : (
+          <SessionControls
+            muted={state.muted}
+            outputMuted={state.outputMuted}
+          />
+        )}
+      </div>
     </div>
   );
 }

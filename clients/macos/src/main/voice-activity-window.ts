@@ -52,7 +52,17 @@ const WINDOW_STATE_KEY = "voice-activity";
 // for, because a window the user positions themselves is allowed the system's
 // own shadow (`hasShadow`).
 const PANEL_WIDTH = 320;
-const PANEL_HEIGHT = 124;
+
+// Two heights, because the activity line is usually absent. A window sized for
+// its tallest possible content spends most of a call showing a hole where that
+// line would be, which is what the first build looked like.
+const PANEL_HEIGHT = 96;
+const PANEL_HEIGHT_WITH_DETAIL = 116;
+
+const heightFor = (state: VoiceActivityState | null): number =>
+  state !== null && state.detail !== ""
+    ? PANEL_HEIGHT_WITH_DETAIL
+    : PANEL_HEIGHT;
 
 // The collapsed chip: identity, phase and elapsed time, which is what survives
 // when the panel is shrunk out of the way. Roughly the island's minimal
@@ -394,7 +404,22 @@ export const installVoiceActivityWindow = (): void => {
       });
     },
     sendState: (state) => {
-      panelWindow()?.webContents.send("vellum:voiceActivity:state", state);
+      const win = panelWindow();
+      if (win === null) {
+        return;
+      }
+      // Sized to the content before the content arrives, so the activity line
+      // never paints into a window too short for it, and its absence never
+      // leaves an empty strip. Collapsed windows keep the chip's height.
+      const current = state?.collapsed === true ? null : heightFor(state);
+      if (current !== null) {
+        const [x, y] = win.getPosition();
+        const [, height] = win.getSize();
+        if (height !== current) {
+          win.setBounds({ x, y, width: PANEL_WIDTH, height: current });
+        }
+      }
+      win.webContents.send("vellum:voiceActivity:state", state);
     },
     now: () => Date.now(),
   });
