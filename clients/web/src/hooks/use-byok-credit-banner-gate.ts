@@ -13,6 +13,8 @@ import {
   type AvailabilityStatus,
   defaultChatRouteBurnsManagedCredits,
 } from "@/lib/billing/byok-credit-route";
+import { useSupportsDefaultProviderSettings } from "@/lib/backwards-compat/default-provider-settings";
+import { useSupportsInferenceProfiles } from "@/lib/backwards-compat/use-supports-inference-profiles";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -105,18 +107,23 @@ export function useSuppressCreditBannersForByok(
   // credential fails at send time, so a BYOK route only counts once its
   // connection is provably dispatchable. A failed read here just leaves the
   // proof absent, which the classification treats as unknown (banners up).
+  // Both endpoints are version-gated: assistants older than the gates never
+  // receive the requests, the proof stays absent, and the feature is quietly
+  // off (banners behave as before this gate existed).
+  const supportsInferenceProfiles = useSupportsInferenceProfiles();
+  const supportsDefaultProviderStatus = useSupportsDefaultProviderSettings();
   const profilesQuery = useQuery({
     ...inferenceProfilesGetOptions({
       path: { assistant_id: assistantId ?? "" },
     }),
-    enabled: routeQueriesEnabled,
+    enabled: routeQueriesEnabled && supportsInferenceProfiles,
     staleTime: 30_000,
   });
   const defaultProviderQuery = useQuery({
     ...configLlmDefaultproviderGetOptions({
       path: { assistant_id: assistantId ?? "" },
     }),
-    enabled: routeQueriesEnabled,
+    enabled: routeQueriesEnabled && supportsDefaultProviderStatus,
     staleTime: 30_000,
   });
 
@@ -158,7 +165,7 @@ export function useSuppressCreditBannersForByok(
     }),
     [utcDay],
   );
-  const { data: totals } = useQuery({
+  const totalsQuery = useQuery({
     ...organizationsBillingUsageTotalsRetrieveOptions({
       query: usageWindow,
     }),
@@ -190,9 +197,14 @@ export function useSuppressCreditBannersForByok(
   if (burnsManaged !== false) {
     return false;
   }
-  // Route proven BYOK: stay down unless a recent burn is proven. An
-  // unresolved or failed spend probe keeps suppressing, since the probe only
-  // exists to re-arm banners that are presumptively irrelevant here.
+  // Route proven BYOK: stay down only while the spend probe positively
+  // reports no recent burn (or is still loading). A failed probe fails open
+  // like every other unknown in this gate: a burn may have happened and the
+  // banners must not stay hidden on missing data.
+  if (totalsQuery.isError) {
+    return false;
+  }
+  const totals = totalsQuery.data;
   const burnedRecently = totals ? Number(totals.total_usd) > 0 : null;
   return burnedRecently !== true;
 }
