@@ -1,4 +1,5 @@
 import { AudioLines, Mic, MessageSquareText, Volume2, X } from "lucide-react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type {
   CSSProperties,
   MouseEvent as ReactMouseEvent,
@@ -78,10 +79,20 @@ const DEFAULT_ACCENT = "#5eead4";
 // the states gain content.
 const AVATAR_BOX = 44;
 
-// Same pill, two widths. The call carries a phase, a clock and three controls
-// where hover carries two choices, and hover is sized to just clear its two
-// labels so the pill reads as the options and nothing else.
-const WIDTHS: Record<CompanionSurfacePhase, number> = {
+/**
+ * Widths to use until the content has been measured.
+ *
+ * The real width is the avatar plus whatever the body actually needs, measured
+ * at runtime, because a fixed width is only ever right by accident: the pill
+ * was 188pt against a body that wanted less, and `flex-1` piled the difference
+ * up after the last control as dead space, so the right end sat further from
+ * its content than the left did from the avatar.
+ *
+ * Measuring is also what makes the surface survive its own roadmap. Once
+ * plugins contribute actions (LUM-3097) no hardcoded number can be correct, and
+ * these become nothing but the value for the first frame.
+ */
+const FALLBACK_WIDTHS: Record<CompanionSurfacePhase, number> = {
   resting: AVATAR_BOX,
   hover: 188,
   call: 296,
@@ -144,7 +155,35 @@ export function CompanionSurface({
   onSurfaceMouseDown,
 }: CompanionSurfaceProps) {
   const expanded = phase !== "resting";
-  const width = WIDTHS[phase];
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const [contentWidth, setContentWidth] = useState<number | null>(null);
+
+  // The body is measured while it is still clipped, so the pill knows how wide
+  // to grow before it starts growing. `scrollWidth` reports the content's own
+  // width regardless of how little the collapsed pill is giving it.
+  useLayoutEffect(() => {
+    const element = contentRef.current;
+    if (!element) {
+      return;
+    }
+    const measure = () => {
+      setContentWidth(element.scrollWidth);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, [phase]);
+
+  // No trailing padding of its own: the last control carries 8pt inside itself,
+  // which is exactly the avatar's inset at the other end.
+  const width = !expanded
+    ? AVATAR_BOX
+    : contentWidth === null
+      ? FALLBACK_WIDTHS[phase]
+      : AVATAR_BOX + contentWidth;
 
   // Positioned against the avatar's resting footprint, so `left`/`right` pin
   // that edge and the body grows away from it, while `center` splits the growth
@@ -196,7 +235,8 @@ export function CompanionSurface({
         onMouseEnter={onHoverStart}
       />
       <div
-        className="relative flex min-w-0 flex-1 items-center gap-1 overflow-hidden transition-opacity duration-200"
+        className="relative flex min-w-0 items-center gap-1 overflow-hidden transition-opacity duration-200"
+        ref={contentRef}
         style={{
           opacity: expanded ? 1 : 0,
           // Contents fade after the body has somewhere to put them, so nothing
@@ -278,11 +318,18 @@ function IdleBody() {
 function CallBody() {
   return (
     <>
-      <span className="ml-1 flex min-w-0 items-center gap-1.5">
+      {/* Sized to its content, not shrunk to fit. The pill now measures this
+          row to decide how wide to be, so a label that collapses under pressure
+          would measure its own collapsed self: the width and the truncation
+          would chase each other down. The cap is what keeps a pathological
+          label from growing the pill without bound. */}
+      <span className="ml-1 flex shrink-0 items-center gap-1.5">
         <Mic className="size-3.5 shrink-0 text-[var(--accent)]" aria-hidden />
-        <span className="truncate text-[12px] text-white/85">Listening</span>
+        <span className="max-w-[140px] truncate text-[12px] text-white/85">
+          Listening
+        </span>
       </span>
-      <span className="ml-auto shrink-0 font-mono text-[11px] tabular-nums text-white/60">
+      <span className="ml-1 shrink-0 font-mono text-[11px] tabular-nums text-white/60">
         0:14
       </span>
       <PillButton icon={<Mic className="size-4" />} label="Mute microphone" />
