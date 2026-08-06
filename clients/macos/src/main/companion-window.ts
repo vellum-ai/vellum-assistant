@@ -304,6 +304,27 @@ export const installCompanionWindow = (): void => {
     });
   });
 
+  /**
+   * The avatar, pressed: come forward on the conversation the user was last in.
+   *
+   * `currentConversation` is the command the app already has for exactly this,
+   * so the surface asks for it rather than growing a path of its own, and the
+   * two degrade the same way. The renderer navigates when it has a conversation
+   * to navigate to and does nothing when it does not, which leaves the window
+   * simply coming forward. The same is true when the app is somewhere with no
+   * chat layout mounted, such as Settings: the command lands nowhere and the
+   * window is still raised, which is the smaller half of what was asked and
+   * never the wrong thing to do.
+   *
+   * This *does* raise the app, unlike Talk. It is the one press on the surface
+   * whose entire purpose is to go back to Vellum.
+   */
+  on("vellum:companion:activate", z.tuple([]), () => {
+    void ensureMainWindowVisible().then(() => {
+      dispatchToMain({ kind: "currentConversation" });
+    });
+  });
+
   // -------------------------------------------------------------------------
   // The running session
   //

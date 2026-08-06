@@ -326,6 +326,11 @@ export interface VellumBridge {
      * the session itself, on `onState`.
      */
     startVoice(): void;
+    /**
+     * Bring Vellum forward on the conversation the user was last in, which is
+     * what pressing the avatar asks for.
+     */
+    activate(): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;

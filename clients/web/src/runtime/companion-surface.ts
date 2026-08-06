@@ -73,3 +73,14 @@ export function moveCompanionBy(dx: number, dy: number): void {
 export function startCompanionVoice(): void {
   bridge()?.startVoice?.();
 }
+
+/**
+ * Bring Vellum forward on the conversation the user was last in, which is what
+ * pressing the avatar asks for.
+ *
+ * The one call here that deliberately raises the app. Everything else on the
+ * surface exists so the user does not have to.
+ */
+export function activateCompanionApp(): void {
+  bridge()?.activate?.();
+}

@@ -234,6 +234,17 @@ export interface CompanionSurfaceProps {
    */
   onTalk?: () => void;
   /**
+   * Press the avatar: go back to Vellum, on the conversation the surface
+   * belongs to.
+   *
+   * Wired to the avatar rather than the pill because the pill's body is
+   * controls, and to a press that did not turn into a drag: the whole surface
+   * is a drag handle, and the avatar is the part of it a user is most likely to
+   * grab. The caller owns that distinction, since it is the side holding the
+   * pointer.
+   */
+  onAvatarClick?: () => void;
+  /**
    * The running session, when `phase` is `call`.
    *
    * Absent renders the call state from fixed sample values, which is what the
@@ -268,6 +279,7 @@ export function CompanionSurface({
   onSurfaceMouseDown,
   spotlight,
   onTalk,
+  onAvatarClick,
   call,
   onControl,
 }: CompanionSurfaceProps) {
@@ -383,6 +395,7 @@ export function CompanionSurface({
           accentHex={accentHex}
           avatarSrc={avatarSrc}
           onMouseEnter={onHoverStart}
+          onClick={onAvatarClick}
         />
         {typing ? (
           <Composer assistantName={assistantName} />
@@ -511,17 +524,23 @@ function Avatar({
   accentHex,
   avatarSrc,
   onMouseEnter,
+  onClick,
 }: {
   glow: boolean;
   accentHex: string;
   avatarSrc?: string;
   onMouseEnter?: () => void;
+  onClick?: () => void;
 }) {
   return (
+    // A div rather than a button even when it is pressable: it is the drag
+    // handle for the whole surface, and the press that starts a drag must not
+    // read as activating a control. `onClick` fires only for presses the caller
+    // decided were not drags.
     <div
       className="relative grid size-11 shrink-0 place-items-center"
       onMouseEnter={onMouseEnter}
-    >
+      onClick={onClick}>
       {glow && (
         <span
           className="absolute size-10 animate-pulse rounded-full blur-lg"

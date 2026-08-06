@@ -616,6 +616,9 @@ const bridge: VellumBridge = {
     startVoice: (): void => {
       ipcRenderer.send("vellum:companion:startVoice");
     },
+    activate: (): void => {
+      ipcRenderer.send("vellum:companion:activate");
+    },
   },
   popout: {
     open: (conversationId: string): Promise<void> =>

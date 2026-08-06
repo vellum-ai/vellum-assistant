@@ -329,6 +329,7 @@ declare global {
         setInteractive?(interactive: boolean): void;
         moveBy?(dx: number, dy: number): void;
         startVoice?(): void;
+        activate?(): void;
       };
     };
   }

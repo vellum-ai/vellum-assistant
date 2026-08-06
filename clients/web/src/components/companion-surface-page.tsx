@@ -5,6 +5,7 @@ import {
   type CompanionSurfacePhase,
 } from "@/components/companion-surface";
 import {
+  activateCompanionApp,
   getCompanionState,
   moveCompanionBy,
   setCompanionInteractive,
@@ -17,6 +18,15 @@ import type {
   CompanionSurfaceState,
   VoiceActivityState,
 } from "@vellumai/ipc-contract";
+
+/**
+ * How far a press may travel and still count as a click.
+ *
+ * The surface is its own drag handle, so every press is a potential grab. A few
+ * pixels of hand tremor between pressing the avatar and letting go must not
+ * turn "take me back to Vellum" into a one-pixel nudge that does nothing.
+ */
+const DRAG_SLOP = 3;
 
 /**
  * The companion surface inside its Electron canvas
@@ -52,6 +62,12 @@ export function CompanionSurfacePage() {
   // Screen rather than client: the window moves under the cursor, so client
   // coordinates barely change while screen ones track the hand exactly.
   const dragRef = useRef<{ x: number; y: number } | null>(null);
+  // Where the current press started, and whether it has travelled far enough to
+  // be a drag rather than a click. Every press starts as both: the surface is
+  // its own drag handle, so a press on the avatar is a grab until the hand
+  // moves, and a click once it lifts without having moved.
+  const pressOriginRef = useRef<{ x: number; y: number } | null>(null);
+  const draggedRef = useRef(false);
 
   useEffect(() => {
     const apply = (state: CompanionSurfaceState) => {
@@ -109,6 +125,15 @@ export function CompanionSurfacePage() {
       const { x, y } = dragRef.current;
       moveCompanionBy(event.screenX - x, event.screenY - y);
       dragRef.current = { x: event.screenX, y: event.screenY };
+      const origin = pressOriginRef.current;
+      if (
+        origin !== null &&
+        Math.abs(event.screenX - origin.x) +
+          Math.abs(event.screenY - origin.y) >
+          DRAG_SLOP
+      ) {
+        draggedRef.current = true;
+      }
       return;
     }
     const pill = pillRef.current;
@@ -167,6 +192,16 @@ export function CompanionSurfacePage() {
         rootRef={pillRef}
         onSurfaceMouseDown={(event) => {
           dragRef.current = { x: event.screenX, y: event.screenY };
+          pressOriginRef.current = { x: event.screenX, y: event.screenY };
+          draggedRef.current = false;
+        }}
+        // A press that never became a drag. The window comes forward on the
+        // conversation this surface belongs to; main decides what that means.
+        onAvatarClick={() => {
+          if (draggedRef.current) {
+            return;
+          }
+          activateCompanionApp();
         }}
         // The press leaves this window immediately: the session lives in the
         // renderer holding the chat layout, and this page only asks for one.
