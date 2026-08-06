@@ -29,43 +29,16 @@ import { useState, type CSSProperties, type ReactNode } from "react";
  * hid it). So `backdrop-blur` is standing in for `vibrancy` here, and does not
  * survive the port.
  *
- * The candidates differ only in how the circle becomes the pill, since the
- * silhouette is decided. Delete the losers rather than keeping them behind a
- * flag; this route is a workbench, not a feature.
+ * **Bloom won.** Four expansions were compared here: slide left, unfurl right,
+ * bloom, and lift. The body growing both ways from an avatar that holds its
+ * place reads as the surface breathing rather than sliding, and it is the only
+ * one with no preferred screen edge, so a circle parked anywhere expands the
+ * same. The losers are deleted rather than kept behind a flag; this route is a
+ * workbench, not a feature.
  */
 
 type Phase = "resting" | "hover" | "call";
 type Backdrop = "dark" | "light" | "busy";
-
-/** The expansion each candidate is exploring. */
-type Candidate = {
-  key: string;
-  name: string;
-  note: string;
-};
-
-const CANDIDATES: Candidate[] = [
-  {
-    key: "slide-left",
-    name: "Slide left",
-    note: "The avatar travels left and the body unfurls behind it. Right edge stays put, so a circle parked by the Dock never grows off-screen.",
-  },
-  {
-    key: "unfurl-right",
-    name: "Unfurl right",
-    note: "The avatar holds its spot and the body grows rightward. Cheapest to reason about, but it walks into whatever is to the right.",
-  },
-  {
-    key: "bloom",
-    name: "Bloom",
-    note: "The body grows both ways from the avatar, which stays centred. Reads as the surface breathing rather than sliding.",
-  },
-  {
-    key: "lift",
-    name: "Lift",
-    note: "Slide left plus a small rise and overshoot. The most obviously animated, and the easiest to tire of.",
-  },
-];
 
 const BACKDROPS: Record<Backdrop, string> = {
   dark: "linear-gradient(140deg, #14161a 0%, #1d2026 55%, #0f1113 100%)",
@@ -103,7 +76,7 @@ export function CompanionSurfaceDesignPage() {
   const [glow, setGlow] = useState(
     () => new URLSearchParams(window.location.search).get("glow") !== "off",
   );
-  const [hovered, setHovered] = useState<string | null>(null);
+  const [hovered, setHovered] = useState(false);
 
   return (
     <div className="min-h-screen bg-[var(--surface-base)] p-8 text-[var(--content-primary)]">
@@ -112,9 +85,10 @@ export function CompanionSurfaceDesignPage() {
           Companion surface (LUM-3086)
         </h1>
         <p className="max-w-[70ch] text-[13px] text-[var(--content-secondary)]">
-          Hover a candidate to expand it, or drive every candidate at once with
-          the phase control. Glow is the resting circle&rsquo;s ambient halo in
-          the avatar&rsquo;s own colour.
+          Bloom: the body grows both ways from an avatar that holds its place.
+          Hover the stage to expand it, or pin a state with the phase control.
+          Glow is the resting circle&rsquo;s ambient halo in the avatar&rsquo;s
+          own colour.
         </p>
       </header>
 
@@ -158,44 +132,29 @@ export function CompanionSurfaceDesignPage() {
         </div>
       </div>
 
-      <div className="flex flex-col gap-6">
-        {CANDIDATES.map((candidate) => {
-          // Hovering a candidate expands that one alone, so two treatments can
-          // be compared mid-move without the phase control moving both.
-          const effective: Phase =
-            hovered === candidate.key && phase === "resting" ? "hover" : phase;
-          return (
-            <section key={candidate.key} className="flex flex-col gap-2">
-              <div className="flex items-baseline gap-3">
-                <h2 className="text-[13px] font-semibold">{candidate.name}</h2>
-                <p className="text-[12px] text-[var(--content-tertiary)]">
-                  {candidate.note}
-                </p>
-              </div>
-              <div
-                className="relative h-[132px] w-[480px] overflow-hidden rounded-xl"
-                style={{ background: BACKDROPS[backdrop] }}
-                onMouseEnter={() => {
-                  setHovered(candidate.key);
-                }}
-                onMouseLeave={() => {
-                  setHovered(null);
-                }}
-              >
-                <CompanionSurface
-                  variant={candidate.key}
-                  phase={effective}
-                  glow={glow}
-                />
-              </div>
-            </section>
-          );
-        })}
+      <div
+        className="relative h-[180px] w-[520px] overflow-hidden rounded-xl"
+        style={{ background: BACKDROPS[backdrop] }}
+        onMouseEnter={() => {
+          setHovered(true);
+        }}
+        onMouseLeave={() => {
+          setHovered(false);
+        }}
+      >
+        {/* Hovering the stage stands in for hovering the circle itself. In the
+            real window the pointer has to be over the surface, which is what
+            `setIgnoreMouseEvents(true, { forward: true })` delivers without
+            capturing clicks meant for whatever is behind. */}
+        <CompanionSurface
+          phase={hovered && phase === "resting" ? "hover" : phase}
+          glow={glow}
+        />
       </div>
 
       <footer className="mt-10 max-w-[70ch] text-[12px] text-[var(--content-tertiary)]">
         <p className="mb-2 font-semibold text-[var(--content-secondary)]">
-          Open, and visible in the candidates above:
+          Open, and visible in the surface above:
         </p>
         <ul className="flex list-disc flex-col gap-1 pl-4">
           <li>
@@ -222,65 +181,40 @@ export function CompanionSurfaceDesignPage() {
 }
 
 /**
- * One candidate at one phase.
+ * The surface at one phase.
  *
- * The avatar is a fixed 44px disc in every state and every candidate; only the
- * body around it changes. That is what makes this one surface expanding rather
- * than three surfaces that happen to share a colour, and it is the property to
- * protect if the candidates diverge further.
+ * The avatar is a fixed 44px disc in every state; only the body around it
+ * changes. That is what makes this one surface expanding rather than three
+ * surfaces that happen to share a colour, and it is the property to protect as
+ * the states gain content.
  */
-function CompanionSurface({
-  variant,
-  phase,
-  glow,
-}: {
-  variant: string;
-  phase: Phase;
-  glow: boolean;
-}) {
+function CompanionSurface({ phase, glow }: { phase: Phase; glow: boolean }) {
   const expanded = phase !== "resting";
   // The pill is wider in a call than on hover: the call carries a phase, a
   // clock and three controls where hover carries two choices. Same pill, two
-  // widths, as agreed.
-  const width = phase === "call" ? 296 : phase === "hover" ? 232 : 44;
-
-  // The anchor is a position, not a transform. Growing a right-anchored pill
-  // is what moves the avatar left, since the avatar is the pill's left end, so
-  // the width change alone produces the motion. Translating instead would slide
-  // the surface off whichever edge it was parked against, which is exactly what
-  // a surface parked by the Dock cannot do.
-  const anchor = (): CSSProperties => {
-    switch (variant) {
-      case "unfurl-right":
-        return { left: 24 };
-      case "bloom":
-        return { left: "50%", marginLeft: -(width / 2) };
-      default:
-        return { right: 24 };
-    }
-  };
+  // widths. Hover is sized to just clear its two labels, since the pill should
+  // read as the options and nothing else.
+  const width = phase === "call" ? 296 : phase === "hover" ? 188 : 44;
 
   const style: CSSProperties = {
     width,
-    ...anchor(),
-    // Vertical centring lives in the same transform as the lift, since a second
-    // transform would replace it rather than compose with it.
-    transform:
-      variant === "lift" && expanded
-        ? "translateY(calc(-50% - 5px))"
-        : "translateY(-50%)",
-    // Overshoot only on `lift`; the rest settle, because a surface that is on
-    // screen all day should not bounce every time the pointer crosses it.
-    transitionTimingFunction:
-      variant === "lift"
-        ? "cubic-bezier(.2,1.5,.4,1)"
-        : "cubic-bezier(.2,.8,.2,1)",
+    // Bloom grows both ways, so the anchor is the avatar's own centre and the
+    // negative margin is what keeps it there as the body widens. Anchoring is a
+    // position rather than a transform: translating a growing pill slides it off
+    // whichever screen edge it was parked against, which is the one thing a
+    // surface living by the Dock cannot do.
+    left: "50%",
+    marginLeft: -(width / 2),
+    transform: "translateY(-50%)",
+    // Settles rather than overshoots. A surface on screen all day should not
+    // bounce every time the pointer crosses it.
+    transitionTimingFunction: "cubic-bezier(.2,.8,.2,1)",
     ["--accent" as string]: ACCENT,
   };
 
   return (
     <div
-      className="absolute top-1/2 flex h-11 items-center rounded-full border border-white/15 bg-black/35 backdrop-blur-xl transition-[width,margin-left,transform] duration-300 will-change-[width,transform]"
+      className="absolute top-1/2 flex h-11 items-center rounded-full border border-white/15 bg-black/35 backdrop-blur-xl transition-[width,margin-left] duration-300 will-change-[width,margin-left]"
       style={style}
     >
       <Avatar glow={glow && !expanded} />
@@ -366,7 +300,7 @@ function PillButton({
   return (
     <button
       type="button"
-      className={`flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[12px] transition-colors hover:bg-white/15 ${
+      className={`flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${
         tone === "negative" ? "text-[#ff6b6b]" : "text-white/85"
       }`}
     >
