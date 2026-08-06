@@ -8,6 +8,7 @@ import type {
   TtsSynthesisRequest,
   TtsUseCase,
 } from "../tts/types.js";
+import { baseLanguageSubtag } from "../util/language-subtag.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("live-voice-tts");
@@ -73,11 +74,62 @@ interface ResolvedStreamingTtsProvider {
   providerConfig: Record<string, unknown>;
 }
 
+/**
+ * Look up a per-language voice override in a provider config's
+ * `languageVoices` map. Map KEYS are normalized to their lowercase base
+ * subtag before matching, so a user-entered "hi-IN" or "HI" key still
+ * matches a spoken "hi" (the schema accepts any string key). An exact
+ * base-subtag key wins over a normalized regional one; otherwise the
+ * first matching entry in insertion order applies. Returns undefined when
+ * the language is unset, the map is not a record, or the matching entry
+ * is not a non-empty string.
+ */
+export function resolveLanguageVoiceOverride(
+  languageVoices: unknown,
+  language: string | undefined,
+): string | undefined {
+  const base = baseLanguageSubtag(language);
+  if (
+    !base ||
+    typeof languageVoices !== "object" ||
+    languageVoices === null ||
+    Array.isArray(languageVoices)
+  ) {
+    return undefined;
+  }
+  const asVoice = (value: unknown): string | undefined =>
+    typeof value === "string" ? value.trim() || undefined : undefined;
+  const record = languageVoices as Record<string, unknown>;
+  if (Object.hasOwn(record, base)) {
+    const exact = asVoice(record[base]);
+    if (exact !== undefined) {
+      return exact;
+    }
+  }
+  for (const [key, value] of Object.entries(record)) {
+    if (baseLanguageSubtag(key) === base) {
+      const voice = asVoice(value);
+      if (voice !== undefined) {
+        return voice;
+      }
+    }
+  }
+  return undefined;
+}
+
 export async function streamLiveVoiceTtsAudio(
   options: LiveVoiceTtsOptions,
 ): Promise<LiveVoiceTtsResult> {
   const { provider, providerId, providerConfig } =
     await resolveLiveVoiceStreamingTtsProvider(options.config);
+  // An explicit request voice wins outright; otherwise a language-known
+  // turn may select the provider's configured per-language voice.
+  const voiceId =
+    options.voiceId ??
+    resolveLanguageVoiceOverride(
+      providerConfig.languageVoices,
+      options.language,
+    );
   const useCase = options.useCase ?? "phone-call";
   const requestedSampleRate = resolveSampleRate(
     options.sampleRate,
@@ -90,7 +142,7 @@ export async function streamLiveVoiceTtsAudio(
   const providerSampleRate = provider.resolveOutputSampleRateHz?.({
     text: options.text,
     useCase,
-    voiceId: options.voiceId,
+    voiceId,
     outputFormat: options.outputFormat,
     sampleRateHz: requestedSampleRate,
     language: options.language,
@@ -140,7 +192,7 @@ export async function streamLiveVoiceTtsAudio(
       provider,
       text: options.text,
       useCase,
-      voiceId: options.voiceId,
+      voiceId,
       outputFormat: options.outputFormat,
       sampleRateHz: requestedSampleRate,
       language: options.language,
