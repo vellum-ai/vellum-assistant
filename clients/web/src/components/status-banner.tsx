@@ -410,7 +410,7 @@ function localHealthBannerConfig(
   wakeError?: ReactNode,
 ): BannerConfig | null {
   // A paired entry is reached over a tunnel to a remote host, so a failed
-  // health probe only proves the link is down — there is no meaningful
+  // health probe only proves the link is down; there is no meaningful
   // sleeping/unreachable distinction, and Wake can't help from here.
   if (isPaired && (health === "sleeping" || health === "unreachable")) {
     return {

@@ -891,7 +891,7 @@ describe("StatusBanner", () => {
     });
 
     test("shows can't-be-reached copy with no wake action for a sleeping paired assistant", () => {
-      // A paired entry has no meaningful sleeping/unreachable distinction —
+      // A paired entry has no meaningful sleeping/unreachable distinction;
       // a failed health probe only proves the link is down.
       localHealthMock = "sleeping";
       assistantsMock = [
