@@ -386,6 +386,38 @@ describe("extractSpeakableSegments", () => {
       expect(remainder).toBe("次です");
     });
 
+    test("the halfwidth ideographic full stop ends a sentence", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "こんにちは｡次です",
+        false,
+      );
+
+      expect(segments).toEqual(["こんにちは｡"]);
+      expect(remainder).toBe("次です");
+    });
+
+    test("non-Latin enders inside a Markdown link URL do not split", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "[記事](https://example.com/前編。後編)を読んで。次",
+        false,
+      );
+
+      expect(segments).toEqual([
+        "[記事](https://example.com/前編。後編)を読んで。",
+      ]);
+      expect(remainder).toBe("次");
+    });
+
+    test("an unclosed link URL still splits at a newline", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "[x](https://a。b\n次",
+        false,
+      );
+
+      expect(segments).toEqual(["[x](https://a。b"]);
+      expect(remainder).toBe("次");
+    });
+
     test("adjacent enders stay in one segment", () => {
       // 本当！？ must not emit 本当！ and then a punctuation-only ？ segment.
       const { segments, remainder } = extractSpeakableSegments(

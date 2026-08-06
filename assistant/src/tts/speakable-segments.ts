@@ -18,6 +18,7 @@ const EAGER_CHAR_THRESHOLD = 60;
 // with no following whitespace.
 const NON_LATIN_SENTENCE_ENDING_PUNCTUATION = new Set([
   "。", // ideographic full stop
+  "｡", // halfwidth ideographic full stop
   "！", // fullwidth exclamation mark
   "？", // fullwidth question mark
   "．", // fullwidth full stop (digit-guarded below: also a decimal point)
@@ -46,6 +47,7 @@ const TRAILING_SENTENCE_PUNCTUATION = new Set(['"', "'", ")", "]"]);
 const NON_LATIN_TRAILING_SENTENCE_PUNCTUATION = new Set([
   ...TRAILING_SENTENCE_PUNCTUATION,
   "」",
+  "｣", // halfwidth corner bracket closer
   "』",
   "）",
   "】",
@@ -65,6 +67,7 @@ const NON_LATIN_TRAILING_SENTENCE_PUNCTUATION = new Set([
 // boundary regardless of what follows.
 const NON_LATIN_EAGER_CLAUSE_PUNCTUATION = new Set([
   "、", // ideographic comma
+  "､", // halfwidth ideographic comma
   "，", // fullwidth comma
   "；", // fullwidth semicolon
   "،", // Arabic comma
@@ -146,6 +149,11 @@ function findSpeakableBoundary(
   let inItalic = false;
   let inUnderscore = false;
   let skipSpanChar = false;
+  // Inside a Markdown link URL (`](...)`), non-Latin terminators are path
+  // characters, not sentence enders: splitting there leaves both fragments
+  // unmatchable by the sanitizer's complete-link pattern, so markup or the
+  // raw URL gets spoken.
+  let inLinkUrl = false;
 
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
@@ -154,8 +162,24 @@ function findSpeakableBoundary(
     }
     const inOpenSpan = inBacktick || inBold || inItalic || inUnderscore;
 
-    if (!inOpenSpan && char === "\n") {
-      return index + 1;
+    if (char === "\n") {
+      // A URL never spans a line: an unclosed link stops suppressing here so
+      // malformed markup cannot defer the newline split.
+      inLinkUrl = false;
+      if (!inOpenSpan) {
+        return index + 1;
+      }
+    }
+
+    if (inLinkUrl) {
+      if (char === ")") {
+        inLinkUrl = false;
+      }
+      continue;
+    }
+    if (char === "]" && text[index + 1] === "(") {
+      inLinkUrl = true;
+      continue;
     }
 
     if (
