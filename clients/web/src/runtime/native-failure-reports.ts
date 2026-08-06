@@ -113,6 +113,13 @@ export async function stopNativeFailureReportForwarding(): Promise<void> {
   if (!isAvailable() || !diagnosticsReportingResolvedOff()) {
     return;
   }
+  await disableNativeFailureReportForwarding();
+}
+
+export async function disableNativeFailureReportForwarding(): Promise<void> {
+  if (!isAvailable()) {
+    return;
+  }
   try {
     await NativeFailureReports.setEnabled({ enabled: false });
   } catch (error) {

@@ -48,6 +48,7 @@ mock.module("@/lib/sentry/capture-error", () => ({
 }));
 
 const {
+  disableNativeFailureReportForwarding,
   flushPendingNativeFailureReports,
   startNativeFailureReportForwarding,
   stopNativeFailureReportForwarding,
@@ -112,6 +113,9 @@ test("forwards queued Android failures only while diagnostics reporting is enabl
 
   await stopNativeFailureReportForwarding();
   expect(setEnabledMock).not.toHaveBeenCalledWith({ enabled: false });
+
+  await disableNativeFailureReportForwarding();
+  expect(setEnabledMock).toHaveBeenLastCalledWith({ enabled: false });
 
   reportingResolvedOff = true;
   await stopNativeFailureReportForwarding();

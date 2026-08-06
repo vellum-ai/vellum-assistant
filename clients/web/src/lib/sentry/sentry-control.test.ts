@@ -50,6 +50,7 @@ let authSubscriber:
   | null = null;
 
 const syncDiagnosticsToMainMock = mock((_enabled: boolean) => {});
+const disableNativeFailureReportForwardingMock = mock(() => Promise.resolve());
 
 mock.module("@/utils/device-settings", () => ({
   getDeviceBool: (name: string, fallback: boolean) => {
@@ -71,6 +72,10 @@ mock.module("@/utils/device-settings", () => ({
 
 mock.module("@/runtime/diagnostics", () => ({
   syncDiagnosticsToMain: syncDiagnosticsToMainMock,
+}));
+mock.module("@/runtime/native-failure-reports", () => ({
+  disableNativeFailureReportForwarding:
+    disableNativeFailureReportForwardingMock,
 }));
 
 // Whether a consent sync (or explicit acceptance) has hydrated the flags —
@@ -107,6 +112,7 @@ beforeEach(() => {
   closeMock.mockClear();
   selectSentryFlavorMock.mockClear();
   syncDiagnosticsToMainMock.mockReset();
+  disableNativeFailureReportForwardingMock.mockClear();
   readNames.length = 0;
   watchedNames.length = 0;
   deviceWatchCallback = null;
@@ -212,12 +218,13 @@ describe("syncSentryClient", () => {
     expect(selectSentryFlavorMock).toHaveBeenCalled();
   });
 
-  test("no-ops when dsn is absent (never touches the flavor)", () => {
+  test("dsn absent disables native reporting without touching the flavor", () => {
     deviceDiagnostics = true;
     platformSession = "present";
     syncSentryClient({});
     expect(initMock).not.toHaveBeenCalled();
     expect(closeMock).not.toHaveBeenCalled();
+    expect(disableNativeFailureReportForwardingMock).toHaveBeenCalledTimes(1);
   });
 
   test("confirmed-live session + gate on: inits the flavor when no client is enabled", () => {
