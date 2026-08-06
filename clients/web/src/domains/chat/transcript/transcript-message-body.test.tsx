@@ -2475,6 +2475,22 @@ describe("TranscriptMessageBody: changed-document reopen links", () => {
     expect(reopenLinks(container).length).toBe(0);
   });
 
+  test("renders a reopen link for a created document the turn then edits", () => {
+    const { container } = surfaceTurn(
+      [
+        documentCreateCall("tc-doc-a", "surf-notes"),
+        documentUpdateCall("tc-doc-b", "surf-notes"),
+      ],
+      [documentPreviewBlock("surf-notes")],
+    );
+
+    // The card renders where the create ran, above the writes that followed.
+    expect(
+      container.querySelector("[data-surface-id='preview-surf-notes']"),
+    ).not.toBeNull();
+    expect(reopenSurfaceIds(container)).toEqual(["surf-notes"]);
+  });
+
   test("renders a reopen link for a changed document no preview card covers", () => {
     const { container } = surfaceTurn(
       [

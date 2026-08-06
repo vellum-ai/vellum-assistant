@@ -10,8 +10,9 @@
  *
  * The name comes from the documents query rather than the tool result, so the
  * link reads the same title the assets list and the Library show, including
- * after a rename. A document the query cannot name still gets a link, under a
- * neutral label.
+ * after a rename. The link waits for that query and stays away from a document
+ * the resolved list does not carry, so it never offers to open something that
+ * has been deleted.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -22,31 +23,39 @@ import { Button } from "@vellumai/design-library/components/button";
 import { useIsDocumentOpen } from "@/domains/chat/components/local-file/open-local-file";
 import { documentsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 
-/** Label for a document the documents query has no title for. */
+/** Label for a document the documents query lists under an empty title. */
 const FALLBACK_DOCUMENT_NAME = "Untitled document";
 
 /**
- * Title of the document `surfaceId`, or {@link FALLBACK_DOCUMENT_NAME} when the
- * documents query has not named it. Keyed the same way the assets pill keys its
- * list, so both read one cache entry and one invalidation refreshes both.
+ * Title of the document `surfaceId`: `undefined` until the documents query
+ * resolves, `null` once a resolved list does not carry the document, and
+ * otherwise its title ({@link FALLBACK_DOCUMENT_NAME} when that title is empty).
+ *
+ * With a conversation the key matches the assets pill's, so both read one cache
+ * entry and one invalidation refreshes both. Without one the key drops the
+ * filter and reads the assistant-wide list, which no pill shares.
  */
 function useDocumentDisplayName(
   surfaceId: string,
   assistantId?: string | null,
   conversationId?: string | null,
-): string {
+): string | null | undefined {
   const { data: title } = useQuery({
     ...documentsGetOptions({
       path: { assistant_id: assistantId ?? "" },
-      query: { conversationId: conversationId ?? undefined },
+      ...(conversationId ? { query: { conversationId } } : {}),
     }),
     enabled: Boolean(assistantId),
-    select: (response) =>
-      response.documents.find((doc) => doc.surfaceId === surfaceId)?.title,
+    select: (response) => {
+      const found = response.documents.find(
+        (doc) => doc.surfaceId === surfaceId,
+      );
+      if (!found) {
+        return null;
+      }
+      return found.title.trim() === "" ? FALLBACK_DOCUMENT_NAME : found.title;
+    },
   });
-  if (title === undefined || title.trim() === "") {
-    return FALLBACK_DOCUMENT_NAME;
-  }
   return title;
 }
 
@@ -73,7 +82,7 @@ export function DocumentReopenLink({
     conversationId,
   );
 
-  if (isOpen) {
+  if (isOpen || displayName == null) {
     return null;
   }
 

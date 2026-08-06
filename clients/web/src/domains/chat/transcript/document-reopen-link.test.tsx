@@ -2,9 +2,9 @@
  * Tests for the end-of-turn link back to a document the assistant changed.
  *
  * Covers the two things the link owes its caller: it names the document from
- * the documents query (with a neutral label when the query has no title for
- * it), and it is present exactly when its own document is not the one open in
- * the viewer.
+ * the documents query, rendering only once that query resolves with the
+ * document in it, and it is present exactly when its own document is not the
+ * one open in the viewer.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -24,39 +24,52 @@ const onOpenDocument = mock((_surfaceId: string) => {});
 
 type SeededDocument = { surfaceId: string; title: string };
 
-/**
- * Render the link with the documents query already answered. `staleTime` is
- * infinite so the seeded entry is never refetched and the test needs no network.
- */
-function renderLink(documents: SeededDocument[]): void {
-  const queryClient = new QueryClient({
+function seededPayload(documents: SeededDocument[]) {
+  return {
+    documents: documents.map((doc) => ({
+      surfaceId: doc.surfaceId,
+      conversationId: CONVERSATION_ID,
+      title: doc.title,
+      wordCount: 0,
+      createdAt: 0,
+      updatedAt: 0,
+    })),
+  };
+}
+
+/** A client that never refetches, so a seeded entry needs no network. */
+function makeQueryClient(): QueryClient {
+  return new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
+}
+
+function renderWithClient(
+  queryClient: QueryClient,
+  conversationId: string | null,
+): void {
+  const ui: ReactNode = (
+    <DocumentReopenLink
+      surfaceId={SURFACE_ID}
+      assistantId={ASSISTANT_ID}
+      conversationId={conversationId}
+      onOpenDocument={onOpenDocument}
+    />
+  );
+  render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+}
+
+/** Render the link with the conversation-scoped documents query answered. */
+function renderLink(documents: SeededDocument[]): void {
+  const queryClient = makeQueryClient();
   queryClient.setQueryData(
     documentsGetQueryKey({
       path: { assistant_id: ASSISTANT_ID },
       query: { conversationId: CONVERSATION_ID },
     }),
-    {
-      documents: documents.map((doc) => ({
-        surfaceId: doc.surfaceId,
-        conversationId: CONVERSATION_ID,
-        title: doc.title,
-        wordCount: 0,
-        createdAt: 0,
-        updatedAt: 0,
-      })),
-    },
+    seededPayload(documents),
   );
-  const ui: ReactNode = (
-    <DocumentReopenLink
-      surfaceId={SURFACE_ID}
-      assistantId={ASSISTANT_ID}
-      conversationId={CONVERSATION_ID}
-      onOpenDocument={onOpenDocument}
-    />
-  );
-  render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+  renderWithClient(queryClient, CONVERSATION_ID);
 }
 
 /** Put the viewer store where it would be with `surfaceId` open in the drawer. */
@@ -73,12 +86,20 @@ function openDocument(surfaceId: string): void {
   });
 }
 
+const realFetch = globalThis.fetch;
+
 beforeEach(() => {
   onOpenDocument.mockClear();
   useViewerStore.setState({ mainView: "chat", openedDocumentState: null });
+  // An unseeded query leaves the link in its loading state for the whole test
+  // instead of reaching the network.
+  globalThis.fetch = Object.assign(() => new Promise<Response>(() => {}), {
+    preconnect: () => {},
+  }) as typeof globalThis.fetch;
 });
 
 afterEach(() => {
+  globalThis.fetch = realFetch;
   cleanup();
 });
 
@@ -90,11 +111,35 @@ describe("DocumentReopenLink", () => {
     expect(screen.getByTestId("document-reopen-link")).toBeTruthy();
   });
 
-  test("falls back to a neutral label when the query has no title", () => {
+  test("renders nothing until the documents query resolves", () => {
+    renderWithClient(makeQueryClient(), CONVERSATION_ID);
+
+    expect(screen.queryByTestId("document-reopen-link")).toBeNull();
+    expect(screen.queryByText("Untitled document")).toBeNull();
+  });
+
+  test("renders nothing for a document the resolved list does not carry", () => {
     renderLink([{ surfaceId: "surf-other", title: "Some other doc" }]);
+
+    expect(screen.queryByTestId("document-reopen-link")).toBeNull();
+  });
+
+  test("falls back to a neutral label for a document with an empty title", () => {
+    renderLink([{ surfaceId: SURFACE_ID, title: "  " }]);
 
     expect(screen.getByText("Untitled document")).toBeTruthy();
     expect(screen.getByTestId("document-reopen-link")).toBeTruthy();
+  });
+
+  test("reads the assistant-wide list when there is no conversation", () => {
+    const queryClient = makeQueryClient();
+    queryClient.setQueryData(
+      documentsGetQueryKey({ path: { assistant_id: ASSISTANT_ID } }),
+      seededPayload([{ surfaceId: SURFACE_ID, title: "Quarterly notes" }]),
+    );
+    renderWithClient(queryClient, null);
+
+    expect(screen.getByText("Quarterly notes")).toBeTruthy();
   });
 
   test("hides itself while its own document is open", () => {
