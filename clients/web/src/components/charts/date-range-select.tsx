@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 
 import {
-  Select,
-  type SelectOption,
-} from "@vellumai/design-library/components/select";
+  Dropdown,
+  type DropdownOption,
+} from "@vellumai/design-library/components/dropdown";
 
 import { getEffectiveTimezone } from "@/utils/effective-timezone";
 import { resolveLastTimezoneCalendarDays } from "@/utils/usage-window";
@@ -36,9 +36,8 @@ export const DEFAULT_PRESET_DAYS = 30;
 
 type PresetDays = `${(typeof PRESET_DAYS)[number]}`;
 
-const PRESET_OPTIONS: ReadonlyArray<SelectOption<PresetDays>> = PRESET_DAYS.map(
-  (days) => ({ value: `${days}`, label: `Last ${days} days` }),
-);
+const PRESET_OPTIONS: ReadonlyArray<DropdownOption<PresetDays>> =
+  PRESET_DAYS.map((days) => ({ value: `${days}`, label: `Last ${days} days` }));
 
 /**
  * Compute a "last N days" range whose calendar bounds are expressed in the
@@ -94,7 +93,7 @@ export function DateRangeSelect({ value, onChange }: DateRangeSelectProps) {
   };
 
   return (
-    <Select<PresetDays>
+    <Dropdown<PresetDays>
       options={PRESET_OPTIONS}
       value={selectedPreset}
       onChange={handleChange}
