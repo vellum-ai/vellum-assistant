@@ -1,4 +1,14 @@
-import { and, count, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  lt,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import {
   parseExternalContentEnvelope,
@@ -16,6 +26,7 @@ import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { searchMessageIdsLexical } from "./conversation-search-lexical.js";
 import {
   type ConversationType,
+  NATIVE_ORIGIN_CHANNEL,
   PINNED_GROUP_ID,
   UNGROUPED_GROUP_ID,
 } from "./conversation-types.js";
@@ -319,6 +330,33 @@ function isUserOrderedGroup(groupId: string | undefined): boolean {
   return groupId === PINNED_GROUP_ID || !groupId.startsWith("system:");
 }
 
+/**
+ * Select one channel's conversations.
+ *
+ * The native channel matches an unstamped row as well as an explicit
+ * `"vellum"`. Inserts leave `origin_channel` NULL so a channel can still
+ * claim the row on its first inbound message, and migration 288 settles
+ * whatever is still unclaimed to `"vellum"` at startup. A strict equality
+ * would therefore drop every conversation created since the last daemon
+ * boot: the newest ones, and the ones a user is most likely to want.
+ *
+ * See {@link NATIVE_ORIGIN_CHANNEL} for why stamping at insert instead is
+ * not an option.
+ *
+ * External channel ids are only ever set by attribution, so they compare
+ * directly. Widening this branch to them would hand every unattributed
+ * conversation to every channel at once.
+ */
+function originChannelClause(originChannel: string) {
+  if (originChannel === NATIVE_ORIGIN_CHANNEL) {
+    return or(
+      isNull(conversations.originChannel),
+      eq(conversations.originChannel, NATIVE_ORIGIN_CHANNEL),
+    );
+  }
+  return eq(conversations.originChannel, originChannel);
+}
+
 function conversationListWhere(filter: ConversationListFilter) {
   const {
     conversationType = "standard",
@@ -329,7 +367,7 @@ function conversationListWhere(filter: ConversationListFilter) {
   return and(
     conversationTypeClause(conversationType),
     archiveStatusClause(archiveStatus) ?? undefined,
-    originChannel ? eq(conversations.originChannel, originChannel) : undefined,
+    originChannel ? originChannelClause(originChannel) : undefined,
     groupId ? groupIdClause(groupId) : undefined,
   );
 }

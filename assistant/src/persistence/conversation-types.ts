@@ -267,3 +267,22 @@ export function isReplyPushIneligibleUserMessage(
  */
 export const UNGROUPED_GROUP_ID = "system:all";
 export const PINNED_GROUP_ID = "system:pinned";
+
+/**
+ * The `origin_channel` value for a conversation that started in the app
+ * rather than arriving over an external channel.
+ *
+ * Two spellings mean this, and both are live, because NULL is a third
+ * state rather than a missing value: it means "not yet attributed".
+ * Channel conversations are stamped on their first inbound message by
+ * `setConversationOriginChannelIfUnset`, which fires only while the column
+ * is still NULL, so inserts deliberately leave it unset. Do not stamp this
+ * value at creation time: it would claim the row before the channel could,
+ * and every external conversation would report itself as native.
+ *
+ * A row still NULL once its attribution window has passed is native, which
+ * is the reading migration 288 applies at startup. Readers must apply the
+ * same reading in between. See `originChannelClause` in
+ * `conversation-queries.ts`.
+ */
+export const NATIVE_ORIGIN_CHANNEL = "vellum";
