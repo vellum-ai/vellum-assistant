@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { on } from "./ipc";
+import { on } from "./presence-runtime";
 
 /**
  * Avatar source of truth for the macOS icon surfaces.
@@ -53,7 +53,9 @@ export const onAvatarChange = (listener: AvatarListener): (() => void) => {
  */
 export const setAvatar = (png: Buffer | null): void => {
   currentAvatarPng = png;
-  for (const listener of listeners) listener();
+  for (const listener of listeners) {
+    listener();
+  }
 };
 
 // The renderer ships raw PNG bytes as a `Uint8Array`, or `null` to clear.
@@ -71,7 +73,9 @@ const avatarPayloadSchema = z.tuple([z.instanceof(Uint8Array).nullable()]);
  */
 let installed = false;
 export const installAvatarIpc = (): void => {
-  if (installed) return;
+  if (installed) {
+    return;
+  }
   installed = true;
 
   on("vellum:icon:setAvatar", avatarPayloadSchema, ([png]) => {

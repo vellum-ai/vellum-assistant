@@ -9,8 +9,7 @@ import {
   assistantStatusSchema,
 } from "@vellumai/ipc-contract";
 
-import { handle, on } from "./ipc";
-import log from "./logger";
+import { handle, log, on } from "./presence-runtime";
 
 /**
  * Assistant connection status driving the menu-bar (Tray) indicator.
@@ -123,9 +122,13 @@ export const onStatusChange = (listener: StatusListener): (() => void) => {
  * doesn't thrash the tray.
  */
 export const setStatus = (status: AssistantStatus): void => {
-  if (status === currentStatus) return;
+  if (status === currentStatus) {
+    return;
+  }
   currentStatus = status;
-  for (const listener of listeners) listener(status);
+  for (const listener of listeners) {
+    listener(status);
+  }
 };
 
 const connectionPayloadSchema = z.tuple([assistantStatusSchema]);
@@ -138,7 +141,9 @@ const connectionPayloadSchema = z.tuple([assistantStatusSchema]);
  */
 let installed = false;
 export const installStatusIpc = (): void => {
-  if (installed) return;
+  if (installed) {
+    return;
+  }
   installed = true;
 
   on("vellum:status:connection", connectionPayloadSchema, ([status]) => {
@@ -166,17 +171,23 @@ export const getConnectivity = (): ConnectivityState => currentConnectivity;
 
 const broadcastConnectivity = (): void => {
   for (const win of BrowserWindow.getAllWindows()) {
-    if (win.isDestroyed()) continue;
+    if (win.isDestroyed()) {
+      continue;
+    }
     win.webContents.send("vellum:connectivity:state", currentConnectivity);
   }
 };
 
 export const setConnectivity = (state: ConnectivityState): void => {
-  if (state === currentConnectivity) return;
+  if (state === currentConnectivity) {
+    return;
+  }
   log.info(`[connectivity] ${currentConnectivity} → ${state}`);
   currentConnectivity = state;
   broadcastConnectivity();
-  for (const listener of connectivityListeners) listener(state);
+  for (const listener of connectivityListeners) {
+    listener(state);
+  }
 };
 
 const recomputeConnectivity = (): void => {
@@ -212,18 +223,16 @@ let connectivityInstalled = false;
 export const installConnectivityIpc = (
   onRetry?: () => void | Promise<void>,
 ): void => {
-  if (connectivityInstalled) return;
+  if (connectivityInstalled) {
+    return;
+  }
   connectivityInstalled = true;
 
   handle("vellum:connectivity:get", z.tuple([]), () => currentConnectivity);
 
-  on(
-    "vellum:connectivity:device",
-    z.tuple([z.boolean()]),
-    ([online]) => {
-      setDeviceOnline(online);
-    },
-  );
+  on("vellum:connectivity:device", z.tuple([z.boolean()]), ([online]) => {
+    setDeviceOnline(online);
+  });
 
   // A manual retry must be able to recover a renderer whose banner has
   // desynced from main: a single missed `:state` broadcast leaves main

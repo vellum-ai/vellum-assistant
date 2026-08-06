@@ -15,13 +15,18 @@ import {
 
 import { installAbout, openAboutWindow } from "./about";
 import { installAutoUpdate } from "./auto-update";
-import { APP_HOST, APP_PROTOCOL, BUNDLES_DIR_NAME, VELLUMAPP_PROTOCOL } from "./app-config";
+import {
+  APP_HOST,
+  APP_PROTOCOL,
+  BUNDLES_DIR_NAME,
+  VELLUMAPP_PROTOCOL,
+} from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin";
 import { writeCliLocator } from "./cli-installer";
 import { provisionCliForWrapper } from "./cli-path-installer";
 import { installCsp } from "./csp";
 import { getDeviceId } from "./device-id";
-import { handleSync } from "./ipc";
+import { handle, handleSync, on } from "./ipc";
 import { registerVellumAppProtocol } from "./vellumapp-protocol";
 import {
   authorizePairedGatewayForwardPlan,
@@ -42,17 +47,27 @@ import {
   installDeepLinks,
 } from "./deep-links";
 import { handleBundleFile, installBundleFlow } from "./bundle-flow";
-import { handleFileOpen, hasPendingFiles, installFileOpen, onFileOpen } from "./file-open";
-import { installAvatarIpc } from "./avatar";
+import {
+  handleFileOpen,
+  hasPendingFiles,
+  installFileOpen,
+  onFileOpen,
+} from "./file-open";
+import { installAvatarIpc } from "@vellumai/electron-desktop/avatar";
+import { installConnectivityProbe } from "@vellumai/electron-desktop/connectivity-probe";
+import { installIdentityIpc } from "@vellumai/electron-desktop/identity";
+import { installPowerEvents } from "@vellumai/electron-desktop/power-events";
+import { configurePresenceRuntime } from "@vellumai/electron-desktop/presence-runtime";
+import {
+  installConnectivityIpc,
+  installStatusIpc,
+} from "@vellumai/electron-desktop/status";
 import { installCommandPaletteWindow } from "./command-palette-window";
 import { installDictationOverlay } from "./dictation-overlay-window";
 import { installDock } from "./dock";
 import { installDownloads } from "./downloads";
 import { installShare } from "./share";
-import {
-  installEscapeMonitor,
-  setDictationRecording,
-} from "./escape-monitor";
+import { installEscapeMonitor, setDictationRecording } from "./escape-monitor";
 import { installDiagnosticsIpc } from "./diagnostics";
 import { installFeatureFlagsIpc } from "./feature-flags";
 import { installFeedbackIpc } from "./feedback";
@@ -88,13 +103,9 @@ import {
 } from "./move-to-applications";
 import { markRelocationSkipped } from "./install-location";
 import { installNativeAuth } from "./native-auth";
-import { installConnectivityProbe } from "./connectivity-probe";
 import { installNotifications } from "./notifications";
 import { installPermissionHandler } from "./permissions";
 import { installPermissionsService } from "./permissions-service";
-import { installPowerEvents } from "./power-events";
-import { installIdentityIpc } from "./identity";
-import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTextInsertionIpc } from "./textInsertion";
 import { installTray } from "./tray";
 import {
@@ -265,7 +276,10 @@ const registerAppProtocol = (): void => {
     // secure renderer never touches an insecure `http://127.0.0.1` origin
     // directly; the lockfile allowlist is the security boundary. Mirrors the
     // Vite dev-server proxy (`clients/web/vite-plugin-local-mode.ts`).
-    const proxied = await forwardGatewayRequest(request, getAllowedGatewayPorts);
+    const proxied = await forwardGatewayRequest(
+      request,
+      getAllowedGatewayPorts,
+    );
     if (proxied) return proxied;
 
     // Paired remote gateways ride the same-origin path too, via
@@ -428,6 +442,8 @@ app
       return;
     }
 
+    configurePresenceRuntime({ ipc: { handle, on }, logger: log });
+
     // Install into /Applications before any other setup. On the first packaged
     // launch from a mounted DMG (or ~/Downloads), the app silently moves itself
     // there and relaunches — the "double-click to install" half of the DMG flow.
@@ -462,7 +478,9 @@ app
       // version bump rewrites the locator now (and prunes old versions)
       // rather than after the next in-app CLI action.
       void provisionCliForWrapper()
-        .then((provisioned) => (provisioned ? refreshCliPathMenuState() : undefined))
+        .then((provisioned) =>
+          provisioned ? refreshCliPathMenuState() : undefined,
+        )
         .catch((err: unknown) => {
           log.error("[app] startup CLI provisioning failed:", err);
         });

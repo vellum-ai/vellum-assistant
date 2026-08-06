@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import type { Lockfile } from "@vellumai/local-mode/contract";
 
 // Tray stub: records constructions, event listeners, and image swaps.
 type TrayCall = { event: string; handler: (...args: unknown[]) => void };
@@ -86,54 +87,15 @@ mock.module("electron", () => ({
   },
 }));
 
-mock.module("./assets/menu-icons", () => ({
-  MENU_ICON_MESSAGESQUARE: { png1x: "", png2x: "" },
-  MENU_ICON_MESSAGECIRCLEPLUS: { png1x: "", png2x: "" },
-  MENU_ICON_CIRCLECHECK: { png1x: "", png2x: "" },
-  MENU_ICON_SETTINGS: { png1x: "", png2x: "" },
-  MENU_ICON_MESSAGECIRCLE: { png1x: "", png2x: "" },
-  MENU_ICON_REFRESHCW: { png1x: "", png2x: "" },
-  MENU_ICON_POWER: { png1x: "", png2x: "" },
-}));
-
-mock.module("./menu-icon", () => ({
-  menuIcon: () => ({ __kind: "template-icon" }),
-}));
-
 // Controllable lockfile snapshot standing in for the watcher's cache, so
 // switcher tests can stage managed/paired/local entries per test.
 let watchedLockfile: {
   assistants: Array<Record<string, unknown>>;
   activeAssistant: string | null;
 } = { assistants: [], activeAssistant: null };
-mock.module("./lockfile-watcher", () => ({
-  getWatchedLockfile: () => watchedLockfile,
-}));
-
-mock.module("./logger", () => ({
-  default: { info: () => {}, warn: () => {}, error: () => {} },
-}));
-
-// Full `./settings` surface so this mock — which leaks into co-run test files
-// via the global module registry — doesn't break sibling modules that import
-// `writeSetting`/`onSettingChange` (e.g. `hotkeys.ts`). Feature flags are
-// controllable so the assistant-switcher gate can be exercised.
 let featureFlags: Record<string, boolean> | null = null;
-mock.module("./settings", () => ({
-  readSetting: (key: string) => (key === "featureFlags" ? featureFlags : null),
-  readHotkeyOverride: () => null,
-  writeSetting: () => {},
-  onSettingChange: () => () => {},
-}));
-
-mock.module("./window-state", () => ({
-  readOnboardingActive: () => false,
-}));
 
 const dispatchToMainMock = mock((_command: unknown) => undefined);
-mock.module("./main-window", () => ({
-  dispatchToMain: dispatchToMainMock,
-}));
 
 // Stub the icon module so the tray test stays free of real `nativeImage`
 // rendering. Frames are plain sentinels; `thinking` yields a multi-frame
@@ -188,7 +150,8 @@ mock.module("./identity", () => ({
   onNameChange: () => () => undefined,
 }));
 
-const { installTray, __resetForTesting } = await import("./tray");
+const { configureTrayModel, installTray, __resetForTesting } =
+  await import("./tray-model");
 
 const handlers = {
   toggleMainWindow: mock(() => undefined),
@@ -210,6 +173,16 @@ let timeoutCallbacks: (() => void)[] = [];
 
 beforeEach(() => {
   __resetForTesting();
+  configureTrayModel({
+    accelerator: () => ({}),
+    dispatch: dispatchToMainMock,
+    featureEnabled: (flag) => featureFlags?.[flag] === true,
+    getLockfile: () => watchedLockfile as Lockfile,
+    icon: () => ({ __kind: "template-icon" }) as never,
+    onboardingActive: () => false,
+    openComponentGallery: () => undefined,
+    removePairedLabel: "Remove from this Mac\u2026",
+  });
   trays.length = 0;
   appListeners.clear();
   themeListeners.clear();

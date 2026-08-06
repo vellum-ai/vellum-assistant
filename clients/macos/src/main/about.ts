@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { AppVersionInfo } from "@vellumai/ipc-contract";
 
 import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
-import { getName, onNameChange } from "./identity";
+import { getName, onNameChange } from "@vellumai/electron-desktop/identity";
 import { handle } from "./ipc";
 import { createWindow } from "./windows";
 

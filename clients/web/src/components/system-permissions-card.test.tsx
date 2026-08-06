@@ -67,6 +67,7 @@ mock.module("@/runtime/system-permissions", () => ({
 }));
 
 mock.module("@/runtime/dock", () => ({
+  getUnreadBadgeSurface: () => "Dock icon",
   setDockBadge,
 }));
 

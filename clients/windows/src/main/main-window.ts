@@ -15,6 +15,8 @@ const MAIN_MIN_SIZE = { width: 800, height: 600 } as const;
 
 let mainWindow: BrowserWindow | null = null;
 
+export const current = (): BrowserWindow | null => mainWindow;
+
 // Same-origin navigation guard: the window only ever navigates within the
 // renderer origin; external http(s) links open in the default browser, and
 // everything else is dropped. The macOS client additionally allows the OAuth
@@ -87,6 +89,15 @@ export const ensureVisible = (): void => {
   }
   mainWindow.show();
   mainWindow.focus();
+};
+
+export const toggleVisibility = (): void => {
+  const win = current();
+  if (win && !win.isDestroyed() && win.isVisible()) {
+    win.hide();
+    return;
+  }
+  ensureVisible();
 };
 
 /** Create the initial main window. Call once from `whenReady`. */
