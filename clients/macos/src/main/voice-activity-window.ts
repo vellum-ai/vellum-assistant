@@ -15,7 +15,7 @@ import { ensureVisible as ensureMainWindowVisible } from "./main-window";
 import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
 import { handle, on } from "./ipc";
 import { createWindow } from "./windows";
-import { restoreBounds, track } from "./window-state";
+import { restoreBounds, track } from "@vellumai/electron-desktop/window-state";
 
 /**
  * The floating live-voice session surface: the desktop counterpart to the iOS

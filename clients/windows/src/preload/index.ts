@@ -34,6 +34,7 @@ const coreBridge: Pick<
   | "platform"
   | "hostOS"
   | "app"
+  | "identity"
   | "commands"
   | "power"
   | "deepLinks"
@@ -49,6 +50,11 @@ const coreBridge: Pick<
       ipcRenderer.invoke("vellum:app:versionInfo") as Promise<AppVersionInfo>,
     openWebsite: (): Promise<void> =>
       ipcRenderer.invoke("vellum:app:openWebsite") as Promise<void>,
+  },
+  identity: {
+    setName: (name: string): void => {
+      ipcRenderer.send("vellum:identity:name", name);
+    },
   },
   commands: {
     on: (callback) => {
@@ -84,9 +90,11 @@ const coreBridge: Pick<
   mainWindow: {
     ensureVisible: (): Promise<void> =>
       ipcRenderer.invoke("vellum:mainWindow:ensureVisible") as Promise<void>,
-    // Stub: onboarding window sizing needs the window-state port
-    // (`clients/macos/src/main/window-state.ts`).
-    setOnboarding: () => Promise.resolve(),
+    setOnboarding: (active: boolean): Promise<void> =>
+      ipcRenderer.invoke(
+        "vellum:mainWindow:setOnboarding",
+        active,
+      ) as Promise<void>,
   },
   // Stub: local assistants need the CLI provisioning + lockfile IPC port
   // (`clients/macos/src/main/local-mode.ts`). The empty lockfile renders an

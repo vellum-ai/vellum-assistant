@@ -17,6 +17,7 @@ import Store from "electron-store";
 
 interface SavedWindowState extends Rectangle {
   isFullScreen: boolean;
+  isMaximized?: boolean;
 }
 
 interface StoreSchema {
@@ -83,7 +84,30 @@ export interface RestoredWindowState {
   width: number;
   height: number;
   fullscreen?: boolean;
+  maximized?: boolean;
 }
+
+const isUsableDimension = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value > 0;
+
+const isUsableCoordinate = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+
+const isSavedWindowState = (value: unknown): value is SavedWindowState => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const state = value as Partial<SavedWindowState>;
+  return (
+    isUsableCoordinate(state.x) &&
+    isUsableCoordinate(state.y) &&
+    isUsableDimension(state.width) &&
+    isUsableDimension(state.height) &&
+    typeof state.isFullScreen === "boolean" &&
+    (state.isMaximized === undefined ||
+      typeof state.isMaximized === "boolean")
+  );
+};
 
 /**
  * Resolve the bounds to construct a `BrowserWindow` with, falling through
@@ -108,7 +132,7 @@ export const restoreBounds = (
   defaults: Defaults,
 ): RestoredWindowState => {
   const saved = store().get("windows", {})[key];
-  if (!saved) {
+  if (!isSavedWindowState(saved)) {
     if (defaults === "maximized") {
       return { ...screen.getPrimaryDisplay().workArea };
     }
@@ -123,7 +147,16 @@ export const restoreBounds = (
   const x = Math.max(wa.x, Math.min(saved.x, wa.x + wa.width - width));
   const y = Math.max(wa.y, Math.min(saved.y, wa.y + wa.height - height));
 
-  return { x, y, width, height, fullscreen: saved.isFullScreen };
+  return {
+    x,
+    y,
+    width,
+    height,
+    fullscreen: saved.isFullScreen,
+    ...(saved.isMaximized === undefined
+      ? {}
+      : { maximized: saved.isMaximized }),
+  };
 };
 
 /**
@@ -160,18 +193,28 @@ export const track = (
   let saveTimer: NodeJS.Timeout | null = null;
 
   const persist = (): void => {
-    if (win.isDestroyed()) return;
-    if (!shouldPersist()) return;
+    if (win.isDestroyed()) {
+      return;
+    }
+    if (!shouldPersist()) {
+      return;
+    }
     const bounds = win.getNormalBounds();
     const existing = store().get("windows", {});
     store().set("windows", {
       ...existing,
-      [key]: { ...bounds, isFullScreen: win.isFullScreen() },
+      [key]: {
+        ...bounds,
+        isFullScreen: win.isFullScreen(),
+        isMaximized: win.isMaximized(),
+      },
     });
   };
 
   const schedulePersist = (): void => {
-    if (saveTimer) clearTimeout(saveTimer);
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+    }
     saveTimer = setTimeout(persist, SAVE_DEBOUNCE_MS);
   };
 

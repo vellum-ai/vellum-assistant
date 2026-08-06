@@ -126,7 +126,7 @@ mock.module("./settings", () => ({
   onSettingChange: () => () => {},
 }));
 
-mock.module("./window-state", () => ({
+mock.module("@vellumai/electron-desktop/window-state", () => ({
   readOnboardingActive: () => false,
 }));
 

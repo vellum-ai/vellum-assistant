@@ -13,7 +13,7 @@ import { APP_PROTOCOL } from "./app-config";
 import { installMainFeatures } from "./features";
 import { handle, handleSync } from "./ipc.client";
 import log from "./logger";
-import { ensureVisible, installMainWindow } from "./main-window";
+import { ensureVisible } from "./main-window";
 import { installWebContentsSecurity } from "./windows.client";
 
 /**
@@ -195,7 +195,6 @@ app
     }
     installAppInfoIpc();
     installMainFeatures();
-    installMainWindow();
   })
   .catch((err: unknown) => {
     log.error("[app] whenReady setup failed:", err);

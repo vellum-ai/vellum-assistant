@@ -6,6 +6,7 @@ type SavedState = {
   width: number;
   height: number;
   isFullScreen: boolean;
+  isMaximized?: boolean;
 };
 
 let savedWindows: Record<string, SavedState> = {};
@@ -62,6 +63,7 @@ function makeTrackableWindow() {
     isDestroyed: () => false,
     getNormalBounds: () => ({ x: 1, y: 2, width: 440, height: 630 }),
     isFullScreen: () => false,
+    isMaximized: () => false,
   };
 }
 
@@ -110,6 +112,35 @@ describe("restoreBounds", () => {
     const result = restoreBounds("main", DEFAULTS);
     expect(result.width).toBe(800);
     expect(result.height).toBe(600);
+  });
+
+  test("clamps saved bounds after a DPI work-area change", () => {
+    workArea = { x: 120, y: 80, width: 1280, height: 720 };
+    savedWindows.main = {
+      x: 1800,
+      y: 900,
+      width: 1600,
+      height: 900,
+      isFullScreen: false,
+    };
+    expect(restoreBounds("main", DEFAULTS)).toEqual({
+      x: 120,
+      y: 80,
+      width: 1280,
+      height: 720,
+      fullscreen: false,
+    });
+  });
+
+  test("falls back when persisted state is corrupt", () => {
+    savedWindows.main = {
+      x: Number.NaN,
+      y: 0,
+      width: -1,
+      height: 600,
+      isFullScreen: false,
+    };
+    expect(restoreBounds("main", DEFAULTS)).toEqual(DEFAULTS);
   });
 
   test("clamps x and y into the work area when the window was off-screen", () => {
@@ -162,6 +193,18 @@ describe("restoreBounds", () => {
       isFullScreen: true,
     };
     expect(restoreBounds("main", DEFAULTS).fullscreen).toBe(true);
+  });
+
+  test("forwards a saved maximized flag", () => {
+    savedWindows.main = {
+      x: 0,
+      y: 0,
+      width: 800,
+      height: 600,
+      isFullScreen: false,
+      isMaximized: true,
+    };
+    expect(restoreBounds("main", DEFAULTS).maximized).toBe(true);
   });
 
   test("returns the primary display's work area for the maximized default", () => {

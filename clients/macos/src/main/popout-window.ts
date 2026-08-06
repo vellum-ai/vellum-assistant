@@ -4,7 +4,10 @@ import { z } from "zod";
 import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
 import { handle } from "./ipc";
 import { createWindow } from "./windows";
-import { restoreBounds, track as trackWindowState } from "./window-state";
+import {
+  restoreBounds,
+  track as trackWindowState,
+} from "@vellumai/electron-desktop/window-state";
 
 /**
  * Conversation pop-out windows — independent BrowserWindows showing a single

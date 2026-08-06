@@ -9,14 +9,17 @@
     "./capability-registry": "./src/capability-registry.ts",
     "./devtools": "./src/devtools.ts",
     "./ipc": "./src/ipc.ts",
+    "./window-readiness": "./src/window-readiness.ts",
+    "./window-state": "./src/window-state.ts",
     "./windows": "./src/windows.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit",
-    "test": "bun test src/capability-registry.test.ts"
+    "test": "bun test src/capability-registry.test.ts src/window-state.test.ts"
   },
   "dependencies": {
-    "@vellumai/electron-utils": "workspace:*"
+    "@vellumai/electron-utils": "workspace:*",
+    "electron-store": "11.0.2"
   },
   "peerDependencies": {
     "electron": ">=42.2.0",
