@@ -20,6 +20,8 @@ const MOCK_DEPRECATED_DIR = join(
 );
 const MOCK_WORKSPACE_DIR = join(homedir(), ".vellum", "workspace");
 const MOCK_HOOKS_DIR = join(MOCK_WORKSPACE_DIR, "hooks");
+const MOCK_GIT_DIR = "/tmp/mock-workspace/.git";
+const MOCK_GIT_HOOKS_DIR = "/tmp/mock-workspace/.githooks";
 const MOCK_PLUGINS_DIR = join(MOCK_WORKSPACE_DIR, "plugins");
 const MOCK_TOOLS_DIR = join(MOCK_WORKSPACE_DIR, "tools");
 const MOCK_ROUTES_DIR = join(MOCK_WORKSPACE_DIR, "routes");
@@ -34,6 +36,8 @@ function makeContext(): FileClassificationContext {
     protectedDir: MOCK_PROTECTED_DIR,
     deprecatedDir: MOCK_DEPRECATED_DIR,
     hooksDir: MOCK_HOOKS_DIR,
+    gitDir: MOCK_GIT_DIR,
+    gitHooksDir: MOCK_GIT_HOOKS_DIR,
     pluginsDir: MOCK_PLUGINS_DIR,
     toolsDir: MOCK_TOOLS_DIR,
     routesDir: MOCK_ROUTES_DIR,
@@ -1351,6 +1355,39 @@ describe("FileRiskClassifier", () => {
         filePath: "",
       });
       expect(result.allowlistOptions).toEqual([]);
+    });
+  });
+
+  describe("git repository internals", () => {
+    /**
+     * `.git/config` decides which programs git runs for the daemon, and
+     * `.githooks` holds scripts it executes during ordinary operations
+     * including the auto-commit heartbeat. Both live inside the workspace, so
+     * without this they classify as ordinary Low-risk workspace writes.
+     */
+    test.each([
+      [`${MOCK_GIT_DIR}/config`],
+      [`${MOCK_GIT_DIR}/hooks/pre-commit`],
+      [`${MOCK_GIT_HOOKS_DIR}/pre-commit`],
+      [`${MOCK_GIT_HOOKS_DIR}/reference-transaction`],
+    ])("file_write to %s is High", async (filePath) => {
+      const result = await makeClassifier().classify(
+        { toolName: "file_write", filePath, workingDir: WORKING_DIR },
+        makeContext(),
+      );
+      expect(result?.riskLevel).toBe("high");
+    });
+
+    test("a sibling path that merely starts with .git is not escalated", async () => {
+      const result = await makeClassifier().classify(
+        {
+          toolName: "file_write",
+          filePath: `${MOCK_GIT_DIR}ignore-notes/x`,
+          workingDir: WORKING_DIR,
+        },
+        makeContext(),
+      );
+      expect(result?.riskLevel).not.toBe("high");
     });
   });
 });

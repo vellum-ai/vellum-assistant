@@ -62,6 +62,10 @@ export interface FileContext {
   protectedDir: string;
   deprecatedDir: string;
   hooksDir: string;
+  /** Git metadata dir — `.git/config` names programs git runs. */
+  gitDir: string;
+  /** Git hooks dir (`core.hooksPath`) — scripts git executes. */
+  gitHooksDir: string;
   pluginsDir: string;
   toolsDir: string;
   routesDir: string;

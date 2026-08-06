@@ -383,6 +383,28 @@ export function getWorkspaceHooksDir(): string {
 }
 
 /**
+ * Returns `<workspaceDir>/.git` — git's own metadata for the workspace repo.
+ *
+ * Distinct from {@link getWorkspaceHooksDir}, which is the assistant's hook
+ * loader. `.git/config` decides which programs git runs on the daemon's
+ * behalf (filters while staging, signing on commit, textconv while diffing,
+ * and more), and `.git/hooks` holds the default hook scripts, so writes here
+ * are a code-injection sink.
+ */
+export function getWorkspaceGitDir(): string {
+  return join(getWorkspaceDir(), ".git");
+}
+
+/**
+ * Returns `<workspaceDir>/.githooks` — the directory the workspace repo's
+ * `core.hooksPath` points at. Scripts here are executed by git during
+ * ordinary repository operations, including the auto-commit heartbeat.
+ */
+export function getWorkspaceGitHooksDir(): string {
+  return join(getWorkspaceDir(), ".githooks");
+}
+
+/**
  * Returns `<workspaceDir>/plugins` — the directory scanned by the user plugin
  * loader at daemon startup. Writes here are security-sensitive: any
  * `register.{ts,js}` will be dynamic-imported on next restart, so the file

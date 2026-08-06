@@ -24,6 +24,8 @@ const dummyFileContext: FileClassificationContext = {
   protectedDir: "/tmp/test-protected",
   deprecatedDir: "/tmp/test-deprecated",
   hooksDir: "/tmp/test-hooks",
+  gitDir: "/tmp/test-workspace/.git",
+  gitHooksDir: "/tmp/test-workspace/.githooks",
   pluginsDir: "/tmp/test-plugins",
   toolsDir: "/tmp/test-tools",
   routesDir: "/tmp/test-routes",

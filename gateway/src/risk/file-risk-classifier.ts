@@ -13,6 +13,7 @@
  * - file_write / file_edit: Low by default, Medium when the target resolves
  *   outside the sandbox working directory on a non-containerized install,
  *   High if targeting skill source code, the workspace hooks directory, the
+ *   workspace git repository (`.git` and `.githooks`), the
  *   user plugins directory, the workspace tools directory, the workspace
  *   routes directory, the workspace workflows directory, or the monitoring
  *   data directory.
@@ -77,6 +78,14 @@ export interface FileClassificationContext {
   deprecatedDir: string;
   /** Absolute path to the workspace hooks directory. */
   hooksDir: string;
+  /**
+   * Absolute path to the workspace repository's `.git` directory. Its config
+   * names the programs git runs on the daemon's behalf, so writes here are a
+   * code-injection sink.
+   */
+  gitDir: string;
+  /** Absolute path to the git hooks directory (`core.hooksPath`). */
+  gitHooksDir: string;
   /** Absolute path to the user plugins directory. */
   pluginsDir: string;
   /** Absolute path to the workspace tools directory (dynamic-imported tool overrides). */
@@ -269,6 +278,33 @@ function isActorTokenSigningKeyPath(
  * Check whether a resolved absolute path falls inside the workspace hooks
  * directory (or IS the hooks directory itself).
  */
+/**
+ * Whether the path lands in git's own metadata or its hooks directory.
+ *
+ * Enumerating the config keys that make git run a program is a losing game:
+ * hooks, textconv, external diff, fsmonitor, pager, clean and smudge filters,
+ * and commit signing each name one, and the list grows with git. Keeping the
+ * repository's own configuration out of reach removes the precondition for
+ * all of them at once, which is why writes here clear the same gate as the
+ * other execution sinks rather than relying on the daemon to pass the right
+ * `-c` overrides forever.
+ */
+function isGitInternalsPath(
+  resolvedPath: string,
+  context: FileClassificationContext,
+): boolean {
+  for (const dir of [context.gitDir, context.gitHooksDir]) {
+    const normalized = normalizeDirPath(dir);
+    if (
+      resolvedPath === normalized.slice(0, -1) ||
+      resolvedPath.startsWith(normalized)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function isHooksPath(
   resolvedPath: string,
   context: FileClassificationContext,
@@ -483,6 +519,8 @@ function classifyCodeInjectionSink(
   if (isSkillSourcePath(resolvedPath, context))
     return high("skill source code");
   if (isHooksPath(resolvedPath, context)) return high("hooks directory");
+  if (isGitInternalsPath(resolvedPath, context))
+    return high("the workspace git repository");
   if (isPluginsPath(resolvedPath, context)) return high("plugins directory");
   if (isToolsPath(resolvedPath, context)) return high("tools directory");
   if (isRoutesPath(resolvedPath, context)) return high("routes directory");
