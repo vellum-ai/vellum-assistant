@@ -1259,6 +1259,13 @@ describe("SelectAssistantScreen native mobile", () => {
     render(<SelectAssistantScreen />);
 
     await waitFor(() => expect(screen.getByText("Vellum Cloud")).toBeTruthy());
+    // The default selection commits in an effect after the card renders, so
+    // clicking on render alone hits a disabled Continue and does nothing.
+    await waitFor(() =>
+      expect(
+        (screen.getByText("Continue") as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
     fireEvent.click(screen.getByText("Continue"));
 
     await waitFor(() =>
