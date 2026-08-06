@@ -115,6 +115,64 @@ body {
   height: 100%;
 }
 
+/* Page transitions — the two snapshots the View Transitions API creates for a
+   router navigation, driven by `lib/page-transition.ts`, which writes the
+   direction attribute and asks React Router for the transition.
+
+   Both snapshots are live at once, so the pages travel together: the arriving
+   one crosses the full viewport while the departing one drifts a quarter of
+   it, the parallax that reads as one page sitting behind another. `z-index`
+   gives the arriving page the top layer on a push and the departing page the
+   top layer on a pop, matching which one a finger would be dragging.
+
+   Duration and easing mirror the edge-swipe gestures
+   (`hooks/edge-swipe-motion.ts`) so a tapped navigation and a swiped one land
+   on the same motion. Keep the two in step.
+
+   Inert wherever nothing requests a view transition: the pseudo-elements are
+   only created for a navigation that asked for one. */
+:root {
+  --page-transition-duration: 200ms;
+}
+
+/* Drop the default cross-fade. These are opaque pages sliding past each
+   other, not two images blending through one another. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+html[data-page-transition="push"]::view-transition-old(root) {
+  animation: page-depart-leading var(--page-transition-duration) ease-out both;
+}
+html[data-page-transition="push"]::view-transition-new(root) {
+  z-index: 1;
+  animation: page-arrive-trailing var(--page-transition-duration) ease-out both;
+}
+html[data-page-transition="pop"]::view-transition-old(root) {
+  z-index: 1;
+  animation: page-depart-trailing var(--page-transition-duration) ease-out both;
+}
+html[data-page-transition="pop"]::view-transition-new(root) {
+  animation: page-arrive-leading var(--page-transition-duration) ease-out both;
+}
+
+@keyframes page-arrive-trailing { from { transform: translateX(100%); } }
+@keyframes page-depart-leading { to { transform: translateX(-25%); } }
+@keyframes page-arrive-leading { from { transform: translateX(-25%); } }
+@keyframes page-depart-trailing { to { transform: translateX(100%); } }
+
+/* Snap to the destination. The transition still runs, so React Router's
+   snapshot still covers the router's own latency; only the travel is dropped. */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(root),
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
+}
+
 @keyframes typing-dot-pulse {
   0%, 100% { opacity: 0.45; transform: scale(0.6); }
   50% { opacity: 1; transform: scale(1); }
