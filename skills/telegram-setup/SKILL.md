@@ -83,16 +83,24 @@ Triggered by the wizard-closed notification, `[User action on channel_setup surf
    ```
 
    - **`url` set, no `last_error`** → delivering. Continue to Step 4.
-   - **`url` empty** → registration has not landed yet or failed. Wait a few seconds and check once. If still empty, the channel is not live. See the self-hosted case below first. Otherwise tell the user plainly and read `assistant gateway logs tail -n 100 --level warn` for the cause. Do not run `setWebhook` yourself.
+   - **`url` empty** → registration has not landed yet or failed. Wait a few seconds and check once. If it is still empty, the channel is not live: follow the recovery below. Do not run `setWebhook` yourself.
    - **`last_error` present** → Telegram is rejecting delivery. Report it verbatim; it usually names the cause (unreachable host, TLS, wrong port).
 
-   **Self-hosted with no public ingress.** Registration needs a public URL to
-   point Telegram at, and a self-hosted assistant without one has nothing to
-   resolve, so the `url` stays empty however long you wait. Check with
-   `assistant config get ingress.enabled`. If ingress is unset or disabled,
-   load the `public-ingress` skill with `skill_load` to walk the user through
-   setting one up. Registration re-runs on its own once ingress is configured,
-   so return to this step afterwards rather than calling `setWebhook`.
+   **When the `url` stays empty, the recovery depends on how this assistant
+   receives webhooks.** Run `assistant credentials list --search vellum` to
+   tell the two apart.
+
+   - **Platform credentials present** → webhooks arrive over the platform's
+     managed callback route, and an empty `url` means that registration
+     failed, which is platform-side. ⚠️ Do NOT suggest ngrok, a tunnel, or the
+     `public-ingress` skill: they are not usable in containerized deployments.
+     Read `assistant gateway logs tail -n 100 --level warn` and tell the user
+     to contact support with what it reports.
+   - **No platform credentials** → this is self-hosted and registration has no
+     public URL to point Telegram at, so the `url` stays empty however long
+     you wait. Load the `public-ingress` skill with `skill_load` to set one
+     up. Registration re-runs by itself when the ingress URL changes, so come
+     back to this step afterwards rather than calling `setWebhook`.
 
 ⚠️ CRITICAL: **Do not report success on stored credentials alone.** The channel indicator turns green on credentials, which is not evidence that messages arrive. `getWebhookInfo` is.
 
