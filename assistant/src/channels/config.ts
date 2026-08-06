@@ -75,9 +75,7 @@ const CHANNEL_POLICIES = {
   },
   discord: {
     notification: {
-      // Discord has no outbound transport, so enabling delivery would route
-      // notifications at a callback no transport owns.
-      deliveryEnabled: false,
+      deliveryEnabled: true,
       conversationStrategy: "continue_existing_conversation",
     },
   },

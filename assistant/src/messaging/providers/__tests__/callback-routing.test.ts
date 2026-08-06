@@ -10,11 +10,14 @@ describe("channelForCallback", () => {
     expect(channelForCallback("http://gw/deliver/telegram")).toBe("telegram");
     expect(channelForCallback("http://gw/deliver/whatsapp")).toBe("whatsapp");
     expect(channelForCallback("http://gw/deliver/a2a?taskId=t1")).toBe("a2a");
+    expect(channelForCallback("http://gw/deliver/discord?threadId=T1")).toBe(
+      "discord",
+    );
   });
 
   test("returns undefined for channels not delivered directly", () => {
-    expect(channelForCallback("http://gw/deliver/discord")).toBeUndefined();
     expect(channelForCallback("http://gw/deliver/phone")).toBeUndefined();
+    expect(channelForCallback("http://gw/deliver/email")).toBeUndefined();
   });
 
   test("returns undefined for non-delivery paths", () => {
@@ -41,5 +44,6 @@ describe("channelForCallback", () => {
     expect(channelForCallback("/deliver/slack")).toBe("slack");
     expect(channelForCallback("/deliver/telegram")).toBe("telegram");
     expect(channelForCallback("/deliver/whatsapp")).toBe("whatsapp");
+    expect(channelForCallback("/deliver/discord")).toBe("discord");
   });
 });
