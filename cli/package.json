@@ -30,6 +30,7 @@
   "license": "MIT",
   "dependencies": {
     "@vellumai/environments": "workspace:*",
+    "@vellumai/ipc-server-utils": "workspace:*",
     "@vellumai/local-mode": "workspace:*",
     "@vellumai/service-contracts": "workspace:*",
     "chalk": "5.6.2",
@@ -40,6 +41,7 @@
   },
   "bundledDependencies": [
     "@vellumai/environments",
+    "@vellumai/ipc-server-utils",
     "@vellumai/local-mode",
     "@vellumai/service-contracts"
   ],

@@ -16,7 +16,7 @@
     "build": "electron-vite build",
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test",
-    "test:ci": "bun scripts/run-tests.ts",
+    "test:ci": "bun test ../../packages/electron-desktop/src/capability-registry.test.ts && bun scripts/run-tests.ts",
     "build:fetch-bun": "bash scripts/fetch-bun.sh",
     "build:web": "cd ../web && bun install && bun run openapi-ts && bun run build && cd ../macos && mkdir -p resources && rm -rf resources/web-dist && cp -R ../web/dist resources/web-dist",
     "pack": "bash scripts/pack.sh",
@@ -36,6 +36,7 @@
   },
   "dependencies": {
     "@sentry/electron": "7.13.0",
+    "@vellumai/electron-desktop": "workspace:*",
     "@vellumai/electron-utils": "workspace:*",
     "@vellumai/environments": "workspace:*",
     "@vellumai/ipc-contract": "workspace:*",

@@ -28,13 +28,14 @@
  * back to a shorter deterministic path so CLI commands can still connect.
  */
 
-import { existsSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 
 import {
   ensureSocketDir,
   type IpcEnvelope,
   IpcFrameReader,
+  ipcListenOptions,
+  removeIpcEndpointFile,
   SocketWatchdog,
   writeLegacyMessage,
   writeMessage,
@@ -259,8 +260,18 @@ export class AssistantIpcServer {
     await ensureSocketPathFree(this.socketPath);
 
     this.server = this.createListeningServer();
-    this.server.listen(this.socketPath, () => {
-      log.info({ path: this.socketPath }, "Assistant IPC server listening");
+    await new Promise<void>((resolve, reject) => {
+      const server = this.server!;
+      const onError = (err: Error): void => {
+        this.server = null;
+        reject(err);
+      };
+      server.once("error", onError);
+      server.listen(ipcListenOptions(this.socketPath), () => {
+        server.off("error", onError);
+        log.info({ path: this.socketPath }, "Assistant IPC server listening");
+        resolve();
+      });
     });
 
     this.watchdog.start();
@@ -292,13 +303,7 @@ export class AssistantIpcServer {
       this.server = null;
     }
 
-    if (existsSync(this.socketPath)) {
-      try {
-        unlinkSync(this.socketPath);
-      } catch {
-        // Ignore
-      }
-    }
+    removeIpcEndpointFile(this.socketPath);
   }
 
   /** Get the socket path (for diagnostics). */

@@ -1,5 +1,19 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 
+/**
+ * Holds a callback the provider hands back from inside its own `watch` call.
+ *
+ * A `let` initialized to `null` narrows to `null` for the rest of the scope,
+ * since the compiler cannot prove the provider ever runs the assignment. A
+ * property read carries the full union, so calling it stays type-checked.
+ */
+type WatchRef = { fn: (() => void) | null };
+
+function watchRef(): WatchRef {
+  return { fn: null };
+}
+
+
 import {
   REMEMBERED_ORIGINS_STORAGE_KEY,
   localStorageProvider,
@@ -517,8 +531,7 @@ describe("providers and hydration", () => {
 
   it("a watch event after a failed hydration retries hydration", async () => {
     let failLoads = true;
-    // Boxed: a bare `let` assigned in the callback narrows to `null`.
-    const watchRef: { current: (() => void) | null } = { current: null };
+    const watch = watchRef();
     const provider: RememberedOriginsProvider = {
       load: async () => {
         if (failLoads) {
@@ -533,7 +546,7 @@ describe("providers and hydration", () => {
       },
       save: async () => {},
       watch: (onChange) => {
-        watchRef.current = onChange;
+        watch.fn = onChange;
         return () => {};
       },
     };
@@ -544,7 +557,7 @@ describe("providers and hydration", () => {
     // The provider recovers and announces a change; no caller invokes
     // hydrate() manually.
     failLoads = false;
-    watchRef.current?.();
+    watch.fn?.();
     await new Promise((resolve) => setTimeout(resolve, 5));
 
     expect(store().hydrated).toBe(true);
@@ -557,8 +570,7 @@ describe("providers and hydration", () => {
     let entries: RememberedOrigin[] = [
       { url: "https://example.com/new", addedAt: "2026-01-02T00:00:00Z" },
     ];
-    // Boxed: a bare `let` assigned in the callback narrows to `null`.
-    const watchRef: { current: (() => void) | null } = { current: null };
+    const watch = watchRef();
     let releaseHydrateLoad = () => {};
     const hydrateGate = new Promise<void>((resolve) => {
       releaseHydrateLoad = resolve;
@@ -581,14 +593,14 @@ describe("providers and hydration", () => {
         entries = next;
       },
       watch: (onChange) => {
-        watchRef.current = onChange;
+        watch.fn = onChange;
         return () => {};
       },
     };
     setRememberedOriginsProvider(provider);
 
     // The provider's value changes while hydration is still loading.
-    watchRef.current?.();
+    watch.fn?.();
     await new Promise((resolve) => setTimeout(resolve, 1));
     releaseHydrateLoad();
     await store().hydrate();
@@ -603,8 +615,7 @@ describe("providers and hydration", () => {
     let entries: RememberedOrigin[] = [
       { url: "https://example.com/a", addedAt: "2026-01-01T00:00:00Z" },
     ];
-    // Boxed: a bare `let` assigned in the callback narrows to `null`.
-    const watchRef: { current: (() => void) | null } = { current: null };
+    const watch = watchRef();
     let gate: Promise<void> | null = null;
     let releaseGate = () => {};
     const provider: RememberedOriginsProvider = {
@@ -620,7 +631,7 @@ describe("providers and hydration", () => {
         entries = next;
       },
       watch: (onChange) => {
-        watchRef.current = onChange;
+        watch.fn = onChange;
         return () => {};
       },
     };
@@ -631,7 +642,7 @@ describe("providers and hydration", () => {
     gate = new Promise((resolve) => {
       releaseGate = resolve;
     });
-    watchRef.current?.();
+    watch.fn?.();
     const add = store().addOrigin({ url: "https://example.com/b" });
     releaseGate();
     await add;

@@ -1,8 +1,21 @@
-import { ArrowUp, Ellipsis, Globe, Pin, PinOff, Trash2 } from "lucide-react";
+import {
+  ArrowUp,
+  Ellipsis,
+  Globe,
+  Link2,
+  Pin,
+  PinOff,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import { type MouseEvent, useCallback, useState } from "react";
 
 import { AppPreviewThumbnail } from "@/components/app-card";
 import { SwipeActionReveal } from "@/components/swipe-action-reveal";
+import {
+  copyDeployedAppLink,
+  useAppDeployment,
+} from "@/hooks/use-app-deployment";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { type AppSummary, isReadOnlyApp } from "@/types/app-types";
 import { getCachedAppHtml } from "@/utils/app-html-cache";
@@ -74,6 +87,21 @@ export function LibraryAppCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const isMobile = useIsMobile();
 
+  // The library renders one card per app, so the deployment status is fetched
+  // lazily rather than N-at-a-time on mount: the first hover (or menu open)
+  // arms it, and it stays armed so the answer is already in hand when the
+  // menu is reopened, including right after a deploy.
+  const [deployStatusArmed, setDeployStatusArmed] = useState(false);
+  const armDeployStatus = useCallback(() => setDeployStatusArmed(true), []);
+  const { deployedUrl } = useAppDeployment(assistantId, app.id, {
+    enabled: deployStatusArmed && deployAction != null,
+  });
+  const handleCopyDeployedLink = useCallback(() => {
+    if (deployedUrl != null) {
+      copyDeployedAppLink(deployedUrl);
+    }
+  }, [deployedUrl]);
+
   // Leading swipe actions are intentionally omitted. On mobile chat-side
   // routes, ChatLayout enables a document-level drawer edge swipe
   // (useEdgeSwipe) that captures rightward swipes starting in the left 50vw.
@@ -111,6 +139,7 @@ export function LibraryAppCard({
           justImported && "animate-[card-entrance_400ms_ease-out]",
         )}
         onAnimationEnd={justImported ? onAnimationEnd : undefined}
+        onPointerEnter={armDeployStatus}
       >
         <button
           type="button"
@@ -139,11 +168,18 @@ export function LibraryAppCard({
             appName={app.name}
             isPinned={isPinned}
             open={menuOpen}
-            onOpenChange={setMenuOpen}
+            onOpenChange={(next) => {
+              if (next) {
+                armDeployStatus();
+              }
+              setMenuOpen(next);
+            }}
             onPin={() => onPin(app)}
             onDelete={deleteAction ? () => deleteAction(app) : undefined}
             onShare={readOnly ? undefined : handleShare}
             onDeploy={deployAction}
+            deployedUrl={deployedUrl}
+            onCopyDeployedLink={handleCopyDeployedLink}
             isMobile={isMobile}
           />
         </div>
@@ -178,6 +214,14 @@ export interface LibraryAppCardActionsMenuProps {
   onDelete?: () => void;
   onShare?: () => void;
   onDeploy?: () => void;
+  /**
+   * Live URL of the app's active Vercel deployment, when it has one. Swaps
+   * the deploy entry for a "Deployed to Vercel" entry that hands back the
+   * link, plus an explicit Redeploy.
+   */
+  deployedUrl?: string | null;
+  /** Invoked by the deployed-state entry; copies the link and shows it. */
+  onCopyDeployedLink?: () => void;
   isMobile: boolean;
 }
 
@@ -190,8 +234,14 @@ export function LibraryAppCardActionsMenu({
   onDelete,
   onShare,
   onDeploy,
+  deployedUrl,
+  onCopyDeployedLink,
   isMobile,
 }: LibraryAppCardActionsMenuProps) {
+  // Only treated as deployed when the caller can also hand the link back.
+  // Otherwise the entry would report a deployment it can't reach.
+  const isDeployed =
+    deployedUrl != null && deployedUrl !== "" && onCopyDeployedLink != null;
   if (isMobile) {
     return (
       <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
@@ -234,7 +284,40 @@ export function LibraryAppCardActionsMenu({
                 }}
               />
             ) : null}
-            {onDeploy ? (
+            {onDeploy && isDeployed ? (
+              <>
+                <PanelItem
+                  icon={Link2}
+                  label={
+                    <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
+                      <span>Deployed to Vercel</span>
+                      <span className="break-all text-body-small-default text-[var(--content-tertiary)]">
+                        {deployedUrl}
+                      </span>
+                    </span>
+                  }
+                  onSelect={() => {
+                    onOpenChange(false);
+                    onCopyDeployedLink?.();
+                  }}
+                />
+                <PanelItem
+                  icon={RefreshCw}
+                  label={
+                    <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
+                      <span>Redeploy</span>
+                      <span className="text-body-small-default text-[var(--content-tertiary)]">
+                        Publish the current version
+                      </span>
+                    </span>
+                  }
+                  onSelect={() => {
+                    onOpenChange(false);
+                    onDeploy();
+                  }}
+                />
+              </>
+            ) : onDeploy ? (
               <PanelItem
                 icon={Globe}
                 label={
@@ -294,7 +377,25 @@ export function LibraryAppCardActionsMenu({
             Share
           </Menu.Item>
         ) : null}
-        {onDeploy ? (
+        {onDeploy && isDeployed ? (
+          <>
+            <Menu.Item
+              leftIcon={<Link2 size={14} />}
+              shortcut="Copy link"
+              onSelect={() => onCopyDeployedLink?.()}
+              className="whitespace-nowrap"
+            >
+              Deployed to Vercel
+            </Menu.Item>
+            <Menu.Item
+              leftIcon={<RefreshCw size={14} />}
+              onSelect={() => onDeploy()}
+              className="whitespace-nowrap"
+            >
+              Redeploy
+            </Menu.Item>
+          </>
+        ) : onDeploy ? (
           <Menu.Item
             leftIcon={<Globe size={14} />}
             onSelect={() => onDeploy()}

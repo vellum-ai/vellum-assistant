@@ -54,8 +54,10 @@ const OTHER_SURFACE_ID = "surface-2";
 const DOC_TITLE = "Roadmap";
 const OTHER_DOC_TITLE = "Backlog";
 
-const SEEN_LABEL = "Conversation assets, 1 items";
-const UNSEEN_LABEL = "Conversation assets, 1 items (unseen changes)";
+// Singular: these fixtures seed one asset, and the ICU `plural` in
+// `conversationAssets.ariaLabel` agrees with the count.
+const SEEN_LABEL = "Conversation assets, 1 item";
+const UNSEEN_LABEL = "Conversation assets, 1 item (unseen changes)";
 
 function makeDocument(
   conversationId = CONVERSATION_ID,

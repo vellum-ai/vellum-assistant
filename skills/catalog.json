@@ -756,7 +756,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-06T12:32:09.000Z"
+      "updatedAt": "2026-08-06T13:51:52.000Z"
     },
     {
       "id": "public-ingress",
@@ -972,7 +972,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-23T15:54:16.000Z"
+      "updatedAt": "2026-08-06T17:09:11.000Z"
     },
     {
       "id": "twilio-setup",

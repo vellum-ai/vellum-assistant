@@ -34,6 +34,7 @@ import {
 } from "@/domains/chat/unseen-document-changes-store";
 import { useAppDelete } from "@/hooks/use-app-delete";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTranslation } from "@/i18n";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
 import { cn } from "@/utils/misc";
@@ -147,6 +148,7 @@ export function ConversationAssetsPill({
   }, [conversationId]);
 
   const isMobile = useIsMobile();
+  const { t } = useTranslation();
   const reduceMotion = useReducedMotion();
   const hasUnseenChanges = useHasUnseenDocumentChanges(conversationId);
   const clearConversation =
@@ -182,10 +184,16 @@ export function ConversationAssetsPill({
     return null;
   }
 
-  const label = assets.length === 1 ? "1 asset" : `${assets.length} assets`;
+  // ICU `plural` picks the category through `Intl.PluralRules` for the active
+  // locale, so both strings agree with `count` in languages with more than the
+  // two forms English has. The unseen variant is its own key rather than a
+  // `select` branch appended to the base one: translators get a whole sentence
+  // to work with, and languages that place the qualifier somewhere other than
+  // the end are free to move it.
+  const label = t("conversationAssets.label", { count: assets.length });
   const ariaLabel = hasUnseenChanges
-    ? `Conversation assets, ${assets.length} items (unseen changes)`
-    : `Conversation assets, ${assets.length} items`;
+    ? t("conversationAssets.ariaLabelUnseen", { count: assets.length })
+    : t("conversationAssets.ariaLabel", { count: assets.length });
 
   // Same dot as the notifications bell in this header cluster: ringed in the
   // color of the surface behind it so the ring reads as a gap carved out of

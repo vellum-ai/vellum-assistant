@@ -9,6 +9,7 @@ on:
       - 'patches/**'
       - 'clients/windows/**'
       - 'packages/electron-utils/**'
+      - 'packages/electron-desktop/**'
       - 'packages/ipc-contract/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'

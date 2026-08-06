@@ -160,14 +160,14 @@ const MUTATION_LOCK_NAME = "vellum:remembered-origins:mutate";
  * API. Without it (non-browser test envs, very old engines) the in-tab
  * queue still applies and concurrent-tab writes fall back to last-writer.
  */
-function withCrossTabLock<T>(mutation: () => Promise<T>): Promise<T> {
+async function withCrossTabLock<T>(mutation: () => Promise<T>): Promise<T> {
   const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
   if (!locks) {
     return mutation();
   }
-  // TS infers the lock's generic as `Promise<T>`, typing the result
-  // `Promise<Promise<T>>`; the runtime promise is already flattened.
-  return locks.request(MUTATION_LOCK_NAME, mutation) as Promise<T>;
+  // `LockManager.request` infers its type parameter from the callback's
+  // return, so the call is typed `Promise<Promise<T>>`; awaiting collapses it.
+  return await locks.request(MUTATION_LOCK_NAME, mutation);
 }
 
 function enqueueMutation<T>(mutation: () => Promise<T>): Promise<T> {

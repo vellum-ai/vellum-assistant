@@ -27,7 +27,7 @@ import {
   getMessagesAfter,
   getMessagesPaginated,
   hasMessages,
-  listReferentialForkChildren,
+  isReferentialHistoryOrphaned,
 } from "../persistence/conversation-crud.js";
 import { getDb, getLogsDb, getMemoryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -93,6 +93,15 @@ async function seedSource(title: string): Promise<{ id: string }> {
   });
   await addMessage(source.id, "assistant", "updated", { skipIndexing: true });
   return source;
+}
+
+/** Ids of every conversation currently in the database. */
+function conversationIds(): string[] {
+  return getDb()
+    .select({ id: conversations.id })
+    .from(conversations)
+    .all()
+    .map((row) => row.id);
 }
 
 /** Rows physically stored on a conversation, ignoring anything inherited. */
@@ -261,50 +270,83 @@ describe("referential forking", () => {
     expect(textOf(page.messages)).toContain("updated");
   });
 
-  test("deleting the source is refused while a referential fork reads it", async () => {
+  test("deleting the source orphans the fork instead of blocking or cascading", async () => {
+    const source = await seedSource("Launch");
+    setForkStrategy("reference");
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+    });
+    await addMessage(fork.id, "user", "own row", { skipIndexing: true });
+
+    deleteConversation(source.id);
+
+    // The delete touches only what it names: the fork survives, keeps the rows
+    // it owns, and the lineage read truncates at the missing parent instead of
+    // throwing.
+    expect(conversationIds()).toContain(fork.id);
+    expect(textOf(getMessages(fork.id))).toEqual(["own row"]);
+    expect(hasMessages(fork.id)).toBe(true);
+    expect(countMessagesAfter(fork.id, null)).toBe(1);
+  });
+
+  test("the gentle delete path orphans the same way", async () => {
     const source = await seedSource("Launch");
     setForkStrategy("reference");
     const fork = await forkConversationForRetrospective({
       conversationId: source.id,
     });
 
-    expect(listReferentialForkChildren(source.id)).toEqual([fork.id]);
-    expect(() => deleteConversation(source.id)).toThrow(/referential fork/);
+    // `deleteConversationGently` is a separate implementation of the same
+    // operation and is what the plugin facade exposes, so it must not diverge.
+    await deleteConversationGently(source.id);
 
-    // Deleting the fork first releases the source.
-    deleteConversation(fork.id);
-    expect(listReferentialForkChildren(source.id)).toEqual([]);
-    deleteConversation(source.id);
-    expect(
-      getDb()
-        .select()
-        .from(conversations)
-        .where(eq(conversations.id, source.id))
-        .all(),
-    ).toHaveLength(0);
+    expect(conversationIds()).toContain(fork.id);
+    expect(getMessages(fork.id)).toHaveLength(0);
   });
 
-  test("the gentle delete path enforces the same guard", async () => {
+  test("an orphaned fork reports the loss so clients can explain it", async () => {
     const source = await seedSource("Launch");
     setForkStrategy("reference");
-    await forkConversationForRetrospective({ conversationId: source.id });
-
-    // `deleteConversationGently` is a separate implementation of the same
-    // operation and is what the plugin facade exposes, so the invariant has to
-    // hold there too or plugins can strip a fork of its history.
-    await expect(deleteConversationGently(source.id)).rejects.toThrow(
-      /referential fork/,
-    );
-  });
-
-  test("a cloning fork does not block deleting its source", async () => {
-    const source = await seedSource("Launch");
-    setForkStrategy("cloning");
-    await forkConversationForRetrospective({
+    const fork = await forkConversationForRetrospective({
       conversationId: source.id,
     });
 
-    expect(listReferentialForkChildren(source.id)).toEqual([]);
-    expect(() => deleteConversation(source.id)).not.toThrow();
+    expect(isReferentialHistoryOrphaned(fork)).toBe(false);
+    deleteConversation(source.id);
+
+    const orphan = getDb()
+      .select()
+      .from(conversations)
+      .where(eq(conversations.id, fork.id))
+      .get()!;
+    expect(isReferentialHistoryOrphaned(orphan)).toBe(true);
+  });
+
+  test("a cloning fork whose source is deleted is not reported as orphaned", async () => {
+    const source = await seedSource("Launch");
+    setForkStrategy("cloning");
+    const cloned = await forkConversationForRetrospective({
+      conversationId: source.id,
+    });
+
+    deleteConversation(source.id);
+
+    // It holds its own copy, so a missing parent costs it nothing and there is
+    // nothing to tell the user about.
+    expect(isReferentialHistoryOrphaned(cloned)).toBe(false);
+    expect(textOf(getMessages(cloned.id))).toHaveLength(4);
+  });
+
+  test("deleting a fork leaves its source alone", async () => {
+    const source = await seedSource("Launch");
+    setForkStrategy("reference");
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+    });
+
+    deleteConversation(fork.id);
+
+    expect(conversationIds()).toContain(source.id);
+    expect(textOf(getMessages(source.id))).toHaveLength(4);
   });
 });

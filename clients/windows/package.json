@@ -15,8 +15,8 @@
     "build": "electron-vite build",
     "build:preview-handler": "bun scripts/build-preview-handler.ts",
     "typecheck": "bunx tsc --noEmit",
-    "test": "bun test ../../packages/electron-utils/src",
-    "test:ci": "bun test ../../packages/electron-utils/src && bun scripts/build-preview-handler.ts --test-architecture && bun scripts/build-preview-handler.ts --native-test",
+    "test": "bun scripts/run-tests.ts",
+    "test:ci": "bun scripts/run-tests.ts && bun scripts/build-preview-handler.ts --test-architecture && bun scripts/build-preview-handler.ts --native-test",
     "test:preview-handler": "bun scripts/build-preview-handler.ts --test-architecture && bun scripts/build-preview-handler.ts --native-test",
     "build:web": "cd ../web && bun install && bun run openapi-ts && bun run build && cd ../windows && mkdir -p resources && rm -rf resources/web-dist && cp -R ../web/dist resources/web-dist",
     "pack": "bun run build && electron-builder --win --config electron-builder.config.cjs --publish never"
@@ -33,6 +33,7 @@
     "wait-on": "8.0.1"
   },
   "dependencies": {
+    "@vellumai/electron-desktop": "workspace:*",
     "@vellumai/electron-utils": "workspace:*",
     "@vellumai/environments": "workspace:*",
     "@vellumai/ipc-contract": "workspace:*",

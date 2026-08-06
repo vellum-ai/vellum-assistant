@@ -7,6 +7,8 @@ import type {
   VellumCommand,
 } from "@vellumai/ipc-contract";
 
+import { composePreloadFeatures } from "./features";
+
 export type { AppVersionInfo, VellumBridge, VellumCommand };
 
 const NOT_AVAILABLE = "Local mode is not available on the Windows client yet";
@@ -27,9 +29,10 @@ const noopUnsubscribe = (): (() => void) => () => undefined;
  * replace its stub with the real IPC wiring alongside its main-process
  * handlers.
  */
-const bridge: Pick<
+const coreBridge: Pick<
   VellumBridge,
   | "platform"
+  | "hostOS"
   | "app"
   | "commands"
   | "power"
@@ -40,6 +43,7 @@ const bridge: Pick<
   | "localMode"
 > = {
   platform: "electron",
+  hostOS: "windows",
   app: {
     versionInfo: (): Promise<AppVersionInfo> =>
       ipcRenderer.invoke("vellum:app:versionInfo") as Promise<AppVersionInfo>,
@@ -111,6 +115,7 @@ const bridge: Pick<
   },
 };
 
+const bridge = composePreloadFeatures(coreBridge);
 contextBridge.exposeInMainWorld("vellum", bridge);
 
 const vellumConfig = ipcRenderer.sendSync("vellum:config:get") as {

@@ -212,6 +212,48 @@ const telegramProbe: ChannelProbe = {
       await checkIngress(true),
     ];
   },
+  /**
+   * Ask Telegram whether it is actually delivering. The local checks above
+   * only establish that credentials exist, which is a different claim: a
+   * registration that never landed leaves them all present and the channel
+   * dark.
+   *
+   * Three outcomes, not two:
+   *
+   *   - `healthy` is the only verified pass. Telegram holds the URL this
+   *     deployment recorded on its last successful registration, and reports
+   *     no recent delivery error.
+   *   - `skipped`, `unknown` and `unverified` are indeterminate. The
+   *     preconditions are absent, Telegram could not be reached, or no
+   *     registration was ever recorded to compare against. None is evidence of
+   *     a fault, so none may show the channel as broken; none is evidence of
+   *     delivery either, so none may make it ready.
+   *   - `not_registered`, `delivery_failing` and `url_mismatch` are failures
+   *     with a concrete cause in `detail`.
+   *
+   * The middle row is the point. Passing those three outright let an
+   * unreachable Telegram API or a missing precondition read as "Telegram is
+   * delivering", which the setup skill then reported to the user as confirmed.
+   */
+  async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
+    // Imported here rather than at module scope: the health module pulls in
+    // the credential and config graph, and hoisting that into every consumer
+    // of this service makes unrelated tests resolve exports they never mock.
+    const { checkTelegramWebhookHealth } =
+      await import("../telegram/webhook-health.js");
+    const health = await checkTelegramWebhookHealth();
+    const indeterminate =
+      health.status === "skipped" ||
+      health.status === "unknown" ||
+      health.status === "unverified";
+    const result = check(
+      "webhook_delivery",
+      health.status === "healthy" || indeterminate,
+      "Telegram is delivering to this assistant",
+      health.detail,
+    );
+    return [indeterminate ? { ...result, indeterminate: true } : result];
+  },
 };
 
 // ── Email Probe ─────────────────────────────────────────────────────────────
@@ -469,10 +511,18 @@ export class ChannelReadinessService {
         remoteChecksAffectReadiness = false;
       }
 
-      const allLocalPassed = localChecks.every((c) => c.passed);
+      // Readiness requires positive confirmation, not merely the absence of a
+      // reported fault. A check that could not establish its claim (provider
+      // unreachable, ownership unprovable) is not a fault, so it must not be
+      // listed as a reason below, but it is also not evidence, so it cannot
+      // make a channel ready. Collapsing the two is how a channel reports
+      // itself live on the strength of a check that never ran.
+      const verified = (c: ReadinessCheckResult): boolean =>
+        c.passed && !c.indeterminate;
+      const allLocalPassed = localChecks.every(verified);
       const allRemotePassed =
         remoteChecks && remoteChecksAffectReadiness
-          ? remoteChecks.every((c) => c.passed)
+          ? remoteChecks.every(verified)
           : true;
       const ready = allLocalPassed && allRemotePassed;
 
@@ -481,7 +531,13 @@ export class ChannelReadinessService {
         ...localChecks,
         ...(remoteChecks && remoteChecksAffectReadiness ? remoteChecks : []),
       ];
-      const anyCheckPassed = consideredChecks.some((c) => c.passed);
+      // Also `verified`, not `passed`. A check that established nothing is not
+      // evidence that setup has begun: an install with no bot token at all
+      // returns `skipped` from the Telegram probe, and counting that as
+      // progress reports an untouched workspace as `incomplete`, which is what
+      // sends the Channels UI down the "finish setup" path instead of the
+      // normal setup flow.
+      const anyCheckPassed = consideredChecks.some(verified);
       const setupStatus: SetupStatus = !anyCheckPassed
         ? "not_configured"
         : ready

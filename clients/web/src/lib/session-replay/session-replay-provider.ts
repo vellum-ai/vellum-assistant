@@ -5,6 +5,7 @@
  * changes.
  */
 import type { SessionReplayNetworkConfig } from "@/lib/session-replay/network-sanitize";
+import type { ClientOs } from "@/runtime/platform-detection";
 
 // Type-only handle to the vendor SDK. The runtime module is loaded lazily (see
 // `init`) — never statically imported, because the SDK eagerly appends its
@@ -19,7 +20,7 @@ type SdkNetworkOption = NonNullable<
   Parameters<ReplaySdk["init"]>[1]
 >["network"];
 
-export type SessionReplaySurface = "web" | "macos" | "ios" | "android";
+export type SessionReplaySurface = ClientOs;
 
 export interface SessionReplayInitOptions {
   environment: string;

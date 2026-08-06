@@ -16,6 +16,7 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 const DEPS_TO_INLINE = [
   "electron-log",
   "@vellumai/electron-utils",
+  "@vellumai/electron-desktop",
   "@vellumai/ipc-contract",
   "@vellumai/local-mode",
   "@vellumai/environments",
@@ -62,7 +63,7 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({ exclude: DEPS_TO_INLINE })],
     build: {
       outDir: "out/preload",
       lib: {

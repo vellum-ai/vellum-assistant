@@ -23,6 +23,11 @@ surfaces.
 The Android app is a Capacitor shell that lives in [`android/`](./android/);
 it follows the same remote web app loading model as iOS.
 
+The macOS and Windows Electron shells share their platform-neutral main and
+preload foundations through `@vellumai/electron-desktop`. Thin client adapters
+under each platform package connect that core to platform lifecycle and native
+features. Dependency-free Electron helpers remain in `@vellumai/electron-utils`.
+
 ## What belongs here
 
 - End-user client surfaces (web app, Capacitor wrappers, Electron desktop

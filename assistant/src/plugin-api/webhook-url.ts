@@ -90,6 +90,25 @@ function registrationType(plugin: string, route: string): string {
 }
 
 /**
+ * Drop a trailing slash from a resolved callback URL.
+ *
+ * The platform appends one to the callback URLs it hands back, and a provider
+ * given `.../events-comms/` delivers to that spelling verbatim. The gateway
+ * matches a plugin route against its declared path, which may never end in a
+ * slash (see `IngressRouteSchema`), so the slash comes off once here rather
+ * than at each plugin that registers a URL.
+ *
+ * Only the path is ever trimmed: this resolver passes no query parameters, and
+ * a URL carrying one is left alone rather than truncated.
+ */
+function withoutTrailingSlash(url: string): string {
+  if (url.includes("?") || url.includes("#")) {
+    return url;
+  }
+  return url.replace(/\/+$/, "");
+}
+
+/**
  * Resolve the public URL a third party should deliver to for `path`.
  *
  * On the managed branches this registers a callback route with the platform,
@@ -121,11 +140,12 @@ export async function resolveWebhookUrl(
 
   const callbackPath = `${PLUGIN_WEBHOOK_PREFIX}/${plugin}/${path}`;
 
-  return resolveCallbackUrl(
+  const resolved = await resolveCallbackUrl(
     () => `${getPublicBaseUrl(getConfig())}/${callbackPath}`,
     callbackPath,
     registrationType(plugin, path),
     undefined,
     sourceIdentifier,
   );
+  return withoutTrailingSlash(resolved);
 }
