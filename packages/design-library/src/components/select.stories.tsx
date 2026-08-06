@@ -79,6 +79,7 @@ const meta: Meta<typeof Select> = {
     "aria-label": { control: "text" },
     options: { control: false },
     onChange: { control: false },
+    onSelectNone: { control: false },
   },
   // Shared by every presentational story: `Select` is controlled, so the value
   // is driven from the arg and written back, keeping the canvas and the
@@ -91,6 +92,7 @@ const meta: Meta<typeof Select> = {
           {...args}
           value={value}
           onChange={(next) => updateArgs({ value: next })}
+          onSelectNone={() => updateArgs({ value: null })}
         />
       </div>
     );
@@ -198,6 +200,7 @@ export const WithSuffix: Story = {
           {...args}
           value={value}
           onChange={(next) => updateArgs({ value: next })}
+          onSelectNone={() => updateArgs({ value: null })}
         />
       </div>
     );
@@ -214,6 +217,7 @@ export const Compact: Story = {
           {...args}
           value={value}
           onChange={(next) => updateArgs({ value: next })}
+          onSelectNone={() => updateArgs({ value: null })}
         />
       </div>
     );
