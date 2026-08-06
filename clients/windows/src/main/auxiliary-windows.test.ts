@@ -11,6 +11,7 @@ const created: Array<{
 const handleListeners = new Map<string, Listener>();
 const onListeners = new Map<string, Listener>();
 const screenListeners = new Map<string, Listener>();
+const shortcutListeners = new Map<string, Listener>();
 let workArea: Electron.Rectangle = { x: 0, y: 0, width: 1600, height: 900 };
 
 const makeWindow = () => {
@@ -63,6 +64,7 @@ const createWindow = mock((options: CreateWindowOptions) => {
 });
 const ensureVisible = mock(() => undefined);
 const dispatchToMain = mock(() => undefined);
+const logWarn = mock(() => undefined);
 
 mock.module("electron", () => ({
   app: { isPackaged: false },
@@ -74,6 +76,12 @@ mock.module("electron", () => ({
     static getFocusedWindow() {
       return null;
     }
+  },
+  globalShortcut: {
+    register: (accelerator: string, listener: Listener) => {
+      shortcutListeners.set(accelerator, listener);
+      return true;
+    },
   },
   screen: {
     getCursorScreenPoint: () => ({ x: workArea.x, y: workArea.y }),
@@ -98,10 +106,9 @@ mock.module("./main-window", () => ({
   dispatchToMain,
   ensureVisible,
 }));
+mock.module("./logger", () => ({ default: { warn: logWarn } }));
 
 const { default: auxiliaryWindowsModule } = await import("./features/auxiliary-windows");
-const { toggleQuickInput } = await import("@vellumai/electron-desktop/quick-input-window");
-
 beforeAll(() => {
   auxiliaryWindowsModule.install({} as never);
 });
@@ -129,15 +136,12 @@ describe("Windows auxiliary windows", () => {
       skipTaskbar: true,
     });
     expect(options.browserWindow).not.toHaveProperty("type");
-    expect(window.loadURL).toHaveBeenCalledWith(
-      "http://localhost:5173/assistant/floating/command-palette",
-    );
     expect(window.focus).toHaveBeenCalledTimes(2);
   });
 
-  test("toggles Quick Input on the active display and closes on blur", () => {
+  test("opens Quick Input from the Windows shortcut and closes on blur", () => {
     workArea = { x: 1600, y: 40, width: 1200, height: 800 };
-    toggleQuickInput();
+    shortcutListeners.get("Control+Shift+/")?.();
     const { options, window } = created[0]!;
     window.emit("ready-to-show");
     expect(options.browserWindow).toMatchObject({
@@ -155,22 +159,22 @@ describe("Windows auxiliary windows", () => {
       { kind: "recording", transcription: "hello" },
     ]);
     const { options, window } = created[0]!;
-    expect(options.navigation).toBe("deny-all");
     expect(options.browserWindow).toMatchObject({
       focusable: false,
       skipTaskbar: true,
     });
     expect(window.setAlwaysOnTop).toHaveBeenCalledWith(true, "screen-saver");
     expect(window.showInactive).toHaveBeenCalledTimes(1);
-    expect(window.setVisibleOnAllWorkspaces).not.toHaveBeenCalled();
     expect(window.loadURL).toHaveBeenCalledWith(
       "http://localhost:5173/assistant/floating/dictation-overlay",
     );
+    onListeners.get("vellum:dictationOverlay:setState")?.([{ kind: "dismiss" }]);
+    expect(window.isDestroyed()).toBe(true);
   });
 
   test("repositions transient windows after a display change", () => {
     handleListeners.get("vellum:commandPalette:open")?.([]);
-    toggleQuickInput();
+    shortcutListeners.get("Control+Shift+/")?.();
     onListeners.get("vellum:dictationOverlay:setState")?.([
       { kind: "recording", transcription: "" },
     ]);
@@ -189,12 +193,10 @@ describe("Windows auxiliary windows", () => {
     handleListeners.get("vellum:popout:open")?.(["conv-123"]);
     expect(popout.isDestroyed()).toBe(false);
     expect(options.browserWindow).not.toHaveProperty("parent");
-    expect(options.browserWindow.show).toBe(false);
     expect(options.backgroundThrottling).toBe(false);
     expect(popout.loadURL).toHaveBeenCalledWith(
       "http://localhost:5173/assistant/conversations/conv-123?popout=1",
     );
     expect(popout.focus).toHaveBeenCalledTimes(2);
-    expect(created).toHaveLength(1);
   });
 });

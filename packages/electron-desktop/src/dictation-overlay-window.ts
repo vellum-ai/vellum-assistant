@@ -70,6 +70,7 @@ export const ERROR_HIDE_MS = 3000;
 export type { DictationOverlayMessage, DictationOverlayState };
 
 export interface DictationOverlayWindowDependencies {
+  closeOnHide?: boolean;
   handle: IpcHandle;
   on: IpcOn;
 }
@@ -250,7 +251,11 @@ const hideOverlay = (): void => {
   const win = getFloatingWindow(OVERLAY_KIND);
   if (win) {
     setOverlayInteractive(false);
-    win.hide();
+    if (configuration.get().closeOnHide) {
+      win.close();
+    } else {
+      win.hide();
+    }
   }
 };
 
