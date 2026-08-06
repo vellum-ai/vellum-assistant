@@ -552,9 +552,11 @@ describe("providers and hydration", () => {
         delete (navigator as { locks?: unknown }).locks;
       }
     }
-    expect(requested).toEqual([
-      "vellum:remembered-origins:mutate",
-      "vellum:remembered-origins:mutate",
-    ]);
+    // The two mutations acquire the lock; watch-triggered refreshes from
+    // our own saves may acquire it additional times.
+    expect(requested.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(requested)).toEqual(
+      new Set(["vellum:remembered-origins:mutate"]),
+    );
   });
 });
