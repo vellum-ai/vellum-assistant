@@ -172,6 +172,13 @@ function resolveDiscoveredPluginIngress(
  *
  * Declarations that failed validation are in `problems` and are never
  * servable, regardless of signer.
+ *
+ * The requested path matches a declaration exactly, except that one trailing
+ * slash is ignored. Senders add it: a provider handed `.../events-comms` may
+ * store and call `.../events-comms/`, which is the same resource to them.
+ * Ignoring it cannot widen reach, because `IngressRouteSchema` refuses a
+ * declared path ending in a slash, so `<declared>/` has no other declaration
+ * it could have meant.
  */
 export function findServableRoute(
   resolution: PluginIngressResolution,
@@ -179,8 +186,9 @@ export function findServableRoute(
   path: string,
   kind: IngressRouteKind,
 ): IngressRoute | undefined {
+  const requested = path.endsWith("/") ? path.slice(0, -1) : path;
   const matches = (routes: readonly IngressRoute[]) =>
-    routes.find((route) => route.kind === kind && route.path === path);
+    routes.find((route) => route.kind === kind && route.path === requested);
 
   const approved = resolution.approved.find((d) => d.plugin === plugin);
   const fromApproved = approved && matches(approved.routes);

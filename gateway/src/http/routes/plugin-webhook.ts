@@ -98,12 +98,12 @@ export interface PluginWebhookHandlerDeps {
 /**
  * Handle `/webhooks/plugins/:plugin/:path`.
  *
- * The requested path must equal a servable route's declared path. Matching
- * is exact rather than prefix-based: a declaration covers the paths it
- * listed, so serving `<declared>/anything` would hand out reach nobody
- * granted. Exact matching also disposes of traversal, since no `..` segment
- * equals a declared path, and of percent-encoded spellings, which fail
- * closed rather than being decoded into a match.
+ * The requested path must equal a servable route's declared path, up to one
+ * trailing slash. Matching is exact rather than prefix-based: a declaration
+ * covers the paths it listed, so serving `<declared>/anything` would hand out
+ * reach nobody granted. Exact matching also disposes of traversal, since no
+ * `..` segment equals a declared path, and of percent-encoded spellings,
+ * which fail closed rather than being decoded into a match.
  */
 export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
   const { config, resolve, credentials, fetchImpl } = deps;
@@ -193,7 +193,9 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
       return Response.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const upstreamPath = pluginRouteUpstreamPath(plugin, path);
+    // Forward under the declared path, not the requested spelling: matching
+    // ignores a trailing slash, and the plugin serves the path it declared.
+    const upstreamPath = pluginRouteUpstreamPath(plugin, route.path);
     const search = new URL(req.url).search;
     const start = performance.now();
     // The body is already drained, so hand the proxy a request carrying the
