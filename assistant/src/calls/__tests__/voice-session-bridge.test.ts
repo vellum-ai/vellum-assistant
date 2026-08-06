@@ -499,7 +499,7 @@ describe("startVoiceTurn hiddenSyntheticPrompt", () => {
 });
 
 // The turn installs its resolved control prompt, then cleanup resets it to
-// null — so capture every applied value and read the installed (non-null) one.
+// null, so capture every applied value and read the installed (non-null) one.
 function captureInstalledPrompt(): () => string | undefined {
   const fake = makeFakeConversation({ processing: false });
   fakeConversation = fake.conversation;
