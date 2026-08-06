@@ -1,9 +1,10 @@
 import { app, globalShortcut } from "electron";
 
+import { toggleQuickInput } from "@vellumai/electron-desktop/quick-input-window";
+
 import { GLOBAL_SHORTCUT_DEFAULTS } from "./commands";
 import log from "./logger";
 import { ensureVisible } from "./main-window";
-import { toggleQuickInput } from "./quick-input-window";
 import { onSettingChange, readHotkeyOverride } from "./settings";
 
 /**

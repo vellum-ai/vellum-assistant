@@ -1,6 +1,8 @@
 import { BrowserWindow, app, shell } from "electron";
 import { z } from "zod";
 
+import type { VellumCommand } from "@vellumai/ipc-contract";
+
 import { getRendererRootUrl } from "./app-config";
 import { isAllowedOrigin, resolveAllowedOrigin } from "./app-origin.client";
 import { handle } from "./ipc.client";
@@ -14,6 +16,15 @@ const MAIN_DEFAULT_BOUNDS = { width: 1280, height: 800 } as const;
 const MAIN_MIN_SIZE = { width: 800, height: 600 } as const;
 
 let mainWindow: BrowserWindow | null = null;
+
+export const current = (): BrowserWindow | null => mainWindow;
+
+export const dispatchToMain = (command: VellumCommand): void => {
+  const win = current();
+  if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+    win.webContents.send("vellum:command", command);
+  }
+};
 
 // Same-origin navigation guard: the window only ever navigates within the
 // renderer origin; external http(s) links open in the default browser, and

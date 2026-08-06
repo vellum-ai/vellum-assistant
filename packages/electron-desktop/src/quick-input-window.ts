@@ -1,11 +1,15 @@
-import { BrowserWindow, app, screen } from "electron";
+import { BrowserWindow, screen } from "electron";
 import { z } from "zod";
 
-import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
-import { type VellumCommand } from "./commands";
-import { handle } from "./ipc";
-import { dispatchToMain, ensureVisible } from "./main-window";
-import { createWindow } from "./windows";
+import {
+  QUICK_INPUT_DISMISS,
+  QUICK_INPUT_SUBMIT,
+  type VellumCommand,
+} from "@vellumai/ipc-contract";
+
+import type { IpcHandle } from "./ipc";
+import { createModuleConfiguration } from "./module-configuration";
+import type { CreateWindowOptions } from "./windows";
 
 /**
  * System-wide quick input window — a Spotlight-style floating panel the user
@@ -29,12 +33,41 @@ const QUICK_INPUT_PATH = "/quick-input";
 const PANEL_WIDTH = 720;
 const PANEL_HEIGHT = 72;
 
-const quickInputUrl = (): string => {
-  const base = app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase();
-  return `${base}${QUICK_INPUT_PATH}`;
-};
+export interface QuickInputWindowDependencies {
+  createWindow: (options: CreateWindowOptions) => BrowserWindow;
+  dispatchToMain: (command: VellumCommand) => void;
+  ensureMainWindowVisible: () => void | Promise<void>;
+  handle: IpcHandle;
+  platform: "darwin" | "win32";
+  resolveRoute: (route: string) => string;
+}
+
+const configuration = createModuleConfiguration<QuickInputWindowDependencies>(
+  "Quick Input window module",
+);
+export const configureQuickInputWindow = configuration.configure;
 
 let quickInputWindow: BrowserWindow | null = null;
+
+const quickInputPosition = (): { x: number; y: number } => {
+  const cursor = screen.getCursorScreenPoint();
+  const { workArea } = screen.getDisplayNearestPoint(cursor);
+  return {
+    x: Math.round(workArea.x + (workArea.width - PANEL_WIDTH) / 2),
+    y: Math.round(
+      workArea.y +
+        (workArea.height - PANEL_HEIGHT) / 2 -
+        workArea.height * 0.1,
+    ),
+  };
+};
+
+export const repositionQuickInputWindow = (): void => {
+  if (quickInputWindow && !quickInputWindow.isDestroyed()) {
+    const { x, y } = quickInputPosition();
+    quickInputWindow.setPosition(x, y);
+  }
+};
 
 const openQuickInput = (): void => {
   if (quickInputWindow && !quickInputWindow.isDestroyed()) {
@@ -42,29 +75,29 @@ const openQuickInput = (): void => {
     return;
   }
 
-  const cursor = screen.getCursorScreenPoint();
-  const activeDisplay = screen.getDisplayNearestPoint(cursor);
-  const { x, y, width, height } = activeDisplay.workArea;
+  const { createWindow, platform, resolveRoute } = configuration.get();
+  const { x, y } = quickInputPosition();
 
   quickInputWindow = createWindow({
     browserWindow: {
-      type: "panel",
+      ...(platform === "darwin"
+        ? { type: "panel" as const, vibrancy: "popover" as const }
+        : {}),
       width: PANEL_WIDTH,
       height: PANEL_HEIGHT,
-      x: Math.round(x + (width - PANEL_WIDTH) / 2),
-      // Slightly above center — matches Spotlight positioning.
-      y: Math.round(y + (height - PANEL_HEIGHT) / 2 - height * 0.1),
+      x,
+      y,
       frame: false,
       transparent: true,
       resizable: false,
       minimizable: false,
       maximizable: false,
+      focusable: true,
       fullscreenable: false,
       alwaysOnTop: true,
       skipTaskbar: true,
       show: false,
       hasShadow: true,
-      vibrancy: "popover",
     },
     navigation: "deny-all",
   });
@@ -83,7 +116,7 @@ const openQuickInput = (): void => {
     quickInputWindow = null;
   });
 
-  void quickInputWindow.loadURL(quickInputUrl());
+  void quickInputWindow.loadURL(resolveRoute(QUICK_INPUT_PATH));
 };
 
 /**
@@ -97,25 +130,28 @@ export const toggleQuickInput = (): void => {
 let installed = false;
 
 export const installQuickInput = (): void => {
-  if (installed) return;
+  if (installed) {
+    return;
+  }
   installed = true;
+  const { dispatchToMain, ensureMainWindowVisible, handle } = configuration.get();
 
   handle(
-    "vellum:quickInput:submit",
+    QUICK_INPUT_SUBMIT,
     z.tuple([z.string()]),
     async ([message]) => {
       if (quickInputWindow && !quickInputWindow.isDestroyed()) {
         quickInputWindow.close();
       }
 
-      await ensureVisible();
+      await ensureMainWindowVisible();
 
       const command: VellumCommand = { kind: "quickInputSubmit", message };
       dispatchToMain(command);
     },
   );
 
-  handle("vellum:quickInput:dismiss", z.tuple([]), () => {
+  handle(QUICK_INPUT_DISMISS, z.tuple([]), () => {
     if (quickInputWindow && !quickInputWindow.isDestroyed()) {
       quickInputWindow.close();
     }

@@ -1,13 +1,24 @@
 import { BrowserWindow, screen } from "electron";
 import { z } from "zod";
 
-import type {
-  DictationOverlayMessage,
-  DictationOverlayState,
+import {
+  DICTATION_OVERLAY_GET_STATE,
+  DICTATION_OVERLAY_REQUEST_STOP,
+  DICTATION_OVERLAY_SET_INTERACTIVE,
+  DICTATION_OVERLAY_SET_STATE,
+  DICTATION_OVERLAY_STATE_EVENT,
+  DICTATION_OVERLAY_STOP_REQUESTED,
+  type DictationOverlayMessage,
+  type DictationOverlayState,
 } from "@vellumai/ipc-contract";
 
-import { createFloatingWindow, getFloatingWindow } from "./floating-window";
-import { handle, on } from "./ipc";
+import {
+  createFloatingWindow,
+  getFloatingWindow,
+  repositionFloatingWindow,
+} from "./floating-window";
+import type { IpcHandle, IpcOn } from "./ipc";
+import { createModuleConfiguration } from "./module-configuration";
 
 /**
  * System-wide dictation overlay — a floating panel pinned
@@ -57,6 +68,16 @@ export const DONE_HIDE_MS = 800;
 export const ERROR_HIDE_MS = 3000;
 
 export type { DictationOverlayMessage, DictationOverlayState };
+
+export interface DictationOverlayWindowDependencies {
+  handle: IpcHandle;
+  on: IpcOn;
+}
+
+const configuration = createModuleConfiguration<DictationOverlayWindowDependencies>(
+  "Dictation overlay window module",
+);
+export const configureDictationOverlayWindow = configuration.configure;
 
 const dictationOverlayMessageSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -108,11 +129,15 @@ export const createDictationOverlayController = (
 
   const handleMessage = (message: DictationOverlayMessage): void => {
     if (message.kind === "dismiss") {
-      if (session === "none") return;
+      if (session === "none") {
+        return;
+      }
       // Terminal states own their dismissal timing (done flashes briefly,
       // errors linger) — the recording store's idle transition arrives
       // earlier and must not cut them short.
-      if (hideTimer !== null) return;
+      if (hideTimer !== null) {
+        return;
+      }
       endSession();
       return;
     }
@@ -148,21 +173,23 @@ const sendState = (state: DictationOverlayState): void => {
   latestState = state;
   const win = getFloatingWindow(OVERLAY_KIND);
   if (win) {
-    win.webContents.send("vellum:dictationOverlay:state", state);
+    win.webContents.send(DICTATION_OVERLAY_STATE_EVENT, state);
   }
 };
 
 const broadcastStopRequested = (): void => {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
-      win.webContents.send("vellum:dictationOverlay:stopRequested");
+      win.webContents.send(DICTATION_OVERLAY_STOP_REQUESTED);
     }
   }
 };
 
 const setOverlayInteractive = (interactive: boolean): void => {
   const win = getFloatingWindow(OVERLAY_KIND);
-  if (!win || win.isDestroyed()) return;
+  if (!win || win.isDestroyed()) {
+    return;
+  }
   if (interactive) {
     win.setIgnoreMouseEvents(false);
   } else {
@@ -184,6 +211,10 @@ const overlayPosition = (): { x: number; y: number } => {
   const cursor = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursor);
   return positionDictationOverlayInWorkArea(display.workArea);
+};
+
+export const repositionDictationOverlayWindow = (): void => {
+  repositionFloatingWindow(OVERLAY_KIND, overlayPosition);
 };
 
 const ensureOverlayWindow = (): BrowserWindow => {
@@ -238,20 +269,28 @@ export const installDictationOverlay = (
     onRecordingLifecycle?: (recording: boolean) => void;
   } = {},
 ): void => {
-  if (installed) return;
+  if (installed) {
+    return;
+  }
   installed = true;
+  const { handle, on } = configuration.get();
 
   const controller = createDictationOverlayController({
     showOverlay,
     hideOverlay,
-    forwardState: sendState,
+    forwardState: (state) => {
+      if (!getFloatingWindow(OVERLAY_KIND)) {
+        showOverlay();
+      }
+      sendState(state);
+    },
     setTimeout,
     clearTimeout: (handle) =>
       clearTimeout(handle as ReturnType<typeof setTimeout>),
   });
 
   on(
-    "vellum:dictationOverlay:setState",
+    DICTATION_OVERLAY_SET_STATE,
     z.tuple([dictationOverlayMessageSchema]),
     ([message]) => {
       options.onRecordingLifecycle?.(message.kind === "recording");
@@ -259,17 +298,17 @@ export const installDictationOverlay = (
     },
   );
 
-  on("vellum:dictationOverlay:requestStop", z.tuple([]), () => {
+  on(DICTATION_OVERLAY_REQUEST_STOP, z.tuple([]), () => {
     broadcastStopRequested();
   });
 
   on(
-    "vellum:dictationOverlay:setInteractive",
+    DICTATION_OVERLAY_SET_INTERACTIVE,
     z.tuple([z.boolean()]),
     ([interactive]) => {
       setOverlayInteractive(interactive);
     },
   );
 
-  handle("vellum:dictationOverlay:getState", z.tuple([]), () => latestState);
+  handle(DICTATION_OVERLAY_GET_STATE, z.tuple([]), () => latestState);
 };
