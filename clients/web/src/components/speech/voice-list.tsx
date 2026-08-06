@@ -26,7 +26,7 @@ import { Check, Square, Volume2 } from "lucide-react";
 
 import { cn } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 import { useVoiceSamplePreview } from "@/components/speech/use-voice-sample-preview";
@@ -198,7 +198,7 @@ export function VoiceList({
       )}
       {showSourceFilter && (
         <div className="px-1 pb-1">
-          <Dropdown
+          <Select
             value={selectedSource ?? ""}
             onChange={setSourceOverride}
             options={sources.map((s) => ({
