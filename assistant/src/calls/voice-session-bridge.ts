@@ -432,7 +432,7 @@ const VOICE_APPROVAL_TIMEOUT_MS = 45_000;
  * LIVE_VOICE_SETUP_FLOW_TEACHING).
  */
 const PHONE_NO_SETUP_FLOWS_RULE =
-  "Never start account connections, OAuth or sign-in flows, or any other action that opens a browser window or needs the user's screen during this call — not even through shell or CLI tools. If the task needs one, say so briefly and offer to finish it in text chat after the call.";
+  "Never start account connections, OAuth or sign-in flows, or any other action that opens a browser window or needs the user's screen during this call, not even through shell or CLI tools. If the task needs one, say so briefly and offer to finish it in text chat after the call.";
 
 function buildVoiceCallControlPrompt(opts: {
   isInbound: boolean;
