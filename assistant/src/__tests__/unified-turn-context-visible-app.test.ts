@@ -29,9 +29,9 @@ describe("unified-turn-context visible_app", () => {
       'visible_app: "Grocery List" (app_id: "app-123", slug: "grocery-list")',
     );
     expect(block).toContain('references to "the app" mean this one');
-    // The resolved directory stays out: the model reconstructs it from the
-    // workspace `Root:` in `<workspace>`, the app-builder skill's
-    // `data/apps/<slug>/` layout, and the slug on this line.
+    // The resolved directory stays out of the line: it is the workspace
+    // `Root:` from `<workspace>` joined with the app-builder skill's
+    // `data/apps/<slug>/` layout and the slug rendered here.
     expect(block).not.toContain("source:");
     expect(block).not.toContain("/workspace/data/apps/grocery-list");
   });

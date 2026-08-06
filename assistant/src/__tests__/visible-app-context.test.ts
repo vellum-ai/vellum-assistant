@@ -73,10 +73,9 @@ describe("buildVisibleAppContext", () => {
   });
 
   test("carries no resolved directory, only derivable handles", () => {
-    // The absolute directory used to ride along, duplicating what the model
-    // already derives from the workspace `Root:` plus the app-builder skill's
-    // `data/apps/<slug>/` layout. Only the handles ship now, so nothing here
-    // may be an absolute path.
+    // Only derivable handles ship: a workspace app's directory is the
+    // workspace `Root:` joined with the app-builder skill's
+    // `data/apps/<slug>/` layout, so no value here may be an absolute path.
     const app = createApp({
       name: "Grocery List",
       schemaJson: "{}",
