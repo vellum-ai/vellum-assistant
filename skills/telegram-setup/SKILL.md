@@ -38,7 +38,9 @@ Your job is Steps 1 to 5 below: open the wizard, confirm delivery, link the user
 
 ## Step 1: Check existing configuration
 
-Run `assistant credentials list --search telegram` (via the bash tool). Note whether `bot_token` and `webhook_secret` are present.
+⚠️ CRITICAL: **If you got here from a wizard-closed notification, or the user just said they finished setup, go straight to Step 3.** A successful save leaves both credentials in place, so this step would find them and read it as "already configured" at exactly the moment that means the opposite. Stopping there skips the delivery check and the identity verification, which is the failure this flow exists to prevent.
+
+Otherwise, run `assistant credentials list --search telegram` (via the bash tool). Note whether `bot_token` and `webhook_secret` are present.
 
 - If **both ✅** → already configured. Offer to show status or reconfigure. Stop here unless the user wants a reset.
 - **Otherwise** → continue to Step 2.
