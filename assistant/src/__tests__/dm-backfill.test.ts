@@ -17,13 +17,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Mocks (must precede module imports under test)
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
@@ -49,7 +42,9 @@ mock.module("../messaging/providers/slack/adapter.js", () => ({
     _account: string | undefined,
     botId: string,
   ) => {
-    if (botId === "B_ASSISTANT") return "U_BOT";
+    if (botId === "B_ASSISTANT") {
+      return "U_BOT";
+    }
     return null;
   },
 }));

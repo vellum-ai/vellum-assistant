@@ -5,9 +5,9 @@
  * Owns:
  * - `pendingOnboardingContextRef` — pre-chat context for the first send
  * - `onboardingDraftConversationIdRef` — draft conversation created during onboarding
- * - `didOnboarding` / `onboardingConversationId` / `onboardingTasksEmpty` — lifecycle flags
+ * - `didOnboarding` / `onboardingConversationId` / `onboardingChoiceEligible` — lifecycle flags
  * - `?onboarding=1` search-param signal consumption effect
- * - `sessionStorage` tasks-empty derivation
+ * - choice-card eligibility derivation from the pending pre-chat context
  *
  * Does NOT own:
  * - Auto-send of the initial message (depends on `sendMessage` from `useSendMessage`,
@@ -23,16 +23,34 @@
 import { type MutableRefObject, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useConversationStore } from "@/stores/conversation-store";
-import { type PreChatOnboardingContext } from "@/domains/onboarding/prechat";
+import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
+import {
+  peekPendingPreChatContext,
+  type PreChatOnboardingContext,
+} from "@/domains/onboarding/prechat";
+import {
+  isInChatTourOn,
+  readInChatTourVariant,
+} from "@/domains/chat/in-chat-onboarding/in-chat-tour-flag";
+import {
+  emitInChatTourExposed,
+  emitInChatTourStarted,
+} from "@/domains/chat/in-chat-onboarding/tour-telemetry";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { routes } from "@/utils/routes";
 
 export interface UseOnboardingOrchestratorResult {
   /** Whether the user arrived via the onboarding flow. */
   didOnboarding: boolean;
-  /** Whether the user skipped task selection during prechat. */
-  onboardingTasksEmpty: boolean;
+  /**
+   * Whether this onboarding handoff is eligible for the in-chat onboarding
+   * choice card. See the option doc on `useOnboardingChoice` for the
+   * rationale behind each condition.
+   */
+  onboardingChoiceEligible: boolean;
   /** The draft conversation created for the onboarding flow. */
   onboardingConversationId: string | null;
   /** Shared with `useSendMessage` — pre-chat context for the first send. */
@@ -44,12 +62,19 @@ export interface UseOnboardingOrchestratorResult {
 export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const isMobile = useIsMobile();
+  const isNative = useIsNativePlatform();
 
-  const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(null);
+  const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(
+    null,
+  );
   const onboardingDraftConversationIdRef = useRef<string | null>(null);
   const [didOnboarding, setDidOnboarding] = useState(false);
-  const [onboardingTasksEmpty, setOnboardingTasksEmpty] = useState(false);
-  const [onboardingConversationId, setOnboardingConversationId] = useState<string | null>(null);
+  const [onboardingChoiceEligible, setOnboardingChoiceEligible] =
+    useState(false);
+  const [onboardingConversationId, setOnboardingConversationId] = useState<
+    string | null
+  >(null);
 
   // Consume the `?onboarding=1` signal left by `/onboarding/hatching` when
   // it forwards the user after a successful hatch. Owns the post-hatch
@@ -58,35 +83,56 @@ export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
   // hatching screens before they navigate). The flag is stripped from
   // the URL immediately so a page refresh doesn't re-trigger the greet.
   useEffect(() => {
-    if (searchParams.get("onboarding") !== "1") return;
+    if (searchParams.get("onboarding") !== "1") {
+      return;
+    }
     setDidOnboarding(true);
     const draftId =
       onboardingDraftConversationIdRef.current ?? createDraftConversationId();
     onboardingDraftConversationIdRef.current = draftId;
     setOnboardingConversationId(draftId);
     useConversationStore.getState().setActiveConversationId(draftId);
-    void navigate(routes.conversation(draftId), { replace: true });
-  }, [searchParams, navigate]);
-
-  // Derive onboardingTasksEmpty from the pending context in sessionStorage.
-  // Runs once on mount — if initial message key is present, this is an
-  // onboarding mount, so peek at the context for the tasks-empty flag.
-  useEffect(() => {
-    try {
-      const raw = globalThis.sessionStorage?.getItem("onboarding.prechat.pendingContext");
-      if (!raw) return;
-      const ctx = JSON.parse(raw) as { tasks?: string[] };
-      if (Array.isArray(ctx.tasks) && ctx.tasks.length === 0) {
-        setOnboardingTasksEmpty(true);
+    // The in-chat-onboarding-tour experiment — DESKTOP ONLY: phone-width
+    // viewports and the native shell get neither the tour (its takeover
+    // is built around the desktop sidebar/composer layout) nor ANY of its
+    // telemetry. Skipping the exposure event too is deliberate: mobile
+    // sessions must stay out of both cohorts, or arm comparisons would be
+    // diluted by users who could never see the tour. On desktop, an
+    // exposure event fires for BOTH arms at the hand-off (control emits
+    // nothing else, and the funnel needs its rows for comparison), then
+    // the `tour` arm plays the eyes-led tour over the workspace the user
+    // just landed in. The arm is read at consumption time — flags
+    // hydrated long ago during the onboarding flow itself, and the
+    // signal is one-shot.
+    if (!isMobile && !isNative) {
+      emitInChatTourExposed();
+      if (isInChatTourOn(readInChatTourVariant())) {
+        useInChatOnboardingStore.getState().startPrototype();
+        emitInChatTourStarted();
       }
-    } catch {
-      // Storage or parse failure — ignore.
+    }
+    void navigate(routes.conversation(draftId), { replace: true });
+  }, [searchParams, navigate, isMobile, isNative]);
+
+  // Derive choice-card eligibility from the pending pre-chat context. Runs
+  // once on mount, before the first send consumes the context. Reads through
+  // the validated peek so this gate can never disagree with the auto-send
+  // path in ActiveChatView: a malformed/absent context yields `null` there
+  // too, which fails open to the legacy (card-less) behavior.
+  useEffect(() => {
+    const ctx = peekPendingPreChatContext();
+    if (
+      ctx !== null &&
+      ctx.tasks.length === 0 &&
+      ctx.initialMessageHidden !== true
+    ) {
+      setOnboardingChoiceEligible(true);
     }
   }, []);
 
   return {
     didOnboarding,
-    onboardingTasksEmpty,
+    onboardingChoiceEligible,
     onboardingConversationId,
     pendingOnboardingContextRef,
     onboardingDraftConversationIdRef,

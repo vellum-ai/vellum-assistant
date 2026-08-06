@@ -1,15 +1,23 @@
 import { getSubagentManager } from "../../subagent/index.js";
+import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
-import { resolveSubagentId } from "./resolve.js";
+import { resolveSubagentId, subagentRefInputSchema } from "./resolve.js";
+
+export const subagentAbortInputSchema = subagentRefInputSchema;
 
 export async function executeSubagentAbort(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const subagentId = resolveSubagentId(input, context);
-  if (!subagentId && input.label) {
+  const parsedInput = subagentAbortInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("subagent_abort", parsedInput.error);
+  }
+  const parsed = parsedInput.data;
+  const subagentId = resolveSubagentId(parsed, context);
+  if (!subagentId && parsed.label) {
     return {
-      content: `No subagent found with label "${input.label as string}".`,
+      content: `No subagent found with label "${parsed.label}".`,
       isError: true,
     };
   }

@@ -12,14 +12,7 @@
  * failure, and clean `end()` / `close()` teardown.
  */
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 let mintResult: Promise<{ token: string; expiresAt: string }> = Promise.resolve(
   { token: "tok-abc", expiresAt: "2026-06-01T00:05:00Z" },
@@ -42,7 +35,9 @@ mock.module("@/domains/chat/voice/live-voice/connection", () => ({
       const { token } = await mintResult;
       const url = new URL(`wss://velay.vellum.ai/${assistantId}/v1/live-voice`);
       url.searchParams.set("token", token);
-      if (conversationId) url.searchParams.set("conversationId", conversationId);
+      if (conversationId) {
+        url.searchParams.set("conversationId", conversationId);
+      }
       return url.toString();
     },
   ),
@@ -53,9 +48,8 @@ import type { LiveVoiceChannelClient as LiveVoiceChannelClientType } from "@/dom
 // Import the module under test *after* registering the connection mock, so the
 // mock is in place before the real connection.ts (which imports the generated
 // SDK client) would otherwise be pulled into the static import graph.
-const { LiveVoiceChannelClient } = await import(
-  "@/domains/chat/voice/live-voice/live-voice-client"
-);
+const { LiveVoiceChannelClient } =
+  await import("@/domains/chat/voice/live-voice/live-voice-client");
 
 // ---------------------------------------------------------------------------
 // Fake WebSocket
@@ -132,7 +126,8 @@ class FakeWebSocket {
 }
 
 function makeClient(connectTimeoutMs = 10_000) {
-  const factory = (url: string) => new FakeWebSocket(url) as unknown as WebSocket;
+  const factory = (url: string) =>
+    new FakeWebSocket(url) as unknown as WebSocket;
   const client = new LiveVoiceChannelClient({
     webSocketFactory: factory,
     connectTimeoutMs,
@@ -147,11 +142,15 @@ async function connectAndGetSocket(
     assistantId: string;
     conversationId?: string;
     turnDetection?: "manual" | "server_vad";
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
   } = { assistantId: "assistant-1" },
 ): Promise<FakeWebSocket> {
   await client.connect(args);
   const ws = FakeWebSocket.instances.at(-1);
-  if (!ws) throw new Error("no WebSocket was constructed");
+  if (!ws) {
+    throw new Error("no WebSocket was constructed");
+  }
   return ws;
 }
 
@@ -200,6 +199,7 @@ describe("connect", () => {
     expect(ws.sentJson).toEqual([
       {
         type: "start",
+        client: "web",
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
         conversationId: "conv-xyz",
       },
@@ -212,8 +212,21 @@ describe("connect", () => {
     ws.open();
     expect(ws.sentJson[0]).toEqual({
       type: "start",
+      client: "web",
       audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
     });
+  });
+
+  test("reports the detected OS surface as the start frame's client", async () => {
+    const ws = await connectAndGetSocket(makeClient());
+    ws.open();
+
+    // Attribution for the daemon's voice-turn telemetry. It has to be the
+    // detected surface rather than a literal: the iOS and macOS apps run this
+    // same bundle over this same transport, so a hardcoded "web" would report
+    // every native session as a browser one. Under the test DOM (no Electron,
+    // no Capacitor) the detected surface is "web".
+    expect(ws.sentJson[0]).toMatchObject({ client: "web" });
   });
 
   test("includes turnDetection in the start frame when provided", async () => {
@@ -225,10 +238,42 @@ describe("connect", () => {
     expect(ws.sentJson).toEqual([
       {
         type: "start",
+        client: "web",
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
         turnDetection: "server_vad",
       },
     ]);
+  });
+
+  test("includes per-session silenceThresholdMs and bargeInMinSpeechMs in the start frame", async () => {
+    const ws = await connectAndGetSocket(makeClient(), {
+      assistantId: "assistant-1",
+      turnDetection: "server_vad",
+      silenceThresholdMs: 1500,
+      bargeInMinSpeechMs: 600,
+    });
+    ws.open();
+    expect(ws.sentJson).toEqual([
+      {
+        type: "start",
+        client: "web",
+        audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
+        turnDetection: "server_vad",
+        silenceThresholdMs: 1500,
+        bargeInMinSpeechMs: 600,
+      },
+    ]);
+  });
+
+  test("omits silenceThresholdMs and bargeInMinSpeechMs from the start frame when not provided", async () => {
+    const ws = await connectAndGetSocket(makeClient(), {
+      assistantId: "assistant-1",
+      turnDetection: "server_vad",
+    });
+    ws.open();
+    const frame = ws.sentJson[0]!;
+    expect("silenceThresholdMs" in frame).toBe(false);
+    expect("bargeInMinSpeechMs" in frame).toBe(false);
   });
 
   test("emits error when token minting fails", async () => {
@@ -257,7 +302,12 @@ describe("server frame dispatch", () => {
     const client = makeClient();
     const ws = await connectAndGetSocket(client);
     ws.open();
-    ws.receive({ type: "ready", seq: 1, sessionId: "s1", conversationId: "c1" });
+    ws.receive({
+      type: "ready",
+      seq: 1,
+      sessionId: "s1",
+      conversationId: "c1",
+    });
     return { client, ws };
   }
 
@@ -356,8 +406,12 @@ describe("server frame dispatch", () => {
       sessionId: "s1",
     });
 
-    expect(got.sttPartial).toEqual([{ type: "stt_partial", seq: 2, text: "hel" }]);
-    expect(got.sttFinal).toEqual([{ type: "stt_final", seq: 3, text: "hello" }]);
+    expect(got.sttPartial).toEqual([
+      { type: "stt_partial", seq: 2, text: "hel" },
+    ]);
+    expect(got.sttFinal).toEqual([
+      { type: "stt_final", seq: 3, text: "hello" },
+    ]);
     expect(got.thinking).toEqual([{ type: "thinking", seq: 4, turnId: "t1" }]);
     expect(got.assistantTextDelta).toEqual([
       { type: "assistant_text_delta", seq: 5, text: "hi" },
@@ -368,7 +422,7 @@ describe("server frame dispatch", () => {
     expect(got.archived).toHaveLength(1);
   });
 
-  test("dispatches speech_started / utterance_end / utterance_discarded / turn_cancelled to their events", async () => {
+  test("dispatches speech_started / utterance_end / utterance_discarded / turn_cancelled / minimize_room to their events", async () => {
     const { client, ws } = await ready();
 
     const { got, record } = makeRecorder();
@@ -376,12 +430,14 @@ describe("server frame dispatch", () => {
     client.on("utteranceEnd", record("utteranceEnd"));
     client.on("utteranceDiscarded", record("utteranceDiscarded"));
     client.on("turnCancelled", record("turnCancelled"));
+    client.on("minimizeRoom", record("minimizeRoom"));
 
     ws.receive({ type: "speech_started", seq: 2 });
     ws.receive({ type: "utterance_end", seq: 3, reason: "silence" });
     ws.receive({ type: "utterance_end", seq: 4, reason: "max-duration" });
     ws.receive({ type: "utterance_discarded", seq: 5 });
     ws.receive({ type: "turn_cancelled", seq: 6, turnId: "t1" });
+    ws.receive({ type: "minimize_room", seq: 7, turnId: "t1" });
 
     expect(got.speechStarted).toEqual([{ type: "speech_started", seq: 2 }]);
     expect(got.utteranceEnd).toEqual([
@@ -393,6 +449,9 @@ describe("server frame dispatch", () => {
     ]);
     expect(got.turnCancelled).toEqual([
       { type: "turn_cancelled", seq: 6, turnId: "t1" },
+    ]);
+    expect(got.minimizeRoom).toEqual([
+      { type: "minimize_room", seq: 7, turnId: "t1" },
     ]);
   });
 
@@ -432,6 +491,40 @@ describe("server frame dispatch", () => {
     expect(ws.closed).toBe(true);
   });
 
+  test("an unknown_type error (older assistant rejecting update_config) is non-fatal and latches off further updates", async () => {
+    const { client, ws } = await ready();
+    const errors: unknown[] = [];
+    let closedCount = 0;
+    client.on("error", (e) => errors.push(e));
+    client.on("closed", () => closedCount++);
+
+    // A newer client sends update_config; an older daemon rejects the frame.
+    client.updateConfig({ silenceThresholdMs: 1400 });
+    ws.receive({
+      type: "error",
+      seq: 10,
+      code: "unknown_type",
+      message: "Unknown live voice client frame type: update_config",
+    });
+
+    // Not fatal: no error surfaced, session stays open, later frames dispatch.
+    expect(errors).toEqual([]);
+    expect(closedCount).toBe(0);
+    expect(ws.closed).toBe(false);
+
+    // Further updateConfig calls are suppressed (no more frames go out).
+    const sentBefore = ws.sentJson.length;
+    client.updateConfig({ silenceThresholdMs: 1600 });
+    expect(ws.sentJson.length).toBe(sentBefore);
+
+    const seen: unknown[] = [];
+    client.on("sttPartial", (f) => seen.push(f));
+    ws.receive({ type: "stt_partial", seq: 11, text: "still here" });
+    expect(seen).toEqual([
+      { type: "stt_partial", seq: 11, text: "still here" },
+    ]);
+  });
+
   test("recoverable error frame emits the error but keeps the session alive", async () => {
     const { client, ws } = await ready();
     const errors: {
@@ -467,7 +560,9 @@ describe("server frame dispatch", () => {
     const seen: unknown[] = [];
     client.on("sttPartial", (f) => seen.push(f));
     ws.receive({ type: "stt_partial", seq: 11, text: "still here" });
-    expect(seen).toEqual([{ type: "stt_partial", seq: 11, text: "still here" }]);
+    expect(seen).toEqual([
+      { type: "stt_partial", seq: 11, text: "still here" },
+    ]);
   });
 
   test("recoverable error before ready is still fatal", async () => {
@@ -552,6 +647,7 @@ describe("sendAudio", () => {
     expect(ws.sentJson).toEqual([
       {
         type: "start",
+        client: "web",
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
       },
     ]);
@@ -584,6 +680,36 @@ describe("control frames", () => {
     expect(ws.sentJson.slice(1)).toEqual([
       { type: "ptt_release" },
       { type: "interrupt" },
+    ]);
+  });
+
+  test("updateConfig sends an update_config frame with only the provided fields when active", async () => {
+    const client = makeClient();
+    const ws = await connectAndGetSocket(client);
+    ws.open();
+    ws.receive({ type: "ready", seq: 1, sessionId: "s", conversationId: "c" });
+
+    client.updateConfig({ silenceThresholdMs: 1400 });
+
+    expect(ws.sentJson.slice(1)).toEqual([
+      { type: "update_config", silenceThresholdMs: 1400 },
+    ]);
+  });
+
+  test("updateConfig is a no-op before the session is active", async () => {
+    const client = makeClient();
+    const ws = await connectAndGetSocket(client);
+    ws.open(); // opened but no `ready` yet → still connecting, not active
+
+    client.updateConfig({ silenceThresholdMs: 1400 });
+
+    // Only the start frame was sent; the update was dropped.
+    expect(ws.sentJson).toEqual([
+      {
+        type: "start",
+        client: "web",
+        audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
+      },
     ]);
   });
 });

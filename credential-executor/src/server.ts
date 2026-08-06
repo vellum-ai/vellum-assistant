@@ -20,34 +20,12 @@ import {
   CES_PROTOCOL_VERSION,
   CesRpcMethod,
   CesRpcSchemas,
-  hashProposal,
-  type CommandGrantProposal,
   type HandshakeAck,
   type HandshakeRequest,
-  type MakeAuthenticatedRequest,
-  type ManageSecureCommandTool,
-  type ManageSecureCommandToolResponse,
   type RpcEnvelope,
-  type RunAuthenticatedCommand,
-  type RunAuthenticatedCommandResponse,
   type TransportMessage,
   TransportMessageSchema,
 } from "@vellumai/service-contracts/credential-rpc";
-
-import { resolve } from "node:path";
-
-import {
-  executeAuthenticatedCommand,
-  type CommandExecutorDeps,
-  type ExecuteCommandRequest,
-} from "./commands/executor.js";
-
-import { validateContainedPath } from "./commands/workspace.js";
-
-import {
-  executeAuthenticatedHttpRequest,
-  type HttpExecutorDeps,
-} from "./http/executor.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,13 +37,8 @@ import {
  * Each accepted connection owns one `SessionContext`, created when the server
  * is constructed and populated with the negotiated session ID at handshake.
  * Handlers receive it as their second argument and read the session ID at call
- * time — so a handler registry shared across connections attributes each call
- * (e.g. audit records) to the originating connection.
- *
- * Identity that does not vary across a daemon's connections — the assistant
- * API key and assistant ID — deliberately lives outside this context
- * (process-global, see `managed-lazy-getters.ts`); only the per-connection
- * session ID belongs here.
+ * time, so a handler registry shared across connections can attribute each call
+ * to the originating connection.
  */
 export interface SessionContext {
   /** The RPC session ID negotiated at handshake. */
@@ -86,9 +59,7 @@ export type RpcMethodHandler<TReq = unknown, TRes = unknown> = (
 /**
  * Registry of method name to handler function.
  */
-export type RpcHandlerRegistry = Partial<
-  Record<string, RpcMethodHandler>
->;
+export type RpcHandlerRegistry = Partial<Record<string, RpcMethodHandler>>;
 
 export interface CesServerOptions {
   /** Readable stream to consume messages from. */
@@ -102,7 +73,11 @@ export interface CesServerOptions {
   /** Optional abort signal to shut down the server. */
   signal?: AbortSignal;
   /** Callback invoked when the handshake completes with the negotiated session ID and optional API key / assistant ID. */
-  onHandshakeComplete?: (sessionId: string, assistantApiKey?: string, assistantId?: string) => void;
+  onHandshakeComplete?: (
+    sessionId: string,
+    assistantApiKey?: string,
+    assistantId?: string,
+  ) => void;
   /** Callback invoked when the assistant pushes an updated API key (and optionally assistant ID) after hatch. */
   onApiKeyUpdate?: (assistantApiKey: string, assistantId?: string) => void;
 }
@@ -122,7 +97,11 @@ export class CesRpcServer {
   private readonly handlers: RpcHandlerRegistry;
   private readonly logger: Pick<Console, "log" | "warn" | "error">;
   private readonly signal?: AbortSignal;
-  private readonly onHandshakeComplete?: (sessionId: string, assistantApiKey?: string, assistantId?: string) => void;
+  private readonly onHandshakeComplete?: (
+    sessionId: string,
+    assistantApiKey?: string,
+    assistantId?: string,
+  ) => void;
 
   private handshakeComplete = false;
   /**
@@ -145,8 +124,13 @@ export class CesRpcServer {
     // Auto-register the update_managed_credential handler if a callback is provided.
     if (options.onApiKeyUpdate) {
       const onUpdate = options.onApiKeyUpdate;
-      this.handlers[CesRpcMethod.UpdateManagedCredential] = (request: unknown) => {
-        const { assistantApiKey, assistantId } = request as { assistantApiKey: string; assistantId?: string };
+      this.handlers[CesRpcMethod.UpdateManagedCredential] = (
+        request: unknown,
+      ) => {
+        const { assistantApiKey, assistantId } = request as {
+          assistantApiKey: string;
+          assistantId?: string;
+        };
         onUpdate(assistantApiKey, assistantId);
         return { updated: true };
       };
@@ -176,7 +160,8 @@ export class CesRpcServer {
 
       this.input.on("data", (chunk: Buffer | string) => {
         if (this.closed) return;
-        this.buffer += typeof chunk === "string" ? chunk : chunk.toString("utf-8");
+        this.buffer +=
+          typeof chunk === "string" ? chunk : chunk.toString("utf-8");
         this.processBuffer();
       });
 
@@ -213,7 +198,9 @@ export class CesRpcServer {
     if (this.closed) return;
     this.closed = true;
     this.input.destroy();
-    if (typeof (this.output as { destroy?: () => void }).destroy === "function") {
+    if (
+      typeof (this.output as { destroy?: () => void }).destroy === "function"
+    ) {
       this.output.destroy();
     }
   }
@@ -255,7 +242,9 @@ export class CesRpcServer {
 
     if (msg.type === "handshake_request") {
       if (this.handshakeComplete) {
-        this.logger.warn("[ces-server] Duplicate handshake_request after session established; rejecting");
+        this.logger.warn(
+          "[ces-server] Duplicate handshake_request after session established; rejecting",
+        );
         const ack: HandshakeAck = {
           type: "handshake_ack",
           protocolVersion: CES_PROTOCOL_VERSION,
@@ -269,7 +258,9 @@ export class CesRpcServer {
       this.handleHandshake(msg as HandshakeRequest);
     } else if (msg.type === "rpc") {
       this.handleRpcEnvelope(msg as unknown as RpcEnvelope).catch((err) => {
-        this.logger.error(`[ces-server] Unhandled error in RPC handler: ${err}`);
+        this.logger.error(
+          `[ces-server] Unhandled error in RPC handler: ${err}`,
+        );
       });
     } else {
       this.logger.warn("[ces-server] Unexpected message type:", msg.type);
@@ -283,14 +274,22 @@ export class CesRpcServer {
       protocolVersion: CES_PROTOCOL_VERSION,
       sessionId: req.sessionId,
       accepted,
-      ...(accepted ? {} : { reason: `Unsupported protocol version: ${req.protocolVersion}` }),
+      ...(accepted
+        ? {}
+        : { reason: `Unsupported protocol version: ${req.protocolVersion}` }),
     };
 
     if (accepted) {
       this.handshakeComplete = true;
       this.sessionContext.sessionId = req.sessionId;
-      this.logger.log(`[ces-server] Handshake accepted for session ${req.sessionId}`);
-      this.onHandshakeComplete?.(req.sessionId, req.assistantApiKey, req.assistantId);
+      this.logger.log(
+        `[ces-server] Handshake accepted for session ${req.sessionId}`,
+      );
+      this.onHandshakeComplete?.(
+        req.sessionId,
+        req.assistantApiKey,
+        req.assistantId,
+      );
     } else {
       this.logger.warn(
         `[ces-server] Handshake rejected: version mismatch (got ${req.protocolVersion}, expected ${CES_PROTOCOL_VERSION})`,
@@ -303,7 +302,11 @@ export class CesRpcServer {
   private async handleRpcEnvelope(envelope: RpcEnvelope): Promise<void> {
     if (!this.handshakeComplete) {
       this.logger.warn("[ces-server] RPC received before handshake; ignoring");
-      this.sendRpcError(envelope, "HANDSHAKE_REQUIRED", "Handshake not completed");
+      this.sendRpcError(
+        envelope,
+        "HANDSHAKE_REQUIRED",
+        "Handshake not completed",
+      );
       return;
     }
 
@@ -316,7 +319,11 @@ export class CesRpcServer {
     const handler = this.handlers[method];
 
     if (!handler) {
-      this.sendRpcError(envelope, "METHOD_NOT_FOUND", `Unknown method: ${method}`);
+      this.sendRpcError(
+        envelope,
+        "METHOD_NOT_FOUND",
+        `Unknown method: ${method}`,
+      );
       return;
     }
 
@@ -385,47 +392,6 @@ export class CesRpcServer {
 }
 
 // ---------------------------------------------------------------------------
-// Handler factory: make_authenticated_request
-// ---------------------------------------------------------------------------
-
-/**
- * Create a handler function for the `make_authenticated_request` RPC method.
- *
- * Binds the executor to the provided dependencies so it can be registered in
- * the RPC handler registry. The per-connection session ID is merged in from
- * the SessionContext at call time (for audit attribution); all other deps —
- * including the managed subject/materializer options — are taken as supplied.
- */
-export function createMakeAuthenticatedRequestHandler(
-  deps: HttpExecutorDeps,
-): RpcMethodHandler {
-  return async (request: unknown, ctx: SessionContext) => {
-    return executeAuthenticatedHttpRequest(request as MakeAuthenticatedRequest, {
-      ...deps,
-      sessionId: ctx.sessionId,
-    });
-  };
-}
-
-/**
- * Build an RPC handler registry that includes the `make_authenticated_request`
- * handler alongside any additional handlers.
- *
- * This is a convenience helper for callers that want to wire up the HTTP
- * executor without manually constructing the registry.
- */
-export function buildHandlersWithHttp(
-  httpDeps: HttpExecutorDeps,
-  additionalHandlers?: RpcHandlerRegistry,
-): RpcHandlerRegistry {
-  return {
-    ...additionalHandlers,
-    [CesRpcMethod.MakeAuthenticatedRequest]:
-      createMakeAuthenticatedRequestHandler(httpDeps),
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Factory helper
 // ---------------------------------------------------------------------------
 
@@ -437,387 +403,4 @@ export function buildHandlersWithHttp(
  */
 export function createCesServer(options: CesServerOptions): CesRpcServer {
   return new CesRpcServer(options);
-}
-
-// ---------------------------------------------------------------------------
-// run_authenticated_command handler factory
-// ---------------------------------------------------------------------------
-
-/**
- * Options for creating the `run_authenticated_command` RPC handler.
- */
-export interface RunAuthenticatedCommandHandlerOptions {
-  /** Dependencies for the command executor. */
-  executorDeps: CommandExecutorDeps;
-  /**
-   * Default workspace directory for commands that don't specify one.
-   * Typically the assistant's workspace root.
-   */
-  defaultWorkspaceDir: string;
-}
-
-/**
- * Create an RPC handler for the `run_authenticated_command` method.
- *
- * This handler:
- * 1. Parses the `command` string into a bundleDigest, profileName, and argv.
- *    The expected format is: `<bundleDigest>/<profileName> <argv...>`
- * 2. Delegates to `executeAuthenticatedCommand` for the full security pipeline.
- * 3. Returns a `RunAuthenticatedCommandResponse` with the execution result.
- *
- * If the command string doesn't match the expected format (i.e. it's a
- * plain shell command), the handler returns a structured error since only
- * manifest-driven secure commands are supported.
- */
-export function createRunAuthenticatedCommandHandler(
-  options: RunAuthenticatedCommandHandlerOptions,
-): RpcMethodHandler<RunAuthenticatedCommand, RunAuthenticatedCommandResponse> {
-  return async (request, ctx) => {
-    // Parse the command string into bundle-digest/profile and argv
-    const parseResult = parseCommandString(request.command);
-    if (!parseResult.ok) {
-      return {
-        success: false,
-        error: { code: "INVALID_COMMAND", message: parseResult.error },
-      };
-    }
-
-    // Validate cwd when inputs or outputs are present — the workspace
-    // staging/copyback pipeline resolves paths relative to workspaceDir,
-    // so an unvalidated cwd could let a caller read/write outside the
-    // assistant workspace.
-    const workspaceDir = request.cwd ?? options.defaultWorkspaceDir;
-    const hasWorkspaceIO =
-      (request.inputs && request.inputs.length > 0) ||
-      (request.outputs && request.outputs.length > 0);
-
-    if (hasWorkspaceIO && request.cwd) {
-      const resolvedCwd = resolve(request.cwd);
-      const cwdError = validateContainedPath(
-        resolvedCwd,
-        options.defaultWorkspaceDir,
-        "Command cwd",
-      );
-      if (cwdError) {
-        return {
-          success: false,
-          error: {
-            code: "INVALID_CWD",
-            message:
-              `cwd cannot be used with inputs/outputs when it resolves outside ` +
-              `the workspace directory: ${cwdError}`,
-          },
-        };
-      }
-    }
-
-    const execRequest: ExecuteCommandRequest = {
-      bundleDigest: parseResult.bundleDigest,
-      profileName: parseResult.profileName,
-      credentialHandle: request.credentialHandle,
-      argv: parseResult.argv,
-      workspaceDir,
-      inputs: request.inputs,
-      outputs: request.outputs,
-      purpose: request.purpose,
-      grantId: request.grantId,
-      conversationId: request.conversationId,
-    };
-
-    // Bind the per-connection session ID (for audit attribution) into the
-    // executor deps for this call.
-    const result = await executeAuthenticatedCommand(execRequest, {
-      ...options.executorDeps,
-      sessionId: ctx.sessionId,
-    });
-
-    // If the failure was due to a missing grant, return a structured
-    // APPROVAL_REQUIRED response with the proposal so the approval
-    // bridge can activate.
-    if (!result.success && result.approvalRequired) {
-      const { credentialHandle, bundleDigest, profileName, command, purpose } =
-        result.approvalRequired;
-
-      const proposal: CommandGrantProposal = {
-        type: "command",
-        credentialHandle,
-        command,
-        purpose,
-        allowedCommandPatterns: [`${credentialHandle}:${bundleDigest}:${profileName}`],
-      };
-
-      return {
-        success: false,
-        error: {
-          code: "APPROVAL_REQUIRED",
-          message: `No active grant covers this command. Approval is required.`,
-          details: {
-            proposal,
-            proposalHash: hashProposal(proposal),
-          },
-        },
-        auditId: result.auditId,
-      };
-    }
-
-    return {
-      success: result.success,
-      exitCode: result.exitCode,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      error: result.error
-        ? { code: "EXECUTION_ERROR", message: result.error }
-        : undefined,
-      auditId: result.auditId,
-    };
-  };
-}
-
-/**
- * Parse a CES command string into bundle digest, profile name, and argv.
- *
- * Expected format: `<bundleDigest>/<profileName> [argv...]`
- *
- * Examples:
- * - `abc123def.../api-read api /repos/owner/repo --method GET`
- * - `abc123def.../list-repos`
- */
-function parseCommandString(
-  command: string,
-): { ok: true; bundleDigest: string; profileName: string; argv: string[] }
-  | { ok: false; error: string } {
-  const trimmed = command.trim();
-  if (!trimmed) {
-    return { ok: false, error: "Command string is empty" };
-  }
-
-  // Split on first space to separate the bundle/profile reference from argv
-  const firstSpaceIdx = trimmed.indexOf(" ");
-  const ref = firstSpaceIdx === -1 ? trimmed : trimmed.slice(0, firstSpaceIdx);
-  const argvStr = firstSpaceIdx === -1 ? "" : trimmed.slice(firstSpaceIdx + 1).trim();
-
-  // Parse the reference: <bundleDigest>/<profileName>
-  const slashIdx = ref.indexOf("/");
-  if (slashIdx === -1 || slashIdx === 0 || slashIdx === ref.length - 1) {
-    return {
-      ok: false,
-      error: `Invalid command reference "${ref}". Expected format: "<bundleDigest>/<profileName> [argv...]"`,
-    };
-  }
-
-  const bundleDigest = ref.slice(0, slashIdx);
-  const profileName = ref.slice(slashIdx + 1);
-
-  // Parse argv — split on whitespace (simple tokenization)
-  const argv = argvStr ? argvStr.split(/\s+/).filter((s) => s.length > 0) : [];
-
-  return { ok: true, bundleDigest, profileName, argv };
-}
-
-/**
- * Convenience helper to register the `run_authenticated_command` handler
- * into an RPC handler registry.
- */
-export function registerCommandExecutionHandler(
-  registry: RpcHandlerRegistry,
-  options: RunAuthenticatedCommandHandlerOptions,
-): void {
-  registry[CesRpcMethod.RunAuthenticatedCommand] =
-    createRunAuthenticatedCommandHandler(options) as RpcMethodHandler;
-}
-
-// ---------------------------------------------------------------------------
-// manage_secure_command_tool handler factory
-// ---------------------------------------------------------------------------
-
-/**
- * Dependencies for the `manage_secure_command_tool` handler.
- */
-export interface ManageSecureCommandToolHandlerDeps {
-  /**
-   * Download bundle bytes from the given HTTPS URL.
-   * Implementations should enforce size limits and timeouts.
-   */
-  downloadBundle: (sourceUrl: string) => Promise<Buffer | Uint8Array>;
-
-  /**
-   * Publish a bundle into the CES-private toolstore.
-   * Typically delegates to `publishBundle()` from `./toolstore/publish.js`.
-   */
-  publishBundle: (request: import("./toolstore/publish.js").PublishRequest) => import("./toolstore/publish.js").PublishResult;
-
-  /**
-   * Unregister/remove a tool from the tool registry by name.
-   * Returns true if the tool was found and removed.
-   */
-  unregisterTool: (toolName: string) => boolean;
-
-  /**
-   * Register a tool in the tool registry after successful publication.
-   * Called with the tool name, credential handle, description, and the
-   * bundle digest for runtime lookup.
-   */
-  registerTool: (entry: {
-    toolName: string;
-    credentialHandle: string;
-    description: string;
-    bundleDigest: string;
-  }) => void;
-}
-
-/**
- * Create an RPC handler for the `manage_secure_command_tool` method.
- *
- * This handler:
- * 1. For "register" actions: validates required bundle metadata fields,
- *    downloads the bundle from `sourceUrl`, publishes it into the
- *    immutable toolstore with digest verification, and registers
- *    the tool entry.
- * 2. For "unregister" actions: removes the tool from the registry.
- */
-export function createManageSecureCommandToolHandler(
-  deps: ManageSecureCommandToolHandlerDeps,
-): RpcMethodHandler<ManageSecureCommandTool, ManageSecureCommandToolResponse> {
-  // Serialize all manage_secure_command_tool operations. The register path
-  // awaits a bundle download mid-handler; during that await a concurrent
-  // unregister would run its "still in use?" check + bundle delete against a
-  // registry that doesn't yet reflect the in-flight registration — transiently
-  // deleting a bundle another caller is publishing or executing. Running these
-  // operations one-at-a-time closes that window. The registry and toolstore are
-  // process-global, so this single chain serializes tool management across
-  // every connection.
-  let tail: Promise<unknown> = Promise.resolve();
-
-  const handle = async (
-    request: ManageSecureCommandTool,
-  ): Promise<ManageSecureCommandToolResponse> => {
-    if (request.action === "unregister") {
-      const removed = deps.unregisterTool(request.toolName);
-      if (!removed) {
-        return {
-          success: false,
-          error: {
-            code: "TOOL_NOT_FOUND",
-            message: `Tool "${request.toolName}" is not registered.`,
-          },
-        };
-      }
-      return { success: true };
-    }
-
-    // action === "register"
-    const missing: string[] = [];
-    if (!request.bundleId) missing.push("bundleId");
-    if (!request.version) missing.push("version");
-    if (!request.sourceUrl) missing.push("sourceUrl");
-    if (!request.sha256) missing.push("sha256");
-    if (!request.credentialHandle) missing.push("credentialHandle");
-    if (!request.description) missing.push("description");
-    if (!request.secureCommandManifest) missing.push("secureCommandManifest");
-    if (missing.length > 0) {
-      return {
-        success: false,
-        error: {
-          code: "MISSING_FIELDS",
-          message: `Register action requires: ${missing.join(", ")}`,
-        },
-      };
-    }
-
-    // Validate HTTPS before downloading — CES is the security boundary
-    // and must not rely on the caller for URL scheme validation.
-    try {
-      const parsed = new URL(request.sourceUrl!);
-      if (parsed.protocol !== "https:") {
-        return {
-          success: false,
-          error: {
-            code: "INVALID_SOURCE_URL",
-            message: "sourceUrl must use HTTPS for secure bundle downloads.",
-          },
-        };
-      }
-    } catch {
-      return {
-        success: false,
-        error: {
-          code: "INVALID_SOURCE_URL",
-          message: "sourceUrl is not a valid URL.",
-        },
-      };
-    }
-
-    // Download the bundle
-    let bundleBytes: Buffer | Uint8Array;
-    try {
-      bundleBytes = await deps.downloadBundle(request.sourceUrl!);
-    } catch (err) {
-      return {
-        success: false,
-        error: {
-          code: "DOWNLOAD_FAILED",
-          message: `Failed to download bundle from ${request.sourceUrl}: ${err instanceof Error ? err.message : String(err)}`,
-        },
-      };
-    }
-
-    // The caller provides the full secure command manifest via the RPC
-    // payload. Cast to the internal type — publishBundle() validates it.
-    const secureCommandManifest =
-      request.secureCommandManifest as unknown as import("./commands/profiles.js").SecureCommandManifest;
-
-    // Publish into the immutable toolstore (includes digest verification)
-    const publishResult = deps.publishBundle({
-      bundleBytes,
-      expectedDigest: request.sha256!,
-      bundleId: request.bundleId!,
-      version: request.version!,
-      sourceUrl: request.sourceUrl!,
-      secureCommandManifest,
-    });
-
-    if (!publishResult.success) {
-      return {
-        success: false,
-        error: {
-          code: "PUBLISH_FAILED",
-          message: publishResult.error ?? "Unknown publish error",
-        },
-      };
-    }
-
-    // Register the tool entry for runtime lookup
-    deps.registerTool({
-      toolName: request.toolName,
-      credentialHandle: request.credentialHandle!,
-      description: request.description!,
-      bundleDigest: request.sha256!,
-    });
-
-    return { success: true };
-  };
-
-  return (request) => {
-    // Chain each operation onto the previous one so they never interleave.
-    const result = tail.then(() => handle(request));
-    // Keep the chain alive regardless of this op's outcome — a rejection must
-    // not break serialization for subsequent operations.
-    tail = result.then(
-      () => undefined,
-      () => undefined,
-    );
-    return result;
-  };
-}
-
-/**
- * Convenience helper to register the `manage_secure_command_tool` handler
- * into an RPC handler registry.
- */
-export function registerManageSecureCommandToolHandler(
-  registry: RpcHandlerRegistry,
-  deps: ManageSecureCommandToolHandlerDeps,
-): void {
-  registry[CesRpcMethod.ManageSecureCommandTool] =
-    createManageSecureCommandToolHandler(deps) as RpcMethodHandler;
 }

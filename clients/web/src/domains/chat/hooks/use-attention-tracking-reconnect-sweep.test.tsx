@@ -7,25 +7,17 @@
  * reconnect handler must not double-fire on `cause === "fresh"`.
  */
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { createElement } from "react";
 
 import * as sdkGen from "@/generated/daemon/sdk.gen";
+import * as conversationCache from "@/utils/conversation-cache";
+import * as cacheMutations from "@/utils/conversation-cache-mutations";
 import { useConversationStore } from "@/stores/conversation-store";
-import {
-  __resetForTesting,
-  publish,
-} from "@/lib/event-bus";
+import { __resetForTesting, publish } from "@/lib/event-bus";
 
 // Stub the conversation-list query and the mark-seen endpoint so the
 // hook does not try to hit a real backend during renderHook.
@@ -33,9 +25,14 @@ mock.module("@/hooks/conversation-queries", () => ({
   useConversationListQuery: () => ({ conversations: [] }),
   useBackgroundConversationListQuery: () => ({ conversations: [] }),
   useScheduledConversationListQuery: () => ({ conversations: [] }),
+  useArchivedConversationListQuery: () => ({ conversations: [] }),
 }));
 
+// Spread the real modules and override only what this suite drives:
+// `mock.module` is process-global, so an enumerated stand-in silently
+// breaks every other importer the moment the real module gains an export.
 mock.module("@/utils/conversation-cache-mutations", () => ({
+  ...cacheMutations,
   markConversationSeenLocal: () => {},
   refreshConversationRow: async () => {},
   prependConversation: () => {},
@@ -44,13 +41,18 @@ mock.module("@/utils/conversation-cache-mutations", () => ({
 }));
 
 mock.module("@/utils/conversation-cache", () => ({
+  ...conversationCache,
   getConversations: () => [],
   findConversation: () => undefined,
 }));
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...sdkGen,
-  conversationsSeenPost: async () => ({ data: undefined, error: undefined, response: { ok: true } }),
+  conversationsSeenPost: async () => ({
+    data: undefined,
+    error: undefined,
+    response: { ok: true },
+  }),
 }));
 
 // Per-test override slot for the bulk fetch. `mock.module` calls in bun
@@ -155,7 +157,9 @@ describe("useAttentionTracking — post-reconnect sweep", () => {
     expect(calls).toBe(0);
     // And attentionConversationIds are untouched (no reconciliation ran).
     expect(
-      useConversationStore.getState().attentionConversationIds.has("conv-stale"),
+      useConversationStore
+        .getState()
+        .attentionConversationIds.has("conv-stale"),
     ).toBe(true);
   });
 
@@ -169,8 +173,12 @@ describe("useAttentionTracking — post-reconnect sweep", () => {
       useConversationStore.getState().setActiveConversationId("conv-active");
       useConversationStore.getState().addAttentionConversationId("conv-stale");
       useConversationStore.getState().addAttentionConversationId("conv-active");
-      useConversationStore.getState().addProcessingConversationId("conv-promote");
-      useConversationStore.getState().addProcessingConversationId("conv-active");
+      useConversationStore
+        .getState()
+        .addProcessingConversationId("conv-promote");
+      useConversationStore
+        .getState()
+        .addProcessingConversationId("conv-active");
 
       bulkFetch.current = async () =>
         new Set(["conv-promote", "conv-new", "conv-active"]);
@@ -180,7 +188,9 @@ describe("useAttentionTracking — post-reconnect sweep", () => {
 
       await waitFor(() => {
         expect(
-          useConversationStore.getState().attentionConversationIds.has("conv-new"),
+          useConversationStore
+            .getState()
+            .attentionConversationIds.has("conv-new"),
         ).toBe(true);
       });
 

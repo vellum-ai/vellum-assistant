@@ -8,6 +8,7 @@
  */
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import { messageMatchesKey } from "@/domains/chat/utils/message-identity";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 
 // ---------------------------------------------------------------------------
@@ -83,6 +84,39 @@ export function findAssistantRowIndexByMessageId(
 }
 
 /**
+ * Resolve the assistant row a turn-scoped event belongs to: the row owning
+ * `messageId` when it carries one and that row exists, otherwise the newest
+ * assistant row of the current turn. Returns `-1` when the turn has not opened
+ * an assistant row yet.
+ *
+ * The positional fallback scans back only as far as the newest non-queued user
+ * row: an event belongs to the turn that emitted it, and a turn with no
+ * assistant row of its own (a wake, a background dispatch) must not fold into
+ * the PREVIOUS turn's bubble, which sits above the user's newest message and
+ * is never where the server places the content on replay.
+ */
+export function findTurnAssistantRowIndex(
+  prev: DisplayMessage[],
+  messageId?: string,
+): number {
+  if (messageId) {
+    const byId = findAssistantRowIndexByMessageId(prev, messageId);
+    if (byId !== -1) {
+      return byId;
+    }
+  }
+  const turnStartIdx =
+    prev.findLastIndex((m) => m.role === "user" && m.queueStatus !== "queued") +
+    1;
+  for (let i = prev.length - 1; i >= turnStartIdx; i--) {
+    if (prev[i]?.role === "assistant") {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
  * Record `messageId` as a `mergedMessageIds` alias on `row` when it isn't
  * already the row's primary id or a known alias. Mirrors the backend merge
  * so a subsequent reconcile / SSE lookup by that id resolves to this row.
@@ -91,9 +125,13 @@ export function withMergedAlias(
   row: DisplayMessage,
   messageId: string | undefined,
 ): DisplayMessage {
-  if (!messageId || row.id === messageId) return row;
+  if (!messageId || row.id === messageId) {
+    return row;
+  }
   const existing = row.mergedMessageIds ?? [];
-  if (existing.includes(messageId)) return row;
+  if (existing.includes(messageId)) {
+    return row;
+  }
   return { ...row, mergedMessageIds: [...existing, messageId] };
 }
 
@@ -120,7 +158,10 @@ export function finalizeRunningToolCalls(
   );
   const contentBlocks = row.contentBlocks?.map((block) =>
     block.type === "tool_use" && isToolCallRunning(block.toolCall)
-      ? { type: "tool_use" as const, toolCall: { ...block.toolCall, completedAt } }
+      ? {
+          type: "tool_use" as const,
+          toolCall: { ...block.toolCall, completedAt },
+        }
       : block,
   );
   return { toolCalls, contentBlocks };
@@ -139,22 +180,52 @@ export function setQueuePosition(
   return prev.map((m) => (m.id === id ? { ...m, queuePosition: position } : m));
 }
 
-/** Clear queue status on a message by id. */
+/** Clear queue status by server id or client correlation id. */
 export function clearQueueStatus(
   prev: DisplayMessage[],
   id: string,
 ): DisplayMessage[] {
   return prev.map((m) =>
-    m.id === id
+    messageMatchesKey(m, id)
       ? { ...m, queueStatus: undefined, queuePosition: undefined }
       : m,
   );
 }
 
-/** Remove a queued message by id. */
+export function applyQueuedMessageDequeue(
+  prev: DisplayMessage[],
+  id: string,
+): DisplayMessage[] {
+  return prev.map((message) => {
+    if (!messageMatchesKey(message, id)) {
+      return message;
+    }
+    return {
+      ...message,
+      ...(!message.clientMessageId ? { isOptimistic: true } : {}),
+      queueStatus: undefined,
+      queuePosition: undefined,
+    };
+  });
+}
+
+/** Mark a message as queued by server id or client correlation id. */
+export function markMessageQueued(
+  prev: DisplayMessage[],
+  id: string,
+  position: number | undefined,
+): DisplayMessage[] {
+  return prev.map((m) =>
+    messageMatchesKey(m, id)
+      ? { ...m, queueStatus: "queued" as const, queuePosition: position }
+      : m,
+  );
+}
+
+/** Remove a queued message by server id or client correlation id. */
 export function removeQueuedMessage(
   prev: DisplayMessage[],
   id: string,
 ): DisplayMessage[] {
-  return prev.filter((m) => m.id !== id);
+  return prev.filter((m) => !messageMatchesKey(m, id));
 }

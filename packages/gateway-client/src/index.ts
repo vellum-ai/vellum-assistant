@@ -197,6 +197,88 @@ export type {
   VerificationSessionWire,
 } from "./verification-session-contract.js";
 
+// Guardian-request contract (shared gateway ↔ daemon) — status/kind enums,
+// wire DTOs, pure helpers + guardian_requests_* IPC schemas
+export {
+  CreateGuardianRequestDeliveryIpcParamsSchema,
+  CreateGuardianRequestDeliveryIpcResponseSchema,
+  CreateGuardianRequestIpcParamsSchema,
+  CreateGuardianRequestIpcResponseSchema,
+  DecideGuardianRequestIpcParamsSchema,
+  DecideGuardianRequestIpcResponseSchema,
+  deriveGuardianRequestSourceType,
+  ExpireGuardianRequestIpcParamsSchema,
+  ExpireInteractionBoundIpcParamsSchema,
+  ExpireInteractionBoundIpcResponseSchema,
+  GetGuardianRequestByCallSessionIpcParamsSchema,
+  GetGuardianRequestByCodeIpcParamsSchema,
+  GetGuardianRequestByDestinationMessageIpcParamsSchema,
+  GetGuardianRequestByPendingQuestionIpcParamsSchema,
+  GetGuardianRequestIpcParamsSchema,
+  GUARDIAN_REQUESTS_IPC_METHODS,
+  GuardianRequestAclOutcomeSchema,
+  GuardianRequestDecisionStatusSchema,
+  GuardianRequestDeliveryListIpcResponseSchema,
+  GuardianRequestDeliverySchema,
+  GuardianRequestInScopeIpcParamsSchema,
+  GuardianRequestInScopeIpcResponseSchema,
+  GuardianRequestKindSchema,
+  GuardianRequestListIpcResponseSchema,
+  GuardianRequestLookupIpcResponseSchema,
+  GuardianRequestMutationIpcResponseSchema,
+  GuardianRequestPatchSchema,
+  GuardianRequestSchema,
+  GuardianRequestSourceTypeSchema,
+  GuardianRequestStatusSchema,
+  isGuardianRequestExpired,
+  ListGuardianRequestDeliveriesIpcParamsSchema,
+  ListGuardianRequestsIpcParamsSchema,
+  ListPendingGuardianRequestsByDestinationIpcParamsSchema,
+  ListPendingGuardianRequestsByScopeIpcParamsSchema,
+  SweepExpiredGuardianRequestsIpcParamsSchema,
+  SweepExpiredGuardianRequestsIpcResponseSchema,
+  UpdateGuardianRequestDeliveryIpcParamsSchema,
+  UpdateGuardianRequestIpcParamsSchema,
+} from "./guardian-request-contract.js";
+
+export type {
+  CreateGuardianRequestDeliveryIpcParams,
+  CreateGuardianRequestIpcParams,
+  DecideGuardianRequestIpcParams,
+  DecideGuardianRequestIpcResponse,
+  ExpireGuardianRequestIpcParams,
+  ExpireInteractionBoundIpcParams,
+  ExpireInteractionBoundIpcResponse,
+  GetGuardianRequestByCallSessionIpcParams,
+  GetGuardianRequestByCodeIpcParams,
+  GetGuardianRequestByDestinationMessageIpcParams,
+  GetGuardianRequestByPendingQuestionIpcParams,
+  GetGuardianRequestIpcParams,
+  GuardianRequestAclOutcome,
+  GuardianRequestDecisionStatus,
+  GuardianRequestDeliveryListIpcResponse,
+  GuardianRequestDeliveryWire,
+  GuardianRequestInScopeIpcParams,
+  GuardianRequestInScopeIpcResponse,
+  GuardianRequestKind,
+  GuardianRequestListIpcResponse,
+  GuardianRequestLookupIpcResponse,
+  GuardianRequestMutationIpcResponse,
+  GuardianRequestPatch,
+  GuardianRequestsIpcMethod,
+  GuardianRequestSourceType,
+  GuardianRequestStatus,
+  GuardianRequestWire,
+  ListGuardianRequestDeliveriesIpcParams,
+  ListGuardianRequestsIpcParams,
+  ListPendingGuardianRequestsByDestinationIpcParams,
+  ListPendingGuardianRequestsByScopeIpcParams,
+  SweepExpiredGuardianRequestsIpcParams,
+  SweepExpiredGuardianRequestsIpcResponse,
+  UpdateGuardianRequestDeliveryIpcParams,
+  UpdateGuardianRequestIpcParams,
+} from "./guardian-request-contract.js";
+
 // Guardian delivery contract (daemon → gateway pull) — Zod schemas + derived types
 export {
   GuardianDeliverySchema,
@@ -239,3 +321,17 @@ export type {
   ResolvedChannelPermission,
   RiskThreshold,
 } from "./channel-permission-contract.js";
+
+// Binding-strength vocabulary for the contact `verified_via` provenance —
+// display ladder (introduction card) + the enforcement order the gateway ACL
+// write path uses to refuse demotions (LUM-2505).
+export {
+  bindingStrengthForVerifiedVia,
+  isBindingDemotion,
+  knownStrengthRank,
+  VERIFIED_VIA_CHALLENGE,
+  VERIFIED_VIA_CHANNEL_CLAIM,
+  VERIFIED_VIA_MANUAL,
+} from "./binding-strength-contract.js";
+
+export type { BindingStrength } from "./binding-strength-contract.js";

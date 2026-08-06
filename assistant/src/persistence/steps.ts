@@ -9,7 +9,7 @@
 
 import { backfillAppConversationIds } from "../apps/app-store.js";
 // Forward migration + down function imports
-import { migrateToolCreatedItems } from "../plugins/defaults/memory/graph/bootstrap.js";
+import { migrateToolCreatedItems } from "../plugins/defaults/memory/v1/graph/bootstrap.js";
 import { migrateCoreTables } from "./migrations/000-core-tables.js";
 import {
   downJobDeferrals,
@@ -429,6 +429,50 @@ import { migrateDropContactChannelTelemetry } from "./migrations/318-drop-contac
 import { migrateRemoveLegacyManagedConnections } from "./migrations/319-remove-legacy-managed-connections.js";
 import { migrateDropTraceEventsTable } from "./migrations/320-drop-trace-events-table.js";
 import { migrateCanonicalGuardianRequestTrigger } from "./migrations/321-canonical-guardian-request-trigger.js";
+import { migrateAddProcessingResumeAttempts } from "./migrations/322-add-processing-resume-attempts.js";
+import { migrateDeleteNonDefaultMemoryScopes } from "./migrations/323-delete-non-default-memory-scopes.js";
+import { migrateMessageFinalizedColumn } from "./migrations/324-message-finalized-column.js";
+import { createConfigSettingEventsTable } from "./migrations/325-create-config-setting-events.js";
+import { migrateMoveInjectionEventsToMemoryDb } from "./migrations/326-move-injection-events-to-memory-db.js";
+import { createFlushCheckpointsTable } from "./migrations/327-create-flush-checkpoints.js";
+import { migrateDropMemoryV3LearnedEdgeTables } from "./migrations/328-drop-memory-v3-learned-edge-tables.js";
+import { migrateMoveOnboardingEventsToTelemetryDb } from "./migrations/329-move-onboarding-events-to-telemetry-db.js";
+import { migrateMoveAuthFallbackEventsToTelemetryDb } from "./migrations/330-move-auth-fallback-events-to-telemetry-db.js";
+import { migrateMoveLifecycleEventsToTelemetryDb } from "./migrations/331-move-lifecycle-events-to-telemetry-db.js";
+import { migrateMoveSkillLoadedEventsToTelemetryDb } from "./migrations/332-move-skill-loaded-events-to-telemetry-db.js";
+import { migrateCreateTelemetryEventsTable } from "./migrations/333-create-telemetry-events-table.js";
+import { migrateBackfillTelemetryEventsOutbox } from "./migrations/334-backfill-telemetry-events-outbox.js";
+import { migrateCollapseMemoryEmbedBacklog } from "./migrations/335-collapse-memory-embed-backlog.js";
+import { migrateMoveMemoryV2ActivationLogsToMemoryDb } from "./migrations/336-move-memory-v2-activation-logs-to-memory-db.js";
+import { migrateMoveMemoryRecallLogsToMemoryDb } from "./migrations/337-move-memory-recall-logs-to-memory-db.js";
+import { migrateMoveMemoryV3SelectionsToMemoryDb } from "./migrations/338-move-memory-v3-selections-to-memory-db.js";
+import { migrateMoveActivationSessionsToMemoryDb } from "./migrations/339-move-activation-sessions-to-memory-db.js";
+import { migrateSweepOrphanedGraphNodeVectors } from "./migrations/340-sweep-orphaned-graph-node-vectors.js";
+import { migrateSweepCachelessGraphNodeVectors } from "./migrations/341-sweep-cacheless-graph-node-vectors.js";
+import { migrateAddConversationParentId } from "./migrations/342-add-conversation-parent-id.js";
+import { migrateMoveActivationStateToMemoryDb } from "./migrations/343-move-activation-state-to-memory-db.js";
+import { migrateMoveConversationGraphMemoryStateToMemoryDb } from "./migrations/344-move-conversation-graph-memory-state-to-memory-db.js";
+import { migrateMoveMemoryV3EverInjectedToMemoryDb } from "./migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
+import { migrateMoveMemoryRetrospectiveStateToMemoryDb } from "./migrations/346-move-memory-retrospective-state-to-memory-db.js";
+import { migrateDeleteStrayGreetingConversation } from "./migrations/347-delete-stray-greeting-conversation.js";
+import { migrateMemorySummariesScopeUpdatedIndex } from "./migrations/348-memory-summaries-scope-updated-index.js";
+import { migrateMoveMemoryGraphTablesToMemoryDb } from "./migrations/349-move-memory-graph-tables-to-memory-db.js";
+import { migrateConversationsTotalInputTokensNullable } from "./migrations/350-conversations-total-input-tokens-nullable.js";
+import { migrateScheduleSkillScriptHandoff } from "./migrations/351-schedule-skill-script-handoff.js";
+import { migrateDropScheduleSkillScriptHandoff } from "./migrations/352-drop-schedule-skill-script-handoff.js";
+import { migrateAddLlmUsageConversationType } from "./migrations/353-add-llm-usage-conversation-type.js";
+import { migrateBackfillAppConversationLineage } from "./migrations/354-backfill-app-conversation-lineage.js";
+import { migrateAddScheduleGroupId } from "./migrations/355-add-schedule-group-id.js";
+import { migrateAddSubagentParentToolUseId } from "./migrations/356-add-subagent-parent-tool-use-id.js";
+import { migrateMoveMemorySegmentsToMemoryDb } from "./migrations/357-move-memory-segments-to-memory-db.js";
+import { migrateMoveMemoryEmbeddingsToMemoryDb } from "./migrations/358-move-memory-embeddings-to-memory-db.js";
+import { migrateMoveMemorySummariesToMemoryDb } from "./migrations/359-move-memory-summaries-to-memory-db.js";
+import { migrateAddDocumentWorkspacePath } from "./migrations/360-add-document-workspace-path.js";
+import { migrateNormalizeManagedConnectionRows } from "./migrations/361-normalize-managed-connection-rows.js";
+import { migrateAddConversationSubagentKind } from "./migrations/362-add-conversation-subagent-kind.js";
+import { migrateBackfillScheduleInferenceProfile } from "./migrations/363-backfill-schedule-inference-profile.js";
+import { migrateAddScheduleSourceKey } from "./migrations/364-add-schedule-source-key.js";
+import { migrateAddConversationForkStrategy } from "./migrations/365-add-conversation-fork-strategy.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1329,4 +1373,204 @@ export const migrationSteps: MigrationStep[] = [
   migrateRemoveLegacyManagedConnections,
   migrateDropTraceEventsTable,
   migrateCanonicalGuardianRequestTrigger,
+  migrateAddProcessingResumeAttempts,
+  migrateDeleteNonDefaultMemoryScopes,
+  migrateMessageFinalizedColumn,
+  createConfigSettingEventsTable,
+  migrateMoveInjectionEventsToMemoryDb,
+  createFlushCheckpointsTable,
+  migrateDropMemoryV3LearnedEdgeTables,
+  migrateMoveOnboardingEventsToTelemetryDb,
+  migrateMoveAuthFallbackEventsToTelemetryDb,
+  migrateMoveLifecycleEventsToTelemetryDb,
+  migrateMoveSkillLoadedEventsToTelemetryDb,
+  migrateCreateTelemetryEventsTable,
+  migrateBackfillTelemetryEventsOutbox,
+  migrateCollapseMemoryEmbedBacklog,
+  {
+    name: "migrateMoveMemoryV2ActivationLogsToMemoryDb",
+    run: migrateMoveMemoryV2ActivationLogsToMemoryDb,
+    // 256's backfill reads memory_v2_activation_logs from main, so the move
+    // must not run on a database where 256 is still pending.
+    dependsOn: [
+      "migrateMemoryV2ActivationLogs",
+      "migrateMemoryV2InjectionEvents",
+    ],
+  },
+  {
+    name: "migrateMoveMemoryRecallLogsToMemoryDb",
+    run: migrateMoveMemoryRecallLogsToMemoryDb,
+    dependsOn: [
+      "migrateCreateMemoryRecallLogs",
+      "migrateMemoryRecallLogsQueryContext",
+      "migrateDeletePrivateConversations",
+    ],
+  },
+  {
+    name: "migrateMoveMemoryV3SelectionsToMemoryDb",
+    run: migrateMoveMemoryV3SelectionsToMemoryDb,
+    dependsOn: [
+      "migrateAddMemoryV3Selections",
+      "migrateMemoryV3SelectionsMessageIdAndSections",
+    ],
+  },
+  {
+    name: "migrateMoveActivationSessionsToMemoryDb",
+    run: migrateMoveActivationSessionsToMemoryDb,
+    dependsOn: ["createActivationSessionsTable"],
+  },
+  migrateSweepOrphanedGraphNodeVectors,
+  migrateSweepCachelessGraphNodeVectors,
+  migrateAddConversationParentId,
+  {
+    name: "migrateMoveActivationStateToMemoryDb",
+    run: migrateMoveActivationStateToMemoryDb,
+    // migrateDeletePrivateConversations purges activation_state via the main-DB
+    // FK cascade; moving the table first drops that cascade, so a deferred or
+    // retried private delete would orphan private snapshots. Wait for it.
+    dependsOn: [
+      "migrateActivationState",
+      "migrateActivationStateFkCascade",
+      "migrateDeletePrivateConversations",
+    ],
+  },
+  {
+    name: "migrateMoveConversationGraphMemoryStateToMemoryDb",
+    run: migrateMoveConversationGraphMemoryStateToMemoryDb,
+    // Same guard: migrateDeletePrivateConversations relies on the main-DB FK
+    // cascade to purge conversation_graph_memory_state, so the move must not
+    // run before it is checkpointed.
+    dependsOn: [
+      "migrateCreateConversationGraphMemoryState",
+      "migrateDeletePrivateConversations",
+    ],
+  },
+  {
+    name: "migrateMoveMemoryV3EverInjectedToMemoryDb",
+    run: migrateMoveMemoryV3EverInjectedToMemoryDb,
+    dependsOn: ["migrateAddMemoryV3EverInjected"],
+  },
+  {
+    name: "migrateMoveMemoryRetrospectiveStateToMemoryDb",
+    run: migrateMoveMemoryRetrospectiveStateToMemoryDb,
+    dependsOn: [
+      "migrateMemoryRetrospectiveState",
+      "migrateMemoryRetrospectiveRememberedLog",
+    ],
+  },
+  migrateDeleteStrayGreetingConversation,
+  migrateMemorySummariesScopeUpdatedIndex,
+  {
+    name: "migrateMoveMemoryGraphTablesToMemoryDb",
+    run: migrateMoveMemoryGraphTablesToMemoryDb,
+    // Gate the move on every migration that reads or writes a graph table on the
+    // main connection, so it never drains a table another migration still
+    // expects on main. Two are easy to miss: migrateToolCreatedItems (in the
+    // memory plugin, not migrations/) inserts legacy tool memories into
+    // memory_graph_nodes on main and must land before the move so those rows are
+    // carried over; and migrateDeletePrivateConversations deletes private-scoped
+    // graph rows on main directly, so were the move to run first those rows would
+    // land in the memory DB and that delete would no-op against an empty main
+    // table, stranding them there. (The runtime conversation-delete path is
+    // separate: the graph is scope-keyed, not conversation-keyed, so it stays out
+    // of CONVERSATION_KEYED_MEMORY_TABLES.)
+    dependsOn: [
+      "migrateCreateMemoryGraphTables",
+      "migrateToolCreatedItems",
+      "migrateRenameMemoryGraphTypeValues",
+      "migrateMemoryGraphImageRefs",
+      "migrateCreateMemoryGraphNodeEdits",
+      "migrateDeletePrivateConversations",
+      "migrate231RepairMemoryGraphEventDates",
+      "migrateDeleteNonDefaultMemoryScopes",
+      "migrateSweepOrphanedGraphNodeVectors",
+      "migrateSweepCachelessGraphNodeVectors",
+    ],
+  },
+  migrateConversationsTotalInputTokensNullable,
+  migrateScheduleSkillScriptHandoff,
+  migrateDropScheduleSkillScriptHandoff,
+  migrateAddLlmUsageConversationType,
+  migrateBackfillAppConversationLineage,
+  migrateAddScheduleGroupId,
+  migrateAddSubagentParentToolUseId,
+  {
+    name: "migrateMoveMemorySegmentsToMemoryDb",
+    run: migrateMoveMemorySegmentsToMemoryDb,
+    // Gate on every migration that creates, alters, indexes, or reads
+    // memory_segments on main: the FTS triggers, FTS backfill, and index
+    // creation each fail against the dropped table if they run after the move.
+    // migrateDeletePrivateConversations relies on the message-delete cascade to
+    // clear private segments, so it must land before the move; the runtime
+    // conversation-delete path is handled separately by adding memory_segments
+    // to CONVERSATION_KEYED_MEMORY_TABLES.
+    dependsOn: [
+      "migrateCoreTables",
+      "migrateMemoryFtsBackfill",
+      "migrateMemorySegmentsIndexes",
+      "createWatchersAndLogsTables",
+      "addCoreColumns",
+      "createCoreIndexes",
+      "migrateDeletePrivateConversations",
+    ],
+  },
+  {
+    name: "migrateMoveMemoryEmbeddingsToMemoryDb",
+    run: migrateMoveMemoryEmbeddingsToMemoryDb,
+    // Gate on every migration that creates, alters, or writes rows in
+    // memory_embeddings on main so the move never drains a table another
+    // migration still expects there.
+    dependsOn: [
+      "migrateCoreTables",
+      "migrateEmbeddingVectorBlob",
+      "migrateEmbeddingsNullableVectorJson",
+      "addCoreColumns",
+      "createCoreIndexes",
+      "migrateDropSimplifiedMemory",
+      "migrateDeletePrivateConversations",
+      "migrateSweepOrphanedGraphNodeVectors",
+    ],
+  },
+  {
+    name: "migrateMoveMemorySummariesToMemoryDb",
+    run: migrateMoveMemorySummariesToMemoryDb,
+    // Gate on every migration that creates, alters, indexes, or clears
+    // memory_summaries on main. migrateDeletePrivateConversations deletes
+    // private-scoped summaries by scope_id directly (a real column, though the
+    // Drizzle schema does not map it), so it must land before the move.
+    dependsOn: [
+      "migrateCoreTables",
+      "migrateRemainingTableIndexes",
+      "addCoreColumns",
+      "createCoreIndexes",
+      "migrateDeletePrivateConversations",
+      "migrateMemorySummariesScopeUpdatedIndex",
+    ],
+  },
+  migrateAddDocumentWorkspacePath,
+  {
+    name: "migrateNormalizeManagedConnectionRows",
+    run: migrateNormalizeManagedConnectionRows,
+    // The table-exists guard treats a missing table as nothing-to-do, so
+    // without this dependency a failed table creation followed by repair
+    // would permanently checkpoint the normalization as a no-op.
+    dependsOn: ["migrateCreateProviderConnections"],
+  },
+  {
+    name: "migrateAddConversationSubagentKind",
+    run: migrateAddConversationSubagentKind,
+    // The backfill reads the `subagents` table (migration 311), so that table
+    // must exist and be checkpointed first.
+    dependsOn: ["migrateCreateSubagentsTable"],
+  },
+  {
+    name: "migrateBackfillScheduleInferenceProfile",
+    run: migrateBackfillScheduleInferenceProfile,
+    // The column-exists guard treats a missing column as nothing-to-do, so
+    // without this dependency a failed column add followed by repair would
+    // permanently checkpoint the backfill as a no-op.
+    dependsOn: ["migrateScheduleInferenceProfile"],
+  },
+  migrateAddScheduleSourceKey,
+  migrateAddConversationForkStrategy,
 ];

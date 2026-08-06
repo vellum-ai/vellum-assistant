@@ -6,13 +6,13 @@ import { Link } from "react-router";
 import { Tag } from "@vellumai/design-library";
 
 import {
-    assistantsEmailAddressesListOptions,
-    assistantsEmailAddressesStatusRetrieveOptions,
-    assistantsEmailsListOptions,
+  assistantsEmailAddressesListOptions,
+  assistantsEmailAddressesStatusRetrieveOptions,
+  assistantsEmailsListOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
-    EmailAddressUsage,
-    EmailMessage,
+  EmailAddressUsage,
+  EmailMessage,
 } from "@/generated/api/types.gen";
 import type { PlatformGateState } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";

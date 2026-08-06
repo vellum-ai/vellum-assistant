@@ -16,11 +16,32 @@ export interface BootstrapConversationOptions {
   /**
    * When set, the new conversation is linked to its parent via the
    * `fork_parent_conversation_id` column. Used by background jobs that
-   * spawn analysis conversations off a source conversation (auto-analyze,
-   * memory-retrospective) so the parent → child relationship is queryable
-   * later (e.g. "find the most recent retrospective for this source").
+   * spawn conversations off a source conversation (memory-retrospective)
+   * so the parent → child relationship is queryable later (e.g. "find the
+   * most recent retrospective for this source").
    */
   forkParentConversationId?: string;
+  /**
+   * When set, persisted as the new conversation's `parent_conversation_id` —
+   * the conversation that spawned this one (subagent spawns). Telemetry
+   * resolves it at flush time to attribute the child's LLM usage back to the
+   * parent's in-flight user turn. Unlike `forkParentConversationId` it
+   * implies no history inheritance.
+   */
+  parentConversationId?: string;
+  /**
+   * Role the subagent that owns this conversation was spawned with. Persisted
+   * on the conversation row (not only on the ephemeral `subagents` row) so
+   * usage telemetry can attribute delegated spend per role long after the
+   * subagent record is disposed.
+   */
+  subagentRole?: string;
+  /**
+   * How the subagent that owns this conversation was spawned, one of the modes
+   * described on `SubagentSpawnMode` in `subagent/types.ts`. Orthogonal to
+   * {@link subagentRole}; persisted for the same reason.
+   */
+  subagentSpawnMode?: string;
 }
 
 /**
@@ -52,6 +73,13 @@ export async function bootstrapConversation(
         ...(opts.groupId && { groupId: opts.groupId }),
         ...(opts.forkParentConversationId && {
           forkParentConversationId: opts.forkParentConversationId,
+        }),
+        ...(opts.parentConversationId && {
+          parentConversationId: opts.parentConversationId,
+        }),
+        ...(opts.subagentRole && { subagentRole: opts.subagentRole }),
+        ...(opts.subagentSpawnMode && {
+          subagentSpawnMode: opts.subagentSpawnMode,
         }),
       }),
     { op: "bootstrapConversation" },

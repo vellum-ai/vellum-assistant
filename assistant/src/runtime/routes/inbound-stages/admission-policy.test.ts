@@ -6,12 +6,19 @@
  * `handle-inbound-admission.test.ts` and in the full inbound-message
  * handler integration tests.
  */
-import { describe, expect,test } from "bun:test";
+import { describe, expect, test } from "bun:test";
+
+import type { AdmissionPolicy } from "@vellumai/gateway-client";
 
 import type { AdmissionPolicyInput } from "./admission-policy.js";
-import { enforceAdmissionPolicy } from "./admission-policy.js";
+import {
+  enforceAdmissionPolicy,
+  trustedContactPromotionClearsFloor,
+} from "./admission-policy.js";
 
-function makeInput(overrides: Partial<AdmissionPolicyInput>): AdmissionPolicyInput {
+function makeInput(
+  overrides: Partial<AdmissionPolicyInput>,
+): AdmissionPolicyInput {
   return {
     sourceChannel: "telegram",
     trustClass: "unknown",
@@ -28,7 +35,11 @@ function makeInput(overrides: Partial<AdmissionPolicyInput>): AdmissionPolicyInp
 describe("enforceAdmissionPolicy — exempt channels", () => {
   test("a2a short-circuits to admitted regardless of policy", () => {
     const result = enforceAdmissionPolicy(
-      makeInput({ sourceChannel: "a2a", trustClass: "unknown", policy: "no_one" }),
+      makeInput({
+        sourceChannel: "a2a",
+        trustClass: "unknown",
+        policy: "no_one",
+      }),
     );
     expect(result.admitted).toBe(true);
   });
@@ -37,7 +48,11 @@ describe("enforceAdmissionPolicy — exempt channels", () => {
     // Voice ingress is wired, so `phone` is no longer exempt — an `unknown`
     // caller is denied under `no_one`.
     const result = enforceAdmissionPolicy(
-      makeInput({ sourceChannel: "phone", trustClass: "unknown", policy: "no_one" }),
+      makeInput({
+        sourceChannel: "phone",
+        trustClass: "unknown",
+        policy: "no_one",
+      }),
     );
     expect(result.admitted).toBe(false);
   });
@@ -75,7 +90,9 @@ describe("enforceAdmissionPolicy — revoked member denial", () => {
       }),
     );
     expect(result.admitted).toBe(false);
-    if (!result.admitted) expect(result.reason).toBe("member_revoked");
+    if (!result.admitted) {
+      expect(result.reason).toBe("member_revoked");
+    }
   });
 
   test("revoked member is denied under `trusted_contacts`", () => {
@@ -87,7 +104,9 @@ describe("enforceAdmissionPolicy — revoked member denial", () => {
       }),
     );
     expect(result.admitted).toBe(false);
-    if (!result.admitted) expect(result.reason).toBe("member_revoked");
+    if (!result.admitted) {
+      expect(result.reason).toBe("member_revoked");
+    }
   });
 });
 
@@ -101,7 +120,9 @@ describe("enforceAdmissionPolicy — blocked member denial", () => {
       makeInput({ memberStatus: "blocked", policy: "strangers" }),
     );
     expect(result.admitted).toBe(false);
-    if (!result.admitted) expect(result.reason).toBe("member_blocked");
+    if (!result.admitted) {
+      expect(result.reason).toBe("member_blocked");
+    }
   });
 });
 
@@ -133,7 +154,11 @@ describe("enforceAdmissionPolicy — rank vs floor", () => {
 
   test("unknown (non-member) admitted under strangers floor", () => {
     const result = enforceAdmissionPolicy(
-      makeInput({ trustClass: "unknown", memberStatus: undefined, policy: "strangers" }),
+      makeInput({
+        trustClass: "unknown",
+        memberStatus: undefined,
+        policy: "strangers",
+      }),
     );
     expect(result.admitted).toBe(true);
   });
@@ -147,8 +172,37 @@ describe("enforceAdmissionPolicy — rank vs floor", () => {
 
   test("pending member (unverified_contact) admitted under strangers floor", () => {
     const result = enforceAdmissionPolicy(
-      makeInput({ trustClass: "unverified_contact", memberStatus: "pending", policy: "strangers" }),
+      makeInput({
+        trustClass: "unverified_contact",
+        memberStatus: "pending",
+        policy: "strangers",
+      }),
     );
     expect(result.admitted).toBe(true);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Guardian approval reach: which floors a trusted-contact promotion clears
+// ---------------------------------------------------------------------------
+
+describe("trustedContactPromotionClearsFloor", () => {
+  const clears: AdmissionPolicy[] = [
+    "trusted_contacts",
+    "any_contact",
+    "strangers",
+  ];
+  const doesNotClear: AdmissionPolicy[] = ["guardian_only", "no_one"];
+
+  for (const policy of clears) {
+    test(`${policy} is cleared by a trusted-contact promotion`, () => {
+      expect(trustedContactPromotionClearsFloor(policy)).toBe(true);
+    });
+  }
+
+  for (const policy of doesNotClear) {
+    test(`${policy} is not cleared by a trusted-contact promotion`, () => {
+      expect(trustedContactPromotionClearsFloor(policy)).toBe(false);
+    });
+  }
 });

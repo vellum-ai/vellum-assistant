@@ -21,6 +21,7 @@ interface PostCall {
     content: string;
     interface?: string;
     clientOs?: string;
+    hidden?: boolean;
   };
   throwOnError: false;
 }
@@ -37,7 +38,9 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   ...sdkGen,
   messagesPost: (opts: PostCall) => {
     postCalls.push(opts);
-    if (postShouldThrow) return Promise.reject(new Error("network blew up"));
+    if (postShouldThrow) {
+      return Promise.reject(new Error("network blew up"));
+    }
     return Promise.resolve({
       data: {},
       error: undefined,
@@ -70,6 +73,20 @@ describe("buildResearchCorrection", () => {
       rejectedAll: false,
     });
     expect(msg).toContain("- Based in Oakland, CA");
+    expect(msg).toContain("- Founded Weird Canada");
+    expect(msg).toContain("disregard");
+  });
+
+  test("builds a correction from folded drops even when the user pruned nothing", () => {
+    // A search can surface no card claims yet still leave aggregator-only drops
+    // in memory. The route folds those hidden drops into removedClaims (as if
+    // the user pruned them), so a non-empty list of drops alone still yields a
+    // real correction to scrub them — not a no-op.
+    const msg = buildResearchCorrection({
+      removedClaims: ["Lives in Dallas", "Founded Weird Canada"],
+      rejectedAll: false,
+    });
+    expect(msg).toContain("- Lives in Dallas");
     expect(msg).toContain("- Founded Weird Canada");
     expect(msg).toContain("disregard");
   });
@@ -107,10 +124,11 @@ describe("sendResearchCorrection", () => {
     expect(postCalls[0]?.path).toEqual({ assistant_id: "a1" });
     expect(postCalls[0]?.body.conversationId).toBe("c1");
     expect(postCalls[0]?.throwOnError).toBe(false);
-    // The correction turn carries the transport interface + real OS so the
-    // assistant keeps platform context (mirrors the initial research send).
+    // See `lib/side-conversation-message.ts` for why this posts hidden.
+    expect(postCalls[0]?.body.hidden).toBe(true);
+    // Pins this caller's transport choice; the builder test owns the
+    // transport-to-field mapping.
     expect(postCalls[0]?.body.interface).toBe("web");
-    expect(postCalls[0]?.body.clientOs).toBe("web");
 
     expect(archiveCalls).toHaveLength(1);
     expect(archiveCalls[0]?.path).toEqual({ assistant_id: "a1", id: "c1" });

@@ -1,12 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Prevent ensureTelegramBotUsernameResolved() from reading real credentials
 // and calling the Telegram API.
 mock.module("../security/secure-keys.js", () => ({
@@ -122,17 +115,22 @@ async function handleTriggerInviteCall(params: {
 
 await initializeDb();
 
-// Disable the catalog default so resolution lands on llm.default. Without the
-// stub, the `inviteInstructionGenerator` call site resolves the catalog's
-// `cost-optimized` profile, whose `vellum` provider_connection does not exist
-// in this test workspace's DB — resolution would throw instead of falling back
-// to the deterministic instruction copy.
+// Pin the `inviteInstructionGenerator` call site to a connectionless profile.
+// The call site's catalog default (`cost-optimized`) carries the managed
+// `vellum` provider_connection, which does not exist in this test workspace's
+// DB — resolution would throw instead of degrading. A profile with no
+// provider_connection resolves to "no provider available", so instruction
+// generation falls back to the deterministic copy these tests assert.
 {
   const raw = loadRawConfig();
   const llm = (raw.llm ?? {}) as Record<string, unknown>;
   llm.profiles = {
     ...((llm.profiles ?? {}) as Record<string, unknown>),
-    "cost-optimized": { source: "managed", status: "disabled" },
+    "test-local": { provider: "anthropic", model: "claude-opus-4-7" },
+  };
+  llm.callSites = {
+    ...((llm.callSites ?? {}) as Record<string, unknown>),
+    inviteInstructionGenerator: { profile: "test-local" },
   };
   raw.llm = llm;
   saveRawConfig(raw);

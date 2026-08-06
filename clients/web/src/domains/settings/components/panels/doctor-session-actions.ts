@@ -32,7 +32,10 @@ export const APPROVAL_RESPONSES = new Set([
 // ---------------------------------------------------------------------------
 
 /** Fire-and-forget server-side cleanup for a doctor session. */
-export function cleanupServerSession(assistantId: string, sessionId: string): void {
+export function cleanupServerSession(
+  assistantId: string,
+  sessionId: string,
+): void {
   assistantsDoctorSessionsDestroy({
     path: { assistant_id: assistantId, session_id: sessionId },
     throwOnError: false,
@@ -40,5 +43,7 @@ export function cleanupServerSession(assistantId: string, sessionId: string): vo
   assistantsMaintenanceModeExitCreate({
     path: { assistant_id: assistantId },
     throwOnError: false,
-  }).catch((err) => captureError(err, { context: "doctor_cleanup_maintenance_exit" }));
+  }).catch((err) =>
+    captureError(err, { context: "doctor_cleanup_maintenance_exit" }),
+  );
 }

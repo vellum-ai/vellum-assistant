@@ -31,7 +31,9 @@ import type {
   HookFunction,
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
+import { updateMessageMetadata } from "@vellumai/plugin-api";
 
+import type { MemoryRecalledEvent } from "../../../../api/events/memory-recalled.js";
 import { getConfig } from "../../../../config/loader.js";
 import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import { findConversationOrSubagent } from "../../../../daemon/conversation-registry.js";
@@ -41,24 +43,26 @@ import {
   resolveTurnModelProfileLabel,
   type RuntimeInjectionResult,
 } from "../../../../daemon/conversation-runtime-assembly.js";
-import type { MemoryRecalled } from "../../../../daemon/message-types/memory.js";
 import { resolveTrustClass } from "../../../../daemon/trust-context.js";
-import { updateMessageMetadata } from "../../../../persistence/conversation-crud.js";
+import { timeLatencySubSpan } from "../../../../daemon/turn-latency-sub-spans.js";
 import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
-import type { GraphMemoryResult } from "../../../types.js";
+import type { GraphMemoryResult } from "../graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory-recall-log-store.js";
 import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../v3/ever-injected-store.js";
 
 /**
- * Whether to run v2 graph-memory retrieval this turn. v2 retrieval is the
+ * Whether to run legacy graph-memory retrieval this turn. It gates BOTH
+ * pre-v3 read paths — `prepareMemory` dispatches internally between v1
+ * retrieval and the v2 activation engine. The legacy retrieval is the
  * deprecated path: under `memory-v3-live`, v3 is the injected-memory source and
- * runtime assembly strips any v2 `<memory>` block, so running v2's retrieval
- * (embedding + hybrid search + the `memoryRetrieval` LLM router) only to
- * discard the result is pure per-turn waste. Untrusted actors never run it
- * either. The caller additionally requires the live conversation and its abort
- * signal to be present (kept inline at the call site for type narrowing).
+ * runtime assembly strips any legacy `<memory>` block, so running the legacy
+ * retrieval (embedding + hybrid search + the `memoryRetrieval` LLM router)
+ * only to discard the result is pure per-turn waste. Untrusted actors never
+ * run it either. The caller additionally requires the live conversation and
+ * its abort signal to be present (kept inline at the call site for type
+ * narrowing).
  */
-export function shouldRunV2Retrieval(params: {
+export function shouldRunLegacyMemoryRetrieval(params: {
   isTrustedActor: boolean;
   memoryV3Live: boolean;
 }): boolean {
@@ -81,13 +85,13 @@ export function shouldRunV2Retrieval(params: {
  * persistInjectionBlocks} REMOVES this key again in its combined update — a
  * transient both-keys state mid-turn is acceptable; a v2 loss window is not.
  */
-function recordRecallSideEffects(
+async function recordRecallSideEffects(
   graphResult: GraphMemoryResult,
   ctx: UserPromptSubmitContext,
-): void {
+): Promise<void> {
   if (graphResult.injectedBlockText) {
     try {
-      updateMessageMetadata(ctx.userMessageId, {
+      await updateMessageMetadata(ctx.userMessageId, {
         memoryInjectedBlock: graphResult.injectedBlockText,
       });
     } catch (err) {
@@ -133,7 +137,7 @@ function recordRecallSideEffects(
   }
 
   if (m) {
-    const memoryRecalledEvent: MemoryRecalled = {
+    const memoryRecalledEvent: MemoryRecalledEvent = {
       type: "memory_recalled",
       provider: m.embeddingProvider ?? "unknown",
       model: m.embeddingModel ?? "unknown",
@@ -180,11 +184,11 @@ function recordRecallSideEffects(
  *    persists under `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`; `loadFromDb`
  *    re-wraps and splices it on load, freezing the cards into history.
  */
-function persistInjectionBlocks(
+async function persistInjectionBlocks(
   blocks: RuntimeInjectionResult["blocks"],
   ctx: UserPromptSubmitContext,
   v2BlockPersisted: boolean,
-): void {
+): Promise<void> {
   const removeV2Block = Boolean(blocks.memoryV3Active) && v2BlockPersisted;
   if (
     !blocks.unifiedTurnContext &&
@@ -243,7 +247,7 @@ function persistInjectionBlocks(
       metadataUpdates.nonInteractiveContextBlock =
         blocks.nonInteractiveContextBlock;
     }
-    updateMessageMetadata(ctx.userMessageId, metadataUpdates);
+    await updateMessageMetadata(ctx.userMessageId, metadataUpdates);
   } catch (err) {
     ctx.logger.warn(
       { err },
@@ -280,16 +284,17 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
     conversation?.trustContext,
   );
 
-  // v2 graph retrieval is the deprecated path: `shouldRunV2Retrieval` skips it
-  // under memory-v3-live (v3 owns the `<memory>` layer and assembly strips any
-  // v2 block) and for untrusted actors. The `conversation && abortSignal`
-  // presence checks stay inline so the block below narrows. NOTE: this removes
-  // the v2 fallback — under v3-live, a v3 empty/failed selection yields no NEW
-  // injected memory that turn (prior turns' frozen v3 cards still ride history).
+  // Legacy (v1/v2) graph retrieval is the deprecated path:
+  // `shouldRunLegacyMemoryRetrieval` skips it under memory-v3-live (v3 owns
+  // the `<memory>` layer and assembly strips any legacy block) and for
+  // untrusted actors. The `conversation && abortSignal` presence checks stay
+  // inline so the block below narrows. NOTE: under v3-live there is no legacy
+  // fallback — a v3 empty/failed selection yields no NEW injected memory that
+  // turn (prior turns' frozen v3 cards still ride history).
   const memoryV3Live = isMemoryV3Live(config);
   let v2BlockPersisted = false;
   if (
-    shouldRunV2Retrieval({ isTrustedActor, memoryV3Live }) &&
+    shouldRunLegacyMemoryRetrieval({ isTrustedActor, memoryV3Live }) &&
     conversation &&
     abortSignal
   ) {
@@ -297,14 +302,19 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
     // publish to the shared `broadcastMessage` hub — the sink every turn
     // publisher converges to — rather than a threaded event callback. This
     // keeps any raw client-emit capability off the hook contract.
-    const graphResult = await conversation.graphMemory.prepareMemory(
-      ctx.latestMessages,
-      config,
-      abortSignal,
-      broadcastMessage,
+    const graphResult = await timeLatencySubSpan(
+      "graph_memory",
+      "Graph memory retrieval",
+      () =>
+        conversation.graphMemory.prepareMemory(
+          ctx.latestMessages,
+          config,
+          abortSignal,
+          broadcastMessage,
+        ),
     );
 
-    recordRecallSideEffects(graphResult, ctx);
+    await recordRecallSideEffects(graphResult, ctx);
     // The v2 block is persisted inside `recordRecallSideEffects`. If
     // memory-v3 supersedes it later this turn, `persistInjectionBlocks`
     // removes the key in its combined post-assembly update.
@@ -365,7 +375,7 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
     conversationId: ctx.conversationId,
   });
   ctx.latestMessages = injection.messages;
-  persistInjectionBlocks(injection.blocks, ctx, v2BlockPersisted);
+  await persistInjectionBlocks(injection.blocks, ctx, v2BlockPersisted);
 };
 
 export default userPromptSubmitMemoryRetrieval;

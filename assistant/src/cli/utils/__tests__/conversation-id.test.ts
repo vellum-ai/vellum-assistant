@@ -45,9 +45,9 @@ describe("resolveConversationId", () => {
   });
 
   test("both envs absent → throws with provided failureHelp", () => {
-    expect(() =>
-      resolveConversationId({ failureHelp: FAILURE_HELP }),
-    ).toThrow(FAILURE_HELP);
+    expect(() => resolveConversationId({ failureHelp: FAILURE_HELP })).toThrow(
+      FAILURE_HELP,
+    );
   });
 
   test("malformed __SKILL_CONTEXT_JSON → falls through to __CONVERSATION_ID", () => {

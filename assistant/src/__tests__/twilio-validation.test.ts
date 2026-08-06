@@ -1,23 +1,13 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-let mockConfig: Record<string, unknown>;
+import { setConfig } from "./helpers/set-config.js";
+
 let mockVerifyCalls: Array<{
   url: string;
   params: Record<string, string>;
   signature: string;
   authToken: string;
 }> = [];
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => mockConfig,
-}));
 
 mock.module("../calls/twilio-provider.js", () => ({
   TwilioVoiceProvider: class {
@@ -42,19 +32,12 @@ import { validateTwilioWebhook } from "../runtime/middleware/twilio-validation.j
 describe("Twilio validation middleware", () => {
   beforeEach(() => {
     mockVerifyCalls = [];
-    mockConfig = {
-      ingress: {
-        publicBaseUrl: "https://generic.example.com",
-      },
-    };
+    setConfig("ingress", { publicBaseUrl: "https://generic.example.com" });
   });
 
   test("validates signatures against configured public ingress", async () => {
-    mockConfig = {
-      ingress: {
-        publicBaseUrl: "  https://twilio.example.com///  ",
-      },
-    };
+    // Trailing slashes exercise the base-URL normalization path.
+    setConfig("ingress", { publicBaseUrl: "https://twilio.example.com///" });
     const req = new Request(
       "http://127.0.0.1:7821/v1/calls/twilio/voice-webhook?callSessionId=session-123",
       {

@@ -1,7 +1,8 @@
-import { and, asc, eq, inArray, lte, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, notInArray, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
+import { isMemoryEnabled as isMemoryEnabledForConfig } from "../config/memory-v3-gate.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import { type DrizzleDb, getMemoryDb } from "./db-connection.js";
@@ -13,6 +14,7 @@ import {
   isQdrantBreakerOpen,
   shouldAllowQdrantProbe,
 } from "./embeddings/qdrant-circuit-breaker.js";
+import { isLifecycleQuiesced } from "./lifecycle-quiesce.js";
 import { rawMemoryAll, rawMemoryChanges } from "./raw-query.js";
 import { memoryJobs } from "./schema/index.js";
 
@@ -37,10 +39,10 @@ export type MemoryJobType =
   | "prune_old_llm_request_logs"
   | "prune_old_tool_invocations"
   | "build_conversation_summary"
-  | "conversation_analyze"
   | "backfill"
   | "rebuild_index"
   | "delete_qdrant_vectors"
+  | "sweep_orphaned_graph_node_points"
   | "media_processing"
   | "embed_media"
   | "embed_attachment"
@@ -55,6 +57,8 @@ export type MemoryJobType =
   | "graph_trigger_embed"
   | "graph_bootstrap"
   | "embed_concept_page"
+  // FROZEN: `memory_v2_*` job type values are persisted in job rows — never
+  // rename them.
   | "memory_v2_sweep"
   | "memory_v2_consolidate"
   | "memory_v2_migrate"
@@ -67,11 +71,14 @@ export type MemoryJobType =
   | "purge_conversation_lexical"
   | "delete_message_lexical"
   | "backfill_lexical_index"
+  | "skill_card_insert"
+  | "memory_retrospective"
+  | "memory_retrospective_sweep"
   // Retired/legacy — no live handler; persisted rows drop via LEGACY_JOB_TYPES.
   | "memory_v3_consolidate"
   | "memory_v3_index_maintenance"
   | "memory_v3_edge_learning"
-  | "memory_retrospective";
+  | "conversation_analyze";
 
 export const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_segment",
@@ -119,12 +126,16 @@ export const SLOW_LLM_JOB_TYPES: MemoryJobType[] = [
 export const MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS = {
   automatic: "automatic",
   manual: "manual",
+  /** Enqueued by the create-memory route right after a user-authored
+   * remember, so the fact files into concept pages promptly. */
+  remember: "remember",
 } as const;
 
-/** Returns `false` only when `config.memory.enabled` is explicitly `false`; defaults to `true` on missing config or load errors. */
+/** Config-singleton wrapper over the canonical gate predicate in
+ * `config/memory-v3-gate.ts`; defaults to `true` on config load errors. */
 export function isMemoryEnabled(): boolean {
   try {
-    return getConfig().memory?.enabled !== false;
+    return isMemoryEnabledForConfig(getConfig());
   } catch {
     return true;
   }
@@ -230,89 +241,6 @@ export function upsertDebouncedJob(
 }
 
 /**
- * Upsert a pending `conversation_analyze` job keyed by both
- * `conversationId` and `triggerGroup`. Immediate triggers (batch,
- * compaction) and debounced triggers (idle, lifecycle) live in separate
- * rows so an idle enqueue cannot push an already-scheduled immediate
- * row's `runAfter` into the future (and vice versa). Each group still
- * coalesces within itself: two batch crossings, or two idle triggers,
- * collapse to a single pending row.
- */
-export function upsertAutoAnalysisJob(
-  payload: {
-    conversationId: string;
-    triggerGroup: "immediate" | "debounced";
-  },
-  runAfter: number,
-  dbOverride?: Parameters<DrizzleDb["transaction"]>[0] extends (
-    tx: infer T,
-  ) => unknown
-    ? T
-    : never,
-): void {
-  const db = dbOverride ?? memoryDb();
-  // Match rows with the same triggerGroup OR legacy rows without triggerGroup
-  // (from older builds that used upsertDebouncedJob before triggerGroup was
-  // introduced). Without the IS NULL fallback, the next enqueue would insert
-  // a duplicate pending row for the same conversation.
-  const existing = db
-    .select()
-    .from(memoryJobs)
-    .where(
-      and(
-        eq(memoryJobs.type, "conversation_analyze"),
-        eq(memoryJobs.status, "pending"),
-        sql`json_extract(${memoryJobs.payload}, '$.conversationId') = ${payload.conversationId}`,
-        or(
-          sql`json_extract(${memoryJobs.payload}, '$.triggerGroup') = ${payload.triggerGroup}`,
-          sql`json_extract(${memoryJobs.payload}, '$.triggerGroup') IS NULL`,
-        ),
-      ),
-    )
-    .get();
-  if (existing) {
-    // Merge triggerGroup into legacy rows so subsequent lookups use the new key.
-    const existingPayload = JSON.parse(existing.payload) as Record<
-      string,
-      unknown
-    >;
-    const needsPayloadUpdate = !existingPayload.triggerGroup;
-    db.update(memoryJobs)
-      .set({
-        runAfter,
-        updatedAt: Date.now(),
-        ...(needsPayloadUpdate
-          ? {
-              payload: JSON.stringify({ ...existingPayload, ...payload }),
-            }
-          : {}),
-      })
-      .where(eq(memoryJobs.id, existing.id))
-      .run();
-  } else {
-    enqueueMemoryJob("conversation_analyze", payload, runAfter, dbOverride);
-  }
-
-  // When an immediate trigger fires (batch/compaction), cancel any pending
-  // debounced row for the same conversation — the immediate analysis covers
-  // those messages, making the debounced pass redundant. Without this, both
-  // rows fire independently and double the LLM cost per batch crossing.
-  if (payload.triggerGroup === "immediate") {
-    db.update(memoryJobs)
-      .set({ status: "completed", updatedAt: Date.now() })
-      .where(
-        and(
-          eq(memoryJobs.type, "conversation_analyze"),
-          eq(memoryJobs.status, "pending"),
-          sql`json_extract(${memoryJobs.payload}, '$.conversationId') = ${payload.conversationId}`,
-          sql`json_extract(${memoryJobs.payload}, '$.triggerGroup') = 'debounced'`,
-        ),
-      )
-      .run();
-  }
-}
-
-/**
  * Upsert a pending `memory_retrospective` job keyed by `conversationId`. All
  * four retrospective triggers (interval, message_count, compaction,
  * lifecycle) collapse into a single pending row per conversation — rapid
@@ -360,6 +288,125 @@ export function upsertMemoryRetrospectiveJob(
 }
 
 /**
+ * Upsert a pending `skill_card_insert` job — the durable delivery of a
+ * retrospective run's skill card into its source conversation (see
+ * `memory-retrospective-skill-card.ts`; the scaffold executor enqueues one at
+ * the creation site per authored skill). Keyed by `runConversationId`: one
+ * pending delivery exists per authoring run. A follow-up enqueue for the same
+ * run MERGES into the pending row instead of stacking deliveries — its
+ * `skills` entries are appended, deduplicated by `skillId` (the pending entry
+ * wins), so a run that authors several skills coalesces into a single card
+ * and the handler's own still-mid-turn re-upsert of an identical snapshot is
+ * a no-op append. The earliest `runAfter` wins, mirroring
+ * `upsertMemoryRetrospectiveJob`; the message-level `clientMessageId` dedup
+ * remains the final backstop against a double card.
+ */
+export function upsertSkillCardInsertJob(
+  payload: {
+    sourceConversationId: string;
+    runConversationId: string;
+  } & Record<string, unknown>,
+  runAfter: number = Date.now(),
+): void {
+  const db = memoryDb();
+  const existing = db
+    .select()
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "skill_card_insert"),
+        eq(memoryJobs.status, "pending"),
+        sql`json_extract(${memoryJobs.payload}, '$.runConversationId') = ${payload.runConversationId}`,
+      ),
+    )
+    .get();
+  if (existing) {
+    let existingPayload: Record<string, unknown> = {};
+    try {
+      existingPayload = JSON.parse(existing.payload) as Record<string, unknown>;
+    } catch {
+      existingPayload = {};
+    }
+    const mergedPayload = {
+      ...existingPayload,
+      ...payload,
+      skills: mergeSkillCardEntries(existingPayload.skills, payload.skills),
+    };
+    db.update(memoryJobs)
+      .set({
+        payload: JSON.stringify(mergedPayload),
+        runAfter: Math.min(existing.runAfter, runAfter),
+        updatedAt: Date.now(),
+      })
+      .where(eq(memoryJobs.id, existing.id))
+      .run();
+    return;
+  }
+  enqueueMemoryJob("skill_card_insert", payload, runAfter);
+}
+
+/**
+ * Append incoming skill-card entries to the already-pending list,
+ * deduplicated by `skillId` — the pending entry wins over a re-enqueue of the
+ * same skill. Entries are opaque to the queue beyond the `skillId` key;
+ * malformed values (non-arrays, entries without a non-empty string `skillId`)
+ * contribute nothing rather than corrupting the pending payload.
+ */
+function mergeSkillCardEntries(
+  existing: unknown,
+  incoming: unknown,
+): unknown[] {
+  const merged: unknown[] = [];
+  const seen = new Set<string>();
+  const candidates = [
+    ...(Array.isArray(existing) ? existing : []),
+    ...(Array.isArray(incoming) ? incoming : []),
+  ];
+  for (const entry of candidates) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const skillId = (entry as Record<string, unknown>).skillId;
+    if (typeof skillId !== "string" || skillId.length === 0) {
+      continue;
+    }
+    if (seen.has(skillId)) {
+      continue;
+    }
+    seen.add(skillId);
+    merged.push(entry);
+  }
+  return merged;
+}
+
+/**
+ * Source-conversation ids of every PENDING `memory_retrospective` job. The
+ * retrospective sweep skips these up front: a pending row already covers the
+ * source's unprocessed span, and a coalescing upsert against it must not
+ * consume the sweep's per-pass enqueue cap. Deliberately excludes `running`
+ * rows — a running job's fork and cursor are pre-run snapshots, so messages
+ * arriving mid-run need a follow-up row behind it, and the sweep must be able
+ * to create that follow-up. Mirrors `upsertMemoryRetrospectiveJob`'s
+ * pending-only coalescing.
+ */
+export function listPendingMemoryRetrospectiveSourceConversationIds(): string[] {
+  return memoryDb()
+    .select({
+      conversationId: sql<string>`json_extract(${memoryJobs.payload}, '$.conversationId')`,
+    })
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "memory_retrospective"),
+        eq(memoryJobs.status, "pending"),
+      ),
+    )
+    .all()
+    .map((row) => row.conversationId)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+}
+
+/**
  * Check whether a pending or running job of the given type already exists.
  * Used to prevent duplicate enqueues for long-running maintenance jobs.
  */
@@ -377,6 +424,95 @@ export function hasActiveJobOfType(type: MemoryJobType): boolean {
       )
       .get() != null
   );
+}
+
+/**
+ * Check whether a pending job of the given type already exists. Enqueue-side
+ * coalesce for follow-up jobs whose payload is empty and whose handler reads
+ * all state at execution time (`memory_v2_reembed`, `memory_v3_maintain`): a
+ * pending row already covers everything a fresh enqueue would, while a
+ * running row may have snapshotted state before the caller's writes — so only
+ * `pending` suppresses, leaving at most one pending row queued behind one
+ * running job.
+ */
+export function hasPendingJobOfType(type: MemoryJobType): boolean {
+  const db = memoryDb();
+  return (
+    db
+      .select({ id: memoryJobs.id })
+      .from(memoryJobs)
+      .where(and(eq(memoryJobs.type, type), eq(memoryJobs.status, "pending")))
+      .get() != null
+  );
+}
+
+/**
+ * Enqueue an `embed_concept_page` job, coalescing with an existing pending
+ * row for the same slug. The payload carries only the slug — the handler
+ * reads the page from disk at execution time — so a pending row is exactly
+ * equivalent to a fresh enqueue and a duplicate would only redo identical
+ * work. A running row never matches: it may have already read a pre-write
+ * snapshot of the page, so the new enqueue must survive it. On a match the
+ * existing row keeps its `runAfter` (a deferred or backed-off row keeps its
+ * backoff). Returns the id of the pending row, existing or newly inserted.
+ *
+ * The check-then-insert pair is deliberately synchronous: bun:sqlite cannot
+ * interleave another same-process write between the SELECT and the INSERT.
+ * A cross-process race (daemon vs. memory worker) can still produce one
+ * duplicate pair, which is harmless — executions are idempotent and the next
+ * coalescing enqueue matches whichever row is still pending. Do not replace
+ * this with a partial UNIQUE index: `failMemoryJob` and
+ * `resetRunningJobsToPending` legitimately flip `running` rows back to
+ * `pending`, and a constraint would make those updates throw whenever a
+ * duplicate pair exists.
+ */
+export function upsertEmbedConceptPageJob(payload: { slug: string }): string {
+  const db = memoryDb();
+  const existing = db
+    .select({ id: memoryJobs.id })
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "embed_concept_page"),
+        eq(memoryJobs.status, "pending"),
+        sql`json_extract(${memoryJobs.payload}, '$.slug') = ${payload.slug}`,
+      ),
+    )
+    .get();
+  if (existing) {
+    return existing.id;
+  }
+  return enqueueMemoryJob("embed_concept_page", { slug: payload.slug });
+}
+
+/**
+ * Enqueue an `embed_graph_node` job, coalescing with an existing pending row
+ * for the same node id. The payload carries only the node id — the handler
+ * reads the node's content at execution time — so a pending row is exactly
+ * equivalent to a fresh enqueue and a duplicate would only redo identical
+ * embedding work and Qdrant upserts. A running row never matches: it may have
+ * embedded a pre-write snapshot of the node, so the new enqueue must survive
+ * it. Same synchronous check-then-insert rationale as
+ * {@link upsertEmbedConceptPageJob}. Returns the id of the pending row,
+ * existing or newly inserted.
+ */
+export function upsertEmbedGraphNodeJob(payload: { nodeId: string }): string {
+  const db = memoryDb();
+  const existing = db
+    .select({ id: memoryJobs.id })
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "embed_graph_node"),
+        eq(memoryJobs.status, "pending"),
+        sql`json_extract(${memoryJobs.payload}, '$.nodeId') = ${payload.nodeId}`,
+      ),
+    )
+    .get();
+  if (existing) {
+    return existing.id;
+  }
+  return enqueueMemoryJob("embed_graph_node", { nodeId: payload.nodeId });
 }
 
 export function enqueuePruneOldLlmRequestLogsJob(retentionMs?: number): string {
@@ -544,6 +680,13 @@ export function claimMemoryJobs(
     return [];
   }
 
+  // Drain gate: while a quiesce lease is active, claim nothing so in-flight
+  // jobs finish and the queue drains to a stop. Enqueues are unaffected;
+  // claims resume when the lease expires. Fail-open via the lease read.
+  if (isLifecycleQuiesced()) {
+    return [];
+  }
+
   const db = memoryDb();
   const now = Date.now();
   const restrictFilter = restrictToTypes
@@ -651,10 +794,19 @@ export function claimMemoryJobs(
 
 export function completeMemoryJob(id: string): void {
   const db = memoryDb();
+  // Guarded on `running` so a late return from an abandoned execution cannot
+  // overwrite a terminal state another writer already recorded (the stalled-job
+  // watchdog's `failed`, or a successor worker's re-claimed row).
   db.update(memoryJobs)
     .set({ status: "completed", updatedAt: Date.now(), lastError: null })
-    .where(eq(memoryJobs.id, id))
+    .where(and(eq(memoryJobs.id, id), eq(memoryJobs.status, "running")))
     .run();
+  if (rawMemoryChanges() === 0) {
+    log.warn(
+      { jobId: id },
+      "completeMemoryJob: row was not running; late completion suppressed",
+    );
+  }
 }
 
 /** Max times a job can be deferred before it is marked as failed. */
@@ -677,7 +829,17 @@ const DEFER_MAX_DELAY_MS = 5 * 60 * 1000;
  * Returns `'deferred'` if the job was put back, or `'failed'` if max deferrals
  * were exceeded and the job was marked as failed.
  */
-export function deferMemoryJob(id: string): "deferred" | "failed" {
+export function deferMemoryJob(
+  id: string,
+  options?: {
+    /**
+     * Terminal `last_error` recorded when the deferral budget is exhausted.
+     * Defaults to the backend-unavailable wording used by the worker's
+     * infrastructure deferrals.
+     */
+    exhaustedMessage?: string;
+  },
+): "deferred" | "failed" {
   const db = memoryDb();
   const row = db.select().from(memoryJobs).where(eq(memoryJobs.id, id)).get();
   if (!row) {
@@ -697,9 +859,11 @@ export function deferMemoryJob(id: string): "deferred" | "failed" {
         status: "failed",
         deferrals,
         updatedAt: now,
-        lastError: `Backend unavailable after ${deferrals} deferrals`,
+        lastError:
+          options?.exhaustedMessage ??
+          `Backend unavailable after ${deferrals} deferrals`,
       })
-      .where(eq(memoryJobs.id, id))
+      .where(and(eq(memoryJobs.id, id), eq(memoryJobs.status, "running")))
       .run();
     return "failed";
   }
@@ -725,9 +889,26 @@ export function deferMemoryJob(id: string): "deferred" | "failed" {
       runAfter: now + delay,
       updatedAt: now,
     })
-    .where(eq(memoryJobs.id, id))
+    .where(and(eq(memoryJobs.id, id), eq(memoryJobs.status, "running")))
     .run();
   return "deferred";
+}
+
+/**
+ * Move a running job back to pending after `delayMs` WITHOUT advancing the
+ * attempt or deferral counters. For a job intentionally postponed by a stable
+ * config condition rather than a failure: it must survive an unbounded number of
+ * postponements, so neither {@link failMemoryJob}'s attempt budget nor
+ * {@link deferMemoryJob}'s deferral cap may dead-letter it. It simply re-runs
+ * once the condition clears.
+ */
+export function rescheduleMemoryJob(id: string, delayMs: number): void {
+  const now = Date.now();
+  memoryDb()
+    .update(memoryJobs)
+    .set({ status: "pending", runAfter: now + delayMs, updatedAt: now })
+    .where(and(eq(memoryJobs.id, id), eq(memoryJobs.status, "running")))
+    .run();
 }
 
 export function failMemoryJob(
@@ -744,6 +925,9 @@ export function failMemoryJob(
   }
   const attempts = row.attempts + 1;
   const now = Date.now();
+  // Both transitions are guarded on `running` for the same reason as
+  // `completeMemoryJob`: a late writer must not overwrite a terminal state
+  // recorded by the stalled-job watchdog or a successor worker.
   if (attempts >= maxAttempts) {
     db.update(memoryJobs)
       .set({
@@ -752,7 +936,7 @@ export function failMemoryJob(
         updatedAt: now,
         lastError: truncate(error, 2000, ""),
       })
-      .where(eq(memoryJobs.id, id))
+      .where(and(eq(memoryJobs.id, id), eq(memoryJobs.status, "running")))
       .run();
     return;
   }
@@ -764,7 +948,7 @@ export function failMemoryJob(
       updatedAt: now,
       lastError: truncate(error, 2000, ""),
     })
-    .where(eq(memoryJobs.id, id))
+    .where(and(eq(memoryJobs.id, id), eq(memoryJobs.status, "running")))
     .run();
 }
 
@@ -775,6 +959,26 @@ export function resetRunningJobsToPending(): number {
     .where(eq(memoryJobs.status, "running"))
     .run();
   return rawMemoryChanges();
+}
+
+/** Currently-running memory jobs, oldest first — the drain-status view. */
+export function listRunningMemoryJobs(): Array<{
+  id: string;
+  type: string;
+  startedAt: number | null;
+}> {
+  const db = memoryDb();
+  return db
+    .select({
+      id: memoryJobs.id,
+      type: memoryJobs.type,
+      startedAt: memoryJobs.startedAt,
+    })
+    .from(memoryJobs)
+    .where(eq(memoryJobs.status, "running"))
+    .orderBy(asc(memoryJobs.startedAt))
+    .limit(20)
+    .all();
 }
 
 /**

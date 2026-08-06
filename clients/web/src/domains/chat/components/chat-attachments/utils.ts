@@ -15,7 +15,10 @@ export function formatAttachmentSize(bytes: number): string {
     value /= 1024;
     unitIndex += 1;
   }
-  const formatted = value >= 10 || unitIndex === 0 ? Math.round(value).toString() : value.toFixed(1);
+  const formatted =
+    value >= 10 || unitIndex === 0
+      ? Math.round(value).toString()
+      : value.toFixed(1);
   return `${formatted} ${units[unitIndex]}`;
 }
 
@@ -36,7 +39,10 @@ export type AttachmentIconKind =
  * render an appropriate icon. Kept in sync with the macOS `iconForMimeType`
  * helper so the icon surface is consistent across clients.
  */
-export function classifyAttachment(mimeType: string, filename: string): AttachmentIconKind {
+export function classifyAttachment(
+  mimeType: string,
+  filename: string,
+): AttachmentIconKind {
   const mime = (mimeType || "").toLowerCase();
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
 
@@ -63,7 +69,8 @@ export function classifyAttachment(mimeType: string, filename: string): Attachme
   if (
     mime === "text/csv" ||
     mime === "application/vnd.ms-excel" ||
-    mime === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    mime ===
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
     ["csv", "xlsx", "xls", "numbers"].includes(ext)
   ) {
     return "spreadsheet";
@@ -103,7 +110,8 @@ export function classifyAttachment(mimeType: string, filename: string): Attachme
   }
   if (
     mime === "application/msword" ||
-    mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    mime ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
     ["doc", "docx", "pages"].includes(ext)
   ) {
     return "document";
@@ -132,7 +140,9 @@ export function estimateBase64Bytes(base64: string): number {
  */
 export function dataUriToUint8Array(dataUri: string): Uint8Array | null {
   const match = dataUri.match(/;base64,(.*)$/);
-  if (!match?.[1]) return null;
+  if (!match?.[1]) {
+    return null;
+  }
   const binary = atob(match[1]);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {

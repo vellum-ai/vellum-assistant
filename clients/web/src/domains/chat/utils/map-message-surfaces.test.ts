@@ -94,7 +94,10 @@ describe("mapMessageSurfaces", () => {
     };
 
     // WHEN the helper runs
-    const next = mapMessageSurfaces(message, (s) => ({ ...s, completed: true }));
+    const next = mapMessageSurfaces(message, (s) => ({
+      ...s,
+      completed: true,
+    }));
 
     // THEN the message is returned untouched
     expect(next).toBe(message);

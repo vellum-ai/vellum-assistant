@@ -39,9 +39,12 @@ export interface ChatHeaderSupplements {
    *  {@link channelHeaderLabel}, used to pick the channel icon. Null for
    *  native conversations. */
   channelHeaderChannelId: string | null;
+  /** Deep link back to the conversation's source thread/message in the
+   *  external channel (same derivation as the top-bar source pill), or
+   *  null when no link is available. */
+  channelSourceLinkHref: string | null;
   /** Secondary action callbacks — ChatPage-specific because they need
    *  access to the message list, active stream, or ChatPage-local state. */
-  onAnalyze: ((conversation: Conversation) => void) | null;
   onForkConversation: (() => void) | null;
   onOpenInNewWindow: ((conversation: Conversation) => void) | null;
   onInspect: ((conversation: Conversation) => void) | null;

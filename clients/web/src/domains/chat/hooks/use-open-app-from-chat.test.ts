@@ -1,11 +1,4 @@
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
 // `mock.module` is safe for `use-is-mobile` because it's a pure
@@ -22,13 +15,10 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 
-import {
-  chooseSidebarOpenAppDestination,
-  useOpenAppFromChat,
-} from "./use-open-app-from-chat";
+import { useOpenAppFromChat } from "./use-open-app-from-chat";
 
 // We can't safely `mock.module(...)` core stores like viewer/conversation
-// because Bun module mocks are process-global — they leak into every
+// because Bun module mocks are process-global. They leak into every
 // other test file in the run (the message-reconciliation suite would
 // suddenly find `useConversationStore.setState` undefined). Instead we
 // drive the real stores via `setState` and `getState`, capturing pre-test
@@ -36,15 +26,11 @@ import {
 
 let viewerSnapshot: ReturnType<typeof useViewerStore.getState>;
 let conversationSnapshot: ReturnType<typeof useConversationStore.getState>;
-let selectionSnapshot: ReturnType<
-  typeof useResolvedAssistantsStore.getState
->;
+let selectionSnapshot: ReturnType<typeof useResolvedAssistantsStore.getState>;
 
 const loadAppMock = mock(async (_assistantId: string, _appId: string) => {});
 const enterAppEditingMock = mock(() => undefined);
-const setEditingConversationIdMock = mock(
-  (_id: string | null) => undefined,
-);
+const setEditingConversationIdMock = mock((_id: string | null) => undefined);
 
 beforeEach(() => {
   viewerSnapshot = useViewerStore.getState();
@@ -57,9 +43,11 @@ beforeEach(() => {
   setEditingConversationIdMock.mockReset();
 
   // Default: loadApp succeeds, leaving viewer state pointing at the
-  // requested app (mirrors the real `loadApp` action's contract).
+  // requested app in the full-width `"app"` view (mirrors the real
+  // `loadApp` action's contract, which sets `mainView` up front).
   loadAppMock.mockImplementation(async (_assistantId, appId) => {
     useViewerStore.setState({
+      mainView: "app",
       activeAppId: appId,
       openedAppState: {
         appId,
@@ -71,6 +59,9 @@ beforeEach(() => {
   });
 
   useViewerStore.setState({
+    // Start from the split view so each test proves the hook leaves the
+    // viewer full-width rather than merely never leaving `"app"`.
+    mainView: "app-editing",
     activeAppId: null,
     openedAppState: null,
     loadApp: loadAppMock as unknown as typeof viewerSnapshot.loadApp,
@@ -103,21 +94,23 @@ describe("useOpenAppFromChat", () => {
     expect(setEditingConversationIdMock).not.toHaveBeenCalled();
   });
 
-  test("enters app-editing when an active conversation is present and load succeeds", async () => {
+  // LUM-2553: opening an app is a view action, so the entry point must not
+  // decide the layout. A wide viewport with an active conversation is the
+  // one combination that could justify the `app-editing` split, and it
+  // still lands full-width, matching an open from Home / Library.
+  test("stays full-width with an active conversation on a wide viewport", async () => {
     useConversationStore.setState({ activeConversationId: "conv-7" });
     const { result } = renderHook(() => useOpenAppFromChat());
 
     await result.current("app-42");
 
     expect(loadAppMock).toHaveBeenCalledWith("asst-1", "app-42");
-    expect(setEditingConversationIdMock).toHaveBeenCalledWith("conv-7");
-    expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
+    expect(useViewerStore.getState().mainView).toBe("app");
+    expect(enterAppEditingMock).not.toHaveBeenCalled();
+    expect(setEditingConversationIdMock).not.toHaveBeenCalled();
   });
 
-  test("on a mobile viewport, loads + binds editing conversation but stays full-screen (no app-editing upgrade)", async () => {
-    // Split chat+app doesn't fit on a phone — `loadApp` already left
-    // `mainView` at `"app"` (full-screen), and we expect no upgrade to
-    // `"app-editing"` even with an active conversation.
+  test("stays full-width with an active conversation on a mobile viewport", async () => {
     mobileRef.current = true;
     useConversationStore.setState({ activeConversationId: "conv-7" });
     const { result } = renderHook(() => useOpenAppFromChat());
@@ -125,35 +118,30 @@ describe("useOpenAppFromChat", () => {
     await result.current("app-42");
 
     expect(loadAppMock).toHaveBeenCalledWith("asst-1", "app-42");
-    // The editing-conversation binding still happens — any later
-    // "edit this app" affordance from mobile threads back to the right
-    // conversation.
-    expect(setEditingConversationIdMock).toHaveBeenCalledWith("conv-7");
+    expect(useViewerStore.getState().mainView).toBe("app");
     expect(enterAppEditingMock).not.toHaveBeenCalled();
+    expect(setEditingConversationIdMock).not.toHaveBeenCalled();
   });
 
-  test("loads the app but skips app-editing when no conversation is active", async () => {
+  test("stays full-width when no conversation is active", async () => {
     const { result } = renderHook(() => useOpenAppFromChat());
 
     await result.current("app-42");
 
     expect(loadAppMock).toHaveBeenCalledWith("asst-1", "app-42");
-    expect(setEditingConversationIdMock).not.toHaveBeenCalled();
+    expect(useViewerStore.getState().mainView).toBe("app");
     expect(enterAppEditingMock).not.toHaveBeenCalled();
+    expect(setEditingConversationIdMock).not.toHaveBeenCalled();
   });
 
-  test("skips app-editing when a newer open superseded this one (activeAppId mismatch)", async () => {
+  test("leaves the viewer alone when the load fails", async () => {
     useConversationStore.setState({ activeConversationId: "conv-7" });
+    // The real `loadApp` falls back to chat when the open request fails.
     loadAppMock.mockImplementationOnce(async () => {
-      // Simulate a newer call having already swapped the active app.
       useViewerStore.setState({
-        activeAppId: "different-app",
-        openedAppState: {
-          appId: "different-app",
-          dirName: "",
-          name: "",
-          html: "",
-        },
+        mainView: "chat",
+        activeAppId: null,
+        openedAppState: null,
       });
     });
 
@@ -161,67 +149,8 @@ describe("useOpenAppFromChat", () => {
 
     await result.current("app-42");
 
-    expect(loadAppMock).toHaveBeenCalledTimes(1);
+    expect(useViewerStore.getState().mainView).toBe("chat");
     expect(enterAppEditingMock).not.toHaveBeenCalled();
     expect(setEditingConversationIdMock).not.toHaveBeenCalled();
-  });
-
-  test("skips app-editing when loadApp returns without populating openedAppState (load failed)", async () => {
-    useConversationStore.setState({ activeConversationId: "conv-7" });
-    loadAppMock.mockImplementationOnce(async () => {
-      useViewerStore.setState({ activeAppId: null, openedAppState: null });
-    });
-
-    const { result } = renderHook(() => useOpenAppFromChat());
-
-    await result.current("app-42");
-
-    expect(enterAppEditingMock).not.toHaveBeenCalled();
-    expect(setEditingConversationIdMock).not.toHaveBeenCalled();
-  });
-});
-
-describe("chooseSidebarOpenAppDestination", () => {
-  test("returns null on the chat index path (viewer mounts here via ConversationRedirect)", () => {
-    expect(chooseSidebarOpenAppDestination("/assistant", "conv-7")).toBeNull();
-    expect(
-      chooseSidebarOpenAppDestination("/assistant/", "conv-7"),
-    ).toBeNull();
-  });
-
-  test("returns null on a conversation route (viewer mounts under ChatPage)", () => {
-    expect(
-      chooseSidebarOpenAppDestination(
-        "/assistant/conversations/abc",
-        "conv-7",
-      ),
-    ).toBeNull();
-  });
-
-  test("navigates to the active conversation when off-chat (e.g. library)", () => {
-    expect(
-      chooseSidebarOpenAppDestination("/assistant/library", "conv-7"),
-    ).toBe("/assistant/conversations/conv-7");
-  });
-
-  test("navigates to the chat index when off-chat with no active conversation", () => {
-    expect(
-      chooseSidebarOpenAppDestination("/assistant/home", null),
-    ).toBe("/assistant");
-  });
-
-  test("inspector subpath counts as off-chat (viewer panel is not mounted under InspectPage)", () => {
-    expect(
-      chooseSidebarOpenAppDestination(
-        "/assistant/conversations/abc/inspect",
-        "conv-7",
-      ),
-    ).toBe("/assistant/conversations/conv-7");
-  });
-
-  test("identity / settings paths route to the active conversation", () => {
-    expect(
-      chooseSidebarOpenAppDestination("/assistant/identity", "conv-7"),
-    ).toBe("/assistant/conversations/conv-7");
   });
 });

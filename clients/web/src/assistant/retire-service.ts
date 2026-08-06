@@ -2,17 +2,27 @@ import { listAssistants, retireAssistantById } from "@/assistant/api";
 import {
   getLockfile,
   isLocalAssistant,
-  isLocalMode,
+  isLocalClient,
+  isPairedAssistant,
   retireLocalAssistant,
   syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { clearResearchSnapshot } from "@/domains/onboarding/research-onboarding-persistence";
+import { removeLocalSetting } from "@/utils/local-settings";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
+
+/**
+ * localStorage key the platform marketing site (`web/src/lib/hooks/
+ * use-navbar-auth.ts`, `ASSISTANT_NAME_CACHE_KEY`) uses to cache the assistant
+ * name for its nav/CTA. Same-origin on the assistant host, so retire clears it
+ * here — the two sides must agree on this string.
+ */
+const MARKETING_ASSISTANT_NAME_CACHE_KEY = "vellum_assistant_name";
 
 /**
  * Outcome of a retire attempt. On success carries the route the caller should
@@ -20,8 +30,7 @@ import { routes } from "@/utils/routes";
  * service can't own routing). On failure carries a user-facing message.
  */
 export type RetireOutcome =
-  | { ok: true; nextRoute: string }
-  | { ok: false; error: string };
+  { ok: true; nextRoute: string } | { ok: false; error: string };
 
 /**
  * Resolve where to send the user after a retire. Reads `hasAssistants`
@@ -32,9 +41,7 @@ function getPostRetireRoute(): string {
   const decision = resolveNavigation(buildNavigationState(), {
     kind: "post-retire",
   });
-  return decision.action === "redirect"
-    ? decision.to
-    : routes.welcome;
+  return decision.action === "redirect" ? decision.to : routes.welcome;
 }
 
 /**
@@ -58,7 +65,16 @@ export async function retireAssistant(
     const target = getLockfile().assistants.find(
       (a) => a.assistantId === assistantId,
     );
-    const useLocal = isLocalMode() && !!target && isLocalAssistant(target);
+    // A paired entry belongs to another machine; retiring can't touch it
+    // (the CLI refuses paired targets), so refuse with actionable copy.
+    if (target && isPairedAssistant(target)) {
+      return {
+        ok: false,
+        error:
+          "This is a paired assistant. Remove it from this device instead of retiring it.",
+      };
+    }
+    const useLocal = isLocalClient() && !!target && isLocalAssistant(target);
 
     if (useLocal) {
       const result = await retireLocalAssistant(assistantId);
@@ -79,13 +95,14 @@ export async function retireAssistant(
             : "Failed to retire assistant.";
         return { ok: false, error: detail };
       }
-      if (isLocalMode()) {
+      if (isLocalClient()) {
         try {
           const remaining = await listAssistants();
           if (remaining.ok) {
             await syncPlatformAssistantsToLockfile(
               remaining.data,
-              useOrganizationStore.getState().currentOrganizationId ?? undefined,
+              useOrganizationStore.getState().currentOrganizationId ??
+                undefined,
             );
           }
         } catch {
@@ -100,6 +117,12 @@ export async function retireAssistant(
     // form instead of resuming the retired assistant's run deep in the flow
     // (e.g. straight onto the wake gate).
     clearResearchSnapshot(useAuthStore.getState().user?.id ?? null);
+    // Drop the marketing nav's cached assistant name (same-origin localStorage,
+    // written by the platform's `useNavbarAuth`). Otherwise the marketing site
+    // keeps optimistically showing "My Assistant" after a retire until its own
+    // list fetch resolves — and the plugin install button mistakes the stale
+    // name for an existing assistant.
+    removeLocalSetting(MARKETING_ASSISTANT_NAME_CACHE_KEY);
     return { ok: true, nextRoute: getPostRetireRoute() };
   } catch {
     return { ok: false, error: "Failed to retire assistant." };

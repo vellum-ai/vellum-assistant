@@ -82,6 +82,27 @@ describe("read/write/clear round-trip", () => {
     writeResearchSnapshot(USER, snapshot);
     expect(readResearchSnapshot(USER)?.researchConversationId).toBe("conv-abc");
   });
+
+  test("round-trips dropped claims and the scrub flag on completed research", () => {
+    // Persisted so a refresh that resumes past the results step can still scrub
+    // the hidden aggregator-only drops — and only re-fires when the prior
+    // session never dispatched the correction (scrub flag absent/false).
+    const snapshot = baseSnapshot({
+      step: "suggestions",
+      research: {
+        status: "done",
+        claims: [],
+        droppedClaims: ["Lives in Dallas"],
+        suggestions: [],
+        installedPlugins: [],
+      },
+      droppedClaimsScrubbed: true,
+    });
+    writeResearchSnapshot(USER, snapshot);
+    const read = readResearchSnapshot(USER);
+    expect(read?.research?.droppedClaims).toEqual(["Lives in Dallas"]);
+    expect(read?.droppedClaimsScrubbed).toBe(true);
+  });
 });
 
 describe("Electron host", () => {
@@ -146,7 +167,9 @@ describe("resolveResumeStep", () => {
     // is non-idempotent, so fall back to the calendar step (which only books on
     // an explicit click) rather than skipping past it or blind-retrying.
     expect(
-      resolveResumeStep(baseSnapshot({ step: "meeting", checkinBooked: false })),
+      resolveResumeStep(
+        baseSnapshot({ step: "meeting", checkinBooked: false }),
+      ),
     ).toBe("letschat");
   });
 

@@ -7,11 +7,13 @@
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import { asConversation } from "./helpers/mock-conversation.js";
+
 const sentMessages: unknown[] = [];
 let mockHasClient = true; // Default to true for CU unified flow tests
 // Default principal id used for both ctx.trustContext and clients in the
 // existing single-user tests. Tests that exercise cross-user behaviour
-// override this on individual clients and on the SurfaceConversationContext.
+// override this on individual clients and on the Conversation.
 const DEFAULT_PRINCIPAL = "user-1";
 let mockCuClients: Array<{
   clientId: string;
@@ -48,18 +50,17 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
-const { surfaceProxyResolver } =
+const { createSurfaceMutex, surfaceProxyResolver } =
   await import("../daemon/conversation-surfaces.js");
 const { HostCuProxy } = await import("../daemon/host-cu-proxy.js");
-type SurfaceConversationContext =
-  import("../daemon/conversation-surfaces.js").SurfaceConversationContext;
+type Conversation = import("../daemon/conversation.js").Conversation;
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Build a minimal SurfaceConversationContext with optional hostCuProxy.
+ * Build a minimal Conversation with optional hostCuProxy.
  * Only the fields required by the CU routing path are populated.
  *
  * `trustContext` defaults to a guardian context owned by `DEFAULT_PRINCIPAL`.
@@ -70,8 +71,12 @@ function buildMockContext(
   hostCuProxy?: InstanceType<typeof HostCuProxy>,
   trustGuardianPrincipalId: string | null = DEFAULT_PRINCIPAL,
   actorPrincipalId: string | null = trustGuardianPrincipalId,
-): SurfaceConversationContext {
-  return {
+  // Mirrors `Conversation.ensureHostProxiesForTurn`: attaches a CU proxy when
+  // the gate passes. Left undefined to model a conversation that cannot
+  // attach one (the gate denies, or the context predates the hook).
+  ensureHostProxiesForTurn?: () => void,
+): Conversation {
+  const ctx: Conversation = asConversation({
     conversationId: "test-session",
     trustContext:
       trustGuardianPrincipalId != null
@@ -83,13 +88,13 @@ function buildMockContext(
         : undefined,
     authContext:
       actorPrincipalId != null
-        ? ({ actorPrincipalId } as SurfaceConversationContext["authContext"])
+        ? ({ actorPrincipalId } as Conversation["authContext"])
         : undefined,
     currentTurnAuthContext:
       actorPrincipalId != null
         ? ({
             actorPrincipalId,
-          } as SurfaceConversationContext["currentTurnAuthContext"])
+          } as Conversation["currentTurnAuthContext"])
         : undefined,
     sendToClient: () => {},
     pendingSurfaceActions: new Map(),
@@ -100,12 +105,15 @@ function buildMockContext(
     surfaceActionRequestIds: new Set(),
     currentTurnSurfaces: [],
     hostCuProxy,
+    transportInterface: "web",
+    ensureHostProxiesForTurn,
     isProcessing: () => false,
     enqueueMessage: () => ({ queued: false, requestId: "r1" }),
     getQueueDepth: () => 0,
     processMessage: async () => "",
-    withSurface: async (_id, fn) => fn(),
-  };
+    withSurface: createSurfaceMutex(),
+  });
+  return ctx;
 }
 
 // ---------------------------------------------------------------------------
@@ -115,7 +123,7 @@ function buildMockContext(
 describe("surfaceProxyResolver — CU tool routing", () => {
   let proxy: InstanceType<typeof HostCuProxy>;
 
-  function setupProxy(maxSteps?: number): SurfaceConversationContext {
+  function setupProxy(maxSteps?: number): Conversation {
     sentMessages.length = 0;
     mockHasClient = true;
     mockCuClients = [
@@ -137,21 +145,63 @@ describe("surfaceProxyResolver — CU tool routing", () => {
   // No desktop client connected
   // -------------------------------------------------------------------------
 
-  describe("no desktop client connected", () => {
-    test("returns error when hostCuProxy is undefined", async () => {
-      const ctx = buildMockContext(/* no proxy */);
-      const result = await surfaceProxyResolver(ctx, "computer_use_click", {
+  describe("attaching the proxy at tool-call time", () => {
+    test("attaches a proxy when the conversation has none and dispatches", async () => {
+      // The reported bug: `assistant clients list` showed the desktop
+      // connected and usable, while every computer_use_* call answered "no
+      // desktop client connected" — because attachment was decided at turn
+      // start, before the desktop was reachable, and never revisited.
+      sentMessages.length = 0;
+      mockHasClient = true;
+      mockCuClients = [
+        {
+          clientId: "mock-client-1",
+          capabilities: ["host_cu"],
+          actorPrincipalId: DEFAULT_PRINCIPAL,
+        },
+      ];
+
+      let attachCalls = 0;
+      const ctx: Conversation = buildMockContext(
+        /* no proxy */ undefined,
+        DEFAULT_PRINCIPAL,
+        DEFAULT_PRINCIPAL,
+        () => {
+          attachCalls++;
+          proxy = new HostCuProxy();
+          (ctx as { hostCuProxy?: unknown }).hostCuProxy = proxy;
+        },
+      );
+
+      const resultPromise = surfaceProxyResolver(ctx, "computer_use_click", {
         element_id: 42,
         reasoning: "click the button",
       });
 
-      expect(result.isError).toBe(true);
-      expect(result.content).toContain("not available");
-      expect(result.content).toContain("no desktop client");
+      expect(attachCalls).toBe(1);
+      expect(ctx.hostCuProxy).toBeDefined();
+      // Dispatched for real: the request reached the wire, not an error result.
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as { type?: string; requestId?: string };
+      expect(sent.type).toBe("host_cu_request");
+
+      proxy.processObservation(sent.requestId!, { axTree: "window Safari" });
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
     });
 
-    test("returns error for screenshot tool when no proxy", async () => {
-      const ctx = buildMockContext();
+    test("reports the interface, not a missing desktop, when the gate still denies", async () => {
+      // The gate ran and refused (e.g. a chrome-extension source, or a
+      // desktop signed in as someone else). Saying "no desktop client
+      // connected" here contradicts a listing that plainly shows one.
+      mockCuClients = [
+        {
+          clientId: "mock-client-other",
+          capabilities: ["host_cu"],
+          actorPrincipalId: "someone-else",
+        },
+      ];
+      const ctx = buildMockContext(/* no proxy, no attach hook */);
       const result = await surfaceProxyResolver(
         ctx,
         "computer_use_screenshot",
@@ -159,11 +209,26 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("not available");
+      expect(result.content).toContain("not available for this conversation");
+      expect(result.content).not.toContain("no desktop client connected");
+    });
+
+    test("reports no connected client when the hub has none", async () => {
+      mockCuClients = [];
+      const ctx = buildMockContext(/* no proxy */);
+      const result = await surfaceProxyResolver(
+        ctx,
+        "computer_use_screenshot",
+        {},
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("no desktop client connected");
     });
 
     test("returns error when proxy exists but client not connected", async () => {
       mockHasClient = false;
+      mockCuClients = [];
       const proxyObj = new HostCuProxy();
       const ctx = buildMockContext(proxyObj);
       const result = await surfaceProxyResolver(ctx, "computer_use_click", {
@@ -171,7 +236,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       });
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("not available");
+      expect(result.content).toContain("no desktop client connected");
       proxyObj.dispose();
     });
 
@@ -640,9 +705,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       });
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain(
-        "Submitting actor does not match the target client's actor",
-      );
+      expect(result.content).toContain("signed in as a different user");
       // No state mutation, no dispatch.
       expect(proxy.stepCount).toBe(0);
       expect(proxy.actionHistory).toHaveLength(0);
@@ -669,9 +732,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       });
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain(
-        "Submitting actor does not match the target client's actor",
-      );
+      expect(result.content).toContain("no authenticated actor");
       expect(sentMessages).toHaveLength(0);
     });
 

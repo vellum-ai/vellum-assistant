@@ -20,9 +20,13 @@ export type { ResolvedHotkey };
 
 /** Fetch the resolved catalog of rebindable commands and their bindings. */
 export async function getHotkeys(): Promise<ResolvedHotkey[]> {
-  if (!isElectron()) return [];
+  if (!isElectron()) {
+    return [];
+  }
   const bridge = window.vellum;
-  if (!bridge?.hotkeys) return [];
+  if (!bridge?.hotkeys) {
+    return [];
+  }
   return bridge.hotkeys.get();
 }
 
@@ -36,9 +40,13 @@ export async function setHotkey(
   key: string,
   accelerator: string | null,
 ): Promise<void> {
-  if (!isElectron()) return;
+  if (!isElectron()) {
+    return;
+  }
   const bridge = window.vellum;
-  if (!bridge?.hotkeys) return;
+  if (!bridge?.hotkeys) {
+    return;
+  }
   await bridge.hotkeys.set(key, accelerator);
 }
 
@@ -50,8 +58,12 @@ export async function setHotkey(
 export function onHotkeysChange(
   callback: (catalog: ResolvedHotkey[]) => void,
 ): () => void {
-  if (!isElectron()) return () => {};
+  if (!isElectron()) {
+    return () => {};
+  }
   const bridge = window.vellum;
-  if (!bridge?.hotkeys) return () => {};
+  if (!bridge?.hotkeys) {
+    return () => {};
+  }
   return bridge.hotkeys.onChange(callback);
 }

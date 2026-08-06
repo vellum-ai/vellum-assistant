@@ -1,21 +1,12 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mocks ────────────────────────────────────────────────────────────
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ── Fake CdpClient & Factory ─────────────────────────────────────────
 //
 // This test file validates browser_mode parsing and mode-selection
 // failure formatting in browser-execution.ts. The factory mock
 // intercepts getCdpClient calls and can be configured to throw
 // CdpError for pinned-mode precondition failures.
-
 import { CdpError } from "../tools/browser/cdp-client/errors.js";
 import type { AttemptDiagnostic } from "../tools/browser/cdp-client/types.js";
 
@@ -178,7 +169,9 @@ function defaultCdpHandler(
   method: string,
   params?: Record<string, unknown>,
 ): unknown {
-  if (method === "Page.navigate") return { frameId: "f1" };
+  if (method === "Page.navigate") {
+    return { frameId: "f1" };
+  }
   if (method === "Runtime.evaluate") {
     const expression = String(params?.["expression"] ?? "");
     if (expression === "document.location.href") {
@@ -202,7 +195,9 @@ function defaultCdpHandler(
     }
     return { result: { value: null } };
   }
-  if (method === "Accessibility.enable") return {};
+  if (method === "Accessibility.enable") {
+    return {};
+  }
   if (method === "Accessibility.getFullAXTree") {
     return { nodes: [] };
   }

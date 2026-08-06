@@ -2,6 +2,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import {
+  hasAnyActiveConversation,
   listBackgroundConversations,
   listConversations,
 } from "@/utils/conversation-list-fetchers";
@@ -195,8 +196,7 @@ describe("toConversation — Slack channel binding", () => {
             channelId: "C0123ABCDEF",
             name: "product",
             link: {
-              webUrl:
-                "https://example.slack.com/archives/C0123ABCDEF",
+              webUrl: "https://example.slack.com/archives/C0123ABCDEF",
             },
           },
           slackThread: {
@@ -322,22 +322,18 @@ describe("listConversations — pagination", () => {
       query: Record<string, unknown> | undefined;
     }> = [];
     const foregroundQueue = [...pages.foreground];
-    const backgroundQueue = [
-      ...(pages.background ?? [{ conversations: [] }]),
-    ];
-    daemonClient.get = mock(
-      async (options: GetOptions & { url?: unknown }) => {
-        calls.push({ url: options.url, query: options.query });
-        const isBackground = options.query?.conversationType === "background";
-        const queue = isBackground ? backgroundQueue : foregroundQueue;
-        const next = queue.shift() ?? { conversations: [], hasMore: false };
-        return {
-          data: next,
-          error: null,
-          response: new Response(null, { status: 200 }),
-        };
-      },
-    ) as typeof daemonClient.get;
+    const backgroundQueue = [...(pages.background ?? [{ conversations: [] }])];
+    daemonClient.get = mock(async (options: GetOptions & { url?: unknown }) => {
+      calls.push({ url: options.url, query: options.query });
+      const isBackground = options.query?.conversationType === "background";
+      const queue = isBackground ? backgroundQueue : foregroundQueue;
+      const next = queue.shift() ?? { conversations: [], hasMore: false };
+      return {
+        data: next,
+        error: null,
+        response: new Response(null, { status: 200 }),
+      };
+    }) as typeof daemonClient.get;
     return { calls };
   }
 
@@ -381,9 +377,7 @@ describe("listConversations — pagination", () => {
 
   test("stops on the first page when hasMore is false or absent", async () => {
     const { calls } = setupPagedResponses({
-      foreground: [
-        { conversations: [makeConversationRow("only-one")] },
-      ],
+      foreground: [{ conversations: [makeConversationRow("only-one")] }],
     });
 
     const result = await listConversations("assistant-1");
@@ -478,8 +472,73 @@ describe("listBackgroundConversations — pagination", () => {
     expect(result.map((c) => c.conversationId)).toEqual(["bg-0", "bg-1"]);
     // AND every request targets the background bucket
     expect(calls).toHaveLength(2);
-    expect(
-      calls.every((c) => c.query?.conversationType === "background"),
-    ).toBe(true);
+    expect(calls.every((c) => c.query?.conversationType === "background")).toBe(
+      true,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hasAnyActiveConversation — single-page existence probe
+// ---------------------------------------------------------------------------
+
+describe("hasAnyActiveConversation", () => {
+  const originalGet = daemonClient.get;
+
+  afterEach(() => {
+    daemonClient.get = originalGet;
+  });
+
+  function setupSinglePage(conversationIds: string[]): {
+    calls: Array<{ query: Record<string, unknown> | undefined }>;
+  } {
+    const calls: Array<{ query: Record<string, unknown> | undefined }> = [];
+    daemonClient.get = mock(
+      async (options: { query?: Record<string, unknown> }) => {
+        calls.push({ query: options.query });
+        return {
+          data: {
+            conversations: conversationIds.map((id) => ({
+              id,
+              title: "",
+              createdAt: 0,
+              updatedAt: 0,
+              lastMessageAt: 0,
+              conversationType: "standard",
+              source: "vellum",
+              groupId: "",
+            })),
+            // Existence needs one page — hasMore must never trigger a walk.
+            hasMore: true,
+          },
+          error: null,
+          response: new Response(null, { status: 200 }),
+        };
+      },
+    ) as typeof daemonClient.get;
+    return { calls };
+  }
+
+  test("true when the first page has any conversation, fetching exactly one page", async () => {
+    const { calls } = setupSinglePage(["conv-1"]);
+
+    await expect(hasAnyActiveConversation("assistant-1")).resolves.toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+
+  test("false when the assistant has no active conversations", async () => {
+    setupSinglePage([]);
+
+    await expect(hasAnyActiveConversation("assistant-1")).resolves.toBe(false);
+  });
+
+  test("throws on a failed fetch (callers own the fail-open policy)", async () => {
+    daemonClient.get = mock(async () => ({
+      data: null,
+      error: { message: "boom" },
+      response: new Response(null, { status: 500 }),
+    })) as typeof daemonClient.get;
+
+    await expect(hasAnyActiveConversation("assistant-1")).rejects.toThrow();
   });
 });

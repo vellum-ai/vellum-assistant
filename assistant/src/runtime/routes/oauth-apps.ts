@@ -43,7 +43,9 @@ function parseGrantedScopes(
 
   try {
     const parsed = JSON.parse(grantedScopes) as unknown;
-    if (!Array.isArray(parsed)) return [];
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
     return parsed.filter((scope): scope is string => typeof scope === "string");
   } catch {
     return [];

@@ -133,7 +133,9 @@ async function performSynthesis(
       sampleRate: sampleRateHz,
     });
   } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") throw err;
+    if (err instanceof Error && err.name === "AbortError") {
+      throw err;
+    }
     throw new FishAudioTtsError(
       "FISH_AUDIO_TTS_SYNTHESIS_FAILED",
       `Fish Audio TTS ${streaming ? "streaming " : ""}synthesis failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -194,7 +196,7 @@ export const fishAudioTtsProviderDefinition: TtsProviderDefinition = {
       credentialStoreKey: "credential/fish-audio/api_key",
       displayName: "Fish Audio API Key",
       setCommand:
-        "assistant credentials set --service fish-audio --field api_key <key>",
+        'assistant credentials prompt --service fish-audio --field api_key --label "Fish Audio API Key"',
     },
   ],
   adapter: createFishAudioProvider(),

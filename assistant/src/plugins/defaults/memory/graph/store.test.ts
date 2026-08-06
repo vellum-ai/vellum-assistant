@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
+import { getMemorySqlite } from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
-import { resetTestTables } from "../../../../persistence/raw-query.js";
 import {
   applyDiff,
   countNodes,
@@ -56,7 +56,6 @@ function makeNewNode(overrides: Partial<NewNode> = {}): NewNode {
     narrativeRole: null,
     partOfStory: null,
     imageRefs: null,
-    scopeId: "default",
     ...overrides,
   };
 }
@@ -66,11 +65,9 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  resetTestTables(
-    "memory_graph_triggers",
-    "memory_graph_edges",
-    "memory_graph_nodes",
-  );
+  // The graph cluster lives in the dedicated memory database now; reset it on
+  // that connection. Deleting nodes cascades to edges, triggers, and edits.
+  getMemorySqlite()!.run("DELETE FROM memory_graph_nodes");
 });
 
 // ---------------------------------------------------------------------------
@@ -194,15 +191,6 @@ describe("node CRUD", () => {
 // ---------------------------------------------------------------------------
 
 describe("queryNodes", () => {
-  test("filters by scopeId", () => {
-    createNode(makeNewNode({ scopeId: "scope-a", content: "A." }));
-    createNode(makeNewNode({ scopeId: "scope-b", content: "B." }));
-
-    const results = queryNodes({ scopeId: "scope-a" });
-    expect(results).toHaveLength(1);
-    expect(results[0].content).toBe("A.");
-  });
-
   test("filters by type", () => {
     createNode(makeNewNode({ type: "episodic", content: "Ep." }));
     createNode(makeNewNode({ type: "semantic", content: "Sem." }));
@@ -293,15 +281,12 @@ describe("queryNodes", () => {
 });
 
 describe("countNodes", () => {
-  test("counts non-gone nodes in a scope", () => {
-    createNode(makeNewNode({ scopeId: "s1", fidelity: "vivid" }));
-    createNode(makeNewNode({ scopeId: "s1", fidelity: "clear" }));
-    createNode(makeNewNode({ scopeId: "s1", fidelity: "gone" }));
-    createNode(makeNewNode({ scopeId: "s2", fidelity: "vivid" }));
+  test("counts non-gone nodes", () => {
+    createNode(makeNewNode({ fidelity: "vivid" }));
+    createNode(makeNewNode({ fidelity: "clear" }));
+    createNode(makeNewNode({ fidelity: "gone" }));
 
-    expect(countNodes("s1")).toBe(2);
-    expect(countNodes("s2")).toBe(1);
-    expect(countNodes("s3")).toBe(0);
+    expect(countNodes()).toBe(2);
   });
 });
 
@@ -531,45 +516,6 @@ describe("trigger CRUD", () => {
     const active = getActiveTriggersByType("temporal");
     expect(active).toHaveLength(1);
     expect(active[0].schedule).toBe("time:morning");
-  });
-
-  test("getActiveTriggersByType filters by scope when provided", () => {
-    const nodeA = createNode(makeNewNode({ scopeId: "scope-a" }));
-    const nodeB = createNode(makeNewNode({ scopeId: "scope-b" }));
-    createTrigger({
-      nodeId: nodeA.id,
-      type: "temporal",
-      schedule: "time:morning",
-      condition: null,
-      conditionEmbedding: null,
-      threshold: null,
-      eventDate: null,
-      rampDays: null,
-      followUpDays: null,
-      recurring: false,
-      consumed: false,
-      cooldownMs: null,
-      lastFired: null,
-    });
-    createTrigger({
-      nodeId: nodeB.id,
-      type: "temporal",
-      schedule: "time:evening",
-      condition: null,
-      conditionEmbedding: null,
-      threshold: null,
-      eventDate: null,
-      rampDays: null,
-      followUpDays: null,
-      recurring: false,
-      consumed: false,
-      cooldownMs: null,
-      lastFired: null,
-    });
-
-    const scopeA = getActiveTriggersByType("temporal", "scope-a");
-    expect(scopeA).toHaveLength(1);
-    expect(scopeA[0].schedule).toBe("time:morning");
   });
 });
 

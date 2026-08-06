@@ -122,8 +122,8 @@ export interface UserPromptSubmitInputContext {
    *   `requestId` instead. Every path that starts an agent loop persists the
    *   triggering user message under the turn's request ID before running, so
    *   the message row id and the request's correlation ID are the same UUID.
-   *   This holds for the standard submit, queue-drain, subagent, voice, wake,
-   *   and conversation-analysis paths alike. This field will be removed in a
+   *   This holds for the standard submit, queue-drain, subagent, voice, and
+   *   wake paths alike. This field will be removed in a
    *   future API version.
    */
   readonly userMessageId: string;
@@ -640,3 +640,15 @@ export interface ConversationDeletedInputContext {
  */
 export interface ConversationDeletedContext
   extends ConversationDeletedInputContext, BaseHookContext {}
+
+// ─── Conversations-cleared hook context ──────────────────────────────────────
+
+/**
+ * The full `conversations-cleared` context a hook receives. Fires once when the
+ * clear-all reset wipes every conversation, so unlike `conversation-deleted` it
+ * carries no `conversationId` — a hook keyed on it wipes its own
+ * per-conversation state wholesale. Only the pipeline-stamped
+ * {@link BaseHookContext} capabilities are present, so the context is exactly
+ * {@link BaseHookContext}.
+ */
+export type ConversationsClearedContext = BaseHookContext;

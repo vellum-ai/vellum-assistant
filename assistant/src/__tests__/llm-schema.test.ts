@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { LLMSchema } from "../config/schemas/llm.js";
+import { LLMConfigBase, LLMSchema } from "../config/schemas/llm.js";
 
-const fullDefault = {
+// A legacy `llm.default` blob as older configs persisted it. The schema has
+// no `default` field, so Zod strips the key at parse time — configs carrying
+// it must still load, with the blob ignored.
+const legacyDefaultBlob = {
   provider: "anthropic" as const,
   model: "claude-opus-4-7",
   maxTokens: 64000,
@@ -27,9 +30,9 @@ const fullDefault = {
 };
 
 describe("LLMSchema", () => {
-  test("valid full config parses successfully (all fields present)", () => {
+  test("valid full config parses successfully; a legacy `default` blob is ignored", () => {
     const parsed = LLMSchema.parse({
-      default: fullDefault,
+      default: legacyDefaultBlob,
       profiles: {
         fast: { speed: "fast", effort: "low" },
         thorough: { effort: "high", maxTokens: 128000 },
@@ -47,15 +50,17 @@ describe("LLMSchema", () => {
         },
       ],
     });
-    expect(parsed.default.provider).toBe("anthropic");
+    // The schema has no `default` field; Zod strips the unknown key.
+    expect("default" in parsed).toBe(false);
     expect(parsed.profiles["fast"]?.speed).toBe("fast");
     expect(parsed.profileOrder).toEqual([]);
     expect(parsed.callSites.mainAgent?.profile).toBe("thorough");
     expect(parsed.pricingOverrides).toHaveLength(1);
   });
 
-  test("minimal valid config (only `default` provided) parses with profiles: {} and callSites: {}", () => {
-    const parsed = LLMSchema.parse({ default: fullDefault });
+  test("a config carrying only a legacy `llm.default` blob parses with the key dropped", () => {
+    const parsed = LLMSchema.parse({ default: legacyDefaultBlob });
+    expect("default" in parsed).toBe(false);
     expect(parsed.profiles).toEqual({});
     expect(parsed.profileOrder).toEqual([]);
     expect(parsed.callSites).toEqual({});
@@ -63,14 +68,26 @@ describe("LLMSchema", () => {
   });
 
   test("empty `llm: {}` parses with all schema defaults applied", () => {
-    // Critical regression guard: every leaf of LLMConfigBase has a
-    // schema-level default, so `LLMSchema.parse({})` must return a
-    // fully-populated object. This is what lets the loader's leaf-deletion
-    // recovery path repair partially invalid `llm` blocks instead of falling
-    // through to `cloneDefaultConfig()` and discarding unrelated valid
-    // settings.
     const parsed = LLMSchema.parse({});
-    expect(parsed.default).toEqual({
+    expect(parsed.profiles).toEqual({});
+    expect(parsed.profileOrder).toEqual([]);
+    expect(parsed.callSites).toEqual({});
+    expect(parsed.pricingOverrides).toEqual([]);
+    expect(parsed.profileSession).toEqual({
+      defaultTtlSeconds: 1800,
+      maxTtlSeconds: 43200,
+    });
+  });
+
+  test("LLMConfigBase.parse({}) returns a fully-defaulted object", () => {
+    // Critical regression guard: every leaf of LLMConfigBase has a
+    // schema-level default, so `LLMConfigBase.parse({})` must return a
+    // fully-populated object. The resolver composes every resolved call-site
+    // config over this code-owned base, and the loader's leaf-deletion
+    // recovery path relies on schema-level defaults to repair partially
+    // invalid `llm` blocks instead of falling through to
+    // `cloneDefaultConfig()` and discarding unrelated valid settings.
+    expect(LLMConfigBase.parse({})).toEqual({
       provider: "anthropic",
       model: "claude-opus-4-8",
       maxTokens: 64000,
@@ -96,15 +113,10 @@ describe("LLMSchema", () => {
       },
       openrouter: { only: [] },
     });
-    expect(parsed.profiles).toEqual({});
-    expect(parsed.profileOrder).toEqual([]);
-    expect(parsed.callSites).toEqual({});
-    expect(parsed.pricingOverrides).toEqual([]);
   });
 
   test("profileOrder accepts presentation order without requiring matching profiles", () => {
     const parsed = LLMSchema.parse({
-      default: fullDefault,
       profiles: { fast: { speed: "fast" } },
       profileOrder: ["fast", "stale"],
     });
@@ -113,28 +125,27 @@ describe("LLMSchema", () => {
 
   test("invalid provider rejected", () => {
     const result = LLMSchema.safeParse({
-      default: { ...fullDefault, provider: "bogus-provider" },
+      profiles: { mine: { provider: "bogus-provider" } },
     });
     expect(result.success).toBe(false);
   });
 
   test("invalid temperature (negative) rejected", () => {
     const result = LLMSchema.safeParse({
-      default: { ...fullDefault, temperature: -0.1 },
+      profiles: { mine: { temperature: -0.1 } },
     });
     expect(result.success).toBe(false);
   });
 
   test("invalid temperature (> 2) rejected", () => {
     const result = LLMSchema.safeParse({
-      default: { ...fullDefault, temperature: 2.5 },
+      profiles: { mine: { temperature: 2.5 } },
     });
     expect(result.success).toBe(false);
   });
 
   test("call-site referencing undefined profile fails superRefine", () => {
     const result = LLMSchema.safeParse({
-      default: fullDefault,
       profiles: { fast: { speed: "fast" } },
       callSites: {
         mainAgent: { profile: "ghost" },
@@ -155,7 +166,6 @@ describe("LLMSchema", () => {
 
   test("call-site referencing defined profile passes", () => {
     const result = LLMSchema.safeParse({
-      default: fullDefault,
       profiles: { fast: { speed: "fast" } },
       callSites: {
         mainAgent: { profile: "fast" },
@@ -166,7 +176,6 @@ describe("LLMSchema", () => {
 
   test("unknown call-site key (typo) fails Zod parse", () => {
     const result = LLMSchema.safeParse({
-      default: fullDefault,
       callSites: {
         // typo of `mainAgent`
         mainAgnt: { temperature: 0.5 },
@@ -177,7 +186,6 @@ describe("LLMSchema", () => {
 
   test("thinking partial override accepted (only `enabled`, no `streamThinking`)", () => {
     const result = LLMSchema.safeParse({
-      default: fullDefault,
       profiles: {
         terse: { thinking: { enabled: false } },
       },
@@ -190,12 +198,8 @@ describe("LLMSchema", () => {
     }
   });
 
-  test("openrouter.only accepts a list of provider names in default/profile/callSite", () => {
+  test("openrouter.only accepts a list of provider names in profile/callSite", () => {
     const parsed = LLMSchema.parse({
-      default: {
-        ...fullDefault,
-        openrouter: { only: ["Anthropic", "Google"] },
-      },
       profiles: {
         pinned: { openrouter: { only: ["Anthropic"] } },
       },
@@ -203,21 +207,19 @@ describe("LLMSchema", () => {
         mainAgent: { openrouter: { only: ["Google"] } },
       },
     });
-    expect(parsed.default.openrouter.only).toEqual(["Anthropic", "Google"]);
     expect(parsed.profiles["pinned"]?.openrouter?.only).toEqual(["Anthropic"]);
     expect(parsed.callSites.mainAgent?.openrouter?.only).toEqual(["Google"]);
   });
 
   test("openrouter.only rejects empty string entries", () => {
     const result = LLMSchema.safeParse({
-      default: { ...fullDefault, openrouter: { only: [""] } },
+      profiles: { pinned: { openrouter: { only: [""] } } },
     });
     expect(result.success).toBe(false);
   });
 
   test("activeProfile undefined parses fine", () => {
     const result = LLMSchema.safeParse({
-      default: fullDefault,
       profiles: { fast: { speed: "fast" } },
     });
     expect(result.success).toBe(true);
@@ -228,7 +230,6 @@ describe("LLMSchema", () => {
 
   test("activeProfile referencing existing profile parses fine", () => {
     const result = LLMSchema.safeParse({
-      default: fullDefault,
       profiles: { fast: { speed: "fast" } },
       activeProfile: "fast",
     });
@@ -240,7 +241,6 @@ describe("LLMSchema", () => {
 
   test("activeProfile referencing missing profile fails superRefine", () => {
     const result = LLMSchema.safeParse({
-      default: fullDefault,
       profiles: { fast: { speed: "fast" } },
       activeProfile: "ghost",
     });
@@ -260,7 +260,6 @@ describe("LLMSchema", () => {
 
   test("contextWindow deep-partial override accepted (nested overflowRecovery only)", () => {
     const result = LLMSchema.safeParse({
-      default: fullDefault,
       profiles: {
         sturdy: {
           contextWindow: {
@@ -276,5 +275,48 @@ describe("LLMSchema", () => {
         | undefined;
       expect(cw?.overflowRecovery?.maxAttempts).toBe(5);
     }
+  });
+
+  test("profile contextWindow with targetBudgetRatio >= compactThreshold fails cross-field validation", () => {
+    const result = LLMSchema.safeParse({
+      profiles: {
+        inverted: {
+          contextWindow: { targetBudgetRatio: 0.8, compactThreshold: 0.3 },
+        },
+      },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((i) => i.message).join("\n")).toContain(
+        "targetBudgetRatio must be less than contextWindow.compactThreshold",
+      );
+    }
+  });
+
+  test("call-site contextWindow with targetBudgetRatio <= summaryBudgetRatio fails cross-field validation", () => {
+    const result = LLMSchema.safeParse({
+      callSites: {
+        mainAgent: {
+          contextWindow: { targetBudgetRatio: 0.05, summaryBudgetRatio: 0.3 },
+        },
+      },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((i) => i.message).join("\n")).toContain(
+        "targetBudgetRatio must be greater than contextWindow.summaryBudgetRatio",
+      );
+    }
+  });
+
+  test("partial contextWindow with only one side of a cross-field pair passes", () => {
+    const result = LLMSchema.safeParse({
+      profiles: {
+        partial: {
+          contextWindow: { targetBudgetRatio: 0.9 },
+        },
+      },
+    });
+    expect(result.success).toBe(true);
   });
 });

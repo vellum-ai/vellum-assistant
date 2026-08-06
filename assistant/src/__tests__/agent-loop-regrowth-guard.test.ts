@@ -464,7 +464,9 @@ describe("AgentLoop budget-gate per-turn proactive-futility suppression", () => 
     let call = 0;
     provider.sendMessage = async (): Promise<ProviderResponse> => {
       call++;
-      if (call === 1) return toolUseResponse("t1");
+      if (call === 1) {
+        return toolUseResponse("t1");
+      }
       if (call === 2 && !overflowThrown) {
         overflowThrown = true;
         throw new ContextOverflowError("prompt too long", "mock", {

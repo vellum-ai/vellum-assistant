@@ -1,3 +1,11 @@
+import type {
+  RemoteWebPairingChallengeRequest,
+  RemoteWebPairingChallengeResponse,
+  RemoteWebPairingTokenApprovedResponse,
+  RemoteWebPairingTokenPendingResponse,
+  RemoteWebPairingTokenRequest,
+} from "@vellumai/service-contracts/remote-web-pairing";
+
 import {
   getGatewayToken,
   setRemoteGatewayToken,
@@ -32,33 +40,20 @@ export interface RemoteWebPairingParams {
   userCode: string | null;
 }
 
-export interface RemoteWebPairingChallenge {
-  deviceCode: string;
-  userCode: string;
-  verificationUri: string;
-  expiresAt: string;
-  expiresInSeconds: number;
-  intervalSeconds: number;
-}
-
-export interface RemoteWebPairingPending {
-  status: "pending";
-  expiresAt: string;
-  intervalSeconds: number;
-}
-
-export interface RemoteWebPairingApproved {
-  status: "approved";
+/**
+ * Credential fields {@link activateRemoteGatewaySession} consumes. Broader than
+ * the pairing-token approved response because the same activation path also
+ * handles the `/v1/guardian/refresh` rotation body, which serializes the two
+ * instants as epoch-millisecond numbers — hence both accept `string | number`.
+ */
+interface RemoteGatewaySessionCredentials {
   accessToken: string;
   accessTokenExpiresAt: string | number;
   refreshAfter: string | number;
-  guardianId?: string;
-  assistantId?: string;
 }
 
 export type RemoteWebPairingTokenResult =
-  | RemoteWebPairingPending
-  | RemoteWebPairingApproved;
+  RemoteWebPairingTokenPendingResponse | RemoteWebPairingTokenApprovedResponse;
 
 export class RemoteWebPairingError extends Error {
   readonly status: number;
@@ -83,7 +78,9 @@ function stringParam(
 ): string | null {
   for (const name of names) {
     const value = params.get(name)?.trim();
-    if (value) return value;
+    if (value) {
+      return value;
+    }
   }
   return null;
 }
@@ -94,7 +91,9 @@ function paramsFromUrl(url: URL): URLSearchParams {
   if (hash) {
     const hashParams = new URLSearchParams(hash);
     for (const [key, value] of hashParams) {
-      if (!merged.has(key)) merged.set(key, value);
+      if (!merged.has(key)) {
+        merged.set(key, value);
+      }
     }
   }
   return merged;
@@ -128,7 +127,14 @@ export function remoteGatewayApiPath(
   return `${remoteGatewayPublicPathPrefix(location)}${path}`;
 }
 
-function remoteGatewayPublicBaseUrl(): string {
+/**
+ * The server's public base URL: origin plus any path prefix the deployment is
+ * served under (via {@link remoteGatewayPublicPathPrefix}). A prefix-served
+ * assistant (pair page at `https://host/assistant-123/assistant/pair`) resolves
+ * to `https://host/assistant-123`; consumers append their own route or API path
+ * onto this base, so it must carry the prefix to reach the right assistant.
+ */
+export function remoteGatewayPublicBaseUrl(): string {
   return `${window.location.origin}${remoteGatewayPublicPathPrefix()}`;
 }
 
@@ -141,13 +147,19 @@ function toEpochMilliseconds(value: string | number): number {
 }
 
 function shouldRefreshRemoteGatewaySession(): boolean {
-  if (!getGatewayToken()) return true;
-  if (remoteGatewayRefreshAfterMs <= 0) return true;
+  if (!getGatewayToken()) {
+    return true;
+  }
+  if (remoteGatewayRefreshAfterMs <= 0) {
+    return true;
+  }
   return Date.now() >= remoteGatewayRefreshAfterMs - REFRESH_EARLY_MS;
 }
 
-function isApprovedPayload(value: unknown): value is RemoteWebPairingApproved {
-  const payload = value as Partial<RemoteWebPairingApproved>;
+function isApprovedPayload(
+  value: unknown,
+): value is RemoteWebPairingTokenApprovedResponse {
+  const payload = value as Partial<RemoteWebPairingTokenApprovedResponse>;
   return (
     payload?.status === "approved" &&
     typeof payload.accessToken === "string" &&
@@ -160,8 +172,8 @@ function isApprovedPayload(value: unknown): value is RemoteWebPairingApproved {
 
 function isChallengePayload(
   value: unknown,
-): value is RemoteWebPairingChallenge {
-  const payload = value as Partial<RemoteWebPairingChallenge>;
+): value is RemoteWebPairingChallengeResponse {
+  const payload = value as Partial<RemoteWebPairingChallengeResponse>;
   return (
     typeof payload?.deviceCode === "string" &&
     typeof payload.userCode === "string" &&
@@ -179,7 +191,9 @@ function sleep(ms: number): Promise<void> {
 function readRefreshLock(): RefreshLockRecord | null {
   try {
     const raw = localStorage.getItem(REFRESH_LOCK_KEY);
-    if (!raw) return null;
+    if (!raw) {
+      return null;
+    }
     const parsed = JSON.parse(raw) as Partial<RefreshLockRecord>;
     if (
       typeof parsed.owner !== "string" ||
@@ -196,7 +210,9 @@ function readRefreshLock(): RefreshLockRecord | null {
 function tryAcquireRefreshLock(owner: string): boolean {
   try {
     const current = readRefreshLock();
-    if (current && current.expiresAt > Date.now()) return false;
+    if (current && current.expiresAt > Date.now()) {
+      return false;
+    }
     localStorage.setItem(
       REFRESH_LOCK_KEY,
       JSON.stringify({ owner, expiresAt: Date.now() + REFRESH_LOCK_TTL_MS }),
@@ -224,7 +240,9 @@ async function withLocalStorageRefreshLock<T>(
   const waitUntil = Date.now() + REFRESH_LOCK_WAIT_MS;
 
   while (!tryAcquireRefreshLock(owner)) {
-    if (Date.now() >= waitUntil) return fn();
+    if (Date.now() >= waitUntil) {
+      return fn();
+    }
     await sleep(REFRESH_LOCK_POLL_MS);
   }
 
@@ -242,12 +260,14 @@ async function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
     typeof navigator !== "undefined"
       ? ((navigator as Navigator & { locks?: BrowserLocks }).locks ?? null)
       : null;
-  if (locks) return locks.request(REFRESH_LOCK_NAME, fn);
+  if (locks) {
+    return locks.request(REFRESH_LOCK_NAME, fn);
+  }
   return withLocalStorageRefreshLock(fn);
 }
 
 export function activateRemoteGatewaySession(
-  session: RemoteWebPairingApproved,
+  session: RemoteGatewaySessionCredentials,
 ): void {
   remoteGatewayRefreshAfterMs = toEpochMilliseconds(session.refreshAfter);
   setRemoteGatewayToken({
@@ -268,7 +288,7 @@ export async function exchangeRemoteWebPairingToken(
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ deviceCode }),
+    body: JSON.stringify({ deviceCode } satisfies RemoteWebPairingTokenRequest),
     signal,
   });
   // A non-JSON body (e.g. an HTML error page) resolves to null and falls
@@ -276,7 +296,8 @@ export async function exchangeRemoteWebPairingToken(
   const body = (await response.json().catch(() => null)) as unknown;
 
   if (response.status === 202) {
-    const pending = (body ?? {}) as Partial<RemoteWebPairingPending>;
+    const pending = (body ??
+      {}) as Partial<RemoteWebPairingTokenPendingResponse>;
     return {
       status: "pending",
       expiresAt: typeof pending.expiresAt === "string" ? pending.expiresAt : "",
@@ -308,12 +329,14 @@ export async function exchangeRemoteWebPairingToken(
 
 export async function createRemoteWebPairingChallenge(
   signal?: AbortSignal,
-): Promise<RemoteWebPairingChallenge> {
+): Promise<RemoteWebPairingChallengeResponse> {
   const response = await fetch(remoteGatewayApiPath(PAIRING_CHALLENGE_PATH), {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ publicBaseUrl: remoteGatewayPublicBaseUrl() }),
+    body: JSON.stringify({
+      publicBaseUrl: remoteGatewayPublicBaseUrl(),
+    } satisfies RemoteWebPairingChallengeRequest),
     signal,
   });
   const body = (await response.json().catch(() => null)) as unknown;
@@ -336,7 +359,9 @@ export async function createRemoteWebPairingChallenge(
 }
 
 async function refreshRemoteGatewaySessionOnce(): Promise<boolean> {
-  if (!shouldRefreshRemoteGatewaySession()) return true;
+  if (!shouldRefreshRemoteGatewaySession()) {
+    return true;
+  }
 
   const response = await fetch(remoteGatewayApiPath(GUARDIAN_REFRESH_PATH), {
     method: "POST",
@@ -345,20 +370,24 @@ async function refreshRemoteGatewaySessionOnce(): Promise<boolean> {
     body: "{}",
   });
 
-  if (!response.ok) return false;
+  if (!response.ok) {
+    return false;
+  }
   const body = (await response.json().catch(() => null)) as unknown;
   if (!isApprovedPayload({ ...(body as object), status: "approved" })) {
     return false;
   }
   activateRemoteGatewaySession({
-    ...(body as Omit<RemoteWebPairingApproved, "status">),
+    ...(body as Omit<RemoteWebPairingTokenApprovedResponse, "status">),
     status: "approved",
-  });
+  } as RemoteGatewaySessionCredentials);
   return true;
 }
 
 export async function refreshRemoteGatewaySession(): Promise<boolean> {
-  if (!shouldRefreshRemoteGatewaySession()) return true;
+  if (!shouldRefreshRemoteGatewaySession()) {
+    return true;
+  }
 
   refreshRemoteGatewaySessionPromise ??= withRefreshLock(
     refreshRemoteGatewaySessionOnce,

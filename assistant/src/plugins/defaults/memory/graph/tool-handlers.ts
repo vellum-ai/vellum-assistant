@@ -1,24 +1,33 @@
 // ---------------------------------------------------------------------------
 // Memory Tool handlers
 //
-// remember: save facts to the PKB (buffer.md + daily archive) under the v1
-// path, or to memory/buffer.md + memory/archive/<today>.md when memory v2 is
-// active.
+// remember: save facts to the concept-page memory buffer
+// (memory/buffer.md + memory/archive/<today>.md); consolidation files them
+// into concept pages.
 // ---------------------------------------------------------------------------
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  isMemoryEnabled,
+  usesConceptPageMemory,
+} from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
-import { getLogger } from "../../../../util/logger.js";
-import { getWorkspaceDir } from "../../../../util/platform.js";
-import { enqueuePkbIndexJob } from "../jobs/embed-pkb-file.js";
-import { PKB_WORKSPACE_SCOPE } from "../pkb/types.js";
-
-const log = getLogger("graph-tool-handlers");
+import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
+import { getWorkspaceDir } from "../paths.js";
+import type { GraphStats } from "./store.js";
+import {
+  computeGraphStats,
+  deleteNode,
+  queryNodes,
+  recordNodeEdit,
+  updateNode,
+} from "./store.js";
+import { type CapabilityKind, capabilityKind } from "./types.js";
 
 // ---------------------------------------------------------------------------
-// remember handler — writes to PKB (v1) or memory/ (v2) buffer + daily archive
+// remember handler — appends to the memory/ buffer + daily archive
 // ---------------------------------------------------------------------------
 
 export interface RememberInput {
@@ -59,14 +68,13 @@ function rememberSuccessMessage(count: number): string {
 export function handleRemember(
   input: RememberInput,
   _conversationId: string,
-  _scopeId: string,
   config: AssistantConfig,
 ): RememberResult {
   const facts = normalizeFacts(input.content);
   if (facts.length === 0) {
     return { success: false, message: "content is required" };
   }
-  if (config.memory.enabled === false) {
+  if (!isMemoryEnabled(config)) {
     return { success: false, message: "Memory is disabled." };
   }
 
@@ -77,26 +85,15 @@ export function handleRemember(
   const entry = facts.map((fact) => formatRememberEntry(fact, now)).join("");
   const message = rememberSuccessMessage(facts.length);
 
-  if (config.memory.v2.enabled) {
-    appendBufferAndArchive({
-      rootDir: join(workspaceDir, "memory"),
-      entry,
-      now,
-    });
-    // v2 path skips the PKB re-index queue — embedding for memory v2 happens
-    // via the dedicated `embed_concept_page` job after consolidation, not on
-    // every remember() write.
-    return { success: true, message };
-  }
-
-  const pkbDir = join(workspaceDir, "pkb");
-  const { bufferPath, archivePath } = appendBufferAndArchive({
-    rootDir: pkbDir,
+  // The buffer is the concept-page substrate's intake regardless of which
+  // injection engine is live: consolidation files the entries into concept
+  // pages, and embedding happens via the dedicated `embed_concept_page` job
+  // after consolidation, not on every remember() write.
+  appendBufferAndArchive({
+    rootDir: join(workspaceDir, "memory"),
     entry,
     now,
   });
-  enqueuePkbReindex(pkbDir, bufferPath);
-  enqueuePkbReindex(pkbDir, archivePath);
 
   return { success: true, message };
 }
@@ -136,12 +133,12 @@ export function formatRememberEntry(content: string, now: Date): string {
  * creating the archive directory and seeding the archive header if missing.
  *
  * Returns the absolute paths of both files so callers can fan out follow-up
- * work (e.g. PKB re-indexing in the v1 path).
+ * work.
  *
- * Exported so memory v2 background jobs (`sweep`, future LLM-driven
- * extractors) can append to `memory/buffer.md` + `memory/archive/<today>.md`
- * with exactly the same format `remember()` produces, keeping the two write
- * paths byte-compatible for downstream consumers (consolidation, search).
+ * Exported so background jobs (`sweep`, future LLM-driven extractors) can
+ * append to `memory/buffer.md` + `memory/archive/<today>.md` with exactly the
+ * same format `remember()` produces, keeping the two write paths
+ * byte-compatible for downstream consumers (consolidation, search).
  */
 export function appendBufferAndArchive(args: {
   rootDir: string;
@@ -172,24 +169,282 @@ export function appendBufferAndArchive(args: {
   return { bufferPath, archivePath };
 }
 
-/**
- * Fire-and-forget enqueue of a PKB re-index job for a file we just wrote.
- *
- * Always indexes under {@link PKB_WORKSPACE_SCOPE}. See the comment on that
- * constant for why PKB points are not per-conversation-scoped.
- *
- * Wrapped in try/catch so an enqueue failure (e.g. DB hiccup) cannot break
- * the remember call — the write has already succeeded and the user's fact
- * is safe on disk.
- */
-function enqueuePkbReindex(pkbRoot: string, absPath: string): void {
-  try {
-    enqueuePkbIndexJob({
-      pkbRoot,
-      absPath,
-      memoryScopeId: PKB_WORKSPACE_SCOPE,
-    });
-  } catch (err) {
-    log.warn({ err, absPath }, "Failed to enqueue PKB re-index job");
+// ---------------------------------------------------------------------------
+// Shared helpers for delete / update / list
+// ---------------------------------------------------------------------------
+
+const SNIPPET_LENGTH = 80;
+
+// ---------------------------------------------------------------------------
+// handleDeleteMemory
+// ---------------------------------------------------------------------------
+
+export interface DeleteMemoryInput {
+  content: string;
+}
+
+export interface DeleteMemoryResult {
+  success: boolean;
+  message: string;
+}
+
+export function handleDeleteMemory(
+  input: DeleteMemoryInput,
+  config: AssistantConfig,
+): DeleteMemoryResult {
+  if (!input.content?.trim()) {
+    return { success: false, message: "content is required" };
   }
+
+  if (!usesConceptPageMemory(config.memory)) {
+    return {
+      success: false,
+      message:
+        "delete requires concept-page memory. Use remember() to record a correction instead.",
+    };
+  }
+
+  const search = input.content.trim().toLowerCase();
+  const nodes = queryNodes({
+    fidelityNot: ["gone"],
+  });
+
+  const exactMatches = nodes.filter(
+    (n) => n.content.trim().toLowerCase() === search,
+  );
+  const candidates =
+    exactMatches.length > 0
+      ? exactMatches
+      : nodes.filter((n) => n.content.toLowerCase().includes(search));
+
+  if (candidates.length === 0) {
+    return {
+      success: false,
+      message:
+        "No memory found matching that content. Use `assistant memory nodes list` to find the exact text first.",
+    };
+  }
+
+  if (candidates.length > 1) {
+    const list = candidates
+      .slice(0, 5)
+      .map((n) => `- ${n.content.slice(0, SNIPPET_LENGTH)}`)
+      .join("\n");
+    return {
+      success: false,
+      message: `Multiple memories match — be more specific:\n${list}`,
+    };
+  }
+
+  const target = candidates[0]!;
+  deleteNode(target.id);
+  return {
+    success: true,
+    message: `Deleted: "${target.content.slice(0, SNIPPET_LENGTH)}"`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleUpdateMemory
+// ---------------------------------------------------------------------------
+
+export interface UpdateMemoryInput {
+  old_content: string;
+  new_content: string;
+}
+
+export interface UpdateMemoryResult {
+  success: boolean;
+  message: string;
+}
+
+export function handleUpdateMemory(
+  input: UpdateMemoryInput,
+  conversationId: string,
+  config: AssistantConfig,
+): UpdateMemoryResult {
+  if (!input.old_content?.trim() || !input.new_content?.trim()) {
+    return {
+      success: false,
+      message: "old_content and new_content are both required",
+    };
+  }
+
+  if (!usesConceptPageMemory(config.memory)) {
+    return {
+      success: false,
+      message:
+        "update requires concept-page memory. Use remember() to record a correction instead.",
+    };
+  }
+
+  const search = input.old_content.trim().toLowerCase();
+  const newContent = input.new_content.trim();
+  const nodes = queryNodes({
+    fidelityNot: ["gone"],
+  });
+
+  const exactMatches = nodes.filter(
+    (n) => n.content.trim().toLowerCase() === search,
+  );
+  const candidates =
+    exactMatches.length > 0
+      ? exactMatches
+      : nodes.filter((n) => n.content.toLowerCase().includes(search));
+
+  if (candidates.length === 0) {
+    return {
+      success: false,
+      message:
+        "No memory found matching old_content. Use `assistant memory nodes list` to find the exact text first.",
+    };
+  }
+
+  if (candidates.length > 1) {
+    const list = candidates
+      .slice(0, 5)
+      .map((n) => `- ${n.content.slice(0, SNIPPET_LENGTH)}`)
+      .join("\n");
+    return {
+      success: false,
+      message: `Multiple memories match old_content — be more specific:\n${list}`,
+    };
+  }
+
+  const target = candidates[0]!;
+
+  const newContentNorm = newContent.toLowerCase();
+  const duplicate = nodes.find(
+    (n) =>
+      n.id !== target.id && n.content.trim().toLowerCase() === newContentNorm,
+  );
+  if (duplicate) {
+    return {
+      success: false,
+      message: `A memory with that content already exists: "${duplicate.content.slice(0, SNIPPET_LENGTH)}"`,
+    };
+  }
+
+  recordNodeEdit({
+    nodeId: target.id,
+    previousContent: target.content,
+    newContent,
+    source: "manual",
+    conversationId,
+  });
+  updateNode(target.id, { content: newContent });
+  enqueueMemoryJob("embed_graph_node", { nodeId: target.id });
+
+  return {
+    success: true,
+    message: `Updated: "${target.content.slice(0, SNIPPET_LENGTH)}" → "${newContent.slice(0, SNIPPET_LENGTH)}"`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleListMemory
+// ---------------------------------------------------------------------------
+
+export interface ListMemoryInput {
+  search?: string;
+  limit?: number;
+  /**
+   * Restrict results to auto-seeded capability nodes of a given flavor:
+   * `skill` (one node per enabled/catalog skill) or `cli` (one per CLI
+   * command). Omit to list every kind of node.
+   */
+  kind?: CapabilityKind;
+}
+
+export interface ListMemoryItem {
+  id: string;
+  content: string;
+  type: string;
+  fidelity: string;
+  created: number;
+}
+
+export interface ListMemoryResult {
+  success: boolean;
+  message: string;
+  nodes: ListMemoryItem[];
+  total: number;
+}
+
+export function handleListMemory(
+  input: ListMemoryInput,
+  config: AssistantConfig,
+): ListMemoryResult {
+  if (!usesConceptPageMemory(config.memory)) {
+    return {
+      success: false,
+      message: "list requires concept-page memory.",
+      nodes: [],
+      total: 0,
+    };
+  }
+
+  const limit = Math.min(Math.max(1, input.limit ?? 50), 200);
+  const search = input.search?.trim().toLowerCase();
+  const kind = input.kind;
+
+  // When a filter (search or kind) is active, fetch all active nodes (no
+  // limit) so filtering is exhaustive regardless of graph size — capability
+  // nodes carry only middling significance and would otherwise fall outside a
+  // significance-capped page. The DB still orders by significance DESC, so the
+  // most relevant matches surface first after slicing.
+  const allNodes = queryNodes({
+    fidelityNot: ["gone"],
+    ...(search || kind ? {} : { limit }),
+  });
+
+  let matches = allNodes;
+  if (kind) {
+    matches = matches.filter((n) => capabilityKind(n) === kind);
+  }
+  if (search) {
+    matches = matches.filter((n) => n.content.toLowerCase().includes(search));
+  }
+  const filtered = matches.slice(0, limit);
+
+  return {
+    success: true,
+    message: `${filtered.length} memor${filtered.length === 1 ? "y" : "ies"} found.`,
+    nodes: filtered.map((n) => ({
+      id: n.id,
+      content: n.content,
+      type: n.type,
+      fidelity: n.fidelity,
+      created: n.created,
+    })),
+    total: filtered.length,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleStatsMemory
+// ---------------------------------------------------------------------------
+
+export interface StatsMemoryResult {
+  success: boolean;
+  message: string;
+  stats: GraphStats | null;
+}
+
+export function handleStatsMemory(config: AssistantConfig): StatsMemoryResult {
+  if (!usesConceptPageMemory(config.memory)) {
+    return {
+      success: false,
+      message: "stats requires concept-page memory.",
+      stats: null,
+    };
+  }
+  const stats = computeGraphStats();
+  const n = stats.total;
+  const e = stats.edgeCount;
+  return {
+    success: true,
+    message: `${n} active node${n === 1 ? "" : "s"}, ${e} edge${e === 1 ? "" : "s"}.`,
+    stats,
+  };
 }

@@ -5,8 +5,8 @@
  *
  * Lives CLI-side because formatting for the terminal is a presentation concern
  * (mirroring the inline rendering in the `simulate` subcommand). It imports
- * only the response *type* from the daemon — `cli/no-daemon-internals` permits
- * type-only imports but forbids pulling in daemon runtime modules.
+ * only the response *type* from the daemon (erased at runtime), never a daemon
+ * runtime module.
  */
 
 import type { ComparisonReport } from "../../../plugins/defaults/memory/v2/harness/runner.js";
@@ -23,7 +23,9 @@ function laneTotals(
   const totals: Record<string, number> = {};
   for (const turn of report.perTurn) {
     const ev = turn.byRetriever[retrieverName];
-    if (!ev) continue;
+    if (!ev) {
+      continue;
+    }
     for (const [lane, count] of Object.entries(ev.hitsByLane)) {
       totals[lane] = (totals[lane] ?? 0) + count;
     }

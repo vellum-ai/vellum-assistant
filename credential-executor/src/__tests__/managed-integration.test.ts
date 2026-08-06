@@ -21,14 +21,17 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createConnection, createServer as createNetServer, type Socket } from "node:net";
+import {
+  createConnection,
+  createServer as createNetServer,
+  type Socket,
+} from "node:net";
 import { Readable, Writable } from "node:stream";
 
 import {
   CES_PROTOCOL_VERSION,
   CesRpcMethod,
   type HandshakeAck,
-  type ListGrantsResponse,
   type GetCredentialResponse,
   type SetCredentialResponse,
   type DeleteCredentialResponse,
@@ -36,13 +39,11 @@ import {
   type RpcEnvelope,
 } from "@vellumai/service-contracts/credential-rpc";
 
-import { PersistentGrantStore } from "../grants/persistent-store.js";
-import { AuditStore } from "../audit/store.js";
 import {
-  createListGrantsHandler,
-  createListAuditRecordsHandler,
-} from "../grants/rpc-handlers.js";
-import { CesRpcServer, type RpcHandlerRegistry, type ServeEndReason } from "../server.js";
+  CesRpcServer,
+  type RpcHandlerRegistry,
+  type ServeEndReason,
+} from "../server.js";
 import { createLocalSecureKeyBackend } from "../materializers/local-secure-key-backend.js";
 
 // ---------------------------------------------------------------------------
@@ -84,35 +85,6 @@ function restoreEnv(saved: SavedEnv): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Build a minimal RPC handler registry with `list_grants` and
- * `list_audit_records` backed by real stores in a temp directory.
- */
-function buildMinimalHandlers(dataDir: string): RpcHandlerRegistry {
-  const grantsDir = join(dataDir, "grants");
-  const auditDir = join(dataDir, "audit");
-  mkdirSync(grantsDir, { recursive: true });
-  mkdirSync(auditDir, { recursive: true });
-
-  const persistentGrantStore = new PersistentGrantStore(grantsDir);
-  persistentGrantStore.init();
-
-  const auditStore = new AuditStore(auditDir);
-  auditStore.init();
-
-  const handlers: RpcHandlerRegistry = {};
-
-  handlers[CesRpcMethod.ListGrants] = createListGrantsHandler({
-    persistentGrantStore,
-  }) as typeof handlers[string];
-
-  handlers[CesRpcMethod.ListAuditRecords] = createListAuditRecordsHandler({
-    auditStore,
-  }) as typeof handlers[string];
-
-  return handlers;
-}
-
-/**
  * Build an RPC handler registry with credential CRUD handlers backed by
  * a real SecureKeyBackend using a temp directory for credential storage.
  *
@@ -125,22 +97,27 @@ function buildCredentialHandlers(vellumRoot: string): RpcHandlerRegistry {
   handlers[CesRpcMethod.GetCredential] = (async (req: { account: string }) => {
     const value = await secureKeyBackend.get(req.account);
     return { found: value !== undefined, value };
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
-  handlers[CesRpcMethod.SetCredential] = (async (req: { account: string; value: string }) => {
+  handlers[CesRpcMethod.SetCredential] = (async (req: {
+    account: string;
+    value: string;
+  }) => {
     const ok = await secureKeyBackend.set(req.account, req.value);
     return { ok };
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
-  handlers[CesRpcMethod.DeleteCredential] = (async (req: { account: string }) => {
+  handlers[CesRpcMethod.DeleteCredential] = (async (req: {
+    account: string;
+  }) => {
     const result = await secureKeyBackend.delete(req.account);
     return { result };
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
   handlers[CesRpcMethod.ListCredentials] = (async () => {
     const accounts = await secureKeyBackend.list();
     return { accounts };
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
   return handlers;
 }
@@ -152,7 +129,10 @@ function buildCredentialHandlers(vellumRoot: string): RpcHandlerRegistry {
  * Replicates the same accept-one-connection pattern from main.ts
  * but in a test-friendly form.
  */
-function acceptOneConnection(socketPath: string, signal: AbortSignal): Promise<{
+function acceptOneConnection(
+  socketPath: string,
+  signal: AbortSignal,
+): Promise<{
   readable: Readable;
   writable: Writable;
   socket: Socket;
@@ -162,7 +142,11 @@ function acceptOneConnection(socketPath: string, signal: AbortSignal): Promise<{
 
     const cleanup = () => {
       netServer.close();
-      try { unlinkSync(socketPath); } catch { /* ok */ }
+      try {
+        unlinkSync(socketPath);
+      } catch {
+        /* ok */
+      }
     };
 
     if (signal.aborted) {
@@ -170,10 +154,14 @@ function acceptOneConnection(socketPath: string, signal: AbortSignal): Promise<{
       return;
     }
 
-    signal.addEventListener("abort", () => {
-      cleanup();
-      reject(new Error("Aborted while waiting for connection"));
-    }, { once: true });
+    signal.addEventListener(
+      "abort",
+      () => {
+        cleanup();
+        reject(new Error("Aborted while waiting for connection"));
+      },
+      { once: true },
+    );
 
     netServer.on("error", (err: Error) => {
       cleanup();
@@ -186,11 +174,19 @@ function acceptOneConnection(socketPath: string, signal: AbortSignal): Promise<{
 
     netServer.on("connection", (sock: Socket) => {
       netServer.close();
-      try { unlinkSync(socketPath); } catch { /* ok */ }
+      try {
+        unlinkSync(socketPath);
+      } catch {
+        /* ok */
+      }
 
       const readable = new Readable({ read() {} });
       const writable = new Writable({
-        write(chunk: Buffer, _encoding: string, callback: (err?: Error | null) => void) {
+        write(
+          chunk: Buffer,
+          _encoding: string,
+          callback: (err?: Error | null) => void,
+        ) {
           if (sock.writable) {
             sock.write(chunk, callback);
           } else {
@@ -256,7 +252,11 @@ function connectToSocket(
  * Read newline-delimited JSON messages from a socket, collecting them
  * until the expected count is reached or a timeout fires.
  */
-function readMessages(sock: Socket, expectedCount: number, timeoutMs = 3000): Promise<unknown[]> {
+function readMessages(
+  sock: Socket,
+  expectedCount: number,
+  timeoutMs = 3000,
+): Promise<unknown[]> {
   return new Promise((resolve, reject) => {
     const messages: unknown[] = [];
     let buffer = "";
@@ -329,7 +329,9 @@ afterEach(async () => {
   if (tmpDir) {
     try {
       rmSync(tmpDir, { recursive: true, force: true });
-    } catch { /* ok */ }
+    } catch {
+      /* ok */
+    }
   }
 });
 
@@ -388,10 +390,9 @@ describe("managed CES integration (real Unix socket)", () => {
       fetch(req) {
         const url = new URL(req.url);
         if (url.pathname === "/healthz") {
-          return new Response(
-            JSON.stringify({ status: "ok" }),
-            { headers: { "Content-Type": "application/json" } },
-          );
+          return new Response(JSON.stringify({ status: "ok" }), {
+            headers: { "Content-Type": "application/json" },
+          });
         }
         if (url.pathname === "/readyz") {
           return new Response(
@@ -404,7 +405,10 @@ describe("managed CES integration (real Unix socket)", () => {
     });
 
     // -- Start accept-one-connection on the Unix socket ------------------------
-    const connectionPromise = acceptOneConnection(socketPath, controller.signal);
+    const connectionPromise = acceptOneConnection(
+      socketPath,
+      controller.signal,
+    );
 
     // -- Client connects -------------------------------------------------------
     clientSocket = await connectToSocket(socketPath);
@@ -413,7 +417,7 @@ describe("managed CES integration (real Unix socket)", () => {
     const conn = await connectionPromise;
 
     let observedSessionId = "";
-    const handlers = buildMinimalHandlers(dataDir);
+    const handlers = buildCredentialHandlers(dataDir);
 
     serverRpcServer = new CesRpcServer({
       input: conn.readable,
@@ -454,13 +458,13 @@ describe("managed CES integration (real Unix socket)", () => {
     expect(observedSessionId).toBe(handshakeSessionId);
     expect(serverRpcServer.currentSessionId).toBe(handshakeSessionId);
 
-    // -- Step 2: RPC dispatch (list_grants) ------------------------------------
+    // -- Step 2: RPC dispatch (list_credentials) -------------------------------
     const rpcId = "rpc-1";
     sendMessage(clientSocket, {
       type: "rpc",
       id: rpcId,
       kind: "request",
-      method: CesRpcMethod.ListGrants,
+      method: CesRpcMethod.ListCredentials,
       payload: {},
       timestamp: new Date().toISOString(),
     });
@@ -472,34 +476,33 @@ describe("managed CES integration (real Unix socket)", () => {
     expect(rpcResp.type).toBe("rpc");
     expect(rpcResp.id).toBe(rpcId);
     expect(rpcResp.kind).toBe("response");
-    expect(rpcResp.method).toBe(CesRpcMethod.ListGrants);
+    expect(rpcResp.method).toBe(CesRpcMethod.ListCredentials);
 
-    const grantsPayload = rpcResp.payload as ListGrantsResponse;
-    expect(grantsPayload.grants).toEqual([]);
+    const listPayload = rpcResp.payload as { accounts: string[] };
+    expect(listPayload.accounts).toEqual([]);
 
-    // -- Step 3: RPC dispatch (list_audit_records) -----------------------------
-    const auditRpcId = "rpc-2";
+    // -- Step 3: RPC dispatch (get_credential, not found) ----------------------
+    const getRpcId = "rpc-2";
     sendMessage(clientSocket, {
       type: "rpc",
-      id: auditRpcId,
+      id: getRpcId,
       kind: "request",
-      method: CesRpcMethod.ListAuditRecords,
-      payload: {},
+      method: CesRpcMethod.GetCredential,
+      payload: { account: "does-not-exist" },
       timestamp: new Date().toISOString(),
     });
 
-    const auditMessages = await readMessages(clientSocket, 1);
-    expect(auditMessages.length).toBe(1);
+    const getMessages = await readMessages(clientSocket, 1);
+    expect(getMessages.length).toBe(1);
 
-    const auditResp = auditMessages[0] as RpcEnvelope & { type: "rpc" };
-    expect(auditResp.type).toBe("rpc");
-    expect(auditResp.id).toBe(auditRpcId);
-    expect(auditResp.kind).toBe("response");
-    expect(auditResp.method).toBe(CesRpcMethod.ListAuditRecords);
+    const getResp = getMessages[0] as RpcEnvelope & { type: "rpc" };
+    expect(getResp.type).toBe("rpc");
+    expect(getResp.id).toBe(getRpcId);
+    expect(getResp.kind).toBe("response");
+    expect(getResp.method).toBe(CesRpcMethod.GetCredential);
 
-    const auditPayload = auditResp.payload as { records: unknown[]; nextCursor: string | null };
-    expect(auditPayload.records).toEqual([]);
-    expect(auditPayload.nextCursor).toBeNull();
+    const getPayload = getResp.payload as { found: boolean };
+    expect(getPayload.found).toBe(false);
 
     // -- Step 4: Health endpoint -----------------------------------------------
     const healthzResp = await fetch(`http://localhost:${healthPort}/healthz`);
@@ -529,7 +532,10 @@ describe("managed CES integration (real Unix socket)", () => {
     const unknownResp = unknownMessages[0] as RpcEnvelope & { type: "rpc" };
     expect(unknownResp.id).toBe(unknownRpcId);
     expect(unknownResp.kind).toBe("response");
-    const unknownPayload = unknownResp.payload as { success: boolean; error: { code: string } };
+    const unknownPayload = unknownResp.payload as {
+      success: boolean;
+      error: { code: string };
+    };
     expect(unknownPayload.error.code).toBe("METHOD_NOT_FOUND");
 
     // -- Cleanup ---------------------------------------------------------------
@@ -552,7 +558,10 @@ describe("managed CES integration (real Unix socket)", () => {
 
     controller = new AbortController();
 
-    const connectionPromise = acceptOneConnection(socketPath, controller.signal);
+    const connectionPromise = acceptOneConnection(
+      socketPath,
+      controller.signal,
+    );
     clientSocket = await connectToSocket(socketPath);
     const conn = await connectionPromise;
 
@@ -601,11 +610,14 @@ describe("managed CES integration (real Unix socket)", () => {
 
     controller = new AbortController();
 
-    const connectionPromise = acceptOneConnection(socketPath, controller.signal);
+    const connectionPromise = acceptOneConnection(
+      socketPath,
+      controller.signal,
+    );
     clientSocket = await connectToSocket(socketPath);
     const conn = await connectionPromise;
 
-    const handlers = buildMinimalHandlers(dataDir);
+    const handlers = buildCredentialHandlers(dataDir);
     serverRpcServer = new CesRpcServer({
       input: conn.readable,
       output: conn.writable,
@@ -621,7 +633,7 @@ describe("managed CES integration (real Unix socket)", () => {
       type: "rpc",
       id: "pre-hs-1",
       kind: "request",
-      method: CesRpcMethod.ListGrants,
+      method: CesRpcMethod.ListCredentials,
       payload: {},
       timestamp: new Date().toISOString(),
     });
@@ -632,7 +644,10 @@ describe("managed CES integration (real Unix socket)", () => {
     const resp = messages[0] as RpcEnvelope & { type: "rpc" };
     expect(resp.id).toBe("pre-hs-1");
     expect(resp.kind).toBe("response");
-    const payload = resp.payload as { success: boolean; error: { code: string } };
+    const payload = resp.payload as {
+      success: boolean;
+      error: { code: string };
+    };
     expect(payload.error.code).toBe("HANDSHAKE_REQUIRED");
 
     clientSocket.end();
@@ -649,7 +664,10 @@ describe("managed CES integration (real Unix socket)", () => {
 
     controller = new AbortController();
 
-    const connectionPromise = acceptOneConnection(socketPath, controller.signal);
+    const connectionPromise = acceptOneConnection(
+      socketPath,
+      controller.signal,
+    );
 
     // First connection succeeds
     clientSocket = await connectToSocket(socketPath);
@@ -700,7 +718,10 @@ describe("credential CRUD RPC", () => {
 
     controller = new AbortController();
 
-    const connectionPromise = acceptOneConnection(socketPath, controller.signal);
+    const connectionPromise = acceptOneConnection(
+      socketPath,
+      controller.signal,
+    );
     clientSocket = await connectToSocket(socketPath);
     const conn = await connectionPromise;
 

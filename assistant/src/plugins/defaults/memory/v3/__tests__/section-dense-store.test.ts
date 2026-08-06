@@ -1,12 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
 import type { AssistantConfig } from "../../../../../config/types.js";
 import type { Section } from "../types.js";
-
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 mock.module("../../../../../persistence/embeddings/qdrant-client.js", () => ({
   resolveQdrantUrl: () => "http://127.0.0.1:6333",
@@ -96,7 +91,9 @@ mock.module("../../../../../persistence/embeddings/embedding-cache.js", () => ({
   ) => {
     cacheState.reads.push(cacheKey(key));
     const row = cacheState.store.get(cacheKey(key));
-    if (!row || row.dimensions !== key.expectedDim) return null;
+    if (!row || row.dimensions !== key.expectedDim) {
+      return null;
+    }
     return { dense: row.dense, contentHash: row.contentHash };
   },
   writeEmbeddingCache: (
@@ -120,6 +117,10 @@ mock.module("../../../../../persistence/embeddings/embedding-cache.js", () => ({
 
 mock.module("../../../../../persistence/db-connection.js", () => ({
   getDb: () => ({}),
+  // The section store resolves the embedding cache on the memory connection via
+  // `memoryDbOrNull`; hand back truthy sentinels so it takes the cache path.
+  getMemoryDb: () => ({}),
+  getMemorySqlite: () => ({}),
 }));
 
 // Mock the underlying @qdrant/js-client-rest package. The mock client records
@@ -169,13 +170,17 @@ class MockQdrantClient {
   async createCollection(_name: string, params: unknown) {
     state.createCollectionCalls++;
     state.createCollectionParams = params;
-    if (state.createCollectionThrows) throw state.createCollectionThrows;
+    if (state.createCollectionThrows) {
+      throw state.createCollectionThrows;
+    }
     state.collectionExists = true;
     return {};
   }
   async getCollection(_name: string) {
     state.getCollectionCalls++;
-    if (state.getCollectionThrows) throw state.getCollectionThrows;
+    if (state.getCollectionThrows) {
+      throw state.getCollectionThrows;
+    }
     return state.getCollectionInfo;
   }
   async deleteCollection(name: string) {

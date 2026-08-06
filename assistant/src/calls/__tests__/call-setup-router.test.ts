@@ -29,16 +29,8 @@ import {
 import type { AdmissionPolicy, TrustVerdict } from "@vellumai/gateway-client";
 
 import type { TrustClass } from "../../runtime/actor-trust-resolver.js";
+import type { SetupOutcome } from "../call-setup-router.js";
 import type { CallSession } from "../types.js";
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({ calls: { verification: { enabled: false } } }),
-}));
 
 // `resolveActorTrust` must never be consulted by the router — the gateway
 // verdict is the sole trust source. The mock throws so a regression back to
@@ -191,57 +183,59 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("routeSetup — unusable verdict fails closed", () => {
-  const unusableVerdicts: Array<{ name: string; verdict: TrustVerdict | null }> =
-    [
-      { name: "null verdict", verdict: null },
-      {
-        name: "resolutionFailed verdict",
-        verdict: makeVerdict({ resolutionFailed: true }),
-      },
-      {
-        name: "member identity with missing status",
-        verdict: makeVerdict({
-          trustClass: "trusted_contact",
-          contactId: "ct_1",
-          channelId: "ch_1",
-          policy: "allow",
-        }),
-      },
-      {
-        name: "member identity with unknown status",
-        verdict: makeVerdict({
-          trustClass: "trusted_contact",
-          contactId: "ct_1",
-          channelId: "ch_1",
-          status: "bogus",
-          policy: "allow",
-        }),
-      },
-      {
-        name: "member identity with unknown policy",
-        verdict: makeVerdict({
-          trustClass: "trusted_contact",
-          contactId: "ct_1",
-          channelId: "ch_1",
-          status: "active",
-          policy: "bogus",
-        }),
-      },
-      {
-        name: "unrecognized trust class (version skew)",
-        verdict: makeVerdict({
-          trustClass: "superadmin" as TrustVerdict["trustClass"],
-          canonicalSenderId: "+12025550142",
-        }),
-      },
-      {
-        // Contradictory: the gateway proves guardian identity via a
-        // same-channel member row, so a memberless guardian claim must
-        // never confer guardian capabilities (or even a normal_call).
-        name: "memberless guardian claim",
-        verdict: makeVerdict({ trustClass: "guardian" }),
-      },
-    ];
+  const unusableVerdicts: Array<{
+    name: string;
+    verdict: TrustVerdict | null;
+  }> = [
+    { name: "null verdict", verdict: null },
+    {
+      name: "resolutionFailed verdict",
+      verdict: makeVerdict({ resolutionFailed: true }),
+    },
+    {
+      name: "member identity with missing status",
+      verdict: makeVerdict({
+        trustClass: "trusted_contact",
+        contactId: "ct_1",
+        channelId: "ch_1",
+        policy: "allow",
+      }),
+    },
+    {
+      name: "member identity with unknown status",
+      verdict: makeVerdict({
+        trustClass: "trusted_contact",
+        contactId: "ct_1",
+        channelId: "ch_1",
+        status: "bogus",
+        policy: "allow",
+      }),
+    },
+    {
+      name: "member identity with unknown policy",
+      verdict: makeVerdict({
+        trustClass: "trusted_contact",
+        contactId: "ct_1",
+        channelId: "ch_1",
+        status: "active",
+        policy: "bogus",
+      }),
+    },
+    {
+      name: "unrecognized trust class (version skew)",
+      verdict: makeVerdict({
+        trustClass: "superadmin" as TrustVerdict["trustClass"],
+        canonicalSenderId: "+12025550142",
+      }),
+    },
+    {
+      // Contradictory: the gateway proves guardian identity via a
+      // same-channel member row, so a memberless guardian claim must
+      // never confer guardian capabilities (or even a normal_call).
+      name: "memberless guardian claim",
+      verdict: makeVerdict({ trustClass: "guardian" }),
+    },
+  ];
 
   for (const { name, verdict } of unusableVerdicts) {
     test(`inbound ${name} → deny with no local resolve, no session read, no stranger flows`, async () => {
@@ -308,9 +302,13 @@ describe("routeSetup — verdict session stamp gates getPendingSession", () => {
   test("stamp false skips the pending-session read", async () => {
     const { outcome } = await route(
       null,
-      makeMemberVerdict("trusted_contact", { status: "active" }, {
-        hasInterceptableVerificationSession: false,
-      }),
+      makeMemberVerdict(
+        "trusted_contact",
+        { status: "active" },
+        {
+          hasInterceptableVerificationSession: false,
+        },
+      ),
     );
 
     expect(getPendingSessionCalls).toBe(0);
@@ -320,9 +318,13 @@ describe("routeSetup — verdict session stamp gates getPendingSession", () => {
   test("stamp false + floor deny makes zero verification-read IPC calls", async () => {
     const { outcome } = await route(
       "guardian_only",
-      makeMemberVerdict("trusted_contact", { status: "active" }, {
-        hasInterceptableVerificationSession: false,
-      }),
+      makeMemberVerdict(
+        "trusted_contact",
+        { status: "active" },
+        {
+          hasInterceptableVerificationSession: false,
+        },
+      ),
     );
 
     expect(outcome.action).toBe("deny");
@@ -333,9 +335,13 @@ describe("routeSetup — verdict session stamp gates getPendingSession", () => {
     pendingChallenge = { id: "vs_1" };
     const { outcome } = await route(
       null,
-      makeMemberVerdict("trusted_contact", { status: "active" }, {
-        hasInterceptableVerificationSession: false,
-      }),
+      makeMemberVerdict(
+        "trusted_contact",
+        { status: "active" },
+        {
+          hasInterceptableVerificationSession: false,
+        },
+      ),
     );
 
     expect(getPendingSessionCalls).toBe(0);
@@ -346,9 +352,13 @@ describe("routeSetup — verdict session stamp gates getPendingSession", () => {
     pendingChallenge = { id: "vs_1" };
     const { outcome } = await route(
       null,
-      makeMemberVerdict("trusted_contact", { status: "active" }, {
-        hasInterceptableVerificationSession: true,
-      }),
+      makeMemberVerdict(
+        "trusted_contact",
+        { status: "active" },
+        {
+          hasInterceptableVerificationSession: true,
+        },
+      ),
     );
 
     expect(getPendingSessionCalls).toBe(1);
@@ -367,47 +377,75 @@ describe("routeSetup — verdict session stamp gates getPendingSession", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Floor table: trustClass × policy → admit/deny
+// Floor table: trustClass × policy → setup action
+//
+// A caller at or above the floor connects directly (`normal_call`). A caller
+// BELOW a floor that a guardian approval could clear is routed into the
+// guardian access-request flow instead of hung up on: `name_capture` for an
+// unrecognized number, `unverified_caller` for a known contact who still owes
+// verification. `guardian_only` / `no_one` sit above the trusted
+// contact rank an approval grants, so they stay a hard `deny`.
 // ---------------------------------------------------------------------------
 
 describe("routeSetup — admission floor table", () => {
   const cases: Array<{
     policy: AdmissionPolicy;
-    admits: TrustClass[];
-    denies: TrustClass[];
+    expected: Record<TrustClass, SetupOutcome["action"]>;
   }> = [
     {
       policy: "strangers",
-      admits: ["unknown", "unverified_contact", "trusted_contact", "guardian"],
-      denies: [],
+      expected: {
+        unknown: "normal_call",
+        unverified_contact: "normal_call",
+        trusted_contact: "normal_call",
+        guardian: "normal_call",
+      },
     },
     {
       policy: "any_contact",
-      admits: ["unverified_contact", "trusted_contact", "guardian"],
-      denies: ["unknown"],
+      expected: {
+        unknown: "name_capture",
+        unverified_contact: "normal_call",
+        trusted_contact: "normal_call",
+        guardian: "normal_call",
+      },
     },
     {
       policy: "trusted_contacts",
-      admits: ["trusted_contact", "guardian"],
-      denies: ["unknown", "unverified_contact"],
+      expected: {
+        unknown: "name_capture",
+        unverified_contact: "unverified_caller",
+        trusted_contact: "normal_call",
+        guardian: "normal_call",
+      },
     },
     {
       policy: "guardian_only",
-      admits: ["guardian"],
-      denies: ["unknown", "unverified_contact", "trusted_contact"],
+      expected: {
+        unknown: "deny",
+        unverified_contact: "deny",
+        trusted_contact: "deny",
+        guardian: "normal_call",
+      },
     },
     {
       policy: "no_one",
-      admits: [],
-      denies: ["unknown", "unverified_contact", "trusted_contact", "guardian"],
+      expected: {
+        unknown: "deny",
+        unverified_contact: "deny",
+        trusted_contact: "deny",
+        guardian: "deny",
+      },
     },
   ];
 
-  for (const { policy, admits, denies } of cases) {
-    for (const trustClass of denies) {
-      test(`${policy} denies ${trustClass}`, async () => {
+  for (const { policy, expected } of cases) {
+    for (const [trustClass, action] of Object.entries(expected) as Array<
+      [TrustClass, SetupOutcome["action"]]
+    >) {
+      test(`${policy} routes ${trustClass} to ${action}`, async () => {
         const { outcome } = await route(policy, verdictFor(trustClass));
-        expect(outcome.action).toBe("deny");
+        expect(outcome.action).toBe(action);
         if (outcome.action === "deny") {
           expect(outcome.logReason).toBe(
             `Inbound voice admission floor: ${policy}`,
@@ -415,13 +453,114 @@ describe("routeSetup — admission floor table", () => {
         }
       });
     }
-    for (const trustClass of admits) {
-      test(`${policy} admits ${trustClass}`, async () => {
-        const { outcome } = await route(policy, verdictFor(trustClass));
-        expect(outcome.action).not.toBe("deny");
-      });
-    }
   }
+});
+
+// ---------------------------------------------------------------------------
+// An unrecognized caller below a clearable floor reaches the guardian
+// access-request flow instead of being hung up on. The default channel policy
+// is `trusted_contacts`, so this is the out-of-the-box path for every inbound
+// call from an unknown number.
+// ---------------------------------------------------------------------------
+
+describe("routeSetup: below-floor unknown caller reaches guardian approval", () => {
+  test("default trusted_contacts floor routes an unknown caller to name_capture", async () => {
+    const { outcome, resolved } = await route(
+      "trusted_contacts",
+      verdictFor("unknown"),
+    );
+    expect(outcome.action).toBe("name_capture");
+    if (outcome.action === "name_capture") {
+      expect(outcome.fromNumber).toBe("+12025550142");
+    }
+    expect(resolved.actorTrust.trustClass).toBe("unknown");
+  });
+
+  test("an active voice invite still takes precedence over the approval flow", async () => {
+    activeVoiceInvite = {
+      inviteId: "inv_1",
+      inviteeName: "Alice Example",
+      guardianName: "Sam",
+      codeDigits: 6,
+    };
+    const { outcome } = await route("trusted_contacts", verdictFor("unknown"));
+    expect(outcome.action).toBe("invite_redemption");
+  });
+
+  test("guardian_only keeps the hard deny (approval could not admit them)", async () => {
+    const { outcome } = await route("guardian_only", verdictFor("unknown"));
+    expect(outcome.action).toBe("deny");
+  });
+
+  test("a blocked caller below a clearable floor is still denied", async () => {
+    const { outcome } = await route(
+      "trusted_contacts",
+      makeMemberVerdict("unknown", { status: "blocked" }),
+    );
+    expect(outcome.action).toBe("deny");
+  });
+
+  test("a revoked caller below a clearable floor is still denied", async () => {
+    const { outcome } = await route(
+      "trusted_contacts",
+      makeMemberVerdict("unknown", { status: "revoked" }),
+    );
+    expect(outcome.action).toBe("deny");
+  });
+
+  // Status and policy are independent governance signals: the gateway derives
+  // trust class from status alone, so a channel the guardian set to
+  // `policy: "deny"` still resolves to `unverified_contact` while status is
+  // `unverified`/`pending`. The deny gate is trust-class independent and runs
+  // ahead of the floor, so it holds whether the floor admits or denies, and it
+  // outranks an active voice invite.
+  describe("member policy deny outranks every inbound flow", () => {
+    const denyVerdict = () =>
+      makeMemberVerdict("unverified_contact", {
+        status: "unverified",
+        policy: "deny",
+      });
+
+    test("denied below a clearable floor (not sent to verification guidance)", async () => {
+      const { outcome } = await route("trusted_contacts", denyVerdict());
+      expect(outcome.action).toBe("deny");
+      if (outcome.action === "deny") {
+        expect(outcome.logReason).toBe("Inbound voice ACL: member policy deny");
+      }
+    });
+
+    test("denied even when the floor would admit them", async () => {
+      const { outcome } = await route("strangers", denyVerdict());
+      expect(outcome.action).toBe("deny");
+    });
+
+    test("denied with no floor configured", async () => {
+      const { outcome } = await route(null, denyVerdict());
+      expect(outcome.action).toBe("deny");
+    });
+
+    test("denied even with an active voice invite", async () => {
+      activeVoiceInvite = {
+        inviteId: "inv_1",
+        inviteeName: "Alice Example",
+        guardianName: "Sam",
+        codeDigits: 6,
+      };
+      const { outcome } = await route("trusted_contacts", denyVerdict());
+      expect(outcome.action).toBe("deny");
+    });
+
+    test("an active-status member with policy deny is denied", async () => {
+      const { outcome } = await route(
+        "trusted_contacts",
+        makeMemberVerdict("trusted_contact", {
+          status: "active",
+          policy: "deny",
+        }),
+      );
+      expect(outcome.action).toBe("deny");
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -457,9 +596,9 @@ describe("routeSetup — no policy preserves current behavior", () => {
     expect((await route(null, verdictFor("unknown"))).outcome.action).toBe(
       "name_capture",
     );
-    expect(
-      (await route(undefined, verdictFor("unknown"))).outcome.action,
-    ).toBe("name_capture");
+    expect((await route(undefined, verdictFor("unknown"))).outcome.action).toBe(
+      "name_capture",
+    );
   });
 
   test("unverified known caller → unverified_caller", async () => {
@@ -533,14 +672,14 @@ describe("routeSetup — permissive floor admits to normal_call", () => {
     ).toBe("unverified_caller");
   });
 
-  test("trusted_contacts (default) still denies unknown and unverified", async () => {
+  test("trusted_contacts (default) keeps below-floor callers out of normal_call", async () => {
     expect(
       (await route("trusted_contacts", verdictFor("unknown"))).outcome.action,
-    ).toBe("deny");
+    ).toBe("name_capture");
     expect(
       (await route("trusted_contacts", verdictFor("unverified_contact")))
         .outcome.action,
-    ).toBe("deny");
+    ).toBe("unverified_caller");
   });
 });
 
@@ -639,19 +778,6 @@ describe("routeSetup — verdict path enforces member ACL", () => {
       makeMemberVerdict("trusted_contact", {
         status: "active",
         policy: "deny",
-      }),
-    );
-
-    expect(resolveActorTrustMock).not.toHaveBeenCalled();
-    expect(outcome.action).toBe("deny");
-  });
-
-  test("policy escalate member via verdict is denied (live call can't await approval)", async () => {
-    const { outcome } = await route(
-      null,
-      makeMemberVerdict("trusted_contact", {
-        status: "active",
-        policy: "escalate",
       }),
     );
 

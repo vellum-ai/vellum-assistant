@@ -11,7 +11,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Mocks — must be set up before importing the service
 // ---------------------------------------------------------------------------
 
-let mockRawConfig: Record<string, unknown> | undefined;
 let mockSecureKeys: Record<string, string>;
 let mockHasTwilioCredentials: boolean;
 
@@ -21,38 +20,6 @@ mock.module("../calls/twilio-rest.js", () => ({
 }));
 
 mock.module("../config/env.js", () => ({}));
-
-mock.module("../config/loader.js", () => ({
-  loadRawConfig: () => mockRawConfig ?? {},
-  loadConfig: () => {
-    const raw = mockRawConfig ?? {};
-    const wa = (raw.whatsapp ?? {}) as Record<string, unknown>;
-    const tw = (raw.twilio ?? {}) as Record<string, unknown>;
-    return {
-      twilio: { phoneNumber: (tw.phoneNumber as string) ?? "" },
-      whatsapp: { phoneNumber: (wa.phoneNumber as string) ?? "" },
-    };
-  },
-  getConfig: () => {
-    const raw = mockRawConfig ?? {};
-    const wa = (raw.whatsapp ?? {}) as Record<string, unknown>;
-    const tw = (raw.twilio ?? {}) as Record<string, unknown>;
-    return {
-      twilio: { phoneNumber: (tw.phoneNumber as string) ?? "" },
-      whatsapp: { phoneNumber: (wa.phoneNumber as string) ?? "" },
-    };
-  },
-  getNestedValue: (obj: Record<string, unknown>, path: string) => {
-    const keys = path.split(".");
-    let current: unknown = obj;
-    for (const key of keys) {
-      if (current == null || typeof current !== "object") return undefined;
-      current = (current as Record<string, unknown>)[key];
-    }
-    return current;
-  },
-  invalidateConfigCache: () => {},
-}));
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? null,
@@ -64,6 +31,7 @@ mock.module("../security/secure-keys.js", () => ({
 
 import { createReadinessService } from "../runtime/channel-readiness-service.js";
 import { credentialKey } from "../security/credential-key.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -71,7 +39,10 @@ import { credentialKey } from "../security/credential-key.js";
 
 describe("channel readiness routes — email and WhatsApp probes", () => {
   beforeEach(() => {
-    mockRawConfig = undefined;
+    // Reset the seeded config sections to their empty (all-defaults) state.
+    setConfig("ingress", {});
+    setConfig("whatsapp", {});
+    setConfig("email", {});
     mockSecureKeys = {};
     mockHasTwilioCredentials = false;
   });
@@ -94,7 +65,6 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
     });
 
     test("reports platform email check as passing", async () => {
-      mockRawConfig = {};
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("email");
 
@@ -106,9 +76,10 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
     });
 
     test("checks invite policy", async () => {
-      mockRawConfig = {
-        ingress: { publicBaseUrl: "https://example.com", enabled: true },
-      };
+      setConfig("ingress", {
+        publicBaseUrl: "https://example.com",
+        enabled: true,
+      });
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("email");
 
@@ -121,7 +92,6 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
     });
 
     test("checks ingress configuration", async () => {
-      mockRawConfig = {};
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("email");
 
@@ -133,10 +103,11 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
     });
 
     test("ready when all prerequisites are met (including inbox)", async () => {
-      mockRawConfig = {
-        ingress: { publicBaseUrl: "https://example.com", enabled: true },
-        email: { address: "hello@vellum.me" },
-      };
+      setConfig("ingress", {
+        publicBaseUrl: "https://example.com",
+        enabled: true,
+      });
+      setConfig("email", { address: "user@example.com" });
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("email", true);
 
@@ -145,9 +116,10 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
     });
 
     test("not ready when inbox is missing (remote check)", async () => {
-      mockRawConfig = {
-        ingress: { publicBaseUrl: "https://example.com", enabled: true },
-      };
+      setConfig("ingress", {
+        publicBaseUrl: "https://example.com",
+        enabled: true,
+      });
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("email", true);
 
@@ -158,9 +130,10 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
     });
 
     test("local-only readiness still passes without inbox check", async () => {
-      mockRawConfig = {
-        ingress: { publicBaseUrl: "https://example.com", enabled: true },
-      };
+      setConfig("ingress", {
+        publicBaseUrl: "https://example.com",
+        enabled: true,
+      });
       // No inbox configured — explicitly opt out of remote checks
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("email", false);
@@ -187,7 +160,6 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
     });
 
     test("reports not ready when Meta credentials are missing", async () => {
-      mockRawConfig = {};
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("whatsapp");
 
@@ -207,10 +179,11 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
         [credentialKey("whatsapp", "app_secret")]: "abc123",
         [credentialKey("whatsapp", "webhook_verify_token")]: "my-verify-token",
       };
-      mockRawConfig = {
-        whatsapp: { phoneNumber: "+15551234567" },
-        ingress: { publicBaseUrl: "https://example.com", enabled: true },
-      };
+      setConfig("whatsapp", { phoneNumber: "+15555550123" });
+      setConfig("ingress", {
+        publicBaseUrl: "https://example.com",
+        enabled: true,
+      });
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("whatsapp");
 
@@ -225,9 +198,10 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
         [credentialKey("whatsapp", "app_secret")]: "abc123",
         [credentialKey("whatsapp", "webhook_verify_token")]: "my-verify-token",
       };
-      mockRawConfig = {
-        ingress: { publicBaseUrl: "https://example.com", enabled: true },
-      };
+      setConfig("ingress", {
+        publicBaseUrl: "https://example.com",
+        enabled: true,
+      });
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("whatsapp");
 
@@ -246,9 +220,10 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
         [credentialKey("whatsapp", "app_secret")]: "abc123",
         [credentialKey("whatsapp", "webhook_verify_token")]: "my-verify-token",
       };
-      mockRawConfig = {
-        ingress: { publicBaseUrl: "https://example.com", enabled: true },
-      };
+      setConfig("ingress", {
+        publicBaseUrl: "https://example.com",
+        enabled: true,
+      });
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("whatsapp");
 
@@ -282,10 +257,11 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
         [credentialKey("whatsapp", "app_secret")]: "abc123",
         [credentialKey("whatsapp", "webhook_verify_token")]: "my-verify-token",
       };
-      mockRawConfig = {
-        whatsapp: { phoneNumber: "+15551234567" },
-        ingress: { publicBaseUrl: "https://example.com", enabled: true },
-      };
+      setConfig("whatsapp", { phoneNumber: "+15555550123" });
+      setConfig("ingress", {
+        publicBaseUrl: "https://example.com",
+        enabled: true,
+      });
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("whatsapp");
 
@@ -303,9 +279,7 @@ describe("channel readiness routes — email and WhatsApp probes", () => {
         [credentialKey("whatsapp", "app_secret")]: "abc123",
         [credentialKey("whatsapp", "webhook_verify_token")]: "my-verify-token",
       };
-      mockRawConfig = {
-        whatsapp: { phoneNumber: "+15551234567" },
-      };
+      setConfig("whatsapp", { phoneNumber: "+15555550123" });
       const service = createReadinessService();
       const [snapshot] = await service.getReadiness("whatsapp");
 

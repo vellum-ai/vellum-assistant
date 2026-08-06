@@ -15,6 +15,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
 
+import { applyCommandHelp } from "../../../lib/cli-command-help.js";
+import { memoryHelp } from "../index.help.js";
+
 // ---------------------------------------------------------------------------
 // Mock state
 // ---------------------------------------------------------------------------
@@ -83,6 +86,7 @@ function buildProgram(): Command {
     writeOut: () => {},
   });
   const memory = program.command("memory");
+  applyCommandHelp(memory, memoryHelp);
   registerMemoryV2Command(memory);
   return program;
 }
@@ -107,7 +111,9 @@ async function runCommand(
     const program = buildProgram();
     await program.parseAsync(["node", "assistant", ...args]);
   } catch {
-    if (process.exitCode === 0) process.exitCode = 1;
+    if (process.exitCode === 0) {
+      process.exitCode = 1;
+    }
   } finally {
     process.stdout.write = originalStdoutWrite;
     process.stderr.write = originalStderrWrite;

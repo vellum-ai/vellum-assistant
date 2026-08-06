@@ -3,10 +3,9 @@
  * reporting gate (`device:diagnostics_reporting`) AND a probe-confirmed live
  * platform session.
  *
- * The reporting gate is the saved Share Diagnostics preference AND a current
- * privacy-consent version, so a stale-version record stops reporting until
- * re-accept without losing the saved opt-in. It is written by the consent-
- * resolution paths (`setDiagnosticsReportingGate`).
+ * The reporting gate tracks the saved Share Diagnostics preference with
+ * opt-out semantics: it closes only for an explicit opt-out. It is written
+ * solely by the consent chokepoints in `lib/consent/diagnostics-consent.ts`.
  *
  * Diagnostics are recorded against a platform account, so an offline /
  * self-hosted client — including a believed offline restore (LUM-2412) that no
@@ -14,10 +13,10 @@
  * gate, matching the daemon's consent posture. The same composed gate drives
  * the browser client and, via `syncDiagnosticsToMain`, the Electron main client.
  *
- * Strict opt-in semantics for the reporting gate (when a session is live):
- *   - stored "true"  → Sentry ON  (current consent)
- *   - stored "false" → Sentry OFF (opt-out or stale version)
- *   - absent         → Sentry OFF (no consent on record yet)
+ * Opt-out semantics for the reporting gate (when a session is live):
+ *   - stored "true"  → Sentry ON  (explicit or default-on consent)
+ *   - stored "false" → Sentry OFF (explicit opt-out)
+ *   - absent         → Sentry ON  (never asked — telemetry is opt-out)
  *
  * SDK access is dispatched through `selectSentryFlavor()` so each surface
  * (web/electron renderer, capacitor) can supply its own implementation. The
@@ -32,11 +31,14 @@ import { selectSentryFlavor } from "@/lib/sentry/flavor";
 import { diagnosticsConsentGranted } from "@/lib/sentry/consent-gate";
 import { watchDeviceSetting } from "@/utils/device-settings";
 import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
+import { disableNativeFailureReportForwarding } from "@/runtime/native-failure-reports";
 import { useAuthStore } from "@/stores/auth-store";
 
 function tryInit(options: BrowserOptions): void {
   const flavor = selectSentryFlavor();
-  if (flavor.getClientEnabled()) return;
+  if (flavor.getClientEnabled()) {
+    return;
+  }
   flavor.init(options);
 }
 
@@ -50,7 +52,10 @@ function tryClose(): void {
  * Idempotent when consent matches the current client state.
  */
 export function syncSentryClient(options: BrowserOptions): void {
-  if (!options.dsn) return;
+  if (!options.dsn) {
+    void disableNativeFailureReportForwarding();
+    return;
+  }
   if (diagnosticsConsentGranted()) {
     tryInit(options);
   } else {

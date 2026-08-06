@@ -3,13 +3,10 @@
  *
  * SPIKE — checkin-onboarding flow.
  *
- * Lifted from the connect logic in
- * `@/domains/onboarding/screens/google-connect-screen.tsx`, but parameterized
+ * Lifted from the legacy pre-chat Google connect logic, but parameterized
  * with `requestedScopes` (so the check-in page can ask for ONLY
  * `calendar.events` — the minimum to create an event — instead of the full
- * Gmail+Calendar+Drive bundle) and an `onConnect(scopes)` callback. The
- * existing GoogleConnectScreen is deliberately left untouched to avoid any
- * regression on the live pre-chat Google connect; dedup is a follow-up.
+ * Gmail+Calendar+Drive bundle) and an `onConnect(scopes)` callback.
  *
  * Handles the web popup flow, the native (SFSafariViewController) flow, and the
  * three completion channels (postMessage, storage event, native deep link)
@@ -157,12 +154,15 @@ export function useGoogleCalendarConnect({
 
   useEffect(() => {
     return () => {
-      if (popupCheckIntervalRef.current)
+      if (popupCheckIntervalRef.current) {
         clearInterval(popupCheckIntervalRef.current);
-      if (popupClosedGraceTimeoutRef.current)
+      }
+      if (popupClosedGraceTimeoutRef.current) {
         clearTimeout(popupClosedGraceTimeoutRef.current);
-      if (popupRef.current && !popupRef.current.closed)
+      }
+      if (popupRef.current && !popupRef.current.closed) {
         popupRef.current.close();
+      }
       if (messageListenerRef.current) {
         window.removeEventListener("message", messageListenerRef.current);
       }
@@ -202,9 +202,13 @@ export function useGoogleCalendarConnect({
   const waitForActiveGoogleConnection =
     useCallback(async (): Promise<OAuthConnection | null> => {
       for (let attempt = 0; attempt < CONNECTION_POLL_ATTEMPTS; attempt += 1) {
-        if (attempt > 0) await wait(CONNECTION_POLL_DELAY_MS);
+        if (attempt > 0) {
+          await wait(CONNECTION_POLL_DELAY_MS);
+        }
         const connection = await fetchActiveGoogleConnection();
-        if (connection) return connection;
+        if (connection) {
+          return connection;
+        }
       }
       return null;
     }, [fetchActiveGoogleConnection]);
@@ -223,7 +227,9 @@ export function useGoogleCalendarConnect({
 
   const handleOAuthCompletePayload = useCallback(
     (payload: OAuthCompletePayload) => {
-      if (payload.type !== "vellum:oauth-complete") return;
+      if (payload.type !== "vellum:oauth-complete") {
+        return;
+      }
       if (
         !pendingRequestRef.current ||
         payload.requestId !== pendingRequestRef.current.requestId
@@ -243,13 +249,17 @@ export function useGoogleCalendarConnect({
   const handleOAuthMessage = useCallback(
     (event: MessageEvent) => {
       const pendingRequest = pendingRequestRef.current;
-      if (!pendingRequest) return;
+      if (!pendingRequest) {
+        return;
+      }
       const payload = getOAuthCompleteMessagePayload(
         event,
         window.location.origin,
         pendingRequest.requestId,
       );
-      if (payload) handleOAuthCompletePayload(payload);
+      if (payload) {
+        handleOAuthCompletePayload(payload);
+      }
     },
     [handleOAuthCompletePayload],
   );
@@ -257,7 +267,9 @@ export function useGoogleCalendarConnect({
   const handleOAuthStorage = useCallback(
     (event: StorageEvent) => {
       const pendingRequest = pendingRequestRef.current;
-      if (!pendingRequest) return;
+      if (!pendingRequest) {
+        return;
+      }
       const payload = getOAuthCompleteStoragePayload(
         event,
         pendingRequest.requestId,
@@ -275,8 +287,12 @@ export function useGoogleCalendarConnect({
   const handleOAuthDeepLink = useCallback(
     (payload: OAuthCompleteDeepLinkPayload) => {
       const pendingRequest = pendingRequestRef.current;
-      if (!pendingRequest) return;
-      if (payload.requestId !== pendingRequest.requestId) return;
+      if (!pendingRequest) {
+        return;
+      }
+      if (payload.requestId !== pendingRequest.requestId) {
+        return;
+      }
       handleOAuthCompletePayload({
         type: "vellum:oauth-complete",
         requestId: payload.requestId,
@@ -370,7 +386,9 @@ export function useGoogleCalendarConnect({
       window.addEventListener("message", handleOAuthMessage);
       window.addEventListener("storage", handleOAuthStorage);
 
-      if (nativeFinishUnsubRef.current) nativeFinishUnsubRef.current();
+      if (nativeFinishUnsubRef.current) {
+        nativeFinishUnsubRef.current();
+      }
       const unsubFinished = openUrlFinishedListener(() => {
         const pendingRequest = pendingRequestRef.current;
         if (!pendingRequest) {
@@ -380,7 +398,9 @@ export function useGoogleCalendarConnect({
         }
         void (async () => {
           const connection = await waitForActiveGoogleConnection();
-          if (!pendingRequestRef.current) return;
+          if (!pendingRequestRef.current) {
+            return;
+          }
           if (connection) {
             await handleOAuthSuccess();
           } else {
@@ -418,7 +438,9 @@ export function useGoogleCalendarConnect({
         popupClosedGraceTimeoutRef.current = setTimeout(async () => {
           popupClosedGraceTimeoutRef.current = null;
           const pendingRequest = pendingRequestRef.current;
-          if (!pendingRequest) return;
+          if (!pendingRequest) {
+            return;
+          }
 
           const storedCompletion = window.localStorage.getItem(
             oauthCompletionStorageKey(pendingRequest.requestId),
@@ -445,7 +467,9 @@ export function useGoogleCalendarConnect({
           }
 
           const connection = await waitForActiveGoogleConnection();
-          if (!pendingRequestRef.current) return;
+          if (!pendingRequestRef.current) {
+            return;
+          }
 
           if (connection) {
             await handleOAuthSuccess();

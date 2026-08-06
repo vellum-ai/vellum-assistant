@@ -1,7 +1,6 @@
 /**
  * Top-level page header for the home dashboard: the "Activity" title. Sits
- * above the Schedules / Notifications tabs. Mirrors the Library page header
- * styling.
+ * above the notifications feed. Mirrors the Library page header styling.
  */
 export function HomeTopHeader() {
   return (

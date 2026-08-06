@@ -8,11 +8,7 @@
  * needed by external consumers are exposed.
  */
 
-import {
-  type Dispatch,
-  type SetStateAction,
-  useCallback,
-} from "react";
+import { type Dispatch, type SetStateAction, useCallback } from "react";
 
 import { useNavigate } from "react-router";
 
@@ -69,7 +65,9 @@ export function useMessageLifecycle({
 
   // Thin wrapper matching StreamHandlerContext.router.push signature.
   const push = useCallback(
-    (url: string) => { void navigate(url); },
+    (url: string) => {
+      void navigate(url);
+    },
     [navigate],
   );
 
@@ -115,12 +113,21 @@ export function useMessageLifecycle({
   //    so the user sees the new messages without a manual refresh.
   //    Self-echo suppression mirrors the guard in useConversationSync.
   useBusSubscription("sse.event", (envelope) => {
-    if (!assistantId) return;
+    if (!assistantId) {
+      return;
+    }
     const event = envelope.message;
-    if (event.type !== "sync_changed") return;
-    if (event.originClientId && event.originClientId === getClientId()) return;
-    const currentActiveId = useConversationStore.getState().activeConversationId;
-    if (!currentActiveId) return;
+    if (event.type !== "sync_changed") {
+      return;
+    }
+    if (event.originClientId && event.originClientId === getClientId()) {
+      return;
+    }
+    const currentActiveId =
+      useConversationStore.getState().activeConversationId;
+    if (!currentActiveId) {
+      return;
+    }
     for (const tag of event.tags) {
       const parsed = parseConversationSyncTag(tag);
       if (

@@ -20,15 +20,6 @@ mock.module("../security/secure-keys.js", () => ({
   getMaskedProviderKey: () => undefined,
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    debug: () => {},
-    error: () => {},
-  }),
-}));
-
 // ── Import under test ────────────────────────────────────────────────
 
 const { resolveAccessTokenKey, getConnectionAccessTokenResult } =

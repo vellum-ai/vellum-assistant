@@ -22,7 +22,12 @@ export function credentialPresenceQueryKey(
   credentialKind: string,
   credentialName: string,
 ) {
-  return ["credentialPresence", assistantId, credentialKind, credentialName] as const;
+  return [
+    "credentialPresence",
+    assistantId,
+    credentialKind,
+    credentialName,
+  ] as const;
 }
 
 // ---------------------------------------------------------------------------
@@ -54,7 +59,11 @@ export function useStoredCredentialPresence({
   const isOrgReady = useIsOrgReady();
 
   const query = useQuery({
-    queryKey: credentialPresenceQueryKey(assistantId ?? "", credentialKind, credentialName),
+    queryKey: credentialPresenceQueryKey(
+      assistantId ?? "",
+      credentialKind,
+      credentialName,
+    ),
     queryFn: async () => {
       const { data } = await secretsReadPost({
         path: { assistant_id: assistantId! },

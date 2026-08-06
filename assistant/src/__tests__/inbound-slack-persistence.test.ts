@@ -22,11 +22,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Mocks (must precede module imports under test)
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 const addMessageCalls: Array<{
   conversationId: string;
   role: string;
@@ -132,7 +127,9 @@ function lastPersistedMetadata(): Record<string, unknown> {
 function readPersistedSlackMeta(): SlackMessageMetadata | null {
   const metadata = lastPersistedMetadata();
   const raw = metadata.slackMeta;
-  if (raw === undefined) return null;
+  if (raw === undefined) {
+    return null;
+  }
   expect(typeof raw).toBe("string");
   return readSlackMetadata(raw as string);
 }

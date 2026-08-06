@@ -34,8 +34,14 @@ import {
   listProviderIds,
   supportsBoundary,
 } from "../providers/speech-to-text/provider-catalog.js";
+import { describeSttFailure } from "../providers/voice-error-copy.js";
 import { getLogger } from "../util/logger.js";
-import type { StreamingTranscriber, SttStreamServerEvent } from "./types.js";
+import { normalizeSttError } from "./daemon-batch-transcriber.js";
+import {
+  type StreamingTranscriber,
+  type SttProviderId,
+  type SttStreamServerEvent,
+} from "./types.js";
 
 const log = getLogger("stt-stream-session");
 
@@ -224,15 +230,17 @@ export class SttStreamSession {
         "STT stream session started",
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      // normalizeSttError preserves an adapter-thrown SttError's category
+      // (e.g. a relay auth rejection at dial time) and classifies raw errors.
+      const sttErr = normalizeSttError(err);
       log.error(
-        { provider: this.provider, error: message },
+        { provider: this.provider, error: sttErr.message },
         "Failed to start STT stream session",
       );
       this.sendEvent({
         type: "error",
-        category: "provider-error",
-        message: `Failed to start streaming session: ${message}`,
+        category: sttErr.category,
+        message: describeSttFailure(sttErr, this.provider as SttProviderId),
       });
       this.sendEvent({ type: "closed" });
       this.state = "closed";
@@ -248,7 +256,9 @@ export class SttStreamSession {
    * {@link handleBinaryAudio}.
    */
   handleMessage(raw: string): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
 
     this.resetIdleTimer();
 
@@ -261,7 +271,9 @@ export class SttStreamSession {
       return;
     }
 
-    if (!parsed || typeof parsed !== "object") return;
+    if (!parsed || typeof parsed !== "object") {
+      return;
+    }
 
     const event = parsed as {
       type?: string;
@@ -306,7 +318,9 @@ export class SttStreamSession {
    * frames rather than base64-encoded JSON.
    */
   handleBinaryAudio(data: Buffer | ArrayBuffer | Uint8Array): void {
-    if (this.state !== "active") return;
+    if (this.state !== "active") {
+      return;
+    }
 
     this.resetIdleTimer();
 
@@ -322,7 +336,9 @@ export class SttStreamSession {
    * Tears down the provider session and cleans up resources.
    */
   handleClose(code: number, reason?: string): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
 
     log.info(
       { provider: this.provider, code, reason },
@@ -337,7 +353,9 @@ export class SttStreamSession {
    * ensure deterministic cleanup of all active sessions.
    */
   destroy(): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
 
     log.info({ provider: this.provider }, "STT stream session destroyed");
     this.teardown();
@@ -389,7 +407,9 @@ export class SttStreamSession {
    * Handle events emitted by the streaming transcriber.
    */
   private handleTranscriberEvent(event: SttStreamServerEvent): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
 
     this.sendEvent(event);
 
@@ -430,10 +450,14 @@ export class SttStreamSession {
   private resetIdleTimer(): void {
     this.clearIdleTimer();
 
-    if (this.state === "closed" || this.state === "stopping") return;
+    if (this.state === "closed" || this.state === "stopping") {
+      return;
+    }
 
     this.idleTimer = setTimeout(() => {
-      if (this.state === "closed") return;
+      if (this.state === "closed") {
+        return;
+      }
 
       log.warn({ provider: this.provider }, "STT stream session idle timeout");
       this.sendEvent({
@@ -463,7 +487,9 @@ export class SttStreamSession {
    * Idempotent — safe to call multiple times.
    */
   private teardown(): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
     this.state = "closed";
 
     this.clearIdleTimer();

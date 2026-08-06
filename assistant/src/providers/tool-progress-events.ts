@@ -28,8 +28,12 @@ export function createToolProgressEmitter(
   >();
 
   const emitPreviewStart = (toolUseId: string, toolName: string): void => {
-    if (!onEvent || !toolUseId || !toolName) return;
-    if (previewedToolUseIds.has(toolUseId)) return;
+    if (!onEvent || !toolUseId || !toolName) {
+      return;
+    }
+    if (previewedToolUseIds.has(toolUseId)) {
+      return;
+    }
     previewedToolUseIds.add(toolUseId);
     onEvent({ type: "tool_use_preview_start", toolUseId, toolName });
   };
@@ -40,11 +44,15 @@ export function createToolProgressEmitter(
     accumulatedJson: string,
     opts?: { force?: boolean },
   ): void => {
-    if (!onEvent || !toolUseId || !toolName || !accumulatedJson) return;
+    if (!onEvent || !toolUseId || !toolName || !accumulatedJson) {
+      return;
+    }
     emitPreviewStart(toolUseId, toolName);
 
     const last = lastInputEmitByToolUseId.get(toolUseId);
-    if (last?.accumulatedJson === accumulatedJson) return;
+    if (last?.accumulatedJson === accumulatedJson) {
+      return;
+    }
 
     const now = Date.now();
     if (
@@ -61,7 +69,9 @@ export function createToolProgressEmitter(
       const delay = INPUT_JSON_DELTA_EMIT_INTERVAL_MS - (now - last.emittedAt);
       const timeout = setTimeout(() => {
         const latest = pendingInputEmitByToolUseId.get(toolUseId);
-        if (!latest) return;
+        if (!latest) {
+          return;
+        }
         pendingInputEmitByToolUseId.delete(toolUseId);
         lastInputEmitByToolUseId.set(toolUseId, {
           emittedAt: Date.now(),

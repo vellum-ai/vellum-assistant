@@ -1,7 +1,14 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 
-import type { AppSummary } from "@/types/app-types";
-import { loadPinnedApps } from "@/utils/app-pin-storage";
+import { loadPinnedApps, type PinnableApp } from "@/utils/app-pin-storage";
 import { installMemoryStorage } from "@/utils/memory-storage.test-helper";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 
@@ -14,18 +21,16 @@ beforeEach(() => {
   usePinnedAppsStore.setState({ pinnedApps: [], pinnedAppIds: new Set() });
 });
 
-function makeApp(overrides: Partial<AppSummary> & { id: string }): AppSummary {
+function makeApp(
+  overrides: Partial<PinnableApp> & { id: string },
+): PinnableApp {
   return {
     name: `App ${overrides.id}`,
-    createdAt: 0,
-    updatedAt: 0,
-    version: "1.0.0",
-    contentId: `content_${overrides.id}`,
     ...overrides,
   };
 }
 
-function pin(app: AppSummary): void {
+function pin(app: PinnableApp): void {
   usePinnedAppsStore.getState().togglePin(app);
 }
 
@@ -45,7 +50,9 @@ describe("togglePin", () => {
 
   test("unpins a pinned app when toggled again", () => {
     pin(makeApp({ id: "a1", name: "First" }));
-    usePinnedAppsStore.getState().togglePin(makeApp({ id: "a1", name: "First" }));
+    usePinnedAppsStore
+      .getState()
+      .togglePin(makeApp({ id: "a1", name: "First" }));
 
     expect(usePinnedAppsStore.getState().pinnedAppIds.has("a1")).toBe(false);
     expect(loadPinnedApps()).toEqual([]);
@@ -72,8 +79,12 @@ describe("unpin", () => {
 
     usePinnedAppsStore.getState().unpin("a2");
 
-    expect(usePinnedAppsStore.getState().pinnedApps.map((a) => a.pinnedOrder)).toEqual([1, 2]);
-    expect(usePinnedAppsStore.getState().pinnedApps.map((a) => a.appId)).toEqual(["a1", "a3"]);
+    expect(
+      usePinnedAppsStore.getState().pinnedApps.map((a) => a.pinnedOrder),
+    ).toEqual([1, 2]);
+    expect(
+      usePinnedAppsStore.getState().pinnedApps.map((a) => a.appId),
+    ).toEqual(["a1", "a3"]);
   });
 
   test("notifies onUnpin listeners with the removed app id", () => {
@@ -95,7 +106,9 @@ describe("unpin", () => {
     usePinnedAppsStore.getState().unpin("ghost");
 
     expect(seen).toEqual([]);
-    expect(usePinnedAppsStore.getState().pinnedApps.map((a) => a.appId)).toEqual(["a1"]);
+    expect(
+      usePinnedAppsStore.getState().pinnedApps.map((a) => a.appId),
+    ).toEqual(["a1"]);
     off();
   });
 });

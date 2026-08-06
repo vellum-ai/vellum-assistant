@@ -73,16 +73,11 @@ const KNOWN_BROKEN_FILES = new Set<string>([]);
 // and feature-flag-registry-bundled.test.ts fails. Running the sync here is
 // idempotent and cheap (two file copies).
 function syncFeatureFlagRegistry(): void {
-  const syncScript = join(
-    "..",
-    "meta",
-    "feature-flags",
-    "sync-bundled-copies.ts",
-  );
+  const syncScript = join("..", "meta", "sync-bundled-copies.ts");
   if (!existsSync(syncScript)) {
     return;
   }
-  Bun.spawnSync(["bun", "run", "meta/feature-flags/sync-bundled-copies.ts"], {
+  Bun.spawnSync(["bun", "run", "meta/sync-bundled-copies.ts"], {
     cwd: join(process.cwd(), ".."),
     stdout: "ignore",
     stderr: "ignore",
@@ -489,6 +484,32 @@ function mergeLcov(rawLcovDir: string, mergedPath: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Migrated-workspace fixture
+// ---------------------------------------------------------------------------
+
+// Build the migrated-DB fixture once, up front, in a dedicated subprocess. Each
+// test process's preload copies it into that process's tmp workspace, so a test
+// that calls initializeDb() opens an already-migrated DB and the migration
+// runner no-ops via its checkpoint ledger instead of re-running the whole chain
+// ~1800 times. The subprocess (rather than an in-process import) keeps the
+// persistence graph out of this orchestrator and mirrors a real from-scratch
+// migration. Workers are handed the fixtures root via VELLUM_TEST_FIXTURES_DIR
+// (inherited through Bun.spawn's default env inheritance); "migrated" is one
+// named fixture under it, leaving room for more.
+async function buildMigratedFixture(outWorkspaceDir: string): Promise<void> {
+  const script = join(import.meta.dir, "build-test-fixtures.ts");
+  const proc = Bun.spawn(["bun", "run", script, outWorkspaceDir], {
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  const code = await proc.exited;
+  if (code !== 0) {
+    console.error(`Failed to build migrated test fixture (exit ${code})`);
+    process.exit(1);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -501,6 +522,10 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   testFiles = sortLongestFirst(testFiles);
+
+  const fixturesRoot = mkdtempSync(join(tmpdir(), "vellum-test-fixtures-"));
+  await buildMigratedFixture(join(fixturesRoot, "migrated"));
+  process.env.VELLUM_TEST_FIXTURES_DIR = fixturesRoot;
 
   console.log(`Running ${testFiles.length} test files (${WORKERS} workers)`);
 
@@ -560,6 +585,7 @@ async function main(): Promise<void> {
     console.log(`All ${testFiles.length} test files passed`);
   } finally {
     rmSync(resultsDir, { recursive: true, force: true });
+    rmSync(fixturesRoot, { recursive: true, force: true });
   }
 }
 

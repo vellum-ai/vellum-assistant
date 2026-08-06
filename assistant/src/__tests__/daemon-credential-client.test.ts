@@ -22,13 +22,6 @@ mock.module("../ipc/cli-client.js", () => ({
   },
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 import {
   deleteSecureKeyViaDaemon,
   setSecureKeyViaDaemon,

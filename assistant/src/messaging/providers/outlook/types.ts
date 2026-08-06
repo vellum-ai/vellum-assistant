@@ -71,6 +71,14 @@ export interface OutlookMailFolderListResponse {
   "@odata.nextLink"?: string;
 }
 
+/** Outbound file attachment for sendMail/reply (base64-encoded content). */
+export interface OutlookSendFileAttachment {
+  "@odata.type": "#microsoft.graph.fileAttachment";
+  name: string;
+  contentType: string;
+  contentBytes: string;
+}
+
 /** Payload for sending a message via Microsoft Graph */
 export interface OutlookSendMessagePayload {
   message: {
@@ -78,6 +86,7 @@ export interface OutlookSendMessagePayload {
     body: OutlookItemBody;
     toRecipients: OutlookRecipient[];
     ccRecipients?: OutlookRecipient[];
+    attachments?: OutlookSendFileAttachment[];
   };
   saveToSentItems?: boolean;
 }

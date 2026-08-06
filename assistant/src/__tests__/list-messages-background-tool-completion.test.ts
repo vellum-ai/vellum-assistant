@@ -8,24 +8,12 @@
  * web can rebuild a terminal inline card after a daemon restart.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { setConfig } from "./helpers/set-config.js";
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
+// Keep the memory system off so addMessage skips indexing side effects.
+setConfig("memory", { enabled: false });
 
 import { ConversationMessageSchema } from "../api/responses/conversation-message.js";
 import {
@@ -97,9 +85,9 @@ describe("handleListMessages background-tool completion projection", () => {
       },
     );
 
-    const response = handleListMessages({
+    const response = (await handleListMessages({
       queryParams: { conversationId: conv.id },
-    }) as { messages: ProjectedMessage[] };
+    })) as { messages: ProjectedMessage[] };
 
     // Every projected message validates against the wire schema.
     for (const message of response.messages) {
@@ -127,9 +115,9 @@ describe("handleListMessages background-tool completion projection", () => {
       JSON.stringify([{ type: "text", text: "hi there" }]),
     );
 
-    const response = handleListMessages({
+    const response = (await handleListMessages({
       queryParams: { conversationId: conv.id },
-    }) as { messages: ProjectedMessage[] };
+    })) as { messages: ProjectedMessage[] };
 
     expect(response.messages).toHaveLength(2);
     for (const message of response.messages) {

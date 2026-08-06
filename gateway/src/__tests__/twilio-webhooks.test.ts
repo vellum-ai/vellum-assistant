@@ -1,10 +1,16 @@
-import { describe, test, expect, mock, afterEach } from "bun:test";
+import { describe, test, expect, mock, afterEach, beforeEach } from "bun:test";
 import { createHmac } from "node:crypto";
 import type { GatewayConfig } from "../config.js";
 import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
+import { AdmissionPolicyStore } from "../db/admission-policy-store.js";
 import { credentialKey } from "../credential-key.js";
 import { initSigningKey } from "../auth/token-service.js";
+import {
+  initAdmissionPolicyCache,
+  resetAdmissionPolicyCache,
+} from "../risk/admission-policy-cache.js";
+import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
@@ -49,12 +55,23 @@ const { createTwilioVoiceWebhookHandler } =
   await import("../http/routes/twilio-voice-webhook.js");
 const { createTwilioStatusWebhookHandler } =
   await import("../http/routes/twilio-status-webhook.js");
-
 const AUTH_TOKEN = "test-twilio-auth-token";
+
+beforeEach(async () => {
+  // The voice webhook resolves the phone admission floor (channel-trust-floors
+  // is on by default); init the cache fresh per test like the other webhook
+  // handler tests.
+  resetGatewayDb();
+  resetAdmissionPolicyCache();
+  await initGatewayDb();
+  initAdmissionPolicyCache();
+});
 
 afterEach(() => {
   fetchMock = mock(async () => new Response());
   logCalls.length = 0;
+  resetAdmissionPolicyCache();
+  resetGatewayDb();
 });
 
 function findLogCall(message: string): {
@@ -116,8 +133,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
     assistantRuntimeBaseUrl: "http://localhost:7821",
     routingEntries: [],
-    defaultAssistantId: undefined,
-    unmappedPolicy: "reject",
     port: 7830,
     runtimeProxyRequireAuth: true,
     shutdownDrainMs: 5000,
@@ -299,7 +314,19 @@ describe("Twilio voice webhook", () => {
     expect(calledUrl).toContain("/v1/internal/twilio/voice-webhook");
   });
 
-  test("rejects unmapped inbound call with TwiML Reject when unmappedPolicy is reject", async () => {
+  test("forwards an unmapped inbound call to the local assistant", async () => {
+    // No From and no To: previously rejected by the unmapped `reject` policy.
+    // Voice lines are intentionally open, so the call is now answered and the
+    // `phone` admission floor (exercised below) is the gate that can deny it.
+    const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
+    fetchMock = mock(
+      async () =>
+        new Response(twiml, {
+          status: 200,
+          headers: { "Content-Type": "text/xml" },
+        }),
+    );
+
     const handler = createTwilioVoiceWebhookHandler(makeConfig(), makeCaches());
     const url = "http://localhost:7830/webhooks/twilio/voice";
     const params = { CallSid: "CA123" };
@@ -308,7 +335,30 @@ describe("Twilio voice webhook", () => {
     const res = await handler(req);
     expect(res.status).toBe(200);
     const body = await res.text();
+    expect(body).not.toContain("<Reject");
+
+    const calledUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
+    expect(calledUrl).toContain("/v1/internal/twilio/voice-webhook");
+  });
+
+  test("hard-denies inbound call with TwiML Reject when the phone admission policy is no_one", async () => {
+    const store = new AdmissionPolicyStore();
+    store.set("phone", "no_one");
+    resetAdmissionPolicyCache();
+    initAdmissionPolicyCache();
+    const handler = createTwilioVoiceWebhookHandler(makeConfig(), makeCaches());
+    const url = "http://localhost:7830/webhooks/twilio/voice";
+    const params = { CallSid: "CA123", From: "+15550100", To: "+15550101" };
+    const req = buildSignedRequest(url, params, AUTH_TOKEN);
+
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    const body = await res.text();
     expect(body).toContain("<Reject");
+    // Kill switch fires before any routing — nothing is forwarded, and the
+    // deny is logged as the admission-policy branch, not the unmapped branch.
+    expect(fetchMock).not.toHaveBeenCalled();
+    findLogCall("Inbound voice call hard-denied by admission policy 'no_one'");
   });
 
   test("returns 502 when runtime is unreachable (outbound call)", async () => {

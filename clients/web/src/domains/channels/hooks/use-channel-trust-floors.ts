@@ -15,7 +15,7 @@ import {
   toChannelPolicyViews,
 } from "@/lib/channel-admission-policy/api";
 import type { AdmissionPolicy } from "@/lib/channel-admission-policy/types";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useSupportsChannelTrustFloors } from "@/lib/backwards-compat/channel-trust-floors";
 import { toastOnError } from "@/utils/mutation-error";
 
 type ChannelKey = AssistantChannelState["key"];
@@ -36,12 +36,12 @@ export interface ChannelTrustFloors {
 /**
  * Per-channel admission floor (trust floor) wiring for the assistant's
  * channel list (the Channels tab and the Contacts assistant detail). Reads
- * the `channelTrustFloors` flag itself; when off it returns no policies and
- * no `onChange`, which hides the inline control entirely.
+ * the gateway-version gate itself; when off it returns no policies and no
+ * `onChange`, which hides the inline control entirely.
  */
 export function useChannelTrustFloors(assistantId: string): ChannelTrustFloors {
   const queryClient = useQueryClient();
-  const enabled = useAssistantFeatureFlagStore.use.channelTrustFloors();
+  const enabled = useSupportsChannelTrustFloors();
 
   const pathOptions = useMemo(
     () => ({ path: { assistant_id: assistantId } }),

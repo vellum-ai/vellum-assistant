@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
-import {
-  __resetForTesting,
-  publish,
-} from "@/lib/event-bus";
+import { __resetForTesting, publish } from "@/lib/event-bus";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 
 beforeEach(() => {
@@ -62,7 +59,9 @@ describe("useBusSubscription", () => {
   });
 
   test("passes the typed payload to the handler", () => {
-    const handler = mock((_: { signal: "visibility" | "app_state" | "online" }) => {});
+    const handler = mock(
+      (_: { signal: "visibility" | "app_state" | "online" }) => {},
+    );
     renderHook(() => useBusSubscription("app.resume", handler));
     publish("app.resume", { signal: "online" });
     expect(handler).toHaveBeenCalledWith({ signal: "online" });
@@ -79,9 +78,12 @@ describe("useBusSubscription", () => {
         observed.push(value);
       });
     }
-    const { rerender } = renderHook(({ v }: { v: number }) => Hook({ value: v }), {
-      initialProps: { v: 1 },
-    });
+    const { rerender } = renderHook(
+      ({ v }: { v: number }) => Hook({ value: v }),
+      {
+        initialProps: { v: 1 },
+      },
+    );
     publish("app.online", {});
     rerender({ v: 2 });
     publish("app.online", {});

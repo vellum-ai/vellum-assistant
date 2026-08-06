@@ -137,6 +137,12 @@ export interface MediaStreamSttSessionCallbacks {
   onDtmf?: (digit: string) => void;
 
   /**
+   * Called when Twilio echoes an outbound mark back — i.e. the caller's
+   * playback has reached that mark. Used to detect real playback drain.
+   */
+  onMark?: (name: string) => void;
+
+  /**
    * Called when the media stream stops.
    */
   onStop?: () => void;
@@ -244,7 +250,9 @@ export class MediaStreamSttSession {
    * validated, and routed to the appropriate handler.
    */
   handleMessage(raw: string): void {
-    if (this.disposed) return;
+    if (this.disposed) {
+      return;
+    }
 
     const result = parseMediaStreamFrame(raw);
     if (!result.ok) {
@@ -264,7 +272,7 @@ export class MediaStreamSttSession {
         this.callbacks.onDtmf?.(event.dtmf.digit);
         break;
       case "mark":
-        // Marks are informational — no action needed in the STT session.
+        this.callbacks.onMark?.(event.mark.name);
         break;
       case "stop":
         this.handleStop();
@@ -327,7 +335,9 @@ export class MediaStreamSttSession {
 
   private handleMedia(event: MediaStreamMediaEvent): void {
     // Only process inbound (caller) audio
-    if (event.media.track !== "inbound") return;
+    if (event.media.track !== "inbound") {
+      return;
+    }
 
     // Compute speech activity from the audio payload using a lightweight
     // energy heuristic. mu-law encoded audio has a companded dynamic
@@ -400,6 +410,7 @@ export class MediaStreamSttSession {
       transcriber = await resolveStreamingTranscriber({
         sampleRate: STREAMING_SAMPLE_RATE,
         utteranceBoundaryFinals: true,
+        utteranceEndMs: getConfig().calls.voice.utteranceEndMs,
       });
     } catch (err) {
       log.warn(
@@ -598,7 +609,9 @@ export class MediaStreamSttSession {
       this.capabilityPromise = resolveTelephonySttCapability();
     }
     const capability = await this.capabilityPromise;
-    if (this.disposed) return;
+    if (this.disposed) {
+      return;
+    }
 
     if (capability.status !== "supported") {
       const reason =
@@ -628,12 +641,16 @@ export class MediaStreamSttSession {
     try {
       transcriber = await resolveBatchTranscriber();
     } catch (err) {
-      if (this.disposed) return;
+      if (this.disposed) {
+        return;
+      }
       const normalized = normalizeSttError(err);
       this.callbacks.onError?.(normalized.category, normalized.message);
       return;
     }
-    if (this.disposed) return;
+    if (this.disposed) {
+      return;
+    }
 
     if (!transcriber) {
       this.callbacks.onError?.(
@@ -660,10 +677,14 @@ export class MediaStreamSttSession {
         callContext: this.config.callContextHints,
       });
 
-      if (this.disposed) return;
+      if (this.disposed) {
+        return;
+      }
       this.callbacks.onTranscriptFinal?.(result.text, durationMs);
     } catch (err) {
-      if (this.disposed) return;
+      if (this.disposed) {
+        return;
+      }
       const normalized = normalizeSttError(err);
       this.callbacks.onError?.(normalized.category, normalized.message);
     } finally {

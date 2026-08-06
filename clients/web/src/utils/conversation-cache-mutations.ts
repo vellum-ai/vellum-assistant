@@ -14,7 +14,10 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { GroupsGetData } from "@/generated/daemon/types.gen";
 import { groupsGetSetQueryData } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Options } from "@/generated/daemon/sdk.gen";
-import type { Conversation, ConversationGroup } from "@/types/conversation-types";
+import type {
+  Conversation,
+  ConversationGroup,
+} from "@/types/conversation-types";
 import {
   isBackgroundConversation,
   isScheduledConversation,
@@ -30,6 +33,7 @@ import {
   backgroundConversationsQueryKey,
   conversationsQueryKey,
   scheduledConversationsQueryKey,
+  unreadConversationCountQueryKey,
 } from "@/utils/conversation-list-fetchers";
 import {
   type ConversationListPage,
@@ -79,6 +83,42 @@ export function markConversationSeenLocal(
   updateAllConversationCaches(queryClient, assistantId, markSeen);
 }
 
+/**
+ * Apply a delta to the cached server-side unread conversation count.
+ *
+ * Optimistic companion to the seen/unseen mutations: a mark-read
+ * decrements, a mark-unread increments, and the caller reverts a failed
+ * mutation by applying the inverse delta (delta-based reversal, not a
+ * snapshot restore, so concurrent adjustments from other in-flight
+ * mutations are never clobbered). Drift is reconciled by the authoritative
+ * refetch in `invalidateConversationQueries` on settle.
+ *
+ * **Deliberately unclamped**, so `+n` and `-n` are exact inverses and a
+ * revert restores precisely what it took. Clamping here would break that:
+ * a decrement that saturated at zero would be undone by more than it
+ * removed, leaving the badge over-reporting. The cached value can therefore
+ * go briefly negative when optimistic writes outrun the server; presentation
+ * clamps it (`useUnreadConversationCount`), which keeps the arithmetic
+ * reversible and the display honest.
+ *
+ * Returns `true` when a numeric count was adjusted. No-ops (returns
+ * `false`) when the cache is empty or holds `null` (the connected
+ * assistant does not serve the count endpoint).
+ */
+export function adjustUnreadCountCache(
+  queryClient: QueryClient,
+  assistantId: string | null,
+  delta: number,
+): boolean {
+  const queryKey = unreadConversationCountQueryKey(assistantId);
+  const current = queryClient.getQueryData<number | null>(queryKey);
+  if (typeof current !== "number") {
+    return false;
+  }
+  queryClient.setQueryData<number | null>(queryKey, current + delta);
+  return true;
+}
+
 export function prependConversation(
   queryClient: QueryClient,
   assistantId: string | null,
@@ -105,9 +145,16 @@ export function removeConversation(
 export function shouldSurfaceConversationOnUserSend(
   conversation: Conversation,
 ): boolean {
-  if (conversation.archivedAt != null) return false;
-  if (conversation.surfacedAt != null) return false;
-  if (conversation.isPinned === true || conversation.groupId === "system:pinned") {
+  if (conversation.archivedAt != null) {
+    return false;
+  }
+  if (conversation.surfacedAt != null) {
+    return false;
+  }
+  if (
+    conversation.isPinned === true ||
+    conversation.groupId === "system:pinned"
+  ) {
     return false;
   }
   if (conversation.groupId && !conversation.groupId.startsWith("system:")) {
@@ -182,11 +229,17 @@ export async function refreshConversationRow(
   assistantId: string | null,
   conversationId: string,
 ): Promise<void> {
-  if (!assistantId) return;
+  if (!assistantId) {
+    return;
+  }
 
   let result: Conversation;
   try {
-    result = await fetchConversationDetail(queryClient, assistantId, conversationId);
+    result = await fetchConversationDetail(
+      queryClient,
+      assistantId,
+      conversationId,
+    );
   } catch (err) {
     if (err instanceof ConversationNotFoundError) {
       removeConversation(queryClient, assistantId, conversationId);
@@ -217,17 +270,19 @@ export async function refreshConversationRow(
   }
 
   if (isScheduledConversation(result)) {
-    updateScheduledConversationsCache(queryClient, assistantId, (conversations) => [
-      ...conversations,
-      result,
-    ]);
+    updateScheduledConversationsCache(
+      queryClient,
+      assistantId,
+      (conversations) => [...conversations, result],
+    );
     return;
   }
   if (isBackgroundConversation(result)) {
-    updateBackgroundConversationsCache(queryClient, assistantId, (conversations) => [
-      ...conversations,
-      result,
-    ]);
+    updateBackgroundConversationsCache(
+      queryClient,
+      assistantId,
+      (conversations) => [...conversations, result],
+    );
     return;
   }
   updateConversationsCache(queryClient, assistantId, (conversations) => [
@@ -259,9 +314,13 @@ export function mergeListFirstPage(
   prev: Conversation[],
   page: ConversationListPage,
 ): Conversation[] {
-  if (!page.hasMore) return page.conversations;
+  if (!page.hasMore) {
+    return page.conversations;
+  }
   const nonPinned = page.conversations.filter((c) => c.isPinned !== true);
-  if (nonPinned.length === 0) return prev;
+  if (nonPinned.length === 0) {
+    return prev;
+  }
   const cutoff = Math.min(...nonPinned.map((c) => c.lastMessageAt ?? 0));
   const freshIds = new Set(page.conversations.map((c) => c.conversationId));
   const kept = prev.filter(
@@ -273,7 +332,10 @@ export function mergeListFirstPage(
 }
 
 const LIST_WINDOW_BUCKETS = [
-  { queryKey: conversationsQueryKey, fetchFirstPage: listConversationsFirstPage },
+  {
+    queryKey: conversationsQueryKey,
+    fetchFirstPage: listConversationsFirstPage,
+  },
   {
     queryKey: backgroundConversationsQueryKey,
     fetchFirstPage: listBackgroundConversationsFirstPage,
@@ -304,7 +366,9 @@ export async function refreshConversationListWindows(
   queryClient: QueryClient,
   assistantId: string | null,
 ): Promise<void> {
-  if (!assistantId) return;
+  if (!assistantId) {
+    return;
+  }
   await Promise.all(
     LIST_WINDOW_BUCKETS.map(async (bucket) => {
       const queryKey = bucket.queryKey(assistantId);
@@ -330,7 +394,9 @@ export function resolveDraftKey(
   updateConversationsCache(queryClient, assistantId, (conversations) => {
     let changed = false;
     const next = conversations.map((c) => {
-      if (c.conversationId !== oldKey) return c;
+      if (c.conversationId !== oldKey) {
+        return c;
+      }
       changed = true;
       return { ...c, conversationId: newKey, draft: false };
     });
@@ -347,11 +413,15 @@ function updateGroupsCache(
   assistantId: string | null,
   updater: (groups: ConversationGroup[]) => ConversationGroup[],
 ): void {
-  const opts: Options<GroupsGetData> = { path: { assistant_id: assistantId ?? "" } };
+  const opts: Options<GroupsGetData> = {
+    path: { assistant_id: assistantId ?? "" },
+  };
   groupsGetSetQueryData(queryClient, opts, (prev) => {
     const list = prev?.groups ?? [];
     const next = updater(list);
-    if (next === list) return prev;
+    if (next === list) {
+      return prev;
+    }
     return { ...prev, groups: next };
   });
 }
@@ -379,7 +449,9 @@ export function patchGroup(
   updateGroupsCache(queryClient, assistantId, (groups) => {
     let changed = false;
     const next = groups.map((g) => {
-      if (g.id !== groupId) return g;
+      if (g.id !== groupId) {
+        return g;
+      }
       changed = true;
       return { ...g, ...patch };
     });
@@ -396,7 +468,9 @@ export function replaceOptimisticGroup(
   updateGroupsCache(queryClient, assistantId, (groups) => {
     let changed = false;
     const next = groups.map((g) => {
-      if (g.id !== optimisticId) return g;
+      if (g.id !== optimisticId) {
+        return g;
+      }
       changed = true;
       return group;
     });

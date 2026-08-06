@@ -56,7 +56,7 @@ export function NewChatPluginsPicker({
           </Tooltip>
         </div>
         <Link
-          to={routes.plugins}
+          to={`${routes.superpowers}?filter=plugins`}
           className="text-body-medium-default text-[var(--primary-base)] hover:text-[var(--primary-hover)]"
         >
           Manage Plugins

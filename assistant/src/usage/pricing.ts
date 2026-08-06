@@ -14,13 +14,19 @@ import type {
 const log = getLogger("usage-pricing");
 
 function normalizeTokenCount(value: number | null | undefined): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
   return Math.max(value, 0);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== "object" || value == null) return null;
-  if (Array.isArray(value)) return null;
+  if (typeof value !== "object" || value == null) {
+    return null;
+  }
+  if (Array.isArray(value)) {
+    return null;
+  }
   return value as Record<string, unknown>;
 }
 
@@ -38,7 +44,9 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 export function extractRawUsage(
   rawResponse: unknown,
 ): Record<string, unknown> | null {
-  if (rawResponse == null) return null;
+  if (rawResponse == null) {
+    return null;
+  }
   const candidate = Array.isArray(rawResponse)
     ? rawResponse[rawResponse.length - 1]
     : rawResponse;
@@ -52,7 +60,9 @@ function extractAnthropicCacheCreationFromResponse(
   const rawResponse = asRecord(response);
   const usage = asRecord(rawResponse?.usage);
   const cacheCreation = asRecord(usage?.cache_creation);
-  if (!cacheCreation) return null;
+  if (!cacheCreation) {
+    return null;
+  }
 
   return {
     ephemeral_5m_input_tokens: normalizeTokenCount(
@@ -74,7 +84,9 @@ function extractAnthropicCacheCreation(
 
   for (const response of responses) {
     const details = extractAnthropicCacheCreationFromResponse(response);
-    if (!details) continue;
+    if (!details) {
+      continue;
+    }
     foundDetails = true;
     ephemeral5mInputTokens += normalizeTokenCount(
       details.ephemeral_5m_input_tokens,
@@ -84,7 +96,9 @@ function extractAnthropicCacheCreation(
     );
   }
 
-  if (!foundDetails) return null;
+  if (!foundDetails) {
+    return null;
+  }
 
   return {
     ephemeral_5m_input_tokens: ephemeral5mInputTokens,
@@ -106,8 +120,12 @@ function extractAnthropicSpeed(
   for (const response of responses) {
     const rec = asRecord(response);
     const usage = asRecord(rec?.usage);
-    if (usage?.speed === "fast") return "fast";
-    if (usage?.speed === "standard") foundStandard = true;
+    if (usage?.speed === "fast") {
+      return "fast";
+    }
+    if (usage?.speed === "standard") {
+      foundStandard = true;
+    }
   }
   return foundStandard ? "standard" : null;
 }

@@ -6,8 +6,9 @@ import type {
   ProviderEvent,
   ToolDefinition,
 } from "../providers/types.js";
+import { ContextOverflowError } from "../providers/types.js";
 import { createAbortReason } from "../util/abort-reasons.js";
-import { ProviderError } from "../util/errors.js";
+import { ProviderError, type ProviderErrorReason } from "../util/errors.js";
 
 // ---------------------------------------------------------------------------
 // Mock @google/genai module — must be before importing the provider
@@ -45,6 +46,7 @@ let fakeChunks: FakeChunk[] = [];
 let lastStreamParams: Record<string, unknown> | null = null;
 let lastConstructorOpts: Record<string, unknown> | null = null;
 let shouldThrow: Error | null = null;
+let listShouldThrow: Error | null = null;
 
 class FakeApiError extends Error {
   status: number;
@@ -63,7 +65,9 @@ mock.module("@google/genai", () => ({
     models = {
       generateContentStream: async (params: Record<string, unknown>) => {
         lastStreamParams = params;
-        if (shouldThrow) throw shouldThrow;
+        if (shouldThrow) {
+          throw shouldThrow;
+        }
 
         return {
           [Symbol.asyncIterator]: async function* () {
@@ -72,6 +76,12 @@ mock.module("@google/genai", () => ({
             }
           },
         };
+      },
+      list: async () => {
+        if (listShouldThrow) {
+          throw listShouldThrow;
+        }
+        return { models: [] };
       },
     };
   },
@@ -85,7 +95,10 @@ mock.module("@google/genai", () => ({
 }));
 
 // Import after mocking
-import { GeminiProvider } from "../providers/gemini/client.js";
+import {
+  GeminiProvider,
+  validateGeminiApiKey,
+} from "../providers/gemini/client.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1390,6 +1403,195 @@ describe("GeminiProvider", () => {
   });
 
   // -----------------------------------------------------------------------
+  // Error reason mapping
+  // -----------------------------------------------------------------------
+  async function reasonForApiError(
+    status: number,
+    message: string,
+  ): Promise<ProviderErrorReason | undefined> {
+    shouldThrow = new FakeApiError(status, message);
+    try {
+      await provider.sendMessage([
+        { role: "user", content: [{ type: "text", text: "Hi" }] },
+      ]);
+      throw new Error("expected sendMessage to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      return (error as ProviderError).reason;
+    }
+  }
+
+  test("maps 401 / UNAUTHENTICATED to invalid_credentials", async () => {
+    expect(await reasonForApiError(401, "API key not valid")).toBe(
+      "invalid_credentials",
+    );
+    expect(await reasonForApiError(0, "UNAUTHENTICATED: bad key")).toBe(
+      "invalid_credentials",
+    );
+  });
+
+  test("maps a plan/model-restricted 403 to model_restricted", async () => {
+    expect(
+      await reasonForApiError(
+        403,
+        "PERMISSION_DENIED: Gemini API model gemini-3-pro is not available on your billing plan",
+      ),
+    ).toBe("model_restricted");
+  });
+
+  test("maps a generic 403 with no model signal to invalid_credentials", async () => {
+    expect(
+      await reasonForApiError(
+        403,
+        "PERMISSION_DENIED: The caller does not have permission",
+      ),
+    ).toBe("invalid_credentials");
+  });
+
+  test("maps an IAM 403 on a models/* resource to invalid_credentials, not model_restricted", async () => {
+    expect(
+      await reasonForApiError(
+        403,
+        "PERMISSION_DENIED: Permission 'generativelanguage.models.generateContent' denied on resource //generativelanguage.googleapis.com/models/gemini-2.5-pro",
+      ),
+    ).toBe("invalid_credentials");
+  });
+
+  test("maps a generic project/billing setup 403 to invalid_credentials, not model_restricted", async () => {
+    // Generic setup terms (billing, not enabled, not supported) must not trip
+    // the "switch models / upgrade plan" banner — they need their own detail.
+    for (const message of [
+      "PERMISSION_DENIED: Cloud Billing has not been enabled for this project",
+      "PERMISSION_DENIED: Generative Language API has not been used in project 123 or it is not enabled",
+      "PERMISSION_DENIED: User location is not supported for the API use",
+    ]) {
+      expect(await reasonForApiError(403, message)).toBe("invalid_credentials");
+    }
+  });
+
+  test("maps a daily-limit 402 body code to daily_limit_reached", async () => {
+    expect(
+      await reasonForApiError(
+        402,
+        '{"code":"daily_limit_reached","detail":"Daily credit limit reached"}',
+      ),
+    ).toBe("daily_limit_reached");
+  });
+
+  test("maps 404 / NOT_FOUND to model_not_found", async () => {
+    expect(
+      await reasonForApiError(404, "NOT_FOUND: model does not exist"),
+    ).toBe("model_not_found");
+  });
+
+  test("maps 404 with empty message to network_error (proxy interception)", async () => {
+    const reason = await reasonForApiError(404, "");
+    expect(reason).toBe("network_error");
+  });
+
+  test("maps 403 with empty message to network_error (proxy interception)", async () => {
+    const reason = await reasonForApiError(403, "");
+    expect(reason).toBe("network_error");
+  });
+
+  test("surfaces actionable network/proxy message for 404 with empty body", async () => {
+    shouldThrow = new FakeApiError(404, "");
+    try {
+      await provider.sendMessage([
+        { role: "user", content: [{ type: "text", text: "Hi" }] },
+      ]);
+      throw new Error("expected sendMessage to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      const msg = (error as Error).message;
+      expect(msg).toContain("no response body");
+      expect(msg).toContain("network proxy or egress filter");
+      expect(msg).not.toContain("Gemini API error (404):");
+    }
+  });
+
+  test("preserves existing message format for 404 with a real body", async () => {
+    shouldThrow = new FakeApiError(404, "NOT_FOUND: model does not exist");
+    try {
+      await provider.sendMessage([
+        { role: "user", content: [{ type: "text", text: "Hi" }] },
+      ]);
+      throw new Error("expected sendMessage to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      const msg = (error as Error).message;
+      expect(msg).toBe(
+        "Gemini API error (404): NOT_FOUND: model does not exist",
+      );
+    }
+  });
+
+  test("maps a plain 429 (no token signal) to rate_limited, not context overflow", async () => {
+    shouldThrow = new FakeApiError(
+      429,
+      "RESOURCE_EXHAUSTED: Quota exceeded for requests per minute",
+    );
+    try {
+      await provider.sendMessage([
+        { role: "user", content: [{ type: "text", text: "Hi" }] },
+      ]);
+      throw new Error("expected sendMessage to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      expect(error).not.toBeInstanceOf(ContextOverflowError);
+      expect((error as ProviderError).reason).toBe("rate_limited");
+    }
+  });
+
+  test("maps 5xx to server_error, or overloaded when the body says so", async () => {
+    expect(await reasonForApiError(500, "Internal error")).toBe("server_error");
+    expect(
+      await reasonForApiError(
+        503,
+        "UNAVAILABLE: The model is overloaded. Please try again later.",
+      ),
+    ).toBe("overloaded");
+  });
+
+  test("maps other 4xx to bad_request", async () => {
+    expect(await reasonForApiError(400, "INVALID_ARGUMENT: bad field")).toBe(
+      "bad_request",
+    );
+  });
+
+  test("a genuine token-limit 429 still yields ContextOverflowError / context_overflow", async () => {
+    shouldThrow = new FakeApiError(
+      429,
+      "RESOURCE_EXHAUSTED: The input token count (2000000) exceeds the maximum number of tokens allowed (1048576).",
+    );
+    try {
+      await provider.sendMessage([
+        { role: "user", content: [{ type: "text", text: "Hi" }] },
+      ]);
+      throw new Error("expected sendMessage to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ContextOverflowError);
+      expect((error as ProviderError).reason).toBe("context_overflow");
+    }
+  });
+
+  test("a token-limit 400 still yields ContextOverflowError / context_overflow", async () => {
+    shouldThrow = new FakeApiError(
+      400,
+      "INVALID_ARGUMENT: The prompt is too long; token count exceeds the model's context length.",
+    );
+    try {
+      await provider.sendMessage([
+        { role: "user", content: [{ type: "text", text: "Hi" }] },
+      ]);
+      throw new Error("expected sendMessage to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ContextOverflowError);
+      expect((error as ProviderError).reason).toBe("context_overflow");
+    }
+  });
+
+  // -----------------------------------------------------------------------
   // Model and contents passed correctly
   // -----------------------------------------------------------------------
   test("sends correct model and contents to API", async () => {
@@ -1557,5 +1759,30 @@ describe("GeminiProvider", () => {
       name: "file_read",
       input: { path: "/tmp/test" },
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateGeminiApiKey — empty-body 403 handling (proxy interception)
+// ---------------------------------------------------------------------------
+describe("validateGeminiApiKey", () => {
+  beforeEach(() => {
+    shouldThrow = null;
+    listShouldThrow = null;
+  });
+
+  test("returns valid for 403 with empty message (proxy interception)", async () => {
+    listShouldThrow = new FakeApiError(403, "");
+    const result = await validateGeminiApiKey("test-key");
+    expect(result.valid).toBe(true);
+  });
+
+  test("returns invalid for 403 with a real message", async () => {
+    listShouldThrow = new FakeApiError(403, "PERMISSION_DENIED");
+    const result = await validateGeminiApiKey("test-key");
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.reason).toContain("Gemini API error (403)");
+    }
   });
 });

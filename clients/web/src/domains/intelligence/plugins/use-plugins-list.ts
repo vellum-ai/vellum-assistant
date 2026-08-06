@@ -2,11 +2,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type {
-    InstalledPlugin,
-    PluginCatalogMatch,
-    PluginListItem,
+  InstalledPlugin,
+  PluginCatalogMatch,
+  PluginListItem,
 } from "@/domains/intelligence/plugins/types";
-import { mergePlugins, sortPlugins } from "@/domains/intelligence/plugins/utils";
+import {
+  mergePlugins,
+  sortPlugins,
+} from "@/domains/intelligence/plugins/utils";
 import {
   pluginsGetQueryKey,
   pluginsSearchGetOptions,
@@ -96,8 +99,12 @@ async function fetchInstalled(
   const status = result.response?.status;
   // Older daemons return 404 when the list endpoint isn't implemented yet —
   // degrade to an empty installed list.
-  if (status === 404) return { plugins: [] } as PluginsGetResponse;
-  if (!result.response?.ok) throw new Error("Failed to load plugins");
+  if (status === 404) {
+    return { plugins: [] } as PluginsGetResponse;
+  }
+  if (!result.response?.ok) {
+    throw new Error("Failed to load plugins");
+  }
   return result.data ?? ({ plugins: [] } as PluginsGetResponse);
 }
 
@@ -152,6 +159,8 @@ function useStickyAssistantCapability(
 export function usePluginsList(
   assistantId: string,
   category: string | null = null,
+  /** Disable every underlying query (e.g. daemons without the plugin surface). */
+  enabled: boolean = true,
 ): UsePluginsListResult {
   const categoryParam = category ?? undefined;
 
@@ -161,7 +170,7 @@ export function usePluginsList(
       query: { q: undefined, category: categoryParam },
     }),
     queryFn: ({ signal }) => fetchInstalled(assistantId, categoryParam, signal),
-    enabled: Boolean(assistantId),
+    enabled: Boolean(assistantId) && enabled,
     staleTime: CATALOG_STALE_TIME_MS,
   });
 
@@ -172,7 +181,7 @@ export function usePluginsList(
   // (`useNewChatPlugins`) and this rail resolve to the same cache entry.
   const installedCountsQuery = useQuery({
     ...installedPluginsQueryOptions(assistantId),
-    enabled: Boolean(assistantId) && category !== null,
+    enabled: Boolean(assistantId) && enabled && category !== null,
   });
 
   const catalogQuery = useQuery({
@@ -180,7 +189,7 @@ export function usePluginsList(
       path: { assistant_id: assistantId },
       query: { q: undefined },
     }),
-    enabled: Boolean(assistantId),
+    enabled: Boolean(assistantId) && enabled,
     staleTime: CATALOG_STALE_TIME_MS,
   });
 
@@ -256,10 +265,16 @@ export function usePluginsList(
   const queryClient = useQueryClient();
   const healedAssistant = useRef<string | null>(null);
   useEffect(() => {
-    if (healedAssistant.current === assistantId) return;
-    if (!catalogQuery.isSuccess) return;
+    if (healedAssistant.current === assistantId) {
+      return;
+    }
+    if (!catalogQuery.isSuccess) {
+      return;
+    }
     const installed = unfilteredInstalledData?.plugins;
-    if (!installed?.length) return;
+    if (!installed?.length) {
+      return;
+    }
     const realCategory = new Map(
       (catalogQuery.data?.matches ?? EMPTY_MATCHES).map((m) => [
         m.name,
@@ -274,7 +289,9 @@ export function usePluginsList(
         (p.category ?? SYSTEM_CATEGORY) === SYSTEM_CATEGORY
       );
     });
-    if (!stale) return;
+    if (!stale) {
+      return;
+    }
     healedAssistant.current = assistantId;
     void queryClient.invalidateQueries({
       queryKey: pluginsGetQueryKey({

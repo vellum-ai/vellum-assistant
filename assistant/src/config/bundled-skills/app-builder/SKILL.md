@@ -1,24 +1,27 @@
 ---
 name: app-builder
-description: Build and edit small, personal visual tools and artifacts — dashboards, trackers, calculators, data visualizations, charts, simple landing pages, and slide decks the user wants for THEMSELVES. This is the right skill whenever the user asks to "visualize this," "make a chart," or "build an artifact" for their own use, or to edit an app they already built here. Do NOT reach for a ui_show dynamic_page to fake an artifact — build a real persistent app here. NOT for complex, multi-user, or shippable products — those go to a real project folder with a coding agent (see Scope below).
+description: Build and edit small, personal visual tools and artifacts — dashboards, trackers, calculators, data visualizations, charts, simple landing pages, and slide decks the user wants for THEMSELVES. This is the right skill whenever the user asks to "visualize this," "make a chart," or "build an artifact" for their own use, or to edit an app they already built here. Do NOT reach for a ui_show dynamic_page to fake an artifact — build a real persistent app here. A one-off diagram, chart, or explainer that just accompanies an answer belongs to the visualize skill (ui_show visual), not an app. NOT for complex, multi-user, or shippable products — those go to a real project folder with a coding agent (see Scope below).
 metadata:
   emoji: "🛠️"
   vellum:
     display-name: "App Builder"
     category: "development"
+    includes: ["frontend-design"]
     activation-hints:
       - "User asks to build a dashboard, tracker, calculator, data visualization, chart, simple landing page, or slide deck for their own use"
-      - "User asks to visualize something, make a chart, or build an artifact — build a real persistent app here, never a ui_show dynamic_page"
+      - "User asks to build an artifact, tool, or app they will keep using — build a real persistent app here, never a ui_show dynamic_page"
       - "User asks to change, fix, restyle, or extend an app they already built in the sandbox — open it and iterate"
+      - "User asks to open, show, or pull up an app they already built — this skill provides app_list + app_open even when nothing needs editing"
     avoid-when:
+      - "An inline diagram, chart, or explainer that accompanies an answer and will not be reopened — use the visualize skill"
       - "User wants a complex app, a multi-user app, or something to publish, deploy, or hand off to others — route to a local project folder + coding agent instead (see Scope)"
 ---
 
 You build small, personal visual tools — dashboards, trackers, calculators, data visualizations, simple landing pages, and slide decks. These are quick, single-user tools the user wants **for themselves**, not products they ship to other people.
 
-Load `frontend-design` first (`skill_load("frontend-design")`), then move fast: think, plan in one pass, pick a striking visual direction following that skill, and build it immediately. Don't ask permission to be creative — pick the colors, the layout, the atmosphere, the micro-interactions. Every tool gets its own identity: a plant tracker feels earthy and green, a finance dashboard precise and navy. They should feel designed, not generated.
+Move fast: think, plan in one pass, pick a striking visual direction following the `frontend-design` skill (included with this load — see *Included Skill: Frontend Design* below), and build it immediately. Don't ask permission to be creative — pick the colors, the layout, the atmosphere, the micro-interactions. Every tool gets its own identity: a plant tracker feels earthy and green, a finance dashboard precise and navy. They should feel designed, not generated.
 
-**Design quality is delegated to the `frontend-design` skill. You MUST call `skill_load("frontend-design")` before building anything, every time, and follow it completely.** That skill owns the aesthetics (typography, color, motion); this skill owns the technical infrastructure (sandbox, data, widgets, lifecycle). Skipping the load gives generic, templated UI, which is a failed build.
+**Design quality is delegated to the `frontend-design` skill, and you MUST follow it completely.** That skill owns the aesthetics (typography, color, motion); this skill owns the technical infrastructure (sandbox, data, widgets, lifecycle). Its instructions load automatically with this skill — if they are missing (listed under *Suggested Included Skills (not loaded)*), call `skill_load("frontend-design")` before building anything. Building without them gives generic, templated UI, which is a failed build.
 
 ---
 
@@ -64,7 +67,7 @@ Apps live under `/workspace/data/apps/`:
 
 Metadata fields: `id`, `name`, `description`, `icon`, `schemaJson`, `createdAt`, `updatedAt`, `formatVersion`, `dirName`. Records: `{ "id", "appId", "data": {...}, "createdAt", "updatedAt" }` — the system auto-adds everything but `data`.
 
-All new apps use `formatVersion: 2` (multi-file TSX). No root-level `index.html` or `pages/` — those are legacy.
+Every app is multi-file TSX (`formatVersion: 2`). Never write a root-level `index.html` or `pages/` — all source lives under `src/`.
 
 ⚠️ Correct source path is `/workspace/data/apps/<slug>/src/`. Never `/workspace/apps/`.
 
@@ -270,7 +273,30 @@ useEffect(() => {
 }, []);
 ```
 
-**Writing a route handler.** Routes are `.ts`/`.js` files in `{workspaceDir}/routes/`, served at `/v1/x/<filename>` (`routes/items.ts` → `/v1/x/items`; `routes/bar/index.ts` → `/v1/x/bar`). Write them with `file_write` **before** `app_refresh`. Each exports named functions per HTTP method (`GET`/`POST`/`PUT`/`PATCH`/`DELETE`), receiving the Web `Request` and an optional `context`. Full Node API access (`fs`, `path`, `crypto`), 30s timeout, hot-reloaded on change. No `[id].ts` dynamic segments — use query params.
+**Bundled media — `window.vellum.asset(path)`.** For binary assets too big to inline (images, audio, short video, custom fonts), bundle the file under the app directory with `file_write` and load it at runtime via `window.vellum.asset("assets/intro.mp4")`, which resolves to a `blob:` URL the sandbox can use directly. Don't reach for giant base64 data-URIs.
+
+```tsx
+const [src, setSrc] = useState("");
+useEffect(() => {
+  window.vellum.asset("assets/intro.mp4").then(setSrc).catch(() => notifyError("Couldn't load media"));
+}, []);
+return src ? <video src={src} controls /> : null;
+```
+
+Paths are validated server-side (no traversal, no `records/`); the file is served only from this app's own directory.
+
+**Live updates — `window.vellum.subscribe({ tags }, cb)`.** Instead of polling on a timer, subscribe to your own invalidation tags and refresh when the data actually changes. After a route mutates data it publishes a `sync_changed` event (`import { publishEvent } from "@vellumai/plugin-api"`, then `publishEvent({ …, message: { type: "sync_changed", tags: ["my-app:items"] } })`); the app subscribes to that tag and re-fetches when it fires. Returns an unsubscribe function — call it on cleanup. Only your own custom tags are delivered (host namespaces like `conversation:`/`assistant:` are never forwarded), and the payload is just the changed tags — re-fetch through `window.vellum.fetch` for the data.
+
+```tsx
+useEffect(() => {
+  const off = window.vellum.subscribe({ tags: ["my-app:items"] }, () => {
+    void loadItems(); // re-fetch on change — no polling
+  });
+  return off;
+}, []);
+```
+
+**Writing a route handler.** Routes are `.ts`/`.js` files in `{workspaceDir}/routes/`, served at `/v1/x/<filename>` (`routes/items.ts` → `/v1/x/items`; `routes/bar/index.ts` → `/v1/x/bar`). Write them with `file_write` **before** `app_refresh`. Each exports named functions per HTTP method (`GET`/`POST`/`PUT`/`PATCH`/`DELETE`), receiving the Web `Request`. Full Node API access (`fs`, `path`, `crypto`), 30s timeout, hot-reloaded on change. No `[id].ts` dynamic segments — use query params.
 
 ```typescript
 // routes/items.ts
@@ -289,7 +315,7 @@ export async function POST(req: Request): Promise<Response> {
 }
 ```
 
-The optional `context` arg exposes daemon singletons — e.g. `context.assistantEventHub.publish({...})` to push real-time events to connected clients (UI updates, navigation, notifications). It's immutable. Full guide + copyable examples (Focus Timer, Habit Tracker, Expense Tracker): `{baseDir}/references/CUSTOM_ROUTES.md`, `{baseDir}/references/examples/`.
+To reach daemon capabilities, import from `@vellumai/plugin-api` — `publishEvent({...})` to push real-time events to connected clients (UI updates, navigation, notifications), or `runConversationTurn({...})` to post an inbound event into a conversation as a real assistant turn. (An older `context` second argument still works in-process but is deprecated — prefer these imports.) Full guide + copyable examples (Focus Timer, Habit Tracker, Expense Tracker): `{baseDir}/references/CUSTOM_ROUTES.md`, `{baseDir}/references/examples/`.
 
 **Persistence options:** `localStorage` for ephemeral UI state (filters, view modes, drafts); custom routes for persistent records and server-side logic.
 

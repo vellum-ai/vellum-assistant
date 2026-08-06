@@ -19,7 +19,8 @@ export type TranscriptItemKind =
   | "pendingContactRequest"
   | "surface"
   | "ephemeralMeta"
-  | "onboardingChoice";
+  | "onboardingChoice"
+  | "creditsUpsell";
 
 export interface TranscriptItemBase {
   key: string;
@@ -36,6 +37,14 @@ export interface ThinkingItem extends TranscriptItemBase {
   /** Daemon-provided activity label (e.g. "Processing bash results").
    *  When absent, the render layer falls back to a generic default. */
   label?: string;
+  /**
+   * Whether the shimmering label is currently visible. The item itself exists
+   * for the WHOLE in-flight turn (a fixed-height slot, so the transcript never
+   * reflows), while `active` fades the label in during the gaps where no other
+   * affordance — streaming text, a shimmering inline thinking link, a pending
+   * prompt — is signaling progress (see `shouldShowThinkingIndicator`).
+   */
+  active: boolean;
 }
 
 export interface PendingSecretItem extends TranscriptItemBase {
@@ -54,6 +63,7 @@ export interface PendingContactRequestItem extends TranscriptItemBase {
   /** Channel type hint from the daemon (e.g. "phone", "email"). */
   channel?: string;
   placeholder?: string;
+  defaultValue?: string;
   label?: string;
   description?: string;
   role?: string;
@@ -66,6 +76,22 @@ export interface SurfaceItem extends TranscriptItemBase {
 
 export interface OnboardingChoiceItem extends TranscriptItemBase {
   kind: "onboardingChoice";
+}
+
+/** Friendly credits upsell card. Emitted in place of a persisted
+ *  credits-exhausted provider-error row (`providerError.category` matching
+ *  `credits_exhausted`) while the org's balance is currently exhausted, where
+ *  the row's text stays in message state (the LLM transcript keeps it) and
+ *  only the rendering is substituted. Also appended proactively at the
+ *  transcript tail while the balance is exhausted, so the credit wall shows
+ *  before the next send fails. */
+export interface CreditsUpsellItem extends TranscriptItemBase {
+  kind: "creditsUpsell";
+  /** The provider-error message row this card renders in place of. Carries
+   *  the full row so the render layer can keep its `msg-<id>` DOM anchor and
+   *  expose the standard message affordances (hover actions, inspect) for it.
+   *  Absent on the proactive tail card, which has no backing message row. */
+  message?: DisplayMessage;
 }
 
 export interface EphemeralMetaItem extends TranscriptItemBase {
@@ -81,7 +107,8 @@ export type TranscriptItem =
   | PendingContactRequestItem
   | SurfaceItem
   | EphemeralMetaItem
-  | OnboardingChoiceItem;
+  | OnboardingChoiceItem
+  | CreditsUpsellItem;
 
 /** Result of splitting the transcript into stable history and the
  *  currently-in-progress turn. `anchorMessage` is the most recent user
@@ -107,8 +134,12 @@ export interface LatestTurnPartition {
  *  Only `messages` genuinely differs: rendered `DisplayMessage`s, not the wire
  *  rows — plus the two client-derived extraction fields. */
 export interface PaginatedHistoryResult
-  extends Required<
-      Pick<MessagesGetResponse, "hasMore" | "oldestTimestamp" | "oldestMessageId">
+  extends
+    Required<
+      Pick<
+        MessagesGetResponse,
+        "hasMore" | "oldestTimestamp" | "oldestMessageId"
+      >
     >,
     Pick<MessagesGetResponse, "seq" | "processing"> {
   messages: DisplayMessage[];
@@ -120,6 +151,13 @@ export interface PaginatedHistoryResult
    *  completion); it is optional so other constructors (snapshot spreads, tests)
    *  need not restate it. */
   backgroundToolCompletions?: BackgroundTaskEntry[];
+  /** Client-stamped seq generation captured when this page's `/messages`
+   *  request was ISSUED (see `reconnect-cursor.ts`). Lets the snapshot-anchor
+   *  frontier be tagged with the generation its watermark belongs to, so a
+   *  page that raced a generation reset is recognised as stale. Undefined for
+   *  constructors that don't stamp it (snapshot spreads, tests) — the caller
+   *  falls back to the current generation. */
+  seqGeneration?: number;
 }
 
 /** Snapshot of the transcript pagination state held by the scroll

@@ -12,22 +12,6 @@ mock.module("../permissions/trust-store.js", () => ({
   clearCache: () => {},
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    provider: "mock-provider",
-    timeouts: { permissionTimeoutSec: 5 },
-    permissions: { mode: "workspace" },
-    skills: { load: { extraDirs: [] } },
-  }),
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 mock.module("../security/redaction.js", () => ({
   redactSensitiveFields: (input: Record<string, unknown>) => input,
 }));
@@ -36,7 +20,7 @@ mock.module("../security/redaction.js", () => ({
 // Import after mocks are registered.
 // ---------------------------------------------------------------------------
 
-import type { ToolSetupContext } from "../daemon/conversation-tool-setup.js";
+import type { Conversation } from "../daemon/conversation.js";
 import { createProxyApprovalCallback } from "../daemon/conversation-tool-setup.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 
@@ -44,16 +28,15 @@ import { PermissionPrompter } from "../permissions/prompter.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeContext(overrides?: Partial<ToolSetupContext>): ToolSetupContext {
+function makeContext(overrides?: Partial<Conversation>): Conversation {
   return {
     conversationId: "conv-test",
     workingDir: "/tmp/test-project",
     abortController: null,
-    memoryPolicy: { scopeId: "default" },
     sendToClient: () => {},
     surfacesByAppId: new Map(),
     ...overrides,
-  } as ToolSetupContext;
+  } as unknown as Conversation;
 }
 
 function makeAskMissingCredentialRequest(

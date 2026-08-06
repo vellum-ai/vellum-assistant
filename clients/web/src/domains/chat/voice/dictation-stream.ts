@@ -33,6 +33,10 @@ import {
   type LiveVoiceAudioCaptureOptions,
   type LiveVoiceCaptureResult,
 } from "@/domains/chat/voice/live-voice/pcm-capture";
+import {
+  buildSelfHostedGatewayWsUrl,
+  isPairedGatewayIngress,
+} from "@/domains/chat/voice/live-voice/connection";
 import { LIVE_VOICE_AUDIO_FORMAT } from "@/domains/chat/voice/live-voice/protocol";
 import {
   getSelfHostedActorToken,
@@ -67,6 +71,7 @@ export interface DictationStreamOptions {
   captureFactory?: (options: LiveVoiceAudioCaptureOptions) => {
     start(): Promise<LiveVoiceCaptureResult>;
     shutdown(): void;
+    flush?(): void;
   };
 }
 
@@ -75,10 +80,10 @@ export interface DictationStreamOptions {
  *
  *   ws(s)://<ingressHost>/v1/stt/stream?token=…&mimeType=audio/pcm&sampleRate=16000
  *
- * Same shape rules as `buildSelfHostedLiveVoiceWsUrl`: scheme follows the
- * ingress (`http`→`ws`, `https`→`wss`), any ingress path prefix is preserved
- * (local Docker mode proxies the gateway at a sub-path), and query/hash on
- * the ingress are dropped. Exported for unit tests.
+ * Delegates to {@link buildSelfHostedGatewayWsUrl} so this dictation stream and
+ * live-voice share one transport rule set — including the local
+ * `/assistant/__gateway/<port>` → loopback bypass (the HTTP-only proxy can't
+ * carry a WS upgrade). Exported for unit tests.
  */
 export function buildSttStreamWsUrl({
   ingressUrl,
@@ -87,16 +92,15 @@ export function buildSttStreamWsUrl({
   ingressUrl: string;
   token: string;
 }): string {
-  const url = new URL(ingressUrl);
-  url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
-  const prefix = url.pathname.replace(/\/+$/, "");
-  url.pathname = `${prefix}/v1/stt/stream`;
-  url.search = "";
-  url.hash = "";
-  url.searchParams.set("token", token);
-  url.searchParams.set("mimeType", LIVE_VOICE_AUDIO_FORMAT.mimeType);
-  url.searchParams.set("sampleRate", String(LIVE_VOICE_AUDIO_FORMAT.sampleRate));
-  return url.toString();
+  return buildSelfHostedGatewayWsUrl({
+    ingressUrl,
+    routePath: "/v1/stt/stream",
+    token,
+    params: {
+      mimeType: LIVE_VOICE_AUDIO_FORMAT.mimeType,
+      sampleRate: String(LIVE_VOICE_AUDIO_FORMAT.sampleRate),
+    },
+  });
 }
 
 /** Join transcript segments with a single space, ignoring blanks. */
@@ -124,6 +128,14 @@ export function startDictationStream(
     // per session attempt so a missing-partials report is diagnosable.
     console.info(
       "dictation-stream: skipping (no self-hosted ingress/token or no AudioWorklet)",
+    );
+    return null;
+  }
+  if (isPairedGatewayIngress(ingressUrl)) {
+    // The paired gateway proxy is HTTP-only, so no STT stream WS exists;
+    // batch dictation over HTTP still works, only live partials are skipped.
+    console.info(
+      "dictation-stream: skipping (voice streaming isn't available for paired assistants yet)",
     );
     return null;
   }
@@ -155,7 +167,9 @@ export function startDictationStream(
   });
 
   const teardown = (): void => {
-    if (closed) return;
+    if (closed) {
+      return;
+    }
     closed = true;
     live = false;
     capture.shutdown();
@@ -172,7 +186,9 @@ export function startDictationStream(
   };
 
   ws.addEventListener("open", () => {
-    if (closed) return;
+    if (closed) {
+      return;
+    }
     void capture.start().then((result) => {
       // Mic denied / device busy: no partials, batch capture unaffected.
       if (!result.ok) {
@@ -183,7 +199,9 @@ export function startDictationStream(
   });
 
   ws.addEventListener("message", (event) => {
-    if (closed || typeof event.data !== "string") return;
+    if (closed || typeof event.data !== "string") {
+      return;
+    }
 
     let parsed: unknown;
     try {
@@ -191,7 +209,9 @@ export function startDictationStream(
     } catch {
       return;
     }
-    if (!parsed || typeof parsed !== "object") return;
+    if (!parsed || typeof parsed !== "object") {
+      return;
+    }
 
     const message = parsed as { type?: string; text?: string };
     switch (message.type) {
@@ -242,6 +262,10 @@ export function startDictationStream(
     isLive: () => live && !closed,
     stop: () => {
       if (!closed && ws.readyState === WebSocket.OPEN) {
+        // The last <50ms may still sit in the capture's batch accumulator;
+        // drain it (synchronously, via onChunk) before asking the provider
+        // to flush finals.
+        capture.flush?.();
         try {
           ws.send(JSON.stringify({ type: "stop" }));
         } catch {

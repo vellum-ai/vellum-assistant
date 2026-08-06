@@ -4,20 +4,15 @@
  * is viewing it (Part 6 of the LUM-1907 attention-sync fix).
  */
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { createElement } from "react";
 
 import * as sdkGen from "@/generated/daemon/sdk.gen";
+import * as conversationCache from "@/utils/conversation-cache";
+import * as cacheMutations from "@/utils/conversation-cache-mutations";
 import { useConversationStore } from "@/stores/conversation-store";
 import { __resetForTesting } from "@/lib/event-bus";
 
@@ -42,9 +37,14 @@ mock.module("@/hooks/conversation-queries", () => ({
   useConversationListQuery: () => ({ conversations: conversationsImpl }),
   useBackgroundConversationListQuery: () => ({ conversations: [] }),
   useScheduledConversationListQuery: () => ({ conversations: [] }),
+  useArchivedConversationListQuery: () => ({ conversations: [] }),
 }));
 
+// Spread the real modules and override only what this suite drives:
+// `mock.module` is process-global, so an enumerated stand-in silently
+// breaks every other importer the moment the real module gains an export.
 mock.module("@/utils/conversation-cache-mutations", () => ({
+  ...cacheMutations,
   markConversationSeenLocal: () => {},
   refreshConversationRow: async () => {},
   prependConversation: () => {},
@@ -53,15 +53,26 @@ mock.module("@/utils/conversation-cache-mutations", () => ({
 }));
 
 mock.module("@/utils/conversation-cache", () => ({
+  ...conversationCache,
   getConversations: () => conversationsImpl,
   findConversation: () => undefined,
 }));
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...sdkGen,
-  conversationsSeenPost: (opts: { path: { assistant_id: string }; body: { conversationId: string } }) => {
-    markConversationSeenCalls.push({ assistantId: opts.path.assistant_id, conversationId: opts.body.conversationId });
-    return markConversationSeenImpl().then(() => ({ data: undefined, error: undefined, response: { ok: true } }));
+  conversationsSeenPost: (opts: {
+    path: { assistant_id: string };
+    body: { conversationId: string };
+  }) => {
+    markConversationSeenCalls.push({
+      assistantId: opts.path.assistant_id,
+      conversationId: opts.body.conversationId,
+    });
+    return markConversationSeenImpl().then(() => ({
+      data: undefined,
+      error: undefined,
+      response: { ok: true },
+    }));
   },
 }));
 
@@ -194,7 +205,9 @@ describe("useAttentionTracking — mark-seen effect", () => {
     let callCount = 0;
     markConversationSeenImpl = async () => {
       callCount++;
-      if (callCount === 1) throw new Error("429 rate limited");
+      if (callCount === 1) {
+        throw new Error("429 rate limited");
+      }
     };
 
     conversationsImpl = [

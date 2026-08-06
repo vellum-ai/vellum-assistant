@@ -2,7 +2,11 @@ import type { ToolDefinition } from "../tools/tool-types.js";
 export type { ToolDefinition };
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { ProviderError } from "../util/errors.js";
+import {
+  ProviderError,
+  type ProviderErrorReason,
+  type ProviderRouteAttribution,
+} from "../util/errors.js";
 
 export interface TextContent {
   type: "text";
@@ -128,6 +132,36 @@ export interface WebSearchToolResultContent {
   content: unknown; // Opaque — encrypted_content in search results is provider-specific
 }
 
+/**
+ * A client-rendered UI card persisted into conversation history: call
+ * summaries, guardian approval cards, skill cards, wake notices, document
+ * previews.
+ *
+ * This is a rendering instruction, not model context — providers drop it when
+ * serializing history. Producers therefore pair the surface with a sibling
+ * `text` block flagged `_surfaceFallback` (see
+ * `notifications/approval-card-builder.ts`); that text is what feeds the model,
+ * search indexing, CLI display, and channel replies.
+ *
+ * `data` is deliberately opaque: its concrete shape is selected by
+ * `surfaceType` and owned by `daemon/message-types/surfaces.ts`.
+ */
+export interface UiSurfaceContent {
+  type: "ui_surface";
+  surfaceId: string;
+  surfaceType: string;
+  title?: string;
+  data?: Record<string, unknown>;
+  actions?: unknown[];
+  /**
+   * Free-form, matching `CurrentTurnSurface.display` — NOT the `inline` /
+   * `panel` enum of the `ui_surface_show` wire event. Persisted surfaces carry
+   * whatever the `ui_show` tool wrote, so this must not narrow.
+   */
+  display?: string;
+  completed?: boolean;
+}
+
 export type ContentBlock =
   | TextContent
   | ThinkingContent
@@ -137,7 +171,8 @@ export type ContentBlock =
   | ToolUseContent
   | ToolResultContent
   | ServerToolUseContent
-  | WebSearchToolResultContent;
+  | WebSearchToolResultContent
+  | UiSurfaceContent;
 
 export interface Message {
   role: "user" | "assistant";
@@ -146,6 +181,7 @@ export interface Message {
 
 export type ModelIntent =
   | "balanced"
+  | "cost-optimized"
   | "latency-optimized"
   | "quality-optimized"
   | "vision-optimized";
@@ -155,6 +191,13 @@ export interface ProviderResponse {
   model: string;
   /** Provider that actually produced this response, which may differ from a wrapper provider name. */
   actualProvider?: string;
+  /**
+   * Base URL the provider's HTTP client actually resolved to for this request,
+   * read from the live SDK client instance rather than re-derived from config.
+   * Lets diagnostics observe the true routing target (e.g. a misrouted host)
+   * instead of inferring it. Absent for providers that don't surface it.
+   */
+  resolvedEndpoint?: string;
   usage: {
     /** Total input tokens (input_tokens + cache_creation + cache_read). */
     inputTokens: number;
@@ -215,7 +258,8 @@ export interface SendMessageConfig {
    * LLM call-site identifier. `RetryProvider` resolves
    * provider/model/maxTokens/effort/speed/verbosity/temperature/thinking/
    * contextWindow via `resolveCallSiteConfig(callSite, config.llm)`, falling
-   * back to `llm.default` when no callSite-specific entry is present.
+   * back to the shipped call-site defaults when no callSite-specific entry
+   * is present.
    */
   callSite?: LLMCallSite;
   /**
@@ -247,6 +291,25 @@ export interface SendMessageConfig {
    */
   selectionSeed?: string;
   /**
+   * Id of the user conversation that causally triggered this call, stamped by
+   * call sites so `UsageTrackingProvider` can attribute the usage-ledger event
+   * to the conversation (and, at flush time, its turn). A resolution/routing-
+   * time concern only; stripped before any provider wire request.
+   */
+  conversationId?: string;
+  /**
+   * Per-conversation prompt-cache key for providers with explicit prompt
+   * caching (sent as the OpenAI `prompt_cache_key` request param). Set by
+   * `RetryProvider` from `selectionSeed` (the durable conversation id) for
+   * the `openai` and `openrouter` providers — GPT-5.6+ requires the key for
+   * reliable breakpoint matching, and OpenAI's ~15 req/min-per-key routing
+   * guidance is satisfied by per-conversation ids. A non-wire field for
+   * every other provider client (the Anthropic client strips it, covering
+   * OpenRouter's `anthropic/*` delegation); the request param is omitted
+   * when absent.
+   */
+  promptCacheKey?: string;
+  /**
    * Internal per-request HTTP headers for managed-proxy usage attribution.
    * Provider clients may pass these through SDK request options only when the
    * transport is Vellum-managed, and must never include this object in provider
@@ -269,12 +332,32 @@ export interface SendMessageConfig {
    */
   logit_bias?: Record<string, number>;
   /**
-   * When true, the most recent user message's content varies across
-   * otherwise-identical turns (e.g. a per-turn memory block was injected into
-   * it). The provider places the primary long-TTL cache breakpoint on the most
-   * recent *stable* user message instead of the volatile latest one, so the
-   * cached prefix stays reusable across turns. Default false — existing
-   * behavior.
+   * When true, the TURN-STARTING user message carries content that will not
+   * recur byte-identically on the next turn, so a long-TTL breakpoint placed
+   * on it could never be read back across turns. The agent loop is the only
+   * producer: it sets the flag from the history it is about to send, when the
+   * turn-starting message carries a memory-v3 `<memory_spotlight>` block (the
+   * one injected block strip-and-replaced from every user message each turn).
+   *
+   * The flag describes the turn, not the request, so it holds for every
+   * request the turn makes, including tool-loop iterations, whose trailing
+   * tool-result message is user-role but carries no injected blocks.
+   *
+   * Consumed by the Anthropic client only, where it selects the TTL of the
+   * turn-start breakpoint: short instead of long. The block is still marked,
+   * so the turn's tool-loop iterations read the prefix back and each hit
+   * refreshes the entry; nothing is spent on a long-TTL entry whose bytes
+   * change before the next turn could reach it. Holding the flag steady across
+   * the turn is what keeps that one boundary on a single TTL; marking it at
+   * two would bill two writes for one reusable prefix.
+   *
+   * The OpenAI Responses transport ignores the flag and marks every markable
+   * user item: a volatile message is fixed within its own turn, so the write is
+   * prepaid once and read back by each tool-loop iteration.
+   *
+   * Default false. Providers that place no message-level breakpoints, or that
+   * key their cache on a request-level identifier rather than message bytes,
+   * can ignore it.
    */
   mutableLatestUserMessage?: boolean;
   /**
@@ -301,6 +384,8 @@ export interface SendMessageOptions {
 
 export interface Provider {
   name: string;
+  /** Connection route whose credentials this provider instance uses. */
+  routeAttribution?: ProviderRouteAttribution;
   /**
    * Provider key used by the local token estimator to select model-family
    * specific rules (e.g. Anthropic's `width * height / 750` image sizing).
@@ -310,6 +395,13 @@ export interface Provider {
    * Falls back to `name` when unset.
    */
   tokenEstimationProvider?: string;
+  /**
+   * Model id this instance dispatches when a call carries no per-call model
+   * override. Consumed by the local token estimator for model-keyed rules
+   * (e.g. audio-capable OpenAI-compatible models). Optional: providers whose
+   * estimation rules are provider-wide need not expose it.
+   */
+  defaultModel?: string;
   /**
    * True when this provider instance was constructed to run web search
    * server-side (provider-native). The native search only activates when a
@@ -365,6 +457,8 @@ export interface ContextOverflowErrorOptions {
   statusCode?: number;
   /** Underlying error to preserve the cause chain (standard Error.cause). */
   cause?: unknown;
+  /** Semantic reason override; defaults to `context_overflow`. */
+  reason?: ProviderErrorReason;
 }
 
 /**
@@ -392,12 +486,10 @@ export class ContextOverflowError extends ProviderError {
     provider: string,
     options: ContextOverflowErrorOptions = {},
   ) {
-    super(
-      message,
-      provider,
-      options.statusCode ?? 400,
-      options.cause !== undefined ? { cause: options.cause } : undefined,
-    );
+    super(message, provider, options.statusCode ?? 400, {
+      reason: options.reason ?? "context_overflow",
+      ...(options.cause !== undefined ? { cause: options.cause } : {}),
+    });
     this.name = "ContextOverflowError";
     this.actualTokens = options.actualTokens;
     this.maxTokens = options.maxTokens;
@@ -421,11 +513,17 @@ export function extractOverflowTokensFromMessage(message: string): {
   maxTokens?: number;
 } {
   const match = message.match(/(\d[\d,]*)\s*(?:tokens?\s*)?[>≥]\s*(\d[\d,]*)/i);
-  if (!match) return {};
+  if (!match) {
+    return {};
+  }
   const actual = parseInt(match[1].replace(/,/g, ""), 10);
   const max = parseInt(match[2].replace(/,/g, ""), 10);
   const out: { actualTokens?: number; maxTokens?: number } = {};
-  if (!isNaN(actual) && actual > 0) out.actualTokens = actual;
-  if (!isNaN(max) && max > 0) out.maxTokens = max;
+  if (!isNaN(actual) && actual > 0) {
+    out.actualTokens = actual;
+  }
+  if (!isNaN(max) && max > 0) {
+    out.maxTokens = max;
+  }
   return out;
 }

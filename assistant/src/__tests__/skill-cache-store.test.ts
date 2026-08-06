@@ -41,7 +41,9 @@ describe("setCacheEntry", () => {
     // Only one entry in the store for this key.
     let count = 0;
     for (const k of _internals.store.keys()) {
-      if (k === "same") count++;
+      if (k === "same") {
+        count++;
+      }
     }
     expect(count).toBe(1);
   });

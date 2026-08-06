@@ -27,12 +27,10 @@ const exportNames = [...sdkSource.matchAll(/^export const (\w+)/gm)].map(
 const sdkMock = Object.fromEntries(exportNames.map((n) => [n, sdkStub]));
 mock.module("@/generated/daemon/sdk.gen", () => sdkMock);
 
-const { useLiveThinkingText } = await import(
-  "@/domains/chat/hooks/use-live-thinking-text"
-);
-const { useChatSessionStore } = await import(
-  "@/domains/chat/chat-session-store"
-);
+const { useLiveThinkingText } =
+  await import("@/domains/chat/hooks/use-live-thinking-text");
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
 let queryClient: QueryClient;
@@ -90,8 +88,12 @@ afterEach(() => {
 describe("useLiveThinkingText", () => {
   test("returns null without a message id or group index", () => {
     seed([msg({ contentBlocks: [{ type: "thinking", thinking: "a" }] })]);
-    expect(render(() => useLiveThinkingText(undefined, 0)).result.current).toBeNull();
-    expect(render(() => useLiveThinkingText("m1", undefined)).result.current).toBeNull();
+    expect(
+      render(() => useLiveThinkingText(undefined, 0)).result.current,
+    ).toBeNull();
+    expect(
+      render(() => useLiveThinkingText("m1", undefined)).result.current,
+    ).toBeNull();
   });
 
   test("returns null when the message is absent", () => {
@@ -166,7 +168,9 @@ describe("useLiveThinkingText", () => {
     expect(result.current).toBe("partial");
 
     seed([
-      msg({ contentBlocks: [{ type: "thinking", thinking: "partial and more" }] }),
+      msg({
+        contentBlocks: [{ type: "thinking", thinking: "partial and more" }],
+      }),
     ]);
     expect(result.current).toBe("partial and more");
   });
@@ -203,7 +207,9 @@ describe("useLiveThinkingText", () => {
     // Mid-stream the reducer keeps folding deltas onto the row in the snapshot,
     // so the drawer reads the freshest reasoning, not an earlier copy.
     seedHistory([
-      msg({ contentBlocks: [{ type: "thinking", thinking: "stale snapshot" }] }),
+      msg({
+        contentBlocks: [{ type: "thinking", thinking: "stale snapshot" }],
+      }),
     ]);
     seed([
       msg({

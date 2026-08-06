@@ -58,6 +58,7 @@ export interface PendingContactRequestState {
   requestId: string;
   channel?: string;
   placeholder?: string;
+  defaultValue?: string;
   label?: string;
   description?: string;
   role?: string;
@@ -67,6 +68,12 @@ export interface PendingQuestionState {
   requestId: string;
   entries: QuestionEntry[];
   toolUseId?: string;
+}
+
+export interface PendingAcpConnectState {
+  /** The failed `acp_spawn` tool call this Connect prompt is anchored to, so
+   *  the inline affordance renders under the right activity group. */
+  toolUseId: string;
 }
 
 // ---------------------------------------------------------------------------

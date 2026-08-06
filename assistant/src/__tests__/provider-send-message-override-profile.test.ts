@@ -11,22 +11,13 @@
  * makes per-conversation pinned profiles (PR 6+) work.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
-// Mutable LLM config consumed by the resolver via `getConfig()`.
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ llm: mockLlmConfig }),
-}));
-
-import { LLMSchema } from "../config/schemas/llm.js";
+// These suites exercise override-profile PLUMBING through legacy-shaped
+// fixtures (llm.default-centric, no defaultProvider). Pinned to the
+// flag-off cascade; override-or-default resolution semantics are pinned by
+// llm-resolver-override-or-default.test.ts and the inference-profile loop
+// suite.
 import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import { CallSiteConfiguredProvider } from "../providers/provider-send-message.js";
 import { RetryProvider } from "../providers/retry.js";
@@ -36,6 +27,8 @@ import type {
   ProviderResponse,
   SendMessageOptions,
 } from "../providers/types.js";
+import { ProviderError } from "../util/errors.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const DUMMY_MESSAGES: Message[] = [
   { role: "user", content: [{ type: "text", text: "hi" }] },
@@ -50,12 +43,14 @@ function makeResponse(model: string): ProviderResponse {
   };
 }
 
+// Seed `llm` into the real workspace config; the loader schema-merges the
+// raw partial over defaults exactly as `LLMSchema.parse` did for the mock.
 function setLlmConfig(raw: unknown): void {
-  mockLlmConfig = LLMSchema.parse(raw) as Record<string, unknown>;
+  setConfig("llm", raw);
 }
 
 beforeEach(() => {
-  mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
+  setLlmConfig({});
 });
 
 describe("SendMessageOptions.config.overrideProfile", () => {
@@ -104,9 +99,74 @@ describe("SendMessageOptions.config.overrideProfile", () => {
     expect(captured?.config?.callSite).toBe("conversationTitle");
   });
 
+  test("CallSiteConfiguredProvider forwards its stored overrideProfile when the caller sets callSite", async () => {
+    let captured: SendMessageOptions | undefined;
+    const inner: Provider = {
+      name: "anthropic",
+      async sendMessage(
+        _messages: Message[],
+        options?: SendMessageOptions,
+      ): Promise<ProviderResponse> {
+        captured = options;
+        return makeResponse("anthropic");
+      },
+    };
+
+    const provider = new CallSiteConfiguredProvider(
+      inner,
+      "inference",
+      "byok-sonnet",
+    );
+    await provider.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "inference" },
+    });
+
+    // Naming a call site must not opt the caller out of profile propagation:
+    // the two fields are independent, and downstream resolution reads the
+    // override off the config it is handed.
+    expect(captured?.config?.overrideProfile).toBe("byok-sonnet");
+  });
+
+  test("a profile-pinned send resolves the profile's model, not the call-site default", async () => {
+    setLlmConfig({
+      profiles: {
+        "balanced-together": {
+          provider: "together",
+          model: "moonshotai/Kimi-K2-Instruct",
+        },
+      },
+    });
+
+    let captured: Record<string, unknown> | undefined;
+    const inner: Provider = {
+      name: "together",
+      async sendMessage(
+        _messages: Message[],
+        options?: SendMessageOptions,
+      ): Promise<ProviderResponse> {
+        captured = options?.config as Record<string, unknown> | undefined;
+        return makeResponse("together");
+      },
+    };
+
+    const provider = new CallSiteConfiguredProvider(
+      new RetryProvider(inner),
+      "inference",
+      "balanced-together",
+    );
+    await provider.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "inference" },
+    });
+
+    // Losing the override strands a Together connection on the `inference`
+    // call-site default (`cost-optimized`), whose model is a Fireworks id —
+    // the provider half stays correct, so the upstream 400 names a model the
+    // caller never chose.
+    expect(captured?.model).toBe("moonshotai/Kimi-K2-Instruct");
+  });
+
   test("RetryProvider resolves model from named profile when overrideProfile is set", async () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         fast: { provider: "anthropic", model: "claude-haiku-4-5-20251001" },
       },
@@ -129,7 +189,8 @@ describe("SendMessageOptions.config.overrideProfile", () => {
       config: { callSite: "mainAgent", overrideProfile: "fast" },
     });
 
-    // The override profile's model should win over `llm.default.model`.
+    // The override profile wins resolution, so its model is what lands on
+    // the wire config.
     expect(captured?.model).toBe("claude-haiku-4-5-20251001");
     // `overrideProfile` is a routing key — it must not leak to the provider.
     expect(captured?.overrideProfile).toBeUndefined();
@@ -139,7 +200,6 @@ describe("SendMessageOptions.config.overrideProfile", () => {
 
   test("CallSiteRoutingProvider switches transport when overrideProfile changes the provider (via provider_connection)", async () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         fast: {
           provider: "openai",
@@ -180,9 +240,98 @@ describe("SendMessageOptions.config.overrideProfile", () => {
     expect(response.model).toBe("openai");
   });
 
+  test("CallSiteRoutingProvider attributes provider errors to the actual resolved connection", async () => {
+    setLlmConfig({
+      profiles: {
+        fast: {
+          provider: "openai",
+          provider_connection: "openai-conn",
+          model: "gpt-5.4",
+        },
+      },
+    });
+
+    const providerError = new ProviderError(
+      "OpenAI API error (429): Too many requests",
+      "openai",
+      429,
+      { reason: "rate_limited" },
+    );
+    const defaultProvider = makeThrowingProvider(
+      "anthropic",
+      new Error("default provider should not be called"),
+    );
+    const altProvider = makeThrowingProvider("openai", providerError);
+    altProvider.routeAttribution = {
+      connectionName: "openai-recovered",
+      isManagedRoute: false,
+    };
+    const wrapped = new CallSiteRoutingProvider(
+      defaultProvider,
+      async (connectionName) =>
+        connectionName === "openai-conn" ? altProvider : null,
+      { connectionName: "vellum", isManagedRoute: true },
+    );
+
+    await expect(
+      wrapped.sendMessage(DUMMY_MESSAGES, {
+        config: { callSite: "mainAgent", overrideProfile: "fast" },
+      }),
+    ).rejects.toBe(providerError);
+    expect(providerError.routeAttribution).toEqual({
+      connectionName: "openai-recovered",
+      profileName: "fast",
+      isManagedRoute: false,
+    });
+  });
+
+  test("CallSiteRoutingProvider attributes soft fallback errors to the actual default connection", async () => {
+    setLlmConfig({
+      profiles: {
+        fast: {
+          provider: "openai",
+          provider_connection: "openai-conn",
+          model: "gpt-5.4",
+        },
+      },
+    });
+
+    const providerError = new ProviderError(
+      "Anthropic API error (429): Too many requests",
+      "anthropic",
+      429,
+      { reason: "rate_limited" },
+    );
+    const defaultProvider = makeThrowingProvider("anthropic", providerError);
+    defaultProvider.routeAttribution = {
+      connectionName: "anthropic-default",
+      isManagedRoute: false,
+    };
+    const wrapped = new CallSiteRoutingProvider(
+      defaultProvider,
+      async () => null,
+      defaultProvider.routeAttribution,
+    );
+
+    await expect(
+      wrapped.sendMessage(DUMMY_MESSAGES, {
+        config: { callSite: "mainAgent", overrideProfile: "fast" },
+      }),
+    ).rejects.toBe(providerError);
+    expect(providerError.routeAttribution).toEqual({
+      connectionName: "anthropic-default",
+      profileName: "fast",
+      isManagedRoute: false,
+    });
+  });
+
   test("missing overrideProfile name silently falls through to base resolution", async () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
+      // The call-site tweak applies last in resolution, so it pins the model
+      // base resolution lands on when the override name doesn't resolve.
+      callSites: {
+        mainAgent: { provider: "anthropic", model: "claude-opus-4-7" },
+      },
       profiles: {
         fast: { provider: "anthropic", model: "claude-haiku-4-5-20251001" },
       },
@@ -205,17 +354,17 @@ describe("SendMessageOptions.config.overrideProfile", () => {
       config: { callSite: "mainAgent", overrideProfile: "does-not-exist" },
     });
 
-    // Falls through to `llm.default.model` since the named profile isn't found.
+    // Falls through to base resolution (call-site tweak applied over the
+    // default winner) since the named profile isn't found.
     expect(captured?.model).toBe("claude-opus-4-7");
   });
 
   test("absent overrideProfile leaves prior resolution behavior intact", async () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
+      callSites: {
+        mainAgent: { provider: "anthropic", model: "claude-opus-4-7" },
+      },
       profiles: {
-        // Disable the catalog default so mainAgent's base resolution lands on
-        // `llm.default` rather than the code catalog's `balanced`.
-        balanced: { source: "managed", status: "disabled" },
         fast: { provider: "anthropic", model: "claude-haiku-4-5-20251001" },
       },
     });
@@ -265,6 +414,15 @@ describe("SendMessageOptions.config.overrideProfile", () => {
   });
 });
 
+function makeThrowingProvider(name: string, error: Error): Provider {
+  return {
+    name,
+    async sendMessage(): Promise<ProviderResponse> {
+      throw error;
+    },
+  };
+}
+
 describe("SendMessageOptions.config.forceOverrideProfile", () => {
   test("CallSiteConfiguredProvider forwards forceOverrideProfile into the send config", async () => {
     let captured: SendMessageOptions | undefined;
@@ -294,11 +452,13 @@ describe("SendMessageOptions.config.forceOverrideProfile", () => {
     });
   });
 
-  test("forceOverrideProfile floats the override above a call-site profile pin", async () => {
-    // The advisor scenario in miniature: the `inference` call site is pinned to
-    // a cheap profile, but a caller forces a stronger profile for its own send.
+  test("the override profile outranks a call-site profile pin, forced or not", async () => {
+    // The advisor scenario in miniature: the `inference` call site is pinned
+    // to a cheap profile, but a caller supplies a stronger profile for its
+    // own send. Under single-winner resolution the override sits at the top
+    // of the selection chain for every call site, so it wins with or without
+    // `forceOverrideProfile` (the flag is a no-op kept for API compat).
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         cheap: { provider: "anthropic", model: "claude-haiku-4-5-20251001" },
         strong: { provider: "anthropic", model: "claude-opus-4-8" },
@@ -329,10 +489,11 @@ describe("SendMessageOptions.config.forceOverrideProfile", () => {
       return captured;
     };
 
-    // Without the flag, the call-site pin (`cheap`) outranks `overrideProfile`.
-    expect((await send(false))?.model).toBe("claude-haiku-4-5-20251001");
+    // Without the flag, the override (`strong`) already wins over the
+    // call-site pin (`cheap`).
+    expect((await send(false))?.model).toBe("claude-opus-4-8");
 
-    // With the flag, the forced `strong` profile wins over the call-site pin.
+    // With the flag, the result is identical — forcing changes nothing.
     const forced = await send(true);
     expect(forced?.model).toBe("claude-opus-4-8");
     // The routing keys are stripped before the provider wire request.

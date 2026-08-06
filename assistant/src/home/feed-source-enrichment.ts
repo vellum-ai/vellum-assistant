@@ -57,6 +57,11 @@ export interface FeedSourceEnrichmentDeps {
 export function classifyConversationSource(
   source: string | null | undefined,
 ): FeedItemSourceType {
+  // Imported history (`import:<provider>`) is a user conversation that
+  // happened elsewhere; present it like any other user conversation.
+  if (source?.startsWith("import:")) {
+    return "user";
+  }
   switch (source) {
     case "heartbeat":
       return "heartbeat";
@@ -115,7 +120,9 @@ export function enrichFeedItemsWithSource(
   items: FeedItem[],
   deps: FeedSourceEnrichmentDeps = {},
 ): FeedItem[] {
-  if (items.length === 0) return items;
+  if (items.length === 0) {
+    return items;
+  }
 
   const getConversationRow =
     deps.getConversationRow ?? defaultGetConversationRow;
@@ -123,7 +130,9 @@ export function enrichFeedItemsWithSource(
 
   const convCache = new Map<string, ConversationSourceRow | null>();
   const resolveConv = (id: string): ConversationSourceRow | null => {
-    if (!convCache.has(id)) convCache.set(id, getConversationRow(id));
+    if (!convCache.has(id)) {
+      convCache.set(id, getConversationRow(id));
+    }
     return convCache.get(id) ?? null;
   };
 

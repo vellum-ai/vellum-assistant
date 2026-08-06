@@ -12,26 +12,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    timeouts: { shellDefaultTimeoutSec: 120, shellMaxTimeoutSec: 600 },
-    sandbox: {
-      enabled: false,
-      backend: "native",
-      docker: {
-        image: "vellum-sandbox:latest",
-        shell: "bash",
-        cpus: 1,
-        memoryMb: 512,
-        pidsLimit: 256,
-        network: "none",
-      },
-    },
-  }),
-  loadConfig: () => ({}),
-}));
-
 mock.module("../tools/network/script-proxy/index.js", () => ({
   getOrStartSession: mock(() =>
     Promise.resolve({ session: { id: "mock-session" } }),
@@ -71,7 +51,9 @@ const mockRegisterBackgroundTool = mock((tool: BackgroundTool) => {
 });
 const mockRemoveBackgroundTool = mock((_id: string) => {
   const idx = registeredTools.findIndex((t) => t.id === _id);
-  if (idx !== -1) registeredTools.splice(idx, 1);
+  if (idx !== -1) {
+    registeredTools.splice(idx, 1);
+  }
 });
 const mockGenerateBackgroundToolId = mock(() => "bg-test1234");
 

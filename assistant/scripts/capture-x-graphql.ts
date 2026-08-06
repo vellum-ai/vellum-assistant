@@ -98,8 +98,9 @@ class CDPClient {
             }
           }
         } else if (msg.method) {
-          for (const h of this.eventHandlers.get(msg.method) ?? [])
+          for (const h of this.eventHandlers.get(msg.method) ?? []) {
             h(msg.params ?? {});
+          }
         }
       };
     });
@@ -137,7 +138,9 @@ const captured: CapturedQuery[] = [];
 const seenQueries = new Set<string>();
 
 // Ensure capture directory exists
-if (!existsSync(CAPTURE_DIR)) mkdirSync(CAPTURE_DIR, { recursive: true });
+if (!existsSync(CAPTURE_DIR)) {
+  mkdirSync(CAPTURE_DIR, { recursive: true });
+}
 
 // ─── Auto-navigation steps ───────────────────────────────────────────────────
 
@@ -150,7 +153,9 @@ interface GuideStep {
 
 // Resolve the logged-in user's screen name for profile-based URLs
 async function getScreenName(): Promise<string | null> {
-  if (!navigationClient) return null;
+  if (!navigationClient) {
+    return null;
+  }
   try {
     const result = (await navigationClient.send("Runtime.evaluate", {
       expression: `
@@ -263,16 +268,22 @@ function waitForAnyQuery(
   queryNames: string[],
   timeoutMs = 15000,
 ): Promise<boolean> {
-  if (queryNames.some((q) => seenQueries.has(q))) return Promise.resolve(true);
+  if (queryNames.some((q) => seenQueries.has(q))) {
+    return Promise.resolve(true);
+  }
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
-      for (const q of queryNames) queryWaiters.delete(q);
+      for (const q of queryNames) {
+        queryWaiters.delete(q);
+      }
       resolve(false);
     }, timeoutMs);
     for (const q of queryNames) {
       queryWaiters.set(q, () => {
         clearTimeout(timer);
-        for (const q2 of queryNames) queryWaiters.delete(q2);
+        for (const q2 of queryNames) {
+          queryWaiters.delete(q2);
+        }
         resolve(true);
       });
     }
@@ -297,7 +308,9 @@ for (const page of pages) {
   client.on("Network.requestWillBeSent", (params) => {
     const req = params.request as Record<string, unknown> | undefined;
     const url = (req?.url ?? params.url) as string | undefined;
-    if (!url?.includes("/i/api/graphql/")) return;
+    if (!url?.includes("/i/api/graphql/")) {
+      return;
+    }
 
     const match = url.match(/\/graphql\/([^/]+)\/([^?]+)/);
     const queryId = match?.[1] ?? "unknown";
@@ -305,7 +318,9 @@ for (const page of pages) {
     const method = (req?.method as string) ?? "GET";
 
     // Apply relevance filter
-    if (!captureAll && !RELEVANT_QUERIES.has(queryName)) return;
+    if (!captureAll && !RELEVANT_QUERIES.has(queryName)) {
+      return;
+    }
 
     let variables: unknown = undefined;
     let features: unknown = undefined;
@@ -322,17 +337,22 @@ for (const page of pages) {
       try {
         const u = new URL(url);
         const v = u.searchParams.get("variables");
-        if (v) variables = JSON.parse(v);
+        if (v) {
+          variables = JSON.parse(v);
+        }
         const f = u.searchParams.get("features");
-        if (f) features = JSON.parse(f);
+        if (f) {
+          features = JSON.parse(f);
+        }
       } catch {
         /* ignore */
       }
     }
 
     console.log(`\n>>> ${method} ${queryName} (${queryId})`);
-    if (variables)
+    if (variables) {
       console.log(`    variables: ${JSON.stringify(variables).slice(0, 200)}`);
+    }
 
     pendingRequests.set(params.requestId as string, { url, queryName });
     captured.push({
@@ -348,7 +368,9 @@ for (const page of pages) {
   client.on("Network.responseReceived", (params) => {
     const requestId = params.requestId as string;
     const pending = pendingRequests.get(requestId);
-    if (!pending) return;
+    if (!pending) {
+      return;
+    }
 
     const response = params.response as Record<string, unknown>;
     const status = response.status as number;
@@ -410,14 +432,18 @@ if (!navigationClient && pages.length > 0) {
 // ─── CDP navigation helpers ──────────────────────────────────────────────────
 
 async function navigateTo(url: string): Promise<void> {
-  if (!navigationClient) return;
+  if (!navigationClient) {
+    return;
+  }
   await navigationClient.send("Page.navigate", { url });
   // Wait for page to load
   await new Promise((r) => setTimeout(r, 3000));
 }
 
 async function clickElement(selector: string): Promise<boolean> {
-  if (!navigationClient) return false;
+  if (!navigationClient) {
+    return false;
+  }
   try {
     const result = (await navigationClient.send("Runtime.evaluate", {
       expression: `
@@ -439,7 +465,9 @@ async function clickElement(selector: string): Promise<boolean> {
 }
 
 async function scrollDown(): Promise<void> {
-  if (!navigationClient) return;
+  if (!navigationClient) {
+    return;
+  }
   try {
     await navigationClient.send("Runtime.evaluate", {
       expression: "window.scrollBy(0, 800)",
@@ -467,14 +495,18 @@ async function runAutoMode() {
     console.log(`  Detected user: @${screenName}\n`);
     // Fill in profile-based URLs
     for (const step of GUIDE_STEPS) {
-      if (step.label === "Likes")
+      if (step.label === "Likes") {
         step.url = `https://x.com/${screenName}/likes`;
-      if (step.label === "Followers")
+      }
+      if (step.label === "Followers") {
         step.url = `https://x.com/${screenName}/followers`;
-      if (step.label === "Following")
+      }
+      if (step.label === "Following") {
         step.url = `https://x.com/${screenName}/following`;
-      if (step.label === "Media")
+      }
+      if (step.label === "Media") {
         step.url = `https://x.com/${screenName}/media`;
+      }
     }
   } else {
     console.log(
@@ -553,7 +585,9 @@ function printSummary() {
   // Dedupe by queryName
   const seen = new Set<string>();
   const unique = captured.filter((q) => {
-    if (seen.has(q.queryName)) return false;
+    if (seen.has(q.queryName)) {
+      return false;
+    }
     seen.add(q.queryName);
     return true;
   });

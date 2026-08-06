@@ -15,6 +15,8 @@
 
 import { randomInt } from "node:crypto";
 
+import { channelStatusToMemberStatus } from "../contacts/member-status.js";
+import type { ChannelStatus } from "../contacts/types.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import type { addMessage as addMessageFn } from "../persistence/conversation-crud.js";
 import { notifyGuardianOfAccessRequest as notifyGuardianOfAccessRequestImpl } from "../runtime/access-request-helper.js";
@@ -139,7 +141,7 @@ export interface CallSetupFlowDeps {
 
   // ── Name-capture sub-flow deps ──────────────────────────────────────
   /**
-   * Create the canonical access request and notify the guardian. Defaults
+   * Create the access request and notify the guardian. Defaults
    * to access-request-helper's {@link notifyGuardianOfAccessRequestImpl}.
    */
   notifyGuardianOfAccessRequest?: typeof notifyGuardianOfAccessRequestImpl;
@@ -321,6 +323,13 @@ interface AccessRequestState {
   fromNumber: string;
   callerName: string | null;
   requestId: string | null;
+  /**
+   * The caller's resolved channel status at setup time, when a contact record
+   * exists. Threaded to `notifyGuardianOfAccessRequest` so a caller the
+   * guardian deliberately kept out (revoked/blocked) is not re-notified and
+   * gets the denial copy, while a parked `unverified` caller re-fires the flow.
+   */
+  previousMemberStatus?: Exclude<ChannelStatus, "unverified">;
 }
 
 export class CallSetupFlow {
@@ -1312,11 +1321,15 @@ export class CallSetupFlow {
   ): void {
     const ndeps = this.requireNameCaptureDeps();
     this.ndeps = ndeps;
+    const memberStatus = resolved.actorTrust.memberRecord?.status;
     this.accessRequest = {
       assistantId: outcome.assistantId,
       fromNumber: outcome.fromNumber,
       callerName: null,
       requestId: null,
+      ...(memberStatus
+        ? { previousMemberStatus: channelStatusToMemberStatus(memberStatus) }
+        : {}),
     };
     this.initialTrustContext = toTrustContext(
       resolved.actorTrust,
@@ -1359,7 +1372,7 @@ export class CallSetupFlow {
   }
 
   /**
-   * Handle the caller's name: create the canonical access request, notify
+   * Handle the caller's name: create the guardian access request, notify
    * the guardian, and hand the wait off to a {@link GuardianWaitController}.
    * Fails closed to the timeout copy when no request id comes back.
    */
@@ -1385,6 +1398,9 @@ export class CallSetupFlow {
         conversationExternalId: accessRequest.fromNumber,
         actorExternalId: accessRequest.fromNumber,
         actorDisplayName: callerName,
+        ...(accessRequest.previousMemberStatus
+          ? { previousMemberStatus: accessRequest.previousMemberStatus }
+          : {}),
       });
 
       if (accessResult.notified) {
@@ -1397,13 +1413,14 @@ export class CallSetupFlow {
           },
           "Guardian notified of voice access request with caller name",
         );
-      } else if (accessResult.reason === "already_denied") {
-        // The guardian already denied this caller; they are intentionally not
-        // re-notified. Deliver the denial copy rather than the "I'll let them
-        // know" timeout copy, which would falsely promise a notification.
+      } else if (accessResult.reason === "contact_kept_out") {
+        // The guardian deliberately kept this caller out (revoked/blocked);
+        // they are intentionally not re-notified. Deliver the denial copy
+        // rather than the "I'll let them know" timeout copy, which would
+        // falsely promise a notification.
         log.info(
           { callSessionId: this.callSessionId },
-          "Voice caller previously denied — suppressing re-notification, delivering denial",
+          "Voice caller was kept out (revoked/blocked) — suppressing re-notification, delivering denial",
         );
         await this.handleAccessRequestDenied(ndeps, null);
         return;

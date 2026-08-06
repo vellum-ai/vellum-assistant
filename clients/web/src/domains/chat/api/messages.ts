@@ -39,11 +39,9 @@ import {
 import { persistPreChatOnboardingProfile } from "@/domains/onboarding/prechat-profile";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
+import { getVisibleAppIdForSend } from "@/domains/chat/utils/visible-app-context";
 import { getEffectiveTimezone } from "@/utils/effective-timezone";
 import { detectClientOs } from "@/runtime/platform-detection";
-
-const POLL_INTERVAL_MS = 1000;
-const POLL_TIMEOUT_MS = 120_000;
 
 /**
  * Subagent notification as carried by the web. The wire shape
@@ -79,50 +77,6 @@ export function toBackgroundTaskEntryFromCompletion(
     output: c.output,
     completedAt: c.completedAt,
   };
-}
-
-export async function pollForResponse(
-  assistantId: string,
-  userMessageId: string,
-  conversationId: string,
-): Promise<ConversationMessage | null> {
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
-
-  while (Date.now() < deadline) {
-    const { data, error, response } = await messagesGet({
-      path: { assistant_id: assistantId },
-      query: { conversationId },
-      throwOnError: false,
-    });
-    assertHasResponse(response, error, "Failed to poll for messages");
-
-    if (!response.ok) {
-      const msg = extractErrorMessage(
-        error,
-        response,
-        "Failed to poll for messages",
-      );
-      throw new Error(msg);
-    }
-
-    const messages = data?.messages ?? [];
-
-    // Only consider assistant messages that appear after our sent user
-    // message in the list, establishing a causal boundary so delayed
-    // replies from earlier sends cannot be mis-associated.
-    const userMsgIndex = messages.findIndex((m) => m.id === userMessageId);
-    if (userMsgIndex >= 0) {
-      const afterSend = messages.slice(userMsgIndex + 1);
-      const reply = afterSend.find((m) => m.role === "assistant");
-      if (reply) {
-        return reply;
-      }
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-  }
-
-  return null;
 }
 
 /**
@@ -186,11 +140,15 @@ function normalizeContentOrderEntry(
 export function normalizeContentOrder(
   raw: unknown[] | undefined,
 ): Array<{ type: string; id: string }> | undefined {
-  if (!raw || raw.length === 0) return undefined;
+  if (!raw || raw.length === 0) {
+    return undefined;
+  }
   const result: Array<{ type: string; id: string }> = [];
   for (const entry of raw) {
     const normalized = normalizeContentOrderEntry(entry);
-    if (normalized) result.push(normalized);
+    if (normalized) {
+      result.push(normalized);
+    }
   }
   return result.length > 0 ? result : undefined;
 }
@@ -227,16 +185,22 @@ export function normalizeContentBlocks(
   }
 
   const order = normalizeContentOrder(m.contentOrder);
-  if (!order) return undefined;
+  if (!order) {
+    return undefined;
+  }
 
   const blocks: ConversationContentBlock[] = [];
   for (const { type, id } of order) {
     const idx = Number.parseInt(id, 10);
-    if (Number.isNaN(idx)) continue;
+    if (Number.isNaN(idx)) {
+      continue;
+    }
     switch (type) {
       case "text": {
         const raw = m.textSegments?.[idx];
-        if (raw == null) break;
+        if (raw == null) {
+          break;
+        }
         const { cleanedContent } = parseAttachmentSummariesFromContent(raw);
         if (cleanedContent.trim().length > 0) {
           blocks.push({ type: "text", text: cleanedContent });
@@ -245,7 +209,9 @@ export function normalizeContentBlocks(
       }
       case "thinking": {
         const thinking = m.thinkingSegments?.[idx];
-        if (thinking != null) blocks.push({ type: "thinking", thinking });
+        if (thinking != null) {
+          blocks.push({ type: "thinking", thinking });
+        }
         break;
       }
       case "tool":
@@ -268,12 +234,16 @@ export function normalizeContentBlocks(
       }
       case "surface": {
         const surface = m.surfaces?.[idx];
-        if (surface) blocks.push({ type: "surface", surface });
+        if (surface) {
+          blocks.push({ type: "surface", surface });
+        }
         break;
       }
       case "attachment": {
         const attachment = m.attachments[idx];
-        if (attachment) blocks.push({ type: "attachment", attachment });
+        if (attachment) {
+          blocks.push({ type: "attachment", attachment });
+        }
         break;
       }
     }
@@ -459,7 +429,9 @@ export async function uploadChatAttachment(
     id,
     ...(typeof data.filename === "string" ? { filename: data.filename } : {}),
     ...(typeof data.mimeType === "string" ? { mimeType: data.mimeType } : {}),
-    ...(typeof data.sizeBytes === "number" ? { sizeBytes: data.sizeBytes } : {}),
+    ...(typeof data.sizeBytes === "number"
+      ? { sizeBytes: data.sizeBytes }
+      : {}),
   };
 }
 
@@ -478,6 +450,8 @@ export type PostChatMessageOptions = Pick<
   | "inferenceProfile"
   | "enabledPlugins"
   | "hidden"
+  | "bypassSecretCheck"
+  | "scripted"
 > & {
   /** PreChat onboarding context — see the `postChatMessage` docs. */
   onboarding?: PreChatOnboardingContext;
@@ -500,9 +474,9 @@ export type PostChatMessageOptions = Pick<
  *     `undefined`). Empty strings ARE preserved on the wire — Swift's
  *     `if let` semantics in `MessageClient.swift` accept any non-nil value
  *     including `""`, so producers that intend to omit the field should
- *     pass `undefined` explicitly. The current caller (`PreChatFlow`)
- *     trims-or-undefined before calling, so the empty-string path is
- *     latent today; if it ever fires, the daemon sees the empty string.
+ *     pass `undefined` explicitly. Current callers trim-or-undefined
+ *     before calling, so the empty-string path is latent today; if it
+ *     ever fires, the daemon sees the empty string.
  */
 export async function postChatMessage(
   assistantId: string,
@@ -517,6 +491,8 @@ export async function postChatMessage(
     inferenceProfile,
     enabledPlugins,
     hidden,
+    bypassSecretCheck,
+    scripted,
   } = options;
   // Wire-field selection picks exactly one of `conversationId` (0.8.6+
   // strict internal-id lookup) or `conversationKey` (legacy
@@ -552,7 +528,16 @@ export async function postChatMessage(
   // schema accepts `clientTimezone: z.string().optional()` and forwards it
   // into `resolveTurnTimezoneContext`).
   const clientTimezone = getEffectiveTimezone();
-  if (clientTimezone) body.clientTimezone = clientTimezone;
+  if (clientTimezone) {
+    body.clientTimezone = clientTimezone;
+  }
+  // The app the user has on screen, read live at send time. The daemon turns
+  // it into the assistant's `visible_app:` per-turn context line so "the app"
+  // resolves without the user naming it; nothing user-visible depends on it.
+  const visibleAppId = getVisibleAppIdForSend();
+  if (visibleAppId) {
+    body.visibleAppId = visibleAppId;
+  }
   const conversationField = pickConversationIdWireField();
   if (conversationId !== null || conversationField !== "conversationId") {
     body[conversationField] = conversationId;
@@ -591,6 +576,22 @@ export async function postChatMessage(
   if (hidden) {
     body.hidden = true;
   }
+  // Single-use override for the daemon's `secret_blocked` ingress guard,
+  // set only when the user explicitly confirmed a client-side blocked send
+  // (the composer's "Send anyway" action). Applies to this message alone —
+  // never persisted, and omitted from every ordinary send.
+  if (bypassSecretCheck) {
+    body.bypassSecretCheck = true;
+  }
+  // Whether this turn was auto-sent on the user's behalf. Tri-state on the
+  // wire: `false` is a real assertion ("the user typed this") that activation
+  // metrics trust, and omission means UNKNOWN. So this is an explicit
+  // `typeof` check, NOT `if (scripted)`: a truthiness test would silently drop
+  // every `false` and downgrade honest turns to unknown, which is the
+  // measurement gap this field exists to close.
+  if (typeof scripted === "boolean") {
+    body.scripted = scripted;
+  }
   const normalizedOnboarding = onboarding
     ? normalizePreChatOnboardingContext(onboarding)
     : undefined;
@@ -601,34 +602,48 @@ export async function postChatMessage(
         tasks: normalizedOnboarding.tasks,
         tone: normalizedOnboarding.tone,
       };
-    if (normalizedOnboarding.userName !== undefined)
+    if (normalizedOnboarding.userName !== undefined) {
       onboardingDict.userName = normalizedOnboarding.userName;
-    if (normalizedOnboarding.occupation !== undefined)
+    }
+    if (normalizedOnboarding.occupation !== undefined) {
       onboardingDict.occupation = normalizedOnboarding.occupation;
-    if (normalizedOnboarding.assistantName !== undefined)
+    }
+    if (normalizedOnboarding.assistantName !== undefined) {
       onboardingDict.assistantName = normalizedOnboarding.assistantName;
-    if (normalizedOnboarding.googleConnected !== undefined)
+    }
+    if (normalizedOnboarding.googleConnected !== undefined) {
       onboardingDict.googleConnected = normalizedOnboarding.googleConnected;
-    if (normalizedOnboarding.googleScopes !== undefined)
+    }
+    if (normalizedOnboarding.googleScopes !== undefined) {
       onboardingDict.googleScopes = normalizedOnboarding.googleScopes;
-    if (normalizedOnboarding.priorAssistants !== undefined)
+    }
+    if (normalizedOnboarding.priorAssistants !== undefined) {
       onboardingDict.priorAssistants = normalizedOnboarding.priorAssistants;
-    if (normalizedOnboarding.cohort !== undefined)
+    }
+    if (normalizedOnboarding.cohort !== undefined) {
       onboardingDict.cohort = normalizedOnboarding.cohort;
-    if (normalizedOnboarding.bootstrapTemplate !== undefined)
+    }
+    if (normalizedOnboarding.bootstrapTemplate !== undefined) {
       onboardingDict.bootstrapTemplate = normalizedOnboarding.bootstrapTemplate;
+    }
     if (
       normalizedOnboarding.initialMessage !== undefined &&
       normalizedOnboarding.initialMessage
         .trim()
         .toLowerCase()
         .replace(/[.!?]+$/, "") !== "wake up, my friend"
-    )
+    ) {
       onboardingDict.initialMessage = normalizedOnboarding.initialMessage;
-    if (normalizedOnboarding.skills !== undefined)
+    }
+    if (normalizedOnboarding.skills !== undefined) {
       onboardingDict.skills = normalizedOnboarding.skills;
-    if (normalizedOnboarding.title !== undefined)
+    }
+    if (normalizedOnboarding.researchFindings !== undefined) {
+      onboardingDict.researchFindings = normalizedOnboarding.researchFindings;
+    }
+    if (normalizedOnboarding.title !== undefined) {
       onboardingDict.title = normalizedOnboarding.title;
+    }
     body.onboarding = onboardingDict;
   }
   if (normalizedOnboarding) {
@@ -756,24 +771,38 @@ export async function postChatMessage(
   };
 }
 
+function queuedMessageHeaders(conversationId: string) {
+  return { "X-Vellum-Conversation-Id": conversationId };
+}
+
 /**
  * Steer the assistant to a queued message by aborting the current
  * generation and promoting the message to the head of the queue.
  */
+export type SteerQueuedMessageResult =
+  "steered" | "not_steerable" | "request_failed";
+
 export async function steerToMessage(
   assistantId: string,
   conversationId: string,
   requestId: string,
-): Promise<boolean> {
+): Promise<SteerQueuedMessageResult> {
   try {
     const { response } = await messagesQueuedByIdSteerPost({
       path: { assistant_id: assistantId, id: requestId },
       query: { conversationId },
+      headers: queuedMessageHeaders(conversationId),
       throwOnError: false,
     });
-    return response?.ok ?? false;
+    if (response?.ok) {
+      return "steered";
+    }
+    if (response?.status === 404) {
+      return "not_steerable";
+    }
+    return "request_failed";
   } catch {
-    return false;
+    return "request_failed";
   }
 }
 
@@ -791,6 +820,7 @@ export async function deleteQueuedMessage(
     const { response } = await messagesQueuedByIdDelete({
       path: { assistant_id: assistantId, id: requestId },
       query: { conversationId },
+      headers: queuedMessageHeaders(conversationId),
       throwOnError: false,
     });
     return response?.ok ?? false;

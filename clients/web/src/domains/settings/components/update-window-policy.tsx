@@ -3,14 +3,11 @@ import { Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import {
-    assistantsUpgradePolicyDetailReadOptions,
-    assistantsUpgradePolicyDetailReadQueryKey,
+  assistantsUpgradePolicyDetailReadOptions,
+  assistantsUpgradePolicyDetailReadQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { assistantsUpgradePolicyDetailPartialUpdate } from "@/generated/api/sdk.gen";
-import type {
-    FrequencyEnum,
-    UpgradePolicy,
-} from "@/generated/api/types.gen";
+import type { FrequencyEnum, UpgradePolicy } from "@/generated/api/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
@@ -95,9 +92,7 @@ interface UpdateWindowPolicyProps {
   assistantId: string;
 }
 
-export function UpdateWindowPolicy({
-  assistantId,
-}: UpdateWindowPolicyProps) {
+export function UpdateWindowPolicy({ assistantId }: UpdateWindowPolicyProps) {
   const queryClient = useQueryClient();
 
   const {
@@ -118,8 +113,7 @@ export function UpdateWindowPolicy({
   const tzAbbrev = useMemo(() => getLocalTimezoneAbbreviation(), []);
 
   const [daysOfMonthText, setDaysOfMonthText] = useState<string | null>(null);
-  const displayDaysOfMonthText =
-    daysOfMonthText ?? form.daysOfMonth.join(", ");
+  const displayDaysOfMonthText = daysOfMonthText ?? form.daysOfMonth.join(", ");
 
   const policyUpdate = useMutation({
     mutationFn: async (body: {
@@ -171,8 +165,7 @@ export function UpdateWindowPolicy({
         schedule: {
           frequency: form.frequency,
           days_of_week: form.frequency === "weekly" ? form.daysOfWeek : [],
-          days_of_month:
-            form.frequency === "monthly" ? daysOfMonthToSave : [],
+          days_of_month: form.frequency === "monthly" ? daysOfMonthToSave : [],
           window: {
             start: localTimeToUtc(form.windowStart),
             end: localTimeToUtc(form.windowEnd),

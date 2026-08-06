@@ -3,7 +3,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useConversationStore } from "@/stores/conversation-store";
 import { getConversations } from "@/utils/conversation-cache";
 import { listConversationIdsWithPendingInteractions } from "@/domains/chat/api/interactions";
-import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
+import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 
 /**
  * Reveal lazy sidebar sections (Background / Scheduled) when a pending
@@ -15,7 +15,7 @@ function revealLazySectionsIfPendingUnloaded(
 ): void {
   for (const key of pendingKeys) {
     if (!loadedConversationIds.has(key)) {
-      const store = useSidebarCollapseStore.getState();
+      const store = useSidebarLayoutStore.getState();
       store.activateBackground();
       store.activateScheduled();
       return;
@@ -59,11 +59,17 @@ export async function reconcileAttentionKeys(
 
   if (opts.pruneStale) {
     for (const key of state.attentionConversationIds) {
-      if (key === activeConversationId) continue;
-      if (!pendingKeys.has(key)) state.removeAttentionConversationId(key);
+      if (key === activeConversationId) {
+        continue;
+      }
+      if (!pendingKeys.has(key)) {
+        state.removeAttentionConversationId(key);
+      }
     }
     for (const key of state.processingConversationIds) {
-      if (key === activeConversationId) continue;
+      if (key === activeConversationId) {
+        continue;
+      }
       if (pendingKeys.has(key)) {
         state.addAttentionConversationId(key);
         state.removeProcessingConversationId(key);
@@ -72,8 +78,13 @@ export async function reconcileAttentionKeys(
   }
 
   for (const key of pendingKeys) {
-    if (key === activeConversationId) continue;
-    if (!state.attentionConversationIds.has(key) && !state.processingConversationIds.has(key)) {
+    if (key === activeConversationId) {
+      continue;
+    }
+    if (
+      !state.attentionConversationIds.has(key) &&
+      !state.processingConversationIds.has(key)
+    ) {
       state.addAttentionConversationId(key);
     }
   }

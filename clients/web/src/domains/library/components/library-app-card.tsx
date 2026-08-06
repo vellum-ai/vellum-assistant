@@ -1,26 +1,35 @@
 import {
-    ArrowUp,
-    Ellipsis,
-    Globe,
-    Pin,
-    PinOff,
-    Trash2,
+  ArrowUp,
+  Ellipsis,
+  Globe,
+  Link2,
+  Pin,
+  PinOff,
+  RefreshCw,
+  Trash2,
 } from "lucide-react";
 import { type MouseEvent, useCallback, useState } from "react";
 
 import { AppPreviewThumbnail } from "@/components/app-card";
+import { SwipeActionReveal } from "@/components/swipe-action-reveal";
+import {
+  copyDeployedAppLink,
+  useAppDeployment,
+} from "@/hooks/use-app-deployment";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import type { AppSummary } from "@/types/app-types";
+import { type AppSummary, isReadOnlyApp } from "@/types/app-types";
 import { getCachedAppHtml } from "@/utils/app-html-cache";
 import { formatFriendlyDate } from "@/utils/format-date";
 import { cn } from "@/utils/misc";
 import { shareApp } from "@/utils/share-app";
+import { isPointerCoarse } from "@/utils/pointer";
+import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
 import {
-    BottomSheet,
-    Button,
-    Menu,
-    PanelItem,
-    toast,
+  BottomSheet,
+  Button,
+  Menu,
+  PanelItem,
+  toast,
 } from "@vellumai/design-library";
 
 interface LibraryAppCardProps {
@@ -47,12 +56,21 @@ export function LibraryAppCard({
   onAnimationEnd,
 }: LibraryAppCardProps) {
   const [isSharing, setIsSharing] = useState(false);
+  // Plugin-bundled apps are read-only: the daemon rejects delete/share/deploy
+  // against them, so drop those actions here rather than render buttons that
+  // error. Pin/Open stay — pinning is a client-only preference and opening is
+  // always allowed.
+  const readOnly = isReadOnlyApp(app.origin);
+  const deleteAction = readOnly ? undefined : onDelete;
+  const deployAction = readOnly ? undefined : onDeploy;
   const loadHtml = useCallback(
     () => getCachedAppHtml(assistantId, app.id),
     [assistantId, app.id],
   );
   const handleShare = useCallback(async () => {
-    if (isSharing) return;
+    if (isSharing) {
+      return;
+    }
     setIsSharing(true);
     try {
       await shareApp(assistantId, app.id, app.name);
@@ -69,63 +87,117 @@ export function LibraryAppCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const isMobile = useIsMobile();
 
-  return (
-    <div
-      className={cn(
-        "group relative flex flex-col gap-2",
-        justImported && "animate-[card-entrance_400ms_ease-out]",
-      )}
-      onAnimationEnd={justImported ? onAnimationEnd : undefined}
-    >
-      <button
-        type="button"
-        onClick={() => onOpen(app.id)}
-        className={cn(
-          "relative w-full cursor-pointer overflow-hidden rounded-xl",
-          "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
-        )}
-      >
-        <AppPreviewThumbnail
-          name={app.name}
-          icon={app.icon}
-          loadHtml={loadHtml}
-        />
-      </button>
+  // The library renders one card per app, so the deployment status is fetched
+  // lazily rather than N-at-a-time on mount: the first hover (or menu open)
+  // arms it, and it stays armed so the answer is already in hand when the
+  // menu is reopened, including right after a deploy.
+  const [deployStatusArmed, setDeployStatusArmed] = useState(false);
+  const armDeployStatus = useCallback(() => setDeployStatusArmed(true), []);
+  const { deployedUrl } = useAppDeployment(assistantId, app.id, {
+    enabled: deployStatusArmed && deployAction != null,
+  });
+  const handleCopyDeployedLink = useCallback(() => {
+    if (deployedUrl != null) {
+      copyDeployedAppLink(deployedUrl);
+    }
+  }, [deployedUrl]);
 
+  // Leading swipe actions are intentionally omitted. On mobile chat-side
+  // routes, ChatLayout enables a document-level drawer edge swipe
+  // (useEdgeSwipe) that captures rightward swipes starting in the left 50vw.
+  // A leading swipe-right on library cards in that zone would conflict with
+  // the drawer-open gesture. Pin/Unpin is moved to the trailing side
+  // (swipe-left) alongside Delete so both actions remain available without
+  // the gesture conflict.
+  const trailingActions: SwipeAction[] = isPointerCoarse()
+    ? [
+        {
+          id: "pin",
+          label: isPinned ? "Unpin" : "Pin",
+          icon: isPinned ? PinOff : Pin,
+          onSelect: () => onPin(app),
+        },
+        ...(deleteAction
+          ? [
+              {
+                id: "delete",
+                label: "Delete",
+                icon: Trash2,
+                variant: "destructive" as const,
+                onSelect: () => deleteAction(app),
+              },
+            ]
+          : []),
+      ]
+    : [];
+
+  return (
+    <SwipeActionReveal trailingActions={trailingActions} className="rounded-xl">
       <div
         className={cn(
-          "absolute right-2 top-2 z-20 transition-opacity",
-          "max-md:opacity-100",
-          "md:group-hover:opacity-100 md:group-focus-within:opacity-100",
-          menuOpen ? "opacity-100" : "md:opacity-0",
+          "group relative flex flex-col gap-2",
+          justImported && "animate-[card-entrance_400ms_ease-out]",
         )}
+        onAnimationEnd={justImported ? onAnimationEnd : undefined}
+        onPointerEnter={armDeployStatus}
       >
-        <LibraryAppCardActionsMenu
-          appName={app.name}
-          isPinned={isPinned}
-          open={menuOpen}
-          onOpenChange={setMenuOpen}
-          onPin={() => onPin(app)}
-          onDelete={onDelete ? () => onDelete(app) : undefined}
-          onShare={handleShare}
-          onDeploy={onDeploy}
-          isMobile={isMobile}
-        />
-      </div>
+        <button
+          type="button"
+          onClick={() => onOpen(app.id)}
+          className={cn(
+            "relative w-full cursor-pointer overflow-hidden rounded-xl",
+            "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
+          )}
+        >
+          <AppPreviewThumbnail
+            name={app.name}
+            icon={app.icon}
+            loadHtml={loadHtml}
+          />
+        </button>
 
-      <button
-        type="button"
-        onClick={() => onOpen(app.id)}
-        className="flex cursor-pointer flex-col gap-0.5 px-0.5 text-left outline-none"
-      >
-        <span className="truncate text-body-large-default text-[color:var(--content-emphasised)]">
-          {app.name}
-        </span>
-        <span className="text-body-small-default text-[color:var(--content-tertiary)]">
-          {formatFriendlyDate(new Date(app.createdAt))}
-        </span>
-      </button>
-    </div>
+        <div
+          className={cn(
+            "absolute right-2 top-2 z-20 transition-opacity",
+            "max-md:opacity-100",
+            "md:group-hover:opacity-100 md:group-focus-within:opacity-100",
+            menuOpen ? "opacity-100" : "md:opacity-0",
+          )}
+        >
+          <LibraryAppCardActionsMenu
+            appName={app.name}
+            isPinned={isPinned}
+            open={menuOpen}
+            onOpenChange={(next) => {
+              if (next) {
+                armDeployStatus();
+              }
+              setMenuOpen(next);
+            }}
+            onPin={() => onPin(app)}
+            onDelete={deleteAction ? () => deleteAction(app) : undefined}
+            onShare={readOnly ? undefined : handleShare}
+            onDeploy={deployAction}
+            deployedUrl={deployedUrl}
+            onCopyDeployedLink={handleCopyDeployedLink}
+            isMobile={isMobile}
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onOpen(app.id)}
+          className="flex cursor-pointer flex-col gap-0.5 px-0.5 text-left outline-none"
+        >
+          <span className="truncate text-body-large-default text-[color:var(--content-emphasised)]">
+            {app.name}
+          </span>
+          <span className="text-body-small-default text-[color:var(--content-tertiary)]">
+            {formatFriendlyDate(new Date(app.createdAt))}
+          </span>
+        </button>
+      </div>
+    </SwipeActionReveal>
   );
 }
 
@@ -142,6 +214,14 @@ export interface LibraryAppCardActionsMenuProps {
   onDelete?: () => void;
   onShare?: () => void;
   onDeploy?: () => void;
+  /**
+   * Live URL of the app's active Vercel deployment, when it has one. Swaps
+   * the deploy entry for a "Deployed to Vercel" entry that hands back the
+   * link, plus an explicit Redeploy.
+   */
+  deployedUrl?: string | null;
+  /** Invoked by the deployed-state entry; copies the link and shows it. */
+  onCopyDeployedLink?: () => void;
   isMobile: boolean;
 }
 
@@ -154,8 +234,14 @@ export function LibraryAppCardActionsMenu({
   onDelete,
   onShare,
   onDeploy,
+  deployedUrl,
+  onCopyDeployedLink,
   isMobile,
 }: LibraryAppCardActionsMenuProps) {
+  // Only treated as deployed when the caller can also hand the link back.
+  // Otherwise the entry would report a deployment it can't reach.
+  const isDeployed =
+    deployedUrl != null && deployedUrl !== "" && onCopyDeployedLink != null;
   if (isMobile) {
     return (
       <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
@@ -198,7 +284,40 @@ export function LibraryAppCardActionsMenu({
                 }}
               />
             ) : null}
-            {onDeploy ? (
+            {onDeploy && isDeployed ? (
+              <>
+                <PanelItem
+                  icon={Link2}
+                  label={
+                    <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
+                      <span>Deployed to Vercel</span>
+                      <span className="break-all text-body-small-default text-[var(--content-tertiary)]">
+                        {deployedUrl}
+                      </span>
+                    </span>
+                  }
+                  onSelect={() => {
+                    onOpenChange(false);
+                    onCopyDeployedLink?.();
+                  }}
+                />
+                <PanelItem
+                  icon={RefreshCw}
+                  label={
+                    <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
+                      <span>Redeploy</span>
+                      <span className="text-body-small-default text-[var(--content-tertiary)]">
+                        Publish the current version
+                      </span>
+                    </span>
+                  }
+                  onSelect={() => {
+                    onOpenChange(false);
+                    onDeploy();
+                  }}
+                />
+              </>
+            ) : onDeploy ? (
               <PanelItem
                 icon={Globe}
                 label={
@@ -258,7 +377,25 @@ export function LibraryAppCardActionsMenu({
             Share
           </Menu.Item>
         ) : null}
-        {onDeploy ? (
+        {onDeploy && isDeployed ? (
+          <>
+            <Menu.Item
+              leftIcon={<Link2 size={14} />}
+              shortcut="Copy link"
+              onSelect={() => onCopyDeployedLink?.()}
+              className="whitespace-nowrap"
+            >
+              Deployed to Vercel
+            </Menu.Item>
+            <Menu.Item
+              leftIcon={<RefreshCw size={14} />}
+              onSelect={() => onDeploy()}
+              className="whitespace-nowrap"
+            >
+              Redeploy
+            </Menu.Item>
+          </>
+        ) : onDeploy ? (
           <Menu.Item
             leftIcon={<Globe size={14} />}
             onSelect={() => onDeploy()}

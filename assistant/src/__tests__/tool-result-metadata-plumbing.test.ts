@@ -10,35 +10,6 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// ── Mock platform (must precede imports that read it) ─────────────────────────
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    skills: {
-      entries: {},
-      load: { extraDirs: [], watch: false, watchDebounceMs: 0 },
-      install: { nodeManager: "npm" },
-      allowBundled: null,
-      remoteProviders: {
-        skillssh: { enabled: true },
-        clawhub: { enabled: true },
-      },
-      remotePolicy: {
-        blockSuspicious: true,
-        blockMalware: true,
-        maxSkillsShRisk: "medium",
-      },
-    },
-  }),
-  loadConfig: () => ({}),
-}));
-
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
@@ -55,6 +26,7 @@ mock.module("../persistence/llm-request-log-store.js", () => ({
 }));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
+import type { AssistantEvent } from "../api/index.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -63,18 +35,17 @@ import {
   createEventHandlerState,
   handleToolResult,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 
-type ToolResultEvent = Extract<ServerMessage, { type: "tool_result" }>;
+type ToolResultEvent = Extract<AssistantEvent, { type: "tool_result" }>;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function createCollectorDeps(): {
   deps: EventHandlerDeps;
-  events: ServerMessage[];
+  events: AssistantEvent[];
 } {
-  const events: ServerMessage[] = [];
+  const events: AssistantEvent[] = [];
   const deps = {
     ctx: {
       conversationId: "conv-meta",
@@ -84,7 +55,7 @@ function createCollectorDeps(): {
       markWorkspaceTopLevelDirty: () => {},
       currentTurnSurfaces: [],
     } as unknown as EventHandlerDeps["ctx"],
-    onEvent: (msg: ServerMessage) => events.push(msg),
+    onEvent: (msg: AssistantEvent) => events.push(msg),
     reqId: "req-meta",
     isFirstMessage: false,
     shouldGenerateTitle: false,

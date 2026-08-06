@@ -208,7 +208,9 @@ describe("resolveAgentWithAutoInstall - resolution order", () => {
   test("binary missing + bun present: installs then resolves to the real binary", async () => {
     let installed = false;
     which.setWhich((cmd) => {
-      if (cmd === "bun") return BUN_BIN;
+      if (cmd === "bun") {
+        return BUN_BIN;
+      }
       if (cmd === "claude-agent-acp" && installed) {
         return "/usr/local/bin/claude-agent-acp";
       }
@@ -224,7 +226,9 @@ describe("resolveAgentWithAutoInstall - resolution order", () => {
     const result = await resolveAgentWithAutoInstall("claude");
 
     expect(result.resolved.ok).toBe(true);
-    if (!result.resolved.ok) return;
+    if (!result.resolved.ok) {
+      return;
+    }
     // The resolved command is the REAL binary, not a `bun x` wrapper.
     expect(result.resolved.agent.command).toBe("claude-agent-acp");
     expect(result.autoInstalledPackage).toBe(
@@ -273,7 +277,9 @@ describe("resolveAgentWithAutoInstall - resolution order", () => {
     const result = await resolveAgentWithAutoInstall("codex");
 
     expect(result.resolved.ok).toBe(true);
-    if (!result.resolved.ok) return;
+    if (!result.resolved.ok) {
+      return;
+    }
     expect(result.resolved.agent.command).toBe("codex-acp");
     expect(execFileMock).not.toHaveBeenCalled();
   });

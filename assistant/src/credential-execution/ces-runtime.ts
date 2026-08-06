@@ -176,6 +176,9 @@ export async function startCes(config: AssistantConfig): Promise<void> {
       },
     });
     if (client) {
+      log.info(
+        "CES client injected into credential resolver at startup; credential reads route through CES RPC",
+      );
       setCesClient(client);
     } else {
       // The handshake lost the startup race, so provider init proceeds on the
@@ -268,11 +271,11 @@ export function getCesClient(): CesClient | undefined {
 
 /** Tear down the CES connection during daemon shutdown. */
 export async function stopCes(): Promise<void> {
-    // Suppress the proactive reconnect loop — forceStop() closes the
-    // transport, which would otherwise trigger onTransportClose and start
-    // a reconnect loop racing against this shutdown.
-    shuttingDown = true;
-    // Abort any in-flight CES initialization so it fails fast instead of
+  // Suppress the proactive reconnect loop — forceStop() closes the
+  // transport, which would otherwise trigger onTransportClose and start
+  // a reconnect loop racing against this shutdown.
+  shuttingDown = true;
+  // Abort any in-flight CES initialization so it fails fast instead of
   // blocking shutdown for up to ~15s (socket connect + handshake timeouts).
   if (initAbortController) {
     initAbortController.abort();
@@ -340,11 +343,11 @@ let shuttingDown = false;
  * the backend is dead.
  */
 function startProactiveReconnectLoop(_pm: CesProcessManager): void {
-    if (shuttingDown) {
-      log.debug("CES shutting down — not starting proactive reconnect loop");
-      return;
-    }
-    if (proactiveReconnectInFlight) {
+  if (shuttingDown) {
+    log.debug("CES shutting down — not starting proactive reconnect loop");
+    return;
+  }
+  if (proactiveReconnectInFlight) {
     log.debug("Proactive reconnect loop already running — skipping");
     return;
   }

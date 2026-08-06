@@ -11,24 +11,22 @@
 import { describe, expect, test } from "bun:test";
 
 import type { OpenPanelEvent } from "../api/events/open-panel.js";
+import type { AssistantEvent } from "../api/index.js";
+import type { Conversation } from "../daemon/conversation.js";
 import {
   createSurfaceMutex,
   handleSurfaceAction,
   openChannelSetupPanel,
-  type SurfaceConversationContext,
   surfaceProxyResolver,
 } from "../daemon/conversation-surfaces.js";
-import type {
-  ServerMessage,
-  SurfaceData,
-  SurfaceType,
-} from "../daemon/message-protocol.js";
+import type { SurfaceType } from "../daemon/message-protocol.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
 function makeContext(
-  sent: ServerMessage[] = [],
-  overrides: Partial<SurfaceConversationContext> = {},
-): SurfaceConversationContext {
-  return {
+  sent: AssistantEvent[] = [],
+  overrides: Partial<Conversation> = {},
+): Conversation {
+  return asConversation({
     conversationId: "session-1",
     sendToClient: (msg) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
@@ -36,10 +34,7 @@ function makeContext(
       string,
       { actionId: string; data?: Record<string, unknown> }
     >(),
-    surfaceState: new Map<
-      string,
-      { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-    >(),
+    surfaceState: new Map(),
     surfaceUndoStacks: new Map<string, string[]>(),
     accumulatedSurfaceState: new Map<string, Record<string, unknown>>(),
     surfaceActionRequestIds: new Set<string>(),
@@ -52,15 +47,15 @@ function makeContext(
     processMessage: async () => "ok",
     withSurface: createSurfaceMutex(),
     ...overrides,
-  };
+  });
 }
 
-function findOpenPanel(sent: ServerMessage[]): OpenPanelEvent | undefined {
+function findOpenPanel(sent: AssistantEvent[]): OpenPanelEvent | undefined {
   return sent.find((msg): msg is OpenPanelEvent => msg.type === "open_panel");
 }
 
 async function waitForOpenPanel(
-  sent: ServerMessage[],
+  sent: AssistantEvent[],
 ): Promise<OpenPanelEvent> {
   for (let i = 0; i < 20 && !findOpenPanel(sent); i++) {
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -72,7 +67,7 @@ async function waitForOpenPanel(
 
 describe("ui_show channel_setup acknowledgment", () => {
   test("emits open_panel with a surfaceId and succeeds once the client acks", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const resultPromise = surfaceProxyResolver(ctx, "ui_show", {
@@ -107,7 +102,7 @@ describe("ui_show channel_setup acknowledgment", () => {
   });
 
   test("returns a tool error when the client nacks", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const resultPromise = surfaceProxyResolver(ctx, "ui_show", {
@@ -127,7 +122,7 @@ describe("ui_show channel_setup acknowledgment", () => {
   });
 
   test("fails closed without emitting when no interactive client is connected", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent, { hasNoClient: true });
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -141,7 +136,7 @@ describe("ui_show channel_setup acknowledgment", () => {
   });
 
   test("times out into a tool error when no client acknowledges", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const ack = await openChannelSetupPanel(
@@ -162,7 +157,7 @@ describe("ui_show channel_setup acknowledgment", () => {
   });
 
   test("resolves cancelled when the turn is aborted mid-wait", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
     const controller = new AbortController();
 

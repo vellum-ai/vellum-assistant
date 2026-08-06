@@ -17,23 +17,37 @@ export const unwindMainAgentOpusSeedMigration: WorkspaceMigration = {
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const llm = readObject(config.llm);
-    if (llm === null) return;
+    if (llm === null) {
+      return;
+    }
 
     const callSites = readObject(llm.callSites);
-    if (callSites === null) return;
+    if (callSites === null) {
+      return;
+    }
 
     const mainAgent = readObject(callSites.mainAgent);
-    if (mainAgent === null) return;
-    if ("provider" in mainAgent || "profile" in mainAgent) return;
-    if (mainAgent.model !== SEEDED_MAIN_AGENT_MODEL) return;
-    if (mainAgent.maxTokens !== SEEDED_MAIN_AGENT_MAX_TOKENS) return;
+    if (mainAgent === null) {
+      return;
+    }
+    if ("provider" in mainAgent || "profile" in mainAgent) {
+      return;
+    }
+    if (mainAgent.model !== SEEDED_MAIN_AGENT_MODEL) {
+      return;
+    }
+    if (mainAgent.maxTokens !== SEEDED_MAIN_AGENT_MAX_TOKENS) {
+      return;
+    }
 
     if (llm.activeProfile === undefined) {
       llm.activeProfile = DEFAULT_MANAGED_PROFILE;

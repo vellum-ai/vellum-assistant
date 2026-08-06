@@ -50,11 +50,15 @@ describe("sanitizeReplayRequest", () => {
         body: { type: "credential", name: "n", value: "raw-secret" },
       }).body,
     ).toBe("[REDACTED]");
-    expect(sanitizeReplayRequest({ body: "plain text" }).body).toBe("[REDACTED]");
+    expect(sanitizeReplayRequest({ body: "plain text" }).body).toBe(
+      "[REDACTED]",
+    );
   });
 
   test("leaves an absent body untouched", () => {
-    expect(sanitizeReplayRequest({ url: "https://api.vellum.ai/x" }).body).toBeUndefined();
+    expect(
+      sanitizeReplayRequest({ url: "https://api.vellum.ai/x" }).body,
+    ).toBeUndefined();
   });
 });
 
@@ -79,7 +83,9 @@ describe("sanitizeReplayResponse", () => {
 describe("sessionReplayNetworkConfig", () => {
   test("wires the sanitizers and is enabled", () => {
     expect(sessionReplayNetworkConfig.isEnabled).toBe(true);
-    expect(sessionReplayNetworkConfig.requestSanitizer).toBe(sanitizeReplayRequest);
+    expect(sessionReplayNetworkConfig.requestSanitizer).toBe(
+      sanitizeReplayRequest,
+    );
     expect(sessionReplayNetworkConfig.responseSanitizer).toBe(
       sanitizeReplayResponse,
     );

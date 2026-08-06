@@ -37,11 +37,15 @@ export function deriveAssistantStatus({
 }: AssistantStatusInputs): AssistantStatus {
   // Auth is the outermost gate: without an authenticated session the renderer
   // can't reach the assistant on the user's behalf at all.
-  if (sessionStatus === "unauthenticated") return "authFailed";
+  if (sessionStatus === "unauthenticated") {
+    return "authFailed";
+  }
 
   // A terminal lifecycle error outranks connection state — the assistant
   // itself failed to come up.
-  if (lifecycleKind === "error") return "error";
+  if (lifecycleKind === "error") {
+    return "error";
+  }
 
   // Session still settling, or the assistant hasn't reached `active` yet
   // (loading / initializing / hosted-but-not-connected):
@@ -52,7 +56,9 @@ export function deriveAssistantStatus({
 
   // Active assistant but the always-on SSE stream is down: authenticated to
   // the platform, not to the live event plane.
-  if (!isSSEConnected) return "disconnected";
+  if (!isSSEConnected) {
+    return "disconnected";
+  }
 
   // Active + connected: a turn in flight pulses `thinking`, otherwise idle.
   if (

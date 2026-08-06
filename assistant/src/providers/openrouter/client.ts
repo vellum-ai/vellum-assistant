@@ -5,10 +5,15 @@ import {
   toAnthropicMessagesBaseURL,
 } from "../anthropic-gateway-shared.js";
 import {
+  modelEffortCeilings,
+  PROMPT_CACHE_BREAKPOINT_MODEL_IDS,
+} from "../model-catalog.js";
+import {
   clampReasoningEffort,
   EFFORT_TO_REASONING_EFFORT,
   OpenAIChatCompletionsProvider,
 } from "../openai/chat-completions-provider.js";
+import { OpenAIResponsesProvider } from "../openai/responses-provider.js";
 import { isThinkingConfigEnabled } from "../thinking-config.js";
 import type {
   Message,
@@ -29,6 +34,8 @@ const OPENROUTER_APP_ATTRIBUTION_HEADERS = {
   "X-OpenRouter-Categories": "personal-agent,cli-agent",
 };
 
+const OPENROUTER_MODEL_EFFORT_CEILINGS = modelEffortCeilings("openrouter");
+
 /**
  * Extract the normalized `openrouter.only` list from a per-call config. Returns
  * an empty array when the field is absent, empty, or contains no usable string
@@ -38,7 +45,9 @@ const OPENROUTER_APP_ATTRIBUTION_HEADERS = {
 export function extractOnlyList(config: unknown): string[] {
   const cfg = config as { openrouter?: { only?: unknown } } | undefined;
   const only = cfg?.openrouter?.only;
-  if (!Array.isArray(only)) return [];
+  if (!Array.isArray(only)) {
+    return [];
+  }
   return only.filter((x): x is string => typeof x === "string" && x.length > 0);
 }
 
@@ -73,9 +82,13 @@ function extractReasoningSummaryOverride(config: unknown): string | undefined {
 export function withOpenRouterBodyExtras(
   options?: SendMessageOptions,
 ): SendMessageOptions | undefined {
-  if (!options?.config) return options;
+  if (!options?.config) {
+    return options;
+  }
   const only = extractOnlyList(options.config);
-  if (only.length === 0) return options;
+  if (only.length === 0) {
+    return options;
+  }
   const { openrouter: _openrouter, ...rest } = options.config as Record<
     string,
     unknown
@@ -87,13 +100,35 @@ export function withOpenRouterBodyExtras(
   };
 }
 
+/**
+ * Responses-API delegate for OpenRouter `openai/*` models with explicit
+ * prompt caching. Extends the OpenAI Responses transport with OpenRouter's
+ * `provider: { only: [...] }` body field — the same translation the
+ * chat-completions path performs in `OpenRouterProvider.buildExtraCreateParams`.
+ * Exported for tests.
+ */
+export class OpenRouterResponsesProvider extends OpenAIResponsesProvider {
+  protected override buildExtraCreateParams(
+    options?: SendMessageOptions,
+  ): Record<string, unknown> {
+    const only = extractOnlyList(options?.config);
+    if (only.length === 0) {
+      return {};
+    }
+    const existingProvider = ((
+      options?.config as Record<string, unknown> | undefined
+    )?.provider ?? {}) as Record<string, unknown>;
+    return { provider: { ...existingProvider, only } };
+  }
+}
+
 export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
   private readonly openRouterApiKey: string;
-  private readonly defaultModel: string;
   private readonly resolvedBaseURL: string;
   private readonly providerStreamTimeoutMs: number | undefined;
   private readonly useNativeWebSearch: boolean;
   private anthropicInner: AnthropicProvider | undefined;
+  private responsesInner: OpenRouterResponsesProvider | undefined;
 
   constructor(
     apiKey: string,
@@ -111,7 +146,6 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
       backfillEmptyAssistantContent: true,
     });
     this.openRouterApiKey = apiKey;
-    this.defaultModel = model;
     this.resolvedBaseURL = baseURL;
     this.providerStreamTimeoutMs = options.streamTimeoutMs;
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;
@@ -142,6 +176,17 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
           messages,
           withOpenRouterBodyExtras(options),
         );
+      }
+      // OpenRouter supports OpenAI explicit prompt caching only on its
+      // Responses endpoint, so models flagged for cache breakpoints route
+      // there. Native web search stays on the chat-completions path — the
+      // Responses `web_search_preview` server tool is unverified through
+      // OpenRouter.
+      if (
+        !this.useNativeWebSearch &&
+        PROMPT_CACHE_BREAKPOINT_MODEL_IDS.has(effectiveModel)
+      ) {
+        return await this.getResponsesInner().sendMessage(messages, options);
       }
       return await super.sendMessage(messages, options);
     } catch (error) {
@@ -194,6 +239,18 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
     return extras;
   }
 
+  // Consult the catalog for a per-model effort ceiling before falling back to
+  // the provider-wide default. Keeps grok-4.5 (low|medium|high only) from
+  // receiving Vellum's xhigh/max efforts, which its API rejects.
+  protected override resolveMaxReasoningEffort(
+    model: string,
+  ): "high" | "xhigh" | "max" {
+    return (
+      OPENROUTER_MODEL_EFFORT_CEILINGS.get(model) ??
+      super.resolveMaxReasoningEffort(model)
+    );
+  }
+
   private resolveEffectiveModel(options?: SendMessageOptions): string {
     const config = options?.config as Record<string, unknown> | undefined;
     const override =
@@ -218,5 +275,22 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
       );
     }
     return this.anthropicInner;
+  }
+
+  private getResponsesInner(): OpenRouterResponsesProvider {
+    if (!this.responsesInner) {
+      this.responsesInner = new OpenRouterResponsesProvider(
+        this.openRouterApiKey,
+        this.defaultModel,
+        {
+          baseURL: this.resolvedBaseURL,
+          providerName: this.name,
+          providerLabel: "OpenRouter",
+          streamTimeoutMs: this.providerStreamTimeoutMs,
+          requestHeaders: OPENROUTER_APP_ATTRIBUTION_HEADERS,
+        },
+      );
+    }
+    return this.responsesInner;
   }
 }

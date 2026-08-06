@@ -7,10 +7,9 @@
  * attribution resolution failures must never break tool execution.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
-import type { ToolSetupContext } from "../daemon/conversation-tool-setup.js";
-import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
+import type { Conversation } from "../daemon/conversation.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { ToolExecutor } from "../tools/executor.js";
@@ -19,40 +18,6 @@ import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 // ---------------------------------------------------------------------------
 // Module mocks (must precede the import of the module under test)
 // ---------------------------------------------------------------------------
-
-let mockLlmConfig: Record<string, unknown> = {};
-let configThrows = false;
-
-// Non-llm fields used by other conversation-tool-setup consumers (e.g.
-// createResolveToolsCallback reads `tools.exclude`), so test files sharing
-// this process keep working against the mocked loader.
-const baseConfig = {
-  tools: { exclude: [] as string[] },
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-    toolExecutionTimeoutSec: 600,
-  },
-  services: {},
-};
-
-function mockGetConfig() {
-  if (configThrows) {
-    throw new Error("config unavailable");
-  }
-  return { ...baseConfig, llm: mockLlmConfig };
-}
-
-mock.module("../config/loader.js", () => ({
-  getConfig: mockGetConfig,
-  loadConfig: mockGetConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: mock(() => {}),
@@ -76,7 +41,6 @@ mock.module("../tools/browser/browser-screencast.js", () => ({
 mock.module("../apps/app-store.js", () => ({
   getApp: mock(() => null),
   getAppDirPath: mock(() => "/tmp/test-apps/dummy"),
-  isMultifileApp: mock(() => false),
   getAppsDir: mock(() => "/tmp/test-apps"),
   resolveAppIdByDirName: mock(() => null),
   resolveAppIdFromPath: mock(() => null),
@@ -100,34 +64,47 @@ mock.module("../persistence/external-conversation-store.js", () => ({
 // Imports after mocks are in place
 // ---------------------------------------------------------------------------
 
-import { LLMSchema } from "../config/schemas/llm.js";
+import * as configLoader from "../config/loader.js";
+import { createSurfaceMutex } from "../daemon/conversation-surfaces.js";
 import {
   createToolExecutor,
   resolveConversationAttribution,
 } from "../daemon/conversation-tool-setup.js";
+import { asConversation } from "./helpers/mock-conversation.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function setLlmConfig(raw: unknown): void {
-  mockLlmConfig = LLMSchema.parse(raw) as Record<string, unknown>;
+  setConfig("llm", raw);
 }
 
-/** Build a minimal ToolSetupContext stub. */
-function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
-  return {
+/**
+ * Make the config loader throw for the failure-path tests: attribution
+ * resolution must degrade to `null` on any error. The real loader never
+ * throws on its own (it falls back to defaults), so this injects the fault
+ * at the read site.
+ */
+function makeGetConfigThrow(): ReturnType<typeof spyOn> {
+  return spyOn(configLoader, "getConfig").mockImplementation(() => {
+    throw new Error("config unavailable");
+  });
+}
+
+/** Build a minimal Conversation stub. */
+function makeCtx(overrides: Partial<Conversation> = {}): Conversation {
+  return asConversation({
     conversationId: "conv-test",
     currentRequestId: "req-1",
     workingDir: "/tmp/test",
+    getTurnActorPrincipalId: () => undefined,
     abortController: null,
     sendToClient: mock(() => {}),
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
-    surfaceState: new Map<
-      string,
-      { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-    >(),
+    surfaceState: new Map(),
     surfaceUndoStacks: new Map(),
     accumulatedSurfaceState: new Map(),
     surfaceActionRequestIds: new Set<string>(),
@@ -136,9 +113,9 @@ function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
     enqueueMessage: () => ({ queued: false, requestId: "r" }),
     getQueueDepth: () => 0,
     processMessage: async () => "",
-    withSurface: async <T>(_id: string, fn: () => T | Promise<T>) => fn(),
+    withSurface: createSurfaceMutex(),
     ...overrides,
-  };
+  });
 }
 
 /** Fake ToolExecutor that captures the context of each execute() call. */
@@ -164,18 +141,11 @@ const noopSecretPrompter = {
   prompt: mock(async () => ({ cancelled: true })),
 } as unknown as SecretPrompter;
 
-function makeToolFn(executor: ToolExecutor, ctx: ToolSetupContext) {
+function makeToolFn(executor: ToolExecutor, ctx: Conversation) {
   return createToolExecutor(executor, noopPrompter, noopSecretPrompter, ctx);
 }
 
-// The module mock outlives this file when multiple test files share a
-// process, so leave the config in a working (non-throwing) state.
-afterEach(() => {
-  configThrows = false;
-});
-
 beforeEach(() => {
-  configThrows = false;
   setLlmConfig({
     default: { provider: "anthropic", model: "model-default" },
     profiles: {
@@ -240,11 +210,14 @@ describe("resolveConversationAttribution", () => {
   });
 
   test("returns null instead of throwing when resolution fails", () => {
-    configThrows = true;
-
-    expect(
-      resolveConversationAttribution({ conversationId: "conv-test" }),
-    ).toBeNull();
+    const getConfigSpy = makeGetConfigThrow();
+    try {
+      expect(
+        resolveConversationAttribution({ conversationId: "conv-test" }),
+      ).toBeNull();
+    } finally {
+      getConfigSpy.mockRestore();
+    }
   });
 });
 
@@ -318,16 +291,19 @@ describe("createToolExecutor attribution threading", () => {
   });
 
   test("attribution resolution failure yields null and does not break tool execution", async () => {
-    configThrows = true;
+    const getConfigSpy = makeGetConfigThrow();
+    try {
+      const { executor, calls } = makeCapturingExecutor();
+      const toolFn = makeToolFn(executor, makeCtx());
 
-    const { executor, calls } = makeCapturingExecutor();
-    const toolFn = makeToolFn(executor, makeCtx());
+      const result = await toolFn("file_read", { path: "/tmp/a" });
 
-    const result = await toolFn("file_read", { path: "/tmp/a" });
-
-    expect(result).toMatchObject({ content: "ok", isError: false });
-    expect(calls).toHaveLength(1);
-    expect(calls[0].context.attribution).toBeNull();
+      expect(result).toMatchObject({ content: "ok", isError: false });
+      expect(calls).toHaveLength(1);
+      expect(calls[0].context.attribution).toBeNull();
+    } finally {
+      getConfigSpy.mockRestore();
+    }
   });
 });
 
@@ -425,5 +401,65 @@ describe("createToolExecutor channel-permission coordinate threading", () => {
 
     expect(calls[0].context.channelPermissionChannelId).toBeUndefined();
     expect(bindingLookups).toEqual([]);
+  });
+});
+
+describe("createToolExecutor source-actor threading", () => {
+  test("submits the turn's actor principal, not the trust context's guardian", async () => {
+    // `ToolContext.sourceActorPrincipalId` is compared against the principal a
+    // client registered with on its SSE stream, so it has to be the turn's
+    // actor. Reading `trustContext.guardianPrincipalId` instead meant any turn
+    // whose trust resolution degraded submitted nothing, and the same-actor
+    // gate rejected it as a user mismatch.
+    const { executor, calls } = makeCapturingExecutor();
+    await makeToolFn(
+      executor,
+      makeCtx({
+        getTurnActorPrincipalId: () => "actor-1",
+        currentTurnTrustContext: {
+          sourceChannel: "vellum",
+          trustClass: "guardian",
+          guardianPrincipalId: "guardian-1",
+        },
+      }),
+    )("file_read", { path: "/tmp/a" });
+
+    expect(calls[0].context.sourceActorPrincipalId).toBe("actor-1");
+  });
+
+  test("carries the actor through even when trust resolved without a guardian principal", async () => {
+    // The regression: degraded trust resolution (unreachable gateway, binding
+    // drift) or a service-principal turn leaves `guardianPrincipalId` unset
+    // while the turn's actor is perfectly well known.
+    const { executor, calls } = makeCapturingExecutor();
+    await makeToolFn(
+      executor,
+      makeCtx({
+        getTurnActorPrincipalId: () => "actor-1",
+        currentTurnTrustContext: {
+          sourceChannel: "vellum",
+          trustClass: "unknown",
+        },
+      }),
+    )("file_read", { path: "/tmp/a" });
+
+    expect(calls[0].context.sourceActorPrincipalId).toBe("actor-1");
+  });
+
+  test("submits nothing when the turn has no actor identity at all", async () => {
+    const { executor, calls } = makeCapturingExecutor();
+    await makeToolFn(
+      executor,
+      makeCtx({
+        getTurnActorPrincipalId: () => undefined,
+        currentTurnTrustContext: {
+          sourceChannel: "vellum",
+          trustClass: "guardian",
+          guardianPrincipalId: "guardian-1",
+        },
+      }),
+    )("file_read", { path: "/tmp/a" });
+
+    expect(calls[0].context.sourceActorPrincipalId).toBeUndefined();
   });
 });

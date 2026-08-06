@@ -16,8 +16,6 @@
  */
 
 import {
-  AlertCircle,
-  AlertTriangle,
   Bolt,
   Brain,
   Check,
@@ -39,6 +37,7 @@ import { Tooltip, Typography } from "@vellumai/design-library";
 
 import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
+import { thinkingPreview } from "@/domains/chat/utils/thinking-preview";
 import {
   formatMs,
   type ToolCallCardStep,
@@ -73,14 +72,20 @@ export const ICON_MAP: Record<IconName, LucideIcon> = {
  *     still produce a sensible section heading.
  */
 export function phaseFromStep(step: ToolCallCardStep): string {
-  if (step.kind === "thinking") return "Thinking";
+  if (step.kind === "thinking") {
+    return "Thinking";
+  }
   if (step.kind === "web_search" || step.kind === "web_search_error") {
     return "Searching the web";
   }
-  if (step.kind === "tool_error") return "Error";
+  if (step.kind === "tool_error") {
+    return "Error";
+  }
   // step.kind === "tool"
   const title = step.title;
-  if (title.startsWith("Working")) return title;
+  if (title.startsWith("Working")) {
+    return title;
+  }
   if (
     title === "Reading" ||
     title === "Editing" ||
@@ -88,8 +93,12 @@ export function phaseFromStep(step: ToolCallCardStep): string {
   ) {
     return "Working";
   }
-  if (title === "Using a skill") return "Using a skill";
-  if (title.startsWith("Using ")) return title;
+  if (title === "Using a skill") {
+    return "Using a skill";
+  }
+  if (title.startsWith("Using ")) {
+    return title;
+  }
   return title;
 }
 
@@ -101,9 +110,13 @@ export function phaseFromStep(step: ToolCallCardStep): string {
  * single readable label, so the per-unit rounding here is acceptable.
  */
 function parseDurationLabel(label: string): number {
-  if (!label || label === "<1s") return 0;
+  if (!label || label === "<1s") {
+    return 0;
+  }
   const match = /^(\d+)(s|m|h)$/.exec(label);
-  if (!match) return 0;
+  if (!match) {
+    return 0;
+  }
   const value = Number(match[1]);
   switch (match[2]) {
     case "h":
@@ -163,7 +176,9 @@ function PhaseDurationLabel({
       {durationLabel}
     </Typography>
   );
-  if (startedAt == null) return label;
+  if (startedAt == null) {
+    return label;
+  }
   return (
     <Tooltip
       content={`Started at ${formatStartTime(startedAt)}`}
@@ -180,27 +195,27 @@ export function sumDurationLabels(labels: string[]): string {
   let total = 0;
   let anyPresent = false;
   for (const label of labels) {
-    if (!label) continue;
+    if (!label) {
+      continue;
+    }
     anyPresent = true;
     total += parseDurationLabel(label);
   }
-  if (!anyPresent) return "";
+  if (!anyPresent) {
+    return "";
+  }
   return formatMs(total);
 }
 
-/**
- * Header status states a phase can render. "Running" wins over "failed" so
- * an in-flight retry inside a phase that has already produced a failure
- * still reads as in-progress.
- */
-type PhaseHeaderStatus = "completed" | "failed" | "running";
+/** Header status states a phase can render. */
+type PhaseHeaderStatus = "completed" | "running";
 
 /**
- * Classify a phase's overall status for header icon rendering.
- *
- * Precedence: any running step → "running"; otherwise any failure
- * (`tool_error` / `web_search_error` / `tool` status `error`|`denied`) →
- * "failed"; otherwise → "completed".
+ * Classify a phase's overall status for header icon rendering: any running
+ * step → "running"; otherwise → "completed". Failures (`tool_error` /
+ * `web_search_error` / `tool` status `error`|`denied`) intentionally read as
+ * "completed" — error chrome carries no value for the user, so settled phases
+ * all render the same regardless of outcome.
  *
  * `web_search` steps carry no explicit status field — `useToolCallCardData`
  * encodes "in-flight" via the present-tense title ("Searching the web" vs
@@ -210,26 +225,25 @@ type PhaseHeaderStatus = "completed" | "failed" | "running";
 export function phaseHeaderStatus(
   steps: ToolCallCardStep[],
 ): PhaseHeaderStatus {
-  if (steps.length === 0) return "running";
-  let failed = false;
+  if (steps.length === 0) {
+    return "running";
+  }
   for (const step of steps) {
     if (step.kind === "tool") {
-      if (step.status === "running") return "running";
-      if (step.status === "error" || step.status === "denied") failed = true;
+      if (step.status === "running") {
+        return "running";
+      }
       continue;
     }
     if (step.kind === "web_search") {
       // Title is the canonical in-flight signal — see `webSearchStepTitle`
       // in `use-tool-call-card-data.ts`.
-      if (step.title === "Searching the web") return "running";
-      continue;
+      if (step.title === "Searching the web") {
+        return "running";
+      }
     }
-    if (step.kind === "tool_error" || step.kind === "web_search_error") {
-      failed = true;
-    }
-    // `thinking` is neutral — see docstring.
   }
-  return failed ? "failed" : "completed";
+  return "completed";
 }
 
 /** Phase-grouped section as consumed by the renderer. */
@@ -278,7 +292,9 @@ export function PhaseGroupedStepList({
   renderStep,
   timeline = false,
 }: PhaseGroupedStepListProps) {
-  if (steps.length === 0) return null;
+  if (steps.length === 0) {
+    return null;
+  }
   const sections = groupStepsByPhase(steps);
 
   // Pre-compute the global-index offset for each section so we don't
@@ -455,7 +471,7 @@ export function TimelineConnector({ className }: { className?: string }) {
     <div
       aria-hidden
       className={cn(
-        "absolute bottom-0 left-[6.5px] top-6 w-px bg-[var(--border-element)]",
+        "absolute bottom-0 left-[6.5px] top-6 w-px bg-[var(--border-subtle)]",
         className,
       )}
     />
@@ -490,10 +506,9 @@ export function TimelineNode({
 /**
  * Circular status node for the vertical timeline. Mirrors the card header's
  * iconography for visual harmony — a green `CheckCircle2` when the phase
- * completed, a red `AlertCircle` when it failed, and the animated
- * `ThreeDotIndicator` while running. Keeps the `data-testid` /
- * `data-status` attributes the flat `PhaseHeaderRow` stamps so existing
- * status-icon assertions resolve against either layout.
+ * settled and the animated `ThreeDotIndicator` while running. Keeps the
+ * `data-testid` / `data-status` attributes the flat `PhaseHeaderRow` stamps
+ * so existing status-icon assertions resolve against either layout.
  */
 function TimelineNodeIcon({
   status,
@@ -512,16 +527,6 @@ function TimelineNodeIcon({
       />
     );
   }
-  if (status === "failed") {
-    return (
-      <AlertCircle
-        aria-hidden="true"
-        data-testid={testId}
-        data-status="failed"
-        className="h-[14px] w-[14px] shrink-0 text-[var(--system-negative-strong)]"
-      />
-    );
-  }
   return <ThreeDotIndicator data-testid={testId} className="shrink-0" />;
 }
 
@@ -533,7 +538,9 @@ function TimelineNodeIcon({
  * tool step onto the same `""` key. Shared with the subagent phase timeline.
  */
 export function stepKey(step: ToolCallCardStep, idx: number): string {
-  if (step.kind === "tool" && step.toolCallId) return step.toolCallId;
+  if (step.kind === "tool" && step.toolCallId) {
+    return step.toolCallId;
+  }
   return `${step.kind}-${idx}`;
 }
 
@@ -558,13 +565,6 @@ function PhaseHeaderRow({
             data-testid="phase-header-status-icon"
             data-status="completed"
             className="h-[14px] w-[14px] text-[var(--system-positive-strong)]"
-          />
-        ) : status === "failed" ? (
-          <AlertTriangle
-            aria-hidden="true"
-            data-testid="phase-header-status-icon"
-            data-status="failed"
-            className="h-[14px] w-[14px] text-[var(--system-negative-strong)]"
           />
         ) : (
           <ThreeDotIndicator
@@ -636,7 +636,7 @@ export function DefaultStepPill({ step }: { step: ToolCallCardStep }) {
   if (step.kind === "thinking") {
     return (
       <StepPill>
-        <PillText>{step.text}</PillText>
+        <PillText>{thinkingPreview(step.text)}</PillText>
       </StepPill>
     );
   }
@@ -647,7 +647,9 @@ export function DefaultStepPill({ step }: { step: ToolCallCardStep }) {
     // pill entirely rather than duplicating the phase header's title — e.g.
     // a skill call with no skill name shouldn't render a literal "Using a
     // skill" pill underneath a "Using a skill" phase header.
-    if (!stepRendersPill(step)) return null;
+    if (!stepRendersPill(step)) {
+      return null;
+    }
     return (
       <StepPill>
         <Glyph
@@ -660,14 +662,14 @@ export function DefaultStepPill({ step }: { step: ToolCallCardStep }) {
   }
   if (step.kind === "tool_error") {
     return (
-      <StepPill tone="error">
+      <StepPill>
         <PillText>{step.message}</PillText>
       </StepPill>
     );
   }
   if (step.kind === "web_search_error") {
     return (
-      <StepPill tone="error">
+      <StepPill>
         <PillText>{step.errorMessage}</PillText>
       </StepPill>
     );
@@ -699,21 +701,11 @@ function PillText({ children }: { children: ReactNode }) {
   );
 }
 
-function StepPill({
-  tone = "default",
-  children,
-}: {
-  tone?: "default" | "error";
-  children: ReactNode;
-}) {
-  const toneClasses =
-    tone === "error"
-      ? "border-[var(--system-negative-weak)] bg-[var(--system-negative-weak)] text-[var(--system-negative-strong)]"
-      : "border-[var(--border-element)] bg-transparent text-[var(--content-default)]";
+function StepPill({ children }: { children: ReactNode }) {
   return (
     <div
       data-testid="phase-step-pill"
-      className={`inline-flex min-w-0 max-w-full items-center gap-1 self-start rounded-full border px-2 py-1 ${toneClasses}`}
+      className="inline-flex min-w-0 max-w-full items-center gap-1 self-start rounded-full border border-[var(--border-element)] bg-transparent px-2 py-1 text-[var(--content-default)]"
     >
       {children}
     </div>

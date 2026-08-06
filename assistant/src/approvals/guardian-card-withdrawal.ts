@@ -13,9 +13,9 @@
  * affordances (it does not delete the message/card) so each surface keeps an
  * audit trail of what was decided.
  *
- * It is driven off `canonical_guardian_deliveries` — the per-request registry of
- * where each card was sent — so it stays correct as surfaces are added and is
- * agnostic to which surface originated the decision.
+ * It is driven off the gateway's `guardian_request_deliveries` — the
+ * per-request registry of where each card was sent — so it stays correct as
+ * surfaces are added and is agnostic to which surface originated the decision.
  *
  * Best-effort by contract: the request is already resolved (CAS committed)
  * before this runs, so a failed edit must never surface as a decision failure.
@@ -23,40 +23,66 @@
  */
 
 import {
-  type CanonicalGuardianDelivery,
-  type CanonicalGuardianRequest,
-  type CanonicalRequestStatus,
-  listCanonicalGuardianDeliveries,
-} from "../contacts/canonical-guardian-store.js";
-import { completeSurfaceAndNotify } from "../daemon/conversation-surfaces.js";
+  type GuardianRequestDeliveryWire,
+  type GuardianRequestStatus,
+  listGuardianRequestDeliveries,
+} from "../channels/gateway-guardian-requests.js";
+import {
+  completeSurfaceAndNotify,
+  markSurfaceCompleted,
+} from "../daemon/conversation-surfaces.js";
 import { withdrawSlackApprovalCard } from "../messaging/providers/slack/withdraw.js";
+import { withdrawTelegramApprovalCard } from "../messaging/providers/telegram-bot/withdraw.js";
 import { approvalCardSurfaceId } from "../notifications/approval-card-data.js";
+import {
+  type ApprovalAction,
+  resolveDecisionStatusWord,
+} from "../runtime/channel-approval-types.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("guardian-card-withdrawal");
 
-/** Completion-summary label shown on an in-app card for a resolved request. */
-const SURFACE_STATUS_LABELS: Partial<Record<CanonicalRequestStatus, string>> = {
-  approved: "Approved",
-  denied: "Denied",
-  expired: "Expired",
-  cancelled: "Cancelled",
-};
+/** The request fields withdrawal reads — structural subset of the wire row. */
+export interface WithdrawableGuardianRequest {
+  id: string;
+  kind: string;
+  decidedByExternalUserId: string | null;
+  updatedAt: number;
+}
 
 export interface WithdrawGuardianCardsParams {
   /** The request, already transitioned to its terminal status. */
-  request: CanonicalGuardianRequest;
+  request: WithdrawableGuardianRequest;
   /** Terminal status to reflect on each card. */
-  status: CanonicalRequestStatus;
+  status: GuardianRequestStatus;
   /**
    * Channel the decision originated on, when applicable.
    *
-   * The acting in-app client completes its own card optimistically, so the
-   * in-app card is skipped when the decision originated in-app; it is withdrawn
-   * here only when the decision came from another surface. Omit (e.g. the expiry
-   * sweep) to withdraw every surface.
+   * Only the in-app card's `ui_surface_complete` broadcast is origin-sensitive:
+   * an in-app decision is already on screen with the resolver's own reply text,
+   * so re-broadcasting the canonical status label would overwrite it mid-session.
+   * The persisted completion is written regardless of origin. Omit (e.g. the
+   * expiry sweep) to broadcast on every surface.
    */
   originChannel?: string;
+  /**
+   * The action the guardian took, when the terminal status came from a decision
+   * (omitted for the expiry sweep). A `denied` status can mean either a neutral
+   * park (`leave_unverified`) or an active rejection (`block`/`reject`); the
+   * action disambiguates them so a park renders neutrally as the park label
+   * (see {@link resolveDecisionStatusWord}) instead of "Denied".
+   */
+  decidedAction?: ApprovalAction;
+  /**
+   * True when the deciding flow delivers the resolver's own guardian-facing
+   * reply on the origin channel (the resolver returned `guardianReplyText`).
+   * Telegram's quoted status reply is suppressed only when the origin chat is
+   * Telegram AND that richer reply is coming; most resolvers (tool grants,
+   * tool approvals, questions) reply to the requester, not the guardian, so
+   * without this flag the withdrawal's status reply is the only durable
+   * outcome the guardian's chat gets.
+   */
+  hasOriginGuardianReply?: boolean;
 }
 
 /**
@@ -66,11 +92,17 @@ export interface WithdrawGuardianCardsParams {
 export async function withdrawGuardianRequestCards(
   params: WithdrawGuardianCardsParams,
 ): Promise<void> {
-  const { request, status, originChannel } = params;
+  const {
+    request,
+    status,
+    originChannel,
+    decidedAction,
+    hasOriginGuardianReply,
+  } = params;
 
-  let deliveries: CanonicalGuardianDelivery[];
+  let deliveries: GuardianRequestDeliveryWire[];
   try {
-    deliveries = listCanonicalGuardianDeliveries(request.id);
+    deliveries = await listGuardianRequestDeliveries(request.id);
   } catch (err) {
     log.warn(
       { err, requestId: request.id },
@@ -82,12 +114,26 @@ export async function withdrawGuardianRequestCards(
   for (const delivery of deliveries) {
     try {
       if (delivery.destinationChannel === "vellum") {
-        withdrawVellumCard(request, delivery, status, originChannel);
+        withdrawVellumCard(
+          request,
+          delivery,
+          status,
+          originChannel,
+          decidedAction,
+        );
       } else if (delivery.destinationChannel === "slack") {
-        await withdrawSlackCard(request, delivery, status);
+        await withdrawSlackCard(request, delivery, status, decidedAction);
+      } else if (delivery.destinationChannel === "telegram") {
+        await withdrawTelegramCard(
+          delivery,
+          status,
+          originChannel,
+          decidedAction,
+          hasOriginGuardianReply ?? false,
+        );
       }
-      // Telegram/WhatsApp direct delivery can't edit a message in place (it
-      // would post a new one), so their stale clicks are left to the existing
+      // WhatsApp direct delivery can't edit a message in place (it would
+      // post a new one), so its stale clicks are left to the existing
       // "already resolved" reply until in-place edit support lands.
     } catch (err) {
       log.warn(
@@ -104,23 +150,45 @@ export async function withdrawGuardianRequestCards(
 
 /**
  * Withdraw the in-app approval card so it stops offering live actions while
- * keeping its content. Skipped when the decision originated in-app — the acting
- * client already completed the card itself.
+ * keeping its content.
+ *
+ * The completion is always persisted onto the card's `ui_surface` block. The
+ * acting client's optimistic completion is in-memory only, so without this write
+ * the conversation's history still carries an undecided card and re-entering the
+ * conversation re-renders the raw button group (LUM-2919).
+ *
+ * The `ui_surface_complete` broadcast is the only origin-sensitive half: when the
+ * decision came from in-app, the acting client is already showing the resolver's
+ * guardian-facing reply, and broadcasting the canonical status label back would
+ * replace that richer summary mid-session.
  */
 function withdrawVellumCard(
-  request: CanonicalGuardianRequest,
-  delivery: CanonicalGuardianDelivery,
-  status: CanonicalRequestStatus,
+  request: WithdrawableGuardianRequest,
+  delivery: GuardianRequestDeliveryWire,
+  status: GuardianRequestStatus,
   originChannel: string | undefined,
+  decidedAction: ApprovalAction | undefined,
 ): void {
-  if (originChannel === "vellum") return;
-  if (!delivery.destinationConversationId) return;
+  if (!delivery.destinationConversationId) {
+    return;
+  }
   const surfaceId = approvalCardSurfaceId(request.kind, request.id);
-  if (!surfaceId) return;
+  if (!surfaceId) {
+    return;
+  }
+  const summary = resolveDecisionStatusWord(status, decidedAction);
+  if (originChannel === "vellum") {
+    markSurfaceCompleted(
+      { conversationId: delivery.destinationConversationId },
+      surfaceId,
+      summary,
+    );
+    return;
+  }
   completeSurfaceAndNotify(
     delivery.destinationConversationId,
     surfaceId,
-    SURFACE_STATUS_LABELS[status] ?? "Resolved",
+    summary,
   );
 }
 
@@ -130,16 +198,54 @@ function withdrawVellumCard(
  * No-ops when the channel-native message id was not captured at delivery time.
  */
 async function withdrawSlackCard(
-  request: CanonicalGuardianRequest,
-  delivery: CanonicalGuardianDelivery,
-  status: CanonicalRequestStatus,
+  request: WithdrawableGuardianRequest,
+  delivery: GuardianRequestDeliveryWire,
+  status: GuardianRequestStatus,
+  decidedAction: ApprovalAction | undefined,
 ): Promise<void> {
-  if (!delivery.destinationChatId || !delivery.destinationMessageId) return;
+  if (!delivery.destinationChatId || !delivery.destinationMessageId) {
+    return;
+  }
   await withdrawSlackApprovalCard({
     channel: delivery.destinationChatId,
     messageTs: delivery.destinationMessageId,
     status,
+    ...(decidedAction ? { decidedAction } : {}),
     decidedByExternalUserId: request.decidedByExternalUserId ?? undefined,
     decidedAtMs: request.updatedAt,
+  });
+}
+
+/**
+ * Withdraw the Telegram approval card: remove its inline keyboard in place
+ * and post a silent reply quoting the card with the terminal outcome.
+ * Telegram bots cannot re-read a message, so unlike Slack the outcome rides
+ * a quoted reply rather than an in-message edit; the card's own text is left
+ * untouched for the audit trail.
+ *
+ * The status reply is suppressed only when the decision was made on Telegram
+ * AND its flow delivers the resolver's own guardian-facing reply there
+ * (`hasOriginGuardianReply`), where a second notice would read as a
+ * duplicate. Most resolvers reply to the requester, not the guardian, so a
+ * Telegram-origin decision usually still needs this reply as its durable
+ * outcome. No-ops when the channel-native message id was not captured at
+ * delivery time.
+ */
+async function withdrawTelegramCard(
+  delivery: GuardianRequestDeliveryWire,
+  status: GuardianRequestStatus,
+  originChannel: string | undefined,
+  decidedAction: ApprovalAction | undefined,
+  hasOriginGuardianReply: boolean,
+): Promise<void> {
+  if (!delivery.destinationChatId || !delivery.destinationMessageId) {
+    return;
+  }
+  await withdrawTelegramApprovalCard({
+    chatId: delivery.destinationChatId,
+    messageId: delivery.destinationMessageId,
+    status,
+    ...(decidedAction ? { decidedAction } : {}),
+    postStatusReply: !(originChannel === "telegram" && hasOriginGuardianReply),
   });
 }

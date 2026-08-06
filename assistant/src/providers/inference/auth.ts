@@ -44,6 +44,50 @@ export const AuthSchema = z
 
 export type Auth = z.infer<typeof AuthSchema>;
 
+/**
+ * Derive the auth configuration a provider implies when a client omits an
+ * explicit `auth` object: keyless catalog providers (`setupMode: "keyless"`,
+ * e.g. ollama) need none, the Vellum-managed sentinel routes via the
+ * platform proxy, and every other provider authenticates by API key. Returns
+ * null when an API key is required but no credential was supplied, so route
+ * handlers can reject with a 400. `oauth_subscription` is never derived —
+ * the ChatGPT PKCE routes own that connection.
+ */
+export function deriveAuthForProvider(
+  provider: string,
+  credential?: string,
+): Auth | null {
+  if (provider === VELLUM_MANAGED_PROVIDER) {
+    return { type: "platform" };
+  }
+  const entry = PROVIDER_CATALOG.find((p) => p.id === provider);
+  if (entry?.setupMode === "keyless") {
+    return { type: "none" };
+  }
+  if (provider === "openai-compatible") {
+    // Custom endpoints have no fixed auth story: local servers are usually
+    // keyless, hosted ones keyed. Credential presence decides.
+    return credential ? { type: "api_key", credential } : { type: "none" };
+  }
+  return credential ? { type: "api_key", credential } : null;
+}
+
+/**
+ * The auth a connection dispatches with. The stored auth object is
+ * authoritative only where it carries a payload (an api_key credential ref,
+ * the oauth_subscription marker, a deliberately keyed keyless provider);
+ * the vellum provider IS the managed route, so its auth derives from the
+ * provider and the stored value can never mislead dispatch.
+ */
+export function effectiveConnectionAuth(connection: {
+  provider: string;
+  auth: Auth;
+}): Auth {
+  return connection.provider === VELLUM_MANAGED_PROVIDER
+    ? { type: "platform" }
+    : connection.auth;
+}
+
 // ---------------------------------------------------------------------------
 // ResolvedAuth — what the dispatcher hands to each adapter
 // ---------------------------------------------------------------------------
@@ -56,7 +100,7 @@ export type Auth = z.infer<typeof AuthSchema>;
 export type ResolvedAuth =
   | { kind: "header"; headers: Record<string, string>; baseUrl?: string }
   | { kind: "runtime_proxy"; route: string }
-  | { kind: "none" };
+  | { kind: "none"; baseUrl?: string };
 
 // ---------------------------------------------------------------------------
 // Valid provider identifiers — derived from PROVIDER_CATALOG
@@ -85,6 +129,26 @@ export const VALID_CONNECTION_PROVIDERS: readonly string[] = [
 ];
 
 export type ConnectionProvider = string;
+
+/**
+ * Name of the single ChatGPT-subscription connection row (created by the
+ * ChatGPT sign-in flows). The "chatgpt" routing identity dispatches through
+ * this row with an openai upstream.
+ */
+export const CHATGPT_SUBSCRIPTION_CONNECTION_NAME = "chatgpt-subscription";
+
+/**
+ * Provider values that are routing identities rather than adapters: the
+ * value names HOW a request routes (vellum = the platform-managed route,
+ * chatgpt = the subscription route), and dispatch translates it to a real
+ * upstream + connection row per-request (resolveRoutingIdentity). Identity
+ * profiles carry no provider_connection; backfill and materialization must
+ * not stamp one.
+ */
+export const ROUTING_IDENTITY_PROVIDERS: ReadonlySet<string> = new Set([
+  "vellum",
+  "chatgpt",
+]);
 
 export const ConnectionProviderSchema = z
   .enum(VALID_CONNECTION_PROVIDERS as readonly [string, ...string[]])

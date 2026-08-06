@@ -1,8 +1,9 @@
 /**
- * Tests for the ResponseTab's handling of failed calls. A call the
- * provider rejected carries a structured `error` and no response
- * sections; the tab must surface a failure banner instead of the generic
- * "Section rendering unavailable" fallback.
+ * Tests for the ResponseTab: section rendering (each section header carries
+ * a visible copy affordance) and failed calls. A call the provider rejected
+ * carries a structured `error` and no response sections; the tab must
+ * surface a failure banner instead of the generic "Section rendering
+ * unavailable" fallback.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -28,6 +29,22 @@ function makeEntry(
 function render(entry: LLMRequestLogEntry): string {
   return renderToStaticMarkup(<ResponseTab entry={entry} />);
 }
+
+describe("ResponseTab — sections", () => {
+  test("renders a visible copy icon in the section header", () => {
+    const html = render(
+      makeEntry({
+        responseSections: [
+          { kind: "text", label: "Assistant reply", text: "Hello there" },
+        ],
+      }),
+    );
+    expect(html).toContain("Assistant reply");
+    expect(html).toContain('aria-label="Copy section content"');
+    // The copy affordance must render an actual icon, not an empty button.
+    expect(html).toContain("<svg");
+  });
+});
 
 describe("ResponseTab — failed calls", () => {
   test("renders the failure banner with the provider message and metadata", () => {

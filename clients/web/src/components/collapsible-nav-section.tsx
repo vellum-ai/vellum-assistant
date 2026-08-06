@@ -1,25 +1,52 @@
-import { ChevronRight, type LucideIcon } from "lucide-react";
-import { type ReactNode, type Ref } from "react";
+import { ChevronDown, type LucideIcon } from "lucide-react";
+import { useRef, type DragEvent, type ReactNode, type Ref } from "react";
 
-import { ContextMenu } from "@vellumai/design-library";
+import { BottomSheet, ContextMenu } from "@vellumai/design-library";
 import {
-    Collapsible,
-    type CollapsibleItemProps,
-    type CollapsibleRootProps,
+  Collapsible,
+  type CollapsibleItemProps,
+  type CollapsibleRootProps,
 } from "@vellumai/design-library/components/collapsible";
 import { cn } from "@vellumai/design-library/utils/cn";
+
+import {
+  SIDEBAR_CHIP_GAP,
+  SIDEBAR_CHIP_SIZE,
+  SIDEBAR_ROW_PADDING_X,
+  SIDEBAR_SECTION_INDENT,
+  SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
+} from "@/components/sidebar-nav-geometry";
+import { useLongPressSheet } from "@/hooks/use-long-press-sheet";
+import { isPointerCoarse } from "@/utils/pointer";
 
 /**
  * Navigation-specific collapsible section — composes the design library
  * `Collapsible` primitive with sidebar-tuned trigger styling:
  *
- *   - Leading icon that swaps to a disclosure chevron on hover
- *     (matching macOS SidebarSectionHeader). The original icon is
- *     always visible when not hovered, regardless of expanded state.
+ *   - Leading icon, at every state. `sectionIcon` is the single answer to
+ *     "what does this section look like", so a header and its collapsed-rail
+ *     tile show the same glyph; omit `icon` only for a section that has
+ *     none.
+ *   - The title row is the one toggle target: a click
+ *     expands or collapses the section, while click-and-hold-and-move
+ *     still drags it (see `drag`): HTML5 drag only starts on movement,
+ *     so the two coexist on one surface. The chevron on the trailing
+ *     edge, left of the "…", is a decorative indicator that forwards its
+ *     clicks to that trigger, revealed only on hover, not on
+ *     click-then-release focus, which would otherwise linger after the
+ *     click that opened/closed it, and not just because the section is
+ *     open.
  *   - Optional `trailing` slot for an ellipsis menu or other per-row
  *     affordance. Pointer events are isolated so clicking trailing
  *     content doesn't toggle the section.
- *   - No hover background — the chevron swap is the affordance.
+ *   - Optional header menu, in two surfaces: `contextMenuContent`
+ *     (desktop right-click) and `touchMenuContent` (touch long-press →
+ *     bottom sheet). Supply both so the actions are reachable on every
+ *     pointer type — Radix `ContextMenu` alone renders a pointer-positioned
+ *     popover on touch, which is the wrong surface on mobile. Mirrors the
+ *     conversation-row long-press pattern.
+ *   - No hover background on the title; the chevron's own hover box is
+ *     the affordance.
  *
  * Usage:
  *
@@ -45,11 +72,51 @@ function CollapsibleNavSectionRoot({
   ...props
 }: CollapsibleRootProps) {
   return (
-    <Collapsible.Root
-      ref={ref}
-      className={cn("gap-2", className)}
-      {...props}
-    />
+    <Collapsible.Root ref={ref} className={cn("gap-2", className)} {...props} />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Touch header menu
+// ---------------------------------------------------------------------------
+
+/** The trailing "…" control owns its own taps, so it never arms the gesture. */
+const skipTrailingControl = (target: Element | null) =>
+  Boolean(target?.closest('[data-slot="collapsible-nav-section-trailing"]'));
+
+/**
+ * Wraps a section header so a long-press opens its actions in a bottom sheet.
+ * The sheet is a sibling of the gesture wrapper, not a child — see
+ * {@link useLongPressSheet}.
+ */
+function LongPressHeaderMenu({
+  title,
+  content,
+  children,
+}: {
+  title: string;
+  content: (close: () => void) => ReactNode;
+  children: ReactNode;
+}) {
+  const longPress = useLongPressSheet({ shouldSkip: skipTrailingControl });
+
+  return (
+    <>
+      <div {...longPress.wrapperProps}>{children}</div>
+      <BottomSheet.Root
+        open={longPress.open}
+        onOpenChange={longPress.onOpenChange}
+      >
+        <BottomSheet.Content aria-describedby={undefined}>
+          <BottomSheet.Header className="sr-only">
+            <BottomSheet.Title>{title} actions</BottomSheet.Title>
+          </BottomSheet.Header>
+          <BottomSheet.Body className="pt-0">
+            {content(longPress.close)}
+          </BottomSheet.Body>
+        </BottomSheet.Content>
+      </BottomSheet.Root>
+    </>
   );
 }
 
@@ -57,16 +124,73 @@ function CollapsibleNavSectionRoot({
 // Section
 // ---------------------------------------------------------------------------
 
-export interface CollapsibleNavSectionSectionProps
-  extends Omit<CollapsibleItemProps, "children"> {
+/**
+ * Drag-to-reorder wiring for a whole section.
+ *
+ * Every handler goes on the **header** - it is both the drag handle and the
+ * drop target - while the visual state (`dragging`, `dropEdge`) styles the
+ * whole section box.
+ *
+ * The header, not the section root, owns the handlers deliberately.
+ * `dragleave` bubbles, so a section root that is also the drop target
+ * receives leave events from each of its own conversation rows as the pointer
+ * crosses them; those have a `relatedTarget` outside the root, so the drop
+ * indicator gets cleared on the way past an expanded section. Keeping the
+ * handlers on one flat element (the same shape a conversation row uses)
+ * removes that class of bug: leaves between the header's own children always
+ * resolve to a descendant and are correctly ignored.
+ *
+ * Structural on purpose - this component sits in shared `components/` and
+ * shouldn't reach into the chat domain's drag hook for a type.
+ */
+export interface CollapsibleNavSectionDrag {
+  headerProps: {
+    draggable: true;
+    onDragStart: (event: DragEvent<HTMLElement>) => void;
+    onDragEnd: () => void;
+    onDragOver: (event: DragEvent<HTMLElement>) => void;
+    onDragLeave: (event: DragEvent<HTMLElement>) => void;
+    onDrop: (event: DragEvent<HTMLElement>) => void;
+  };
+  /** True while this section is the one being dragged. */
+  dragging: boolean;
+  /** Edge to draw the insertion line on while hovered, else null. */
+  dropEdge: "before" | "after" | null;
+}
+
+export interface CollapsibleNavSectionSectionProps extends Omit<
+  CollapsibleItemProps,
+  "children"
+> {
   value: string;
   icon?: LucideIcon;
   label: string;
   trailing?: ReactNode;
   contextMenuContent?: ReactNode;
+  /**
+   * Touch equivalent of `contextMenuContent` — rendered as the body of a
+   * long-press bottom sheet. Receives a `close` callback so rows can dismiss
+   * the sheet after running their action.
+   */
+  touchMenuContent?: (close: () => void) => ReactNode;
+  /**
+   * Activity indicator rendered inline in the header, but only while the
+   * section is collapsed — when open, the child rows show their own
+   * indicators, so a header dot would be redundant.
+   */
+  collapsedIndicator?: ReactNode;
+  /** Drag-to-reorder wiring; omit to leave the section fixed in place. */
+  drag?: CollapsibleNavSectionDrag;
   children?: ReactNode;
   contentClassName?: string;
   ref?: Ref<HTMLDivElement>;
+  /**
+   * Whether the section can collapse. Defaults to `true`. `false` drops the
+   * chevron/icon-swap affordance and the header's toggle behavior entirely,
+   * and renders the content outside the Radix accordion machinery so it's
+   * always visible regardless of the root's open-section state.
+   */
+  collapsible?: boolean;
 }
 
 function CollapsibleNavSectionSection({
@@ -75,79 +199,234 @@ function CollapsibleNavSectionSection({
   label,
   trailing,
   contextMenuContent,
+  touchMenuContent,
+  collapsedIndicator,
+  drag,
   children,
   className,
   contentClassName,
   ref,
+  collapsible = true,
   ...itemProps
 }: CollapsibleNavSectionSectionProps) {
+  // The chevron forwards its clicks to the title trigger, keeping one
+  // accessible toggle per section.
+  const titleTriggerRef = useRef<HTMLButtonElement>(null);
+
+  /* One slot for both header branches. The collapsible and non-collapsible
+     headers show the same glyph on the same axis, so they read it from here
+     rather than each rendering their own copy. */
+  const iconSlot = Icon ? (
+    <span
+      data-slot="collapsible-nav-section-icon"
+      className="relative inline-flex h-[14px] shrink-0 items-center justify-center"
+      style={{ width: SIDEBAR_CHIP_SIZE }}
+    >
+      <Icon size={12} aria-hidden className="text-[var(--content-tertiary)]" />
+    </span>
+  ) : null;
+
   const headerEl = (
-    <div data-slot="collapsible-nav-section-header" className="flex items-center justify-between">
-      <Collapsible.Trigger
-        className={cn(
-          "group h-[30px] max-md:h-auto gap-[4px] max-md:gap-[8px]",
-          "rounded-[6px] p-[6px] max-md:px-2 max-md:py-3",
-          "text-left text-body-medium-default max-md:text-body-large-default",
-          "text-[var(--content-tertiary)]",
-        )}
-      >
-        <span className="relative inline-flex size-[14px] shrink-0 items-center justify-center">
-          {Icon ? (
-            <Icon
-              size={14}
-              aria-hidden
-              className={cn(
-                "absolute inset-0 m-auto transition-opacity",
-                "text-[var(--content-tertiary)]",
-                "group-hover:opacity-0 group-focus-visible:opacity-0",
-              )}
-            />
-          ) : null}
-          <ChevronRight
-            size={14}
-            aria-hidden
-            className={cn(
-              "absolute inset-0 m-auto transition-[opacity,transform]",
-              "text-[var(--content-tertiary)]",
-              Icon
-                ? "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
-                : "opacity-100",
-              "group-data-[state=open]:rotate-90",
-            )}
-          />
-        </span>
-        <span className="min-w-0 flex-1 truncate">{label}</span>
-      </Collapsible.Trigger>
-      {trailing ? (
-        <span
-          className="flex items-center shrink-0 pr-[6px] max-md:pr-2"
-          onClick={(event) => event.stopPropagation()}
+    <div
+      data-slot="collapsible-nav-section-header"
+      className={cn(
+        // Named group so the trailing "…" can react to hovering anywhere on
+        // the header. The trigger carries its own unnamed `group` for the
+        // icon/chevron swap, and it is a *sibling* of the trailing slot, so
+        // that one can't reach it.
+        "group/header flex items-center justify-between",
+        // The title trigger's Accordion.Header wrapper must grow to fill
+        // the row, so the whole header (minus the trailing cluster) is
+        // the click target and long labels still truncate. The primitive
+        // hardcodes `flex` on it, so the growth comes from here.
+        "[&>[data-slot=collapsible-header]]:min-w-0 [&>[data-slot=collapsible-header]]:flex-1",
+        drag && "cursor-grab active:cursor-grabbing",
+      )}
+      {...drag?.headerProps}
+    >
+      {/* The horizontal geometry (padding, chip width, gap) is inline from
+          sidebar-nav-geometry at every breakpoint — the assistant cluster
+          shares it, so section icons and labels sit on the same axes as
+          the New Chat plus and the assistant eyes. Only the vertical
+          metrics grow on mobile. */}
+      {collapsible ? (
+        // The one toggle target: a click anywhere on the title row expands
+        // or collapses the section, while click-and-hold-and-move drags it
+        // (native HTML5 drag on the header div, see `drag` below). The
+        // chevron in the trailing cluster forwards its clicks here.
+        <Collapsible.Trigger
+          ref={titleTriggerRef}
+          data-slot="collapsible-nav-section-title"
+          className={cn(
+            "h-[30px] max-md:h-auto",
+            "rounded-[6px] py-[6px] max-md:py-3",
+            "text-left",
+            SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
+          )}
+          style={{
+            paddingLeft: SIDEBAR_ROW_PADDING_X,
+            paddingRight: SIDEBAR_ROW_PADDING_X,
+            gap: SIDEBAR_CHIP_GAP,
+          }}
         >
-          {trailing}
+          {iconSlot}
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+          {collapsedIndicator ? (
+            <span className="ml-1 flex shrink-0 items-center group-data-[state=open]/section:hidden">
+              {collapsedIndicator}
+            </span>
+          ) : null}
+        </Collapsible.Trigger>
+      ) : (
+        // Non-collapsible: no chevron, no toggle affordance, just the icon
+        // slot (if given) and the label, always at rest.
+        <div
+          className={cn(
+            "flex h-[30px] max-md:h-auto",
+            // Half the usual mobile bottom padding: the gap to the first
+            // row below reads as too large at the full py-3 (matches the
+            // desktop py-[6px] top/bottom, kept as-is above).
+            "rounded-[6px] py-[6px] max-md:pt-3 max-md:pb-1.5",
+            SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
+          )}
+          style={{
+            paddingLeft: SIDEBAR_ROW_PADDING_X,
+            paddingRight: SIDEBAR_ROW_PADDING_X,
+            gap: SIDEBAR_CHIP_GAP,
+          }}
+        >
+          {iconSlot}
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+        </div>
+      )}
+      {collapsible || trailing ? (
+        <span className="flex shrink-0 items-center gap-1 pr-[6px] max-md:pr-2">
+          {collapsible ? (
+            // Decorative disclosure indicator with the title trigger's own
+            // hover box, left of the "…". Not a trigger itself: the section
+            // has exactly one accessible toggle (the title), so the chevron
+            // stays out of the accessibility tree and forwards pointer
+            // clicks to that trigger instead. A second Radix trigger here
+            // would duplicate the item's trigger id and announce every
+            // section twice.
+            <span
+              data-slot="collapsible-nav-section-chevron"
+              aria-hidden
+              onClick={(event) => {
+                event.stopPropagation();
+                titleTriggerRef.current?.click();
+              }}
+              className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-[4px] hover:bg-[var(--surface-hover)] max-md:h-[30px] max-md:w-[30px]"
+            >
+              <ChevronDown
+                size={12}
+                aria-hidden
+                className={cn(
+                  "shrink-0 transition-[opacity,transform]",
+                  "text-[var(--content-tertiary)]",
+                  "opacity-0 group-hover/header:opacity-100",
+                  "max-md:opacity-100 max-md:h-[18px] max-md:w-[18px]",
+                  "group-data-[state=open]/section:rotate-180",
+                )}
+              />
+            </span>
+          ) : null}
+          {trailing ? (
+            <span
+              data-slot="collapsible-nav-section-trailing"
+              /* `empty:hidden` so a trailing component that renders nothing
+                 (a menu with no wired actions) doesn't leave a padded box
+                 behind.
+
+                 Revealed on hover so a row of resting section headers stays
+                 quiet. It also stays up while its own menu is open
+                 (`aria-expanded`), or the control would vanish the moment it
+                 was clicked, and while anything inside holds focus, so it is
+                 reachable by keyboard. Touch has no hover, and the header's
+                 long-press sheet is the equivalent affordance there, so
+                 below `md` it simply stays visible. */
+              className={cn(
+                "flex items-center shrink-0 empty:hidden",
+                "opacity-0 transition-opacity",
+                "group-hover/header:opacity-100 focus-within:opacity-100",
+                "has-[[aria-expanded=true]]:opacity-100",
+                "max-md:opacity-100",
+              )}
+              onClick={(event) => event.stopPropagation()}
+            >
+              {trailing}
+            </span>
+          ) : null}
         </span>
       ) : null}
     </div>
   );
+
+  // Touch devices replace the right-click ContextMenu with a long-press sheet.
+  // The gesture state lives in a child component so its hooks mount only on
+  // the surfaces that use them.
+  const header =
+    isPointerCoarse() && touchMenuContent ? (
+      <LongPressHeaderMenu title={label} content={touchMenuContent}>
+        {headerEl}
+      </LongPressHeaderMenu>
+    ) : contextMenuContent ? (
+      <ContextMenu.Root>
+        <ContextMenu.Trigger>{headerEl}</ContextMenu.Trigger>
+        <ContextMenu.Content onClick={(event) => event.stopPropagation()}>
+          {contextMenuContent}
+        </ContextMenu.Content>
+      </ContextMenu.Root>
+    ) : (
+      headerEl
+    );
 
   return (
     <Collapsible.Item
       ref={ref}
       data-slot="collapsible-nav-section-section"
       value={value}
-      className={className}
+      /* Visual state only - the handlers live on the header (see
+         {@link CollapsibleNavSectionDrag}). Drawing the insertion line on the
+         whole section box, rather than on the header strip, keeps "lands after
+         this section" from reading as "lands inside it" when the section is
+         expanded. */
+      className={cn(
+        // Named so the trailing chevron (a header-level sibling of the
+        // Trigger, not a descendant) can read this item's own open/closed
+        // `data-state` for its rotation.
+        "group/section",
+        drag?.dragging && "opacity-50",
+        // Insertion line, matching the conversation-row drop indicator.
+        drag?.dropEdge === "before" &&
+          "shadow-[inset_0_2px_0_0_var(--primary-base)]",
+        drag?.dropEdge === "after" &&
+          "shadow-[inset_0_-2px_0_0_var(--primary-base)]",
+        className,
+      )}
       {...itemProps}
     >
-      {contextMenuContent ? (
-        <ContextMenu.Root>
-          <ContextMenu.Trigger>{headerEl}</ContextMenu.Trigger>
-          <ContextMenu.Content onClick={(event) => event.stopPropagation()}>
-            {contextMenuContent}
-          </ContextMenu.Content>
-        </ContextMenu.Root>
-      ) : headerEl}
-      <Collapsible.Content className={contentClassName}>
-        {children}
-      </Collapsible.Content>
+      {header}
+      {/* One indent for every section's content, defined here rather than at
+          each call site so no section can nest differently from the rest. */}
+      {collapsible ? (
+        <Collapsible.Content
+          className={contentClassName}
+          style={{ paddingLeft: SIDEBAR_SECTION_INDENT }}
+        >
+          {children}
+        </Collapsible.Content>
+      ) : (
+        // Bypasses Radix's open/closed accordion state entirely, so the
+        // content can't be collapsed even if this section's `value` isn't
+        // in the root's open list.
+        <div
+          className={contentClassName}
+          style={{ paddingLeft: SIDEBAR_SECTION_INDENT }}
+        >
+          {children}
+        </div>
+      )}
     </Collapsible.Item>
   );
 }

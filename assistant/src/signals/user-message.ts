@@ -14,6 +14,8 @@
 import { readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { v7 as uuidv7 } from "uuid";
+
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import { supersedePendingInteractionsOnEnqueue } from "../daemon/handlers/conversations.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
@@ -93,7 +95,10 @@ async function dispatchUserMessage(params: {
         resolvedAttachments.push({
           id: stored.id,
           filename: a.filename,
-          mimeType: a.mimeType,
+          // The stored MIME, not the declared one: the store corrects a
+          // declared type that disagrees with the file's magic bytes, and the
+          // queued turn must send what the persisted row says.
+          mimeType: stored.mimeType,
           data: "",
           filePath: a.path,
         });
@@ -118,7 +123,7 @@ async function dispatchUserMessage(params: {
         }
       }
     }
-    const requestId = crypto.randomUUID();
+    const requestId = uuidv7();
     const resolvedChannel = resolveTurnChannel(params.sourceChannel);
     const resolvedInterface = resolveTurnInterface(params.sourceInterface);
     const result = conversation.enqueueMessage({

@@ -103,29 +103,37 @@ export function compactAxTreeHistory(messages: Message[]): Message[] {
 }
 
 /**
- * Strip image contentBlocks from all tool_result blocks except those in the
- * most recent user message that contains tool_result blocks. This prevents
- * screenshots from accumulating in the context window — each image is seen
- * once by the LLM on the turn it was captured, then replaced with a text
- * placeholder on subsequent turns.
+ * Index of the last user message carrying `tool_result` blocks — the
+ * "current turn" boundary {@link stripOldMediaBlocks} keeps intact while
+ * stripping media from older tool results. Returns -1 when no user message
+ * has tool results.
  *
- * We target the last user message with tool_results (not just the last user
- * message) because a plain-text user message may follow the tool-result
- * turn. Using the last user message unconditionally would leave the most
- * recent tool screenshots unprotected from stripping.
+ * Targets the last user message with tool_results (not just the last user
+ * message) because a plain-text user message may follow the tool-result turn;
+ * using the last user message unconditionally would leave the most recent tool
+ * screenshots unprotected from stripping.
  */
-function stripOldMediaBlocks(history: Message[]): Message[] {
-  // Find the last user message that contains tool_result blocks.
-  let lastToolResultUserIdx = -1;
+export function lastToolResultUserMessageIndex(history: Message[]): number {
   for (let i = history.length - 1; i >= 0; i--) {
     if (
       history[i].role === "user" &&
       history[i].content.some((b) => b.type === "tool_result")
     ) {
-      lastToolResultUserIdx = i;
-      break;
+      return i;
     }
   }
+  return -1;
+}
+
+/**
+ * Strip image contentBlocks from all tool_result blocks except those in the
+ * most recent user message that contains tool_result blocks. This prevents
+ * screenshots from accumulating in the context window — each image is seen
+ * once by the LLM on the turn it was captured, then replaced with a text
+ * placeholder on subsequent turns.
+ */
+function stripOldMediaBlocks(history: Message[]): Message[] {
+  const lastToolResultUserIdx = lastToolResultUserMessageIndex(history);
 
   return history.map((msg, idx) => {
     // Keep the most recent tool-result user message intact (current turn)

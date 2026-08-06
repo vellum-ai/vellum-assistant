@@ -5,14 +5,7 @@
  * handler with `{ body }` exactly as the IPC server would.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getSqlite } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
@@ -107,7 +100,11 @@ describe("handleContactsInfoBatch", () => {
   test("returns info fields and gates assistant metadata on contactType", () => {
     insertContact({ id: "c1", notes: "friend", contactType: "human" });
     insertContact({ id: "c2", contactType: "assistant" });
-    insertMetadata({ contactId: "c2", species: "vellum", metadata: { model: "opus" } });
+    insertMetadata({
+      contactId: "c2",
+      species: "vellum",
+      metadata: { model: "opus" },
+    });
 
     const result = handleContactsInfoBatch({
       body: { contactIds: ["c1", "c2", "missing"] },
@@ -189,7 +186,12 @@ describe("handleContactChannelIdentityLookup", () => {
 
   test("resolves by channelId", () => {
     insertContact({ id: "c1", displayName: "Bob" });
-    insertChannel({ id: "ch1", contactId: "c1", type: "slack", address: "U123" });
+    insertChannel({
+      id: "ch1",
+      contactId: "c1",
+      type: "slack",
+      address: "U123",
+    });
 
     const result = handleContactChannelIdentityLookup({
       body: { channelId: "ch1" },

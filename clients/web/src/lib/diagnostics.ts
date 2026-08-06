@@ -69,7 +69,9 @@ const lifecycleRing: Ring = {
 // ---------------------------------------------------------------------------
 
 function getSessionStorage(): Storage | null {
-  if (typeof window === "undefined") return null;
+  if (typeof window === "undefined") {
+    return null;
+  }
   try {
     return window.sessionStorage;
   } catch {
@@ -90,15 +92,23 @@ function isDiagnosticsEvent(event: unknown): event is DiagnosticsEvent {
 }
 
 function loadRing(ring: Ring): void {
-  if (ring.loaded) return;
+  if (ring.loaded) {
+    return;
+  }
   ring.loaded = true;
   const storage = getSessionStorage();
-  if (!storage) return;
+  if (!storage) {
+    return;
+  }
   try {
     const raw = storage.getItem(ring.storageKey);
-    if (!raw) return;
+    if (!raw) {
+      return;
+    }
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return;
+    if (!Array.isArray(parsed)) {
+      return;
+    }
     ring.events = parsed.filter(isDiagnosticsEvent).slice(-ring.max);
   } catch {
     ring.events = [];
@@ -107,7 +117,9 @@ function loadRing(ring: Ring): void {
 
 function saveRing(ring: Ring): void {
   const storage = getSessionStorage();
-  if (!storage) return;
+  if (!storage) {
+    return;
+  }
   try {
     storage.setItem(ring.storageKey, JSON.stringify(ring.events));
   } catch {
@@ -217,9 +229,15 @@ export function buildDiagnosticsSnapshot(
 
 /** Bucket a message count into a low-cardinality Sentry tag band. */
 export function bucketMessagesAdded(count: number): string {
-  if (!Number.isFinite(count) || count <= 0) return "0";
-  if (count === 1) return "1";
-  if (count <= 5) return "2-5";
+  if (!Number.isFinite(count) || count <= 0) {
+    return "0";
+  }
+  if (count === 1) {
+    return "1";
+  }
+  if (count <= 5) {
+    return "2-5";
+  }
   return "6+";
 }
 

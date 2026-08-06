@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { closeSync, existsSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -29,18 +29,28 @@ import {
 } from "../lib/client-identity";
 import {
   getLockfileData,
-  upsertLockfileAssistant,
+  upsertRendererLockfileAssistant,
   replacePlatformAssistants,
   isActiveAssistant,
+  isPairedLockfileEntry,
+  PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
   runHatch,
   runRetire,
+  connectImport,
+  unpairAssistant,
   getGuardianAccessToken,
+  getPairedGuardianAccessToken,
   parseGatewayUrl,
+  parsePairedGatewayUrl,
   resolveGatewayProxyTarget,
+  resolvePairedGatewayProxyTarget,
   readAllowedGatewayPorts,
+  readPairedGatewayTargets,
+  authorizePairedForwardHeaders,
   isLoopbackAddr,
   headerHostIsLoopback,
   originIsAllowed,
+  hasSameOriginCredentialProof,
   resolveDevCliInvocation,
   resolveLockfilePaths,
   resolveConfigDir,
@@ -61,6 +71,8 @@ import { tuiLog } from "../lib/tui-log";
 import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
 import { probePort } from "../lib/port-probe.js";
 import { openBrowser } from "../lib/open-browser";
+import { isCompiledCli } from "../lib/local.js";
+import { getLogDir, openLogFile, resetLogFile } from "../lib/xdg-log.js";
 
 const SUPPORTED_INTERFACES = ["cli", "web"] as const;
 type SupportedInterface = (typeof SUPPORTED_INTERFACES)[number];
@@ -93,6 +105,10 @@ interface ParsedArgs {
   disablePlatform: boolean;
   /** Auto-open the web interface in the default browser (--interface web only). */
   openBrowser: boolean;
+  /** Explicit web server port (--interface web only). Binds strictly — no scan. */
+  webPort?: number;
+  /** Run the web server as a detached background process (--interface web only). */
+  background: boolean;
 }
 
 function readAssistantName(entry: AssistantEntry | null): string | undefined {
@@ -138,9 +154,12 @@ export function parseArgs(): ParsedArgs {
     "-i",
     "--token",
     "-t",
+    "--port",
   ]);
   // Auto-open the web interface in the browser by default; --no-open opts out.
   let openBrowserPref = true;
+  let webPort: number | undefined;
+  let background = false;
   const flagArgs: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -151,6 +170,19 @@ export function parseArgs(): ParsedArgs {
       disablePlatform = true;
     } else if (arg === "--no-open") {
       openBrowserPref = false;
+    } else if (arg === "--background") {
+      background = true;
+    } else if (arg === "--port") {
+      const value = args[++i];
+      const parsed =
+        value === undefined ? Number.NaN : Number.parseInt(value, 10);
+      if (String(parsed) !== value || parsed < 1 || parsed > 65535) {
+        console.error(
+          `Invalid --port '${value ?? ""}'. Expected an integer between 1 and 65535.`,
+        );
+        process.exit(1);
+      }
+      webPort = parsed;
     } else if (
       (arg === "--url" ||
         arg === "-u" ||
@@ -259,6 +291,17 @@ export function parseArgs(): ParsedArgs {
     }
   }
 
+  if (interfaceId !== WEB_INTERFACE_ID) {
+    if (webPort !== undefined) {
+      console.error("--port requires --interface web.");
+      process.exit(1);
+    }
+    if (background) {
+      console.error("--background requires --interface web.");
+      process.exit(1);
+    }
+  }
+
   return {
     runtimeUrl: normalizeRuntimeUrl(runtimeUrl),
     assistantId,
@@ -272,6 +315,8 @@ export function parseArgs(): ParsedArgs {
     parsedFlagOverrides,
     disablePlatform,
     openBrowser: openBrowserPref,
+    webPort,
+    background,
   };
 }
 
@@ -292,6 +337,12 @@ ${ANSI.bold}OPTIONS:${ANSI.reset}
     -a, --assistant-id <id>    Assistant ID
     -i, --interface <id>       Interface identifier: cli (default) or web
     --no-open                  Don't auto-open the browser (--interface web)
+    --port <port>              Web server port, 1-65535 (--interface web).
+                              Errors if the port is taken. Default: 3000,
+                              scanning upward when busy.
+    --background               Run the web server as a background process
+                              (--interface web). Prints the URL, PID, and log
+                              path, then returns to the shell.
     --flag <key=value>         Feature flag override (repeatable, kebab-case key)
     --disable-platform         Suppress all outbound platform API calls
     -h, --help                 Show this help message
@@ -311,6 +362,9 @@ ${ANSI.bold}EXAMPLES:${ANSI.reset}
     # Ephemeral: connect to another machine's assistant with a paired token
     # (no lockfile entry, nothing persisted):
     vellum client --url https://your-tunnel.example --token <jwt>
+
+    # Web interface on a fixed port, detached from the shell:
+    vellum client --interface web --port 4000 --background
 `);
 }
 
@@ -401,6 +455,8 @@ function findWebSourceDir(): string | null {
 const LOCKFILE_PATTERN = /^(?:\/assistant)?\/__local\/lockfile$/;
 const HATCH_PATTERN = /^(?:\/assistant)?\/__local\/hatch$/;
 const RETIRE_PATTERN = /^(?:\/assistant)?\/__local\/retire$/;
+const UNPAIR_PATTERN = /^(?:\/assistant)?\/__local\/unpair$/;
+const CONNECT_IMPORT_PATTERN = /^(?:\/assistant)?\/__local\/connect-import$/;
 const GUARDIAN_TOKEN_PATTERN =
   /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
 const PLATFORM_SESSION_PATTERN =
@@ -418,15 +474,14 @@ function currentPlatformToken(): string | null {
   return platformSessionToken;
 }
 
-// Whether to attach the platform credential to a proxied request. Only
-// same-origin (SPA) traffic qualifies — a cross-site page must not be able to
-// use the local proxy as a confused deputy for authenticated platform calls.
-// Cross-origin fetches always send an Origin; `Sec-Fetch-Site` is a belt-and-
-// braces check for browsers that send it.
-function isSameOriginRequest(req: Request): boolean {
-  if (!originIsAllowed(req.headers.get("origin") ?? undefined)) return false;
-  const site = req.headers.get("sec-fetch-site");
-  return !site || site === "same-origin" || site === "none";
+// Whether to attach a host-owned credential to a proxied request. The browser
+// must positively identify the request as coming from this server's origin.
+export function isSameOriginRequest(req: Request): boolean {
+  return hasSameOriginCredentialProof(
+    req.headers.get("host") ?? undefined,
+    req.headers.get("origin") ?? undefined,
+    req.headers.get("sec-fetch-site") ?? undefined,
+  );
 }
 
 function getEnvRecord(): Record<string, string> {
@@ -456,9 +511,12 @@ async function handleLocalEndpoints(
     LOCKFILE_PATTERN.test(pathname) ||
     HATCH_PATTERN.test(pathname) ||
     RETIRE_PATTERN.test(pathname) ||
+    UNPAIR_PATTERN.test(pathname) ||
+    CONNECT_IMPORT_PATTERN.test(pathname) ||
     GUARDIAN_TOKEN_PATTERN.test(pathname) ||
     PLATFORM_SESSION_PATTERN.test(pathname) ||
-    parseGatewayUrl(pathname).match;
+    parseGatewayUrl(pathname).match ||
+    parsePairedGatewayUrl(pathname).match;
 
   if (!isLocalRoute) return null;
 
@@ -529,7 +587,7 @@ async function handleLocalEndpoints(
           body.organizationId as string | undefined,
         );
       } else {
-        result = upsertLockfileAssistant(
+        result = upsertRendererLockfileAssistant(
           lockfilePaths,
           body.assistant as Record<string, unknown>,
           body.activeAssistant as string | undefined,
@@ -636,12 +694,87 @@ async function handleLocalEndpoints(
     );
   }
 
+  // Unpair: forget a paired assistant (lockfile entry + guardian token).
+  if (UNPAIR_PATTERN.test(pathname)) {
+    if (req.method !== "POST") {
+      return new Response(null, { status: 405 });
+    }
+
+    let assistantId: string | undefined;
+    try {
+      const body = (await req.json()) as { assistantId?: string };
+      assistantId = body.assistantId;
+    } catch {
+      return Response.json(
+        { ok: false, error: "Invalid JSON body" },
+        { status: 400 },
+      );
+    }
+
+    if (!assistantId) {
+      return Response.json(
+        { ok: false, error: "Missing assistantId" },
+        { status: 400 },
+      );
+    }
+
+    const result = unpairAssistant(lockfilePaths, configDir, assistantId);
+    if (result.ok) {
+      return Response.json({ ok: true, lockfile: result.lockfile });
+    }
+    return Response.json(
+      { ok: false, error: result.error },
+      { status: result.status },
+    );
+  }
+
+  // Connect-import: register a pairing bundle from another machine (guardian
+  // token + paired lockfile entry), the write counterpart of unpair.
+  if (CONNECT_IMPORT_PATTERN.test(pathname)) {
+    if (req.method !== "POST") {
+      return new Response(null, { status: 405 });
+    }
+
+    let body: { bundle?: unknown; name?: unknown };
+    try {
+      body = (await req.json()) as { bundle?: unknown; name?: unknown };
+    } catch {
+      return Response.json(
+        { ok: false, error: "Invalid JSON body" },
+        { status: 400 },
+      );
+    }
+
+    const result = connectImport(lockfilePaths, configDir, {
+      bundle: body.bundle,
+      name: body.name,
+    });
+    if (result.ok) {
+      return Response.json({
+        ok: true,
+        assistantId: result.assistantId,
+        accessOnly: result.accessOnly,
+      });
+    }
+    return Response.json(
+      { ok: false, error: result.error },
+      { status: result.status },
+    );
+  }
+
   // Guardian token
   const guardianMatch = pathname.match(GUARDIAN_TOKEN_PATTERN);
   if (guardianMatch) {
     if (req.method !== "GET") return new Response(null, { status: 405 });
 
     const assistantId = decodeURIComponent(guardianMatch[1]!);
+
+    if (isPairedLockfileEntry(lockfilePaths, assistantId)) {
+      return Response.json(
+        { error: PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR },
+        { status: 403 },
+      );
+    }
 
     let invocation: CliInvocation;
     try {
@@ -659,6 +792,7 @@ async function handleLocalEndpoints(
       invocation,
       true,
       _localEnv,
+      { paired: false },
     );
     if (result.ok) {
       return Response.json({ accessToken: result.accessToken });
@@ -684,28 +818,93 @@ async function handleLocalEndpoints(
     const targetUrl = `http://127.0.0.1:${gatewayTarget.port}${gatewayTarget.path}${url.search}`;
     const headers = new Headers(req.headers);
     headers.set("host", `127.0.0.1:${gatewayTarget.port}`);
+    return proxyGatewayFetch(req, targetUrl, headers, "Gateway proxy error");
+  }
 
-    try {
-      const hasBody = req.method !== "GET" && req.method !== "HEAD";
-      const proxyRes = await loopbackSafeFetch(targetUrl, {
-        method: req.method,
-        headers,
-        body: hasBody ? req.body : undefined,
-        redirect: "manual",
-      });
-      const resHeaders = new Headers(proxyRes.headers);
-      resHeaders.delete("transfer-encoding");
-      return new Response(proxyRes.body, {
-        status: proxyRes.status,
-        statusText: proxyRes.statusText,
-        headers: resHeaders,
-      });
-    } catch {
-      return new Response("Gateway proxy error", { status: 502 });
+  // Paired-gateway proxy: same shared decision as the web (Vite middleware)
+  // and Electron (`app://` handler) hosts, forwarding to the remote gateway an
+  // imported pairing recorded as its `runtimeUrl`. The lockfile's paired
+  // entries are the allowlist. Renderer authorization and browser-ambient
+  // headers are stripped on the server-to-server hop. This CLI host reads the
+  // paired guardian bearer from disk and installs it after sanitization.
+  const pairedDecision = resolvePairedGatewayProxyTarget(
+    pathname + url.search,
+    () => readPairedGatewayTargets(lockfilePaths),
+  );
+  if (pairedDecision.kind === "reject") {
+    return new Response(pairedDecision.message, {
+      status: pairedDecision.status,
+    });
+  }
+  if (pairedDecision.kind === "forward") {
+    if (!isSameOriginRequest(req)) {
+      return Response.json({ error: "Forbidden" }, { status: 403 });
     }
+    let invocation: CliInvocation;
+    try {
+      invocation = resolveDevCliInvocation(_baseDir);
+    } catch (err) {
+      return new Response(err instanceof Error ? err.message : String(err), {
+        status: 500,
+      });
+    }
+    const headers = new Headers(req.headers);
+    const tokenResult = await authorizePairedForwardHeaders(
+      pairedDecision.assistantId,
+      pairedDecision.runtimeUrl,
+      headers,
+      (assistantId, runtimeUrl) =>
+        getPairedGuardianAccessToken(
+          assistantId,
+          runtimeUrl,
+          configDir,
+          invocation,
+          true,
+          _localEnv,
+        ),
+    );
+    if (!tokenResult.ok) {
+      return new Response(tokenResult.error, { status: tokenResult.status });
+    }
+    headers.set("host", new URL(pairedDecision.url).host);
+    return proxyGatewayFetch(
+      req,
+      pairedDecision.url,
+      headers,
+      "Paired gateway proxy error",
+    );
   }
 
   return null;
+}
+
+// One streamed hop for both gateway data-plane proxies. The upstream
+// `transfer-encoding` is dropped so re-serving the streamed body doesn't emit
+// a duplicate chunked header.
+async function proxyGatewayFetch(
+  req: Request,
+  targetUrl: string,
+  headers: Headers,
+  errorMessage: string,
+): Promise<Response> {
+  try {
+    const hasBody = req.method !== "GET" && req.method !== "HEAD";
+    const proxyRes = await loopbackSafeFetch(targetUrl, {
+      method: req.method,
+      headers,
+      body: hasBody ? req.body : undefined,
+      redirect: "manual",
+    });
+    const resHeaders = new Headers(proxyRes.headers);
+    resHeaders.delete("transfer-encoding");
+    return new Response(proxyRes.body, {
+      status: proxyRes.status,
+      statusText: proxyRes.statusText,
+      headers: resHeaders,
+    });
+  } catch {
+    return new Response(errorMessage, { status: 502 });
+  }
 }
 
 function getBaseDir(): string {
@@ -775,12 +974,12 @@ function tryBindLoopback(
  * Never binds wildcard interfaces (`0.0.0.0`/`::`): the server exposes
  * `/__local/*` control endpoints, so it must stay loopback-only.
  */
-function serveLoopback(preferredPort: number, fetchHandler: WebFetchHandler) {
-  for (
-    let port = preferredPort;
-    port < preferredPort + WEB_PORT_SCAN_LIMIT;
-    port++
-  ) {
+function serveLoopback(
+  preferredPort: number,
+  fetchHandler: WebFetchHandler,
+  scanLimit = WEB_PORT_SCAN_LIMIT,
+) {
+  for (let port = preferredPort; port < preferredPort + scanLimit; port++) {
     const primary = tryBindLoopback(port, "127.0.0.1", fetchHandler);
     if (!primary) continue;
 
@@ -804,8 +1003,19 @@ function serveLoopback(preferredPort: number, fetchHandler: WebFetchHandler) {
     }
   }
   throw new Error(
-    `Could not bind a free loopback port in [${preferredPort}, ${preferredPort + WEB_PORT_SCAN_LIMIT - 1}]`,
+    scanLimit === 1
+      ? `Port ${preferredPort} is already in use`
+      : `Could not bind a free loopback port in [${preferredPort}, ${preferredPort + scanLimit - 1}]`,
   );
+}
+
+/** True when neither loopback family has a listener on `port`. */
+async function isDualLoopbackPortFree(port: number): Promise<boolean> {
+  const [busyV4, busyV6] = await Promise.all([
+    probePort(port, "127.0.0.1"),
+    probePort(port, "::1"),
+  ]);
+  return !busyV4 && !busyV6;
 }
 
 /**
@@ -816,13 +1026,27 @@ function serveLoopback(preferredPort: number, fetchHandler: WebFetchHandler) {
  */
 async function findFreeDualLoopbackPort(preferred: number): Promise<number> {
   for (let port = preferred; port < preferred + WEB_PORT_SCAN_LIMIT; port++) {
-    const [busyV4, busyV6] = await Promise.all([
-      probePort(port, "127.0.0.1"),
-      probePort(port, "::1"),
-    ]);
-    if (!busyV4 && !busyV6) return port;
+    if (await isDualLoopbackPortFree(port)) {
+      return port;
+    }
   }
   return preferred;
+}
+
+/**
+ * Resolve the port for a probe-based web server launch: an explicit --port
+ * must be free (exit 1 otherwise — strict, no silent move), the default picks
+ * the first free port at/above 3000.
+ */
+async function resolveWebPort(webPort: number | undefined): Promise<number> {
+  if (webPort === undefined) {
+    return findFreeDualLoopbackPort(3000);
+  }
+  if (!(await isDualLoopbackPortFree(webPort))) {
+    console.error(`Port ${webPort} is already in use`);
+    process.exit(1);
+  }
+  return webPort;
 }
 
 /**
@@ -840,11 +1064,118 @@ async function openBrowserWhenReady(url: string, port: number): Promise<void> {
   }
 }
 
+const WEB_BACKGROUND_LOG_FILE = "client-web.log";
+// Generous cap so a cold Vite dev-server boot (dependency optimization) still
+// counts as a successful start.
+const WEB_BACKGROUND_START_TIMEOUT_MS = 30_000;
+
+/**
+ * Launch `vellum client --interface web` as a detached background process.
+ *
+ * The port is resolved up front (explicit --port must be free; otherwise the
+ * first free port at/above 3000) and pinned via `--port` on the child so the
+ * URL printed here is the one the child binds. The child's stdout/stderr go to
+ * `<xdg-log-dir>/client-web.log` — same detach idiom as the nginx/ngrok
+ * spawns. Success is only reported once the child is accepting connections on
+ * the port; an early child exit (e.g. missing @vellumai/web assets) or a
+ * startup timeout fails with a pointer at the log file.
+ */
+async function spawnBackgroundWebInterface(
+  webPort: number | undefined,
+): Promise<void> {
+  const port = await resolveWebPort(webPort);
+
+  // Rebuild the argv without --background, pinning the resolved port.
+  const childArgs: string[] = ["client"];
+  const rawArgs = process.argv.slice(3);
+  for (let i = 0; i < rawArgs.length; i++) {
+    const arg = rawArgs[i];
+    if (arg === "--background") {
+      continue;
+    }
+    // A dangling --port can't reach here — parseArgs already rejected it.
+    if (arg === "--port") {
+      i++;
+      continue;
+    }
+    childArgs.push(arg);
+  }
+  childArgs.push("--port", String(port));
+
+  // A compiled binary re-invokes itself; under plain bun (source tree, npm
+  // install) the entry script is argv[1].
+  const spawnArgs = isCompiledCli()
+    ? childArgs
+    : [process.argv[1], ...childArgs];
+
+  resetLogFile(WEB_BACKGROUND_LOG_FILE);
+  const fd = openLogFile(WEB_BACKGROUND_LOG_FILE);
+  const child = spawn(process.execPath, spawnArgs, {
+    detached: true,
+    stdio: ["ignore", fd, fd],
+  });
+  if (typeof fd === "number") {
+    closeSync(fd);
+  }
+  child.unref();
+
+  const logPath = path.join(getLogDir(), WEB_BACKGROUND_LOG_FILE);
+
+  // Don't report success until the child is actually serving: watch for an
+  // early exit (e.g. missing @vellumai/web assets, port lost to the TOCTOU
+  // window) and poll the port until it accepts connections.
+  let exit: { code: number | null } | undefined;
+  child.on("error", () => {
+    exit = { code: null };
+  });
+  child.on("exit", (code) => {
+    exit = { code };
+  });
+
+  const deadline = Date.now() + WEB_BACKGROUND_START_TIMEOUT_MS;
+  let listening = false;
+  while (Date.now() < deadline && !exit) {
+    if (await probePort(port, "127.0.0.1")) {
+      listening = true;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+
+  if (exit) {
+    console.error(
+      `Web interface exited during startup${exit.code !== null ? ` (exit code ${exit.code})` : ""}. Logs: ${logPath}`,
+    );
+    process.exit(1);
+  }
+  if (!listening) {
+    // Kill the detached child (its whole process group — the Vite path spawns
+    // grandchildren) so a slow startup can't bind the port and linger after
+    // we've reported failure.
+    if (child.pid !== undefined) {
+      try {
+        process.kill(-child.pid, "SIGTERM");
+      } catch {
+        child.kill("SIGTERM");
+      }
+    }
+    console.error(
+      `Web interface did not start listening on port ${port} within ${WEB_BACKGROUND_START_TIMEOUT_MS / 1000}s; terminated it. Logs: ${logPath}`,
+    );
+    process.exit(1);
+  }
+
+  console.log(`Vellum web interface: http://localhost:${port}${SPA_BASE}`);
+  console.log(`Running in background (pid ${child.pid}). Logs: ${logPath}`);
+  console.log(`Stop with: kill ${child.pid}`);
+}
+
 async function runWebInterface(
   flagEnvVars: Record<string, string>,
   parsedFlagOverrides: Record<string, boolean | string>,
   disablePlatform: boolean,
   openInBrowser: boolean,
+  webPort: number | undefined,
 ): Promise<void> {
   // Propagate flag env vars so child processes (e.g. hatch from the web UI) inherit them.
   Object.assign(process.env, flagEnvVars);
@@ -858,6 +1189,7 @@ async function runWebInterface(
       flagEnvVars,
       disablePlatform,
       openInBrowser,
+      webPort,
     );
   }
 
@@ -1001,9 +1333,23 @@ async function runWebInterface(
     return new Response("Not Found", { status: 404 });
   };
 
-  const { port, servers } = serveLoopback(3000, fetchHandler);
-  if (port !== 3000) {
-    console.log(`Port 3000 in use; using ${port}.`);
+  // An explicit --port binds strictly (no scan) so the user gets the port they
+  // asked for or a clear error.
+  const preferredPort = webPort ?? 3000;
+  let bound: ReturnType<typeof serveLoopback>;
+  try {
+    bound = serveLoopback(
+      preferredPort,
+      fetchHandler,
+      webPort !== undefined ? 1 : WEB_PORT_SCAN_LIMIT,
+    );
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+  const { port, servers } = bound;
+  if (port !== preferredPort) {
+    console.log(`Port ${preferredPort} in use; using ${port}.`);
   }
   // Advertise `localhost` (not `127.0.0.1`) so the app origin matches the host
   // the platform hardcodes in its loopback callback. We bind both loopback
@@ -1027,6 +1373,7 @@ async function runViteDevServer(
   flagEnvVars: Record<string, string>,
   disablePlatform: boolean,
   openInBrowser: boolean,
+  webPort: number | undefined,
 ): Promise<void> {
   const platformUrl = getPlatformUrl();
 
@@ -1039,8 +1386,9 @@ async function runViteDevServer(
   // Auto-pick a free port (Vite uses strictPort) so a running `vel up` stack
   // on :3000 doesn't wedge dev. The loopback callback port follows
   // window.location.port, so a non-3000 port propagates automatically.
-  const port = await findFreeDualLoopbackPort(3000);
-  if (port !== 3000) {
+  // An explicit --port is strict: error rather than silently moving.
+  const port = await resolveWebPort(webPort);
+  if (webPort === undefined && port !== 3000) {
     console.log(`Port 3000 in use; using ${port}.`);
   }
 
@@ -1139,6 +1487,8 @@ export async function client(): Promise<void> {
     parsedFlagOverrides,
     disablePlatform,
     openBrowser: openInBrowser,
+    webPort,
+    background,
   } = parseArgs();
 
   if (disablePlatform) {
@@ -1146,11 +1496,16 @@ export async function client(): Promise<void> {
   }
 
   if (interfaceId === WEB_INTERFACE_ID) {
+    if (background) {
+      await spawnBackgroundWebInterface(webPort);
+      return;
+    }
     await runWebInterface(
       flagEnvVars,
       parsedFlagOverrides,
       disablePlatform,
       openInBrowser,
+      webPort,
     );
     return;
   }

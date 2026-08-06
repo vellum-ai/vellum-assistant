@@ -9,12 +9,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
+  getMockPersistentCallCount,
   mockGatewayIpc,
   resetMockGatewayIpc,
 } from "../__tests__/mock-gateway-ipc.js";
 import {
   ipcCall,
   ipcCallPersistent,
+  ipcClassifyRisk,
   ipcGetFeatureFlags,
   resetPersistentClient,
 } from "./gateway-client.js";
@@ -130,5 +132,62 @@ describe("ipcGetFeatureFlags", () => {
 
     const flags = await ipcGetFeatureFlags();
     expect(flags).toEqual({});
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ipcClassifyRisk retry semantics
+// ---------------------------------------------------------------------------
+
+describe("ipcClassifyRisk retry", () => {
+  const CLASSIFY_OK = {
+    risk: "low",
+    reason: "safe",
+    matchType: "none",
+    scopeOptions: [],
+  };
+  const emptyParams = {} as unknown as Parameters<typeof ipcClassifyRisk>[0];
+
+  test("retries a transient failure and then succeeds", async () => {
+    mockGatewayIpc(null, {
+      failFirstN: 1,
+      results: { classify_risk: CLASSIFY_OK },
+    });
+
+    const result = await ipcClassifyRisk(emptyParams);
+    expect(result?.risk).toBe("low");
+    expect(getMockPersistentCallCount("classify_risk")).toBe(2);
+  });
+
+  test("returns undefined after exhausting retries (3 attempts)", async () => {
+    mockGatewayIpc(null, { error: true });
+
+    const result = await ipcClassifyRisk(emptyParams);
+    expect(result).toBeUndefined();
+    expect(getMockPersistentCallCount("classify_risk")).toBe(3);
+  });
+
+  test("does NOT retry a structured IpcCallError (fails after 1 attempt)", async () => {
+    mockGatewayIpc(null, {
+      failFirstN: 3,
+      ipcCallError: true,
+      results: { classify_risk: CLASSIFY_OK },
+    });
+
+    const result = await ipcClassifyRisk(emptyParams);
+    expect(result).toBeUndefined();
+    expect(getMockPersistentCallCount("classify_risk")).toBe(1);
+  });
+
+  test("stops retrying once the signal is aborted", async () => {
+    mockGatewayIpc(null, { error: true });
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await ipcClassifyRisk(emptyParams, controller.signal);
+    expect(result).toBeUndefined();
+    // An already-aborted signal short-circuits the retry loop after the first
+    // failed attempt rather than exhausting all three.
+    expect(getMockPersistentCallCount("classify_risk")).toBe(1);
   });
 });

@@ -49,9 +49,14 @@ import {
   LLMConfigBase,
   LLMConfigFragment,
   ProfileEntry,
+  routingIdentityModelIssue,
 } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { ServiceModeSchema } from "../../config/schemas/services.js";
+import {
+  describeShadowedConfigSet,
+  findSubstrateShadowing,
+} from "../../config/substrate-twin-shadowing.js";
 import { getConfigWatcher } from "../../daemon/config-watcher.js";
 import {
   getEmbeddingConfigInfo,
@@ -80,14 +85,18 @@ import {
   getMessageById,
 } from "../../persistence/conversation-crud.js";
 import { getConversationByKey } from "../../persistence/conversation-key-store.js";
+import {
+  type ConversationKind,
+  resolveConversationKind,
+} from "../../persistence/conversation-types.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
 import { getLlmRequestLogSource } from "../../persistence/llm-request-log-source.js";
 import { type LogRow } from "../../persistence/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../plugins/defaults/memory/memory-recall-log-store.js";
-import { getMemoryV2ActivationLogByMessageIds } from "../../plugins/defaults/memory/memory-v2-activation-log-store.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../plugins/defaults/memory/v2/constants.js";
+import { getMemoryV2ActivationLogByMessageIds } from "../../plugins/defaults/memory/v2/activation-log-store.js";
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory/v3/selection-log-store.js";
+import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
 import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "../../providers/inference/auth.js";
 import {
   createConnection,
@@ -105,11 +114,19 @@ import {
   resolvePricingForUsage,
   usesAnthropicPricingRules,
 } from "../../util/pricing.js";
-import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
+import { publishConfigChanged } from "../sync/resource-sync-events.js";
+import {
+  BadRequestError,
+  ForbiddenError,
+  InternalError,
+  NotFoundError,
+} from "./errors.js";
 import {
   type LlmContextSummary,
   normalizeLlmContextPayloads,
 } from "./llm-context-normalization.js";
+import { assertLlmRequestLoggingEnabled } from "./llm-request-logs-access.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const validEmbeddingProviderSet = new Set<string>(
@@ -131,10 +148,11 @@ type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
 };
 
 import {
-  getEffectiveProfile,
-  getEffectiveProfiles,
+  CODE_OWNED_PROFILE_NAMES,
+  getEffectiveProfilesForProvider,
   INVARIANT_PROFILE_NAMES,
   MANAGED_PROFILE_NAMES,
+  resolveDefaultProfileForProvider,
 } from "../../config/default-profile-catalog.js";
 import { DEFAULT_PROFILE_KEYS } from "../../config/default-profile-names.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -454,10 +472,10 @@ async function handleSetEmbeddingConfig({ body }: RouteHandlerArgs) {
  * response needs the same treatment so external clients (macOS, web, CLI)
  * see the effective value rather than `undefined` when the daemon hasn't
  * persisted an explicit choice yet. For example, on a freshly-hatched
- * platform-managed assistant, `services.image-generation.mode` may be absent
- * from disk (only `llm.profiles` was written by `seedInferenceProfiles`); the
- * fill pass ensures clients receive `"managed"` rather than falling back to
- * their own defaults.
+ * platform-managed assistant, `services.image-generation.provider` may be
+ * absent from disk (only `llm.profiles` was written by
+ * `seedInferenceProfiles`); the fill pass ensures clients receive `"vellum"`
+ * rather than falling back to their own defaults.
  *
  * Guards against `loadRawConfig()` handing us a value that is technically
  * valid JSON but not a plain object (e.g. literal `null`, a number, or an
@@ -491,8 +509,8 @@ export function applyContextDefaultsToRawConfig(raw: unknown): unknown {
 
 /**
  * Backwards-compat wire field for `GET /v1/config`. PR removed
- * `services.inference.mode` from the typed schema (routing is now governed
- * by `provider_connections` rows + `llm.default.provider_connection`), but
+ * `services.inference.mode` from the typed schema (routing is governed by
+ * `provider_connections` rows + per-profile `provider_connection`), but
  * the macOS settings client (`SettingsStore.swift:loadServiceModes`) still
  * reads this field and falls back to its `@Published` default of "your-own"
  * when absent. On a platform-managed assistant served by a newer daemon and
@@ -687,20 +705,21 @@ const ConfigGetResponseSchema = z
       .object({
         "web-search": z
           .object({
-            mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
           })
           .passthrough()
           .optional(),
         "web-fetch": z
           .object({
-            mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
           })
           .passthrough()
           .optional(),
         "image-generation": z
-          .object({ mode: ServiceModeSchema.optional() })
+          .object({
+            provider: z.string().optional(),
+            model: z.string().optional(),
+          })
           .passthrough()
           .optional(),
         inference: z
@@ -791,7 +810,6 @@ const ConfigPatchRequestSchema = z
       .object({
         "web-search": z
           .object({
-            mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
           })
           .passthrough()
@@ -799,14 +817,16 @@ const ConfigPatchRequestSchema = z
           .optional(),
         "web-fetch": z
           .object({
-            mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
           })
           .passthrough()
           .nullable()
           .optional(),
         "image-generation": z
-          .object({ mode: ServiceModeSchema.optional() })
+          .object({
+            provider: z.string().optional(),
+            model: z.string().optional(),
+          })
           .passthrough()
           .nullable()
           .optional(),
@@ -840,10 +860,20 @@ function handleGetConfig() {
  * profile view (code-catalog default bodies + workspace overlays). Default
  * profile CONTENT is code-owned and the workspace holds at most a thin stub,
  * but clients (settings UI, sticky-profile pickers) need the full bodies to
- * render labels/models — so the wire view materializes them. Wire-only:
+ * render labels/models — so the wire view materializes them, resolved through
+ * `llm.defaultProvider`'s column of the intent × provider matrix so a BYO
+ * install sees the provider/model that actually dispatches. Wire-only:
  * `normalizeManagedProfileWrites` reduces echoed bodies back to the
  * workspace-owned fields on the write paths, so a `config get` →
- * `config set` round-trip never persists catalog content.
+ * `config set` round-trip never persists catalog content — the two must
+ * resolve through the same column or honest round-trips are rejected.
+ *
+ * `defaultProvider` deliberately comes from the parsed config, not the raw
+ * object this function mutates: the schema's `.catch(undefined)` shields the
+ * matrix lookup from an invalid persisted value, which a raw read would feed
+ * straight into resolution. The raw profiles and the cached parse cannot
+ * disagree on `defaultProvider` — every write path that touches it
+ * invalidates the config cache.
  */
 function overlayEffectiveProfilesForWire(config: unknown): void {
   const root = readPlainObject(config);
@@ -855,8 +885,9 @@ function overlayEffectiveProfilesForWire(config: unknown): void {
   if (!existingLlm) {
     root.llm = llm;
   }
-  llm.profiles = getEffectiveProfiles(
+  llm.profiles = getEffectiveProfilesForProvider(
     readPlainObject(llm.profiles) as Record<string, ProfileEntry> | undefined,
+    getConfig().llm.defaultProvider ?? null,
   );
 }
 
@@ -914,7 +945,7 @@ function stripWireOnlyProfileKeys(patch: unknown): void {
  * `handleSetConfig`'s `raw` write, which shares object references with the
  * inspected patch shape.
  */
-function normalizeManagedProfileWrites(patch: unknown): void {
+export function normalizeManagedProfileWrites(patch: unknown): void {
   const root = readPlainObject(patch);
   const llm = readPlainObject(root?.llm);
   const profiles = readPlainObject(llm?.profiles);
@@ -941,8 +972,15 @@ function normalizeManagedProfileWrites(patch: unknown): void {
       continue;
     }
 
+    // Must resolve through the same provider column as
+    // `overlayEffectiveProfilesForWire`, or an echo of the wire view would
+    // not match `effective` and an honest round-trip would be rejected.
     const effective = readPlainObject(
-      getEffectiveProfile(currentProfiles, name),
+      resolveDefaultProfileForProvider(
+        currentProfiles,
+        name,
+        getConfig().llm.defaultProvider ?? null,
+      ),
     );
     for (const key of Object.keys(entry)) {
       if (key === "source" || key === "status") {
@@ -1086,7 +1124,9 @@ function handleGetConfigSchema({ queryParams = {} }: RouteHandlerArgs) {
   };
 }
 
-function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
+export function rejectManagedProfileDeletion(
+  body: Record<string, unknown>,
+): void {
   const llm = asMutablePlainObject(body.llm);
   if (!llm) {
     return;
@@ -1238,8 +1278,8 @@ function mergePreservingUnknownKeys(
 
 /**
  * Custom profiles persist as complete overrides: any user-source, non-mix
- * profile entry this write creates or changes is completed against
- * `llm.default` (`completeCustomProfile`) before it lands on disk, so no
+ * profile entry this write creates or changes is completed against the
+ * workspace default base (`completeCustomProfile`) before it lands on disk, so no
  * write path can persist a new partial profile. Entries the write did not
  * touch are left byte-identical — an unrelated config write must not rewrite
  * profile entries. Entries that do not parse as a `ProfileEntry` are also
@@ -1296,7 +1336,56 @@ function completeChangedCustomProfiles(
  * Shared by `handlePatchConfig` and `handleSetConfig` so both write paths get
  * identical post-write side effects.
  */
-async function commitConfigWrite(
+/**
+ * Reject writes that would store a routing-identity provider with a missing
+ * or unroutable model (see `routingIdentityModelIssue`). saveRawConfig
+ * persists without schema validation, so the parse-time rejection alone
+ * would let the pair reach disk and be stripped on the next read — a silent
+ * no-op where the user expects a saved override.
+ */
+function assertRoutableIdentityEntries(raw: Record<string, unknown>): void {
+  const llm = raw.llm as
+    | {
+        default?: { provider?: unknown; model?: unknown } | null;
+        profiles?: Record<
+          string,
+          { provider?: unknown; model?: unknown } | null | undefined
+        >;
+        callSites?: Record<
+          string,
+          { provider?: unknown; model?: unknown } | null | undefined
+        >;
+      }
+    | undefined;
+  const entries: [string, { provider?: unknown; model?: unknown }][] = [];
+  // llm.default is a raw compatibility field outside the parsed schema;
+  // profile materialization uses the on-disk blob as its fill base, so it is
+  // checked like the schema-carried sections.
+  if (llm?.default) {
+    entries.push(["llm.default", llm.default]);
+  }
+  for (const section of ["profiles", "callSites"] as const) {
+    for (const [name, entry] of Object.entries(llm?.[section] ?? {})) {
+      if (entry) {
+        entries.push([`llm.${section}.${name}`, entry]);
+      }
+    }
+  }
+  for (const [label, entry] of entries) {
+    if (typeof entry.provider !== "string") {
+      continue;
+    }
+    const issue = routingIdentityModelIssue(
+      entry.provider,
+      typeof entry.model === "string" ? entry.model : undefined,
+    );
+    if (issue) {
+      throw new BadRequestError(`${issue} (${label})`);
+    }
+  }
+}
+
+export async function commitConfigWrite(
   raw: Record<string, unknown>,
   opLabel: string,
 ): Promise<void> {
@@ -1307,6 +1396,7 @@ async function commitConfigWrite(
   const preWrite = loadRawConfig();
   completeChangedCustomProfiles(preWrite, raw);
   assertInvariantProfilesPreserved(preWrite, raw);
+  assertRoutableIdentityEntries(raw);
 
   // Suppress the file-watcher callback for the duration of the debounce
   // window. Without this, the ConfigWatcher detects the config.json write
@@ -1347,6 +1437,63 @@ async function commitConfigWrite(
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, `${opLabel} config: provider reinit failed: ${message}`);
   }
+
+  // Notify clients. The file watcher normally publishes this, but it is
+  // suppressed for the whole debounce window above, so a route-driven write
+  // (profile create, active-profile switch, config patch) would otherwise
+  // leave every other client rendering stale config until a manual refresh —
+  // e.g. the chat composer still showing the previous model profile.
+  publishConfigChanged();
+}
+
+/**
+ * Web clients pair provider writes with a legacy `mode` key so their saves
+ * stay valid on daemons whose schemas still carry it. The provider-only
+ * services (web-search, image-generation) parse-strip that key, but the
+ * deep-merge would still persist it to raw config.json on every save —
+ * scrub it so the removed field cannot be resurrected on disk.
+ */
+function scrubRemovedServiceModes(raw: Record<string, unknown>): void {
+  const services = raw.services as
+    | Record<string, Record<string, unknown> | undefined>
+    | undefined;
+  if (!services) {
+    return;
+  }
+  for (const key of ["web-search", "image-generation"]) {
+    const entry = services[key];
+    if (entry && typeof entry === "object" && "mode" in entry) {
+      delete entry.mode;
+    }
+  }
+}
+
+/**
+ * A persisted `services.stt` block must satisfy SttServiceSchema, whose
+ * `provider` is required. The services-level default fills the provider only
+ * when `services.stt` is wholly absent, so a sparse patch like
+ * `{ services: { stt: { language } } }` deep-merged into a config with no
+ * stt block persists a provider-less block that fails validation and trips
+ * the loader's salvage ladder: the patched value never applies and the whole
+ * `services` section can reset to defaults on the next load (the LUM-2758
+ * failure family). Seed the effective provider into any stt block that lacks
+ * a non-empty string one so every config_patch writer stays self-consistent.
+ * The seed applies to any stt key, not just language: the schema requires
+ * the provider whenever the block exists. A block carrying a non-empty
+ * string provider is left alone, even an invalid one, so an explicit
+ * provider write is never silently rewritten.
+ */
+function seedSttProviderForSparseBlock(raw: Record<string, unknown>): void {
+  const services = readPlainObject(raw.services);
+  const stt = readPlainObject(services?.stt);
+  if (!stt) {
+    return;
+  }
+  const provider = stt.provider;
+  if (typeof provider === "string" && provider.trim().length > 0) {
+    return;
+  }
+  stt.provider = getConfig().services.stt.provider;
 }
 
 async function handlePatchConfig({ body }: RouteHandlerArgs) {
@@ -1366,6 +1513,8 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   const raw = loadRawConfig();
   const patch = body as Record<string, unknown>;
   deepMergeOverwrite(raw, patch);
+  scrubRemovedServiceModes(raw);
+  seedSttProviderForSparseBlock(raw);
 
   await commitConfigWrite(raw, "patch");
 
@@ -1465,8 +1614,24 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
       written.source = "managed";
     }
   }
+  // A SET can create `services.stt` with a leaf like `language` and no
+  // `provider`, which SttServiceSchema requires whenever the block exists;
+  // the same seeding that guards PATCH keeps this write's persisted block
+  // schema-valid.
+  seedSttProviderForSparseBlock(raw);
 
   await commitConfigWrite(raw, "set");
+  // A `memory.v2` substrate tunable whose `memory.substrate` twin is set does
+  // not mean what an unpaired write means: the substrate namespace wins in
+  // `resolveSubstrateTuning`, and for the three twins the v2 injection engine
+  // reads directly the two namespaces diverge instead. Report which case this
+  // is alongside the success so the caller can tell the operator.
+  const shadowing = findSubstrateShadowing(raw, path);
+  if (shadowing) {
+    const warning = describeShadowedConfigSet(shadowing, path);
+    log.warn({ path, substratePath: shadowing.substratePath }, warning);
+    return { ok: true, warning };
+  }
   return { ok: true };
 }
 
@@ -1540,6 +1705,15 @@ async function handleReplaceInferenceProfile({
       `Profile "${name}" is not currently available and cannot be edited.`,
     );
   }
+  if (CODE_OWNED_PROFILE_NAMES.has(name)) {
+    // A code-owned profile resolves from the catalog whatever the workspace
+    // holds, so even a status re-enable would persist a stub that never
+    // governs anything. Reject the write rather than accept a silent no-op.
+    throw new BadRequestError(
+      `Profile "${name}" is code-owned and cannot be edited. ` +
+        `Duplicate it to a custom profile to customize.`,
+    );
+  }
   if (isManaged) {
     // Managed profiles are daemon-seeded and read-only — the commit guard
     // (`assertInvariantProfilesPreserved`) rejects every write to them
@@ -1588,7 +1762,11 @@ async function handleReplaceInferenceProfile({
     }
     // Validate arms against the effective view (matches the resolver and
     // `LLMSchema.superRefine`), not the raw workspace record.
-    const existingProfiles = getEffectiveProfiles(getConfig().llm.profiles);
+    const { llm: parsedLlm } = getConfig();
+    const existingProfiles = getEffectiveProfilesForProvider(
+      parsedLlm.profiles,
+      parsedLlm.defaultProvider ?? null,
+    );
     parsed.data.mix.forEach((arm, index) => {
       if (arm.profile === name) {
         throw new BadRequestError(
@@ -1617,7 +1795,16 @@ async function handleReplaceInferenceProfile({
   // profile sharing a managed name is fully editable, so it takes the
   // derivation like any other custom profile.
   const fragment = parsed.data as Record<string, unknown>;
-  if (!isManaged && fragment.provider && !fragment.provider_connection) {
+  // Routing identities resolve their connection per-request from the
+  // provider value; deriving one here would stamp the canonical vellum row
+  // ("vellum" is its stored provider) or create a junk "<identity>-personal"
+  // connection for chatgpt.
+  if (
+    !isManaged &&
+    fragment.provider &&
+    !fragment.provider_connection &&
+    !ROUTING_IDENTITY_PROVIDERS.has(fragment.provider as string)
+  ) {
     const provider = fragment.provider as string;
     const db = getDb();
     // Exclude the orphaned legacy `*-managed` rows: they may still linger in
@@ -1750,32 +1937,11 @@ function handleGetMessageContent({
   return result;
 }
 
-type ConversationKind =
-  | "user"
-  | "background"
-  | "background_memory_consolidation"
-  | "scheduled";
-
-function resolveConversationKind(
-  source: string,
-  conversationType: string,
-): ConversationKind {
-  if (source === MEMORY_V2_CONSOLIDATION_SOURCE) {
-    return "background_memory_consolidation";
-  }
-  if (conversationType === "background") {
-    return "background";
-  }
-  if (conversationType === "scheduled") {
-    return "scheduled";
-  }
-  return "user";
-}
-
 async function handleGetLlmContext({
   pathParams = {},
   queryParams = {},
 }: RouteHandlerArgs) {
+  assertLlmRequestLoggingEnabled();
   const messageId = pathParams.id;
   if (!messageId) {
     throw new BadRequestError("message id is required");
@@ -1819,6 +1985,7 @@ async function handleGetLlmContext({
 async function handleGetConversationLlmContext({
   queryParams = {},
 }: RouteHandlerArgs) {
+  assertLlmRequestLoggingEnabled();
   const conversationKey = queryParams.conversationKey;
   const requestedConversationId = queryParams.conversationId;
   const view = resolveLlmContextView(queryParams.view);
@@ -1888,6 +2055,7 @@ async function handleGetConversationLlmContext({
 async function handleGetLlmRequestLogPayload({
   pathParams = {},
 }: RouteHandlerArgs) {
+  assertLlmRequestLoggingEnabled();
   const logId = pathParams.id;
   if (!logId) {
     throw new BadRequestError("log id is required");
@@ -1915,6 +2083,7 @@ async function handleGetLlmRequestLogPayload({
 async function handleGetLlmRequestLogContext({
   pathParams = {},
 }: RouteHandlerArgs) {
+  assertLlmRequestLoggingEnabled();
   const logId = pathParams.id;
   if (!logId) {
     throw new BadRequestError("log id is required");
@@ -1927,40 +2096,68 @@ async function handleGetLlmRequestLogContext({
   return normalizeLlmContextLog(log);
 }
 
-function handleDeleteQueuedMessage({
+function resolveQueuedMessageConversationId({
   queryParams = {},
-  pathParams = {},
-}: RouteHandlerArgs) {
-  const conversationId = queryParams.conversationId;
+  body,
+  headers = {},
+}: RouteHandlerArgs): string | undefined {
+  const bodyConversationId = body?.conversationId;
+  const conversationId =
+    queryParams.conversationId ??
+    (typeof bodyConversationId === "string" ? bodyConversationId : undefined) ??
+    headers["x-vellum-conversation-id"];
+  return typeof conversationId === "string" && conversationId.length > 0
+    ? conversationId
+    : undefined;
+}
+
+async function handleDeleteQueuedMessage(args: RouteHandlerArgs) {
+  const { pathParams = {}, headers = {} } = args;
+  const conversationId = resolveQueuedMessageConversationId(args);
   if (!conversationId) {
-    throw new BadRequestError(
-      "Missing required query parameter: conversationId",
-    );
+    throw new BadRequestError("Missing required parameter: conversationId");
   }
-  const result = deleteQueuedMessage(conversationId, pathParams.id ?? "");
+  // Verified caller identity. Both adapters derive this header from the auth
+  // context, never from a caller-supplied one. Normalize it exactly as the
+  // send path does before comparing against the principal recorded at
+  // enqueue, or the two disagree: `resolveActorPrincipalIdForLocalGuardian`
+  // translates the synthetic `dev-bypass` principal to the real local
+  // guardian under `DISABLE_HTTP_AUTH=true` (a no-op for real JWT
+  // principals), and every sibling handler in this layer trims first.
+  const actorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
+    headers["x-vellum-actor-principal-id"]?.trim() || undefined,
+  );
+  const result = deleteQueuedMessage(conversationId, pathParams.id ?? "", {
+    actorPrincipalId,
+  });
   if (result.removed) {
     return { ok: true, conversationId, requestId: pathParams.id };
   }
   if (result.reason === "conversation_not_found") {
     throw new NotFoundError("Conversation not found");
   }
+  if (result.reason === "forbidden") {
+    throw new ForbiddenError(
+      "Queued message was sent by a different user and cannot be cancelled here",
+    );
+  }
   throw new NotFoundError("Queued message not found");
 }
 
-function handleSteerToMessage({
-  queryParams = {},
-  pathParams = {},
-  body,
-}: RouteHandlerArgs) {
-  const conversationId =
-    queryParams.conversationId ??
-    (body && typeof body === "object" && "conversationId" in body
-      ? (body as Record<string, unknown>).conversationId
-      : undefined);
-  if (!conversationId || typeof conversationId !== "string") {
+async function handleSteerToMessage(args: RouteHandlerArgs) {
+  const { pathParams = {}, headers = {} } = args;
+  const conversationId = resolveQueuedMessageConversationId(args);
+  if (!conversationId) {
     throw new BadRequestError("Missing required parameter: conversationId");
   }
-  const result = steerToMessage(conversationId, pathParams.id ?? "");
+  // Verified caller identity, normalized exactly as the delete path above
+  // (see the comment in `handleDeleteQueuedMessage`).
+  const actorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
+    headers["x-vellum-actor-principal-id"]?.trim() || undefined,
+  );
+  const result = steerToMessage(conversationId, pathParams.id ?? "", {
+    actorPrincipalId,
+  });
   if (result.steered) {
     return { ok: true, conversationId, requestId: pathParams.id };
   }
@@ -1970,6 +2167,11 @@ function handleSteerToMessage({
   if (result.reason === "not_processing") {
     throw new BadRequestError(
       "Cannot steer: conversation is not currently processing",
+    );
+  }
+  if (result.reason === "forbidden") {
+    throw new ForbiddenError(
+      "Queued message was sent by a different user and cannot be steered to here",
     );
   }
   throw new NotFoundError("Queued message not found");
@@ -2296,7 +2498,8 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Delete a queued message",
     description:
-      "Remove a pending message from the conversation queue before it is processed.",
+      "Remove a pending message from the conversation queue before it is processed. " +
+      "Broadcasts `message_queued_deleted` so every client can close out the pending row.",
     tags: ["messages"],
     queryParams: [
       {
@@ -2306,6 +2509,15 @@ export const ROUTES: RouteDefinition[] = [
         description: "Conversation ID (required)",
       },
     ],
+    additionalResponses: {
+      "403": {
+        description:
+          "The queued message was enqueued by a different actor principal.",
+      },
+      "404": {
+        description: "Conversation or queued message not found.",
+      },
+    },
     handler: handleDeleteQueuedMessage,
   },
   {
@@ -2328,6 +2540,15 @@ export const ROUTES: RouteDefinition[] = [
         description: "Conversation ID (required)",
       },
     ],
+    additionalResponses: {
+      "403": {
+        description:
+          "The queued message was enqueued by a different actor principal.",
+      },
+      "404": {
+        description: "Conversation or queued message not found.",
+      },
+    },
     handler: handleSteerToMessage,
   },
 ];

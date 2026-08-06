@@ -103,6 +103,14 @@ export interface ClassifyRiskParams {
    * protected directory. Falls back to lexical `path` resolution when absent.
    */
   resolvedPath?: string;
+  /**
+   * The sandbox file tool's working directory with symlinks resolved
+   * (canonicalized by the daemon). Paired with `resolvedPath` for the
+   * workspace-boundary check so a symlinked workspace prefix (e.g. macOS
+   * /var → /private/var) does not read as an escape. Absent for host tools;
+   * the gateway falls back to a lexical-vs-lexical comparison when unset.
+   */
+  resolvedWorkingDir?: string;
   skill?: string;
   mode?: string;
   script?: string;

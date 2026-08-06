@@ -11,16 +11,9 @@
  *     headers, mirroring the SSE replay path.
  *  4. Input validation rejects missing/invalid params.
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../api/index.js";
 import {
   _resetStreamStateForTesting,
   stampAndBuffer,
@@ -37,7 +30,7 @@ if (!tailRoute) {
 }
 
 interface TailResponse {
-  events: AssistantEvent[];
+  events: AssistantEventEnvelope[];
   complete: boolean;
   frontier: number | null;
 }
@@ -52,7 +45,9 @@ function callTail(
   }) as TailResponse;
 }
 
-function mkEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
+function mkEvent(
+  overrides: Partial<AssistantEventEnvelope> = {},
+): AssistantEventEnvelope {
   const conversationId =
     "conversationId" in overrides ? overrides.conversationId : CONV;
   return {
@@ -65,7 +60,7 @@ function mkEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
       text: "x",
     },
     ...overrides,
-  } as AssistantEvent;
+  } as AssistantEventEnvelope;
 }
 
 describe("GET events/tail", () => {

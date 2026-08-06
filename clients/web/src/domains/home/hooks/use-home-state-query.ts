@@ -30,7 +30,9 @@ export function useHomeStateQuery(assistantId: string | null) {
   });
 
   const invalidate = useCallback(() => {
-    if (!assistantId) return;
+    if (!assistantId) {
+      return;
+    }
     void queryClient.invalidateQueries({ queryKey: stateQueryKey });
   }, [assistantId, queryClient, stateQueryKey]);
 

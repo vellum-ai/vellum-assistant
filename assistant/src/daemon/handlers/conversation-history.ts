@@ -3,6 +3,7 @@ import {
   listConversations,
   searchConversations,
 } from "../../persistence/conversation-queries.js";
+import { extractTextFromStoredMessageContent } from "../../persistence/message-content.js";
 import { renderHistoryContent } from "./shared.js";
 
 // ---------------------------------------------------------------------------
@@ -21,7 +22,7 @@ export async function performConversationSearch(
 ) {
   // Treat "*" as a list-all wildcard — FTS treats it as a literal character.
   if (params.query.trim() === "*") {
-    const rows = listConversations(params.limit);
+    const rows = listConversations({ limit: params.limit });
     return rows.map((r) => ({
       conversationId: r.id,
       conversationTitle: r.title,
@@ -55,7 +56,9 @@ export function getMessageContent(
   conversationId?: string,
 ): MessageContentResult | null {
   const dbMessage = getMessageById(messageId, conversationId);
-  if (!dbMessage) return null;
+  if (!dbMessage) {
+    return null;
+  }
 
   let text: string | undefined;
   let toolCalls:
@@ -63,7 +66,7 @@ export function getMessageContent(
     | undefined;
 
   try {
-    const content = JSON.parse(dbMessage.content);
+    const content = dbMessage.content;
     const rendered = renderHistoryContent(content);
     text = rendered.text || undefined;
     const parsedToolCalls = rendered.toolCalls;
@@ -76,8 +79,7 @@ export function getMessageContent(
       }));
     }
   } catch {
-    // Raw text content (not JSON)
-    text = dbMessage.content || undefined;
+    text = extractTextFromStoredMessageContent(dbMessage.content) || undefined;
   }
 
   return {

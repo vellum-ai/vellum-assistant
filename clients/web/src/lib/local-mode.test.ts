@@ -8,44 +8,99 @@ const replacePlatformAssistantsHost = mock(
   async (
     _entries: Array<Record<string, unknown>>,
     _organizationId?: string,
-  ) => ({
+  ): Promise<localModeHost.LockfileWriteResult> => ({
     ok: true as const,
     lockfile: { assistants: [], activeAssistant: null },
   }),
 );
 
-const loadLockfileHost = mock(async () => {
+const loadLockfileHost = mock(async (): Promise<localModeHost.Lockfile> => {
   throw new Error("host down");
 });
+
+const saveLockfileAssistantHost = mock(
+  async (_assistant: Record<string, unknown>, _activeId?: string) => ({
+    ok: true as const,
+    lockfile: { assistants: [], activeAssistant: null },
+  }),
+);
+
+const fetchGuardianTokenHost = mock(async (_id: string) => "guardian-tok");
+
+const unpairAssistantHost = mock(
+  async (_assistantId: string): Promise<localModeHost.LockfileWriteResult> => ({
+    ok: true as const,
+    lockfile: { assistants: [], activeAssistant: null },
+  }),
+);
+
+const connectImportHost = mock(
+  async (
+    _bundle: string,
+    _name?: string,
+  ): Promise<localModeHost.LocalConnectImportResult> => ({
+    ok: true as const,
+    assistantId: "paired-new",
+    accessOnly: false,
+  }),
+);
 
 mock.module("@/runtime/local-mode-host", () => ({
   ...localModeHost,
   replacePlatformAssistantsHost,
   loadLockfileHost,
+  saveLockfileAssistantHost,
+  fetchGuardianTokenHost,
+  unpairAssistantHost,
+  connectImportHost,
 }));
 
 import {
   getActiveAssistant,
+  getAuthGatewayIngressUrl,
   getLocalGatewayUrl,
   getLocalAssistants,
   getLockfile,
+  getPairedGatewayUrl,
   getPlatformAssistants,
+  getPlatformRuntimeUrl,
   getSelectedAssistant,
+  importPairedAssistantBundle,
   isCliWakeableAssistant,
   isLocalAssistant,
+  isLocalGatewayAssistant,
+  isPairedAssistant,
   isPlatformAssistant,
   isRemoteGatewayMode,
   loadLockfile,
+  LOCAL_GATEWAY_STARTUP_RETRY,
   primeLocalGatewayConnection,
+  primeLocalGatewayConnectionWithStartupRetry,
   reconcileSelectedAssistant,
+  removePairedAssistantFromLockfile,
+  removePlatformAssistantFromLockfile,
+  saveManagedLockfileAssistant,
   syncPlatformAssistantsToLockfile,
   UnresolvedLocalGatewayError,
+  UnresolvedPairedGatewayError,
 } from "@/lib/local-mode";
+import {
+  clearGatewayToken,
+  getGatewayToken,
+  isGatewayAuthMode,
+  seedGatewayToken,
+} from "@/lib/auth/gateway-session";
+import {
+  getSelfHostedActorToken,
+  getSelfHostedIngressUrl,
+  setSelfHostedConnection,
+} from "@/lib/self-hosted/connection";
 import { SELECTED_ASSISTANT_STORAGE_KEY } from "@/assistant/selected-assistant-storage";
 import type { Lockfile, LockfileAssistant } from "@/runtime/local-mode-host";
 import { useLockfileStore } from "@/stores/lockfile-store";
 
 const LOCKFILE_STORAGE_KEY = "vellum:local:lockfile";
+const realFetch = globalThis.fetch;
 
 function setSelected(id: string): void {
   localStorage.setItem(SELECTED_ASSISTANT_STORAGE_KEY, id);
@@ -68,6 +123,12 @@ const platform: LockfileAssistant = {
   cloud: "vellum",
 } as LockfileAssistant;
 
+const pairedEntry: LockfileAssistant = {
+  assistantId: "paired-a",
+  cloud: "paired",
+  runtimeUrl: "https://gw.example.com",
+} as LockfileAssistant;
+
 function setLockfile(lockfile: Lockfile): void {
   useLockfileStore.setState({ lockfile });
 }
@@ -79,12 +140,20 @@ function enableLocalMode(): void {
 }
 
 afterEach(() => {
+  globalThis.fetch = realFetch;
   window.__VELLUM_CONFIG__ = undefined;
   process.env.VITE_PLATFORM_MODE = "true";
   useLockfileStore.setState({ lockfile: null, committed: false });
   localStorage.removeItem(LOCKFILE_STORAGE_KEY);
   localStorage.removeItem(SELECTED_ASSISTANT_STORAGE_KEY);
   replacePlatformAssistantsHost.mockClear();
+  loadLockfileHost.mockClear();
+  saveLockfileAssistantHost.mockClear();
+  fetchGuardianTokenHost.mockClear();
+  unpairAssistantHost.mockClear();
+  connectImportHost.mockClear();
+  clearGatewayToken();
+  setSelfHostedConnection(null);
 });
 
 describe("remote gateway mode", () => {
@@ -163,6 +232,313 @@ describe("syncPlatformAssistantsToLockfile", () => {
   });
 });
 
+describe("removePlatformAssistantFromLockfile", () => {
+  const platformA: LockfileAssistant = {
+    assistantId: "platform-a",
+    cloud: "vellum",
+    organizationId: "org-1",
+  } as LockfileAssistant;
+
+  const platformB: LockfileAssistant = {
+    assistantId: "platform-b",
+    cloud: "vellum",
+    organizationId: "org-1",
+  } as LockfileAssistant;
+
+  const platformOtherOrg: LockfileAssistant = {
+    assistantId: "platform-c",
+    cloud: "vellum",
+    organizationId: "org-2",
+  } as LockfileAssistant;
+
+  test("rewrites the remaining platform entries scoped to the entry's org and commits", async () => {
+    setLockfile({
+      assistants: [localA, platformA, platformB, platformOtherOrg],
+      activeAssistant: "local-a",
+    });
+    const resulting = {
+      assistants: [localA, platformB, platformOtherOrg],
+      activeAssistant: "local-a",
+    };
+    replacePlatformAssistantsHost.mockResolvedValueOnce({
+      ok: true as const,
+      lockfile: resulting,
+    });
+
+    const result = await removePlatformAssistantFromLockfile("platform-a");
+
+    expect(result.ok).toBe(true);
+    expect(replacePlatformAssistantsHost).toHaveBeenCalledTimes(1);
+    const [entries, org] = replacePlatformAssistantsHost.mock.calls[0]!;
+    expect(org).toBe("org-1");
+    // Other orgs' entries stay out of the payload so the host preserves
+    // their on-disk records raw instead of replacing them with the
+    // renderer's parsed copies.
+    expect(entries).toEqual([expect.objectContaining({ assistantId: "platform-b" })]);
+    expect(useLockfileStore.getState().lockfile).toEqual(resulting);
+    expect(useLockfileStore.getState().committed).toBe(true);
+  });
+
+  test("a legacy org-less entry removes via the unscoped replace", async () => {
+    setLockfile({ assistants: [platform, platformB], activeAssistant: null });
+    replacePlatformAssistantsHost.mockResolvedValueOnce({
+      ok: true as const,
+      lockfile: { assistants: [platformB], activeAssistant: null },
+    });
+
+    const result = await removePlatformAssistantFromLockfile("platform-a");
+
+    expect(result.ok).toBe(true);
+    const [entries, org] = replacePlatformAssistantsHost.mock.calls[0]!;
+    expect(org).toBeUndefined();
+    expect(entries).toEqual([expect.objectContaining({ assistantId: "platform-b" })]);
+  });
+
+  test("refuses a local assistant without touching the host", async () => {
+    setLockfile({ assistants: [localA, platformA], activeAssistant: "local-a" });
+
+    const result = await removePlatformAssistantFromLockfile("local-a");
+
+    expect(result.ok).toBe(false);
+    expect(replacePlatformAssistantsHost).not.toHaveBeenCalled();
+  });
+
+  test("refuses an unknown id without touching the host", async () => {
+    setLockfile({ assistants: [platformA], activeAssistant: null });
+
+    const result = await removePlatformAssistantFromLockfile("nope");
+
+    expect(result.ok).toBe(false);
+    expect(replacePlatformAssistantsHost).not.toHaveBeenCalled();
+  });
+
+  test("surfaces a host failure without committing", async () => {
+    setLockfile({ assistants: [platformA, platformB], activeAssistant: null });
+    replacePlatformAssistantsHost.mockResolvedValueOnce({
+      ok: false,
+      error: "disk unavailable",
+    });
+
+    const result = await removePlatformAssistantFromLockfile("platform-a");
+
+    expect(result).toEqual({ ok: false, error: "disk unavailable" });
+    expect(useLockfileStore.getState().committed).toBe(false);
+    expect(localStorage.getItem(LOCKFILE_STORAGE_KEY)).toBeNull();
+  });
+
+  test("clears a selection that pointed at the removed entry", async () => {
+    setLockfile({ assistants: [localA, platformA], activeAssistant: "local-a" });
+    setSelected("platform-a");
+    replacePlatformAssistantsHost.mockResolvedValueOnce({
+      ok: true as const,
+      lockfile: { assistants: [localA], activeAssistant: "local-a" },
+    });
+
+    await removePlatformAssistantFromLockfile("platform-a");
+
+    expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBeNull();
+  });
+});
+
+describe("removePairedAssistantFromLockfile", () => {
+  function seedSessionResidue(): void {
+    seedGatewayToken({
+      token: "tok",
+      expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 3600,
+      source: "src",
+    });
+    setSelfHostedConnection({ url: "http://localhost/x", token: "tok" });
+  }
+
+  test("calls the host unpair and commits the returned lockfile", async () => {
+    setLockfile({
+      assistants: [localA, pairedEntry],
+      activeAssistant: "local-a",
+    });
+    const resulting = { assistants: [localA], activeAssistant: "local-a" };
+    unpairAssistantHost.mockResolvedValueOnce({
+      ok: true as const,
+      lockfile: resulting,
+    });
+
+    const result = await removePairedAssistantFromLockfile("paired-a");
+
+    expect(result).toEqual({ ok: true });
+    expect(unpairAssistantHost).toHaveBeenCalledWith("paired-a");
+    expect(useLockfileStore.getState().lockfile).toEqual(resulting);
+    expect(useLockfileStore.getState().committed).toBe(true);
+  });
+
+  test("refuses non-paired entries without calling the host", async () => {
+    setLockfile({
+      assistants: [localA, platform],
+      activeAssistant: "local-a",
+    });
+
+    for (const id of ["local-a", "platform-a"]) {
+      const result = await removePairedAssistantFromLockfile(id);
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeTruthy();
+    }
+    expect(unpairAssistantHost).not.toHaveBeenCalled();
+  });
+
+  test("refuses an unknown id without calling the host", async () => {
+    setLockfile({ assistants: [pairedEntry], activeAssistant: null });
+
+    const result = await removePairedAssistantFromLockfile("nope");
+
+    expect(result.ok).toBe(false);
+    expect(unpairAssistantHost).not.toHaveBeenCalled();
+  });
+
+  test("propagates a host failure without committing or clearing session state", async () => {
+    setLockfile({
+      assistants: [localA, pairedEntry],
+      activeAssistant: "local-a",
+    });
+    setSelected("paired-a");
+    unpairAssistantHost.mockResolvedValueOnce({
+      ok: false,
+      error: "Unpair is not supported by this app version",
+    });
+
+    const result = await removePairedAssistantFromLockfile("paired-a");
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Unpair is not supported by this app version",
+    });
+    expect(useLockfileStore.getState().committed).toBe(false);
+    expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBe(
+      "paired-a",
+    );
+  });
+
+  test("clears selection, gateway token, and self-hosted connection when removing the selected entry", async () => {
+    setLockfile({
+      assistants: [localA, pairedEntry],
+      activeAssistant: "local-a",
+    });
+    setSelected("paired-a");
+    seedSessionResidue();
+    unpairAssistantHost.mockResolvedValueOnce({
+      ok: true as const,
+      lockfile: { assistants: [localA], activeAssistant: "local-a" },
+    });
+
+    const result = await removePairedAssistantFromLockfile("paired-a");
+
+    expect(result.ok).toBe(true);
+    expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBeNull();
+    expect(getGatewayToken()).toBeNull();
+    expect(getSelfHostedIngressUrl()).toBeNull();
+  });
+
+  test("leaves session state alone when removing a non-selected entry", async () => {
+    setLockfile({
+      assistants: [localA, pairedEntry],
+      activeAssistant: "local-a",
+    });
+    setSelected("local-a");
+    seedSessionResidue();
+    unpairAssistantHost.mockResolvedValueOnce({
+      ok: true as const,
+      lockfile: { assistants: [localA], activeAssistant: "local-a" },
+    });
+
+    const result = await removePairedAssistantFromLockfile("paired-a");
+
+    expect(result.ok).toBe(true);
+    expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBe(
+      "local-a",
+    );
+    expect(getGatewayToken()).toBe("tok");
+    expect(getSelfHostedIngressUrl()).toBe("http://localhost/x");
+  });
+});
+
+describe("importPairedAssistantBundle", () => {
+  test("registers the bundle through the host and reloads the lockfile", async () => {
+    loadLockfileHost.mockImplementationOnce(async () => ({
+      assistants: [pairedEntry],
+      activeAssistant: null,
+    }));
+
+    const result = await importPairedAssistantBundle("bundle-data", "desk");
+
+    expect(connectImportHost).toHaveBeenCalledWith("bundle-data", "desk");
+    expect(result).toEqual({
+      ok: true,
+      assistantId: "paired-new",
+      accessOnly: false,
+    });
+    expect(loadLockfileHost).toHaveBeenCalledTimes(1);
+    expect(
+      useLockfileStore.getState().lockfile?.assistants.map(
+        (a) => a.assistantId,
+      ),
+    ).toEqual(["paired-a"]);
+    expect(useLockfileStore.getState().committed).toBe(true);
+  });
+
+  test("passes accessOnly through on an access-only pairing", async () => {
+    connectImportHost.mockResolvedValueOnce({
+      ok: true as const,
+      assistantId: "paired-new",
+      accessOnly: true,
+    });
+
+    const result = await importPairedAssistantBundle("bundle-data");
+
+    expect(connectImportHost).toHaveBeenCalledWith("bundle-data", undefined);
+    expect(result).toEqual({
+      ok: true,
+      assistantId: "paired-new",
+      accessOnly: true,
+    });
+  });
+
+  test("returns the host error without reloading on failure", async () => {
+    connectImportHost.mockResolvedValueOnce({
+      ok: false,
+      error: "invalid pairing bundle",
+    });
+
+    const result = await importPairedAssistantBundle("nope");
+
+    expect(result).toEqual({ ok: false, error: "invalid pairing bundle" });
+    expect(loadLockfileHost).not.toHaveBeenCalled();
+  });
+});
+
+describe("saveManagedLockfileAssistant", () => {
+  test("writes the platform entry every managed hatch shares", async () => {
+    await saveManagedLockfileAssistant("ast-1", "Research", "org-1");
+
+    expect(saveLockfileAssistantHost).toHaveBeenCalledTimes(1);
+    const [entry, activeId] = saveLockfileAssistantHost.mock.calls[0]!;
+    // The written entry also becomes the lockfile's active assistant.
+    expect(activeId).toBe("ast-1");
+    expect(entry).toMatchObject({
+      assistantId: "ast-1",
+      name: "Research",
+      cloud: "vellum",
+      runtimeUrl: getPlatformRuntimeUrl(),
+      organizationId: "org-1",
+    });
+    expect(Number.isNaN(Date.parse(entry.hatchedAt as string))).toBe(false);
+  });
+
+  test("omits an unresolved organization", async () => {
+    await saveManagedLockfileAssistant("ast-1", undefined, undefined);
+
+    const [entry] = saveLockfileAssistantHost.mock.calls[0]!;
+    expect(entry.organizationId).toBeUndefined();
+    expect(entry.name).toBeUndefined();
+  });
+});
+
 describe("loadLockfile host-failure fallback", () => {
   test("keeps the cached lockfile instead of clobbering it with empty", async () => {
     useLockfileStore
@@ -214,9 +590,10 @@ describe("assistant classification", () => {
   });
 
   test("externally-managed container runtimes are not web-client local", () => {
-    // Docker and apple-container have no `resources` in the web lockfile and are
-    // managed by the CLI / macOS app, not the web client's local flows — so
-    // restart/retire/logout routing must keep treating them as non-local.
+    // Docker and apple-container are managed by the CLI / macOS app, not the
+    // web client's lifecycle flows — so restart/retire/logout routing must keep
+    // treating them as non-local. (Docker is still gateway-reachable; see the
+    // isLocalGatewayAssistant tests.)
     const docker = { assistantId: "d", cloud: "docker" } as LockfileAssistant;
     const appleContainer = {
       assistantId: "a",
@@ -224,6 +601,16 @@ describe("assistant classification", () => {
     } as LockfileAssistant;
     expect(isLocalAssistant(docker)).toBe(false);
     expect(isLocalAssistant(appleContainer)).toBe(false);
+  });
+
+  test("local and docker assistants are local-gateway assistants; others are not", () => {
+    const docker = { assistantId: "d", cloud: "docker" } as LockfileAssistant;
+    expect(isLocalGatewayAssistant(localA)).toBe(true);
+    expect(isLocalGatewayAssistant(docker)).toBe(true);
+    for (const cloud of ["apple-container", "vellum", "paired", "gcp"]) {
+      const other = { assistantId: `o-${cloud}`, cloud } as LockfileAssistant;
+      expect(isLocalGatewayAssistant(other)).toBe(false);
+    }
   });
 
   test("a legacy entry with no cloud normalizes to local at the parse seam", () => {
@@ -242,6 +629,13 @@ describe("assistant classification", () => {
       const remote = { assistantId: `r-${cloud}`, cloud } as LockfileAssistant;
       expect(isLocalAssistant(remote)).toBe(false);
       expect(isPlatformAssistant(remote)).toBe(false);
+    }
+  });
+
+  test("only paired-cloud entries are paired assistants", () => {
+    expect(isPairedAssistant({ cloud: "paired" })).toBe(true);
+    for (const cloud of ["local", "docker", "vellum", undefined]) {
+      expect(isPairedAssistant({ cloud })).toBe(false);
     }
   });
 
@@ -271,6 +665,55 @@ describe("getLocalGatewayUrl", () => {
     expect(getLocalGatewayUrl(portless)).toBeUndefined();
   });
 
+  test("resolves a docker assistant's gateway from its loopback runtimeUrl", () => {
+    // Docker entries record the published gateway as a loopback runtimeUrl and
+    // carry no `resources` block.
+    enableLocalMode();
+    const docker = {
+      assistantId: "dk",
+      cloud: "docker",
+      runtimeUrl: "http://localhost:7930",
+    } as LockfileAssistant;
+    expect(getLocalGatewayUrl(docker)).toBe("/assistant/__gateway/7930");
+  });
+
+  test("accepts 127.0.0.1 as a loopback runtimeUrl host", () => {
+    enableLocalMode();
+    const docker = {
+      assistantId: "dk",
+      cloud: "docker",
+      runtimeUrl: "http://127.0.0.1:7931",
+    } as LockfileAssistant;
+    expect(getLocalGatewayUrl(docker)).toBe("/assistant/__gateway/7931");
+  });
+
+  test("prefers a recorded resources.gatewayPort over the runtimeUrl port", () => {
+    enableLocalMode();
+    const entry = {
+      assistantId: "x",
+      cloud: "local",
+      runtimeUrl: "http://localhost:9999",
+      resources: { gatewayPort: 7830 },
+    } as LockfileAssistant;
+    expect(getLocalGatewayUrl(entry)).toBe("/assistant/__gateway/7830");
+  });
+
+  test("never resolves a gateway from a non-loopback runtimeUrl", () => {
+    enableLocalMode();
+    const docker = {
+      assistantId: "dk",
+      cloud: "docker",
+      runtimeUrl: "http://assistant.example.com:7930",
+    } as LockfileAssistant;
+    expect(getLocalGatewayUrl(docker)).toBeUndefined();
+  });
+
+  test("is undefined for a docker assistant with no runtimeUrl or port", () => {
+    enableLocalMode();
+    const bare = { assistantId: "dk", cloud: "docker" } as LockfileAssistant;
+    expect(getLocalGatewayUrl(bare)).toBeUndefined();
+  });
+
   test("is undefined for a platform assistant", () => {
     enableLocalMode();
     expect(getLocalGatewayUrl(platform)).toBeUndefined();
@@ -284,6 +727,105 @@ describe("getLocalGatewayUrl", () => {
 
   test("is undefined outside local mode even for a local assistant with a port", () => {
     expect(getLocalGatewayUrl(localA)).toBeUndefined();
+  });
+});
+
+describe("getPairedGatewayUrl", () => {
+  test("resolves the same-origin proxy path for a usable paired entry", () => {
+    enableLocalMode();
+    expect(getPairedGatewayUrl(pairedEntry)).toBe(
+      "/assistant/__gateway-paired/paired-a",
+    );
+  });
+
+  test("URL-encodes the assistant id in the proxy path", () => {
+    enableLocalMode();
+    const paired = {
+      ...pairedEntry,
+      assistantId: "paired/one two",
+    } as LockfileAssistant;
+    expect(getPairedGatewayUrl(paired)).toBe(
+      "/assistant/__gateway-paired/paired%2Fone%20two",
+    );
+  });
+
+  test("accepts runtimeUrls with trailing slashes or path prefixes", () => {
+    enableLocalMode();
+    for (const runtimeUrl of [
+      "https://gw.example.com///",
+      "https://gw.example.com/assistant/",
+    ]) {
+      const paired = { ...pairedEntry, runtimeUrl } as LockfileAssistant;
+      expect(getPairedGatewayUrl(paired)).toBe(
+        "/assistant/__gateway-paired/paired-a",
+      );
+    }
+  });
+
+  test("is undefined for a non-http(s) runtimeUrl", () => {
+    enableLocalMode();
+    const paired = {
+      ...pairedEntry,
+      runtimeUrl: "ftp://x",
+    } as LockfileAssistant;
+    expect(getPairedGatewayUrl(paired)).toBeUndefined();
+  });
+
+  test("is undefined for a missing or malformed runtimeUrl", () => {
+    enableLocalMode();
+    const missing = { assistantId: "p", cloud: "paired" } as LockfileAssistant;
+    const malformed = {
+      ...pairedEntry,
+      runtimeUrl: "not a url",
+    } as LockfileAssistant;
+    expect(getPairedGatewayUrl(missing)).toBeUndefined();
+    expect(getPairedGatewayUrl(malformed)).toBeUndefined();
+  });
+
+  test("is undefined for non-paired entries", () => {
+    enableLocalMode();
+    expect(getPairedGatewayUrl(localA)).toBeUndefined();
+    expect(getPairedGatewayUrl(platform)).toBeUndefined();
+    expect(getPairedGatewayUrl(undefined)).toBeUndefined();
+  });
+
+  test("is undefined outside local mode", () => {
+    expect(getPairedGatewayUrl(pairedEntry)).toBeUndefined();
+  });
+
+  test("is undefined in remote-gateway mode", () => {
+    enableLocalMode();
+    window.__VELLUM_CONFIG__ = { mode: "remote-gateway" };
+    expect(getPairedGatewayUrl(pairedEntry)).toBeUndefined();
+  });
+});
+
+describe("getAuthGatewayIngressUrl", () => {
+  test("returns origin + gateway proxy for a local entry", () => {
+    enableLocalMode();
+    expect(getAuthGatewayIngressUrl(localA)).toBe(
+      `${window.location.origin}/assistant/__gateway/7830`,
+    );
+  });
+
+  test("returns origin + paired gateway proxy for a paired entry", () => {
+    enableLocalMode();
+    expect(getAuthGatewayIngressUrl(pairedEntry)).toBe(
+      `${window.location.origin}/assistant/__gateway-paired/paired-a`,
+    );
+  });
+
+  test("is undefined for a platform entry", () => {
+    enableLocalMode();
+    expect(getAuthGatewayIngressUrl(platform)).toBeUndefined();
+  });
+
+  test("resolves the selected assistant's ingress", () => {
+    enableLocalMode();
+    setLockfile({ assistants: [pairedEntry], activeAssistant: "paired-a" });
+    expect(getAuthGatewayIngressUrl(getSelectedAssistant())).toBe(
+      `${window.location.origin}/assistant/__gateway-paired/paired-a`,
+    );
   });
 });
 
@@ -339,6 +881,14 @@ describe("primeLocalGatewayConnection", () => {
     );
   });
 
+  test("throws UnresolvedLocalGatewayError for a docker assistant with no resolvable gateway", async () => {
+    enableLocalMode();
+    const bare = { assistantId: "dk", cloud: "docker" } as LockfileAssistant;
+    await expect(primeLocalGatewayConnection(bare)).rejects.toBeInstanceOf(
+      UnresolvedLocalGatewayError,
+    );
+  });
+
   test("is a no-op for a platform assistant even in local mode", async () => {
     enableLocalMode();
     await expect(
@@ -346,10 +896,156 @@ describe("primeLocalGatewayConnection", () => {
     ).resolves.toBeUndefined();
   });
 
-  test("is a no-op for a remote (paired) assistant — not a local gateway case", async () => {
+  test("is a no-op for a paired assistant outside local mode", async () => {
+    await expect(
+      primeLocalGatewayConnection(pairedEntry),
+    ).resolves.toBeUndefined();
+    expect(fetchGuardianTokenHost).not.toHaveBeenCalled();
+  });
+
+  test("throws UnresolvedPairedGatewayError for a paired assistant with no runtimeUrl", async () => {
     enableLocalMode();
     const paired = { assistantId: "p", cloud: "paired" } as LockfileAssistant;
-    await expect(primeLocalGatewayConnection(paired)).resolves.toBeUndefined();
+    await expect(primeLocalGatewayConnection(paired)).rejects.toBeInstanceOf(
+      UnresolvedPairedGatewayError,
+    );
+  });
+
+  test("throws UnresolvedPairedGatewayError for a paired assistant with a non-http runtimeUrl", async () => {
+    enableLocalMode();
+    const paired = {
+      ...pairedEntry,
+      runtimeUrl: "ftp://x",
+    } as LockfileAssistant;
+    await expect(primeLocalGatewayConnection(paired)).rejects.toBeInstanceOf(
+      UnresolvedPairedGatewayError,
+    );
+  });
+
+  test("paired prime reaches the host proxy without exposing a bearer", async () => {
+    enableLocalMode();
+    setLockfile({ assistants: [pairedEntry], activeAssistant: "paired-a" });
+    seedGatewayToken({
+      token: "legacy-paired-guardian",
+      expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 3600,
+      source: "/assistant/__gateway-paired/paired-a/auth/token",
+    });
+    const fetchSpy = mock(async () =>
+      Response.json({ status: "ok", ready: true }),
+    );
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+    await primeLocalGatewayConnection(pairedEntry);
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/assistant/__gateway-paired/paired-a/readyz",
+    );
+    expect(fetchGuardianTokenHost).not.toHaveBeenCalled();
+    expect(getGatewayToken()).toBeNull();
+    // The connection rides the same-origin host proxy, never the remote
+    // runtimeUrl directly (packaged-app CSP and browser CORS both block it).
+    expect(getSelfHostedIngressUrl()).toBe(
+      `${window.location.origin}/assistant/__gateway-paired/paired-a`,
+    );
+    expect(getSelfHostedActorToken()).toBeNull();
+    expect(isGatewayAuthMode()).toBe(true);
+    expect(localStorage.getItem("vellum:gw:token")).toBeNull();
+    expect(localStorage.getItem("vellum:gw:tokenSource")).toBeNull();
+  });
+
+  test("paired prime surfaces a host credential failure without reading it directly", async () => {
+    enableLocalMode();
+    setLockfile({ assistants: [pairedEntry], activeAssistant: "paired-a" });
+    globalThis.fetch = mock(
+      async () => Response.json({ status: "ok", ready: true }),
+    ) as unknown as typeof fetch;
+    await primeLocalGatewayConnection(pairedEntry);
+    expect(isGatewayAuthMode()).toBe(true);
+
+    globalThis.fetch = mock(
+      async () => new Response("Guardian token not found", { status: 404 }),
+    ) as unknown as typeof fetch;
+
+    const error = await primeLocalGatewayConnection(pairedEntry).catch(
+      (cause: unknown) => cause,
+    );
+
+    expect(error).toBeInstanceOf(localModeHost.GuardianTokenError);
+    expect((error as localModeHost.GuardianTokenError).status).toBe(404);
+    expect(fetchGuardianTokenHost).not.toHaveBeenCalled();
+    expect(isGatewayAuthMode()).toBe(false);
+  });
+
+  test("unready paired prime preserves the current local session", async () => {
+    enableLocalMode();
+    setLockfile({
+      assistants: [localA, pairedEntry],
+      activeAssistant: "local-a",
+    });
+    setSelected("local-a");
+    seedGatewayToken({
+      token: "local-actor-token",
+      expiresAtEpochSeconds: Math.floor(Date.now() / 1000) + 3600,
+      source: "/assistant/__gateway/7830/auth/token",
+    });
+    setSelfHostedConnection({
+      url: `${window.location.origin}/assistant/__gateway/7830`,
+      token: "local-actor-token",
+    });
+    globalThis.fetch = mock(
+      async () => Response.json({ status: "migrating", ready: false }),
+    ) as unknown as typeof fetch;
+
+    await expect(primeLocalGatewayConnection(pairedEntry)).rejects.toThrow(
+      "Paired assistant is not ready",
+    );
+
+    expect(getGatewayToken()).toBe("local-actor-token");
+    expect(getSelfHostedIngressUrl()).toBe(
+      `${window.location.origin}/assistant/__gateway/7830`,
+    );
+    expect(getSelfHostedActorToken()).toBe("local-actor-token");
+    expect(isGatewayAuthMode()).toBe(true);
+  });
+});
+
+describe("primeLocalGatewayConnectionWithStartupRetry (paired target)", () => {
+  // The startup ride-out exists for the LOCAL gateway's reboot window and only
+  // retries GatewayTokenErrors, which the paired proxy prime never throws. A
+  // paired failure (failed host credential read, remote transport error) falls through
+  // promptly to the chooser instead of stalling the 8x1s retry budget on a
+  // machine that waiting cannot fix.
+  test("a failing paired credential read is not ridden out", async () => {
+    enableLocalMode();
+    const fetchMock = mock(
+      async () => new Response("Guardian token not found", { status: 404 }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const start = Date.now();
+    await expect(
+      primeLocalGatewayConnectionWithStartupRetry(pairedEntry),
+    ).rejects.toBeInstanceOf(localModeHost.GuardianTokenError);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchGuardianTokenHost).not.toHaveBeenCalled();
+    expect(Date.now() - start).toBeLessThan(
+      LOCAL_GATEWAY_STARTUP_RETRY.intervalMs,
+    );
+  });
+
+  test("a remote transport failure is not ridden out either", async () => {
+    enableLocalMode();
+    const fetchMock = mock(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(
+      primeLocalGatewayConnectionWithStartupRetry(pairedEntry),
+    ).rejects.toThrow("Failed to fetch");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchGuardianTokenHost).not.toHaveBeenCalled();
   });
 });
 

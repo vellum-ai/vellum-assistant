@@ -12,7 +12,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { createMockLoggerModule } from "../../../__tests__/helpers/mock-logger.js";
 import type { ToolContext } from "../../types.js";
 import { CdpError } from "../cdp-client/errors.js";
-import type { CdpClientKind, InternalBrowserMode } from "../cdp-client/types.js";
+import type {
+  CdpClientKind,
+  InternalBrowserMode,
+} from "../cdp-client/types.js";
 
 // ---------------------------------------------------------------------------
 // Captured call state
@@ -34,15 +37,13 @@ function makeFakeScopedClient(kind: CdpClientKind, conversationId: string) {
   };
 }
 
-const getCdpClientMock = mock(
-  (ctx: ToolContext, opts?: CdpClientCallOpts) => {
-    getCdpClientCalls.push({
-      mode: opts?.mode,
-      targetClientId: opts?.targetClientId,
-    });
-    return makeFakeScopedClient("extension", ctx.conversationId);
-  },
-);
+const getCdpClientMock = mock((ctx: ToolContext, opts?: CdpClientCallOpts) => {
+  getCdpClientCalls.push({
+    mode: opts?.mode,
+    targetClientId: opts?.targetClientId,
+  });
+  return makeFakeScopedClient("extension", ctx.conversationId);
+});
 
 // ---------------------------------------------------------------------------
 // Mutable sticky-kind control
@@ -79,20 +80,6 @@ mock.module("../browser-manager.js", () => ({
     isInteractive: () => false,
     supportsRouteInterception: false,
   },
-}));
-
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => ({
-    hostBrowser: {
-      cdpInspect: {
-        enabled: false,
-        host: "localhost",
-        port: 9222,
-        probeTimeoutMs: 500,
-        desktopAuto: { enabled: false, cooldownMs: 30_000 },
-      },
-    },
-  }),
 }));
 
 mock.module("../../../daemon/host-browser-proxy.js", () => ({

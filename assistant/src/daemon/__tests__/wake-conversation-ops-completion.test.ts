@@ -1,11 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../../__tests__/helpers/mock-logger.js";
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 // persistWakeTriggerMessage syncs each row to the disk view and publishes a
 // sync invalidation; stub both so this unit test stays a pure DB round-trip
 // without touching the filesystem or the event hub.
@@ -29,10 +23,15 @@ import { persistWakeTriggerMessage } from "../wake-conversation-ops.js";
 await initializeDb();
 
 /** Minimal Conversation stub exercising only the fields the function reads. */
-function makeConversationStub(conversationId: string): Conversation {
+function makeConversationStub(
+  conversationId: string,
+  clientState: { hasNoClient?: boolean; headlessLock?: boolean } = {},
+): Conversation {
   return {
     conversationId,
     trustContext: undefined,
+    hasNoClient: clientState.hasNoClient ?? false,
+    headlessLock: clientState.headlessLock ?? false,
     getTurnChannelContext: () => null,
     getTurnInterfaceContext: () => null,
   } as unknown as Conversation;
@@ -82,6 +81,7 @@ describe("persistWakeTriggerMessage backgroundToolCompletion", () => {
       makeConversationStub(conversationId),
       triggerMessage(),
       "background-tool",
+      false,
       completion,
     );
 
@@ -91,17 +91,41 @@ describe("persistWakeTriggerMessage backgroundToolCompletion", () => {
     expect(metadata.kind).toBe("background-event");
     expect(metadata.backgroundEventSource).toBe("background-tool");
     expect(metadata.automated).toBe(true);
+    // A non-clientless wake on a client-connected conversation runs interactive,
+    // and that mode is recorded for later retries.
+    expect(metadata.backgroundEventInteractive).toBe(true);
   });
 
-  test("omits the key entirely when no completion is passed", async () => {
+  test("omits the completion key and records non-interactive for a clientless wake", async () => {
     await persistWakeTriggerMessage(
       makeConversationStub(conversationId),
       triggerMessage(),
       "background-tool",
+      true,
     );
 
     const metadata = readMetadata(conversationId);
     expect("backgroundToolCompletion" in metadata).toBe(false);
     expect(metadata.kind).toBe("background-event");
+    // A clientless wake (interrupted-turn recovery, local IPC wake) pins
+    // `hasNoClient` for its dispatch, so it records the non-interactive mode.
+    expect(metadata.backgroundEventInteractive).toBe(false);
+  });
+
+  test("records non-interactive for a cold-hydrated wake without clientless", async () => {
+    // A conversation cold-hydrated after a restart carries `hasNoClient = true`
+    // (no client attached). A scheduled wake omits `clientless`, yet the loop
+    // still resolves the turn non-interactive from `hasNoClient`, so the
+    // recorded mode is false rather than the requested `!clientless`.
+    await persistWakeTriggerMessage(
+      makeConversationStub(conversationId, { hasNoClient: true }),
+      triggerMessage(),
+      "schedule",
+      false,
+    );
+
+    const metadata = readMetadata(conversationId);
+    expect(metadata.backgroundEventSource).toBe("schedule");
+    expect(metadata.backgroundEventInteractive).toBe(false);
   });
 });

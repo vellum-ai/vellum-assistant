@@ -80,7 +80,9 @@ function createWrapper() {
   });
 
   return function Wrapper({ children }: { children: ReactNode }) {
-    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+    return (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
   };
 }
 
@@ -198,7 +200,9 @@ describe("useAssistantAvatar", () => {
     // GIVEN the avatar state endpoint succeeds with a character avatar
     fetchAvatarState.mockResolvedValue(characterState);
     // AND the character-components endpoint fails transiently
-    fetchCharacterComponents.mockResolvedValueOnce(null as unknown as CharacterComponents);
+    fetchCharacterComponents.mockResolvedValueOnce(
+      null as unknown as CharacterComponents,
+    );
     // AND components succeed on the retry
     fetchCharacterComponents.mockResolvedValueOnce(components);
 
@@ -210,7 +214,9 @@ describe("useAssistantAvatar", () => {
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
 
-    const { result } = renderHook(() => useAssistantAvatar("asst-1"), { wrapper });
+    const { result } = renderHook(() => useAssistantAvatar("asst-1"), {
+      wrapper,
+    });
 
     // THEN the query retries and resolves with the successful components
     await waitFor(() => {
@@ -241,7 +247,9 @@ describe("useAssistantAvatar", () => {
     first.unmount();
 
     // WHEN the character-components endpoint fails on a subsequent refetch
-    fetchCharacterComponents.mockResolvedValue(null as unknown as CharacterComponents);
+    fetchCharacterComponents.mockResolvedValue(
+      null as unknown as CharacterComponents,
+    );
     await queryClient.invalidateQueries({ queryKey: avatarQueryKey("asst-1") });
 
     const second = renderHook(() => useAssistantAvatar("asst-1"), { wrapper });
@@ -261,7 +269,9 @@ describe("useAssistantAvatar", () => {
     // AND the image fetch succeeds
     fetchAvatarImageUrl.mockResolvedValue("blob:avatar-image");
     // AND the character-components endpoint fails
-    fetchCharacterComponents.mockResolvedValue(null as unknown as CharacterComponents);
+    fetchCharacterComponents.mockResolvedValue(
+      null as unknown as CharacterComponents,
+    );
 
     // WHEN the hook mounts
     const { result } = renderHook(() => useAssistantAvatar("asst-1"), {

@@ -16,7 +16,9 @@ const UNITS: Array<{ unit: Intl.RelativeTimeFormatUnit; ms: number }> = [
 export function formatRelativeTime(epochMs: number): string {
   const diff = epochMs - Date.now();
   const absDiff = Math.abs(diff);
-  if (absDiff < 30_000) return "just now";
+  if (absDiff < 30_000) {
+    return "just now";
+  }
   if (!RELATIVE_FORMATTER) {
     return new Date(epochMs).toLocaleString();
   }

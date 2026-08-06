@@ -69,7 +69,9 @@ async function safeRealpath(path: string): Promise<string | null> {
 }
 
 function isInside(candidate: string, root: string): boolean {
-  if (candidate === root) return true;
+  if (candidate === root) {
+    return true;
+  }
   return candidate.startsWith(root + sep);
 }
 
@@ -104,7 +106,9 @@ async function validateSnapshotPath(rawPath: unknown): Promise<string> {
   const allowedRoots = computeAllowedRoots();
   for (const root of allowedRoots) {
     const realRoot = await safeRealpath(root);
-    if (realRoot == null) continue;
+    if (realRoot == null) {
+      continue;
+    }
     if (isInside(realCandidate, realRoot)) {
       return realCandidate;
     }

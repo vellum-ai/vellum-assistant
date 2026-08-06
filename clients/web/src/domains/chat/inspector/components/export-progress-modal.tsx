@@ -47,7 +47,9 @@ export function ExportProgressModal({
     <Modal.Root
       open={open}
       onOpenChange={(next) => {
-        if (!next && !isRunning) onClose();
+        if (!next && !isRunning) {
+          onClose();
+        }
       }}
     >
       <Modal.Content
@@ -55,14 +57,26 @@ export function ExportProgressModal({
         hideCloseButton={isRunning}
         dismissOnOverlayClick={!isRunning}
         onEscapeKeyDown={(event) => {
-          if (isRunning) event.preventDefault();
+          if (isRunning) {
+            event.preventDefault();
+          }
         }}
         onInteractOutside={(event) => {
-          if (isRunning) event.preventDefault();
+          if (isRunning) {
+            event.preventDefault();
+          }
         }}
       >
         <Modal.Header>
-          <Modal.Title icon={phase === "error" ? AlertCircle : phase === "done" ? CheckCircle2 : Download}>
+          <Modal.Title
+            icon={
+              phase === "error"
+                ? AlertCircle
+                : phase === "done"
+                  ? CheckCircle2
+                  : Download
+            }
+          >
             {phase === "error"
               ? "Export failed"
               : phase === "done"
@@ -103,7 +117,9 @@ export function ExportProgressModal({
                       ? "Packaging ZIP…"
                       : `${completed} of ${total} calls`}
                 </span>
-                <span>{Math.round((phase === "done" ? 1 : fraction) * 100)}%</span>
+                <span>
+                  {Math.round((phase === "done" ? 1 : fraction) * 100)}%
+                </span>
               </div>
             </div>
           )}

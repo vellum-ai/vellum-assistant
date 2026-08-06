@@ -29,13 +29,6 @@ import {
   test,
 } from "bun:test";
 
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ── Embedding backend stub ─────────────────────────────────────────
 // `embedConceptPageJob` calls `getMemoryBackendStatus` first to verify a
 // provider is configured, then `embedWithBackend` for the dense vector and
@@ -98,7 +91,7 @@ const upsertCalls: Array<{
 
 const deleteCalls: string[] = [];
 
-mock.module("../../v2/qdrant.js", () => ({
+mock.module("../../substrate/qdrant.js", () => ({
   upsertConceptPageEmbedding: async (params: {
     slug: string;
     dense: number[];
@@ -145,20 +138,20 @@ afterAll(() => {
 // Imports are deferred to after the env var is set so any internal use of
 // `getWorkspaceDir()` resolves to the tmpdir.
 const { DEFAULT_CONFIG } = await import("../../../../../config/defaults.js");
-const { getDb, getMemoryDb } =
+const { getMemoryDb } =
   await import("../../../../../persistence/db-connection.js");
 const { resetDbForTesting } =
   await import("../../../../../__tests__/db-test-helpers.js");
 const { initializeDb } = await import("../../../../../persistence/db-init.js");
 const { memoryEmbeddings, memoryJobs } =
   await import("../../../../../persistence/schema/index.js");
-const { claimMemoryJobs } =
+const { claimMemoryJobs, enqueueMemoryJob } =
   await import("../../../../../persistence/jobs-store.js");
 type MemoryJobMod = typeof import("../../../../../persistence/jobs-store.js");
 type MemoryJob = ReturnType<MemoryJobMod["claimMemoryJobs"]>[number];
 const { embedConceptPageJob, enqueueEmbedConceptPageJob } =
   await import("../embed-concept-page.js");
-const { writePage } = await import("../../v2/page-store.js");
+const { writePage } = await import("../../substrate/page-store.js");
 const { _resetQdrantBreaker, isQdrantBreakerOpen, withQdrantBreaker } =
   await import("../../../../../persistence/embeddings/qdrant-circuit-breaker.js");
 
@@ -195,6 +188,11 @@ beforeEach(async () => {
   // The first run pays the full cold-start migration chain; bump the hook
   // timeout above bun's 5s default so the leading test doesn't flake in CI.
   await initializeDb();
+  // memory_jobs lives in the dedicated memory connection, which the shared
+  // template-DB restore does not clear — truncate it so job rows written by
+  // earlier tests (or earlier suites in the same process) don't leak into
+  // the enqueue/coalesce assertions.
+  getMemoryDb()!.run("DELETE FROM memory_jobs");
   embedWithBackendCalls.length = 0;
   upsertCalls.length = 0;
   deleteCalls.length = 0;
@@ -250,7 +248,7 @@ describe("embedConceptPageJob — happy path", () => {
 
     await embedConceptPageJob(makeJob({ slug: "bob-uses-zsh" }), TEST_CONFIG);
 
-    const row = getDb()
+    const row = getMemoryDb()!
       .select()
       .from(memoryEmbeddings)
       .all()
@@ -561,5 +559,72 @@ describe("enqueueEmbedConceptPageJob", () => {
     expect(row).toBeDefined();
     expect(row!.type).toBe("embed_concept_page");
     expect(JSON.parse(row!.payload)).toEqual({ slug: "row-check" });
+  });
+
+  test("coalesces with an existing pending job for the same slug", () => {
+    const firstId = enqueueEmbedConceptPageJob({ slug: "dup-slug" });
+    const secondId = enqueueEmbedConceptPageJob({ slug: "dup-slug" });
+
+    expect(secondId).toBe(firstId);
+    const rows = getMemoryDb()!
+      .select()
+      .from(memoryJobs)
+      .all()
+      .filter((r) => r.type === "embed_concept_page");
+    expect(rows).toHaveLength(1);
+  });
+
+  test("different slugs do not coalesce", () => {
+    enqueueEmbedConceptPageJob({ slug: "slug-a" });
+    enqueueEmbedConceptPageJob({ slug: "slug-b" });
+
+    const slugs = getMemoryDb()!
+      .select()
+      .from(memoryJobs)
+      .all()
+      .filter((r) => r.type === "embed_concept_page")
+      .map((r) => JSON.parse(r.payload).slug)
+      .sort();
+    expect(slugs).toEqual(["slug-a", "slug-b"]);
+  });
+
+  test("a coalesced enqueue keeps the pending row's runAfter (backoff preserved)", () => {
+    // Seed a pending row deferred into the future — the shape a
+    // breaker-deferred or retry-backed-off row has. A coalescing enqueue
+    // must not pull it earlier.
+    const futureRunAfter = Date.now() + 300_000;
+    const id = enqueueMemoryJob(
+      "embed_concept_page",
+      { slug: "deferred-slug" },
+      futureRunAfter,
+    );
+
+    const coalescedId = enqueueEmbedConceptPageJob({ slug: "deferred-slug" });
+
+    expect(coalescedId).toBe(id);
+    const row = getMemoryDb()!
+      .select()
+      .from(memoryJobs)
+      .all()
+      .find((r) => r.id === id);
+    expect(row!.runAfter).toBe(futureRunAfter);
+  });
+
+  test("a running job for the slug does not suppress a fresh enqueue", () => {
+    // A running job may have already read the page from disk, so a write
+    // landing after it started must still get its own pending row.
+    const firstId = enqueueEmbedConceptPageJob({ slug: "in-flight" });
+    const claimed = claimMemoryJobs({ slowLlm: 10, fast: 10, embed: 10 });
+    expect(claimed.map((j) => j.id)).toEqual([firstId]);
+
+    const secondId = enqueueEmbedConceptPageJob({ slug: "in-flight" });
+
+    expect(secondId).not.toBe(firstId);
+    const rows = getMemoryDb()!
+      .select()
+      .from(memoryJobs)
+      .all()
+      .filter((r) => r.type === "embed_concept_page");
+    expect(rows.map((r) => r.status).sort()).toEqual(["pending", "running"]);
   });
 });

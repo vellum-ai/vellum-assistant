@@ -180,7 +180,9 @@ describe("ClickHouseCompactionLogStore", () => {
       fetchImpl: async (url: string, init?: RequestInit) => {
         calls++;
         requests.push({ url: new URL(url), body: String(init?.body ?? "") });
-        if (calls === 1) return new Response("boom", { status: 500 });
+        if (calls === 1) {
+          return new Response("boom", { status: 500 });
+        }
         return new Response("", { status: 200 });
       },
     });
@@ -199,7 +201,9 @@ describe("ClickHouseCompactionLogStore", () => {
     const { writer } = createWriter({
       fetchImpl: async () => {
         calls++;
-        if (calls === 1) return new Response("", { status: 200 });
+        if (calls === 1) {
+          return new Response("", { status: 200 });
+        }
         return new Response("table is read-only", { status: 403 });
       },
     });

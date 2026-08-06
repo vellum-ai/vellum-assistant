@@ -21,7 +21,9 @@ export function resolveConversationPluginScope(
   conversationId: string,
 ): Set<string> | null {
   const live = findConversationOrSubagent(conversationId);
-  if (live) return getEffectiveEnabledPluginSet(live);
+  if (live) {
+    return getEffectiveEnabledPluginSet(live);
+  }
   // Fall back to the persisted row for a non-resident conversation. A failure
   // here must not break hook discovery — fail open to no restriction so the
   // turn's hooks still run, rather than dropping every plugin's lifecycle hook.

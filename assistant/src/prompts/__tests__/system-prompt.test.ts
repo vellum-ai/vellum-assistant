@@ -30,34 +30,6 @@ mock.module("../../util/logger.js", () => ({
   pruneOldLogFiles: () => 0,
 }));
 
-const mockLoadedConfig: Record<string, unknown> = {};
-
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-  loadConfig: () => mockLoadedConfig,
-  loadRawConfig: () => ({}),
-  saveConfig: () => {},
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
 const { buildSystemPrompt, maybeReseedBootstrap } =
   await import("../system-prompt.js");
 
@@ -147,8 +119,11 @@ describe("buildSystemPrompt — default persona trust-class guardrail", () => {
   });
 
   afterEach(() => {
-    if (priorAuthEnv === undefined) delete process.env.DISABLE_HTTP_AUTH;
-    else process.env.DISABLE_HTTP_AUTH = priorAuthEnv;
+    if (priorAuthEnv === undefined) {
+      delete process.env.DISABLE_HTTP_AUTH;
+    } else {
+      process.env.DISABLE_HTTP_AUTH = priorAuthEnv;
+    }
   });
 
   test("stranger (unknown) sees the guardrail and the stranger greeting", () => {

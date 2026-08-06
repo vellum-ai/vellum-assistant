@@ -15,6 +15,7 @@ import type {
   ReleaseChannelEnum,
   ReleaseListItem,
 } from "@/generated/api/types.gen";
+import { useDevModeVersionTap } from "@/domains/settings/components/dev-mode-version-unlock";
 import { useLocalRuntimeUpgrade } from "@/hooks/use-local-runtime-upgrade";
 import {
   getLatestRuntimeRelease,
@@ -27,7 +28,7 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { compareParsed, parseSemver } from "@/utils/semver";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { toast } from "@vellumai/design-library/components/toast";
 
 function releaseLabel(
@@ -36,13 +37,47 @@ function releaseLabel(
   latestVersion: string | undefined,
 ): string {
   const parts = [release.version];
-  if (release.version === latestVersion) parts.push("(latest)");
-  if (currentVersion && release.version === currentVersion)
+  if (release.version === latestVersion) {
+    parts.push("(latest)");
+  }
+  if (currentVersion && release.version === currentVersion) {
     parts.push("(current)");
+  }
   return parts.join(" ");
 }
 
 const POLL_INTERVAL_MS = 3000;
+
+/**
+ * The "Current" version value, doubling as the 7-tap developer-mode unlock
+ * target (see `useDevModeVersionTap`). Shared by both the platform and local
+ * upgrade panels so the unlock lives on the version label that is on screen.
+ */
+function CurrentVersionValue({
+  version,
+  assistantId,
+}: {
+  version: string | null | undefined;
+  assistantId: string | null;
+}) {
+  const { onTap, message } = useDevModeVersionTap(assistantId);
+  return (
+    <div className="min-w-0">
+      <button
+        type="button"
+        className="block min-w-0 break-all text-left text-body-medium-lighter text-[var(--content-default)]"
+        onClick={onTap}
+      >
+        {version ?? "—"}
+      </button>
+      {message && (
+        <p className="mt-1 text-body-small-default text-[var(--content-accent)]">
+          {message}
+        </p>
+      )}
+    </div>
+  );
+}
 
 interface AssistantUpgradesProps {
   assistantId: string;
@@ -88,8 +123,8 @@ export function AssistantUpgrades({
         setSelectedVersion(null);
         toast.success(
           isPollingRollback
-            ? "Rollback complete — assistant is healthy."
-            : "Update complete — assistant is healthy.",
+            ? "Rollback complete. Your assistant is healthy."
+            : "Update complete. Your assistant is healthy.",
           { id: "runtime-upgrade-complete", tone: "strong" },
         );
         onUpgradeComplete?.();
@@ -119,20 +154,32 @@ export function AssistantUpgrades({
     selectedVersion ?? latestRelease?.version ?? null;
 
   const isRollback = useMemo(() => {
-    if (!rollbackEnabled) return false;
-    if (!effectiveSelectedVersion || !currentVersion) return false;
+    if (!rollbackEnabled) {
+      return false;
+    }
+    if (!effectiveSelectedVersion || !currentVersion) {
+      return false;
+    }
     const target = parseSemver(effectiveSelectedVersion);
     const current = parseSemver(currentVersion);
-    if (!target || !current) return false;
+    if (!target || !current) {
+      return false;
+    }
     return compareParsed(target, current) < 0;
   }, [rollbackEnabled, effectiveSelectedVersion, currentVersion]);
 
   const upgradeAvailable = useMemo(() => {
-    if (!effectiveSelectedVersion) return false;
-    if (!currentVersion) return true;
+    if (!effectiveSelectedVersion) {
+      return false;
+    }
+    if (!currentVersion) {
+      return true;
+    }
     const target = parseSemver(effectiveSelectedVersion);
     const current = parseSemver(currentVersion);
-    if (!target || !current) return effectiveSelectedVersion !== currentVersion;
+    if (!target || !current) {
+      return effectiveSelectedVersion !== currentVersion;
+    }
     const cmp = compareParsed(target, current);
     if (!rollbackEnabled) {
       return cmp > 0;
@@ -165,7 +212,18 @@ export function AssistantUpgrades({
   const handleUpgrade = async () => {
     setShowConfirmation(false);
     setSuccessMessage(null);
-    const targetVersion = selectedVersion ?? undefined;
+    // With the picker rendered, the trigger shows `effectiveSelectedVersion`
+    // even when nothing was chosen, and a selection matching the displayed
+    // value is not reported. Reading the raw selection would install
+    // something other than the version on screen.
+    //
+    // With no picker there is nothing on screen to honour, so the server
+    // resolves latest. That is deliberately not the same as this component's
+    // `latestRelease`, which does not filter `local` pre-release builds the
+    // way `getLatestRuntimeRelease` does.
+    const targetVersion = rollbackEnabled
+      ? (effectiveSelectedVersion ?? undefined)
+      : undefined;
     try {
       if (isRollback) {
         const result = await rollbackCreate.mutateAsync({
@@ -215,9 +273,10 @@ export function AssistantUpgrades({
           <span className="text-body-medium-default text-[var(--content-tertiary)]">
             Current
           </span>
-          <span className="block min-w-0 break-all text-body-medium-lighter text-[var(--content-default)]">
-            {currentVersion ?? "—"}
-          </span>
+          <CurrentVersionValue
+            version={currentVersion}
+            assistantId={assistantId}
+          />
         </div>
 
         <div className="flex flex-col gap-1 md:contents">
@@ -238,7 +297,7 @@ export function AssistantUpgrades({
               </span>
             ) : releases && releases.length > 0 ? (
               rollbackEnabled ? (
-                <Dropdown
+                <Select
                   value={effectiveSelectedVersion ?? ""}
                   onChange={(value) =>
                     setSelectedVersion(
@@ -398,7 +457,7 @@ export function LocalAssistantUpgrades({
           ? `Successfully updated to version ${result.version}.`
           : `Successfully updated to version ${targetVersion ?? "latest"}.`,
       );
-      toast.success("Update complete — assistant is healthy.", {
+      toast.success("Update complete. Your assistant is healthy.", {
         id: "runtime-upgrade-complete",
         tone: "strong",
       });
@@ -419,9 +478,10 @@ export function LocalAssistantUpgrades({
           <span className="text-body-medium-default text-[var(--content-tertiary)]">
             Current
           </span>
-          <span className="block min-w-0 break-all text-body-medium-lighter text-[var(--content-default)]">
-            {currentVersion ?? "—"}
-          </span>
+          <CurrentVersionValue
+            version={currentVersion}
+            assistantId={assistantId}
+          />
         </div>
 
         <div className="flex flex-col gap-1 md:contents">

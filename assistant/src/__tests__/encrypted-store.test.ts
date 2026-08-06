@@ -19,21 +19,12 @@ import {
   beforeEach,
   describe,
   expect,
-  mock,
   test,
 } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mock only the logger (not platform -- we use setStorePathForTesting instead)
 // ---------------------------------------------------------------------------
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 import {
   deleteKey,
   getKey,

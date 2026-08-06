@@ -50,9 +50,17 @@ mock.module("@vellumai/local-mode", () => ({
   resolveConfigDir: resolveConfigDirMock,
   resolveEnvironmentName: mock((_env: NodeJS.ProcessEnv) => "production"),
   isActiveAssistant: mock(() => true),
+  isPairedLockfileEntry: mock(() => false),
+  PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR: "Paired credentials are host-only",
   getGuardianAccessToken: getGuardianAccessTokenMock,
+  getPairedGuardianAccessToken: getGuardianAccessTokenMock,
   replacePlatformAssistants: mock(() => ({ ok: false, error: "unused" })),
-  upsertLockfileAssistant: mock(() => ({ ok: false, error: "unused" })),
+  upsertRendererLockfileAssistant: mock(() => ({
+    ok: false,
+    error: "unused",
+  })),
+  unpairAssistant: mock(() => ({ ok: false, error: "unused" })),
+  connectImport: mock(() => ({ ok: false, status: 400, error: "unused" })),
   runHatch: mock(async () => ({ ok: false, error: "unused" })),
   runRetire: mock(async () => ({ ok: false, error: "unused" })),
   runSleep: mock(async () => ({ ok: false, error: "unused" })),
@@ -136,7 +144,7 @@ const { handleBundleFile, resolveActiveGateway, installBundleFlow } =
 
 const SAMPLE_SCAN: BundleScanData = {
   manifest: {
-    format_version: 1,
+    format_version: 2,
     name: "Test Bundle",
     description: "A test",
     entry: "index.html",

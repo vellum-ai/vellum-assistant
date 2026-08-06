@@ -108,6 +108,11 @@ function sttGapClause(
 ): string {
   switch (capability.status) {
     case "missing-credentials": {
+      // Connection-based providers are fixed by connecting the account,
+      // not by entering an API key.
+      if (capability.credentialProvider === "vellum") {
+        return `a Vellum platform connection for managed speech (run 'assistant platform connect')`;
+      }
       return `an API key for the speech-to-text provider "${providerId}"`;
     }
     case "unsupported": {
@@ -133,6 +138,16 @@ function ttsGap(
           reason: `TTS provider "${providerId}" is missing credentials and no playable fallback provider is available`,
         },
         clause: `an API key for the text-to-speech provider "${providerId}" (no fallback provider has usable credentials)`,
+      };
+    }
+    case "missing-platform-connection": {
+      return {
+        gap: {
+          kind: "tts",
+          providerId,
+          reason: `Managed TTS has no usable Vellum platform connection and no playable fallback provider is available`,
+        },
+        clause: `a Vellum platform connection for managed speech (run 'assistant platform connect'; no fallback provider has usable credentials)`,
       };
     }
     case "missing-fish-audio-reference-id": {

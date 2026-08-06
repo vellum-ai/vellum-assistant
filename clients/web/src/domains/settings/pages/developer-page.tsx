@@ -1,28 +1,28 @@
 import { useMemo } from "react";
-import { Navigate, useNavigate, useSearchParams } from "react-router";
+import { Navigate, useSearchParams } from "react-router";
 
+import { MemoryCard } from "@/domains/settings/components/memory-card";
 import { AssistantLifecyclePanel } from "@/domains/settings/components/panels/assistant-lifecycle-panel";
 import { EnvironmentConfigPanel } from "@/domains/settings/components/panels/environment-config-panel";
 import { FeatureFlagsPanel } from "@/domains/settings/components/panels/feature-flags-panel";
 import { SentryTestingPanel } from "@/domains/settings/components/panels/sentry-testing-panel";
-import { isLocalMode } from "@/lib/local-mode";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { cn } from "@/utils/misc";
 import { routes } from "@/utils/routes";
-import { Button } from "@vellumai/design-library/components/button";
 
 const ALL_TABS = [
   { id: "feature-flags", label: "Feature Flags" },
   { id: "lifecycle", label: "Assistant Lifecycle" },
   { id: "sentry", label: "Sentry Testing" },
+  { id: "memory", label: "Memory" },
 ] as const;
 
 type DeveloperTabId = (typeof ALL_TABS)[number]["id"];
 
 export function DeveloperPage() {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  const settingsDeveloperNav =
+    useAssistantFeatureFlagStore.use.settingsDeveloperNav();
   const hasHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
 
   const activeTab: DeveloperTabId = useMemo(() => {
@@ -47,7 +47,7 @@ export function DeveloperPage() {
 
   return (
     <div data-slot="developer-page" className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-[var(--border-base)]">
+      <div className="flex shrink-0 items-center border-b border-[var(--border-base)]">
         <div
           role="tablist"
           aria-label="Developer sections"
@@ -76,15 +76,6 @@ export function DeveloperPage() {
             );
           })}
         </div>
-        {isLocalMode() && (
-          <Button
-            variant="outlined"
-            className="mb-1 shrink-0"
-            onClick={() => void navigate(`${routes.selectAssistant}?noAutoSkip=1`)}
-          >
-            Choose Assistant
-          </Button>
-        )}
       </div>
 
       <div
@@ -101,6 +92,11 @@ export function DeveloperPage() {
         )}
         {activeTab === "lifecycle" && <AssistantLifecyclePanel />}
         {activeTab === "sentry" && <SentryTestingPanel />}
+        {activeTab === "memory" && (
+          <div className="space-y-4">
+            <MemoryCard />
+          </div>
+        )}
       </div>
     </div>
   );

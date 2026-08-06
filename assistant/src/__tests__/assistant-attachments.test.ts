@@ -12,6 +12,7 @@ import {
   incompleteVellumLinkSuffixLength,
   inferMimeType,
   MAX_ASSISTANT_ATTACHMENT_BYTES,
+  resolveAttachmentFilename,
   stripVellumLinks,
   validateDrafts,
 } from "../daemon/assistant-attachments.js";
@@ -117,6 +118,79 @@ describe("inferMimeType", () => {
 
   test("uses last extension for double-dotted names", () => {
     expect(inferMimeType("archive.tar.gz")).toBe("application/gzip");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveAttachmentFilename
+// ---------------------------------------------------------------------------
+
+describe("resolveAttachmentFilename", () => {
+  test("honors a label with a recognized extension", () => {
+    expect(
+      resolveAttachmentFilename(
+        "report.pdf",
+        "/workspace/out/final-v2.pdf",
+        "label",
+      ),
+    ).toBe("report.pdf");
+  });
+
+  test("keeps an extensionless label and appends the path extension", () => {
+    expect(
+      resolveAttachmentFilename(
+        "desktop",
+        "/workspace/qa-delete-desktop-dialog.png",
+        "label",
+      ),
+    ).toBe("desktop.png");
+  });
+
+  test("appends the path extension to a label with an unrecognized one", () => {
+    expect(
+      resolveAttachmentFilename("notes.xyz", "/workspace/notes.txt", "label"),
+    ).toBe("notes.xyz.txt");
+  });
+
+  test("bare labels to distinct files sharing a basename stay unique", () => {
+    const first = resolveAttachmentFilename(
+      "first",
+      "/workspace/a/result.png",
+      "label",
+    );
+    const second = resolveAttachmentFilename(
+      "second",
+      "/workspace/b/result.png",
+      "label",
+    );
+    expect(first).toBe("first.png");
+    expect(second).toBe("second.png");
+    expect(first).not.toBe(second);
+  });
+
+  test("falls back to path basename when preferred is undefined", () => {
+    expect(
+      resolveAttachmentFilename(undefined, "/workspace/shot.png", "label"),
+    ).toBe("shot.png");
+  });
+
+  test("keeps basename fallback even when the path is extensionless too", () => {
+    expect(
+      resolveAttachmentFilename("build file", "/workspace/Makefile", "label"),
+    ).toBe("Makefile");
+  });
+
+  test("explicit directive filenames are used verbatim regardless of extension", () => {
+    expect(
+      resolveAttachmentFilename(
+        "custom.dat",
+        "/workspace/data.bin",
+        "explicit",
+      ),
+    ).toBe("custom.dat");
+    expect(
+      resolveAttachmentFilename("no-extension", "/workspace/data.bin"),
+    ).toBe("no-extension");
   });
 });
 

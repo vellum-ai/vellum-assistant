@@ -43,7 +43,9 @@ let allowedRegexes: RegExp[] = [];
  * Safe to call multiple times — subsequent calls are no-ops unless `resetAllowlist` is called.
  */
 export function loadAllowlist(): void {
-  if (loaded || fileChecked) return;
+  if (loaded || fileChecked) {
+    return;
+  }
 
   const filePath = join(getDataDir(), "secret-allowlist.json");
   if (!pathExists(filePath)) {
@@ -69,7 +71,9 @@ export function loadAllowlist(): void {
 
     if (config.patterns && Array.isArray(config.patterns)) {
       for (const p of config.patterns) {
-        if (typeof p !== "string") continue;
+        if (typeof p !== "string") {
+          continue;
+        }
         try {
           allowedRegexes.push(new RegExp(p));
         } catch {
@@ -107,15 +111,21 @@ export function loadAllowlist(): void {
 export function isAllowlisted(value: string): boolean {
   loadAllowlist();
 
-  if (allowedValues.has(value)) return true;
+  if (allowedValues.has(value)) {
+    return true;
+  }
 
   for (const prefix of allowedPrefixes) {
-    if (value.startsWith(prefix)) return true;
+    if (value.startsWith(prefix)) {
+      return true;
+    }
   }
 
   for (const re of allowedRegexes) {
     re.lastIndex = 0;
-    if (re.test(value)) return true;
+    if (re.test(value)) {
+      return true;
+    }
   }
 
   return false;
@@ -135,7 +145,9 @@ function validateAllowlist(
   config: AllowlistConfig,
 ): AllowlistValidationError[] {
   const errors: AllowlistValidationError[] = [];
-  if (!config.patterns) return errors;
+  if (!config.patterns) {
+    return errors;
+  }
   if (!Array.isArray(config.patterns)) {
     errors.push({
       index: -1,
@@ -170,7 +182,9 @@ function validateAllowlist(
  */
 export function validateAllowlistFile(): AllowlistValidationError[] | null {
   const filePath = join(getDataDir(), "secret-allowlist.json");
-  if (!pathExists(filePath)) return null;
+  if (!pathExists(filePath)) {
+    return null;
+  }
 
   const raw = readFileSync(filePath, "utf-8");
   const config: AllowlistConfig = JSON.parse(raw);

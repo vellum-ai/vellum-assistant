@@ -46,14 +46,50 @@ function summaryViewQuery(): { view?: "summary" } {
   return supportsLlmContextSummaryView() ? { view: "summary" } : {};
 }
 
+/**
+ * Stable error code the daemon returns (in the standard `{ error: { code } }`
+ * envelope) when LLM request logging is disabled (`llmRequestLogs.enabled ===
+ * false`). The inspector branches on it to render an "enable logging"
+ * affordance instead of a generic failure.
+ */
+export const LLM_REQUEST_LOGS_DISABLED_CODE = "LLM_REQUEST_LOGS_DISABLED";
+
 export class LlmContextRequestError extends Error {
   status: number;
+  /**
+   * Machine-readable `error.code` from the daemon envelope when present.
+   * `undefined` for network errors and responses without a coded body.
+   */
+  code: string | undefined;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.name = "LlmContextRequestError";
     this.status = status;
+    this.code = code;
   }
+}
+
+/** Pull `error.code` out of the daemon's `{ error: { code, message } }` envelope. */
+function extractErrorCode(error: unknown): string | undefined {
+  if (error && typeof error === "object" && "error" in error) {
+    const inner = (error as { error?: unknown }).error;
+    if (inner && typeof inner === "object" && "code" in inner) {
+      const code = (inner as { code?: unknown }).code;
+      if (typeof code === "string") {
+        return code;
+      }
+    }
+  }
+  return undefined;
+}
+
+/** True when the failure is the daemon's "logging is disabled" signal. */
+export function isLlmRequestLogsDisabledError(error: unknown): boolean {
+  return (
+    error instanceof LlmContextRequestError &&
+    error.code === LLM_REQUEST_LOGS_DISABLED_CODE
+  );
 }
 
 export function llmContextQueryOptions(
@@ -132,17 +168,19 @@ export function useConversationCallNumbering(
       "llm-context-call-numbering",
       conversationId,
     ] as const,
-    queryFn: async ({
-      signal,
-    }): Promise<LLMRequestLogEntry[] | null> => {
-      if (!assistantId || !conversationId) return null;
+    queryFn: async ({ signal }): Promise<LLMRequestLogEntry[] | null> => {
+      if (!assistantId || !conversationId) {
+        return null;
+      }
       const { data, response } = await conversationsLlmcontextGet({
         path: { assistant_id: assistantId },
         query: { conversationId, ...summaryViewQuery() },
         signal,
         throwOnError: false,
       });
-      if (!response || !response.ok || !data) return null;
+      if (!response || !response.ok || !data) {
+        return null;
+      }
       return data.logs ?? [];
     },
     enabled: Boolean(enabled && assistantId && conversationId),
@@ -174,7 +212,9 @@ export function useConversationMessageList(
       "for-inspector",
     ] as const,
     queryFn: async (): Promise<ConversationMessage[]> => {
-      if (!assistantId || !conversationId) return [];
+      if (!assistantId || !conversationId) {
+        return [];
+      }
       const snapshot = await fetchConversationMessages(
         assistantId,
         conversationId,
@@ -226,7 +266,11 @@ export async function fetchConversationLlmContext(
       response,
       "Failed to load LLM context",
     );
-    throw new LlmContextRequestError(response.status, msg);
+    throw new LlmContextRequestError(
+      response.status,
+      msg,
+      extractErrorCode(error),
+    );
   }
 
   if (!data) {
@@ -263,7 +307,11 @@ export async function fetchMessageLlmContextOrThrow(
       response,
       "Failed to load LLM context",
     );
-    throw new LlmContextRequestError(response.status, msg);
+    throw new LlmContextRequestError(
+      response.status,
+      msg,
+      extractErrorCode(error),
+    );
   }
   if (!data) {
     throw new LlmContextRequestError(
@@ -290,17 +338,16 @@ async function fetchConversationLlmContextFromPerMessage(
   conversationId: string,
   signal: AbortSignal | undefined,
 ): Promise<LlmContextResponse> {
-  const snapshot = await fetchConversationMessages(
-    assistantId,
-    conversationId,
-  );
+  const snapshot = await fetchConversationMessages(assistantId, conversationId);
   const messages = snapshot?.messages ?? [];
 
   const messageIds: string[] = [];
   const seenMessageId = new Set<string>();
   for (const m of messages) {
     const id = m.id;
-    if (!id || seenMessageId.has(id)) continue;
+    if (!id || seenMessageId.has(id)) {
+      continue;
+    }
     seenMessageId.add(id);
     messageIds.push(id);
   }
@@ -331,15 +378,25 @@ async function fetchConversationLlmContextFromPerMessage(
   const allLogs: LLMRequestLogEntry[] = [];
 
   for (const r of perMessage) {
-    if (!r) continue;
-    if (r.conversationKind) conversationKind = r.conversationKind;
+    if (!r) {
+      continue;
+    }
+    if (r.conversationKind) {
+      conversationKind = r.conversationKind;
+    }
     if (r.conversationTotalEstimatedCostUsd != null) {
       conversationTotalEstimatedCostUsd = r.conversationTotalEstimatedCostUsd;
     }
-    if (r.memoryRecall) memoryRecall = r.memoryRecall;
-    if (r.memoryV2Activation) memoryV2Activation = r.memoryV2Activation;
+    if (r.memoryRecall) {
+      memoryRecall = r.memoryRecall;
+    }
+    if (r.memoryV2Activation) {
+      memoryV2Activation = r.memoryV2Activation;
+    }
     for (const log of r.logs ?? []) {
-      if (seenLogId.has(log.id)) continue;
+      if (seenLogId.has(log.id)) {
+        continue;
+      }
       seenLogId.add(log.id);
       allLogs.push(log);
     }
@@ -371,6 +428,8 @@ async function fetchMessageLlmContextTolerant(
     signal,
     throwOnError: false,
   });
-  if (!response || !response.ok || !data) return null;
+  if (!response || !response.ok || !data) {
+    return null;
+  }
   return data;
 }

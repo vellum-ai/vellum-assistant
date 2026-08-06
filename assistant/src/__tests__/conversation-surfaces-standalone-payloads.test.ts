@@ -19,19 +19,24 @@
 
 import { describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 
-let broadcastImpl: (msg: ServerMessage) => void = () => {};
+let broadcastImpl: (msg: AssistantEvent) => void = () => {};
 mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: (msg: ServerMessage) => broadcastImpl(msg),
+  broadcastMessage: (msg: AssistantEvent) => broadcastImpl(msg),
 }));
 
+import type { Conversation } from "../daemon/conversation.js";
 import {
   buildCompletionSummary,
+  createSurfaceMutex,
   handleSurfaceAction,
   showStandaloneSurface,
-  type SurfaceConversationContext,
 } from "../daemon/conversation-surfaces.js";
+import {
+  asConversation,
+  mockChannelCapabilities,
+} from "./helpers/mock-conversation.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -41,25 +46,25 @@ function createMockContext(
     supportsDynamicUi: boolean;
     channel: string;
   }>,
-): SurfaceConversationContext & {
-  sentMessages: ServerMessage[];
+): Conversation & {
+  sentMessages: AssistantEvent[];
   enqueuedMessages: Array<{ content: string; requestId: string }>;
 } {
-  const sentMessages: ServerMessage[] = [];
-  broadcastImpl = (msg: ServerMessage) => sentMessages.push(msg);
+  const sentMessages: AssistantEvent[] = [];
+  broadcastImpl = (msg: AssistantEvent) => sentMessages.push(msg);
   const enqueuedMessages: Array<{ content: string; requestId: string }> = [];
 
-  return {
+  return asConversation({
     conversationId: "payload-test-conv",
     assistantId: undefined,
     trustContext: undefined,
     channelCapabilities: overrides?.channel
-      ? {
+      ? mockChannelCapabilities({
           channel: overrides.channel,
           supportsDynamicUi: overrides.supportsDynamicUi ?? true,
-        }
+        })
       : undefined,
-    sendToClient: (msg: ServerMessage) => sentMessages.push(msg),
+    sendToClient: (msg: AssistantEvent) => sentMessages.push(msg),
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
     surfaceState: new Map(),
@@ -81,17 +86,16 @@ function createMockContext(
     },
     getQueueDepth: () => 0,
     processMessage: async () => "msg-id",
-    withSurface: async <T>(_surfaceId: string, fn: () => T | Promise<T>) =>
-      fn(),
+    withSurface: createSurfaceMutex(),
     sentMessages,
     enqueuedMessages,
-  };
+  });
 }
 
 type AnyRecord = Record<string, unknown>;
 
 function findByType(
-  messages: ServerMessage[],
+  messages: AssistantEvent[],
   type: string,
 ): AnyRecord | undefined {
   return messages.find(
@@ -99,7 +103,7 @@ function findByType(
   ) as unknown as AnyRecord | undefined;
 }
 
-function findAllByType(messages: ServerMessage[], type: string): AnyRecord[] {
+function findAllByType(messages: AssistantEvent[], type: string): AnyRecord[] {
   return messages.filter(
     (m) => (m as unknown as AnyRecord).type === type,
   ) as unknown as AnyRecord[];

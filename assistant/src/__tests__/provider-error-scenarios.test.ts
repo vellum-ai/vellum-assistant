@@ -1,10 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // Only mock sleep so retries complete instantly; keep real retry logic.
 // NOTE: We must NOT use `await import()` inside mock.module — it deadlocks
 // bun's module resolver. Instead, inline the real exports and only replace sleep.
@@ -25,9 +20,13 @@ mock.module("../util/retry.js", () => {
 
   function parseRetryAfterMs(value: string): number | undefined {
     const seconds = Number(value);
-    if (!isNaN(seconds)) return seconds * 1000;
+    if (!isNaN(seconds)) {
+      return seconds * 1000;
+    }
     const dateMs = Date.parse(value);
-    if (!isNaN(dateMs)) return Math.max(0, dateMs - Date.now());
+    if (!isNaN(dateMs)) {
+      return Math.max(0, dateMs - Date.now());
+    }
     return undefined;
   }
 
@@ -39,7 +38,9 @@ mock.module("../util/retry.js", () => {
     const retryAfter = response.headers.get("retry-after");
     if (retryAfter) {
       const parsed = parseRetryAfterMs(retryAfter);
-      if (parsed !== undefined) return parsed;
+      if (parsed !== undefined) {
+        return parsed;
+      }
     }
     const effectiveBase = attempt === 0 ? baseDelayMs * 2 : baseDelayMs;
     return Math.max(baseDelayMs, computeRetryDelay(attempt, effectiveBase));
@@ -55,7 +56,9 @@ mock.module("../util/retry.js", () => {
   ];
 
   function isRetryableNetworkError(error: unknown): boolean {
-    if (!(error instanceof Error)) return false;
+    if (!(error instanceof Error)) {
+      return false;
+    }
     const retryableCodes = new Set([
       "ECONNRESET",
       "ECONNREFUSED",
@@ -63,10 +66,14 @@ mock.module("../util/retry.js", () => {
       "EPIPE",
     ]);
     const code = (error as NodeJS.ErrnoException).code;
-    if (code && retryableCodes.has(code)) return true;
+    if (code && retryableCodes.has(code)) {
+      return true;
+    }
     if (error.cause instanceof Error) {
       const causeCode = (error.cause as NodeJS.ErrnoException).code;
-      if (causeCode && retryableCodes.has(causeCode)) return true;
+      if (causeCode && retryableCodes.has(causeCode)) {
+        return true;
+      }
     }
     if (RETRYABLE_NETWORK_MESSAGE_PATTERNS.some((p) => p.test(error.message))) {
       return true;
@@ -82,14 +89,18 @@ mock.module("../util/retry.js", () => {
   }
 
   function extractRetryAfterMs(headers: unknown): number | undefined {
-    if (!headers) return undefined;
+    if (!headers) {
+      return undefined;
+    }
     let raw: string | null | undefined;
     if (typeof (headers as { get?: unknown }).get === "function") {
       raw = (headers as { get(k: string): string | null }).get("retry-after");
     } else if (typeof headers === "object") {
       raw = (headers as Record<string, string>)["retry-after"];
     }
-    if (typeof raw === "string") return parseRetryAfterMs(raw);
+    if (typeof raw === "string") {
+      return parseRetryAfterMs(raw);
+    }
     return undefined;
   }
 
@@ -151,7 +162,9 @@ function makeFlaky(
     calls: 0,
     async sendMessage(): Promise<ProviderResponse> {
       p.calls++;
-      if (p.calls <= failCount) throw error;
+      if (p.calls <= failCount) {
+        throw error;
+      }
       return successResponse();
     },
   };
@@ -216,6 +229,28 @@ describe("RetryProvider — rate limit backoff", () => {
       expect(pe.provider).toBe("anthropic");
       expect(pe.statusCode).toBe(429);
       expect(pe.message).toBe("quota exceeded");
+    }
+  });
+
+  test("attributes the credential selected for the failed request", async () => {
+    const inner = makeFailing(
+      new ProviderError("invalid key", "anthropic", 401),
+    );
+    const provider = new RetryProvider(inner, {
+      credentialSource: "byok",
+      connectionName: "anthropic-personal",
+    });
+
+    try {
+      await provider.sendMessage(MESSAGES);
+      expect(true).toBe(false);
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProviderError);
+      const providerError = err as ProviderError;
+      expect(providerError.routeAttribution).toMatchObject({
+        credentialSource: "byok",
+        connectionName: "anthropic-personal",
+      });
     }
   });
 
@@ -317,6 +352,124 @@ describe("RetryProvider — rate limit backoff", () => {
     const sleepCalls = sleepSpy.mock.calls;
     const lastDelay = sleepCalls[sleepCalls.length - 1][0];
     expect(lastDelay).toBe(60_000);
+  });
+});
+
+describe("RetryProvider managed credential refresh", () => {
+  test("reloads managed credentials once and keeps the refreshed provider", async () => {
+    sleepSpy.mockClear();
+    const initial = makeFailing(
+      new ProviderError("assistant key expired", "anthropic", 403, {
+        reason: "invalid_credentials",
+      }),
+      "anthropic",
+    );
+    const refreshed = makeFlaky(
+      0,
+      new ProviderError("unused", "anthropic"),
+      "anthropic",
+    );
+    let refreshCalls = 0;
+    const provider = new RetryProvider(initial, {
+      credentialSource: "vellum-managed",
+      connectionName: "vellum",
+      refreshCredentialProvider: async () => {
+        refreshCalls++;
+        return refreshed;
+      },
+    });
+
+    await expect(provider.sendMessage(MESSAGES)).resolves.toMatchObject({
+      model: "test-model",
+    });
+    await expect(provider.sendMessage(MESSAGES)).resolves.toMatchObject({
+      model: "test-model",
+    });
+
+    expect(initial.calls).toBe(1);
+    expect(refreshed.calls).toBe(2);
+    expect(refreshCalls).toBe(1);
+    expect(sleepSpy).not.toHaveBeenCalled();
+  });
+
+  test("surfaces a managed auth failure when refreshed credentials are also rejected", async () => {
+    const initial = makeFailing(
+      new ProviderError("old key rejected", "gemini", 401),
+      "gemini",
+    );
+    const refreshed = makeFailing(
+      new ProviderError("new key rejected", "gemini", 403),
+      "gemini",
+    );
+    let refreshCalls = 0;
+    const provider = new RetryProvider(initial, {
+      credentialSource: "vellum-managed",
+      connectionName: "vellum",
+      refreshCredentialProvider: async () => {
+        refreshCalls++;
+        return refreshed;
+      },
+    });
+
+    try {
+      await provider.sendMessage(MESSAGES);
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      const providerError = error as ProviderError;
+      expect(providerError.message).toBe("new key rejected");
+      expect(providerError.routeAttribution).toMatchObject({
+        credentialSource: "vellum-managed",
+        connectionName: "vellum",
+      });
+    }
+    expect(initial.calls).toBe(1);
+    expect(refreshed.calls).toBe(1);
+    expect(refreshCalls).toBe(1);
+  });
+
+  test("does not reload credentials for a personal provider key rejection", async () => {
+    const initial = makeFailing(
+      new ProviderError("personal key rejected", "anthropic", 401),
+      "anthropic",
+    );
+    let refreshCalls = 0;
+    const provider = new RetryProvider(initial, {
+      credentialSource: "byok",
+      refreshCredentialProvider: async () => {
+        refreshCalls++;
+        return null;
+      },
+    });
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow(
+      "personal key rejected",
+    );
+    expect(initial.calls).toBe(1);
+    expect(refreshCalls).toBe(0);
+  });
+
+  test("does not reload managed credentials for a model restriction", async () => {
+    const initial = makeFailing(
+      new ProviderError("model unavailable", "anthropic", 403, {
+        reason: "model_restricted",
+      }),
+      "anthropic",
+    );
+    let refreshCalls = 0;
+    const provider = new RetryProvider(initial, {
+      credentialSource: "vellum-managed",
+      refreshCredentialProvider: async () => {
+        refreshCalls++;
+        return null;
+      },
+    });
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow(
+      "model unavailable",
+    );
+    expect(initial.calls).toBe(1);
+    expect(refreshCalls).toBe(0);
   });
 });
 
@@ -441,6 +594,59 @@ describe("RetryProvider — server error retries", () => {
       "invalid input",
     );
     expect(inner.calls).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RetryProvider — reason-driven retryability
+// ---------------------------------------------------------------------------
+
+describe("RetryProvider — reason-driven retryability", () => {
+  for (const reason of [
+    "rate_limited",
+    "overloaded",
+    "server_error",
+  ] as const) {
+    test(`retries a ProviderError with reason=${reason}`, async () => {
+      const inner = makeFlaky(
+        1,
+        new ProviderError("transient", "openai", undefined, { reason }),
+      );
+      const provider = new RetryProvider(inner);
+
+      const result = await provider.sendMessage(MESSAGES);
+      expect(result.stopReason).toBe("end_turn");
+      expect(inner.calls).toBe(2);
+    });
+  }
+
+  for (const reason of [
+    "invalid_credentials",
+    "model_restricted",
+    "context_overflow",
+  ] as const) {
+    test(`does NOT retry a ProviderError with reason=${reason}`, async () => {
+      // A retryable-looking 429 status must not override a terminal reason.
+      const inner = makeFailing(
+        new ProviderError("terminal", "openai", 429, { reason }),
+      );
+      const provider = new RetryProvider(inner);
+
+      await expect(provider.sendMessage(MESSAGES)).rejects.toThrow("terminal");
+      expect(inner.calls).toBe(1);
+    });
+  }
+
+  test("reason=unknown falls through to the status fallback (429 retries)", async () => {
+    const inner = makeFlaky(
+      1,
+      new ProviderError("rate limited", "openai", 429, { reason: "unknown" }),
+    );
+    const provider = new RetryProvider(inner);
+
+    const result = await provider.sendMessage(MESSAGES);
+    expect(result.stopReason).toBe("end_turn");
+    expect(inner.calls).toBe(2);
   });
 });
 
@@ -643,6 +849,21 @@ describe("RetryProvider — streaming corruption retries", () => {
     expect(inner.calls).toBe(2);
   });
 
+  test("retries on 'Unable to parse tool parameter JSON' (invalid tool-args JSON in stream)", async () => {
+    const inner = makeFlaky(
+      1,
+      new ProviderError(
+        'Anthropic request failed: Unable to parse tool parameter JSON from model. Please retry your request or adjust your prompt. Error: SyntaxError: JSON Parse error: Unterminated string. JSON: {"path": "/workspace/config.json", "content',
+        "anthropic",
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    const result = await provider.sendMessage(MESSAGES);
+    expect(result.stopReason).toBe("end_turn");
+    expect(inner.calls).toBe(2);
+  });
+
   test("throws after exhausting retries on persistent stream corruption", async () => {
     const inner = makeFailing(
       new ProviderError(
@@ -656,6 +877,84 @@ describe("RetryProvider — streaming corruption retries", () => {
       "Unexpected event order",
     );
     expect(inner.calls).toBe(DEFAULT_MAX_RETRIES + 1);
+  });
+
+  /** Provider that fails N times then succeeds, recording each call's messages. */
+  function makeCapturingFlaky(
+    failCount: number,
+    error: Error,
+  ): Provider & { calls: number; seen: Message[][] } {
+    const p = {
+      name: "capturing",
+      calls: 0,
+      seen: [] as Message[][],
+      async sendMessage(messages: Message[]): Promise<ProviderResponse> {
+        p.calls++;
+        p.seen.push(messages);
+        if (p.calls <= failCount) {
+          throw error;
+        }
+        return successResponse();
+      },
+    };
+    return p;
+  }
+
+  const PARSE_ERROR = new ProviderError(
+    "Anthropic request failed: Unable to parse tool parameter JSON from " +
+      "model. Please retry your request or adjust your prompt. Error: " +
+      "SyntaxError: JSON Parse error: Expected ']'. JSON: {\"content\": [Jul",
+    "anthropic",
+  );
+
+  test("tool-JSON parse retries append a corrective note to the latest user message", async () => {
+    const inner = makeCapturingFlaky(1, PARSE_ERROR);
+    const provider = new RetryProvider(inner);
+
+    await provider.sendMessage(MESSAGES);
+
+    expect(inner.calls).toBe(2);
+    // First attempt sends the caller's messages untouched.
+    expect(inner.seen[0]).toBe(MESSAGES);
+    // Retry appends exactly one trailing text block to the last user message.
+    const retried = inner.seen[1]!;
+    const lastMessage = retried[retried.length - 1]!;
+    expect(lastMessage.role).toBe("user");
+    expect(lastMessage.content).toHaveLength(2);
+    const hint = lastMessage.content[1] as { type: string; text: string };
+    expect(hint.type).toBe("text");
+    expect(hint.text).toContain("strict JSON");
+    // The caller's array is never mutated.
+    expect(MESSAGES[MESSAGES.length - 1]!.content).toHaveLength(1);
+  });
+
+  test("the corrective note is applied once across repeated parse failures", async () => {
+    const inner = makeCapturingFlaky(3, PARSE_ERROR);
+    const provider = new RetryProvider(inner);
+
+    await provider.sendMessage(MESSAGES);
+
+    expect(inner.calls).toBe(4);
+    for (const attempt of inner.seen.slice(1)) {
+      const lastMessage = attempt[attempt.length - 1]!;
+      expect(lastMessage.content).toHaveLength(2);
+    }
+  });
+
+  test("other stream-corruption retries resend the messages untouched", async () => {
+    const inner = makeCapturingFlaky(
+      1,
+      new ProviderError(
+        "Anthropic request failed: request ended without sending any chunks",
+        "anthropic",
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    await provider.sendMessage(MESSAGES);
+
+    expect(inner.calls).toBe(2);
+    expect(inner.seen[1]).toBe(MESSAGES);
   });
 
   test("does not retry non-stream ProviderError without status code", async () => {

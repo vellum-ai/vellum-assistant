@@ -37,7 +37,9 @@ const log = getLogger("media-resolve");
  * when a reference can no longer be resolved.
  */
 export function mediaSourceBytes(source: MediaSource): Buffer | null {
-  if (source.type === "base64") return Buffer.from(source.data, "base64");
+  if (source.type === "base64") {
+    return Buffer.from(source.data, "base64");
+  }
   return getAttachmentContent(source.attachmentId);
 }
 
@@ -69,7 +71,9 @@ export function base64Source<T extends MediaSource>(
  * without decoding or a disk read.
  */
 export function mediaSourceByteLength(source: MediaSource): number {
-  if (source.type === "workspace_ref") return source.sizeBytes;
+  if (source.type === "workspace_ref") {
+    return source.sizeBytes;
+  }
   return Math.floor((source.data.length * 3) / 4);
 }
 
@@ -86,12 +90,16 @@ export function resolveMediaSourceData(
     return { data: source.data, media_type: source.media_type };
   }
   const bytes = getAttachmentContent(source.attachmentId);
-  if (!bytes) return null;
+  if (!bytes) {
+    return null;
+  }
   return { data: bytes.toString("base64"), media_type: source.media_type };
 }
 
-function resolveImageBlock(block: ImageContent): ContentBlock {
-  if (block.source.type === "base64") return block;
+async function resolveImageBlock(block: ImageContent): Promise<ContentBlock> {
+  if (block.source.type === "base64") {
+    return block;
+  }
   const bytes = getAttachmentContent(block.source.attachmentId);
   if (!bytes) {
     log.warn(
@@ -105,7 +113,7 @@ function resolveImageBlock(block: ImageContent): ContentBlock {
   }
   // Apply the same transport optimization the inline-base64 path used, so a
   // reloaded (reference) turn sends the model the same bytes a live turn would.
-  const { data, mediaType } = optimizeImageForTransport(
+  const { data, mediaType } = await optimizeImageForTransport(
     bytes.toString("base64"),
     block.source.media_type,
   );
@@ -116,7 +124,9 @@ function resolveImageBlock(block: ImageContent): ContentBlock {
 }
 
 function resolveFileBlock(block: FileContent): ContentBlock {
-  if (block.source.type === "base64") return block;
+  if (block.source.type === "base64") {
+    return block;
+  }
   const { attachmentId, media_type, filename } = block.source;
   const bytes = getAttachmentContent(attachmentId);
   if (!bytes) {
@@ -151,7 +161,7 @@ function resolveFileBlock(block: FileContent): ContentBlock {
   };
 }
 
-function resolveBlock(block: ContentBlock): ContentBlock {
+async function resolveBlock(block: ContentBlock): Promise<ContentBlock> {
   switch (block.type) {
     case "image":
       return resolveImageBlock(block);
@@ -159,8 +169,13 @@ function resolveBlock(block: ContentBlock): ContentBlock {
       return resolveFileBlock(block);
     case "tool_result": {
       // Nested media (e.g. a browser screenshot) may also carry references.
-      if (!block.contentBlocks?.length) return block;
-      return { ...block, contentBlocks: block.contentBlocks.map(resolveBlock) };
+      if (!block.contentBlocks?.length) {
+        return block;
+      }
+      return {
+        ...block,
+        contentBlocks: await Promise.all(block.contentBlocks.map(resolveBlock)),
+      };
     }
     default:
       return block;
@@ -185,9 +200,18 @@ function contentHasReference(content: ContentBlock[]): boolean {
  * (same object reference) so the common all-base64 live turn does no allocation
  * or disk I/O.
  */
-export function resolveMediaReferences(messages: Message[]): Message[] {
-  return messages.map((message) => {
-    if (!contentHasReference(message.content)) return message;
-    return { ...message, content: message.content.map(resolveBlock) };
-  });
+export function resolveMediaReferences(
+  messages: Message[],
+): Promise<Message[]> {
+  return Promise.all(
+    messages.map(async (message) => {
+      if (!contentHasReference(message.content)) {
+        return message;
+      }
+      return {
+        ...message,
+        content: await Promise.all(message.content.map(resolveBlock)),
+      };
+    }),
+  );
 }

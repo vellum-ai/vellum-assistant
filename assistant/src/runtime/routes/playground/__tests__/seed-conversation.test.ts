@@ -4,10 +4,6 @@ mock.module("../../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
 }));
 
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => ({}),
-}));
-
 type AddMessageArgs = [
   string,
   "user" | "assistant",
@@ -47,7 +43,9 @@ function findRoute() {
   const route = ROUTES.find(
     (r) => r.operationId === "playgroundSeedConversation",
   );
-  if (!route) throw new Error("seed-conversation route not registered");
+  if (!route) {
+    throw new Error("seed-conversation route not registered");
+  }
   return route;
 }
 

@@ -7,12 +7,7 @@
  * - `start`/`stop` must be idempotent and safe to call in any order so daemon
  *   startup and the two shutdown paths can call them unconditionally.
  */
-import { describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
+import { describe, expect, test } from "bun:test";
 
 const { evaluateTick, startEventLoopWatchdog, stopEventLoopWatchdog } =
   await import("./event-loop-watchdog.js");

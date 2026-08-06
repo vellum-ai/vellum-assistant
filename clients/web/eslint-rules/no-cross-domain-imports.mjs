@@ -68,15 +68,21 @@ export const noCrossDomainImports = {
   create(context) {
     const filePath = context.filename ?? context.getFilename();
     const owner = ownDomainFor(filePath);
-    if (!owner) return {};
+    if (!owner) {
+      return {};
+    }
 
     const allowlist = loadAllowlist();
     const allowedTargets = new Set(allowlist[relKey(filePath)] ?? []);
 
     function check(node, source) {
       const target = targetDomainFor(source, filePath);
-      if (!target || target === owner) return;
-      if (allowedTargets.has(target)) return;
+      if (!target || target === owner) {
+        return;
+      }
+      if (allowedTargets.has(target)) {
+        return;
+      }
       context.report({
         node,
         messageId: "crossDomain",
@@ -89,13 +95,19 @@ export const noCrossDomainImports = {
         check(node, node.source.value);
       },
       ImportExpression(node) {
-        if (node.source.type === "Literal") check(node, node.source.value);
+        if (node.source.type === "Literal") {
+          check(node, node.source.value);
+        }
       },
       ExportAllDeclaration(node) {
-        if (node.source) check(node, node.source.value);
+        if (node.source) {
+          check(node, node.source.value);
+        }
       },
       ExportNamedDeclaration(node) {
-        if (node.source) check(node, node.source.value);
+        if (node.source) {
+          check(node, node.source.value);
+        }
       },
       // TypeScript inline type imports: `type T = import("@/domains/x/y").Z`.
       // Distinct AST node from `ImportExpression` (which is the runtime

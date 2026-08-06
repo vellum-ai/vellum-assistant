@@ -6,12 +6,6 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 // Replace `clearMessagesLexicalIndex` while keeping the rest of the module
 // REAL. `mock.module` is process-global and not undone by `mock.restore()`, so
 // a partial mock that drops the other exports would leak into any later test

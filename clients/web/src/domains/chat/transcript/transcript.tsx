@@ -1,4 +1,3 @@
-
 import {
   Fragment,
   forwardRef,
@@ -11,13 +10,16 @@ import {
 } from "react";
 
 import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn";
+import { resolveResponseDocumentIds } from "@/domains/chat/transcript/resolve-response-documents";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
+import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 
 import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row";
 import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinner";
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
 import { PULL_THRESHOLD_PX } from "@/domains/chat/transcript/pull-to-refresh-utils";
 import { usePullToRefresh } from "@/domains/chat/transcript/use-pull-to-refresh";
+import { useHideIdleScrollbar } from "@/domains/chat/transcript/use-hide-idle-scrollbar";
 import { useViewportMinHeight } from "@/domains/chat/transcript/use-viewport-min-height";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -40,13 +42,13 @@ export interface TranscriptProps {
   items: TranscriptItem[];
   conversationId: string | null;
   assistantDisplayName?: string | null;
-  onSurfaceAction: (
-    surfaceId: string,
-    action: string,
-    input?: unknown,
-  ) => void;
+  onSurfaceAction: (surfaceId: string, action: string, input?: unknown) => void;
   /** Callback for "Fork from here" from a message's hover actions. */
   onForkConversation?: (messageId: string) => void;
+  /** Callback for "Summarize up to here" from a message's hover actions. */
+  onSummarizeUpToHere?: (messageId: string) => void;
+  /** Callback for "Retry" from the latest assistant message's hover actions. */
+  onRetryLatestTurn?: () => void;
   /** Callback for "Inspect" from a message's hover actions. */
   onInspectMessage?: (messageId: string) => void;
 
@@ -78,7 +80,9 @@ export interface TranscriptProps {
     toolCall: ChatMessageToolCall,
   ) => void | Promise<void>;
   /** Callback when the user picks "Allow & Create Rule" from the split button. */
-  onAllowAndCreateRule?: (toolCall: ChatMessageToolCall) => void | Promise<void>;
+  onAllowAndCreateRule?: (
+    toolCall: ChatMessageToolCall,
+  ) => void | Promise<void>;
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   /** Forwarded to inline app surfaces so they can render live preview iframes. */
@@ -148,23 +152,40 @@ export interface TranscriptHandle {
 
 export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
   function Transcript(props, ref) {
-    const { items, conversationId, onPullRefresh, pullRefreshEnabled, ...rest } =
-      props;
+    const {
+      items,
+      conversationId,
+      onPullRefresh,
+      pullRefreshEnabled,
+      ...rest
+    } = props;
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
+    const latestEdgeSpacerRef = useRef<HTMLDivElement | null>(null);
     // Pending removal of the transient deep-link highlight class.
-    const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+      null,
+    );
     const viewportMinHeight = useViewportMinHeight(scrollRef);
+    const hideIdleScrollbar = useHideIdleScrollbar(
+      scrollRef,
+      contentRef,
+      latestEdgeSpacerRef,
+    );
 
     useEffect(() => {
       return () => {
-        if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+        if (highlightTimerRef.current) {
+          clearTimeout(highlightTimerRef.current);
+        }
       };
     }, []);
 
     const pullEnabled = !!pullRefreshEnabled && !!onPullRefresh;
     const handlePullRefresh = useCallback(async () => {
-      if (!onPullRefresh) return;
+      if (!onPullRefresh) {
+        return;
+      }
       await onPullRefresh();
     }, [onPullRefresh]);
     const pull = usePullToRefresh({
@@ -173,15 +194,31 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       enabled: pullEnabled,
     });
 
-
     const partition = useMemo(() => partitionLatestTurn(items), [items]);
+    const latestHistoryMessageIndex = partition.anchorMessage
+      ? -1
+      : partition.historyItems.findLastIndex((item) => item.kind === "message");
+
+    // A document a response changed earns one reopen link at the end of that
+    // response, not one per message that wrote to it. Resolved here because
+    // this is where the flat item list is read as turns; the in-flight response
+    // is withheld until the turn settles, `awaiting_user_input` included, so a
+    // paused turn never reads as finished.
+    const turnPhase = useTurnStore.use.phase();
+    const turnActive = isSending(turnPhase);
+    const changedDocumentIdsByKey = useMemo(
+      () => resolveResponseDocumentIds(items, { turnActive }),
+      [items, turnActive],
+    );
 
     useImperativeHandle(
       ref,
       (): TranscriptHandle => ({
         scrollToLatest(opts) {
           const el = scrollRef.current;
-          if (!el) return;
+          if (!el) {
+            return;
+          }
           el.scrollTo({
             top: el.scrollHeight - el.clientHeight,
             behavior: opts?.behavior ?? "auto",
@@ -189,7 +226,9 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
         },
         scrollToMessage(messageId) {
           const target = document.getElementById(`msg-${messageId}`);
-          if (!target) return false;
+          if (!target) {
+            return false;
+          }
           target.scrollIntoView({ block: "center", behavior: "smooth" });
           target.classList.add("message-highlighted");
           if (highlightTimerRef.current) {
@@ -227,8 +266,10 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
           return {
             distanceFromBottom,
             isPinned: distanceFromBottom <= PINNED_THRESHOLD_PX,
-            showScrollToLatest: rest.scrollCoordinatorState?.showScrollToLatest ?? false,
-            shouldLoadOlder: rest.scrollCoordinatorState?.shouldLoadOlder ?? false,
+            showScrollToLatest:
+              rest.scrollCoordinatorState?.showScrollToLatest ?? false,
+            shouldLoadOlder:
+              rest.scrollCoordinatorState?.shouldLoadOlder ?? false,
           };
         },
       }),
@@ -239,6 +280,8 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       conversationId,
       onSurfaceAction: rest.onSurfaceAction,
       onForkConversation: rest.onForkConversation,
+      onSummarizeUpToHere: rest.onSummarizeUpToHere,
+      onRetryLatestTurn: rest.onRetryLatestTurn,
       onInspectMessage: rest.onInspectMessage,
       renderOnboardingChoice: rest.renderOnboardingChoice,
       assistantDisplayName: rest.assistantDisplayName,
@@ -261,7 +304,11 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
         key={conversationId}
         ref={scrollRef}
         data-testid="transcript-scroll-container"
-        className="flex h-full w-full flex-col overflow-y-auto overscroll-none [overflow-anchor:none]"
+        className={`flex h-full w-full flex-col overflow-y-auto overscroll-none [overflow-anchor:none] ${
+          hideIdleScrollbar
+            ? "[&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
+            : ""
+        }`}
       >
         {/* Inner content wrapper — observed by the scroll coordinator's
          *  ResizeObserver so we can re-pin to bottom when scroll content
@@ -269,11 +316,23 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
          *  streaming growth). Wrapping all rows in a single observed
          *  element is cheaper than observing each row individually. */}
         <div ref={contentRef} className="flex w-full flex-col">
-          {/* History items in chronological order — oldest at top. */}
-          {partition.historyItems.map((item) => (
+          {/* History items in chronological order — oldest at top. In the
+           *  no-anchor mode (assistant-only history, e.g. recovered
+           *  conversation) the avatar renders directly below the history
+           *  list, so its last message-kind item is the "latest message" and
+           *  collapses its hover-actions row — trailing non-message rows
+           *  (thinking slot, pending prompts, ephemeral meta) carry no
+           *  trailer, so the flag skips past them. With an anchor present
+           *  the latest turn owns the flag instead (see `LatestTurnRow`). */}
+          {partition.historyItems.map((item, i) => (
             <Fragment key={item.key}>
               <div className="mx-auto w-full max-w-[var(--chat-max-width)] contain-content px-4 sm:px-6">
-                <TranscriptRow item={item} {...rowProps} />
+                <TranscriptRow
+                  item={item}
+                  {...rowProps}
+                  changedDocumentIds={changedDocumentIdsByKey.get(item.key)}
+                  isLatestMessage={i === latestHistoryMessageIndex}
+                />
               </div>
             </Fragment>
           ))}
@@ -321,6 +380,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
                   anchorMessage={partition.anchorMessage}
                   responseItems={partition.responseItems}
                   {...rowProps}
+                  changedDocumentIdsByKey={changedDocumentIdsByKey}
                 />
               )}
               {rest.renderAvatar && (
@@ -332,7 +392,11 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
                 </div>
               )}
               {partition.anchorMessage && (
-                <div data-latest-edge-spacer="true" className="flex-1" />
+                <div
+                  ref={latestEdgeSpacerRef}
+                  data-latest-edge-spacer="true"
+                  className="flex-1"
+                />
               )}
               <div aria-hidden data-latest-edge="true" />
             </div>

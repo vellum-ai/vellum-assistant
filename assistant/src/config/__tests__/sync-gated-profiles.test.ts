@@ -27,30 +27,11 @@ function ensureTestDir(): void {
     join(WORKSPACE_DIR, "data", "logs"),
   ];
   for (const dir of dirs) {
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
   }
 }
-
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
 
 afterAll(() => {
   mock.restore();
@@ -89,7 +70,9 @@ function seedBalancedConfig(): void {
 describe("reconcileFlagGatedProfiles", () => {
   beforeEach(() => {
     ensureTestDir();
-    if (existsSync(CONFIG_PATH)) rmSync(CONFIG_PATH, { force: true });
+    if (existsSync(CONFIG_PATH)) {
+      rmSync(CONFIG_PATH, { force: true });
+    }
     delete process.env.IS_PLATFORM;
     setOverridesForTesting({});
     invalidateConfigCache();
@@ -116,8 +99,8 @@ describe("reconcileFlagGatedProfiles", () => {
     // Through the effective view the stub resolves to the catalog body.
     const effective = getEffectiveProfile(raw.llm.profiles, "os-beta")!;
     expect(effective.model).toBe("MiniMaxAI/MiniMax-M3");
-    expect(effective.provider_connection).toBe("vellum");
-    expect(effective.provider).toBe("together");
+    expect(effective.provider_connection).toBeUndefined();
+    expect(effective.provider).toBe("vellum");
     expect(effective.source).toBe("managed");
     expect(effective.label).toBe("OS Beta");
     expect(effective.effort).toBe("low");
@@ -178,7 +161,7 @@ describe("reconcileFlagGatedProfiles", () => {
     expect(effective.label).toBe("My OS Beta");
     expect(effective.topP).toBe(0.8);
     expect(effective.model).toBe("MiniMaxAI/MiniMax-M3");
-    expect(effective.provider_connection).toBe("vellum");
+    expect(effective.provider_connection).toBeUndefined();
     expect(effective.effort).toBe("low");
   });
 

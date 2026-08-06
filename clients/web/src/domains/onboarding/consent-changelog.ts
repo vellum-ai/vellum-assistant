@@ -6,7 +6,7 @@
  * a courtesy summary shown on the review-terms screen — the canonical, complete
  * policy is always the linked document.
  *
- * Bump recipe: when you bump a `*_CONSENT_VERSION` in `onboarding-cleanup.ts`,
+ * Bump recipe: when you bump a `*_CONSENT_VERSION` in `consent-persistence.ts`,
  * add a matching dated entry to the corresponding map here describing the
  * change. A missing entry is harmless (renders nothing).
  */

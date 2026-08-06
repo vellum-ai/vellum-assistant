@@ -2,15 +2,15 @@
  * Tests for `ThemeToggle`.
  *
  * The component is a thin wrapper over the design-library `SegmentControl`
- * (icon-only mode). We mount it via `@testing-library/react` (backed by
- * happy-dom — see `clients/web/test-setup.ts`) and assert the user-facing
- * contract: the three base segments render as labelled radios, each glyph
- * carries the mock's 14px (`h-3.5 w-3.5`) sizing, and selecting a segment
- * persists + applies the chosen preference.
+ * (icon-only mode) backed by the shared `useThemePreference` hook. We mount it
+ * via `@testing-library/react` (happy-dom — see `clients/web/test-setup.ts`)
+ * and assert the user-facing contract: the three base segments render as
+ * labelled radios, each glyph carries the mock's 14px (`h-3.5 w-3.5`) sizing,
+ * and selecting a segment persists + applies the chosen preference.
  *
- * Theme state internals (`readStoredThemePreference` /
- * `writeStoredThemePreference` / `applyThemePreference`) and device-setting
- * watching are mocked — they're owned/tested elsewhere.
+ * The hook's internals (`readStoredThemePreference` /
+ * `writeStoredThemePreference` / `applyThemePreference` / `watchDeviceSetting`)
+ * are mocked — they're owned/tested elsewhere.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -29,17 +29,15 @@ mock.module("@/stores/client-feature-flag-store", () => {
   return { useClientFeatureFlagStore: store };
 });
 
-// `watchDeviceSetting(name, cb)` returns an unsubscribe function. The toggle
-// only registers it in an effect; we never fire it here.
-mock.module("@/utils/device-settings", () => ({
-  watchDeviceSetting: () => () => {},
-}));
-
 const writeStoredThemePreference = mock(() => {});
 const applyThemePreference = mock(() => {});
 const readStoredThemePreference = mock(() => "system" as const);
 
-mock.module("@/domains/settings/utils/theme-preferences", () => ({
+mock.module("@/utils/device-settings", () => ({
+  watchDeviceSetting: () => () => {},
+}));
+
+mock.module("@/utils/theme-preferences", () => ({
   readStoredThemePreference,
   writeStoredThemePreference,
   applyThemePreference,
@@ -111,7 +109,9 @@ describe("ThemeToggle selection", () => {
 
     expect(writeStoredThemePreference).toHaveBeenCalledTimes(1);
     expect(writeStoredThemePreference).toHaveBeenCalledWith("dark");
-    expect(applyThemePreference).toHaveBeenCalledTimes(1);
+    // applyThemePreference fires from the hook's effect: once on mount
+    // (applying the stored "system" preference) and once when the state
+    // changes to "dark".
     expect(applyThemePreference).toHaveBeenCalledWith("dark");
   });
 
@@ -119,9 +119,9 @@ describe("ThemeToggle selection", () => {
     readStoredThemePreference.mockReturnValue("system");
     render(<ThemeToggle />);
 
+    // SegmentControl does not fire onChange for the already-active segment.
     fireEvent.click(getRadio("System"));
 
     expect(writeStoredThemePreference).not.toHaveBeenCalled();
-    expect(applyThemePreference).not.toHaveBeenCalled();
   });
 });

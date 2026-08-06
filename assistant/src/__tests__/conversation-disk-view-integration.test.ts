@@ -13,36 +13,11 @@ import {
   rmSync,
 } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-// ---------------------------------------------------------------------------
-// Mocks — must come before any imports that depend on them
-// ---------------------------------------------------------------------------
+import { beforeEach, describe, expect, test } from "bun:test";
 
 const workspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 const conversationsDir = join(workspaceDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
-
-// ---------------------------------------------------------------------------
-// Imports — after mocks
-// ---------------------------------------------------------------------------
 
 import {
   linkAttachmentToMessage,
@@ -153,7 +128,11 @@ describe("addMessage + syncMessageToDisk → disk view", () => {
       skipIndexing: true,
     });
 
-    const att = uploadAttachment("screenshot.png", "image/png", "iVBORw0K");
+    const att = await uploadAttachment(
+      "screenshot.png",
+      "image/png",
+      "iVBORw0K",
+    );
     linkAttachmentToMessage(msg.id, att.id, 0);
 
     syncMessageToDisk(conv.id, msg.id, conv.createdAt);

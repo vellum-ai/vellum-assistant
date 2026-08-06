@@ -11,14 +11,7 @@
  *  4. Returns null when no usable URL is present.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { downloadSlackFile } from "../download.js";
 

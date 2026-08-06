@@ -301,6 +301,7 @@ export async function runAgenticRecall(
           // matters more than extended chain-of-thought.
           config: {
             callSite: "recall",
+            conversationId: context.conversationId,
             temperature: 0,
             thinking: { type: "disabled" },
           },
@@ -429,9 +430,13 @@ export function redactWorkspaceEvidence(
   evidence: readonly RecallEvidence[],
 ): readonly RecallEvidence[] {
   return evidence.map((item) => {
-    if (item.source !== "workspace") return item;
+    if (item.source !== "workspace") {
+      return item;
+    }
     const redacted = redactSecrets(item.excerpt);
-    if (redacted === item.excerpt) return item;
+    if (redacted === item.excerpt) {
+      return item;
+    }
     return { ...item, excerpt: redacted };
   });
 }
@@ -598,6 +603,7 @@ async function tryFinalFinishRecall(options: {
         // thinking is enabled or in adaptive mode.
         config: {
           callSite: "recall",
+          conversationId: options.context.conversationId,
           temperature: 0,
           thinking: { type: "disabled" },
         },

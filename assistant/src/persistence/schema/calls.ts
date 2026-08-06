@@ -90,29 +90,6 @@ export const externalConversationBindings = sqliteTable(
   },
 );
 
-export const channelGuardianApprovalRequests = sqliteTable(
-  "channel_guardian_approval_requests",
-  {
-    id: text("id").primaryKey(),
-    runId: text("run_id").notNull(),
-    requestId: text("request_id"),
-    conversationId: text("conversation_id").notNull(),
-    channel: text("channel").notNull(),
-    requesterExternalUserId: text("requester_external_user_id").notNull(),
-    requesterChatId: text("requester_chat_id").notNull(),
-    guardianExternalUserId: text("guardian_external_user_id").notNull(),
-    guardianChatId: text("guardian_chat_id").notNull(),
-    toolName: text("tool_name").notNull(),
-    riskLevel: text("risk_level"),
-    reason: text("reason"),
-    status: text("status").notNull().default("pending"),
-    decidedByExternalUserId: text("decided_by_external_user_id"),
-    expiresAt: integer("expires_at").notNull(),
-    createdAt: integer("created_at").notNull(),
-    updatedAt: integer("updated_at").notNull(),
-  },
-);
-
 export const mediaAssets = sqliteTable("media_assets", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),

@@ -1,6 +1,5 @@
 export type InlineThinkingSegment =
-  | { type: "text"; text: string }
-  | { type: "thinking"; thinking: string };
+  { type: "text"; text: string } | { type: "thinking"; thinking: string };
 
 // <think>/</think> is MiniMax's format; <thinking>/</thinking> is the
 // standard format. `<thinking>` never matches the `<think>` needle because
@@ -26,15 +25,21 @@ export function containsInlineThinkingTag(text: string): boolean {
 export function parseInlineThinkingTags(
   text: string,
 ): InlineThinkingSegment[] | null {
-  if (!containsInlineThinkingTag(text)) return null;
+  if (!containsInlineThinkingTag(text)) {
+    return null;
+  }
 
   const segments: InlineThinkingSegment[] = [];
   const pushText = (chunk: string) => {
-    if (chunk.trim()) segments.push({ type: "text", text: chunk });
+    if (chunk.trim()) {
+      segments.push({ type: "text", text: chunk });
+    }
   };
   const pushThinking = (chunk: string) => {
     const trimmed = chunk.trim();
-    if (trimmed) segments.push({ type: "thinking", thinking: trimmed });
+    if (trimmed) {
+      segments.push({ type: "thinking", thinking: trimmed });
+    }
   };
 
   let cursor = 0;
@@ -49,7 +54,9 @@ export function parseInlineThinkingTags(
         pair = candidate;
       }
     }
-    if (!pair) break;
+    if (!pair) {
+      break;
+    }
 
     pushText(text.slice(cursor, openIndex));
 

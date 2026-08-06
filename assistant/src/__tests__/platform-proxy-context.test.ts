@@ -2,14 +2,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { credentialKey } from "../security/credential-key.js";
 
-// Mock logger to suppress output
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Mutable state for env and secure key stubs
 let mockPlatformBaseUrl = "";
 let mockAssistantApiKey: string | null = null;

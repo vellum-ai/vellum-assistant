@@ -6,24 +6,12 @@
  * UI history list while remaining visible to the LLM-side history loader.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { setConfig } from "./helpers/set-config.js";
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
+// Keep the memory system off so addMessage skips indexing side effects.
+setConfig("memory", { enabled: false });
 
 import {
   _setPaginationScanCapForTesting,
@@ -82,7 +70,7 @@ describe("handleListMessages metadata.hidden filtering", () => {
       JSON.stringify([{ type: "text", text: "second visible" }]),
     );
 
-    const response = handleListMessages({
+    const response = await handleListMessages({
       queryParams: { conversationId: conv.id },
     });
     const body = response as { messages: MessagePayload[] };
@@ -121,7 +109,7 @@ describe("handleListMessages metadata.hidden filtering", () => {
     );
 
     // WHEN the UI history list is serialized
-    const response = handleListMessages({
+    const response = await handleListMessages({
       queryParams: { conversationId: conv.id },
     });
     const body = response as { messages: MessagePayload[] };
@@ -152,7 +140,7 @@ describe("handleListMessages metadata.hidden filtering", () => {
       { metadata: { hidden: false } },
     );
 
-    const response = handleListMessages({
+    const response = await handleListMessages({
       queryParams: { conversationId: conv.id },
     });
     const body = response as { messages: MessagePayload[] };
@@ -189,9 +177,9 @@ describe("handleListMessages metadata.hidden filtering", () => {
       );
     }
 
-    const latest = handleListMessages({
+    const latest = (await handleListMessages({
       queryParams: { conversationId: conv.id, page: "latest", limit: "2" },
-    }) as {
+    })) as {
       messages: MessagePayload[];
       hasMore: boolean;
       oldestTimestamp: number | null;
@@ -208,13 +196,13 @@ describe("handleListMessages metadata.hidden filtering", () => {
 
     // Older page request — anchored before the latest page's oldest row —
     // should skip the hidden block entirely and return the next 2 visible rows.
-    const older = handleListMessages({
+    const older = (await handleListMessages({
       queryParams: {
         conversationId: conv.id,
         beforeTimestamp: String(latest.oldestTimestamp),
         limit: "2",
       },
-    }) as {
+    })) as {
       messages: MessagePayload[];
       hasMore: boolean;
     };
@@ -226,7 +214,7 @@ describe("handleListMessages metadata.hidden filtering", () => {
     expect(older.hasMore).toBe(true);
   });
 
-  test("pagination keeps hasMore + a cursor when a >cap hidden block truncates the scan", () => {
+  test("pagination keeps hasMore + a cursor when a >cap hidden block truncates the scan", async () => {
     // Exercise cap-truncation with a small cap + a few hundred rows rather than
     // >10k: the large seed made the post-test resetTables DELETE slow enough to
     // time out the next test's beforeEach under parallel CI load.
@@ -270,9 +258,9 @@ describe("handleListMessages metadata.hidden filtering", () => {
         }
       });
 
-      const latest = handleListMessages({
+      const latest = (await handleListMessages({
         queryParams: { conversationId: conv.id, page: "latest", limit: "2" },
-      }) as {
+      })) as {
         messages: MessagePayload[];
         hasMore: boolean;
         oldestTimestamp: number | null;
@@ -286,13 +274,13 @@ describe("handleListMessages metadata.hidden filtering", () => {
 
       // Resuming from the surfaced cursor drains the remaining hidden rows and
       // surfaces the visible ones below the cap.
-      const older = handleListMessages({
+      const older = (await handleListMessages({
         queryParams: {
           conversationId: conv.id,
           beforeTimestamp: String(latest.oldestTimestamp),
           limit: "2",
         },
-      }) as { messages: MessagePayload[]; hasMore: boolean };
+      })) as { messages: MessagePayload[]; hasMore: boolean };
 
       expect(older.messages.map(plainText)).toEqual(["visible 0", "visible 1"]);
       expect(older.hasMore).toBe(false);
@@ -323,9 +311,9 @@ describe("handleListMessages metadata.hidden filtering", () => {
       );
     }
 
-    const latest = handleListMessages({
+    const latest = (await handleListMessages({
       queryParams: { conversationId: conv.id, page: "latest", limit: "2" },
-    }) as {
+    })) as {
       messages: MessagePayload[];
       hasMore: boolean;
       oldestTimestamp: number | null;
@@ -369,7 +357,7 @@ describe("handleListMessages metadata.hidden filtering", () => {
       JSON.stringify([{ type: "text", text: "retrospective review" }]),
     );
 
-    const response = handleListMessages({
+    const response = await handleListMessages({
       queryParams: { conversationId: conv.id },
     });
     const body = response as { messages: MessagePayload[] };
@@ -417,7 +405,7 @@ describe("handleListMessages metadata.hidden filtering", () => {
       JSON.stringify([{ type: "text", text: "retrospective review" }]),
     );
 
-    const response = handleListMessages({
+    const response = await handleListMessages({
       queryParams: { conversationId: conv.id },
     });
     const body = response as { messages: MessagePayload[] };

@@ -21,10 +21,11 @@ import { Tooltip } from "./tooltip";
  *
  * - Pass `variant` for chrome style and `size` for dimensions.
  * - Pass `leftIcon` / `rightIcon` for text+icon layouts.
- * - Pass `iconOnly` to render a square icon-only button (the icon is centered
- *   at the correct size for the chosen `size`). Without `asChild` the children
- *   are ignored; with `asChild` the caller's element (e.g. a `Link`) becomes
- *   the root and the icon is re-parented into it.
+ * - Pass the icon element as `iconOnly` (e.g. `iconOnly={<X />}`) to render a
+ *   square icon-only button (the icon is centered at the correct size for the
+ *   chosen `size`). Without `asChild` the children are ignored; with `asChild`
+ *   the caller's element (e.g. a `Link`) becomes the root and the icon is
+ *   re-parented into it.
  * - Use `asChild` to render as a child element (e.g. a `Link`) while keeping
  *   button styling and accessibility semantics. Uses Radix's `Slot`.
  * - Pass `expandOnMobile={false}` to opt an icon-only button out of the larger
@@ -235,7 +236,13 @@ export interface ButtonProps
   size?: ButtonSize;
   leftIcon?: ReactNode;
   rightIcon?: ReactNode;
-  iconOnly?: ReactNode;
+  /**
+   * The icon element itself, not a flag. `true` is excluded from the type
+   * because a bare `iconOnly` attribute would put the icon-only chrome on a
+   * button with no visible content (`leftIcon`/`rightIcon`/`children` are
+   * ignored in icon-only mode). `false` stays allowed for `cond && <Icon />`.
+   */
+  iconOnly?: Exclude<ReactNode, boolean> | false;
   fullWidth?: boolean;
   active?: boolean;
   /**
@@ -245,10 +252,27 @@ export interface ButtonProps
    * (e.g. a chip's remove "×") where the enlarged circle is undesirable.
    */
   expandOnMobile?: boolean;
+  /**
+   * Extra classes merged onto the icon-only glyph wrapper span (the element
+   * that carries the `[&_svg]:size-3.5` sizing). This is the supported way to
+   * resize an icon-only glyph: a call-site `className` lands on the button box,
+   * where an `[&_svg]:size-*` utility only ties with the wrapper's own svg rule
+   * and loses on source order. Because this string is merged onto the wrapper
+   * itself (last in `cn`), an `[&_svg]:size-5` here reliably wins. Ignored
+   * unless `iconOnly` is set.
+   */
+  iconOnlyGlyphClassName?: string;
   tintColor?: string;
   tooltip?: string;
   /** Side the tooltip is placed on. Defaults to Radix's "top". */
   tooltipSide?: "top" | "right" | "bottom" | "left";
+  /**
+   * Render as the child element (e.g. a `Link`) while keeping button
+   * styling and accessibility semantics. When combined with `leftIcon` /
+   * `rightIcon`, `children` must be a single React element: Radix's Slot
+   * re-parents the icons into it and throws (`Children.only`) on
+   * multi-node children.
+   */
   asChild?: boolean;
   children?: ReactNode;
 }
@@ -269,6 +293,7 @@ export function Button({
   fullWidth = false,
   active = false,
   expandOnMobile = true,
+  iconOnlyGlyphClassName,
   tintColor,
   tooltip,
   tooltipSide,
@@ -303,6 +328,10 @@ export function Button({
   const iconOnlyClass = cn(
     "inline-flex items-center justify-center shrink-0 size-3.5 [&_svg]:size-3.5",
     expandOnMobile && "touch-mobile:size-4 touch-mobile:[&_svg]:size-4",
+    // Merged last so a caller-supplied `[&_svg]:size-*` overrides the defaults
+    // above on the same element (source-order win), rather than fighting them
+    // from the button box via a lower-priority descendant selector.
+    iconOnlyGlyphClassName,
   );
 
   const Comp = asChild ? Slot : "button";
@@ -357,27 +386,29 @@ export function Button({
       ) : leftIcon == null && rightIcon == null ? (
         children
       ) : (
-        // When `asChild` is set, `Comp` is Radix's `Slot`, which forwards its
-        // props (e.g. `type`, `disabled`) onto its single React-element child.
-        // A bare Fragment can't accept those props — React 19 hard-errors with
-        // "Invalid prop `type` supplied to React.Fragment". `Slottable` marks
-        // `children` as the prop target so Slot clones the caller's element
-        // and re-parents the icons as its children. In the non-asChild path
-        // (`Comp === "button"`) Slottable is a transparent Fragment, so this
-        // is safe for both branches.
-        <>
-          {leftIcon != null ? (
-            <span aria-hidden="true" style={iconStyle}>
+        // When `asChild` is set, `Comp` is Radix's `Slot`, which looks for a
+        // `Slottable` among its DIRECT children (`Children.toArray(...).find`)
+        // to know which element receives the button props, then re-parents
+        // the sibling icons into that element. `Children.toArray` does not
+        // descend into Fragments, so these must be a keyed array: a `<>...</>`
+        // wrapper hides the Slottable and Slot falls back to cloning the
+        // Fragment itself, silently dropping className/style/type on it and
+        // leaving the caller's element unstyled. In the non-asChild path
+        // (`Comp === "button"`) Slottable renders as a transparent Fragment,
+        // so the array is safe for both branches.
+        [
+          leftIcon != null ? (
+            <span key="left-icon" aria-hidden="true" style={iconStyle}>
               {leftIcon}
             </span>
-          ) : null}
-          <Slottable>{children}</Slottable>
-          {rightIcon != null ? (
-            <span aria-hidden="true" style={iconStyle}>
+          ) : null,
+          <Slottable key="children">{children}</Slottable>,
+          rightIcon != null ? (
+            <span key="right-icon" aria-hidden="true" style={iconStyle}>
               {rightIcon}
             </span>
-          ) : null}
-        </>
+          ) : null,
+        ]
       )}
     </Comp>
   );

@@ -1,6 +1,9 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-interface MockProfileEntry {
+import { getModelProfiles } from "../plugin-api/index.js";
+import { setConfig } from "./helpers/set-config.js";
+
+interface FixtureProfileEntry {
   label?: string;
   description?: string;
   provider?: string;
@@ -8,32 +11,6 @@ interface MockProfileEntry {
   status?: string;
   mix?: unknown;
 }
-
-let mockProfiles: Record<string, MockProfileEntry> = {};
-let mockActiveProfile: string | undefined;
-let mockProfileOrder: string[] | undefined;
-
-const realConfigLoader = await import("../config/loader.js");
-
-mock.module("../config/loader.js", () => ({
-  ...realConfigLoader,
-  getConfig: () => ({
-    llm: {
-      profiles: mockProfiles,
-      activeProfile: mockActiveProfile,
-      profileOrder: mockProfileOrder,
-    },
-  }),
-  getConfigReadOnly: () => ({
-    llm: {
-      profiles: mockProfiles,
-      activeProfile: mockActiveProfile,
-      profileOrder: mockProfileOrder,
-    },
-  }),
-}));
-
-const { getModelProfiles } = await import("../plugin-api/index.js");
 
 /**
  * `getModelProfiles()` — the runtime handle a plugin (e.g. a model router) calls
@@ -46,21 +23,21 @@ const { getModelProfiles } = await import("../plugin-api/index.js");
 
 function writeFixtureConfig(config: {
   llm?: {
-    profiles?: Record<string, MockProfileEntry>;
+    profiles?: Record<string, FixtureProfileEntry>;
     activeProfile?: string;
     profileOrder?: string[];
   };
 }): void {
-  mockProfiles = config.llm?.profiles ?? {};
-  mockActiveProfile = config.llm?.activeProfile;
-  mockProfileOrder = config.llm?.profileOrder;
+  setConfig("llm", {
+    profiles: config.llm?.profiles ?? {},
+    activeProfile: config.llm?.activeProfile,
+    profileOrder: config.llm?.profileOrder,
+  });
 }
 
 describe("getModelProfiles", () => {
   beforeEach(() => {
-    mockProfiles = {};
-    mockActiveProfile = undefined;
-    mockProfileOrder = undefined;
+    writeFixtureConfig({});
   });
 
   test("orders profiles by profileOrder then the remaining keys alphabetically", () => {
@@ -87,6 +64,7 @@ describe("getModelProfiles", () => {
       "balanced",
       "cost-optimized",
       "alpha",
+      "latency-optimized",
       "quality-optimized",
       "zeta",
     ]);
@@ -118,6 +96,7 @@ describe("getModelProfiles", () => {
       ["blend", true],
       ["balanced", false],
       ["cost-optimized", false],
+      ["latency-optimized", false],
       ["quality-optimized", false],
     ]);
   });
@@ -167,6 +146,7 @@ describe("getModelProfiles", () => {
       ["beta", true],
       ["balanced", false],
       ["cost-optimized", false],
+      ["latency-optimized", false],
       ["quality-optimized", false],
     ]);
   });
@@ -211,6 +191,7 @@ describe("getModelProfiles", () => {
       ["beta", true],
       ["balanced", false],
       ["cost-optimized", false],
+      ["latency-optimized", false],
       ["quality-optimized", false],
     ]);
   });
@@ -247,6 +228,11 @@ describe("getModelProfiles", () => {
       getModelProfiles()
         .map((p) => p.key)
         .sort(),
-    ).toEqual(["balanced", "cost-optimized", "quality-optimized"]);
+    ).toEqual([
+      "balanced",
+      "cost-optimized",
+      "latency-optimized",
+      "quality-optimized",
+    ]);
   });
 });

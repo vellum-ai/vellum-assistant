@@ -29,16 +29,14 @@ import {
   messagesPost,
   pluginsInstallPost,
   pluginsSearchGet,
+  telemetryIngestPost,
 } from "@/generated/daemon/sdk.gen";
 import { archiveResearchConversation } from "@/domains/onboarding/archive-research-conversation";
 import { invalidateConversationQueries } from "@/utils/conversation-cache";
-import type {
-  MessagesGetResponses,
-  MessagesPostData,
-  PluginsSearchGetResponses,
-} from "@/generated/daemon/types.gen";
+import type { PluginsSearchGetResponses } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
-import { detectClientOs } from "@/runtime/platform-detection";
+import { buildSideConversationMessageBody } from "@/lib/side-conversation-message";
+import { latestAssistantText } from "@/utils/latest-assistant-text";
 import {
   buildResearchPrompt,
   type AvailableCapability,
@@ -80,13 +78,6 @@ export function resolveResearchCompletionStatus({
   return sawCompletePayload ? "done" : "error";
 }
 
-export function shouldArchiveCompletedResearchConversation({
-  sawCompletePayload,
-}: {
-  sawCompletePayload: boolean;
-}): boolean {
-  return sawCompletePayload;
-}
 /**
  * Org that owns first-party, reviewed Vellum plugins. Onboarding only ever
  * surfaces and installs plugins from this owner — never third-party/external
@@ -102,7 +93,10 @@ const VELLUM_PLUGIN_OWNER = "vellum-ai";
  * by Vellum — including future persona plugins like a developer/PM kit — flows
  * through automatically.
  */
-const NON_RECOMMENDABLE_PLUGINS = new Set<string>(["simple-memory", "level-up"]);
+const NON_RECOMMENDABLE_PLUGINS = new Set<string>([
+  "simple-memory",
+  "level-up",
+]);
 
 type CatalogMatch = NonNullable<
   PluginsSearchGetResponses[200]["matches"]
@@ -116,7 +110,11 @@ export interface RecommendableCapabilities {
 
 /** Keep injected descriptions to one short clause so the prompt stays compact. */
 function compactDescription(raw: string): string {
-  const firstSentence = raw.trim().split(/(?<=\.)\s/)[0]?.trim() ?? raw.trim();
+  const firstSentence =
+    raw
+      .trim()
+      .split(/(?<=\.)\s/)[0]
+      ?.trim() ?? raw.trim();
   return firstSentence.length > 100
     ? `${firstSentence.slice(0, 97).trimEnd()}…`
     : firstSentence;
@@ -141,9 +139,15 @@ export function selectRecommendableCapabilities(
   for (const m of matches) {
     const name = m.name?.trim();
     const description = m.description?.trim();
-    if (!name || !description) continue;
-    if (repoOwner(m.source?.repo) !== VELLUM_PLUGIN_OWNER) continue;
-    if (NON_RECOMMENDABLE_PLUGINS.has(name)) continue;
+    if (!name || !description) {
+      continue;
+    }
+    if (repoOwner(m.source?.repo) !== VELLUM_PLUGIN_OWNER) {
+      continue;
+    }
+    if (NON_RECOMMENDABLE_PLUGINS.has(name)) {
+      continue;
+    }
     validNames.add(name);
     capabilities.push({ name, description: compactDescription(description) });
   }
@@ -194,11 +198,118 @@ async function installCapabilityBestEffort(
   }
 }
 
+/**
+ * Cap on hobbies reported to telemetry. Matches the platform serializer's
+ * `self_reported_hobbies` bound so the two can't disagree.
+ */
+const MAX_REPORTED_HOBBIES = 32;
+
+/** Count claims in one confidence tier — mirrors the derived wire counts. */
+function countByConfidence(
+  claims: ResearchFact[],
+  confidence: ResearchFact["confidence"],
+): number {
+  return claims.filter((c) => c.confidence === confidence).length;
+}
+
+/**
+ * Report a research turn's outcome (claims/suggestions/plugin picks) for
+ * analytics. Client-orchestrated: the daemon never detects this turn on its
+ * own, so the client reports it once — either as the raw model output the
+ * moment the reply parses as a complete JSON payload (`status: "done"`,
+ * before the deterministic-floor merge folds in role-based baseline
+ * plugins), or as whatever had been parsed so far if the poll ceiling fires
+ * first (`status: "error"`). Fire-and-forget: a failure here must never
+ * block or surface in the flow, mirroring `archiveResearchConversation`.
+ *
+ * Sent through the generic `telemetry/ingest` route as an `onboarding_research`
+ * wire event: the client owns the full payload (the daemon can't observe this
+ * turn), including the derived confidence counts and the conversation-scoped
+ * `daemon_event_id` collapse key. That key is set only for `status: "done"` so
+ * a page refresh mid-poll that re-reports the same completed turn collapses
+ * downstream instead of double-counting; a client-side timeout gets a fresh id
+ * (omitted here) so a later genuine completion isn't masked by its own
+ * provisional timeout report.
+ *
+ * Reports the `subject` the turn was run ON alongside its results, so a claim
+ * can be told apart from the form value it merely echoed back, and so
+ * `installed_plugins` is attributable (the deterministic floor is keyed on
+ * occupation). The name is deliberately NOT sent: directly identifying, and
+ * nothing downstream needs it to judge research quality.
+ */
+async function sendOnboardingResearchTelemetry({
+  assistantId,
+  conversationId,
+  status,
+  subject,
+  claims,
+  suggestions,
+  plugins,
+  installedPlugins,
+}: {
+  assistantId: string;
+  conversationId: string;
+  status: "done" | "error";
+  subject: ResearchSubject;
+  claims: ResearchFact[];
+  suggestions: ResearchSuggestion[];
+  plugins: string[];
+  installedPlugins: string[];
+}): Promise<void> {
+  try {
+    await telemetryIngestPost({
+      path: { assistant_id: assistantId },
+      body: {
+        type: "onboarding_research",
+        // Collapse a refresh-retried completed report onto the original;
+        // omitted for a timeout so an eventual success gets its own id.
+        ...(status === "done"
+          ? { daemon_event_id: `onboarding_research:${conversationId}` }
+          : {}),
+        fields: {
+          conversation_id: conversationId,
+          status,
+          self_reported_occupation: subject.occupation,
+          // Capped client-side: the chip field has no UI limit, and the
+          // platform serializer's own bound would drop the WHOLE event rather
+          // than the overflow (an invalid event is skipped while the batch
+          // still 2xxes). Truncating here keeps a pathological form from
+          // costing us the research report entirely.
+          self_reported_hobbies: (subject.hobbies ?? []).slice(
+            0,
+            MAX_REPORTED_HOBBIES,
+          ),
+          self_reported_timezone: subject.timezone,
+          claims,
+          claim_count: claims.length,
+          claims_confident: countByConfidence(claims, "confident"),
+          claims_maybe: countByConfidence(claims, "maybe"),
+          claims_guessing: countByConfidence(claims, "guessing"),
+          suggestions,
+          suggestion_count: suggestions.length,
+          plugins,
+          installed_plugins: installedPlugins,
+        },
+      },
+      throwOnError: false,
+    });
+  } catch (err) {
+    captureError(err, { context: "research_onboarding_telemetry" });
+  }
+}
+
 export type ResearchStatus = "idle" | "running" | "done" | "error";
 
 export interface ResearchRunnerState {
   status: ResearchStatus;
   claims: ResearchFact[];
+  /**
+   * Claim texts the parser dropped from `claims` because every source was a
+   * people-search aggregator. Carried so the onboarding flow can scrub these
+   * hidden wrong-person facts from the assistant's memory alongside the ones the
+   * user prunes on the card.
+   */
+  droppedClaims: string[];
   suggestions: ResearchSuggestion[];
   /**
    * Capabilities being installed for the assistant this run — the deterministic
@@ -216,6 +327,17 @@ export interface ResearchRunnerState {
    * unavailable (or, after a refresh-resume, not re-fetched).
    */
   pluginCatalog: Record<string, string>;
+}
+
+function emptyResearchState(status: ResearchStatus): ResearchRunnerState {
+  return {
+    status,
+    claims: [],
+    droppedClaims: [],
+    suggestions: [],
+    installedPlugins: [],
+    pluginCatalog: {},
+  };
 }
 
 export interface StartResearchOptions {
@@ -241,7 +363,7 @@ export interface StartResearchOptions {
   onConversationCreated?: (conversationId: string) => void;
   /**
    * Whether to ask the model for clickable `suggestions`. Off for the "Let's
-   * chat" final step (personality-onboarding flag), which installs the picked
+   * chat" final step (now always on), which installs the picked
    * plugins and primes a chat instead of surfacing suggestion cards. Defaults to
    * true so the legacy suggestions flow is unchanged.
    */
@@ -280,9 +402,27 @@ export interface UseResearchRunner extends ResearchRunnerState {
     results: ResearchRunnerState,
     awaitAssistantId?: () => Promise<string>,
   ) => void;
+  /**
+   * Re-enqueue installs for `names` against a fresh assistant promise, replacing
+   * whatever the run is tracking. For a settled run whose installs raced a hatch
+   * that then died: each one swallowed the rejection and resolved without
+   * installing anything while the run stayed `done`, so `awaitPluginInstalls`
+   * lets the handoff through on capabilities that aren't there. Idempotent and
+   * best-effort, like every other install path.
+   */
+  reinstallPlugins: (
+    names: string[],
+    awaitAssistantId: () => Promise<string>,
+  ) => void;
+  /**
+   * Drop the run's subject key and results so a following `start` with the SAME
+   * subject re-fires instead of deduping to a no-op. For restarting a turn that
+   * died with the dependency it was waiting on — a failed hatch rejects
+   * `awaitAssistantId` and settles the run "error" while it keeps holding the
+   * key — not for ordinary resubmits, which the key is there to collapse.
+   */
+  reset: () => void;
 }
-
-type GetMessage = MessagesGetResponses[200]["messages"][number];
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -304,33 +444,10 @@ export function resolveOnboardingPluginInstalls({
   ];
 }
 
-/** Latest assistant reply text from a messages list (text blocks, then legacy flat content). */
-function latestAssistantText(messages: GetMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (!m || m.role !== "assistant") continue;
-    const blocks = m.contentBlocks;
-    if (blocks && blocks.length > 0) {
-      const text = blocks
-        .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
-        .map((b) => b.text)
-        .join("\n")
-        .trim();
-      if (text) return text;
-    }
-    return (m.content ?? "").trim();
-  }
-  return "";
-}
-
 export function useResearchRunner(): UseResearchRunner {
-  const [state, setState] = useState<ResearchRunnerState>({
-    status: "idle",
-    claims: [],
-    suggestions: [],
-    installedPlugins: [],
-    pluginCatalog: {},
-  });
+  const [state, setState] = useState<ResearchRunnerState>(() =>
+    emptyResearchState("idle"),
+  );
   // Monotonic run id: every fresh run claims the next id; in-flight loops bail
   // the moment a newer run supersedes them. Paired with the last subject key so
   // an identical resubmit is a no-op but an edited one restarts.
@@ -350,6 +467,30 @@ export function useResearchRunner(): UseResearchRunner {
   const pluginsReadyRef = useRef<Promise<void>>(Promise.resolve());
   const queryClient = useQueryClient();
 
+  // Track an install per name against a hatch promise, replacing the map. Used
+  // by both the resume hydrate and a post-retry re-enqueue, so the click gate
+  // always awaits installs bound to the CURRENT hatch attempt.
+  const enqueuePluginInstalls = useCallback(
+    (names: string[], awaitAssistantId: () => Promise<string>) => {
+      const installs = installPromisesRef.current;
+      installs.clear();
+      for (const name of names) {
+        installs.set(
+          name,
+          (async () => {
+            try {
+              const assistantId = await awaitAssistantId();
+              await installCapabilityBestEffort(assistantId, name);
+            } catch {
+              // Hatch never readied / install failed — don't block the click.
+            }
+          })(),
+        );
+      }
+    },
+    [],
+  );
+
   const start = useCallback(
     ({
       awaitAssistantId,
@@ -360,7 +501,9 @@ export function useResearchRunner(): UseResearchRunner {
       includeSuggestions = true,
     }: StartResearchOptions) => {
       const subjectKey = JSON.stringify(subject);
-      if (subjectKeyRef.current === subjectKey) return;
+      if (subjectKeyRef.current === subjectKey) {
+        return;
+      }
       subjectKeyRef.current = subjectKey;
       const runId = runIdRef.current + 1;
       runIdRef.current = runId;
@@ -373,13 +516,7 @@ export function useResearchRunner(): UseResearchRunner {
         resolvePluginsReady = res;
       });
       installPromisesRef.current.clear();
-      setState({
-        status: "running",
-        claims: [],
-        suggestions: [],
-        installedPlugins: [],
-        pluginCatalog: {},
-      });
+      setState(emptyResearchState("running"));
 
       void (async () => {
         let resolvedAssistantId: string | undefined;
@@ -388,7 +525,9 @@ export function useResearchRunner(): UseResearchRunner {
         try {
           const assistantId = await awaitAssistantId();
           resolvedAssistantId = assistantId;
-          if (isStale()) return;
+          if (isStale()) {
+            return;
+          }
 
           // Advertise the Vellum-owned marketplace capabilities to the research
           // turn so it can pick the ones that best fit the person (returned as a
@@ -397,7 +536,9 @@ export function useResearchRunner(): UseResearchRunner {
           // browsing/install surfaces remain independently feature-gated.
           const { capabilities, validNames } =
             await fetchAvailableCapabilities(assistantId);
-          if (isStale()) return;
+          if (isStale()) {
+            return;
+          }
           // Name → description for the fetched catalog, so the UI can show each
           // installed plugin with its real name + description. Carried on every
           // state update below (the poll loop replaces state wholesale).
@@ -407,25 +548,32 @@ export function useResearchRunner(): UseResearchRunner {
           setState((s) => ({ ...s, pluginCatalog }));
           // Nothing installable (empty/unavailable catalog) — release the click
           // gate so suggestion clicks never wait on the research turn.
-          if (validNames.size === 0) resolvePluginsReady();
+          if (validNames.size === 0) {
+            resolvePluginsReady();
+          }
 
           // Tracks every install fired this run (deterministic floor + the model's
           // later picks), keyed by name so the suggestion click can await them and
           // a name is never installed twice.
           const installs = installPromisesRef.current;
-          // Deterministic floor: the always-install baseline plus the role's
-          // affinity matches, narrowed to the live catalog. Fired here — right
-          // after the catalog fetch, before the model has replied — so these
-          // materialize while the research turn is still streaming. The model's
-          // `plugins` picks (handled in the poll loop) union on top for the long
-          // tail of roles this map doesn't enumerate.
+          // Deterministic floor: the always-install baseline plus any
+          // marketing-attributed pick (the plugin the user clicked "Install" on
+          // before onboarding — resolved inside `resolveDeterministicPlugins`)
+          // plus the role's affinity matches, narrowed to the live catalog.
+          // Fired here — right after the catalog fetch, before the model has
+          // replied — so these materialize while the research turn is still
+          // streaming. The model's `plugins` picks (handled in the poll loop)
+          // union on top for the long tail of roles this map doesn't enumerate.
           const deterministicPlugins = resolveDeterministicPlugins(
             subject.occupation,
             validNames,
           );
           for (const name of deterministicPlugins) {
             if (!installs.has(name)) {
-              installs.set(name, installCapabilityBestEffort(assistantId, name));
+              installs.set(
+                name,
+                installCapabilityBestEffort(assistantId, name),
+              );
             }
           }
           if (deterministicPlugins.length > 0) {
@@ -435,25 +583,20 @@ export function useResearchRunner(): UseResearchRunner {
           // Post the research prompt onto a conversation. Returns false on a
           // failed POST so the caller can settle "error".
           const postResearchPrompt = async (cid: string): Promise<boolean> => {
-            const body: MessagesPostData["body"] = {
+            const body = buildSideConversationMessageBody({
               conversationId: cid,
               content: buildResearchPrompt(subject, capabilities, {
                 includeSuggestions,
               }),
-              sourceChannel: "vellum",
-              // `interface` is the transport ("web"); the real OS travels in
-              // `clientOs` so the assistant's `client_os` context is correct
-              // for this onboarding side conversation too, without affecting
-              // transport/host-proxy gating (mirrors `chat/api/messages.ts`).
-              interface: "web",
-              clientOs: detectClientOs(),
-              clientMessageId: crypto.randomUUID(),
-            };
+              transport: "web",
+            });
             // Carry the browser timezone so any time-relative reasoning resolves
             // to the user's local clock. Mirrors `checkin-scheduler.ts`.
             try {
               const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-              if (tz) body.clientTimezone = tz;
+              if (tz) {
+                body.clientTimezone = tz;
+              }
             } catch {
               // Intl unavailable — daemon falls back to its own cascade.
             }
@@ -471,19 +614,24 @@ export function useResearchRunner(): UseResearchRunner {
           const startFreshConversation = async (): Promise<
             string | undefined
           > => {
+            // `background` creates the row outside the daemon's default
+            // `standard` list, so it never appears in Recents and can never be
+            // selected as the landing conversation.
             const conversation = await conversationsPost({
               path: { assistant_id: assistantId },
               body: {
-                conversationType: "standard",
+                conversationType: "background",
                 ...(conversationTitle ? { title: conversationTitle } : {}),
               },
               throwOnError: false,
             });
-            // Capture before the stale check so the finally block can archive it
-            // once a complete payload settles.
+            // Capture before the stale check so the finally block can archive
+            // it on every exit path.
             createdConversationId = conversation.data?.id;
             const id = conversation.data?.id;
-            if (!conversation.response?.ok || !id) return undefined;
+            if (!conversation.response?.ok || !id) {
+              return undefined;
+            }
             // Surface the new id immediately so the caller can persist it and
             // resume this exact thread across a refresh.
             onConversationCreated?.(id);
@@ -495,25 +643,32 @@ export function useResearchRunner(): UseResearchRunner {
             // Resume the prior session's research conversation rather than
             // running a second search. The turn keeps generating server-side
             // across the reload, so re-attach and poll it; only re-post the
-            // prompt if it never landed before the refresh (no user message).
+            // prompt if it never landed before the refresh.
             const existing = await messagesGet({
               path: { assistant_id: assistantId },
               query: { conversationId: resumeConversationId },
               throwOnError: false,
             });
-            if (isStale()) return;
+            if (isStale()) {
+              return;
+            }
             if (existing.response?.ok) {
               conversationId = resumeConversationId;
               createdConversationId = resumeConversationId;
-              const turnAlreadyStarted = (existing.data?.messages ?? []).some(
-                (m) => m.role === "user",
-              );
+              // The hidden prompt row is filtered out of `/messages`, so a
+              // started turn shows as the daemon still processing or as a row
+              // it has already produced, never as a user message.
+              const turnAlreadyStarted =
+                existing.data?.processing === true ||
+                (existing.data?.messages ?? []).length > 0;
               if (!turnAlreadyStarted) {
                 if (!(await postResearchPrompt(conversationId))) {
                   setState((s) => ({ ...s, status: "error" }));
                   return;
                 }
-                if (isStale()) return;
+                if (isStale()) {
+                  return;
+                }
               }
             }
             // Not ok → conversation gone (e.g. completed + archived); fall
@@ -522,7 +677,9 @@ export function useResearchRunner(): UseResearchRunner {
 
           if (!conversationId) {
             conversationId = await startFreshConversation();
-            if (isStale()) return;
+            if (isStale()) {
+              return;
+            }
             if (!conversationId) {
               setState((s) => ({ ...s, status: "error" }));
               return;
@@ -531,7 +688,9 @@ export function useResearchRunner(): UseResearchRunner {
               setState((s) => ({ ...s, status: "error" }));
               return;
             }
-            if (isStale()) return;
+            if (isStale()) {
+              return;
+            }
           }
 
           // Poll the conversation, parsing the (possibly partial) reply each
@@ -540,27 +699,54 @@ export function useResearchRunner(): UseResearchRunner {
           const deadline = Date.now() + MAX_POLL_MS;
           let lastText = "";
           let stableReads = 0;
+          // Guards the telemetry report to fire exactly once: `complete` can
+          // stay true across the `STABLE_READS_TO_SETTLE` re-polls before the
+          // loop breaks, and would otherwise re-send on every one of them.
+          let telemetrySent = false;
+          // Last-known partial result, so a poll-ceiling timeout (the loop
+          // exits without ever seeing `complete`) can still report what had
+          // been parsed so far instead of the turn silently never being
+          // reported at all. `lastInstalledPlugins` seeds from the
+          // deterministic floor (already fired above, before any poll tick)
+          // rather than `[]`, so a timeout on a turn that never produced any
+          // assistant text doesn't undercount installs that already happened.
+          let lastClaims: ResearchFact[] = [];
+          let lastSuggestions: ResearchSuggestion[] = [];
+          let lastPlugins: string[] = [];
+          let lastInstalledPlugins: string[] = deterministicPlugins;
           // The model's `plugins` picks fire as soon as its array closes — emitted
           // first in the reply, so this lands early while claims/suggestions are
           // still streaming. These union on top of the deterministic floor already
           // installing (see above); idempotent, so racing the same name is fine.
           while (Date.now() < deadline) {
             await sleep(POLL_INTERVAL_MS);
-            if (isStale()) return;
+            if (isStale()) {
+              return;
+            }
             const listed = await messagesGet({
               path: { assistant_id: assistantId },
               query: { conversationId },
               throwOnError: false,
             });
-            if (isStale()) return;
+            if (isStale()) {
+              return;
+            }
             const messages = listed.data?.messages ?? [];
             const text = latestAssistantText(messages);
             if (text) {
-              const { claims, suggestions, plugins, pluginsResolved, complete } =
-                parseResearchResultStreaming(text);
+              const {
+                claims,
+                droppedClaims,
+                suggestions,
+                plugins,
+                pluginsResolved,
+                complete,
+              } = parseResearchResultStreaming(text);
               // Narrow the model's picks to the catalog we actually fetched so a
               // hallucinated name never hits the install route; fire each new one.
-              const validPlugins = plugins.filter((name) => validNames.has(name));
+              const validPlugins = plugins.filter((name) =>
+                validNames.has(name),
+              );
               for (const name of validPlugins) {
                 if (!installs.has(name)) {
                   installs.set(
@@ -572,21 +758,46 @@ export function useResearchRunner(): UseResearchRunner {
               // Once the plugin decision is final (array closed, even if empty),
               // the install set is complete — release the click gate so it waits
               // only on the installs themselves, not the rest of the turn.
-              if (pluginsResolved) resolvePluginsReady();
+              if (pluginsResolved) {
+                resolvePluginsReady();
+              }
+              // Surface the full set actually installing: the deterministic
+              // floor plus the model's picks, deduped, baseline first. Shared
+              // by the state update and the telemetry report below so it's
+              // only computed once per poll.
+              const installedPlugins = resolveOnboardingPluginInstalls({
+                role: subject.occupation,
+                validNames,
+                modelPlugins: validPlugins,
+              });
               setState({
                 status: "running",
                 claims,
+                droppedClaims,
                 suggestions,
-                // Surface the full set actually installing: the deterministic
-                // floor plus the model's picks, deduped, baseline first.
-                installedPlugins: resolveOnboardingPluginInstalls({
-                  role: subject.occupation,
-                  validNames,
-                  modelPlugins: validPlugins,
-                }),
+                installedPlugins,
                 pluginCatalog,
               });
-              if (complete) sawCompletePayload = true;
+              lastClaims = claims;
+              lastSuggestions = suggestions;
+              lastPlugins = plugins;
+              lastInstalledPlugins = installedPlugins;
+              if (complete) {
+                sawCompletePayload = true;
+              }
+              if (complete && !telemetrySent) {
+                telemetrySent = true;
+                void sendOnboardingResearchTelemetry({
+                  assistantId,
+                  conversationId,
+                  status: "done",
+                  subject,
+                  claims,
+                  suggestions,
+                  plugins,
+                  installedPlugins,
+                });
+              }
               stableReads = text === lastText ? stableReads + 1 : 0;
               lastText = text;
               // Only a complete payload can settle early. A partial JSON object
@@ -598,13 +809,34 @@ export function useResearchRunner(): UseResearchRunner {
             }
           }
 
-          if (isStale()) return;
+          if (isStale()) {
+            return;
+          }
+          // The poll ceiling fired before a complete payload ever landed —
+          // the in-loop send above never ran. Report the timeout with
+          // whatever had been parsed so far rather than letting the turn go
+          // unreported and skewing the event stream toward successful runs.
+          if (!telemetrySent) {
+            telemetrySent = true;
+            void sendOnboardingResearchTelemetry({
+              assistantId,
+              conversationId,
+              status: "error",
+              subject,
+              claims: lastClaims,
+              suggestions: lastSuggestions,
+              plugins: lastPlugins,
+              installedPlugins: lastInstalledPlugins,
+            });
+          }
           setState((s) => ({
             ...s,
             status: resolveResearchCompletionStatus({ sawCompletePayload }),
           }));
         } catch (err) {
-          if (isStale()) return;
+          if (isStale()) {
+            return;
+          }
           captureError(err, { context: "research_onboarding_runner" });
           setState((s) => ({ ...s, status: "error" }));
         } finally {
@@ -612,27 +844,35 @@ export function useResearchRunner(): UseResearchRunner {
           // a stale bail-out, or a reply that never emitted a `plugins` array) so
           // `awaitPluginInstalls` can never hang.
           resolvePluginsReady();
-          // Archive only after the full research payload is available. If the poll
-          // ceiling fired before that, the assistant turn may still be running and
-          // the conversation remains available for reconciliation/debugging.
-          if (
-            shouldArchiveCompletedResearchConversation({
-              sawCompletePayload,
-            }) &&
-            resolvedAssistantId &&
-            createdConversationId
-          ) {
+          // Unconditional cleanup: a timed-out or superseded run must not leave
+          // the throwaway side conversation behind.
+          if (resolvedAssistantId && createdConversationId) {
             await archiveResearchConversation(
               resolvedAssistantId,
               createdConversationId,
             );
-            void invalidateConversationQueries(queryClient, resolvedAssistantId);
+            void invalidateConversationQueries(
+              queryClient,
+              resolvedAssistantId,
+            );
           }
         }
       })();
     },
     [queryClient],
   );
+
+  const reset = useCallback(() => {
+    // Supersede any in-flight loop, release the subject key so an identical
+    // resubmit is treated as a genuinely fresh run, and re-arm an already-
+    // resolved click gate so `awaitPluginInstalls` can't hang on a run that no
+    // longer exists.
+    runIdRef.current += 1;
+    subjectKeyRef.current = null;
+    installPromisesRef.current.clear();
+    pluginsReadyRef.current = Promise.resolve();
+    setState(emptyResearchState("idle"));
+  }, []);
 
   const awaitPluginInstalls = useCallback(async (): Promise<void> => {
     // Wait only for the plugin decision to be final (so a click that beats the
@@ -658,25 +898,18 @@ export function useResearchRunner(): UseResearchRunner {
       // suggestion click awaits real promises rather than an empty map. Idempotent
       // and best-effort: a failed hatch / install never blocks the click.
       if (awaitAssistantId && results.installedPlugins.length > 0) {
-        const installs = installPromisesRef.current;
-        installs.clear();
-        for (const name of results.installedPlugins) {
-          installs.set(
-            name,
-            (async () => {
-              try {
-                const assistantId = await awaitAssistantId();
-                await installCapabilityBestEffort(assistantId, name);
-              } catch {
-                // Hatch never readied / install failed — don't block the click.
-              }
-            })(),
-          );
-        }
+        enqueuePluginInstalls(results.installedPlugins, awaitAssistantId);
       }
     },
-    [],
+    [enqueuePluginInstalls],
   );
 
-  return { ...state, start, awaitPluginInstalls, hydrate };
+  return {
+    ...state,
+    start,
+    awaitPluginInstalls,
+    hydrate,
+    reinstallPlugins: enqueuePluginInstalls,
+    reset,
+  };
 }

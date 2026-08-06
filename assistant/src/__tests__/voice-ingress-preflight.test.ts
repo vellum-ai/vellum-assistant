@@ -1,15 +1,17 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-let mockLoadConfig: () => unknown;
+import * as realEnvRegistry from "../config/env-registry.js";
+import { setConfig } from "./helpers/set-config.js";
+
 let mockGetIsPlatform: () => boolean;
 let mockCredentialReadiness: Record<string, unknown>;
 let credentialReadinessCalls = 0;
 
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => mockLoadConfig(),
-}));
-
+// Spread the real env-registry so the now-real config loader's transitive
+// `util/platform` imports (getWorkspaceDirOverride, etc.) still resolve; only
+// getIsPlatform is driven per test.
 mock.module("../config/env-registry.js", () => ({
+  ...realEnvRegistry,
   getIsPlatform: () => mockGetIsPlatform(),
 }));
 
@@ -37,8 +39,9 @@ const NOT_READY = {
 
 describe("voice ingress preflight", () => {
   beforeEach(() => {
-    mockLoadConfig = () => ({
-      ingress: { enabled: true, publicBaseUrl: "https://example.com" },
+    setConfig("ingress", {
+      enabled: true,
+      publicBaseUrl: "https://example.com",
     });
     mockGetIsPlatform = () => false;
     mockCredentialReadiness = { status: "ready" };
@@ -47,7 +50,7 @@ describe("voice ingress preflight", () => {
 
   test("returns success immediately for platform-callback deployments", async () => {
     mockGetIsPlatform = () => true;
-    mockLoadConfig = () => ({ ingress: { enabled: false } });
+    setConfig("ingress", { enabled: false });
 
     const result = await preflightVoiceIngress();
 
@@ -59,11 +62,9 @@ describe("voice ingress preflight", () => {
   });
 
   test("accepts public base URL for Twilio when configured", async () => {
-    mockLoadConfig = () => ({
-      ingress: {
-        enabled: true,
-        publicBaseUrl: "https://twilio.example.com/",
-      },
+    setConfig("ingress", {
+      enabled: true,
+      publicBaseUrl: "https://twilio.example.com/",
     });
 
     const result = await preflightVoiceIngress();
@@ -93,7 +94,7 @@ describe("voice ingress preflight", () => {
     // The platform short-circuit covers only the ingress-URL half — the
     // daemon still performs STT/TTS on platform deployments.
     mockGetIsPlatform = () => true;
-    mockLoadConfig = () => ({ ingress: { enabled: false } });
+    setConfig("ingress", { enabled: false });
     mockCredentialReadiness = NOT_READY;
 
     const result = await preflightVoiceIngress();
@@ -106,7 +107,7 @@ describe("voice ingress preflight", () => {
 
   test("runs the credential readiness check on the platform success path", async () => {
     mockGetIsPlatform = () => true;
-    mockLoadConfig = () => ({ ingress: { enabled: false } });
+    setConfig("ingress", { enabled: false });
 
     const result = await preflightVoiceIngress();
 

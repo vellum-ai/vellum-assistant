@@ -8,28 +8,16 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
+import { setConfig } from "./helpers/set-config.js";
 
-const mockConfig = {
-  timeouts: { permissionTimeoutSec: 0.01 },
-  secretDetection: { allowOneTimeSend: false },
-};
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-}));
+// A short permission timeout keeps a leaked prompt from lingering; the default
+// `secretDetection.allowOneTimeSend` (false) drives the broadcast field.
+setConfig("timeouts", { permissionTimeoutSec: 0.01 });
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-let broadcastMessages: ServerMessage[] = [];
+let broadcastMessages: AssistantEvent[] = [];
 mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: (msg: ServerMessage) => broadcastMessages.push(msg),
+  broadcastMessage: (msg: AssistantEvent) => broadcastMessages.push(msg),
 }));
 
 const _piStore = new Map<string, { rpcResolve?: (value: unknown) => void }>();
@@ -189,11 +177,11 @@ describe("requestSecretStandalone channel gate", () => {
   });
 
   test("falls back to a plain unsupported_channel when minting is refused", async () => {
-    // GIVEN the gateway refuses to mint (flag off / no public URL)
+    // GIVEN the gateway refuses to mint (no public URL)
     registeredConversation = {
       channelCapabilities: { supportsDynamicUi: false },
     };
-    gatewayMintResult = { ok: false, error: "flag_disabled" };
+    gatewayMintResult = { ok: false, error: "no_public_base_url" };
 
     // WHEN a standalone prompt is scoped to that conversation
     const result = await requestSecretStandalone({

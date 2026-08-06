@@ -53,8 +53,9 @@ describe("compact slash-command emits conversationId on assistant_text_delta", (
           let depth = 0;
           let closeIdx = -1;
           for (let i = openIdx; i < source.length; i++) {
-            if (source[i] === "{") depth++;
-            else if (source[i] === "}") {
+            if (source[i] === "{") {
+              depth++;
+            } else if (source[i] === "}") {
               depth--;
               if (depth === 0) {
                 closeIdx = i;

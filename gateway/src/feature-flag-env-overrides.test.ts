@@ -10,11 +10,11 @@ const TEST_REGISTRY = {
   version: 1,
   flags: [
     {
-      id: "auto-analyze",
+      id: "neat-feature",
       scope: "assistant",
-      key: "auto-analyze",
-      label: "Auto Analyze",
-      description: "Automatic analysis",
+      key: "neat-feature",
+      label: "Neat Feature",
+      description: "A neat feature",
       defaultEnabled: false,
     },
     {
@@ -68,55 +68,55 @@ afterEach(() => {
 });
 
 describe("readEnvFeatureFlagOverrides", () => {
-  test("maps VELLUM_FLAG_AUTO_ANALYZE=true to { 'auto-analyze': true }", () => {
-    setEnv("VELLUM_FLAG_AUTO_ANALYZE", "true");
-    expect(readEnvFeatureFlagOverrides()).toEqual({ "auto-analyze": true });
+  test("maps VELLUM_FLAG_NEAT_FEATURE=true to { 'neat-feature': true }", () => {
+    setEnv("VELLUM_FLAG_NEAT_FEATURE", "true");
+    expect(readEnvFeatureFlagOverrides()).toEqual({ "neat-feature": true });
   });
 
   test("parses truthy values: 1, yes, on -> true", () => {
-    setEnv("VELLUM_FLAG_AUTO_ANALYZE", "1");
-    expect(readEnvFeatureFlagOverrides()).toEqual({ "auto-analyze": true });
+    setEnv("VELLUM_FLAG_NEAT_FEATURE", "1");
+    expect(readEnvFeatureFlagOverrides()).toEqual({ "neat-feature": true });
 
     resetEnvOverridesCache();
-    delete process.env.VELLUM_FLAG_AUTO_ANALYZE;
+    delete process.env.VELLUM_FLAG_NEAT_FEATURE;
 
-    setEnv("VELLUM_FLAG_AUTO_ANALYZE", "yes");
-    expect(readEnvFeatureFlagOverrides()).toEqual({ "auto-analyze": true });
+    setEnv("VELLUM_FLAG_NEAT_FEATURE", "yes");
+    expect(readEnvFeatureFlagOverrides()).toEqual({ "neat-feature": true });
 
     resetEnvOverridesCache();
-    delete process.env.VELLUM_FLAG_AUTO_ANALYZE;
+    delete process.env.VELLUM_FLAG_NEAT_FEATURE;
 
-    setEnv("VELLUM_FLAG_AUTO_ANALYZE", "on");
-    expect(readEnvFeatureFlagOverrides()).toEqual({ "auto-analyze": true });
+    setEnv("VELLUM_FLAG_NEAT_FEATURE", "on");
+    expect(readEnvFeatureFlagOverrides()).toEqual({ "neat-feature": true });
   });
 
   test("parses falsy values: false, 0, no, off -> false", () => {
-    setEnv("VELLUM_FLAG_AUTO_ANALYZE", "false");
-    expect(readEnvFeatureFlagOverrides()).toEqual({ "auto-analyze": false });
+    setEnv("VELLUM_FLAG_NEAT_FEATURE", "false");
+    expect(readEnvFeatureFlagOverrides()).toEqual({ "neat-feature": false });
 
     resetEnvOverridesCache();
-    delete process.env.VELLUM_FLAG_AUTO_ANALYZE;
+    delete process.env.VELLUM_FLAG_NEAT_FEATURE;
 
-    setEnv("VELLUM_FLAG_AUTO_ANALYZE", "0");
-    expect(readEnvFeatureFlagOverrides()).toEqual({ "auto-analyze": false });
-
-    resetEnvOverridesCache();
-    delete process.env.VELLUM_FLAG_AUTO_ANALYZE;
-
-    setEnv("VELLUM_FLAG_AUTO_ANALYZE", "no");
-    expect(readEnvFeatureFlagOverrides()).toEqual({ "auto-analyze": false });
+    setEnv("VELLUM_FLAG_NEAT_FEATURE", "0");
+    expect(readEnvFeatureFlagOverrides()).toEqual({ "neat-feature": false });
 
     resetEnvOverridesCache();
-    delete process.env.VELLUM_FLAG_AUTO_ANALYZE;
+    delete process.env.VELLUM_FLAG_NEAT_FEATURE;
 
-    setEnv("VELLUM_FLAG_AUTO_ANALYZE", "off");
-    expect(readEnvFeatureFlagOverrides()).toEqual({ "auto-analyze": false });
+    setEnv("VELLUM_FLAG_NEAT_FEATURE", "no");
+    expect(readEnvFeatureFlagOverrides()).toEqual({ "neat-feature": false });
+
+    resetEnvOverridesCache();
+    delete process.env.VELLUM_FLAG_NEAT_FEATURE;
+
+    setEnv("VELLUM_FLAG_NEAT_FEATURE", "off");
+    expect(readEnvFeatureFlagOverrides()).toEqual({ "neat-feature": false });
   });
 
   test("preserves arbitrary string values", () => {
-    setEnv("VELLUM_FLAG_AUTO_ANALYZE", "some-custom-value");
+    setEnv("VELLUM_FLAG_NEAT_FEATURE", "some-custom-value");
     expect(readEnvFeatureFlagOverrides()).toEqual({
-      "auto-analyze": "some-custom-value",
+      "neat-feature": "some-custom-value",
     });
   });
 
@@ -126,25 +126,25 @@ describe("readEnvFeatureFlagOverrides", () => {
   });
 
   test("caches result across calls", () => {
-    setEnv("VELLUM_FLAG_AUTO_ANALYZE", "true");
+    setEnv("VELLUM_FLAG_NEAT_FEATURE", "true");
     const first = readEnvFeatureFlagOverrides();
-    expect(first).toEqual({ "auto-analyze": true });
+    expect(first).toEqual({ "neat-feature": true });
 
     // Mutate env after first call
     setEnv("VELLUM_FLAG_COOL_FEATURE", "true");
     const second = readEnvFeatureFlagOverrides();
-    expect(second).toEqual({ "auto-analyze": true });
+    expect(second).toEqual({ "neat-feature": true });
     expect(second).toBe(first);
   });
 
   test("resetEnvOverridesCache allows re-read", () => {
-    setEnv("VELLUM_FLAG_AUTO_ANALYZE", "true");
-    expect(readEnvFeatureFlagOverrides()).toEqual({ "auto-analyze": true });
+    setEnv("VELLUM_FLAG_NEAT_FEATURE", "true");
+    expect(readEnvFeatureFlagOverrides()).toEqual({ "neat-feature": true });
 
     setEnv("VELLUM_FLAG_COOL_FEATURE", "true");
     resetEnvOverridesCache();
     expect(readEnvFeatureFlagOverrides()).toEqual({
-      "auto-analyze": true,
+      "neat-feature": true,
       "cool-feature": true,
     });
   });
@@ -154,13 +154,13 @@ describe("readEnvFeatureFlagOverrides", () => {
   });
 
   test("value parsing is case-insensitive", () => {
-    setEnv("VELLUM_FLAG_AUTO_ANALYZE", "TRUE");
-    expect(readEnvFeatureFlagOverrides()).toEqual({ "auto-analyze": true });
+    setEnv("VELLUM_FLAG_NEAT_FEATURE", "TRUE");
+    expect(readEnvFeatureFlagOverrides()).toEqual({ "neat-feature": true });
 
     resetEnvOverridesCache();
-    delete process.env.VELLUM_FLAG_AUTO_ANALYZE;
+    delete process.env.VELLUM_FLAG_NEAT_FEATURE;
 
-    setEnv("VELLUM_FLAG_AUTO_ANALYZE", "False");
-    expect(readEnvFeatureFlagOverrides()).toEqual({ "auto-analyze": false });
+    setEnv("VELLUM_FLAG_NEAT_FEATURE", "False");
+    expect(readEnvFeatureFlagOverrides()).toEqual({ "neat-feature": false });
   });
 });

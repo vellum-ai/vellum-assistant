@@ -53,7 +53,9 @@ function isAlreadyProcessed(messageId: string): boolean {
   const now = Date.now();
   // Evict stale entries
   for (const [key, ts] of processedMessageIds) {
-    if (now - ts > DEDUP_TTL_MS) processedMessageIds.delete(key);
+    if (now - ts > DEDUP_TTL_MS) {
+      processedMessageIds.delete(key);
+    }
   }
   return processedMessageIds.has(messageId);
 }
@@ -81,7 +83,9 @@ export async function handleGuardianActivationIntercept(
   const commandIntent = sourceMetadata?.commandIntent;
 
   // Only proceed for /start commands
-  if (!commandIntent || commandIntent.type !== "start") return null;
+  if (!commandIntent || commandIntent.type !== "start") {
+    return null;
+  }
 
   // If /start has a payload (e.g. gv_token, iv_token), let the existing
   // bootstrap/invite handlers deal with it.
@@ -90,7 +94,9 @@ export async function handleGuardianActivationIntercept(
   }
 
   // Only proceed for Telegram (can be extended later)
-  if (sourceChannel !== "telegram") return null;
+  if (sourceChannel !== "telegram") {
+    return null;
+  }
 
   // If a guardian already exists for this channel, continue to normal flow.
   // Null-list (gateway unreachable) is treated as guardian-present so a
@@ -99,12 +105,17 @@ export async function handleGuardianActivationIntercept(
   const guardianList = await getGuardianDeliveryFresh({
     channelTypes: [sourceChannel],
   });
-  if (guardianList === null || guardianForChannel(guardianList, sourceChannel)) {
+  if (
+    guardianList === null ||
+    guardianForChannel(guardianList, sourceChannel)
+  ) {
     return null;
   }
 
   // Can't bind a session without sender identity
-  if (!rawSenderId) return null;
+  if (!rawSenderId) {
+    return null;
+  }
 
   // ── Webhook retry dedup ──
   // The intercept runs before recordInbound, so use a lightweight in-memory

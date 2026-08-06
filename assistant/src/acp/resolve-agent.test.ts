@@ -38,7 +38,9 @@ describe("resolveAcpAgent", () => {
     const result = resolveAcpAgent("claude");
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.agent.command).toBe("my-custom-claude");
     expect(result.agent.args).toEqual(["--my-flag"]);
     expect(result.agent.description).toBe("user override");
@@ -50,7 +52,9 @@ describe("resolveAcpAgent", () => {
     const result = resolveAcpAgent("codex");
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.agent.command).toBe("codex-acp");
     expect(result.agent.description).toContain("@zed-industries/codex-acp");
   });
@@ -61,7 +65,9 @@ describe("resolveAcpAgent", () => {
     const result = resolveAcpAgent("claude");
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.agent.command).toBe("claude-agent-acp");
   });
 
@@ -78,7 +84,9 @@ describe("resolveAcpAgent", () => {
     const result = resolveAcpAgent(alias);
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.agent.command).toBe(command);
   });
 
@@ -96,7 +104,9 @@ describe("resolveAcpAgent", () => {
     const result = resolveAcpAgent("claude code");
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.agent.command).toBe("my-claude-fork");
   });
 
@@ -110,7 +120,9 @@ describe("resolveAcpAgent", () => {
     const result = resolveAcpAgent("claude code");
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.agent.command).toBe("my-custom-claude");
   });
 
@@ -120,7 +132,9 @@ describe("resolveAcpAgent", () => {
     const result = resolveAcpAgent("cursor cli");
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("unknown_agent");
   });
 
@@ -134,9 +148,13 @@ describe("resolveAcpAgent", () => {
     const result = resolveAcpAgent("nonexistent");
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("unknown_agent");
-    if (result.reason !== "unknown_agent") return;
+    if (result.reason !== "unknown_agent") {
+      return;
+    }
     // Defaults plus user-only ids, deduped, in stable order (defaults first).
     expect(result.available).toEqual(["claude", "codex", "user-only"]);
   });
@@ -147,9 +165,13 @@ describe("resolveAcpAgent", () => {
     const result = resolveAcpAgent("nonexistent");
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("unknown_agent");
-    if (result.reason !== "unknown_agent") return;
+    if (result.reason !== "unknown_agent") {
+      return;
+    }
     expect(result.available).toContain("claude");
     expect(result.available).toContain("codex");
   });
@@ -161,10 +183,16 @@ describe("resolveAcpAgent", () => {
     const result = resolveAcpAgent("claude");
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("binary_not_found");
-    if (result.reason !== "binary_not_found") return;
-    expect(result.hint).toBe("bun add -g @agentclientprotocol/claude-agent-acp");
+    if (result.reason !== "binary_not_found") {
+      return;
+    }
+    expect(result.hint).toBe(
+      "bun add -g @agentclientprotocol/claude-agent-acp",
+    );
     expect(result.command).toBe("claude-agent-acp");
   });
 
@@ -179,9 +207,13 @@ describe("resolveAcpAgent", () => {
     const result = resolveAcpAgent("custom");
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("binary_not_found");
-    if (result.reason !== "binary_not_found") return;
+    if (result.reason !== "binary_not_found") {
+      return;
+    }
     expect(result.hint).toBe(
       "Install 'unknown-binary' and ensure it is on PATH.",
     );
@@ -201,9 +233,13 @@ describe("resolveAcpAgent", () => {
     const result = resolveAcpAgent("claude");
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("binary_not_found");
-    if (result.reason !== "binary_not_found") return;
+    if (result.reason !== "binary_not_found") {
+      return;
+    }
     expect(result.hint).toBe("bun add -g @zed-industries/codex-acp");
   });
 
@@ -243,7 +279,9 @@ describe("resolveAcpAgent", () => {
     const result = resolveAcpAgent("codex");
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.agent.args).toEqual(["--verbose"]);
   });
 
@@ -256,12 +294,16 @@ describe("resolveAcpAgent", () => {
 
     const direct = resolveAcpAgent("claude");
     expect(direct.ok).toBe(true);
-    if (!direct.ok) return;
+    if (!direct.ok) {
+      return;
+    }
     expect(direct.agent.command).toBe("claude-agent-acp");
 
     const fullPath = resolveAcpAgent("custom");
     expect(fullPath.ok).toBe(true);
-    if (!fullPath.ok) return;
+    if (!fullPath.ok) {
+      return;
+    }
     expect(fullPath.agent.command).toBe("/opt/bin/claude-agent-acp");
   });
 });
@@ -281,11 +323,17 @@ describe("resolveAcpAgent - missing binary", () => {
     const result = resolveAcpAgent("claude");
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("binary_not_found");
-    if (result.reason !== "binary_not_found") return;
+    if (result.reason !== "binary_not_found") {
+      return;
+    }
     expect(result.command).toBe("claude-agent-acp");
-    expect(result.hint).toBe("bun add -g @agentclientprotocol/claude-agent-acp");
+    expect(result.hint).toBe(
+      "bun add -g @agentclientprotocol/claude-agent-acp",
+    );
   });
 
   test("binary missing + bun missing: binary_not_found with the bun hint", () => {
@@ -295,10 +343,16 @@ describe("resolveAcpAgent - missing binary", () => {
     const result = resolveAcpAgent("claude");
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.reason).toBe("binary_not_found");
-    if (result.reason !== "binary_not_found") return;
-    expect(result.hint).toBe("bun add -g @agentclientprotocol/claude-agent-acp");
+    if (result.reason !== "binary_not_found") {
+      return;
+    }
+    expect(result.hint).toBe(
+      "bun add -g @agentclientprotocol/claude-agent-acp",
+    );
   });
 });
 

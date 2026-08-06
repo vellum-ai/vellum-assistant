@@ -1,47 +1,25 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
-
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-import { getWorkspaceRoutesDir } from "../../../util/platform.js";
-import { AssistantEventHub } from "../../assistant-event-hub.js";
-import type { UserRouteContext } from "../user-route-dispatcher.js";
+import {
+  getWorkspacePluginsDir,
+  getWorkspaceRoutesDir,
+} from "../../../util/platform.js";
 import { UserRouteDispatcher } from "../user-route-dispatcher.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Build a minimal UserRouteContext for tests. */
-function makeContext(overrides?: Partial<UserRouteContext>): UserRouteContext {
-  return {
-    assistantEventHub: new AssistantEventHub(),
-    assistantId: "test-assistant",
-    ...overrides,
-  };
-}
-
-/** Create a dispatcher with a stub context and optional overrides. */
-function makeDispatcher(
-  options?: Partial<{
-    handlerTimeoutMs: number;
-    context: UserRouteContext;
-  }>,
-): UserRouteDispatcher {
-  return new UserRouteDispatcher({
-    context: options?.context ?? makeContext(),
-    ...options,
-  });
+/** Create a dispatcher with optional overrides. */
+function makeDispatcher(options?: {
+  handlerTimeoutMs?: number;
+}): UserRouteDispatcher {
+  return new UserRouteDispatcher(options);
 }
 
 function makeRequest(
@@ -54,6 +32,24 @@ function makeRequest(
 function writeHandler(relativePath: string, content: string): string {
   const routesDir = getWorkspaceRoutesDir();
   const fullPath = join(routesDir, relativePath);
+  const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(fullPath, content);
+  return fullPath;
+}
+
+/** Write a route handler into a plugin's `routes/` directory. */
+function writePluginHandler(
+  pluginName: string,
+  relativePath: string,
+  content: string,
+): string {
+  const fullPath = join(
+    getWorkspacePluginsDir(),
+    pluginName,
+    "routes",
+    relativePath,
+  );
   const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
   mkdirSync(dir, { recursive: true });
   writeFileSync(fullPath, content);
@@ -76,6 +72,7 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(getWorkspaceRoutesDir(), { recursive: true, force: true });
+  rmSync(getWorkspacePluginsDir(), { recursive: true, force: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -402,108 +399,179 @@ describe("description metadata", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Context injection
+// Handler signature
 // ---------------------------------------------------------------------------
 
-describe("context injection", () => {
-  test("passes UserRouteContext as second argument to handler", async () => {
+describe("handler signature", () => {
+  test("passes the request and the deprecated context shim", async () => {
     writeHandler(
-      "ctx-echo.ts",
+      "ctx-shape.ts",
       `export function GET(request, context) {
         return Response.json({
-          hasHub: typeof context.assistantEventHub?.publish === "function",
-          assistantId: context.assistantId,
+          argCount: arguments.length,
+          method: request.method,
+          hasPublish: typeof context?.assistantEventHub?.publish === "function",
+          hasPostMessage:
+            typeof context?.conversations?.postMessage === "function",
         });
-      }`,
-    );
-
-    const ctx = makeContext({ assistantId: "custom-id" });
-    const dispatcher = makeDispatcher({ context: ctx });
-    const res = await dispatcher.dispatch("ctx-echo", makeRequest("GET"));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.hasHub).toBe(true);
-    expect(body.assistantId).toBe("custom-id");
-  });
-
-  test("handler can publish events through injected hub", async () => {
-    writeHandler(
-      "ctx-publish.ts",
-      `export async function POST(request, context) {
-        const body = await request.json();
-        await context.assistantEventHub.publish({
-          id: "test-event-1",
-          assistantId: context.assistantId,
-          conversationId: body.conversationId,
-          emittedAt: new Date().toISOString(),
-          message: { type: "open_conversation", conversationId: body.conversationId },
-        });
-        return Response.json({ published: true });
-      }`,
-    );
-
-    const hub = new AssistantEventHub();
-    const received: unknown[] = [];
-    hub.subscribe({
-      type: "process",
-      callback: (event) => {
-        received.push(event);
-      },
-    });
-
-    const ctx = makeContext({ assistantEventHub: hub });
-    const dispatcher = makeDispatcher({ context: ctx });
-    const req = new Request("http://localhost/v1/x/ctx-publish", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversationId: "conv-123" }),
-    });
-    const res = await dispatcher.dispatch("ctx-publish", req);
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.published).toBe(true);
-    expect(received).toHaveLength(1);
-    expect((received[0] as { conversationId: string }).conversationId).toBe(
-      "conv-123",
-    );
-  });
-
-  test("legacy handlers that ignore context still work", async () => {
-    writeHandler(
-      "no-ctx.ts",
-      `export function GET(request) {
-        return Response.json({ legacy: true });
       }`,
     );
 
     const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("no-ctx", makeRequest("GET"));
+    const res = await dispatcher.dispatch("ctx-shape", makeRequest("GET"));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.legacy).toBe(true);
+    expect(body.argCount).toBe(2);
+    expect(body.method).toBe("GET");
+    expect(body.hasPublish).toBe(true);
+    expect(body.hasPostMessage).toBe(true);
   });
 
-  test("context is frozen — mutations throw in strict mode", async () => {
+  test("a handler that ignores the context still works", async () => {
     writeHandler(
-      "ctx-mutate.ts",
-      `export function GET(request, context) {
-        let threw = false;
-        try {
-          context.assistantId = "hacked";
-        } catch {
-          threw = true;
-        }
-        return Response.json({ threw, assistantId: context.assistantId });
+      "req-only.ts",
+      `export function GET(request) {
+        return Response.json({ ok: true, method: request.method });
       }`,
     );
 
-    const ctx = makeContext({ assistantId: "original" });
-    const dispatcher = makeDispatcher({ context: ctx });
-    const res = await dispatcher.dispatch("ctx-mutate", makeRequest("GET"));
+    const dispatcher = makeDispatcher();
+    const res = await dispatcher.dispatch("req-only", makeRequest("GET"));
+    expect(res.status).toBe(200);
+    expect((await res.json()).ok).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plugin routes — /x/plugins/<name>/*
+// ---------------------------------------------------------------------------
+
+describe("plugin routes", () => {
+  test("dispatches to a plugin's routes/ directory", async () => {
+    writePluginHandler(
+      "my-plugin",
+      "status.ts",
+      `export function GET(request) {
+        return Response.json({ plugin: true });
+      }`,
+    );
+
+    const dispatcher = makeDispatcher();
+    const res = await dispatcher.dispatch(
+      "plugins/my-plugin/status",
+      makeRequest("GET"),
+    );
     expect(res.status).toBe(200);
     const body = await res.json();
-    // Object.freeze makes property assignment throw in strict mode (ESM)
-    // and silently fail in sloppy mode — either way the value is unchanged.
-    expect(body.assistantId).toBe("original");
+    expect(body.plugin).toBe(true);
+  });
+
+  test("resolves nested paths and the index (namespace root)", async () => {
+    writePluginHandler(
+      "my-plugin",
+      "webhooks/incoming.ts",
+      `export function POST(request) { return Response.json({ nested: true }); }`,
+    );
+    writePluginHandler(
+      "my-plugin",
+      "index.ts",
+      `export function GET(request) { return Response.json({ root: true }); }`,
+    );
+
+    const dispatcher = makeDispatcher();
+
+    const nested = await dispatcher.dispatch(
+      "plugins/my-plugin/webhooks/incoming",
+      makeRequest("POST"),
+    );
+    expect(nested.status).toBe(200);
+    expect((await nested.json()).nested).toBe(true);
+
+    // `/x/plugins/my-plugin` (no sub-path) maps to the plugin's routes/index.
+    const root = await dispatcher.dispatch(
+      "plugins/my-plugin",
+      makeRequest("GET"),
+    );
+    expect(root.status).toBe(200);
+    expect((await root.json()).root).toBe(true);
+  });
+
+  test("404s when the plugin route file does not exist", async () => {
+    const dispatcher = makeDispatcher();
+    const res = await dispatcher.dispatch(
+      "plugins/ghost-plugin/status",
+      makeRequest("GET"),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  test("a plugin route is confined to its own plugin directory", async () => {
+    // A workspace route literally named routes/plugins/foo must NOT answer a
+    // request in the plugin namespace — the plugins/ prefix is reserved.
+    writeHandler(
+      "plugins/foo.ts",
+      `export function GET(request) { return Response.json({ workspace: true }); }`,
+    );
+
+    const dispatcher = makeDispatcher();
+    const res = await dispatcher.dispatch("plugins/foo", makeRequest("GET"));
+    // Resolves against <workspace>/plugins/foo/routes/index (absent) → 404,
+    // never the workspace routes/plugins/foo.ts handler.
+    expect(res.status).toBe(404);
+  });
+
+  test("404s a bare /x/plugins with no plugin name", async () => {
+    const dispatcher = makeDispatcher();
+    const res = await dispatcher.dispatch("plugins", makeRequest("GET"));
+    expect(res.status).toBe(404);
+  });
+
+  test("404s a disabled plugin's routes even though the files exist", async () => {
+    writePluginHandler(
+      "off-plugin",
+      "status.ts",
+      `export function GET(request) { return Response.json({ ok: true }); }`,
+    );
+    const dispatcher = makeDispatcher();
+
+    // Enabled: served.
+    const enabled = await dispatcher.dispatch(
+      "plugins/off-plugin/status",
+      makeRequest("GET"),
+    );
+    expect(enabled.status).toBe(200);
+
+    // Drop the `.disabled` sentinel — the same toggle the CLI writes.
+    writeFileSync(
+      join(getWorkspacePluginsDir(), "off-plugin", ".disabled"),
+      "",
+    );
+
+    const disabled = await dispatcher.dispatch(
+      "plugins/off-plugin/status",
+      makeRequest("GET"),
+    );
+    expect(disabled.status).toBe(404);
+  });
+
+  test("one plugin cannot serve another plugin's namespace", async () => {
+    writePluginHandler(
+      "plugin-a",
+      "status.ts",
+      `export function GET(request) { return Response.json({ owner: "a" }); }`,
+    );
+
+    const dispatcher = makeDispatcher();
+    const mine = await dispatcher.dispatch(
+      "plugins/plugin-a/status",
+      makeRequest("GET"),
+    );
+    expect(mine.status).toBe(200);
+    // plugin-b declared nothing, so its namespace 404s even for the same path.
+    const other = await dispatcher.dispatch(
+      "plugins/plugin-b/status",
+      makeRequest("GET"),
+    );
+    expect(other.status).toBe(404);
   });
 });

@@ -84,13 +84,6 @@ mock.module("../providers/provider-send-message.js", () => ({
   userMessage: (text: string) => ({ role: "user", content: text }),
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ── Imports (after all mocks) ─────────────────────────────────────────
 
 import { evaluateSignal } from "../notifications/decision-engine.js";

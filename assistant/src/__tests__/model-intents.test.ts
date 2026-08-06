@@ -26,7 +26,7 @@ describe("model intents", () => {
       "claude-opus-4-6",
     );
     expect(resolveModelIntent("openai", "latency-optimized")).toBe(
-      "gpt-5.4-nano",
+      "gpt-5.6-luna",
     );
     expect(resolveModelIntent("gemini", "latency-optimized")).toBe(
       "gemini-3.1-flash-lite",

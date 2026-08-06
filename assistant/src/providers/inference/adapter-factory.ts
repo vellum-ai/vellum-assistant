@@ -20,6 +20,7 @@
 
 import { AnthropicProvider } from "../anthropic/client.js";
 import { AtlasCloudProvider } from "../atlascloud/client.js";
+import { BasetenProvider } from "../baseten/client.js";
 import { FireworksProvider } from "../fireworks/client.js";
 import { GeminiProvider } from "../gemini/client.js";
 import { MinimaxProvider } from "../minimax/client.js";
@@ -28,13 +29,17 @@ import { OllamaProvider } from "../ollama/client.js";
 import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provider.js";
 import { OpenAIResponsesProvider } from "../openai/responses-provider.js";
 import { OpenRouterProvider } from "../openrouter/client.js";
+import { PoolsideProvider } from "../poolside/client.js";
 import { RetryProvider } from "../retry.js";
 import { TogetherProvider } from "../together/client.js";
 import type { Provider } from "../types.js";
 import { UsageTrackingProvider } from "../usage-tracking.js";
+import { isVellumManagedConnection } from "../vellum-model-routing.js";
 import { VercelAIGatewayProvider } from "../vercel-ai-gateway/client.js";
 import type { ResolvedAuth } from "./auth.js";
 import type { ProviderConnection } from "./auth.js";
+import { effectiveConnectionAuth } from "./auth.js";
+import { resolveAuth } from "./resolve-auth.js";
 
 /** Unified construction opts. Adapters ignore fields they don't consume. */
 export interface AdapterCreateOpts {
@@ -120,8 +125,17 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       streamTimeoutMs,
       ...(baseURL ? { baseURL } : {}),
     }),
-  "openai-compatible": ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+  litellm: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
     new OpenAIChatCompletionsProvider(apiKey, model, {
+      providerName: "litellm",
+      providerLabel: "LiteLLM",
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
+  // Keyless openai-compatible endpoints (e.g. LM Studio) ignore the key; the
+  // placeholder satisfies the OpenAI SDK, which requires a non-empty key.
+  "openai-compatible": ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new OpenAIChatCompletionsProvider(apiKey || "not-needed", model, {
       providerName: "openai-compatible",
       providerLabel: "OpenAI-compatible",
       streamTimeoutMs,
@@ -133,6 +147,16 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
     new AtlasCloudProvider(apiKey, model, { streamTimeoutMs }),
   together: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
     new TogetherProvider(apiKey, model, {
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
+  baseten: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new BasetenProvider(apiKey, model, {
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
+  poolside: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new PoolsideProvider(apiKey, model, {
       streamTimeoutMs,
       ...(baseURL ? { baseURL } : {}),
     }),
@@ -176,7 +200,9 @@ export function buildProviderAdapter(
   opts: AdapterCreateOpts,
 ): Provider | null {
   const factory = ADAPTER_FACTORIES[providerId];
-  if (!factory) return null;
+  if (!factory) {
+    return null;
+  }
   return factory(opts);
 }
 
@@ -204,22 +230,103 @@ export function createAdapterFromConnection(
   },
 ): Provider | null {
   const provider = opts.provider ?? connection.provider;
+  const adapter = buildConnectionAdapter(connection, resolvedAuth, opts);
+  if (!adapter) {
+    return null;
+  }
+
+  /**
+   * Re-read the managed credential after an auth rejection and rebuild the
+   * adapter around it, so a key rotated out-of-band is picked up without a
+   * restart. Returns `null` when the store hands back the same credential
+   * that just failed — otherwise a proxy 401 from any other cause (platform
+   * auth degraded, revoked account) would make every request pay a second
+   * doomed upstream call forever.
+   */
+  function makeCredentialRefresher(): () => Promise<Provider | null> {
+    let lastAuth = JSON.stringify(resolvedAuth);
+    return async (): Promise<Provider | null> => {
+      const refreshedAuth = await resolveAuth(
+        effectiveConnectionAuth(connection),
+        provider,
+        { baseUrl: connection.baseUrl },
+      );
+      if (!refreshedAuth.ok) {
+        return null;
+      }
+      const nextAuth = JSON.stringify(refreshedAuth.resolved);
+      if (nextAuth === lastAuth) {
+        return null;
+      }
+      lastAuth = nextAuth;
+      return buildConnectionAdapter(connection, refreshedAuth.resolved, opts);
+    };
+  }
+
+  // Usage-attribution headers (`X-Vellum-*`) are only meaningful when the
+  // request is routed through the Vellum-managed proxy. They carry billing
+  // metadata for our own backend. Forwarding them to a third-party endpoint
+  // would leak internal Vellum metadata, so gate on the managed connection
+  // identity, the only route that flows through our proxy.
+  const isManagedProxy = isVellumManagedConnection(connection);
+  const effectiveAuth = effectiveConnectionAuth(connection);
+  return new UsageTrackingProvider(
+    new RetryProvider(adapter, {
+      forwardUsageAttributionHeaders: isManagedProxy,
+      credentialSource: isManagedProxy
+        ? "vellum-managed"
+        : effectiveAuth.type === "api_key"
+          ? "byok"
+          : effectiveAuth.type === "oauth_subscription"
+            ? "oauth-subscription"
+            : effectiveAuth.type === "none"
+              ? "no-auth"
+              : undefined,
+      connectionName: connection.name,
+      ...(isManagedProxy
+        ? { refreshCredentialProvider: makeCredentialRefresher() }
+        : {}),
+    }),
+  );
+}
+
+function buildConnectionAdapter(
+  connection: ProviderConnection,
+  resolvedAuth: ResolvedAuth,
+  opts: {
+    model: string;
+    streamTimeoutMs?: number;
+    useNativeWebSearch?: boolean;
+    provider?: string;
+  },
+): Provider | null {
+  const provider = opts.provider ?? connection.provider;
   const entry = PROVIDER_CATALOG.find((e) => e.id === provider);
-  if (!entry) return null;
+  if (!entry) {
+    return null;
+  }
   const isKeyless = entry.setupMode === "keyless";
+  // openai-compatible is dual-mode: local endpoints (LM Studio, vLLM) are
+  // keyless, hosted ones keyed — none auth is valid for it.
+  const isOpenAICompatible = provider === "openai-compatible";
 
   // Keyed providers can't operate without a credential.
-  if (!isKeyless && resolvedAuth.kind === "none") return null;
+  if (!isKeyless && !isOpenAICompatible && resolvedAuth.kind === "none") {
+    return null;
+  }
 
   const apiKey =
     resolvedAuth.kind === "header"
       ? (resolvedAuth.headers["Authorization"] ?? "").replace(/^Bearer /, "")
       : "";
   const baseURL =
-    resolvedAuth.kind === "header" ? resolvedAuth.baseUrl : undefined;
+    resolvedAuth.kind === "header" || resolvedAuth.kind === "none"
+      ? resolvedAuth.baseUrl
+      : undefined;
 
   const codexSubscription =
-    connection.auth.type === "oauth_subscription" && provider === "openai";
+    effectiveConnectionAuth(connection).type === "oauth_subscription" &&
+    provider === "openai";
 
   const adapter = buildProviderAdapter(provider, {
     apiKey,
@@ -229,17 +336,8 @@ export function createAdapterFromConnection(
     useNativeWebSearch: opts.useNativeWebSearch ?? false,
     codexSubscription,
   });
-  if (!adapter) return null;
-
-  // Usage-attribution headers (`X-Vellum-*`) are only meaningful when the
-  // request is routed through the Vellum-managed proxy — they carry billing
-  // metadata for our own backend. Forwarding them to a third-party endpoint
-  // would leak internal Vellum metadata, so gate on the auth type:
-  // `platform` is the only auth that flows through our proxy.
-  const isManagedProxy = connection.auth.type === "platform";
-  return new UsageTrackingProvider(
-    new RetryProvider(adapter, {
-      forwardUsageAttributionHeaders: isManagedProxy,
-    }),
-  );
+  if (!adapter) {
+    return null;
+  }
+  return adapter;
 }

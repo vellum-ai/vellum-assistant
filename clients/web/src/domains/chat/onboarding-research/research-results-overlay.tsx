@@ -73,7 +73,9 @@ export function ResearchResultsOverlay() {
   // `idle` with no facts. Track whether a turn has actually started (sticky).
   const [started, setStarted] = useState(false);
   useEffect(() => {
-    if (processing) setStarted(true);
+    if (processing) {
+      setStarted(true);
+    }
   }, [processing]);
 
   // Assistant reply text so far ("" until the assistant actually streams).
@@ -100,14 +102,18 @@ export function ResearchResultsOverlay() {
   );
   const handleRemove = (index: number) =>
     setRemovals((prev) => {
-      if (prev.has(index)) return prev;
+      if (prev.has(index)) {
+        return prev;
+      }
       return new Map(prev).set(index, null);
     });
   const handleSetReason = (index: number, reason: RemovalReason) =>
     setRemovals((prev) => new Map(prev).set(index, reason));
   const handleRestore = (index: number) =>
     setRemovals((prev) => {
-      if (!prev.has(index)) return prev;
+      if (!prev.has(index)) {
+        return prev;
+      }
       const next = new Map(prev);
       next.delete(index);
       return next;
@@ -123,9 +129,9 @@ export function ResearchResultsOverlay() {
       .map(([index, reason]) => ({ claim: claims[index]!.claim, reason }));
 
   // Accumulate real favicons (domain → url) from live search/fetch activity.
-  const [faviconByDomain, setFaviconByDomain] = useState<Record<string, string>>(
-    {},
-  );
+  const [faviconByDomain, setFaviconByDomain] = useState<
+    Record<string, string>
+  >({});
   useEffect(() => {
     setFaviconByDomain((prev) => {
       const next = { ...prev };
@@ -138,7 +144,9 @@ export function ResearchResultsOverlay() {
       };
       for (const meta of Object.values(liveWebActivity)) {
         meta.webSearch?.results?.forEach((r) => add(r.domain, r.faviconUrl));
-        if (meta.webFetch) add(meta.webFetch.domain, meta.webFetch.faviconUrl);
+        if (meta.webFetch) {
+          add(meta.webFetch.domain, meta.webFetch.faviconUrl);
+        }
       }
       return changed ? next : prev;
     });
@@ -168,7 +176,9 @@ export function ResearchResultsOverlay() {
   const handleContinue = () => {
     const removed = collectRemoved();
     exitFocus();
-    if (removed.length > 0) requestFollowup(buildRemovalNote(removed));
+    if (removed.length > 0) {
+      requestFollowup(buildRemovalNote(removed));
+    }
   };
 
   // Clicking a suggestion starts a fresh conversation with the user-voiced

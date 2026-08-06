@@ -41,7 +41,12 @@ import type { AcpToolStatus } from "@/domains/chat/acp-run-step-projection";
 export type AcpChatBlock =
   | { kind: "user"; id: string; content: string }
   | { kind: "agent"; messageId: string; content: string; isComplete: boolean }
-  | { kind: "thinking"; messageId: string; content: string; isComplete: boolean }
+  | {
+      kind: "thinking";
+      messageId: string;
+      content: string;
+      isComplete: boolean;
+    }
   | {
       kind: "tool";
       toolCallId: string;
@@ -229,7 +234,9 @@ export function applyAcpChatEvent(
 
     case "tool_call": {
       const toolCallId = event.toolCallId;
-      if (toolCallId === undefined) return;
+      if (toolCallId === undefined) {
+        return;
+      }
       closeTrailingMessage(blocks);
       blocks.push({
         kind: "tool",
@@ -249,11 +256,15 @@ export function applyAcpChatEvent(
 
     case "tool_call_update": {
       const toolCallId = event.toolCallId;
-      if (toolCallId === undefined) return;
+      if (toolCallId === undefined) {
+        return;
+      }
       const index = blocks.findIndex(
         (b) => b.kind === "tool" && b.toolCallId === toolCallId,
       );
-      if (index === -1) return;
+      if (index === -1) {
+        return;
+      }
       const target = blocks[index] as Extract<AcpChatBlock, { kind: "tool" }>;
       // A valid `locations` array (including `[]`) REPLACES the snapshot; an
       // empty array clears stale locations. `undefined` means the field is
@@ -277,7 +288,9 @@ export function applyAcpChatEvent(
 
     case "plan": {
       const entries = parsePlanEntries(event.content);
-      if (entries === null) return;
+      if (entries === null) {
+        return;
+      }
       const index = blocks.findIndex((b) => b.kind === "plan");
       const planBlock: AcpChatBlock = { kind: "plan", entries };
       if (index === -1) {
@@ -304,11 +317,15 @@ function parseLocations(
   event: AcpRunRawEvent,
 ): { path: string; line?: number }[] | undefined {
   const raw = event.locations;
-  if (!Array.isArray(raw)) return undefined;
+  if (!Array.isArray(raw)) {
+    return undefined;
+  }
   const out: { path: string; line?: number }[] = [];
   for (const item of raw) {
     const obj = (item ?? {}) as Record<string, unknown>;
-    if (typeof obj.path !== "string") continue;
+    if (typeof obj.path !== "string") {
+      continue;
+    }
     out.push(
       typeof obj.line === "number"
         ? { path: obj.path, line: obj.line }
@@ -326,7 +343,9 @@ function parseLocations(
 function parsePlanEntries(
   content: string | undefined,
 ): { label: string; checked: boolean }[] | null {
-  if (!content) return null;
+  if (!content) {
+    return null;
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(content);
@@ -338,7 +357,9 @@ function parsePlanEntries(
     : Array.isArray((parsed as { entries?: unknown })?.entries)
       ? (parsed as { entries: unknown[] }).entries
       : null;
-  if (raw === null) return null;
+  if (raw === null) {
+    return null;
+  }
   return raw.map((item) => {
     const obj = (item ?? {}) as Record<string, unknown>;
     const text = obj.content ?? obj.label ?? "";
@@ -358,7 +379,9 @@ export function computeAcpRunChatBlocks(
   events: AcpRunRawEvent[],
 ): AcpChatBlock[] {
   const blocks: AcpChatBlock[] = [];
-  for (const event of events) applyAcpChatEvent(blocks, event);
+  for (const event of events) {
+    applyAcpChatEvent(blocks, event);
+  }
   return blocks;
 }
 
@@ -381,9 +404,15 @@ function classifyAcpDiff(
 ):
   | { kind: "identity" | "first" | "mutate-last" | "fallback" }
   | { kind: "append"; from: number } {
-  if (prev === next) return { kind: "identity" };
-  if (prev === null) return { kind: "first" };
-  if (next.length < prev.length) return { kind: "fallback" };
+  if (prev === next) {
+    return { kind: "identity" };
+  }
+  if (prev === null) {
+    return { kind: "first" };
+  }
+  if (next.length < prev.length) {
+    return { kind: "fallback" };
+  }
 
   for (let i = 0; i < prev.length; i++) {
     if (prev[i] !== next[i]) {
@@ -394,7 +423,9 @@ function classifyAcpDiff(
     }
   }
 
-  if (next.length === prev.length) return { kind: "identity" };
+  if (next.length === prev.length) {
+    return { kind: "identity" };
+  }
   return { kind: "append", from: prev.length };
 }
 

@@ -1,29 +1,28 @@
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 
 import { getConfig } from "../config/loader.js";
-import { bridgeCesApproval } from "../credential-execution/approval-bridge.js";
-import { isCesShellLockdownEnabled } from "../credential-execution/feature-gates.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
-import { isUntrustedShellLockdownActive } from "../runtime/effective-capabilities.js";
-import { getCesClient } from "../security/secure-keys.js";
+import { runInPluginContext } from "../plugins/plugin-execution-context.js";
 import { TokenExpiredError } from "../security/token-manager.js";
 import {
-  recordToolDenied,
   recordToolError,
   recordToolExecuted,
 } from "../telemetry/tool-audit.js";
 import { type AbortReason, isAbortReason } from "../util/abort-reasons.js";
 import { PermissionDeniedError, ToolError } from "../util/errors.js";
 import { pathExists, safeStatSync } from "../util/fs.js";
-import { getLogger, truncateForLog } from "../util/logger.js";
+import { truncateForLog } from "../util/logger.js";
 import {
   callerOwnsWorkflowRun,
   manifestGrantsSideEffects,
 } from "../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { executeWithTimeout, safeTimeoutMs } from "./execution-timeout.js";
+import { fileEditInputSchema } from "./filesystem/edit.js";
+import { fileWriteInputSchema } from "./filesystem/write.js";
 import { PermissionChecker } from "./permission-checker.js";
+import { getToolOwner } from "./registry.js";
 import { extractAndSanitize } from "./sensitive-output-placeholders.js";
 import { applyEdit } from "./shared/filesystem/edit-engine.js";
 import { sandboxPolicy } from "./shared/filesystem/path-policy.js";
@@ -32,8 +31,6 @@ import { ToolApprovalHandler } from "./tool-approval-handler.js";
 import { resolveToolInvocationAlias } from "./tool-name-aliases.js";
 import { recordToolCompletion } from "./tool-profiler.js";
 import { type ToolContext, type ToolExecutionResult } from "./types.js";
-
-const log = getLogger("tool-executor");
 
 export class ToolExecutor {
   private prompter: PermissionPrompter;
@@ -104,34 +101,15 @@ export class ToolExecutor {
     }
 
     const tool = gateResult.tool;
+    // The pre-execution gate parsed model-generated input against the tool's
+    // registered Zod schema (`TOOL_INPUT_SCHEMAS`) before any grant was
+    // consumed; substitute the parsed value (with `.catch()` recoveries
+    // applied) so validation and execution see the same input.
+    if (gateResult.parsedInput) {
+      input = gateResult.parsedInput;
+    }
 
     try {
-      // CES shell lockdown: set forcePromptSideEffects BEFORE both the
-      // grantConsumed short-circuit and the permission check. This ensures
-      // the flag is visible to all downstream consumers regardless of
-      // whether a scoped grant was consumed. Previously this was nested
-      // inside the `!grantConsumed` block, meaning untrusted host_bash
-      // calls that arrived with a consumed guardian-approval grant would
-      // skip this assignment entirely - defeating the lockdown.
-      if (
-        name === "host_bash" &&
-        isUntrustedShellLockdownActive({
-          trustClass: context.trustClass,
-          lockdownEnabled: isCesShellLockdownEnabled(getConfig()),
-        })
-      ) {
-        context.forcePromptSideEffects = true;
-      }
-
-      // Secure command tool installation always requires fresh per-invocation
-      // approval - no persistent grants. This is unconditional (not gated on
-      // CES lockdown or trust class) because installing secure tools is
-      // inherently high-impact.
-      if (name === "manage_secure_command_tool") {
-        context.forcePromptSideEffects = true;
-        context.requireFreshApproval = true;
-      }
-
       // A workflow run whose capability manifest grants side-effecting tools or
       // host functions (beyond the read-only baseline) must prompt at LAUNCH.
       // The manifest is authored and declared by the model, and the run's
@@ -256,107 +234,22 @@ export class ToolExecutor {
       const toolTimeoutMs = computePerToolTimeoutMs(name, input);
       const execContext = context;
 
+      // Mark the owning plugin as in context (via AsyncLocalStorage) so host
+      // APIs the tool reaches — e.g. resolveCredential — can scope to it. The
+      // context must be established around the `execute()` call itself so the
+      // returned promise carries the binding across its awaits. Non-plugin
+      // tools (default/skill/mcp/workspace) establish no context.
+      const owner = getToolOwner(name);
+      const execPromise =
+        owner?.kind === "plugin"
+          ? runInPluginContext(owner.id, () => tool.execute(input, execContext))
+          : tool.execute(input, execContext);
+
       let execResult: ToolExecutionResult = await executeWithTimeout(
-        tool.execute(input, execContext),
+        execPromise,
         toolTimeoutMs,
         name,
       );
-
-      // CES approval bridge: if the tool returned an approval_required
-      // indicator, present the proposal to the guardian via the existing
-      // confirmation transport, commit the decision to CES, and retry
-      // the original tool invocation with the granted grantId.
-      const cesClient = getCesClient();
-      if (execResult.cesApprovalRequired && !cesClient) {
-        const msg = `CES approval required for "${name}" but no CES client is available. Ensure the Credential Execution Service is running.`;
-        const durationMs = Date.now() - startTime;
-        recordToolError({
-          conversationId: context.conversationId,
-          requestId: context.requestId,
-          toolName: name,
-          input,
-          errorMessage: msg,
-          isExpected: true,
-          riskLevel,
-          matchedTrustRuleId: permMatchedTrustRuleId,
-          durationMs,
-          attribution: context.attribution ?? null,
-        });
-        recordToolCompletion(context.conversationId, name, durationMs, true);
-        return { content: msg, isError: true };
-      }
-      if (execResult.cesApprovalRequired && cesClient) {
-        const bridgeResult = await bridgeCesApproval(
-          execResult.cesApprovalRequired,
-          this.prompter,
-          cesClient,
-          {
-            isInteractive: context.isInteractive,
-            conversationId: context.conversationId,
-            signal: context.signal,
-          },
-        );
-
-        if (bridgeResult.outcome === "approved") {
-          // Retry the original tool invocation with the grantId attached.
-          // The CES tool implementations accept grantId in the input to
-          // bypass the approval check on the retry.
-          const retryInput = { ...input, grantId: bridgeResult.grantId };
-
-          log.info(
-            {
-              toolName: name,
-              grantId: bridgeResult.grantId,
-              conversationId: context.conversationId,
-            },
-            "CES approval granted - retrying tool invocation with grantId",
-          );
-
-          execResult = await executeWithTimeout(
-            tool.execute(retryInput, execContext),
-            toolTimeoutMs,
-            name,
-          );
-        } else if (
-          bridgeResult.outcome === "denied" ||
-          bridgeResult.outcome === "timeout"
-        ) {
-          const denialReason =
-            bridgeResult.outcome === "timeout"
-              ? `CES approval timed out for "${name}". The tool was not executed.`
-              : `CES approval denied for "${name}". The tool was not executed.`;
-          const durationMs = Date.now() - startTime;
-          recordToolDenied({
-            conversationId: context.conversationId,
-            toolName: name,
-            input,
-            reason: denialReason,
-            riskLevel,
-            matchedTrustRuleId: permMatchedTrustRuleId,
-            durationMs,
-            wasPrompted: false,
-          });
-          return { content: denialReason, isError: true };
-        } else {
-          // bridgeResult.outcome === "error"
-          const errorMsg = `CES approval bridge error for "${name}": ${bridgeResult.message}`;
-          const durationMs = Date.now() - startTime;
-          recordToolError({
-            conversationId: context.conversationId,
-            requestId: context.requestId,
-            toolName: name,
-            input,
-            errorMessage: errorMsg,
-            isExpected: true,
-            riskLevel,
-            matchedTrustRuleId: permMatchedTrustRuleId,
-            durationMs,
-            attribution: context.attribution ?? null,
-          });
-          recordToolCompletion(context.conversationId, name, durationMs, true);
-          return { content: errorMsg, isError: true };
-        }
-      }
 
       // Sized from the RAW pre-sanitization result — sensitive-output
       // extraction below strips directives and swaps raw values for
@@ -585,26 +478,34 @@ export function computePerToolTimeoutMs(
 /**
  * Compute a preview diff for file tools so the confirmation prompt can show
  * what will change. Returns undefined for non-file tools or on any error.
+ * Out-of-workspace targets deliberately produce no preview (strict
+ * sandboxPolicy): the preview runs before the user answers the prompt, and
+ * external file content must not be read — let alone shipped in the
+ * confirmation payload — ahead of approval. Host file tools have no preview
+ * for the same reason.
  */
-function computePreviewDiff(
+async function computePreviewDiff(
   toolName: string,
   input: Record<string, unknown>,
   workingDir: string,
-):
+): Promise<
   | {
       filePath: string;
       oldContent: string;
       newContent: string;
       isNewFile: boolean;
     }
-  | undefined {
+  | undefined
+> {
   try {
     if (toolName === "file_write") {
-      const rawPath = input.path as string;
-      const content = input.content as string;
-      if (!rawPath || typeof content !== "string") {
+      // Parse with the tool's own schema so the preview reads the same shape
+      // the executor will (a call the schema rejects gets no preview).
+      const parsed = fileWriteInputSchema.safeParse(input);
+      if (!parsed.success) {
         return undefined;
       }
+      const { path: rawPath, content } = parsed.data;
       const pathCheck = sandboxPolicy(rawPath, workingDir, {
         mustExist: false,
       });
@@ -619,22 +520,20 @@ function computePreviewDiff(
           return undefined;
         }
       }
-      const oldContent = isNewFile ? "" : readFileSync(filePath, "utf-8");
+      const oldContent = isNewFile ? "" : await readFile(filePath, "utf-8");
       return { filePath, oldContent, newContent: content, isNewFile };
     }
 
     if (toolName === "file_edit") {
-      const rawPath = input.path as string;
-      const oldString = input.old_string as string;
-      const newString = input.new_string as string;
-      if (
-        !rawPath ||
-        typeof oldString !== "string" ||
-        typeof newString !== "string" ||
-        oldString.length === 0
-      ) {
+      const parsed = fileEditInputSchema.safeParse(input);
+      if (!parsed.success) {
         return undefined;
       }
+      const {
+        path: rawPath,
+        old_string: oldString,
+        new_string: newString,
+      } = parsed.data;
       const pathCheck = sandboxPolicy(rawPath, workingDir);
       if (!pathCheck.ok) {
         return undefined;
@@ -647,8 +546,8 @@ function computePreviewDiff(
       if (stat.size > MAX_FILE_SIZE_BYTES) {
         return undefined;
       }
-      const content = readFileSync(filePath, "utf-8");
-      const replaceAll = input.replace_all === true;
+      const content = await readFile(filePath, "utf-8");
+      const replaceAll = parsed.data.replace_all === true;
       const result = applyEdit(content, oldString, newString, replaceAll);
       if (!result.ok) {
         return undefined;

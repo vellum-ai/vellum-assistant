@@ -3,10 +3,23 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Minimize2 } from "lucide-react";
 
 import { AppNavBar } from "@/components/app-nav-bar";
+import {
+  copyDeployedAppLink,
+  useAppDeployment,
+} from "@/hooks/use-app-deployment";
 import { useSandboxFetchProxy } from "@/hooks/use-sandbox-fetch-proxy";
+import { useAppIframeSandboxDisabled } from "@/lib/app-sandbox-debug-flag";
 import { cn } from "@/utils/misc";
 import { injectBridge } from "@/utils/sandbox-bridge";
 import { Button } from "@vellumai/design-library";
+
+/**
+ * Sandbox tokens the app frame runs under. No `allow-same-origin`, so the
+ * app document is opaque-origin and reaches the host only through the
+ * bridge in `@/utils/sandbox-bridge`.
+ */
+const APP_IFRAME_SANDBOX =
+  "allow-scripts allow-popups allow-popups-to-escape-sandbox";
 
 export interface AppViewerContainerProps {
   appId: string;
@@ -15,7 +28,7 @@ export interface AppViewerContainerProps {
   assistantId: string;
   onClose: () => void;
   onEdit?: () => void;
-  /** When true, the nav bar Edit button shows "Close chat" instead. */
+  /** When true, the nav bar Edit button becomes the expand-app affordance. */
   isEditing?: boolean;
   onShare?: () => void;
   isSharing?: boolean;
@@ -62,9 +75,14 @@ export function AppViewerContainer({
 
   // Escape-to-exit handler, active only while fullscreen.
   useEffect(() => {
-    if (!isFullscreen) return;
+    if (!isFullscreen) {
+      return;
+    }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setIsFullscreen(false);
+      if (e.key === "Escape" && !e.defaultPrevented) {
+        e.preventDefault();
+        setIsFullscreen(false);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -75,19 +93,37 @@ export function AppViewerContainer({
     [html, appId, route],
   );
 
+  const sandboxDisabled = useAppIframeSandboxDisabled();
+
+  // The sandbox flag is part of the key: a frame keeps the security
+  // context it was created with, so flipping the attribute on a live
+  // iframe changes nothing. Re-keying remounts it, which reloads the
+  // document under the attribute in effect.
   const iframeKey = useMemo(() => {
     let hash = 0;
     for (let i = 0; i < html.length; i++) {
       hash = ((hash << 5) - hash + html.charCodeAt(i)) | 0;
     }
-    return `app-${appId}-${hash}`;
-  }, [html, appId]);
+    return `app-${appId}-${hash}${sandboxDisabled ? "-nosandbox" : ""}`;
+  }, [html, appId, sandboxDisabled]);
 
   useSandboxFetchProxy(iframeRef, {
     frameId: appId,
     assistantId,
+    appId,
     onAction,
   });
+
+  // Only asked for when the viewer actually offers a deploy: read-only
+  // (plugin-bundled) apps get no deploy handler and so need no status read.
+  const { deployedUrl } = useAppDeployment(assistantId, appId, {
+    enabled: onDeploy != null,
+  });
+  const handleCopyDeployedLink = useCallback(() => {
+    if (deployedUrl != null) {
+      copyDeployedAppLink(deployedUrl);
+    }
+  }, [deployedUrl]);
 
   return (
     <div
@@ -106,6 +142,8 @@ export function AppViewerContainer({
           isSharing={isSharing}
           onDeploy={onDeploy}
           isDeploying={isDeploying}
+          deployedUrl={deployedUrl}
+          onCopyDeployedLink={handleCopyDeployedLink}
           onToggleFullscreen={enableFullscreen ? toggleFullscreen : undefined}
           onClose={onClose}
         />
@@ -117,7 +155,8 @@ export function AppViewerContainer({
             className="absolute z-10"
             style={{
               top: "max(0.75rem, var(--safe-area-inset-top, env(safe-area-inset-top, 0px)))",
-              right: "max(0.75rem, var(--safe-area-inset-right, env(safe-area-inset-right, 0px)))",
+              right:
+                "max(0.75rem, var(--safe-area-inset-right, env(safe-area-inset-right, 0px)))",
             }}
           >
             <Button
@@ -132,7 +171,7 @@ export function AppViewerContainer({
           ref={iframeRef}
           key={iframeKey}
           srcDoc={srcdoc}
-          sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+          sandbox={sandboxDisabled ? undefined : APP_IFRAME_SANDBOX}
           referrerPolicy="no-referrer"
           title={appName}
           className="h-full w-full border-none"

@@ -2,13 +2,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 /**
  * Fake CDP session used by every interaction tool that has been
  * migrated to `CdpClient` (click, hover, type, press_key,
@@ -47,7 +40,9 @@ const fakeCdpSession = {
   send: async (method: string, params?: Record<string, unknown>) => {
     sendCalls.push({ method, params });
     const value = sendHandler(method, params);
-    if (value instanceof Error) throw value;
+    if (value instanceof Error) {
+      throw value;
+    }
     return value;
   },
   detach: async () => {
@@ -92,7 +87,9 @@ mock.module("../tools/browser/browser-manager.js", () => {
         elementId: string,
       ) => {
         const map = snapshotBackendNodeMaps.get(conversationId);
-        if (!map) return null;
+        if (!map) {
+          return null;
+        }
         return map.get(elementId) ?? null;
       },
       clearSnapshotBackendNodeMap: (conversationId: string) => {

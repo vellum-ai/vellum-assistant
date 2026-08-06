@@ -9,18 +9,9 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { sql } from "drizzle-orm";
-
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
 
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
@@ -95,23 +86,41 @@ function seedGatewayGuardian(
   });
 }
 
-import {
-  createCanonicalGuardianRequest,
-  listCanonicalGuardianDeliveries,
-  listCanonicalGuardianRequests,
-  resolveCanonicalGuardianRequest,
-} from "../contacts/canonical-guardian-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
-  isAccessRequestDenied,
   maybeNotifyGuardianOfAdmittedContact,
   notifyGuardianOfAccessRequest,
 } from "../runtime/access-request-helper.js";
+import type {
+  SimGuardianDelivery,
+  SimGuardianRequest,
+} from "./guardian-gateway-sim.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { bridgeState } from "./helpers/gateway-guardian-requests-store-bridge.js";
 
 await initializeDb();
+
+/** Sync assertion views over the bridge sim's guardian-request rows. */
+function listRequests(
+  filter: Partial<
+    Pick<
+      SimGuardianRequest,
+      "status" | "requesterExternalUserId" | "sourceChannel" | "kind"
+    >
+  >,
+): SimGuardianRequest[] {
+  return [...bridgeState.requests.values()].filter((row) =>
+    Object.entries(filter).every(
+      ([key, value]) => row[key as keyof SimGuardianRequest] === value,
+    ),
+  );
+}
+
+function listDeliveries(requestId: string): SimGuardianDelivery[] {
+  return bridgeState.deliveries.filter((d) => d.requestId === requestId);
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -125,12 +134,11 @@ const TEST_BEARER_TOKEN = "test-token";
  * assistant-anchored resolution check in access-request-helper passes.
  */
 function resetState(): string {
+  bridgeState.reset();
   const db = getDb();
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM notification_events");
-  db.run("DELETE FROM canonical_guardian_requests");
-  db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
   emitSignalCalls.length = 0;
@@ -257,7 +265,7 @@ describe("non-member access request notification", () => {
     expect(payload.actorDisplayName).toBe("Alice Unknown");
 
     // A canonical access request was created
-    const pending = listCanonicalGuardianRequests({
+    const pending = listRequests({
       status: "pending",
       requesterExternalUserId: "user-unknown-456",
       sourceChannel: "telegram",
@@ -302,8 +310,8 @@ describe("non-member access request notification", () => {
     // Only one notification signal should be emitted (second is deduplicated)
     expect(emitSignalCalls.length).toBe(1);
 
-    // Only one canonical request should exist
-    const pending = listCanonicalGuardianRequests({
+    // Only one guardian request should exist
+    const pending = listRequests({
       status: "pending",
       requesterExternalUserId: "user-unknown-456",
       sourceChannel: "telegram",
@@ -312,12 +320,14 @@ describe("non-member access request notification", () => {
     expect(pending.length).toBe(1);
   });
 
-  // After the guardian denies an access request, subsequent DMs from the same
-  // sender do not re-prompt the guardian. Drives the real inbound path for both
-  // messages so the deny-dedup matches the exact assistant-scoped
-  // conversationId the notify path derives — a hand-crafted fixture could mask
-  // a mismatch.
-  test("a denied sender's subsequent DM does not re-prompt the guardian", async () => {
+  // A bare guardian deny (a `denied` request with no durable contact seeded)
+  // does not suppress re-prompting: suppression keys off the contact being
+  // kept out (revoked/blocked), not off a denied request row. So a sender the
+  // guardian denied without blocking is re-surfaced when they message again and
+  // the guardian can decide afresh. (Durable keep-out vs. re-fire by contact
+  // status is covered at the ACL unit level.) Drives the real inbound path so
+  // the assistant-scoped conversationId matches what the notify path derives.
+  test("a denied sender's subsequent DM re-prompts the guardian (deny is not a durable keep-out)", async () => {
     seedGatewayGuardian({
       channelType: "telegram",
       address: "guardian-user-789",
@@ -340,7 +350,7 @@ describe("non-member access request notification", () => {
     );
     expect(emitSignalCalls.length).toBe(1);
 
-    const created = listCanonicalGuardianRequests({
+    const created = listRequests({
       status: "pending",
       requesterExternalUserId: "user-unknown-456",
       sourceChannel: "telegram",
@@ -350,11 +360,14 @@ describe("non-member access request notification", () => {
 
     // 2) Guardian denies — resolve the *real* request (same CAS transition the
     // deny primitive performs), preserving its conversationId.
-    const denied = resolveCanonicalGuardianRequest(created[0].id, "pending", {
+    const denied = await bridgeState.module.decideGuardianRequest({
+      id: created[0].id,
+      expectedStatus: "pending",
       status: "denied",
       decidedByExternalUserId: "guardian-user-789",
     });
-    expect(denied?.status).toBe("denied");
+    expect(denied.applied).toBe(true);
+    expect(bridgeState.getRequest(created[0].id)?.status).toBe("denied");
 
     // 3) Same sender DMs again → still denied, but NO new guardian prompt.
     const resp2 = await handleChannelInbound(
@@ -365,19 +378,20 @@ describe("non-member access request notification", () => {
       TEST_BEARER_TOKEN,
     );
     const json2 = (await resp2.json()) as Record<string, unknown>;
+    // Still not a member, so the message itself is denied at the door...
     expect(json2.denied).toBe(true);
 
-    // No additional access-request signal was emitted (still just the first).
-    expect(emitSignalCalls.length).toBe(1);
+    // ...but the guardian IS re-prompted — the earlier deny seeded no durable
+    // keep-out, so a second signal fires and a fresh pending request is minted.
+    expect(emitSignalCalls.length).toBe(2);
 
-    // And no fresh pending request was created for the denied sender.
-    const pendingAfter = listCanonicalGuardianRequests({
+    const pendingAfter = listRequests({
       status: "pending",
       requesterExternalUserId: "user-unknown-456",
       sourceChannel: "telegram",
       kind: "access_request",
     });
-    expect(pendingAfter.length).toBe(0);
+    expect(pendingAfter.length).toBe(1);
   });
 
   test("access request is created with self-healed principal even without same-channel guardian binding", async () => {
@@ -400,8 +414,8 @@ describe("non-member access request notification", () => {
     expect(emitSignalCalls.length).toBe(1);
     expect(emitSignalCalls[0].sourceEventName).toBe("ingress.access_request");
 
-    // Canonical request was created with a self-healed principal
-    const pending = listCanonicalGuardianRequests({
+    // Guardian request was created with a self-healed principal
+    const pending = listRequests({
       status: "pending",
       requesterExternalUserId: "user-unknown-456",
       sourceChannel: "telegram",
@@ -447,8 +461,8 @@ describe("non-member access request notification", () => {
     // Falls back to vellum anchor, not the phone binding
     expect(payload.guardianBindingChannel).toBe("vellum");
 
-    // Canonical request uses the vellum anchor identity
-    const pending = listCanonicalGuardianRequests({
+    // Guardian request uses the vellum anchor identity
+    const pending = listRequests({
       status: "pending",
       requesterExternalUserId: "user-unknown-456",
       sourceChannel: "telegram",
@@ -498,8 +512,8 @@ describe("access-request-helper unit tests", () => {
       expect(result.reason).toBe("no_sender_id");
     }
 
-    // No canonical request created
-    const pending = listCanonicalGuardianRequests({
+    // No guardian request created
+    const pending = listRequests({
       status: "pending",
       kind: "access_request",
     });
@@ -520,7 +534,7 @@ describe("access-request-helper unit tests", () => {
       expect(result.created).toBe(true);
     }
 
-    const pending = listCanonicalGuardianRequests({
+    const pending = listRequests({
       status: "pending",
       requesterExternalUserId: "unknown-user",
       kind: "access_request",
@@ -559,7 +573,7 @@ describe("access-request-helper unit tests", () => {
 
     expect(result.notified).toBe(true);
 
-    const pending = listCanonicalGuardianRequests({
+    const pending = listRequests({
       status: "pending",
       requesterExternalUserId: "unknown-tg-user",
       kind: "access_request",
@@ -613,7 +627,7 @@ describe("access-request-helper unit tests", () => {
 
     expect(result.notified).toBe(true);
 
-    const pending = listCanonicalGuardianRequests({
+    const pending = listRequests({
       status: "pending",
       requesterExternalUserId: "unknown-user",
       kind: "access_request",
@@ -654,7 +668,7 @@ describe("access-request-helper unit tests", () => {
 
     expect(result.notified).toBe(true);
 
-    const pending = listCanonicalGuardianRequests({
+    const pending = listRequests({
       status: "pending",
       requesterExternalUserId: "unknown-user",
       kind: "access_request",
@@ -682,7 +696,7 @@ describe("access-request-helper unit tests", () => {
 
     expect(result.notified).toBe(true);
 
-    const pending = listCanonicalGuardianRequests({
+    const pending = listRequests({
       status: "pending",
       requesterExternalUserId: "unknown-user",
       kind: "access_request",
@@ -715,7 +729,7 @@ describe("access-request-helper unit tests", () => {
       }),
     ).rejects.toThrow();
 
-    const pending = listCanonicalGuardianRequests({
+    const pending = listRequests({
       status: "pending",
       requesterExternalUserId: "unknown-user",
       kind: "access_request",
@@ -744,8 +758,8 @@ describe("access-request-helper unit tests", () => {
     expect(payload.actorExternalId).toBe("+15559998888");
     expect(payload.senderIdentifier).toBe("Alice Caller");
 
-    // Canonical request should exist
-    const pending = listCanonicalGuardianRequests({
+    // Guardian request should exist
+    const pending = listRequests({
       status: "pending",
       requesterExternalUserId: "+15559998888",
       sourceChannel: "phone",
@@ -776,13 +790,16 @@ describe("access-request-helper unit tests", () => {
   });
 
   test("notifyGuardianOfAccessRequest includes previousMemberStatus in contextPayload", async () => {
+    // A parked `pending` status still re-fires (not a keep-out), so the request
+    // is created and the status is forwarded to the card payload. (A `revoked`
+    // status would instead suppress — covered by the keep-out tests.)
     const result = await notifyGuardianOfAccessRequest({
       canonicalAssistantId: "self",
       sourceChannel: "telegram",
       conversationExternalId: "chat-123",
-      actorExternalId: "revoked-user",
-      actorDisplayName: "Revoked User",
-      previousMemberStatus: "revoked",
+      actorExternalId: "pending-user",
+      actorDisplayName: "Pending User",
+      previousMemberStatus: "pending",
     });
 
     expect(result.notified).toBe(true);
@@ -792,10 +809,10 @@ describe("access-request-helper unit tests", () => {
       string,
       unknown
     >;
-    expect(payload.previousMemberStatus).toBe("revoked");
+    expect(payload.previousMemberStatus).toBe("pending");
   });
 
-  test("notifyGuardianOfAccessRequest persists canonical delivery rows from notification results", async () => {
+  test("notifyGuardianOfAccessRequest persists delivery rows from notification results", async () => {
     mockEmitResult = {
       signalId: "sig-deliveries",
       deduplicated: false,
@@ -831,7 +848,7 @@ describe("access-request-helper unit tests", () => {
 
     await flushAsyncAccessRequestBookkeeping();
 
-    const deliveries = listCanonicalGuardianDeliveries(result.requestId);
+    const deliveries = listDeliveries(result.requestId);
     const vellum = deliveries.find((d) => d.destinationChannel === "vellum");
     const telegram = deliveries.find(
       (d) => d.destinationChannel === "telegram",
@@ -894,7 +911,7 @@ describe("access-request-helper unit tests", () => {
 
     await flushAsyncAccessRequestBookkeeping();
 
-    const deliveries = listCanonicalGuardianDeliveries(result.requestId);
+    const deliveries = listDeliveries(result.requestId);
     const vellum = deliveries.find((d) => d.destinationChannel === "vellum");
     const telegram = deliveries.find(
       (d) => d.destinationChannel === "telegram",
@@ -907,17 +924,45 @@ describe("access-request-helper unit tests", () => {
     expect(telegram!.status).toBe("sent");
   });
 
-  test("notifyGuardianOfAccessRequest is suppressed after a prior deny for the same sender", async () => {
-    // Simulate a previously-denied access request for this sender on this
-    // channel/assistant. The conversationId must match the assistant-scoped
-    // key the helper derives: access-req-<assistantId>-<channel>-<actor>.
-    createCanonicalGuardianRequest({
+  test("notifyGuardianOfAccessRequest is suppressed for a kept-out (revoked/blocked) contact", async () => {
+    // Suppression keys off the contact's durable status, not a prior denied
+    // request row. A revoked/blocked contact is deliberately kept out — no new
+    // prompt, signal, or pending request.
+    const result = await notifyGuardianOfAccessRequest({
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-kept-out",
+      actorExternalId: "revoked-user",
+      actorDisplayName: "Revoked User",
+      previousMemberStatus: "revoked",
+    });
+
+    // Suppressed: no new prompt, no signal, no new pending request.
+    expect(result.notified).toBe(false);
+    if (!result.notified) {
+      expect(result.reason).toBe("contact_kept_out");
+    }
+    expect(emitSignalCalls.length).toBe(0);
+
+    const pending = listRequests({
+      status: "pending",
+      requesterExternalUserId: "revoked-user",
+      kind: "access_request",
+    });
+    expect(pending.length).toBe(0);
+  });
+
+  test("notifyGuardianOfAccessRequest re-fires for a parked contact even after a prior deny (deny is not a keep-out)", async () => {
+    // A prior `denied` request for this sender does not suppress: the contact
+    // is parked (unverified → pending), not kept out, so a later
+    // trust-requiring inbound re-surfaces to the guardian.
+    bridgeState.seedRequest({
       id: `denied-${Date.now()}`,
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "access-req-self-telegram-denied-user",
-      requesterExternalUserId: "denied-user",
+      sourceConversationId: "access-req-self-telegram-parked-user",
+      requesterExternalUserId: "parked-user",
       guardianPrincipalId: anchorPrincipalId,
       toolName: "ingress_access_request",
       status: "denied",
@@ -926,36 +971,34 @@ describe("access-request-helper unit tests", () => {
     const result = await notifyGuardianOfAccessRequest({
       canonicalAssistantId: "self",
       sourceChannel: "telegram",
-      conversationExternalId: "chat-denied",
-      actorExternalId: "denied-user",
-      actorDisplayName: "Denied User",
+      conversationExternalId: "chat-parked",
+      actorExternalId: "parked-user",
+      actorDisplayName: "Parked User",
+      previousMemberStatus: "pending",
     });
 
-    // Suppressed: no new prompt, no signal, no new pending request.
-    expect(result.notified).toBe(false);
-    if (!result.notified) {
-      expect(result.reason).toBe("already_denied");
-    }
-    expect(emitSignalCalls.length).toBe(0);
+    // Re-fired: fresh signal + a new pending request.
+    expect(result.notified).toBe(true);
+    expect(emitSignalCalls.length).toBe(1);
 
-    const pending = listCanonicalGuardianRequests({
+    const pending = listRequests({
       status: "pending",
-      requesterExternalUserId: "denied-user",
+      requesterExternalUserId: "parked-user",
       kind: "access_request",
     });
-    expect(pending.length).toBe(0);
+    expect(pending.length).toBe(1);
   });
 
   // LUM-2673: inside the post-approval verification window, inbound from the
   // sender must not create a new request or re-notify the guardian — the
   // handshake is waiting on the sender to enter their code.
   test("suppressed while the approval's verification window is open", async () => {
-    createCanonicalGuardianRequest({
+    bridgeState.seedRequest({
       id: `approved-${Date.now()}`,
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "access-req-self-telegram-approved-user",
+      sourceConversationId: "access-req-self-telegram-approved-user",
       requesterExternalUserId: "approved-user",
       guardianPrincipalId: anchorPrincipalId,
       toolName: "ingress_access_request",
@@ -976,7 +1019,7 @@ describe("access-request-helper unit tests", () => {
     }
     expect(emitSignalCalls.length).toBe(0);
 
-    const pending = listCanonicalGuardianRequests({
+    const pending = listRequests({
       status: "pending",
       requesterExternalUserId: "approved-user",
       kind: "access_request",
@@ -986,12 +1029,12 @@ describe("access-request-helper unit tests", () => {
 
   test("re-prompts once the approval's verification window has lapsed", async () => {
     const requestId = `approved-stale-${Date.now()}`;
-    createCanonicalGuardianRequest({
+    bridgeState.seedRequest({
       id: requestId,
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "access-req-self-telegram-stale-user",
+      sourceConversationId: "access-req-self-telegram-stale-user",
       requesterExternalUserId: "stale-user",
       guardianPrincipalId: anchorPrincipalId,
       toolName: "ingress_access_request",
@@ -1001,9 +1044,7 @@ describe("access-request-helper unit tests", () => {
     // no longer be redeemed, so the sender's next message legitimately
     // re-prompts the guardian.
     const staleUpdatedAt = Date.now() - 11 * 60 * 1000;
-    getDb().run(
-      sql`UPDATE canonical_guardian_requests SET updated_at = ${staleUpdatedAt} WHERE id = ${requestId}`,
-    );
+    bridgeState.requests.get(requestId)!.updatedAt = staleUpdatedAt;
 
     const result = await notifyGuardianOfAccessRequest({
       canonicalAssistantId: "self",
@@ -1016,7 +1057,7 @@ describe("access-request-helper unit tests", () => {
     expect(result.notified).toBe(true);
     expect(emitSignalCalls.length).toBe(1);
 
-    const pending = listCanonicalGuardianRequests({
+    const pending = listRequests({
       status: "pending",
       requesterExternalUserId: "stale-user",
       kind: "access_request",
@@ -1024,28 +1065,20 @@ describe("access-request-helper unit tests", () => {
     expect(pending.length).toBe(1);
   });
 
-  test("a terminal deny wins over an in-window approval for the same sender", async () => {
-    createCanonicalGuardianRequest({
-      id: `approved-then-denied-a-${Date.now()}`,
+  test("a durable keep-out wins over an in-window approval for the same sender", async () => {
+    // An approved request inside the verification window would normally
+    // suppress as `approval_pending_verification`. A kept-out contact
+    // (revoked/blocked) is checked first, so the keep-out wins.
+    bridgeState.seedRequest({
+      id: `approved-then-revoked-${Date.now()}`,
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "access-req-self-telegram-flip-user",
+      sourceConversationId: "access-req-self-telegram-flip-user",
       requesterExternalUserId: "flip-user",
       guardianPrincipalId: anchorPrincipalId,
       toolName: "ingress_access_request",
       status: "approved",
-    });
-    createCanonicalGuardianRequest({
-      id: `approved-then-denied-d-${Date.now()}`,
-      kind: "access_request",
-      sourceType: "channel",
-      sourceChannel: "telegram",
-      conversationId: "access-req-self-telegram-flip-user",
-      requesterExternalUserId: "flip-user",
-      guardianPrincipalId: anchorPrincipalId,
-      toolName: "ingress_access_request",
-      status: "denied",
     });
 
     const result = await notifyGuardianOfAccessRequest({
@@ -1054,29 +1087,30 @@ describe("access-request-helper unit tests", () => {
       conversationExternalId: "chat-flip",
       actorExternalId: "flip-user",
       actorDisplayName: "Flip User",
+      previousMemberStatus: "revoked",
     });
 
     expect(result.notified).toBe(false);
     if (!result.notified) {
-      expect(result.reason).toBe("already_denied");
+      expect(result.reason).toBe("contact_kept_out");
     }
     expect(emitSignalCalls.length).toBe(0);
   });
 
-  test("a prior deny for one sender does not suppress prompts for a different sender", async () => {
-    createCanonicalGuardianRequest({
-      id: `denied-other-${Date.now()}`,
-      kind: "access_request",
-      sourceType: "channel",
+  test("a keep-out is per-sender — a different, non-kept-out sender still gets prompted", async () => {
+    // Suppression is scoped to the sender via their own contact status, so a
+    // kept-out contact never bleeds into a different sender's prompt.
+    const keptOut = await notifyGuardianOfAccessRequest({
+      canonicalAssistantId: "self",
       sourceChannel: "telegram",
-      conversationId: "access-req-self-telegram-denied-user",
-      requesterExternalUserId: "denied-user",
-      guardianPrincipalId: anchorPrincipalId,
-      toolName: "ingress_access_request",
-      status: "denied",
+      conversationExternalId: "chat-kept",
+      actorExternalId: "revoked-user",
+      actorDisplayName: "Revoked User",
+      previousMemberStatus: "revoked",
     });
+    expect(keptOut.notified).toBe(false);
 
-    // A different sender still gets a fresh prompt.
+    // A different sender with no keep-out still gets a fresh prompt.
     const result = await notifyGuardianOfAccessRequest({
       canonicalAssistantId: "self",
       sourceChannel: "telegram",
@@ -1088,90 +1122,12 @@ describe("access-request-helper unit tests", () => {
     expect(result.notified).toBe(true);
     expect(emitSignalCalls.length).toBe(1);
 
-    const pending = listCanonicalGuardianRequests({
+    const pending = listRequests({
       status: "pending",
       requesterExternalUserId: "fresh-user",
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
-  });
-
-  test("a denied request on a different channel does not suppress a new channel's prompt", async () => {
-    // Denied on telegram; the same actor id messaging on slack is a distinct
-    // (channel-scoped) context and still surfaces to the guardian.
-    createCanonicalGuardianRequest({
-      id: `denied-tg-${Date.now()}`,
-      kind: "access_request",
-      sourceType: "channel",
-      sourceChannel: "telegram",
-      conversationId: "access-req-self-telegram-cross-user",
-      requesterExternalUserId: "cross-user",
-      guardianPrincipalId: anchorPrincipalId,
-      toolName: "ingress_access_request",
-      status: "denied",
-    });
-
-    const result = await notifyGuardianOfAccessRequest({
-      canonicalAssistantId: "self",
-      sourceChannel: "slack",
-      conversationExternalId: "C-cross",
-      actorExternalId: "cross-user",
-      actorDisplayName: "Cross User",
-    });
-
-    expect(result.notified).toBe(true);
-    const pending = listCanonicalGuardianRequests({
-      status: "pending",
-      requesterExternalUserId: "cross-user",
-      sourceChannel: "slack",
-      kind: "access_request",
-    });
-    expect(pending.length).toBe(1);
-  });
-
-  test("isAccessRequestDenied is true only for the denied (assistant, channel, sender)", () => {
-    const key = {
-      canonicalAssistantId: "self",
-      sourceChannel: "telegram",
-      actorExternalId: "denied-user",
-    };
-    expect(isAccessRequestDenied(key)).toBe(false);
-
-    createCanonicalGuardianRequest({
-      id: `denied-${Date.now()}`,
-      kind: "access_request",
-      sourceType: "channel",
-      sourceChannel: "telegram",
-      conversationId: "access-req-self-telegram-denied-user",
-      requesterExternalUserId: "denied-user",
-      guardianPrincipalId: anchorPrincipalId,
-      toolName: "ingress_access_request",
-      status: "denied",
-    });
-
-    expect(isAccessRequestDenied(key)).toBe(true);
-    // Scoped: a different channel or sender is not treated as denied.
-    expect(isAccessRequestDenied({ ...key, sourceChannel: "slack" })).toBe(
-      false,
-    );
-    expect(isAccessRequestDenied({ ...key, actorExternalId: "other" })).toBe(
-      false,
-    );
-    // A still-pending request is not a terminal deny.
-    createCanonicalGuardianRequest({
-      id: `pending-${Date.now()}`,
-      kind: "access_request",
-      sourceType: "channel",
-      sourceChannel: "telegram",
-      conversationId: "access-req-self-telegram-pending-user",
-      requesterExternalUserId: "pending-user",
-      guardianPrincipalId: anchorPrincipalId,
-      toolName: "ingress_access_request",
-      status: "pending",
-    });
-    expect(
-      isAccessRequestDenied({ ...key, actorExternalId: "pending-user" }),
-    ).toBe(false);
   });
 });
 
@@ -1199,7 +1155,7 @@ describe("maybeNotifyGuardianOfAdmittedContact", () => {
       expect(result.created).toBe(true);
     }
 
-    const requests = listCanonicalGuardianRequests({
+    const requests = listRequests({
       kind: "access_request",
       requesterExternalUserId: baseParams.actorExternalId,
     });
@@ -1225,9 +1181,7 @@ describe("maybeNotifyGuardianOfAdmittedContact", () => {
     if (!second.notified) {
       expect(second.reason).toBe("already_introduced");
     }
-    expect(
-      listCanonicalGuardianRequests({ kind: "access_request" }).length,
-    ).toBe(1);
+    expect(listRequests({ kind: "access_request" }).length).toBe(1);
     expect(emitSignalCalls.length).toBe(1);
   });
 
@@ -1244,14 +1198,17 @@ describe("maybeNotifyGuardianOfAdmittedContact", () => {
     if (dm.notified) {
       expect(dm.created).toBe(false);
     }
-    expect(
-      listCanonicalGuardianRequests({ kind: "access_request" }).length,
-    ).toBe(1);
+    expect(listRequests({ kind: "access_request" }).length).toBe(1);
   });
 
   test("after the earlier card expires undecided, a new conversation re-nudges once", async () => {
     await maybeNotifyGuardianOfAdmittedContact(baseParams);
-    getDb().run("UPDATE canonical_guardian_requests SET status = 'expired'");
+    for (const row of bridgeState.requests.values()) {
+      row.status = "expired";
+    }
+
+    // Request ids embed Date.now(); tick past the ms so the re-nudge id is distinct.
+    await new Promise((resolve) => setTimeout(resolve, 2));
 
     const dm = await maybeNotifyGuardianOfAdmittedContact({
       ...baseParams,
@@ -1261,9 +1218,7 @@ describe("maybeNotifyGuardianOfAdmittedContact", () => {
     if (dm.notified) {
       expect(dm.created).toBe(true);
     }
-    expect(
-      listCanonicalGuardianRequests({ kind: "access_request" }).length,
-    ).toBe(2);
+    expect(listRequests({ kind: "access_request" }).length).toBe(2);
 
     // The original conversation stays suppressed in every state.
     const original = await maybeNotifyGuardianOfAdmittedContact(baseParams);
@@ -1273,9 +1228,15 @@ describe("maybeNotifyGuardianOfAdmittedContact", () => {
     }
   });
 
-  test("a guardian terminal deny suppresses nudges across conversations", async () => {
+  test("a guardian decision suppresses admitted nudges across conversations", async () => {
+    // Once the guardian decides a card for this contact (a `denied` request —
+    // leave-unverified or block), the low-stakes "set trust level" nudge is
+    // quieted in every conversation. (The deny-path access request still
+    // re-fires for a parked contact reaching past a floor — that is separate.)
     await maybeNotifyGuardianOfAdmittedContact(baseParams);
-    getDb().run("UPDATE canonical_guardian_requests SET status = 'denied'");
+    for (const row of bridgeState.requests.values()) {
+      row.status = "denied";
+    }
 
     const dm = await maybeNotifyGuardianOfAdmittedContact({
       ...baseParams,
@@ -1283,7 +1244,7 @@ describe("maybeNotifyGuardianOfAdmittedContact", () => {
     });
     expect(dm.notified).toBe(false);
     if (!dm.notified) {
-      expect(dm.reason).toBe("already_denied");
+      expect(dm.reason).toBe("already_decided");
     }
   });
 
@@ -1296,9 +1257,7 @@ describe("maybeNotifyGuardianOfAdmittedContact", () => {
     if (!result.notified) {
       expect(result.reason).toBe("no_sender_id");
     }
-    expect(
-      listCanonicalGuardianRequests({ kind: "access_request" }).length,
-    ).toBe(0);
+    expect(listRequests({ kind: "access_request" }).length).toBe(0);
   });
 
   test("deny-path requests keep high urgency and carry no trigger marker", async () => {
@@ -1311,7 +1270,7 @@ describe("maybeNotifyGuardianOfAdmittedContact", () => {
     expect((signal.attentionHints as Record<string, unknown>).urgency).toBe(
       "high",
     );
-    const requests = listCanonicalGuardianRequests({
+    const requests = listRequests({
       kind: "access_request",
       requesterExternalUserId: baseParams.actorExternalId,
     });

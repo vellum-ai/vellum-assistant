@@ -188,6 +188,100 @@ describe("fetchMarketplaceEntries", () => {
     ).rejects.toBeInstanceOf(MarketplaceFetchError);
   });
 
+  test("parses and round-trips an entry with a valid icon emoji", async () => {
+    // GIVEN an entry carrying a curated single-emoji icon
+    const fetch = manifestFetch({
+      name: "x",
+      plugins: [
+        {
+          name: "caveman",
+          source: {
+            source: "github",
+            repo: "JuliusBrussee/caveman",
+            ref: CAVEMAN_SHA,
+          },
+          icon: "🦣",
+        },
+      ],
+    });
+
+    // WHEN we fetch the entries
+    const entries = await fetchMarketplaceEntries({ fetch }, { ref: "main" });
+
+    // THEN the emoji is preserved on the parsed entry
+    expect(entries[0]!.icon).toBe("🦣");
+  });
+
+  test("accepts a multi-code-unit ZWJ emoji (bounded by code points)", async () => {
+    // GIVEN the family ZWJ emoji: one grapheme, 7 code points, 11 UTF-16 units.
+    const fetch = manifestFetch({
+      name: "x",
+      plugins: [
+        {
+          name: "caveman",
+          source: {
+            source: "github",
+            repo: "JuliusBrussee/caveman",
+            ref: CAVEMAN_SHA,
+          },
+          icon: "👩‍👩‍👧‍👦",
+        },
+      ],
+    });
+
+    // WHEN we fetch the entries
+    const entries = await fetchMarketplaceEntries({ fetch }, { ref: "main" });
+
+    // THEN the ZWJ emoji survives validation (would fail under `.length`)
+    expect(entries[0]!.icon).toBe("👩‍👩‍👧‍👦");
+  });
+
+  test("rejects an over-long icon string", async () => {
+    // GIVEN an icon far longer than a single emoji
+    const fetch = manifestFetch({
+      name: "x",
+      plugins: [
+        {
+          name: "caveman",
+          source: {
+            source: "github",
+            repo: "JuliusBrussee/caveman",
+            ref: CAVEMAN_SHA,
+          },
+          icon: "not-an-emoji-just-text",
+        },
+      ],
+    });
+
+    // WHEN / THEN the refine rejects it
+    await expect(
+      fetchMarketplaceEntries({ fetch }, { ref: "main" }),
+    ).rejects.toBeInstanceOf(MarketplaceFetchError);
+  });
+
+  test("rejects an icon that looks like a URL or path", async () => {
+    // GIVEN an icon that is a URL rather than an emoji
+    const fetch = manifestFetch({
+      name: "x",
+      plugins: [
+        {
+          name: "caveman",
+          source: {
+            source: "github",
+            repo: "JuliusBrussee/caveman",
+            ref: CAVEMAN_SHA,
+          },
+          icon: "http://x",
+        },
+      ],
+    });
+
+    // WHEN / THEN a URL/path-shaped icon is rejected by the refine
+    await expect(
+      fetchMarketplaceEntries({ fetch }, { ref: "main" }),
+    ).rejects.toBeInstanceOf(MarketplaceFetchError);
+  });
+
   test("rejects a path that escapes the repo root", async () => {
     // GIVEN an entry whose path contains a parent-segment escape
     const fetch = manifestFetch({

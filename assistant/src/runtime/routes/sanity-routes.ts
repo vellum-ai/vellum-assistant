@@ -145,6 +145,7 @@ export const ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Discover Sanity projects and datasets using the stored API token",
+    tags: ["sanity"],
     requestBody: z.object({ projectId: z.string().optional() }).optional(),
     handler: handleDiscover,
   },
@@ -157,6 +158,7 @@ export const ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Finalise Sanity connection and write sidecar file",
+    tags: ["sanity"],
     requestBody: z.object({
       projectId: z.string(),
       dataset: z.string(),

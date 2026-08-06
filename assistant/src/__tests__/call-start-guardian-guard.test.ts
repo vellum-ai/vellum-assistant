@@ -10,20 +10,11 @@ import {
 
 import type { ToolContext } from "../tools/types.js";
 
-let callsEnabled = true;
 const startCallInputs: Array<Record<string, unknown>> = [];
 let activeVoiceSession: {
   destinationAddress: string | null;
   expectedPhoneE164: string | null;
 } | null = null;
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    calls: { enabled: callsEnabled },
-  }),
-}));
 
 mock.module("../calls/call-domain.js", () => ({
   startCall: async (input: Record<string, unknown>) => {
@@ -76,7 +67,6 @@ describe("call_start guardian verification guard", () => {
   });
 
   beforeEach(() => {
-    callsEnabled = true;
     startCallInputs.length = 0;
     activeVoiceSession = null;
   });
@@ -119,5 +109,32 @@ describe("call_start guardian verification guard", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Call initiated successfully.");
     expect(startCallInputs.length).toBe(1);
+  });
+});
+
+describe("call tools — model-input schema validation (LUM-2856)", () => {
+  test("call_start rejects a non-string phone_number before reaching startCall", async () => {
+    const before = startCallInputs.length;
+    const result = await executeCallStart(
+      { phone_number: 4155550100, task: "call someone" },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "call_start"');
+    expect(result.content).toContain("phone_number");
+    expect(startCallInputs.length).toBe(before);
+  });
+
+  test("call_start rejects an unknown caller_identity_mode", async () => {
+    const result = await executeCallStart(
+      {
+        phone_number: "+14155550100",
+        task: "call someone",
+        caller_identity_mode: "spoofed",
+      },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("caller_identity_mode");
   });
 });

@@ -221,7 +221,8 @@ describe("deriveStepLabel", () => {
         name: "subagent_spawn",
         input: {
           label: "research-toronto",
-          activity: "Spawning subagent to research Toronto's location in Canada",
+          activity:
+            "Spawning subagent to research Toronto's location in Canada",
         },
       }),
     );

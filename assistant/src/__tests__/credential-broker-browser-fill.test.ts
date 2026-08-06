@@ -16,18 +16,9 @@ import {
 // ---------------------------------------------------------------------------
 // Mock logger
 // ---------------------------------------------------------------------------
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ---------------------------------------------------------------------------
 // Use encrypted backend with a temp store path
 // ---------------------------------------------------------------------------
-
 import { _resetBackend } from "../security/secure-keys.js";
 import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
@@ -461,7 +452,7 @@ describe("CredentialBroker.browserFill", () => {
       expect(result.reason).toContain("not allowed");
     });
 
-    test("denies with empty allowedTools and suggests assistant credentials set", async () => {
+    test("denies with empty allowedTools and suggests assistant credentials prompt", async () => {
       upsertCredentialMetadata("custom", "key", {
         allowedTools: [],
       });
@@ -478,7 +469,7 @@ describe("CredentialBroker.browserFill", () => {
 
       expect(result.success).toBe(false);
       expect(result.reason).toContain("No tools are currently allowed");
-      expect(result.reason).toContain("assistant credentials set");
+      expect(result.reason).toContain("assistant credentials prompt");
     });
   });
 

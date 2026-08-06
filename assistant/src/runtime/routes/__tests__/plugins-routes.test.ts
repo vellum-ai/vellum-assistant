@@ -14,7 +14,7 @@
  *   - A catalog fetch failure degrades `category` to null without erroring
  *
  * GET /v1/plugins/search (catalog search):
- *   - Forwards `?q=` and `?ref=` to the `searchPlugins` lib
+ *   - Resolves the catalog for `?ref=` and filters it by `?q=`
  *   - Empty / missing `?q=` is passed through as the empty-regex
  *     ("match-all") query — the lib's documented contract
  *   - Wraps `InvalidSearchPatternError` into a 400 (BadRequestError)
@@ -38,6 +38,9 @@
  *     `plugins:list` tag via the canonical resource-sync publisher (enable and
  *     disable emit the SAME invalidation)
  *   - Threads `x-vellum-client-id` into the published event's `originClientId`
+ *   - Pokes the plugin-declared schedule reconcile on a successful toggle (and
+ *     not on a failed one), so the plugin's rows disarm / re-arm immediately
+ *     instead of at the reconciler's next backstop sweep
  *   - A broadcast failure does not fail a successful toggle (the publisher
  *     swallows hub errors)
  *   - Maps `InvalidPluginNameError` → BadRequestError (400)
@@ -70,19 +73,20 @@ import {
   type InstallPluginOptions,
   type InstallPluginResult,
   InvalidPluginNameError,
+  isFullCommitSha,
   PluginAlreadyInstalledError,
   PluginNotFoundError,
   PluginSourceUnavailableError,
   sanitizePluginName,
 } from "../../../cli/lib/install-from-github.js";
 import type { InstalledPluginInfo } from "../../../cli/lib/list-installed-plugins.js";
+import { DEFAULT_PIN_HISTORY_LIMIT } from "../../../cli/lib/plugin-constants.js";
 import {
   type PluginDetails,
   PluginDetailsNotFoundError,
   type PluginDetailsOptions,
 } from "../../../cli/lib/plugin-details.js";
 import {
-  DEFAULT_PIN_HISTORY_LIMIT,
   type PluginPinHistoryEntry,
   PluginPinHistoryError,
 } from "../../../cli/lib/plugin-pin-history.js";
@@ -110,6 +114,24 @@ import {
   type UpgradePluginDeps,
   type UpgradePluginOptions,
 } from "../../../cli/lib/upgrade-plugin.js";
+
+// Spy on the route logger so tests can assert that a platform-catalog outage
+// is recorded before it is mapped to a client 503. The catalog fetcher and the
+// transport adapters swallow the failure otherwise (`RouteError` → wire error,
+// no capture), so the log line is the only trace an operator gets — assert it.
+const logErrorSpy = mock((..._args: unknown[]) => {});
+const logWarnSpy = mock((..._args: unknown[]) => {});
+
+mock.module("../../../util/logger.js", () => ({
+  getLogger: () => ({
+    info: () => {},
+    warn: logWarnSpy,
+    error: logErrorSpy,
+    debug: () => {},
+    trace: () => {},
+    fatal: () => {},
+  }),
+}));
 
 // Mutable list returned by the mocked library function. Tests reassign
 // `installedFixture` before invoking the handler.
@@ -146,7 +168,7 @@ mock.module("../../../cli/lib/plugin-catalog-cache.js", () => ({
 // Mock uninstallPlugin. The handler's error mapping is the wiring under
 // test — the lib's own behavior is covered separately.
 const uninstallSpy = mock(
-  (_opts: UninstallPluginOptions): UninstallPluginResult => {
+  (_opts: UninstallPluginOptions): Promise<UninstallPluginResult> => {
     throw new Error("uninstallSpy default impl not configured");
   },
 );
@@ -181,6 +203,9 @@ mock.module("../../../cli/lib/install-from-github.js", () => ({
   // path from `:name` rather than delegating to a lib that sanitizes), so pass
   // the real `sanitizePluginName` through — a traversal name must still 400.
   sanitizePluginName,
+  // The (unmocked) catalog resolver enforces the full-SHA pin invariant via the
+  // real `isFullCommitSha`, so pass it through rather than the default undefined.
+  isFullCommitSha,
   installPlugin: installSpy,
 }));
 
@@ -289,6 +314,15 @@ mock.module("../../../cli/lib/toggle-plugin.js", () => ({
   enablePlugin: enablePluginSpy,
 }));
 
+// Spy on the plugin-schedule reconcile the toggle handlers poke. The handlers
+// import it lazily at call time, so this mock intercepts the dynamic import
+// and keeps the reconciler's persistence graph out of the test.
+const reconcilePluginSchedulesSpy = mock(() => Promise.resolve());
+
+mock.module("../../../schedule/plugin-schedule-reconciler.js", () => ({
+  reconcilePluginSchedules: reconcilePluginSchedulesSpy,
+}));
+
 // Spy on broadcastMessage so we can assert the sync_changed invalidation the
 // enable/disable handlers emit. The handlers publish through the canonical
 // `publishPluginsChanged` → `publishSyncInvalidation` path (both left real), so
@@ -298,6 +332,11 @@ const broadcastMessageSpy = mock((_msg: unknown): void => {});
 
 mock.module("../../assistant-event-hub.js", () => ({
   broadcastMessage: broadcastMessageSpy,
+  // Stub the hub singleton so the (now dynamically imported) plugins-routes
+  // dependency graph links — some transitive importer statically imports this
+  // binding. No tested path calls it; publishing goes through the mocked
+  // `broadcastMessage` above.
+  assistantEventHub: {},
 }));
 
 // Make the valid-slug source deterministic: the real `getLocalCategorySlugs`
@@ -331,17 +370,23 @@ import {
   NotFoundError,
   ServiceUnavailableError,
 } from "../errors.js";
-import {
+// `plugins-routes.js` is dynamically imported AFTER the logger mock above so
+// its module-level `const log = getLogger(...)` binds to the mocked logger. A
+// static import evaluates before any `mock.module` runs and would capture the
+// real logger at module init (same reason as `request-logger.test.ts`).
+const {
   loadCategoryMapBounded,
   normalizeMarketplaceCategory,
-  ROUTES as PLUGINS_ROUTES,
-} from "../plugins-routes.js";
+  ROUTES: PLUGINS_ROUTES,
+}: typeof import("../plugins-routes.js") = await import("../plugins-routes.js");
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 import { RouteResponse } from "../types.js";
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
   const route = PLUGINS_ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 
@@ -991,6 +1036,32 @@ describe("GET /v1/plugins/search", () => {
     });
   });
 
+  test("projects the marketplace `icon` onto the wire match, omitting it when absent", async () => {
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, [
+        {
+          name: "calendar-sync",
+          path: "github:acme/calendar-sync@v1",
+          icon: "📅",
+          category: null,
+          source: { kind: "github", repo: "acme/calendar-sync", ref: "v1" },
+        },
+        {
+          name: "plain-plugin",
+          path: "github:acme/plain-plugin@v1",
+          category: null,
+          source: { kind: "github", repo: "acme/plain-plugin", ref: "v1" },
+        },
+      ]),
+    );
+
+    const result = await invokeSearch();
+    const byName = new Map(result.matches.map((m) => [m.name, m]));
+    expect(byName.get("calendar-sync")?.icon).toBe("📅");
+    // Absent icon is omitted from the wire object, not set to null/undefined.
+    expect("icon" in byName.get("plain-plugin")!).toBe(false);
+  });
+
   test("normalizes match categories to the Skills taxonomy (`developer` → `development`, `hobby` → null)", async () => {
     getCatalogSpy.mockImplementation(async (ref) =>
       catalog(ref, [
@@ -1067,6 +1138,7 @@ describe("GET /v1/plugins/search", () => {
   });
 
   test("PluginCatalogUnavailableError → ServiceUnavailableError (503)", async () => {
+    logErrorSpy.mockClear();
     getCatalogSpy.mockImplementation(async () => {
       throw new PluginCatalogUnavailableError(
         "GitHub contents listing failed for plugins @ main: HTTP 403",
@@ -1079,6 +1151,14 @@ describe("GET /v1/plugins/search", () => {
     await expect(
       invokeSearch({ queryParams: { q: "memory" } }),
     ).rejects.toBeInstanceOf(ServiceUnavailableError);
+
+    // The outage must be logged before it is mapped to a 503 — otherwise the
+    // transport adapters return the RouteError with no capture and the incident
+    // is invisible. The log carries the true upstream status the 503 collapses.
+    expect(logErrorSpy).toHaveBeenCalledTimes(1);
+    const [fields, msg] = logErrorSpy.mock.calls[0]!;
+    expect(msg).toBe("Platform plugin catalog unavailable");
+    expect(fields).toMatchObject({ operation: "search", upstreamStatus: 403 });
   });
 
   test("unknown errors → InternalError with original message preserved", async () => {
@@ -1137,11 +1217,10 @@ describe("GET /v1/plugins/search", () => {
 // DELETE /v1/plugins/:name (uninstall)
 // ---------------------------------------------------------------------------
 
-function invokeUninstall(args: RouteHandlerArgs = {}): {
-  name: string;
-  target: string;
-} {
-  return uninstallHandler(args) as { name: string; target: string };
+async function invokeUninstall(
+  args: RouteHandlerArgs = {},
+): Promise<{ name: string; target: string }> {
+  return (await uninstallHandler(args)) as { name: string; target: string };
 }
 
 describe("DELETE /v1/plugins/:name", () => {
@@ -1150,13 +1229,15 @@ describe("DELETE /v1/plugins/:name", () => {
     broadcastMessageSpy.mockReset();
   });
 
-  test("forwards pathParams.name to uninstallPlugin and returns its result", () => {
-    uninstallSpy.mockImplementation((opts) => ({
+  test("forwards pathParams.name to uninstallPlugin and returns its result", async () => {
+    uninstallSpy.mockImplementation(async (opts) => ({
       name: opts.name,
       target: `/workspace/.vellum/plugins/${opts.name}`,
     }));
 
-    const result = invokeUninstall({ pathParams: { name: "simple-memory" } });
+    const result = await invokeUninstall({
+      pathParams: { name: "simple-memory" },
+    });
 
     expect(uninstallSpy.mock.calls).toHaveLength(1);
     expect(uninstallSpy.mock.calls[0]?.[0]).toEqual({ name: "simple-memory" });
@@ -1166,24 +1247,24 @@ describe("DELETE /v1/plugins/:name", () => {
     });
   });
 
-  test("publishes sync_changed(plugins:list) on a successful uninstall", () => {
-    uninstallSpy.mockImplementation((opts) => ({
+  test("publishes sync_changed(plugins:list) on a successful uninstall", async () => {
+    uninstallSpy.mockImplementation(async (opts) => ({
       name: opts.name,
       target: `/workspace/.vellum/plugins/${opts.name}`,
     }));
 
-    invokeUninstall({ pathParams: { name: "simple-memory" } });
+    await invokeUninstall({ pathParams: { name: "simple-memory" } });
 
     expectPluginsListBroadcast();
   });
 
-  test("threads x-vellum-client-id into the published event's originClientId", () => {
-    uninstallSpy.mockImplementation((opts) => ({
+  test("threads x-vellum-client-id into the published event's originClientId", async () => {
+    uninstallSpy.mockImplementation(async (opts) => ({
       name: opts.name,
       target: `/workspace/.vellum/plugins/${opts.name}`,
     }));
 
-    invokeUninstall({
+    await invokeUninstall({
       pathParams: { name: "simple-memory" },
       headers: { "x-vellum-client-id": "client-abc" },
     });
@@ -1195,7 +1276,7 @@ describe("DELETE /v1/plugins/:name", () => {
     });
   });
 
-  test("missing pathParams.name passes the empty string through to the lib", () => {
+  test("missing pathParams.name passes the empty string through to the lib", async () => {
     // The lib's `sanitizePluginName` is the validator of last resort —
     // the route hands off the raw value without pre-trimming. The lib
     // rejects empty strings, which the handler maps to 400 below.
@@ -1205,21 +1286,21 @@ describe("DELETE /v1/plugins/:name", () => {
       );
     });
 
-    expect(() => invokeUninstall({})).toThrow(BadRequestError);
+    await expect(invokeUninstall({})).rejects.toThrow(BadRequestError);
     expect(uninstallSpy.mock.calls[0]?.[0]).toEqual({ name: "" });
   });
 
-  test("InvalidPluginNameError → BadRequestError (400)", () => {
+  test("InvalidPluginNameError → BadRequestError (400)", async () => {
     uninstallSpy.mockImplementation(() => {
       throw new InvalidPluginNameError("bad name ../escape");
     });
 
-    expect(() =>
+    await expect(
       invokeUninstall({ pathParams: { name: "../escape" } }),
-    ).toThrow(BadRequestError);
+    ).rejects.toThrow(BadRequestError);
   });
 
-  test("PluginNotInstalledError → NotFoundError (404), no broadcast", () => {
+  test("PluginNotInstalledError → NotFoundError (404), no broadcast", async () => {
     uninstallSpy.mockImplementation((opts) => {
       throw new PluginNotInstalledError(
         opts.name,
@@ -1227,36 +1308,34 @@ describe("DELETE /v1/plugins/:name", () => {
       );
     });
 
-    expect(() => invokeUninstall({ pathParams: { name: "ghost" } })).toThrow(
-      NotFoundError,
-    );
+    await expect(
+      invokeUninstall({ pathParams: { name: "ghost" } }),
+    ).rejects.toThrow(NotFoundError);
     // A failed uninstall must not fan out a spurious invalidation.
     expect(broadcastMessageSpy).not.toHaveBeenCalled();
   });
 
-  test("unknown errors → InternalError with original message preserved", () => {
+  test("unknown errors → InternalError with original message preserved", async () => {
     uninstallSpy.mockImplementation(() => {
       throw new Error("EBUSY: resource busy or locked");
     });
 
-    expect(() =>
+    await expect(
       invokeUninstall({ pathParams: { name: "simple-memory" } }),
-    ).toThrow(InternalError);
-    try {
-      invokeUninstall({ pathParams: { name: "simple-memory" } });
-    } catch (err) {
-      expect((err as Error).message).toContain("EBUSY");
-    }
+    ).rejects.toThrow(InternalError);
+    await expect(
+      invokeUninstall({ pathParams: { name: "simple-memory" } }),
+    ).rejects.toThrow("EBUSY");
   });
 
-  test("non-Error throws fall through to InternalError with a default message", () => {
+  test("non-Error throws fall through to InternalError with a default message", async () => {
     uninstallSpy.mockImplementation(() => {
       throw "boom"; // emulates a poorly-typed throwable from the lib chain
     });
 
     let caught: unknown;
     try {
-      invokeUninstall({ pathParams: { name: "simple-memory" } });
+      await invokeUninstall({ pathParams: { name: "simple-memory" } });
     } catch (err) {
       caught = err;
     }
@@ -1361,6 +1440,18 @@ describe("GET /v1/plugins/:name", () => {
     ).rejects.toBeInstanceOf(NotFoundError);
   });
 
+  test("PluginCatalogUnavailableError → ServiceUnavailableError (503)", async () => {
+    // A catalog outage blocking a remote-only detail view is transient — the
+    // handler surfaces it as retryable rather than a misleading 404/500.
+    detailsSpy.mockImplementation(async () => {
+      throw new PluginCatalogUnavailableError("HTTP 503", 503);
+    });
+
+    await expect(
+      invokeGet({ pathParams: { name: "caveman" } }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableError);
+  });
+
   test("unknown errors → InternalError with original message preserved", async () => {
     detailsSpy.mockImplementation(async () => {
       throw new Error("ENOTFOUND api.github.com");
@@ -1393,50 +1484,91 @@ async function invokeInstall(args: RouteHandlerArgs = {}): Promise<{
   };
 }
 
+// A gated-catalog match for `caveman` pinned to an immutable full commit SHA —
+// the shape the resolver projects onto trusted install coordinates. Mirrors the
+// bundled manifest: platform-first live, or the bundled pin when platform
+// features are off.
+const CAVEMAN_PIN = "63a91ecadbf4c4719a4602a5abb00883f9966034";
+const CAVEMAN_CATALOG_MATCH: PluginSearchMatch = {
+  name: "caveman",
+  path: `github:JuliusBrussee/caveman@${CAVEMAN_PIN}`,
+  description: "Ultra-compressed communication mode.",
+  category: null,
+  source: { kind: "github", repo: "JuliusBrussee/caveman", ref: CAVEMAN_PIN },
+};
+
+// installPlugin result for a trustedSource install: the returned `ref` is the
+// trusted pin (the external content commit), not the default branch.
+function trustedInstallResult(opts: InstallPluginOptions): InstallPluginResult {
+  return {
+    name: opts.name,
+    target: `/workspace/.vellum/plugins/${opts.name}`,
+    fileCount: 7,
+    ref: opts.trustedSource?.ref ?? opts.ref ?? "main",
+    commit: opts.trustedSource?.ref ?? null,
+    committedAt: null,
+  };
+}
+
 describe("POST /v1/plugins/install", () => {
   beforeEach(() => {
     installSpy.mockReset();
     resolvePinSpy.mockReset();
     broadcastMessageSpy.mockReset();
+    getCatalogSpy.mockReset();
+    // Default: the gated catalog resolves `caveman` to its bundled full-SHA pin.
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, [CAVEMAN_CATALOG_MATCH]),
+    );
   });
 
-  test("forwards name/force and shapes the result, pinning ref to the default", async () => {
-    installSpy.mockImplementation(async (opts) => ({
-      name: opts.name,
-      target: `/workspace/.vellum/plugins/${opts.name}`,
-      fileCount: 7,
-      ref: opts.ref ?? "main",
-      commit: null,
-      committedAt: null,
-    }));
+  test("no-pin install resolves from the gated catalog and installs via trustedSource", async () => {
+    // The default (no-pin) path reads the same gated catalog `search`
+    // advertises and installs from a trusted pre-resolved source — no direct
+    // `plugins/marketplace.json` fetch (the pin/marketplace path is untouched).
+    const prev = process.env.VELLUM_DISABLE_PLATFORM;
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+    try {
+      installSpy.mockImplementation(async (opts) => trustedInstallResult(opts));
 
-    const result = await invokeInstall({
-      body: { name: "caveman", force: true },
-    });
+      const result = await invokeInstall({
+        body: { name: "caveman", force: true },
+      });
 
-    expect(result).toEqual({
-      ok: true,
-      name: "caveman",
-      target: "/workspace/.vellum/plugins/caveman",
-      fileCount: 7,
-      ref: "main",
-    });
-    expect(installSpy.mock.calls[0]?.[0]).toEqual({
-      name: "caveman",
-      ref: "main",
-      force: true,
-    });
+      // Resolved through the gated catalog, not the pin/marketplace path.
+      expect(getCatalogSpy).toHaveBeenCalledTimes(1);
+      expect(resolvePinSpy).not.toHaveBeenCalled();
+      // installPlugin receives the pre-resolved trusted coordinates (owner/repo
+      // split from the catalog `repo`, `rootPath` from its path, the full-SHA
+      // pin as `ref`) — no caller-supplied `ref`.
+      expect(installSpy.mock.calls[0]?.[0]).toEqual({
+        name: "caveman",
+        force: true,
+        trustedSource: {
+          owner: "JuliusBrussee",
+          repo: "caveman",
+          rootPath: "",
+          ref: CAVEMAN_PIN,
+        },
+      });
+      expect(result).toEqual({
+        ok: true,
+        name: "caveman",
+        target: "/workspace/.vellum/plugins/caveman",
+        fileCount: 7,
+        ref: CAVEMAN_PIN,
+      });
+    } finally {
+      if (prev === undefined) {
+        delete process.env.VELLUM_DISABLE_PLATFORM;
+      } else {
+        process.env.VELLUM_DISABLE_PLATFORM = prev;
+      }
+    }
   });
 
   test("publishes sync_changed(plugins:list) on a successful install", async () => {
-    installSpy.mockImplementation(async (opts) => ({
-      name: opts.name,
-      target: `/workspace/.vellum/plugins/${opts.name}`,
-      fileCount: 7,
-      ref: opts.ref ?? "main",
-      commit: null,
-      committedAt: null,
-    }));
+    installSpy.mockImplementation(async (opts) => trustedInstallResult(opts));
 
     await invokeInstall({ body: { name: "caveman" } });
 
@@ -1444,14 +1576,7 @@ describe("POST /v1/plugins/install", () => {
   });
 
   test("threads x-vellum-client-id into the published event's originClientId", async () => {
-    installSpy.mockImplementation(async (opts) => ({
-      name: opts.name,
-      target: `/workspace/.vellum/plugins/${opts.name}`,
-      fileCount: 7,
-      ref: opts.ref ?? "main",
-      commit: null,
-      committedAt: null,
-    }));
+    installSpy.mockImplementation(async (opts) => trustedInstallResult(opts));
 
     await invokeInstall({
       body: { name: "caveman" },
@@ -1465,30 +1590,59 @@ describe("POST /v1/plugins/install", () => {
     });
   });
 
-  test("ignores a caller-supplied ref and pins to the curated default", async () => {
+  test("ignores a caller-supplied ref and installs from the catalog-resolved source", async () => {
     // Security boundary: installing from an unreviewed ref (a PR branch,
-    // fork ref, ...) could load attacker-controlled marketplace code, so the
-    // HTTP route never honors a body `ref` — it always resolves
-    // against the curated default ref.
-    installSpy.mockImplementation(async (opts) => ({
-      name: opts.name,
-      target: `/workspace/.vellum/plugins/${opts.name}`,
-      fileCount: 7,
-      ref: opts.ref ?? "main",
-      commit: null,
-      committedAt: null,
-    }));
+    // fork ref, ...) could load attacker-controlled code, so the HTTP route
+    // never honors a body `ref` — the no-pin source comes only from the gated
+    // catalog.
+    installSpy.mockImplementation(async (opts) => trustedInstallResult(opts));
 
     const result = await invokeInstall({
       body: { name: "caveman", ref: "attacker-pr-branch" },
     });
 
-    expect(result.ref).toBe("main");
+    expect(result.ref).toBe(CAVEMAN_PIN);
     expect(installSpy.mock.calls[0]?.[0]).toEqual({
       name: "caveman",
-      ref: "main",
       force: undefined,
+      trustedSource: {
+        owner: "JuliusBrussee",
+        repo: "caveman",
+        rootPath: "",
+        ref: CAVEMAN_PIN,
+      },
     });
+  });
+
+  test("an unknown name (no pin) → NotFoundError (404), no install", async () => {
+    // The catalog claims no such plugin, so the resolver returns null.
+    getCatalogSpy.mockImplementation(async (ref) => catalog(ref, []));
+
+    await expect(
+      invokeInstall({ body: { name: "ghost" } }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    expect(installSpy).not.toHaveBeenCalled();
+  });
+
+  test("a catalog outage on the no-pin path → ServiceUnavailableError (503)", async () => {
+    // A rate-limited or unavailable platform catalog (no stale fallback) is
+    // transient — the route surfaces it as retryable, not a misleading 500.
+    logErrorSpy.mockClear();
+    getCatalogSpy.mockImplementation(async () => {
+      throw new PluginCatalogUnavailableError("HTTP 403", 403);
+    });
+
+    await expect(
+      invokeInstall({ body: { name: "caveman" } }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableError);
+    expect(installSpy).not.toHaveBeenCalled();
+
+    // The outage is logged (operation "install") before the 503 mapping, so
+    // an install-path catalog failure is diagnosable rather than invisible.
+    expect(logErrorSpy).toHaveBeenCalledTimes(1);
+    const [fields, msg] = logErrorSpy.mock.calls[0]!;
+    expect(msg).toBe("Platform plugin catalog unavailable");
+    expect(fields).toMatchObject({ operation: "install", upstreamStatus: 403 });
   });
 
   test("a missing name short-circuits to BadRequestError without calling the lib", async () => {
@@ -1496,15 +1650,26 @@ describe("POST /v1/plugins/install", () => {
       BadRequestError,
     );
     expect(installSpy).not.toHaveBeenCalled();
+    expect(getCatalogSpy).not.toHaveBeenCalled();
+  });
+
+  test("an invalid name (no pin) → BadRequestError before the catalog lookup", async () => {
+    // A malformed install name is validated up front via `sanitizePluginName`,
+    // so it's a deterministic 400 — never a 404/503 from resolving the catalog.
+    await expect(
+      invokeInstall({ body: { name: "../escape" } }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+    expect(getCatalogSpy).not.toHaveBeenCalled();
+    expect(installSpy).not.toHaveBeenCalled();
   });
 
   test("InvalidPluginNameError → BadRequestError (400)", async () => {
     installSpy.mockImplementation(async () => {
-      throw new InvalidPluginNameError("../escape");
+      throw new InvalidPluginNameError("bad plugin name");
     });
 
     await expect(
-      invokeInstall({ body: { name: "../escape" } }),
+      invokeInstall({ body: { name: "caveman" } }),
     ).rejects.toBeInstanceOf(BadRequestError);
   });
 
@@ -1527,7 +1692,7 @@ describe("POST /v1/plugins/install", () => {
     });
 
     await expect(
-      invokeInstall({ body: { name: "ghost" } }),
+      invokeInstall({ body: { name: "caveman" } }),
     ).rejects.toBeInstanceOf(NotFoundError);
     // A failed install must not fan out a spurious invalidation.
     expect(broadcastMessageSpy).not.toHaveBeenCalled();
@@ -1586,7 +1751,9 @@ describe("POST /v1/plugins/install", () => {
     });
 
     // THEN the install reads the manifest at the resolving marketplace commit,
-    // not the default branch
+    // not the default branch, and the gated catalog resolver is bypassed — the
+    // pin path stays on the reviewed pin-history/GitHub route.
+    expect(getCatalogSpy).not.toHaveBeenCalled();
     expect(installSpy.mock.calls[0]?.[0]).toEqual({
       name: "caveman",
       ref: "f".repeat(40),
@@ -1728,7 +1895,14 @@ function inspection(
     remoteError: overrides.remoteError ?? null,
     surfaces:
       overrides.surfaces === undefined
-        ? { skills: [], hooks: ["post-model-call"], tools: [] }
+        ? {
+            skills: [],
+            hooks: ["post-model-call"],
+            tools: [],
+            schedules: [
+              { name: "digest", cadence: "0 9 * * *", mode: "execute" },
+            ],
+          }
         : overrides.surfaces,
   };
 }
@@ -1756,6 +1930,26 @@ describe("GET /v1/plugins/:name/inspect", () => {
     expect(result).toEqual(view);
     // AND the name is forwarded to the lib (ref is never caller-supplied)
     expect(inspectSpy.mock.calls[0]?.[0]).toEqual({ name: "level-up" });
+  });
+
+  test("the inspect wire schema carries the schedules surface", async () => {
+    // GIVEN an inspection whose surfaces declare a schedule
+    inspectSpy.mockImplementation(async () => inspection());
+    const result = await invokeInspect({ pathParams: { name: "level-up" } });
+
+    // WHEN the handler result is parsed through the route's response schema
+    // (zod strips undeclared keys, so an omission would drop the field)
+    const route = PLUGINS_ROUTES.find(
+      (r) => r.operationId === "plugins_inspect",
+    )!;
+    const parsed = (
+      route.responseBody as { parse: (v: unknown) => PluginInspection }
+    ).parse(result);
+
+    // THEN the declared schedules survive the wire contract
+    expect(parsed.surfaces?.schedules).toEqual([
+      { name: "digest", cadence: "0 9 * * *", mode: "execute" },
+    ]);
   });
 
   test("a captured marketplace error is returned as 200 with remote-unavailable, not thrown", async () => {
@@ -1982,6 +2176,90 @@ describe("POST /v1/plugins/:name/upgrade", () => {
       dryRun: undefined,
       strategy: "assistant",
     });
+  });
+
+  test("refuses a concurrent upgrade of the same plugin with ConflictError (409)", async () => {
+    // Two upgrades of one plugin derive the same staging path in this
+    // process, so the second would delete the first's tree mid-swap. It is
+    // refused instead \u2014 the monitor's auto-update sweep and a user clicking
+    // Upgrade can now land at the same moment.
+    let releaseFirst: () => void = () => {};
+    const firstStarted = Promise.withResolvers<void>();
+    upgradeSpy.mockImplementation(async () => {
+      firstStarted.resolve();
+      await new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      return upgradeResult();
+    });
+
+    const first = invokeUpgrade({ pathParams: { name: "level-up" } });
+    await firstStarted.promise;
+
+    await expect(
+      invokeUpgrade({ pathParams: { name: "level-up" } }),
+    ).rejects.toBeInstanceOf(ConflictError);
+
+    releaseFirst();
+    await expect(first).resolves.toMatchObject({ outcome: "upgraded" });
+
+    // The guard is released once the first settles, so the next one runs.
+    upgradeSpy.mockImplementation(async () => upgradeResult());
+    await expect(
+      invokeUpgrade({ pathParams: { name: "level-up" } }),
+    ).resolves.toMatchObject({ outcome: "upgraded" });
+  });
+
+  test("a different plugin is not blocked by an in-flight upgrade", async () => {
+    let releaseFirst: () => void = () => {};
+    const firstStarted = Promise.withResolvers<void>();
+    upgradeSpy.mockImplementation(async (opts) => {
+      if (opts.name === "level-up") {
+        firstStarted.resolve();
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+      }
+      return upgradeResult({ name: opts.name });
+    });
+
+    const first = invokeUpgrade({ pathParams: { name: "level-up" } });
+    await firstStarted.promise;
+
+    await expect(
+      invokeUpgrade({ pathParams: { name: "other-plugin" } }),
+    ).resolves.toMatchObject({ name: "other-plugin" });
+
+    releaseFirst();
+    await first;
+  });
+
+  test("a dry run neither takes nor respects the in-flight guard", async () => {
+    // Dry runs return before the swap boundary, so they never stage.
+    let releaseFirst: () => void = () => {};
+    const firstStarted = Promise.withResolvers<void>();
+    upgradeSpy.mockImplementation(async (opts) => {
+      if (!opts.dryRun) {
+        firstStarted.resolve();
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+      }
+      return upgradeResult();
+    });
+
+    const first = invokeUpgrade({ pathParams: { name: "level-up" } });
+    await firstStarted.promise;
+
+    await expect(
+      invokeUpgrade({
+        pathParams: { name: "level-up" },
+        body: { dryRun: true },
+      }),
+    ).resolves.toMatchObject({ outcome: "upgraded" });
+
+    releaseFirst();
+    await first;
   });
 
   test("PluginMergeBaselineError \u2192 ConflictError (409)", async () => {
@@ -2259,6 +2537,21 @@ function invokeDisable(args: RouteHandlerArgs = {}): { ok: boolean } {
   return disableHandler(args) as { ok: boolean };
 }
 
+/**
+ * Wait for the toggle handlers' fire-and-forget reconcile poke to land. The
+ * lazy `import()` resolves off the microtask queue, so the assertion cannot
+ * run on the handler's synchronous return.
+ */
+async function waitForScheduleReconcile(): Promise<void> {
+  for (let i = 0; i < 50; i++) {
+    if (reconcilePluginSchedulesSpy.mock.calls.length > 0) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+  throw new Error("plugin schedule reconcile was never triggered");
+}
+
 /** Assert the spy received exactly one sync_changed carrying `plugins:list`. */
 function expectPluginsListBroadcast(): void {
   expect(broadcastMessageSpy.mock.calls).toHaveLength(1);
@@ -2271,6 +2564,15 @@ describe("POST /v1/plugins/:name/enable", () => {
   beforeEach(() => {
     enablePluginSpy.mockReset();
     broadcastMessageSpy.mockReset();
+    reconcilePluginSchedulesSpy.mockClear();
+  });
+
+  test("reconciles plugin-declared schedules so the plugin's rows re-arm now", async () => {
+    enablePluginSpy.mockImplementation((name) => toggleResult(name, "enable"));
+
+    invokeEnable({ pathParams: { name: "simple-memory" } });
+
+    await waitForScheduleReconcile();
   });
 
   test("enables the plugin and broadcasts sync_changed(plugins:list)", () => {
@@ -2349,6 +2651,31 @@ describe("POST /v1/plugins/:name/disable", () => {
   beforeEach(() => {
     disablePluginSpy.mockReset();
     broadcastMessageSpy.mockReset();
+    reconcilePluginSchedulesSpy.mockClear();
+  });
+
+  test("reconciles plugin-declared schedules so the plugin's rows disarm now", async () => {
+    disablePluginSpy.mockImplementation((name) =>
+      toggleResult(name, "disable"),
+    );
+
+    invokeDisable({ pathParams: { name: "simple-memory" } });
+
+    // Without this poke the rows stay armed until the reconciler's next
+    // backstop sweep.
+    await waitForScheduleReconcile();
+  });
+
+  test("a failed toggle does not poke the schedule reconcile", async () => {
+    disablePluginSpy.mockImplementation((name) => {
+      throw new PluginDirectoryNotFoundError(name);
+    });
+
+    expect(() => invokeDisable({ pathParams: { name: "ghost" } })).toThrow(
+      NotFoundError,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(reconcilePluginSchedulesSpy).not.toHaveBeenCalled();
   });
 
   test("disables the plugin and broadcasts sync_changed(plugins:list)", () => {
@@ -2442,7 +2769,9 @@ function makeIconPng(width = 64, height = 64): Buffer {
 function makePluginDir(name: string, icon?: Buffer): string {
   const dir = join(getWorkspacePluginsDir(), name);
   mkdirSync(dir, { recursive: true });
-  if (icon) writeFileSync(join(dir, "icon.png"), icon);
+  if (icon) {
+    writeFileSync(join(dir, "icon.png"), icon);
+  }
   return dir;
 }
 

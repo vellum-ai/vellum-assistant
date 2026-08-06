@@ -44,8 +44,7 @@ export function handleConversationErrorEvent(
   // field; prefer it over `streamContext?.conversationId` (which is
   // a mirror that may be cleared by a stream teardown racing the
   // error event) — same fallback shape as the other terminal handlers.
-  const convId =
-    event.conversationId ?? ctx.streamContext?.conversationId;
+  const convId = event.conversationId ?? ctx.streamContext?.conversationId;
   if (convId) {
     // See `handleStreamError` for the stale-snapshot rationale.
     patchConversation(ctx.queryClient, ctx.assistantId, convId, {

@@ -20,5 +20,10 @@ export function useEditMessage(messages: DisplayMessage[]) {
     setEditingMessageId(null);
   }, []);
 
-  return { editingMessageId, isEditing: editingMessageId !== null, startEditing, cancelEditing } as const;
+  return {
+    editingMessageId,
+    isEditing: editingMessageId !== null,
+    startEditing,
+    cancelEditing,
+  } as const;
 }

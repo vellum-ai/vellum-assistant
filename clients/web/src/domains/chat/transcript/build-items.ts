@@ -8,10 +8,12 @@ import type {
   EphemeralMetaResult,
 } from "@/domains/chat/types/types";
 import type {
+  CreditsUpsellItem,
   MessageItem,
   PendingContactRequestItem,
   TranscriptItem,
 } from "@/domains/chat/transcript/types";
+import { isCreditsExhaustedProviderError } from "@/domains/chat/utils/error-classification";
 
 export interface BuildTranscriptItemsInput {
   messages: DisplayMessage[];
@@ -21,17 +23,42 @@ export interface BuildTranscriptItemsInput {
     requestId: string;
     channel?: string;
     placeholder?: string;
+    defaultValue?: string;
     label?: string;
     description?: string;
     role?: string;
   } | null;
   isThinking: boolean;
+  /**
+   * Whether the assistant is busy on an in-flight turn at all (from
+   * `isAssistantBusy`). While true, the thinking item is kept in the list even
+   * when `isThinking` is false — rendered as an invisible fixed-height slot —
+   * so the shimmering indicator fades in/out in place across the turn's
+   * signal-ownership handoffs instead of inserting/removing a row (which read
+   * as the transcript jumping). Omitted/false preserves the legacy behavior:
+   * the item exists only while `isThinking`.
+   */
+  turnActive?: boolean;
   /** Daemon-provided activity label for the thinking indicator. */
   thinkingLabel?: string | null;
   /** Ephemeral local meta-command results (e.g. /clean, /status), rendered at
    *  the transcript tail. Not persisted; cleared on the next send/switch. */
   ephemeralMetaResults?: EphemeralMetaResult[];
   showOnboardingChoice?: boolean;
+  /**
+   * Whether the org's credit balance is currently exhausted (from
+   * `useBillingBalanceStatus().isExhausted`). Drives both credits-upsell
+   * surfaces of the projection: the per-row card substitution for
+   * credits-exhausted provider-error rows and the proactive tail card
+   * appended after the message-derived items. When false, tagged rows keep
+   * the normal message rendering, whose persisted assistant-voice text reads
+   * as historical context. That covers both a balance that has since been
+   * topped up and contexts where the billing hook is inert (self-hosted/gated
+   * assistants, no platform session), so the card, which renders nothing when
+   * platform billing is unreachable, is never substituted for a visible
+   * bubble it cannot replace.
+   */
+  creditsExhausted?: boolean;
 }
 
 /**
@@ -51,7 +78,9 @@ const messageItemCache = new WeakMap<DisplayMessage, MessageItem>();
 
 function toMessageItem(message: DisplayMessage): MessageItem {
   const cached = messageItemCache.get(message);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
   const item: MessageItem = {
     kind: "message",
     key: message.clientMessageId ?? message.id,
@@ -60,6 +89,32 @@ function toMessageItem(message: DisplayMessage): MessageItem {
   messageItemCache.set(message, item);
   return item;
 }
+
+/** Same ref-keyed memoization as {@link toMessageItem}, for the upsell items
+ *  substituted in place of credits-exhausted provider-error rows. */
+const creditsUpsellItemCache = new WeakMap<DisplayMessage, CreditsUpsellItem>();
+
+function toCreditsUpsellItem(message: DisplayMessage): CreditsUpsellItem {
+  const cached = creditsUpsellItemCache.get(message);
+  if (cached) {
+    return cached;
+  }
+  const item: CreditsUpsellItem = {
+    kind: "creditsUpsell",
+    key: `credits-upsell-${message.clientMessageId ?? message.id}`,
+    message,
+  };
+  creditsUpsellItemCache.set(message, item);
+  return item;
+}
+
+/** Singleton for the proactive exhausted-balance card appended after the
+ *  message-derived items. Not tied to any message row; the stable reference
+ *  keeps `TranscriptRow`'s `memo()` effective across rebuilds. */
+const PROACTIVE_CREDITS_UPSELL_ITEM: CreditsUpsellItem = {
+  kind: "creditsUpsell",
+  key: "credits-upsell-proactive",
+};
 
 /**
  * Project the chat state into an ordered flat list of transcript items.
@@ -115,7 +170,43 @@ export function buildTranscriptItems(
       continue;
     }
 
+    // While the balance is currently exhausted (`creditsExhausted`),
+    // persisted credits-exhausted provider-error rows render as the friendly
+    // upsell card instead of a plain persona bubble. The row itself stays in
+    // `messages` (history and the LLM context keep the text); only its
+    // transcript rendering is substituted. Classification goes through the
+    // shared `isCreditsExhaustedProviderError`, so a bare
+    // `PROVIDER_BILLING` code with no category substitutes too. Provider
+    // errors of any other category, untagged rows, and tagged rows without
+    // the live flag keep the normal message rendering.
+    if (
+      input.creditsExhausted &&
+      isCreditsExhaustedProviderError(message.providerError)
+    ) {
+      items.push(toCreditsUpsellItem(message));
+      continue;
+    }
+
     items.push(toMessageItem(message));
+  }
+
+  // While the balance is exhausted, the proactive upsell card lands directly
+  // after the message rows of an open conversation, so the credit wall shows
+  // before the next send fails. Empty conversations render the chat empty
+  // state (which mounts its own card), not the transcript, so a message-less
+  // build appends nothing. In-flight turns suppress the card so it never
+  // sits under the live progress indicator; the turn-settled billing refetch
+  // re-shows it as soon as the turn ends. Deduping against a trailing
+  // substituted card here, before trailers are pushed below (thinking slot,
+  // pending prompts, onboarding choice), means a just-failed turn's card can
+  // never be doubled.
+  if (
+    input.creditsExhausted &&
+    !input.turnActive &&
+    messages.length > 0 &&
+    items[items.length - 1]?.kind !== "creditsUpsell"
+  ) {
+    items.push(PROACTIVE_CREDITS_UPSELL_ITEM);
   }
 
   for (const result of input.ephemeralMetaResults ?? []) {
@@ -126,10 +217,11 @@ export function buildTranscriptItems(
     });
   }
 
-  if (isThinking) {
+  if (isThinking || input.turnActive) {
     items.push({
       kind: "thinking",
       key: "thinking",
+      active: isThinking,
       ...(input.thinkingLabel ? { label: input.thinkingLabel } : {}),
     });
   }
@@ -157,6 +249,7 @@ export function buildTranscriptItems(
       requestId: pendingContactRequest.requestId,
       channel: pendingContactRequest.channel,
       placeholder: pendingContactRequest.placeholder,
+      defaultValue: pendingContactRequest.defaultValue,
       label: pendingContactRequest.label,
       description: pendingContactRequest.description,
       role: pendingContactRequest.role,

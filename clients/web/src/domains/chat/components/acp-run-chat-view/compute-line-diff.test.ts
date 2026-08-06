@@ -35,7 +35,12 @@ describe("computeLineDiff", () => {
     expect(types(rows)).toEqual(["ctx", "del", "add", "ctx"]);
     expect(rows[1]).toMatchObject({ type: "del", text: "b", oldNo: 2 });
     expect(rows[2]).toMatchObject({ type: "add", text: "B", newNo: 2 });
-    expect(rows[3]).toMatchObject({ type: "ctx", text: "c", oldNo: 3, newNo: 3 });
+    expect(rows[3]).toMatchObject({
+      type: "ctx",
+      text: "c",
+      oldNo: 3,
+      newNo: 3,
+    });
   });
 
   test("pure insertion keeps surrounding context", () => {

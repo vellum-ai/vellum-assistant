@@ -6,8 +6,12 @@ interface MockResponse {
   response: { ok: boolean; status: number; statusText: string };
 }
 
-let mockGet: ReturnType<typeof mock<(...args: unknown[]) => Promise<MockResponse>>>;
-let mockPut: ReturnType<typeof mock<(...args: unknown[]) => Promise<MockResponse>>>;
+let mockGet: ReturnType<
+  typeof mock<(...args: unknown[]) => Promise<MockResponse>>
+>;
+let mockPut: ReturnType<
+  typeof mock<(...args: unknown[]) => Promise<MockResponse>>
+>;
 
 mock.module("@/generated/gateway/sdk.gen", () => ({
   assistantChannelAdmissionPolicyList: (...args: unknown[]) => mockGet(...args),

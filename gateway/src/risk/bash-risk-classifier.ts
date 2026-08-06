@@ -283,14 +283,37 @@ export function classifySegment(
   registry: Record<string, CommandRiskSpec>,
   toolName: "bash" | "host_bash" = "bash",
 ): { risk: Risk; reason: string; matchType: RiskAssessment["matchType"] } {
-  // 1. Check user rules first (highest priority)
-  // TODO: implement user rule matching with specificity ordering.
-  // For now, userRules is always empty so this is a no-op.
-  for (const rule of userRules) {
+  // 1. Check user rules first (highest priority — short-circuits remaining pipeline).
+  // Sort by pattern length descending so more specific regex patterns win.
+  const sortedUserRules = userRules
+    .slice()
+    .sort((a, b) => b.pattern.length - a.pattern.length);
+  for (const rule of sortedUserRules) {
     const re = getCompiledPattern(rule.pattern);
     if (re.test(segment.command)) {
       return { risk: rule.risk, reason: rule.label, matchType: "user_rule" };
     }
+  }
+
+  // 1b. Short-circuit on user-defined trust rules from the cache.
+  // Rules with origin="user_defined" (created by the user) bypass the
+  // classification pipeline entirely, including arg-rule escalation.
+  // Rules with userModified=true (seeded defaults the user adjusted) fall
+  // through to step 4b, which overrides baseRisk while arg rules still apply.
+  try {
+    const cacheRule = getTrustRuleCache().findBaseRisk(
+      toolName,
+      segment.command,
+    );
+    if (cacheRule?.origin === "user_defined") {
+      return {
+        risk: cacheRule.risk,
+        reason: cacheRule.description,
+        matchType: "user_rule",
+      };
+    }
+  } catch {
+    // Cache not initialized (tests / pre-init path) — fall through to registry.
   }
 
   // 2. Look up command in default registry
@@ -983,6 +1006,30 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
         matchType: "registry",
         allowlistOptions: [],
       };
+    }
+
+    // Pre-parse exact compound-command check.
+    // A compound command like "rm -rf /tmp && echo done" is split into segments
+    // before classifySegment is called, so step 1b inside classifySegment only
+    // sees each half. The "This exact command" allowlist option stores the full
+    // raw string as the trust-rule pattern, making it unreachable per-segment.
+    // Checking here — before cachedParse — is the only place that raw pattern
+    // can match. Only exact user-defined rules are probed (findBaseRisk tries
+    // the literal first, then the action: sibling, then progressively shorter
+    // prefixes); a compound command with && / || / ; only hits the literal step.
+    try {
+      const fullRule = getTrustRuleCache().findBaseRisk(toolName, command);
+      if (fullRule?.origin === "user_defined") {
+        return {
+          riskLevel: fullRule.risk,
+          reason: fullRule.description,
+          scopeOptions: [],
+          matchType: "user_rule",
+          allowlistOptions: [],
+        };
+      }
+    } catch {
+      // Cache not initialized — fall through to per-segment classification.
     }
 
     const parsed = await cachedParse(command);

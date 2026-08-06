@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
+import { resolveRoutingIdentity } from "../../providers/connection-resolution.js";
 import { resolveModelIntent } from "../../providers/model-intents.js";
 import { CALL_SITE_DEFAULTS } from "../call-site-defaults.js";
 import {
   CODE_DEFAULT_PROFILE_ENTRIES,
   getEffectiveProfile,
   getEffectiveProfiles,
+  PROFILE_IMPLS,
   resolveDefaultProfileForProvider,
 } from "../default-profile-catalog.js";
 import {
@@ -18,6 +20,7 @@ import {
   resolveDefaultProfileKey,
 } from "../llm-resolver.js";
 import {
+  type DefaultProviderConfig,
   type LLMCallSite,
   LLMSchema,
   type ProfileEntry,
@@ -37,10 +40,37 @@ describe("getEffectiveProfiles", () => {
       const body = CODE_DEFAULT_PROFILE_ENTRIES[key];
       expect(body).toBeDefined();
       expect(typeof body.model).toBe("string");
-      expect(body.provider).toBeDefined();
-      expect(body.provider_connection).toBe("vellum");
+      expect(body.provider).toBe("vellum");
+      expect(body.provider_connection).toBeUndefined();
       expect(body.source).toBe("managed");
     }
+  });
+
+  test("every vellum-column body translates to a managed dispatch target", () => {
+    for (const key of [...DEFAULT_PROFILE_KEYS, OS_BETA_PROFILE_KEY]) {
+      const body = CODE_DEFAULT_PROFILE_ENTRIES[key];
+      const identity = resolveRoutingIdentity(body.provider, body.model);
+      expect(identity?.connectionName).toBe("vellum");
+      expect(typeof identity?.expectedProvider).toBe("string");
+    }
+  });
+
+  test("the managed Balanced profile routes GPT-5.6 Luna through OpenAI", () => {
+    const balanced = CODE_DEFAULT_PROFILE_ENTRIES.balanced;
+    expect(balanced.model).toBe("gpt-5.6-luna");
+    expect(resolveRoutingIdentity(balanced.provider, balanced.model)).toEqual({
+      connectionName: "vellum",
+      expectedProvider: "openai",
+    });
+  });
+
+  test("the managed Quality profile routes GPT-5.6 Sol through OpenAI", () => {
+    const quality = CODE_DEFAULT_PROFILE_ENTRIES["quality-optimized"];
+    expect(quality.model).toBe("gpt-5.6-sol");
+    expect(resolveRoutingIdentity(quality.provider, quality.model)).toEqual({
+      connectionName: "vellum",
+      expectedProvider: "openai",
+    });
   });
 
   test("defaults absent from the workspace resolve from the catalog; os-beta stays flag-gated", () => {
@@ -137,10 +167,8 @@ describe("resolver integration", () => {
     expect(resolved.model).toBe(
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
     );
-    expect(String(resolved.provider)).toBe(
-      String(CODE_DEFAULT_PROFILE_ENTRIES.balanced.provider),
-    );
-    expect(resolved.provider_connection).toBe("vellum");
+    expect(String(resolved.provider)).toBe("vellum");
+    expect(resolved.provider_connection).toBeUndefined();
   });
 
   test("an empty workspace resolves every call-site default from the catalog", () => {
@@ -151,7 +179,8 @@ describe("resolver integration", () => {
       }
       const expected = CODE_DEFAULT_PROFILE_ENTRIES[dflt.profile];
       const resolved = resolveCallSiteConfig(callSite as LLMCallSite, llm);
-      expect(resolved.model).toBe(expected.model as string);
+      // A site-level model pin legitimately overrides the profile's model.
+      expect(resolved.model).toBe((dflt.model ?? expected.model) as string);
     }
   });
 
@@ -176,7 +205,7 @@ describe("resolver integration", () => {
     }
   });
 
-  test("a disabled managed default falls through to the custom-* profile", () => {
+  test("a disabled managed default does not divert resolution to the custom-* clone", () => {
     const llm = LLMSchema.parse({
       profiles: {
         balanced: { source: "managed", status: "disabled" },
@@ -188,9 +217,50 @@ describe("resolver integration", () => {
         },
       },
     });
-    expect(resolveDefaultProfileKey("mainAgent", llm)).toBe("custom-balanced");
+    // The fallback anchor is the code-owned intent: a legacy disabled stub
+    // does not suppress it, and the user-mutable custom-* clone never
+    // captures the call site.
+    expect(resolveDefaultProfileKey("mainAgent", llm)).toBe("balanced");
     const resolved = resolveCallSiteConfig("mainAgent", llm);
-    expect(resolved.model).toBe("claude-sonnet-4-6");
+    expect(resolved.model).toBe(
+      CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
+    );
+    expect(resolved.model).not.toBe("claude-sonnet-4-6");
+  });
+
+  test("a user profile cannot shadow latency-optimized", () => {
+    // `latency-optimized` is code-owned: it fronts every live-voice turn, so
+    // a same-named workspace entry never governs what it resolves to. The
+    // entry stays on disk and stays a valid `activeProfile` reference.
+    const llm = LLMSchema.parse({
+      profiles: {
+        "latency-optimized": {
+          source: "user",
+          provider: "anthropic",
+          model: "claude-opus-4-6",
+          provider_connection: "anthropic-personal",
+          maxTokens: 32000,
+          effort: "high",
+        },
+      },
+    });
+    const body = CODE_DEFAULT_PROFILE_ENTRIES["latency-optimized"]!;
+    for (const callSite of ["voiceFrontDoor", "voiceFrontDecision"] as const) {
+      const resolved = resolveCallSiteConfig(callSite, llm);
+      expect(resolved.model).toBe(body.model as string);
+      expect(resolved.model).not.toBe("claude-opus-4-6");
+      expect(String(resolved.provider)).toBe("vellum");
+    }
+    // Listing follows resolution: the catalog body is what surfaces.
+    expect(getEffectiveProfiles(llm.profiles)["latency-optimized"]?.model).toBe(
+      body.model,
+    );
+    expect(() =>
+      LLMSchema.parse({
+        activeProfile: "latency-optimized",
+        profiles: llm.profiles,
+      }),
+    ).not.toThrow();
   });
 });
 
@@ -219,11 +289,25 @@ describe("schema validation", () => {
       LLMSchema.parse({ callSites: { mainAgent: { profile: "no-such" } } }),
     ).toThrow();
   });
+
+  test("defaultProvider accepts any default-capable API-key provider and drops the rest", () => {
+    expect(
+      LLMSchema.parse({ defaultProvider: { provider: "together" } })
+        .defaultProvider,
+    ).toEqual({ provider: "together" });
+    // Endpoint-supplied and keyless providers have no code-resolvable
+    // default profile implementation; the catch drops them atomically.
+    for (const provider of ["litellm", "openai-compatible", "ollama"]) {
+      expect(
+        LLMSchema.parse({ defaultProvider: { provider } }).defaultProvider,
+      ).toBeUndefined();
+    }
+  });
 });
 
 describe("resolveDefaultProfileForProvider", () => {
   const dp = (
-    provider: (typeof DEFAULT_PROFILE_PROVIDERS)[number],
+    provider: DefaultProviderConfig["provider"],
     connectionName?: string,
   ) => ({ provider, ...(connectionName ? { connectionName } : {}) });
 
@@ -238,10 +322,58 @@ describe("resolveDefaultProfileForProvider", () => {
         expect(entry).toBeDefined();
         expect(typeof entry?.model).toBe("string");
         expect(entry?.provider).toBeDefined();
-        expect(entry?.provider_connection).toBeDefined();
+        // Identity columns stamp no connection; BYOK columns always do.
+        if (entry?.provider === "vellum") {
+          expect(entry?.provider_connection).toBeUndefined();
+        } else {
+          expect(entry?.provider_connection).toBeDefined();
+        }
         expect(entry?.source).toBe("managed");
       }
     }
+  });
+
+  test("a provider without a named matrix column materializes from the shared BYOK templates", () => {
+    const entry = resolveDefaultProfileForProvider(
+      undefined,
+      "balanced",
+      dp("together"),
+    );
+    expect(entry?.provider).toBe("together");
+    expect(entry?.provider_connection).toBe("together-personal");
+    // No intent table for `together`: the intent falls back to the
+    // provider's catalog defaultModel.
+    expect(entry?.model).toBe(resolveModelIntent("together", "balanced"));
+    expect(entry?.source).toBe("managed");
+  });
+
+  test("maxTokens clamps to the resolved model's catalog output cap", () => {
+    // atlascloud has no intent table: every intent resolves to its catalog
+    // defaultModel, which caps output at 8192, below the balanced template's
+    // 16000.
+    const balanced = resolveDefaultProfileForProvider(
+      undefined,
+      "balanced",
+      dp("atlascloud"),
+    );
+    expect(balanced?.maxTokens).toBe(8192);
+    // minimax's defaultModel caps output at 16384, below the quality
+    // template's 32000.
+    const quality = resolveDefaultProfileForProvider(
+      undefined,
+      "quality-optimized",
+      dp("minimax"),
+    );
+    expect(quality?.maxTokens).toBe(16384);
+  });
+
+  test("maxTokens stays at the template value when the model's cap allows it", () => {
+    const entry = resolveDefaultProfileForProvider(
+      undefined,
+      "balanced",
+      dp("anthropic"),
+    );
+    expect(entry?.maxTokens).toBe(PROFILE_IMPLS.balanced.anthropic.maxTokens);
   });
 
   test("BYOK columns resolve the intent to a provider-specific model and personal connection", () => {

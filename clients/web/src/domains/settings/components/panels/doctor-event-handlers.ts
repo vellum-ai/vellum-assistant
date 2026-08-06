@@ -9,12 +9,20 @@
  */
 
 import type { DoctorPanelContext } from "@/domains/settings/components/panels/doctor-panel-store";
+import {
+  USER_OUTCOME_PROMPT_QUESTION,
+  hasDoctorFeedbackPromptSinceLastUser,
+} from "@/domains/settings/components/panels/doctor-history";
+import type { FeedbackReason } from "@/components/share-feedback-types";
 
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
 
-export function handleMessageDelta(ctx: DoctorPanelContext, event: { content: string }): void {
+export function handleMessageDelta(
+  ctx: DoctorPanelContext,
+  event: { content: string },
+): void {
   ctx.setThinking(false);
   const currentId = ctx.getStreamingEntryId();
   if (!currentId) {
@@ -64,9 +72,13 @@ export function handleToolResult(
     const idx = prev.findIndex(
       (e) => e.kind === "tool_call" && e.meta.toolCallId === event.toolCallId,
     );
-    if (idx === -1) return prev;
+    if (idx === -1) {
+      return prev;
+    }
     const existing = prev[idx]!;
-    if (existing.kind !== "tool_call") return prev;
+    if (existing.kind !== "tool_call") {
+      return prev;
+    }
     const updated = [...prev];
     updated[idx] = {
       ...existing,
@@ -83,7 +95,12 @@ export function handleToolResult(
 
 export function handleApprovalRequired(
   ctx: DoctorPanelContext,
-  event: { toolName: string; input: Record<string, unknown>; id: string; description: string },
+  event: {
+    toolName: string;
+    input: Record<string, unknown>;
+    id: string;
+    description: string;
+  },
 ): void {
   ctx.setThinking(false);
   ctx.setPendingApproval(true);
@@ -99,13 +116,71 @@ export function handleApprovalRequired(
   });
 }
 
-export function handleBackupPrompt(ctx: DoctorPanelContext, event: { toolName: string }): void {
+export function handleBackupPrompt(
+  ctx: DoctorPanelContext,
+  event: { toolName: string },
+): void {
   ctx.setThinking(false);
   ctx.setPendingBackup(true);
   ctx.appendEntry({
     kind: "backup_prompt",
     content: event.toolName,
     meta: { toolName: event.toolName },
+  });
+}
+
+export function handleFeedbackPrompt(
+  ctx: DoctorPanelContext,
+  event: {
+    summary?: string;
+    reason?: FeedbackReason;
+    classification?: FeedbackReason;
+  },
+): void {
+  const summary = event.summary?.trim();
+  const reason = event.reason ?? event.classification;
+  if (hasDoctorFeedbackPromptSinceLastUser(ctx.getEntries())) {
+    if (summary || reason) {
+      ctx.updateEntries((entries) =>
+        entries.map((entry, index) => {
+          const isLastFeedbackPrompt =
+            entry.kind === "feedback_prompt" &&
+            !entries
+              .slice(index + 1)
+              .some((candidate) => candidate.kind === "feedback_prompt");
+          return isLastFeedbackPrompt
+            ? {
+                ...entry,
+                ...(summary ? { content: summary } : {}),
+                ...(reason ? { meta: { ...entry.meta, reason } } : {}),
+              }
+            : entry;
+        }),
+      );
+    }
+    return;
+  }
+  ctx.appendEntry({
+    kind: "feedback_prompt",
+    content: summary || "Share feedback",
+    ...(reason ? { meta: { reason } } : {}),
+  });
+}
+
+/**
+ * Records the resolution prompt while the turn is still running.
+ *
+ * The Doctor requests the prompt through a tool call and keeps working
+ * afterwards, usually to write a closing reply, so the turn stays marked as
+ * thinking until that reply completes or the session ends. The panel holds the
+ * prompt back until then, which keeps the card from surfacing above the reply
+ * it asks about.
+ */
+export function handleUserOutcomePrompt(ctx: DoctorPanelContext): void {
+  ctx.setThinking(true);
+  ctx.appendEntry({
+    kind: "user_outcome_prompt",
+    content: USER_OUTCOME_PROMPT_QUESTION,
   });
 }
 
@@ -129,7 +204,10 @@ export function handleStatus(
   return false;
 }
 
-export function handleError(ctx: DoctorPanelContext, event: { message: string }): void {
+export function handleError(
+  ctx: DoctorPanelContext,
+  event: { message: string },
+): void {
   ctx.setThinking(false);
   ctx.setPendingApproval(false);
   ctx.setPendingBackup(false);

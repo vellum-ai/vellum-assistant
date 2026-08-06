@@ -13,17 +13,17 @@ import {
 import type { Surface } from "@/domains/chat/types/types";
 
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
-import { filterRecords, rec, strOrNum } from "@/domains/chat/components/surfaces/surface-parse-helpers";
+import {
+  filterRecords,
+  rec,
+  strOrNum,
+} from "@/domains/chat/components/surfaces/surface-parse-helpers";
 import { cn } from "@/utils/misc";
 
 type WorkResultStatus = "completed" | "partial" | "failed" | "in_progress";
 type WorkResultTone = "neutral" | "positive" | "warning" | "negative";
 type WorkResultSectionType =
-  | "items"
-  | "timeline"
-  | "diff"
-  | "artifacts"
-  | "warnings";
+  "items" | "timeline" | "diff" | "artifacts" | "warnings";
 
 interface WorkResultMetric {
   label: string;
@@ -135,7 +135,9 @@ function parseMetadata(value: unknown): WorkResultMetadata[] {
 function parseItems(value: unknown): WorkResultItem[] {
   return filterRecords(value).flatMap((item, index) => {
     const title = asString(item.title);
-    if (!title) return [];
+    if (!title) {
+      return [];
+    }
     return [
       {
         id: asString(item.id) ?? `${index}`,
@@ -154,7 +156,9 @@ function parseDiffs(value: unknown): WorkResultDiff[] {
   return filterRecords(value).flatMap((item) => {
     const before = asString(item.before);
     const after = asString(item.after);
-    if (!before && !after) return [];
+    if (!before && !after) {
+      return [];
+    }
     return [
       {
         label: asString(item.label),
@@ -169,7 +173,9 @@ function parseMetrics(value: unknown): WorkResultMetric[] {
   return filterRecords(value).flatMap((item) => {
     const label = asString(item.label);
     const metricValue = strOrNum(item.value);
-    if (!label || metricValue === undefined) return [];
+    if (!label || metricValue === undefined) {
+      return [];
+    }
     return [
       {
         label,
@@ -184,7 +190,9 @@ function parseMetrics(value: unknown): WorkResultMetric[] {
 function parseSections(value: unknown): WorkResultSection[] {
   return filterRecords(value).flatMap((section, index) => {
     const title = asString(section.title);
-    if (!title) return [];
+    if (!title) {
+      return [];
+    }
     return [
       {
         id: asString(section.id) ?? `${index}`,
@@ -200,7 +208,9 @@ function parseSections(value: unknown): WorkResultSection[] {
 
 function parseData(value: unknown): WorkResultSurfaceData {
   const obj = rec(value);
-  if (!obj) return {};
+  if (!obj) {
+    return {};
+  }
   return {
     eyebrow: asString(obj.eyebrow),
     status: asStatus(obj.status),
@@ -244,7 +254,9 @@ function toneClasses(tone: WorkResultTone | undefined): {
 }
 
 function ResultStatusBadge({ status }: { status?: WorkResultStatus }) {
-  if (!status) return null;
+  if (!status) {
+    return null;
+  }
   const config = STATUS_COPY[status];
   const tone = toneClasses(config.tone);
   const Icon =
@@ -258,7 +270,11 @@ function ResultStatusBadge({ status }: { status?: WorkResultStatus }) {
 
   return (
     <span
-      className={cn("inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-label-small-default", tone.bg, tone.text)}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-label-small-default",
+        tone.bg,
+        tone.text,
+      )}
     >
       <Icon className="h-3.5 w-3.5" />
       {config.label}
@@ -267,7 +283,9 @@ function ResultStatusBadge({ status }: { status?: WorkResultStatus }) {
 }
 
 function MetricGrid({ metrics }: { metrics: WorkResultMetric[] }) {
-  if (metrics.length === 0) return null;
+  if (metrics.length === 0) {
+    return null;
+  }
   return (
     <div className="mt-4 grid gap-px overflow-hidden rounded-md border border-[var(--border-base)] bg-[var(--border-base)] sm:grid-cols-3">
       {metrics.map((metric) => {
@@ -296,7 +314,9 @@ function MetricGrid({ metrics }: { metrics: WorkResultMetric[] }) {
 }
 
 function MetadataRow({ metadata }: { metadata: WorkResultMetadata[] }) {
-  if (metadata.length === 0) return null;
+  if (metadata.length === 0) {
+    return null;
+  }
   return (
     <div className="mt-1.5 flex flex-wrap gap-1.5">
       {metadata.map((meta) => (
@@ -313,42 +333,47 @@ function MetadataRow({ metadata }: { metadata: WorkResultMetadata[] }) {
 }
 
 function ItemList({ items }: { items: WorkResultItem[] }) {
-  if (items.length === 0) return null;
+  if (items.length === 0) {
+    return null;
+  }
   return (
     <div className="mt-3 divide-y divide-[var(--border-base)]">
       {items.map((item) => {
         const tone = toneClasses(item.tone);
         return (
-        <div
-          key={item.id ?? item.title}
-          className="flex gap-3 py-2.5 first:pt-0 last:pb-0"
-        >
-          <span
-            aria-hidden
-            className={cn("w-[3px] shrink-0 self-stretch rounded-full", tone.rail)}
-          />
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-start gap-2">
-              <span className="min-w-0 flex-1 text-body-medium-default text-[var(--content-strong)]">
-                {item.title}
-              </span>
-              {item.status && (
-                <span className="shrink-0 rounded-full bg-[var(--surface-active)] px-2 py-0.5 text-label-small-default text-[var(--content-secondary)]">
-                  {item.status}
+          <div
+            key={item.id ?? item.title}
+            className="flex gap-3 py-2.5 first:pt-0 last:pb-0"
+          >
+            <span
+              aria-hidden
+              className={cn(
+                "w-[3px] shrink-0 self-stretch rounded-full",
+                tone.rail,
+              )}
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-start gap-2">
+                <span className="min-w-0 flex-1 text-body-medium-default text-[var(--content-strong)]">
+                  {item.title}
                 </span>
+                {item.status && (
+                  <span className="shrink-0 rounded-full bg-[var(--surface-active)] px-2 py-0.5 text-label-small-default text-[var(--content-secondary)]">
+                    {item.status}
+                  </span>
+                )}
+                {item.href && (
+                  <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]" />
+                )}
+              </div>
+              {item.description && (
+                <p className="mt-0.5 text-body-small-default text-[var(--content-quiet)]">
+                  {item.description}
+                </p>
               )}
-              {item.href && (
-                <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]" />
-              )}
+              <MetadataRow metadata={item.metadata ?? []} />
             </div>
-            {item.description && (
-              <p className="mt-0.5 text-body-small-default text-[var(--content-quiet)]">
-                {item.description}
-              </p>
-            )}
-            <MetadataRow metadata={item.metadata ?? []} />
           </div>
-        </div>
         );
       })}
     </div>
@@ -356,7 +381,9 @@ function ItemList({ items }: { items: WorkResultItem[] }) {
 }
 
 function DiffBlock({ diffs }: { diffs: WorkResultDiff[] }) {
-  if (diffs.length === 0) return null;
+  if (diffs.length === 0) {
+    return null;
+  }
   return (
     <div className="mt-3 space-y-3">
       {diffs.map((diff, index) => (

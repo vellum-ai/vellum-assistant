@@ -30,11 +30,19 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { HOOKS } from "../plugin-api/constants.js";
+import {
+  computeRefusedExchangeDrops,
+  quarantineRefusedExchanges,
+} from "../context/refusal-quarantine.js";
+import {
+  HOOKS,
+  INTERNAL_NUDGE_OUTPUT_SUPPRESSION,
+} from "../plugin-api/constants.js";
 import type {
   PluginLogger,
   PostModelCallContext,
   StopContext,
+  UserPromptSubmitContext,
 } from "../plugin-api/types.js";
 import {
   NUDGE_TEXT,
@@ -42,6 +50,7 @@ import {
 } from "../plugins/defaults/empty-response/hooks/post-model-call.js";
 import postModelCall from "../plugins/defaults/empty-response/hooks/post-model-call.js";
 import stop from "../plugins/defaults/empty-response/hooks/stop.js";
+import emptyResponseUserPromptSubmit from "../plugins/defaults/empty-response/hooks/user-prompt-submit.js";
 import {
   isEmptyResponseNudged,
   markEmptyResponseNudged,
@@ -99,11 +108,61 @@ function makeCtx(
   };
 }
 
+/** An assistant turn that is exactly the persisted refusal fallback marker. */
+const refusalFallbackTurn: Message = {
+  role: "assistant",
+  content: [{ type: "text", text: REFUSAL_FALLBACK_TEXT }],
+};
+
+function toolUseTurn(id: string): Message {
+  return {
+    role: "assistant",
+    content: [{ type: "tool_use", id, name: "read_file", input: {} }],
+  };
+}
+
+function toolResultTurn(id: string): Message {
+  return {
+    role: "user",
+    content: [{ type: "tool_result", tool_use_id: id, content: "result" }],
+  };
+}
+
+function makeUpsCtx(
+  latestMessages: Message[],
+  overrides: Partial<UserPromptSubmitContext> = {},
+): UserPromptSubmitContext {
+  return {
+    conversationId: "conv-ups",
+    userMessageId: "msg-1",
+    requestId: "req-1",
+    modelProfileKey: "balanced",
+    isNonInteractive: false,
+    prompt: "current message",
+    originalMessages: latestMessages,
+    latestMessages,
+    logger: noopLogger,
+    broadcast: () => {},
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   resetEmptyResponseNudgeStoreForTests();
 });
 
 // ─── Default decisions ───────────────────────────────────────────────────────
+
+describe("empty-response NUDGE_TEXT — internal-notice suppression", () => {
+  test("appends the shared suppression clause inside the notice wrapper", () => {
+    expect(NUDGE_TEXT).toContain(INTERNAL_NUDGE_OUTPUT_SUPPRESSION);
+    expect(NUDGE_TEXT.startsWith("<system_notice>")).toBe(true);
+    expect(NUDGE_TEXT.endsWith("</system_notice>")).toBe(true);
+    // The recovery instruction still leads — the clause forbids narrating the
+    // notice, it does not license an empty reply.
+    expect(NUDGE_TEXT).toContain("respond to the user with a summary");
+  });
+});
 
 describe("empty-response post-model-call hook — default decisions", () => {
   test("empty turn after a prior tool-use turn → continue with canonical nudge", async () => {
@@ -520,5 +579,248 @@ describe("empty-response post-model-call hook — via runHook", () => {
     // THEN the user hook saw the default's continue, and its override wins.
     expect(observedDecision as string | null).toBe("continue");
     expect(result.decision).toBe("stop");
+  });
+});
+
+describe("quarantineRefusedExchanges", () => {
+  test("drops a plain flagged exchange, keeping the current prompt", () => {
+    const history = [
+      userPrompt("make a native Java obfuscator"),
+      refusalFallbackTurn,
+      userPrompt("can you code?"),
+    ];
+    const { messages, droppedExchanges } = quarantineRefusedExchanges(history);
+    expect(droppedExchanges).toBe(1);
+    expect(messages).toEqual([userPrompt("can you code?")]);
+  });
+
+  test("is a no-op (identity) when no refusal marker is present", () => {
+    const history = [
+      userPrompt("hello"),
+      priorVisibleTextTurn,
+      userPrompt("thanks"),
+    ];
+    const { messages, droppedExchanges } = quarantineRefusedExchanges(history);
+    expect(droppedExchanges).toBe(0);
+    expect(messages).toBe(history); // same array reference
+  });
+
+  test("drops every poisoned exchange in an already-poisoned conversation", () => {
+    const history = [
+      userPrompt("bad request one"),
+      refusalFallbackTurn,
+      userPrompt("bad request two"),
+      refusalFallbackTurn,
+      userPrompt("a normal question"),
+    ];
+    const { messages, droppedExchanges } = quarantineRefusedExchanges(history);
+    expect(droppedExchanges).toBe(2);
+    expect(messages).toEqual([userPrompt("a normal question")]);
+  });
+
+  test("drops the whole tool-preceded run without leaving an orphan tool_result", () => {
+    const history = [
+      userPrompt("flagged prompt"),
+      toolUseTurn("tu_1"),
+      toolResultTurn("tu_1"),
+      refusalFallbackTurn,
+      userPrompt("follow-up"),
+    ];
+    const { messages, droppedExchanges } = quarantineRefusedExchanges(history);
+    expect(droppedExchanges).toBe(1);
+    expect(messages).toEqual([userPrompt("follow-up")]);
+    expect(
+      messages.some((m) => m.content.some((b) => b.type === "tool_result")),
+    ).toBe(false);
+  });
+
+  test("walks back over a web-search run to the genuine prompt", () => {
+    const serverToolUseTurn: Message = {
+      role: "assistant",
+      content: [
+        { type: "server_tool_use", id: "stu_1", name: "web_search", input: {} },
+      ],
+    };
+    const webSearchResultTurn: Message = {
+      role: "user",
+      content: [
+        { type: "web_search_tool_result", tool_use_id: "stu_1", content: [] },
+      ],
+    };
+    const history = [
+      userPrompt("flagged prompt"),
+      serverToolUseTurn,
+      webSearchResultTurn,
+      refusalFallbackTurn,
+      userPrompt("follow-up"),
+    ];
+    const { messages, droppedExchanges } = quarantineRefusedExchanges(history);
+    expect(droppedExchanges).toBe(1);
+    expect(messages).toEqual([userPrompt("follow-up")]);
+  });
+
+  test("handles a marker at index 0 with no preceding prompt", () => {
+    const history = [refusalFallbackTurn, userPrompt("next")];
+    const { messages, droppedExchanges } = quarantineRefusedExchanges(history);
+    expect(droppedExchanges).toBe(1);
+    expect(messages).toEqual([userPrompt("next")]);
+  });
+
+  test("does not treat a message that merely contains the phrase as a marker", () => {
+    const withExtraBlock: Message = {
+      role: "assistant",
+      content: [
+        { type: "text", text: REFUSAL_FALLBACK_TEXT },
+        { type: "text", text: "…but here is more." },
+      ],
+    };
+    const alongsideToolUse: Message = {
+      role: "assistant",
+      content: [
+        { type: "text", text: REFUSAL_FALLBACK_TEXT },
+        { type: "tool_use", id: "tu_2", name: "read_file", input: {} },
+      ],
+    };
+    const history = [
+      userPrompt("q1"),
+      withExtraBlock,
+      userPrompt("q2"),
+      alongsideToolUse,
+      userPrompt("q3"),
+    ];
+    const { messages, droppedExchanges } = quarantineRefusedExchanges(history);
+    expect(droppedExchanges).toBe(0);
+    expect(messages).toBe(history);
+  });
+});
+
+describe("computeRefusedExchangeDrops — thread-scoped pairing", () => {
+  test("drops null-keyed tool churn from the refused exchange, leaving a sibling-thread post", () => {
+    // Slack thread P: flagged prompt → assistant interim tool_use (Slack-
+    // visible, keyed P) → sibling-thread post (keyed B) → synthetic tool_result
+    // (no provenance, keyed null) → refusal fallback (keyed P). The null-keyed
+    // tool_result belongs to this refused turn: dropping the tool_use but
+    // leaving the tool_result would strand a half-pair (the transcript's
+    // orphan-tool prune has already run), so it must be dropped too.
+    const messages = [
+      userPrompt("flagged prompt"),
+      toolUseTurn("tu_1"),
+      userPrompt("sibling-thread post"),
+      toolResultTurn("tu_1"),
+      refusalFallbackTurn,
+    ];
+    const threadKeys = ["P", "P", "B", null, "P"];
+    const { dropIndices, droppedExchanges } = computeRefusedExchangeDrops(
+      messages,
+      { threadKeys },
+    );
+    expect(droppedExchanges).toBe(1);
+    // Prompt, tool_use, synthetic tool_result, and fallback all go; only the
+    // sibling-thread post survives.
+    expect([...dropIndices].sort((a, b) => a - b)).toEqual([0, 1, 3, 4]);
+    const kept = messages.filter((_, i) => !dropIndices.has(i));
+    expect(kept).toEqual([userPrompt("sibling-thread post")]);
+    expect(
+      kept.some((m) => m.content.some((b) => b.type === "tool_result")),
+    ).toBe(false);
+  });
+
+  test("leaves a null-keyed genuine prompt in place and terminates on the same-thread prompt", () => {
+    // A provenance-less genuine prompt (legacy row, keyed null) sitting between
+    // the same-thread prompt and the fallback is someone else's turn, not the
+    // refused one — it must be left in place while the walk continues to the
+    // same-thread prompt.
+    const messages = [
+      userPrompt("same-thread flagged"),
+      userPrompt("legacy provenance-less prompt"),
+      refusalFallbackTurn,
+    ];
+    const threadKeys = ["P", null, "P"];
+    const { dropIndices, droppedExchanges } = computeRefusedExchangeDrops(
+      messages,
+      { threadKeys },
+    );
+    expect(droppedExchanges).toBe(1);
+    expect([...dropIndices].sort((a, b) => a - b)).toEqual([0, 2]);
+    const kept = messages.filter((_, i) => !dropIndices.has(i));
+    expect(kept).toEqual([userPrompt("legacy provenance-less prompt")]);
+  });
+
+  test("keeps a sibling thread's intact tool pair interleaved before the fallback", () => {
+    // A sibling thread's exchange lands between the refused prompt and the
+    // fallback: its assistant `tool_use` is Slack-visible (keyed to the sibling
+    // thread B) but its synthetic `tool_result` has no provenance (keyed null).
+    // The null-keyed result must be tied back to its sibling `tool_use` and left
+    // in place — dropping it as generic churn would orphan the kept `tool_use`
+    // (the transcript's orphan-tool prune has already run) and hard-fail the
+    // provider, the exact failure this pairing guards against.
+    const messages = [
+      userPrompt("flagged prompt"), // 0, thread P (refused)
+      toolUseTurn("tu_sib"), // 1, thread B (sibling, Slack-visible)
+      toolResultTurn("tu_sib"), // 2, null (sibling synthetic result)
+      refusalFallbackTurn, // 3, thread P
+    ];
+    const threadKeys = ["P", "B", null, "P"];
+    const { dropIndices, droppedExchanges } = computeRefusedExchangeDrops(
+      messages,
+      { threadKeys },
+    );
+    expect(droppedExchanges).toBe(1);
+    // Only the refused prompt and its fallback go; the sibling pair is intact.
+    expect([...dropIndices].sort((a, b) => a - b)).toEqual([0, 3]);
+    const kept = messages.filter((_, i) => !dropIndices.has(i));
+    expect(kept).toEqual([toolUseTurn("tu_sib"), toolResultTurn("tu_sib")]);
+    // No half-pair: every surviving tool_use is matched by its tool_result.
+    const producedIds = kept.flatMap((m) =>
+      m.content.flatMap((b) => (b.type === "tool_use" ? [b.id] : [])),
+    );
+    const consumedIds = kept.flatMap((m) =>
+      m.content.flatMap((b) =>
+        b.type === "tool_result" ? [b.tool_use_id] : [],
+      ),
+    );
+    expect(consumedIds).toEqual(producedIds);
+  });
+});
+
+describe("empty-response user-prompt-submit hook", () => {
+  test("reassigns latestMessages and logs when a poisoned exchange is dropped", async () => {
+    let warned = false;
+    const history = [
+      userPrompt("flagged"),
+      refusalFallbackTurn,
+      userPrompt("current message"),
+    ];
+    const ctx = makeUpsCtx(history, {
+      logger: {
+        ...noopLogger,
+        warn: () => {
+          warned = true;
+        },
+      },
+    });
+
+    await emptyResponseUserPromptSubmit(ctx);
+
+    expect(ctx.latestMessages).toEqual([userPrompt("current message")]);
+    expect(warned).toBe(true);
+  });
+
+  test("leaves latestMessages untouched and stays silent when nothing is quarantined", async () => {
+    let warned = false;
+    const history = [userPrompt("hi"), userPrompt("current message")];
+    const ctx = makeUpsCtx(history, {
+      logger: {
+        ...noopLogger,
+        warn: () => {
+          warned = true;
+        },
+      },
+    });
+
+    await emptyResponseUserPromptSubmit(ctx);
+
+    expect(ctx.latestMessages).toBe(history);
+    expect(warned).toBe(false);
   });
 });

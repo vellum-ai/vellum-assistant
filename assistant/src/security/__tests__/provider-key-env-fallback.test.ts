@@ -8,25 +8,15 @@ import {
   beforeEach,
   describe,
   expect,
-  mock,
   test,
 } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mock logger before importing any code that uses it.
 // ---------------------------------------------------------------------------
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ---------------------------------------------------------------------------
 // Imports under test
 // ---------------------------------------------------------------------------
-
 import { setStorePathForTesting } from "../../__tests__/encrypted-store-test-helpers.js";
 import { _resetBackend, getProviderKeyAsync } from "../secure-keys.js";
 
@@ -60,7 +50,9 @@ describe("getProviderKeyAsync env-var fallback (regression #27126)", () => {
 
   beforeEach(() => {
     // Fresh encrypted store (no saved credentials → forces env-var fallback).
-    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true });
+    }
     mkdirSync(TEST_DIR, { recursive: true });
     setStorePathForTesting(STORE_PATH);
     _resetBackend();
@@ -86,7 +78,9 @@ describe("getProviderKeyAsync env-var fallback (regression #27126)", () => {
   });
 
   afterAll(() => {
-    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true });
+    }
   });
 
   test("returns BRAVE_API_KEY from process.env when secure store is empty", async () => {

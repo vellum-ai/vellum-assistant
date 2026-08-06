@@ -137,6 +137,31 @@ describe("STT provider catalog", () => {
   });
 
   // -----------------------------------------------------------------------
+  // Language selection capability
+  // -----------------------------------------------------------------------
+
+  test("languageSelection is set for all providers", () => {
+    for (const entry of listProviderEntries()) {
+      expect(["manual", "auto"]).toContain(entry.languageSelection);
+    }
+  });
+
+  const expectedLanguageSelection = [
+    ["deepgram", "manual"],
+    ["vellum", "manual"],
+    ["xai", "manual"],
+    ["google-gemini", "auto"],
+    ["openai-whisper", "auto"],
+  ] as const;
+
+  test.each(expectedLanguageSelection)(
+    "%s has languageSelection %s",
+    (id, expected) => {
+      expect(getProviderEntry(id)?.languageSelection).toBe(expected);
+    },
+  );
+
+  // -----------------------------------------------------------------------
   // Credential lookup
   // -----------------------------------------------------------------------
 
@@ -183,5 +208,18 @@ describe("STT provider catalog", () => {
 
   test("supportsDiarization helper returns false for unknown provider IDs", () => {
     expect(supportsDiarization("nonexistent" as never)).toBe(false);
+  });
+});
+
+describe("connection-based providers", () => {
+  test("vellum is excluded from the API-key credential provider list", () => {
+    expect(listCredentialProviderNames()).not.toContain("vellum");
+  });
+
+  test("API-key providers remain listed", () => {
+    const names = listCredentialProviderNames();
+    for (const expected of ["deepgram", "gemini", "openai", "xai"]) {
+      expect(names).toContain(expected);
+    }
   });
 });

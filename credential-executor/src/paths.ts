@@ -84,21 +84,6 @@ export function getCesDataRoot(mode?: CesMode): string {
 // Subdirectory layout
 // ---------------------------------------------------------------------------
 
-/** Directory for CES grant persistence. */
-export function getCesGrantsDir(mode?: CesMode): string {
-  return join(getCesDataRoot(mode), "grants");
-}
-
-/** Directory for CES audit log persistence. */
-export function getCesAuditDir(mode?: CesMode): string {
-  return join(getCesDataRoot(mode), "audit");
-}
-
-/** Directory for CES secure tool store (registered secure command tools). */
-export function getCesToolStoreDir(mode?: CesMode): string {
-  return join(getCesDataRoot(mode), "toolstore");
-}
-
 /** Directory for CES log files. */
 export function getCesLogDir(mode?: CesMode): string {
   return join(getCesDataRoot(mode), "logs");

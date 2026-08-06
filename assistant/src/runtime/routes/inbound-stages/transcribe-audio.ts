@@ -12,7 +12,9 @@ import {
   getAttachmentsByIds,
 } from "../../../persistence/attachments-store.js";
 import { resolveBatchTranscriber } from "../../../providers/speech-to-text/resolve.js";
+import { describeSttFailure } from "../../../providers/voice-error-copy.js";
 import { normalizeSttError } from "../../../stt/daemon-batch-transcriber.js";
+import type { SttProviderId } from "../../../stt/types.js";
 import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("transcribe-audio");
@@ -37,6 +39,8 @@ export type TranscribeResult =
 export async function tryTranscribeAudioAttachments(
   attachmentIds: string[],
 ): Promise<TranscribeResult> {
+  // Hoisted so the catch can name the provider in a friendly failure message.
+  let providerId: SttProviderId | undefined;
   try {
     // Look up attachments and filter to audio MIME types
     const resolved = getAttachmentsByIds(attachmentIds);
@@ -57,6 +61,7 @@ export async function tryTranscribeAudioAttachments(
           "No speech-to-text provider configured. Add an API key for your STT service to enable voice message transcription.",
       };
     }
+    providerId = transcriber.providerId;
 
     // Transcribe each audio attachment with a shared timeout
     const abortController = new AbortController();
@@ -103,11 +108,7 @@ export async function tryTranscribeAudioAttachments(
     }
   } catch (err: unknown) {
     const sttErr = normalizeSttError(err);
-    const reason =
-      sttErr.category === "timeout"
-        ? "Transcription timed out"
-        : sttErr.message;
     log.warn({ err }, "Audio transcription failed");
-    return { status: "error", reason };
+    return { status: "error", reason: describeSttFailure(sttErr, providerId) };
   }
 }

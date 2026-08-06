@@ -23,11 +23,10 @@ import { readArrayBufferWithProgress } from "./bundle-stream";
 import { TeleportError } from "./teleport-types";
 
 /**
- * Resolve the absolute local gateway base URL for a local assistant. Only
- * `cloud === "local"` assistants are reachable this way (`getLocalGatewayUrl`
- * resolves the `/assistant/__gateway/<port>` proxy for them); Docker and other
- * hosting kinds never reach here because `resolveDestination` doesn't offer
- * teleport for them.
+ * Resolve the absolute local gateway base URL for a local or docker assistant
+ * (`getLocalGatewayUrl` resolves the `/assistant/__gateway/<port>` proxy for
+ * both); other hosting kinds never reach here because `resolveDestination`
+ * doesn't offer teleport for them.
  */
 function localGatewayBase(assistant: LockfileAssistant): string {
   const path = getLocalGatewayUrl(assistant);
@@ -116,7 +115,10 @@ export async function importLocalBundle(
       `Import failed (HTTP ${response.status}).`,
     );
   }
-  const json = (await safeJson(response)) as { success?: boolean; error?: string } | null;
+  const json = (await safeJson(response)) as {
+    success?: boolean;
+    error?: string;
+  } | null;
   if (json && json.success === false) {
     throw new TeleportError(
       "import_failed",
@@ -170,7 +172,9 @@ export async function pollManagedExportJob(
     throwOnError: false,
   });
   const status = response?.status ?? 0;
-  if (status >= 500) return "processing"; // transient — caller retries
+  if (status >= 500) {
+    return "processing";
+  } // transient — caller retries
   if (!(response?.ok ?? false)) {
     throw new TeleportError(
       "export_job_failed",

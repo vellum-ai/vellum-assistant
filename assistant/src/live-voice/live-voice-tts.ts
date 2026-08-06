@@ -186,7 +186,14 @@ async function resolveLiveVoiceStreamingTtsProvider(
   configOverride?: LiveVoiceTtsConfig,
 ): Promise<ResolvedStreamingTtsProvider> {
   const config = configOverride ?? (await loadAssistantConfig());
-  const { provider: providerId, providerConfig } = resolveTtsConfig(config);
+  const { resolveEffectiveSpeechProviders } =
+    await import("../config/managed-speech-defaults.js");
+  const { tts: effectiveProviderId } =
+    await resolveEffectiveSpeechProviders(config);
+  const { provider: providerId, providerConfig } = resolveTtsConfig(
+    config,
+    effectiveProviderId,
+  );
 
   let provider: TtsProvider;
   try {

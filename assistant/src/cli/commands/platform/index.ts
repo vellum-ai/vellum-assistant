@@ -7,11 +7,14 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
+import { applyCommandHelp, subcommand } from "../../lib/cli-command-help.js";
 import { registerCommand } from "../../lib/register-command.js";
 import { log } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 import { registerPlatformConnectCommand } from "./connect.js";
 import { registerPlatformDisconnectCommand } from "./disconnect.js";
+import { platformHelp } from "./index.help.js";
+import { registerPlatformInvoicesCommands } from "./invoices.js";
 
 interface PlatformStatusResult {
   isPlatform: boolean;
@@ -22,7 +25,6 @@ interface PlatformStatusResult {
   available: boolean;
   organizationId: string | null;
   userId: string | null;
-  velayTunnel: { connected: boolean; publicUrl: string | null } | null;
 }
 
 interface PlatformCreditsResult {
@@ -34,33 +36,37 @@ interface PlatformCreditsResult {
   as_of: string;
 }
 
+interface PlatformSubscriptionResult {
+  planId: "base" | "pro";
+  status: string | null;
+  renewalDate: string | null;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  cancelAt: string | null;
+  selectedCreditTier: string | null;
+  package: {
+    key: string;
+    name: string;
+    version: number;
+    customized: boolean;
+  } | null;
+  entitlements: {
+    managedEmail: boolean;
+    phoneNumber: boolean;
+  };
+}
+
+interface PlatformPlansResult {
+  plans: Array<Record<string, unknown>>;
+}
+
 export function registerPlatformCommand(program: Command): void {
   registerCommand(program, {
-    name: "platform",
+    name: platformHelp.name,
     transport: "ipc",
-    description: "Manage Vellum Platform integration",
+    description: platformHelp.description,
     build: (platform) => {
-      platform.option("--json", "Machine-readable compact JSON output");
-
-      platform.addHelpText(
-        "after",
-        `
-The platform subsystem manages the connection to Vellum Platform. Use
-'connect', 'status', and 'disconnect' to manage platform credentials.
-Any assistant using the managed LLM proxy can use these commands.
-
-External service callbacks (Telegram webhooks, Twilio webhooks, email,
-OAuth redirects) route through the platform's gateway proxy via
-'callback-routes'. Works for both platform-managed and self-hosted
-assistants.
-
-Examples:
-  $ assistant platform status --json
-  $ assistant platform credits --json
-  $ assistant platform connect
-  $ assistant platform disconnect
-  $ assistant platform callback-routes register --path webhooks/telegram --type telegram --json`,
-      );
+      applyCommandHelp(platform, platformHelp);
 
       // -----------------------------------------------------------------------
       // connect
@@ -72,44 +78,18 @@ Examples:
       // status
       // -----------------------------------------------------------------------
 
-      platform
-        .command("status")
-        .description(
-          "Show current platform deployment context and connection status",
-        )
-        .addHelpText(
-          "after",
-          `
-Reads platform-related environment variables and stored credentials to report
-the current platform deployment context and connection state.
-
-Fields:
-  isPlatform          Whether IS_PLATFORM is set (boolean)
-  baseUrl             VELLUM_PLATFORM_URL — the platform gateway base URL
-  assistantId         This assistant's platform UUID
-  hasAssistantApiKey  Whether a stored assistant API key is available
-  hasWebhookSecret    Whether a stored webhook secret is available (needed
-                      for email and other inbound webhook channels)
-  available           Whether callback registration prerequisites are satisfied
-  organizationId      The platform organization ID (from stored credentials)
-  userId              The platform user ID (from stored credentials)
-  velayTunnel         Live Velay tunnel status from the gateway IPC socket
-                      (null when the gateway is not running)
-
-Examples:
-  $ assistant platform status
-  $ assistant platform status --json`,
-        )
-        .action(async (_opts: Record<string, unknown>, cmd: Command) => {
+      subcommand(platform, "status").action(
+        async (_opts: Record<string, unknown>, cmd: Command) => {
           const r = await cliIpcCall<PlatformStatusResult>(
             "platform_status",
             {},
           );
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
 
           const result = r.result!;
 
@@ -132,57 +112,26 @@ Examples:
               `Organization ID: ${result.organizationId || "(not set)"}`,
             );
             log.info(`User ID: ${result.userId || "(not set)"}`);
-            if (result.velayTunnel !== null) {
-              const tunnelState = result.velayTunnel.connected
-                ? `connected${result.velayTunnel.publicUrl ? ` (${result.velayTunnel.publicUrl})` : ""}`
-                : "disconnected";
-              log.info(`Velay tunnel: ${tunnelState}`);
-            } else {
-              log.info(`Velay tunnel: (gateway not running)`);
-            }
           }
-        });
+        },
+      );
 
       // -----------------------------------------------------------------------
       // credits
       // -----------------------------------------------------------------------
 
-      platform
-        .command("credits")
-        .description("Show the organization's remaining credit balance")
-        .addHelpText(
-          "after",
-          `
-Fetches the org's credit balance from the platform billing summary.
-
-Fields:
-  remaining   Effective balance (settled minus pending charges) in USD
-  settled     On-ledger balance in USD
-  pending     Estimated pending compute charges not yet settled, in USD
-  unit        Balance currency (USD)
-  stale       True when pending-charge data may be stale or unavailable
-  as_of       When this balance was read (response receipt time)
-
-Combine with 'assistant usage daily' to compute runway (remaining divided
-by rolling daily average) and warn before credits run out.
-
-Requires platform credentials (run 'assistant platform connect' first or
-ensure VELLUM_PLATFORM_URL is set and credentials are stored).
-
-Examples:
-  $ assistant platform credits
-  $ assistant platform credits --json`,
-        )
-        .action(async (_opts: Record<string, unknown>, cmd: Command) => {
+      subcommand(platform, "credits").action(
+        async (_opts: Record<string, unknown>, cmd: Command) => {
           const r = await cliIpcCall<PlatformCreditsResult>(
             "platform_credits",
             {},
           );
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
 
           const result = r.result!;
 
@@ -199,7 +148,100 @@ Examples:
               `Settled:   $${result.settled.toFixed(2)}   Pending: $${result.pending.toFixed(2)}`,
             );
           }
-        });
+        },
+      );
+
+      // -----------------------------------------------------------------------
+      // subscription
+      // -----------------------------------------------------------------------
+
+      subcommand(platform, "subscription").action(
+        async (_opts: Record<string, unknown>, cmd: Command) => {
+          const r = await cliIpcCall<PlatformSubscriptionResult>(
+            "platform_subscription",
+            {},
+          );
+          if (!r.ok) {
+            return exitFromIpcResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
+            );
+          }
+
+          const result = r.result!;
+
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, result);
+          } else {
+            const planLabel = result.planId === "pro" ? "Pro" : "Base";
+            const statusNote = result.status ? ` (${result.status})` : "";
+            log.info(`Plan:   ${planLabel}${statusNote}`);
+            if (result.package) {
+              const customized = result.package.customized
+                ? " (customized)"
+                : "";
+              log.info(`Package: ${result.package.name}${customized}`);
+            }
+            if (result.renewalDate) {
+              const renewalVerb = result.cancelAtPeriodEnd
+                ? "Cancels"
+                : "Renews";
+              log.info(`${renewalVerb}: ${result.renewalDate}`);
+            }
+            if (result.selectedCreditTier) {
+              log.info(`Credit tier: ${result.selectedCreditTier}`);
+            }
+            const ent: string[] = [];
+            if (result.entitlements.managedEmail) {
+              ent.push("managed email");
+            }
+            if (result.entitlements.phoneNumber) {
+              ent.push("phone number");
+            }
+            log.info(
+              `Entitlements: ${ent.length > 0 ? ent.join(", ") : "none"}`,
+            );
+          }
+        },
+      );
+
+      // -----------------------------------------------------------------------
+      // plans
+      // -----------------------------------------------------------------------
+
+      subcommand(platform, "plans").action(
+        async (_opts: Record<string, unknown>, cmd: Command) => {
+          const r = await cliIpcCall<PlatformPlansResult>("platform_plans", {});
+          if (!r.ok) {
+            return exitFromIpcResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
+            );
+          }
+
+          const result = r.result!;
+
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, result);
+          } else {
+            for (const plan of result.plans) {
+              const name = String(plan.name ?? plan.id ?? "?");
+              // Base uses `price_cents`; Pro uses `base_price_cents`.
+              const cents = Number(
+                plan.price_cents ?? plan.base_price_cents ?? 0,
+              );
+              const interval = String(plan.billing_interval ?? "month");
+              log.info(`${name}: $${(cents / 100).toFixed(2)}/${interval}`);
+            }
+          }
+        },
+      );
+
+      // -----------------------------------------------------------------------
+      // invoices
+      // -----------------------------------------------------------------------
+
+      registerPlatformInvoicesCommands(platform);
 
       // -----------------------------------------------------------------------
       // disconnect
@@ -211,71 +253,14 @@ Examples:
       // callback-routes
       // -----------------------------------------------------------------------
 
-      const callbackRoutes = platform
-        .command("callback-routes")
-        .description("Manage platform callback route registrations");
-
-      callbackRoutes.addHelpText(
-        "after",
-        `
-Callback routes tell the platform gateway how to forward inbound provider
-webhooks to the correct assistant instance. Each route maps a callback path
-and type to a stable external URL that external services (Telegram, Twilio,
-email, OAuth providers) should use.
-
-Examples:
-  $ assistant platform callback-routes list
-  $ assistant platform callback-routes list --json
-  $ assistant platform callback-routes register --path webhooks/telegram --type telegram --json
-  $ assistant platform callback-routes register --path webhooks/twilio/voice --type twilio_voice --json`,
-      );
+      const callbackRoutes = subcommand(platform, "callback-routes");
 
       // -----------------------------------------------------------------------
       // callback-routes register
       // -----------------------------------------------------------------------
 
-      callbackRoutes
-        .command("register")
-        .description("Register a callback route with the platform gateway")
-        .requiredOption(
-          "--path <path>",
-          "Callback path (e.g. webhooks/telegram, webhooks/twilio/voice)",
-        )
-        .requiredOption(
-          "--type <type>",
-          "Route type identifier (e.g. telegram, twilio_voice, twilio_status, oauth)",
-        )
-        .addHelpText(
-          "after",
-          `
-Registers a callback route with the platform's internal gateway endpoint so
-the platform knows how to forward inbound provider webhooks to this
-platform-managed assistant instance.
-
-Arguments:
-  --path    The path portion after the ingress base URL. Leading/trailing
-            slashes are stripped by the platform.
-  --type    The route type identifier used by the platform to classify and
-            route the callback.
-
-Known callback path/type combinations:
-  --path webhooks/telegram          --type telegram
-  --path webhooks/twilio/voice      --type twilio_voice
-  --path webhooks/twilio/status     --type twilio_status
-  --path webhooks/resend            --type resend
-  --path webhooks/mailgun           --type mailgun
-  --path webhooks/email             --type email
-  --path oauth/callback             --type oauth
-
-Works for both platform-managed and self-hosted assistants. Requires
-VELLUM_PLATFORM_URL and a platform assistant ID. Returns the platform-provided
-stable callback URL that external services should use.
-
-Examples:
-  $ assistant platform callback-routes register --path webhooks/telegram --type telegram --json
-  $ assistant platform callback-routes register --path webhooks/twilio/voice --type twilio_voice --json`,
-        )
-        .action(async (opts: { path: string; type: string }, cmd: Command) => {
+      subcommand(callbackRoutes, "register").action(
+        async (opts: { path: string; type: string }, cmd: Command) => {
           const r = await cliIpcCall<{
             callbackUrl: string;
             callbackPath: string;
@@ -283,40 +268,27 @@ Examples:
           }>("platform_callback_routes_register", {
             body: { path: opts.path, type: opts.type },
           });
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
 
           writeOutput(cmd, { ok: true, ...r.result });
 
           if (!shouldOutputJson(cmd)) {
             log.info(`Callback route registered: ${r.result!.callbackUrl}`);
           }
-        });
+        },
+      );
 
       // -----------------------------------------------------------------------
       // callback-routes list
       // -----------------------------------------------------------------------
 
-      callbackRoutes
-        .command("list")
-        .description("List registered callback routes for this assistant")
-        .addHelpText(
-          "after",
-          `
-Lists all callback routes registered with the platform for this assistant.
-Shows the route type, callback URL, and path for each registered webhook.
-
-Requires platform credentials (run 'assistant platform connect' first or
-ensure IS_PLATFORM and VELLUM_PLATFORM_URL are set and credentials are stored).
-
-Examples:
-  $ assistant platform callback-routes list
-  $ assistant platform callback-routes list --json`,
-        )
-        .action(async (_opts: Record<string, unknown>, cmd: Command) => {
+      subcommand(callbackRoutes, "list").action(
+        async (_opts: Record<string, unknown>, cmd: Command) => {
           const r = await cliIpcCall<{
             routes: Array<{
               id: string;
@@ -326,11 +298,12 @@ Examples:
               callback_url: string;
             }>;
           }>("platform_callback_routes_list", {});
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
 
           const routes = r.result!.routes;
 
@@ -349,7 +322,8 @@ Examples:
               }
             }
           }
-        });
+        },
+      );
     },
   });
 }

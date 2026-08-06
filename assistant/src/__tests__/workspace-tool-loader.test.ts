@@ -416,7 +416,11 @@ export default {
     removeToolFile("restore_me");
     await loadWorkspaceTools();
 
-    expect(getToolOwner("restore_me")).toBeUndefined();
+    // The stashed built-in is restored with its `default` owner.
+    expect(getToolOwner("restore_me")).toEqual({
+      kind: "default",
+      id: "default",
+    });
     expect(getTool("restore_me")).toEqual(core);
     expect(getCoreToolOverride("restore_me")).toBeUndefined();
   });

@@ -54,12 +54,24 @@ mock.module("@/assistant/lifecycle-service", () => ({
 const resetReconnectCursorMock = mock(() => {});
 mock.module("@/lib/streaming/reconnect-cursor", () => ({
   getReconnectCursor: () => null,
+  getAbandonedGenerationCeiling: () => null,
+  recordAbandonedGeneration: () => {},
+  getSeqGeneration: () => 0,
+  advanceSeqGeneration: () => {},
   advanceReconnectCursor: () => {},
   replaceReconnectCursor: () => {},
   resetReconnectCursor: resetReconnectCursorMock,
 }));
 
-const { sseService } = await import("@/assistant/sse-service");
+const { sseService, __setHiddenTeardownGraceMsForTesting } =
+  await import("@/assistant/sse-service");
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// A tiny grace window used by the debounce specs so a hidden-tab teardown
+// can be awaited in a few ms rather than the production 5s. Kept well
+// below the 1s resume dedup window so both can be exercised together.
+const TEST_HIDDEN_GRACE_MS = 20;
 
 // The real bus has the pub/sub semantics we need to exercise — no
 // reason to maintain a parallel mock. `__resetForTesting` gives
@@ -70,6 +82,11 @@ const publishSpy = spyOn(eventBus, "publish");
 
 beforeEach(() => {
   eventBus.__resetForTesting();
+  // Default to a grace window long enough that a hidden-tab teardown never
+  // fires during a synchronous test — otherwise a leaked timer would call
+  // the shared `cancelMock` during a later test. Debounce specs opt into a
+  // tiny window locally and await it.
+  __setHiddenTeardownGraceMsForTesting(10_000);
   activeOnEvent = null;
   activeOnError = null;
   activeOnReconnect = null;
@@ -121,8 +138,9 @@ describe("sseService.attach — connection lifecycle", () => {
     expect(publishSpy).toHaveBeenCalledWith("sse.event", envelope);
   });
 
-  test("publishes sse.opened with cause=fresh on first open", () => {
+  test("publishes sse.opened with cause=fresh once the stream establishes", () => {
     sseService.attach("asst-1");
+    activeOnStreamOpen!();
 
     expect(publishSpy).toHaveBeenCalledWith("sse.opened", {
       assistantId: "asst-1",
@@ -171,6 +189,44 @@ describe("sseService.attach — connection lifecycle", () => {
     });
   });
 
+  test("a superseded stream's late error does not disconnect the live one", async () => {
+    // GIVEN a connection that is bounced, so an older stream handle is still
+    // holding the callbacks it was created with
+    __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
+    sseService.attach("asst-1");
+    const supersededOnError = activeOnError!;
+    eventBus.publish("app.hidden", { signal: "visibility" });
+    await sleep(TEST_HIDDEN_GRACE_MS + 20);
+    eventBus.publish("app.resume", { signal: "visibility" });
+    activeOnStreamOpen!();
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
+    publishSpy.mockClear();
+
+    // WHEN the daemon closes the superseded connection, which arrives as an
+    // error on the OLD stream after its replacement is already live
+    supersededOnError(new Error("stream closed"));
+
+    // THEN the live stream keeps ownership. Acting on the stale signal would
+    // clear it, and the next trigger would open a connection that closes the
+    // live one in turn, which is the self-sustaining reconnect loop.
+    expect(useSSEConnectedStore.getState().isConnected).toBe(true);
+    const closedCalls = publishSpy.mock.calls.filter(
+      ([name]) => name === "sse.closed",
+    );
+    expect(closedCalls).toHaveLength(0);
+  });
+
+  test("does not publish sse.opened for an attempt that never establishes", () => {
+    // A connect that never opens has nothing for consumers to reconcile, and
+    // announcing it fans a refetch across every domain.
+    sseService.attach("asst-1");
+
+    const openedCalls = publishSpy.mock.calls.filter(
+      ([name]) => name === "sse.opened",
+    );
+    expect(openedCalls).toHaveLength(0);
+  });
+
   test("detach cancels the SSE", () => {
     const detach = sseService.attach("asst-1");
     expect(cancelMock).not.toHaveBeenCalled();
@@ -180,11 +236,14 @@ describe("sseService.attach — connection lifecycle", () => {
     expect(cancelMock).toHaveBeenCalledTimes(1);
   });
 
-  test("does not publish sse.closed for intentional teardowns (app.hidden, reachability retry)", () => {
+  test("does not publish sse.closed for intentional teardowns (app.hidden, reachability retry)", async () => {
+    __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
     sseService.attach("asst-1");
     publishSpy.mockClear();
 
     eventBus.publish("app.hidden", { signal: "visibility" });
+    // Let the debounced hidden teardown actually fire.
+    await sleep(TEST_HIDDEN_GRACE_MS + 20);
     eventBus.publish("reachability.retry-requested", {});
 
     const closedCalls = publishSpy.mock.calls.filter(
@@ -202,6 +261,7 @@ describe("sseService.attach — connection lifecycle", () => {
 
     // WHEN cold-start anchoring requests a re-anchor (cursor now seeded at S)
     eventBus.publish("sse.anchor-requested", {});
+    activeOnStreamOpen!();
 
     // THEN the cursor-less connection is torn down and reopened
     expect(cancelMock).toHaveBeenCalledTimes(1);
@@ -289,12 +349,17 @@ describe("sseService.attach — SSE-connected store wiring", () => {
     expect(useSSEConnectedStore.getState().isConnected).toBe(false);
   });
 
-  test("marks the store disconnected on a graceful teardown (app.hidden)", () => {
+  test("marks the store disconnected on a graceful teardown (app.hidden) after the grace window", async () => {
+    __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
     sseService.attach("asst-1");
     activeOnStreamOpen!();
     expect(useSSEConnectedStore.getState().isConnected).toBe(true);
 
     eventBus.publish("app.hidden", { signal: "visibility" });
+    // Debounced: still connected until the grace window elapses.
+    expect(useSSEConnectedStore.getState().isConnected).toBe(true);
+
+    await sleep(TEST_HIDDEN_GRACE_MS + 20);
     expect(useSSEConnectedStore.getState().isConnected).toBe(false);
   });
 
@@ -309,23 +374,57 @@ describe("sseService.attach — SSE-connected store wiring", () => {
 });
 
 describe("sseService.attach — visibility-driven bounce", () => {
-  test("tears down on app.hidden and reopens on app.resume after the dedup window", async () => {
+  test("does NOT tear down immediately on app.hidden — the teardown is debounced", async () => {
+    __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
     sseService.attach("asst-1");
     expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
 
     eventBus.publish("app.hidden", { signal: "visibility" });
+    // A brief tab-out must not kill the live socket synchronously.
+    expect(cancelMock).toHaveBeenCalledTimes(0);
+
+    // Only once the grace window elapses does the teardown fire.
+    await sleep(TEST_HIDDEN_GRACE_MS + 20);
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a resume inside the grace window keeps the live socket (no teardown, no reopen)", async () => {
+    // The core of the fix for the report: a quick tab-out-and-back must
+    // NOT churn the connection. The grace timer is cancelled on resume and
+    // the same stream keeps streaming — nothing is torn down or reopened.
+    __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
+    sseService.attach("asst-1");
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
+
+    eventBus.publish("app.hidden", { signal: "visibility" });
+    eventBus.publish("app.resume", { signal: "visibility" });
+
+    // Wait past the (now-cancelled) grace window to prove it never fires.
+    await sleep(TEST_HIDDEN_GRACE_MS + 20);
+    expect(cancelMock).toHaveBeenCalledTimes(0);
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("tears down after the grace window and reopens on app.resume", async () => {
+    __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
+    sseService.attach("asst-1");
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
+
+    eventBus.publish("app.hidden", { signal: "visibility" });
+    await sleep(TEST_HIDDEN_GRACE_MS + 20);
     expect(cancelMock).toHaveBeenCalledTimes(1);
 
-    await new Promise((resolve) => setTimeout(resolve, 1100));
     eventBus.publish("app.resume", { signal: "visibility" });
 
     expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
     expect(checkAssistantMock).toHaveBeenCalledTimes(1);
-  }, 5_000);
+  });
 
-  test("app.resume inside the dedup window does NOT reopen the SSE", () => {
+  test("app.resume inside the dedup window does NOT reopen the SSE", async () => {
+    __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
     sseService.attach("asst-1");
     eventBus.publish("app.hidden", { signal: "visibility" });
+    await sleep(TEST_HIDDEN_GRACE_MS + 20);
     expect(cancelMock).toHaveBeenCalledTimes(1);
 
     // Two rapid resumes inside the 1s dedup window — only the first
@@ -334,6 +433,34 @@ describe("sseService.attach — visibility-driven bounce", () => {
     eventBus.publish("app.resume", { signal: "app_state" });
 
     expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
+    expect(checkAssistantMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("app.resume inside the dedup window still reopens a torn-down SSE", async () => {
+    // Regression for the resume-dedup stranding bug: a hidden whose grace
+    // teardown fires between two resumes leaves `current === null`; the
+    // second (deduped) resume MUST still reopen rather than strand the
+    // connection torn-down until the next foreground — the frozen
+    // transcript the user could only clear with a refresh.
+    __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
+    sseService.attach("asst-1");
+
+    // First resume opens the dedup window (socket still live → no reopen).
+    eventBus.publish("app.resume", { signal: "visibility" });
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
+    expect(checkAssistantMock).toHaveBeenCalledTimes(1);
+
+    // Hidden → its grace teardown fires, tearing the socket down...
+    eventBus.publish("app.hidden", { signal: "visibility" });
+    await sleep(TEST_HIDDEN_GRACE_MS + 20);
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+
+    // ...then a second resume lands still inside the 1s dedup window.
+    eventBus.publish("app.resume", { signal: "app_state" });
+
+    // The torn-down socket is reopened despite the dedup window...
+    expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
+    // ...but the redundant daemon health check stays deduped.
     expect(checkAssistantMock).toHaveBeenCalledTimes(1);
   });
 
@@ -350,18 +477,20 @@ describe("sseService.attach — visibility-driven bounce", () => {
   });
 
   test("app.resume after app.hidden labels the reopen with cause='resume'", async () => {
+    __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
     sseService.attach("asst-1");
     publishSpy.mockClear();
 
     eventBus.publish("app.hidden", { signal: "visibility" });
-    await new Promise((resolve) => setTimeout(resolve, 1100));
+    await sleep(TEST_HIDDEN_GRACE_MS + 20);
     eventBus.publish("app.resume", { signal: "visibility" });
+    activeOnStreamOpen!();
 
     expect(publishSpy).toHaveBeenCalledWith("sse.opened", {
       assistantId: "asst-1",
       cause: "resume",
     });
-  }, 5_000);
+  });
 });
 
 describe("sseService.attach — power-driven bounce", () => {
@@ -399,28 +528,30 @@ describe("sseService.attach — power-driven bounce", () => {
   });
 
   test("power.resume reopens the SSE after teardown — same dedup window as app.resume", async () => {
+    __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
     sseService.attach("asst-1");
     eventBus.publish("app.hidden", { signal: "visibility" });
+    await sleep(TEST_HIDDEN_GRACE_MS + 20);
     expect(cancelMock).toHaveBeenCalledTimes(1);
 
-    await new Promise((resolve) => setTimeout(resolve, 1100));
     eventBus.publish("power.resume", {});
 
     expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
     expect(checkAssistantMock).toHaveBeenCalledTimes(1);
-  }, 5_000);
+  });
 
   test("power.unlock reopens the SSE after teardown", async () => {
+    __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
     sseService.attach("asst-1");
     eventBus.publish("app.hidden", { signal: "visibility" });
+    await sleep(TEST_HIDDEN_GRACE_MS + 20);
     expect(cancelMock).toHaveBeenCalledTimes(1);
 
-    await new Promise((resolve) => setTimeout(resolve, 1100));
     eventBus.publish("power.unlock", {});
 
     expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
     expect(checkAssistantMock).toHaveBeenCalledTimes(1);
-  }, 5_000);
+  });
 
   test("app.resume no-op (current non-null) does NOT suppress a follow-up power.resume bounce", () => {
     // Real-world trace: tray-resident Electron, system sleeps, wifi
@@ -449,9 +580,10 @@ describe("sseService.attach — power-driven bounce", () => {
     // One extra teardown + reopen, <100ms — acceptable cost for
     // closing the missed-bounce bug in the more common tray-resident
     // case.
+    __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
     sseService.attach("asst-1");
     eventBus.publish("app.hidden", { signal: "visibility" });
-    await new Promise((resolve) => setTimeout(resolve, 1100));
+    await sleep(TEST_HIDDEN_GRACE_MS + 20);
     eventBus.publish("app.resume", { signal: "visibility" });
     expect(subscribeEventsMock).toHaveBeenCalledTimes(2);
 
@@ -459,7 +591,7 @@ describe("sseService.attach — power-driven bounce", () => {
 
     expect(subscribeEventsMock).toHaveBeenCalledTimes(3);
     expect(cancelMock).toHaveBeenCalledTimes(2);
-  }, 5_000);
+  });
 
   test("power.suspend is a no-op when no SSE is open", () => {
     const detach = sseService.attach("asst-1");
@@ -488,6 +620,7 @@ describe("sseService.attach — reachability bounce", () => {
     publishSpy.mockClear();
 
     eventBus.publish("reachability.retry-requested", {});
+    activeOnStreamOpen!();
 
     expect(publishSpy).toHaveBeenCalledWith("sse.opened", {
       assistantId: "asst-1",
@@ -518,6 +651,7 @@ describe("sseService.attach — debug-driven reconnect", () => {
 
     // WHEN a debug reconnect is requested
     requestSseReconnect(0);
+    activeOnStreamOpen!();
 
     // THEN the reopen is labeled as a debug-triggered reconnect so
     // reconcile consumers (which only skip on "fresh") still fire

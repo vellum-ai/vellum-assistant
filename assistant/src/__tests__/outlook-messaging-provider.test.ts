@@ -473,12 +473,83 @@ describe("Outlook messaging provider", () => {
         conn,
         "original-msg-id",
         "Reply text",
+        undefined,
       );
       expect(mockSendMessage).not.toHaveBeenCalled();
       expect(result).toMatchObject({
         conversationId: "conv-id",
         threadId: "thread-123",
       });
+    });
+
+    test("attaches files to a new message as Graph file attachments", async () => {
+      const conn = createMockConnection();
+      await outlookMessagingProvider.sendMessage(
+        conn,
+        "recipient@example.com",
+        "See attached",
+        {
+          subject: "Docs",
+          attachments: [
+            {
+              filename: "report.pdf",
+              mimeType: "application/pdf",
+              data: Buffer.from("pdf-bytes"),
+            },
+          ],
+        },
+      );
+
+      expect(mockSendMessage).toHaveBeenCalledWith(conn, {
+        message: {
+          subject: "Docs",
+          body: { contentType: "text", content: "See attached" },
+          toRecipients: [
+            { emailAddress: { address: "recipient@example.com" } },
+          ],
+          attachments: [
+            {
+              "@odata.type": "#microsoft.graph.fileAttachment",
+              name: "report.pdf",
+              contentType: "application/pdf",
+              contentBytes: Buffer.from("pdf-bytes").toString("base64"),
+            },
+          ],
+        },
+      });
+    });
+
+    test("forwards attachments to replyToMessage when replying", async () => {
+      const conn = createMockConnection();
+      await outlookMessagingProvider.sendMessage(
+        conn,
+        "conv-id",
+        "Reply body",
+        {
+          inReplyTo: "original-msg-id",
+          attachments: [
+            {
+              filename: "report.pdf",
+              mimeType: "application/pdf",
+              data: Buffer.from("pdf-bytes"),
+            },
+          ],
+        },
+      );
+
+      expect(mockReplyToMessage).toHaveBeenCalledWith(
+        conn,
+        "original-msg-id",
+        "Reply body",
+        [
+          {
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            name: "report.pdf",
+            contentType: "application/pdf",
+            contentBytes: Buffer.from("pdf-bytes").toString("base64"),
+          },
+        ],
+      );
     });
 
     test("throws when connection is undefined", async () => {

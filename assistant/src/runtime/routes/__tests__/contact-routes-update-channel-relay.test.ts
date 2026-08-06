@@ -30,7 +30,9 @@ const ipcCallPersistentMock = mock(
     timeoutMs?: number,
   ) => {
     ipcCalls.push({ method, params, timeoutMs });
-    if (ipcError) throw ipcError;
+    if (ipcError) {
+      throw ipcError;
+    }
     return ipcResult;
   },
 );
@@ -57,9 +59,8 @@ mock.module("../../../contacts/contact-store.js", () => ({
   updateChannelStatus: contactStoreWriteGuard,
 }));
 
-const { handleUpdateContactChannelRoute, ROUTES } = await import(
-  "../contact-routes.js"
-);
+const { handleUpdateContactChannelRoute, ROUTES } =
+  await import("../contact-routes.js");
 
 describe("update contact channel relay", () => {
   beforeEach(() => {

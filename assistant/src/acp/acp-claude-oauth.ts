@@ -1,0 +1,144 @@
+/**
+ * Claude Code OAuth config + capture/store helpers for the "Connect Claude"
+ * ACP flow.
+ *
+ * This module owns the verified Claude OAuth endpoints/client and the pure
+ * helpers the daemon connect routes call: the loopback path builds an
+ * authorize URL against a localhost redirect, while the cloud paste path
+ * builds one against the manual redirect page and parses the `code#state`
+ * string the user copies back. Both converge on `storeAcpClaudeToken`, which
+ * writes the `acp/claude_oauth_token` vault field the ACP broker reads at
+ * spawn time and provisions the `acp_spawn` read policy.
+ */
+
+import { credentialKey } from "../security/credential-key.js";
+import type { OAuth2Config } from "../security/oauth2.js";
+import {
+  getSecureKeyAsync,
+  setSecureKeyAsync,
+} from "../security/secure-keys.js";
+import {
+  ACP_OAUTH_TOKEN_FIELD,
+  ACP_SERVICE,
+  classifyAnthropicToken,
+} from "./acp-credentials.js";
+import {
+  acpSpawnCanReadCredential,
+  grantAcpSpawnPolicy,
+} from "./prepare-agent-env.js";
+
+/**
+ * Verified Claude Code public OAuth client. PKCE-only (no client secret);
+ * the single `user:inference` scope is what the ACP adapter's
+ * `CLAUDE_CODE_OAUTH_TOKEN` requires.
+ */
+export const CLAUDE_OAUTH_CONFIG: OAuth2Config = {
+  authorizeUrl: "https://claude.ai/oauth/authorize",
+  tokenExchangeUrl: "https://platform.claude.com/v1/oauth/token",
+  clientId: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+  scopes: ["user:inference"],
+  scopeSeparator: " ",
+  // Anthropic's token endpoint diverges from the OAuth2 defaults: it expects a
+  // JSON body and validates the `state` echoed back at exchange (which is why
+  // the manual redirect renders a `code#state` pair). Without both, the exchange
+  // fails with HTTP 400.
+  tokenExchangeBodyFormat: "json",
+  sendStateInTokenExchange: true,
+};
+
+/**
+ * Manual redirect target for the cloud paste path: Claude renders the
+ * `code#state` string on this page for the user to copy back.
+ */
+export const CLAUDE_MANUAL_REDIRECT_URI =
+  "https://platform.claude.com/oauth/code/callback";
+
+/** Build the Claude authorize URL for a PKCE flow. */
+export function buildClaudeAuthorizeUrl(
+  redirectUri: string,
+  pkce: { codeChallenge: string; state: string },
+): string {
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: CLAUDE_OAUTH_CONFIG.clientId,
+    redirect_uri: redirectUri,
+    scope: CLAUDE_OAUTH_CONFIG.scopes.join(CLAUDE_OAUTH_CONFIG.scopeSeparator),
+    state: pkce.state,
+    code_challenge: pkce.codeChallenge,
+    code_challenge_method: "S256",
+  });
+  return `${CLAUDE_OAUTH_CONFIG.authorizeUrl}?${params.toString()}`;
+}
+
+/**
+ * Parse the `code#state` string the manual redirect page shows the user.
+ * Throws on malformed input (missing the `#` separator).
+ */
+export function parseManualClaudeCode(input: string): {
+  code: string;
+  state: string;
+} {
+  const hashIndex = input.indexOf("#");
+  if (hashIndex === -1) {
+    throw new Error(
+      "Malformed Claude authorization code: expected `code#state`.",
+    );
+  }
+  return {
+    code: input.slice(0, hashIndex),
+    state: input.slice(hashIndex + 1),
+  };
+}
+
+/**
+ * Store a captured Claude OAuth token in the `acp/claude_oauth_token` vault
+ * field and provision the `acp_spawn` read policy so the broker can inject it
+ * at spawn time. Throws when the backing store rejects the write.
+ */
+export async function storeAcpClaudeToken(token: string): Promise<void> {
+  const stored = await setSecureKeyAsync(
+    credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD),
+    token,
+  );
+  if (!stored) {
+    throw new Error("Failed to store Claude OAuth token in secure storage.");
+  }
+  // Force-grant acp_spawn (union) rather than merely ensure it: an explicit
+  // Connect is a deliberate opt-in to ACP, so this repairs a credential whose
+  // explicit allowedTools omitted acp_spawn — otherwise the broker keeps denying
+  // the spawn read and the Connect card dead-loops on every auto-continue.
+  grantAcpSpawnPolicy(
+    ACP_OAUTH_TOKEN_FIELD,
+    "Claude OAuth token for ACP agent authentication",
+  );
+}
+
+/**
+ * Whether a usable Claude OAuth token is present in the `acp/claude_oauth_token`
+ * vault field for this workspace. A read-only check — never returns the token
+ * value — used by the connect-status route so the web client can self-heal the
+ * inline Connect Claude affordance once the account is connected.
+ *
+ * A legacy vault entry may hold an Anthropic **API key** (`sk-ant-api…`) in this
+ * field — the footgun the write path now rejects for new writes. Such a value is
+ * treated as NOT connected: it 401s when injected as `CLAUDE_CODE_OAUTH_TOKEN` at
+ * spawn, so keeping Connect offered (rather than self-dismissing) lets the user
+ * repair the bad entry by connecting a real OAuth token.
+ *
+ * Likewise, a token the `acp_spawn` policy can't read (an explicit
+ * `allowedTools` that omits `acp_spawn`) is NOT connected: the vault holds a
+ * value but the spawn's broker read is denied, so self-dismissing the card would
+ * hide the only repair CTA while every spawn keeps failing. Keep the card up in
+ * that denied-policy case too.
+ */
+export async function hasAcpClaudeToken(): Promise<boolean> {
+  const token = await getSecureKeyAsync(
+    credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD),
+  );
+  return (
+    token != null &&
+    token.length > 0 &&
+    classifyAnthropicToken(token) !== "api_key" &&
+    acpSpawnCanReadCredential(ACP_OAUTH_TOKEN_FIELD)
+  );
+}

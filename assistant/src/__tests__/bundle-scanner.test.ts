@@ -12,7 +12,7 @@ import { scanBundle, type ScanFinding } from "../bundler/bundle-scanner.js";
 // ---------------------------------------------------------------------------
 
 const MINIMAL_MANIFEST = {
-  format_version: "1",
+  format_version: "2",
   name: "test-app",
   created_at: "2025-01-01T00:00:00Z",
   created_by: "test",
@@ -61,6 +61,32 @@ function findByCode(
 ): ScanFinding | undefined {
   return findings.find((f) => f.code === code);
 }
+
+// ---------------------------------------------------------------------------
+// Format version gate (block)
+// ---------------------------------------------------------------------------
+
+describe("format_version gate", () => {
+  test("blocks legacy format_version 1 bundles", async () => {
+    const path = await createBundle(
+      { "index.html": "<html><body>Hello</body></html>" },
+      { ...MINIMAL_MANIFEST, format_version: 1 },
+    );
+    const result = await scanBundle(path);
+    const f = findByCode(result.findings, "unsupported_format");
+    expect(f).toBeDefined();
+    expect(f!.level).toBe("block");
+    expect(result.passed).toBe(false);
+  });
+
+  test("passes format_version 2 bundles", async () => {
+    const path = await createBundle({
+      "index.html": "<html><body>Hello</body></html>",
+    });
+    const result = await scanBundle(path);
+    expect(findByCode(result.findings, "unsupported_format")).toBeUndefined();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // SVG <script> tags (block)

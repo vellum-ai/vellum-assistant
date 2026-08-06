@@ -2,10 +2,7 @@
  * Centralized error handling for runtime HTTP request dispatch.
  */
 
-import {
-  ConfigError,
-  ProviderNotConfiguredError,
-} from "../../util/errors.js";
+import { ConfigError, ProviderNotConfiguredError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 

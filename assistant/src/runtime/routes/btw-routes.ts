@@ -119,13 +119,20 @@ async function handleBtw({
     }
   }
 
-  // Look up an existing conversation or create an ephemeral one.
+  // Look up an existing conversation or create an ephemeral one. An unmapped
+  // key (e.g. "greeting") does not correspond to a real conversation, so the
+  // side-chain runs against an ephemeral in-memory conversation with no
+  // persisted row — keeping the "no messages are persisted" contract and off
+  // the sidebar. A mapped key targets a real conversation and reuses its row.
   const mapping = getConversationByKey(conversationKey);
   const conversationId = mapping?.conversationId ?? conversationKey;
 
   let conversation;
   try {
-    conversation = await getOrCreateConversation(conversationId);
+    conversation = await getOrCreateConversation(
+      conversationId,
+      mapping ? undefined : { ephemeral: true },
+    );
   } catch {
     throw new ServiceUnavailableError("Message processing is not available");
   }

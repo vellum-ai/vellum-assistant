@@ -3,6 +3,28 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "../../__tests__/helpers/set-config.js";
+
+// Seed the heartbeat config for real. Active hours are pinned null so the
+// scheduling guard is time-of-day independent; maxConsecutiveRuns defaults to
+// null (unlimited) here and individual tests re-seed it to exercise the cap.
+function seedHeartbeat(
+  overrides: {
+    maxConsecutiveRuns?: number | null;
+  } = {},
+): void {
+  setConfig("heartbeat", {
+    enabled: true,
+    intervalMs: 60_000,
+    activeHoursStart: null,
+    activeHoursEnd: null,
+    maxConsecutiveRuns: null,
+    maxDailyRuns: null,
+    disposition: "Default disposition text.",
+    ...overrides,
+  });
+}
+
 let workspaceDir: string;
 
 // Stub the in-process SSE hub so the writer's publish path is a
@@ -85,57 +107,7 @@ mock.module("../../util/platform.js", () => ({
   getProfilerRunsDir: () => join(workspaceDir ?? fallbackDir, "profiler/runs"),
   getProfilerRunDir: (runId: string) =>
     join(workspaceDir ?? fallbackDir, "profiler/runs", runId),
-  getSkillRuntimePath: () => join(workspaceDir ?? fallbackDir, "skill-runtime"),
-  getBundledBunPath: () => undefined,
   ensureDataDir: () => {},
-}));
-
-// Stub config so heartbeat is enabled. Must export every symbol from
-// the real module because Bun's mock.module replaces the entire module.
-// Tests that need to flex maxConsecutiveRuns mutate this in-place.
-const stubConfig: {
-  heartbeat: {
-    enabled: boolean;
-    intervalMs: number;
-    activeHoursStart: number | null;
-    activeHoursEnd: number | null;
-    maxConsecutiveRuns: number | null;
-    maxDailyRuns: number | null;
-    disposition: string;
-  };
-  timeouts: {
-    backgroundTurnTimeoutSec: number;
-  };
-} = {
-  heartbeat: {
-    enabled: true,
-    intervalMs: 60_000,
-    activeHoursStart: null,
-    activeHoursEnd: null,
-    maxConsecutiveRuns: null,
-    maxDailyRuns: null,
-    disposition: "Default disposition text.",
-  },
-  timeouts: {
-    backgroundTurnTimeoutSec: 1800,
-  },
-};
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => stubConfig,
-  getConfigReadOnly: () => stubConfig,
-  loadConfig: () => stubConfig,
-  saveConfig: () => {},
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  applyNestedDefaults: (c: unknown) => c,
-  deepMergeMissing: (a: unknown) => a,
-  deepMergeOverwrite: (a: unknown) => a,
-  mergeDefaultWorkspaceConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  API_KEY_PROVIDERS: [],
-  _writeQuarantineNotice: () => {},
 }));
 
 // Stub prompt helpers.
@@ -206,6 +178,7 @@ mock.module("../../credential-health/credential-health-service.js", () => ({
 // Stub the heartbeat-run-store so the tests don't need a populated SQLite
 // schema. Each function is a no-op that returns sensible defaults.
 let heartbeatRunIdCounter = 0;
+let lastRunAtFromHistory: number | null = null;
 const skipHeartbeatRunCalls: Array<{ runId: string; reason: string }> = [];
 mock.module("../heartbeat-run-store.js", () => ({
   insertPendingHeartbeatRun: () => `heartbeat-run-${++heartbeatRunIdCounter}`,
@@ -220,6 +193,7 @@ mock.module("../heartbeat-run-store.js", () => ({
   countCompletedHeartbeatRuns: () => 10,
   countCompletedRunsToday: () => 0,
   countRecentConsecutiveRuns: () => 0,
+  getLastHeartbeatRunAt: () => lastRunAtFromHistory,
 }));
 
 // Stub the pre-first-message gate so tests can flip it on/off without
@@ -228,6 +202,16 @@ mock.module("../heartbeat-run-store.js", () => ({
 let preFirstMessageGateOpen = true;
 mock.module("../../runtime/pre-first-message-gate.js", () => ({
   hasReceivedUserMessage: () => preFirstMessageGateOpen,
+}));
+
+// Stub the drain quiesce lease so tests can flip it without a database.
+// Defaults to INACTIVE so existing tests keep passing.
+const realLifecycleQuiesce =
+  await import("../../persistence/lifecycle-quiesce.js");
+let quiesceLeaseActive = false;
+mock.module("../../persistence/lifecycle-quiesce.js", () => ({
+  ...realLifecycleQuiesce,
+  isLifecycleQuiesced: () => quiesceLeaseActive,
 }));
 
 const { HeartbeatService } = await import("../heartbeat-service.js");
@@ -243,8 +227,9 @@ beforeEach(() => {
   onBroadcast = null;
   runBackgroundJobCalls.length = 0;
   skipHeartbeatRunCalls.length = 0;
+  lastRunAtFromHistory = null;
   preFirstMessageGateOpen = true;
-  stubConfig.heartbeat.maxConsecutiveRuns = null;
+  seedHeartbeat();
   runBackgroundJobImpl = async () => ({
     conversationId: STUB_CONVERSATION_ID,
     ok: true,
@@ -286,6 +271,24 @@ describe("HeartbeatService", () => {
     });
     expect(call.prompt).toContain("<heartbeat-checklist>");
     expect(call.prompt).toContain("<heartbeat-disposition>");
+  });
+
+  test("lastRunAt rehydrates from run history when unset in memory", async () => {
+    const historicalRunAt = Date.now() - 60 * 60 * 1000;
+    lastRunAtFromHistory = historicalRunAt;
+
+    const service = new HeartbeatService();
+    expect(service.lastRunAt).toBe(historicalRunAt);
+
+    // An in-process run takes over from the rehydrated value.
+    await service.runOnce({ force: true });
+    expect(service.lastRunAt).toBeGreaterThan(historicalRunAt);
+  });
+
+  test("lastRunAt is null when no run has ever executed", () => {
+    lastRunAtFromHistory = null;
+    const service = new HeartbeatService();
+    expect(service.lastRunAt).toBeNull();
   });
 
   test("fires onConversationCreated synchronously via the runner BEFORE the runner returns", async () => {
@@ -417,9 +420,45 @@ describe("HeartbeatService", () => {
     ).toBe(false);
   });
 
+  test("scheduled run skips with reason 'quiesced' while the drain lease is active", async () => {
+    quiesceLeaseActive = true;
+    const service = new HeartbeatService();
+    service.start();
+    skipHeartbeatRunCalls.length = 0;
+
+    try {
+      const result = await service.runOnce({ force: false });
+
+      expect(result).toBe(false);
+      expect(runBackgroundJobCalls).toHaveLength(0);
+      expect(skipHeartbeatRunCalls.some((c) => c.reason === "quiesced")).toBe(
+        true,
+      );
+    } finally {
+      await service.stop();
+      quiesceLeaseActive = false;
+    }
+  });
+
+  test("forced run bypasses the quiesce gate (manual operator action)", async () => {
+    quiesceLeaseActive = true;
+    const service = new HeartbeatService();
+
+    try {
+      await service.runOnce({ force: true });
+
+      expect(runBackgroundJobCalls).toHaveLength(1);
+      expect(skipHeartbeatRunCalls.some((c) => c.reason === "quiesced")).toBe(
+        false,
+      );
+    } finally {
+      quiesceLeaseActive = false;
+    }
+  });
+
   describe("max consecutive runs cap", () => {
     test("skips with reason 'max_consecutive_runs' after the cap is hit", async () => {
-      stubConfig.heartbeat.maxConsecutiveRuns = 2;
+      seedHeartbeat({ maxConsecutiveRuns: 2 });
       const service = new HeartbeatService();
 
       expect(await service.runOnce({ force: false })).toBe(true);
@@ -433,7 +472,7 @@ describe("HeartbeatService", () => {
     });
 
     test("resetTimer() clears the counter so auto runs resume", async () => {
-      stubConfig.heartbeat.maxConsecutiveRuns = 1;
+      seedHeartbeat({ maxConsecutiveRuns: 1 });
       const service = new HeartbeatService();
       service.start();
       try {
@@ -453,7 +492,7 @@ describe("HeartbeatService", () => {
       // zeroes the counter but the in-flight run's `finally` block used to
       // unconditionally `_consecutiveRuns++`, leaving the counter at 1 and
       // tripping the cap-at-1 path one auto run too early.
-      stubConfig.heartbeat.maxConsecutiveRuns = 1;
+      seedHeartbeat({ maxConsecutiveRuns: 1 });
 
       let releaseInflight: () => void = () => {};
       const inflight = new Promise<void>((resolve) => {
@@ -491,7 +530,7 @@ describe("HeartbeatService", () => {
     });
 
     test("null disables the cap entirely", async () => {
-      stubConfig.heartbeat.maxConsecutiveRuns = null;
+      seedHeartbeat({ maxConsecutiveRuns: null });
       const service = new HeartbeatService();
 
       for (let i = 0; i < 5; i++) {
@@ -504,7 +543,7 @@ describe("HeartbeatService", () => {
     });
 
     test("force runs bypass the cap and do not increment the counter", async () => {
-      stubConfig.heartbeat.maxConsecutiveRuns = 2;
+      seedHeartbeat({ maxConsecutiveRuns: 2 });
       const service = new HeartbeatService();
 
       // Five force runs would push us well past the cap if force counted.
@@ -522,7 +561,7 @@ describe("HeartbeatService", () => {
     });
 
     test("reconfigure() resets the counter", async () => {
-      stubConfig.heartbeat.maxConsecutiveRuns = 1;
+      seedHeartbeat({ maxConsecutiveRuns: 1 });
       const service = new HeartbeatService();
       service.start();
       try {

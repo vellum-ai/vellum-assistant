@@ -6,7 +6,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act, cleanup, fireEvent, render as rtlRender } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render as rtlRender,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
@@ -26,12 +31,10 @@ const exportNames = [...sdkSource.matchAll(/^export const (\w+)/gm)].map(
 const sdkMock = Object.fromEntries(exportNames.map((n) => [n, sdkStub]));
 mock.module("@/generated/daemon/sdk.gen", () => sdkMock);
 
-const { ToolDetailPanel } = await import(
-  "@/domains/chat/components/tool-detail-panel"
-);
-const { useChatSessionStore } = await import(
-  "@/domains/chat/chat-session-store"
-);
+const { ToolDetailPanel } =
+  await import("@/domains/chat/components/tool-detail-panel");
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
@@ -70,7 +73,9 @@ function seedHistory(messages: DisplayMessage[]) {
   useChatSessionStore.setState({ snapshot: snap(messages) });
 }
 
-function makeDetail(overrides: Partial<ToolDetailPayload> = {}): ToolDetailPayload {
+function makeDetail(
+  overrides: Partial<ToolDetailPayload> = {},
+): ToolDetailPayload {
   return {
     toolCallId: "tc-1",
     toolName: "subagent_spawn",
@@ -123,18 +128,61 @@ describe("ToolDetailPanel", () => {
     expect(text).toContain("Toronto is in Ontario, Canada.");
   });
 
-  test("omits the Technical details label and the risk-reason line", () => {
+  test("omits the Technical details label", () => {
     const { queryByText } = render(
+      <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
+    );
+
+    expect(queryByText("Technical details")).toBeNull();
+  });
+
+  test("renders the Risk Level section with the risk badge but not the raw reason", () => {
+    const { getByTestId, getByText, queryByText } = render(
       <ToolDetailPanel
         detail={makeDetail({ riskReason: "File edit (default)" })}
         onClose={noop}
       />,
     );
 
-    // The section label and the classifier's rule-match string are internal
-    // jargon — neither should render in the drawer body.
-    expect(queryByText("Technical details")).toBeNull();
+    expect(getByText("Risk Level")).toBeDefined();
+    expect(getByTestId("risk-badge").getAttribute("data-risk-level")).toBe(
+      "low",
+    );
+    // The tolerance description renders under the chip.
+    expect(
+      getByText("Auto-approved at Conservative tolerance or higher"),
+    ).toBeDefined();
+    // The classifier's rule-match string is internal jargon — never shown.
     expect(queryByText("File edit (default)")).toBeNull();
+    // The trust-rule affordance was removed from the drawer.
+    expect(queryByText("Create Trust Rule")).toBeNull();
+  });
+
+  test("hides the Risk Level section when the call has no risk level", () => {
+    const { queryByText, queryByTestId } = render(
+      <ToolDetailPanel
+        detail={makeDetail({ riskLevel: undefined })}
+        onClose={noop}
+      />,
+    );
+
+    expect(queryByText("Risk Level")).toBeNull();
+    expect(queryByTestId("risk-badge")).toBeNull();
+  });
+
+  test("does not render a Create Trust Rule button even when the call resolves live", () => {
+    seedHistory([
+      {
+        id: "m1",
+        role: "assistant",
+        toolCalls: [{ id: "tc-1", name: "subagent_spawn", riskLevel: "low" }],
+      } as DisplayMessage,
+    ]);
+    const { queryByText } = render(
+      <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
+    );
+
+    expect(queryByText("Create Trust Rule")).toBeNull();
   });
 
   test("hides the Output section when result is empty", () => {

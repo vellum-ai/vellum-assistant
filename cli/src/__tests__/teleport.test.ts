@@ -282,6 +282,17 @@ mock.module("../lib/local-runtime-client.js", () => ({
   localRuntimePreflightFromGcs: localRuntimePreflightFromGcsMock,
 }));
 
+// Snapshot the remaining real modules before mocking so `afterAll` can
+// restore them too — otherwise these mocks leak into sibling test files that
+// import the same modules in the same `bun test` run.
+const realHatchLocal = { ...(await import("../lib/hatch-local.js")) };
+const realDocker = { ...(await import("../lib/docker.js")) };
+const realProcess = { ...(await import("../lib/process.js")) };
+const realRetireLocal = { ...(await import("../lib/retire-local.js")) };
+const realUpgradeLifecycle = {
+  ...(await import("../lib/upgrade-lifecycle.js")),
+};
+
 const hatchLocalMock = mock(async () => {});
 
 mock.module("../lib/hatch-local.js", () => ({
@@ -350,6 +361,11 @@ afterAll(() => {
   mock.module("../lib/guardian-token.js", () => realGuardianToken);
   mock.module("../lib/platform-client.js", () => realPlatformClient);
   mock.module("../lib/local-runtime-client.js", () => realLocalRuntimeClient);
+  mock.module("../lib/hatch-local.js", () => realHatchLocal);
+  mock.module("../lib/docker.js", () => realDocker);
+  mock.module("../lib/process.js", () => realProcess);
+  mock.module("../lib/retire-local.js", () => realRetireLocal);
+  mock.module("../lib/upgrade-lifecycle.js", () => realUpgradeLifecycle);
   rmSync(testDir, { recursive: true, force: true });
   delete process.env.VELLUM_LOCKFILE_DIR;
 });

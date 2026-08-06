@@ -1,11 +1,4 @@
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook, screen } from "@testing-library/react";
 import { type ReactElement, type ReactNode } from "react";
 import { MemoryRouter, useLocation } from "react-router";
@@ -40,6 +33,7 @@ let selectionSnapshot: ReturnType<typeof useResolvedAssistantsStore.getState>;
 const openAppMock = mock((_appId: string) => undefined);
 const setLoadedAppMock = mock((_app: OpenedAppState) => undefined);
 const enterAppEditingMock = mock(() => undefined);
+const minimizeAppMock = mock(() => undefined);
 const setEditingConversationIdMock = mock((_id: string | null) => undefined);
 
 const APP: OpenedAppState = {
@@ -82,6 +76,7 @@ beforeEach(() => {
   openAppMock.mockReset();
   setLoadedAppMock.mockReset();
   enterAppEditingMock.mockReset();
+  minimizeAppMock.mockReset();
   setEditingConversationIdMock.mockReset();
   window.sessionStorage.clear();
 
@@ -95,6 +90,7 @@ beforeEach(() => {
     openApp: openAppMock,
     setLoadedApp: setLoadedAppMock,
     enterAppEditing: enterAppEditingMock,
+    minimizeApp: minimizeAppMock,
   });
   useConversationStore.setState({
     activeConversationId: null,
@@ -141,10 +137,12 @@ describe("useEditApp", () => {
     expect(setLoadedAppMock).toHaveBeenCalledWith(APP);
     expect(setEditingConversationIdMock).toHaveBeenCalledWith(CONV_ID);
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
+    // Desktop uses the split view, not the mobile minimized strip.
+    expect(minimizeAppMock).not.toHaveBeenCalled();
     expect(currentPath()).toBe(routes.conversation(CONV_ID));
   });
 
-  test("on a mobile viewport, binds the edit conversation and navigates but stays full-screen (no split)", () => {
+  test("on a mobile viewport, binds the edit conversation, navigates, and minimizes the app to the chat strip (no split)", () => {
     // GIVEN a phone-sized viewport where the chat+app split doesn't fit
     mobileRef.current = true;
     const { result } = renderHook(() => useEditApp(), { wrapper });
@@ -155,7 +153,10 @@ describe("useEditApp", () => {
     // THEN the edit conversation is still bound and we navigate to it...
     expect(setEditingConversationIdMock).toHaveBeenCalledWith(CONV_ID);
     expect(currentPath()).toBe(routes.conversation(CONV_ID));
-    // ...but the viewer is not upgraded to the split edit view
+    // ...the app is minimized so the chat is the primary surface (the strip
+    // shows "Open app", not a duplicate "Edit" over a full-screen app)...
+    expect(minimizeAppMock).toHaveBeenCalledTimes(1);
+    // ...and the viewer is not upgraded to the split edit view
     expect(enterAppEditingMock).not.toHaveBeenCalled();
   });
 

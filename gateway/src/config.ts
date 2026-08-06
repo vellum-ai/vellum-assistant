@@ -9,7 +9,6 @@ const log = getLogger("config");
 
 export type GatewayConfig = {
   assistantRuntimeBaseUrl: string;
-  defaultAssistantId: string | undefined;
   gatewayInternalBaseUrl: string;
   velayBaseUrl?: string;
   logFile: LogFileConfig;
@@ -20,6 +19,14 @@ export type GatewayConfig = {
     Record<string, number>;
   maxAttachmentConcurrency: number;
   maxWebhookPayloadBytes: number;
+  /**
+   * Body cap for the inbound email webhook (`/webhooks/email`). Email
+   * attachments arrive inlined as base64 in the payload, so this ceiling is
+   * much larger than {@link maxWebhookPayloadBytes} to fit the platform's
+   * per-file / per-message attachment cap. Optional — callers fall back to
+   * {@link maxWebhookPayloadBytes} when unset.
+   */
+  maxEmailWebhookPayloadBytes?: number;
   port: number;
   routingEntries: RoutingEntry[];
   runtimeInitialBackoffMs: number;
@@ -27,7 +34,6 @@ export type GatewayConfig = {
   runtimeProxyRequireAuth: boolean;
   runtimeTimeoutMs: number;
   shutdownDrainMs: number;
-  unmappedPolicy: "reject" | "default";
   /** When true, trust X-Forwarded-For for client IP resolution (set when behind a reverse proxy). */
   trustProxy: boolean;
 };
@@ -151,18 +157,6 @@ export function loadConfig(): GatewayConfig {
       ? process.env.GATEWAY_TRUST_PROXY === "true" ||
         process.env.GATEWAY_TRUST_PROXY === "1"
       : gw.trustProxy === true || gw.trustProxy === "true";
-  const unmappedPolicyEnv = process.env.UNMAPPED_POLICY?.trim();
-  const unmappedPolicy: "reject" | "default" =
-    unmappedPolicyEnv === "default" || unmappedPolicyEnv === "reject"
-      ? unmappedPolicyEnv
-      : gw.unmappedPolicy === "default"
-        ? "default"
-        : "reject";
-  const defaultAssistantId =
-    process.env.DEFAULT_ASSISTANT_ID?.trim() ||
-    (typeof gw.defaultAssistantId === "string" && gw.defaultAssistantId
-      ? gw.defaultAssistantId
-      : undefined);
   const runtimeTimeoutMs =
     parsePositiveInteger(
       process.env.RUNTIME_TIMEOUT_MS,
@@ -193,8 +187,6 @@ export function loadConfig(): GatewayConfig {
       assistantRuntimeBaseUrl,
       gatewayInternalBaseUrl,
       routingEntryCount: routingEntries.length,
-      unmappedPolicy,
-      hasDefaultAssistant: !!defaultAssistantId,
       hasVelayBaseUrl: !!velayBaseUrl,
       port,
       runtimeProxyRequireAuth,
@@ -206,7 +198,6 @@ export function loadConfig(): GatewayConfig {
 
   return {
     assistantRuntimeBaseUrl,
-    defaultAssistantId,
     gatewayInternalBaseUrl,
     velayBaseUrl,
     logFile,
@@ -215,10 +206,14 @@ export function loadConfig(): GatewayConfig {
       telegramOutbound: 50 * 1024 * 1024, // Telegram Bot API sendDocument (upload) limit
       slack: 100 * 1024 * 1024, // Slack standard plan
       whatsapp: 16 * 1024 * 1024, // WhatsApp Business API limit
+      email: 25 * 1024 * 1024, // Platform inbound-attachment per-file cap
       default: 100 * 1024 * 1024, // Fallback; capped by runtime MAX_UPLOAD_BYTES (100 MB)
     },
     maxAttachmentConcurrency: 3,
     maxWebhookPayloadBytes: 1024 * 1024,
+    // Fits the platform's inbound-attachment cap (25 MB/file × 10 files),
+    // expanded by base64 (~4/3) plus body/JSON overhead.
+    maxEmailWebhookPayloadBytes: 350 * 1024 * 1024,
     port,
     routingEntries,
     runtimeInitialBackoffMs: 500,
@@ -226,7 +221,6 @@ export function loadConfig(): GatewayConfig {
     runtimeProxyRequireAuth,
     runtimeTimeoutMs,
     shutdownDrainMs: 5000,
-    unmappedPolicy,
     trustProxy,
   };
 }

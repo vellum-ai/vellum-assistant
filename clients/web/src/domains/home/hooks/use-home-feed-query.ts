@@ -40,21 +40,25 @@ export function useHomeFeedQuery(assistantId: string | null) {
   // (passed via ref), not a cache dimension, so the key uses a fixed
   // placeholder to keep a single cache entry per assistant.
   const feedOpts = useMemo(
-    () => ({ path: { assistant_id: assistantId ?? "" }, query: { timeAwaySeconds: 0 } }),
+    () => ({
+      path: { assistant_id: assistantId ?? "" },
+      query: { timeAwaySeconds: 0 },
+    }),
     [assistantId],
   );
-  const feedQueryKey = useMemo(
-    () => homeFeedGetQueryKey(feedOpts),
-    [feedOpts],
-  );
+  const feedQueryKey = useMemo(() => homeFeedGetQueryKey(feedOpts), [feedOpts]);
 
   useBusSubscription("app.hidden", () => {
     hiddenAtRef.current = Date.now();
   });
 
   useBusSubscription("app.resume", ({ signal }) => {
-    if (signal === "online") return;
-    if (hiddenAtRef.current === null) return;
+    if (signal === "online") {
+      return;
+    }
+    if (hiddenAtRef.current === null) {
+      return;
+    }
     const elapsed = Math.round((Date.now() - hiddenAtRef.current) / 1000);
     timeAwaySecondsRef.current = elapsed;
     hiddenAtRef.current = null;
@@ -98,10 +102,13 @@ export function useHomeFeedQuery(assistantId: string | null) {
     onMutate: async ({ itemId, status }) => {
       await queryClient.cancelQueries({ queryKey: feedQueryKey });
 
-      const previous = queryClient.getQueryData<HomeFeedGetResponse>(feedQueryKey);
+      const previous =
+        queryClient.getQueryData<HomeFeedGetResponse>(feedQueryKey);
 
       homeFeedGetSetQueryData(queryClient, feedOpts, (old) => {
-        if (!old) return old;
+        if (!old) {
+          return old;
+        }
         return {
           ...old,
           items: old.items.map((item) =>
@@ -146,10 +153,13 @@ export function useHomeFeedQuery(assistantId: string | null) {
     onMutate: async ({ itemId }) => {
       await queryClient.cancelQueries({ queryKey: feedQueryKey });
 
-      const previous = queryClient.getQueryData<HomeFeedGetResponse>(feedQueryKey);
+      const previous =
+        queryClient.getQueryData<HomeFeedGetResponse>(feedQueryKey);
 
       homeFeedGetSetQueryData(queryClient, feedOpts, (old) => {
-        if (!old) return old;
+        if (!old) {
+          return old;
+        }
         return {
           ...old,
           items: old.items.map((item) =>
@@ -195,12 +205,15 @@ export function useHomeFeedQuery(assistantId: string | null) {
     onMutate: async ({ from, to, ids }) => {
       await queryClient.cancelQueries({ queryKey: feedQueryKey });
 
-      const previous = queryClient.getQueryData<HomeFeedGetResponse>(feedQueryKey);
+      const previous =
+        queryClient.getQueryData<HomeFeedGetResponse>(feedQueryKey);
 
       const fromSet = new Set<FeedItemStatus>(from);
       const idSet = ids ? new Set(ids) : null;
       homeFeedGetSetQueryData(queryClient, feedOpts, (old) => {
-        if (!old) return old;
+        if (!old) {
+          return old;
+        }
         const items = old.items.map((item) =>
           fromSet.has(item.status) &&
           item.status !== to &&
@@ -231,7 +244,9 @@ export function useHomeFeedQuery(assistantId: string | null) {
   });
 
   const invalidate = useCallback(() => {
-    if (!assistantId) return;
+    if (!assistantId) {
+      return;
+    }
     void queryClient.invalidateQueries({ queryKey: feedQueryKey });
   }, [assistantId, queryClient, feedQueryKey]);
 

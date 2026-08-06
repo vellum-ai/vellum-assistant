@@ -67,11 +67,17 @@ describe("computeCacheDiff", () => {
 
   test("identifies a changed system prompt and emits a line diff", () => {
     const previous = {
-      sections: [system("line one\nold line\nline three"), message("user", "hi")],
+      sections: [
+        system("line one\nold line\nline three"),
+        message("user", "hi"),
+      ],
       model: "claude",
     };
     const current = {
-      sections: [system("line one\nnew line\nline three"), message("user", "hi")],
+      sections: [
+        system("line one\nnew line\nline three"),
+        message("user", "hi"),
+      ],
       model: "claude",
     };
     const result = computeCacheDiff(current, previous);
@@ -103,7 +109,11 @@ describe("computeCacheDiff", () => {
 
   test("treats appended messages with an intact prefix as no bust", () => {
     const previous = {
-      sections: [system("a"), message("user", "one"), message("assistant", "two")],
+      sections: [
+        system("a"),
+        message("user", "one"),
+        message("assistant", "two"),
+      ],
       model: "claude",
     };
     const current = {
@@ -124,11 +134,19 @@ describe("computeCacheDiff", () => {
 
   test("detects a divergent message inside the cached prefix", () => {
     const previous = {
-      sections: [system("a"), message("user", "hello there"), message("assistant", "two")],
+      sections: [
+        system("a"),
+        message("user", "hello there"),
+        message("assistant", "two"),
+      ],
       model: "claude",
     };
     const current = {
-      sections: [system("a"), message("user", "hello world"), message("assistant", "two")],
+      sections: [
+        system("a"),
+        message("user", "hello world"),
+        message("assistant", "two"),
+      ],
       model: "claude",
     };
     const result = computeCacheDiff(current, previous);
@@ -158,11 +176,19 @@ describe("computeCacheDiff", () => {
 
   test("flags settings as a low-priority cause when nothing else changed", () => {
     const previous = {
-      sections: [system("a"), message("user", "hi"), settings({ temperature: 0 })],
+      sections: [
+        system("a"),
+        message("user", "hi"),
+        settings({ temperature: 0 }),
+      ],
       model: "claude",
     };
     const current = {
-      sections: [system("a"), message("user", "hi"), settings({ temperature: 1 })],
+      sections: [
+        system("a"),
+        message("user", "hi"),
+        settings({ temperature: 1 }),
+      ],
       model: "claude",
     };
     const result = computeCacheDiff(current, previous);

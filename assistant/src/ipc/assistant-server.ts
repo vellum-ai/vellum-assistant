@@ -31,7 +31,16 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 
-import { ensureSocketDir, SocketWatchdog } from "@vellumai/ipc-server-utils";
+import {
+  ensureSocketDir,
+  type IpcEnvelope,
+  IpcFrameReader,
+  SocketWatchdog,
+  writeLegacyMessage,
+  writeMessage,
+  writeStreamChunk,
+  writeStreamEnd,
+} from "@vellumai/ipc-server-utils";
 
 import {
   getDbMigrationReadiness,
@@ -47,17 +56,13 @@ import type {
 } from "../runtime/routes/types.js";
 import { RouteResponse } from "../runtime/routes/types.js";
 import { getLogger } from "../util/logger.js";
-import {
-  type IpcEnvelope,
-  IpcFrameReader,
-  writeLegacyMessage,
-  writeMessage,
-  writeStreamChunk,
-  writeStreamEnd,
-} from "./ipc-framing.js";
 import { CONTACTS_INFO_IPC_METHODS } from "./routes/contacts-info-ipc-routes.js";
 import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
+import { CONVERSATION_SYNC_IPC_METHODS } from "./routes/conversation-sync-ipc-routes.js";
 import { type DbProxyParams, handleDbProxy } from "./routes/db-proxy.js";
+import { DOCUMENTS_SYNC_IPC_METHODS } from "./routes/documents-sync-ipc-routes.js";
+import { EVENTS_IPC_METHODS } from "./routes/events-ipc-routes.js";
+import { GUARDIAN_LABEL_IPC_METHODS } from "./routes/guardian-label-ipc-routes.js";
 import { INVITE_IPC_METHODS } from "./routes/invite-ipc-routes.js";
 import { routeDefinitionsToIpcMethods } from "./routes/route-adapter.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
@@ -202,30 +207,21 @@ export class AssistantIpcServer {
       handleDbProxy(params as unknown as DbProxyParams),
     );
 
-    // IPC-only invite methods (see ipc/routes/invite-ipc-routes.ts). The
-    // gateway calls these back over IPC to mirror redeemed-invite contact
-    // info locally. No HTTP surface; never in ROUTES.
-    for (const [operationId, handler] of Object.entries(INVITE_IPC_METHODS)) {
-      this.methods.set(operationId, handler);
-    }
-
-    // IPC-only contact INFO-READ methods (see ipc/routes/contacts-info-ipc-routes.ts).
-    // The gateway calls these to read assistant-owned info fields + channel
-    // identity, replacing raw db_proxy SELECTs. No HTTP surface; never in ROUTES.
-    for (const [operationId, handler] of Object.entries(
+    // IPC-only method maps — gateway-facing and other-process transports (see
+    // each map's route file in ipc/routes/ for its contract). No HTTP surface;
+    // never in ROUTES.
+    for (const methodMap of [
+      INVITE_IPC_METHODS,
       CONTACTS_INFO_IPC_METHODS,
-    )) {
-      this.methods.set(operationId, handler);
-    }
-
-    // IPC-only contact identity-mirror methods (see
-    // ipc/routes/contacts-mirror-ipc-routes.ts). The gateway calls these back
-    // over IPC to mirror single-row contact/channel identity locally after a
-    // gateway-owned ACL write. No HTTP surface; never in ROUTES.
-    for (const [operationId, handler] of Object.entries(
       CONTACTS_MIRROR_IPC_METHODS,
-    )) {
-      this.methods.set(operationId, handler);
+      GUARDIAN_LABEL_IPC_METHODS,
+      CONVERSATION_SYNC_IPC_METHODS,
+      DOCUMENTS_SYNC_IPC_METHODS,
+      EVENTS_IPC_METHODS,
+    ]) {
+      for (const [operationId, handler] of Object.entries(methodMap)) {
+        this.methods.set(operationId, handler);
+      }
     }
 
     this.methods.set("$cancel", (params) => {
@@ -392,8 +388,6 @@ export class AssistantIpcServer {
       return;
     }
 
-    void binary;
-
     // Skip AbortController for the $cancel meta-method itself
     const needsAbortTracking = req.method !== "$cancel";
     let abortController: AbortController | undefined;
@@ -405,6 +399,11 @@ export class AssistantIpcServer {
     try {
       const handlerArgs = {
         ...injectLocalActorHeader(req.params),
+        // A binary frame on the request is the caller's raw body. Route
+        // handlers already model this as `rawBody` and pass it through
+        // untouched, so a caller that sends bytes gets them delivered as
+        // bytes rather than having them re-encoded as JSON.
+        ...(binary && { rawBody: binary }),
         ...(abortController && { abortSignal: abortController.signal }),
       };
       const result = handler(handlerArgs);
@@ -458,9 +457,13 @@ export class AssistantIpcServer {
     id: string,
   ): IpcResponse | null {
     // `$cancel` only aborts an in-flight request and never reads the DB.
-    if (method === "$cancel" || isDbMigrationGateBypassed(method)) return null;
+    if (method === "$cancel" || isDbMigrationGateBypassed(method)) {
+      return null;
+    }
     const readiness = getDbMigrationReadiness();
-    if (readiness.ready) return null;
+    if (readiness.ready) {
+      return null;
+    }
     return {
       id,
       error: `Database migrations ${readiness.state}; IPC method '${method}' is temporarily unavailable`,

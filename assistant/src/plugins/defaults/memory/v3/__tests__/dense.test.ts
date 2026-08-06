@@ -1,11 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
 import type { AssistantConfig } from "../../../../../config/types.js";
-
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 // Keep the real exports (e.g. getQdrantClient) so this partial mock is harmless
 // when section-dense-store's transitive imports pull them in; only
@@ -37,12 +32,16 @@ mock.module(
     isEmbeddingDimensionAvailable: async () => {
       // Models the availability probe rejecting — e.g. a transient
       // credential-store error surfacing through getProviderKeyAsync.
-      if (embedState.dimensionThrows) throw embedState.dimensionThrows;
+      if (embedState.dimensionThrows) {
+        throw embedState.dimensionThrows;
+      }
       return embedState.dimensionAvailable;
     },
     embedWithBackend: async (_config: unknown, inputs: string[]) => {
       embedState.calls.push(inputs);
-      if (embedState.throws) throw embedState.throws;
+      if (embedState.throws) {
+        throw embedState.throws;
+      }
       return {
         provider: "local",
         model: "test-model",
@@ -78,7 +77,9 @@ class MockQdrantClient {
       query: params.query,
       limit: params.limit,
     });
-    if (state.queryThrows) throw state.queryThrows;
+    if (state.queryThrows) {
+      throw state.queryThrows;
+    }
     return { points: state.points };
   }
 }

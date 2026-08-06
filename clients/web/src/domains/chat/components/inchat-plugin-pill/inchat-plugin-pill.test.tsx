@@ -137,7 +137,7 @@ describe("InChatPluginPill", () => {
     expect(screen.getByRole("button", { name: "Manage" })).toBeTruthy();
   });
 
-  test("Manage navigates to the plugins page", () => {
+  test("Manage navigates to the plugin-filtered superpowers page", () => {
     setEffective([{ name: "a", label: "Alpha", selected: true }]);
     renderPill();
 
@@ -145,7 +145,9 @@ describe("InChatPluginPill", () => {
     fireEvent.click(screen.getByRole("button", { name: "Manage" }));
 
     expect(navigateSpy).toHaveBeenCalledTimes(1);
-    expect(navigateSpy).toHaveBeenCalledWith(routes.plugins);
+    expect(navigateSpy).toHaveBeenCalledWith(
+      `${routes.superpowers}?filter=plugins`,
+    );
   });
 
   test("empty active set still shows header + Manage + caption, no rows", () => {

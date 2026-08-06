@@ -13,13 +13,13 @@ import {
   unpackBundle,
   type BundleScanData,
 } from "./bundle-manager";
-import { resolveRelativePath } from "./app-protocol";
+import { resolveRelativePath } from "@vellumai/electron-utils/app-protocol";
 
 let tmpDir: string;
 
 const makeScanData = (overrides?: Partial<BundleScanData>): BundleScanData => ({
   manifest: {
-    format_version: 1,
+    format_version: 2,
     name: "Test App",
     description: "A test bundle",
     icon: "🧪",

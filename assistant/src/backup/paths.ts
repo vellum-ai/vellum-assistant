@@ -4,7 +4,6 @@ import { dirname, isAbsolute, join } from "node:path";
 import { getBackupDirOverride } from "../config/env-registry.js";
 import type { BackupDestination } from "../config/schema.js";
 
-
 /**
  * Returns the backup root directory. Respects the `VELLUM_BACKUP_DIR`
  * environment variable override (used in containerized deployments where
@@ -173,12 +172,16 @@ const BACKUP_FILENAME_RE =
  */
 export function parseBackupTimestamp(filename: string): Date | null {
   const match = BACKUP_FILENAME_RE.exec(filename);
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
   const [, year, month, day, hour, minute, second, millis] = match;
   const ms = millis ?? "000";
   const iso = `${year}-${month}-${day}T${hour}:${minute}:${second}.${ms}Z`;
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return null;
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
   // `new Date()` silently normalizes out-of-range calendar values (e.g. Feb 31
   // → March 3). Verify round-trip so malformed filenames can't be accepted and
   // reordered in retention/restore flows.

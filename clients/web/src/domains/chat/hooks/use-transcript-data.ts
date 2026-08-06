@@ -30,10 +30,20 @@ export interface UseTranscriptDataParams {
   messages: DisplayMessage[];
   /** Whether the thinking indicator is active (from `useChatUIState`). */
   showThinking: boolean;
+  /** Whether the assistant is busy on an in-flight turn (from
+   *  `useChatUIState.isAssistantBusy`). Keeps the thinking slot mounted across
+   *  the whole turn so the indicator fades instead of reflowing the list. */
+  turnActive: boolean;
   /** Status label for the thinking indicator (from `useChatUIState`). */
   thinkingLabel: string | null;
   /** Whether the onboarding choice card should appear in the transcript. */
   showOnboardingChoice: boolean;
+  /**
+   * Whether the org's credit balance is exhausted (from the shared
+   * `useBillingBalanceStatus()` read in `chat-route-content`). Drives the
+   * projection's credits-upsell surfaces; see `BuildTranscriptItemsInput`.
+   */
+  creditsExhausted: boolean;
 }
 
 export interface TranscriptData {
@@ -48,8 +58,10 @@ export interface TranscriptData {
 export function useTranscriptData({
   messages,
   showThinking,
+  turnActive,
   thinkingLabel,
   showOnboardingChoice,
+  creditsExhausted,
 }: UseTranscriptDataParams): TranscriptData {
   // --- Store reads --------------------------------------------------------
   const ephemeralMetaResults = useChatSessionStore.use.ephemeralMetaResults();
@@ -96,23 +108,28 @@ export function useTranscriptData({
               requestId: pendingContactRequest.requestId,
               channel: pendingContactRequest.channel,
               placeholder: pendingContactRequest.placeholder,
+              defaultValue: pendingContactRequest.defaultValue,
               label: pendingContactRequest.label,
               description: pendingContactRequest.description,
               role: pendingContactRequest.role,
             }
           : null,
         isThinking: showThinking,
+        turnActive,
         thinkingLabel,
         ephemeralMetaResults,
         showOnboardingChoice,
+        creditsExhausted,
       }),
     [
+      creditsExhausted,
       sanitizedMessages,
       pendingSecret,
       pendingConfirmation,
       pendingConfirmationAttachedToToolCall,
       pendingContactRequest,
       showThinking,
+      turnActive,
       thinkingLabel,
       ephemeralMetaResults,
       showOnboardingChoice,

@@ -60,7 +60,9 @@ mock.module("@anthropic-ai/sdk", () => ({
             async finalMessage() {
               // Fire any pending stream events
               for (const ev of pendingStreamEvents) {
-                for (const cb of handlers["streamEvent"] ?? []) cb(ev);
+                for (const cb of handlers["streamEvent"] ?? []) {
+                  cb(ev);
+                }
               }
               return { ...fakeResponse, content: fakeResponseContent };
             },
@@ -73,27 +75,6 @@ mock.module("@anthropic-ai/sdk", () => ({
 
 // Mock daemon collaborators the handler module imports at load time so the
 // handler-level tests below can drive `server_tool_complete` in isolation.
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    skills: {
-      entries: {},
-      load: { extraDirs: [], watch: false, watchDebounceMs: 0 },
-      install: { nodeManager: "npm" },
-      allowBundled: null,
-      remoteProviders: {
-        skillssh: { enabled: true },
-        clawhub: { enabled: true },
-      },
-      remotePolicy: {
-        blockSuspicious: true,
-        blockMalware: true,
-        maxSkillsShRisk: "medium",
-      },
-    },
-  }),
-  loadConfig: () => ({}),
-}));
-
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,

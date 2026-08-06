@@ -2,11 +2,13 @@ import OpenAI from "openai";
 
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
-import { ProviderError } from "../../util/errors.js";
+import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
+import { PROMPT_CACHE_BREAKPOINT_MODEL_IDS } from "../model-catalog.js";
+import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import { createToolProgressEmitter } from "../tool-progress-events.js";
 import type {
@@ -24,6 +26,7 @@ import {
   normalizeOpenAIAPIError,
 } from "./api-error-normalization.js";
 import { detectOpenAICompatibleContextOverflow } from "./chat-completions-provider.js";
+import { serializeToolResult } from "./orphaned-tool-result.js";
 
 const log = getLogger("openai-responses");
 
@@ -36,6 +39,9 @@ export interface OpenAIResponsesProviderOptions {
   /** When true, target the Codex subscription endpoint and strip fields it
    *  rejects (`max_output_tokens`). */
   codexSubscription?: boolean;
+  /** Static HTTP headers sent with every request (e.g. OpenRouter app
+   *  attribution). Merged under any per-request attribution headers. */
+  requestHeaders?: Record<string, string>;
 }
 
 /** Map our internal effort values to the Responses API reasoning.effort parameter.
@@ -75,7 +81,9 @@ const VALID_VERBOSITIES = new Set<string>(["low", "medium", "high"]);
 export function mapNeutralToolChoiceForResponses(
   toolChoice: unknown,
 ): string | { type: "function"; name: string } | undefined {
-  if (toolChoice == null || typeof toolChoice !== "object") return undefined;
+  if (toolChoice == null || typeof toolChoice !== "object") {
+    return undefined;
+  }
   const tc = toolChoice as { type?: unknown; name?: unknown };
   switch (tc.type) {
     case "auto":
@@ -128,7 +136,11 @@ interface ResponsesStreamEvent {
       input_tokens?: number;
       output_tokens?: number;
       output_tokens_details?: { reasoning_tokens?: number };
-      input_tokens_details?: { cached_tokens?: number };
+      input_tokens_details?: {
+        cached_tokens?: number;
+        /** GPT-5.6+: prompt tokens written to the cache, billed at 1.25x input. */
+        cache_write_tokens?: number;
+      };
     };
   };
 }
@@ -139,6 +151,24 @@ const OPENAI_SUPPORTED_IMAGE_TYPES = new Set([
   "image/gif",
   "image/webp",
 ]);
+
+/** Content-part types that accept a `prompt_cache_breakpoint` marker. */
+const STAMPABLE_PART_TYPES = new Set([
+  "input_text",
+  "input_image",
+  "input_file",
+]);
+
+/** OpenAI considers up to the latest 50 breakpoints for cache reads; markers
+ *  beyond that budget are dead weight, so the marker ladder stops there. */
+const PROMPT_CACHE_MAX_BREAKPOINTS = 50;
+
+/** Minimal structural view of a Responses `input` message item. */
+interface ResponsesMessageItem {
+  type?: string;
+  role?: string;
+  content?: Array<Record<string, unknown>>;
+}
 
 /**
  * OpenAI Responses API transport.
@@ -155,6 +185,7 @@ export class OpenAIResponsesProvider implements Provider {
   private streamTimeoutMs: number;
   private useNativeWebSearch: boolean;
   private codexSubscription: boolean;
+  private readonly requestHeaders: Record<string, string>;
 
   constructor(
     apiKey: string,
@@ -164,6 +195,7 @@ export class OpenAIResponsesProvider implements Provider {
     this.name = options.providerName ?? "openai";
     this.providerLabel = options.providerLabel ?? "OpenAI";
     this.codexSubscription = options.codexSubscription ?? false;
+    this.requestHeaders = options.requestHeaders ?? {};
     this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
     // Keep the SDK deadline behind our provider stream timeout so
     // createStreamTimeout owns the user-facing timeout error.
@@ -199,12 +231,21 @@ export class OpenAIResponsesProvider implements Provider {
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
       | Record<string, string>
       | undefined;
+    const disableCache = configObj?.disableCache === true;
+    const disableTurnStartCache = configObj?.disableTurnStartCache === true;
+    const promptCacheKey =
+      typeof configObj?.promptCacheKey === "string" &&
+      configObj.promptCacheKey.length > 0
+        ? (configObj.promptCacheKey as string)
+        : undefined;
 
     try {
-      const input = this.toResponsesInput(messages);
+      const effectiveModel = modelOverride ?? this.model;
+      recordProviderRequestDiagnostics({ model_id: effectiveModel });
+      const input = await this.toResponsesInput(messages);
 
       const params: Record<string, unknown> = {
-        model: modelOverride ?? this.model,
+        model: effectiveModel,
         input,
         ...(this.codexSubscription ? { store: false } : {}),
       };
@@ -216,6 +257,39 @@ export class OpenAIResponsesProvider implements Provider {
         );
       }
 
+      // A per-conversation prompt-cache key gives OpenAI's cache router a
+      // stable affinity key so a conversation's requests land on the same
+      // cache shard. Every model on the direct API receives it — both
+      // breakpoint-capable models (which additionally opt into explicit mode
+      // below) and implicit-mode models, which carry no explicit breakpoints
+      // yet still gain prefix-cache routing affinity from a stable key. The
+      // Codex subscription endpoint rejects extra params, so it is skipped
+      // there.
+      if (!this.codexSubscription && promptCacheKey) {
+        params.prompt_cache_key = promptCacheKey;
+      }
+
+      // Explicit prompt-cache mode (GPT-5.6+ semantics, direct API only).
+      // Explicit mode disables the implicit latest-message breakpoint — under
+      // implicit mode a volatile latest user message makes every cached entry
+      // end at content that never recurs across turns: zero reads
+      // plus a full-prompt 1.25x write per turn. With explicit markers we
+      // choose the stable boundaries ourselves. Under `disableCache` we still
+      // send explicit mode but stamp no markers: a request with no explicit
+      // breakpoints neither uses the cache nor incurs cache-write charges,
+      // which is exactly the opt-out `disableCache` wants (omitting the param
+      // would re-enable implicit mode). The Codex subscription endpoint
+      // rejects extra params, so these params are skipped entirely there.
+      if (
+        !this.codexSubscription &&
+        PROMPT_CACHE_BREAKPOINT_MODEL_IDS.has(effectiveModel)
+      ) {
+        params.prompt_cache_options = { mode: "explicit" };
+        if (!disableCache) {
+          this.applyPromptCacheBreakpoints(input, { disableTurnStartCache });
+        }
+      }
+
       if (maxTokens && !this.codexSubscription) {
         params.max_output_tokens = maxTokens;
       }
@@ -224,7 +298,19 @@ export class OpenAIResponsesProvider implements Provider {
         ? EFFORT_TO_REASONING_EFFORT[effort]
         : undefined;
       if (reasoningEffort) {
-        params.reasoning = { effort: reasoningEffort };
+        // Request a human-readable reasoning summary whenever the model will
+        // reason — without it the Responses API emits no visible thinking at
+        // all. "auto" resolves to the richest level the model supports
+        // (older o-series models reject "concise"/"detailed"). The retry
+        // layer encodes the user's thinking toggle as `effort` for this
+        // provider, so `"none"` is the disabled state and gets no summary.
+        // The Codex subscription endpoint is param-sensitive (it already
+        // forces `store: false` and rejects `max_output_tokens`), so its
+        // wire shape is left untouched.
+        params.reasoning =
+          reasoningEffort === "none" || this.codexSubscription
+            ? { effort: reasoningEffort }
+            : { effort: reasoningEffort, summary: "auto" };
       }
 
       if (
@@ -283,11 +369,14 @@ export class OpenAIResponsesProvider implements Provider {
         }
       }
 
+      Object.assign(params, this.buildExtraCreateParams(options));
+
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
         createStreamTimeout(this.streamTimeoutMs, signal);
 
       // Accumulate the response from stream events
       let contentText = "";
+      let reasoningSummaryText = "";
       // Keyed by item_id (from the stream event) to support parallel tool calls.
       const toolCallMap = new Map<
         string,
@@ -304,6 +393,7 @@ export class OpenAIResponsesProvider implements Provider {
       let outputTokens = 0;
       let reasoningTokens = 0;
       let cachedInputTokens = 0;
+      let cacheWriteInputTokens = 0;
       let rawFinalResponse: unknown = undefined;
 
       try {
@@ -318,12 +408,16 @@ export class OpenAIResponsesProvider implements Provider {
             o?: { signal?: AbortSignal; headers?: Record<string, string> },
           ): Promise<AsyncIterable<ResponsesStreamEvent>>;
         };
+        const requestHeaders = {
+          ...this.requestHeaders,
+          ...(usageAttributionHeaders ?? {}),
+        };
         const stream = await responsesApi.create(
           { ...params, stream: true },
           {
             signal: timeoutSignal,
-            ...(usageAttributionHeaders
-              ? { headers: usageAttributionHeaders }
+            ...(Object.keys(requestHeaders).length > 0
+              ? { headers: requestHeaders }
               : {}),
           },
         );
@@ -336,6 +430,23 @@ export class OpenAIResponsesProvider implements Provider {
                 contentText += delta;
                 onEvent?.({ type: "text_delta", text: delta });
               }
+              break;
+            }
+
+            case "response.reasoning_summary_text.delta": {
+              const delta = event.delta;
+              if (delta) {
+                reasoningSummaryText += delta;
+                onEvent?.({ type: "thinking_delta", thinking: delta });
+              }
+              break;
+            }
+
+            case "response.reasoning_summary_part.done": {
+              // One summary part per reasoning section; separate them the way
+              // the dashboard renders summaries. The trailing separator after
+              // the final part is trimmed when the block is built.
+              reasoningSummaryText += "\n\n";
               break;
             }
 
@@ -397,7 +508,9 @@ export class OpenAIResponsesProvider implements Provider {
                 if (callId) {
                   const entry = toolCallMap.get(callId);
                   if (entry) {
-                    if (event.name) entry.name = event.name;
+                    if (event.name) {
+                      entry.name = event.name;
+                    }
                     entry.args = event.arguments;
                     toolProgress.emitInputJsonDelta(
                       entry.callId,
@@ -426,6 +539,9 @@ export class OpenAIResponsesProvider implements Provider {
                     response.usage.output_tokens_details?.reasoning_tokens ?? 0;
                   cachedInputTokens =
                     response.usage.input_tokens_details?.cached_tokens ?? 0;
+                  cacheWriteInputTokens =
+                    response.usage.input_tokens_details?.cache_write_tokens ??
+                    0;
                 }
                 finishReason =
                   response.incomplete_details?.reason ??
@@ -461,6 +577,18 @@ export class OpenAIResponsesProvider implements Provider {
       // weaves search results into the text output, so the result content is
       // an empty array — the actual results are in the text block that follows.
       const content: ContentBlock[] = [];
+      const summaryText = reasoningSummaryText.trim();
+      if (summaryText) {
+        // Empty signature: OpenAI reasoning summaries carry no verification
+        // signature (same shape the chat-completions transport produces for
+        // reasoning text). History replay drops thinking blocks on this
+        // transport, so nothing is echoed back to the API.
+        content.push({
+          type: "thinking",
+          thinking: summaryText,
+          signature: "",
+        });
+      }
       for (const toolUseId of webSearchCallIds) {
         content.push({
           type: "server_tool_use",
@@ -501,12 +629,16 @@ export class OpenAIResponsesProvider implements Provider {
       return {
         content,
         model: responseModel,
+        resolvedEndpoint: this.client.baseURL,
         usage: {
           inputTokens,
           outputTokens,
           ...(reasoningTokens > 0 ? { reasoningTokens } : {}),
           ...(cachedInputTokens > 0
             ? { cacheReadInputTokens: cachedInputTokens }
+            : {}),
+          ...(cacheWriteInputTokens > 0
+            ? { cacheCreationInputTokens: cacheWriteInputTokens }
             : {}),
         },
         stopReason,
@@ -556,18 +688,32 @@ export class OpenAIResponsesProvider implements Provider {
           apiErrorParam?: string;
           requestId?: string;
           rawBody?: string;
+          reason?: ProviderErrorReason;
         } = {};
-        if (retryAfterMs !== undefined)
+        if (retryAfterMs !== undefined) {
           errorOptions.retryAfterMs = retryAfterMs;
-        if (abortReason) errorOptions.abortReason = abortReason;
-        if (normalized.apiErrorCode)
+        }
+        if (abortReason) {
+          errorOptions.abortReason = abortReason;
+        }
+        if (normalized.apiErrorCode) {
           errorOptions.apiErrorCode = normalized.apiErrorCode;
-        if (normalized.apiErrorType)
+        }
+        if (normalized.apiErrorType) {
           errorOptions.apiErrorType = normalized.apiErrorType;
-        if (normalized.apiErrorParam)
+        }
+        if (normalized.apiErrorParam) {
           errorOptions.apiErrorParam = normalized.apiErrorParam;
-        if (normalized.requestId) errorOptions.requestId = normalized.requestId;
-        if (normalized.rawBody) errorOptions.rawBody = normalized.rawBody;
+        }
+        if (normalized.requestId) {
+          errorOptions.requestId = normalized.requestId;
+        }
+        if (normalized.rawBody) {
+          errorOptions.rawBody = normalized.rawBody;
+        }
+        if (normalized.reason) {
+          errorOptions.reason = normalized.reason;
+        }
         throw new ProviderError(
           formattedMessage,
           this.name,
@@ -587,29 +733,163 @@ export class OpenAIResponsesProvider implements Provider {
   }
 
   /**
+   * Extra request-body params merged into the create call after the standard
+   * params are assembled (subclass values win). Mirrors the chat-completions
+   * transport's hook of the same name; base implementation adds nothing.
+   */
+  protected buildExtraCreateParams(
+    _options?: SendMessageOptions,
+  ): Record<string, unknown> {
+    return {};
+  }
+
+  /**
    * Convert neutral messages to Responses API input items.
    *
    * System prompt is NOT included here — it goes into the `instructions` param.
    */
-  private toResponsesInput(messages: Message[]): unknown[] {
+  private async toResponsesInput(messages: Message[]): Promise<unknown[]> {
     // Swap any persisted attachment references back to inline base64 before
     // serializing, so the block transforms below can read `source.data`.
-    messages = resolveMediaReferences(messages);
+    messages = await resolveMediaReferences(messages);
     const result: unknown[] = [];
 
+    // `call_id`s emitted as `function_call` items earlier in this request.
+    // The API rejects a `function_call_output` whose `call_id` has no
+    // preceding `function_call`, so tool results are only serialized as
+    // outputs when their call was emitted first (backward matches only).
+    const emittedCallIds = new Set<string>();
     for (const msg of messages) {
       if (msg.role === "assistant") {
-        this.appendAssistantItems(result, msg);
+        this.appendAssistantItems(result, msg, emittedCallIds);
       } else {
-        this.appendUserItems(result, msg);
+        this.appendUserItems(result, msg, emittedCallIds);
       }
     }
 
     return result;
   }
 
-  /** Convert an assistant message's content blocks to Responses input items. */
-  private appendAssistantItems(result: unknown[], msg: Message): void {
+  /**
+   * Stamp explicit prompt-cache breakpoints onto the built Responses input
+   * items: the last stampable part of every user item that carries real text
+   * or ends in an image/file attachment, newest first, up to
+   * {@link PROMPT_CACHE_MAX_BREAKPOINTS}.
+   *
+   * Cache reads only consider markers present in the *current* request —
+   * boundaries written by earlier requests match only if re-marked here
+   * (verified empirically against gpt-5.6: a previously-written boundary
+   * left unmarked produces zero reads). Marking the full ladder of
+   * historical user-message boundaries makes the newest still-matching one
+   * the read point; in the volatile-latest-message flow that is typically
+   * the previous turn's user message once it re-renders without its
+   * injected block. Every markable item is marked, including a volatile
+   * latest user message that is the only one on a first turn: a volatile
+   * message is still fixed within its own turn, so marking it prepays one
+   * write that every in-turn tool-loop iteration reads back, and cross-turn
+   * the ladder re-marks whichever boundaries recur. The ladder is
+   * cost-safe: OpenAI writes at most the latest four unmatched marked
+   * boundaries per request and considers up to the latest 50 markers for
+   * reads. All breakpoints share the fixed 30m TTL (no `ttl` field is
+   * sent). Operates on the provider-local wire items only; the caller's
+   * Message[] objects are never touched.
+   *
+   * Placement constraints on this API: breakpoints attach only to
+   * input_text / input_image / input_file parts of user message items —
+   * function_call / function_call_output items cannot carry one, so during
+   * a pure tool loop the newest markable boundary stays at the most recent
+   * user item with parts (the loop delta is re-billed as plain input until
+   * a text-bearing user item appears).
+   *
+   * The system prompt rides the `instructions` request param and cannot
+   * carry a block marker, but it precedes `input` in the cached prefix, so
+   * every marked boundary covers instructions and tools implicitly. Any
+   * instructions/tools change invalidates all previously written prefixes
+   * (exact-prefix matching) — the same blast radius implicit mode has.
+   */
+  private applyPromptCacheBreakpoints(
+    input: unknown[],
+    opts: { disableTurnStartCache: boolean },
+  ): void {
+    const items = input as ResponsesMessageItem[];
+
+    // The item's final content part when it can carry a marker
+    // (STAMPABLE_PART_TYPES), else undefined. Selection and stamping both key
+    // off this, so the selector never nominates an item the stamper would skip.
+    const stampableLastPart = (
+      it: ResponsesMessageItem | undefined,
+    ): Record<string, unknown> | undefined => {
+      const content = it?.content;
+      if (!Array.isArray(content) || content.length === 0) {
+        return undefined;
+      }
+      const last = content[content.length - 1];
+      return last && STAMPABLE_PART_TYPES.has(last.type as string)
+        ? last
+        : undefined;
+    };
+
+    // A user item anchors when its trailing part is markable: a non-empty text
+    // part, or an image/file attachment. Attachment-only turns must anchor too,
+    // or an image-only turn drops off the ladder and the whole prefix before it
+    // re-bills every tool-loop iteration. Mirrors the Anthropic client's
+    // findUserTextMsgIdx.
+    const isMarkableUserItem = (
+      it: ResponsesMessageItem | undefined,
+    ): boolean => {
+      if (it?.type !== "message" || it.role !== "user") {
+        return false;
+      }
+      const last = stampableLastPart(it);
+      if (!last) {
+        return false;
+      }
+      return (
+        last.type !== "input_text" ||
+        (typeof last.text === "string" && last.text.length > 0)
+      );
+    };
+
+    const candidates: number[] = [];
+    for (
+      let i = items.length - 1;
+      i >= 0 && candidates.length < PROMPT_CACHE_MAX_BREAKPOINTS;
+      i--
+    ) {
+      if (isMarkableUserItem(items[i])) {
+        candidates.push(i);
+      }
+    }
+    if (candidates.length === 0) {
+      return;
+    }
+
+    for (const idx of candidates) {
+      // `disableTurnStartCache` suppresses the marker on the turn-start
+      // (newest user) item — one-shot call sites whose prompts never
+      // recur would otherwise pay a write with no future read. Older
+      // boundaries stay marked, matching the Anthropic client's semantics
+      // (its previous-turn anchor is not gated by this flag).
+      if (opts.disableTurnStartCache && idx === candidates[0]) {
+        continue;
+      }
+      const last = stampableLastPart(items[idx]);
+      if (last) {
+        last.prompt_cache_breakpoint = { mode: "explicit" };
+      }
+    }
+  }
+
+  /**
+   * Convert an assistant message's content blocks to Responses input items.
+   * Every `function_call` emitted is recorded in `emittedCallIds` so the
+   * user-item conversion can pair `tool_result` blocks against it.
+   */
+  private appendAssistantItems(
+    result: unknown[],
+    msg: Message,
+    emittedCallIds: Set<string>,
+  ): void {
     const textParts: string[] = [];
 
     for (const block of msg.content) {
@@ -633,6 +913,7 @@ export class OpenAIResponsesProvider implements Provider {
             name: block.name,
             arguments: JSON.stringify(block.input),
           });
+          emittedCallIds.add(block.id);
           break;
         case "server_tool_use":
           textParts.push(`[Web search: ${block.name}]`);
@@ -653,8 +934,18 @@ export class OpenAIResponsesProvider implements Provider {
     }
   }
 
-  /** Convert a user message's content blocks to Responses input items. */
-  private appendUserItems(result: unknown[], msg: Message): void {
+  /**
+   * Convert a user message's content blocks to Responses input items.
+   * A `tool_result` whose `tool_use_id` was not emitted as a `function_call`
+   * earlier in this request (`emittedCallIds`) is orphaned; the API rejects
+   * an unmatched `function_call_output`, so its content is degraded into the
+   * plain user message instead of dropped.
+   */
+  private appendUserItems(
+    result: unknown[],
+    msg: Message,
+    emittedCallIds: Set<string>,
+  ): void {
     // Separate tool results from other blocks
     const toolResults = msg.content.filter(
       (b): b is Extract<ContentBlock, { type: "tool_result" }> =>
@@ -669,31 +960,34 @@ export class OpenAIResponsesProvider implements Provider {
 
     // Emit tool results as function_call_output items
     const toolResultImages: ContentBlock[] = [];
+    const orphanedResultBlocks: ContentBlock[] = [];
     for (const tr of toolResults) {
-      let textContent = tr.content;
-      if (tr.contentBlocks && tr.contentBlocks.length > 0) {
-        const extraText = tr.contentBlocks
-          .filter(
-            (cb): cb is Extract<ContentBlock, { type: "text" }> =>
-              cb.type === "text",
-          )
-          .map((cb) => cb.text);
-        if (extraText.length > 0) {
-          textContent = textContent + "\n" + extraText.join("\n");
+      // This transport carries images only; the text payload and the orphan
+      // decision are the shared cross-transport rule.
+      for (const cb of tr.contentBlocks ?? []) {
+        if (cb.type === "image") {
+          toolResultImages.push(cb);
         }
-        for (const cb of tr.contentBlocks) {
-          if (cb.type === "image") toolResultImages.push(cb);
-        }
+      }
+      const serialized = serializeToolResult(tr, emittedCallIds);
+      if (serialized.kind === "orphaned") {
+        orphanedResultBlocks.push(serialized.block);
+        continue;
       }
       result.push({
         type: "function_call_output",
         call_id: tr.tool_use_id,
-        output: tr.is_error ? `[ERROR] ${textContent}` : textContent,
+        output: serialized.payload,
       });
     }
 
-    // Emit remaining content + any tool result images as a user message
-    const userContent = [...otherBlocks, ...toolResultImages];
+    // Emit remaining content, degraded orphaned results, and any tool result
+    // images as a user message
+    const userContent = [
+      ...otherBlocks,
+      ...orphanedResultBlocks,
+      ...toolResultImages,
+    ];
     if (userContent.length > 0) {
       result.push(this.toResponsesUserMessage(userContent));
     }

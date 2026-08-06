@@ -27,7 +27,7 @@ import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboardin
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 
 /** Where the centered avatar sits, as viewport fractions. */
-const CENTER_POINT = { x: 0.5, y: 0.4 };
+const CENTER_POINT = { x: 0.5, y: 0.43 };
 
 /**
  * Slight per-slot tilt (degrees) so the edge cast isn't all bolt-upright. Some
@@ -54,8 +54,12 @@ const DEPTH_Z = [10, 20];
 /** z-index for the centered avatar — above every edge plane. */
 const CENTER_Z = 50;
 
+/** Per-slot size tweak on top of the depth scale. Defaults to 1 (no change). */
+const SLOT_SIZE_MULTIPLIER: Record<number, number> = { 6: 1.1 };
+
 export function slotDepthScale(slot: number): number {
-  return DEPTH_SCALE[SLOT_DEPTH[slot] ?? 1] ?? 1;
+  const base = DEPTH_SCALE[SLOT_DEPTH[slot] ?? 1] ?? 1;
+  return base * (SLOT_SIZE_MULTIPLIER[slot] ?? 1);
 }
 export function slotDepthOpacity(slot: number): number {
   return DEPTH_OPACITY[SLOT_DEPTH[slot] ?? 1] ?? 1;
@@ -87,22 +91,26 @@ function centerSize(w: number, h: number): number {
  * the edge avatar's radius from the screen edge, so most of the avatar is cut
  * off — only the inner (eye-bearing) part shows.
  */
-export function edgeSlots(w: number, h: number, edgeRadius: number): { x: number; y: number }[] {
+export function edgeSlots(
+  w: number,
+  h: number,
+  edgeRadius: number,
+): { x: number; y: number }[] {
   const side = edgeRadius * 0.4; // ~60% of the avatar clipped off-screen
   const corner = edgeRadius * 0.48;
   // Order matches HARDCODED_POOL indices 1–11 (see onboarding-avatar-pool-store).
   return [
     { x: corner, y: corner }, // 0 top-left corner → purple blob
-    { x: w * 0.3, y: side }, // 1 top, left of center → orange star
-    { x: w * 0.72, y: side }, // 2 top, right of center → pink blob
+    { x: w * 0.3, y: side - h * 0.03 }, // 1 top, left of center → orange star
+    { x: w * 0.72, y: side - h * 0.1 }, // 2 top, right of center → pink blob
     { x: w - corner, y: corner }, // 3 top-right corner → yellow ninja
     { x: w - side, y: h * 0.72 }, // 4 right lower → pink urchin
     { x: w - corner, y: h - corner }, // 5 bottom-right corner → orange burst
     { x: corner, y: h - corner }, // 6 bottom-left corner → green ghost
     { x: side, y: h * 0.5 }, // 7 left mid → orange sprout
     { x: w - side, y: h * 0.3 }, // 8 right upper → teal star
-    { x: w * 0.38, y: h - side }, // 9 bottom, left of center → pink flower
-    { x: w * 0.62, y: h - side }, // 10 bottom, right of center → yellow cloud
+    { x: w * 0.28, y: h - side + h * 0.05 }, // 9 bottom, left of center → pink flower
+    { x: w * 0.77, y: h - side }, // 10 bottom, right of center → yellow cloud
   ];
 }
 
@@ -165,7 +173,8 @@ export function OnboardingCharacterStage({
   // bottom re-crowds). Those characters stay reachable via the arrows.
   const isMobile = w < 640;
   const MOBILE_HIDDEN_SLOTS = new Set([4, 7, 8, 9, 10]);
-  const slotHidden = (slot: number) => isMobile && MOBILE_HIDDEN_SLOTS.has(slot);
+  const slotHidden = (slot: number) =>
+    isMobile && MOBILE_HIDDEN_SLOTS.has(slot);
 
   // Every avatar renders in the large edge box; the center one is scaled down.
   const size = edgeSize(w, h);
@@ -224,20 +233,51 @@ export function OnboardingCharacterStage({
               style={{ width: size, height: size, zIndex: CENTER_Z }}
               initial={false}
               animate={{
-                x: [from.x - half, off.x - half, off.x - half, centerTx, centerTx, centerTx],
-                y: [from.y - half, off.y - half, off.y - half, centerTy, centerTy, centerTy],
-                scale: [fromScale, fromScale, fromScale, centerScaleVal * 0.7, centerScaleVal * 1.08, centerScaleVal],
+                x: [
+                  from.x - half,
+                  off.x - half,
+                  off.x - half,
+                  centerTx,
+                  centerTx,
+                  centerTx,
+                ],
+                y: [
+                  from.y - half,
+                  off.y - half,
+                  off.y - half,
+                  centerTy,
+                  centerTy,
+                  centerTy,
+                ],
+                scale: [
+                  fromScale,
+                  fromScale,
+                  fromScale,
+                  centerScaleVal * 0.7,
+                  centerScaleVal * 1.08,
+                  centerScaleVal,
+                ],
                 opacity: [fromOpacity, fromOpacity, 0, 0, 1, 1],
               }}
               transition={{
                 duration: 0.85,
                 times: [0, 0.28, 0.34, 0.42, 0.72, 1],
-                ease: ["easeIn", "linear", "linear", "easeOut", "easeOut"] as Easing[],
+                ease: [
+                  "easeIn",
+                  "linear",
+                  "linear",
+                  "easeOut",
+                  "easeOut",
+                ] as Easing[],
               }}
               onAnimationComplete={() => onEnterComplete(i)}
             >
               {/* Ends upright in the center. */}
-              <AnimatedAvatar components={components} traits={traits} size={size} />
+              <AnimatedAvatar
+                components={components}
+                traits={traits}
+                size={size}
+              />
             </motion.div>
           );
         }
@@ -247,7 +287,9 @@ export function OnboardingCharacterStage({
         // then flies in from the edge and bounces into its slot. If that slot is
         // hidden on mobile, skip it so it doesn't land in a dropped side slot.
         if (isExiting) {
-          if (slotHidden(exiting.toSlot)) return null;
+          if (slotHidden(exiting.toSlot)) {
+            return null;
+          }
           const to = slots[exiting.toSlot]!;
           const off = offscreenPoint(to, centerX, centerY, w, h);
           // Settle into the destination slot's depth (dim/shrunk if it's a
@@ -258,22 +300,57 @@ export function OnboardingCharacterStage({
             <motion.div
               key={i}
               className="absolute left-0 top-0"
-              style={{ width: size, height: size, zIndex: slotDepthZ(exiting.toSlot) }}
+              style={{
+                width: size,
+                height: size,
+                zIndex: slotDepthZ(exiting.toSlot),
+              }}
               initial={false}
               animate={{
-                x: [centerTx, centerTx, off.x - half, off.x - half, to.x - half, to.x - half],
-                y: [centerTy, centerTy, off.y - half, off.y - half, to.y - half, to.y - half],
-                scale: [centerScaleVal, centerScaleVal * 0.6, toScale, toScale, toScale * 1.1, toScale],
+                x: [
+                  centerTx,
+                  centerTx,
+                  off.x - half,
+                  off.x - half,
+                  to.x - half,
+                  to.x - half,
+                ],
+                y: [
+                  centerTy,
+                  centerTy,
+                  off.y - half,
+                  off.y - half,
+                  to.y - half,
+                  to.y - half,
+                ],
+                scale: [
+                  centerScaleVal,
+                  centerScaleVal * 0.6,
+                  toScale,
+                  toScale,
+                  toScale * 1.1,
+                  toScale,
+                ],
                 opacity: [1, 0, 0, toOpacity, toOpacity, toOpacity],
               }}
               transition={{
                 duration: 0.85,
                 times: [0, 0.28, 0.34, 0.45, 0.78, 1],
-                ease: ["easeIn", "linear", "linear", "easeOut", "easeOut"] as Easing[],
+                ease: [
+                  "easeIn",
+                  "linear",
+                  "linear",
+                  "easeOut",
+                  "easeOut",
+                ] as Easing[],
               }}
             >
               {/* Lands tilted in its destination slot. */}
-              <div style={{ transform: `rotate(${slotRotation(exiting.toSlot)}deg)` }}>
+              <div
+                style={{
+                  transform: `rotate(${slotRotation(exiting.toSlot)}deg)`,
+                }}
+              >
                 <AnimatedAvatar
                   components={components}
                   traits={traits}
@@ -287,10 +364,10 @@ export function OnboardingCharacterStage({
 
         const charSlot = slotOfChar.get(i) ?? 0;
         // Drop the side-slot characters on mobile (they're not the center).
-        if (!isCenter && slotHidden(charSlot)) return null;
-        const point = isCenter
-          ? { x: centerX, y: centerY }
-          : slots[charSlot]!;
+        if (!isCenter && slotHidden(charSlot)) {
+          return null;
+        }
+        const point = isCenter ? { x: centerX, y: centerY } : slots[charSlot]!;
         return (
           <motion.div
             key={i}

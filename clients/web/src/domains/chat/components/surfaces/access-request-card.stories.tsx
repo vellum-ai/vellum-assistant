@@ -36,7 +36,11 @@ function accessRequestSurface(
     title: "Access Request",
     data,
     actions: [
-      { id: `apr:${requestId}:approve_once`, label: "Approve", style: "primary" },
+      {
+        id: `apr:${requestId}:approve_once`,
+        label: "Approve",
+        style: "primary",
+      },
       { id: `apr:${requestId}:reject`, label: "Reject", style: "destructive" },
     ],
   };

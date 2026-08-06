@@ -11,6 +11,7 @@ import {
   publishCdpEvent,
 } from "../../browser-session/events.js";
 import { clearPinnedTabByTabId } from "../../tools/browser/pinned-tabs.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   enforceSameActorOrThrow,
@@ -137,6 +138,7 @@ export async function resolveHostBrowserResultByRequestId(
         targetActorPrincipalId: peeked.targetActorPrincipalId,
         targetClientId: peeked.targetClientId,
         op: "host_browser",
+        hubForMissingTarget: assistantEventHub,
       });
     } catch (err) {
       // enforceSameActorOrThrow throws ForbiddenError on rejection.
@@ -271,12 +273,15 @@ async function handleHostBrowserResult({ body, headers }: RouteHandlerArgs) {
     headers as Record<string, string | undefined> | undefined,
   );
   if (!resolution.ok) {
-    if (resolution.code === "FORBIDDEN")
+    if (resolution.code === "FORBIDDEN") {
       throw new ForbiddenError(resolution.message);
-    if (resolution.code === "NOT_FOUND")
+    }
+    if (resolution.code === "NOT_FOUND") {
       throw new NotFoundError(resolution.message);
-    if (resolution.code === "CONFLICT")
+    }
+    if (resolution.code === "CONFLICT") {
       throw new ConflictError(resolution.message);
+    }
     throw new BadRequestError(resolution.message);
   }
 

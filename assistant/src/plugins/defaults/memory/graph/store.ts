@@ -5,7 +5,10 @@
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../../../../persistence/db-connection.js";
+import {
+  type DrizzleDb,
+  getMemoryDb,
+} from "../../../../persistence/db-connection.js";
 import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
 import {
   memoryGraphEdges,
@@ -29,10 +32,29 @@ import type {
   SourceType,
 } from "./types.js";
 
+/**
+ * The memory graph cluster lives in the dedicated memory database
+ * (`assistant-memory.db`). This store is the hub for all graph reads and writes,
+ * including non-nullable-return writes and the `applyDiff` transaction, so it
+ * resolves a guaranteed connection and throws when the memory database cannot be
+ * opened — the same posture the main `getDb()` had before the relocation, rather
+ * than fabricating rows for an absent connection.
+ */
+function memoryDb(): DrizzleDb {
+  const db = getMemoryDb();
+  if (!db) {
+    throw new Error(
+      "memory database unavailable — memory graph store cannot proceed",
+    );
+  }
+  return db;
+}
+
 // ---------------------------------------------------------------------------
 // Row ↔ Domain conversion helpers
 // ---------------------------------------------------------------------------
 
+/** Project a `memory_graph_nodes` row onto its domain node. */
 function rowToNode(row: typeof memoryGraphNodes.$inferSelect): MemoryNode {
   return {
     id: row.id,
@@ -54,7 +76,6 @@ function rowToNode(row: typeof memoryGraphNodes.$inferSelect): MemoryNode {
     narrativeRole: row.narrativeRole,
     partOfStory: row.partOfStory,
     imageRefs: row.imageRefs ? (JSON.parse(row.imageRefs) as ImageRef[]) : null,
-    scopeId: row.scopeId,
   };
 }
 
@@ -79,7 +100,6 @@ function nodeToInsertValues(node: NewNode, id: string) {
     narrativeRole: node.narrativeRole,
     partOfStory: node.partOfStory,
     imageRefs: node.imageRefs ? JSON.stringify(node.imageRefs) : null,
-    scopeId: node.scopeId,
   };
 }
 
@@ -127,7 +147,9 @@ function rowToTrigger(
  * with `- ` are treated as bullet items and individually deduplicated.
  */
 export function deduplicateParagraphs(content: string): string {
-  if (!content) return content;
+  if (!content) {
+    return content;
+  }
 
   const paragraphs = content.split("\n\n");
   const seen = new Set<string>();
@@ -176,7 +198,7 @@ export function deduplicateParagraphs(content: string): string {
 // ---------------------------------------------------------------------------
 
 export function createNode(node: NewNode): MemoryNode {
-  const db = getDb();
+  const db = memoryDb();
   const id = uuid();
   const cleanContent = deduplicateParagraphs(node.content);
   db.insert(memoryGraphNodes)
@@ -186,7 +208,7 @@ export function createNode(node: NewNode): MemoryNode {
 }
 
 export function getNode(id: string): MemoryNode | null {
-  const db = getDb();
+  const db = memoryDb();
   const row = db
     .select()
     .from(memoryGraphNodes)
@@ -196,8 +218,10 @@ export function getNode(id: string): MemoryNode | null {
 }
 
 export function getNodesByIds(ids: string[]): MemoryNode[] {
-  if (ids.length === 0) return [];
-  const db = getDb();
+  if (ids.length === 0) {
+    return [];
+  }
+  const db = memoryDb();
   const rows = db
     .select()
     .from(memoryGraphNodes)
@@ -210,43 +234,69 @@ export function updateNode(
   id: string,
   changes: Partial<Omit<MemoryNode, "id">>,
 ): void {
-  const db = getDb();
+  const db = memoryDb();
   const updates: Record<string, unknown> = {};
 
-  if (changes.content !== undefined)
+  if (changes.content !== undefined) {
     updates.content = deduplicateParagraphs(changes.content);
-  if (changes.type !== undefined) updates.type = changes.type;
-  if (changes.created !== undefined) updates.created = changes.created;
-  if (changes.lastAccessed !== undefined)
+  }
+  if (changes.type !== undefined) {
+    updates.type = changes.type;
+  }
+  if (changes.created !== undefined) {
+    updates.created = changes.created;
+  }
+  if (changes.lastAccessed !== undefined) {
     updates.lastAccessed = changes.lastAccessed;
-  if (changes.lastConsolidated !== undefined)
+  }
+  if (changes.lastConsolidated !== undefined) {
     updates.lastConsolidated = changes.lastConsolidated;
-  if (changes.emotionalCharge !== undefined)
+  }
+  if (changes.emotionalCharge !== undefined) {
     updates.emotionalCharge = JSON.stringify(changes.emotionalCharge);
-  if (changes.fidelity !== undefined) updates.fidelity = changes.fidelity;
-  if (changes.confidence !== undefined) updates.confidence = changes.confidence;
-  if (changes.significance !== undefined)
+  }
+  if (changes.fidelity !== undefined) {
+    updates.fidelity = changes.fidelity;
+  }
+  if (changes.confidence !== undefined) {
+    updates.confidence = changes.confidence;
+  }
+  if (changes.significance !== undefined) {
     updates.significance = changes.significance;
-  if (changes.stability !== undefined) updates.stability = changes.stability;
-  if (changes.reinforcementCount !== undefined)
+  }
+  if (changes.stability !== undefined) {
+    updates.stability = changes.stability;
+  }
+  if (changes.reinforcementCount !== undefined) {
     updates.reinforcementCount = changes.reinforcementCount;
-  if (changes.lastReinforced !== undefined)
+  }
+  if (changes.lastReinforced !== undefined) {
     updates.lastReinforced = changes.lastReinforced;
-  if (changes.sourceConversations !== undefined)
+  }
+  if (changes.sourceConversations !== undefined) {
     updates.sourceConversations = JSON.stringify(changes.sourceConversations);
-  if (changes.sourceType !== undefined) updates.sourceType = changes.sourceType;
-  if (changes.narrativeRole !== undefined)
+  }
+  if (changes.sourceType !== undefined) {
+    updates.sourceType = changes.sourceType;
+  }
+  if (changes.narrativeRole !== undefined) {
     updates.narrativeRole = changes.narrativeRole;
-  if (changes.partOfStory !== undefined)
+  }
+  if (changes.partOfStory !== undefined) {
     updates.partOfStory = changes.partOfStory;
-  if (changes.imageRefs !== undefined)
+  }
+  if (changes.imageRefs !== undefined) {
     updates.imageRefs = changes.imageRefs
       ? JSON.stringify(changes.imageRefs)
       : null;
-  if (changes.scopeId !== undefined) updates.scopeId = changes.scopeId;
-  if (changes.eventDate !== undefined) updates.eventDate = changes.eventDate;
+  }
+  if (changes.eventDate !== undefined) {
+    updates.eventDate = changes.eventDate;
+  }
 
-  if (Object.keys(updates).length === 0) return;
+  if (Object.keys(updates).length === 0) {
+    return;
+  }
 
   db.update(memoryGraphNodes)
     .set(updates)
@@ -270,7 +320,7 @@ export function updateNode(
 }
 
 export function deleteNode(id: string): void {
-  const db = getDb();
+  const db = memoryDb();
   db.update(memoryGraphNodes)
     .set({ fidelity: "gone", lastAccessed: Date.now() })
     .where(eq(memoryGraphNodes.id, id))
@@ -286,7 +336,6 @@ export function deleteNode(id: string): void {
 // ---------------------------------------------------------------------------
 
 export interface NodeQueryFilters {
-  scopeId?: string;
   types?: MemoryType[];
   fidelityNot?: Fidelity[];
   minSignificance?: number;
@@ -299,12 +348,9 @@ export interface NodeQueryFilters {
 }
 
 export function queryNodes(filters: NodeQueryFilters): MemoryNode[] {
-  const db = getDb();
+  const db = memoryDb();
   const conditions = [];
 
-  if (filters.scopeId) {
-    conditions.push(eq(memoryGraphNodes.scopeId, filters.scopeId));
-  }
   if (filters.types && filters.types.length > 0) {
     conditions.push(inArray(memoryGraphNodes.type, filters.types));
   }
@@ -370,17 +416,13 @@ export function queryNodes(filters: NodeQueryFilters): MemoryNode[] {
  * whose embedding jobs haven't completed yet). The content-pattern filter
  * prevents organic procedural memories from crowding out real capabilities.
  */
-export function queryCapabilityNodes(
-  scopeId: string,
-  limit: number,
-): MemoryNode[] {
-  const db = getDb();
+export function queryCapabilityNodes(limit: number): MemoryNode[] {
+  const db = memoryDb();
   const rows = db
     .select()
     .from(memoryGraphNodes)
     .where(
       and(
-        eq(memoryGraphNodes.scopeId, scopeId),
         eq(memoryGraphNodes.type, "procedural"),
         sql`${memoryGraphNodes.fidelity} != 'gone'`,
         or(
@@ -399,18 +441,13 @@ export function queryCapabilityNodes(
   return rows.map(rowToNode);
 }
 
-/** Count all non-gone nodes in a scope. */
-export function countNodes(scopeId: string): number {
-  const db = getDb();
+/** Count all non-gone nodes in the workspace memory pool. */
+export function countNodes(): number {
+  const db = memoryDb();
   const result = db
     .select({ count: sql<number>`count(*)` })
     .from(memoryGraphNodes)
-    .where(
-      and(
-        eq(memoryGraphNodes.scopeId, scopeId),
-        sql`${memoryGraphNodes.fidelity} != 'gone'`,
-      ),
-    )
+    .where(sql`${memoryGraphNodes.fidelity} != 'gone'`)
     .get();
   return result?.count ?? 0;
 }
@@ -420,7 +457,7 @@ export function countNodes(scopeId: string): number {
 // ---------------------------------------------------------------------------
 
 export function createEdge(edge: NewEdge): MemoryEdge {
-  const db = getDb();
+  const db = memoryDb();
   const id = uuid();
   db.insert(memoryGraphEdges)
     .values({
@@ -436,7 +473,7 @@ export function createEdge(edge: NewEdge): MemoryEdge {
 }
 
 export function deleteEdge(id: string): void {
-  const db = getDb();
+  const db = memoryDb();
   db.delete(memoryGraphEdges).where(eq(memoryGraphEdges.id, id)).run();
 }
 
@@ -444,7 +481,7 @@ export function getEdgesForNode(
   nodeId: string,
   direction?: "incoming" | "outgoing",
 ): MemoryEdge[] {
-  const db = getDb();
+  const db = memoryDb();
   const dirCondition =
     direction === "outgoing"
       ? eq(memoryGraphEdges.sourceNodeId, nodeId)
@@ -475,7 +512,7 @@ export function getEdgesForNode(
 // ---------------------------------------------------------------------------
 
 export function createTrigger(trigger: NewTrigger): MemoryTrigger {
-  const db = getDb();
+  const db = memoryDb();
   const id = uuid();
   db.insert(memoryGraphTriggers)
     .values({
@@ -501,7 +538,7 @@ export function createTrigger(trigger: NewTrigger): MemoryTrigger {
 }
 
 export function deleteTrigger(id: string): void {
-  const db = getDb();
+  const db = memoryDb();
   db.delete(memoryGraphTriggers).where(eq(memoryGraphTriggers.id, id)).run();
 }
 
@@ -509,20 +546,32 @@ export function updateTrigger(
   id: string,
   updates: Partial<MemoryTrigger>,
 ): void {
-  const db = getDb();
+  const db = memoryDb();
   const values: Record<string, unknown> = {};
-  if (updates.consumed !== undefined) values.consumed = updates.consumed;
-  if (updates.lastFired !== undefined) values.lastFired = updates.lastFired;
-  if (updates.conditionEmbedding !== undefined)
+  if (updates.consumed !== undefined) {
+    values.consumed = updates.consumed;
+  }
+  if (updates.lastFired !== undefined) {
+    values.lastFired = updates.lastFired;
+  }
+  if (updates.conditionEmbedding !== undefined) {
     values.conditionEmbedding = updates.conditionEmbedding
       ? Buffer.from(updates.conditionEmbedding.buffer)
       : null;
-  if (updates.eventDate !== undefined) values.eventDate = updates.eventDate;
-  if (updates.rampDays !== undefined) values.rampDays = updates.rampDays;
-  if (updates.followUpDays !== undefined)
+  }
+  if (updates.eventDate !== undefined) {
+    values.eventDate = updates.eventDate;
+  }
+  if (updates.rampDays !== undefined) {
+    values.rampDays = updates.rampDays;
+  }
+  if (updates.followUpDays !== undefined) {
     values.followUpDays = updates.followUpDays;
+  }
 
-  if (Object.keys(values).length === 0) return;
+  if (Object.keys(values).length === 0) {
+    return;
+  }
   db.update(memoryGraphTriggers)
     .set(values)
     .where(eq(memoryGraphTriggers.id, id))
@@ -530,7 +579,7 @@ export function updateTrigger(
 }
 
 export function getTriggersForNode(nodeId: string): MemoryTrigger[] {
-  const db = getDb();
+  const db = memoryDb();
   return db
     .select()
     .from(memoryGraphTriggers)
@@ -541,36 +590,14 @@ export function getTriggersForNode(nodeId: string): MemoryTrigger[] {
 
 export function getActiveTriggersByType(
   type: MemoryTrigger["type"],
-  scopeId?: string,
 ): MemoryTrigger[] {
-  const db = getDb();
+  const db = memoryDb();
   const conditions = [
     eq(memoryGraphTriggers.type, type),
     eq(memoryGraphTriggers.consumed, false),
   ];
 
-  // Join to nodes table to filter by scope if needed
-  if (scopeId) {
-    const rows = db
-      .select({
-        trigger: memoryGraphTriggers,
-      })
-      .from(memoryGraphTriggers)
-      .innerJoin(
-        memoryGraphNodes,
-        eq(memoryGraphTriggers.nodeId, memoryGraphNodes.id),
-      )
-      .where(
-        and(
-          ...conditions,
-          eq(memoryGraphNodes.scopeId, scopeId),
-          sql`${memoryGraphNodes.fidelity} != 'gone'`,
-        ),
-      )
-      .all();
-    return rows.map((r) => rowToTrigger(r.trigger));
-  }
-
+  // Join to nodes table to exclude triggers whose node is soft-deleted.
   const rows = db
     .select({
       trigger: memoryGraphTriggers,
@@ -597,7 +624,7 @@ const REINFORCEMENT_STABILITY_MULTIPLIER = 1.5;
  * and optionally boosts significance back toward peak.
  */
 export function reinforceNode(id: string): void {
-  const db = getDb();
+  const db = memoryDb();
   const now = Date.now();
   db.update(memoryGraphNodes)
     .set({
@@ -665,7 +692,7 @@ export function applyDiff(
     source?: "extraction" | "consolidation" | "manual";
   },
 ): ApplyDiffResult {
-  const db = getDb();
+  const db = memoryDb();
   const result: ApplyDiffResult = {
     nodesCreated: 0,
     nodesUpdated: 0,
@@ -710,23 +737,45 @@ export function applyDiff(
     for (const update of diff.updateNodes) {
       const updates: Record<string, unknown> = {};
       const c = update.changes;
-      if (c.content !== undefined)
+      if (c.content !== undefined) {
         updates.content = deduplicateParagraphs(c.content as string);
-      if (c.type !== undefined) updates.type = c.type;
-      if (c.emotionalCharge !== undefined)
+      }
+      if (c.type !== undefined) {
+        updates.type = c.type;
+      }
+      if (c.emotionalCharge !== undefined) {
         updates.emotionalCharge = JSON.stringify(c.emotionalCharge);
-      if (c.fidelity !== undefined) updates.fidelity = c.fidelity;
-      if (c.confidence !== undefined) updates.confidence = c.confidence;
-      if (c.significance !== undefined) updates.significance = c.significance;
-      if (c.stability !== undefined) updates.stability = c.stability;
-      if (c.narrativeRole !== undefined)
+      }
+      if (c.fidelity !== undefined) {
+        updates.fidelity = c.fidelity;
+      }
+      if (c.confidence !== undefined) {
+        updates.confidence = c.confidence;
+      }
+      if (c.significance !== undefined) {
+        updates.significance = c.significance;
+      }
+      if (c.stability !== undefined) {
+        updates.stability = c.stability;
+      }
+      if (c.reinforcementCount !== undefined) {
+        updates.reinforcementCount = c.reinforcementCount;
+      }
+      if (c.narrativeRole !== undefined) {
         updates.narrativeRole = c.narrativeRole;
-      if (c.partOfStory !== undefined) updates.partOfStory = c.partOfStory;
-      if (c.imageRefs !== undefined)
+      }
+      if (c.partOfStory !== undefined) {
+        updates.partOfStory = c.partOfStory;
+      }
+      if (c.imageRefs !== undefined) {
         updates.imageRefs = c.imageRefs ? JSON.stringify(c.imageRefs) : null;
-      if (c.sourceConversations !== undefined)
+      }
+      if (c.sourceConversations !== undefined) {
         updates.sourceConversations = JSON.stringify(c.sourceConversations);
-      if (c.eventDate !== undefined) updates.eventDate = c.eventDate;
+      }
+      if (c.eventDate !== undefined) {
+        updates.eventDate = c.eventDate;
+      }
 
       // Record edit history when content changes
       if (updates.content !== undefined) {
@@ -886,7 +935,7 @@ export function recordNodeEdit(opts: {
   source: "extraction" | "consolidation" | "manual";
   conversationId?: string;
 }): void {
-  const db = getDb();
+  const db = memoryDb();
   db.insert(memoryGraphNodeEdits)
     .values({
       id: uuid(),
@@ -912,7 +961,7 @@ export function getNodeEditHistory(
   conversationId: string | null;
   created: number;
 }> {
-  const db = getDb();
+  const db = memoryDb();
   return db
     .select()
     .from(memoryGraphNodeEdits)
@@ -920,4 +969,123 @@ export function getNodeEditHistory(
     .orderBy(desc(memoryGraphNodeEdits.created))
     .limit(limit)
     .all();
+}
+
+// ---------------------------------------------------------------------------
+// Graph stats
+// ---------------------------------------------------------------------------
+
+/** Fidelity counts for active (non-gone) nodes. */
+export interface FidelityBreakdown {
+  vivid: number;
+  clear: number;
+  faded: number;
+  gist: number;
+}
+
+/** Aggregate health snapshot of the memory v2 graph. */
+export interface GraphStats {
+  /** Total active (non-gone) node count. */
+  total: number;
+  /** Node count by MemoryType. */
+  byType: Partial<Record<MemoryType, number>>;
+  /** Node count by fidelity, excluding gone. */
+  byFidelity: FidelityBreakdown;
+  /** Nodes with significance < 0.15 (at risk of decaying away). */
+  atRisk: number;
+  /** Live edge count — both endpoints are non-gone. */
+  edgeCount: number;
+  /** Epoch ms of the oldest active node, or null if the graph is empty. */
+  oldestCreated: number | null;
+  /** Epoch ms of the newest active node, or null if the graph is empty. */
+  newestCreated: number | null;
+  /** Epoch ms of the most recent reinforcement event, or null if none. */
+  lastReinforced: number | null;
+  /** Mean significance across all active nodes (0–1). */
+  avgSignificance: number;
+  /** Up to 5 highest-significance nodes (content, significance, fidelity, type). */
+  topNodes: Array<{
+    content: string;
+    significance: number;
+    fidelity: string;
+    type: string;
+  }>;
+}
+
+/**
+ * Compute a health snapshot of the memory v2 graph in two queries:
+ *   1. A full scan of active nodes (significance DESC) to derive all
+ *      per-node aggregates in one JS pass.
+ *   2. A SQL COUNT of live edges (both endpoints non-gone).
+ *
+ * Callers that only need the summary number can use `countNodes()` instead.
+ */
+export function computeGraphStats(): GraphStats {
+  // Full scan — significance DESC so topNodes is just the first slice.
+  const nodes = queryNodes({ fidelityNot: ["gone"] });
+
+  const byType: Partial<Record<MemoryType, number>> = {};
+  const byFidelity: FidelityBreakdown = {
+    vivid: 0,
+    clear: 0,
+    faded: 0,
+    gist: 0,
+  };
+  let atRisk = 0;
+  let sigSum = 0;
+  let oldestCreated: number | null = null;
+  let newestCreated: number | null = null;
+  let lastReinforced: number | null = null;
+
+  for (const n of nodes) {
+    byType[n.type] = (byType[n.type] ?? 0) + 1;
+    if (n.fidelity !== "gone") {
+      byFidelity[n.fidelity as keyof FidelityBreakdown] += 1;
+    }
+    if (n.significance < 0.15) {
+      atRisk++;
+    }
+    sigSum += n.significance;
+    if (oldestCreated === null || n.created < oldestCreated) {
+      oldestCreated = n.created;
+    }
+    if (newestCreated === null || n.created > newestCreated) {
+      newestCreated = n.created;
+    }
+    if (lastReinforced === null || n.lastReinforced > lastReinforced) {
+      lastReinforced = n.lastReinforced;
+    }
+  }
+
+  // Live edge count: both endpoints must be non-gone.
+  const db = memoryDb();
+  const edgeResult = db
+    .select({ count: sql<number>`count(*)` })
+    .from(memoryGraphEdges)
+    .where(
+      and(
+        sql`NOT EXISTS (SELECT 1 FROM ${memoryGraphNodes} WHERE ${memoryGraphNodes.id} = ${memoryGraphEdges.sourceNodeId} AND ${memoryGraphNodes.fidelity} = 'gone')`,
+        sql`NOT EXISTS (SELECT 1 FROM ${memoryGraphNodes} WHERE ${memoryGraphNodes.id} = ${memoryGraphEdges.targetNodeId} AND ${memoryGraphNodes.fidelity} = 'gone')`,
+      ),
+    )
+    .get();
+
+  return {
+    total: nodes.length,
+    byType,
+    byFidelity,
+    atRisk,
+    edgeCount: edgeResult?.count ?? 0,
+    oldestCreated,
+    newestCreated,
+    lastReinforced,
+    avgSignificance: nodes.length > 0 ? sigSum / nodes.length : 0,
+    // nodes is already sorted significance DESC — slice gives the top N.
+    topNodes: nodes.slice(0, 5).map((n) => ({
+      content: n.content,
+      significance: n.significance,
+      fidelity: n.fidelity,
+      type: n.type,
+    })),
+  };
 }

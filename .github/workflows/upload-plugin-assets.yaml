@@ -1,0 +1,57 @@
+# Uploads vendored marketplace plugin icons to GCS. See docs/plugin-icon-contract.md.
+# Bytes are pre-vendored + CI-checked (no fetch/re-validation here).
+# External prereq (vellum-assistant-platform Terraform): the per-env GCS bucket,
+# WIF binding, and GCS_PLUGIN_ASSETS_BUCKET var. Until that lands the job skips cleanly.
+name: Upload Plugin Assets to GCS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "plugins/assets/**"
+  workflow_dispatch:
+
+jobs:
+  upload:
+    name: Upload plugin assets (${{ matrix.environment }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, staging, production]
+    environment: ${{ matrix.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Skip when bucket not configured
+        if: ${{ vars.GCS_PLUGIN_ASSETS_BUCKET == '' }}
+        run: echo "GCS_PLUGIN_ASSETS_BUCKET is unset — skipping (bucket not provisioned yet)."
+
+      - name: Checkout
+        if: ${{ vars.GCS_PLUGIN_ASSETS_BUCKET != '' }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Authenticate to GCP
+        if: ${{ vars.GCS_PLUGIN_ASSETS_BUCKET != '' }}
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Upload plugin icons to GCS
+        if: ${{ vars.GCS_PLUGIN_ASSETS_BUCKET != '' }}
+        env:
+          BUCKET: ${{ vars.GCS_PLUGIN_ASSETS_BUCKET }}
+        run: |
+          set -euo pipefail
+          uploaded=0
+          for icon in plugins/assets/*/icon.png; do
+            [ -f "$icon" ] || continue
+            name=$(echo "$icon" | cut -d/ -f3)
+            gcloud storage cp \
+              --cache-control="public, max-age=86400" \
+              "$icon" "gs://${BUCKET}/${name}/icon.png"
+            uploaded=$((uploaded + 1))
+          done
+          echo "Uploaded ${uploaded} plugin icon(s) to gs://${BUCKET}/"

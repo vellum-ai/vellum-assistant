@@ -14,7 +14,10 @@
 
 import { create } from "zustand";
 
-import type { ChatEntry, NewChatEntry } from "@/domains/settings/components/panels/doctor-history";
+import type {
+  ChatEntry,
+  NewChatEntry,
+} from "@/domains/settings/components/panels/doctor-history";
 import { createSelectors } from "@/utils/create-selectors";
 
 // ---------------------------------------------------------------------------
@@ -96,7 +99,10 @@ export interface DoctorPanelActions {
     v: { pendingApproval: boolean; pendingBackup: boolean } | null,
   ) => void;
   resetReplayState: () => void;
-  seedReplayState: (sourceEventIds: string[], latestSourceEventId: string | null) => void;
+  seedReplayState: (
+    sourceEventIds: string[],
+    latestSourceEventId: string | null,
+  ) => void;
   recordReplayableSourceEventId: (sourceEventId: string) => boolean;
 }
 
@@ -111,6 +117,7 @@ export type DoctorPanelStore = DoctorPanelState & DoctorPanelActions;
 // ---------------------------------------------------------------------------
 
 export interface DoctorPanelContext {
+  getEntries: () => ChatEntry[];
   updateEntries: (updater: (entries: ChatEntry[]) => ChatEntry[]) => void;
   setThinking: (v: boolean) => void;
   setPendingApproval: (v: boolean) => void;
@@ -153,7 +160,10 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
   appendEntry: (entry) => {
     const id = get().nextId();
     set((s) => ({
-      entries: [...s.entries, { ...entry, id, timestamp: Date.now() } as ChatEntry],
+      entries: [
+        ...s.entries,
+        { ...entry, id, timestamp: Date.now() } as ChatEntry,
+      ],
     }));
   },
 

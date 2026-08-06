@@ -2,6 +2,7 @@ import { config as dotenvConfig } from "dotenv";
 
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { TwilioVoiceProvider } from "../calls/twilio-provider.js";
+import { expireInteractionBoundGuardianRequests } from "../channels/gateway-guardian-requests.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { setIngressPublicBaseUrl, validateEnv } from "../config/env.js";
 import {
@@ -11,7 +12,6 @@ import {
 } from "../config/loader.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
-import { expireAllPendingCanonicalRequests } from "../contacts/canonical-guardian-store.js";
 import { startCes } from "../credential-execution/ces-runtime.js";
 import { refreshManagedConnectionCache } from "../credential-execution/managed-catalog.js";
 import { startHeartbeatService } from "../heartbeat/heartbeat-service.js";
@@ -19,18 +19,24 @@ import { backfillRelationshipStateIfMissing } from "../home/relationship-state-w
 import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { startMonitoring } from "../monitoring/control.js";
+import { recordDaemonBootTime } from "../monitoring/daemon-boot-time.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
-import { clearStaleProcessingFlags } from "../persistence/conversation-crud.js";
+import { getMaxPersistedConversationSeq } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-backend.js";
 import { maybeEnqueueLexicalBackfillOnUpgrade } from "../persistence/job-handlers/message-lexical-backfill.js";
+import { clearLifecycleQuiesce } from "../persistence/lifecycle-quiesce.js";
+import { isPlatformClientConfigured } from "../platform/client.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
+import { repairSharedCredentialSlots } from "../providers/inference/credential-slot-repair.js";
 import { initializeProviders } from "../providers/registry.js";
+import { startRouteHost } from "../routes/control.js";
+import { floorSeqAbove } from "../runtime/assistant-stream-state.js";
 import {
   initAuthSigningKey,
   resolveSigningKey,
@@ -41,12 +47,13 @@ import {
 } from "../runtime/http-server.js";
 import { warmLocalGuardianPrincipalCache } from "../runtime/local-actor-identity.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
+import { markCurrentProcessAsMainDaemon } from "../runtime/process-role.js";
 import { publishConfigChanged } from "../runtime/sync/resource-sync-events.js";
+import { reconcilePluginSchedules } from "../schedule/plugin-schedule-reconciler.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { startUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
-import { syncFlagGatedTools } from "../tools/registry.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
@@ -54,12 +61,9 @@ import {
   getWorkspaceDir,
 } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
-import {
-  listWorkItems,
-  updateWorkItem,
-} from "../work-items/work-item-store.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
+import { ensureByokDefaultProfiles } from "../workspace/byok-default-profile-ensure.js";
 import { ensureCompleteCustomProfiles } from "../workspace/custom-profile-ensure.js";
 import { ensureDefaultProvider } from "../workspace/default-provider-ensure.js";
 import { startWorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
@@ -79,7 +83,13 @@ import { startDiskPressureGuardForLifecycle } from "./disk-pressure-guard-lifecy
 import { startEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
-import { installAssistantSymlink } from "./install-symlink.js";
+import { installAssistantCommand } from "./install-assistant-command.js";
+import {
+  type InterruptedResumeTarget,
+  MAX_RESUME_ATTEMPTS,
+  reconcileInterruptedConversations,
+  resumeInterruptedConversations,
+} from "./interrupted-turn-reconciler.js";
 import { startOrphanReaper } from "./orphan-reaper.js";
 import { runProfilerSweep } from "./profiler-run-store.js";
 import {
@@ -98,6 +108,11 @@ function loadDotEnv(): void {
 
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
+  // Identify this process as the daemon before anything can publish: it owns
+  // the event hub real clients subscribe to, so plugin-facing publishes made
+  // here fan out locally rather than routing to a daemon over IPC.
+  markCurrentProcessAsMainDaemon();
+
   const startupStartedAt = Date.now();
   // dotenv loads before the first log call so the lazy root logger
   // initializes against the final VELLUM_WORKSPACE_DIR / log path, not
@@ -114,6 +129,13 @@ export async function runDaemon(): Promise<void> {
   installShutdownHandlers();
 
   ensureDataDir();
+
+  // Persist this process's boot time for the monitor's out-of-process recovery
+  // pass, which fences its stale-`processing_started_at` sweep on it: a flag
+  // set before boot belongs to a process that has exited, one at or after it to
+  // a live turn. Recorded before any turn can start so every live flag is at or
+  // after it.
+  recordDaemonBootTime(startupStartedAt);
 
   // Recover from any streaming `.vbundle` import that was interrupted by a
   // crash or SIGKILL. If the previous process died between
@@ -157,8 +179,8 @@ export async function runDaemon(): Promise<void> {
   // so a fast-reconnecting client could otherwise resolve a turn against a
   // partial profile in the window between readiness and the post-overlay
   // ensure call below. Sync, DB-free, and idempotent. Skipped when an
-  // unconsumed onboarding overlay is pending: the overlay can rewrite
-  // llm.default later this boot, and baking against the pre-overlay default
+  // unconsumed onboarding overlay is pending: the overlay can rewrite the
+  // llm config later this boot, and baking against the pre-overlay default
   // would pin the wrong baseline — on that single boot (a fresh hatch, with
   // no established clients to race the window) the post-overlay pass owns
   // materialization; the overlay file is consumed on merge, so every
@@ -178,29 +200,32 @@ export async function runDaemon(): Promise<void> {
   // failure is non-fatal — the daemon falls back to IPC-only operation.
   await startRuntimeHttpServer();
 
+  // Warms the configured-probe cache (credential reads only, no DB). Fired
+  // immediately after the transport binds, ahead of DB init and readiness,
+  // so an urgent signal arriving the moment requests are admitted is not
+  // decided on an empty cache.
+  void isPlatformClientConfigured().catch((err) =>
+    log.warn({ err }, "Platform configured-probe warmup failed"),
+  );
+
   // Pre-populate feature flag overrides so subsequent sync
   // isAssistantFeatureFlagEnabled() calls have data. Fired non-blocking
   // so a slow or unreachable gateway doesn't delay daemon startup (the
   // IPC call has a 3s connect + 5s call timeout that would otherwise
   // stall the critical path).
-  // After the async fetch resolves, (re)register any flag-gated tools
-  // (`workflows`, `ces-tools`): `initializeTools()` runs during startup before
-  // this fetch completes, so without this follow-up sync a flag-enabled
-  // assistant would not expose the gated tools until a restart (which can lose
-  // the same race). Enable-direction only; chained so it sees the fresh cache.
-  // Then reconcile flag-gated managed profiles (OS Beta): `seedInferenceProfiles()`
-  // runs synchronously earlier in boot before flags are available, so this lands
-  // the profile on the same boot once the flag cache is populated. When this
-  // reconcile is the call that mutates config (it raced ahead of the gateway
-  // flag listener), publish the config invalidation so any client that already
-  // fetched `GET /v1/config` refreshes its profile picker.
+  // After the async fetch resolves, reconcile flag-gated managed profiles
+  // (OS Beta): `seedInferenceProfiles()` runs synchronously earlier in boot
+  // before flags are available, so this lands the profile on the same boot once
+  // the flag cache is populated. When this reconcile is the call that mutates
+  // config (it raced ahead of the gateway flag listener), publish the config
+  // invalidation so any client that already fetched `GET /v1/config` refreshes
+  // its profile picker.
   // Profiles are reconciled only when flags actually loaded from the gateway:
   // a failed fetch leaves the cache unset and resolves `os-beta` to its
   // registry default `false`, which would remove the user's profile and reset
-  // their selection. Tool sync tolerates the default and stays unconditional.
+  // their selection.
   void initFeatureFlagOverrides()
-    .then(async (loaded) => {
-      await syncFlagGatedTools();
+    .then((loaded) => {
       if (loaded && reconcileFlagGatedProfiles()) {
         publishConfigChanged();
       }
@@ -235,13 +260,35 @@ export async function runDaemon(): Promise<void> {
   try {
     const { migrationsOk } = await initializeDb();
     dbReady = true;
+    // A quiesce lease can survive a stop that happened mid-drain; clear it so
+    // a fresh boot never starts with background work paused. Placed
+    // synchronously after DB init — before any await yields to the
+    // already-listening HTTP server — so it cannot delete a lease a client
+    // arms against THIS boot.
+    clearLifecycleQuiesce();
+    // Floor the stream seq counter above every persisted conversation
+    // anchor before turns can stamp events. Anchors are getCurrentSeq()
+    // snapshots already served to clients, and a crashed process can have
+    // outrun its last successful seq-reservation write — resuming below an
+    // anchor re-issues seqs, and anchored clients then discard every live
+    // event as an already-applied replay. Own try/catch: on a
+    // failed-migration DB the column may be unreadable, and that must not
+    // flip startup into the migration-failed path.
+    try {
+      floorSeqAbove(getMaxPersistedConversationSeq());
+    } catch (err) {
+      log.warn(
+        { err },
+        "stream seq floor from persisted anchors failed — continuing startup",
+      );
+    }
     if (migrationsOk) {
       setDbReady(true);
       log.info("Daemon startup: DB initialized");
     } else {
       setDbMigrationFailed();
       log.error(
-        "Daemon startup: DB opened but one or more migrations failed — /readyz will remain unready",
+        "Daemon startup: DB opened but one or more migrations failed or were deferred — /readyz will remain unready",
       );
     }
     // Migrations have settled (successfully or in the failed degraded mode),
@@ -294,6 +341,13 @@ export async function runDaemon(): Promise<void> {
         "provider_connections backfill failed — continuing startup",
       );
     }
+
+    // Repoint openai-compatible connections sharing the legacy provider-keyed
+    // credential slot onto per-connection slots. Vault-dependent, so it runs
+    // fire-and-forget with per-row deferral rather than blocking startup.
+    void repairSharedCredentialSlots(getDb()).catch((err) => {
+      log.warn({ err }, "credential slot repair failed — continuing startup");
+    });
 
     // Profiler retention sweep — prune completed profiler runs to stay
     // within configured byte-count, run-count, and free-space budgets.
@@ -365,8 +419,11 @@ export async function runDaemon(): Promise<void> {
       );
     }
 
-    // Expire stale pending canonical guardian requests left over from before
-    // this process started.  Two categories are cleaned up:
+    // Expire stale pending guardian requests left over from before this
+    // process started. Daemon-keyed by design: interaction-bound kinds die
+    // with THIS process's in-memory pendingInteractions map, so the daemon
+    // triggers the gateway op at its own boot — the gateway never runs it
+    // on its own restart. Two categories are cleaned up:
     //
     // 1. Interaction-bound kinds (tool_approval, pending_question) — their
     //    in-memory pending-interaction session references are gone, so they
@@ -375,31 +432,22 @@ export async function runDaemon(): Promise<void> {
     //    kinds (access_request, tool_grant_request) that expired while the
     //    daemon was stopped are transitioned so dedup logic doesn't return
     //    stale rows.
-    const expiredCount = expireAllPendingCanonicalRequests();
-    if (expiredCount > 0) {
-      log.info(
-        { event: "startup_expired_stale_requests", expiredCount },
-        `Expired ${expiredCount} stale canonical request(s) from previous process`,
-      );
-    }
-
-    // Recover orphaned work items that were left in 'running' state when the
-    // daemon previously crashed or was killed mid-task.
-    const orphanedRunning = listWorkItems({ status: "running" });
-    if (orphanedRunning.length > 0) {
-      for (const item of orphanedRunning) {
-        updateWorkItem(item.id, {
-          status: "failed",
-          lastRunStatus: "interrupted",
-        });
+    //
+    // Startup must not block on the gateway (daemon startup philosophy):
+    // on failure the periodic sweep still reaps time-expired rows, and
+    // decide paths reject interaction-bound strays via pendingInteractions.
+    try {
+      const expiredCount = await expireInteractionBoundGuardianRequests();
+      if (expiredCount > 0) {
         log.info(
-          { workItemId: item.id, title: item.title },
-          "Recovered orphaned running work item → failed (interrupted)",
+          { event: "startup_expired_stale_requests", expiredCount },
+          `Expired ${expiredCount} stale guardian request(s) from previous process`,
         );
       }
-      log.info(
-        { count: orphanedRunning.length },
-        "Recovered orphaned running work items",
+    } catch (err) {
+      log.warn(
+        { err },
+        "Startup guardian-request expiry failed — continuing in degraded mode",
       );
     }
 
@@ -437,13 +485,11 @@ export async function runDaemon(): Promise<void> {
   // seeder and persisted alongside schema defaults.
   const defaultConfigMerge = mergeDefaultWorkspaceConfig();
 
-  // Seed inference profiles into the workspace config. Managed Anthropic
-  // profiles are overwritten on every boot so Vellum can push updates.
-  // Off-platform hatches additionally create user profiles + a personal
-  // provider connection for the hatch provider.
+  // Seed inference profiles into the workspace config: active/advisor
+  // resolution plus, on off-platform hatches, `llm.defaultProvider` and a
+  // personal provider connection for the hatch provider.
   try {
     seedInferenceProfiles({
-      preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
       preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
       isHatch: defaultConfigMerge.hadOverlay,
       db: dbReady ? getDb() : undefined,
@@ -487,6 +533,22 @@ export async function runDaemon(): Promise<void> {
     );
   }
 
+  // Runs on every boot, after the default-provider ensure (it keys off
+  // llm.defaultProvider) and before custom-profile materialization (so
+  // copies it retires this boot are never pointlessly materialized first;
+  // its comparison normalizes both sides through the same completion, so
+  // ordering is not correctness-bearing).
+  // See workspace/byok-default-profile-ensure.ts for the full rationale.
+  try {
+    ensureByokDefaultProfiles(getWorkspaceDir());
+    log.info("BYOK default profile ensure pass complete");
+  } catch (err) {
+    log.warn(
+      { err },
+      "BYOK default profile ensure pass failed; continuing startup",
+    );
+  }
+
   // Runs on every boot, after the overlay merge and profile seeding and
   // before the first loadConfig(), so no resolution ever sees a partial
   // custom profile. See workspace/custom-profile-ensure.ts for why this is
@@ -504,28 +566,45 @@ export async function runDaemon(): Promise<void> {
   log.info("Daemon startup: loading config");
   const config = loadConfig();
 
-  // Reconcile conversations left mid-turn by the previous shutdown. Their
+  // Select conversations left mid-turn by the previous shutdown for auto-resume
+  // when `conversations.resumeProcessingOnStartup` is enabled. Their
   // `processing_started_at` is still set even though the in-memory agent loop
-  // that owned the turn is gone.
+  // that owned the turn is gone; the monitor's recovery pass clears those stale
+  // flags out of process. The resume wakes need providers/CES, so they are
+  // kicked off next to `setStartupComplete()`.
+  let conversationsToResume: InterruptedResumeTarget[] = [];
   if (dbReady) {
-    if (config.conversations.resumeProcessingOnStartup) {
-      // TODO: automatically resume the interrupted turn for each conversation
-      // whose processing flag is still set instead of clearing it.
-    } else {
-      try {
-        const cleared = clearStaleProcessingFlags();
-        if (cleared > 0) {
-          log.info(
-            { count: cleared },
-            "Cleared stale conversation processing flags from previous process",
-          );
-        }
-      } catch (err) {
-        log.warn(
-          { err },
-          "Failed to clear stale conversation processing flags — continuing startup",
+    try {
+      const reconciled = reconcileInterruptedConversations(
+        config.conversations.resumeProcessingOnStartup,
+      );
+      conversationsToResume = reconciled.resume;
+      if (reconciled.resume.length > 0) {
+        log.info(
+          { resuming: reconciled.resume.length },
+          "Selected interrupted conversations for auto-resume",
         );
       }
+      if (reconciled.capped.length > 0) {
+        log.warn(
+          {
+            conversationIds: reconciled.capped,
+            maxAttempts: MAX_RESUME_ATTEMPTS,
+          },
+          "Left interrupted conversations un-resumed after repeated interruptions",
+        );
+      }
+      if (reconciled.trustUnrecoverable.length > 0) {
+        log.warn(
+          { conversationIds: reconciled.trustUnrecoverable },
+          "Left interrupted conversations un-resumed: resting trust could not be reconstructed",
+        );
+      }
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to reconcile interrupted conversations — continuing startup",
+      );
     }
   }
 
@@ -550,7 +629,7 @@ export async function runDaemon(): Promise<void> {
   }
 
   // Refresh the consent cache regardless of dev mode so record-time telemetry
-  // writes (gated on getCachedShareAnalytics()) work in dev too. The usage
+  // writes (which drop on a confirmed opt-out) work in dev too. The usage
   // telemetry reporter re-checks share_analytics on every flush, so dev still
   // never sends telemetry to the platform. Fire-and-forget: startConsentRefresh()
   // runs an immediate non-blocking refresh, so the startup hot path is never
@@ -620,6 +699,16 @@ export async function runDaemon(): Promise<void> {
     log.error({ err }, "Schedule recovery failed — continuing startup");
   }
 
+  // Converge plugin-declared schedules into cron_jobs rows before the
+  // scheduler starts claiming. The reconciler contains its own failures and
+  // checks DB migration readiness itself; the catch is startup insurance in
+  // the same shape as schedule recovery above.
+  try {
+    await reconcilePluginSchedules();
+  } catch (err) {
+    log.error({ err }, "Plugin schedule reconcile failed, continuing startup");
+  }
+
   // Reconcile workflow runs orphaned by a crash: any row still `running` was
   // in flight when the process died (the engine always finishes its row on
   // exit), so flip it to `interrupted` to make it eligible for an explicit
@@ -671,6 +760,10 @@ export async function runDaemon(): Promise<void> {
   // main event loop.
   startMonitoring();
 
+  // Pre-warm the route host subprocess when `userRoutes.host.enabled` is set
+  // (no-op otherwise). Fire-and-forget — never blocks boot.
+  startRouteHost();
+
   // The runtime HTTP server is up; broadcast the fresh daemon status so
   // connected clients pick up the transition.
   broadcastDaemonStatus();
@@ -692,10 +785,10 @@ export async function runDaemon(): Promise<void> {
 
   writePid(process.pid);
 
-  // Install the `assistant` CLI symlink idempotently on every daemon start.
+  // Install the `assistant` CLI command idempotently on every daemon start.
   // Best-effort and self-contained: every step swallows its own errors, so a
   // failure never affects startup.
-  installAssistantSymlink();
+  installAssistantCommand();
 
   void startEmbeddingRuntimeManager();
 
@@ -710,6 +803,19 @@ export async function runDaemon(): Promise<void> {
   // signal handlers installed at the top of startup from their minimal
   // early-exit mode to the full graceful shutdown.
   setStartupComplete();
+
+  // Resume conversations whose turn the previous process interrupted. Kicked
+  // off only now — the wakes run full agent-loop turns and need providers and
+  // CES, which the startup sequence above just brought up. Fire-and-forget:
+  // the resumes run sequentially in the background while the daemon serves
+  // requests; per-conversation failures are logged inside.
+  if (conversationsToResume.length > 0) {
+    log.info(
+      { count: conversationsToResume.length },
+      "Resuming conversations interrupted by the previous process",
+    );
+    void resumeInterruptedConversations(conversationsToResume);
+  }
 
   log.info(
     {

@@ -42,13 +42,17 @@ function getFirstPartySkillsDir(): string {
 function discoverSkillFiles(
   dir: string,
 ): Array<{ id: string; skillFilePath: string }> {
-  if (!existsSync(dir)) return [];
+  if (!existsSync(dir)) {
+    return [];
+  }
 
   const results: Array<{ id: string; skillFilePath: string }> = [];
   const entries = readdirSync(dir, { withFileTypes: true });
 
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
+    if (!entry.isDirectory()) {
+      continue;
+    }
     const skillFilePath = join(dir, entry.name, "SKILL.md");
     if (existsSync(skillFilePath) && statSync(skillFilePath).isFile()) {
       results.push({ id: entry.name, skillFilePath });
@@ -79,7 +83,9 @@ describe("inline skill authoring guard", () => {
 
     for (const { id, skillFilePath } of skills) {
       const body = extractBody(skillFilePath);
-      if (body === undefined) continue;
+      if (body === undefined) {
+        continue;
+      }
 
       const result = parseInlineCommandExpansions(body);
       if (result.errors.length > 0) {
@@ -112,7 +118,9 @@ describe("inline skill authoring guard", () => {
 
     for (const { id, skillFilePath } of skills) {
       const body = extractBody(skillFilePath);
-      if (body === undefined) continue;
+      if (body === undefined) {
+        continue;
+      }
 
       const result = parseInlineCommandExpansions(body);
       if (result.errors.length > 0) {

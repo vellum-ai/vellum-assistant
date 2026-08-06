@@ -1,4 +1,3 @@
-
 /**
  * Three-dot pulsing "thinking" indicator. Used in the web-search progress
  * card header and as the assistant avatar's progress badge.

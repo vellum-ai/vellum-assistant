@@ -1,14 +1,14 @@
-
 import { CheckCircle, Loader2, X } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
-import { Card, Input, Typography } from "@vellumai/design-library";
+import { Button, Card, Input, Typography } from "@vellumai/design-library";
 
 export interface ContactPromptCardProps {
   contactRequest: {
     requestId: string;
     channel?: string;
     placeholder?: string;
+    defaultValue?: string;
     label?: string;
     description?: string;
     role?: string;
@@ -26,7 +26,9 @@ export function ContactPromptCard({
   onSubmit,
   onCancel,
 }: ContactPromptCardProps) {
-  const [address, setAddress] = useState("");
+  // Render sites must key this card by `requestId` so a new contact_request
+  // remounts it and re-runs this initializer instead of keeping stale state.
+  const [address, setAddress] = useState(contactRequest.defaultValue ?? "");
   const canSubmit = address.trim().length > 0 && !isSubmitting && !accepted;
 
   // Derive a sensible channelType from the hint (free text → normalised key).
@@ -34,7 +36,9 @@ export function ContactPromptCard({
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!canSubmit) return;
+    if (!canSubmit) {
+      return;
+    }
     onSubmit(address.trim(), channelType);
   }
 
@@ -42,11 +46,17 @@ export function ContactPromptCard({
     <Card className="flex flex-col gap-4 p-4">
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-col gap-1">
-          <Typography variant="label-small-default" className="text-[var(--content-primary)]">
+          <Typography
+            variant="label-small-default"
+            className="text-[var(--content-primary)]"
+          >
             {contactRequest.label ?? "Add a contact"}
           </Typography>
           {contactRequest.description && (
-            <Typography variant="body-small-default" className="text-[var(--content-secondary)]">
+            <Typography
+              variant="body-small-default"
+              className="text-[var(--content-secondary)]"
+            >
               {contactRequest.description}
             </Typography>
           )}
@@ -66,7 +76,7 @@ export function ContactPromptCard({
 
       {accepted ? (
         // typography: off-scale — inline status badge, not prose
-         
+
         <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
           <CheckCircle size={16} />
           Contact saved
@@ -77,37 +87,31 @@ export function ContactPromptCard({
             type="text"
             value={address}
             onChange={(e) => setAddress(e.target.value)}
-            placeholder={contactRequest.placeholder ?? `Enter ${channelType} address`}
+            placeholder={
+              contactRequest.placeholder ?? `Enter ${channelType} address`
+            }
             disabled={isSubmitting}
             autoFocus
           />
           <div className="flex justify-end gap-2">
-            <button
+            <Button
               type="button"
+              variant="ghost"
               onClick={onCancel}
               disabled={isSubmitting}
-              // typography: off-scale — inline form button, not prose
-               
-              className="rounded px-3 py-1.5 text-sm text-[var(--content-secondary)] hover:bg-[var(--surface-secondary)]"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
+              variant="primary"
               disabled={!canSubmit}
-              // typography: off-scale — inline form button, not prose
-               
-              className="flex items-center gap-1.5 rounded bg-[var(--color-accent)] px-3 py-1.5 text-sm text-white disabled:opacity-50"
+              leftIcon={
+                isSubmitting ? <Loader2 className="animate-spin" /> : undefined
+              }
             >
-              {isSubmitting ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" />
-                  Saving…
-                </>
-              ) : (
-                "Save"
-              )}
-            </button>
+              {isSubmitting ? "Saving…" : "Save"}
+            </Button>
           </div>
         </form>
       )}

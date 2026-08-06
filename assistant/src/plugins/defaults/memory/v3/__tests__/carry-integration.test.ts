@@ -56,13 +56,13 @@ import type {
 } from "@vellumai/plugin-api";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
+import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import { stripSpotlightInjections } from "../../../../../context/strip-injections.js";
-import { migrateAddMemoryV3Selections } from "../../../../../persistence/migrations/268-add-memory-v3-selections.js";
-import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
-import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
+import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
+import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import { unwrapMemoryBlock, wrapMemoryBlock } from "../../memory-marker.js";
-import type { PageIndexEntry } from "../../v2/page-index.js";
+import type { PageIndexEntry } from "../../substrate/page-index.js";
 import { cardBytes, renderCard } from "../card.js";
 import { loadCoreSet } from "../core-set.js";
 import type { EdgeGraph } from "../edge.js";
@@ -86,9 +86,7 @@ const realPluginApi = await import("@vellumai/plugin-api");
 const realFlags = {
   ...(await import("../../../../../config/assistant-feature-flags.js")),
 };
-const realConfigLoader = {
-  ...(await import("../../../../../config/loader.js")),
-};
+const realMemoryConfig = { ...(await import("../../config.js")) };
 const realDbConnection = {
   ...(await import("../../../../../persistence/db-connection.js")),
 };
@@ -130,13 +128,17 @@ mock.module("../dense.js", () => ({
 }));
 
 let testSqlite: Database;
+// Selection and everInjected rows live on the dedicated memory connection,
+// resolved via `getMemorySqlite` — stubbed to a second in-memory DB carrying
+// the relocated tables' schema. Messages stay in main.
+let memorySqlite: Database;
 let testDb = makeDb();
 function makeDb() {
   testSqlite = new Database(":memory:");
   const db = drizzle(testSqlite, { schema });
-  migrateAddMemoryV3EverInjected(db);
-  migrateAddMemoryV3Selections(db);
-  migrateMemoryV3SelectionsMessageIdAndSections(db);
+  memorySqlite = new Database(":memory:");
+  ensureMemoryV3SelectionsSchema(memorySqlite);
+  ensureMemoryV3EverInjectedSchema(memorySqlite);
   // Minimal `messages` shape — metadata persistence, the prune valve's
   // v3-ownership scan, and the restart rehydration read only these columns.
   testSqlite.run(/*sql*/ `
@@ -160,6 +162,12 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
       : realDbConnection.getSqliteFrom(
           db as Parameters<typeof realDbConnection.getSqliteFrom>[0],
         ),
+  getMemorySqlite: () =>
+    carryMockActive ? memorySqlite : realDbConnection.getMemorySqlite(),
+  getMemoryDb: () =>
+    carryMockActive
+      ? drizzle(memorySqlite, { schema })
+      : realDbConnection.getMemoryDb(),
 }));
 
 /** Mutable prune config: `null` until the script opens the valve window. */
@@ -169,23 +177,28 @@ let pruneConfig: {
 } | null = null;
 const SPOTLIGHT_N = 6;
 const SPOTLIGHT_WINDOW_TURNS = 2;
-mock.module("../../../../../config/loader.js", () => ({
-  ...realConfigLoader,
-  getConfig: () =>
+// The injector reads `memory.v3.live` (via `isMemoryV3Live`) and
+// `memory.v3.spotlight` through the real `getConfig()`; `beforeAll` seeds
+// `memory.v3.live: true` for real. `SPOTLIGHT_N` / `SPOTLIGHT_WINDOW_TURNS`
+// equal the schema defaults, so the seeded slice needs only `live`.
+
+// Memory code resolves its config through the plugin's own accessor, not
+// getConfig(); the prune valve reads its bounds there — stub the same
+// conditional slice.
+mock.module("../../config.js", () => ({
+  getMemoryConfig: () =>
     carryMockActive
       ? {
-          memory: {
-            v3: {
-              live: true,
-              spotlight: {
-                n: SPOTLIGHT_N,
-                windowTurns: SPOTLIGHT_WINDOW_TURNS,
-              },
-              prune: pruneConfig ?? undefined,
+          v3: {
+            live: true,
+            spotlight: {
+              n: SPOTLIGHT_N,
+              windowTurns: SPOTLIGHT_WINDOW_TURNS,
             },
+            prune: pruneConfig ?? undefined,
           },
         }
-      : realConfigLoader.getConfig(),
+      : realMemoryConfig.getMemoryConfig(),
 }));
 
 mock.module("../../../../../config/assistant-feature-flags.js", () => ({
@@ -272,7 +285,7 @@ async function scriptedObserveTurn(conversationId: string, turnIndex: number) {
     turnIndex,
     realShadowPlugin.attributeSelections(result),
   );
-  testSqlite
+  memorySqlite
     .query(
       /*sql*/ `
       UPDATE memory_v3_selections SET created_at = ?
@@ -401,7 +414,7 @@ async function buildFixtureLanes(): Promise<FixtureLanes> {
 
   // Seed a selections history (a PRIOR conversation) making three slugs hot,
   // with distinct frecency so the hot order is deterministic.
-  const seed = testSqlite.query(/*sql*/ `
+  const seed = memorySqlite.query(/*sql*/ `
     INSERT INTO memory_v3_selections
       (conversation_id, turn, slug, source, pinned, created_at)
     VALUES (?, ?, ?, 'needle', 0, ?)
@@ -429,21 +442,19 @@ async function buildFixtureLanes(): Promise<FixtureLanes> {
     edges: [],
     leaves: [],
     modifiedAt: 0,
+    freshAt: null,
   }));
   const edgeGraph = await buildEdgeGraph(entries, async (slug) => RAW[slug]!);
 
   const coreSlugs = loadCoreSet(workspaceDir).filter((slug) =>
     sectionIndex.byArticle.has(slug),
   );
-  const hotSlugs = computeHotSet(
-    { db: testDb },
-    {
-      k: 3,
-      halfLifeMs: 14 * DAY_MS,
-      now: BASE,
-      excludeSlugs: new Set(coreSlugs),
-    },
-  )
+  const hotSlugs = computeHotSet({
+    k: 3,
+    halfLifeMs: 14 * DAY_MS,
+    now: BASE,
+    excludeSlugs: new Set(coreSlugs),
+  })
     .map((entry) => entry.slug)
     .filter((slug) => sectionIndex.byArticle.has(slug));
 
@@ -480,7 +491,9 @@ function candidateSlugs(messages: Message[]): Slug[] {
   const entries: Array<{ id: number; slug: string }> = [];
   for (const msg of messages) {
     for (const block of msg.content) {
-      if (block.type !== "text") continue;
+      if (block.type !== "text") {
+        continue;
+      }
       const cards = /<candidate_cards>\n([\s\S]*?)\n<\/candidate_cards>/.exec(
         block.text,
       );
@@ -497,7 +510,9 @@ function candidateSlugs(messages: Message[]): Slug[] {
       if (finder) {
         for (const line of finder[1].split("\n")) {
           const m = /^\[(\d+)\] (?:\([^)]*\) )?(\S+)(?: — |$)/.exec(line);
-          if (m) entries.push({ id: Number(m[1]), slug: m[2]! });
+          if (m) {
+            entries.push({ id: Number(m[1]), slug: m[2]! });
+          }
         }
       }
     }
@@ -520,7 +535,9 @@ function makeProviderStub(): Provider {
       );
       const ids: number[] = [];
       candidateSlugs(messages).forEach((slug, i) => {
-        if (keep.includes(slug)) ids.push(i + 1);
+        if (keep.includes(slug)) {
+          ids.push(i + 1);
+        }
       });
       return toolUseResponse({ ids });
     },
@@ -604,13 +621,16 @@ async function runTurn(
 
   const activeBefore = getActiveSlugs(convId);
   const cards = await memoryV3Injector.produce(ctx);
-  if (!cards)
+  if (!cards) {
     throw new Error(`turn ${turnIndex}: cards injector returned null`);
+  }
   // Runtime assembly invokes the block's attachment-commit callback at its
   // user-tail commit point — this is where the everInjected store records
   // the turn's cards (and the prune valve is scheduled).
   const commit = cards.meta?.[MEMORY_V3_COMMIT_META_KEY];
-  if (typeof commit === "function") (commit as () => void)();
+  if (typeof commit === "function") {
+    (commit as () => void)();
+  }
   const netNewSlugs = [...getActiveSlugs(convId)].filter(
     (slug) => !activeBefore.has(slug),
   );
@@ -790,6 +810,9 @@ const SCRIPT: Array<{ query: string; keep: Slug[]; expectNetNew: Slug[] }> = [
 
 beforeAll(async () => {
   carryMockActive = true;
+  // The injector gates on `memory.v3.live` (read via real `getConfig()`),
+  // which defaults false — seed it true so the live path runs.
+  setConfig("memory", { v3: { live: true } });
   testDb = makeDb();
   providerStub = makeProviderStub();
   resetMemoryV3InjectorStateForTests();
@@ -855,7 +878,7 @@ beforeAll(async () => {
     `,
     )
     .run(FORK_CONV, CONV);
-  forkEverInjected(testDb, CONV, FORK_CONV);
+  forkEverInjected(CONV, FORK_CONV);
   histories.set(FORK_CONV, rehydrateFromDb(FORK_CONV));
   forkRecord = await runTurn(FORK_CONV, 9, "strawberry guava", [
     "page-g",
@@ -870,7 +893,9 @@ beforeAll(async () => {
 afterAll(async () => {
   await flushPruneValveForTests();
   carryMockActive = false;
-  if (workspaceDir) rmSync(workspaceDir, { recursive: true, force: true });
+  if (workspaceDir) {
+    rmSync(workspaceDir, { recursive: true, force: true });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -980,7 +1005,9 @@ describe("memory-v3 carry integration — cache contract", () => {
     let expected = 0;
     for (const record of records) {
       expected += record.netNewBytes;
-      if (record.turn === 7) expected -= pruneWindow.bytesFreedExpected;
+      if (record.turn === 7) {
+        expected -= pruneWindow.bytesFreedExpected;
+      }
       expect(record.residentBytes).toBe(expected);
     }
   });

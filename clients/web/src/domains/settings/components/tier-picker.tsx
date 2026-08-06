@@ -2,24 +2,15 @@ import { Info } from "lucide-react";
 import { useMemo } from "react";
 
 import type {
-    MachineTier,
-    MachineTierEnum,
-    StorageTier,
-    StorageTierEnum,
+  MachineTier,
+  MachineTierEnum,
+  StorageTier,
+  StorageTierEnum,
 } from "@/generated/api/types.gen";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { MACHINE_TIER_LABEL } from "@/lib/billing/machine-sizes";
+import { Select } from "@vellumai/design-library/components/select";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { formatDelta, formatMonthly } from "./tier-pricing";
-
-/**
- * Display labels for the Pro machine tiers. Uses a static label map so casing
- * is stable regardless of what the API returns in `tier.label`.
- */
-const MACHINE_TIER_LABEL: Record<string, string> = {
-  medium: "Medium",
-  large: "Large",
-  xl: "XL",
-};
 
 /**
  * `disabled` is not (yet) part of the generated MachineTier/StorageTier
@@ -85,7 +76,7 @@ export function TierPicker({
             : `+${formatMonthly(t.price_cents)}`;
         return {
           value: t.tier as StorageTierEnum,
-          label: `${t.storage_gib} GiB ${priceLabel}`,
+          label: `${t.storage_gib} GB ${priceLabel}`,
           disabled: isTierDisabled(t),
         };
       }),
@@ -107,7 +98,7 @@ export function TierPicker({
             <Info className="h-3 w-3 text-[var(--content-tertiary)]" />
           </span>
         </div>
-        <Dropdown<MachineTierEnum>
+        <Select<MachineTierEnum>
           aria-label="Machine tier"
           placeholder="Select a machine tier"
           value={selectedMachineTier ?? ("" as MachineTierEnum)}
@@ -128,7 +119,7 @@ export function TierPicker({
             <Info className="h-3 w-3 text-[var(--content-tertiary)]" />
           </span>
         </div>
-        <Dropdown<StorageTierEnum>
+        <Select<StorageTierEnum>
           aria-label="Storage tier"
           placeholder="Select a storage tier"
           value={selectedStorageTier ?? ("" as StorageTierEnum)}

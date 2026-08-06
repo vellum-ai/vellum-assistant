@@ -4,10 +4,15 @@ import {
   describe,
   expect,
   mock,
+  spyOn,
   test,
 } from "bun:test";
 import { cleanup } from "@testing-library/react";
 
+import {
+  getSelfHostedIngressUrl,
+  setSelfHostedConnection,
+} from "@/lib/self-hosted/connection";
 
 type MockSessionUser = {
   id?: string;
@@ -29,19 +34,32 @@ let getSessionFailStatus: number | undefined = 401;
 let getSessionGates: Array<() => void> | null = null;
 
 let mockIsGatewayAuth = false;
-let mockIsLocalMode = false;
+let mockIsLocalClient = false;
 let mockIsRemoteGatewayMode = false;
 // The assistant `getSelectedAssistant()` resolves; `undefined` means none selected.
 let mockSelectedAssistant: { assistantId: string; cloud: string } | undefined;
+// The entries `getLockfileAssistant(id)` resolves against.
+let mockLockfileAssistants: Array<{ assistantId: string; cloud: string }> = [];
 let mockPlatformAssistants: unknown[] = [];
 let mockPrimeError: Error | null = null;
 let mockGatewayToken: string | null = null;
 const setSelectedAssistantMock = mock(async (_id: string | null) => {});
-const primeLocalGatewayConnectionMock = mock(async () => {
-  if (mockPrimeError) throw mockPrimeError;
+const primeLocalGatewayConnectionMock = mock(
+  async (_target?: { assistantId: string; cloud: string }) => {
+    if (mockPrimeError) {
+      throw mockPrimeError;
+    }
+  },
+);
+const primeLocalGatewayConnectionWithStartupRetryMock = mock(async () => {
+  if (mockPrimeError) {
+    throw mockPrimeError;
+  }
 });
 const primeLocalGatewayConnectionWithRepairMock = mock(async () => {
-  if (mockPrimeError) throw mockPrimeError;
+  if (mockPrimeError) {
+    throw mockPrimeError;
+  }
 });
 const ensureGatewayTokenMock = mock(async () => {});
 const refreshRemoteGatewaySessionMock = mock(async () => false);
@@ -51,24 +69,17 @@ const restoreConsentForUserMock = mock(
   ): {
     tos: boolean;
     privacy: boolean;
-    analyticsCurrent: boolean;
     diagnosticsCurrent: boolean;
   } => ({
     tos: false,
     privacy: false,
-    analyticsCurrent: false,
     diagnosticsCurrent: false,
   }),
 );
 const persistConsentForUserMock = mock(
   (_userId: string | null, _tos: boolean, _privacy: boolean) => {},
 );
-const persistToggleConsentMock = mock(
-  (
-    _userId: string | null,
-    _acks: { analyticsCurrent?: boolean; diagnosticsCurrent?: boolean },
-  ) => {},
-);
+const persistDiagnosticsAckMock = mock((_userId: string | null) => {});
 const resolveServerConsentMock = mock(
   (
     _consent: unknown,
@@ -77,19 +88,40 @@ const resolveServerConsentMock = mock(
     privacy: boolean;
     shareAnalytics: boolean | null;
     shareDiagnostics: boolean | null;
+    analyticsEffective: boolean;
+    diagnosticsEffective: boolean;
     analyticsCurrent: boolean;
     diagnosticsCurrent: boolean;
+    analyticsVersionCurrent: boolean;
+    diagnosticsVersionCurrent: boolean;
     hasServerRecord: boolean;
   } => ({
     tos: false,
     privacy: false,
     shareAnalytics: null,
     shareDiagnostics: null,
+    analyticsEffective: true,
+    diagnosticsEffective: true,
     analyticsCurrent: false,
     diagnosticsCurrent: false,
+    analyticsVersionCurrent: false,
+    diagnosticsVersionCurrent: false,
     hasServerRecord: false,
   }),
 );
+
+// Adopted-or-fallback required versions served by the mocked accessor; the
+// backfill stamps from these. Defaults mirror the frozen constants; tests
+// override to simulate a server-side required_versions bump.
+const DEFAULT_REQUIRED_VERSIONS = {
+  tos: "2026-06-08",
+  privacyPolicy: "2026-06-08",
+  aiDataSharing: "2026-06-08",
+  shareAnalytics: "2026-06-08",
+  shareDiagnostics: "2026-06-08",
+};
+let mockRequiredVersions = { ...DEFAULT_REQUIRED_VERSIONS };
+const getRequiredConsentVersionsMock = mock(() => mockRequiredVersions);
 
 const EMPTY_CONSENT = {
   tos_accepted_version: "",
@@ -104,7 +136,9 @@ const EMPTY_CONSENT = {
 let mockFetchConsentResult: unknown = EMPTY_CONSENT;
 let mockFetchConsentError: Error | null = null;
 const fetchConsentMock = mock(async () => {
-  if (mockFetchConsentError) throw mockFetchConsentError;
+  if (mockFetchConsentError) {
+    throw mockFetchConsentError;
+  }
   return mockFetchConsentResult;
 });
 const clearOrganizationMock = mock(() => {});
@@ -123,6 +157,17 @@ const retrieveBiometricTokenMock = mock(async () => mockBiometricToken);
 // unaffected; the reconciliation tests override it to a well-formed result.
 let mockListAssistantsResult: unknown = [];
 const listAssistantsMock = mock(async () => mockListAssistantsResult);
+// Controls the `OrgFetchOutcome` the session-rejection evidence checks read.
+// A thrown error simulates a transport failure; a never-resolving promise as
+// the outcome makes the fetch hang so the probe's sync race times out.
+let mockOrgFetchOutcome: unknown = { ok: true };
+let mockOrgFetchError: Error | null = null;
+const fetchOrganizationsMock = mock(async () => {
+  if (mockOrgFetchError) {
+    throw mockOrgFetchError;
+  }
+  return mockOrgFetchOutcome;
+});
 const syncPlatformAssistantsToLockfileMock = mock(
   async (_list: unknown, _orgId?: string) => {},
 );
@@ -165,7 +210,9 @@ mock.module("@/runtime/session-token", () => ({
 
 mock.module("@/lib/auth/gateway-session", () => ({
   isGatewayAuthEnabled: () => mockIsGatewayAuth,
-  isGatewayAuthMode: () => mockIsGatewayAuth && mockGatewayToken !== null,
+  isGatewayAuthMode: () =>
+    mockIsGatewayAuth &&
+    (mockGatewayToken !== null || mockSelectedAssistant?.cloud === "paired"),
   ensureGatewayToken: ensureGatewayTokenMock,
   clearGatewayToken: () => {},
   getGatewayToken: () => mockGatewayToken,
@@ -177,14 +224,19 @@ mock.module("@/lib/auth/remote-gateway-session", () => ({
 }));
 
 mock.module("@/lib/local-mode", () => ({
-  isLocalMode: () => mockIsLocalMode,
+  isLocalClient: () => mockIsLocalClient,
   isRemoteGatewayMode: () => mockIsRemoteGatewayMode,
   isLocalAssistant: (a: { cloud?: string }) => a.cloud === "local",
   isPlatformAssistant: (a: { cloud?: string }) => a.cloud === "vellum",
+  isPairedAssistant: (a: { cloud?: string }) => a.cloud === "paired",
   getPlatformAssistants: () => mockPlatformAssistants,
   getLocalAssistants: () => [],
   getSelectedAssistant: () => mockSelectedAssistant,
+  getLockfileAssistant: (id: string) =>
+    mockLockfileAssistants.find((a) => a.assistantId === id),
   primeLocalGatewayConnection: primeLocalGatewayConnectionMock,
+  primeLocalGatewayConnectionWithStartupRetry:
+    primeLocalGatewayConnectionWithStartupRetryMock,
   primeLocalGatewayConnectionWithRepair:
     primeLocalGatewayConnectionWithRepairMock,
   syncPlatformAssistantsToLockfile: syncPlatformAssistantsToLockfileMock,
@@ -217,11 +269,12 @@ mock.module("@/domains/account/profile", () => ({
   patchConsent: patchConsentMock,
 }));
 
-mock.module("@/utils/onboarding-cleanup", () => ({
+mock.module("@/lib/consent/consent-persistence", () => ({
   restoreConsentForUser: restoreConsentForUserMock,
   persistConsentForUser: persistConsentForUserMock,
-  persistToggleConsent: persistToggleConsentMock,
+  persistDiagnosticsAck: persistDiagnosticsAckMock,
   resolveServerConsent: resolveServerConsentMock,
+  getRequiredConsentVersions: getRequiredConsentVersionsMock,
   TOS_CONSENT_VERSION: "2026-06-08",
   PRIVACY_CONSENT_VERSION: "2026-06-08",
   ANALYTICS_CONSENT_VERSION: "2026-06-08",
@@ -232,13 +285,19 @@ const setTosAcceptedMock = mock((_value: boolean) => {});
 const setPrivacyConsentMock = mock((_value: boolean) => {});
 const setAnalyticsConsentCurrentMock = mock((_value: boolean) => {});
 const setDiagnosticsConsentCurrentMock = mock((_value: boolean) => {});
-const setShareAnalyticsMock = mock((_value: boolean) => {});
-const setShareDiagnosticsMock = mock((_value: boolean) => {});
+const setHasConsentRecordMock = mock((_value: boolean) => {});
+const setShareAnalyticsMock = mock((_value: boolean | null) => {});
+const setShareDiagnosticsMock = mock((_value: boolean | null) => {});
+const setServerAnalyticsEffectiveMock = mock((_value: boolean | null) => {});
+const setPendingAnalyticsOptInMock = mock((_value: boolean) => {});
+const setServerDiagnosticsEffectiveMock = mock((_value: boolean | null) => {});
 const setConsentHydratedMock = mock((_value: boolean) => {});
-// Mirror the store's device-initialized share values; the backfill reads these
-// to send the device opt-out value alongside the accepted version.
-let mockStoreShareAnalytics = true;
-let mockStoreShareDiagnostics = true;
+// Mirror the store's device-initialized tri-state share values (null = never
+// asked); the backfill reads these to send an explicit device choice
+// alongside the accepted version.
+let mockStoreShareAnalytics: boolean | null = null;
+let mockStorePendingAnalyticsOptIn = false;
+let mockStoreShareDiagnostics: boolean | null = null;
 
 mock.module("@/domains/onboarding/onboarding-store", () => ({
   useOnboardingStore: {
@@ -247,10 +306,15 @@ mock.module("@/domains/onboarding/onboarding-store", () => ({
       setPrivacyConsent: setPrivacyConsentMock,
       setShareAnalytics: setShareAnalyticsMock,
       setShareDiagnostics: setShareDiagnosticsMock,
+      setServerAnalyticsEffective: setServerAnalyticsEffectiveMock,
+      setPendingAnalyticsOptIn: setPendingAnalyticsOptInMock,
+      setServerDiagnosticsEffective: setServerDiagnosticsEffectiveMock,
       setAnalyticsConsentCurrent: setAnalyticsConsentCurrentMock,
       setDiagnosticsConsentCurrent: setDiagnosticsConsentCurrentMock,
+      setHasConsentRecord: setHasConsentRecordMock,
       setConsentHydrated: setConsentHydratedMock,
       shareAnalytics: mockStoreShareAnalytics,
+      pendingAnalyticsOptIn: mockStorePendingAnalyticsOptIn,
       shareDiagnostics: mockStoreShareDiagnostics,
     }),
   },
@@ -260,9 +324,10 @@ mock.module("@/lib/auth/session-cleanup", () => ({
   clearUserScopedStorage: clearUserScopedStorageMock,
 }));
 
-// Use the REAL resolved-assistants store: the auth-store init path calls its
-// `.getState().setFromApi(...)`, which a plain stub can't provide. It's
-// dependency-light, so loading it for real is cheap.
+// Use the REAL resolved-assistants store: it's dependency-light, so loading it
+// for real is cheap, and the `beforeEach` resets it between tests. (The list is
+// now loaded by the platform-assistants-sync subscription, not the auth store —
+// see platform-assistants-sync.test.ts for that coverage.)
 
 // Auth-store writes the selection through the public wrapper, not the store
 // action — mock the wrapper module so the real one (and its local-mode deps)
@@ -275,7 +340,8 @@ mock.module("@/stores/organization-store", () => ({
   clearOrganization: clearOrganizationMock,
   useOrganizationStore: {
     getState: () => ({
-      fetchOrganizations: async () => {},
+      fetchOrganizations: fetchOrganizationsMock,
+      clearOrganization: clearOrganizationMock,
       currentOrganizationId: "org-test",
     }),
   },
@@ -305,13 +371,15 @@ mock.module("@/assistant/api", () => ({
   listAssistants: listAssistantsMock,
 }));
 
-const { useAuthStore } = await import("@/stores/auth-store");
-const { useAssistantLifecycleStore } = await import(
-  "@/assistant/lifecycle-store"
-);
-const { useResolvedAssistantsStore } = await import(
-  "@/stores/resolved-assistants-store"
-);
+const {
+  useAuthStore,
+  whenPlatformSessionSettled,
+  __resetConsentSyncUserForTesting,
+} = await import("@/stores/auth-store");
+const { useAssistantLifecycleStore } =
+  await import("@/assistant/lifecycle-store");
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
 
 function resetAuthStore(): void {
   useAuthStore.setState({
@@ -338,6 +406,7 @@ function authenticatedLocalUserForTest() {
 }
 
 beforeEach(() => {
+  __resetConsentSyncUserForTesting();
   sessionUser = null;
   getSessionCallCount = 0;
   getSessionFailFirstCall = false;
@@ -346,34 +415,46 @@ beforeEach(() => {
   getSessionGates = null;
   mockElectronSessionToken = null;
   localStorage.removeItem("vellum:auth:userSnapshot");
+  localStorage.removeItem("device:share_diagnostics");
+  localStorage.removeItem("device:diagnostics_reporting");
   mockIsGatewayAuth = false;
-  mockIsLocalMode = false;
+  mockIsLocalClient = false;
   mockIsRemoteGatewayMode = false;
   mockSelectedAssistant = undefined;
+  mockLockfileAssistants = [];
   mockPlatformAssistants = [];
   mockIsNativePlatform = false;
   mockIsBiometricEnabled = false;
   mockBiometricToken = null;
   mockGatewayToken = null;
+  setSelfHostedConnection(null);
   mockPrimeError = null;
   setSelectedAssistantMock.mockClear();
   primeLocalGatewayConnectionMock.mockClear();
+  primeLocalGatewayConnectionWithStartupRetryMock.mockClear();
   primeLocalGatewayConnectionWithRepairMock.mockClear();
   ensureGatewayTokenMock.mockClear();
   refreshRemoteGatewaySessionMock.mockClear();
   restoreConsentForUserMock.mockClear();
   persistConsentForUserMock.mockClear();
-  persistToggleConsentMock.mockClear();
+  persistDiagnosticsAckMock.mockClear();
   resolveServerConsentMock.mockClear();
+  mockRequiredVersions = { ...DEFAULT_REQUIRED_VERSIONS };
+  getRequiredConsentVersionsMock.mockClear();
   setTosAcceptedMock.mockClear();
   setPrivacyConsentMock.mockClear();
   setAnalyticsConsentCurrentMock.mockClear();
   setDiagnosticsConsentCurrentMock.mockClear();
+  setHasConsentRecordMock.mockClear();
   setShareAnalyticsMock.mockClear();
   setShareDiagnosticsMock.mockClear();
+  setServerAnalyticsEffectiveMock.mockClear();
+  setPendingAnalyticsOptInMock.mockClear();
+  setServerDiagnosticsEffectiveMock.mockClear();
   setConsentHydratedMock.mockClear();
-  mockStoreShareAnalytics = true;
-  mockStoreShareDiagnostics = true;
+  mockStoreShareAnalytics = null;
+  mockStorePendingAnalyticsOptIn = false;
+  mockStoreShareDiagnostics = null;
   fetchConsentMock.mockClear();
   patchConsentMock.mockClear();
   mockFetchConsentResult = EMPTY_CONSENT;
@@ -388,6 +469,9 @@ beforeEach(() => {
   lifecycleCheckAssistantMock.mockClear();
   mockListAssistantsResult = [];
   listAssistantsMock.mockClear();
+  mockOrgFetchOutcome = { ok: true };
+  mockOrgFetchError = null;
+  fetchOrganizationsMock.mockClear();
   syncPlatformAssistantsToLockfileMock.mockClear();
   bootstrapLocalAssistantPlatformIdentityMock.mockClear();
   resetAuthStore();
@@ -475,7 +559,7 @@ describe("auth store onboarding flag reconciliation", () => {
     // The user had also signed into the platform; the platform session now
     // settles negative (401). The local session stays authenticated, but the
     // stale platform user and "present" status are cleared.
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     mockIsGatewayAuth = true; // isGatewayAuthEnabled() === true
     mockGatewayToken = null; // isGatewayAuthMode() === false (token not minted)
     sessionUser = null; // platform probe settles 401
@@ -492,11 +576,68 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(useAuthStore.getState().platformSession).toBe("absent"); // stale platform state cleared
   });
 
+  test("refreshSession keeps a pre-hatch local session alive on a settled 401", async () => {
+    // Brand-new desktop user: nothing hatched, so no local gateway URL, and no
+    // platform account for the probe to find.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = false;
+    mockGatewayToken = null;
+    mockPlatformAssistants = [];
+    sessionUser = null;
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "unknown",
+    });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("gateway-local");
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+  });
+
+  test("refreshSession still ends a local session whose assistants are platform-hosted", async () => {
+    // A managed assistant is unreachable without a platform session, so the
+    // demotion above excludes this case and login is the right destination.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = false;
+    mockGatewayToken = null;
+    mockPlatformAssistants = [{ assistantId: "managed-1", cloud: "vellum" }];
+    sessionUser = null;
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "present",
+    });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(false);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+  });
+
+  test("refreshSession still ends the session for a platform-mode client on a settled 401", async () => {
+    // The web SPA has no local session to fall back on, so a settled rejection
+    // still logs out.
+    mockIsLocalClient = false;
+    mockIsGatewayAuth = false;
+    mockGatewayToken = null;
+    mockPlatformAssistants = [];
+    sessionUser = null;
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "present",
+    });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(false);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(useAuthStore.getState().user).toBeNull();
+  });
+
   test("refreshSession leaves an unauthenticated session untouched in the gateway window", async () => {
     // Mid cold-start hatch: gateway enabled, token not minted, session not yet
     // established. A settled 401 must not promote to authenticated — the gateway
     // settles the session once its token mints (via connectLocalAssistant).
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     mockIsGatewayAuth = true;
     mockGatewayToken = null;
     sessionUser = null;
@@ -515,7 +656,7 @@ describe("auth store onboarding flag reconciliation", () => {
     // A local user who also signs into the platform (e.g. ProviderCallbackPage
     // after an allauth login) must have the successful probe update the store,
     // even while the gateway token isn't minted.
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     mockIsGatewayAuth = true;
     mockGatewayToken = null;
     sessionUser = { id: "user-1", email: "user@example.com" };
@@ -532,7 +673,7 @@ describe("auth store onboarding flag reconciliation", () => {
   });
 
   test("successful local platform probe bootstraps the selected local assistant identity", async () => {
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     mockIsGatewayAuth = true;
     mockGatewayToken = "access-token";
     mockSelectedAssistant = { assistantId: "local-a", cloud: "local" };
@@ -542,6 +683,39 @@ describe("auth store onboarding flag reconciliation", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(bootstrapLocalAssistantPlatformIdentityMock).toHaveBeenCalledWith();
+  });
+
+  test("initSession restores the local gateway session through the startup-retry prime", async () => {
+    // The boot restore must ride out the gateway's reboot startup window rather
+    // than the bare prime, so a transient "starting" failure doesn't drop the
+    // persisted local assistant to the recovery controls.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+
+    await useAuthStore.getState().initSession();
+
+    expect(
+      primeLocalGatewayConnectionWithStartupRetryMock,
+    ).toHaveBeenCalledTimes(1);
+    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("gateway-local");
+  });
+
+  test("initSession settles unauthenticated when the startup-retry prime is exhausted", async () => {
+    // After the ride-out budget is spent the prime still throws; boot falls
+    // through to the chooser exactly as before.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockPrimeError = new Error("Gateway token request failed: 401");
+
+    await useAuthStore.getState().initSession();
+
+    expect(
+      primeLocalGatewayConnectionWithStartupRetryMock,
+    ).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(useAuthStore.getState().user).toBeNull();
   });
 
   test("initSession uses server consent when server has a consent record", async () => {
@@ -561,8 +735,12 @@ describe("auth store onboarding flag reconciliation", () => {
       privacy: true,
       shareAnalytics: true,
       shareDiagnostics: true,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
       analyticsCurrent: true,
       diagnosticsCurrent: true,
+      analyticsVersionCurrent: true,
+      diagnosticsVersionCurrent: true,
       hasServerRecord: true,
     });
 
@@ -571,14 +749,373 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(fetchConsentMock).toHaveBeenCalled();
     expect(resolveServerConsentMock).toHaveBeenCalled();
     expect(restoreConsentForUserMock).not.toHaveBeenCalled();
+    // The explicit server choice is adopted unconditionally.
+    expect(setShareAnalyticsMock).toHaveBeenCalledWith(true);
     // Currency flags hydrate from the resolved server consent.
     expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(true);
     expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
-    expect(persistToggleConsentMock).toHaveBeenCalledWith("user-1", {
+    // Only diagnostics carries a device ack — analytics has none.
+    expect(persistDiagnosticsAckMock).toHaveBeenCalledWith("user-1");
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+  });
+
+  test("never-asked analytics (null on a real record) hydrates current but earns no device ack", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      shareAnalytics: null,
+      shareDiagnostics: true,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
+      // The resolver reads a null share_analytics as "nothing to re-review".
       analyticsCurrent: true,
       diagnosticsCurrent: true,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: true,
+      hasServerRecord: true,
     });
-    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+
+    await useAuthStore.getState().initSession();
+
+    // No bounce to review-terms...
+    expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    // ...but no versioned ack either: only an explicit choice may attest a
+    // confirmation that could later backfill a server version stamp.
+    expect(persistDiagnosticsAckMock).toHaveBeenCalledWith("user-1");
+    // Never-asked propagates: the store adopts null so tri-state chosen-ness
+    // mirrors the server.
+    expect(setShareAnalyticsMock).toHaveBeenCalledWith(null);
+  });
+
+  test("server null never overwrites a pending local explicit analytics opt-out", async () => {
+    // The user opted out on this device; the patchConsent write is still in
+    // flight (or failed), so the server still reports null. Adopting null
+    // would clear the opt-out and resume uploads the user declined.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockStoreShareAnalytics = false;
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      shareAnalytics: null,
+      shareDiagnostics: true,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: true,
+      hasServerRecord: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(setShareAnalyticsMock).not.toHaveBeenCalled();
+  });
+
+  test("an explicit server analytics value overrides a local opt-out", async () => {
+    // The server is authoritative for explicit choices — e.g. the user opted
+    // back in from another device.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockStoreShareAnalytics = false;
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      shareAnalytics: true,
+      shareDiagnostics: true,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: true,
+      diagnosticsVersionCurrent: true,
+      hasServerRecord: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(setShareAnalyticsMock).toHaveBeenCalledWith(true);
+  });
+
+  test("a server record adopts both effective verdicts into the store", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      shareAnalytics: null,
+      shareDiagnostics: true,
+      // The platform's verdict can disagree with the raw values — it is
+      // adopted verbatim, not re-derived.
+      analyticsEffective: false,
+      diagnosticsEffective: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: true,
+      hasServerRecord: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(setServerAnalyticsEffectiveMock).toHaveBeenCalledWith(false);
+    expect(setServerDiagnosticsEffectiveMock).toHaveBeenCalledWith(true);
+  });
+
+  test("a failed consent fetch leaves the adopted effective verdicts untouched", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockFetchConsentError = new Error("offline");
+
+    await useAuthStore.getState().initSession();
+
+    expect(setServerAnalyticsEffectiveMock).not.toHaveBeenCalled();
+    expect(setServerDiagnosticsEffectiveMock).not.toHaveBeenCalled();
+  });
+
+  test("a settled signed-out sync clears the adopted effective verdicts", async () => {
+    sessionUser = null;
+
+    await useAuthStore.getState().initSession();
+
+    expect(setServerAnalyticsEffectiveMock).toHaveBeenCalledWith(null);
+    expect(setServerDiagnosticsEffectiveMock).toHaveBeenCalledWith(null);
+  });
+
+  test("a server-effective diagnostics opt-out closes the gate even when raw is null", async () => {
+    // The platform computes the verdict; a raw null (never asked) with an
+    // effective false must close the reporting gate through the chokepoint.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      shareAnalytics: null,
+      shareDiagnostics: null,
+      analyticsEffective: true,
+      diagnosticsEffective: false,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
+      hasServerRecord: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(localStorage.getItem("device:diagnostics_reporting")).toBe("false");
+    // The raw tri-state (chosen-ness) is untouched by the verdict.
+    expect(setShareDiagnosticsMock).not.toHaveBeenCalled();
+  });
+
+  test("never-asked diagnostics (null on a real record) hydrates current but earns no device ack", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      shareAnalytics: true,
+      shareDiagnostics: null,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
+      analyticsCurrent: true,
+      // The resolver reads a null share_diagnostics as "nothing to re-review".
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: true,
+      diagnosticsVersionCurrent: false,
+      hasServerRecord: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    // No bounce to review-terms...
+    expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    // ...but no versioned ack either: only an explicit choice may attest a
+    // confirmation that could later backfill a server version stamp.
+    expect(persistDiagnosticsAckMock).not.toHaveBeenCalled();
+    // A null server value never overwrites the device-local preference.
+    expect(setShareDiagnosticsMock).not.toHaveBeenCalled();
+  });
+
+  test("an account switch resets the pending opt-in and adopted verdicts", async () => {
+    sessionUser = { id: "user-1", email: "one@example.com" };
+    await useAuthStore.getState().initSession();
+    setPendingAnalyticsOptInMock.mockClear();
+    setServerAnalyticsEffectiveMock.mockClear();
+
+    // Same-tab switch to a different account: the previous account's pending
+    // opt-in must never override the new account's server verdicts.
+    sessionUser = { id: "user-2", email: "two@example.com" };
+    await useAuthStore.getState().refreshSession();
+
+    expect(setPendingAnalyticsOptInMock).toHaveBeenCalledWith(false);
+    expect(setServerAnalyticsEffectiveMock).toHaveBeenCalledWith(null);
+  });
+
+  test("a stale server false is not adopted while an opt-in is pending", async () => {
+    // Same-user sync racing the opt-in PATCH: the stale record still says
+    // explicit false. Adopting it would trip the gate's explicit-false rule
+    // and silently flip the just-made opt-in back off.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    await useAuthStore.getState().initSession();
+    setShareAnalyticsMock.mockClear();
+
+    mockStorePendingAnalyticsOptIn = true;
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      shareAnalytics: false,
+      shareDiagnostics: null,
+      analyticsEffective: false,
+      diagnosticsEffective: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: true,
+      diagnosticsVersionCurrent: false,
+      hasServerRecord: true,
+    });
+    await useAuthStore.getState().refreshSession();
+
+    expect(setShareAnalyticsMock).not.toHaveBeenCalledWith(false);
+    expect(setPendingAnalyticsOptInMock).not.toHaveBeenCalledWith(false);
+  });
+
+  test("a same-user resync does not reset the pending opt-in at sync start", async () => {
+    sessionUser = { id: "user-1", email: "one@example.com" };
+    await useAuthStore.getState().initSession();
+    setPendingAnalyticsOptInMock.mockClear();
+
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      shareAnalytics: null,
+      shareDiagnostics: null,
+      analyticsEffective: false,
+      diagnosticsEffective: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
+      hasServerRecord: true,
+    });
+    await useAuthStore.getState().refreshSession();
+
+    // Raw is null (does not reflect an opt-in) and the user is unchanged:
+    // the pending flag must survive the sync (the in-flight-PATCH race).
+    expect(setPendingAnalyticsOptInMock).not.toHaveBeenCalledWith(false);
+  });
+
+  test("a policy denial without version evidence is adopted and counted as a record", async () => {
+    // Never-asked user denied by org/platform policy: raw null, effective
+    // false, no version stamps. The verdict must be adopted (unconditional
+    // adoption — no record heuristic on the verdict path) so the gate closes.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: false,
+      privacy: false,
+      shareAnalytics: null,
+      shareDiagnostics: null,
+      analyticsEffective: false,
+      diagnosticsEffective: false,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
+      hasServerRecord: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(setServerAnalyticsEffectiveMock).toHaveBeenCalledWith(false);
+    expect(setServerDiagnosticsEffectiveMock).toHaveBeenCalledWith(false);
+  });
+
+  test("even a no-record response adopts the platform verdict (never-asked → enabled)", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: false,
+      privacy: false,
+      shareAnalytics: null,
+      shareDiagnostics: null,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
+      hasServerRecord: false,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(setServerAnalyticsEffectiveMock).toHaveBeenCalledWith(true);
+    expect(setServerDiagnosticsEffectiveMock).toHaveBeenCalledWith(true);
+  });
+
+  test("a no-record response never adopts its default share values over a local opt-out", async () => {
+    // Older/default consent shapes materialize share_analytics: true on a
+    // record-less response; adopting it would clobber the device opt-out the
+    // backfill is about to seed the server with.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    localStorage.setItem("device:share_analytics", "false");
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: false,
+      privacy: false,
+      shareAnalytics: true,
+      shareDiagnostics: true,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
+      hasServerRecord: false,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(setShareAnalyticsMock).not.toHaveBeenCalled();
+  });
+
+  test("no-record fallback without any device acks stays current and backfills neither toggle", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    restoreConsentForUserMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      diagnosticsCurrent: false,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    // Never-asked toggles (no server record, no device acks) must not bounce
+    // the user to review-terms.
+    expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    // The backfill seeds the server without any share-toggle version stamps —
+    // the server keeps both null until the user makes an explicit choice.
+    const body = patchConsentMock.mock.calls[0][0] as Record<string, unknown>;
+    expect("share_analytics_accepted_version" in body).toBe(false);
+    expect("share_diagnostics_accepted_version" in body).toBe(false);
+    // No ack keys are written for never-asked toggles.
+    expect(persistDiagnosticsAckMock).not.toHaveBeenCalled();
+  });
+
+  test("no-record fallback without an analytics device ack stays current and backfills without analytics", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    restoreConsentForUserMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      diagnosticsCurrent: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    // Never-asked analytics (no server record, no device ack) must not bounce
+    // the user to review-terms.
+    expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    // The backfill seeds the server without any analytics fields — the server
+    // keeps share_analytics null until the user makes an explicit choice.
+    const body = patchConsentMock.mock.calls[0][0] as Record<string, unknown>;
+    expect("share_analytics" in body).toBe(false);
+    expect("share_analytics_accepted_version" in body).toBe(false);
+    expect(body.share_diagnostics_accepted_version).toEqual(expect.any(String));
+    expect(persistDiagnosticsAckMock).toHaveBeenCalledWith("user-1");
   });
 
   test("initSession falls through to device keys when server versions are empty", async () => {
@@ -597,7 +1134,6 @@ describe("auth store onboarding flag reconciliation", () => {
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,
       privacy: true,
-      analyticsCurrent: true,
       diagnosticsCurrent: true,
     });
 
@@ -609,10 +1145,7 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
     // Acks are persisted from the device-restored values, not the empty
     // server values — otherwise the fallback would clobber its own input.
-    expect(persistToggleConsentMock).toHaveBeenLastCalledWith("user-1", {
-      analyticsCurrent: true,
-      diagnosticsCurrent: true,
-    });
+    expect(persistDiagnosticsAckMock).toHaveBeenLastCalledWith("user-1");
     // Legal consent is persisted with the restored (true) values, after the
     // fallback — never the empty server values that would erase device acks.
     expect(persistConsentForUserMock).toHaveBeenLastCalledWith(
@@ -620,16 +1153,25 @@ describe("auth store onboarding flag reconciliation", () => {
       true,
       true,
     );
-    // The backfill patch carries the current toggle versions so the next
-    // server fetch doesn't re-mark them stale and re-route to review-terms.
+    // The backfill patch carries the diagnostics version (device-attested) so
+    // the next server fetch doesn't re-mark it stale and re-route to
+    // review-terms. Analytics has never been chosen on this device (store is
+    // null), so no analytics fields are seeded — the server keeps null.
     expect(patchConsentMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        share_analytics_accepted_version: expect.any(String),
         share_diagnostics_accepted_version: expect.any(String),
       }),
     );
-    // The empty server record's default share booleans must NOT overwrite the
-    // device-local choices the store already holds.
+    const backfillBody = patchConsentMock.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect("share_analytics" in backfillBody).toBe(false);
+    expect("share_analytics_accepted_version" in backfillBody).toBe(false);
+    // A no-record response adopts nothing — its share values are API
+    // defaults, not a stored row, and adopting one would clobber the device
+    // state the backfill is seeding from. The diagnostics preference is
+    // likewise left untouched by the chokepoint on an unknown input.
     expect(setShareAnalyticsMock).not.toHaveBeenCalled();
     expect(setShareDiagnosticsMock).not.toHaveBeenCalled();
   });
@@ -644,7 +1186,6 @@ describe("auth store onboarding flag reconciliation", () => {
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,
       privacy: true,
-      analyticsCurrent: true,
       diagnosticsCurrent: true,
     });
 
@@ -658,18 +1199,58 @@ describe("auth store onboarding flag reconciliation", () => {
     );
   });
 
+  test("backfill stamps adopted required versions for acked axes; analytics stays at the build constant", async () => {
+    // The server bumped required_versions past the build constants. The sync
+    // flow adopts them (via resolveServerConsent) before the backfill runs.
+    // Device-ACKED axes (tos/privacy/diagnostics) stamp the adopted versions
+    // — their acks were validated against those requirements, and frozen
+    // stamps would write a stale server row that re-prompts other devices.
+    // Analytics has NO versioned device ack: a device value proves only a
+    // choice made under some build's disclosure, so it stamps the frozen
+    // build constant — stamping a bumped version would attest a disclosure
+    // the user never saw.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockRequiredVersions = {
+      tos: "2026-09-01",
+      privacyPolicy: "2026-09-02",
+      aiDataSharing: "2026-09-03",
+      shareAnalytics: "2026-09-04",
+      shareDiagnostics: "2026-09-05",
+    };
+    mockStoreShareAnalytics = false;
+    restoreConsentForUserMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      diagnosticsCurrent: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(patchConsentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tos_accepted_version: "2026-09-01",
+        privacy_policy_accepted_version: "2026-09-02",
+        ai_data_sharing_accepted_version: "2026-09-03",
+        share_analytics: false,
+        share_analytics_accepted_version: "2026-06-08",
+        share_diagnostics_accepted_version: "2026-09-05",
+      }),
+    );
+  });
+
   test("device-consent fallback reopens the diagnostics reporting gate for a device-confirmed opt-in", async () => {
     // Empty server record, but the user has a current device-side diagnostics
-    // ack and an opted-in preference. The no-server-record chokepoint closes
-    // the gate; the fallback must reopen it so a confirmed opted-in user isn't
-    // left with Sentry disabled.
+    // ack and an opted-in preference. The chokepoint resolves the unknown
+    // server value from the device preference, reopening a gate an earlier
+    // build left closed so a confirmed opted-in user isn't left with Sentry
+    // disabled.
     sessionUser = { id: "user-1", email: "user@example.com" };
     mockStoreShareDiagnostics = true;
+    localStorage.setItem("device:share_diagnostics", "true");
     localStorage.setItem("device:diagnostics_reporting", "false");
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,
       privacy: true,
-      analyticsCurrent: true,
       diagnosticsCurrent: true,
     });
 
@@ -679,15 +1260,16 @@ describe("auth store onboarding flag reconciliation", () => {
   });
 
   test("device-consent fallback keeps the gate closed for a device opt-out", async () => {
-    // Same empty-record fallback, but the device preference is opted out — the
-    // gate must stay false even though the device ack is current.
+    // Same empty-record fallback, but the device preference is an explicit
+    // opt-out — the unknown server value must not reopen the gate even though
+    // the device ack is current.
     sessionUser = { id: "user-1", email: "user@example.com" };
     mockStoreShareDiagnostics = false;
+    localStorage.setItem("device:share_diagnostics", "false");
     localStorage.setItem("device:diagnostics_reporting", "true");
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,
       privacy: true,
-      analyticsCurrent: true,
       diagnosticsCurrent: true,
     });
 
@@ -695,6 +1277,29 @@ describe("auth store onboarding flag reconciliation", () => {
 
     expect(localStorage.getItem("device:diagnostics_reporting")).toBe("false");
     mockStoreShareDiagnostics = true;
+  });
+
+  test("failed consent fetch on a fresh device writes a conservative closed gate", async () => {
+    // A confirmed session with a throwing consent fetch must not let the
+    // never-written gate fall open on hydration — the server may hold an
+    // explicit opt-out this device hasn't seen yet.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockFetchConsentError = new Error("offline");
+    localStorage.removeItem("device:diagnostics_reporting");
+
+    await useAuthStore.getState().initSession();
+
+    expect(localStorage.getItem("device:diagnostics_reporting")).toBe("false");
+  });
+
+  test("failed consent fetch leaves an already-resolved gate untouched", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockFetchConsentError = new Error("offline");
+    localStorage.setItem("device:diagnostics_reporting", "true");
+
+    await useAuthStore.getState().initSession();
+
+    expect(localStorage.getItem("device:diagnostics_reporting")).toBe("true");
   });
 
   test("stale-but-real record keeps server share values authoritative", async () => {
@@ -708,8 +1313,12 @@ describe("auth store onboarding flag reconciliation", () => {
       privacy: false,
       shareAnalytics: false,
       shareDiagnostics: true,
+      analyticsEffective: false,
+      diagnosticsEffective: true,
       analyticsCurrent: false,
       diagnosticsCurrent: false,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
       hasServerRecord: true,
     });
 
@@ -729,8 +1338,12 @@ describe("auth store onboarding flag reconciliation", () => {
       privacy: true,
       shareAnalytics: true,
       shareDiagnostics: true,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
       analyticsCurrent: true,
       diagnosticsCurrent: true,
+      analyticsVersionCurrent: true,
+      diagnosticsVersionCurrent: true,
       hasServerRecord: true,
     });
 
@@ -744,21 +1357,25 @@ describe("auth store onboarding flag reconciliation", () => {
     // acceptance of the CURRENT terms — the stale server record just means
     // the fire-and-forget backfill write never landed. The in-memory flags
     // must stay true (no bounce into onboarding/review-terms) and the
-    // backfill must be re-sent.
+    // backfill must be re-sent. Analytics has no device ack, so its stale
+    // explicit choice stays stale (re-review) and is never backfilled.
     sessionUser = { id: "user-1", email: "user@example.com" };
     resolveServerConsentMock.mockReturnValueOnce({
       tos: false,
       privacy: false,
       shareAnalytics: true,
       shareDiagnostics: true,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
       analyticsCurrent: false,
       diagnosticsCurrent: false,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
       hasServerRecord: true,
     });
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,
       privacy: true,
-      analyticsCurrent: true,
       diagnosticsCurrent: true,
     });
 
@@ -766,7 +1383,7 @@ describe("auth store onboarding flag reconciliation", () => {
 
     expect(setTosAcceptedMock).toHaveBeenCalledWith(true);
     expect(setPrivacyConsentMock).toHaveBeenCalledWith(true);
-    expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(false);
     expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
     expect(persistConsentForUserMock).toHaveBeenLastCalledWith(
       "user-1",
@@ -779,13 +1396,14 @@ describe("auth store onboarding flag reconciliation", () => {
         tos_accepted_version: expect.any(String),
         privacy_policy_accepted_version: expect.any(String),
         ai_data_sharing_accepted_version: expect.any(String),
-        share_analytics_accepted_version: expect.any(String),
         share_diagnostics_accepted_version: expect.any(String),
       }),
     );
-    // …but never the share booleans: a real record's values are authoritative.
+    // …but never the share booleans (a real record's values are
+    // authoritative) nor an analytics stamp (nothing device-side attests it).
     const body = patchConsentMock.mock.calls[0]![0] as Record<string, unknown>;
     expect(body).not.toContainKey("share_analytics");
+    expect(body).not.toContainKey("share_analytics_accepted_version");
     expect(body).not.toContainKey("share_diagnostics");
   });
 
@@ -798,14 +1416,17 @@ describe("auth store onboarding flag reconciliation", () => {
       privacy: false,
       shareAnalytics: true,
       shareDiagnostics: true,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
       analyticsCurrent: true,
       diagnosticsCurrent: true,
+      analyticsVersionCurrent: true,
+      diagnosticsVersionCurrent: true,
       hasServerRecord: true,
     });
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,
       privacy: true,
-      analyticsCurrent: true,
       diagnosticsCurrent: true,
     });
 
@@ -828,14 +1449,17 @@ describe("auth store onboarding flag reconciliation", () => {
       privacy: false,
       shareAnalytics: true,
       shareDiagnostics: true,
+      analyticsEffective: true,
+      diagnosticsEffective: true,
       analyticsCurrent: false,
       diagnosticsCurrent: false,
+      analyticsVersionCurrent: false,
+      diagnosticsVersionCurrent: false,
       hasServerRecord: true,
     });
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: false,
       privacy: false,
-      analyticsCurrent: false,
       diagnosticsCurrent: false,
     });
 
@@ -866,25 +1490,12 @@ describe("auth store onboarding flag reconciliation", () => {
     expect(setConsentHydratedMock).toHaveBeenCalledWith(true);
   });
 
-  test("initSession marks the assistants list hydrated even when the platform fetch fails", async () => {
-    sessionUser = { id: "user-1", email: "user@example.com" };
-    useResolvedAssistantsStore.setState({ assistantsHydrated: false });
-    listAssistantsMock.mockImplementationOnce(async () => {
-      throw new Error("Network error");
-    });
-
-    await useAuthStore.getState().initSession();
-
-    expect(useResolvedAssistantsStore.getState().assistantsHydrated).toBe(true);
-  });
-
   test("initSession falls back to device keys when fetchConsent fails", async () => {
     sessionUser = { id: "user-1", email: "user@example.com" };
     mockFetchConsentError = new Error("Network error");
     restoreConsentForUserMock.mockReturnValueOnce({
       tos: true,
       privacy: true,
-      analyticsCurrent: true,
       diagnosticsCurrent: true,
     });
 
@@ -899,7 +1510,7 @@ describe("auth store onboarding flag reconciliation", () => {
   });
 
   test("initSession fetches server consent for local-mode platform sessions", async () => {
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     sessionUser = { id: "user-1", email: "user@example.com" };
     mockPlatformAssistants = [{ assistantId: "p1", cloud: "vellum" }];
     mockFetchConsentResult = {
@@ -945,7 +1556,7 @@ describe("auth store onboarding flag reconciliation", () => {
     // callback) must re-sync managed assistants into the lockfile — not only
     // cold `initSession` — so the macOS tray and CLI don't keep a stale list
     // until the next full boot.
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     sessionUser = { id: "user-3", email: "user@example.com" };
     mockListAssistantsResult = {
       ok: true,
@@ -973,12 +1584,15 @@ describe("auth store onboarding flag reconciliation", () => {
         },
       ],
       "org-test",
+      // The shared reconcile helper forwards its staleness predicate; the
+      // refresh path has none.
+      undefined,
     );
   });
 
   test("refreshSession skips lockfile sync outside local mode", async () => {
     // Platform mode has no lockfile host — the sync must not run there.
-    mockIsLocalMode = false;
+    mockIsLocalClient = false;
     sessionUser = { id: "user-4", email: "user@example.com" };
     mockListAssistantsResult = {
       ok: true,
@@ -1059,6 +1673,24 @@ describe("session cleanup on logout", () => {
     expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
   });
 
+  test("gateway logout clears paired proxy authorization", async () => {
+    mockIsGatewayAuth = true;
+    mockSelectedAssistant = { assistantId: "paired-1", cloud: "paired" };
+    setSelfHostedConnection({
+      url: `${window.location.origin}/assistant/__gateway-paired/paired-1`,
+      token: null,
+    });
+    setSelectedAssistantMock.mockImplementationOnce(async () => {
+      expect(getSelfHostedIngressUrl()).toBeNull();
+    });
+    useAuthStore.setState({ sessionStatus: "authenticated" });
+
+    await useAuthStore.getState().logout();
+
+    expect(getSelfHostedIngressUrl()).toBeNull();
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+  });
+
   test("non-gateway logout clears the selection slice after the lifecycle reset", async () => {
     const order: string[] = [];
     lifecycleResetForLogoutMock.mockImplementationOnce(() => {
@@ -1083,7 +1715,7 @@ describe("platform session probe resolution", () => {
   test("a re-run gateway probe retains the last status until it settles", async () => {
     mockIsGatewayAuth = true;
     mockGatewayToken = "access-token";
-    mockIsLocalMode = false;
+    mockIsLocalClient = false;
     sessionUser = { id: "user-1", email: "user@example.com" };
     useAuthStore.setState({ platformSession: "absent" });
 
@@ -1109,7 +1741,7 @@ describe("platform session probe resolution", () => {
   test("a stale probe completing after a newer one does not change status", async () => {
     mockIsGatewayAuth = true;
     mockGatewayToken = "access-token";
-    mockIsLocalMode = false;
+    mockIsLocalClient = false;
     sessionUser = { id: "user-1", email: "user@example.com" };
     useAuthStore.setState({ platformSession: "absent" });
 
@@ -1131,6 +1763,370 @@ describe("platform session probe resolution", () => {
     // The newest probe settling is what moves status to "present".
     gates[1]();
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(useAuthStore.getState().platformSession).toBe("present");
+  });
+});
+
+describe("platform probe conclusive rejection (half-dead session)", () => {
+  // The half-dead state: allauth answers 200 with a user while the platform
+  // API conclusively rejects the same credential. The probe consumes the
+  // org/assistants evidence it already gathers and settles "absent".
+  //
+  // Every test drives the local-client init path (no gateway auth, no
+  // platform assistants), where the probe runs with `setUserOnSuccess`.
+  function arrangeLocalProbe(): void {
+    mockIsLocalClient = true;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+  }
+
+  test("an org-fetch session rejection settles the session absent", async () => {
+    arrangeLocalProbe();
+    mockOrgFetchOutcome = { ok: false, kind: "rejected", status: 403 };
+
+    await useAuthStore.getState().initSession();
+    await whenPlatformSessionSettled();
+
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+    // A rejected session must not install a platform user, persist a
+    // restorable snapshot, or bootstrap the platform identity.
+    expect(useAuthStore.getState().user?.kind).toBe("local");
+    expect(localStorage.getItem("vellum:auth:userSnapshot")).toBeNull();
+    expect(bootstrapLocalAssistantPlatformIdentityMock).not.toHaveBeenCalled();
+    // The evidence check short-circuits before the assistants call and sync.
+    expect(listAssistantsMock).not.toHaveBeenCalled();
+    expect(syncPlatformAssistantsToLockfileMock).not.toHaveBeenCalled();
+  });
+
+  test("a session rejection clears a previously persisted snapshot", async () => {
+    arrangeLocalProbe();
+    // A snapshot persisted by an earlier confirmed session must not survive
+    // the rejection: restoreOfflineSession would otherwise resurrect the
+    // rejected account as "present" on a later offline boot.
+    localStorage.setItem(
+      "vellum:auth:userSnapshot",
+      JSON.stringify({ id: "user-1", email: "user@example.com" }),
+    );
+    mockOrgFetchOutcome = { ok: false, kind: "rejected", status: 403 };
+
+    await useAuthStore.getState().initSession();
+    await whenPlatformSessionSettled();
+
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+    expect(localStorage.getItem("vellum:auth:userSnapshot")).toBeNull();
+  });
+
+  test("an assistants-list session rejection settles the session absent", async () => {
+    arrangeLocalProbe();
+    mockListAssistantsResult = { ok: false, status: 403, error: {} };
+
+    await useAuthStore.getState().initSession();
+    await whenPlatformSessionSettled();
+
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+    expect(useAuthStore.getState().user?.kind).toBe("local");
+    expect(bootstrapLocalAssistantPlatformIdentityMock).not.toHaveBeenCalled();
+    expect(syncPlatformAssistantsToLockfileMock).not.toHaveBeenCalled();
+    // The org fetch succeeded, so the rejected account's org state must be
+    // cleared here or its Vellum-Organization-Id keeps stamping requests.
+    expect(clearOrganizationMock).toHaveBeenCalled();
+  });
+
+  test("a transport-thrown org fetch keeps the present settle", async () => {
+    arrangeLocalProbe();
+    mockOrgFetchError = new TypeError("Failed to fetch");
+
+    await useAuthStore.getState().initSession();
+    await whenPlatformSessionSettled();
+
+    // No evidence of rejection: the offline-restore contract (LUM-2412)
+    // keeps the session present.
+    expect(useAuthStore.getState().platformSession).toBe("present");
+    expect(useAuthStore.getState().user?.kind).toBe("platform");
+    expect(bootstrapLocalAssistantPlatformIdentityMock).toHaveBeenCalled();
+  });
+
+  test("a non-rejection org failure keeps the present settle", async () => {
+    arrangeLocalProbe();
+    mockOrgFetchOutcome = { ok: false, kind: "unavailable" };
+
+    await useAuthStore.getState().initSession();
+    await whenPlatformSessionSettled();
+
+    expect(useAuthStore.getState().platformSession).toBe("present");
+    expect(useAuthStore.getState().user?.kind).toBe("platform");
+  });
+
+  test("a sync race timeout keeps the present settle", async () => {
+    arrangeLocalProbe();
+    // An org fetch that never resolves leaves the race with only the timeout
+    // arm; shrink the 3s timer to 0 so the test settles immediately.
+    mockOrgFetchOutcome = new Promise(() => {});
+    const originalSetTimeout = globalThis.setTimeout;
+    const setTimeoutSpy = spyOn(globalThis, "setTimeout");
+    setTimeoutSpy.mockImplementation(((
+      handler: () => void,
+      timeout?: number,
+    ) =>
+      originalSetTimeout(
+        handler,
+        timeout === 3_000 ? 0 : timeout,
+      )) as typeof setTimeout);
+
+    try {
+      await useAuthStore.getState().initSession();
+      await whenPlatformSessionSettled();
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+
+    expect(useAuthStore.getState().platformSession).toBe("present");
+    expect(useAuthStore.getState().user?.kind).toBe("platform");
+    // Wiring pin: past the timeout the strict sync gate is closed but the
+    // same-session gate stays open (no newer probe), so a late org success
+    // may still commit and un-strand readiness.
+    const [isCurrent, isSameSession] = fetchOrganizationsMock.mock
+      .calls[0] as unknown as [() => boolean, () => boolean];
+    expect(isCurrent()).toBe(false);
+    expect(isSameSession()).toBe(true);
+  });
+
+  test("a rejection landing after the race timeout does not clear org state", async () => {
+    arrangeLocalProbe();
+    // Hold the org fetch past the (shrunken) timeout, then resolve it OK and
+    // let the assistants call report a settled rejection. The probe already
+    // settled "present" from cached data, so the dangling call must not
+    // strip the org header out from under that session.
+    let releaseOrgFetch: (value: unknown) => void = () => {};
+    mockOrgFetchOutcome = new Promise((resolve) => {
+      releaseOrgFetch = resolve;
+    });
+    mockListAssistantsResult = { ok: false, status: 403, error: {} };
+    const originalSetTimeout = globalThis.setTimeout;
+    const setTimeoutSpy = spyOn(globalThis, "setTimeout");
+    setTimeoutSpy.mockImplementation(((
+      handler: () => void,
+      timeout?: number,
+    ) =>
+      originalSetTimeout(
+        handler,
+        timeout === 3_000 ? 0 : timeout,
+      )) as typeof setTimeout);
+
+    try {
+      await useAuthStore.getState().initSession();
+      await whenPlatformSessionSettled();
+      expect(useAuthStore.getState().platformSession).toBe("present");
+
+      releaseOrgFetch({ ok: true });
+      await new Promise((resolve) => originalSetTimeout(resolve, 0));
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+
+    expect(clearOrganizationMock).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().platformSession).toBe("present");
+  });
+
+  test("the probe clears its sync race timer once it settles", async () => {
+    arrangeLocalProbe();
+    const setTimeoutSpy = spyOn(globalThis, "setTimeout");
+    const clearTimeoutSpy = spyOn(globalThis, "clearTimeout");
+
+    try {
+      await useAuthStore.getState().initSession();
+      await whenPlatformSessionSettled();
+
+      const raceTimerIndex = setTimeoutSpy.mock.calls.findIndex(
+        (call) => call[1] === 3_000,
+      );
+      expect(raceTimerIndex).toBeGreaterThanOrEqual(0);
+      const raceTimerHandle = setTimeoutSpy.mock.results[raceTimerIndex]?.value;
+      expect(
+        clearTimeoutSpy.mock.calls.some((call) => call[0] === raceTimerHandle),
+      ).toBe(true);
+    } finally {
+      setTimeoutSpy.mockRestore();
+      clearTimeoutSpy.mockRestore();
+    }
+  });
+});
+
+describe("session-rejection evidence at sibling confirmation sites", () => {
+  // The same half-dead evidence rule applies wherever an allauth 200 would
+  // otherwise confirm the session: refreshSession's resume path, initSession's
+  // platform-assistants path, and connectPlatformAssistant.
+
+  test("refreshSession settles a half-dead session absent instead of re-confirming it", async () => {
+    // A gateway client whose cached token expired while backgrounded lands in
+    // the non-gateway branch (isGatewayAuthMode() is false without a token).
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockGatewayToken = null;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockOrgFetchOutcome = { ok: false, kind: "rejected", status: 403 };
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "present",
+    });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+    expect(useAuthStore.getState().user?.kind).toBe("local");
+    // No snapshot may be re-persisted for the rejected session.
+    expect(localStorage.getItem("vellum:auth:userSnapshot")).toBeNull();
+    expect(syncPlatformAssistantsToLockfileMock).not.toHaveBeenCalled();
+    // Nor may the rejected account's user-scoped consent state be installed.
+    expect(fetchConsentMock).not.toHaveBeenCalled();
+  });
+
+  test("refreshSession settles absent on an assistants-list rejection", async () => {
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockGatewayToken = null;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockListAssistantsResult = { ok: false, status: 401, error: {} };
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "present",
+    });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+    expect(useAuthStore.getState().user?.kind).toBe("local");
+    expect(syncPlatformAssistantsToLockfileMock).not.toHaveBeenCalled();
+  });
+
+  test("refreshSession ends a half-dead session whose assistants are platform-hosted", async () => {
+    // Same stands-alone exclusion as a settled getSession 401: a managed
+    // assistant is unreachable without a platform session, so login wins.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = false;
+    mockPlatformAssistants = [{ assistantId: "managed-1", cloud: "vellum" }];
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockOrgFetchOutcome = { ok: false, kind: "rejected", status: 403 };
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "present",
+    });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(false);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(localStorage.getItem("vellum:auth:userSnapshot")).toBeNull();
+  });
+
+  test("a resume refresh does not flip a probe-settled absent session back to present", async () => {
+    // Pin the oscillation regression: the probe settles absent on rejection,
+    // then the app-resume refresh runs against the same half-dead session.
+    mockIsLocalClient = true;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockOrgFetchOutcome = { ok: false, kind: "rejected", status: 403 };
+
+    await useAuthStore.getState().initSession();
+    await whenPlatformSessionSettled();
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+    expect(useAuthStore.getState().user?.kind).toBe("local");
+    expect(localStorage.getItem("vellum:auth:userSnapshot")).toBeNull();
+  });
+
+  test("a transport-failed sync on refresh keeps the platform confirmation", async () => {
+    mockIsLocalClient = true;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockOrgFetchError = new TypeError("Failed to fetch");
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(useAuthStore.getState().platformSession).toBe("present");
+    expect(useAuthStore.getState().user?.kind).toBe("platform");
+    expect(localStorage.getItem("vellum:auth:userSnapshot")).not.toBeNull();
+  });
+
+  test("a non-rejection org failure on refresh keeps the platform confirmation", async () => {
+    mockIsLocalClient = true;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockOrgFetchOutcome = { ok: false, kind: "unavailable" };
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(useAuthStore.getState().platformSession).toBe("present");
+    expect(useAuthStore.getState().user?.kind).toBe("platform");
+  });
+
+  test("initSession with platform assistants routes a rejected session to login", async () => {
+    mockIsLocalClient = true;
+    mockPlatformAssistants = [{ assistantId: "p1", cloud: "vellum" }];
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    localStorage.setItem(
+      "vellum:auth:userSnapshot",
+      JSON.stringify({ id: "user-1", email: "user@example.com" }),
+    );
+    mockOrgFetchOutcome = { ok: false, kind: "rejected", status: 403 };
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+    expect(localStorage.getItem("vellum:auth:userSnapshot")).toBeNull();
+    expect(syncPlatformAssistantsToLockfileMock).not.toHaveBeenCalled();
+    // Nor may the rejected account's user-scoped consent state be installed.
+    expect(fetchConsentMock).not.toHaveBeenCalled();
+  });
+
+  test("initSession with platform assistants routes an assistants-list rejection to login", async () => {
+    mockIsLocalClient = true;
+    mockPlatformAssistants = [{ assistantId: "p1", cloud: "vellum" }];
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockListAssistantsResult = { ok: false, status: 410, error: {} };
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(syncPlatformAssistantsToLockfileMock).not.toHaveBeenCalled();
+  });
+
+  test("initSession with platform assistants keeps the session on a transport-failed sync", async () => {
+    mockIsLocalClient = true;
+    mockPlatformAssistants = [{ assistantId: "p1", cloud: "vellum" }];
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockOrgFetchError = new TypeError("Failed to fetch");
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.kind).toBe("platform");
+    expect(useAuthStore.getState().platformSession).toBe("present");
+  });
+
+  test("connectPlatformAssistant fails the connect on a rejected org fetch", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockOrgFetchOutcome = { ok: false, kind: "rejected", status: 403 };
+
+    await expect(
+      useAuthStore.getState().connectPlatformAssistant("assistant-1"),
+    ).rejects.toThrow("Platform authentication required");
+
+    expect(useAuthStore.getState().platformSession).not.toBe("present");
+    expect(localStorage.getItem("vellum:auth:userSnapshot")).toBeNull();
+    // A failed connect leaves no side effects behind: the caller keeps its
+    // current selection and consent state, not the rejected account's.
+    expect(setSelectedAssistantMock).not.toHaveBeenCalled();
+    expect(fetchConsentMock).not.toHaveBeenCalled();
+  });
+
+  test("connectPlatformAssistant tolerates a non-rejection org failure", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    mockOrgFetchOutcome = { ok: false, kind: "unavailable" };
+
+    await useAuthStore.getState().connectPlatformAssistant("assistant-1");
+
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
     expect(useAuthStore.getState().platformSession).toBe("present");
   });
 });
@@ -1189,7 +2185,7 @@ describe("biometric session recovery", () => {
 
 describe("connectLocalAssistant", () => {
   test("primes the connection BEFORE selecting the assistant, then logs in", async () => {
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     mockPlatformAssistants = [];
     // Prime must complete before the selection write becomes observable —
     // the lifecycle's selection subscription republishes the connection
@@ -1220,7 +2216,7 @@ describe("connectLocalAssistant", () => {
     // the already-selected assistant — the common case after guardian-token
     // repair retries the same assistant — would otherwise leave the active id
     // stale, so `connectLocalAssistant` must drive `checkAssistant()` itself.
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     mockPlatformAssistants = [];
     // setSelectedAssistant is a no-op write here (already selected); the only
     // thing that publishes active state is the explicit checkAssistant call.
@@ -1232,7 +2228,7 @@ describe("connectLocalAssistant", () => {
   });
 
   test("bootstraps a newly connected local assistant when already signed into the platform", async () => {
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     mockPlatformAssistants = [];
     useAuthStore.setState({
       platformSession: "present",
@@ -1247,7 +2243,7 @@ describe("connectLocalAssistant", () => {
   });
 
   test("rethrows the prime failure without selecting or marking the session logged in", async () => {
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     mockPrimeError = new Error("Guardian token not found");
 
     await expect(
@@ -1257,6 +2253,183 @@ describe("connectLocalAssistant", () => {
     // A failed connect leaves the previous selection in place.
     expect(setSelectedAssistantMock).not.toHaveBeenCalled();
     expect(useAuthStore.getState().sessionStatus).not.toBe("authenticated");
+  });
+});
+
+describe("connectPairedAssistant", () => {
+  const pairedEntry = { assistantId: "paired-a", cloud: "paired" };
+
+  test("primes the host proxy before selecting, then logs in and checks the assistant", async () => {
+    mockIsLocalClient = true;
+    mockLockfileAssistants = [pairedEntry];
+    const order: string[] = [];
+    primeLocalGatewayConnectionMock.mockImplementationOnce(async () => {
+      order.push("prime");
+    });
+    setSelectedAssistantMock.mockImplementationOnce(async (id) => {
+      order.push(`select:${String(id)}`);
+    });
+
+    await useAuthStore.getState().connectPairedAssistant("paired-a");
+
+    expect(order).toEqual(["prime", "select:paired-a"]);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("gateway-local");
+    expect(lifecycleCheckAssistantMock).toHaveBeenCalledTimes(1);
+    // No platform assistants and no gateway auth in this arrangement, so the
+    // platform-session status settles directly to "absent".
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+  });
+
+  test("uses the plain prime for the paired target: no wake-repair variant", async () => {
+    // Wake only runs inside primeLocalGatewayConnectionWithRepair, and it
+    // cannot start or repair an assistant on a remote machine, so a paired
+    // connect must stay on the plain prime.
+    mockIsLocalClient = true;
+    mockLockfileAssistants = [pairedEntry];
+
+    await useAuthStore.getState().connectPairedAssistant("paired-a");
+
+    expect(primeLocalGatewayConnectionMock).toHaveBeenCalledTimes(1);
+    expect(primeLocalGatewayConnectionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ assistantId: "paired-a", cloud: "paired" }),
+    );
+    expect(primeLocalGatewayConnectionWithRepairMock).not.toHaveBeenCalled();
+    expect(
+      primeLocalGatewayConnectionWithStartupRetryMock,
+    ).not.toHaveBeenCalled();
+  });
+
+  test("never bootstraps a platform identity, even with a live platform session", async () => {
+    // The bootstrap registers a LOCAL assistant with the platform; a paired
+    // entry is a client-side pairing record, not an assistant to register.
+    mockIsLocalClient = true;
+    mockLockfileAssistants = [pairedEntry];
+    useAuthStore.setState({
+      platformSession: "present",
+      platformSessionRestoredOffline: false,
+    });
+
+    await useAuthStore.getState().connectPairedAssistant("paired-a");
+
+    expect(bootstrapLocalAssistantPlatformIdentityMock).not.toHaveBeenCalled();
+  });
+
+  test("rejects a non-paired id without priming or selecting", async () => {
+    mockIsLocalClient = true;
+    mockLockfileAssistants = [{ assistantId: "local-a", cloud: "local" }];
+
+    await expect(
+      useAuthStore.getState().connectPairedAssistant("local-a"),
+    ).rejects.toThrow("Not a paired assistant");
+
+    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(setSelectedAssistantMock).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().sessionStatus).not.toBe("authenticated");
+  });
+
+  test("rejects an unknown id", async () => {
+    mockIsLocalClient = true;
+    mockLockfileAssistants = [pairedEntry];
+
+    await expect(
+      useAuthStore.getState().connectPairedAssistant("missing"),
+    ).rejects.toThrow("Not a paired assistant");
+
+    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+  });
+
+  test("rethrows the prime failure without selecting or marking the session logged in", async () => {
+    mockIsLocalClient = true;
+    mockLockfileAssistants = [pairedEntry];
+    mockPrimeError = new Error("Guardian token not found");
+
+    await expect(
+      useAuthStore.getState().connectPairedAssistant("paired-a"),
+    ).rejects.toThrow("Guardian token not found");
+
+    expect(setSelectedAssistantMock).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().sessionStatus).not.toBe("authenticated");
+  });
+});
+
+describe("paired selection in the gateway-auth session paths", () => {
+  const pairedSelection = { assistantId: "paired-a", cloud: "paired" };
+
+  test("refreshSession re-primes a paired selection and never fetches the SPA origin's /auth/token", async () => {
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockGatewayToken = null;
+    mockSelectedAssistant = pairedSelection;
+    const fetchedUrls: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      fetchedUrls.push(String(input));
+      throw new Error("unexpected fetch");
+    }) as unknown as typeof fetch;
+    try {
+      await expect(useAuthStore.getState().refreshSession()).resolves.toBe(
+        true,
+      );
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+
+    expect(primeLocalGatewayConnectionMock).toHaveBeenCalledTimes(1);
+    expect(primeLocalGatewayConnectionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ assistantId: "paired-a", cloud: "paired" }),
+    );
+    // The undefined-token-URL fallback would mint at the SPA's own origin.
+    expect(ensureGatewayTokenMock).not.toHaveBeenCalled();
+    expect(fetchedUrls).toEqual([]);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+  });
+
+  test("refreshSession ends the session when paired proxy authorization fails", async () => {
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockGatewayToken = null;
+    mockSelectedAssistant = pairedSelection;
+    mockPrimeError = new Error("paired proxy authorization failed");
+    useAuthStore.setState({ sessionStatus: "authenticated" });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(false);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(ensureGatewayTokenMock).not.toHaveBeenCalled();
+  });
+
+  test("refreshSession still mints through the local token URL for a local selection", async () => {
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockGatewayToken = "access-token";
+    mockSelectedAssistant = { assistantId: "local-a", cloud: "local" };
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(ensureGatewayTokenMock).toHaveBeenCalledTimes(1);
+    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+  });
+
+  test("boot with a paired proxy authorization failure settles unauthenticated after one prime", async () => {
+    // The startup ride-out only retries GatewayTokenErrors, which the paired
+    // prime never throws; the budget pin for that lives in local-mode.test.ts
+    // ("a failing paired credential read is not ridden out"). Here: the boot
+    // path routes the paired selection through the generalized prime once and
+    // falls through promptly to the chooser.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockSelectedAssistant = pairedSelection;
+    mockPrimeError = new Error("paired proxy authorization failed");
+
+    await useAuthStore.getState().initSession();
+
+    expect(
+      primeLocalGatewayConnectionWithStartupRetryMock,
+    ).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(useAuthStore.getState().user).toBeNull();
   });
 });
 
@@ -1392,7 +2565,7 @@ describe("offline session restore (LUM-2412)", () => {
   });
 
   test("local-mode platform-assistants boot also restores from cache on transport failure", async () => {
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     mockPlatformAssistants = [{ assistantId: "p1", cloud: "vellum" }];
     getSessionThrows = true;
     mockElectronSessionToken = "tok-1";
@@ -1458,7 +2631,7 @@ describe("offline session restore (LUM-2412)", () => {
 // `kind` separates a real platform account from synthetic local gateway access.
 describe("identity kind (platform vs local gateway access)", () => {
   test("a local gateway session is kind 'local' and not a platform identity, but keeps its stable id", async () => {
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     mockPlatformAssistants = [];
 
     await useAuthStore.getState().initSession();

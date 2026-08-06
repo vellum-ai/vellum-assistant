@@ -49,7 +49,9 @@ export function buildInspectorExportFiles(
   payloads: LlmLogPayload[],
   options: BuildInspectorExportFilesOptions = {},
 ): InspectorExportFile[] {
-  const payloadsByLogId = new Map(payloads.map((payload) => [payload.id, payload]));
+  const payloadsByLogId = new Map(
+    payloads.map((payload) => [payload.id, payload]),
+  );
   const exportedAt = options.exportedAt ?? new Date().toISOString();
   const calls = context.logs.map((log, index) => callManifest(log, index));
   const files: InspectorExportFile[] = [
@@ -224,7 +226,9 @@ export async function buildInspectorExportZipBlobBatched(
       async (log): Promise<void> => {
         const detail = await fetchCallSections(log.id);
         tick();
-        if (detail) sectionsByLogId.set(log.id, detail);
+        if (detail) {
+          sectionsByLogId.set(log.id, detail);
+        }
       },
       signal,
     );
@@ -232,7 +236,9 @@ export async function buildInspectorExportZipBlobBatched(
 
   const hydratedLogs = context.logs.map((log): LLMRequestLogEntry => {
     const detail = sectionsByLogId.get(log.id);
-    if (!detail) return log;
+    if (!detail) {
+      return log;
+    }
     return {
       ...log,
       requestSections: detail.requestSections,
@@ -269,7 +275,9 @@ async function mapWithConcurrency<T, R>(
     while (true) {
       signal?.throwIfAborted();
       const current = nextIndex++;
-      if (current >= items.length) return;
+      if (current >= items.length) {
+        return;
+      }
       results[current] = await mapper(items[current], current);
     }
   }
@@ -288,12 +296,18 @@ async function hydrateLogSections(
   logs: LLMRequestLogEntry[],
   fetchCallSections: LlmCallSectionsFetcher | undefined,
 ): Promise<LLMRequestLogEntry[]> {
-  if (!fetchCallSections) return logs;
+  if (!fetchCallSections) {
+    return logs;
+  }
   return Promise.all(
     logs.map(async (log): Promise<LLMRequestLogEntry> => {
-      if (log.requestSections || log.responseSections) return log;
+      if (log.requestSections || log.responseSections) {
+        return log;
+      }
       const detail = await fetchCallSections(log.id);
-      if (!detail) return log;
+      if (!detail) {
+        return log;
+      }
       return {
         ...log,
         requestSections: detail.requestSections,
@@ -311,7 +325,9 @@ function extractActualUserMessages(
     for (const [sectionIndex, section] of (
       log.requestSections ?? []
     ).entries()) {
-      if (!isUserMessageSection(section)) continue;
+      if (!isUserMessageSection(section)) {
+        continue;
+      }
       messages.push({
         callId: log.id,
         callIndex,
@@ -344,12 +360,17 @@ function callManifest(log: LLMRequestLogEntry, index: number) {
   };
 }
 
-function buildCallDirectoryName(log: LLMRequestLogEntry, index: number): string {
+function buildCallDirectoryName(
+  log: LLMRequestLogEntry,
+  index: number,
+): string {
   return `${String(index + 1).padStart(3, "0")}-${sanitizePathSegment(log.id)}`;
 }
 
 function sanitizePathSegment(value: string): string {
-  const sanitized = value.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "");
+  const sanitized = value
+    .replace(/[^A-Za-z0-9._-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
   return sanitized || "unknown";
 }
 

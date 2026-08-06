@@ -27,7 +27,7 @@ afterEach(() => {
 });
 
 // Exhaustive truth-table for the underlying semver gate lives in
-// `utils.test.ts`. Here we verify the boundary on each side of 0.11.0
+// `utils.test.ts`. Here we verify the boundary on each side of 0.12.0
 // plus the conservative-on-unknown policy, exercised through the public
 // hook and the awaiting send-path variant. (The snapshot read is a
 // private helper; it is covered via these exported entry points.)
@@ -36,16 +36,16 @@ describe("useSupportsNewChatPlugins", () => {
     expect(readGateViaHook(null)).toBe(false);
   });
 
-  test("reads false for assistants below 0.11.0 (incl. 0.10.7, 0.10.9)", () => {
+  test("reads false for assistants below 0.12.0 (incl. 0.11.0, 0.11.1)", () => {
+    expect(readGateViaHook("0.11.1")).toBe(false);
+    expect(readGateViaHook("0.11.0")).toBe(false);
     expect(readGateViaHook("0.10.9")).toBe(false);
-    expect(readGateViaHook("0.10.7")).toBe(false);
-    expect(readGateViaHook("0.10.6")).toBe(false);
     expect(readGateViaHook("0.9.0")).toBe(false);
   });
 
-  test("reads true for assistants on 0.11.0+", () => {
-    expect(readGateViaHook("0.11.0")).toBe(true);
-    expect(readGateViaHook("0.11.1")).toBe(true);
+  test("reads true for assistants on 0.12.0+", () => {
+    expect(readGateViaHook("0.12.0")).toBe(true);
+    expect(readGateViaHook("0.12.1")).toBe(true);
     expect(readGateViaHook("1.0.0")).toBe(true);
   });
 
@@ -62,7 +62,7 @@ describe("resolveSupportsNewChatPlugins", () => {
   });
 
   test("resolves true for a supported daemon once the version is known", async () => {
-    setVersion("0.11.0");
+    setVersion("0.12.0");
     expect(await resolveSupportsNewChatPlugins()).toBe(true);
   });
 });

@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { formatDelta, formatMonthly } from "./tier-pricing";
+import {
+  creditRowLabel,
+  formatDelta,
+  formatMonthly,
+  storageRowLabel,
+} from "./tier-pricing";
 
 describe("formatMonthly", () => {
   test("renders whole-dollar amounts without cents", () => {
@@ -31,5 +36,23 @@ describe("formatDelta", () => {
 
   test("treats a zero delta as non-positive (minus prefix)", () => {
     expect(formatDelta(0)).toBe("−$0/mo");
+  });
+});
+
+describe("storageRowLabel", () => {
+  test("spells out the storage row", () => {
+    expect(storageRowLabel(30)).toBe("30 GB storage");
+  });
+});
+
+describe("creditRowLabel", () => {
+  test("drops the cents on a whole-dollar amount", () => {
+    expect(creditRowLabel(45)).toBe("$45 of bundled credits");
+  });
+
+  // The label takes dollars but formats through the cents-aware helper, so the
+  // conversion has to survive a fractional bundle.
+  test("keeps the cents on a sub-dollar amount", () => {
+    expect(creditRowLabel(0.5)).toBe("$0.50 of bundled credits");
   });
 });

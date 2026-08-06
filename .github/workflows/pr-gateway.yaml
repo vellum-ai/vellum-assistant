@@ -10,6 +10,7 @@ on:
       - 'gateway/**'
       - 'packages/**'
       - 'meta/feature-flags/**'
+      - 'meta/sync-bundled-copies.ts'
       - '.github/workflows/pr-gateway.yaml'
 
 concurrency:
@@ -37,7 +38,7 @@ jobs:
         run: bun install --frozen-lockfile --filter=@vellumai/vellum-gateway
 
       - name: Sync feature flag registry
-        run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
+        run: cd .. && bun run meta/sync-bundled-copies.ts
 
       - name: Lint
         run: bun run lint

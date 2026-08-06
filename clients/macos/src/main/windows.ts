@@ -63,6 +63,25 @@ export interface CreateWindowOptions {
    */
   browserWindow: Omit<BrowserWindowConstructorOptions, "webPreferences">;
   navigation: WindowNavigation;
+  /**
+   * Opt this window out of Chromium's background throttling, which otherwise
+   * clamps timers to roughly 1 Hz and suspends animation frames once the
+   * window is occluded or minimized.
+   *
+   * Reserved for windows that host a **live-voice session**, because that is
+   * the one thing the app does whose correctness depends on time passing
+   * normally in a window nobody is looking at: reconnect backoff, the
+   * assistant-audio idle timer behind the `speaking` → `thinking` relabel, and
+   * anything else pacing a real-time stream. Running a session with the app in
+   * the background used to be an odd corner; the floating voice panel makes it
+   * a designed state, so the throttle became a correctness problem rather than
+   * a battery win.
+   *
+   * Lives here rather than at the call site because `webPreferences` is the
+   * seam's to own (see {@link hardenedWebPreferences}). Off by default: every
+   * other window should keep the battery saving.
+   */
+  backgroundThrottling?: boolean;
 }
 
 const applyDenyAllNavigation = (win: BrowserWindow): void => {
@@ -91,6 +110,9 @@ export const createWindow = (opts: CreateWindowOptions): BrowserWindow => {
     webPreferences: {
       preload: preloadPath(),
       ...hardenedWebPreferences(),
+      ...(opts.backgroundThrottling === undefined
+        ? {}
+        : { backgroundThrottling: opts.backgroundThrottling }),
     },
   });
 

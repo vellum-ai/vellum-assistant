@@ -27,7 +27,9 @@ const provider: SessionReplayProvider = {
   isActive: () => active,
 };
 
-mock.module("@/lib/session-replay/session-replay-provider", () => ({ provider }));
+mock.module("@/lib/session-replay/session-replay-provider", () => ({
+  provider,
+}));
 
 // ---------------------------------------------------------------------------
 // Composed gate — reused verbatim from Sentry diagnostics consent.
@@ -69,8 +71,7 @@ interface MockAuthState {
 
 let user: MockUser | null = null;
 let authSubscriber:
-  | ((state: MockAuthState, prev: MockAuthState) => void)
-  | null = null;
+  ((state: MockAuthState, prev: MockAuthState) => void) | null = null;
 mock.module("@/stores/auth-store", () => ({
   useAuthStore: {
     getState: () => ({ user }),

@@ -1,20 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    slack: {
-      teamId: "T123",
-      teamUrl: "https://example.slack.com/",
-    },
-  }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
@@ -56,6 +40,11 @@ import {
 } from "../persistence/schema/index.js";
 import { buildConversationDetailResponse } from "../runtime/services/conversation-serializer.js";
 import { handleDeleteConversation } from "./helpers/channel-test-adapter.js";
+import { setConfig } from "./helpers/set-config.js";
+
+// The Slack deep-link assertions below need a workspace identity; seed the
+// real config the serializer reads instead of mocking the loader.
+setConfig("slack", { teamId: "T123", teamUrl: "https://example.slack.com/" });
 
 await initializeDb();
 
@@ -160,6 +149,147 @@ describe("channel-delivery-store", () => {
     });
 
     expect(r1.conversationId).not.toBe(r2.conversationId);
+  });
+
+  // ── Telegram private-chat topics ──────────────────────────────────
+
+  test("same Telegram topic reuses the same conversation", () => {
+    const r1 = recordInbound("telegram", "chat-9", "msg-1", {
+      sourceThreadId: "777",
+    });
+    const r2 = recordInbound("telegram", "chat-9", "msg-2", {
+      sourceThreadId: "777",
+    });
+
+    expect(r1.conversationId).toBe(r2.conversationId);
+    expect(
+      getConversationByKey("asst:self:telegram:chat-9:thread:777")
+        ?.conversationId,
+    ).toBe(r1.conversationId);
+  });
+
+  test("different Telegram topics in one chat get different conversations", () => {
+    const r1 = recordInbound("telegram", "chat-9", "msg-1", {
+      sourceThreadId: "777",
+    });
+    const r2 = recordInbound("telegram", "chat-9", "msg-2", {
+      sourceThreadId: "888",
+    });
+
+    expect(r1.conversationId).not.toBe(r2.conversationId);
+  });
+
+  test("a Telegram message without a topic keeps the chat-level base key", () => {
+    const result = recordInbound("telegram", "chat-9", "msg-1");
+
+    expect(
+      getConversationByKey("asst:self:telegram:chat-9")?.conversationId,
+    ).toBe(result.conversationId);
+  });
+
+  test("a Telegram topic starts a fresh conversation; the chat's main conversation stays on the base key", () => {
+    const main = recordInbound("telegram", "chat-9", "msg-1");
+    const topic = recordInbound("telegram", "chat-9", "msg-2", {
+      sourceThreadId: "777",
+    });
+
+    expect(topic.conversationId).not.toBe(main.conversationId);
+    expect(
+      getConversationByKey("asst:self:telegram:chat-9")?.conversationId,
+    ).toBe(main.conversationId);
+    expect(
+      getConversationByKey("asst:self:telegram:chat-9:thread:777")
+        ?.conversationId,
+    ).toBe(topic.conversationId);
+  });
+
+  test("thread-less Slack reset clears only the channel-level binding, keeping thread bindings", async () => {
+    // Pins the channel-agnostic reset contract for Slack: a channel-root
+    // /new must not unbind the channel's thread conversations.
+    const db = getDb();
+    const now = Date.now();
+    for (const id of ["conv-slack-root", "conv-slack-thread"]) {
+      db.insert(conversations)
+        .values({ id, title: "test", createdAt: now, updatedAt: now })
+        .run();
+    }
+    upsertBinding({
+      conversationId: "conv-slack-root",
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+    });
+    upsertBinding({
+      conversationId: "conv-slack-thread",
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalThreadId: "1710000000.000100",
+    });
+
+    const req = new Request("http://localhost/channels/conversation", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceChannel: "slack",
+        conversationExternalId: "C0123ABCDEF",
+      }),
+    });
+    const res = await handleDeleteConversation(req);
+    expect(res.status).toBe(200);
+
+    expect(getBindingByChannelChat("slack", "C0123ABCDEF")).toBeNull();
+    expect(
+      getBindingByChannelChatThread("slack", "C0123ABCDEF", "1710000000.000100")
+        ?.conversationId,
+    ).toBe("conv-slack-thread");
+  });
+
+  test("thread-less Telegram reset clears only the main-chat binding, keeping topic bindings", async () => {
+    const db = getDb();
+    const now = Date.now();
+    for (const id of ["conv-main", "conv-topic"]) {
+      db.insert(conversations)
+        .values({ id, title: "test", createdAt: now, updatedAt: now })
+        .run();
+    }
+    setConversationKey("asst:self:telegram:chat-9", "conv-main");
+    setConversationKey("telegram:chat-9", "conv-main");
+    setConversationKey("asst:self:telegram:chat-9:thread:777", "conv-topic");
+    upsertBinding({
+      conversationId: "conv-main",
+      sourceChannel: "telegram",
+      externalChatId: "chat-9",
+    });
+    upsertBinding({
+      conversationId: "conv-topic",
+      sourceChannel: "telegram",
+      externalChatId: "chat-9",
+      externalThreadId: "777",
+    });
+
+    const req = new Request("http://localhost/channels/conversation", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceChannel: "telegram",
+        conversationExternalId: "chat-9",
+      }),
+    });
+    const res = await handleDeleteConversation(req);
+    expect(res.status).toBe(200);
+
+    // The main-chat keys and binding are gone…
+    expect(getConversationByKey("asst:self:telegram:chat-9")).toBeNull();
+    expect(getConversationByKey("telegram:chat-9")).toBeNull();
+    expect(getBindingByChannelChat("telegram", "chat-9")).toBeNull();
+    // …while the topic conversation keeps its key and binding.
+    expect(
+      getConversationByKey("asst:self:telegram:chat-9:thread:777")
+        ?.conversationId,
+    ).toBe("conv-topic");
+    expect(
+      getBindingByChannelChatThread("telegram", "chat-9", "777")
+        ?.conversationId,
+    ).toBe("conv-topic");
   });
 
   test("legacy Slack channel key with matching inbound root ts gets aliased to the threaded key", () => {

@@ -5,10 +5,6 @@ import type { DiskUsageInfo } from "../util/disk-usage.js";
 let diskSample: DiskUsageInfo | null = null;
 const eventSubscribers = new Set<(event: unknown) => void>();
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}),
-}));
-
 mock.module("../util/disk-usage.js", () => ({
   getDiskUsageInfo: () => diskSample,
 }));
@@ -25,11 +21,18 @@ mock.module("../runtime/assistant-event.js", () => ({
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   AssistantEventHub: class {},
-  broadcastMessage: () => {},
+  broadcastMessage: (message: unknown, conversationId?: string) => {
+    const event = { message, conversationId };
+    for (const callback of eventSubscribers) {
+      callback(event);
+    }
+  },
   capabilityForMessageType: () => undefined,
   assistantEventHub: {
     publish: async (event: unknown) => {
-      for (const callback of eventSubscribers) callback(event);
+      for (const callback of eventSubscribers) {
+        callback(event);
+      }
     },
     subscribe: ({ callback }: { callback: (event: unknown) => void }) => {
       eventSubscribers.add(callback);
@@ -91,7 +94,9 @@ function getRoute(endpoint: string, method: string) {
   const route = ROUTES.find(
     (r) => r.endpoint === endpoint && r.method === method,
   );
-  if (!route) throw new Error(`${method} ${endpoint} route not registered`);
+  if (!route) {
+    throw new Error(`${method} ${endpoint} route not registered`);
+  }
   return route;
 }
 
@@ -165,7 +170,7 @@ describe("disk pressure routes", () => {
 
   test("returns the full status shape for an active lock", async () => {
     setDiskUsage(99);
-    evaluateDiskPressureNow();
+    await evaluateDiskPressureNow();
 
     const result = await callRoute("disk-pressure/status", "GET");
 
@@ -218,7 +223,7 @@ describe("disk pressure routes", () => {
 
   test("acknowledges an active lock without overriding it", async () => {
     setDiskUsage(99);
-    evaluateDiskPressureNow();
+    await evaluateDiskPressureNow();
 
     const result = await callRoute("disk-pressure/acknowledge", "POST");
 
@@ -229,7 +234,7 @@ describe("disk pressure routes", () => {
 
   test("overrides an active lock only after the confirmation phrase", async () => {
     setDiskUsage(99);
-    evaluateDiskPressureNow();
+    await evaluateDiskPressureNow();
 
     const result = await callRoute("disk-pressure/override", "POST", {
       confirmation: DISK_PRESSURE_OVERRIDE_CONFIRMATION,
@@ -242,7 +247,7 @@ describe("disk pressure routes", () => {
 
   test("rejects an invalid override phrase with INVALID_CONFIRMATION", async () => {
     setDiskUsage(99);
-    evaluateDiskPressureNow();
+    await evaluateDiskPressureNow();
 
     await expectRouteRejects(
       "disk-pressure/override",
@@ -255,7 +260,7 @@ describe("disk pressure routes", () => {
 
   test("rejects acknowledgement and override when no lock is active", async () => {
     setDiskUsage(10);
-    evaluateDiskPressureNow();
+    await evaluateDiskPressureNow();
 
     await expectRouteRejects(
       "disk-pressure/acknowledge",
@@ -275,7 +280,7 @@ describe("disk pressure routes", () => {
 
   test("rejects repeated acknowledgement", async () => {
     setDiskUsage(99);
-    evaluateDiskPressureNow();
+    await evaluateDiskPressureNow();
     await callRoute("disk-pressure/acknowledge", "POST");
 
     await expectRouteRejects(
@@ -289,7 +294,7 @@ describe("disk pressure routes", () => {
 
   test("rejects repeated override", async () => {
     setDiskUsage(99);
-    evaluateDiskPressureNow();
+    await evaluateDiskPressureNow();
     await callRoute("disk-pressure/override", "POST", {
       confirmation: DISK_PRESSURE_OVERRIDE_CONFIRMATION,
     });
@@ -316,15 +321,15 @@ describe("disk pressure routes", () => {
 
     try {
       setDiskUsage(99);
-      evaluateDiskPressureNow();
+      await evaluateDiskPressureNow();
       await callRoute("disk-pressure/acknowledge", "POST");
       await callRoute("disk-pressure/override", "POST", {
         confirmation: DISK_PRESSURE_OVERRIDE_CONFIRMATION,
       });
       setDiskUsage(98);
-      evaluateDiskPressureNow();
+      await evaluateDiskPressureNow();
       setDiskUsage(10);
-      evaluateDiskPressureNow();
+      await evaluateDiskPressureNow();
       await flushPublishedEvents();
     } finally {
       subscription.dispose();

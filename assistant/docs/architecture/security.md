@@ -276,13 +276,17 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 - The credentials prompt route output confirms delivery without including the secret value — the value is never returned to the model
 - The config gate must be explicitly enabled by the operator
 
+### Ingress Secret Detection
+
+User messages are scanned at ingress (`secret-ingress.ts`) against known credential prefix patterns plus any plugin-declared patterns: plugins can declare `credentialKeyPatterns` in their manifest, and those patterns feed ingress blocking, display-time secret scanning (`secret-scanner.ts`), and log redaction (`log-redact.ts`) while the plugin is active. In addition, when `secretDetection.blockTokenShapedMessages` is enabled (default: `true`), a whole-message heuristic blocks messages whose entire trimmed content is a single token-shaped value — an alphanumeric head, a secret-keyword infix (`token`, `key`, `secret`, …), and a long random tail — catching pasted credentials whose prefix is not a known format while keeping false positives near zero.
+
 ### Storage Layout
 
 | Component           | Location                                               | What it stores                                                                                                                                                   |
 | ------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Secret values       | CES credential store or encrypted file store           | Encrypted credential values keyed as `credential/{service}/{field}`. Stored via CES RPC (primary), CES HTTP (containerized), or encrypted file store (fallback). |
 | Credential metadata | `$VELLUM_WORKSPACE_DIR/data/credentials/metadata.json` | Service, field, label, policy (allowedTools, allowedDomains), timestamps                                                                                         |
-| Config              | `$VELLUM_WORKSPACE_DIR/config.*`                       | `secretDetection` settings: enabled, blockIngress, allowOneTimeSend                                                                                              |
+| Config              | `$VELLUM_WORKSPACE_DIR/config.*`                       | `secretDetection` settings: enabled, blockIngress, allowOneTimeSend, blockTokenShapedMessages (default `true` — whole-message token-shape heuristic)             |
 
 ### Key Files
 
@@ -296,7 +300,8 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 | `assistant/src/tools/credentials/policy-validate.ts`             | Policy input validation (allowedTools, allowedDomains)                             |
 | `assistant/src/permissions/secret-prompter.ts`                   | HTTP secret_request/secret_response flow                                           |
 | `assistant/src/security/secret-scanner.ts`                       | Prefix + shape-based secret regex detection (used by display-time `redactSecrets`) |
-| `assistant/src/security/secret-ingress.ts`                       | Prefix-only ingress check on user messages                                         |
+| `assistant/src/security/secret-ingress.ts`                       | Ingress check on user messages: prefix + plugin patterns + token-shape heuristic   |
+| `assistant/src/security/plugin-secret-patterns.ts`               | Registry of plugin-declared `credentialKeyPatterns` feeding detection/redaction    |
 | `assistant/src/util/log-redact.ts`                               | Pino log serializers — prefix-based redaction for logs                             |
 | `clients/web/src/domains/chat/components/secret-prompt-card.tsx` | UI for secure credential entry                                                     |
 

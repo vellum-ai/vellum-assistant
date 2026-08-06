@@ -1,6 +1,7 @@
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, join, relative, sep } from "node:path";
 
+import { isPathInsideRoot } from "../../path-containment.js";
 import type {
   RecallEvidence,
   RecallSearchContext,
@@ -38,7 +39,9 @@ const WORKSPACE_BUCKETS: readonly WorkspaceBucket[] = [
 
 const KNOWN_BUCKET_TOP_LEVEL_DIRS = new Set(
   WORKSPACE_BUCKETS.flatMap((bucket) => {
-    if (!bucket.relativePath) return [];
+    if (!bucket.relativePath) {
+      return [];
+    }
     return [bucket.relativePath.split("/")[0] ?? ""];
   }),
 );
@@ -1051,14 +1054,30 @@ function scoreMatch(options: {
 }
 
 function getPathPriorityBoost(relativePath: string): number {
-  if (relativePath.startsWith("data/apps/")) return 0.65;
-  if (relativePath.startsWith("scratch/location-tracker/")) return 0.65;
-  if (relativePath.startsWith("work/")) return 0.45;
-  if (relativePath.startsWith("scratch/")) return 0.35;
-  if (relativePath.startsWith("users/")) return 0.3;
-  if (relativePath.startsWith("journal/")) return 0.25;
-  if (relativePath.startsWith("memory/concepts/")) return 0.4;
-  if (relativePath.startsWith("memory/")) return 0.2;
+  if (relativePath.startsWith("data/apps/")) {
+    return 0.65;
+  }
+  if (relativePath.startsWith("scratch/location-tracker/")) {
+    return 0.65;
+  }
+  if (relativePath.startsWith("work/")) {
+    return 0.45;
+  }
+  if (relativePath.startsWith("scratch/")) {
+    return 0.35;
+  }
+  if (relativePath.startsWith("users/")) {
+    return 0.3;
+  }
+  if (relativePath.startsWith("journal/")) {
+    return 0.25;
+  }
+  if (relativePath.startsWith("memory/concepts/")) {
+    return 0.4;
+  }
+  if (relativePath.startsWith("memory/")) {
+    return 0.2;
+  }
   if (
     relativePath.startsWith("conversations/") ||
     relativePath.startsWith("backups/") ||
@@ -1137,7 +1156,9 @@ function compareDirectoryEntries(
   const priorityCompare =
     getTraversalPriority(aRelativePath, a.isDirectory()) -
     getTraversalPriority(bRelativePath, b.isDirectory());
-  if (priorityCompare !== 0) return priorityCompare;
+  if (priorityCompare !== 0) {
+    return priorityCompare;
+  }
   return a.name.localeCompare(b.name);
 }
 
@@ -1152,7 +1173,9 @@ function getTraversalPriority(
   const [firstSegment = ""] = relativePath.split("/");
   const lowerFirstSegment = firstSegment.toLowerCase();
   const bucketIndex = WORKSPACE_BUCKETS.findIndex((bucket) => {
-    if (!bucket.relativePath) return false;
+    if (!bucket.relativePath) {
+      return false;
+    }
     return (
       bucket.relativePath.split("/")[0]?.toLowerCase() === lowerFirstSegment
     );
@@ -1206,14 +1229,6 @@ export function normalizeWorkspacePathLiteral(
     return null;
   }
   return withoutLineSuffix.split(sep).join("/");
-}
-
-function isPathInsideRoot(pathToCheck: string, rootRealPath: string): boolean {
-  const pathRelativeToRoot = relative(rootRealPath, pathToCheck);
-  return (
-    pathRelativeToRoot === "" ||
-    (!pathRelativeToRoot.startsWith("..") && !isAbsolute(pathRelativeToRoot))
-  );
 }
 
 function toWorkspaceRelativePath(

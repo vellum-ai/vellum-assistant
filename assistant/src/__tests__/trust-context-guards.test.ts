@@ -38,8 +38,12 @@ describe("trust-context guards", () => {
     let braceDepth = 0;
     let blockEnd = blockStart;
     for (let i = blockStart; i < source.length; i++) {
-      if (source[i] === "{") braceDepth++;
-      if (source[i] === "}") braceDepth--;
+      if (source[i] === "{") {
+        braceDepth++;
+      }
+      if (source[i] === "}") {
+        braceDepth--;
+      }
       if (braceDepth === 0) {
         blockEnd = i + 1;
         break;
@@ -89,8 +93,12 @@ describe("trust-context guards", () => {
     let braceDepth = 0;
     let blockEnd = blockStart;
     for (let i = blockStart; i < source.length; i++) {
-      if (source[i] === "{") braceDepth++;
-      if (source[i] === "}") braceDepth--;
+      if (source[i] === "{") {
+        braceDepth++;
+      }
+      if (source[i] === "}") {
+        braceDepth--;
+      }
       if (braceDepth === 0) {
         blockEnd = i + 1;
         break;
@@ -182,8 +190,12 @@ describe("trust-context guards", () => {
     let braceDepth = 0;
     let blockEnd = blockStart;
     for (let i = blockStart; i < source.length; i++) {
-      if (source[i] === "{") braceDepth++;
-      if (source[i] === "}") braceDepth--;
+      if (source[i] === "{") {
+        braceDepth++;
+      }
+      if (source[i] === "}") {
+        braceDepth--;
+      }
       if (braceDepth === 0) {
         blockEnd = i + 1;
         break;
@@ -202,7 +214,7 @@ describe("trust-context guards", () => {
     // Must be `guardianPrincipalId: string | null` — a gateway guardian row
     // with no principal is UNRESOLVED. Callers repair via the vellum anchor
     // or fail closed; a plain `string` type invites `?? ""` coercion, which
-    // creates undecidable canonical requests (LUM-2665).
+    // creates undecidable guardian requests (LUM-2665).
     expect(
       principalLine!.includes("string | null") ||
         principalLine!.includes("null | string"),

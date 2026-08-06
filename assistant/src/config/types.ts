@@ -1,3 +1,4 @@
 export type { AssistantConfig, ContextWindowConfig } from "./schema.js";
+export type { ApiRateLimitConfig } from "./schemas/api-rate-limit.js";
 export type { MemoryConfig } from "./schemas/memory.js";
 export type { RateLimitConfig } from "./schemas/timeouts.js";

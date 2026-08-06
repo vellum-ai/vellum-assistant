@@ -38,6 +38,7 @@
  * - Media stream `stop` event / WebSocket close -> finalize call.
  */
 
+import { GATEWAY_TUNNEL_LOST_WS_CLOSE_CODE } from "@vellumai/service-contracts/ingress";
 import type { ServerWebSocket } from "bun";
 
 import { revokeScopedApprovalGrantsForContext } from "../approvals/scoped-approval-grants.js";
@@ -208,6 +209,7 @@ export class MediaStreamCallSession {
       onTranscriptFinal: (text, durationMs) =>
         this.handleTranscriptFinal(text, durationMs),
       onDtmf: (digit) => this.handleDtmf(digit),
+      onMark: (name) => this.handleMarkEcho(name),
       onStop: () => this.handleStreamStop(),
       onError: (category, message) => this.handleSttError(category, message),
     };
@@ -254,7 +256,9 @@ export class MediaStreamCallSession {
    * audio processing.
    */
   handleMessage(raw: string): void {
-    if (this.disposed) {return;}
+    if (this.disposed) {
+      return;
+    }
 
     // Intercept `start` to bootstrap the session before forwarding.
     const parseResult = parseMediaStreamFrame(raw);
@@ -277,7 +281,9 @@ export class MediaStreamCallSession {
    * in a terminal state.
    */
   handleTransportClosed(code?: number, reason?: string): void {
-    if (this.disposed) {return;}
+    if (this.disposed) {
+      return;
+    }
 
     // Tear down an in-flight setup flow first: clears its timers and emits
     // the guardian-wait callback handoff when the caller opted in.
@@ -286,7 +292,9 @@ export class MediaStreamCallSession {
     setupFlow?.dispose("transport_closed");
 
     const session = getCallSession(this.callSessionId);
-    if (!session) {return;}
+    if (!session) {
+      return;
+    }
     if (isTerminalState(session.status)) {
       // A hangup during a flow-terminal goodbye: dispose above swallowed the
       // flow's pending complete(), so finalize + revoke grants here. Normal
@@ -337,9 +345,16 @@ export class MediaStreamCallSession {
         );
       }
     } else {
+      // The gateway's close reason does not survive the relay (Bun's
+      // WebSocket client drops it), so tunnel loss is decoded from the
+      // dedicated close code.
       const detail =
         reason ||
-        (code ? `media_stream_closed_${code}` : "media_stream_closed_abnormal");
+        (code === GATEWAY_TUNNEL_LOST_WS_CLOSE_CODE
+          ? "public ingress tunnel disconnected"
+          : code
+            ? `media_stream_closed_${code}`
+            : "media_stream_closed_abnormal");
       updateCallSession(this.callSessionId, {
         status: "failed",
         endedAt: Date.now(),
@@ -373,7 +388,9 @@ export class MediaStreamCallSession {
    * Dispose of the session, cleaning up all resources.
    */
   destroy(): void {
-    if (this.disposed) {return;}
+    if (this.disposed) {
+      return;
+    }
     this.disposed = true;
 
     this.sttSession.dispose();
@@ -427,7 +444,9 @@ export class MediaStreamCallSession {
         session.status !== "waiting_on_user"
       ) {
         updates.status = "in_progress";
-        if (!session.startedAt) {updates.startedAt = Date.now();}
+        if (!session.startedAt) {
+          updates.startedAt = Date.now();
+        }
       }
       updateCallSession(this.callSessionId, updates);
     }
@@ -750,9 +769,7 @@ export class MediaStreamCallSession {
     // end-of-turn mark it enqueues survives the queue flush.
     if (this.output && this.controller) {
       const output = this.output;
-      const accepted = this.controller.handleBargeIn(() =>
-        output.clearAudio(),
-      );
+      const accepted = this.controller.handleBargeIn(() => output.clearAudio());
       if (accepted) {
         this.bargeInAccepted++;
         log.info(
@@ -775,7 +792,9 @@ export class MediaStreamCallSession {
   }
 
   private handleTranscriptFinal(text: string, _durationMs: number): void {
-    if (!text.trim()) {return;}
+    if (!text.trim()) {
+      return;
+    }
 
     // Drop transcripts arriving while setup routing is still pending so a
     // not-yet-authorized / floor-denied caller's speech is never persisted
@@ -863,6 +882,15 @@ export class MediaStreamCallSession {
     // While a setup flow is active, digits feed its code-collection
     // sub-flows (the flow itself records no per-digit events).
     this.setupFlow?.pushDtmfDigit(digit);
+  }
+
+  private handleMarkEcho(name: string): void {
+    if (this.disposed) {
+      return;
+    }
+    // Twilio echoes each queued mark once its preceding audio has played
+    // out; forward to the output so drain waiters resolve on real playback.
+    this.output.notePlaybackMarkEcho(name);
   }
 
   private handleStreamStop(): void {

@@ -138,7 +138,9 @@ async function runCommand(
     registerUiCommand(program);
     await program.parseAsync(["node", "assistant", ...args]);
   } catch {
-    if (process.exitCode === 0) process.exitCode = 1;
+    if (process.exitCode === 0) {
+      process.exitCode = 1;
+    }
   } finally {
     process.stdout.write = originalStdoutWrite;
     process.stderr.write = originalStderrWrite;
@@ -200,13 +202,13 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("subcommand registration", () => {
-  test("registers request and confirm subcommands under ui", () => {
+  test("registers request, confirm, and snapshot subcommands under ui", () => {
     const program = new Command();
     registerUiCommand(program);
     const ui = program.commands.find((c) => c.name() === "ui");
     expect(ui).toBeDefined();
     const subcommandNames = ui!.commands.map((c) => c.name()).sort();
-    expect(subcommandNames).toEqual(["confirm", "request"]);
+    expect(subcommandNames).toEqual(["confirm", "request", "snapshot"]);
   });
 });
 

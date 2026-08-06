@@ -131,14 +131,14 @@ describe("user plugin loader", () => {
     expect(getCachedUserTools()).toHaveLength(0);
   });
 
-  test("strips npm scope from package.json name", async () => {
+  test("loads a plugin whose package.json name differs from its directory", async () => {
     writePlugin("scoped", { name: "@vellumai/cool-plugin", version: "0.1.0" });
 
     await loadUserPlugins();
 
-    // The plugin should be cached under the scope-stripped name.
-    // We verify by checking that a hook from "cool-plugin" is found.
-    // Since no hooks were written, we just verify no crash.
+    // The plugin's identity is its directory name (`scoped`), not the authored
+    // package.json name. No hooks were written, so we just verify it loads
+    // without crashing.
     expect(await getUserHooksFor("user-prompt-submit")).toHaveLength(0);
   });
 });

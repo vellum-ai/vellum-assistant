@@ -4,13 +4,6 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../calls/twilio-config.js", () => ({
   getTwilioConfig: () => ({
     accountSid: "AC_test",
@@ -46,16 +39,6 @@ mock.module("../calls/voice-ingress-preflight.js", () => ({
     ok: true as const,
     ingressConfig: {},
     publicBaseUrl: "https://test.example.com",
-  }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({
-    calls: {
-      callerIdentity: {
-        allowPerCallOverride: true,
-      },
-    },
   }),
 }));
 

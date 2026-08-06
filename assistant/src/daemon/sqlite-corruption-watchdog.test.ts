@@ -14,12 +14,6 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Silence the logger.
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // Capture direct emits instead of POSTing them.
 const emitCalls: Array<{ checkName: string; detail: Record<string, unknown> }> =
   [];

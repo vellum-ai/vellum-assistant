@@ -4,10 +4,9 @@
 
 Bun + TypeScript monorepo with multiple packages:
 
-- `clients/` — End-user app surfaces: `clients/web/` (Vite + React Router v7 SPA), `clients/ios/` (Capacitor iOS shell that loads the web app in a WKWebView), and `clients/macos/` (Electron desktop shell that wraps `clients/web/`; daemon/gateway lifecycle is owned by the `vellum` CLI, which the app invokes as a subprocess; auto-update via `electron-updater`; CI workflows are `pr-macos.yaml` / `ci-main-macos.yaml`). See [`clients/README.md`](clients/README.md) and [`clients/AGENTS.md`](clients/AGENTS.md).
+- `clients/`: End-user app surfaces: `clients/web/` (Vite + React Router v7 SPA), `clients/ios/` (Capacitor iOS shell that loads the web app in a WKWebView), `clients/android/` (Capacitor Android shell that loads the web app in a WebView), `clients/macos/` (Electron desktop shell that wraps `clients/web/`; daemon/gateway lifecycle is owned by the `vellum` CLI, which the app invokes as a subprocess; auto-update via `electron-updater`; CI workflows are `pr-macos.yaml` / `ci-main-macos.yaml`), `clients/windows/` (bootstrap Electron shell around `clients/web/`; CI workflows are `pr-windows.yaml` / `ci-main-windows.yaml`), and `clients/chrome-extension/` (MV3 Chrome browser extension). See [`clients/README.md`](clients/README.md) and [`clients/AGENTS.md`](clients/AGENTS.md).
 - `assistant/` — Main backend service (Bun + TypeScript)
 - `cli/` — Multi-assistant management CLI (Bun + TypeScript). See `cli/AGENTS.md`.
-- `clients/` — Chrome extension client. See `clients/chrome-extension/README.md`.
 - `gateway/` — Channel ingress gateway (Bun + TypeScript)
 - `packages/` — Shared internal packages (e.g. `service-contracts` for CES wire-protocol schemas)
 - `scripts/` — Utility scripts
@@ -25,10 +24,10 @@ Defend technical positions with evidence. Don't flip-flop to placate the user �
 
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
 - **Imports**: Packages that compile to JS (`assistant/`, `gateway/`, `cli/`) use NodeNext module resolution with `.js` extensions on all imports. Bundler-only packages (`clients/web/`, `packages/design-library/`) use `moduleResolution: "Bundler"` and omit `.js` extensions.
-- **Package manager**: This is a bun workspace — one root `bun.lock` covers every member (services, `packages/*`, `clients/web`, `clients/macos`). Run `bun install` anywhere in the tree (it resolves to the workspace root), or scope it with name filters like `--filter=@vellumai/assistant` (path filters resolve against the cwd — avoid them). Cross-package deps use `workspace:*`; `overrides`, `patchedDependencies`, and `trustedDependencies` are honored only in the root manifest. Non-members (`clients/chrome-extension`, skills) keep their own lockfiles.
+- **Package manager**: This is a bun workspace. One root `bun.lock` covers every member (services, `packages/*`, `clients/web`, `clients/macos`, `clients/windows`). Run `bun install` anywhere in the tree (it resolves to the workspace root), or scope it with name filters like `--filter=@vellumai/assistant` (path filters resolve against the cwd, so avoid them). Cross-package deps use `workspace:*`; `overrides`, `patchedDependencies`, and `trustedDependencies` are honored only in the root manifest. Non-members (`clients/chrome-extension`, skills) keep their own lockfiles.
 
 ```bash
-cd assistant && bun install          # Install dependencies
+bun install                          # Install workspace dependencies (any directory works)
 cd assistant && bunx tsc --noEmit    # Type-check
 cd assistant && bun run typecheck:fast  # Fast type-check using tsgo
 cd assistant && bun test src/path/to/changed.test.ts  # Run tests
@@ -42,6 +41,7 @@ This project is licensed under MIT. All dependencies must have MIT-compatible li
 **Version pinning**: Always use exact versions in `dependencies` and `devDependencies` — no `^` or `~` prefixes. Use `bun add --exact` (or `bun add -E`) when adding packages. The root `bunfig.toml` sets `[install] exact = true` to enforce this by default (bun walks parent directories, so it applies to all packages). **Exception — `peerDependencies`**: Peer deps express compatibility constraints, not installation targets. Use `>=` ranges (e.g. `"react": ">=19.0.0"`) so the consuming app's lockfile controls the resolved version. See [npm docs on peer dependencies](https://docs.npmjs.com/cli/v10/configuring-npm/package-json#peerdependencies) and [Bun docs on `--exact`](https://bun.sh/docs/cli/add#exact).
 
 When adding a new dependency:
+
 1. Check its license in the package's `package.json` or LICENSE file.
 2. Dual-licensed packages (e.g. "MIT OR GPL-3.0") are acceptable — we use them under the MIT-compatible option.
 3. If unsure about compatibility, flag it in the PR for review.
@@ -90,7 +90,7 @@ The full test suite is large and will hang or timeout if run unscoped. **Never r
 ## PR Workflow
 
 - **One PR = one logical change.** Each PR is a distinct, mergeable unit of work. Keep diffs reviewable.
-- **GitHub issues are for planned work, not paperwork.** When a GitHub issue already exists or the work is non-trivial enough to benefit from a separate planning artifact, link it with `Closes #N` (or `Fixes` / `Resolves`) in the PR body and commit message so GitHub [auto-closes the issue on merge](https://docs.github.com/en/issues/tracking-your-work-with-issues/linking-a-pull-request-to-an-issue). Don't create retroactive issues just to satisfy a process — if the PR description already captures the *why*, that's the trace.
+- **GitHub issues are for planned work, not paperwork.** When a GitHub issue already exists or the work is non-trivial enough to benefit from a separate planning artifact, link it with `Closes #N` (or `Fixes` / `Resolves`) in the PR body and commit message so GitHub [auto-closes the issue on merge](https://docs.github.com/en/issues/tracking-your-work-with-issues/linking-a-pull-request-to-an-issue). Don't create retroactive issues just to satisfy a process — if the PR description already captures the _why_, that's the trace.
 - **Multi-step efforts.** Use a parent issue with [sub-issues](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/adding-sub-issues) or sibling issues when the effort has multiple phases. Link intermediate PRs with `Part of #N` or `Related to #N` (no auto-close). Issues earn their keep here — they're the tracking artifact across multiple PRs.
 - **Branch name**: include the issue number when one exists, e.g. `123-fix-stale-approvals`.
 - **Human attention comments**: After creating a PR with non-routine changes (architectural decisions, security, complex logic, deletions, low confidence), leave a `gh pr comment` highlighting where to focus review and the risk level. Skip for routine changes.
@@ -126,7 +126,7 @@ Proactively remove unused code during every change. Remove code your change make
 
 ## Code Comments
 
-**Comments describe the present; PRs describe the history.** Code comments should describe what the code *is* and *does* right now — never how it got there, what it replaced, or what changed in a PR. History and reasoning belong in PR descriptions and commit messages, which are the permanent record of *how we got here*.
+**Comments describe the present; PRs describe the history.** Code comments should describe what the code _is_ and _does_ right now — never how it got there, what it replaced, or what changed in a PR. History and reasoning belong in PR descriptions and commit messages, which are the permanent record of _how we got here_.
 
 - Do NOT use temporal language: "now uses", "no longer", "was previously", "instead of the old approach", "after the refactor".
 - Do NOT describe the diff: "externalUserId is not consulted", "moved from X to Y", "fix for when Z happens".
@@ -135,9 +135,19 @@ Proactively remove unused code during every change. Remove code your change make
 
 Default to no comment — bias aggressively toward terseness and rely on good naming. Follow the commenting density of the surrounding code.
 
+## Em Dashes
+
+Never use em dashes (`—`). Use a period, comma, colon, parentheses, or a plain hyphen instead.
+
+This covers everything you write: user-facing copy, code comments, documentation, commit messages, and PR descriptions.
+
+**User-facing copy is the strict case.** The assistant's own system prompt already forbids em dashes (`assistant/src/prompts/templates/SOUL.md`), so a UI string that uses one is written in a different voice from the assistant standing next to it. Treat any string a user can read (product copy, error messages, notifications, seeded prompts, API descriptions) as a hard no.
+
+Existing text is not swept retroactively. Fix em dashes on lines you are already changing and leave the rest alone.
+
 ## Control-Flow Braces
 
-Wrap every `if` / `else` / `for` / `while` / `do…while` body in braces, even a single-statement one-liner. Braces make control flow easy to scan — the block boundary is explicit — and close a common footgun: a second line added under a braceless condition reads as if it sits inside the branch but runs unconditionally. The ESLint `curly` rule flags this in both `assistant/` and `clients/web/` (currently at `warn`); it is fully auto-fixable, so add braces to any control statement you touch.
+Wrap every `if` / `else` / `for` / `while` / `do…while` body in braces, even a single-statement one-liner. Braces make control flow easy to scan — the block boundary is explicit — and close a common footgun: a second line added under a braceless condition reads as if it sits inside the branch but runs unconditionally. The ESLint `curly` rule enforces this at `error` in both `assistant/` and `clients/web/`; it is fully auto-fixable with `eslint --fix`.
 
 ## Generic Examples
 
@@ -158,10 +168,10 @@ We have real users — maintain backwards compatibility for all interfaces, pers
 
 **Which migration strategy to use:**
 
-| What changed | Migration type | Location |
-|---|---|---|
-| Workspace files (renames, moves, format changes under `$VELLUM_WORKSPACE_DIR/`) | Workspace migration | `assistant/src/workspace/migrations/` — append to `WORKSPACE_MIGRATIONS` in `registry.ts` |
-| Database schema or data (columns, indexes, backfills) | DB migration | `assistant/src/persistence/migrations/` — add function and register in the `migrationSteps` array in `assistant/src/persistence/steps.ts` |
+| What changed                                                                    | Migration type      | Location                                                                                                                                  |
+| ------------------------------------------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Workspace files (renames, moves, format changes under `$VELLUM_WORKSPACE_DIR/`) | Workspace migration | `assistant/src/workspace/migrations/` — append to `WORKSPACE_MIGRATIONS` in `registry.ts`                                                 |
+| Database schema or data (columns, indexes, backfills)                           | DB migration        | `assistant/src/persistence/migrations/` — add function and register in the `migrationSteps` array in `assistant/src/persistence/steps.ts` |
 
 Migrations must be **idempotent** (safe to re-run if interrupted) and **append-only** (never reorder or remove existing entries). Each new DB migration file takes a fresh numeric prefix — never reuse one; the historical duplicate prefixes are frozen in `assistant/src/persistence/migrations/__tests__/migration-prefix-guard.test.ts`. Test migrations — see `assistant/src/__tests__/workspace-migration-*.test.ts` and `assistant/src/__tests__/db-*.test.ts` for patterns. Flag breaking changes in PR descriptions. If a migration is infeasible, call it out explicitly for human review.
 
@@ -207,9 +217,9 @@ See `meta/feature-flags/AGENTS.md` for naming, registry, resolver, and the requi
 
 ## LLM Provider Abstraction
 
-All LLM calls must go through `getConfiguredProvider(callSite)` from `providers/provider-send-message.ts`. The `callSite: LLMCallSite` arg is required so the resolver picks the right per-call-site config. Shipped defaults live in `assistant/src/config/call-site-defaults.ts`. Merge precedence is documented at the `resolveCallSiteConfig` docstring in `assistant/src/config/llm-resolver.ts`; shorthand (low → high) is default → active profile → override profile → site profile → call-site override for non-main-agent call sites, and default → site profile → call-site override → active profile → override profile for `mainAgent` (active and override profiles float above the call-site override since they reflect the user's chat-model selection). Passing `forceOverrideProfile: true` to the resolver floats the override profile above the site profile and call-site override for non-main-agent call sites too — an explicit escape hatch for callers that must run a background call site under a specific conversation's inference profile (e.g. fork-based memory retrospectives matching the source conversation for prompt-cache reuse).
+All LLM calls must go through `getConfiguredProvider(callSite)` from `providers/provider-send-message.ts`. The `callSite: LLMCallSite` arg is required so the resolver picks the right per-call-site config. Shipped defaults live in `assistant/src/config/call-site-defaults.ts`. Resolution semantics are documented at the `resolveCallSiteConfig` docstring in `assistant/src/config/llm-resolver.ts`: selection is a single-winner chain — the highest-precedence rung naming a usable profile (enabled, carrying its own provider and model) wins outright, and no profile ever contributes fields to another.
 
-Each LLM call site has a stable identifier (`LLMCallSite` from `assistant/src/config/schemas/llm.ts`). Pick the appropriate call-site ID for the request — the provider layer resolves provider/model/maxTokens/effort/thinking/contextWindow/etc. via `resolveCallSiteConfig` (in `assistant/src/config/llm-resolver.ts`). Non-main-agent call sites deep-merge five layers from highest to lowest precedence: (1) `llm.callSites.<id>` (call-site override), (2) `llm.profiles.<site.profile>` (the call-site's named profile, if any), (3) `llm.profiles.<overrideProfile>` (per-call ad-hoc override passed to the resolver), (4) `llm.profiles.<activeProfile>` (workspace-wide active profile), (5) `llm.default` (required base). `mainAgent` is the exception: the active profile and per-conversation override profile are the user's chat-model selection and therefore override static `llm.callSites.mainAgent` defaults. When `llm.callSites.<id>` is absent, the resolver falls back to shipped defaults from `assistant/src/config/call-site-defaults.ts`, which assign each call site to a profile (`balanced` or `cost-optimized`) with optional per-site tuning overrides. The shipped default's `profile` reference is silently stripped when the target profile isn't defined in `llm.profiles` (backward compat for BYOK setups), when the target profile has `status: "disabled"` (BYOK installs where managed profiles are disabled), or when `overrideProfile` is provided (per-call overrides must win). A missing `site.profile` reference in user config throws because it is statically referenced and validated by schema; missing `overrideProfile`/`activeProfile` references silently fall through because `overrideProfile` is a runtime parameter that cannot be schema-validated and `activeProfile` must degrade gracefully if pointed at a deleted profile mid-edit. Use provider-agnostic language in comments and logs ('LLM' not 'Haiku'/'Sonnet'). Route text generation through the daemon process — direct provider calls discard user context and preferences.
+Each LLM call site has a stable identifier (`LLMCallSite` from `assistant/src/config/schemas/llm.ts`). Pick the appropriate call-site ID for the request: the provider layer resolves provider/model/maxTokens/effort/thinking/contextWindow/etc. via `resolveCallSiteConfig` (in `assistant/src/config/llm-resolver.ts`). The winner is selected by precedence (high → low): (1) `overrideProfile` (per-turn/per-conversation pin passed to the resolver), (2) `llm.activeProfile` (`mainAgent` only, since it is that call site's user-facing chat-model selection), (3) `llm.callSites.<id>.profile` (the call site's named profile), (4) the call site's shipped profile intent from `assistant/src/config/call-site-defaults.ts` (`balanced` or `cost-optimized`) resolved through `llm.defaultProvider`, (5) the balanced intent through `llm.defaultProvider` as the code-owned anchor. A rung only wins if it resolves to an enabled profile carrying its own provider and model; unusable rungs are skipped (reported via `onResolutionFallback`) and resolution continues down the chain. The resolved config composes code-owned schema defaults, the winning profile's fragment, and the call site's own tuning tweak: the shipped `call-site-defaults.ts` tuning with the workspace `llm.callSites.<id>` entry layered over it field by field, both minus `profile`/`logitBias`. A workspace entry that only names a profile therefore repoints the selection without discarding the tuning the call site ships with. `temperature`/`top_p`/`logitBias` come only from the winner (or an explicit call-site tweak for sampling), so a shadowed profile can never leak provider-coupled fields. Use provider-agnostic language in comments and logs ('LLM' not 'Haiku'/'Sonnet'). Route text generation through the daemon process: direct provider calls discard user context and preferences.
 
 ## Skill Isolation
 
@@ -260,6 +270,16 @@ Docker instances use six per-service volumes enforcing least-privilege at the co
 
 **Never store secrets, API keys, or sensitive credentials in the workspace directory.**
 
+Paired guardian credentials are host-only. Renderer code sends paired traffic
+through `/assistant/__gateway-paired/<assistantId>` without a bearer. The
+Electron main process, CLI web host, or Vite development host must remove any
+renderer-provided `Authorization` header and inject the guardian bearer on the
+remote gateway hop. Renderer-facing guardian-token endpoints must reject
+paired assistant IDs. Packaged Electron must authorize the paired custom-
+protocol request through main-process `WebRequest` frame identity before the
+protocol handler runs. `GlobalRequest` headers are not an initiator proof for
+custom protocols because Chromium omits Origin, Referer, and Fetch Metadata.
+
 - **Local mode**: Use the credential store (`assistant credentials`) or `GATEWAY_SECURITY_DIR` (resolved by `getGatewaySecurityDir()` in `gateway/src/paths.ts`) for sensitive data. Do **not** create new secrets in the daemon's `protected/` directory — that directory is being phased out; all new security-sensitive files belong in the gateway security dir or CES.
 - **Docker mode**: Sensitive files are isolated on dedicated security volumes that only the owning service can access. Trust rules (`trust.json`, `actor-token-signing-key`), capability-token secrets, and other gateway-owned security material live on the gateway security volume (`/gateway-security`). Credential keys (`keys.enc`, `store.key`) live on the CES security volume (`/ces-security`). The assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`), and the assistant accesses trust rules via the gateway's trust HTTP API. Neither the assistant nor the gateway has direct filesystem access to the other service's security volume.
 - **The daemon must never read from `GATEWAY_SECURITY_DIR`** or any gateway-owned directory. Any data the daemon needs from the gateway (e.g. capability token verification, feature flags, trust rules) must flow through IPC or HTTP APIs.
@@ -278,6 +298,7 @@ The daemon must not invoke LLM providers at startup or on unconditional timers �
 - **[`vellum-assistant-platform`](../vellum-assistant-platform)** — Django backend that manages platform-hosted ("managed") assistants. Handles authentication (WorkOS OIDC), organization management, assistant lifecycle, and runtime proxying. The desktop app authenticates against it and proxies all runtime traffic through it. Stack: Python 3.14, Django, DRF, PostgreSQL, Redis/Valkey. See `../vellum-assistant-platform/AGENTS.md` for development instructions.
 
 When making changes that could affect the cloud platform, review the sibling `../vellum-assistant-platform` repo for compatibility and required follow-up updates. High-risk change areas include:
+
 - HTTP server behavior and API contracts.
 - Stored file and directory structure changes (workspace paths, on-disk formats, exports/imports, migrations).
 - Dockerfile or container runtime/build changes.
@@ -287,15 +308,16 @@ When making changes that could affect the cloud platform, review the sibling `..
 
 `VELLUM_ENVIRONMENT` identifies the runtime environment for all clients (Electron macOS app, CLI, Chrome extension). It's embedded at build time by each platform's build tooling, or injected via `--define` for the Chrome-ext bundler. CI/devs can override by exporting it before building; per-client default-resolution logic lives in each client's build script.
 
-| Value | Use cases |
-|---|---|
-| `local` | Always built from local source. Enable developer-only features. |
-| `dev` | Artifacts from `main`. Connected to dev platform; skip production guards. |
-| `test` | Stub external services, use test fixtures. |
-| `staging` | QA against staging before production rollout. Default for release-branch builds. |
-| `production` | Full production behavior, no developer shortcuts. |
+| Value        | Use cases                                                                        |
+| ------------ | -------------------------------------------------------------------------------- |
+| `local`      | Always built from local source. Enable developer-only features.                  |
+| `dev`        | Artifacts from `main`. Connected to dev platform; skip production guards.        |
+| `test`       | Stub external services, use test fixtures.                                       |
+| `staging`    | QA against staging before production rollout. Default for release-branch builds. |
+| `production` | Full production behavior, no developer shortcuts.                                |
 
 **Guidelines**:
+
 - Use it for behavior that varies by deployment target (image builds, telemetry sampling, API base URLs). Don't substitute it for feature flags (those gate per-user/org; this gates per-deployment).
 - Don't gate on `#if DEBUG` / `RELEASE` compiler flags when the distinction is really deployment environment. A debug build pointed at staging is still `staging`.
 - Client `build.sh` scripts must be self-contained — install their own deps before building, not via `setup.sh` / `vel up` / CI workflows.
@@ -306,17 +328,18 @@ Error reporting uses Sentry. The daemon/runtime (Node) project's DSN is configur
 
 ### Sentry projects & DSNs
 
-Surfaces map onto Sentry projects as below. The Electron renderer reports to the macOS project, sharing the `SENTRY_DSN_MACOS` secret with the main process. Per-host flavor + DSN selection in the shared clients/web bundle is live: `flavor.ts` `selectSentryFlavor()` picks the capacitor flavor on native iOS and the react flavor everywhere else (web + Electron renderer); `sentry-init.ts` `resolveDsn()` picks `VITE_SENTRY_DSN_MACOS` (Electron) / `VITE_SENTRY_DSN_IOS` (iOS) / `VITE_SENTRY_DSN` (web). All flavors share one `options` object (ignoreErrors, denyUrls, beforeBreadcrumb URL sanitize, enhanceFetchErrorMessages, attachStacktrace) so PII/noise filtering is uniform. An empty DSN no-ops.
+Surfaces map onto Sentry projects as below. The Electron renderer reports to the macOS project, sharing the `SENTRY_DSN_MACOS` secret with the main process. Per-host flavor + DSN selection in the shared clients/web bundle is live: `flavor.ts` `selectSentryFlavor()` picks the capacitor flavor on native iOS/Android and the react flavor everywhere else (web + Electron renderer); `sentry-init.ts` `resolveDsn()` picks `VITE_SENTRY_DSN_MACOS` (Electron) / `VITE_SENTRY_DSN_IOS` (iOS) / `VITE_SENTRY_DSN_ANDROID` (Android) / `VITE_SENTRY_DSN` (web). All flavors share one `options` object (ignoreErrors, denyUrls, beforeBreadcrumb URL sanitize, enhanceFetchErrorMessages, attachStacktrace) so PII/noise filtering is uniform. An empty DSN no-ops.
 
-| Surface | Project | DSN source | Delivered via |
-| --- | --- | --- | --- |
-| Web SPA | `vellum-assistant-web` | `VITE_SENTRY_DSN` (vars) | web build |
-| Electron main | `vellum-assistant-macos` | `SENTRY_DSN_MACOS` (secret) → `__SENTRY_DSN_MACOS__` | macOS build define |
-| Electron renderer | `vellum-assistant-macos` | `SENTRY_DSN_MACOS` (secret) → `VITE_SENTRY_DSN_MACOS` | macOS build |
-| iOS webview + native | `vellum-assistant-ios` | `SENTRY_DSN_IOS` (secret) → `VITE_SENTRY_DSN_IOS` | web-SPA build (loaded at runtime on iOS) |
-| Assistant daemon | (unchanged) | `SENTRY_DSN_ASSISTANT` | runtime env |
+| Surface                  | Project                    | DSN source                                                | Delivered via                                |
+| ------------------------ | -------------------------- | --------------------------------------------------------- | -------------------------------------------- |
+| Web SPA                  | `vellum-assistant-web`     | `VITE_SENTRY_DSN` (vars)                                  | web build                                    |
+| Electron main            | `vellum-assistant-macos`   | `SENTRY_DSN_MACOS` (secret) → `__SENTRY_DSN_MACOS__`      | macOS build define                           |
+| Electron renderer        | `vellum-assistant-macos`   | `SENTRY_DSN_MACOS` (secret) → `VITE_SENTRY_DSN_MACOS`     | macOS build                                  |
+| iOS webview + native     | `vellum-assistant-ios`     | `SENTRY_DSN_IOS` (secret) → `VITE_SENTRY_DSN_IOS`         | web-SPA build (loaded at runtime on iOS)     |
+| Android webview + native | `vellum-assistant-android` | `SENTRY_DSN_ANDROID` (secret) → `VITE_SENTRY_DSN_ANDROID` | web-SPA build (loaded at runtime on Android) |
+| Assistant daemon         | (unchanged)                | `SENTRY_DSN_ASSISTANT`                                    | runtime env                                  |
 
-The iOS DSN is baked into the deployed web SPA bundle rather than the iOS build, because the iOS app runs the deployed SPA via `server.url` (see `clients/web/capacitor.config.ts`) and bundles no web assets at `cap sync`.
+Native mobile DSNs are baked into the deployed web SPA bundle rather than the native builds, because the iOS and Android apps run the deployed SPA via `server.url` (see `clients/web/capacitor.config.ts`) and bundle no web assets at `cap sync`.
 
 The Electron renderer uses `@sentry/react` (not `@sentry/electron/renderer`): `@sentry/electron` pins `@sentry/core` 10.50 while `@sentry/capacitor` pins `@sentry/react`/`@sentry/browser` 10.52, and Sentry's current-client carrier is version-specific, so an `@sentry/electron/renderer` client couldn't see `@sentry/react` captures. Renderer native crashes still reach `vellum-assistant-macos` via `@sentry/electron/main` (separate process).
 

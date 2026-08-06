@@ -63,24 +63,21 @@ export function useDoctorAutoScroll(
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
   const isPinnedRef = useRef(true);
 
-  const scrollContainerRef = useCallback(
-    (el: HTMLDivElement | null) => {
-      setScrollEl((prev) => {
-        // Reset pinned state for each fresh transcript element. When the
-        // messages div unmounts after the user scrolled away (New Session
-        // or assistant switch clears entries and renders the idle branch),
-        // isPinnedRef would otherwise stay false, so the next overflowing
-        // transcript mounts unpinned and the user lands at scrollTop=0
-        // with the newest content hidden. Each new element starts pinned.
-        if (el !== prev) {
-          isPinnedRef.current = true;
-          setShowScrollToLatest(false);
-        }
-        return el;
-      });
-    },
-    [],
-  );
+  const scrollContainerRef = useCallback((el: HTMLDivElement | null) => {
+    setScrollEl((prev) => {
+      // Reset pinned state for each fresh transcript element. When the
+      // messages div unmounts after the user scrolled away (New Session
+      // or assistant switch clears entries and renders the idle branch),
+      // isPinnedRef would otherwise stay false, so the next overflowing
+      // transcript mounts unpinned and the user lands at scrollTop=0
+      // with the newest content hidden. Each new element starts pinned.
+      if (el !== prev) {
+        isPinnedRef.current = true;
+        setShowScrollToLatest(false);
+      }
+      return el;
+    });
+  }, []);
 
   const classify = useCallback(() => {
     const el = scrollEl;
@@ -132,6 +129,31 @@ export function useDoctorAutoScroll(
   useEffect(() => {
     classify();
   }, [entries, classify]);
+
+  // Transcript content can also grow WITHOUT an entries change — e.g. the
+  // inline backups panel loading asynchronously, or a tool block expanding.
+  // Observe the content element's size so pinned users keep following and
+  // un-pinned users get the "Go to Newest" affordance, matching the chat
+  // transcript's content-ResizeObserver re-pins.
+  useEffect(() => {
+    if (!scrollEl || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const content = scrollEl.firstElementChild;
+    if (!content) {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      if (isPinnedRef.current) {
+        scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: "auto" });
+      }
+      classify();
+    });
+    observer.observe(content);
+    return () => {
+      observer.disconnect();
+    };
+  }, [scrollEl, classify]);
 
   const scrollToLatest = useCallback(() => {
     if (!scrollEl) {

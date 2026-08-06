@@ -16,11 +16,11 @@ import {
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { getGuardianDelivery } from "../../contacts/guardian-delivery-reader.js";
+import type { Conversation } from "../../daemon/conversation.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import {
   createResolveToolsCallback,
   DEFAULT_PREACTIVATED_SKILL_IDS,
-  type SkillProjectionContext,
 } from "../../daemon/conversation-tool-setup.js";
 import {
   computeGatewayTarget,
@@ -46,6 +46,7 @@ import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { mergeSkillIds } from "../../subagent/manager.js";
+import { resolveSubagentRole } from "../../subagent/role-resolution.js";
 import {
   SUBAGENT_ROLE_REGISTRY,
   type SubagentRole,
@@ -69,8 +70,7 @@ import { generateAvatarImage } from "../../tools/system/avatar-generator.js";
 import { pathExists } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
 import { getAvatarImagePath, getWorkspaceDir } from "../../util/platform.js";
-import { buildAssistantEvent } from "../assistant-event.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
+import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { publishAvatarChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
@@ -250,22 +250,13 @@ async function handleOAuthConnectStart({ body = {} }: RouteHandlerArgs) {
           // DB not ready — use orchestrator value
         }
 
-        assistantEventHub
-          .publish(
-            buildAssistantEvent({
-              type: "oauth_connect_result",
-              success: deferredResult.success,
-              service: deferredResult.service,
-              accountInfo,
-              error: deferredResult.error,
-            }),
-          )
-          .catch((err) => {
-            log.warn(
-              { err, service: deferredResult.service },
-              "Failed to publish oauth_connect_result event",
-            );
-          });
+        broadcastMessage({
+          type: "oauth_connect_result",
+          success: deferredResult.success,
+          service: deferredResult.service,
+          accountInfo,
+          error: deferredResult.error,
+        });
 
         if (!deferredResult.success) {
           log.warn(
@@ -417,10 +408,24 @@ type SchemaShape = {
   required?: string[];
 };
 
+/** How an `agent` query param was read, when one was given by role. */
+interface ResolvedAgentInfo {
+  /** The `agent` value as asked for. */
+  requested: string;
+  /** The subagent type whose surface is listed. */
+  role: SubagentRole;
+  /** The older type name that produced `role`, when one did. */
+  alias?: string;
+  /** The free text carried as a persona, when `requested` named no type. */
+  persona?: string;
+}
+
 interface ToolNamesListResponse {
   names: string[];
   schemas: Record<string, SchemaShape>;
   tools: ToolListEntry[];
+  /** Present only for an `agent` listing resolved from a role string. */
+  agent?: ResolvedAgentInfo;
 }
 
 /**
@@ -485,10 +490,14 @@ function handleToolNamesList(
 
 /**
  * Resolve the tool surface a subagent would receive, identified either by a
- * role name (e.g. "researcher") or a live subagent id.
+ * live subagent id or by any string a spawn's `role` field accepts: a type
+ * name (e.g. "researcher"), an older type name, or free text that a spawn
+ * carries as a persona. The response reports which type the string landed on
+ * and what carried it there, so a surface that came from an alias or a persona
+ * fallback is not mistaken for one that was asked for by name.
  *
- * For a role name: build a {@link SkillProjectionContext} matching what the
- * {@link SubagentManager} sets up at spawn time (isSubagent, allowedTools,
+ * For a role name: build a minimal {@link Conversation} stand-in matching what
+ * the {@link SubagentManager} sets up at spawn time (isSubagent, allowedTools,
  * preactivated skill ids, no client), then run the exact same
  * {@link createResolveToolsCallback} the real subagent uses to project tools
  * for its first turn. This ensures the diagnostic reports the same tool set
@@ -505,42 +514,51 @@ function handleAgentToolList(agent: string): ToolNamesListResponse {
     return handleConversationToolList(state.conversationId);
   }
 
-  // Otherwise, treat as a role name.
-  const role = agent as SubagentRole;
-  const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
-  if (!roleConfig) {
-    throw new NotFoundError(
-      `Unknown agent "${agent}". Expected a subagent role ` +
-        `(general, researcher, coder, planner, investigator, advisor) ` +
-        `or a live subagent id.`,
-    );
-  }
+  // Otherwise, read it the way a spawn reads its `role` field. Resolution is
+  // total: a type name passes through, an older name resolves to its successor
+  // type, and anything else is a persona that runs as a researcher. Rejecting
+  // what a spawn accepts would leave the two spawn shapes a caller most wants
+  // to preview (an alias, a persona) with no way to see their tool surface.
+  const resolved = resolveSubagentRole(agent);
+  const roleConfig = SUBAGENT_ROLE_REGISTRY[resolved.role];
 
-  // Build the same context the SubagentManager creates at spawn time:
+  // Build the same context the SubagentManager creates at spawn time. The
+  // resolver reads only this subset of Conversation state, so a minimal
+  // stand-in cast to Conversation is enough:
   //   - isSubagent: true (gates subagent-only tools like notify_parent)
   //   - subagentAllowedTools: the role's allowlist (wire gate mode by default)
   //   - preactivatedSkillIds: role skill ids merged with defaults
   //   - hasNoClient: true (subagents have no direct client)
   //   - no channel capabilities, no disk pressure, tools enabled
   const toolDefs = getAllToolDefinitions();
-  const coreToolNames = new Set(toolDefs.map((d) => d.name));
   const mergedSkillIds = mergeSkillIds(
     roleConfig.skillIds,
     DEFAULT_PREACTIVATED_SKILL_IDS,
   );
-  const ctx: SkillProjectionContext = {
+  const ctx = {
     isSubagent: true,
     subagentAllowedTools: roleConfig.allowedTools
       ? new Set(roleConfig.allowedTools)
       : undefined,
     subagentToolGateMode: undefined,
+    // Roles that refuse side effects require an allowed name to resolve to a
+    // first-party built-in, so a workspace or plugin tool claiming one is off
+    // the surface. Without this the preview would advertise a tool the live
+    // subagent refuses at dispatch.
+    subagentDenySideEffects: roleConfig.denySideEffects === true,
     toolsDisabledDepth: 0,
     diskPressureCleanupModeActive: false,
     skillProjectionState: new Map<string, string>(),
     skillProjectionCache: {},
-    coreToolNames,
     hasNoClient: true,
     preactivatedSkillIds: mergedSkillIds,
+  } as unknown as Conversation;
+
+  const agentInfo: ResolvedAgentInfo = {
+    requested: agent,
+    role: resolved.role,
+    ...(resolved.alias ? { alias: resolved.alias } : {}),
+    ...(resolved.personaText ? { persona: resolved.personaText } : {}),
   };
 
   // Run the real tool resolver — the same callback a subagent conversation
@@ -548,7 +566,7 @@ function handleAgentToolList(agent: string): ToolNamesListResponse {
   // any skill activations have been recorded.
   const resolveTools = createResolveToolsCallback(toolDefs, ctx);
   if (!resolveTools) {
-    return { names: [], schemas: {}, tools: [] };
+    return { names: [], schemas: {}, tools: [], agent: agentInfo };
   }
   const resolvedDefs = resolveTools([]);
   const names = resolvedDefs
@@ -572,14 +590,14 @@ function handleAgentToolList(agent: string): ToolNamesListResponse {
     tools.push(toolEntryForName(name));
   }
 
-  return { names, schemas, tools };
+  return { names, schemas, tools, agent: agentInfo };
 }
 
 /**
  * Scope the tool inventory to a single conversation. Conversations gain
  * tools over their lifecycle (skill loads, MCP reloads), so the global
  * registry over-reports what a given conversation can actually call. We
- * read the conversation's turn snapshot (`getRegisteredToolNames()`) — a
+ * read the conversation's turn snapshot (`getRegisteredToolDefinitions()`) — a
  * pure read that does not re-run the side-effecting `resolveTools`
  * callback — and resolve each name's metadata/schema from the registry.
  */
@@ -593,25 +611,21 @@ function handleConversationToolList(
     );
   }
 
-  const names = Array.from(conversation.getRegisteredToolNames()).sort((a, b) =>
-    a.localeCompare(b),
-  );
+  // The snapshot already carries each tool's definition, so read schemas off it
+  // directly (activity-injected the same way the global catalog is) rather than
+  // flattening to names and re-looking-them-up in the registry.
+  const defs = injectActivityField(
+    conversation.getRegisteredToolDefinitions(),
+    ACTIVITY_SKIP_SET,
+  ).sort((a, b) => a.name.localeCompare(b.name));
 
-  const schemaByName = new Map<string, SchemaShape>(
-    injectActivityField(getAllTools(), ACTIVITY_SKIP_SET).map((d) => [
-      d.name,
-      d.input_schema as SchemaShape,
-    ]),
-  );
-
+  const names: string[] = [];
   const schemas: Record<string, SchemaShape> = {};
   const tools: ToolListEntry[] = [];
-  for (const name of names) {
-    const schema = schemaByName.get(name);
-    if (schema) {
-      schemas[name] = schema;
-    }
-    tools.push(toolEntryForName(name));
+  for (const def of defs) {
+    names.push(def.name);
+    schemas[def.name] = def.input_schema as SchemaShape;
+    tools.push(toolEntryForName(def.name));
   }
 
   return { names, schemas, tools };
@@ -622,7 +636,7 @@ interface ToolListEntry {
   description: string;
   riskLevel: string;
   category: string;
-  /** Tool origin: "core" for built-ins, otherwise "<kind>:<id>" (e.g. "plugin:echo"). */
+  /** Tool origin as "<kind>:<id>" (e.g. "default:default" for built-ins, "plugin:echo"). */
   source: string;
 }
 
@@ -630,9 +644,10 @@ interface ToolListEntry {
  * Build a catalog entry for one tool name, reading metadata and ownership
  * from the registry (the single source of truth) rather than off any
  * caller-supplied object, so `source` cannot be spoofed by a manifest
- * field. `source` is `core` for built-ins, `<kind>:<id>` for an owned tool
- * (e.g. `plugin:echo`), and `unknown` for a name no longer in the registry
- * (e.g. a conversation snapshot referencing a since-unloaded skill tool).
+ * field. `source` is `<kind>:<id>` for a registered tool (e.g.
+ * `default:default` for a built-in, `plugin:echo` for an owned tool), and
+ * `unknown` for a name no longer in the registry (e.g. a conversation snapshot
+ * referencing a since-unloaded skill tool).
  */
 function toolEntryForName(name: string): ToolListEntry {
   const tool = getTool(name);
@@ -642,7 +657,7 @@ function toolEntryForName(name: string): ToolListEntry {
     description: tool?.description ?? "",
     riskLevel: tool?.defaultRiskLevel ?? "unknown",
     category: tool?.category ?? "",
-    source: owner ? `${owner.kind}:${owner.id}` : tool ? "core" : "unknown",
+    source: owner ? `${owner.kind}:${owner.id}` : "unknown",
   };
 }
 
@@ -1010,7 +1025,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "List registered tools with metadata and schemas",
     description:
-      "Return registered tools. Without `conversationId`, returns every tool in the global registry; `tools` carries per-tool metadata (description, author-asserted risk level, category, and contributing source: core, skill, plugin, or MCP server) and `names`/`schemas` additionally cover skill tools whose manifests are present but not yet loaded, for the permission-simulator catalog. With `conversationId`, scopes the result to the tools available to that conversation as of its most recent turn (including skill/MCP tools registered over its lifecycle); 404 if no such conversation is active. With `agent`, simulates the subagent tool projection for a given role or resolves a live subagent's conversation.",
+      "Return registered tools. Without `conversationId`, returns every tool in the global registry; `tools` carries per-tool metadata (description, author-asserted risk level, category, and contributing source: default (built-in), skill, plugin, or MCP server) and `names`/`schemas` additionally cover skill tools whose manifests are present but not yet loaded, for the permission-simulator catalog. With `conversationId`, scopes the result to the tools available to that conversation as of its most recent turn (including skill/MCP tools registered over its lifecycle); 404 if no such conversation is active. With `agent`, simulates the subagent tool projection for a given role or resolves a live subagent's conversation.",
     tags: ["tools"],
     queryParams: [
       {
@@ -1040,7 +1055,7 @@ export const ROUTES: RouteDefinition[] = [
           source: z
             .string()
             .describe(
-              'Tool origin: "core" for built-ins, otherwise "<kind>:<id>" (e.g. "plugin:echo", "skill:my-skill", "mcp:server").',
+              'Tool origin as "<kind>:<id>" (e.g. "default:default" for built-ins, "plugin:echo", "skill:my-skill", "mcp:server").',
             ),
         }),
       ),

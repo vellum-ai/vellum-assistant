@@ -9,9 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
+import type { Conversation } from "../daemon/conversation.js";
 import {
   isToolActiveForContext,
-  type SkillProjectionContext,
   SUBAGENT_ONLY_TOOL_NAMES,
 } from "../daemon/conversation-tool-setup.js";
 import { fileListTool } from "../tools/filesystem/list.js";
@@ -50,7 +50,7 @@ function sandboxPolicyFor(boundary: string): PathPolicy {
 // ---------------------------------------------------------------------------
 
 describe("FileSystemOps.listDirSafe", () => {
-  test("lists directory contents with type indicators (dirs end with /)", () => {
+  test("lists directory contents with type indicators (dirs end with /)", async () => {
     const dir = makeTempDir();
     mkdirSync(join(dir, "subdir-a"));
     mkdirSync(join(dir, "subdir-b"));
@@ -58,9 +58,11 @@ describe("FileSystemOps.listDirSafe", () => {
     writeFileSync(join(dir, "file-b.md"), "world");
 
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
-    const result = ops.listDirSafe({ path: dir });
+    const result = await ops.listDirSafe({ path: dir });
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     const lines = result.value.listing.split("\n");
     // Directories first with trailing /
@@ -71,7 +73,7 @@ describe("FileSystemOps.listDirSafe", () => {
     expect(lines[3]).toMatch(/^file-b\.md\s+\d+\s*B$/);
   });
 
-  test("glob filtering works (e.g. '*.md' only returns .md files)", () => {
+  test("glob filtering works (e.g. '*.md' only returns .md files)", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "readme.md"), "# Title");
     writeFileSync(join(dir, "notes.md"), "some notes");
@@ -79,9 +81,11 @@ describe("FileSystemOps.listDirSafe", () => {
     writeFileSync(join(dir, "config.json"), "{}");
 
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
-    const result = ops.listDirSafe({ path: dir, glob: "*.md" });
+    const result = await ops.listDirSafe({ path: dir, glob: "*.md" });
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     const lines = result.value.listing.split("\n");
     expect(lines.length).toBe(2);
@@ -89,34 +93,42 @@ describe("FileSystemOps.listDirSafe", () => {
     expect(lines[1]).toMatch(/^readme\.md/);
   });
 
-  test("returns NOT_A_DIRECTORY error for file paths", () => {
+  test("returns NOT_A_DIRECTORY error for file paths", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "regular-file.txt"), "content");
 
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
-    const result = ops.listDirSafe({ path: join(dir, "regular-file.txt") });
+    const result = await ops.listDirSafe({
+      path: join(dir, "regular-file.txt"),
+    });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("NOT_A_DIRECTORY");
   });
 
-  test("returns NOT_FOUND error for nonexistent paths", () => {
+  test("returns NOT_FOUND error for nonexistent paths", async () => {
     const dir = makeTempDir();
 
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
-    const result = ops.listDirSafe({ path: join(dir, "nonexistent") });
+    const result = await ops.listDirSafe({ path: join(dir, "nonexistent") });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("NOT_FOUND");
   });
 
-  test("sandbox policy rejects paths outside boundary", () => {
+  test("sandbox policy rejects paths outside boundary", async () => {
     const dir = makeTempDir();
 
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
-    const result = ops.listDirSafe({ path: "../../../etc" });
+    const result = await ops.listDirSafe({ path: "../../../etc" });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("PATH_OUT_OF_BOUNDS");
   });
 });
@@ -162,7 +174,8 @@ describe("FileListTool", () => {
       makeToolContext(dir),
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("path is required and must be a string");
+    expect(result.content).toContain('Invalid input for tool "file_list"');
+    expect(result.content).toContain("path:");
   });
 
   test("execute() returns error for nonexistent directory", async () => {
@@ -186,34 +199,31 @@ describe("file_list subagent visibility", () => {
   });
 
   test("isToolActiveForContext hides file_list when isSubagent is false", () => {
-    const ctx: SkillProjectionContext = {
+    const ctx = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
-      coreToolNames: new Set(["file_list"]),
       toolsDisabledDepth: 0,
-    };
+    } as unknown as Conversation;
     expect(isToolActiveForContext("file_list", ctx)).toBe(false);
   });
 
   test("isToolActiveForContext hides file_list when isSubagent is undefined", () => {
-    const ctx: SkillProjectionContext = {
+    const ctx = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
-      coreToolNames: new Set(["file_list"]),
       toolsDisabledDepth: 0,
       isSubagent: undefined,
-    };
+    } as unknown as Conversation;
     expect(isToolActiveForContext("file_list", ctx)).toBe(false);
   });
 
   test("isToolActiveForContext shows file_list when isSubagent is true", () => {
-    const ctx: SkillProjectionContext = {
+    const ctx = {
       skillProjectionState: new Map(),
       skillProjectionCache: {},
-      coreToolNames: new Set(["file_list"]),
       toolsDisabledDepth: 0,
       isSubagent: true,
-    };
+    } as unknown as Conversation;
     expect(isToolActiveForContext("file_list", ctx)).toBe(true);
   });
 });

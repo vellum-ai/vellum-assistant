@@ -96,10 +96,18 @@ function filterViolations(
   extraAllowlist?: Set<string>,
 ): string[] {
   return files.filter((f) => {
-    if (isTestFile(f)) return false;
-    if (isGatewayInternal(f)) return false;
-    if (ALLOWLIST.has(f)) return false;
-    if (extraAllowlist?.has(f)) return false;
+    if (isTestFile(f)) {
+      return false;
+    }
+    if (isGatewayInternal(f)) {
+      return false;
+    }
+    if (ALLOWLIST.has(f)) {
+      return false;
+    }
+    if (extraAllowlist?.has(f)) {
+      return false;
+    }
     return true;
   });
 }

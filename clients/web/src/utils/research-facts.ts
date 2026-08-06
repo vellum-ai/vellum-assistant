@@ -20,6 +20,8 @@
  * `DisplayMessage`-bound helpers) so existing importers are unaffected.
  */
 
+import { hostMatchesDomain } from "@/utils/domains";
+
 export type ResearchConfidence = "confident" | "maybe" | "guessing";
 
 /** Optional reason a user gives when removing a claim. */
@@ -30,14 +32,17 @@ export const REMOVAL_REASON_LABELS: Record<RemovalReason, string> = {
   not_relevant: "Not relevant",
 };
 
-export interface ResearchFact {
+// A `type` (not `interface`) so it carries an implicit index signature and
+// stays assignable to the telemetry `fields` JSON-value type — see the
+// `onboarding_research` reporter in research-runner.ts.
+export type ResearchFact = {
   claim: string;
   confidence: ResearchConfidence;
   /** Source URLs the assistant cited as evidence (rendered as proof favicons). */
   sources: string[];
-}
+};
 
-export interface ResearchSuggestion {
+export type ResearchSuggestion = {
   /**
    * The offer as the assistant would speak it — first-person, in the
    * assistant's voice ("I'll build you a training plan…"). This is what the
@@ -51,7 +56,7 @@ export interface ResearchSuggestion {
    * talking to itself.
    */
   prompt: string;
-}
+};
 
 /** Bare registrable domain from a URL (www stripped), or null if unparseable. */
 export function domainFromUrl(url: string): string | null {
@@ -64,20 +69,70 @@ export function domainFromUrl(url: string): string | null {
 
 function normalizeConfidence(raw: unknown): ResearchConfidence {
   const v = typeof raw === "string" ? raw.trim().toLowerCase() : "";
-  if (v.startsWith("conf")) return "confident";
-  if (v.startsWith("guess")) return "guessing";
+  if (v.startsWith("conf")) {
+    return "confident";
+  }
+  if (v.startsWith("guess")) {
+    return "guessing";
+  }
   return "maybe";
 }
 
 function normalizeSources(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.filter((s): s is string => typeof s === "string" && s.trim().length > 0);
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.filter(
+    (s): s is string => typeof s === "string" && s.trim().length > 0,
+  );
+}
+
+/**
+ * People-search / background-check aggregators. Scraped-data directories are
+ * weak identity evidence and alarming to see cited on the card, so their URLs
+ * are stripped from every claim's sources — and a claim backed ONLY by them is
+ * dropped entirely.
+ */
+const AGGREGATOR_SOURCE_DENYLIST = [
+  "beenverified.com",
+  "checkpeople.com",
+  "clustrmaps.com",
+  "cyberbackgroundchecks.com",
+  "fastpeoplesearch.com",
+  "instantcheckmate.com",
+  "intelius.com",
+  "mylife.com",
+  "nuwber.com",
+  "peekyou.com",
+  "peoplefinders.com",
+  "peoplelooker.com",
+  "radaris.com",
+  "spokeo.com",
+  "thatsthem.com",
+  "truepeoplesearch.com",
+  "truthfinder.com",
+  "usphonebook.com",
+  "ussearch.com",
+  "whitepages.com",
+];
+
+/** True when the URL's host is (or is a subdomain of) a denylisted aggregator. */
+function isAggregatorSource(url: string): boolean {
+  const host = domainFromUrl(url);
+  if (!host) {
+    return false;
+  }
+  return AGGREGATOR_SOURCE_DENYLIST.some((domain) =>
+    hostMatchesDomain(host, domain),
+  );
 }
 
 /** Strip a (possibly unterminated) ```json fence so the body is raw JSON-ish. */
 function stripFence(text: string): string {
   const fenceStart = text.search(/```(?:json)?/i);
-  if (fenceStart === -1) return text;
+  if (fenceStart === -1) {
+    return text;
+  }
   const afterFence = text.slice(fenceStart).replace(/^```(?:json)?/i, "");
   const closeIdx = afterFence.indexOf("```");
   return closeIdx === -1 ? afterFence : afterFence.slice(0, closeIdx);
@@ -98,15 +153,21 @@ function extractCompleteObjects(body: string): unknown[] {
   for (let i = 0; i < body.length; i++) {
     const c = body[i];
     if (inString) {
-      if (escaped) escaped = false;
-      else if (c === "\\") escaped = true;
-      else if (c === '"') inString = false;
+      if (escaped) {
+        escaped = false;
+      } else if (c === "\\") {
+        escaped = true;
+      } else if (c === '"') {
+        inString = false;
+      }
       continue;
     }
     if (c === '"') {
       inString = true;
     } else if (c === "{") {
-      if (depth === 0) start = i;
+      if (depth === 0) {
+        start = i;
+      }
       depth++;
     } else if (c === "}") {
       depth--;
@@ -123,21 +184,94 @@ function extractCompleteObjects(body: string): unknown[] {
   return objects;
 }
 
-function toFact(entry: unknown): ResearchFact | null {
-  if (!entry || typeof entry !== "object") return null;
+type ClassifiedClaim =
+  | { kind: "fact"; fact: ResearchFact }
+  | { kind: "dropped"; claim: string }
+  | null;
+
+/**
+ * Classify one raw claim entry: a card-worthy `fact`, an aggregator-only
+ * `dropped` claim (every source is a people-search directory), or `null` when
+ * there's no usable claim text. A drop keeps the claim text so callers can
+ * scrub the hidden wrong-person fact from memory, not just from the card.
+ */
+function classifyClaim(entry: unknown): ClassifiedClaim {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
   const claim = (entry as { claim?: unknown }).claim;
-  if (typeof claim !== "string" || !claim.trim()) return null;
+  if (typeof claim !== "string" || !claim.trim()) {
+    return null;
+  }
+  const trimmedClaim = claim.trim();
+  const rawSources = normalizeSources((entry as { sources?: unknown }).sources);
+  const sources = rawSources.filter((s) => !isAggregatorSource(s));
+  // A web-sourced claim whose every source is an aggregator has no evidence
+  // worth showing — drop it from the card, but keep its text so the flow can
+  // scrub it from assistant memory rather than silently leaving it there.
+  if (rawSources.length > 0 && sources.length === 0) {
+    return { kind: "dropped", claim: trimmedClaim };
+  }
+  const confidence = normalizeConfidence(
+    (entry as { confidence?: unknown }).confidence,
+  );
   return {
-    claim: claim.trim(),
-    confidence: normalizeConfidence((entry as { confidence?: unknown }).confidence),
-    sources: normalizeSources((entry as { sources?: unknown }).sources),
+    kind: "fact",
+    fact: {
+      claim: trimmedClaim,
+      // Sourceless "confident" caps at "maybe" — the deterministic backstop for
+      // a model that inflates tiers past the prompt's evidence rubric.
+      confidence:
+        confidence === "confident" && sources.length === 0
+          ? "maybe"
+          : confidence,
+      sources,
+    },
   };
 }
 
+/**
+ * Partition raw claim entries into the facts rendered on the card and the claim
+ * texts dropped from it because every source was an aggregator. A claim the
+ * model emits twice — once with a real source (shown/kept) and once aggregator-
+ * only — is kept only as a shown fact and never reported as dropped, so a later
+ * memory scrub can't disregard a fact the user can still see on the card.
+ * Non-array input (or entries with no usable claim) contributes nothing.
+ */
+function collectClaims(raw: unknown): {
+  claims: ResearchFact[];
+  droppedClaims: string[];
+} {
+  const claims: ResearchFact[] = [];
+  const dropped: string[] = [];
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      const classified = classifyClaim(entry);
+      if (!classified) {
+        continue;
+      }
+      if (classified.kind === "fact") {
+        claims.push(classified.fact);
+      } else {
+        dropped.push(classified.claim);
+      }
+    }
+  }
+  // Keep only drops whose exact text never surfaced as a shown claim: an
+  // aggregator-only twin of a kept claim must not be scrubbed from memory.
+  const shownClaims = new Set(claims.map((c) => c.claim));
+  const droppedClaims = dropped.filter((claim) => !shownClaims.has(claim));
+  return { claims, droppedClaims };
+}
+
 function toSuggestion(entry: unknown): ResearchSuggestion | null {
-  if (!entry || typeof entry !== "object") return null;
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
   const suggestion = (entry as { suggestion?: unknown }).suggestion;
-  if (typeof suggestion !== "string" || !suggestion.trim()) return null;
+  if (typeof suggestion !== "string" || !suggestion.trim()) {
+    return null;
+  }
   const rawPrompt = (entry as { prompt?: unknown }).prompt;
   // Fall back to the assistant-voiced text if the model omits the user-voiced
   // prompt — better to send something reasonable than to drop the suggestion.
@@ -155,13 +289,19 @@ function toSuggestion(entry: unknown): ResearchSuggestion | null {
  * installing, so a hallucinated name here never reaches the install route.
  */
 function normalizePlugins(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
+  if (!Array.isArray(raw)) {
+    return [];
+  }
   const seen = new Set<string>();
   const names: string[] = [];
   for (const entry of raw) {
-    if (typeof entry !== "string") continue;
+    if (typeof entry !== "string") {
+      continue;
+    }
     const name = entry.trim();
-    if (!name || seen.has(name)) continue;
+    if (!name || seen.has(name)) {
+      continue;
+    }
     seen.add(name);
     names.push(name);
   }
@@ -180,21 +320,29 @@ function normalizePlugins(raw: unknown): string[] {
  */
 function parseClosedPluginsArray(body: string): string[] | null {
   const scope = arrayScopeFor(body, "plugins");
-  if (scope === null) return null;
+  if (scope === null) {
+    return null;
+  }
   let depth = 0;
   let inString = false;
   let escaped = false;
   for (let i = 0; i < scope.length; i++) {
     const c = scope[i];
     if (inString) {
-      if (escaped) escaped = false;
-      else if (c === "\\") escaped = true;
-      else if (c === '"') inString = false;
+      if (escaped) {
+        escaped = false;
+      } else if (c === "\\") {
+        escaped = true;
+      } else if (c === '"') {
+        inString = false;
+      }
       continue;
     }
-    if (c === '"') inString = true;
-    else if (c === "[") depth++;
-    else if (c === "]") {
+    if (c === '"') {
+      inString = true;
+    } else if (c === "[") {
+      depth++;
+    } else if (c === "]") {
       if (depth > 0) {
         depth--;
         continue;
@@ -212,13 +360,23 @@ function parseClosedPluginsArray(body: string): string[] | null {
 /** Body after a `"key": [` opening, or null if that array isn't present yet. */
 function arrayScopeFor(body: string, key: string): string | null {
   const k = body.indexOf(`"${key}"`);
-  if (k === -1) return null;
+  if (k === -1) {
+    return null;
+  }
   const open = body.indexOf("[", k);
   return open === -1 ? null : body.slice(open + 1);
 }
 
 export interface ResearchResult {
   claims: ResearchFact[];
+  /**
+   * Claim texts the parser dropped from `claims` because every source was a
+   * people-search aggregator (see `AGGREGATOR_SOURCE_DENYLIST`). Surfaced rather
+   * than silently discarded so the onboarding flow can scrub these hidden
+   * wrong-person facts from the assistant's memory — the research turn taught
+   * them, and hiding them from the card doesn't unteach them.
+   */
+  droppedClaims: string[];
   /**
    * Concrete actions the assistant proposes it could do for the user. Each is
    * a `{ suggestion, prompt }` pair: the assistant-voiced offer shown on the
@@ -252,8 +410,13 @@ export interface ResearchResult {
 }
 
 /** Map a raw array of entries through `mapper`, dropping the ones that don't validate. */
-function mapEntries<T>(raw: unknown, mapper: (entry: unknown) => T | null): T[] {
-  if (!Array.isArray(raw)) return [];
+function mapEntries<T>(
+  raw: unknown,
+  mapper: (entry: unknown) => T | null,
+): T[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
   return raw.map(mapper).filter((v): v is T => v !== null);
 }
 
@@ -272,7 +435,9 @@ function parseWholePayload(body: string): Record<string, unknown> | null {
   for (const obj of extractCompleteObjects(body)) {
     if (obj && typeof obj === "object" && !Array.isArray(obj)) {
       const o = obj as Record<string, unknown>;
-      if (Array.isArray(o.claims) || Array.isArray(o.suggestions)) return o;
+      if (Array.isArray(o.claims) || Array.isArray(o.suggestions)) {
+        return o;
+      }
     }
   }
   return null;
@@ -285,14 +450,16 @@ function parseWholePayload(body: string): Record<string, unknown> | null {
  * top-level array as `claims` for back-compat.
  */
 export function parseResearchResultStreaming(text: string): ResearchResult {
-  if (!text)
+  if (!text) {
     return {
       claims: [],
+      droppedClaims: [],
       suggestions: [],
       plugins: [],
       pluginsResolved: false,
       complete: false,
     };
+  }
   const body = stripFence(text);
 
   // Fast path: the whole payload parsed in one shot. Correct (handles escaping)
@@ -302,8 +469,10 @@ export function parseResearchResultStreaming(text: string): ResearchResult {
   // a half-written array.
   const whole = parseWholePayload(body);
   if (whole) {
+    const { claims, droppedClaims } = collectClaims(whole.claims);
     return {
-      claims: mapEntries(whole.claims, toFact),
+      claims,
+      droppedClaims,
       suggestions: mapEntries(whole.suggestions, toSuggestion),
       plugins: normalizePlugins(whole.plugins),
       pluginsResolved: true,
@@ -320,12 +489,9 @@ export function parseResearchResultStreaming(text: string): ResearchResult {
       const open = body.indexOf("[");
       return open === -1 ? null : body.slice(open + 1);
     })();
-  const claims =
-    claimsBody === null
-      ? []
-      : extractCompleteObjects(claimsBody)
-          .map(toFact)
-          .filter((f): f is ResearchFact => f !== null);
+  const { claims, droppedClaims } = collectClaims(
+    claimsBody === null ? [] : extractCompleteObjects(claimsBody),
+  );
 
   const suggestionsScope = arrayScopeFor(body, "suggestions");
   const suggestions =
@@ -338,6 +504,7 @@ export function parseResearchResultStreaming(text: string): ResearchResult {
   const closedPlugins = parseClosedPluginsArray(body);
   return {
     claims,
+    droppedClaims,
     suggestions,
     plugins: closedPlugins ?? [],
     pluginsResolved: closedPlugins !== null,
@@ -365,7 +532,9 @@ interface ConfidenceBadge {
 }
 
 /** Map a confidence tier to its card badge label + Tag tone. */
-export function confidenceBadge(confidence: ResearchConfidence): ConfidenceBadge {
+export function confidenceBadge(
+  confidence: ResearchConfidence,
+): ConfidenceBadge {
   switch (confidence) {
     case "confident":
       return { label: "Confident", tone: "positive" };

@@ -1,12 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-import { waitFor } from "./helpers/wait-for.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 import type { Conversation } from "../daemon/conversation.js";
 import {
   deleteConversation,
@@ -26,6 +19,7 @@ import {
   tickInferenceProfileReaper,
 } from "../runtime/routes/inference-profile-session-reaper.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
+import { waitFor } from "./helpers/wait-for.js";
 
 await initializeDb();
 

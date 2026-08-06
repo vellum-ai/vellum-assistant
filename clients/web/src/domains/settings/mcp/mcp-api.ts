@@ -148,7 +148,11 @@ export async function removeMcpServer(
 export async function startMcpAuth(
   assistantId: string,
   serverId: string,
-): Promise<{ auth_url: string; state: string; already_authenticated?: boolean }> {
+): Promise<{
+  auth_url: string;
+  state: string;
+  already_authenticated?: boolean;
+}> {
   const { data, response } = await client.post({
     url: "/v1/assistants/{assistant_id}/internal/mcp/auth/start" as "/v1/assistants/{assistant_id}/config",
     path: { assistant_id: assistantId },
@@ -157,7 +161,11 @@ export async function startMcpAuth(
   if (!response?.ok) {
     throw new Error(`Failed to start MCP auth: ${response?.status}`);
   }
-  return data as unknown as { auth_url: string; state: string; already_authenticated?: boolean };
+  return data as unknown as {
+    auth_url: string;
+    state: string;
+    already_authenticated?: boolean;
+  };
 }
 
 export async function pollMcpAuthStatus(
@@ -171,7 +179,11 @@ export async function pollMcpAuthStatus(
   if (!response?.ok) {
     throw new Error(`Failed to poll MCP auth status: ${response?.status}`);
   }
-  return data as unknown as { status: string; auth_url?: string; error?: string };
+  return data as unknown as {
+    status: string;
+    auth_url?: string;
+    error?: string;
+  };
 }
 
 export async function revokeMcpOAuth(
@@ -184,7 +196,9 @@ export async function revokeMcpOAuth(
     body: { serverId } as Record<string, unknown>,
   });
   if (!response?.ok) {
-    throw new Error(`Failed to revoke OAuth for ${serverId}: ${response?.status}`);
+    throw new Error(
+      `Failed to revoke OAuth for ${serverId}: ${response?.status}`,
+    );
   }
 }
 

@@ -5,6 +5,17 @@ App/App/public
 DerivedData
 xcuserdata
 
+# Xcode's build products for the local `CapApp-SPM` package: compiled
+# frameworks, dSYMs, and their binaries, tens of megabytes of them.
+#
+# `App/build` above does not cover this path. That pattern is anchored, so it
+# matches one level only, and these land a level deeper in
+# `App/CapApp-SPM/build`. The package's own `CapApp-SPM/.gitignore` is
+# SwiftPM's default: it ignores `/.build` rather than the `build/` Xcode
+# writes for a package built inside an Xcode project, and `cap sync ios`
+# regenerates that file, so the rule lives here where nothing rewrites it.
+App/CapApp-SPM/build
+
 # Cordova plugins for Capacitor
 capacitor-cordova-ios-plugins
 

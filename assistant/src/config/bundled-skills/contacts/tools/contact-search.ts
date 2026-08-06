@@ -20,16 +20,23 @@ function formatContactSummary(c: SearchContact): string {
   const displayName =
     c.role === "guardian" ? resolveGuardianName(c.displayName) : c.displayName;
   const parts = [`- **${displayName}** (ID: ${c.id})`];
-  if (c.notes) parts.push(`  Notes: ${c.notes}`);
-  if ((c.interactionCount ?? 0) > 0)
+  if (c.notes) {
+    parts.push(`  Notes: ${c.notes}`);
+  }
+  if ((c.interactionCount ?? 0) > 0) {
     parts.push(`  Interactions: ${c.interactionCount}`);
+  }
   if (c.channels.length > 0) {
     const channelList = c.channels
       .map((ch) => {
         let s = `${ch.type}:${ch.address}${ch.isPrimary ? "*" : ""}`;
         const extras: string[] = [];
-        if (ch.externalChatId) extras.push(`chatId: ${ch.externalChatId}`);
-        if (extras.length > 0) s += ` (${extras.join(", ")})`;
+        if (ch.externalChatId) {
+          extras.push(`chatId: ${ch.externalChatId}`);
+        }
+        if (extras.length > 0) {
+          s += ` (${extras.join(", ")})`;
+        }
         return s;
       })
       .join(", ");

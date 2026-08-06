@@ -7,7 +7,12 @@ import {
 } from "../../daemon/message-types/sync.js";
 import { getAvatarImagePath } from "../../util/platform.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
+import { isStreamSeqStampingDisabled } from "../assistant-stream-state.js";
 import { publishSyncInvalidation } from "./sync-publisher.js";
+import {
+  notifyDaemonConversationPersisted,
+  notifyDaemonDocumentsChanged,
+} from "./worker-daemon-notify.js";
 
 /**
  * Derive the initiating client's id from request headers so a sync publish can
@@ -57,8 +62,87 @@ export function publishSchedulesChanged(originClientId?: string): void {
   void publishSyncInvalidation([SYNC_TAGS.assistantSchedules], originClientId);
 }
 
+export function publishWorkspaceThemeChanged(originClientId?: string): void {
+  void publishSyncInvalidation([SYNC_TAGS.assistantTheme], originClientId);
+}
+
 export function publishAppsChanged(originClientId?: string): void {
   void publishSyncInvalidation([SYNC_TAGS.appsList], originClientId);
+}
+
+/**
+ * How long a documents-list invalidation waits for the writes around it to
+ * settle before it is broadcast.
+ *
+ * Document writes arrive in bursts: the document-editor skill is instructed to
+ * stream a document as many small `document_update` calls, and the web editor
+ * autosaves as the user types. Every burst member publishes, and every publish
+ * makes each client drain its `documentsGet` queries (the per-conversation
+ * assets pill, the Library, the intelligence stats), during an SSE stream that
+ * is already saturated. Open editors track each individual write through
+ * `document_editor_update`, so the list-level invalidation only has to land
+ * once the burst settles.
+ */
+export const DOCUMENTS_CHANGED_COALESCE_MS = 150;
+
+/**
+ * Ceiling on how long an unbroken run of writes can defer the invalidation, so
+ * a document streamed in sub-window chunks still refreshes the list while it is
+ * being written instead of only when the turn ends.
+ */
+export const DOCUMENTS_CHANGED_MAX_DEFER_MS = 1_000;
+
+let documentsPublishTimer: ReturnType<typeof setTimeout> | undefined;
+let documentsPublishDeadline = 0;
+let documentsPublishOrigin: string | undefined;
+let documentsPublishOriginSeen = false;
+
+function flushDocumentsChanged(): void {
+  documentsPublishTimer = undefined;
+  documentsPublishDeadline = 0;
+  const originClientId = documentsPublishOrigin;
+  documentsPublishOrigin = undefined;
+  documentsPublishOriginSeen = false;
+
+  // In a sidecar worker (seq stamping disabled) the local hub has no SSE
+  // subscribers, so a local publish reaches no client and a document edited by
+  // a scheduled or background turn stays invisible. Hand off to the daemon,
+  // which republishes the invalidation where subscribers observe it. Such a
+  // turn has no originating client, so no `originClientId` is forwarded.
+  if (isStreamSeqStampingDisabled()) {
+    void notifyDaemonDocumentsChanged();
+    return;
+  }
+  void publishSyncInvalidation([SYNC_TAGS.documentsList], originClientId);
+}
+
+/**
+ * Invalidate the document list on every client, coalescing a burst of writes
+ * into a single broadcast (see {@link DOCUMENTS_CHANGED_COALESCE_MS}).
+ */
+export function publishDocumentsChanged(originClientId?: string): void {
+  if (!documentsPublishOriginSeen) {
+    documentsPublishOrigin = originClientId;
+    documentsPublishOriginSeen = true;
+  } else if (documentsPublishOrigin !== originClientId) {
+    // Writes from more than one client merged into this broadcast, so no single
+    // client may suppress it as its own echo.
+    documentsPublishOrigin = undefined;
+  }
+
+  const now = Date.now();
+  if (documentsPublishTimer) {
+    clearTimeout(documentsPublishTimer);
+  } else {
+    documentsPublishDeadline = now + DOCUMENTS_CHANGED_MAX_DEFER_MS;
+  }
+  documentsPublishTimer = setTimeout(
+    flushDocumentsChanged,
+    Math.max(
+      0,
+      Math.min(DOCUMENTS_CHANGED_COALESCE_MS, documentsPublishDeadline - now),
+    ),
+  );
 }
 
 export function publishPluginsChanged(originClientId?: string): void {
@@ -117,6 +201,16 @@ export function publishConversationMessagesChanged(
   conversationId: string,
   originClientId?: string,
 ): void {
+  // In a sidecar worker (seq stamping disabled) the local hub has no SSE
+  // subscribers and the seq counter is inert, so a local publish reaches no
+  // client and records no honest anchor. Hand off to the daemon — the seq
+  // authority clients subscribe to — which records the anchor at its own seq
+  // and republishes the invalidation. A background worker turn has no
+  // originating client, so no `originClientId` is forwarded.
+  if (isStreamSeqStampingDisabled()) {
+    void notifyDaemonConversationPersisted(conversationId);
+    return;
+  }
   void publishSyncInvalidation(
     [conversationMessagesSyncTag(conversationId)],
     originClientId,

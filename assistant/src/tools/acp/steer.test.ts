@@ -195,3 +195,23 @@ describe("executeAcpSteer", () => {
     expect(result.content).toContain("is not running");
   });
 });
+
+describe("acp tools — model-input schema validation (LUM-2856)", () => {
+  test("steer rejects a non-string acp_session_id", async () => {
+    const result = await executeAcpSteer(
+      { acp_session_id: 42, instruction: "redirect" },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "acp_steer"');
+  });
+
+  test("steer treats explicit null instruction as missing (bespoke error)", async () => {
+    const result = await executeAcpSteer(
+      { acp_session_id: "acp-1", instruction: null },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('"instruction" is required');
+  });
+});

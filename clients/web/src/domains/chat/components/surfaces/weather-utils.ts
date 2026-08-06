@@ -25,7 +25,12 @@ import {
   Wind,
 } from "lucide-react";
 
-import { filterRecords, num, rec, str } from "@/domains/chat/components/surfaces/surface-parse-helpers";
+import {
+  filterRecords,
+  num,
+  rec,
+  str,
+} from "@/domains/chat/components/surfaces/surface-parse-helpers";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -123,14 +128,20 @@ const DEFAULT_ICON: IconEntry = { icon: Cloud, className: "text-stone-400" };
 
 export function getWeatherIcon(iconStr: string): IconEntry {
   const sfMatch = SF_SYMBOL_MAP[iconStr];
-  if (sfMatch) return sfMatch;
+  if (sfMatch) {
+    return sfMatch;
+  }
 
   const lower = iconStr.toLowerCase();
   const conditionMatch = CONDITION_MAP[lower];
-  if (conditionMatch) return conditionMatch;
+  if (conditionMatch) {
+    return conditionMatch;
+  }
 
   for (const [key, entry] of Object.entries(CONDITION_MAP)) {
-    if (lower.includes(key)) return entry;
+    if (lower.includes(key)) {
+      return entry;
+    }
   }
 
   return DEFAULT_ICON;
@@ -143,12 +154,19 @@ export function getWeatherIcon(iconStr: string): IconEntry {
 function parseWind(val: unknown): { speed?: number; direction?: string } {
   if (typeof val === "string") {
     const match = val.match(/^(\d+)\s*mph\s*(.*)/i);
-    if (match) return { speed: Number(match[1]), direction: match[2]?.trim() || undefined };
+    if (match) {
+      return {
+        speed: Number(match[1]),
+        direction: match[2]?.trim() || undefined,
+      };
+    }
   }
   return {};
 }
 
-export function parseWeatherData(raw: Record<string, unknown>): WeatherForecastData | null {
+export function parseWeatherData(
+  raw: Record<string, unknown>,
+): WeatherForecastData | null {
   // Location (required) — normalize to string during parsing
   let location: string | undefined;
   if (typeof raw.location === "string") {
@@ -159,38 +177,60 @@ export function parseWeatherData(raw: Record<string, unknown>): WeatherForecastD
       location = locObj.name;
     }
   }
-  if (!location) return null;
+  if (!location) {
+    return null;
+  }
 
   // Current temperature: check nested `current` first, then top-level
   const current = rec(raw.current);
-  const currentTemp = num(current?.temp) ?? num(raw.currentTemp) ?? num(raw.temperature) ?? num(raw.temp);
-  const feelsLike = num(current?.feelsLike) ?? num(current?.feels_like) ?? num(current?.apparentTemperature) ?? num(raw.feelsLike) ?? num(raw.feels_like) ?? num(raw.apparentTemperature);
+  const currentTemp =
+    num(current?.temp) ??
+    num(raw.currentTemp) ??
+    num(raw.temperature) ??
+    num(raw.temp);
+  const feelsLike =
+    num(current?.feelsLike) ??
+    num(current?.feels_like) ??
+    num(current?.apparentTemperature) ??
+    num(raw.feelsLike) ??
+    num(raw.feels_like) ??
+    num(raw.apparentTemperature);
   const condition = str(current?.condition) ?? str(raw.condition);
   const humidity = num(current?.humidity) ?? num(raw.humidity);
   const parsedWind = parseWind(current?.wind ?? raw.wind);
-  const windSpeed = num(current?.windSpeed) ?? num(current?.wind_speed) ?? num(raw.windSpeed) ?? num(raw.wind_speed) ?? parsedWind.speed;
-  const windDirection = str(current?.windDirection) ?? str(current?.wind_direction) ?? str(raw.windDirection) ?? str(raw.wind_direction) ?? parsedWind.direction;
+  const windSpeed =
+    num(current?.windSpeed) ??
+    num(current?.wind_speed) ??
+    num(raw.windSpeed) ??
+    num(raw.wind_speed) ??
+    parsedWind.speed;
+  const windDirection =
+    str(current?.windDirection) ??
+    str(current?.wind_direction) ??
+    str(raw.windDirection) ??
+    str(raw.wind_direction) ??
+    parsedWind.direction;
 
   // Units
   const units = rec(raw.units);
-  const unit = str(units?.temperature) ?? str(current?.unit) ?? str(raw.unit) ?? "F";
+  const unit =
+    str(units?.temperature) ?? str(current?.unit) ?? str(raw.unit) ?? "F";
   const windUnit = str(units?.speed) ?? str(raw.windUnit) ?? str(raw.wind_unit);
 
   // Hourly
-  const hourly: WeatherHourlyItem[] = filterRecords(raw.hourly)
-    .map((h, i) => ({
-      id: str(h.id) ?? String(i),
-      time: str(h.time) ?? "",
-      icon: str(h.icon) ?? str(h.condition) ?? "cloud.fill",
-      temp: num(h.tempC) ?? num(h.temp) ?? num(h.temperature),
-      tempC: num(h.tempC),
-    }));
+  const hourly: WeatherHourlyItem[] = filterRecords(raw.hourly).map((h, i) => ({
+    id: str(h.id) ?? String(i),
+    time: str(h.time) ?? "",
+    icon: str(h.icon) ?? str(h.condition) ?? "cloud.fill",
+    temp: num(h.tempC) ?? num(h.temp) ?? num(h.temperature),
+    tempC: num(h.tempC),
+  }));
 
   // Daily / forecast — prefer forecast, fall back to daily/days. Use Array.isArray
   // so a malformed non-array forecast doesn't shadow a valid daily/days array.
   const dailyRaw = [raw.forecast, raw.daily, raw.days].find(Array.isArray);
-  const forecast: WeatherForecastItem[] = filterRecords(dailyRaw)
-    .map((d, i) => ({
+  const forecast: WeatherForecastItem[] = filterRecords(dailyRaw).map(
+    (d, i) => ({
       id: str(d.id) ?? String(i),
       day: str(d.day) ?? str(d.date),
       dayLabel: str(d.dayLabel) ?? str(d.date),
@@ -199,9 +239,13 @@ export function parseWeatherData(raw: Record<string, unknown>): WeatherForecastD
       high: num(d.high),
       lowC: num(d.lowC),
       highC: num(d.highC),
-      precip: num(d.precip) ?? num(d.precipitation) ?? num(d.precipitationProbability),
+      precip:
+        num(d.precip) ??
+        num(d.precipitation) ??
+        num(d.precipitationProbability),
       condition: str(d.condition),
-    }));
+    }),
+  );
 
   return {
     location,
@@ -223,11 +267,11 @@ export function parseWeatherData(raw: Record<string, unknown>): WeatherForecastD
 // ---------------------------------------------------------------------------
 
 function toF(c: number): number {
-  return c * 9 / 5 + 32;
+  return (c * 9) / 5 + 32;
 }
 
 function toC(f: number): number {
-  return (f - 32) * 5 / 9;
+  return ((f - 32) * 5) / 9;
 }
 
 export function displayTemp(
@@ -235,25 +279,51 @@ export function displayTemp(
   sourceIsFahrenheit: boolean,
   useFahrenheit: boolean,
 ): string | null {
-  if (value === undefined) return null;
+  if (value === undefined) {
+    return null;
+  }
   let result = value;
-  if (sourceIsFahrenheit && !useFahrenheit) result = toC(value);
-  if (!sourceIsFahrenheit && useFahrenheit) result = toF(value);
+  if (sourceIsFahrenheit && !useFahrenheit) {
+    result = toC(value);
+  }
+  if (!sourceIsFahrenheit && useFahrenheit) {
+    result = toF(value);
+  }
   return `${Math.round(result)}`;
 }
 
-export function getHourlyTemp(item: WeatherHourlyItem, sourceIsFahrenheit: boolean, useFahrenheit: boolean): string | null {
-  if (item.tempC !== undefined) return displayTemp(item.tempC, false, useFahrenheit);
-  if (item.temp === undefined) return null;
+export function getHourlyTemp(
+  item: WeatherHourlyItem,
+  sourceIsFahrenheit: boolean,
+  useFahrenheit: boolean,
+): string | null {
+  if (item.tempC !== undefined) {
+    return displayTemp(item.tempC, false, useFahrenheit);
+  }
+  if (item.temp === undefined) {
+    return null;
+  }
   return displayTemp(item.temp, sourceIsFahrenheit, useFahrenheit);
 }
 
-export function getDayLow(item: WeatherForecastItem, sourceIsFahrenheit: boolean, useFahrenheit: boolean): string | null {
-  if (item.lowC !== undefined) return displayTemp(item.lowC, false, useFahrenheit);
+export function getDayLow(
+  item: WeatherForecastItem,
+  sourceIsFahrenheit: boolean,
+  useFahrenheit: boolean,
+): string | null {
+  if (item.lowC !== undefined) {
+    return displayTemp(item.lowC, false, useFahrenheit);
+  }
   return displayTemp(item.low, sourceIsFahrenheit, useFahrenheit);
 }
 
-export function getDayHigh(item: WeatherForecastItem, sourceIsFahrenheit: boolean, useFahrenheit: boolean): string | null {
-  if (item.highC !== undefined) return displayTemp(item.highC, false, useFahrenheit);
+export function getDayHigh(
+  item: WeatherForecastItem,
+  sourceIsFahrenheit: boolean,
+  useFahrenheit: boolean,
+): string | null {
+  if (item.highC !== undefined) {
+    return displayTemp(item.highC, false, useFahrenheit);
+  }
   return displayTemp(item.high, sourceIsFahrenheit, useFahrenheit);
 }

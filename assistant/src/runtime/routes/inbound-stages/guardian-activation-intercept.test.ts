@@ -60,15 +60,6 @@ mock.module("../../../notifications/emit-signal.js", () => ({
   },
 }));
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () => ({
-    debug: () => {},
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
-}));
-
 // Import after mocks are installed
 const { handleGuardianActivationIntercept } =
   await import("./guardian-activation-intercept.js");

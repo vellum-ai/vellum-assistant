@@ -13,7 +13,11 @@ export const VIRTUAL_CENTER = { x: 600, y: 450 } as const;
 // ─── Animation ──────────────────────────────────────────────────────────────
 
 /** Shared spring transition for node entry animations. */
-export const NODE_SPRING = { type: "spring" as const, stiffness: 180, damping: 20 };
+export const NODE_SPRING = {
+  type: "spring" as const,
+  stiffness: 180,
+  damping: 20,
+};
 
 // ─── Node shell variants ────────────────────────────────────────────────────
 

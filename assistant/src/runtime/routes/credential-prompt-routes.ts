@@ -8,10 +8,14 @@
 
 import { z } from "zod";
 
+import { hasAcpConnectCardRaised } from "../../acp/acp-connect-card-state.js";
+import { isAcpClaudeOauthField } from "../../acp/acp-credentials.js";
 import {
   formatSlackChannelStatus,
   persistPromptedCredential,
 } from "../../credential-execution/prompted-credential.js";
+import { conversationSupportsDynamicUi } from "../../daemon/channel-ui-capability.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
 import { requestSecretStandalone } from "../../daemon/handlers/shared.js";
 import { assertMetadataWritable } from "../../tools/credentials/metadata-store.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
@@ -46,6 +50,20 @@ const CredentialPromptParams = z.object({
 // Response type (shared with CLI consumer)
 // ---------------------------------------------------------------------------
 
+/**
+ * Appended to every terminal success message.
+ *
+ * The prompt blocks until the user answers, so by the time a caller reads the
+ * result the secure input is already gone from the UI. A bare `ok: true` reads
+ * as "the prompt opened successfully", which leads a model to follow up with
+ * "the prompt is open, paste your value there" — pointing the user at a surface
+ * that has already closed. The user, having just submitted, re-answers a prompt
+ * that never reappears, and the flow loops. State the close explicitly so the
+ * only available reading is the correct one.
+ */
+const PROMPT_CLOSED_NOTICE =
+  "The secure prompt has closed — do not ask the user to enter this value again.";
+
 export type CredentialPromptResult = {
   ok: boolean;
   /**
@@ -66,6 +84,13 @@ export type CredentialPromptResult = {
   service?: string;
   field?: string;
   message?: string;
+  /**
+   * True when the daemon intentionally did NOT prompt because a first-class
+   * in-app surface owns this credential (the inline "Connect Claude Code"
+   * card). Not a failure and not a cancel — the `message` tells the caller to
+   * defer to that surface.
+   */
+  redirected?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -76,6 +101,39 @@ async function handleCredentialPrompt({ body = {} }: RouteHandlerArgs) {
   const validated = CredentialPromptParams.parse(body);
 
   assertMetadataWritable();
+
+  // The "Connect Claude Code" ACP token has a first-class in-app surface: a
+  // missing-token `acp_spawn` failure renders an inline Connect card that mints
+  // the token via OAuth. When this conversation can render that card — an
+  // interactive app client, not a channel or a headless CLI — AND a card has
+  // actually been raised, refuse a redundant legacy secure-prompt for the same
+  // field so the two can't stack (the double-surface the model can otherwise
+  // trigger by falling back to the CLI prompt). The card-raised check matters:
+  // a proactive prompt before any `acp_spawn` failure has no card to point at,
+  // so it must still show the secure prompt rather than dead-end on "click
+  // Connect". Headless and channel flows keep the CLI / collection-link
+  // fallback, so `claude setup-token` remains usable where no card can appear.
+  if (isAcpClaudeOauthField(validated.service, validated.field)) {
+    const conversation = findConversation(validated.conversationId);
+    if (
+      conversation &&
+      conversationSupportsDynamicUi(conversation) &&
+      hasAcpConnectCardRaised(validated.conversationId)
+    ) {
+      return {
+        ok: false,
+        redirected: true,
+        service: validated.service,
+        field: validated.field,
+        message:
+          'The inline "Connect Claude Code" card is already available in this ' +
+          "conversation for acp/claude_oauth_token. Do not prompt for it here — " +
+          "ask the user to click Connect in that card to sign in (the card owns " +
+          "the flow: one click on desktop, one paste on cloud), then retry the " +
+          "spawn.",
+      };
+    }
+  }
 
   const result = await requestSecretStandalone({
     service: validated.service,
@@ -160,19 +218,26 @@ async function handleCredentialPrompt({ body = {} }: RouteHandlerArgs) {
       ok: true,
       service: validated.service,
       field: validated.field,
-      message: `One-time credential provided for ${validated.service}/${validated.field}. The value was not saved and will be consumed by the next operation.`,
+      message: `One-time credential provided for ${validated.service}/${validated.field}. The value was not saved and will be consumed by the next operation. ${PROMPT_CLOSED_NOTICE}`,
     };
   }
 
+  // A Slack channel token is routed through the channel config rather than the
+  // vault, so its connection status is what describes the outcome; every other
+  // credential reports the vault write.
   const slackStatus = persisted.slackChannel
     ? formatSlackChannelStatus(persisted.slackChannel).trim()
     : "";
+  const outcomeSummary =
+    slackStatus.length > 0
+      ? slackStatus
+      : `Credential received from the user and stored as ${validated.service}/${validated.field}.`;
 
   return {
     ok: true,
     service: validated.service,
     field: validated.field,
-    message: slackStatus.length > 0 ? slackStatus : undefined,
+    message: `${outcomeSummary} ${PROMPT_CLOSED_NOTICE}`,
   };
 }
 
@@ -205,6 +270,7 @@ export const ROUTES: RouteDefinition[] = [
       service: z.string().optional(),
       field: z.string().optional(),
       message: z.string().optional(),
+      redirected: z.boolean().optional(),
     }),
   },
 ];

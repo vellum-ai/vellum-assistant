@@ -25,30 +25,6 @@ mock.module("../util/logger.js", () => ({
   pruneOldLogFiles: () => 0,
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}),
-  getConfigReadOnly: () => ({}),
-  loadConfig: () => ({}),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  deepMergeOverwrite: (a: unknown) => a,
-  mergeDefaultWorkspaceConfig: () => {},
-  API_KEY_PROVIDERS: [
-    "anthropic",
-    "openai",
-    "gemini",
-    "ollama",
-    "fireworks",
-    "openrouter",
-    "brave",
-    "perplexity",
-    "tavily",
-  ],
-}));
-
 // A real directory so the in-scope load's filesystem reads (reference listing,
 // version hash, tool manifest) succeed.
 const skillDir = mkdtempSync(join(tmpdir(), "skill-plugin-scope-"));

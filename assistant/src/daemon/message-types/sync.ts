@@ -13,7 +13,9 @@ export const SYNC_TAGS = {
   assistantConfig: "assistant:self:config",
   assistantSounds: "assistant:self:sounds",
   assistantSchedules: "assistant:self:schedules",
+  assistantTheme: "assistant:self:theme",
   appsList: "apps:list",
+  documentsList: "documents:list",
   pluginsList: "plugins:list",
   conversationsList: "conversations:list",
   featureFlagsClient: "feature-flags:client",
@@ -58,5 +60,3 @@ export function buildSyncChangedMessage(
     ...(trimmedOrigin ? { originClientId: trimmedOrigin } : {}),
   });
 }
-
-export type _SyncInvalidationServerMessages = SyncChangedEvent;

@@ -1,18 +1,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SecretRequestEvent } from "../api/events/secret-request.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // Use a tiny timeout so the setTimeout branch fires quickly in tests
-const mockConfig = {
-  timeouts: { permissionTimeoutSec: 0.01 },
-  secretDetection: { allowOneTimeSend: false },
-};
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-}));
+setConfig("timeouts", { permissionTimeoutSec: 0.01 });
+setConfig("secretDetection", { allowOneTimeSend: false });
 
 mock.module("../util/logger.js", () => ({
   getLogger: () => ({
@@ -31,9 +25,9 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
-let broadcastMessages: ServerMessage[] = [];
+let broadcastMessages: AssistantEvent[] = [];
 mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: (msg: ServerMessage) => broadcastMessages.push(msg),
+  broadcastMessage: (msg: AssistantEvent) => broadcastMessages.push(msg),
 }));
 
 // Use a real Map so SecretPrompter can store and retrieve promptResolve/promptReject callbacks.

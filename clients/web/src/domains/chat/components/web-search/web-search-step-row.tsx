@@ -10,7 +10,6 @@
  * identical visuals for the same step descriptors.
  */
 
-import { AlertCircle } from "lucide-react";
 import { useState } from "react";
 
 import { Popover, Typography } from "@vellumai/design-library";
@@ -24,7 +23,8 @@ import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils
  * used as the monogram when a favicon is missing or fails to load.
  */
 function monogramLetter(item: WebSearchResultItem): string {
-  const source = item.domain && item.domain.length > 0 ? item.domain : item.title;
+  const source =
+    item.domain && item.domain.length > 0 ? item.domain : item.title;
   const first = source.charAt(0);
   return first ? first.toUpperCase() : "";
 }
@@ -129,24 +129,19 @@ export function OverflowChip({ results }: { results: WebSearchResultItem[] }) {
 }
 
 /**
- * Negatively-toned chip used inside a `web_search_error` step row to
- * surface the provider's `errorMessage`. Mirrors the default pill's
- * outlined geometry but swaps the border + foreground tokens for the
- * `--system-negative-*` family so the failure reads as distinct from a
- * normal reasoning step.
+ * Chip used inside a `web_search_error` step row to surface the provider's
+ * `errorMessage`. Uses the default pill's outlined geometry and neutral
+ * tokens — failures render like any other step, without error chrome.
  */
 function ErrorChip({ message }: { message: string }) {
   return (
     <div
       data-testid="web-search-error-chip"
-      className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] border border-[var(--system-negative-weak)] bg-[var(--system-negative-weak)] px-[10px] py-[6px]"
+      className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] border border-[var(--border-element)] bg-transparent px-[10px] py-[6px]"
     >
-      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
-        <AlertCircle className="h-[14px] w-[14px] text-[var(--system-negative-strong)]" />
-      </span>
       <Typography
         variant="body-small-default"
-        className="text-[var(--system-negative-strong)]"
+        className="text-[var(--content-default)]"
       >
         {message}
       </Typography>

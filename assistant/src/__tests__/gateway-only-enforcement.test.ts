@@ -17,11 +17,12 @@ mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: (_target, prop: string) => {
-        if (prop === "child")
+        if (prop === "child") {
           return () =>
             new Proxy({} as Record<string, unknown>, {
               get: () => () => {},
             });
+        }
         return (...args: unknown[]) => {
           if (typeof args[0] === "string") {
             logMessages.push({ level: prop, msg: args[0] });
@@ -31,47 +32,6 @@ mock.module("../util/logger.js", () => ({
         };
       },
     }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    calls: {
-      enabled: true,
-      provider: "twilio",
-      maxDurationSeconds: 3600,
-      userConsultTimeoutSeconds: 120,
-      disclosure: { enabled: false, text: "" },
-      safety: { denyCategories: [] },
-    },
-    ingress: {
-      publicBaseUrl: "https://test.example.com",
-    },
-    twilio: {
-      phoneNumber: "+15550001111",
-    },
-  }),
-  getConfig: () => ({
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    ingress: {
-      publicBaseUrl: "https://test.example.com",
-    },
-    twilio: {
-      phoneNumber: "+15550001111",
-    },
-    services: {
-      stt: { provider: "deepgram" },
-    },
-  }),
-  invalidateConfigCache: () => {},
 }));
 
 // Mock Twilio provider
@@ -99,9 +59,9 @@ mock.module("../security/secure-keys.js", () => ({
 
 // NOTE: Do NOT mock '../inbound/public-ingress-urls.js' here.
 // Those are pure functions that derive URLs from the config object returned by
-// loadConfig() (which is already mocked above). Mocking them at the module level
-// leaks into other test files (e.g. ingress-url-consistency.test.ts) that need
-// the real implementations, causing cross-test contamination.
+// loadConfig(). Mocking them at the module level leaks into other test files
+// (e.g. ingress-url-consistency.test.ts) that need the real implementations,
+// causing cross-test contamination.
 
 // Mock the oauth callback registry
 mock.module("../security/oauth-callback-registry.js", () => ({

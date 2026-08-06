@@ -10,27 +10,6 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
-
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
@@ -46,7 +25,10 @@ mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
 }));
 
-import { runAssistantDrivenCompaction } from "../context/compactor.js";
+import {
+  runAssistantDrivenCompaction,
+  wrapContextSummaryText,
+} from "../context/compactor.js";
 import { estimatePromptTokens } from "../context/token-estimator.js";
 import type { Message, Provider } from "../providers/types.js";
 
@@ -346,6 +328,9 @@ describe("runAssistantDrivenCompaction — low-watermark forward cut", () => {
     // persists and rehydrates from `result.summaryText`, so a notice that
     // lived only on the in-memory message would vanish on reload/fork.
     expect(result.summaryText).toContain("Context budget enforcement");
-    expect(result.summaryText).toBe(summaryTextOut);
+    // The in-history head is the durable text in the `<context_summary>`
+    // wrapper, so rehydration from the persisted column rebuilds the head
+    // byte-for-byte.
+    expect(summaryTextOut).toBe(wrapContextSummaryText(result.summaryText));
   });
 });

@@ -27,6 +27,8 @@ const MAX_TOKENS_STOP_REASONS = new Set([
 export function isMaxTokensStopReason(
   stopReason: string | null | undefined,
 ): boolean {
-  if (!stopReason) return false;
+  if (!stopReason) {
+    return false;
+  }
   return MAX_TOKENS_STOP_REASONS.has(stopReason.trim().toLowerCase());
 }

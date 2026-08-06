@@ -4,7 +4,7 @@
  * Ensures the `services` and service-level objects exist before writing,
  * so callers don't need to guard against undefined intermediate keys.
  *
- * Example: `setServiceField(raw, "image-generation", "mode", "managed")`
+ * Example: `setServiceField(raw, "image-generation", "provider", "vellum")`
  * produces `raw.services["image-generation"].mode = "managed"`.
  */
 export function setServiceField(

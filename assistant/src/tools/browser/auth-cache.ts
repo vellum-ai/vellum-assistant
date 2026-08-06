@@ -46,7 +46,9 @@ export class AuthSessionCache {
    * `ensureContext()` triggers the async `load()`.
    */
   ensureLoaded(): void {
-    if (this.loaded) return;
+    if (this.loaded) {
+      return;
+    }
     try {
       if (existsSync(this.filePath)) {
         const raw = readFileSync(this.filePath, "utf-8");
@@ -111,7 +113,9 @@ export class AuthSessionCache {
     this.ensureLoaded();
     const key = normalizeDomain(domain);
     const session = this.sessions.get(key);
-    if (!session) return false;
+    if (!session) {
+      return false;
+    }
 
     if (session.expiresAt != null && session.expiresAt <= Date.now()) {
       this.sessions.delete(key);

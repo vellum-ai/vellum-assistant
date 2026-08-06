@@ -2,8 +2,12 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
-import { ProviderError } from "../../util/errors.js";
+import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import {
+  DAILY_LIMIT_PATTERNS,
+  INSUFFICIENT_CREDITS_PATTERNS,
+} from "../../util/provider-error-patterns.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { stripOrphanedSurrogatesDeep } from "../../util/unicode.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
@@ -13,6 +17,13 @@ import {
   PLACEHOLDER_BLOCKS_OMITTED,
   PLACEHOLDER_EMPTY_TURN,
 } from "../placeholder-sentinels.js";
+import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
+import {
+  analyzeServerToolPairing,
+  isServerToolUseBlock,
+  isWebSearchToolResultBlock,
+  type ServerToolPairing,
+} from "../server-tool-pairing.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import type {
   ContentBlock,
@@ -26,6 +37,10 @@ import {
   ContextOverflowError,
   extractOverflowTokensFromMessage,
 } from "../types.js";
+import {
+  type ShadowStreamEvent,
+  StreamContentShadow,
+} from "./stream-content-shadow.js";
 
 const log = getLogger("anthropic-client");
 
@@ -47,7 +62,9 @@ export function detectAnthropicContextOverflow(
   error: InstanceType<typeof Anthropic.APIError>,
 ): { actualTokens?: number; maxTokens?: number } | null {
   // 413 is theoretically adjacent but Anthropic does not emit it today.
-  if (error.status !== 400) return null;
+  if (error.status !== 400) {
+    return null;
+  }
   const body = error.error as
     | {
         type?: string;
@@ -61,9 +78,108 @@ export function detectAnthropicContextOverflow(
       : undefined) ?? "";
   const topLevelMessage = error.message ?? "";
   const combined = `${innerMessage} ${topLevelMessage}`;
-  if (!/prompt.?is.?too.?long|prompt_too_long/i.test(combined)) return null;
+  if (!/prompt.?is.?too.?long|prompt_too_long/i.test(combined)) {
+    return null;
+  }
   // Prefer the clean inner message over the JSON-stringified top-level string.
   return extractOverflowTokensFromMessage(innerMessage || topLevelMessage);
+}
+
+/**
+ * Read Anthropic's inner error type from an `APIError`. The body is shaped
+ * `{ type: "error", error: { type: <real>, message } }`, so the real type
+ * lives nested under `error.error.type`; some proxies flatten it to the top.
+ */
+function readAnthropicErrorType(
+  error: InstanceType<typeof Anthropic.APIError>,
+): string | undefined {
+  const body = error.error as
+    | { type?: string; error?: { type?: string; code?: string } }
+    | undefined;
+  return body?.error?.type ?? body?.type;
+}
+
+function readAnthropicErrorCode(
+  error: InstanceType<typeof Anthropic.APIError>,
+): string | undefined {
+  const body = error.error as { error?: { code?: string } } | undefined;
+  const code = body?.error?.code;
+  return typeof code === "string" && code.length > 0 ? code : undefined;
+}
+
+/**
+ * The SDK JSON-stringifies the nested body into `error.message` when there is
+ * no top-level message, so read the inner human message for display.
+ */
+function readAnthropicMessage(
+  error: InstanceType<typeof Anthropic.APIError>,
+): string | undefined {
+  const body = error.error as
+    | { message?: string; error?: { message?: string } }
+    | undefined;
+  const inner = body?.error?.message ?? body?.message;
+  return typeof inner === "string" && inner.length > 0 ? inner : undefined;
+}
+
+/**
+ * Map an Anthropic `APIError` to a semantic {@link ProviderErrorReason} from
+ * its error type and/or status. Order matters: billing precedes credentials,
+ * and the 403 branch disambiguates a model/plan restriction from generic auth.
+ * Context-overflow is handled separately (see {@link detectAnthropicContextOverflow}).
+ */
+export function deriveAnthropicReason(
+  error: InstanceType<typeof Anthropic.APIError>,
+): ProviderErrorReason {
+  const apiType = readAnthropicErrorType(error);
+  const status = error.status;
+  const haystack = `${apiType ?? ""} ${error.message ?? ""}`;
+
+  // The managed proxy's daily-limit 402 shares the status with generic credit
+  // exhaustion; match its specific body code first so it isn't swallowed.
+  if (DAILY_LIMIT_PATTERNS.some((re) => re.test(haystack))) {
+    return "daily_limit_reached";
+  }
+  if (
+    status === 402 ||
+    INSUFFICIENT_CREDITS_PATTERNS.some((re) => re.test(haystack)) ||
+    /\bbilling\b/i.test(haystack)
+  ) {
+    return "insufficient_credits";
+  }
+  if (apiType === "authentication_error" || status === 401) {
+    return "invalid_credentials";
+  }
+  // A plan/tier model restriction requires an explicit model signal; a generic
+  // authorization/scope 403 or a missing gateway resource on 404 stays on the
+  // credential path / defers to the legacy fallback so the real detail survives.
+  const mentionsModel = /\bmodel\b/i.test(haystack);
+  if (apiType === "permission_error" || status === 403) {
+    return mentionsModel &&
+      /\b(?:plan|tier|upgrade|restricted|not\s+available|access|entitle)/i.test(
+        haystack,
+      )
+      ? "model_restricted"
+      : "invalid_credentials";
+  }
+  if (apiType === "not_found_error" || status === 404) {
+    return mentionsModel ? "model_not_found" : "bad_request";
+  }
+  if (apiType === "rate_limit_error" || status === 429) {
+    return "rate_limited";
+  }
+  if (apiType === "overloaded_error" || status === 529) {
+    return "overloaded";
+  }
+  if (status !== undefined && status >= 500) {
+    return "server_error";
+  }
+  if (
+    apiType === "invalid_request_error" ||
+    (status !== undefined && status >= 400)
+  ) {
+    return "bad_request";
+  }
+  return "unknown";
 }
 
 /** Rate-limit the orphaned-surrogate warning so a single bad stream can't flood logs. */
@@ -75,15 +191,23 @@ function logOrphanedSurrogateWarning(
   messages: Anthropic.MessageParam[],
 ): void {
   const now = Date.now();
-  if (now - lastOrphanWarningMs < ORPHAN_WARNING_THROTTLE_MS) return;
+  if (now - lastOrphanWarningMs < ORPHAN_WARNING_THROTTLE_MS) {
+    return;
+  }
   lastOrphanWarningMs = now;
   const blockTypes = new Set<string>();
   for (const msg of messages) {
-    if (!Array.isArray(msg.content)) continue;
+    if (!Array.isArray(msg.content)) {
+      continue;
+    }
     for (const block of msg.content) {
-      if (typeof block !== "object" || block == null) continue;
+      if (typeof block !== "object" || block == null) {
+        continue;
+      }
       const type = (block as { type?: string }).type;
-      if (type) blockTypes.add(type);
+      if (type) {
+        blockTypes.add(type);
+      }
     }
   }
   log.warn(
@@ -158,7 +282,9 @@ function isTextBasedMimeType(mediaType: string): boolean {
 
 /** Anthropic requires tool_use IDs to match ^[a-zA-Z0-9_-]+$ */
 function sanitizeToolId(id: string): string {
-  if (!id) return "empty";
+  if (!id) {
+    return "empty";
+  }
   // Escape `x` itself (to `x78`) so it can safely serve as the hex-escape
   // prefix without collisions.  E.g. "a:" → "ax3a", "ax3a" → "ax783a".
   return id.replace(TOOL_ID_RE, (ch) => {
@@ -207,13 +333,18 @@ function summarizeMessages(messages: Anthropic.MessageParam[]): string[] {
     const content = Array.isArray(m.content) ? m.content : [{ type: "text" }];
     const blockDescs = content.map((b) => {
       const bt = (b as { type: string }).type;
-      if (bt === "tool_use") return `tool_use(${(b as { id: string }).id})`;
-      if (bt === "server_tool_use")
+      if (bt === "tool_use") {
+        return `tool_use(${(b as { id: string }).id})`;
+      }
+      if (bt === "server_tool_use") {
         return `server_tool_use(${(b as { id: string }).id})`;
-      if (bt === "tool_result")
+      }
+      if (bt === "tool_result") {
         return `tool_result(${(b as { tool_use_id: string }).tool_use_id})`;
-      if (bt === "web_search_tool_result")
+      }
+      if (bt === "web_search_tool_result") {
         return `web_search_tool_result(${(b as { tool_use_id: string }).tool_use_id})`;
+      }
       return bt;
     });
     return `[${idx}] ${m.role}: ${blockDescs.join(", ") || "(empty)"}`;
@@ -256,12 +387,18 @@ function hasOrderedToolResultPrefix(
   content: Anthropic.ContentBlockParam[],
   orderedToolUseIds: string[],
 ): boolean {
-  if (content.length < orderedToolUseIds.length) return false;
+  if (content.length < orderedToolUseIds.length) {
+    return false;
+  }
   for (let idx = 0; idx < orderedToolUseIds.length; idx++) {
     const block = content[idx];
     const expectedId = orderedToolUseIds[idx];
-    if (!isToolResultBlock(block)) return false;
-    if (block.tool_use_id !== expectedId) return false;
+    if (!isToolResultBlock(block)) {
+      return false;
+    }
+    if (block.tool_use_id !== expectedId) {
+      return false;
+    }
   }
   return true;
 }
@@ -358,68 +495,55 @@ function normalizeFollowingUserContent(
   };
 }
 
-/** Type-guard for server_tool_use blocks. */
-function isServerToolUseBlock(
-  block: unknown,
-): block is { type: "server_tool_use"; id: string; name: string } {
-  return (
-    typeof block === "object" &&
-    block != null &&
-    (block as { type: string }).type === "server_tool_use"
-  );
-}
-
-/** Type-guard for web_search_tool_result blocks. */
-function isWebSearchToolResultBlock(block: unknown): block is {
-  type: "web_search_tool_result";
-  tool_use_id: string;
-  content: unknown;
-} {
-  return (
-    typeof block === "object" &&
-    block != null &&
-    (block as { type: string }).type === "web_search_tool_result"
-  );
-}
-
 /**
- * Repair orphaned server-side tool blocks within assistant messages. Server-
- * side tools (e.g. web_search) are self-paired: the assistant message should
- * contain both server_tool_use and its matching web_search_tool_result. Either
- * side can go missing — a partial stream may drop the result, or a downstream
- * step (history reload, message split, compaction) may drop the use block.
- * Both cases trigger an Anthropic 400 on the next request, so this function
- * handles both directions:
+ * Repair orphaned server-side tool blocks within assistant messages, using the
+ * cross-message pairing from {@link analyzeServerToolPairing}. A pair can go
+ * missing on either side: a partial stream may drop the result, or a
+ * downstream step (history reload, message split, compaction) may drop the use
+ * block. Both cases trigger an Anthropic 400 on the next request, so this
+ * function handles both directions:
  *
- *   - server_tool_use without paired result: inject a synthetic error result.
- *   - web_search_tool_result without paired server_tool_use: downgrade to a
+ *   - server_tool_use without a paired result: inject a synthetic error
+ *     result.
+ *   - web_search_tool_result without a paired server_tool_use: downgrade to a
  *     text block describing what was found so the model retains context.
+ *
+ * Deferred use blocks (see {@link ServerToolPairing.deferredUseIds}) are not
+ * orphans: they are left intact so the provider executes the search on this
+ * request instead of seeing a synthetic failure.
  */
 function repairOrphanedServerToolBlocks(
   messages: Anthropic.MessageParam[],
+  pairing: ServerToolPairing,
 ): Anthropic.MessageParam[] {
+  if (pairing.deferredUseIds.size > 0) {
+    log.info(
+      { deferredIds: Array.from(pairing.deferredUseIds) },
+      "Preserving deferred server_tool_use blocks for provider-side execution",
+    );
+  }
   return messages.map((msg) => {
-    if (msg.role !== "assistant") return msg;
+    if (msg.role !== "assistant") {
+      return msg;
+    }
     const content = Array.isArray(msg.content) ? msg.content : [];
 
-    const serverToolUseIds = new Set<string>();
-    const webSearchResultIds = new Set<string>();
-    for (const block of content) {
-      if (isServerToolUseBlock(block)) {
-        serverToolUseIds.add(block.id);
-      }
-      if (isWebSearchToolResultBlock(block)) {
-        webSearchResultIds.add(block.tool_use_id);
-      }
-    }
-
     const orphanServerToolUseIds = new Set<string>();
-    for (const id of serverToolUseIds) {
-      if (!webSearchResultIds.has(id)) orphanServerToolUseIds.add(id);
-    }
     const orphanWebSearchResultIds = new Set<string>();
-    for (const id of webSearchResultIds) {
-      if (!serverToolUseIds.has(id)) orphanWebSearchResultIds.add(id);
+    for (const block of content) {
+      if (
+        isServerToolUseBlock(block) &&
+        !pairing.resolvedPairIds.has(block.id) &&
+        !pairing.deferredUseIds.has(block.id)
+      ) {
+        orphanServerToolUseIds.add(block.id);
+      }
+      if (
+        isWebSearchToolResultBlock(block) &&
+        !pairing.resolvedPairIds.has(block.tool_use_id)
+      ) {
+        orphanWebSearchResultIds.add(block.tool_use_id);
+      }
     }
 
     if (
@@ -545,7 +669,9 @@ function findActiveToolUseContinuationStart(
       const hasToolResult = content.some(
         (b) => typeof b !== "string" && isToolResultBlock(b),
       );
-      if (!hasToolResult) break;
+      if (!hasToolResult) {
+        break;
+      }
       // This user message has tool_result — the preceding assistant message
       // should have the matching tool_use and its thinking blocks preserved.
       i--;
@@ -554,7 +680,9 @@ function findActiveToolUseContinuationStart(
       const hasToolUse = content.some(
         (b) => typeof b !== "string" && isToolUseBlock(b),
       );
-      if (!hasToolUse) break;
+      if (!hasToolUse) {
+        break;
+      }
       // This assistant message has tool_use — it's part of the active span.
       // Check if the preceding user message continues the chain.
       i--;
@@ -568,8 +696,17 @@ function findActiveToolUseContinuationStart(
 
 function ensureToolPairing(
   messages: Anthropic.MessageParam[],
+  pairing: ServerToolPairing,
 ): Anthropic.MessageParam[] {
   const result: Anthropic.MessageParam[] = [];
+
+  // Messages carrying a deferred or cross-message-paired server tool block
+  // must go out verbatim: the provider pairs and executes these blocks across
+  // messages itself, and reordering or splitting them breaks that pairing.
+  const verbatimIds = new Set([
+    ...pairing.deferredUseIds,
+    ...pairing.crossMessageIds,
+  ]);
 
   let i = 0;
   while (i < messages.length) {
@@ -583,8 +720,23 @@ function ensureToolPairing(
 
     const content = Array.isArray(msg.content) ? msg.content : [];
 
+    const hasVerbatimServerBlock =
+      verbatimIds.size > 0 &&
+      content.some(
+        (block) =>
+          (isServerToolUseBlock(block) && verbatimIds.has(block.id)) ||
+          (isWebSearchToolResultBlock(block) &&
+            verbatimIds.has(block.tool_use_id)),
+      );
+
     const { pairedContent, carryoverContent, toolUseIds } =
-      splitAssistantForToolPairing(content);
+      hasVerbatimServerBlock
+        ? {
+            pairedContent: content,
+            carryoverContent: [] as Anthropic.ContentBlockParam[],
+            toolUseIds: getOrderedToolUseIds(content),
+          }
+        : splitAssistantForToolPairing(content);
 
     if (toolUseIds.length === 0) {
       result.push(msg);
@@ -709,10 +861,14 @@ function ensureToolPairing(
   // within assistant messages and are not validated here.
   for (let j = 0; j < result.length; j++) {
     const m = result[j];
-    if (m.role !== "assistant") continue;
+    if (m.role !== "assistant") {
+      continue;
+    }
     const c = Array.isArray(m.content) ? m.content : [];
     const validationIds = getOrderedToolUseIds(c);
-    if (validationIds.length === 0) continue;
+    if (validationIds.length === 0) {
+      continue;
+    }
 
     const nxt = result[j + 1];
     const nxtContent =
@@ -831,7 +987,7 @@ export class AnthropicProvider implements Provider {
     // edge LB, NAT idle) — only the latter should be retried.
     let innerTimeoutSignal: AbortSignal | undefined;
     try {
-      sentMessages = this.buildSentMessages(messages);
+      sentMessages = await this.buildSentMessages(messages);
       const {
         effort,
         speed,
@@ -840,6 +996,9 @@ export class AnthropicProvider implements Provider {
         disableTurnStartCache: _disableTurnStartCache,
         mutableLatestUserMessage: _mutableLatestUserMessage,
         disableCache: _disableCache,
+        // OpenAI-transport prompt-cache key; reaches this client on
+        // OpenRouter's anthropic/* delegation path and must not hit the wire.
+        promptCacheKey: _promptCacheKey,
         max_tokens: callerMaxTokens,
         usageAttributionHeaders,
         // Pulled out of `restConfig` so they are forwarded conditionally below:
@@ -871,17 +1030,19 @@ export class AnthropicProvider implements Provider {
         (restConfig as Record<string, unknown>).model?.toString() ?? this.model;
       const isHaiku = effectiveModel.includes("haiku");
       const supportsEffort = !isHaiku;
-      // opus-4-7 / opus-4-8 and sonnet-5 reject `temperature`, `top_p`, and
-      // `top_k` with a 400 "`temperature`/`top_p` is deprecated for this model"
-      // — model-wide, not effort-conditional (verified 2026-06-23). opus-4-6 /
-      // sonnet-4-6 / haiku-4-5 still accept them. fable-5 is included
-      // conservatively (a frontier model that could not be verified directly
-      // but follows the same deprecation direction). Stripping the params here
-      // keeps callers that set them (e.g. the memory-v3 L2 selector's
-      // `temperature: 0`) from 400ing. OpenRouter `anthropic/...` models
-      // delegate to this provider, so the bare-id suffix is what matches.
+      // opus-4-7 / opus-4-8 / opus-5 and sonnet-5 reject `temperature`,
+      // `top_p`, and `top_k` with a 400 "`temperature`/`top_p` is deprecated
+      // for this model" — model-wide, not effort-conditional (verified
+      // 2026-06-23). opus-4-6 / sonnet-4-6 / haiku-4-5 still accept them.
+      // fable-5 is included conservatively (a frontier model that could not be
+      // verified directly but follows the same deprecation direction).
+      // Stripping the params here keeps callers that set them (e.g. the
+      // memory-v3 L2 selector's `temperature: 0`) from 400ing. OpenRouter
+      // `anthropic/...` models delegate to this provider, so the bare-id
+      // suffix is what matches.
       const deprecatesSamplingParams =
         /claude-opus-4-[78]\b/.test(effectiveModel) ||
+        /claude-opus-5\b/.test(effectiveModel) ||
         /claude-sonnet-5\b/.test(effectiveModel) ||
         effectiveModel.startsWith("claude-fable-");
       const mergedOutputConfig = {
@@ -945,7 +1106,9 @@ export class AnthropicProvider implements Provider {
             text,
             ...(disableCache ? {} : { cache_control: cacheControl }),
           }));
-        if (params.system.length === 0) delete params.system;
+        if (params.system.length === 0) {
+          delete params.system;
+        }
       }
 
       // Tools precede the system blocks in the cached prefix, so the first
@@ -1002,44 +1165,56 @@ export class AnthropicProvider implements Provider {
       const findUserTextMsgIdx = (startIdx: number): number => {
         for (let i = startIdx; i >= 0; i--) {
           const msg = msgs[i];
-          if (msg.role !== "user" || !Array.isArray(msg.content)) continue;
+          if (msg.role !== "user" || !Array.isArray(msg.content)) {
+            continue;
+          }
           const hasText = msg.content.some(
             (b) =>
               typeof b !== "string" &&
               b.type === "text" &&
               b.text !== SYNTHETIC_CONTINUATION_TEXT,
           );
-          if (hasText) return i;
+          if (hasText) {
+            return i;
+          }
         }
         return -1;
       };
-      const applyCacheControlToLastBlock = (msgIdx: number): void => {
+      const applyCacheControlToLastBlock = (
+        msgIdx: number,
+        control: typeof cacheControl | typeof tailCacheControl = cacheControl,
+      ): void => {
         const content = msgs[msgIdx].content;
-        if (!Array.isArray(content) || content.length === 0) return;
+        if (!Array.isArray(content) || content.length === 0) {
+          return;
+        }
         const lastBlock = content[content.length - 1];
         if (typeof lastBlock !== "string") {
           (lastBlock as unknown as Record<string, unknown>).cache_control =
-            cacheControl;
+            control;
         }
       };
       const turnStartIdx = findUserTextMsgIdx(msgs.length - 1);
-      // When the latest user message is volatile (`mutableLatestUserMessage`)
-      // and it is itself the turn-start (first-of-turn, no tool-use loop yet),
-      // skip the long-TTL anchor here — it would land on per-turn-varying
-      // content and never hit again. The previous-turn anchor below becomes the
-      // primary stable breakpoint. During tool-use loops (`turnStartIdx <
-      // msgs.length - 1`) the turn-start block is fixed within the turn, so
-      // behavior is unchanged. Independent from `disableTurnStartCache`, which
-      // expresses a different intent (one-shot callers with no future hit).
-      const skipVolatileTurnStartAnchor =
-        mutableLatestUserMessage && turnStartIdx === msgs.length - 1;
-      if (
-        turnStartIdx >= 0 &&
-        !disableCache &&
-        !disableTurnStartCache &&
-        !skipVolatileTurnStartAnchor
-      ) {
-        applyCacheControlToLastBlock(turnStartIdx);
+      // Turn-start anchor. A volatile turn start (`mutableLatestUserMessage`:
+      // the message carries a per-turn block that will not recur next turn)
+      // takes the SHORT TTL instead of the long one. The long TTL would buy
+      // nothing: the bytes change next turn, so that entry can never be read
+      // across turns, and the only reads it can serve are this turn's tool-loop
+      // iterations, which the short TTL already serves, refreshing on each
+      // hit. Marking the same boundary at two different TTLs across a turn
+      // bills two writes for one reusable prefix, the long one at the higher
+      // write multiplier.
+      //
+      // The signal is turn-scoped, not request-scoped: it describes the
+      // turn-starting user message, so it holds for every request in the turn
+      // and the TTL chosen here stays consistent as the tool loop advances.
+      // `disableTurnStartCache` is independent: it expresses a different
+      // intent (one-shot callers with no future hit).
+      if (turnStartIdx >= 0 && !disableCache && !disableTurnStartCache) {
+        applyCacheControlToLastBlock(
+          turnStartIdx,
+          mutableLatestUserMessage ? tailCacheControl : cacheControl,
+        );
       }
 
       // Previous-turn anchor: when this request is the first of a new turn
@@ -1058,32 +1233,26 @@ export class AnthropicProvider implements Provider {
         turnStartIdx > 0
       ) {
         const prevTurnAnchorIdx = findUserTextMsgIdx(turnStartIdx - 1);
-        if (prevTurnAnchorIdx >= 0)
+        if (prevTurnAnchorIdx >= 0) {
           applyCacheControlToLastBlock(prevTurnAnchorIdx);
+        }
       }
 
       // Advancing tail: place a short-lived 5m cache breakpoint on the last
       // block of the last message. This caches the growing tail cheaply
-      // without conflicting with the 1h breakpoints above. It fires during
-      // tool-use loops (the tail falls after the turn-starting user message)
-      // and also on a first-of-turn request whose volatile turn-start anchor
-      // was skipped while a previous-turn anchor exists: there the latest
-      // message would otherwise carry no breakpoint, so the next request's
-      // anchor can land far ahead of the previous-turn anchor and Anthropic's
-      // ~20-block cache lookback can't bridge the gap — forcing a full
-      // re-creation of the prefix. The 5m breakpoint gives the next call an
-      // exact, reachable boundary; cross-turn it expires harmlessly. The
-      // first-of-turn bridge lands on the turn-start block, so it honors
-      // `disableTurnStartCache` like the long-TTL anchor above. Skip
+      // without conflicting with the long-TTL breakpoints above. It fires
+      // during tool-use loops, where the tail falls after the turn-starting
+      // user message: without it the next iteration's anchor can land far
+      // ahead of the last written boundary and Anthropic's ~20-block cache
+      // lookback can't bridge the gap, forcing a full re-creation of the
+      // prefix. On a first-of-turn request the tail IS the turn-start message,
+      // which the anchor above already marks, so no bridge is needed. Skip
       // thinking/redacted_thinking blocks — Anthropic doesn't allow
       // cache_control on those types.
       if (
         !disableCache &&
         turnStartIdx >= 0 &&
-        (turnStartIdx < sentMessages.length - 1 ||
-          (skipVolatileTurnStartAnchor &&
-            turnStartIdx > 0 &&
-            !disableTurnStartCache))
+        turnStartIdx < sentMessages.length - 1
       ) {
         const lastMsg = sentMessages[sentMessages.length - 1];
         if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
@@ -1113,10 +1282,11 @@ export class AnthropicProvider implements Provider {
       // system is a single block or absent) + at most two message anchors
       // ≤ 4 — Anthropic's per-request cap. The two message anchors are
       // turn-start + prev-turn-anchor (first-of-turn), turn-start + tail
-      // (tool-use loop), or prev-turn-anchor + tail (first-of-turn with the
+      // (tool-use loop), prev-turn-anchor + tail (first-of-turn with the
       // volatile turn-start anchor skipped — the freed turn-start slot covers
-      // the tail). At most two message-level breakpoints are placed, so the
-      // total can't drift past 4.
+      // the tail), or the tail alone (volatile first turn, where no
+      // previous turn exists to anchor). At most two message-level
+      // breakpoints are placed, so the total can't drift past 4.
 
       // Strip orphaned UTF-16 surrogates so the Anthropic JSON parser never
       // sees invalid strings produced by upstream surrogate-splitting `.slice()` calls.
@@ -1137,13 +1307,19 @@ export class AnthropicProvider implements Provider {
       //   The client's own breakpoints already omit it for Haiku.
       if (disableCache || isHaiku) {
         for (const msg of sentMessages) {
-          if (!Array.isArray(msg.content)) continue;
+          if (!Array.isArray(msg.content)) {
+            continue;
+          }
           for (const block of msg.content) {
-            if (typeof block === "string") continue;
+            if (typeof block === "string") {
+              continue;
+            }
             const blockRecord = block as {
               cache_control?: { ttl?: unknown };
             };
-            if (!blockRecord.cache_control) continue;
+            if (!blockRecord.cache_control) {
+              continue;
+            }
             if (disableCache) {
               delete blockRecord.cache_control;
             } else if ("ttl" in blockRecord.cache_control) {
@@ -1182,6 +1358,7 @@ export class AnthropicProvider implements Provider {
 
       let response: Anthropic.Message;
       try {
+        recordProviderRequestDiagnostics({ model_id: params.model });
         const requestHeaders = {
           ...this.requestHeaders,
           ...(usageAttributionHeaders ?? {}),
@@ -1216,6 +1393,11 @@ export class AnthropicProvider implements Provider {
                 requestOptions,
               ) as unknown as UnifiedStream);
 
+        // Shadow the streamed content blocks so a mid-stream SDK accumulator
+        // failure on malformed tool-argument JSON can be salvaged instead of
+        // discarding the whole response (see StreamContentShadow).
+        const contentShadow = new StreamContentShadow();
+
         // Buffer streaming text until it's clear the accumulated text isn't
         // going to form a placeholder sentinel. Sentinels are injected into
         // outbound requests for role alternation and are sometimes echoed by
@@ -1229,7 +1411,9 @@ export class AnthropicProvider implements Provider {
 
         stream.on("text", (text) => {
           textBuffer += text;
-          if (couldBePlaceholderSentinelPrefix(textBuffer)) return;
+          if (couldBePlaceholderSentinelPrefix(textBuffer)) {
+            return;
+          }
           onEvent?.({ type: "text_delta", text: textBuffer });
           textBuffer = "";
         });
@@ -1259,6 +1443,7 @@ export class AnthropicProvider implements Provider {
         >();
 
         stream.on("streamEvent", (event) => {
+          contentShadow.handleEvent(event as ShadowStreamEvent);
           // Reset the text sentinel buffer at each content-block boundary.
           // A new block starts fresh; at the end of a block, flush any
           // buffered text that is NOT a complete sentinel, and drop it if
@@ -1381,7 +1566,9 @@ export class AnthropicProvider implements Provider {
             accumulatedServerToolInputJson += partialJson;
             return;
           }
-          if (!currentStreamingToolName) return;
+          if (!currentStreamingToolName) {
+            return;
+          }
           accumulatedInputJson += partialJson;
           const now = Date.now();
           if (now - lastInputJsonEmitMs >= 150) {
@@ -1414,7 +1601,32 @@ export class AnthropicProvider implements Provider {
           }
         });
 
-        response = await stream.finalMessage();
+        try {
+          response = await stream.finalMessage();
+        } catch (error) {
+          // The SDK rejects finalMessage() the moment a tool_use block's
+          // argument JSON stops parsing, discarding everything it streamed.
+          // Salvage the observed prefix instead: completed blocks plus the
+          // malformed call wrapped under `_raw`, which the tool layer bounces
+          // back to the model as an error tool_result so it can self-correct
+          // in the next iteration. Any other rejection rethrows untouched.
+          const salvaged = contentShadow.salvage(error);
+          if (salvaged === undefined) {
+            throw error;
+          }
+          log.warn(
+            {
+              model: params.model,
+              toolName: salvaged.toolName,
+              rawArgsLength: salvaged.rawArgsLength,
+            },
+            "Salvaged stream with unparseable tool-call arguments; returning _raw-wrapped tool call",
+          );
+          response = {
+            ...salvaged.message,
+            model: params.model,
+          } as unknown as Anthropic.Message;
+        }
       } finally {
         cleanupTimeout();
       }
@@ -1424,6 +1636,7 @@ export class AnthropicProvider implements Provider {
           this.fromAnthropicBlock(block),
         ),
         model: response.model,
+        resolvedEndpoint: this.client.baseURL,
         usage: {
           inputTokens:
             response.usage.input_tokens +
@@ -1510,6 +1723,7 @@ export class AnthropicProvider implements Provider {
               actualTokens: overflow.actualTokens,
               maxTokens: overflow.maxTokens,
               statusCode: error.status,
+              reason: "context_overflow",
               cause: error,
             },
           );
@@ -1519,21 +1733,43 @@ export class AnthropicProvider implements Provider {
           retryAfterMs?: number;
           abortReason?: unknown;
           cause?: unknown;
+          reason?: ProviderErrorReason;
+          apiErrorType?: string;
+          apiErrorCode?: string;
         } = {};
-        if (retryAfterMs !== undefined)
+        if (retryAfterMs !== undefined) {
           errorOptions.retryAfterMs = retryAfterMs;
-        if (abortReason) errorOptions.abortReason = abortReason;
+        }
+        if (abortReason) {
+          errorOptions.abortReason = abortReason;
+        }
+        // Stamp the semantic reason + structured type/code so downstream
+        // classification/retry can switch on intent. Skip on caller-abort:
+        // abortReason already short-circuits and carries the intent.
+        if (!abortReason) {
+          errorOptions.reason = deriveAnthropicReason(error);
+          const apiErrorType = readAnthropicErrorType(error);
+          if (apiErrorType) {
+            errorOptions.apiErrorType = apiErrorType;
+          }
+          const apiErrorCode = readAnthropicErrorCode(error);
+          if (apiErrorCode) {
+            errorOptions.apiErrorCode = apiErrorCode;
+          }
+        }
         // Only preserve the original error as `cause` for transport aborts
         // without a daemon-tagged reason — it's the diagnostic signal the
         // retry layer and log reader rely on. Don't leak it through the
         // caller-aborted path, which already carries `abortReason`.
-        if (!abortReason && isAbortMessage) errorOptions.cause = error;
+        if (!abortReason && isAbortMessage) {
+          errorOptions.cause = error;
+        }
         // Rewrite the message only for inner-timeout, so the retry layer
         // won't retry a request that already hit its 30-min deadline.
         const rewrittenMessage =
           isAbortMessage && innerTimeoutFired
             ? `Anthropic stream timed out after ${Math.round(elapsedMs / 1000)}s (inner streamTimeoutMs)`
-            : error.message;
+            : (readAnthropicMessage(error) ?? error.message);
         // Only include the `(status)` parenthetical when the SDK surfaced a
         // real HTTP status. Abort paths and mid-stream protocol errors have
         // `error.status === undefined`, and string-interpolating that produces
@@ -1576,7 +1812,7 @@ export class AnthropicProvider implements Provider {
     systemPrompt: string,
     tools?: ToolDefinition[],
   ): Promise<number> {
-    const sentMessages = this.buildSentMessages(messages);
+    const sentMessages = await this.buildSentMessages(messages);
 
     const system = systemPrompt
       ? systemPrompt
@@ -1612,10 +1848,12 @@ export class AnthropicProvider implements Provider {
    * `cache_control` breakpoints (which don't affect token counts) are the
    * only thing layered on top in `sendMessage`.
    */
-  private buildSentMessages(messages: Message[]): Anthropic.MessageParam[] {
+  private async buildSentMessages(
+    messages: Message[],
+  ): Promise<Anthropic.MessageParam[]> {
     // Swap any persisted attachment references back to inline base64 before
     // serializing, so the block transforms below can read `source.data`.
-    messages = resolveMediaReferences(messages);
+    messages = await resolveMediaReferences(messages);
     const formatted = messages
       .map((m) => {
         // Track whether an unknown block was dropped during filtering
@@ -1640,8 +1878,8 @@ export class AnthropicProvider implements Provider {
               ),
           );
 
-        // Preserve assistant turns that would otherwise become empty after filtering
-        // unknown block types (e.g. ui_surface). Dropping these messages can violate
+        // Preserve assistant turns that would otherwise become empty after
+        // filtering unknown block types. Dropping these messages can violate
         // Anthropic's role alternation requirement.
         if (
           content.length === 0 &&
@@ -1709,8 +1947,9 @@ export class AnthropicProvider implements Provider {
             c.length !== 1 ||
             typeof c[0] === "string" ||
             c[0].type !== "text"
-          )
+          ) {
             return false;
+          }
           const text = (c[0] as { text?: string }).text;
           return typeof text === "string" && isPlaceholderSentinelText(text);
         };
@@ -1771,7 +2010,9 @@ export class AnthropicProvider implements Provider {
     const activeToolUseStart = findActiveToolUseContinuationStart(formatted);
     for (let i = 0; i < activeToolUseStart; i++) {
       const msg = formatted[i];
-      if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+      if (msg.role !== "assistant" || !Array.isArray(msg.content)) {
+        continue;
+      }
       const stripped = (msg.content as Anthropic.ContentBlockParam[]).filter(
         (b) =>
           typeof b === "string" ||
@@ -1786,14 +2027,21 @@ export class AnthropicProvider implements Provider {
       formatted[i] = { ...msg, content: stripped };
     }
 
-    return ensureToolPairing(repairOrphanedServerToolBlocks(formatted));
+    const serverToolPairing = analyzeServerToolPairing(formatted);
+    return ensureToolPairing(
+      repairOrphanedServerToolBlocks(formatted, serverToolPairing),
+      serverToolPairing,
+    );
   }
 
   /**
-   * Convert a content block to Anthropic format, returning null for unknown
-   * block types instead of throwing.  Unknown types (e.g. ui_surface stored
-   * in DB) are silently dropped so they don't prevent the request from being
-   * sent or break tool_use/tool_result pairing.
+   * Convert a content block to Anthropic format, returning null for blocks the
+   * Messages API cannot carry instead of throwing, so they don't prevent the
+   * request from being sent or break tool_use/tool_result pairing.
+   *
+   * Two distinct null cases: `ui_surface` is a known client-rendering block
+   * dropped by design, while a block reaching `default` is genuinely
+   * unrecognised and warns so the gap is visible.
    */
   private toAnthropicBlockSafe(
     block: ContentBlock,
@@ -1936,6 +2184,12 @@ export class AnthropicProvider implements Provider {
           tool_use_id: block.tool_use_id,
           content: block.content,
         } as unknown as Anthropic.ContentBlockParam;
+      case "ui_surface":
+        // A client rendering instruction, not model context. Dropped by
+        // design: the producer's sibling `_surfaceFallback` text block is what
+        // the model reads. `buildSentMessages` projects the surface to text
+        // for legacy rows that have no fallback sibling.
+        return null;
       default: {
         log.warn(
           { blockType: (block as { type: string }).type },

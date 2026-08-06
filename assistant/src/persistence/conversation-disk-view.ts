@@ -143,7 +143,9 @@ interface FlattenedContent {
  * Parse the message `content` JSON string (ContentBlock[]) and extract
  * text, tool_use, and tool_result blocks into flat fields.
  */
-export function flattenContentBlocks(rawContent: string): FlattenedContent {
+export function flattenContentBlocks(
+  rawContent: string | ContentBlock[],
+): FlattenedContent {
   const result: FlattenedContent = {
     content: "",
     toolCalls: [],
@@ -151,16 +153,20 @@ export function flattenContentBlocks(rawContent: string): FlattenedContent {
   };
 
   let blocks: ContentBlock[];
-  try {
-    const parsed = JSON.parse(rawContent);
-    if (!Array.isArray(parsed)) {
-      // Plain text content (not block array)
+  if (Array.isArray(rawContent)) {
+    blocks = rawContent;
+  } else {
+    try {
+      const parsed = JSON.parse(rawContent);
+      if (!Array.isArray(parsed)) {
+        // Plain text content (not block array)
+        return { ...result, content: rawContent };
+      }
+      blocks = parsed;
+    } catch {
+      // Not valid JSON — treat as plain text
       return { ...result, content: rawContent };
     }
-    blocks = parsed;
-  } catch {
-    // Not valid JSON — treat as plain text
-    return { ...result, content: rawContent };
   }
 
   const textParts: string[] = [];
@@ -198,7 +204,9 @@ export function flattenContentBlocks(rawContent: string): FlattenedContent {
  */
 export function resolveUniqueFilename(dir: string, filename: string): string {
   const sanitized = basename(filename);
-  if (!existsSync(join(dir, sanitized))) return sanitized;
+  if (!existsSync(join(dir, sanitized))) {
+    return sanitized;
+  }
 
   const ext = extname(sanitized);
   const base = basename(sanitized, ext);
@@ -235,7 +243,9 @@ function writeAttachmentFile(
     }
 
     const content = getAttachmentContent(attachmentId);
-    if (!content) return null;
+    if (!content) {
+      return null;
+    }
 
     const resolvedName = resolveUniqueFilename(attachDir, originalFilename);
     writeFileSync(join(attachDir, resolvedName), content);
@@ -301,11 +311,18 @@ export function syncMessageToDisk(
       ts: new Date(message.createdAt).toISOString(),
     };
 
-    if (content) record.content = content;
-    if (toolCalls.length > 0) record.toolCalls = toolCalls;
-    if (toolResults.length > 0) record.toolResults = toolResults;
-    if (attachmentFilenames.length > 0)
+    if (content) {
+      record.content = content;
+    }
+    if (toolCalls.length > 0) {
+      record.toolCalls = toolCalls;
+    }
+    if (toolResults.length > 0) {
+      record.toolResults = toolResults;
+    }
+    if (attachmentFilenames.length > 0) {
       record.attachments = attachmentFilenames;
+    }
     if (message.metadata) {
       try {
         record.metadata = JSON.parse(message.metadata);

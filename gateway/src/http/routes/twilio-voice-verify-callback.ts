@@ -153,6 +153,7 @@ export function createTwilioVoiceVerifyCallbackHandler(
             deliveryChatId: fromNumber,
             guardianPrincipalId: canonicalPrincipal,
             verifiedVia: "challenge",
+            reactivateRevoked: true,
           });
 
           log.info(

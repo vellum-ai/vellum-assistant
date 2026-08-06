@@ -1,3 +1,5 @@
+import { readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { makeMockLogger } from "./helpers/mock-logger.js";
@@ -12,86 +14,41 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string, maxLen = 500) => value.slice(0, maxLen),
 }));
 
+// The config routes under test read and write the workspace config.json via
+// the real loader (`loadRawConfig`/`saveRawConfig`). Tests seed the raw file
+// directly (the fixtures are raw-file shapes, including deliberately
+// malformed trees, so the whole file is replaced rather than composed via
+// `setConfig`) and detect commits by comparing the on-disk text against the
+// seeded snapshot — `saveRawConfig` pretty-prints, so any commit changes the
+// text.
 let rawConfig: Record<string, unknown> = {};
-let savedRawConfig: Record<string, unknown> | null = null;
+let seededRawText = "";
+let mtimeSeq = 0;
 
-function deepMerge(
-  target: Record<string, unknown>,
-  patch: Record<string, unknown>,
-): void {
-  for (const [key, value] of Object.entries(patch)) {
-    if (
-      value !== null &&
-      typeof value === "object" &&
-      !Array.isArray(value) &&
-      target[key] !== null &&
-      typeof target[key] === "object" &&
-      !Array.isArray(target[key])
-    ) {
-      deepMerge(
-        target[key] as Record<string, unknown>,
-        value as Record<string, unknown>,
-      );
-    } else {
-      target[key] = value;
-    }
-  }
+function configJsonPath(): string {
+  return join(process.env.VELLUM_WORKSPACE_DIR!, "config.json");
 }
 
-function setNestedValue(
-  obj: Record<string, unknown>,
-  path: string,
-  value: unknown,
-): void {
-  const keys = path.split(".");
-  let current = obj;
-  for (const key of keys.slice(0, -1)) {
-    if (
-      current[key] === null ||
-      typeof current[key] !== "object" ||
-      Array.isArray(current[key])
-    ) {
-      current[key] = {};
-    }
-    current = current[key] as Record<string, unknown>;
-  }
-  current[keys[keys.length - 1]!] = value;
+/** Write `raw` to the workspace config.json as the seeded pre-test state. */
+function seedRawConfig(raw: Record<string, unknown>): void {
+  rawConfig = raw;
+  seededRawText = JSON.stringify(raw);
+  writeFileSync(configJsonPath(), seededRawText);
+  // Distinct mtime per write so the loader's file-signature cache can never
+  // read two consecutive seeds as identical.
+  mtimeSeq += 1;
+  const stamp = new Date(Date.now() + mtimeSeq);
+  utimesSync(configJsonPath(), stamp, stamp);
 }
 
-mock.module("../config/loader.js", () => ({
-  API_KEY_PROVIDERS: [],
-  applyNestedDefaults: (config: unknown) => config,
-  loadRawConfig: () => structuredClone(savedRawConfig ?? rawConfig),
-  saveRawConfig: (raw: Record<string, unknown>) => {
-    savedRawConfig = structuredClone(raw);
-  },
-  deepMergeOverwrite: deepMerge,
-  fillContextDefaultsForMissingKeys: () => {},
-  loadConfig: () => structuredClone(savedRawConfig ?? rawConfig),
-  getConfig: () => structuredClone(savedRawConfig ?? rawConfig),
-  getConfigReadOnly: () => structuredClone(savedRawConfig ?? rawConfig),
-  getDeploymentContextDefaults: () => ({}),
-  getNestedValue: (obj: Record<string, unknown>, path: string) =>
-    path.split(".").reduce<unknown>((current, key) => {
-      if (
-        current === null ||
-        typeof current !== "object" ||
-        Array.isArray(current)
-      ) {
-        return undefined;
-      }
-      return (current as Record<string, unknown>)[key];
-    }, obj),
-  invalidateConfigCache: () => {},
-  mergeDefaultWorkspaceConfig: () => ({
-    merged: false,
-    config: structuredClone(savedRawConfig ?? rawConfig),
-  }),
-  setNestedValue,
-  withSuppressedConfigDiskWrites: async (fn: () => unknown) => fn(),
-  withSuppressedConfigDiskWritesSync: (fn: () => unknown) => fn(),
-  _writeQuarantineNotice: () => {},
-}));
+/** The raw config a route commit persisted, or null when nothing was saved. */
+function committedRaw(): Record<string, unknown> | null {
+  const text = readFileSync(configJsonPath(), "utf8");
+  if (text === seededRawText) {
+    return null;
+  }
+  return JSON.parse(text) as Record<string, unknown>;
+}
 
 mock.module("../daemon/config-watcher.js", () => ({
   getConfigWatcher: () => ({
@@ -150,7 +107,9 @@ const { BadRequestError } = await import("../runtime/routes/errors.js");
 
 function findRoute(operationId: string) {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route not found: ${operationId}`);
+  if (!route) {
+    throw new Error(`Route not found: ${operationId}`);
+  }
   return route;
 }
 
@@ -172,12 +131,11 @@ function withoutWireProfiles(
 
 describe("MCP config secret boundary", () => {
   beforeEach(() => {
-    rawConfig = {};
-    savedRawConfig = null;
+    seedRawConfig({});
   });
 
   test("config_get omits legacy MCP transport headers from settings-read responses", () => {
-    rawConfig = {
+    seedRawConfig({
       mcp: {
         servers: {
           remote: {
@@ -192,7 +150,7 @@ describe("MCP config secret boundary", () => {
           },
         },
       },
-    };
+    });
 
     const result = configGetRoute.handler({}) as Record<string, unknown>;
 
@@ -208,7 +166,7 @@ describe("MCP config secret boundary", () => {
   });
 
   test("config_get omits headers inside malformed MCP server trees", () => {
-    rawConfig = {
+    seedRawConfig({
       mcp: {
         servers: [
           {
@@ -218,7 +176,7 @@ describe("MCP config secret boundary", () => {
           },
         ],
       },
-    };
+    });
 
     const result = configGetRoute.handler({}) as Record<string, unknown>;
 
@@ -235,7 +193,7 @@ describe("MCP config secret boundary", () => {
   });
 
   test("config_get preserves an MCP server named headers", () => {
-    rawConfig = {
+    seedRawConfig({
       mcp: {
         servers: {
           headers: {
@@ -246,7 +204,7 @@ describe("MCP config secret boundary", () => {
           },
         },
       },
-    };
+    });
 
     const result = configGetRoute.handler({}) as Record<string, unknown>;
 
@@ -254,7 +212,7 @@ describe("MCP config secret boundary", () => {
   });
 
   test("config_get preserves non-credential headers env vars", () => {
-    rawConfig = {
+    seedRawConfig({
       mcp: {
         servers: {
           local: {
@@ -268,7 +226,7 @@ describe("MCP config secret boundary", () => {
           },
         },
       },
-    };
+    });
 
     const result = configGetRoute.handler({}) as Record<string, unknown>;
 
@@ -293,7 +251,7 @@ describe("MCP config secret boundary", () => {
         },
       }),
     ).rejects.toThrow(BadRequestError);
-    expect(savedRawConfig).toBeNull();
+    expect(committedRaw()).toBeNull();
   });
 
   test("config_patch allows an MCP server named headers when its value has no header credentials", async () => {
@@ -377,11 +335,11 @@ describe("MCP config secret boundary", () => {
         },
       }),
     ).rejects.toThrow(BadRequestError);
-    expect(savedRawConfig).toBeNull();
+    expect(committedRaw()).toBeNull();
   });
 
   test("config_set rejects direct MCP transport header paths", async () => {
-    rawConfig = {
+    seedRawConfig({
       mcp: {
         servers: {
           remote: {
@@ -392,7 +350,7 @@ describe("MCP config secret boundary", () => {
           },
         },
       },
-    };
+    });
 
     await expect(
       configSetRoute.handler({
@@ -402,6 +360,6 @@ describe("MCP config secret boundary", () => {
         },
       }),
     ).rejects.toThrow(BadRequestError);
-    expect(savedRawConfig).toBeNull();
+    expect(committedRaw()).toBeNull();
   });
 });

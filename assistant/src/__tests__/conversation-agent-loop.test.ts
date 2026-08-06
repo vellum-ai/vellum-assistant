@@ -1,4 +1,6 @@
+import { readdirSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
+import { join } from "node:path";
 import {
   afterAll,
   beforeEach,
@@ -10,16 +12,19 @@ import {
 } from "bun:test";
 
 import type { LoopToolExecutor } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import {
   queueConversationNotice,
   resetConversationNoticesForTests,
 } from "../daemon/conversation-notices.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import { getConversationDirName } from "../persistence/conversation-directories.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import { registerPlugin } from "../plugins/registry.js";
 import type { Message, Provider, ToolDefinition } from "../providers/types.js";
 import { ContextOverflowError } from "../providers/types.js";
+import { getWorkspaceDir } from "../util/platform.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const conversationCrudRealSnapshot = {
   ...(createRequire(import.meta.url)(
@@ -31,15 +36,47 @@ const conversationDiskViewRealSnapshot = {
     "../persistence/conversation-disk-view.js",
   ) as Record<string, unknown>),
 };
-let mockUiConfig: { userTimezone?: string; detectedTimezone?: string } = {};
 // Disable the catalog default so resolution lands on llm.default.
 const disabledCatalogDefaultProfiles: Record<string, unknown> = {
   balanced: { source: "managed", status: "disabled" },
 };
-let mockLlmProfiles: Record<string, unknown> = {
-  ...disabledCatalogDefaultProfiles,
-};
-let mockLlmActiveProfile: string | undefined;
+
+/**
+ * Seed the workspace `llm` config for real. `setConfig` replaces the top-level
+ * key wholesale, so every call carries the mainAgent call-site tweak — it
+ * applies over the winning profile, so the small context window that the
+ * overflow/compaction tests depend on holds regardless of which profile wins
+ * selection.
+ */
+function seedLlmConfig(options?: {
+  profiles?: Record<string, unknown>;
+  activeProfile?: string;
+}): void {
+  setConfig("llm", {
+    callSites: {
+      mainAgent: {
+        contextWindow: {
+          enabled: true,
+          maxInputTokens: 100000,
+          targetBudgetRatio: 0.3,
+          compactThreshold: 0.8,
+          summaryBudgetRatio: 0.05,
+          overflowRecovery: {
+            enabled: true,
+            safetyMarginRatio: 0.05,
+            maxAttempts: 3,
+            interactiveLatestTurnCompression: "summarize",
+            nonInteractiveLatestTurnCompression: "truncate",
+          },
+        },
+      },
+    },
+    profiles: options?.profiles ?? { ...disabledCatalogDefaultProfiles },
+    ...(options?.activeProfile !== undefined
+      ? { activeProfile: options.activeProfile }
+      : {}),
+  });
+}
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
@@ -57,53 +94,10 @@ mock.module("../plugins/defaults/compaction/manager-store.js", () => ({
   },
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: mockLlmProfiles,
-      callSites: {},
-      activeProfile: mockLlmActiveProfile,
-      pricingOverrides: [],
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    workspaceGit: { turnCommitMaxWaitMs: 10 },
-    memory: { retrieval: { scratchpadInjection: { enabled: true } } },
-    ui: mockUiConfig,
-    compaction: { enabled: true, autoThreshold: 0.7 },
-    conversations: { skipAutoRetitling: true },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
+// Keep the turn-boundary commit wait short and skip second-pass retitling so
+// loop teardown stays fast and deterministic across these orchestrator tests.
+setConfig("workspaceGit", { turnCommitMaxWaitMs: 10 });
+setConfig("conversations", { skipAutoRetitling: true });
 
 // ── Overflow recovery mocks ──────────────────────────────────────────
 
@@ -276,6 +270,7 @@ const updateConversationSlackContextWatermarkMock = mock(
 );
 let mockConversationRow: Record<string, unknown> = {
   id: "conv-1",
+  createdAt: 1_700_000_000_000,
   contextSummary: null,
   contextCompactedMessageCount: 0,
   slackContextCompactionWatermarkTs: null,
@@ -285,12 +280,48 @@ let mockConversationRow: Record<string, unknown> = {
   title: null,
 };
 let mockMessageById: Record<string, unknown> | null = null;
+
+// The in-flight delta files the writers create for the (unmocked-path)
+// test conversation. Files are uuid-named at reserve time, so tests locate
+// them by listing the directory. Partial flushes land here instead of
+// `updateMessageContent`; the finalize seam folds the file inline and
+// deletes it, so mid-turn assertions read it during the provider's hold.
+function inflightDir(): string {
+  return join(
+    getWorkspaceDir(),
+    "conversations",
+    getConversationDirName("test-conv", 1_700_000_000_000),
+    "inflight",
+  );
+}
+
+function inflightDeltaFiles(): string[] {
+  try {
+    return readdirSync(inflightDir())
+      .filter((f) => f.endsWith(".jsonl"))
+      .map((f) => join(inflightDir(), f));
+  } catch {
+    return [];
+  }
+}
+
+/** The single in-flight delta file expected during a mid-hold read. */
+function soleInflightDeltaPath(): string {
+  const files = inflightDeltaFiles();
+  if (files.length !== 1) {
+    throw new Error(`expected exactly one in-flight file, saw ${files.length}`);
+  }
+  return files[0];
+}
 const deleteMessageByIdMock = mock(() => ({
   segmentIds: [],
   deletedSummaryIds: [],
 }));
 const reserveMessageMock = mock(async () => ({ id: "msg-reserve" }));
+/** Persisted rows the loop reads back. Empty unless a test seeds one. */
+let mockStoredMessages: unknown[] = [];
 const updateMessageContentMock = mock(() => {});
+const finalizeMessageContentMock = mock(() => {});
 const addMessageMock = mock(() => ({ id: "mock-msg-id" }));
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
@@ -299,7 +330,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   updateConversationUsage: () => {},
   updateMessageMetadata: updateMessageMetadataMock,
   setConversationHistoryStrippedAt: setConversationHistoryStrippedAtMock,
-  getMessages: () => [],
+  getMessages: () => mockStoredMessages,
   getConversation: () => mockConversationRow,
   provenanceFromTrustContext: () => ({
     source: "user",
@@ -317,8 +348,10 @@ mock.module("../persistence/conversation-crud.js", () => ({
   getLastUserTimestampBefore: () => 0,
   reserveMessage: reserveMessageMock,
   updateMessageContent: updateMessageContentMock,
+  finalizeMessageContent: finalizeMessageContentMock,
   recordConversationPersistedSeq: () => {},
   getConversationPersistedSeq: () => null,
+  PROVIDER_ERROR_MESSAGE_KIND: "provider_error",
   // The real schema is a Zod object; tests don't exercise validation,
   // so a passthrough is sufficient — the production code at
   // `handleMessageComplete` only branches on `success` and reads two
@@ -347,6 +380,11 @@ mock.module("../persistence/conversation-attention-store.js", () => ({
 }));
 mock.module("../runtime/sync/sync-publisher.js", () => ({
   publishSyncInvalidation: publishSyncInvalidationMock,
+}));
+
+const emitAssistantReplyNotificationMock = mock(async () => {});
+mock.module("../notifications/assistant-reply-producer.js", () => ({
+  emitAssistantReplyNotification: emitAssistantReplyNotificationMock,
 }));
 
 afterAll(() => {
@@ -507,7 +545,7 @@ mock.module("../daemon/date-context.js", () => ({
   resolveTurnTimezoneContext: resolveTurnTimezoneContextMock,
 }));
 
-mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
+mock.module("../agent/history-repair/history-repair.js", () => ({
   repairHistory: (msgs: Message[]) => ({
     messages: msgs,
     stats: {
@@ -733,8 +771,6 @@ function makeCtx(
       mockConversationRow?.lastNotifiedInferenceProfile ?? null,
     processingStartedAt: mockConversationRow?.processingStartedAt ?? null,
 
-    memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
-
     currentActiveSurfaceId: undefined,
     currentPage: undefined,
     surfaceState: new Map(),
@@ -746,8 +782,8 @@ function makeCtx(
     channelCapabilities: undefined,
     commandIntent: undefined,
     trustContext: undefined,
+    toolsDisabledDepth: 0,
 
-    coreToolNames: new Set(),
     allowedToolNames: undefined,
     preactivatedSkillIds: undefined,
     skillProjectionState: new Map(),
@@ -777,7 +813,16 @@ function makeCtx(
     getQueueDepth: () => 0,
     hasQueuedMessages: () => false,
     canHandoffAtCheckpoint: () => false,
-    drainQueue: () => {},
+    drainQueue: (_reason?: string) => {},
+    // Forwards to drainQueue so tests that spy the drain observe the agent
+    // loop's post-turn kick through the guarded entry point.
+    kickDrainQueue(
+      this: { drainQueue: (reason?: string) => unknown },
+      reason: string = "loop_complete",
+      _origin?: string,
+    ) {
+      return this.drainQueue(reason);
+    },
     getTurnInterfaceContext: () => null,
     getTurnChannelContext: () => ({
       userMessageChannel: "vellum" as const,
@@ -820,6 +865,24 @@ function makeCtx(
   return ctx;
 }
 
+/**
+ * What `classifyConversationError` returns for a daily-credit-limit 402 (see
+ * `dailyLimitClassification` in conversation-error.ts). Its `userMessage` is
+ * banner voice; the loop swaps in {@link DAILY_LIMIT_ASSISTANT_REPLY} for the
+ * transcript row.
+ */
+const DAILY_LIMIT_CLASSIFICATION = {
+  code: "PROVIDER_BILLING",
+  userMessage:
+    "You've hit your daily credit limit. Raise the limit in Billing settings to keep going today.",
+  retryable: false,
+  errorCategory: "daily_limit_reached",
+};
+
+/** Mirrors `DAILY_LIMIT_REACHED_ASSISTANT_REPLY` in conversation-agent-loop.ts. */
+const DAILY_LIMIT_ASSISTANT_REPLY =
+  "I had to stop because you hit your daily credit limit. Raise the limit in Settings → Billing and we can pick up where we left off, or I can continue once it resets.";
+
 type CompactionResult = Parameters<typeof applyCompactionResult>[1];
 
 function makeCompactionResult(
@@ -845,9 +908,8 @@ function makeCompactionResult(
 // ── Tests ────────────────────────────────────────────────────────────
 
 beforeEach(() => {
-  mockUiConfig = {};
-  mockLlmProfiles = { ...disabledCatalogDefaultProfiles };
-  mockLlmActiveProfile = undefined;
+  setConfig("ui", {});
+  seedLlmConfig();
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
@@ -860,12 +922,14 @@ beforeEach(() => {
   setAgentLoopExitReasonOnLatestLogMock.mockClear();
   syncMessageToDiskMock.mockClear();
   rebuildConversationDiskViewFromDbStateMock.mockClear();
+  emitAssistantReplyNotificationMock.mockClear();
   updateMessageMetadataMock.mockClear();
   updateMessageMetadataMock.mockImplementation(() => {});
   updateConversationSlackContextWatermarkMock.mockClear();
   updateConversationSlackContextWatermarkMock.mockImplementation(() => {});
   mockConversationRow = {
     id: "conv-1",
+    createdAt: 1_700_000_000_000,
     contextSummary: null,
     contextCompactedMessageCount: 0,
     slackContextCompactionWatermarkTs: null,
@@ -888,7 +952,11 @@ beforeEach(() => {
   getSlackCompactionWatermarkForPrefixMock.mockClear();
   deleteMessageByIdMock.mockClear();
   reserveMessageMock.mockClear();
+  mockStoredMessages = [];
   updateMessageContentMock.mockClear();
+  updateMessageContentMock.mockImplementation(() => {});
+  finalizeMessageContentMock.mockClear();
+  rmSync(inflightDir(), { recursive: true, force: true });
   addMessageMock.mockClear();
   mockConversationErrorClassification = {
     code: "CONVERSATION_PROCESSING_FAILED",
@@ -917,14 +985,24 @@ beforeEach(() => {
 describe("session-agent-loop", () => {
   describe("user-prompt-submit hook failures", () => {
     test("passes the effective profile to hooks even when it was already announced", async () => {
-      mockLlmProfiles = {
-        balanced: {
-          label: "Balanced",
-          model: "accounts/fireworks/models/glm-5p2",
+      // Both profiles are complete (provider + model) so each is a usable
+      // winner: the conversation's pinned "balanced" must win selection over
+      // the workspace-active "quality".
+      seedLlmConfig({
+        profiles: {
+          balanced: {
+            label: "Balanced",
+            provider: "fireworks",
+            model: "accounts/fireworks/models/glm-5p2",
+          },
+          quality: {
+            label: "Quality",
+            provider: "anthropic",
+            model: "claude-opus-4-8",
+          },
         },
-        quality: { label: "Quality", model: "claude-opus-4-8" },
-      };
-      mockLlmActiveProfile = "quality";
+        activeProfile: "quality",
+      });
       const observedProfileKeys: string[] = [];
       registerPlugin({
         manifest: {
@@ -978,7 +1056,7 @@ describe("session-agent-loop", () => {
         },
       });
 
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const ctx = makeCtx({ providerResponses: [textResponse("ok")] });
       const runSpy = spyOn(ctx.agentLoop, "run");
 
@@ -1002,7 +1080,7 @@ describe("session-agent-loop", () => {
 
   describe("conversation notices", () => {
     test("emits queued billing notices after a successful turn", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const ctx = makeCtx({ providerResponses: [textResponse("ok")] });
       queueConversationNotice(ctx.conversationId, "memory-v3-test", {
         source: "memory_v3",
@@ -1039,7 +1117,7 @@ describe("session-agent-loop", () => {
       resolveAssistantAttachmentsMock.mockImplementation(async () => {
         throw new Error("attachment resolution failed");
       });
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const ctx = makeCtx({ providerResponses: [textResponse("ok")] });
       queueConversationNotice(ctx.conversationId, "memory-v3-test", {
         source: "memory_v3",
@@ -1064,10 +1142,10 @@ describe("session-agent-loop", () => {
 
   describe("timezone turn context", () => {
     test("passes ctx.clientTimezone and ui.detectedTimezone into timezone resolution", async () => {
-      mockUiConfig = {
+      setConfig("ui", {
         userTimezone: "America/New_York",
         detectedTimezone: "America/Chicago",
-      };
+      });
       const ctx = makeCtx({ clientTimezone: "America/Los_Angeles" });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
@@ -1082,10 +1160,10 @@ describe("session-agent-loop", () => {
     });
 
     test("freezes the client timezone snapshot on the conversation, not the options bag", async () => {
-      mockUiConfig = {
+      setConfig("ui", {
         userTimezone: "US/Eastern",
         detectedTimezone: "US/Central",
-      };
+      });
       resolveTurnTimezoneContextMock.mockImplementationOnce(() => ({
         configuredUserTimezone: "America/New_York",
         clientTimezone: "America/Los_Angeles",
@@ -1127,6 +1205,92 @@ describe("session-agent-loop", () => {
       await expect(
         runAgentLoopImpl(ctx, "hello", "msg-1", () => {}),
       ).rejects.toThrow("runAgentLoop called without prior persistUserMessage");
+    });
+
+    test("defers workspace Git work when tools are disabled", async () => {
+      const ensureInitialized = mock(async () => {});
+      const commitTurnChanges = mock(async () => {});
+      const ctx = makeCtx({
+        toolsDisabledDepth: 1,
+        getWorkspaceGitService: () => ({ ensureInitialized }),
+        commitTurnChanges,
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(ensureInitialized).not.toHaveBeenCalled();
+      expect(commitTurnChanges).not.toHaveBeenCalled();
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(commitTurnChanges).toHaveBeenCalledTimes(1);
+    });
+
+    test("leaves a deferred commit to an immediate follow-up turn", async () => {
+      const commitTurnChanges = mock(async () => {});
+      const ctx = makeCtx({
+        toolsDisabledDepth: 1,
+        commitTurnChanges,
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+      ctx.setProcessing(true);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(commitTurnChanges).not.toHaveBeenCalled();
+      ctx.setProcessing(false);
+    });
+
+    test("initializes workspace Git before hooks when tools can run", async () => {
+      let initialized = false;
+      const ensureInitialized = mock(async () => {
+        initialized = true;
+      });
+      const commitTurnChanges = mock(async () => {});
+      const initializedDuringHook: boolean[] = [];
+      registerPlugin({
+        manifest: {
+          name: "test-workspace-git-ready-before-hook",
+          version: "1.0.0",
+        },
+        hooks: {
+          "user-prompt-submit": async () => {
+            initializedDuringHook.push(initialized);
+          },
+        },
+      });
+      const ctx = makeCtx({
+        getWorkspaceGitService: () => ({ ensureInitialized }),
+        commitTurnChanges,
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(ensureInitialized).toHaveBeenCalledTimes(1);
+      expect(commitTurnChanges).toHaveBeenCalledTimes(1);
+      expect(initializedDuringHook).toEqual([true]);
+    });
+
+    test("continues a tool-capable turn when workspace Git initialization fails", async () => {
+      const ensureInitialized = mock(async () => {
+        throw new Error("simulated Git initialization failure");
+      });
+      const events: AssistantEvent[] = [];
+      const ctx = makeCtx({
+        getWorkspaceGitService: () => ({ ensureInitialized }),
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (event) =>
+        events.push(event),
+      );
+
+      expect(ensureInitialized).toHaveBeenCalledTimes(1);
+      expect(events.some((event) => event.type === "message_complete")).toBe(
+        true,
+      );
+      expect(events.some((event) => event.type === "conversation_error")).toBe(
+        false,
+      );
     });
   });
 
@@ -1250,7 +1414,7 @@ describe("session-agent-loop", () => {
         action: "block",
         reason: "trusted-contact",
       };
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const activityStates: unknown[][] = [];
       const ctx = makeCtx({
         emitActivityState: (...args: unknown[]) => {
@@ -1322,7 +1486,7 @@ describe("session-agent-loop", () => {
 
   describe("tool execution errors via agent loop", () => {
     test("error events from agent loop are classified and emitted", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       // The model calls a tool whose executor throws, surfacing an `error`
       // event from the loop's catch handler.
@@ -1341,7 +1505,7 @@ describe("session-agent-loop", () => {
     });
 
     test("non-error agent loop completion does not emit conversation_error", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx({
         providerResponses: [textResponse("All good")],
@@ -1359,7 +1523,7 @@ describe("session-agent-loop", () => {
 
   describe("LLM request log persistence", () => {
     test("record request log captures the actual provider name", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const rawRequest = {
         model: "gpt-4.1",
         messages: [{ role: "user", content: "Hello" }],
@@ -1469,7 +1633,7 @@ describe("session-agent-loop", () => {
     });
 
     test("record request log handles Responses API shaped payloads", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const rawRequest = {
         model: "gpt-5.4",
         instructions: "Be helpful.",
@@ -1532,7 +1696,7 @@ describe("session-agent-loop", () => {
 
   describe("usage accounting", () => {
     test("records the actual provider for usage accounting", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx({
         providerResponses: [
@@ -1586,11 +1750,36 @@ describe("session-agent-loop", () => {
       expect(mainAgentCall?.[2]).toBe(3);
       expect(mainAgentCall?.[3]).toBe("gpt-4.1-2026-03-01");
     });
+
+    test("persists the served model onto the assistant row's metadata at finalize", async () => {
+      const events: AssistantEvent[] = [];
+
+      const ctx = makeCtx({
+        providerResponses: [
+          {
+            content: [{ type: "text", text: "Hi there." }],
+            model: "gpt-4.1-2026-03-01",
+            usage: { inputTokens: 12, outputTokens: 3 },
+            stopReason: "end_turn",
+          },
+        ],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      // The finalize write carries the `message_complete` event's model
+      // (`response.model`) as metadata alongside the content, in one write.
+      const finalizeCall = finalizeMessageContentMock.mock.calls.find(
+        (call) => (call as unknown[])[2] !== undefined,
+      ) as unknown[] | undefined;
+      expect(finalizeCall).toBeDefined();
+      expect(finalizeCall?.[2]).toEqual({ model: "gpt-4.1-2026-03-01" });
+    });
   });
 
   describe("checkpoint handoff (infinite loop prevention)", () => {
     test("yields at checkpoint when canHandoffAtCheckpoint returns true", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       // A tool turn drives the loop to its first mid-loop checkpoint, where the
       // orchestrator yields for a queued handoff.
@@ -1618,7 +1807,7 @@ describe("session-agent-loop", () => {
     });
 
     test("continues when canHandoffAtCheckpoint returns false", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       // The tool turn reaches a checkpoint, but with handoff disabled the loop
       // continues to the next turn and completes normally.
@@ -1653,7 +1842,7 @@ describe("session-agent-loop", () => {
 
   describe("user cancellation", () => {
     test("emits generation_cancelled when abort signal fires", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const abortController = new AbortController();
 
       // The provider completes its response but the user cancels mid-turn, so
@@ -1675,7 +1864,7 @@ describe("session-agent-loop", () => {
     });
 
     test("handles AbortError thrown from agent loop as user cancellation", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const abortController = new AbortController();
 
       // The provider rejects with an AbortError after the user cancels.
@@ -1700,7 +1889,7 @@ describe("session-agent-loop", () => {
     });
 
     test("skips resolveAssistantAttachments when cancelled", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const abortController = new AbortController();
       resolveAssistantAttachmentsMock.mockClear();
 
@@ -1757,7 +1946,7 @@ describe("session-agent-loop", () => {
 
     test("clears state and surfaces a processing error when the provider call fails", async () => {
       // GIVEN a real loop whose provider rejects with an unexpected error
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const ctx = makeCtx({
         loopProvider: {
           name: "mock-provider",
@@ -1804,7 +1993,7 @@ describe("session-agent-loop", () => {
       // GIVEN a provider whose call wedges: it acknowledges the user cancel
       // (aborts the signal) but its promise never settles and never observes
       // the signal — the exact condition that latched `processing` true.
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const abortController = new AbortController();
       let drainReason: string | undefined;
       // The provider's call wedges on this promise. It settles only on test
@@ -1861,7 +2050,7 @@ describe("session-agent-loop", () => {
 
   describe("stale pending surface cleanup", () => {
     test("auto-completes non-dynamic_page pending surfaces on regular user message", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx();
       // Pre-populate a stale pending table surface
@@ -1891,8 +2080,78 @@ describe("session-agent-loop", () => {
       expect(ctx.pendingSurfaceActions.has("stale-form-1")).toBe(false);
     });
 
+    test("withholds the dismissal event and keeps the surface pending when its persisted write fails", async () => {
+      const events: AssistantEvent[] = [];
+
+      const ctx = makeCtx();
+      ctx.pendingSurfaceActions.set("stale-table-2", { surfaceType: "table" });
+      mockStoredMessages = [
+        {
+          id: "msg-with-stale-surface",
+          conversationId: "conv-1",
+          role: "assistant",
+          content: [{ type: "ui_surface", surfaceId: "stale-table-2" }],
+          createdAt: 0,
+          metadata: null,
+        },
+      ];
+      updateMessageContentMock.mockImplementationOnce(() => {
+        throw new Error("database is locked");
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg), {
+        isUserMessage: true,
+      });
+
+      // Announcing a dismissal the DB still holds as pending leaves the client
+      // showing a card the next history reseed reverts.
+      expect(
+        events.filter((e) => e.type === "ui_surface_complete"),
+      ).toHaveLength(0);
+      // The card stays live on the client, so the daemon must keep treating it
+      // as pending; the sweep retries on the next user message.
+      expect(ctx.pendingSurfaceActions.has("stale-table-2")).toBe(true);
+    });
+
+    test("dismisses the remaining surfaces when one write fails", async () => {
+      const events: AssistantEvent[] = [];
+
+      const ctx = makeCtx();
+      ctx.pendingSurfaceActions.set("stale-table-3", { surfaceType: "table" });
+      ctx.pendingSurfaceActions.set("stale-form-3", { surfaceType: "form" });
+      mockStoredMessages = [
+        {
+          id: "msg-with-stale-surfaces",
+          conversationId: "conv-1",
+          role: "assistant",
+          content: [
+            { type: "ui_surface", surfaceId: "stale-table-3" },
+            { type: "ui_surface", surfaceId: "stale-form-3" },
+          ],
+          createdAt: 0,
+          metadata: null,
+        },
+      ];
+      updateMessageContentMock.mockImplementationOnce(() => {
+        throw new Error("database is locked");
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg), {
+        isUserMessage: true,
+      });
+
+      // Retaining the failed entry must not stall the sweep: deleting the
+      // current key while iterating the map leaves later keys reachable.
+      const completed = events
+        .filter((e) => e.type === "ui_surface_complete")
+        .map((e) => (e as { surfaceId: string }).surfaceId);
+      expect(completed).toEqual(["stale-form-3"]);
+      expect(ctx.pendingSurfaceActions.has("stale-table-3")).toBe(true);
+      expect(ctx.pendingSurfaceActions.has("stale-form-3")).toBe(false);
+    });
+
     test("does not auto-complete surfaces when request is a surface action", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx();
       ctx.pendingSurfaceActions.set("active-table-1", { surfaceType: "table" });
@@ -1918,7 +2177,7 @@ describe("session-agent-loop", () => {
     });
 
     test("no-op when no pending surfaces exist", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx();
       // No pending surfaces
@@ -1934,7 +2193,7 @@ describe("session-agent-loop", () => {
     });
 
     test("does not auto-complete surfaces for internal/subagent turns (no isUserMessage)", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx();
       ctx.pendingSurfaceActions.set("active-table-1", { surfaceType: "table" });
@@ -1960,7 +2219,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx();
       ctx.pendingSurfaceActions.set("stale-table-1", { surfaceType: "table" });
 
-      const throwingOnEvent = (msg: ServerMessage) => {
+      const throwingOnEvent = (msg: AssistantEvent) => {
         _eventCount++;
         if (msg.type === "ui_surface_complete") {
           throw new Error("onEvent sink failed");
@@ -2066,7 +2325,7 @@ describe("session-agent-loop", () => {
         throw new Error("simulated DB failure");
       });
 
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const ctx = makeCtx();
 
       // Should not throw; agent loop continues and emits message_complete.
@@ -2081,7 +2340,7 @@ describe("session-agent-loop", () => {
 
   describe("error-only response with no assistant text", () => {
     test("synthesizes error assistant message when provider returns no response", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       // GIVEN a real loop whose provider rejects with a generic error
       // (non-ordering, non-context-too-large) so the loop emits `error` and
@@ -2115,7 +2374,7 @@ describe("session-agent-loop", () => {
       // its `llm_request_logs` row orphaned. Without the backfill call in
       // the synthetic-message branch, a later turn's `handleMessageComplete`
       // sweep would wrong-attach this row to the wrong assistant message.
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       // GIVEN a real loop whose provider rejects: the loop emits
       // `provider_error` (writing an `llm_request_logs` row with
@@ -2154,6 +2413,177 @@ describe("session-agent-loop", () => {
       expect(backfillCall[1]).toBe("mock-msg-id");
     });
 
+    test("stamps provider-error metadata onto the persisted synthetic assistant row", async () => {
+      mockConversationErrorClassification = {
+        code: "PROVIDER_BILLING",
+        userMessage:
+          "You're out of credits. Add credits in Settings → Billing to continue.",
+        retryable: false,
+        errorCategory: "credits_exhausted",
+      };
+
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("Payment Required");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(addMessageMock).toHaveBeenCalledTimes(1);
+      const addCall = addMessageMock.mock.calls[0] as unknown as [
+        string,
+        string,
+        string,
+        { metadata?: Record<string, unknown> },
+      ];
+      expect(addCall[1]).toBe("assistant");
+      // The persisted row swaps the context-neutral classification copy for
+      // assistant-voice wording, since this turn truly ends with no reply.
+      const persistedBlocks = JSON.parse(addCall[2]) as Array<{
+        type: string;
+        text: string;
+      }>;
+      expect(persistedBlocks[0]?.text).toBe(
+        "I couldn't reply because you ran out of credits. Add credits in Settings → Billing and we can pick up where we left off.",
+      );
+      expect(addCall[3]?.metadata).toMatchObject({
+        messageKind: "provider_error",
+        providerErrorCode: "PROVIDER_BILLING",
+        providerErrorCategory: "credits_exhausted",
+      });
+    });
+
+    test("persists assistant-voice daily-limit copy on a first-call rejection", async () => {
+      mockConversationErrorClassification = DAILY_LIMIT_CLASSIFICATION;
+
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("Payment Required");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(addMessageMock).toHaveBeenCalledTimes(1);
+      const addCall = addMessageMock.mock.calls[0] as unknown as [
+        string,
+        string,
+        string,
+        { metadata?: Record<string, unknown> },
+      ];
+      expect(addCall[1]).toBe("assistant");
+      // Like the credits-exhausted row, the daily-limit row re-enters LLM
+      // history and renders as assistant speech, so it carries first-person
+      // copy rather than the banner-voice classification text.
+      const persistedBlocks = JSON.parse(addCall[2]) as Array<{
+        type: string;
+        text: string;
+      }>;
+      expect(persistedBlocks[0]?.text).toBe(DAILY_LIMIT_ASSISTANT_REPLY);
+      expect(addCall[3]?.metadata).toMatchObject({
+        messageKind: "provider_error",
+        providerErrorCode: "PROVIDER_BILLING",
+        providerErrorCategory: "daily_limit_reached",
+      });
+    });
+
+    test("persists the synthetic error row when a daily-limit error kills the run mid-turn", async () => {
+      // Mid-turn shape: the run already carries assistant `tool_use` messages
+      // from the completed tool round-trip, and only the failing follow-up
+      // call lacks a reply. The synthetic error row must persist for this
+      // shape too, so a reload explains why the assistant stopped instead of
+      // ending on a bare tool call.
+      reserveMessageMock
+        .mockImplementationOnce(async () => ({ id: "msg-reserve-1" }))
+        .mockImplementationOnce(async () => ({ id: "msg-reserve-2" }))
+        .mockImplementationOnce(async () => ({ id: "msg-reserve-3" }));
+      mockConversationErrorClassification = DAILY_LIMIT_CLASSIFICATION;
+
+      // GIVEN a run whose first call asks for a tool, the tool succeeds, and
+      // the follow-up call is rejected with a daily-limit 402.
+      const ctx = makeCtx({
+        providerResponses: [
+          toolUseResponse("tu-1", "file_read", {}),
+          new Error("Payment Required"),
+        ],
+        loopTools: [
+          {
+            name: "file_read",
+            description: "Read a file",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+        toolExecutor: async () => ({ content: "file content", isError: false }),
+      } as unknown as Partial<Conversation>);
+
+      await runAgentLoopImpl(ctx, "hello", "msg-user-daily", () => {});
+
+      // (a) The synthetic provider-error row is persisted with the
+      // assistant-voice daily-limit copy and the classification metadata.
+      expect(addMessageMock).toHaveBeenCalledTimes(1);
+      const addCall = addMessageMock.mock.calls[0] as unknown as [
+        string,
+        string,
+        string,
+        { metadata?: Record<string, unknown> },
+      ];
+      expect(addCall[1]).toBe("assistant");
+      const persistedBlocks = JSON.parse(addCall[2]) as Array<{
+        type: string;
+        text: string;
+      }>;
+      expect(persistedBlocks[0]?.text).toBe(DAILY_LIMIT_ASSISTANT_REPLY);
+      expect(addCall[3]?.metadata).toMatchObject({
+        messageKind: "provider_error",
+        providerErrorCode: "PROVIDER_BILLING",
+        providerErrorCategory: "daily_limit_reached",
+      });
+
+      // (b) The empty row the failing call reserved at `llm_call_started` is
+      // dropped, so the transcript carries the error row instead of a stranded
+      // blank bubble. The failing call reserves last (after the first call's
+      // assistant row and the grouped tool-result row).
+      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
+      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
+        string,
+      ];
+      expect(deleteCall[0]).toBe("msg-reserve-3");
+
+      // (c) The turn is stamped failed with the classified code.
+      const outcomeStamps = (
+        updateMessageMetadataMock.mock.calls as unknown as Array<
+          [string, Record<string, unknown>]
+        >
+      ).filter((call) => call[1]?.turnOutcome !== undefined);
+      expect(outcomeStamps).toHaveLength(1);
+      expect(outcomeStamps[0]?.[0]).toBe("msg-user-daily");
+      expect(outcomeStamps[0]?.[1]).toMatchObject({
+        turnOutcome: "failed",
+        turnFailureCode: "PROVIDER_BILLING",
+      });
+
+      // (d) History ends tool_use -> tool_result -> error text, so the row
+      // never lands between a tool_use and its tool_result on replay.
+      const tail = ctx.messages.slice(-3) as Array<{
+        role: string;
+        content: Array<{ type: string; text?: string }>;
+      }>;
+      expect(tail[0]?.role).toBe("assistant");
+      expect(tail[0]?.content[0]?.type).toBe("tool_use");
+      expect(tail[1]?.role).toBe("user");
+      expect(tail[1]?.content[0]?.type).toBe("tool_result");
+      expect(tail[2]?.role).toBe("assistant");
+      expect(tail[2]?.content[0]).toEqual({
+        type: "text",
+        text: DAILY_LIMIT_ASSISTANT_REPLY,
+      });
+    });
+
     test("does not persist managed credential refresh failures as assistant text", async () => {
       mockConversationErrorClassification = {
         code: "MANAGED_KEY_INVALID",
@@ -2161,7 +2591,7 @@ describe("session-agent-loop", () => {
         retryable: false,
         errorCategory: "managed_key_invalid",
       };
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx({
         loopProvider: {
@@ -2195,6 +2625,120 @@ describe("session-agent-loop", () => {
         string,
       ];
       expect(deleteCall[0]).toBe("msg-reserve");
+    });
+
+    test("does not push the synthetic error row as a reply notification", async () => {
+      // The synthetic row carries the provider's error text. It reaches the
+      // `message_complete` branch like any other turn, so without the
+      // provider-error guard the tail would send that text to the lock screen
+      // as if it were the assistant's reply.
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("upstream 500");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(addMessageMock).toHaveBeenCalled();
+      expect(emitAssistantReplyNotificationMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("assistant-reply notification wiring", () => {
+    test("a completed turn notifies with the row that opened it", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("here you go")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-user-7", () => {});
+
+      expect(emitAssistantReplyNotificationMock).toHaveBeenCalledTimes(1);
+      const notifyCall = emitAssistantReplyNotificationMock.mock
+        .calls[0] as unknown as [
+        { conversationId: string; userMessageId: string | undefined },
+      ];
+      expect(notifyCall[0]).toMatchObject({
+        conversationId: "test-conv",
+        userMessageId: "msg-user-7",
+      });
+    });
+
+    test("a caller-supplied notify row overrides the turn's user message id", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("here you go")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-user-tail", () => {}, {
+        notifyUserMessageId: "msg-user-prompt",
+      });
+
+      expect(emitAssistantReplyNotificationMock).toHaveBeenCalledTimes(1);
+      const notifyCall = emitAssistantReplyNotificationMock.mock
+        .calls[0] as unknown as [{ userMessageId: string | undefined }];
+      expect(notifyCall[0].userMessageId).toBe("msg-user-prompt");
+    });
+
+    test("threads the app-only delivery marker to the producer", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("here you go")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-user-8", () => {}, {
+        replyDeliveredInAppOnly: true,
+      });
+
+      expect(emitAssistantReplyNotificationMock).toHaveBeenCalledTimes(1);
+      const notifyCall = emitAssistantReplyNotificationMock.mock
+        .calls[0] as unknown as [{ replyDeliveredInAppOnly?: boolean }];
+      expect(notifyCall[0].replyDeliveredInAppOnly).toBe(true);
+    });
+
+    test("omits the app-only delivery marker for an ordinary turn", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("here you go")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-user-9", () => {});
+
+      expect(emitAssistantReplyNotificationMock).toHaveBeenCalledTimes(1);
+      const notifyCall = emitAssistantReplyNotificationMock.mock
+        .calls[0] as unknown as [Record<string, unknown>];
+      expect(notifyCall[0]).not.toHaveProperty("replyDeliveredInAppOnly");
     });
   });
 
@@ -2234,7 +2778,6 @@ describe("session-agent-loop", () => {
           role: string;
           content: string;
           createdAt: number;
-          scopeId: string;
         },
         unknown,
       ];
@@ -2244,7 +2787,6 @@ describe("session-agent-loop", () => {
         conversationId: "test-conv",
         role: "assistant",
         createdAt: 1234567,
-        scopeId: "default",
       });
       expect(indexCall.content).toContain("indexed reply");
 
@@ -2289,7 +2831,7 @@ describe("session-agent-loop", () => {
         metadata: null,
       };
 
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       let messageCompleteSeenWhenIndexed: boolean | undefined;
       indexMessageNowMock.mockImplementationOnce(async () => {
         messageCompleteSeenWhenIndexed = events.some(
@@ -2517,13 +3059,21 @@ describe("session-agent-loop", () => {
       // the 1024-char size gate) then holds the turn open past the 250ms
       // debounce window before completing, so a single debounced partial
       // flush lands before `message_complete`.
+      let midTurnDeltaLines: string[] | undefined;
       const ctx = makeCtx({
         loopProvider: {
           name: "mock-provider",
           async sendMessage(_messages, options) {
             options?.onEvent?.({ type: "text_delta", text: "Hello, " });
             options?.onEvent?.({ type: "text_delta", text: "world." });
-            await new Promise((resolve) => setTimeout(resolve, 1100));
+            // The debounced flush lands at PARTIAL_PERSIST_DEBOUNCE_MS
+            // (1000ms); read the delta file mid-hold (finalize deletes it
+            // at turn end).
+            await new Promise((resolve) => setTimeout(resolve, 1050));
+            midTurnDeltaLines = readFileSync(soleInflightDeltaPath(), "utf8")
+              .trim()
+              .split("\n");
+            await new Promise((resolve) => setTimeout(resolve, 100));
             return textResponse("Hello, world.");
           },
         },
@@ -2532,22 +3082,34 @@ describe("session-agent-loop", () => {
       // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
-      // Exactly two `updateContent` calls land:
-      //   1. the debounced partial flush after both deltas accumulated, and
-      //   2. the final authoritative flush in `handleMessageComplete`.
-      // Without the debounce gate this would be one-per-delta + one final
-      // (3). Without the partial flush at all it would be just 1.
-      expect(updateMessageContentMock).toHaveBeenCalledTimes(2);
-      const calls = updateMessageContentMock.mock.calls as unknown as Array<
-        [string, string]
-      >;
-      const partialFlush = calls[0];
-      expect(partialFlush?.[0]).toBe("msg-reserve");
-      const partialBlocks = JSON.parse(partialFlush?.[1] ?? "[]") as Array<{
-        type: string;
-        text?: string;
-      }>;
-      expect(partialBlocks).toEqual([{ type: "text", text: "Hello, world." }]);
+      // Exactly one debounced partial flush landed, in the delta file:
+      // one flush of both accumulated deltas writes block 0 once — one
+      // JSONL line. Without the debounce gate each delta would flush
+      // separately (2 lines). The row itself sees no mid-stream write at
+      // all — it was born holding the `{ ref }` at reserve time.
+      expect(updateMessageContentMock).toHaveBeenCalledTimes(0);
+      expect(midTurnDeltaLines).toHaveLength(1);
+      const delta = JSON.parse(midTurnDeltaLines![0]) as {
+        block: { type: string; text?: string; _redactionVersion?: number };
+      };
+      expect(delta.block).toEqual({
+        type: "text",
+        text: "Hello, world.",
+        // Stamped by the persist path's sentinel forgery guard (LUM-2768):
+        // marks the block as neutralization-aware for the history read seam.
+        _redactionVersion: 2,
+      });
+      // The finalize seam folds the authoritative content inline and
+      // removes the delta file.
+      const finalize = finalizeMessageContentMock.mock.calls[0] as unknown as [
+        string,
+        string,
+      ];
+      expect(finalize[0]).toBe("msg-reserve");
+      expect(JSON.parse(finalize[1])).toEqual([
+        { type: "text", text: "Hello, world.", _redactionVersion: 2 },
+      ]);
+      expect(inflightDeltaFiles()).toHaveLength(0);
     });
 
     test("handleToolUse does NOT trigger a partial flush of its own", async () => {
@@ -2589,14 +3151,16 @@ describe("session-agent-loop", () => {
       // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
-      // Four authoritative writes land and no stray partial flush:
-      //   - one final flush per `message_complete` (the tool turn and the final
+      // Three finalize writes land and no stray partial flush:
+      //   - one finalize per `message_complete` (the tool turn and the final
       //     text turn), plus
-      //   - two grouped tool-result user-row writes (persist-on-arrival and the
-      //     turn-boundary finalize).
-      // `handleToolUse` contributes no partial flush of its own; one would make
-      // this 5. That stray flush is the regression this test guards against.
-      expect(updateMessageContentMock).toHaveBeenCalledTimes(4);
+      //   - the grouped tool-result user-row's turn-boundary finalize.
+      // `handleToolUse` fires after `message_complete` removed the assistant
+      // writer, so a stray flush from it would fall back to
+      // `updateMessageContent` — the zero count is the regression guard.
+      expect(updateMessageContentMock).toHaveBeenCalledTimes(0);
+      expect(finalizeMessageContentMock).toHaveBeenCalledTimes(3);
+      expect(inflightDeltaFiles()).toHaveLength(0);
     });
 
     test("handleMessageComplete clears any pending debounce timer before the final flush", async () => {
@@ -2649,13 +3213,16 @@ describe("session-agent-loop", () => {
       // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
-      // Four authoritative writes land: one final flush per `message_complete`
-      // (the tool turn and the final text turn) plus two grouped tool-result
-      // user-row writes (persist-on-arrival and the turn-boundary finalize).
-      // The debounced partial would have fired around T+250ms — during the tool
-      // executor's hold — but the timer-clear at the top of
-      // `handleMessageComplete` cancels it, so no stray fifth flush appears.
-      expect(updateMessageContentMock).toHaveBeenCalledTimes(4);
+      // Three finalize writes land: one per `message_complete` (the tool
+      // turn and the final text turn) plus the grouped tool-result row's
+      // turn-boundary finalize. The debounced partial would have fired
+      // during the tool executor's hold — after `message_complete` removed
+      // the assistant writer — so a stray late flush would fall back to
+      // `updateMessageContent`; the timer-clear at the top of
+      // `handleMessageComplete` is what keeps that count at zero.
+      expect(updateMessageContentMock).toHaveBeenCalledTimes(0);
+      expect(finalizeMessageContentMock).toHaveBeenCalledTimes(3);
+      expect(inflightDeltaFiles()).toHaveLength(0);
     });
 
     test("partial flushes never trigger the indexer or attention projector", async () => {
@@ -2721,12 +3288,15 @@ describe("session-agent-loop", () => {
       // GIVEN a real loop whose provider streams the PAT-bearing payload as a
       // delta then holds the turn open past the 250ms debounce window so the
       // partial flush lands before `message_complete`.
+      let midTurnDeltaFile: string | undefined;
       const ctx = makeCtx({
         loopProvider: {
           name: "mock-provider",
           async sendMessage(_messages, options) {
             options?.onEvent?.({ type: "text_delta", text: payload });
-            await new Promise((resolve) => setTimeout(resolve, 1100));
+            await new Promise((resolve) => setTimeout(resolve, 1050));
+            midTurnDeltaFile = readFileSync(soleInflightDeltaPath(), "utf8");
+            await new Promise((resolve) => setTimeout(resolve, 100));
             return textResponse(payload);
           },
         },
@@ -2735,14 +3305,16 @@ describe("session-agent-loop", () => {
       // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
-      expect(updateMessageContentMock).toHaveBeenCalledTimes(2);
-      const partialPayload = (
-        updateMessageContentMock.mock.calls[0] as unknown as [string, string]
-      )[1];
-      // The raw PAT must never appear in the persisted snapshot. The
-      // redaction substitute is implementation-defined; the contract here
-      // is "the literal token string is gone".
-      expect(partialPayload).not.toContain(ghToken);
+      // The raw PAT must never appear in the persisted snapshot — neither
+      // in the in-flight delta file the partial flush wrote, nor in the
+      // finalized inline content. The redaction substitute is
+      // implementation-defined; the contract here is "the literal token
+      // string is gone".
+      expect(midTurnDeltaFile).toBeDefined();
+      expect(midTurnDeltaFile).not.toContain(ghToken);
+      const finalizeArgs = finalizeMessageContentMock.mock
+        .calls[0] as unknown as [string, string];
+      expect(finalizeArgs[1]).not.toContain(ghToken);
     });
 
     test("provider-error cleanup deletes a row that has accumulated partial content", async () => {
@@ -2757,12 +3329,20 @@ describe("session-agent-loop", () => {
       }));
 
       // GIVEN a real loop whose provider streams a delta — landing a debounced
-      // partial flush on the reserved row — then rejects, so the loop emits
-      // `provider_error` and `error` and exits with no `message_complete`.
+      // partial flush on the reserved row — then rejects. The loop resumes a
+      // call that died after it had started streaming, so the second attempt
+      // is scripted to fail before streaming anything: that keeps exactly one
+      // row carrying partial content, and the turn then exits via
+      // `provider_error` with no `message_complete`.
+      let attempt = 0;
       const ctx = makeCtx({
         loopProvider: {
           name: "mock-provider",
           async sendMessage(_messages, options) {
+            attempt++;
+            if (attempt > 1) {
+              throw new Error("upstream 500");
+            }
             options?.onEvent?.({ type: "text_delta", text: "hello world" });
             await new Promise((resolve) => setTimeout(resolve, 1100));
             throw new Error("upstream 500");
@@ -2773,21 +3353,25 @@ describe("session-agent-loop", () => {
       // WHEN the orchestrator runs the turn
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
-      // Partial flush fired exactly once (before the provider error).
+      // The partial flush landed in the orphan row's in-flight delta file
+      // exactly once (before the provider error) — the stranded fold skips
+      // the deleted row, so the file's single delta line is the evidence.
       // The orphan row was then deleted; the synthetic error message is
       // inserted separately via `addMessage` (`mock-msg-id`) and never
-      // touched by `updateContent`.
-      const partialFlushes = (
-        updateMessageContentMock.mock.calls as unknown as Array<
-          [string, string]
-        >
-      ).filter(([id]) => id === "msg-orphan-with-partial");
-      expect(partialFlushes).toHaveLength(1);
-      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
-      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
-        string,
-      ];
-      expect(deleteCall[0]).toBe("msg-orphan-with-partial");
+      // touched by a content write.
+      const orphanFiles = inflightDeltaFiles();
+      expect(orphanFiles).toHaveLength(1);
+      const orphanLines = readFileSync(orphanFiles[0], "utf8")
+        .trim()
+        .split("\n");
+      expect(orphanLines).toHaveLength(1);
+      expect(updateMessageContentMock).toHaveBeenCalledTimes(0);
+      // Scoped to the row under test: the resumed attempt reserves a row of
+      // its own, which its own cleanup deletes.
+      const deletedIds = deleteMessageByIdMock.mock.calls.map(
+        (call) => (call as unknown as [string])[0],
+      );
+      expect(deletedIds).toContain("msg-orphan-with-partial");
     });
   });
 
@@ -3275,7 +3859,7 @@ describe("session-agent-loop", () => {
 
     test("applyCompactionResult records Slack timestamp watermark when provided", async () => {
       const ctx = makeCtx();
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       await applyCompactionResult(
         ctx,

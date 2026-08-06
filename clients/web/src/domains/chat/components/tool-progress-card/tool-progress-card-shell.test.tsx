@@ -25,9 +25,7 @@ afterEach(() => {
 });
 
 function renderShell(
-  overrides: Partial<
-    ComponentProps<typeof ToolProgressCardShell>
-  > = {},
+  overrides: Partial<ComponentProps<typeof ToolProgressCardShell>> = {},
 ) {
   return render(
     <ToolProgressCardShell
@@ -43,13 +41,12 @@ function renderShell(
 }
 
 describe("ToolProgressCardShell — collapsed render per state", () => {
-  test("loading renders the three-dot indicator", () => {
-    const { getByTestId, container } = renderShell({ state: "loading" });
-    const indicator = getByTestId("tool-progress-card-status-indicator");
-    expect(indicator.tagName).toBe("SPAN");
-    // No SVG icon present — the loading indicator is the dots, not a lucide
-    // svg.
-    expect(container.querySelector("svg")).toBeNull();
+  test("loading renders no status indicator — the shimmering title is the signal", () => {
+    const { queryByTestId, getByText } = renderShell({ state: "loading" });
+    // No leading indicator while loading: the header title renders through
+    // the streaming shimmer and carries the in-flight signal itself.
+    expect(queryByTestId("tool-progress-card-status-indicator")).toBeNull();
+    expect(getByText("Doing the thing")).toBeTruthy();
   });
 
   test("complete renders the CheckCircle2 icon", () => {
@@ -178,14 +175,18 @@ describe("ToolProgressCardShell — expand/collapse", () => {
 describe("ToolProgressCardShell — leading icon slot", () => {
   test("renders the leadingIcon between the indicator and the title", () => {
     const { getByTestId, container } = renderShell({
+      state: "complete",
       leadingIcon: <span data-testid="leading-icon">LI</span>,
     });
     expect(getByTestId("leading-icon")).toBeTruthy();
     // The icon sits inside the header label cluster, after the status
-    // indicator. Sanity-check the indicator is also present.
+    // indicator. Sanity-check the indicator is also present (terminal state —
+    // loading renders no indicator at all).
     expect(getByTestId("tool-progress-card-status-indicator")).toBeTruthy();
     // The wrapper exists in the rendered DOM.
-    expect(container.querySelector('[data-testid="leading-icon"]')).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="leading-icon"]'),
+    ).not.toBeNull();
   });
 
   test("omits the leading-icon wrapper when leadingIcon is undefined", () => {
@@ -241,9 +242,9 @@ describe("ToolProgressCardShell — headerActionSlot", () => {
     expect(rail.className).toContain("shrink-0");
     // Both the action slot and the pill share the same rail container.
     expect(rail.contains(getByTestId("action-button"))).toBe(true);
-    expect(rail.contains(getByTestId("tool-progress-card-step-count-pill"))).toBe(
-      true,
-    );
+    expect(
+      rail.contains(getByTestId("tool-progress-card-step-count-pill")),
+    ).toBe(true);
   });
 
   test("keeps the step-count pill inside the toggle button when no action slot is present", () => {
@@ -361,7 +362,10 @@ describe("ToolProgressCardShell — terminal-state header bypass", () => {
     originalClearTimeout = globalThis.clearTimeout;
     originalDateNow = Date.now;
     Date.now = () => now;
-    globalThis.setTimeout = ((fn: (...args: unknown[]) => void, ms?: number) => {
+    globalThis.setTimeout = ((
+      fn: (...args: unknown[]) => void,
+      ms?: number,
+    ) => {
       const handle: TimerHandle = {
         id: nextTimerId++,
         fn: () => fn(),
@@ -374,7 +378,9 @@ describe("ToolProgressCardShell — terminal-state header bypass", () => {
     }) as typeof globalThis.setTimeout;
     globalThis.clearTimeout = ((id: number) => {
       const handle = timers.find((h) => h.id === id);
-      if (handle) handle.cleared = true;
+      if (handle) {
+        handle.cleared = true;
+      }
     }) as typeof globalThis.clearTimeout;
   });
 

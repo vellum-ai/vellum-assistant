@@ -12,6 +12,7 @@
 import { z } from "zod";
 
 import { getDb } from "../../persistence/db-connection.js";
+import { CHATGPT_SUBSCRIPTION_CONNECTION_NAME } from "../../providers/inference/auth.js";
 import {
   createConnection,
   getConnection,
@@ -45,7 +46,7 @@ const OPENAI_OAUTH_CONFIG: OAuth2Config = {
 };
 
 const REDIRECT_URI = "http://localhost:1455/auth/callback";
-const CONNECTION_NAME = "chatgpt-subscription";
+const CONNECTION_NAME = CHATGPT_SUBSCRIPTION_CONNECTION_NAME;
 
 // ---------------------------------------------------------------------------
 // Module-level PKCE state storage
@@ -158,8 +159,13 @@ async function handleExchange(args: RouteHandlerArgs) {
 
   const existing = getConnection(db, CONNECTION_NAME);
   if (existing) {
+    // Stamp the provider with the auth: this row is the subscription
+    // connection by name, and dispatch derives auth from the provider for
+    // managed rows, so a claiming row with e.g. provider "vellum" would
+    // otherwise strand the fresh token behind derived platform auth.
     const updateResult = updateConnection(db, CONNECTION_NAME, {
       auth: authInput,
+      provider: "openai",
     });
     if (!updateResult.ok) {
       log.error(

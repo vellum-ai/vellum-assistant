@@ -2,9 +2,8 @@
  * Standalone helpers for serializing conversation summaries and detail
  * responses.
  *
- * Extracted from RuntimeHttpServer so that route handlers (e.g.
- * conversation-analysis-routes) can build detail responses without
- * depending on the server class.
+ * Extracted from RuntimeHttpServer so that route handlers can build
+ * detail responses without depending on the server class.
  */
 
 import { parseChannelId } from "../../channels/types.js";
@@ -14,6 +13,7 @@ import {
   type AttentionState,
   type Confidence,
   getAttentionStateByConversationIds,
+  hasUnseenLatestAssistantMessage,
   type SignalType,
 } from "../../persistence/conversation-attention-store.js";
 import {
@@ -38,14 +38,13 @@ function buildAssistantAttention(attentionState: AttentionState | undefined):
       lastSeenSignalType?: SignalType;
     }
   | undefined {
-  if (!attentionState) return undefined;
+  if (!attentionState) {
+    return undefined;
+  }
 
   return {
     hasUnseenLatestAssistantMessage:
-      attentionState.latestAssistantMessageAt != null &&
-      (attentionState.lastSeenAssistantMessageAt == null ||
-        attentionState.lastSeenAssistantMessageAt <
-          attentionState.latestAssistantMessageAt),
+      hasUnseenLatestAssistantMessage(attentionState),
     ...(attentionState.latestAssistantMessageAt != null
       ? {
           latestAssistantMessageAt: attentionState.latestAssistantMessageAt,
@@ -71,7 +70,9 @@ function buildForkParent(
 ): { conversationId: string; messageId: string; title: string } | undefined {
   const parentConversationId = conversation.forkParentConversationId;
   const parentMessageId = conversation.forkParentMessageId;
-  if (!parentConversationId || !parentMessageId) return undefined;
+  if (!parentConversationId || !parentMessageId) {
+    return undefined;
+  }
 
   let parentConversation: ConversationRow | null | undefined =
     parentCache.get(parentConversationId);
@@ -110,7 +111,9 @@ function resolveSerializedGroupId(
   conversation: ConversationRow,
   persistedGroupId: string | null,
 ): string | null {
-  if (conversation.surfacedAt == null) return persistedGroupId;
+  if (conversation.surfacedAt == null) {
+    return persistedGroupId;
+  }
   if (
     persistedGroupId == null ||
     persistedGroupId === "system:background" ||

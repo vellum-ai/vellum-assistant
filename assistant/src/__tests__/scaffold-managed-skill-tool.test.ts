@@ -13,15 +13,73 @@ import type { SkillSource } from "../config/skills.js";
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 const mockRefreshSkillCapabilityMemories = mock(() => {});
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
+const watchdogEvents: Array<{
+  checkName: string;
+  value?: number | null;
+  detail?: Record<string, unknown> | null;
+}> = [];
+mock.module("../telemetry/watchdog-events-store.js", () => ({
+  recordWatchdogEvent: (record: {
+    checkName: string;
+    value?: number | null;
+    detail?: Record<string, unknown> | null;
+  }) => {
+    watchdogEvents.push(record);
+  },
 }));
 
 mock.module("../daemon/skill-memory-refresh.js", () => ({
   refreshSkillCapabilityMemories: mockRefreshSkillCapabilityMemories,
+}));
+
+// Background skill updates route through the notification pipeline; record
+// the signals rather than standing up delivery.
+let emittedSignals: Array<{
+  sourceEventName: string;
+  sourceContextId: string;
+  dedupeKey?: string;
+  contextPayload?: Record<string, unknown>;
+}> = [];
+mock.module("../notifications/emit-signal.js", () => ({
+  emitNotificationSignal: async (params: {
+    sourceEventName: string;
+    sourceContextId: string;
+    dedupeKey?: string;
+    contextPayload?: Record<string, unknown>;
+  }) => {
+    emittedSignals.push(params);
+    return { signalId: "test-signal" };
+  },
+}));
+
+// Skill-card enqueue recorder. Snapshot + override (rather than a full module
+// replacement) because other modules in this import graph (e.g. the managed
+// store's capability seeding) import sibling jobs-store exports that must
+// keep working.
+import * as realJobsStore from "../persistence/jobs-store.js";
+
+let skillCardJobUpserts: Array<{
+  payload: {
+    sourceConversationId: string;
+    runConversationId: string;
+  } & Record<string, unknown>;
+  runAfter: number | undefined;
+}> = [];
+let skillCardUpsertThrows = false;
+mock.module("../persistence/jobs-store.js", () => ({
+  ...realJobsStore,
+  upsertSkillCardInsertJob: (
+    payload: {
+      sourceConversationId: string;
+      runConversationId: string;
+    } & Record<string, unknown>,
+    runAfter?: number,
+  ) => {
+    if (skillCardUpsertThrows) {
+      throw new Error("jobs db unavailable");
+    }
+    skillCardJobUpserts.push({ payload, runAfter });
+  },
 }));
 
 /**
@@ -50,8 +108,10 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
 }
 
 /** A retrospective-pass tool context (assistant-authored scaffolds). */
-function makeRetrospectiveContext(): ToolContext {
-  return makeContext({ requestOrigin: "memory_retrospective" });
+function makeRetrospectiveContext(
+  overrides: Partial<ToolContext> = {},
+): ToolContext {
+  return makeContext({ requestOrigin: "memory_retrospective", ...overrides });
 }
 
 function installMetaFor(skillId: string) {
@@ -61,6 +121,10 @@ function installMetaFor(skillId: string) {
 beforeEach(() => {
   mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   mockRefreshSkillCapabilityMemories.mockClear();
+  skillCardJobUpserts = [];
+  skillCardUpsertThrows = false;
+  watchdogEvents.length = 0;
+  emittedSignals = [];
 });
 
 afterEach(() => {
@@ -119,6 +183,16 @@ describe("scaffold_managed_skill tool", () => {
     expect(skill).toBeDefined();
     expect(skill!.name).toBe("Test Skill");
     expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
+
+    // A genuine create emits the central authoring counter, attributed to
+    // the user for a non-retrospective origin.
+    expect(watchdogEvents).toEqual([
+      {
+        checkName: "skill_authored",
+        value: 1,
+        detail: { authored_by: "user" },
+      },
+    ]);
   });
 
   test("accepts legacy add_to_index input without returning index metadata", async () => {
@@ -175,6 +249,12 @@ describe("scaffold_managed_skill tool", () => {
       makeContext(),
     );
     expect(result3.isError).toBe(false);
+
+    // Only the original create counts — the overwrite refined an existing
+    // skill and must not emit a second authoring event.
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "skill_authored"),
+    ).toHaveLength(1);
   });
 
   test("rejects missing required fields", async () => {
@@ -564,6 +644,74 @@ describe("scaffold_managed_skill tool", () => {
     expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
   });
 
+  test("copies a companion file from an on-disk source via copy_from", async () => {
+    const sourcePath = join(TEST_DIR, "proven-script.py");
+    writeFileSync(sourcePath, "print('ok')\n", "utf-8");
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "copy-from-skill",
+        name: "Copy From Skill",
+        description: "Bundles a proven script",
+        body_markdown: "Run scripts/proven-script.py.",
+        files: [{ path: "scripts/proven-script.py", copy_from: sourcePath }],
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(
+      readFileSync(
+        join(
+          TEST_DIR,
+          "skills",
+          "copy-from-skill",
+          "scripts",
+          "proven-script.py",
+        ),
+        "utf-8",
+      ),
+    ).toBe("print('ok')\n");
+  });
+
+  test("rejects a files entry setting both content and copy_from", async () => {
+    const sourcePath = join(TEST_DIR, "dupe.py");
+    writeFileSync(sourcePath, "x", "utf-8");
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "copy-from-both",
+        name: "Both",
+        description: "Both content and copy_from",
+        body_markdown: "Body.",
+        files: [
+          { path: "scripts/dupe.py", content: "x", copy_from: sourcePath },
+        ],
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("exactly one of content or copy_from");
+    expect(existsSync(join(TEST_DIR, "skills", "copy-from-both"))).toBe(false);
+  });
+
+  test("rejects a non-string copy_from", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "copy-from-type",
+        name: "Bad Type",
+        description: "copy_from wrong type",
+        body_markdown: "Body.",
+        files: [{ path: "scripts/x.py", copy_from: 42 }],
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("copy_from must be a string path");
+  });
+
   test("rejects companion file path traversal with no partial writes", async () => {
     const result = await executeScaffoldManagedSkill(
       {
@@ -664,6 +812,15 @@ describe("scaffold_managed_skill tool", () => {
 
     expect(result.isError).toBe(false);
     expect(installMetaFor("retro-skill")?.author).toBe("assistant");
+    // The central authoring counter attributes the create to the
+    // retrospective.
+    expect(watchdogEvents).toEqual([
+      {
+        checkName: "skill_authored",
+        value: 1,
+        detail: { authored_by: "retrospective" },
+      },
+    ]);
   });
 
   test('tags author "user" for a normal (non-retrospective) scaffold', async () => {
@@ -824,6 +981,139 @@ describe("scaffold_managed_skill tool", () => {
         ),
       ),
     ).toBe(true);
+
+    // Only the V1 create counts toward authoring — the V2 refinement of an
+    // existing skill emits no second event.
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "skill_authored"),
+    ).toHaveLength(1);
+  });
+
+  // ── Conversation lineage (retrospective-authored skills) ───────────────────
+
+  test("retrospective scaffold records source + retrospective conversation lineage", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "lineage-skill",
+        name: "Lineage Skill",
+        description: "Distilled from an observed procedure",
+        body_markdown: "Do the procedure.",
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      {
+        getConversation: (id) =>
+          id === "retro-run-conv"
+            ? { forkParentConversationId: "source-conv" }
+            : null,
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    const meta = installMetaFor("lineage-skill");
+    expect(meta?.author).toBe("assistant");
+    expect(meta?.sourceConversationId).toBe("source-conv");
+    expect(meta?.retrospectiveConversationId).toBe("retro-run-conv");
+  });
+
+  test("user scaffold records no conversation lineage and never looks up the conversation", async () => {
+    const lookup = mock(() => ({ forkParentConversationId: "source-conv" }));
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "user-no-lineage",
+        name: "User No Lineage",
+        description: "Authored interactively",
+        body_markdown: "Do the thing.",
+      },
+      makeContext(),
+      { getConversation: lookup },
+    );
+
+    expect(result.isError).toBe(false);
+    const meta = installMetaFor("user-no-lineage");
+    expect(meta?.author).toBe("user");
+    expect("sourceConversationId" in meta!).toBe(false);
+    expect("retrospectiveConversationId" in meta!).toBe(false);
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  test("retrospective scaffold with no resolvable parent still succeeds and omits the source lineage", async () => {
+    // Two unresolvable shapes: the conversation row is gone entirely, or it
+    // exists but is not a fork (null parent).
+    const cases = [
+      { skillId: "orphan-no-row", lookup: () => null },
+      {
+        skillId: "orphan-no-parent",
+        lookup: () => ({ forkParentConversationId: null }),
+      },
+    ];
+
+    for (const { skillId, lookup } of cases) {
+      const result = await executeScaffoldManagedSkill(
+        {
+          skill_id: skillId,
+          name: "Orphan Lineage",
+          description: "Parent not resolvable",
+          body_markdown: "Do the procedure.",
+        },
+        makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+        { getConversation: lookup },
+      );
+
+      expect(result.isError).toBe(false);
+      const meta = installMetaFor(skillId);
+      expect(meta?.author).toBe("assistant");
+      expect("sourceConversationId" in meta!).toBe(false);
+      // The authoring conversation is still known — the breadcrumb persists.
+      expect(meta?.retrospectiveConversationId).toBe("retro-run-conv");
+    }
+  });
+
+  test("a throwing conversation lookup never fails the retrospective scaffold", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "lookup-throws",
+        name: "Lookup Throws",
+        description: "DB unavailable during lineage resolution",
+        body_markdown: "Do the procedure.",
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      {
+        getConversation: () => {
+          throw new Error("db unavailable");
+        },
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    const meta = installMetaFor("lookup-throws");
+    expect(meta?.author).toBe("assistant");
+    expect("sourceConversationId" in meta!).toBe(false);
+    expect(meta?.retrospectiveConversationId).toBe("retro-run-conv");
+  });
+
+  test("retrospective scaffold with no conversationId on the context omits all lineage", async () => {
+    const lookup = mock(() => ({ forkParentConversationId: "source-conv" }));
+    const context = makeRetrospectiveContext();
+    // Some runtime callers construct a partial context without a conversation.
+    delete (context as { conversationId?: string }).conversationId;
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "no-conversation",
+        name: "No Conversation",
+        description: "Context carries no conversation id",
+        body_markdown: "Do the procedure.",
+      },
+      context,
+      { getConversation: lookup },
+    );
+
+    expect(result.isError).toBe(false);
+    const meta = installMetaFor("no-conversation");
+    expect(meta?.author).toBe("assistant");
+    expect("sourceConversationId" in meta!).toBe(false);
+    expect("retrospectiveConversationId" in meta!).toBe(false);
+    expect(lookup).not.toHaveBeenCalled();
   });
 
   // ── Ownership backstop: never shadow/overwrite a non-managed skill ─────────
@@ -970,5 +1260,379 @@ describe("scaffold_managed_skill tool", () => {
     expect(existsSync(join(TEST_DIR, "skills", "fresh-proc", "SKILL.md"))).toBe(
       true,
     );
+  });
+
+  // ── Skill-card enqueue at the creation site ─────────────────────────────
+
+  /** Lineage seam resolving the fork parent of the retrospective run. */
+  function lineageSeam() {
+    return {
+      getConversation: (id: string) =>
+        id === "retro-run-conv"
+          ? { forkParentConversationId: "source-conv" }
+          : null,
+    };
+  }
+
+  test("retrospective CREATE enqueues one skill_card_insert job with the normalized payload and resolved source id", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: " card-skill ",
+        name: "  Card\nSkill  ",
+        description: " Does\r\ncard things ",
+        body_markdown: "Do the procedure.",
+        emoji: " 🧭 ",
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineageSeam(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(skillCardJobUpserts).toHaveLength(1);
+    // The payload carries the executor's post-normalization values — the
+    // same trimmed/newline-collapsed strings persisted to the frontmatter —
+    // so the card links and labels the skill exactly as it exists on disk.
+    expect(skillCardJobUpserts[0]!.payload).toEqual({
+      sourceConversationId: "source-conv",
+      runConversationId: "retro-run-conv",
+      skills: [
+        {
+          skillId: "card-skill",
+          name: "Card Skill",
+          description: "Does card things",
+          emoji: "🧭",
+        },
+      ],
+    });
+  });
+
+  test("a whitespace-only emoji is omitted from the card payload", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "no-emoji-card",
+        name: "No Emoji",
+        description: "Card without an emoji",
+        body_markdown: "Do the procedure.",
+        emoji: " \n ",
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineageSeam(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(skillCardJobUpserts).toHaveLength(1);
+    const skill = (
+      skillCardJobUpserts[0]!.payload.skills as Record<string, unknown>[]
+    )[0]!;
+    expect(skill.skillId).toBe("no-emoji-card");
+    expect("emoji" in skill).toBe(false);
+  });
+
+  test("retrospective CREATE with an unresolvable fork parent skips the enqueue but the scaffold still succeeds", async () => {
+    // Three unresolvable shapes: the run row is gone, the run is not a fork,
+    // and the lineage lookup throws.
+    const cases: Array<{
+      skillId: string;
+      lookup: () => { forkParentConversationId: string | null } | null;
+    }> = [
+      { skillId: "no-card-no-row", lookup: () => null },
+      {
+        skillId: "no-card-no-parent",
+        lookup: () => ({ forkParentConversationId: null }),
+      },
+      {
+        skillId: "no-card-throwing-lookup",
+        lookup: () => {
+          throw new Error("db unavailable");
+        },
+      },
+    ];
+
+    for (const { skillId, lookup } of cases) {
+      const result = await executeScaffoldManagedSkill(
+        {
+          skill_id: skillId,
+          name: "No Card",
+          description: "Fork parent not resolvable",
+          body_markdown: "Do the procedure.",
+        },
+        makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+        { getConversation: lookup },
+      );
+
+      expect(result.isError).toBe(false);
+      expect(existsSync(join(TEST_DIR, "skills", skillId, "SKILL.md"))).toBe(
+        true,
+      );
+    }
+    expect(skillCardJobUpserts).toHaveLength(0);
+  });
+
+  test("retrospective overwrite of an EXISTING skill (a refinement) does not enqueue a card", async () => {
+    // First pass: genuine create — enqueues.
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "refined-skill",
+        name: "Refined Skill",
+        description: "First pass",
+        body_markdown: "V1 procedure.",
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineageSeam(),
+    );
+    expect(skillCardJobUpserts).toHaveLength(1);
+    skillCardJobUpserts = [];
+
+    // Second pass: overwrite of the pre-existing skill — a refinement, no card.
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "refined-skill",
+        name: "Refined Skill",
+        description: "Refined",
+        body_markdown: "V2 procedure.",
+        overwrite: true,
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineageSeam(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(skillCardJobUpserts).toHaveLength(0);
+  });
+
+  test("retrospective overwrite:true on a skill that did NOT previously exist is still a create and enqueues", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "overwrite-fresh",
+        name: "Overwrite Fresh",
+        description: "Overwrite flag on a fresh id",
+        body_markdown: "Do the procedure.",
+        overwrite: true,
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineageSeam(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(skillCardJobUpserts).toHaveLength(1);
+    expect(skillCardJobUpserts[0]!.payload.skills).toEqual([
+      {
+        skillId: "overwrite-fresh",
+        name: "Overwrite Fresh",
+        description: "Overwrite flag on a fresh id",
+      },
+    ]);
+  });
+
+  test("user-origin create never enqueues a card, even with resolvable lineage", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "user-no-card",
+        name: "User No Card",
+        description: "Authored interactively",
+        body_markdown: "Do the thing.",
+      },
+      makeContext({ conversationId: "retro-run-conv" }),
+      lineageSeam(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(skillCardJobUpserts).toHaveLength(0);
+  });
+
+  test("a throwing enqueue never fails the scaffold — the skill is already created", async () => {
+    skillCardUpsertThrows = true;
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "enqueue-throws",
+        name: "Enqueue Throws",
+        description: "Jobs DB unavailable at enqueue time",
+        body_markdown: "Do the procedure.",
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineageSeam(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(
+      existsSync(join(TEST_DIR, "skills", "enqueue-throws", "SKILL.md")),
+    ).toBe(true);
+    expect(installMetaFor("enqueue-throws")?.author).toBe("assistant");
+  });
+
+  test("two creates in the same run enqueue one upsert per skill under the same run id (merge happens in the jobs store)", async () => {
+    for (const skillId of ["run-skill-a", "run-skill-b"]) {
+      const result = await executeScaffoldManagedSkill(
+        {
+          skill_id: skillId,
+          name: `Skill ${skillId}`,
+          description: `Does ${skillId}`,
+          body_markdown: "Do the procedure.",
+        },
+        makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+        lineageSeam(),
+      );
+      expect(result.isError).toBe(false);
+    }
+
+    // One upsert per created skill, all keyed to the same run + source — the
+    // jobs-store upsert coalesces them into a single pending payload (covered
+    // by jobs-store-skill-card-upsert.test.ts).
+    expect(skillCardJobUpserts).toHaveLength(2);
+    for (const upsert of skillCardJobUpserts) {
+      expect(upsert.payload.sourceConversationId).toBe("source-conv");
+      expect(upsert.payload.runConversationId).toBe("retro-run-conv");
+    }
+    expect(
+      skillCardJobUpserts.flatMap((u) =>
+        (u.payload.skills as Array<{ skillId: string }>).map((s) => s.skillId),
+      ),
+    ).toEqual(["run-skill-a", "run-skill-b"]);
+  });
+});
+
+// ── Background skill updates are announced ─────────────────────────────────
+//
+// A background pass runs inside a hidden retrospective fork, so its tool call
+// renders in a conversation the user never opens. Creates reach the source
+// conversation as a `skill_card`; updates reach the background activity feed.
+
+describe("background skill update notification", () => {
+  /** Seed an assistant-authored skill the background pass may overwrite. */
+  async function seedAssistantSkill(id: string, body: string): Promise<void> {
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: id,
+        name: "Weekly Report Export",
+        description: `seeded ${id}`,
+        body_markdown: body,
+      },
+      makeContext(),
+    );
+    writeInstallMeta(join(TEST_DIR, "skills", id), {
+      origin: "custom",
+      installedAt: new Date().toISOString(),
+      author: "assistant",
+    });
+    watchdogEvents.length = 0;
+    skillCardJobUpserts = [];
+    emittedSignals = [];
+  }
+
+  const lineage = () => ({
+    getConversation: (id: string) =>
+      id === "retro-run-conv"
+        ? { forkParentConversationId: "source-conv" }
+        : null,
+  });
+
+  test("a background overwrite of an existing skill notifies, keyed to the source conversation", async () => {
+    await seedAssistantSkill("weekly-export", "Old body.");
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "weekly-export",
+        name: "Weekly Report Export",
+        description: "export the weekly usage report",
+        body_markdown: "1. Refined steps.",
+        overwrite: true,
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineage(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(emittedSignals).toHaveLength(1);
+    const signal = emittedSignals[0]!;
+    expect(signal.sourceEventName).toBe("activity.complete");
+    // The feed item's "Go to Convo" target resolves through this id, so it
+    // must be the conversation the work came from, not the hidden fork.
+    expect(signal.sourceContextId).toBe("source-conv");
+    expect(signal.contextPayload?.skillId).toBe("weekly-export");
+    expect(String(signal.contextPayload?.summary)).toContain(
+      "Weekly Report Export",
+    );
+    // The home feed falls back to `title`/`body` when no channel copy was
+    // rendered, which is the intended quiet shape for this signal. Without
+    // them a suppressed delivery would leave the feed item unwritten.
+    // Named so the row is scannable in a feed several entries deep.
+    expect(signal.contextPayload?.title).toBe(
+      "Skill updated: Weekly Report Export",
+    );
+    expect(String(signal.contextPayload?.body)).toContain(
+      "Weekly Report Export",
+    );
+    // Deduped per skill per day so repeated refinements cannot flood the feed.
+    expect(signal.dedupeKey).toBe(
+      `skill-updated:weekly-export:${new Date().toISOString().slice(0, 10)}`,
+    );
+  });
+
+  test("it falls back to the run conversation when fork lineage does not resolve", async () => {
+    await seedAssistantSkill("weekly-export", "Old body.");
+
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "weekly-export",
+        name: "Weekly Report Export",
+        description: "export the weekly usage report",
+        body_markdown: "1. Refined steps.",
+        overwrite: true,
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      { getConversation: () => null },
+    );
+
+    // Still a real conversation id, so the deep link resolves rather than
+    // falling through to an unrelated target.
+    expect(emittedSignals).toHaveLength(1);
+    expect(emittedSignals[0]!.sourceContextId).toBe("retro-run-conv");
+  });
+
+  test("a background CREATE gets the skill card instead, with no duplicate signal", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "brand-new-skill",
+        name: "Brand New Skill",
+        description: "something never seen before",
+        body_markdown: "1. Do it.",
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineage(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(skillCardJobUpserts).toHaveLength(1);
+    expect(emittedSignals).toHaveLength(0);
+  });
+
+  test("a user-directed overwrite does not notify: it is not unattended work", async () => {
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "user-skill",
+        name: "User Skill",
+        description: "asked for",
+        body_markdown: "V1.",
+      },
+      makeContext(),
+    );
+    emittedSignals = [];
+
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "user-skill",
+        name: "User Skill",
+        description: "asked for",
+        body_markdown: "V2.",
+        overwrite: true,
+      },
+      makeContext(),
+    );
+
+    expect(
+      readFileSync(join(TEST_DIR, "skills", "user-skill", "SKILL.md"), "utf-8"),
+    ).toContain("V2.");
+    expect(emittedSignals).toHaveLength(0);
   });
 });

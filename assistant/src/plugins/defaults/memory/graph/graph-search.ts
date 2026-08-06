@@ -1,139 +1,31 @@
 // ---------------------------------------------------------------------------
-// Memory Graph — Qdrant vector search for graph nodes
+// Memory Graph — node/trigger embedding plumbing (all tiers)
+//
+// Capability seeding writes graph nodes on every tier, so the
+// `embed_graph_node` and `graph_trigger_embed` jobs handled here run under
+// the substrate too. The v1 hybrid node SEARCH path lives in
+// `../v1/graph/graph-search.ts`.
 // ---------------------------------------------------------------------------
 
-import { getConfig } from "../../../../config/loader.js";
+import {
+  embedAndUpsert,
+  selectedBackendSupportsMultimodal,
+} from "@vellumai/plugin-api";
+
 import type { AssistantConfig } from "../../../../config/types.js";
 import type { EmbeddingInput } from "../../../../persistence/embeddings/embedding-types.js";
-import { isQdrantBreakerOpen } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
-import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
-import {
-  getQdrantClient,
-  type QdrantSearchResult,
-  type QdrantSparseVector,
-} from "../../../../persistence/embeddings/qdrant-client.js";
 import { asString } from "../../../../persistence/job-utils.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
   type MemoryJob,
 } from "../../../../persistence/jobs-store.js";
-import { getLogger } from "../../../../util/logger.js";
-import {
-  embedAndUpsert,
-  selectedBackendSupportsMultimodal,
-} from "../embeddings.js";
+import { getLogger } from "../logging.js";
 import { loadImageRefData } from "./image-ref-utils.js";
 import { getNode } from "./store.js";
 import type { MemoryNode } from "./types.js";
 
 const log = getLogger("graph-search");
-
-// ---------------------------------------------------------------------------
-// Search
-// ---------------------------------------------------------------------------
-
-export interface GraphSearchResult {
-  nodeId: string;
-  score: number;
-  text: string;
-}
-
-/**
- * Semantic search across graph nodes in Qdrant. Returns scored node IDs
- * that the caller can hydrate from the graph store.
- *
- * Filters to `target_type: "graph_node"`.
- */
-export async function searchGraphNodes(
-  queryVector: number[],
-  limit: number,
-  sparseVector?: QdrantSparseVector,
-  dateRange?: { afterMs?: number; beforeMs?: number },
-): Promise<GraphSearchResult[]> {
-  // v2 owns the read path when enabled. The v1 `memory` collection is in
-  // active retirement and a corrupted sparse segment can OOM-crash the
-  // shared Qdrant process — short-circuiting here keeps v1 background work
-  // and stale callers from taking v2 down with them.
-  if (getConfig().memory.v2.enabled) return [];
-
-  if (isQdrantBreakerOpen()) {
-    log.warn("Qdrant circuit breaker open, skipping graph search");
-    return [];
-  }
-
-  const client = getQdrantClient();
-
-  const mustNot: Record<string, unknown>[] = [
-    { key: "_meta", match: { value: true } },
-  ];
-
-  // Use hybrid search (dense + sparse with RRF fusion) when a non-empty
-  // sparse vector is available; otherwise fall back to dense-only search.
-  if (sparseVector && sparseVector.indices.length > 0) {
-    const must: Record<string, unknown>[] = [
-      { key: "target_type", match: { value: "graph_node" } },
-    ];
-    if (dateRange?.afterMs != null) {
-      must.push({ key: "created_at", range: { gte: dateRange.afterMs } });
-    }
-    if (dateRange?.beforeMs != null) {
-      must.push({ key: "created_at", range: { lte: dateRange.beforeMs } });
-    }
-    const filter = { must, must_not: mustNot };
-
-    // RRF fuses per-modality top-N. A small prefetch (e.g. limit*3) silently
-    // truncates good matches when the query is wordy or low-similarity, so
-    // give RRF a meaningful candidate window with a generous floor.
-    const prefetchLimit = Math.max(limit * 10, 200);
-
-    const results: QdrantSearchResult[] = await withQdrantBreaker(() =>
-      client.hybridSearch({
-        denseVector: queryVector,
-        sparseVector,
-        filter,
-        limit,
-        prefetchLimit,
-      }),
-    );
-
-    return results.map((r) => ({
-      nodeId: r.payload.target_id,
-      score: r.score,
-      text: r.payload.text,
-    }));
-  }
-
-  // Dense-only fallback
-  const denseMusts: Record<string, unknown>[] = [
-    {
-      key: "target_type",
-      match: { value: "graph_node" },
-    },
-  ];
-
-  if (dateRange?.afterMs != null) {
-    denseMusts.push({ key: "created_at", range: { gte: dateRange.afterMs } });
-  }
-  if (dateRange?.beforeMs != null) {
-    denseMusts.push({ key: "created_at", range: { lte: dateRange.beforeMs } });
-  }
-
-  const filter: Record<string, unknown> = {
-    must: denseMusts,
-    must_not: mustNot,
-  };
-
-  const results: QdrantSearchResult[] = await withQdrantBreaker(async () => {
-    return client.search(queryVector, limit, filter);
-  });
-
-  return results.map((r) => ({
-    nodeId: r.payload.target_id,
-    score: r.score,
-    text: r.payload.text,
-  }));
-}
 
 // ---------------------------------------------------------------------------
 // Embedding job
@@ -168,12 +60,13 @@ function formatNodeForEmbedding(node: MemoryNode): string {
  * to text embedding with image description suffixes otherwise.
  */
 export async function embedGraphNodeDirect(node: MemoryNode): Promise<void> {
-  if (node.fidelity === "gone") return;
+  if (node.fidelity === "gone") {
+    return;
+  }
 
   const text = formatNodeForEmbedding(node);
   const extraPayload: Record<string, unknown> = {
     created_at: node.created,
-    memory_scope_id: node.scopeId,
     confidence: node.confidence,
     importance: node.significance,
     kind: node.type,
@@ -220,10 +113,14 @@ export async function embedGraphNodeDirect(node: MemoryNode): Promise<void> {
  */
 export async function embedGraphNodeJob(job: MemoryJob): Promise<void> {
   const nodeId = asString(job.payload.nodeId);
-  if (!nodeId) return;
+  if (!nodeId) {
+    return;
+  }
 
   const node = getNode(nodeId);
-  if (!node) return;
+  if (!node) {
+    return;
+  }
 
   await embedGraphNodeDirect(node);
 }
@@ -232,7 +129,9 @@ export async function embedGraphNodeJob(job: MemoryJob): Promise<void> {
  * Enqueue an embedding job for a graph node (async, for live conversations).
  */
 export function enqueueGraphNodeEmbed(nodeId: string): void {
-  if (!isMemoryEnabled()) return;
+  if (!isMemoryEnabled()) {
+    return;
+  }
   enqueueMemoryJob("embed_graph_node", { nodeId });
 }
 
@@ -245,27 +144,36 @@ export async function embedGraphTriggerJob(
   config: AssistantConfig,
 ): Promise<void> {
   const triggerId = asString(job.payload.triggerId);
-  if (!triggerId) return;
+  if (!triggerId) {
+    return;
+  }
 
   // Import here to avoid circular dependency
-  const { getDb } = await import("../../../../persistence/db-connection.js");
+  const { memoryDbOrNull } = await import("../memory-db.js");
   const { eq } = await import("drizzle-orm");
   const { memoryGraphTriggers } =
     await import("../../../../persistence/schema/index.js");
   const { embedWithBackend } = await import("../embeddings.js");
 
-  const db = getDb();
+  const db = memoryDbOrNull("embedGraphTriggerJob");
+  if (!db) {
+    return;
+  }
   const row = db
     .select()
     .from(memoryGraphTriggers)
     .where(eq(memoryGraphTriggers.id, triggerId))
     .get();
 
-  if (!row || !row.condition) return;
+  if (!row || !row.condition) {
+    return;
+  }
 
   const result = await embedWithBackend(config, [row.condition]);
   const vector = result.vectors[0];
-  if (!vector) return;
+  if (!vector) {
+    return;
+  }
 
   const buffer = Buffer.from(new Float32Array(vector).buffer);
   db.update(memoryGraphTriggers)
@@ -278,6 +186,8 @@ export async function embedGraphTriggerJob(
  * Enqueue a trigger embedding job.
  */
 export function enqueueGraphTriggerEmbed(triggerId: string): void {
-  if (!isMemoryEnabled()) return;
+  if (!isMemoryEnabled()) {
+    return;
+  }
   enqueueMemoryJob("graph_trigger_embed", { triggerId });
 }

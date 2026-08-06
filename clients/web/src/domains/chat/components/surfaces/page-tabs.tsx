@@ -1,6 +1,6 @@
 import { Stepper } from "@vellumai/design-library";
 
-import type { FormPage } from "@/domains/chat/components/surfaces/form-surface";
+import type { FormPage } from "@vellumai/assistant-api";
 
 interface PageTabsProps {
   current: number;

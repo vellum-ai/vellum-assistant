@@ -79,7 +79,9 @@ export function listDrafts(platform: string): Draft[] {
 
 export function deleteDraft(platform: string, id: string): boolean {
   const path = getDraftPath(platform, id);
-  if (!pathExists(path)) return false;
+  if (!pathExists(path)) {
+    return false;
+  }
   unlinkSync(path);
   return true;
 }

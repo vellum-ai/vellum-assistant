@@ -3,25 +3,27 @@
  * queue operations (cancel, delete, edit).
  *
  * Orchestrates: optimistic message insertion, draft key resolution,
- * stream creation via `postChatMessage`/`pollForResponse`, and
- * processing-key tracking.
+ * stream creation via `postChatMessage`, and processing-key tracking.
+ * Reply delivery and turn settlement are owned by the SSE stream plus the
+ * reconciliation loop — there is no client-side polling fallback.
  *
  * Composes `useMessageQueue` for queue management and imports pure
  * transforms from `send-message-utils`.
  */
 
 import { captureError } from "@/lib/sentry/capture-error";
-import {
-  type MutableRefObject,
-  useCallback,
-  useRef,
-} from "react";
+import { type MutableRefObject, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { toast } from "@vellumai/design-library/components/toast";
 import { routes } from "@/utils/routes";
 import { conversationsByIdSlashPost } from "@/generated/daemon/sdk.gen";
-import { isLocalMetaCommand } from "@/domains/chat/components/chat-composer/slash-command-catalog";
+import {
+  isLocalMetaCommand,
+  parseDoctorCommand,
+} from "@/domains/chat/components/chat-composer/slash-command-catalog";
+import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { saveContextWindowUsage } from "@/domains/chat/utils/context-window-storage";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 
@@ -29,12 +31,13 @@ import type {
   DisplayAttachment,
   DisplayMessage,
 } from "@/domains/chat/types/types";
-import { conversationHistoryQueryKey } from "@/domains/chat/transcript/use-history-pagination";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
-import { recordLocalSeq } from "@/lib/streaming/local-seq";
 import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
 import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
-import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure";
+import {
+  type DiskPressureChatBlockReason,
+  getDiskPressureChatBlockMessage,
+} from "@/assistant/disk-pressure";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -51,7 +54,10 @@ import {
   shouldSurfaceConversationOnUserSend,
   surfaceConversationInCaches,
 } from "@/utils/conversation-cache-mutations";
-import { findConversation, patchConversation } from "@/utils/conversation-cache";
+import {
+  findConversation,
+  patchConversation,
+} from "@/utils/conversation-cache";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import {
@@ -60,16 +66,12 @@ import {
 } from "@/domains/onboarding/prechat";
 
 import { clearQueueStatus } from "@/domains/chat/utils/stream-updaters/shared";
-import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
-import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat";
 import type { ChatError } from "@/domains/chat/types";
 
 import {
   clearPendingConfirmationsFromMessages,
   dismissInteractiveSurfaces,
   newTurnId,
-  parsePendingConfirmationData,
-  parsePendingSecretState,
   resolvePostError,
   shouldCleanupSupersededInteractions,
 } from "@/domains/chat/utils/send-message-utils";
@@ -77,15 +79,10 @@ import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
+import { confirmQueuedMessageDeletion } from "@/domains/chat/queue-cancellation";
 import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
-import { getPendingInteractions } from "@/domains/chat/api/interactions";
-import {
-  fetchConversationMessages,
-  postChatMessage,
-  pollForResponse,
-  RECONCILE_LATEST_PAGE_LIMIT,
-} from "@/domains/chat/api/messages";
+import { postChatMessage } from "@/domains/chat/api/messages";
 import { surfaceConversation } from "@/domains/chat/api/conversations";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
 import { resolveSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
@@ -124,6 +121,37 @@ type SendStreamResult =
   | { status: "failed"; error: ChatError };
 
 // ---------------------------------------------------------------------------
+// Send options
+// ---------------------------------------------------------------------------
+
+/** Per-send options for `sendMessage`. */
+export interface SendChatMessageOptions {
+  /**
+   * Persist the message but suppress it from the transcript (drives the
+   * turn LLM-side). Used for machine signals the user never typed.
+   */
+  hidden?: boolean;
+  /**
+   * Single-use override for the daemon's `secret_blocked` ingress guard.
+   * Set ONLY by the composer secret guard's "Send anyway" handler, after
+   * the user explicitly confirmed sending content the client-side scan
+   * blocked. Applies to this send alone and is never persisted.
+   */
+  bypassSecretCheck?: boolean;
+  /**
+   * True when this turn was auto-sent on the user's behalf rather than typed
+   * the onboarding research prompt, the kickoff greeting, the legacy
+   * pre-chat bootstrap. Forwarded to the daemon, which stamps it on the turn
+   * so activation metrics can exclude it for every user rather than only
+   * those whose diagnostics consent lets the trace classifier see it.
+   *
+   * Independent of `hidden`: the research prompt is visible AND scripted, the
+   * kickoff greeting is hidden AND scripted. Omit for ordinary composer sends.
+   */
+  scripted?: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Params
 // ---------------------------------------------------------------------------
 
@@ -142,7 +170,6 @@ interface UseSendMessageParams {
   startReconciliationLoop: (epoch: number) => void;
   cancelReconciliation: () => void;
   refreshConversations: () => Promise<void>;
-
 }
 
 // ---------------------------------------------------------------------------
@@ -162,6 +189,10 @@ export function useSendMessage({
 }: UseSendMessageParams) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  // The Doctor is platform-hosted only; when the active assistant is
+  // self-hosted the Doctor tab doesn't exist, so `/doctor` must fall through
+  // to a normal send rather than navigating to a doomed, empty tab.
+  const doctorGate = usePlatformGate({ platformHostedOnly: true });
   const addOptimisticSend = useChatSessionStore.use.addOptimisticSend();
   const setOptimisticSends = useChatSessionStore.use.setOptimisticSends();
   const setError = useChatSessionStore.use.setError();
@@ -209,25 +240,26 @@ export function useSendMessage({
    * Persist dismissed surface IDs to both the in-memory ref and local
    * storage. Extracted so optimistic-send updaters stay pure.
    */
-  const persistDismissedSurfaces = useCallback(
-    (dismissedIds: Set<string>) => {
-      useChatSessionStore.getState().addDismissedSurfaceIds(dismissedIds);
-      const streamCtx = useStreamStore.getState().streamContext;
-      if (streamCtx) {
-        saveDismissedSurfaceIds(
-          streamCtx.assistantId,
-          streamCtx.conversationId,
-          useChatSessionStore.getState().dismissedSurfaceIds,
-        );
-      }
-    },
-    [],
-  );
+  const persistDismissedSurfaces = useCallback((dismissedIds: Set<string>) => {
+    useChatSessionStore.getState().addDismissedSurfaceIds(dismissedIds);
+    const streamCtx = useStreamStore.getState().streamContext;
+    if (streamCtx) {
+      saveDismissedSurfaceIds(
+        streamCtx.assistantId,
+        streamCtx.conversationId,
+        useChatSessionStore.getState().dismissedSurfaceIds,
+      );
+    }
+  }, []);
 
   const surfaceConversationAfterUserSend = useCallback(
     async (conversationId: string) => {
-      if (!assistantId) return;
-      if (surfacingConversationIdsRef.current.has(conversationId)) return;
+      if (!assistantId) {
+        return;
+      }
+      if (surfacingConversationIdsRef.current.has(conversationId)) {
+        return;
+      }
 
       let conversation = findConversation(
         queryClient,
@@ -242,16 +274,23 @@ export function useSendMessage({
             conversationId,
           );
         } catch (err) {
-          if (err instanceof ConversationNotFoundError) return;
+          if (err instanceof ConversationNotFoundError) {
+            return;
+          }
           throw err;
         }
       }
 
-      if (!shouldSurfaceConversationOnUserSend(conversation)) return;
+      if (!shouldSurfaceConversationOnUserSend(conversation)) {
+        return;
+      }
 
       surfacingConversationIdsRef.current.add(conversationId);
       try {
-        const surfacedAt = await surfaceConversation(assistantId, conversationId);
+        const surfacedAt = await surfaceConversation(
+          assistantId,
+          conversationId,
+        );
         surfaceConversationInCaches(
           queryClient,
           assistantId,
@@ -269,7 +308,21 @@ export function useSendMessage({
   // sendMessageViaStream — low-level POST + polling fallback
   // -------------------------------------------------------------------------
   const sendMessageViaStream = useCallback(
-    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false, clientMessageId?: string, isHidden = false): Promise<SendStreamResult> => {
+    async (
+      content: string,
+      epoch: number,
+      turnId: string,
+      attachmentIds: string[] = [],
+      isDraft = false,
+      clientMessageId?: string,
+      isHidden = false,
+      bypassSecretCheck = false,
+      // Tri-state, so the default is `undefined` (unknown), NOT false. This
+      // helper has callers that genuinely cannot say, and inventing a `false`
+      // here would assert "the user typed this" on their behalf. The daemon
+      // applies its own default for an omitted field.
+      scripted?: boolean,
+    ): Promise<SendStreamResult> => {
       if (!activeConversationId || !assistantId) {
         return {
           status: "failed",
@@ -280,8 +333,10 @@ export function useSendMessage({
       const requestConversationId = activeConversationId;
       const isCurrentSendScope = (resolvedConversationId?: string | null) =>
         isAsyncChatScopeCurrent({
-          currentAssistantId: useResolvedAssistantsStore.getState().activeAssistantId,
-          currentConversationId: useConversationStore.getState().activeConversationId,
+          currentAssistantId:
+            useResolvedAssistantsStore.getState().activeAssistantId,
+          currentConversationId:
+            useConversationStore.getState().activeConversationId,
           requestAssistantId,
           requestConversationId,
           resolvedConversationId,
@@ -331,35 +386,46 @@ export function useSendMessage({
         draftPlugins && (await resolveSupportsNewChatPlugins())
           ? [...draftPlugins].sort()
           : undefined;
-      const postResult = await postChatMessage(
-        requestAssistantId,
-        useServerMint ? null : requestConversationId,
-        content,
-        {
-          attachmentIds,
-          onboarding: onboardingContext ?? undefined,
-          clientMessageId,
-          inferenceProfile: inferenceProfileForSend,
-          enabledPlugins: enabledPluginsForSend,
-          hidden: isHidden,
-        },
-      );
-      if (
-        useServerMint &&
-        pendingDraftMintRef.current === requestConversationId
-      ) {
-        // Clear only if we still own the gate. A re-mount or scope flip
-        // during the await could have already replaced it with a newer
-        // draft's mint.
-        pendingDraftMintRef.current = null;
+      let postResult: Awaited<ReturnType<typeof postChatMessage>>;
+      try {
+        postResult = await postChatMessage(
+          requestAssistantId,
+          useServerMint ? null : requestConversationId,
+          content,
+          {
+            attachmentIds,
+            onboarding: onboardingContext ?? undefined,
+            clientMessageId,
+            inferenceProfile: inferenceProfileForSend,
+            enabledPlugins: enabledPluginsForSend,
+            hidden: isHidden,
+            bypassSecretCheck,
+            scripted,
+          },
+        );
+      } finally {
+        // Release the gate however the POST settles. A throw that skipped this
+        // would leave it held for the rest of the session, rejecting every
+        // later send for this draft with the "setting up your conversation"
+        // message. Clear only if we still own it: a re-mount or scope flip
+        // during the await could have already replaced it with a newer draft's
+        // mint.
+        if (
+          useServerMint &&
+          pendingDraftMintRef.current === requestConversationId
+        ) {
+          pendingDraftMintRef.current = null;
+        }
       }
       if (!postResult.ok) {
         if (!isCurrentSendScope()) {
           recordDiagnostic("send_error_ignored_inactive_conversation", {
             assistantId: requestAssistantId,
             conversationId: requestConversationId,
-            activeAssistantId: useResolvedAssistantsStore.getState().activeAssistantId,
-            activeConversationId: useConversationStore.getState().activeConversationId,
+            activeAssistantId:
+              useResolvedAssistantsStore.getState().activeAssistantId,
+            activeConversationId:
+              useConversationStore.getState().activeConversationId,
           });
           return { status: "ignored" };
         }
@@ -419,8 +485,10 @@ export function useSendMessage({
           assistantId: postResult.assistantId,
           conversationId: requestConversationId,
           resolvedConversationId: effectiveConversationId,
-          activeAssistantId: useResolvedAssistantsStore.getState().activeAssistantId,
-          activeConversationId: useConversationStore.getState().activeConversationId,
+          activeAssistantId:
+            useResolvedAssistantsStore.getState().activeAssistantId,
+          activeConversationId:
+            useConversationStore.getState().activeConversationId,
         });
         return {
           status: "ok",
@@ -490,138 +558,9 @@ export function useSendMessage({
         };
       }
 
-      if (isHidden) {
-        // Hidden sends (e.g. the onboarding "Let's chat" kickoff) never
-        // materialize a user row in `/messages` — the daemon suppresses it
-        // (see `conversation-routes.ts`) — so `pollForResponse`'s causal
-        // boundary (find the user message, then the assistant reply after it)
-        // can never match: the poll would spin the full timeout and then
-        // fire a spurious "Assistant did not respond in time." error even
-        // though the proactive greeting streamed in fine over SSE. Skip the
-        // poll entirely and lean on the reconciliation loop, which pulls the
-        // latest snapshot without needing a user-message boundary and folds
-        // the greeting in if the SSE stream dropped it.
-        startReconciliationLoop(epoch);
-        return {
-          status: "ok",
-          userMessageId: postResult.messageId,
-          resolvedConversationId: postResult.conversationId,
-        };
-      }
-
-      pollForResponse(postResult.assistantId, postResult.messageId, effectiveConversationId)
-        .then(async (reply) => {
-          if (!isCurrentSendScope(effectiveConversationId)) {
-            recordDiagnostic("poll_response_ignored_inactive_conversation", {
-              assistantId: postResult.assistantId,
-              conversationId: requestConversationId,
-              resolvedConversationId: effectiveConversationId,
-              activeAssistantId: useResolvedAssistantsStore.getState().activeAssistantId,
-              activeConversationId: useConversationStore.getState().activeConversationId,
-            });
-            return;
-          }
-          let restoredConfData: Parameters<typeof attachConfirmationToToolCall>[1] | null = null;
-          try {
-            const interactions = await getPendingInteractions(
-              postResult.assistantId,
-              effectiveConversationId,
-            );
-            if (!isCurrentSendScope(effectiveConversationId)) return;
-            if (interactions.pendingSecret) {
-              useInteractionStore.getState().showSecret(parsePendingSecretState(interactions.pendingSecret));
-              if (!reply) return;
-            }
-            if (interactions.pendingConfirmation) {
-              const { confData, state } = parsePendingConfirmationData(interactions.pendingConfirmation);
-              restoredConfData = confData;
-              useInteractionStore.getState().showConfirmation(state);
-              if (!reply) return;
-            }
-          } catch {
-            // Best-effort
-          }
-
-          if (!reply) {
-            setError({ message: "Assistant did not respond in time." });
-            return;
-          }
-          let serverSeq: number | null = null;
-          try {
-            const snapshot = await fetchConversationMessages(
-              postResult.assistantId,
-              effectiveConversationId,
-              { latestPageLimit: RECONCILE_LATEST_PAGE_LIMIT },
-            );
-            serverSeq = snapshot?.seq ?? null;
-          } catch {
-            // Reconciliation is best-effort
-          }
-          if (!isCurrentSendScope(effectiveConversationId)) return;
-          // Advance the local seq frontier — we've observed this snapshot.
-          recordLocalSeq(effectiveConversationId, serverSeq);
-          // No active SSE stream delivered this turn (poll fallback): fold the
-          // polled reply onto the materialized snapshot immediately, then pull
-          // the authoritative server view into the history cache, which reseeds
-          // the snapshot. Upsert by id so a reply a late event already folded
-          // isn't duplicated.
-          useChatSessionStore.getState().patchSnapshotMessages((prev) => {
-            const mapped = mapRuntimeToDisplayMessage(reply);
-            const existingIdx = prev.findIndex((m) => m.id === reply.id);
-            if (existingIdx >= 0) {
-              const existing = prev[existingIdx];
-              const updated = [...prev];
-              updated[existingIdx] = {
-                ...mapped,
-                timestamp: existing?.timestamp ?? mapped.timestamp ?? Date.now(),
-              };
-              return updated;
-            }
-            return [
-              ...prev,
-              { ...mapped, timestamp: mapped.timestamp ?? Date.now() },
-            ];
-          });
-          void queryClient.invalidateQueries({
-            queryKey: conversationHistoryQueryKey(
-              postResult.assistantId,
-              effectiveConversationId,
-            ),
-          });
-          if (restoredConfData && isCurrentSendScope(effectiveConversationId)) {
-            const capturedConfData = restoredConfData;
-            // Zustand set() is synchronous — the snapshot already reflects the
-            // patch above, so getState() gives us fresh messages.
-            const currentMessages =
-              useChatSessionStore.getState().snapshot?.messages ?? [];
-            const result = attachConfirmationToToolCall(currentMessages, capturedConfData);
-            if (result.attachedToolCallId) {
-              useInteractionStore.getState().setInlineConfirmationToolCallId(result.attachedToolCallId);
-              useChatSessionStore.getState().setConfirmationToolCall(capturedConfData.requestId, result.attachedToolCallId);
-            } else {
-              useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-            }
-            useChatSessionStore.getState().patchSnapshotMessages(() => result.updatedMessages);
-          }
-          startReconciliationLoop(epoch);
-        })
-        .catch((err) => {
-          if (!isCurrentSendScope(effectiveConversationId)) return;
-          captureError(err, { context: "send_message_stream" });
-          setError({ message: "Connection lost. Please try again." });
-        })
-        .finally(() => {
-          if (!isCurrentSendScope(effectiveConversationId)) return;
-          // Defense-in-depth: settle the turn if SSE didn't already.
-          // `onPollReconciled` no-ops when the turn is already idle, so
-          // this is safe to call alongside the SSE terminal handlers.
-          endTurn({
-            conversationId: effectiveConversationId,
-            reason: "rescued",
-            rescuedTurnId: turnId,
-          });
-        });
-
+      // No matching live stream: SSE delivers the reply and settles the turn;
+      // startReconciliationLoop is the disconnect-safe backstop.
+      startReconciliationLoop(epoch);
       return {
         status: "ok",
         userMessageId: postResult.messageId,
@@ -687,7 +626,7 @@ export function useSendMessage({
     async (
       content: string,
       attachments: DisplayAttachment[] = [],
-      opts: { hidden?: boolean } = {},
+      opts: SendChatMessageOptions = {},
     ) => {
       // A hidden send (e.g. the onboarding "Let's chat" kickoff) drives a turn
       // and the assistant's reply, but renders NO user bubble: skip the
@@ -695,6 +634,30 @@ export function useSendMessage({
       // always a fresh first message (conversation idle), so they never take the
       // queue path below.
       const isHidden = opts.hidden === true;
+      // `/doctor <message>` navigates to the Doctor panel rather than starting
+      // an assistant turn, parking the first message in a hand-off store so the
+      // panel can auto-start a session and send it. Handled before the
+      // conversation/disk-pressure guards below since it needs neither.
+      const doctorPrompt = parseDoctorCommand(content);
+      if (doctorPrompt !== null) {
+        // The Doctor is platform-hosted only. On a self-hosted assistant its
+        // tab doesn't exist, so the command is disabled: clear the input and
+        // surface a notice rather than sending "/doctor …" as a normal turn.
+        if (doctorGate === "gated") {
+          useComposerStore.getState().setInput("");
+          toast.info("The Doctor isn't available on this assistant.");
+          return;
+        }
+        if (doctorPrompt) {
+          useDoctorHandoffStore.getState().setPendingPrompt(doctorPrompt);
+        }
+        useComposerStore.getState().setInput("");
+        navigate(`${routes.settings.debug}?tab=doctor`);
+        return;
+      }
+      // Explicit user override from the composer secret guard's "Send
+      // anyway" confirmation — forwarded on this send's POST only.
+      const bypassSecretCheck = opts.bypassSecretCheck === true;
       if (!activeConversationId || !assistantId) {
         setError({ message: "No active conversation. Please try again." });
         return;
@@ -705,15 +668,14 @@ export function useSendMessage({
       // the queue path. See `pendingDraftMintRef` declaration.
       if (pendingDraftMintRef.current === activeConversationId) {
         setError({
-          message: "Setting up your conversation. Please try again in a moment.",
+          message:
+            "Setting up your conversation. Please try again in a moment.",
         });
         return;
       }
       if (diskPressureChatBlockReason) {
         setError({
-          message: getDiskPressureChatBlockMessage(
-            diskPressureChatBlockReason,
-          ),
+          message: getDiskPressureChatBlockMessage(diskPressureChatBlockReason),
         });
         return;
       }
@@ -728,6 +690,12 @@ export function useSendMessage({
       // A real send supersedes any ephemeral meta-command cards.
       useChatSessionStore.getState().clearEphemeralMetaResults();
       useInteractionStore.getState().resetSecretAndConfirmation();
+      // NOTE: a send deliberately does NOT dismiss the "Connect Claude Code"
+      // prompt. Unlike a turn-blocking confirmation/secret (superseded by the
+      // next send), the Connect card is a non-blocking remediation CTA that
+      // stays until the user resolves it — connects (self-heal / auto-continue)
+      // or dismisses it (X) — the way `ask_question` stays until answered. The
+      // post-connect retirement lives in `useAcpAutoContinue` instead.
       useChatSessionStore.getState().clearConfirmationToolCallMap();
       // Clear pending confirmations and dismiss interactive surfaces in a
       // single functional updater so the two transforms compose correctly
@@ -778,22 +746,40 @@ export function useSendMessage({
           content.trim().length > 0 ? [{ type: "text", text: content }] : [],
         timestamp: Date.now(),
         ...(attachments.length > 0 ? { attachments } : {}),
-        ...(willQueue ? { queueStatus: "queued" as const, queuePosition: 0 } : {}),
+        ...(willQueue
+          ? { queueStatus: "queued" as const, queuePosition: 0 }
+          : {}),
       };
-      if (!isHidden) addOptimisticSend(userMessage);
+      if (!isHidden) {
+        addOptimisticSend(userMessage);
+      }
       void getSoundManager().play("message_sent");
 
       // Queue path: POST to assistant (it queues internally) but don't
       // disrupt the active turn.
       if (willQueue) {
-        useChatSessionStore.getState().pushPendingQueuedMessageId(userMessage.id);
+        // A hidden send renders no optimistic row and the daemon suppresses
+        // its queued ack, so there is nothing for the pending FIFO to bind.
+        // Tracking it would park a dead entry at the head that the next
+        // visible send's ack would bind to instead of its own row.
+        if (!isHidden) {
+          useChatSessionStore
+            .getState()
+            .pushPendingQueuedMessageId(userMessage.id);
+        }
         const attachmentIds = attachments.map((att) => att.id);
         try {
           const postResult = await postChatMessage(
             assistantId,
             activeConversationId,
             content,
-            { attachmentIds, clientMessageId, hidden: isHidden },
+            {
+              attachmentIds,
+              clientMessageId,
+              hidden: isHidden,
+              bypassSecretCheck,
+              scripted: opts.scripted,
+            },
           );
           if (!postResult.ok) {
             revertQueuedMessage(userMessage.id);
@@ -802,24 +788,30 @@ export function useSendMessage({
               postResult.error.detail,
               "Failed to queue message. Please try again.",
             );
-            setError({ message: detail, code: postResult.error.code ?? undefined });
+            setError({
+              message: detail,
+              code: postResult.error.code ?? undefined,
+            });
             return;
           }
-          void surfaceConversationAfterUserSend(postResult.conversationId).catch(
-            (err) => {
-              captureError(err, {
-                context: "surface_queued_conversation_after_send",
-              });
-            },
-          );
+          void surfaceConversationAfterUserSend(
+            postResult.conversationId,
+          ).catch((err) => {
+            captureError(err, {
+              context: "surface_queued_conversation_after_send",
+            });
+          });
           if (!postResult.queued) {
             // The daemon processed the message directly (turn finished
             // between the client-side isSending check and the POST
             // arriving). Clear the optimistic queue status and let the
             // existing SSE stream deliver the response.
-            const queueIds = useChatSessionStore.getState().pendingQueuedMessageIds;
+            const queueIds =
+              useChatSessionStore.getState().pendingQueuedMessageIds;
             const idx = queueIds.indexOf(userMessage.id);
-            if (idx !== -1) queueIds.splice(idx, 1);
+            if (idx !== -1) {
+              queueIds.splice(idx, 1);
+            }
             setOptimisticSends((prev) =>
               clearQueueStatus(prev, userMessage.id),
             );
@@ -841,8 +833,22 @@ export function useSendMessage({
             }
             return;
           }
-          if (postResult.requestId) {
-            useChatSessionStore.getState().setRequestIdMapping(postResult.requestId, userMessage.id);
+          const requestId = postResult.requestId;
+          if (requestId) {
+            const sessionStore = useChatSessionStore.getState();
+            sessionStore.setRequestIdMapping(requestId, userMessage.id);
+            if (sessionStore.consumePendingLocalDeletion(userMessage.id)) {
+              await confirmQueuedMessageDeletion({
+                assistantId,
+                conversationId: activeConversationId,
+                requestId,
+                messageId: userMessage.id,
+                setOptimisticSends,
+                onDeleted: () => {
+                  useChatSessionStore.getState().popRequestIdMapping(requestId);
+                },
+              });
+            }
           }
         } catch (err) {
           captureError(err, { context: "send_message_queue" });
@@ -870,7 +876,11 @@ export function useSendMessage({
       // Optimistically add a stub conversation to the sidebar for draft
       // conversations that don't exist on the server yet.
       if (!currentConv) {
-        prependConversation(queryClient, assistantId, { conversationId: activeConversationId, lastMessageAt: Date.now(), draft: true } as Conversation);
+        prependConversation(queryClient, assistantId, {
+          conversationId: activeConversationId,
+          lastMessageAt: Date.now(),
+          draft: true,
+        } as Conversation);
       }
 
       cancelReconciliation();
@@ -887,6 +897,8 @@ export function useSendMessage({
           isDraft,
           clientMessageId,
           isHidden,
+          bypassSecretCheck,
+          opts.scripted,
         );
 
         if (result.status === "failed") {
@@ -922,21 +934,50 @@ export function useSendMessage({
 
         resolvedId = result.resolvedConversationId;
 
+        // The send materialized the conversation, so the key is no longer a
+        // draft: history is real from here and must show the normal loading
+        // state when the user navigates back to it. Clears whether or not the
+        // server kept the client key. When it assigned a different one, the
+        // old key is dead and this is just cleanup.
+        useConversationStore
+          .getState()
+          .clearDraftConversationId(activeConversationId);
+
         // Resolve draft key -> server-assigned conversation ID.
         if (resolvedId && resolvedId !== activeConversationId) {
           const newConversationId = resolvedId;
           useConversationStore
             .getState()
-            .transferProcessingConversationId(activeConversationId, newConversationId);
-          resolveDraftKey(queryClient, assistantId, activeConversationId, newConversationId);
-          resolveEditChatDraftConversationId(activeConversationId, newConversationId);
+            .transferProcessingConversationId(
+              activeConversationId,
+              newConversationId,
+            );
+          resolveDraftKey(
+            queryClient,
+            assistantId,
+            activeConversationId,
+            newConversationId,
+          );
+          resolveEditChatDraftConversationId(
+            activeConversationId,
+            newConversationId,
+          );
 
           // Only update active view state if the user is still on this conversation.
-          if (useConversationStore.getState().activeConversationId === activeConversationId) {
+          if (
+            useConversationStore.getState().activeConversationId ===
+            activeConversationId
+          ) {
             useChatSessionStore.getState().markDraftResolution();
-            useChatSessionStore.setState({ previousConversationId: newConversationId });
-            useConversationStore.getState().setActiveConversationId(newConversationId);
-            void navigate(routes.conversation(newConversationId), { replace: true });
+            useChatSessionStore.setState({
+              previousConversationId: newConversationId,
+            });
+            useConversationStore
+              .getState()
+              .setActiveConversationId(newConversationId);
+            void navigate(routes.conversation(newConversationId), {
+              replace: true,
+            });
           }
         }
 
@@ -950,9 +991,13 @@ export function useSendMessage({
         // covers the single-conversation pairing; this catch-all clears
         // every key the send touched and fires `onStreamError` once.
         useTurnStore.getState().onStreamError();
-        const keysToClean = [activeConversationId, resolvedId].filter(Boolean) as string[];
+        const keysToClean = [activeConversationId, resolvedId].filter(
+          Boolean,
+        ) as string[];
         if (keysToClean.length > 0) {
-          useConversationStore.getState().removeMultipleProcessingConversationIds(keysToClean);
+          useConversationStore
+            .getState()
+            .removeMultipleProcessingConversationIds(keysToClean);
         }
         if (isDraft) {
           removeConversation(queryClient, assistantId, activeConversationId);
@@ -962,6 +1007,8 @@ export function useSendMessage({
     [
       activeConversationId,
       assistantId,
+      doctorGate,
+      navigate,
       diskPressureChatBlockReason,
       uiContextRef,
       runLocalMetaCommand,
@@ -978,7 +1025,9 @@ export function useSendMessage({
   // handleStopGenerating — cancel the active generation
   // -------------------------------------------------------------------------
   const handleStopGenerating = useCallback(async () => {
-    if (!assistantId || !activeConversationId) return;
+    if (!assistantId || !activeConversationId) {
+      return;
+    }
     useStreamStore.getState().bumpEpoch();
     patchConversation(queryClient, assistantId, activeConversationId, {
       isProcessing: false,

@@ -75,7 +75,7 @@ export interface TurnDetectorCallbacks {
 // ---------------------------------------------------------------------------
 
 export class MediaTurnDetector {
-  private readonly silenceThresholdMs: number;
+  private silenceThresholdMs: number;
   private readonly maxTurnDurationMs: number;
   private readonly callbacks: TurnDetectorCallbacks;
 
@@ -117,6 +117,16 @@ export class MediaTurnDetector {
   }
 
   /**
+   * Update the trailing-silence threshold mid-session (the "pause before
+   * reply" live-tuning path). Applies from the next silence-timer arm — a
+   * countdown already in flight keeps its current duration until it resets on
+   * the next speech chunk — so the change takes effect on the next utterance.
+   */
+  setSilenceThresholdMs(silenceThresholdMs: number): void {
+    this.silenceThresholdMs = silenceThresholdMs;
+  }
+
+  /**
    * Feed an inbound audio chunk to the detector with speech activity info.
    *
    * Call this for every `media` event received from the Twilio Media
@@ -137,7 +147,9 @@ export class MediaTurnDetector {
    *   do not perform energy analysis.
    */
   onMediaChunk(hasSpeech = true): void {
-    if (this.disposed) return;
+    if (this.disposed) {
+      return;
+    }
 
     if (hasSpeech) {
       if (!this.active) {
@@ -171,7 +183,9 @@ export class MediaTurnDetector {
    * in-flight turn is properly finalized rather than left dangling.
    */
   forceEnd(): void {
-    if (!this.active || this.disposed) return;
+    if (!this.active || this.disposed) {
+      return;
+    }
     this.endTurn("silence");
   }
 
@@ -204,7 +218,9 @@ export class MediaTurnDetector {
   }
 
   private endTurn(reason: "silence" | "max-duration"): void {
-    if (!this.active) return;
+    if (!this.active) {
+      return;
+    }
 
     const durationMs = Date.now() - this.turnStartedAt;
 

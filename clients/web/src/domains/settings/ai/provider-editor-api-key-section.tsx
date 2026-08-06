@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { ChevronRight, Loader2 } from "lucide-react";
@@ -18,7 +18,6 @@ interface ProviderEditorApiKeySectionProps {
   onApiKeyChange: (value: string) => void;
   credential: string;
   onCredentialChange: (value: string) => void;
-  isAuthLocked: boolean;
   isLoadingCredential: boolean;
   apiKeyPlaceholder: string;
   provider: ConnectionProvider;
@@ -44,7 +43,6 @@ export function ProviderEditorApiKeySection({
   onApiKeyChange,
   credential,
   onCredentialChange,
-  isAuthLocked,
   isLoadingCredential,
   apiKeyPlaceholder,
   provider,
@@ -82,7 +80,6 @@ export function ProviderEditorApiKeySection({
               onError(null);
             }}
             placeholder={apiKeyPlaceholder}
-            disabled={isAuthLocked}
             fullWidth
           />
         )}
@@ -122,19 +119,20 @@ export function ProviderEditorApiKeySection({
                   credential && !hasCurrent
                     ? [{ label: credential, value: credential }, ...baseOptions]
                     : baseOptions;
-                if (dropdownOptions.length === 0) return null;
+                if (dropdownOptions.length === 0) {
+                  return null;
+                }
                 return (
                   <div className="space-y-1">
                     <label className="block text-body-small-default text-[var(--content-tertiary)]">
                       Credential Reference
                     </label>
-                    <Dropdown
+                    <Select
                       aria-label="Credential reference"
                       value={credential}
                       onChange={(v) => {
                         onCredentialChange(v);
                       }}
-                      disabled={isAuthLocked}
                       options={dropdownOptions}
                     />
                   </div>
@@ -152,16 +150,17 @@ export function ProviderEditorApiKeySection({
                       value={newCredentialName}
                       onChange={(e) => setNewCredentialName(e.target.value)}
                       placeholder="e.g. team-key"
-                      disabled={isAuthLocked}
                       fullWidth
                     />
                     <Button
                       variant="primary"
                       size="compact"
-                      disabled={isAuthLocked || !newCredentialName.trim()}
+                      disabled={!newCredentialName.trim()}
                       onClick={() => {
                         const trimmed = newCredentialName.trim();
-                        if (!trimmed) return;
+                        if (!trimmed) {
+                          return;
+                        }
                         const ref = `credential/${provider}/${trimmed}`;
                         onCredentialChange(ref);
                         setIsCreatingNewCredential(false);
@@ -178,7 +177,6 @@ export function ProviderEditorApiKeySection({
                 <Button
                   variant="ghost"
                   size="compact"
-                  disabled={isAuthLocked}
                   onClick={() => {
                     if (isCreatingNewCredential) {
                       setIsCreatingNewCredential(false);
@@ -188,9 +186,7 @@ export function ProviderEditorApiKeySection({
                     }
                   }}
                 >
-                  {isCreatingNewCredential
-                    ? "Cancel"
-                    : "+ New Credential"}
+                  {isCreatingNewCredential ? "Cancel" : "+ New Credential"}
                 </Button>
               </div>
             </div>

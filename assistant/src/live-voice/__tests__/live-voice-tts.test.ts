@@ -23,10 +23,6 @@ mock.module("../../security/secure-keys.js", () => ({
   getSecureKeyAsync: async () => "test-api-key",
   getProviderKeyAsync: async () => "test-api-key",
 }));
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => config,
-  loadConfig: () => config,
-}));
 
 const { LiveVoiceTtsError, streamLiveVoiceTtsAudio } =
   await import("../live-voice-tts.js");
@@ -521,6 +517,7 @@ function makeConfig(
 ): LiveVoiceTtsConfig {
   return {
     services: {
+      stt: { provider: "deepgram", providers: {} },
       tts: {
         provider: overrides.provider ?? "fish-audio",
         providers: {

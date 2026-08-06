@@ -98,6 +98,7 @@ export interface PendingInteraction {
     | "host_browser"
     | "host_app_control"
     | "host_transfer"
+    | "host_ui_snapshot"
     | "acp_confirmation";
   confirmationDetails?: ConfirmationDetails;
   /** For a pending `question`: the full batched entries, so a history-load render can rehydrate the question card. */
@@ -158,9 +159,13 @@ export function resolve(
   state: InteractionResolutionState = "cancelled",
 ): PendingInteraction | undefined {
   const interaction = pending.get(requestId);
-  if (!interaction) return undefined;
+  if (!interaction) {
+    return undefined;
+  }
   pending.delete(requestId);
-  if (interaction.timer != null) clearTimeout(interaction.timer);
+  if (interaction.timer != null) {
+    clearTimeout(interaction.timer);
+  }
   interaction.detachAbort?.();
   emitResolved(requestId, interaction, state);
   return interaction;
@@ -183,7 +188,9 @@ function emitResolved(
   // interaction_resolved is conversation-scoped on the wire; a conversation-less
   // interaction has no conversation for clients to route the event to, so skip
   // the broadcast.
-  if (interaction.conversationId === undefined) return;
+  if (interaction.conversationId === undefined) {
+    return;
+  }
   broadcastMessage({
     type: "interaction_resolved",
     requestId,

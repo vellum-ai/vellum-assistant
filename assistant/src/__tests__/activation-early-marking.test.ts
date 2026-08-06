@@ -16,25 +16,17 @@
 
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
 
 const { applyBootstrapTemplate } = await import("../prompts/system-prompt.js");
 const { isActivationSession } =
   await import("../plugins/defaults/memory/activation-session-store.js");
 const { ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE } =
   await import("../telemetry/activation-funnel.js");
-const { getDb } = await import("../persistence/db-connection.js");
+const { getMemorySqlite } = await import("../persistence/db-connection.js");
 const { initializeDb } = await import("../persistence/db-init.js");
-const { activationSessions } = await import("../persistence/schema/index.js");
 
 await initializeDb();
 
@@ -51,7 +43,7 @@ function seedGenericBootstrap(): void {
 
 describe("applyBootstrapTemplate — early activation marking", () => {
   beforeEach(() => {
-    getDb().delete(activationSessions).run();
+    getMemorySqlite()!.exec("DELETE FROM activation_sessions");
   });
 
   test("marks the conversation when the activation-rail template is applied", () => {
@@ -78,8 +70,10 @@ describe("applyBootstrapTemplate — early activation marking", () => {
     applyBootstrapTemplate(ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE);
 
     // Nothing to assert by id; confirm the table stayed empty.
-    const rows = getDb().select().from(activationSessions).all();
-    expect(rows.length).toBe(0);
+    const { n } = getMemorySqlite()!
+      .query("SELECT COUNT(*) AS n FROM activation_sessions")
+      .get() as { n: number };
+    expect(n).toBe(0);
   });
 
   test("does not mark when BOOTSTRAP.md is customized to something else", () => {

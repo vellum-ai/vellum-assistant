@@ -87,7 +87,9 @@ function buildSkillSummary(
   source: "bundled" | "managed" = "bundled",
 ): SkillSummary | null {
   const parsed = parseFrontmatterFields(skillMd);
-  if (!parsed) return null;
+  if (!parsed) {
+    return null;
+  }
 
   let featureFlag: string | undefined;
   const metadataObj = parsed.fields.metadata;

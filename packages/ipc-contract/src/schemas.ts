@@ -15,7 +15,12 @@
  */
 import { z } from "zod";
 
-import { ASSISTANT_STATUSES, NOTIFICATION_CATEGORIES } from "./types";
+import {
+  ASSISTANT_STATUSES,
+  NOTIFICATION_CATEGORIES,
+  VOICE_ACTIVITY_CONTROL_ACTIONS,
+  VOICE_ACTIVITY_PHASES,
+} from "./types";
 
 // ---------------------------------------------------------------------------
 // Status
@@ -37,4 +42,40 @@ export const showNotificationPayloadSchema = z.object({
   conversationId: z.string().optional(),
   toolCallId: z.string().optional(),
   deepLinkMetadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+// ---------------------------------------------------------------------------
+// Voice activity
+// ---------------------------------------------------------------------------
+
+/**
+ * Derived from the `as const` vocabularies in `./types.ts` rather than
+ * restated, so a phase or action added there is validated here without a
+ * second edit and, more to the point, cannot be added there and silently
+ * rejected at this boundary.
+ */
+export const voiceActivityPhaseSchema = z.enum(VOICE_ACTIVITY_PHASES);
+
+export const voiceActivityContentSchema = z.object({
+  phase: voiceActivityPhaseSchema,
+  label: z.string(),
+  accentHex: z.string(),
+  muted: z.boolean(),
+  outputMuted: z.boolean(),
+  detail: z.string(),
+  approvalRequestId: z.string(),
+});
+
+export const voiceActivityStartSchema = voiceActivityContentSchema.extend({
+  assistantName: z.string(),
+  avatarBase64: z.string().optional(),
+});
+
+export const voiceActivityControlActionSchema = z.enum(
+  VOICE_ACTIVITY_CONTROL_ACTIONS,
+);
+
+export const voiceActivityControlSchema = z.object({
+  action: voiceActivityControlActionSchema,
+  requestId: z.string().optional(),
 });

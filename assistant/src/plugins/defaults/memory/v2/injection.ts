@@ -24,31 +24,34 @@
 // cached prefix bytes-identical across turns.
 
 import type { AssistantConfig } from "../../../../config/types.js";
-import type { DrizzleDb } from "../../../../persistence/db-connection.js";
-import { getLogger } from "../../../../util/logger.js";
-import { getWorkspaceDir } from "../../../../util/platform.js";
+import { getLogger } from "../logging.js";
+import { getWorkspaceDir } from "../paths.js";
 import {
-  type MemoryV2ConceptRowRecord,
-  recordMemoryV2ActivationLog,
-} from "../memory-v2-activation-log-store.js";
+  getCliCommandCapability,
+  isCliCommandSlug,
+} from "../substrate/cli-command-store.js";
+import { getEdgeIndex } from "../substrate/edge-index.js";
+import { getPageIndex } from "../substrate/page-index.js";
+import { readPage, renderPageContent } from "../substrate/page-store.js";
+import {
+  getSkillCapability,
+  isSkillSlug,
+  listAlwaysCandidateSkillSlugs,
+} from "../substrate/skill-store.js";
+import { spreadActivation } from "../substrate/spread.js";
+import type { ActivationState, EverInjectedEntry } from "../substrate/types.js";
 import {
   computeOwnActivation,
   selectCandidates,
   selectInjections,
-  spreadActivation,
 } from "./activation.js";
-import { hydrate, save } from "./activation-store.js";
 import {
-  getCliCommandCapability,
-  isCliCommandSlug,
-} from "./cli-command-store.js";
-import { getEdgeIndex } from "./edge-index.js";
+  type MemoryV2ConceptRowRecord,
+  recordMemoryV2ActivationLog,
+} from "./activation-log-store.js";
+import { hydrate, save } from "./activation-store.js";
 import { recordInjectionEvents } from "./injection-events.js";
-import { getPageIndex } from "./page-index.js";
-import { readPage, renderPageContent } from "./page-store.js";
 import { type RouterTurnPair, runRouter } from "./router.js";
-import { getSkillCapability, isSkillSlug } from "./skill-store.js";
-import type { ActivationState, EverInjectedEntry } from "./types.js";
 
 const log = getLogger("memory-v2-injection");
 
@@ -76,8 +79,6 @@ export type InjectMemoryV2Mode = "context-load" | "per-turn";
 type FinalizeInjectionMode = InjectMemoryV2Mode | "router" | "errored";
 
 export interface InjectMemoryV2BlockParams {
-  /** SQLite database handle for activation_state hydrate/save. */
-  database: DrizzleDb;
   /** Conversation key for hydrate/save. */
   conversationId: string;
   /** Caller-tracked turn number, persisted with each new everInjected entry. */
@@ -141,7 +142,6 @@ export async function injectMemoryV2Block(
   params: InjectMemoryV2BlockParams,
 ): Promise<InjectMemoryV2BlockResult> {
   const {
-    database,
     conversationId,
     currentTurn,
     recentTurnPairs,
@@ -165,7 +165,7 @@ export async function injectMemoryV2Block(
   // (1) Hydrate. Missing rows are normal at conversation start — proceed
   // with an effective empty prior state so the first turn can still inject.
   throwIfAborted(signal);
-  const priorState = await hydrate(database, conversationId);
+  const priorState = await hydrate(conversationId);
 
   // Flag-gated router dispatch: when the LLM router is enabled, route the
   // page selection through `runRouter` and reuse `finalizeInjection` for
@@ -182,7 +182,6 @@ export async function injectMemoryV2Block(
   if (config.memory.v2.router.enabled) {
     return injectViaRouter({
       workspaceDir,
-      database,
       conversationId,
       currentTurn,
       recentTurnPairs,
@@ -252,7 +251,9 @@ export async function injectMemoryV2Block(
   // slugs drop out of consideration next turn.
   const nextStateMap: Record<string, number> = {};
   for (const [slug, value] of finalActivation) {
-    if (value > epsilon) nextStateMap[slug] = value;
+    if (value > epsilon) {
+      nextStateMap[slug] = value;
+    }
   }
 
   // Build the rich per-candidate telemetry rows up front (status assigned
@@ -283,7 +284,6 @@ export async function injectMemoryV2Block(
 
   return finalizeInjection({
     workspaceDir,
-    database,
     conversationId,
     mode,
     currentTurn,
@@ -320,9 +320,30 @@ export async function injectMemoryV2Block(
  * which this helper overwrites. `nextStateMap` is the activation
  * pipeline's sparse next-state; router-mode callers pass an empty map.
  */
+/**
+ * Telemetry row for a pinned always-candidate skill. Activation never scored
+ * it, so every score field is zero, matching the router-mode rows.
+ */
+function makePinnedSkillRow(slug: string): MemoryV2ConceptRowRecord {
+  return {
+    slug,
+    finalActivation: 0,
+    ownActivation: 0,
+    priorActivation: 0,
+    simUser: 0,
+    simAssistant: 0,
+    simNow: 0,
+    simUserRerankBoost: 0,
+    simAssistantRerankBoost: 0,
+    inRerankPool: false,
+    spreadContribution: 0,
+    source: "always_candidate",
+    status: "not_injected",
+  };
+}
+
 async function finalizeInjection(args: {
   workspaceDir: string;
-  database: DrizzleDb;
   conversationId: string;
   mode: FinalizeInjectionMode;
   currentTurn: number;
@@ -343,16 +364,35 @@ async function finalizeInjection(args: {
 }): Promise<InjectMemoryV2BlockResult> {
   const {
     workspaceDir,
-    database,
     conversationId,
     currentTurn,
     messageId,
     priorEverInjected,
-    slugsToRender,
+    slugsToRender: selectedSlugs,
     telemetryRows,
     config,
     nextStateMap,
   } = args;
+
+  const everInjectedSet = new Set(priorEverInjected.map((entry) => entry.slug));
+
+  // Skills marked `always-candidate` are pinned rather than retrieved: their
+  // relevance is a judgment the model makes each turn, not a similarity the
+  // embedding finds, so activation and the router both leave them out. Attach
+  // them alongside whatever this turn selected, skipping any already carried by
+  // the cached prefix — v2 is append-only, so a card attached once stays
+  // visible until compaction evicts the turn and re-opens the slug.
+  const selectedSet = new Set(selectedSlugs);
+  const pinnedSlugs = (await listAlwaysCandidateSkillSlugs()).filter(
+    (slug) => !selectedSet.has(slug) && !everInjectedSet.has(slug),
+  );
+  const slugsToRender = [...selectedSlugs, ...pinnedSlugs];
+  const telemetrySlugSet = new Set(telemetryRows.map((row) => row.slug));
+  for (const slug of pinnedSlugs) {
+    if (!telemetrySlugSet.has(slug)) {
+      telemetryRows.push(makePinnedSkillRow(slug));
+    }
+  }
 
   // `mode` is `let` because the trailing try/finally promotes it to "errored"
   // when the render/telemetry path throws — we still want a log row written
@@ -383,7 +423,6 @@ async function finalizeInjection(args: {
         (isCliCommandSlug(slug) && !getCliCommandCapability(slug)),
     ),
   );
-  const everInjectedSet = new Set(priorEverInjected.map((entry) => entry.slug));
   const newlyInjected = slugsToRender.filter(
     (slug) => !everInjectedSet.has(slug) && !missingSyntheticSlugs.has(slug),
   );
@@ -416,7 +455,7 @@ async function finalizeInjection(args: {
   let caughtErr: unknown = undefined;
 
   try {
-    await save(database, conversationId, nextActivationState);
+    await save(conversationId, nextActivationState);
 
     // Render before recording telemetry so the activation log can mark slugs
     // whose backing file is gone or failed to load — those are no-op renders
@@ -508,7 +547,9 @@ async function finalizeInjection(args: {
     }
   }
 
-  if (caughtErr !== undefined && !args.bestEffort) throw caughtErr;
+  if (caughtErr !== undefined && !args.bestEffort) {
+    throw caughtErr;
+  }
   return { block, toInject: newlyInjected };
 }
 
@@ -528,7 +569,6 @@ async function finalizeInjection(args: {
  */
 async function injectViaRouter(args: {
   workspaceDir: string;
-  database: DrizzleDb;
   conversationId: string;
   currentTurn: number;
   recentTurnPairs: readonly RouterTurnPair[];
@@ -540,7 +580,6 @@ async function injectViaRouter(args: {
 }): Promise<InjectMemoryV2BlockResult> {
   const {
     workspaceDir,
-    database,
     conversationId,
     currentTurn,
     recentTurnPairs,
@@ -579,7 +618,6 @@ async function injectViaRouter(args: {
     );
     return finalizeInjection({
       workspaceDir,
-      database,
       conversationId,
       mode: "router",
       currentTurn,
@@ -608,11 +646,11 @@ async function injectViaRouter(args: {
 
   const routerResult = await runRouter({
     workspaceDir,
+    conversationId,
     recentTurnPairs,
     nowText,
     priorEverInjected,
     config,
-    database,
     ...(signal ? { signal } : {}),
   });
 
@@ -622,7 +660,7 @@ async function injectViaRouter(args: {
   // errors — a SQLite write must not abort the turn on top of a successful
   // routing decision the rest of this function depends on.
   if (routerResult.failureReason === null) {
-    recordInjectionEvents(database, routerResult.selectedSlugs, Date.now());
+    recordInjectionEvents(routerResult.selectedSlugs, Date.now());
   }
 
   if (routerResult.failureReason !== null) {
@@ -641,7 +679,6 @@ async function injectViaRouter(args: {
     // to abort the turn on top of the router failure that already happened.
     return finalizeInjection({
       workspaceDir,
-      database,
       conversationId,
       mode: "errored",
       currentTurn,
@@ -679,7 +716,9 @@ async function injectViaRouter(args: {
   // `source: "carry_over"`. The `status` placeholder is overwritten by
   // `finalizeInjection`.
   const telemetrySlugs = new Set<string>(routerResult.selectedSlugs);
-  for (const entry of priorEverInjected) telemetrySlugs.add(entry.slug);
+  for (const entry of priorEverInjected) {
+    telemetrySlugs.add(entry.slug);
+  }
   const telemetryRows: MemoryV2ConceptRowRecord[] = [...telemetrySlugs].map(
     (slug) => ({
       slug,
@@ -700,7 +739,6 @@ async function injectViaRouter(args: {
 
   return finalizeInjection({
     workspaceDir,
-    database,
     conversationId,
     mode: "router",
     currentTurn,
@@ -853,9 +891,13 @@ async function renderInjectionBlock(
   const skillSlugs: string[] = [];
   const cliCommandSlugs: string[] = [];
   for (const slug of slugs) {
-    if (isSkillSlug(slug)) skillSlugs.push(slug);
-    else if (isCliCommandSlug(slug)) cliCommandSlugs.push(slug);
-    else conceptSlugs.push(slug);
+    if (isSkillSlug(slug)) {
+      skillSlugs.push(slug);
+    } else if (isCliCommandSlug(slug)) {
+      cliCommandSlugs.push(slug);
+    } else {
+      conceptSlugs.push(slug);
+    }
   }
 
   const settled = await Promise.allSettled(
@@ -893,14 +935,18 @@ async function renderInjectionBlock(
     // empty). Render the full page — frontmatter + body — so retrieval
     // still surfaces the same content the agent saw before this change.
     const content = renderPageContent(page).trim();
-    if (content.length === 0) continue;
+    if (content.length === 0) {
+      continue;
+    }
     sections.push(`# ${path}\n${content}`);
   }
 
   const skillLines: string[] = [];
   for (const slug of skillSlugs) {
     const entry = getSkillCapability(slug);
-    if (!entry) continue;
+    if (!entry) {
+      continue;
+    }
     skillLines.push(`- ${entry.content} → use skill_load to activate`);
   }
   if (skillLines.length > 0) {
@@ -910,7 +956,9 @@ async function renderInjectionBlock(
   const cliCommandLines: string[] = [];
   for (const slug of cliCommandSlugs) {
     const entry = getCliCommandCapability(slug);
-    if (!entry) continue;
+    if (!entry) {
+      continue;
+    }
     cliCommandLines.push(`- \`assistant ${entry.id}\`: ${entry.description}`);
   }
   if (cliCommandLines.length > 0) {

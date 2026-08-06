@@ -30,22 +30,30 @@ export const flipBalancedProfileToTogetherMigration: WorkspaceMigration = {
     "Move the managed balanced profile from Fireworks to Together AI (MiniMax M3)",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const llm = readObject(config.llm);
-    if (llm === null) return;
+    if (llm === null) {
+      return;
+    }
 
     const profiles = readObject(llm.profiles);
-    if (profiles === null) return;
+    if (profiles === null) {
+      return;
+    }
 
     const profile = readObject(profiles["balanced"]);
     // Only the managed profile still on the Fireworks MiniMax M3 default is

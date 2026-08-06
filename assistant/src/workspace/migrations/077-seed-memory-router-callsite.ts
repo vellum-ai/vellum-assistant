@@ -36,7 +36,9 @@ export const seedMemoryRouterCallsiteMigration: WorkspaceMigration = {
   description:
     "Seed callSites.memoryRouter to claude-sonnet-4-6 + 1M context for Anthropic",
   run(workspaceDir: string): void {
-    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) return;
+    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) {
+      return;
+    }
 
     const configPath = join(workspaceDir, "config.json");
     const configExisted = existsSync(configPath);
@@ -45,7 +47,9 @@ export const seedMemoryRouterCallsiteMigration: WorkspaceMigration = {
     if (configExisted) {
       try {
         const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+          return;
+        }
         config = raw as Record<string, unknown>;
       } catch {
         return;
@@ -61,7 +65,9 @@ export const seedMemoryRouterCallsiteMigration: WorkspaceMigration = {
     }
 
     const callSites = readObject(llm.callSites) ?? {};
-    if (readObject(callSites.memoryRouter) !== null) return;
+    if (readObject(callSites.memoryRouter) !== null) {
+      return;
+    }
 
     callSites.memoryRouter = {
       model: "claude-sonnet-4-6",

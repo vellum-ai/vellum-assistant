@@ -135,8 +135,11 @@ describe("discoverCesWithRetry", () => {
     process.env["IS_CONTAINERIZED"] = "true";
     return () => {
       const restore = (key: string, value: string | undefined) => {
-        if (value !== undefined) process.env[key] = value;
-        else delete process.env[key];
+        if (value !== undefined) {
+          process.env[key] = value;
+        } else {
+          delete process.env[key];
+        }
       };
       restore("CES_BOOTSTRAP_SOCKET", savedSocket);
       restore("CES_BOOTSTRAP_SOCKET_DIR", savedSocketDir);
@@ -271,7 +274,7 @@ describe("CES client", () => {
     const client = createCesClient(transport);
 
     try {
-      await client.call("list_grants", {});
+      await client.call("list_credentials", {});
       expect(true).toBe(false);
     } catch (err) {
       expect(err).toBeInstanceOf(CesClientError);
@@ -304,7 +307,7 @@ describe("CES client", () => {
     transport.alive = false;
 
     try {
-      await client.call("list_grants", {});
+      await client.call("list_credentials", {});
       expect(true).toBe(false);
     } catch (err) {
       expect(err).toBeInstanceOf(CesTransportError);
@@ -334,7 +337,7 @@ describe("CES client", () => {
     await handshakePromise;
 
     // Start a call that will never complete
-    const callPromise = client.call("list_grants", {});
+    const callPromise = client.call("list_credentials", {});
 
     // Close the client
     client.close();
@@ -360,11 +363,17 @@ describe("CES boundary guard", () => {
 
     walkDir(assistantSrcDir, (filePath) => {
       // Only check TypeScript source files
-      if (!filePath.endsWith(".ts") && !filePath.endsWith(".tsx")) return;
+      if (!filePath.endsWith(".ts") && !filePath.endsWith(".tsx")) {
+        return;
+      }
       // Skip test files themselves
-      if (filePath.includes("__tests__")) return;
+      if (filePath.includes("__tests__")) {
+        return;
+      }
       // Skip node_modules
-      if (filePath.includes("node_modules")) return;
+      if (filePath.includes("node_modules")) {
+        return;
+      }
 
       const content = readFileSync(filePath, "utf-8");
 
@@ -407,7 +416,9 @@ function walkDir(dir: string, callback: (filePath: string) => void): void {
     try {
       const stat = statSync(fullPath);
       if (stat.isDirectory()) {
-        if (entry === "node_modules" || entry === "dist") continue;
+        if (entry === "node_modules" || entry === "dist") {
+          continue;
+        }
         walkDir(fullPath, callback);
       } else {
         callback(fullPath);

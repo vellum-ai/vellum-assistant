@@ -9,7 +9,6 @@ describe("shouldSuppressRootStatusBanner", () => {
       routes.onboarding.hosting,
       routes.onboarding.apiKey,
       routes.onboarding.privacy,
-      routes.onboarding.prechat,
       routes.onboarding.hatching,
       `${routes.assistant}/onboarding`,
     ]) {
@@ -28,13 +27,15 @@ describe("shouldSuppressRootStatusBanner", () => {
   });
 
   test("suppresses the onboarding handoff query on the assistant route", () => {
-    expect(shouldSuppressRootStatusBanner(routes.assistant, "?onboarding=1")).toBe(
-      true,
-    );
+    expect(
+      shouldSuppressRootStatusBanner(routes.assistant, "?onboarding=1"),
+    ).toBe(true);
   });
 
   test("allows normal app routes", () => {
-    expect(shouldSuppressRootStatusBanner(routes.settings.root, "")).toBe(false);
+    expect(shouldSuppressRootStatusBanner(routes.settings.root, "")).toBe(
+      false,
+    );
     expect(shouldSuppressRootStatusBanner(routes.assistant, "")).toBe(false);
   });
 });

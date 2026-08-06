@@ -210,6 +210,24 @@ export const TtsXaiProviderConfigSchema = z
 
 export type TtsXaiProviderConfig = z.infer<typeof TtsXaiProviderConfigSchema>;
 
+/**
+ * Vellum managed provider configuration under `services.tts.providers`.
+ */
+const TtsVellumProviderConfigSchema = z
+  .object({
+    model: z
+      .string()
+      .optional()
+      .describe(
+        "Managed TTS voice model (e.g. aura-2-thalia-en). Unset means the platform's default voice. The platform rejects voices it does not offer.",
+      ),
+  })
+  .describe("Vellum managed provider configuration under services.tts");
+
+export type TtsVellumProviderConfig = z.infer<
+  typeof TtsVellumProviderConfigSchema
+>;
+
 const TtsProvidersSchema = z.object({
   elevenlabs: TtsElevenLabsProviderConfigSchema.default(
     TtsElevenLabsProviderConfigSchema.parse({}),
@@ -221,6 +239,9 @@ const TtsProvidersSchema = z.object({
     TtsDeepgramProviderConfigSchema.parse({}),
   ),
   xai: TtsXaiProviderConfigSchema.default(TtsXaiProviderConfigSchema.parse({})),
+  vellum: TtsVellumProviderConfigSchema.default(
+    TtsVellumProviderConfigSchema.parse({}),
+  ),
 });
 export type TtsProviders = z.infer<typeof TtsProvidersSchema>;
 
@@ -255,20 +276,11 @@ for (const id of schemaKeys) {
 /**
  * Canonical TTS service configuration.
  *
- * `mode` is locked to `"your-own"` — managed TTS is not supported.
- * Attempting to set `mode: "managed"` will fail schema validation.
+ * `provider` is the only axis: `"vellum"` synthesizes through the platform,
+ * billed to Vellum credits; any other provider uses the user's own API key.
  */
 export const TtsServiceSchema = z
   .object({
-    mode: z
-      .literal("your-own", {
-        error:
-          'services.tts.mode must be "your-own" — managed TTS is not supported',
-      })
-      .default("your-own" as const)
-      .describe(
-        'TTS service mode — only "your-own" is supported (managed TTS is not available)',
-      ),
     provider: z
       .enum(TTS_PROVIDER_IDS, {
         error: `services.tts.provider must be one of: ${TTS_PROVIDER_IDS.join(", ")}`,

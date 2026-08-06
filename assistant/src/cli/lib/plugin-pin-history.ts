@@ -24,13 +24,11 @@
 
 import type { FetchLike } from "./fetch-like.js";
 import { sanitizePluginName } from "./install-from-github.js";
+import { DEFAULT_PIN_HISTORY_LIMIT } from "./plugin-constants.js";
 import {
   fetchMarketplaceEntries,
   MARKETPLACE_MANIFEST_LOCATION,
 } from "./plugin-marketplace.js";
-
-/** Default number of distinct historical pins surfaced by `plugins versions`. */
-export const DEFAULT_PIN_HISTORY_LIMIT = 5;
 
 /**
  * Cap on how many manifest-touching commits are inspected in one walk. Bounds
@@ -118,7 +116,9 @@ async function listManifestCommits(
       "User-Agent": "vellum-assistant-cli",
     },
   });
-  if (res.status === 404) return [];
+  if (res.status === 404) {
+    return [];
+  }
   if (!res.ok) {
     throw new PluginPinHistoryError(
       `Marketplace commit history fetch failed for ${path} @ ${ref}: HTTP ${res.status}`,
@@ -141,7 +141,9 @@ async function listManifestCommits(
 
   const commits: ManifestCommit[] = [];
   for (const item of body as GitHubCommitListEntry[]) {
-    if (typeof item?.sha !== "string") continue;
+    if (typeof item?.sha !== "string") {
+      continue;
+    }
     const rawDate = item.commit?.committer?.date;
     commits.push({
       sha: item.sha,
@@ -181,7 +183,9 @@ async function* iteratePinHistory(
   fetchFn: FetchLike,
 ): AsyncGenerator<PluginPinHistoryEntry> {
   const commits = await listManifestCommits(ref, fetchFn);
-  if (commits.length === 0) return;
+  if (commits.length === 0) {
+    return;
+  }
 
   // The pin live on the branch today, used to flag the current entry. Reading
   // it explicitly (rather than assuming the newest commit carries it) stays
@@ -191,8 +195,12 @@ async function* iteratePinHistory(
   let lastPin: string | null = null;
   for (const commit of commits) {
     const pin = await pinAtCommit(name, commit.sha, fetchFn);
-    if (pin === null) continue;
-    if (pin === lastPin) continue;
+    if (pin === null) {
+      continue;
+    }
+    if (pin === lastPin) {
+      continue;
+    }
     lastPin = pin;
     yield {
       pin,
@@ -224,7 +232,9 @@ export async function listPinHistory(
   const out: PluginPinHistoryEntry[] = [];
   for await (const entry of iteratePinHistory(sanitized, ref, deps.fetch)) {
     out.push(entry);
-    if (out.length >= limit) break;
+    if (out.length >= limit) {
+      break;
+    }
   }
   return out;
 }
@@ -249,10 +259,14 @@ export async function resolvePinToMarketplaceCommit(
   const sanitized = sanitizePluginName(name);
   const ref = opts.ref ?? "main";
   const target = pin.trim().toLowerCase();
-  if (target.length === 0) return null;
+  if (target.length === 0) {
+    return null;
+  }
 
   for await (const entry of iteratePinHistory(sanitized, ref, deps.fetch)) {
-    if (entry.pin.toLowerCase() === target) return entry;
+    if (entry.pin.toLowerCase() === target) {
+      return entry;
+    }
   }
   return null;
 }

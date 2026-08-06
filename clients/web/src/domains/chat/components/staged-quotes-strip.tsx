@@ -62,7 +62,7 @@ function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
       <Card.Body padding="md" className="relative flex flex-col gap-2 pr-8">
         <Typography
           as="div"
-          variant="body-small-default"
+          variant="body-small-lighter"
           className={`${quoteBlockquoteClassName} mb-0`}
         >
           <span aria-hidden="true" className={quoteBlockquoteAccentClassName} />
@@ -137,15 +137,19 @@ export function StagedQuotesStrip() {
       className="mb-2 max-h-[140px]"
     >
       <div className="flex flex-col gap-1.5">
-        <AnimatePresence initial={false}>
+        {/*
+         * `initial` is left at its default (true) so the first chip animates in
+         * too: this subtree unmounts whenever the strip is empty and remounts
+         * on the 0→1 transition, so that first chip is present at mount and
+         * would otherwise be skipped by `initial={false}`.
+         */}
+        <AnimatePresence>
           {stagedQuotes.map((quote) => (
             <motion.div
               key={quote.id}
               layout
               initial={
-                reduceMotion
-                  ? false
-                  : { opacity: 0, height: 0, scale: 0.98 }
+                reduceMotion ? false : { opacity: 0, height: 0, scale: 0.98 }
               }
               animate={{ opacity: 1, height: "auto", scale: 1 }}
               exit={

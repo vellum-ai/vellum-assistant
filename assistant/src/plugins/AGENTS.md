@@ -16,4 +16,14 @@ Canonical example: `defaults/image-fallback` — `hooks/init.ts` opens `caption-
 
 **Grandfathered exception**: `defaults/memory` predates this rule and uses main-database tables via `persistence/schema` / `db-connection`. Do not extend that pattern to other plugins or grow memory's main-DB surface. Enforced by `__tests__/plugin-state-boundary-guard.test.ts`.
 
+The memory plugin's own internal structure — its tier/directory map, gate predicates, frozen durable names, and the v1/v2 deletion runbooks — lives in `defaults/memory/AGENTS.md`; the architecture narrative is in `assistant/docs/architecture/memory.md`. Read both before touching anything under `defaults/memory/`.
+
 Calling the assistant's service APIs from a default plugin (e.g. `persistence/conversation-crud.ts` reads) is fine — the boundary is about _owning state_: plugin tables, plugin migrations, and plugin files belong to the plugin.
+
+## Plugin HTTP Routes
+
+A plugin's HTTP routes live on disk under `<pluginDir>/routes/` and are served in the plugin's own namespace at `/x/plugins/<plugin-name>/<path>`. They are **not** a `Plugin` contribution slot and are not wired through the loader or bootstrap — the `/x/*` route dispatcher (`runtime/routes/user-route-dispatcher.ts`) resolves each request against the filesystem at request time, exactly like the workspace `/x/*` user routes it shares code with.
+
+- **Namespace reservation**: the `plugins/<name>/` prefix under `/x/` resolves only against `<workspaceDir>/plugins/<name>/routes/`. A request there never falls back to a workspace `routes/plugins/…` file, so plugins can't collide with workspace routes or each other. A missing file 404s; nothing is registered ahead of time.
+- **Authoring**: each route file exports named HTTP-method functions (`export async function GET(request) {…}`), mirroring the workspace user-route convention. Nested directories and `index` files map to sub-paths (`routes/webhooks/incoming.ts` → `/x/plugins/<name>/webhooks/incoming`; `routes/index.ts` → the namespace root). Files are lazily loaded and mtime-cache-busted.
+- **Runtime access**: handlers receive the shared `UserRouteContext` (event hub, conversation posting) as a second argument, and may also reach singletons through their `@vellumai/plugin-api` imports.

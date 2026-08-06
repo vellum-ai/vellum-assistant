@@ -7,6 +7,8 @@
 
 import { z } from "zod";
 
+import { buildSlackPermalink } from "../messaging/providers/slack/deep-link.js";
+import { isSlackDmConversation } from "../messaging/providers/slack/message-metadata.js";
 import {
   buildIntroductionActions,
   coerceSignalBoolean,
@@ -145,25 +147,6 @@ export function isHandshakeOfferedForPayload(
     isStranger: p.isStranger,
     isRestricted: p.isRestricted,
   });
-}
-
-// ── Slack conversation helpers ───────────────────────────────────────────────
-
-/** Slack DM conversation IDs start with `D` followed by alphanumeric chars. */
-export function isSlackDmConversation(conversationExternalId: string): boolean {
-  return /^D[A-Z0-9]+$/i.test(conversationExternalId);
-}
-
-/**
- * Build a Slack message permalink from a channel ID and message timestamp.
- * Format: https://slack.com/archives/{channelId}/p{ts_without_dot}
- * Workspace-agnostic — resolves for any authenticated Slack viewer.
- */
-export function buildSlackMessagePermalink(
-  conversationExternalId: string,
-  messageTs: string,
-): string {
-  return `https://slack.com/archives/${conversationExternalId}/p${messageTs.replace(".", "")}`;
 }
 
 /** Internal typed implementation — avoids re-parsing when called from
@@ -375,7 +358,10 @@ export function buildAccessRequestContractText(
   // Conversation context: source channel + permalink when available.
   if (p.sourceChannel === "slack" && p.conversationExternalId) {
     const permalink = p.messageTs
-      ? buildSlackMessagePermalink(p.conversationExternalId, p.messageTs)
+      ? buildSlackPermalink({
+          channelId: p.conversationExternalId,
+          messageTs: p.messageTs,
+        })
       : undefined;
     const isDm = isSlackDmConversation(p.conversationExternalId);
     const channelLabel = isDm ? "Direct message" : p.conversationExternalId;
@@ -476,7 +462,10 @@ export function buildAccessRequestCardView(
 
   const messagePermalink =
     sourceChannel === "slack" && conversationExternalId && messageTs
-      ? buildSlackMessagePermalink(conversationExternalId, messageTs)
+      ? buildSlackPermalink({
+          channelId: conversationExternalId,
+          messageTs,
+        })
       : undefined;
 
   const rawPreview = nonEmpty(p.messagePreview);

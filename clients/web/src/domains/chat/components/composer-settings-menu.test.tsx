@@ -18,6 +18,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -124,6 +125,14 @@ mock.module("@vellumai/design-library", () => {
 const NEW_PROFILE_NAME = "fast-cheap";
 const NEW_PROFILE_LABEL = "Fast & Cheap";
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 // --- generated daemon SDK ----------------------------------------------------
 // Mock the SDK functions used by the component (directly and via generated
 // TanStack Query options). configGetOptions/conversationsByIdGetOptions from
@@ -134,15 +143,27 @@ const configGetMock = mock(
     data: {
       llm: {
         profileOrder: ["smart"],
-        profiles: { smart: { label: "Smart" } },
+        profiles: {
+          smart: {
+            label: "Smart",
+            provider: "anthropic",
+            model: "claude-fable-5",
+          },
+        },
         activeProfile: "smart",
       },
     },
   }),
 );
-const conversationsByIdGetMock = mock(async (_opts: unknown) => ({
-  data: { conversation: { inferenceProfile: null } },
-}));
+const conversationsByIdGetMock = mock(
+  async (
+    _opts: unknown,
+  ): Promise<{
+    data: { conversation: { inferenceProfile: string | null } };
+  }> => ({
+    data: { conversation: { inferenceProfile: null } },
+  }),
+);
 const configPatchMock = mock(
   async (_opts: unknown): Promise<{ data: unknown }> => ({ data: {} }),
 );
@@ -161,6 +182,7 @@ import { ComposerSettingsMenu } from "@/domains/chat/components/composer-setting
 // Real store (not mocked) — the component reads the draft conversation id and
 // the pending-profile stash from it.
 import { useConversationStore } from "@/stores/conversation-store";
+import { ApiError } from "@/utils/api-errors";
 
 function renderMenu() {
   const queryClient = new QueryClient({
@@ -268,8 +290,16 @@ describe("Model Profile quick-add", () => {
         llm: {
           profileOrder: ["smart", NEW_PROFILE_NAME],
           profiles: {
-            smart: { label: "Smart" },
-            [NEW_PROFILE_NAME]: { label: NEW_PROFILE_LABEL },
+            smart: {
+              label: "Smart",
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
+            [NEW_PROFILE_NAME]: {
+              label: NEW_PROFILE_LABEL,
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
           },
           activeProfile: "smart",
         },
@@ -390,6 +420,84 @@ describe("Profile selection after conversation change (LUM-2279)", () => {
   });
 });
 
+describe("Profile trigger updates", () => {
+  test("keeps the selected label while the conversation refetch settles", async () => {
+    const configData = {
+      llm: {
+        profileOrder: ["balanced", "quality"],
+        profiles: {
+          balanced: {
+            label: "Balanced",
+            provider: "anthropic",
+            model: "claude-fable-5",
+          },
+          quality: {
+            label: "Quality",
+            provider: "anthropic",
+            model: "claude-fable-5",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    };
+    const configRefetch = deferred<{ data: unknown }>();
+    let configCallCount = 0;
+    configGetMock.mockImplementation(() => {
+      configCallCount += 1;
+      if (configCallCount === 1) {
+        return Promise.resolve({ data: configData });
+      }
+      return configRefetch.promise;
+    });
+
+    const conversationRefetch = deferred<{
+      data: { conversation: { inferenceProfile: string } };
+    }>();
+    let conversationCallCount = 0;
+    conversationsByIdGetMock.mockImplementation(() => {
+      conversationCallCount += 1;
+      if (conversationCallCount === 1) {
+        return Promise.resolve({
+          data: { conversation: { inferenceProfile: "balanced" } },
+        });
+      }
+      return conversationRefetch.promise;
+    });
+
+    renderMenu();
+    const trigger = await screen.findByLabelText("Model profile");
+    await waitFor(() => expect(trigger.textContent).toContain("Balanced"));
+
+    const qualityItem = screen
+      .getAllByTestId("menu-item")
+      .find((item) => item.textContent?.includes("Quality"));
+    fireEvent.click(qualityItem!);
+
+    await waitFor(() => {
+      expect(inferenceprofilePut).toHaveBeenCalledTimes(1);
+      expect(configCallCount).toBe(2);
+      expect(conversationCallCount).toBe(2);
+    });
+
+    await act(async () => {
+      configRefetch.resolve({ data: configData });
+      await configRefetch.promise;
+      await Promise.resolve();
+    });
+
+    expect(trigger.textContent).toContain("Quality");
+
+    await act(async () => {
+      conversationRefetch.resolve({
+        data: { conversation: { inferenceProfile: "quality" } },
+      });
+      await conversationRefetch.promise;
+    });
+
+    expect(trigger.textContent).toContain("Quality");
+  });
+});
+
 describe("Profile selection with no active conversation (new draft chat)", () => {
   test("stashes the selection for the draft instead of overwriting the global default", async () => {
     // Guard against a hanging/altered config impl leaking from a prior test.
@@ -397,7 +505,13 @@ describe("Profile selection with no active conversation (new draft chat)", () =>
       data: {
         llm: {
           profileOrder: ["smart"],
-          profiles: { smart: { label: "Smart" } },
+          profiles: {
+            smart: {
+              label: "Smart",
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
+          },
           activeProfile: "smart",
         },
       },
@@ -444,5 +558,72 @@ describe("Profile selection with no active conversation (new draft chat)", () =>
     // is written (no server conversation exists yet).
     expect(configPatchMock).not.toHaveBeenCalled();
     expect(inferenceprofilePut).not.toHaveBeenCalled();
+  });
+});
+
+describe("Profile activation rejected by the daemon", () => {
+  /** Load the menu and click the "Smart" profile row. */
+  async function selectSmart() {
+    // Guard against a hanging/altered config impl leaking from a prior test.
+    configGetMock.mockImplementation(async () => ({
+      data: {
+        llm: {
+          profileOrder: ["smart"],
+          profiles: {
+            smart: {
+              label: "Smart",
+              provider: "anthropic",
+              model: "claude-fable-5",
+            },
+          },
+          activeProfile: "smart",
+        },
+      },
+    }));
+    renderMenu();
+    await waitFor(() =>
+      expect(screen.getAllByText("Smart").length).toBeGreaterThan(0),
+    );
+    const smart = screen
+      .getAllByTestId("menu-item")
+      .find((b) => b.textContent?.includes("Smart"));
+    // The rejection rolls the optimistic selection back asynchronously — flush
+    // that state update inside `act` so the assertion sees a settled tree.
+    await act(async () => {
+      fireEvent.click(smart!);
+    });
+  }
+
+  test("surfaces the server's 400 reason instead of generic retry copy", async () => {
+    // The daemon rejects a profile it can't dispatch through with a 400 naming
+    // what's missing; retry copy would send the user round the same loop.
+    inferenceprofilePut.mockImplementationOnce(async () => {
+      throw new ApiError(
+        400,
+        'Profile "smart" has no API key for provider "gemini".',
+      );
+    });
+
+    await selectSmart();
+
+    await waitFor(() => {
+      expect(toastError).toHaveBeenCalledWith(
+        'Profile "smart" has no API key for provider "gemini".',
+      );
+    });
+  });
+
+  test("keeps the generic copy for a non-400 failure", async () => {
+    inferenceprofilePut.mockImplementationOnce(async () => {
+      throw new ApiError(500, "boom: db offline");
+    });
+
+    await selectSmart();
+
+    await waitFor(() => {
+      expect(toastError).toHaveBeenCalledWith(
+        "Failed to switch profile. Please try again.",
+      );
+    });
   });
 });

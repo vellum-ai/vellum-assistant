@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
 import {
+  useAssistantScopedSupports,
   useAssistantSupports,
   whenAssistantVersionKnown,
+  whenAssistantVersionKnownFor,
 } from "@/lib/backwards-compat/utils";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
@@ -93,6 +95,74 @@ describe("useAssistantSupports", () => {
   });
 });
 
+describe("useAssistantScopedSupports", () => {
+  const OWNER_ID = "asst-owner";
+  const MIN = "0.11.0";
+
+  function setIdentity(version: string | null, assistantId: string | null) {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", version, assistantId);
+  }
+
+  function checkScoped(
+    version: string | null,
+    ownerAssistantId: string | null | undefined = OWNER_ID,
+    identityAssistantId: string | null = OWNER_ID,
+  ): boolean {
+    setIdentity(version, identityAssistantId);
+    const { result } = renderHook(() =>
+      useAssistantScopedSupports(MIN, ownerAssistantId),
+    );
+    return result.current;
+  }
+
+  test("returns true when the version meets minVersion and the owner matches", () => {
+    expect(checkScoped("0.11.0")).toBe(true);
+    expect(checkScoped("1.0.0")).toBe(true);
+  });
+
+  test("returns false when the version is unknown or below minVersion", () => {
+    expect(checkScoped(null)).toBe(false);
+    expect(checkScoped("0.10.9")).toBe(false);
+  });
+
+  test("returns false when the identity version belongs to a different assistant", () => {
+    // The assistant-switch race: the previous assistant's supported
+    // version is still hydrated while the gated surface now belongs to a
+    // different assistant whose identity hasn't loaded. The version must
+    // not validate the new owner's surface.
+    expect(checkScoped("0.11.0", "asst-new-owner", "asst-previous")).toBe(
+      false,
+    );
+  });
+
+  test("returns false when the owner is null or undefined", () => {
+    expect(checkScoped("0.11.0", null)).toBe(false);
+    // Passed explicitly (a default parameter would swallow `undefined`).
+    setIdentity("0.11.0", OWNER_ID);
+    const { result } = renderHook(() =>
+      useAssistantScopedSupports(MIN, undefined),
+    );
+    expect(result.current).toBe(false);
+  });
+
+  test("returns false when the identity store has no owner recorded", () => {
+    expect(checkScoped("0.11.0", OWNER_ID, null)).toBe(false);
+  });
+
+  test("flips off the moment the identity is cleared for an assistant switch", () => {
+    setIdentity("0.11.0", OWNER_ID);
+    const { result, rerender } = renderHook(() =>
+      useAssistantScopedSupports(MIN, OWNER_ID),
+    );
+    expect(result.current).toBe(true);
+    useAssistantIdentityStore.getState().clearIdentity();
+    rerender();
+    expect(result.current).toBe(false);
+  });
+});
+
 describe("whenAssistantVersionKnown", () => {
   test("resolves immediately when the version is already known", async () => {
     setVersion("0.8.6");
@@ -124,5 +194,57 @@ describe("whenAssistantVersionKnown", () => {
     await whenAssistantVersionKnown(20);
     expect(Date.now() - start).toBeGreaterThanOrEqual(15);
     expect(useAssistantIdentityStore.getState().version).toBeNull();
+  });
+});
+
+// The scoped wait is what a scoped *write* gate needs: the unscoped wait
+// returns immediately while the store still holds the assistant the user just
+// switched away from, which is exactly the pairing the scoped read rejects.
+describe("whenAssistantVersionKnownFor", () => {
+  const OWNER_ID = "asst-owner";
+  const OTHER_ID = "asst-other";
+
+  function setIdentity(version: string | null, assistantId: string | null) {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", version, assistantId);
+  }
+
+  test("resolves immediately when the owner's version is already known", async () => {
+    setIdentity("0.8.6", OWNER_ID);
+    let resolved = false;
+    await whenAssistantVersionKnownFor(OWNER_ID, 50).then(() => {
+      resolved = true;
+    });
+    expect(resolved).toBe(true);
+  });
+
+  test("keeps waiting while the store holds another assistant's version", async () => {
+    setIdentity("0.8.6", OTHER_ID);
+    let resolved = false;
+    const promise = whenAssistantVersionKnownFor(OWNER_ID, 1_000).then(() => {
+      resolved = true;
+    });
+
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    setIdentity("0.8.7", OWNER_ID);
+    await promise;
+    expect(resolved).toBe(true);
+  });
+
+  test("resolves on the timeout when the owner's identity never lands", async () => {
+    const start = Date.now();
+    await whenAssistantVersionKnownFor(OWNER_ID, 20);
+    expect(Date.now() - start).toBeGreaterThanOrEqual(15);
+  });
+
+  test("resolves immediately without an owner to wait for", async () => {
+    let resolved = false;
+    await whenAssistantVersionKnownFor(null).then(() => {
+      resolved = true;
+    });
+    expect(resolved).toBe(true);
   });
 });

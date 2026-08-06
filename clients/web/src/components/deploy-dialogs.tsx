@@ -34,7 +34,9 @@ export function DeployDialogs({
       <VercelTokenDialog
         open={isTokenDialogOpen}
         onOpenChange={(open) => {
-          if (!open) useDeployStore.getState().hideTokenDialog();
+          if (!open) {
+            useDeployStore.getState().hideTokenDialog();
+          }
         }}
         assistantId={assistantId}
         onTokenSaved={() => {

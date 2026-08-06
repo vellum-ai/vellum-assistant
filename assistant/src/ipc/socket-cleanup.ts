@@ -1,7 +1,7 @@
 /**
- * Shared helpers for IPC server socket lifecycle. Both `AssistantIpcServer` and
- * `SkillIpcServer` need the same probe-before-unlink dance to avoid silently
- * stealing another daemon's listener: a blind `unlinkSync` on a live Unix
+ * Shared helpers for IPC server socket lifecycle. `AssistantIpcServer` needs
+ * the probe-before-unlink dance to avoid silently stealing another daemon's
+ * listener: a blind `unlinkSync` on a live Unix
  * socket file would orphan the bound listener (Linux/macOS allow unlink while
  * still bound) and the new server would happily `listen()` on the now-renamed
  * inode, leaving two daemons in conflict with no error.
@@ -44,12 +44,16 @@ function makeAddrInUseError(message: string): NodeJS.ErrnoException {
  *   - Any other socket error → propagate.
  */
 export async function ensureSocketPathFree(socketPath: string): Promise<void> {
-  if (!existsSync(socketPath)) return;
+  if (!existsSync(socketPath)) {
+    return;
+  }
   await new Promise<void>((resolve, reject) => {
     const client = connect(socketPath);
     let settled = false;
     const settle = (action: () => void): void => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimeout(timer);
       client.removeAllListeners();

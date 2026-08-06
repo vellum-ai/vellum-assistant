@@ -1,5 +1,11 @@
 import { motion, useReducedMotion } from "motion/react";
-import { memo, useCallback, useMemo, useState, type CSSProperties } from "react";
+import {
+  memo,
+  useCallback,
+  useMemo,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
@@ -13,39 +19,13 @@ export interface ChatAvatarProps {
   className?: string;
   interactive?: boolean;
   isAssistantBusy?: boolean;
-}
-
-/** Ring geometry. Thickness is a fixed 1px hairline; gap scales with size. */
-const RING_THICKNESS = 1; // border thickness in px
-const RING_GAP_RATIO = 0.04; // gap between avatar edge and ring inner edge / size
-
-/**
- * Spinning semicircular ring traced just outside the avatar's circular edge,
- * shown while the assistant is streaming/loading. Only used for custom
- * uploaded-image avatars — character avatars already signal streaming through
- * their morph animation. The arc + rotation live in CSS (`.avatar-streaming-ring`);
- * thickness/inset are inline so the ring scales with `size`. It sits in a gap
- * outside the image (negative inset) so it reads as a ring around the avatar
- * rather than covering the picture.
- */
-function AvatarStreamingRing({ size }: { size: number }) {
-  const thickness = RING_THICKNESS;
-  const gap = Math.max(1, Math.round(size * RING_GAP_RATIO));
-  const inset = -(thickness + gap);
-  return (
-    <span
-      aria-hidden="true"
-      className="avatar-streaming-ring pointer-events-none absolute"
-      style={{
-        top: inset,
-        right: inset,
-        bottom: inset,
-        left: inset,
-        borderWidth: thickness,
-        boxSizing: "border-box",
-      }}
-    />
-  );
+  /**
+   * Stamp `data-voice-origin` on the avatar's root so the live-voice room can
+   * find this on-screen avatar and grow its entrance from here. Set on the
+   * assistant avatar the user sees before starting voice (the empty-state
+   * greeting, the latest-turn transcript avatar).
+   */
+  originAnchor?: boolean;
 }
 
 /**
@@ -61,9 +41,9 @@ function AvatarStreamingRing({ size }: { size: number }) {
  *   - Mount plays an entrance spring (scale 0.6 → 1, opacity 0 → 1).
  *   - When `interactive`, click triggers a spring bounce.
  *   - `prefers-reduced-motion` short-circuits both.
- *   - For custom uploaded-image avatars, a spinning semicircular ring traces
- *     just outside the avatar's edge while `isAssistantBusy` is on
- *     (character avatars already signal streaming via their morph animation).
+ *   - `isAssistantBusy` only affects character avatars, which signal streaming
+ *     via their morph animation. Custom uploaded images stay static — the
+ *     transcript's thinking indicator carries that state instead.
  */
 function ChatAvatarComponent({
   components,
@@ -73,15 +53,20 @@ function ChatAvatarComponent({
   className,
   interactive = false,
   isAssistantBusy = false,
+  originAnchor = false,
 }: ChatAvatarProps) {
   const reduce = useReducedMotion();
   const [isPoking, setIsPoking] = useState(false);
+  // Spread onto whichever root renders, so the room can locate this avatar.
+  const anchorProps = originAnchor ? { "data-voice-origin": "" } : {};
 
   const triggerBounce = useCallback(() => {
     // Sound is independent of motion preference, so it plays before the
     // reduced-motion short-circuit that skips the bounce animation.
     void getSoundManager().play("character_poke");
-    if (reduce) return;
+    if (reduce) {
+      return;
+    }
     setIsPoking(true);
     window.setTimeout(() => setIsPoking(false), 360);
   }, [reduce]);
@@ -89,12 +74,18 @@ function ChatAvatarComponent({
   const handleClick = interactive ? triggerBounce : undefined;
 
   const effectiveTraits = useMemo(() => {
-    if (traits) return traits;
-    if (!components) return null;
+    if (traits) {
+      return traits;
+    }
+    if (!components) {
+      return null;
+    }
     const body = components.bodyShapes[0];
     const eyes = components.eyeStyles[0];
     const color = components.colors[0];
-    if (!body || !eyes || !color) return null;
+    if (!body || !eyes || !color) {
+      return null;
+    }
     return { bodyShape: body.id, eyeStyle: eyes.id, color: color.id };
   }, [traits, components]);
 
@@ -122,6 +113,7 @@ function ChatAvatarComponent({
   if (preferCharacter) {
     return (
       <motion.div
+        {...anchorProps}
         className={className}
         style={wrapperStyle}
         onClick={handleClick}
@@ -142,6 +134,7 @@ function ChatAvatarComponent({
   if (customImageUrl) {
     return (
       <motion.div
+        {...anchorProps}
         onClick={handleClick}
         initial={initial}
         animate={animate}
@@ -163,13 +156,13 @@ function ChatAvatarComponent({
           className={`rounded-full object-cover ${className ?? ""}`}
           style={{ width: size, height: size, flexShrink: 0 }}
         />
-        {isAssistantBusy && <AvatarStreamingRing size={size} />}
       </motion.div>
     );
   }
 
   return (
     <motion.div
+      {...anchorProps}
       className={`flex items-center justify-center rounded-full bg-[var(--primary-base)] text-[var(--content-inset)] ${className ?? ""}`}
       style={{ ...wrapperStyle, fontSize: size * 0.45 }}
       onClick={handleClick}

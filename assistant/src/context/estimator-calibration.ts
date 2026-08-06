@@ -72,16 +72,27 @@ export function recordEstimate(
   estimated: number,
   actual: number,
 ): void {
-  if (estimated < MIN_SAMPLE_MAGNITUDE || actual < MIN_SAMPLE_MAGNITUDE) return;
+  if (estimated < MIN_SAMPLE_MAGNITUDE || actual < MIN_SAMPLE_MAGNITUDE) {
+    return;
+  }
   const ratio = actual / estimated;
-  if (ratio < MIN_ACCEPTABLE_RATIO || ratio > MAX_ACCEPTABLE_RATIO) return;
+  if (ratio < MIN_ACCEPTABLE_RATIO || ratio > MAX_ACCEPTABLE_RATIO) {
+    return;
+  }
 
-  applyEwmaUpdate(provider, model, ratio);
+  // A provider can echo back a usage report with no model field (some
+  // OpenAI-compatible providers omit it), leaving `model` null/undefined at
+  // runtime despite its static type. Normalize to the per-provider aggregate
+  // key rather than dereferencing it — an unhandled throw here crashes the
+  // whole process.
+  const safeModel = model ?? "";
+
+  applyEwmaUpdate(provider, safeModel, ratio);
 
   // Also fold into the per-provider aggregate so callers without a modelId
   // fall back to a meaningful rolling correction instead of the 1.0 default.
   // Skip when the caller already passed an empty model (avoids double-counting).
-  if (model.length > 0) {
+  if (safeModel.length > 0) {
     applyEwmaUpdate(provider, "", ratio);
   }
 }
@@ -98,7 +109,9 @@ export function recordEstimate(
  */
 export function getCorrection(provider: string, model: string): number {
   const specific = CALIBRATIONS.get(key(provider, model));
-  if (specific) return specific.ratio;
+  if (specific) {
+    return specific.ratio;
+  }
   if (model.length > 0) {
     return CALIBRATIONS.get(key(provider, ""))?.ratio ?? 1.0;
   }

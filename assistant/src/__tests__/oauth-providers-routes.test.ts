@@ -99,13 +99,18 @@ mock.module("../oauth/oauth-store.js", () => ({
 
 import { NotFoundError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/oauth-providers.js";
-import type { RouteDefinition, RouteHandlerArgs } from "../runtime/routes/types.js";
+import type {
+  RouteDefinition,
+  RouteHandlerArgs,
+} from "../runtime/routes/types.js";
 
 function getRoute(method: string, endpoint: string): RouteDefinition {
   const route = ROUTES.find(
     (r: RouteDefinition) => r.method === method && r.endpoint === endpoint,
   );
-  if (!route) throw new Error(`Route not found: ${method} ${endpoint}`);
+  if (!route) {
+    throw new Error(`Route not found: ${method} ${endpoint}`);
+  }
   return route;
 }
 
@@ -119,7 +124,10 @@ async function callRoute(
     return { status: 200, body: result };
   } catch (err) {
     if (err instanceof NotFoundError) {
-      return { status: err.statusCode, body: { error: { code: err.code, message: err.message } } };
+      return {
+        status: err.statusCode,
+        body: { error: { code: err.code, message: err.message } },
+      };
     }
     throw err;
   }
@@ -151,10 +159,9 @@ describe("GET /v1/oauth/providers", () => {
   });
 
   test("response shape matches serializeProviderSummary output (snake_case keys)", async () => {
-    const { body } = await callRoute(
-      getRoute("GET", "oauth/providers"),
-      { queryParams: {} },
-    );
+    const { body } = await callRoute(getRoute("GET", "oauth/providers"), {
+      queryParams: {},
+    });
 
     const { providers } = body as {
       providers: Array<Record<string, unknown>>;
@@ -192,9 +199,7 @@ describe("GET /v1/oauth/providers", () => {
       }>;
     };
 
-    expect(providers[0]!.logo_url).toBe(
-      "https://cdn.simpleicons.org/google",
-    );
+    expect(providers[0]!.logo_url).toBe("https://cdn.simpleicons.org/google");
     expect(providers[1]!.logo_url).toBeNull();
   });
 

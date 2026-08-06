@@ -30,47 +30,6 @@ const realPreflightModule = {
   ...(await import("../live-voice-credential-preflight.js")),
 };
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../../config/loader.js", () => {
-  const config = {
-    model: "test",
-    provider: "test",
-    platform: { baseUrl: "https://example.com" },
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    contextWindow: { maxInputTokens: 200_000 },
-    services: {
-      stt: { provider: "deepgram" },
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": {
-        mode: "your-own",
-        provider: "inference-provider-native",
-      },
-    },
-  };
-  return {
-    loadConfig: () => config,
-    getConfig: () => config,
-    invalidateConfigCache: () => {},
-  };
-});
-
 class MockStreamingTranscriber implements StreamingTranscriber {
   readonly providerId = "deepgram" as const;
   readonly boundaryId = "daemon-streaming" as const;
@@ -176,7 +135,9 @@ function startFrame(conversationId = "conversation-123"): string {
 }
 
 async function waitForOpen(ws: WebSocket, timeoutMs = 2000): Promise<void> {
-  if (ws.readyState === WebSocket.OPEN) return;
+  if (ws.readyState === WebSocket.OPEN) {
+    return;
+  }
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
@@ -201,7 +162,9 @@ async function waitForOpen(ws: WebSocket, timeoutMs = 2000): Promise<void> {
 }
 
 async function waitForClose(ws: WebSocket, timeoutMs = 2000): Promise<void> {
-  if (ws.readyState === WebSocket.CLOSED) return;
+  if (ws.readyState === WebSocket.CLOSED) {
+    return;
+  }
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
@@ -364,8 +327,12 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
       conversationId: "conversation-ready",
     });
     expect(typeof ready.sessionId).toBe("string");
+    // The config default is "multi", so the session carries a language into
+    // the resolver rather than leaving it to be inferred downstream.
     expect(resolveStreamingTranscriberMock).toHaveBeenCalledWith({
       sampleRate: 24_000,
+      providerId: "deepgram",
+      language: "multi",
     });
     expect(resolvedTranscribers).toHaveLength(1);
     expect(resolvedTranscribers[0]?.started).toBe(true);
@@ -444,6 +411,13 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
     await waitForOpen(ws);
 
     ws.send(startFrame("conversation-failed"));
+    // ready precedes the arm: the STT connection is established in the
+    // background, so its failure surfaces as a post-ready error frame.
+    const readyBeforeFailure = await waitForJsonFrame(ws);
+    expect(readyBeforeFailure).toMatchObject({
+      type: "ready",
+      conversationId: "conversation-failed",
+    });
     const error = await waitForJsonFrame(ws);
     expect(error).toMatchObject({
       type: "error",

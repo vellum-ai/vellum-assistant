@@ -8,7 +8,13 @@
  */
 
 import { MessageSquareQuote } from "lucide-react";
-import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type RefObject,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { Button, Popover } from "@vellumai/design-library";
 
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
@@ -30,7 +36,9 @@ interface TextSelectionPopoverProps {
   containerRef: RefObject<HTMLElement | null>;
 }
 
-export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps) {
+export function TextSelectionPopover({
+  containerRef,
+}: TextSelectionPopoverProps) {
   const coarseSelectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );

@@ -1,8 +1,4 @@
-import type {
-  Dispatch,
-  MutableRefObject,
-  SetStateAction,
-} from "react";
+import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -80,7 +76,10 @@ export interface StreamHandlerContext {
   addDismissedSurfaceId: (surfaceId: string) => void;
 
   // --- Context window ---
-  setContextWindowUsageForConversation: (conversationId: string, usage: ContextWindowUsage) => void;
+  setContextWindowUsageForConversation: (
+    conversationId: string,
+    usage: ContextWindowUsage,
+  ) => void;
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
 
   // --- Conversations ---
@@ -92,6 +91,7 @@ export interface StreamHandlerContext {
 
   // --- Queue management ---
   shiftPendingQueuedMessageId: () => string | undefined;
+  takePendingQueuedMessageId: (messageId: string) => string | undefined;
   setRequestIdMapping: (requestId: string, messageId: string) => void;
   popRequestIdMapping: (requestId: string) => string | undefined;
   consumePendingLocalDeletion: (messageId: string) => boolean;

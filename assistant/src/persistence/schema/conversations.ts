@@ -15,7 +15,8 @@ export const conversations = sqliteTable(
     title: text("title"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
-    totalInputTokens: integer("total_input_tokens").notNull().default(0),
+    // Nullable (migration 350): NULL = unknown total; readers coalesce to 0.
+    totalInputTokens: integer("total_input_tokens").default(0),
     totalOutputTokens: integer("total_output_tokens").notNull().default(0),
     totalEstimatedCost: real("total_estimated_cost").notNull().default(0),
     contextSummary: text("context_summary"),
@@ -32,11 +33,50 @@ export const conversations = sqliteTable(
     ),
     conversationType: text("conversation_type").notNull().default("standard"),
     source: text("source").notNull().default("user"),
-    memoryScopeId: text("memory_scope_id").notNull().default("default"),
     originChannel: text("origin_channel"),
     originInterface: text("origin_interface"),
     forkParentConversationId: text("fork_parent_conversation_id"),
     forkParentMessageId: text("fork_parent_message_id"),
+    /**
+     * How this conversation's fork was materialized: `reference` means the
+     * rows at-or-before `forkParentMessageId` live on the parent and are read
+     * through it, `cloning` (and NULL, the value every pre-existing fork
+     * carries) means they were physically copied onto this row. Read through
+     * `isReferentialFork` in `conversation-lineage.ts`, never directly: the
+     * NULL-is-cloning default is what keeps existing forks from being read
+     * twice, once from their copies and once through their parent.
+     */
+    forkStrategy: text("fork_strategy"),
+    /**
+     * Id of the conversation that spawned this one (subagent spawns stamp
+     * their parent's conversation id). Distinct from
+     * `forkParentConversationId`, which records message-history inheritance;
+     * this column records spawn attribution for telemetry. NULL for
+     * conversations not spawned by another conversation.
+     */
+    parentConversationId: text("parent_conversation_id"),
+    /**
+     * Role the subagent that owns this conversation was spawned with, from
+     * `SUBAGENT_ROLE_REGISTRY` (`researcher`, `builder`, `advisor`); a spawn
+     * that named no role records the default, `builder`. NULL for every
+     * conversation that is not a subagent.
+     *
+     * Denormalized here rather than read from the `subagents` table at
+     * telemetry-flush time on purpose: `subagents` rows are deleted on
+     * dispose (TTL sweep ~30 minutes after the run goes terminal), while
+     * usage telemetry flushes on a watermark that can trail arbitrarily far
+     * behind after an ingest outage. Stamping the conversation row, the same
+     * rationale that put `parent_conversation_id` here, makes the
+     * attribution durable for the life of the usage row.
+     */
+    subagentRole: text("subagent_role"),
+    /**
+     * How the subagent that owns this conversation was spawned: context
+     * inheritance and lifecycle, orthogonal to {@link subagentRole}. One of
+     * the modes described on `SubagentSpawnMode` in `subagent/types.ts`. NULL
+     * for every conversation that is not a subagent.
+     */
+    subagentSpawnMode: text("subagent_spawn_mode"),
     isAutoTitle: integer("is_auto_title").notNull().default(1),
     scheduleJobId: text("schedule_job_id"),
     lastMessageAt: integer("last_message_at"),
@@ -64,6 +104,16 @@ export const conversations = sqliteTable(
      */
     processingStartedAt: integer("processing_started_at"),
     /**
+     * Count of consecutive startup auto-resume attempts for this
+     * conversation's interrupted turn. Incremented by the startup reconciler
+     * when it wakes a conversation whose `processing_started_at` survived the
+     * previous process; reset to 0 whenever a turn ends cleanly. Caps
+     * resume-loops for turns that repeatedly take the process down.
+     */
+    processingResumeAttempts: integer("processing_resume_attempts")
+      .notNull()
+      .default(0),
+    /**
      * Highest stream `seq` whose content is durably persisted to this
      * conversation's message rows. Seeded with the global high-water seq when
      * the row is inserted and advanced on each persistence flush
@@ -84,6 +134,9 @@ export const conversations = sqliteTable(
     index("idx_conversations_fork_parent_conversation_id").on(
       table.forkParentConversationId,
     ),
+    index("idx_conversations_parent_conversation_id").on(
+      table.parentConversationId,
+    ),
   ],
 );
 
@@ -95,10 +148,25 @@ export const messages = sqliteTable(
       .notNull()
       .references(() => conversations.id, { onDelete: "cascade" }),
     role: text("role").notNull(),
+    /**
+     * Union of two JSON shapes: an inline `ContentBlock[]` (or a legacy
+     * plain string), or `{ ref: "<workspace-relative path>" }` pointing at
+     * a file-backed content payload. Resolve to typed blocks with
+     * `resolveMessageContentBlocks` (message-content-file.ts) — never
+     * interpret this column's shape by hand.
+     */
     content: text("content").notNull(),
     createdAt: integer("created_at").notNull(),
     metadata: text("metadata"),
     clientMessageId: text("client_message_id"),
+    /**
+     * 1 (default) = `content` is the complete, immutable value (inline or
+     * `{ ref }`). 0 = the message is still streaming and `content` is a
+     * `{ ref }` to its in-flight delta file. Batch readers (search, memory
+     * indexing, fork) must filter `finalized = 1`; only the live turn and
+     * crash recovery read unfinalized rows.
+     */
+    finalized: integer("finalized").notNull().default(1),
   },
   (table) => [
     uniqueIndex("idx_messages_conv_client_msg_id")
@@ -170,12 +238,16 @@ export const messageAttachments = sqliteTable("message_attachments", {
   createdAt: integer("created_at").notNull(),
 });
 
+// Per-conversation ConversationGraphMemory + InContextTracker snapshot,
+// rehydrated on resume. Lives in the dedicated memory database
+// (`assistant-memory.db`), not main — access it via the memory connection
+// (`getMemoryDb()` / `getMemorySqlite()`). No FK to conversations.id: SQLite
+// foreign keys cannot span database files, so the deleted-conversation cascade
+// is replaced by an explicit delete in the memory `conversation-deleted` hook.
 export const conversationGraphMemoryState = sqliteTable(
   "conversation_graph_memory_state",
   {
-    conversationId: text("conversation_id")
-      .primaryKey()
-      .references(() => conversations.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id").primaryKey(),
     stateJson: text("state_json").notNull(),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),

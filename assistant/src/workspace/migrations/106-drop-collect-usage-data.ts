@@ -18,18 +18,24 @@ export const dropCollectUsageDataMigration: WorkspaceMigration = {
     "Drop collectUsageData; preserve an explicit opt-out as legacyTelemetryOptOut (telemetry is gated by platform share_analytics consent)",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return; // Malformed config — skip
     }
 
-    if (!("collectUsageData" in config)) return;
+    if (!("collectUsageData" in config)) {
+      return;
+    }
 
     // An explicit opt-out is preserved as a fail-closed marker; any non-false
     // value carries no opt-out intent.

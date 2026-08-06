@@ -22,8 +22,10 @@ import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
 } from "../context/post-turn-tool-result-truncation.js";
+import { emitAssistantReplyNotification } from "../notifications/assistant-reply-producer.js";
 import { projectAssistantMessage } from "../persistence/conversation-attention-store.js";
 import {
+  type ConversationRow,
   getConversation,
   getMessageById,
   parseMessageMetadata,
@@ -34,6 +36,10 @@ import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/messa
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
 import type { Message } from "../providers/types.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
+import {
+  finalizeStrandedInflightContent,
+  type InflightContentWriter,
+} from "./inflight-message-content.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
 
 /** Minimal live-conversation surface the deferred tail reads and rewrites. */
@@ -46,6 +52,8 @@ interface TurnTailContext {
 interface TurnTailState {
   readonly deferredFinalizeEffects: ReadonlyArray<() => Promise<void>>;
   readonly lastAssistantMessageId: string | undefined;
+  /** In-flight content writers the turn left behind (see EventHandlerState). */
+  readonly inflightWriters: Map<string, InflightContentWriter>;
 }
 
 /**
@@ -85,7 +93,6 @@ export function buildDeferredFinalizeEffect(params: {
           role: "assistant",
           content: contentJson,
           createdAt: finalizedRow.createdAt,
-          scopeId: "default",
           provenanceTrustClass: metadata?.provenanceTrustClass,
           automated: metadata?.automated,
         },
@@ -137,12 +144,44 @@ export async function runDeferredTurnTail(params: {
   state: TurnTailState;
   rlog: pino.Logger;
   generationCompletedAt: number;
+  /**
+   * True only for a `message_complete` turn that produced a genuine reply. A
+   * handed-off generation is not the end of the run, a cancelled one has no
+   * final reply, and a provider-error turn's only assistant row is the
+   * synthetic error text.
+   */
+  turnCompleted: boolean;
+  /** Id of the row that opened this turn, for the notification producer. */
+  userMessageId: string | undefined;
+  /**
+   * True when this turn's reply streams to the app and nowhere else, for the
+   * notification producer's delivery-surface gates.
+   */
+  replyDeliveredInAppOnly?: boolean;
 }): Promise<void> {
-  const { ctx, state, rlog, generationCompletedAt } = params;
+  const {
+    ctx,
+    state,
+    rlog,
+    generationCompletedAt,
+    turnCompleted,
+    userMessageId,
+    replyDeliveredInAppOnly,
+  } = params;
   const tailStartedAt = Date.now();
 
+  // Conversation row for the notification producer below. Guarded like every
+  // step below, because this runs after the terminal SSE and a SQLite hiccup
+  // must not escape into the loop's outer catch.
+  let conversation: ConversationRow | null = null;
+  try {
+    conversation = getConversation(ctx.conversationId);
+  } catch (err) {
+    rlog.warn({ err }, "Failed to read conversation for end-of-turn work");
+  }
+
   // Per-message memory/attention finalize side-effects deferred from
-  // `handleMessageComplete` — one closure per assistant row produced this turn,
+  // `handleMessageComplete`: one closure per assistant row produced this turn,
   // in production order.
   for (const effect of state.deferredFinalizeEffects) {
     try {
@@ -152,16 +191,44 @@ export async function runDeferredTurnTail(params: {
     }
   }
 
+  // Notify about a finished reply the user is no longer looking at. Ordered
+  // after the loop above so the producer's unseen check reads the attention
+  // cursor this turn's last row just projected. Not awaited: the pipeline
+  // awaits the platform adapter's HTTP dispatch, which retries with backoff,
+  // and nothing below here depends on the emit. The producer never rejects.
+  if (turnCompleted && state.lastAssistantMessageId) {
+    void emitAssistantReplyNotification({
+      conversationId: ctx.conversationId,
+      assistantMessageId: state.lastAssistantMessageId,
+      userMessageId,
+      ...(replyDeliveredInAppOnly ? { replyDeliveredInAppOnly: true } : {}),
+      rlog,
+      conversation,
+    });
+  }
+
+  // Fresh row for the two filesystem steps below. The awaited work above is
+  // long enough for the user to delete the conversation, and the row read at
+  // the top of the tail stays truthy across that deletion, so spooling or
+  // mirroring against it would rebuild a deleted conversation's directory from
+  // in-memory history. A row that is gone skips both steps exactly as an
+  // unreadable one does.
+  let liveConversation: ConversationRow | null = null;
+  try {
+    liveConversation = getConversation(ctx.conversationId);
+  } catch (err) {
+    rlog.warn({ err }, "Failed to re-read conversation for end-of-turn work");
+  }
+
   // Post-turn tool-result truncation: spool oversized results to disk and
   // replace their in-context content with a stub + pointer, shrinking the next
   // turn's context. Rewrites only the in-memory history, so it has no bearing on
   // the reply already delivered to the client.
   try {
-    const conv = getConversation(ctx.conversationId);
-    if (conv) {
+    if (liveConversation) {
       const convDir = getResolvedConversationDirPath(
         ctx.conversationId,
-        conv.createdAt,
+        liveConversation.createdAt,
       );
       const { messages: derefMessages, dereferencedCount } =
         derefToolResultReReads(ctx.messages);
@@ -181,21 +248,29 @@ export async function runDeferredTurnTail(params: {
     rlog.warn({ err }, "Post-turn tool result truncation failed (non-fatal)");
   }
 
-  // Mirror the final assistant row into the JSONL disk view. Guarded like the
-  // steps above: this runs AFTER the terminal SSE, so a throw here (e.g. a
-  // SQLite read failure in `getConversation`) must not escape into the loop's
-  // outer catch and emit a second, contradictory terminal event for a turn the
-  // client already saw complete.
+  // Fold any in-flight content writers the turn left behind (cancelled or
+  // aborted turns exit before their rows' finalize seams). Guarded like the
+  // steps below: a failure must not escape past the terminal SSE.
   try {
-    if (state.lastAssistantMessageId) {
-      const convForDisk = getConversation(ctx.conversationId);
-      if (convForDisk) {
-        syncMessageToDisk(
-          ctx.conversationId,
-          state.lastAssistantMessageId,
-          convForDisk.createdAt,
-        );
-      }
+    await finalizeStrandedInflightContent(state.inflightWriters, rlog);
+  } catch (err) {
+    rlog.warn(
+      { err },
+      "Failed to finalize stranded in-flight content (non-fatal)",
+    );
+  }
+
+  // Mirror the final assistant row into the JSONL disk view. Guarded like the
+  // steps above: this runs AFTER the terminal SSE, so a throw here must not
+  // escape into the loop's outer catch and emit a second, contradictory
+  // terminal event for a turn the client already saw complete.
+  try {
+    if (state.lastAssistantMessageId && liveConversation) {
+      syncMessageToDisk(
+        ctx.conversationId,
+        state.lastAssistantMessageId,
+        liveConversation.createdAt,
+      );
     }
   } catch (err) {
     rlog.warn({ err }, "Failed to sync assistant message to disk (non-fatal)");

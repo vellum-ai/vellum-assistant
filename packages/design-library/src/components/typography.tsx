@@ -15,6 +15,7 @@ export type TypographyVariant =
   | "body-large-default"
   | "body-medium-lighter"
   | "body-medium-default"
+  | "body-small-lighter"
   | "body-small-default"
   | "body-small-emphasised"
   | "label-medium-default"
@@ -29,6 +30,7 @@ const VARIANT_CLASS: Record<TypographyVariant, string> = {
   "body-large-default": "text-body-large-default",
   "body-medium-lighter": "text-body-medium-lighter",
   "body-medium-default": "text-body-medium-default",
+  "body-small-lighter": "text-body-small-lighter",
   "body-small-default": "text-body-small-default",
   "body-small-emphasised": "text-body-small-emphasised",
   "label-medium-default": "text-label-medium-default",

@@ -46,8 +46,10 @@ afterAll(() => {
   rmSync(ROOT, { recursive: true, force: true });
 });
 
-const { collectSourceVersions, createSourceWatchState, runSourceWatchPass } =
+const { createSourceWatchState, runSourceWatchPass } =
   await import("../plugin-source-watch.js");
+const { collectSourceVersions } =
+  await import("../../plugins/collect-source-versions.js");
 const { getSourceVersionsPath, readSourceVersions } =
   await import("../../plugins/source-versions.js");
 
@@ -210,5 +212,42 @@ describe("plugin source watch", () => {
 
     const versions = collectSourceVersions();
     expect(versions[join(PLUGINS_DIR, "not-a-plugin")]).toBeUndefined();
+  });
+});
+
+describe("compilePluginApps", () => {
+  test("builds only apps that have a src/ entry point", async () => {
+    const built: string[] = [];
+    const { mock } = await import("bun:test");
+    mock.module("../../bundler/app-compiler.js", () => ({
+      compileApp: (appDir: string) => {
+        built.push(appDir);
+        return Promise.resolve({ ok: true });
+      },
+    }));
+
+    const { compilePluginApps } = await import("../plugin-source-watch.js");
+
+    const pluginDir = join(PLUGINS_DIR, "with-apps");
+    // Multi-file app (has src/) → built.
+    mkdirSync(join(pluginDir, "apps", "multi", "src"), { recursive: true });
+    writeFileSync(
+      join(pluginDir, "apps", "multi", "src", "main.tsx"),
+      "export default 1;",
+    );
+    // Single-file app (index.html, no src/) → skipped.
+    mkdirSync(join(pluginDir, "apps", "single"), { recursive: true });
+    writeFileSync(join(pluginDir, "apps", "single", "index.html"), "<div/>");
+
+    await compilePluginApps(pluginDir);
+
+    expect(built).toEqual([join(pluginDir, "apps", "multi")]);
+  });
+
+  test("no-ops when the plugin bundles no apps", async () => {
+    const { compilePluginApps } = await import("../plugin-source-watch.js");
+    const pluginDir = join(PLUGINS_DIR, "no-apps");
+    mkdirSync(pluginDir, { recursive: true });
+    await expect(compilePluginApps(pluginDir)).resolves.toBeUndefined();
   });
 });

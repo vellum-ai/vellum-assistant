@@ -43,8 +43,13 @@ const JINJA_VERSION = "0.5.5";
  * `_workers-vN` suffix forces existing installs to regenerate the worker
  * scripts when the worker IPC contract or spawn-args list changes (without
  * requiring an `@huggingface/transformers` version bump).
+ *
+ * v4: workers read `VELLUM_ONNX_INTRA_OP_THREADS` and pass
+ * `session_options.intraOpNumThreads` (JARVIS-1398). The environment the host
+ * spawns them with counts as part of the contract, so an install that keeps
+ * the v3 scripts would silently ignore the cap.
  */
-const RUNTIME_VERSION = `ort-${ONNXRUNTIME_NODE_VERSION}_hf-${TRANSFORMERS_VERSION}_jinja-${JINJA_VERSION}_workers-v3`;
+export const RUNTIME_VERSION = `ort-${ONNXRUNTIME_NODE_VERSION}_hf-${TRANSFORMERS_VERSION}_jinja-${JINJA_VERSION}_workers-v4`;
 
 const WORKER_FILENAME = "embed-worker.mjs";
 const RERANK_WORKER_FILENAME = "rerank-worker.mjs";
@@ -116,7 +121,7 @@ async function downloadAndExtract(
 
 // ── Worker script content ───────────────────────────────────────────
 
-function generateWorkerScript(): string {
+export function generateWorkerScript(): string {
   // This script is run by a standalone bun process (not the compiled daemon).
   // Because it runs in a real bun runtime, bare specifier resolution works
   // normally — node_modules/ in the same directory is found automatically.
@@ -130,9 +135,19 @@ const model = process.argv[2];
 const cacheDir = process.argv[3];
 if (cacheDir && env) env.cacheDir = cacheDir;
 
+// Cap the ONNX intra-op thread pool. Left unset, ONNX takes one thread per
+// physical core for the whole batch and starves foreground work; the host
+// computes the cap in util/worker-compute.ts and passes it in the environment.
+// A missing or unparseable value means no cap, i.e. the ONNX default.
+const intraOpNumThreads = Number(process.env.VELLUM_ONNX_INTRA_OP_THREADS);
+const sessionOptions =
+  Number.isInteger(intraOpNumThreads) && intraOpNumThreads > 0
+    ? { intraOpNumThreads }
+    : undefined;
+
 let extractor;
 try {
-  extractor = await pipeline('feature-extraction', model, { dtype: 'fp32' });
+  extractor = await pipeline('feature-extraction', model, { dtype: 'fp32', session_options: sessionOptions });
   process.stdout.write(JSON.stringify({ type: 'ready' }) + '\\n');
 } catch (err) {
   process.stdout.write(JSON.stringify({ type: 'error', error: err.message || String(err) }) + '\\n');
@@ -177,7 +192,7 @@ process.stdin.on('end', () => process.exit(0));
 `;
 }
 
-function generateRerankWorkerScript(): string {
+export function generateRerankWorkerScript(): string {
   // Cross-encoder rerank worker. Loads a sequence-classification model and
   // scores paired (queries[i], passages[i]) tuples in one batched ONNX
   // inference call. Mirrors the embed worker's lifecycle (ready signal,
@@ -204,11 +219,20 @@ const cacheDir = process.argv[3];
 const dtype = process.argv[4] || 'q8';
 if (cacheDir && env) env.cacheDir = cacheDir;
 
+// Cap the ONNX intra-op thread pool. See the embed worker for the rationale;
+// the host computes the cap in util/worker-compute.ts and passes it in the
+// environment. A missing or unparseable value means no cap, i.e. the default.
+const intraOpNumThreads = Number(process.env.VELLUM_ONNX_INTRA_OP_THREADS);
+const sessionOptions =
+  Number.isInteger(intraOpNumThreads) && intraOpNumThreads > 0
+    ? { intraOpNumThreads }
+    : undefined;
+
 let tokenizer;
 let session;
 try {
   tokenizer = await AutoTokenizer.from_pretrained(model);
-  session = await AutoModelForSequenceClassification.from_pretrained(model, { dtype });
+  session = await AutoModelForSequenceClassification.from_pretrained(model, { dtype, session_options: sessionOptions });
   process.stdout.write(JSON.stringify({ type: 'ready' }) + '\\n');
 } catch (err) {
   process.stdout.write(JSON.stringify({ type: 'error', error: err.message || String(err) }) + '\\n');
@@ -283,8 +307,12 @@ export class EmbeddingRuntimeManager {
   /** Check if the embedding runtime is installed and up-to-date. */
   isReady(): boolean {
     const manifest = this.readManifest();
-    if (!manifest) return false;
-    if (manifest.runtimeVersion !== RUNTIME_VERSION) return false;
+    if (!manifest) {
+      return false;
+    }
+    if (manifest.runtimeVersion !== RUNTIME_VERSION) {
+      return false;
+    }
 
     // Verify both worker scripts exist and a bun binary is available
     return (
@@ -312,7 +340,9 @@ export class EmbeddingRuntimeManager {
   getBunPath(): string | undefined {
     // Check per-runtime bin/ directory for backwards compat
     const legacyBun = join(this.baseDir, "bin", "bun");
-    if (existsSync(legacyBun)) return legacyBun;
+    if (existsSync(legacyBun)) {
+      return legacyBun;
+    }
 
     return findBun();
   }
@@ -323,7 +353,9 @@ export class EmbeddingRuntimeManager {
    * PromiseGuard, and cross-process calls are serialized via a lock file.
    */
   async ensureInstalled(signal?: AbortSignal): Promise<void> {
-    if (this.isReady()) return;
+    if (this.isReady()) {
+      return;
+    }
 
     // Deduplicate concurrent in-process calls
     await installGuard.run(() => this.acquireLockAndInstall(signal));
@@ -337,7 +369,9 @@ export class EmbeddingRuntimeManager {
 
   private async acquireLockAndInstall(signal?: AbortSignal): Promise<void> {
     // Re-check after acquiring the in-process guard
-    if (this.isReady()) return;
+    if (this.isReady()) {
+      return;
+    }
 
     // Cross-process lock to prevent duplicate downloads
     const lockPath = join(this.baseDir, ".downloading");
@@ -430,7 +464,9 @@ export class EmbeddingRuntimeManager {
       // Ensure bun is available (downloads to shared location if needed)
       await ensureBun();
 
-      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      if (signal?.aborted) {
+        throw new DOMException("Aborted", "AbortError");
+      }
 
       log.info("npm packages downloaded, stripping non-platform binaries");
 
@@ -519,8 +555,9 @@ export class EmbeddingRuntimeManager {
 
       // Remove old install (preserving dotfiles like .gitignore, .downloading, temp dirs)
       for (const entry of readdirSync(this.baseDir)) {
-        if (entry.startsWith(".") || entry === tmpDir.split("/").pop())
+        if (entry.startsWith(".") || entry === tmpDir.split("/").pop()) {
           continue;
+        }
         rmSync(join(this.baseDir, entry), { recursive: true, force: true });
       }
 
@@ -556,14 +593,17 @@ export class EmbeddingRuntimeManager {
     } finally {
       // Clean up temp directory and any leftover preserve dirs
       rmSync(tmpDir, { recursive: true, force: true });
-      if (tmpModelCache)
+      if (tmpModelCache) {
         rmSync(tmpModelCache, { recursive: true, force: true });
+      }
     }
   }
 
   private readManifest(): VersionManifest | null {
     const manifestPath = join(this.baseDir, "version.json");
-    if (!existsSync(manifestPath)) return null;
+    if (!existsSync(manifestPath)) {
+      return null;
+    }
     try {
       return JSON.parse(readFileSync(manifestPath, "utf-8"));
     } catch {

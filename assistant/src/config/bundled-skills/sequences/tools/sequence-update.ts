@@ -26,21 +26,25 @@ export async function run(
 
   // ── Enrollment-level lifecycle actions ──────────────────────────────
   if (enrollmentId) {
-    if (!enrollmentAction)
+    if (!enrollmentAction) {
       return err(
         "enrollment_action is required when enrollment_id is provided.",
       );
+    }
 
     try {
       const enrollment = getEnrollment(enrollmentId);
-      if (!enrollment) return err(`Enrollment not found: ${enrollmentId}`);
+      if (!enrollment) {
+        return err(`Enrollment not found: ${enrollmentId}`);
+      }
 
       switch (enrollmentAction) {
         case "pause": {
-          if (enrollment.status !== "active")
+          if (enrollment.status !== "active") {
             return err(
               `Enrollment is not active (status: ${enrollment.status}).`,
             );
+          }
           pauseEnrollment(enrollmentId);
           return ok(
             `Enrollment ${enrollmentId} paused. Resume it later to continue from step ${
@@ -49,17 +53,19 @@ export async function run(
           );
         }
         case "resume": {
-          if (enrollment.status !== "paused")
+          if (enrollment.status !== "paused") {
             return err(
               `Enrollment is not paused (status: ${enrollment.status}).`,
             );
+          }
           const seq = enrollment.sequenceId
             ? getSequence(enrollment.sequenceId)
             : null;
-          if (seq && seq.status !== "active")
+          if (seq && seq.status !== "active") {
             return err(
               `Cannot resume enrollment - parent sequence "${seq.name}" is ${seq.status}. Resume the sequence first.`,
             );
+          }
           resumeEnrollment(enrollmentId);
           return ok(`Enrollment ${enrollmentId} resumed.`);
         }
@@ -86,7 +92,9 @@ export async function run(
   }
 
   // ── Sequence-level update ──────────────────────────────────────────
-  if (!id) return err("id is required.");
+  if (!id) {
+    return err("id is required.");
+  }
 
   const name = input.name as string | undefined;
   const description = input.description as string | undefined;
@@ -120,7 +128,9 @@ export async function run(
       exitOnReply,
       steps,
     });
-    if (!updated) return err(`Sequence not found: ${id}`);
+    if (!updated) {
+      return err(`Sequence not found: ${id}`);
+    }
 
     return ok(`Sequence updated: ${updated.name} (${updated.status})`);
   } catch (e) {

@@ -3,19 +3,27 @@ import { describe, expect, test } from "bun:test";
 import type { DoctorMessage } from "@/generated/api/types.gen";
 
 import {
+  USER_OUTCOME_PROMPT_QUESTION,
+  applySessionUserOutcome,
   hasPendingApproval,
   hasPendingBackup,
   isReplayableDoctorSourceEventId,
   latestReplayableDoctorSourceEventId,
   mapPersistedMessagesToEntries,
   mapPersistedStatusToPanelStatus,
+  partitionTrailingUserOutcomePrompts,
   replayableDoctorSourceEventIds,
   selectLatestHistorySession,
   serializeSessionToText,
 } from "@/domains/settings/components/panels/doctor-history";
-import type { ChatEntry } from "@/domains/settings/components/panels/doctor-history";
+import type {
+  ChatEntry,
+  UserOutcomePromptChatEntry,
+} from "@/domains/settings/components/panels/doctor-history";
 
-function msg(overrides: Partial<DoctorMessage> & Pick<DoctorMessage, "kind">): DoctorMessage {
+function msg(
+  overrides: Partial<DoctorMessage> & Pick<DoctorMessage, "kind">,
+): DoctorMessage {
   return {
     id: "msg-1",
     content: "",
@@ -65,7 +73,11 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({
         kind: "tool_call",
         content: "run_diagnostics",
-        metadata: { toolName: "run_diagnostics", input: { flag: true }, id: "tc-1" },
+        metadata: {
+          toolName: "run_diagnostics",
+          input: { flag: true },
+          id: "tc-1",
+        },
       }),
     ]);
     expect(entries).toHaveLength(1);
@@ -94,7 +106,12 @@ describe("mapPersistedMessagesToEntries", () => {
 
   test("tool_call falls back to message.id when metadata.id is missing", () => {
     const entries = mapPersistedMessagesToEntries([
-      msg({ id: "msg-tc", kind: "tool_call", content: "tool", metadata: { toolName: "tool" } }),
+      msg({
+        id: "msg-tc",
+        kind: "tool_call",
+        content: "tool",
+        metadata: { toolName: "tool" },
+      }),
     ]);
     const entry = entries[0]!;
     if (entry.kind !== "tool_call") {
@@ -187,7 +204,11 @@ describe("mapPersistedMessagesToEntries", () => {
 
   test("approval falls back to empty description when metadata lacks it", () => {
     const entries = mapPersistedMessagesToEntries([
-      msg({ kind: "approval", content: "exec", metadata: { toolName: "exec" } }),
+      msg({
+        kind: "approval",
+        content: "exec",
+        metadata: { toolName: "exec" },
+      }),
     ]);
     const entry = entries[0]!;
     if (entry.kind !== "approval") {
@@ -217,11 +238,61 @@ describe("mapPersistedMessagesToEntries", () => {
     expect(entries[0]!.content).toBe("Session ended with error");
   });
 
+  test("maps status 'feedback_prompt' to a feedback prompt entry", () => {
+    const entries = mapPersistedMessagesToEntries([
+      msg({
+        kind: "status",
+        content: "feedback_prompt",
+        metadata: { summary: "The app colors are ugly." },
+      }),
+    ]);
+    expect(entries).toEqual([
+      {
+        id: "msg-1",
+        kind: "feedback_prompt",
+        content: "The app colors are ugly.",
+        timestamp: Date.parse("2026-01-01T00:00:00Z"),
+      },
+    ]);
+  });
+
+  test("maps status 'feedback_prompt' metadata classification to a reason", () => {
+    const entries = mapPersistedMessagesToEntries([
+      msg({
+        kind: "status",
+        content: "feedback_prompt",
+        metadata: {
+          summary: "Compact mode would help.",
+          classification: "feature_request",
+        },
+      }),
+    ]);
+    expect(entries[0]).toMatchObject({
+      kind: "feedback_prompt",
+      content: "Compact mode would help.",
+      meta: { reason: "feature_request" },
+    });
+  });
+
   test("skips unknown status content", () => {
     const entries = mapPersistedMessagesToEntries([
       msg({ kind: "status", content: "active" }),
     ]);
     expect(entries).toHaveLength(0);
+  });
+
+  test("maps status 'user_outcome_prompt' to a user-outcome prompt entry", () => {
+    const entries = mapPersistedMessagesToEntries([
+      msg({ kind: "status", content: "user_outcome_prompt" }),
+    ]);
+    expect(entries).toEqual([
+      {
+        id: "msg-1",
+        kind: "user_outcome_prompt",
+        content: USER_OUTCOME_PROMPT_QUESTION,
+        timestamp: Date.parse("2026-01-01T00:00:00Z"),
+      },
+    ]);
   });
 
   test("maps error message", () => {
@@ -292,7 +363,12 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ id: "5", kind: "status", content: "completed" }),
     ]);
     expect(entries).toHaveLength(4);
-    expect(entries.map((e) => e.kind)).toEqual(["user", "assistant", "tool_call", "status"]);
+    expect(entries.map((e) => e.kind)).toEqual([
+      "user",
+      "assistant",
+      "tool_call",
+      "status",
+    ]);
     const toolEntry = entries[2]!;
     if (toolEntry.kind !== "tool_call") {
       throw new Error("unreachable");
@@ -371,7 +447,7 @@ describe("Doctor source event ID helpers", () => {
 // ---------------------------------------------------------------------------
 
 describe("hasPendingApproval", () => {
-  test("returns true when last non-status entry is approval", () => {
+  test("returns true when last actionable entry is approval", () => {
     const entries: ChatEntry[] = [
       { id: "1", kind: "user", content: "x", timestamp: 0 },
       {
@@ -379,9 +455,20 @@ describe("hasPendingApproval", () => {
         kind: "approval",
         content: "exec",
         timestamp: 0,
-        meta: { toolName: "exec", input: {}, toolCallId: "tc-1", description: "" },
+        meta: {
+          toolName: "exec",
+          input: {},
+          toolCallId: "tc-1",
+          description: "",
+        },
       },
-      { id: "3", kind: "status", content: "active", timestamp: 0 },
+      {
+        id: "3",
+        kind: "feedback_prompt",
+        content: "Share feedback",
+        timestamp: 0,
+      },
+      { id: "4", kind: "status", content: "active", timestamp: 0 },
     ];
     expect(hasPendingApproval(entries)).toBe(true);
   });
@@ -393,7 +480,12 @@ describe("hasPendingApproval", () => {
         kind: "approval",
         content: "exec",
         timestamp: 0,
-        meta: { toolName: "exec", input: {}, toolCallId: "tc-1", description: "" },
+        meta: {
+          toolName: "exec",
+          input: {},
+          toolCallId: "tc-1",
+          description: "",
+        },
       },
       { id: "2", kind: "assistant", content: "done", timestamp: 0 },
     ];
@@ -410,7 +502,7 @@ describe("hasPendingApproval", () => {
 // ---------------------------------------------------------------------------
 
 describe("hasPendingBackup", () => {
-  test("returns true when last non-status entry is backup_prompt", () => {
+  test("returns true when last actionable entry is backup_prompt", () => {
     const entries: ChatEntry[] = [
       { id: "1", kind: "user", content: "x", timestamp: 0 },
       {
@@ -419,6 +511,12 @@ describe("hasPendingBackup", () => {
         content: "tool",
         timestamp: 0,
         meta: { toolName: "tool" },
+      },
+      {
+        id: "3",
+        kind: "feedback_prompt",
+        content: "Share feedback",
+        timestamp: 0,
       },
     ];
     expect(hasPendingBackup(entries)).toBe(true);
@@ -542,7 +640,9 @@ describe("serializeSessionToText", () => {
     const result = serializeSessionToText(entries);
 
     // THEN it includes tool name, description, and input
-    expect(result).toContain("Approval Required: delete_thing — Delete x permanently");
+    expect(result).toContain(
+      "Approval Required: delete_thing — Delete x permanently",
+    );
     expect(result).toContain("Input:");
     expect(result).toContain('"target": "workspace"');
   });
@@ -596,13 +696,23 @@ describe("serializeSessionToText", () => {
     // GIVEN a mixed session timeline
     const entries: ChatEntry[] = [
       { id: "1", kind: "user", content: "fix my assistant", timestamp: 0 },
-      { id: "2", kind: "assistant", content: "Looking into it...", timestamp: 0 },
+      {
+        id: "2",
+        kind: "assistant",
+        content: "Looking into it...",
+        timestamp: 0,
+      },
       {
         id: "3",
         kind: "tool_call",
         content: "inspect",
         timestamp: 0,
-        meta: { toolName: "inspect", input: {}, toolCallId: "tc-1", status: "completed" },
+        meta: {
+          toolName: "inspect",
+          input: {},
+          toolCallId: "tc-1",
+          status: "completed",
+        },
       },
       { id: "4", kind: "assistant", content: "Found the issue.", timestamp: 0 },
       { id: "5", kind: "status", content: "Session completed", timestamp: 0 },
@@ -637,3 +747,137 @@ describe("selectLatestHistorySession", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// partitionTrailingUserOutcomePrompts
+// ---------------------------------------------------------------------------
+
+describe("partitionTrailingUserOutcomePrompts", () => {
+  const user = (id: string): ChatEntry => ({
+    id,
+    kind: "user",
+    content: "help",
+    timestamp: 0,
+  });
+  const assistant = (id: string): ChatEntry => ({
+    id,
+    kind: "assistant",
+    content: "here's what I found",
+    timestamp: 0,
+  });
+  const prompt = (id: string): UserOutcomePromptChatEntry => ({
+    id,
+    kind: "user_outcome_prompt",
+    content: USER_OUTCOME_PROMPT_QUESTION,
+    timestamp: 0,
+  });
+
+  test("pulls a prompt out of the turn in progress so it can render last", () => {
+    // GIVEN the Doctor showed the prompt before streaming its closing reply
+    const entries = [user("u1"), prompt("p1"), assistant("a1")];
+
+    // WHEN the transcript is partitioned
+    const { transcript, trailingPrompts } =
+      partitionTrailingUserOutcomePrompts(entries);
+
+    // THEN the prompt is separated from the entries rendered inline
+    expect(transcript).toEqual([user("u1"), assistant("a1")]);
+    expect(trailingPrompts).toEqual([prompt("p1")]);
+  });
+
+  test("keeps prompts from earlier turns in place", () => {
+    // GIVEN an answered prompt from an earlier turn and one from the latest turn
+    const entries = [
+      user("u1"),
+      prompt("p1"),
+      user("u2"),
+      assistant("a1"),
+      prompt("p2"),
+    ];
+
+    // WHEN the transcript is partitioned
+    const { transcript, trailingPrompts } =
+      partitionTrailingUserOutcomePrompts(entries);
+
+    // THEN only the prompt after the last user message is pulled out
+    expect(transcript).toEqual([
+      user("u1"),
+      prompt("p1"),
+      user("u2"),
+      assistant("a1"),
+    ]);
+    expect(trailingPrompts).toEqual([prompt("p2")]);
+  });
+
+  test("returns the transcript unchanged when no prompt is pending", () => {
+    // GIVEN a transcript without any user-outcome prompt
+    const entries = [user("u1"), assistant("a1")];
+
+    // WHEN the transcript is partitioned
+    const { transcript, trailingPrompts } =
+      partitionTrailingUserOutcomePrompts(entries);
+
+    // THEN every entry renders inline
+    expect(transcript).toEqual(entries);
+    expect(trailingPrompts).toEqual([]);
+  });
+
+  test("pulls out a prompt from a resumed session that has no user message", () => {
+    // GIVEN a replayed transcript where the Doctor spoke first
+    const entries = [assistant("a1"), prompt("p1")];
+
+    // WHEN the transcript is partitioned
+    const { transcript, trailingPrompts } =
+      partitionTrailingUserOutcomePrompts(entries);
+
+    // THEN the prompt still renders after the transcript
+    expect(transcript).toEqual([assistant("a1")]);
+    expect(trailingPrompts).toEqual([prompt("p1")]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applySessionUserOutcome
+// ---------------------------------------------------------------------------
+
+describe("applySessionUserOutcome", () => {
+  const promptEntry: ChatEntry = {
+    id: "e1",
+    kind: "user_outcome_prompt",
+    content: USER_OUTCOME_PROMPT_QUESTION,
+    timestamp: 0,
+  };
+
+  test("marks user-outcome prompts answered from the session field", () => {
+    const entries = applySessionUserOutcome([promptEntry], "resolved");
+    expect(entries[0]).toMatchObject({
+      kind: "user_outcome_prompt",
+      meta: { answer: "resolved" },
+    });
+  });
+
+  test("supports not_resolved", () => {
+    const entries = applySessionUserOutcome([promptEntry], "not_resolved");
+    expect(entries[0]).toMatchObject({ meta: { answer: "not_resolved" } });
+  });
+
+  test("returns entries unchanged when user outcome is null or unknown", () => {
+    expect(applySessionUserOutcome([promptEntry], null)).toEqual([promptEntry]);
+    expect(applySessionUserOutcome([promptEntry], undefined)).toEqual([
+      promptEntry,
+    ]);
+    expect(applySessionUserOutcome([promptEntry], "bogus")).toEqual([
+      promptEntry,
+    ]);
+  });
+
+  test("leaves other entry kinds untouched", () => {
+    const user: ChatEntry = {
+      id: "u1",
+      kind: "user",
+      content: "hi",
+      timestamp: 0,
+    };
+    const entries = applySessionUserOutcome([user, promptEntry], "resolved");
+    expect(entries[0]).toEqual(user);
+  });
+});

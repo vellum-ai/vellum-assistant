@@ -5,14 +5,7 @@
  * background backlog.
  */
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -23,6 +16,7 @@ import type { Conversation } from "@/types/conversation-types";
 let foregroundImpl: Conversation[] = [];
 let backgroundImpl: Conversation[] = [];
 let scheduledImpl: Conversation[] = [];
+let archivedImpl: Conversation[] = [];
 let isOrgReadyImpl = true;
 const refreshConversationRowCalls: Array<{
   assistantId: string | null;
@@ -33,6 +27,7 @@ mock.module("@/hooks/conversation-queries", () => ({
   useConversationListQuery: () => ({ conversations: foregroundImpl }),
   useBackgroundConversationListQuery: () => ({ conversations: backgroundImpl }),
   useScheduledConversationListQuery: () => ({ conversations: scheduledImpl }),
+  useArchivedConversationListQuery: () => ({ conversations: archivedImpl }),
 }));
 
 mock.module("@/hooks/use-is-org-ready", () => ({
@@ -53,9 +48,8 @@ mock.module("@/utils/conversation-cache-mutations", () => ({
   resolveDraftKey: () => {},
 }));
 
-const { useActiveConversation } = await import(
-  "@/domains/chat/hooks/use-active-conversation"
-);
+const { useActiveConversation } =
+  await import("@/domains/chat/hooks/use-active-conversation");
 
 function makeConversation(conversationId: string): Conversation {
   return { conversationId } as Conversation;
@@ -126,6 +120,21 @@ describe("useActiveConversation", () => {
     expect(refreshConversationRowCalls).toHaveLength(0);
   });
 
+  test("returns an archived-cache row without fetching", () => {
+    // GIVEN the active conversation is only in the archived cache
+    archivedImpl = [makeConversation("arc-1")];
+
+    // WHEN the hook resolves the active conversation
+    const { result } = renderHook(
+      () => useActiveConversation("asst-1", "arc-1", true),
+      { wrapper },
+    );
+
+    // THEN it returns the archived row and never fetches a single row
+    expect(result.current?.conversationId).toBe("arc-1");
+    expect(refreshConversationRowCalls).toHaveLength(0);
+  });
+
   test("fetches the single row when the active thread is in neither list", async () => {
     // GIVEN neither list holds the open background/scheduled thread
     foregroundImpl = [makeConversation("fg-1")];
@@ -168,10 +177,9 @@ describe("useActiveConversation", () => {
     backgroundImpl = [];
 
     // WHEN the hook runs with org not ready
-    renderHook(
-      () => useActiveConversation("asst-1", "bg-unloaded", true),
-      { wrapper },
-    );
+    renderHook(() => useActiveConversation("asst-1", "bg-unloaded", true), {
+      wrapper,
+    });
 
     // THEN no fetch is issued (prevents 400 org-header errors)
     await Promise.resolve();

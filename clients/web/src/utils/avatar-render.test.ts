@@ -83,7 +83,9 @@ describe("resolveAvatarRender", () => {
   });
 
   test("resolves to none when neither a character nor a custom image exists", () => {
-    expect(resolveAvatarRender(null, null, null, 512)).toEqual({ kind: "none" });
+    expect(resolveAvatarRender(null, null, null, 512)).toEqual({
+      kind: "none",
+    });
   });
 
   test("resolves to none when composeSvg throws and there is no custom image", () => {

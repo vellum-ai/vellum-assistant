@@ -12,6 +12,10 @@
  *
  * `available` gates on `memory.enabled` alone (matching `isMemoryEnabled` in
  * the enqueue path). Retrospectives do NOT depend on `memory.v2.enabled`.
+ * `enabled` narrows `available` by `memory.retrospective.enabled`, the
+ * per-pass kill switch, so a memory-on assistant with retrospectives turned
+ * off reports `available: true, enabled: false` and the Settings row reads
+ * "Paused" rather than implying memory itself is off.
  */
 
 import { z } from "zod";
@@ -71,7 +75,7 @@ function listRetrospectiveConversations(
 function readRetrospectiveConfigResponse() {
   const config = getConfig();
   const available = isMemoryEnabled();
-  const enabled = available;
+  const enabled = available && config.memory.retrospective.enabled;
   const intervalMs = config.memory.retrospective.timeThresholdMs;
   // Retrospectives have no global schedule — runs are triggered per
   // conversation after activity, so a future run time is never known.
@@ -109,8 +113,10 @@ export const ROUTES: RouteDefinition[] = [
       "endpoint exists. `intervalMs` is the per-conversation time threshold " +
       "(`memory.retrospective.timeThresholdMs`), `lastRunAt` is the " +
       "`createdAt` of the most recent retrospective conversation across " +
-      "both legacy and fork sources, and `available` gates on " +
-      "`memory.enabled` (not `memory.v2.enabled`).",
+      "both legacy and fork sources, `available` gates on `memory.enabled` " +
+      "(not `memory.v2.enabled`), and `enabled` narrows that by " +
+      "`memory.retrospective.enabled`, the per-pass kill switch that stops " +
+      "retrospectives without disabling the rest of memory.",
     tags: ["retrospective"],
     responseBody: z.object({
       available: z.boolean(),

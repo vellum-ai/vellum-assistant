@@ -31,13 +31,11 @@ mock.module("@/generated/daemon/client.gen", () => ({
   },
 }));
 
-const { useResolvedAssistantsStore } = await import(
-  "@/stores/resolved-assistants-store"
-);
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
 const { useAcpRunStore } = await import("@/domains/chat/acp-run-store");
-const { stopAcpRun, steerAcpRun } = await import(
-  "@/domains/chat/utils/acp-run-actions"
-);
+const { stopAcpRun, steerAcpRun } =
+  await import("@/domains/chat/utils/acp-run-actions");
 
 beforeEach(() => {
   calls.length = 0;
@@ -55,9 +53,7 @@ describe("stopAcpRun", () => {
   test("POSTs the cancel route with the assistant + session ids", async () => {
     await stopAcpRun("acp-1");
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe(
-      "/v1/assistants/{assistant_id}/acp/{id}/cancel",
-    );
+    expect(calls[0]!.url).toBe("/v1/assistants/{assistant_id}/acp/{id}/cancel");
     expect(calls[0]!.path).toEqual({ assistant_id: "asst-1", id: "acp-1" });
   });
 

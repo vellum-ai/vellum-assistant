@@ -48,6 +48,18 @@ interface ManagedSearchProxyEnvelope {
   };
 }
 
+/**
+ * Whether the managed search proxy can be dialed at all: a platform client
+ * exists and carries an assistant id. Mirrors `managedSpeechAvailable()`.
+ * Callers use this to decide between the proxy and the BYOK chain *before*
+ * attempting a call — the same two conditions `callManagedSearchProxy`
+ * reports as `kind: "unavailable"`.
+ */
+export async function managedSearchAvailable(): Promise<boolean> {
+  const client = await VellumPlatformClient.create();
+  return client !== null && Boolean(client.platformAssistantId);
+}
+
 export async function callManagedSearchProxy(
   provider: ManagedSearchProxyProvider,
   request: ManagedSearchProxyRequest,
@@ -127,15 +139,23 @@ export async function callManagedSearchProxy(
 function isManagedSearchProxyResponse(
   value: unknown,
 ): value is ManagedSearchProxyResponse {
-  if (!isRecord(value)) return false;
-  if (typeof value.status !== "number") return false;
-  if (!isStringRecord(value.headers)) return false;
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (typeof value.status !== "number") {
+    return false;
+  }
+  if (!isStringRecord(value.headers)) {
+    return false;
+  }
   return "body" in value;
 }
 
 async function readResponseBody(response: Response): Promise<unknown> {
   const text = await response.text().catch(() => "");
-  if (!text) return null;
+  if (!text) {
+    return null;
+  }
 
   const contentType = response.headers.get("content-type") ?? "";
   if (contentType.includes("application/json")) {
@@ -162,12 +182,18 @@ function platformErrorMessage(status: number, body: unknown): string {
 }
 
 function extractErrorDetail(body: unknown): string | undefined {
-  if (typeof body === "string") return body || undefined;
-  if (!isRecord(body)) return undefined;
+  if (typeof body === "string") {
+    return body || undefined;
+  }
+  if (!isRecord(body)) {
+    return undefined;
+  }
 
   for (const key of ["detail", "error", "message"]) {
     const value = body[key];
-    if (typeof value === "string" && value) return value;
+    if (typeof value === "string" && value) {
+      return value;
+    }
   }
 
   return undefined;
@@ -178,6 +204,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {
-  if (!isRecord(value)) return false;
+  if (!isRecord(value)) {
+    return false;
+  }
   return Object.values(value).every((entry) => typeof entry === "string");
 }

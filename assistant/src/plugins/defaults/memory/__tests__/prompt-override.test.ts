@@ -3,13 +3,13 @@
  * (`assistant/src/memory/prompt-override.ts`) and the memory-v3
  * `resolveSelectorPrompt` built on it. Mirrors the v2 router/consolidation
  * prompt-path suites: a configured file replaces the bundled prompt, and any
- * missing / empty / oversized / non-regular / unreadable file degrades to the
- * bundled prompt with a diagnostic warning.
+ * out-of-workspace / missing / empty / oversized / non-regular / unreadable
+ * file degrades to the bundled prompt with a diagnostic warning.
  */
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
@@ -50,6 +50,7 @@ const load = (
   });
 
 describe("resolveOverridePath", () => {
+  // Pure resolution — workspace containment is enforced by loadPromptOverride.
   test("expands a leading ~/ to the home directory", () => {
     expect(resolveOverridePath("~/sub/x.md", tmpDir)).toBe(
       join(homedir(), "sub/x.md"),
@@ -91,15 +92,78 @@ describe("loadPromptOverride — usable override", () => {
     expect(warnCalls).toHaveLength(0);
   });
 
-  test("expands a leading ~/ to the home directory", () => {
+  test("honors a ~/ path that resolves inside the workspace", () => {
+    let wsUnderHome: string;
+    try {
+      wsUnderHome = mkdtempSync(join(homedir(), ".vellum-prompt-override-ws-"));
+    } catch {
+      // Home directory not writable on this platform — skip without failing.
+      return;
+    }
+    try {
+      writeFileSync(join(wsUnderHome, "x.md"), "home workspace body\n");
+      const out = loadPromptOverride({
+        overridePath: `~/${basename(wsUnderHome)}/x.md`,
+        workspaceDir: wsUnderHome,
+        log: recordingLogger,
+        label: "test prompt",
+      });
+      expect(out).toBe("home workspace body\n");
+      expect(warnCalls).toHaveLength(0);
+    } finally {
+      rmSync(wsUnderHome, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("loadPromptOverride — workspace containment", () => {
+  test("an absolute path outside the workspace is rejected", () => {
+    const outside = mkdtempSync(join(tmpdir(), "prompt-override-outside-"));
+    try {
+      const p = join(outside, "secret.md");
+      writeFileSync(p, "SENSITIVE CONTENTS\n");
+      expect(load(p)).toBeNull();
+      expect(warnCalls).toHaveLength(1);
+      expect(warnCalls[0].data.reason).toBe("outside_workspace");
+      expect(warnCalls[0].data.fallback).toBe("bundled");
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("a relative path escaping the workspace via .. is rejected", () => {
+    const name = `prompt-override-escape-${process.pid}.md`;
+    const target = join(tmpDir, "..", name);
+    writeFileSync(target, "escaped\n");
+    try {
+      expect(load(join("..", name))).toBeNull();
+      expect(warnCalls[0].data.reason).toBe("outside_workspace");
+    } finally {
+      rmSync(target, { force: true });
+    }
+  });
+
+  test("a ~/ path outside the workspace is rejected", () => {
     const filename = `.vellum-prompt-override-test-${process.pid}.md`;
     const p = join(homedir(), filename);
     writeFileSync(p, "home body\n");
     try {
-      expect(load(`~/${filename}`)).toBe("home body\n");
-      expect(warnCalls).toHaveLength(0);
+      expect(load(`~/${filename}`)).toBeNull();
+      expect(warnCalls[0].data.reason).toBe("outside_workspace");
     } finally {
       rmSync(p, { force: true });
+    }
+  });
+
+  test("a symlinked directory pointing outside the workspace is rejected", () => {
+    const outside = mkdtempSync(join(tmpdir(), "prompt-override-outside-"));
+    try {
+      writeFileSync(join(outside, "secret.md"), "SENSITIVE CONTENTS\n");
+      symlinkSync(outside, join(tmpDir, "linked-dir"));
+      expect(load(join("linked-dir", "secret.md"))).toBeNull();
+      expect(warnCalls[0].data.reason).toBe("outside_workspace");
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
     }
   });
 });

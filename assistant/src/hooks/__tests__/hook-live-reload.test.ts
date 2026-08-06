@@ -24,13 +24,13 @@
  *    source change).
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { evictModule } from "../../plugins/surface-import.js";
 import type { HookEntry } from "../../plugins/types.js";
+import { getWorkspacePluginsDir } from "../../util/platform.js";
 import {
   collectUserHookEntries,
   evictHooksForOwner,
@@ -39,7 +39,10 @@ import {
 
 const HOOK_NAME = "user-prompt-submit";
 
-const root = mkdtempSync(join(tmpdir(), "hook-live-reload-"));
+// `collectUserHookEntries` derives each owner's hooks directory from its name
+// as `<workspace>/plugins/<name>/hooks`, so fixtures live under the workspace
+// plugins dir (the layout the installer enforces), not an arbitrary tmpdir.
+const root = getWorkspacePluginsDir();
 
 afterAll(() => {
   rmSync(root, { recursive: true, force: true });
@@ -73,12 +76,9 @@ function redeploy(plugin: { name: string }, modulePaths: string[]): void {
 }
 
 /** Collect and run the single expected hook, returning its result. */
-async function dispatchOne(plugin: {
-  dir: string;
-  name: string;
-}): Promise<unknown> {
+async function dispatchOne(plugin: { name: string }): Promise<unknown> {
   const entries: HookEntry[] = await collectUserHookEntries(HOOK_NAME, [
-    [plugin.dir, plugin.name],
+    plugin.name,
   ]);
   expect(entries).toHaveLength(1);
   return (entries[0]!.fn as () => unknown)();
@@ -110,12 +110,8 @@ describe("hook reload primitives", () => {
       `export default () => "stable";\n`,
     );
 
-    const first = await collectUserHookEntries(HOOK_NAME, [
-      [plugin.dir, plugin.name],
-    ]);
-    const second = await collectUserHookEntries(HOOK_NAME, [
-      [plugin.dir, plugin.name],
-    ]);
+    const first = await collectUserHookEntries(HOOK_NAME, [plugin.name]);
+    const second = await collectUserHookEntries(HOOK_NAME, [plugin.name]);
 
     // Same function instance: the second dispatch is a map lookup, not an
     // import.
@@ -158,8 +154,8 @@ describe("hook reload primitives", () => {
     // both await one import and get the same function instance — not import
     // twice, and not have one read a not-yet-populated entry.
     const [first, second] = await Promise.all([
-      collectUserHookEntries(HOOK_NAME, [[plugin.dir, plugin.name]]),
-      collectUserHookEntries(HOOK_NAME, [[plugin.dir, plugin.name]]),
+      collectUserHookEntries(HOOK_NAME, [plugin.name]),
+      collectUserHookEntries(HOOK_NAME, [plugin.name]),
     ]);
 
     expect(first).toHaveLength(1);
@@ -173,16 +169,16 @@ describe("hook reload primitives", () => {
 
     // Owner defines no such hook yet — resolves absent, and the absence is
     // cached.
-    expect(
-      await collectUserHookEntries(HOOK_NAME, [[plugin.dir, plugin.name]]),
-    ).toHaveLength(0);
+    expect(await collectUserHookEntries(HOOK_NAME, [plugin.name])).toHaveLength(
+      0,
+    );
 
     // Adding the file without an eviction does not lift the cached absence:
     // the negative entry is a hit, so the new file is not re-stat'd.
     writeFileSync(hookPath, `export default () => "added";\n`);
-    expect(
-      await collectUserHookEntries(HOOK_NAME, [[plugin.dir, plugin.name]]),
-    ).toHaveLength(0);
+    expect(await collectUserHookEntries(HOOK_NAME, [plugin.name])).toHaveLength(
+      0,
+    );
 
     // Evicting the owner (as the reconcile does on a source change) clears the
     // negative entry, so the next read picks the hook up.
@@ -199,9 +195,7 @@ describe("hook reload primitives", () => {
     rmSync(hookPath);
     redeploy(plugin, [hookPath]);
 
-    const entries = await collectUserHookEntries(HOOK_NAME, [
-      [plugin.dir, plugin.name],
-    ]);
+    const entries = await collectUserHookEntries(HOOK_NAME, [plugin.name]);
     expect(entries).toHaveLength(0);
   });
 });

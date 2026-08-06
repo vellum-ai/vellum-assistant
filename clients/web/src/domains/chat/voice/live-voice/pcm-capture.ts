@@ -14,8 +14,11 @@
  * The capture is permission-agnostic: it requests `getUserMedia` directly and
  * surfaces a denial as a typed `LiveVoiceCaptureResult` rather than throwing.
  * Per `clients/web/AGENTS.md` / `docs/CAPACITOR.md` § OS permission requests,
- * callers own any pre-permission UX (and must not render a dismissible
- * pre-prompt on Capacitor iOS).
+ * callers own any pre-permission UX: no *dismissible* pre-prompt may precede
+ * this `getUserMedia` alert on Capacitor iOS. The live-voice composer's
+ * first-run card complies by rendering locked (no ✕ / backdrop / Escape, a
+ * single "Start talking" that leads straight here) on iOS — see
+ * `chat-composer.tsx`'s `handleLiveVoiceStart` and `VoiceFirstRunCard`.
  */
 
 // Import the worklet as a Vite-bundled, *transpiled* classic script asset and
@@ -31,7 +34,10 @@
 // https://vite.dev/guide/worker#import-with-query-suffixes
 import WORKLET_MODULE_URL from "./pcm-downsample-worklet.ts?worker&url";
 
-import { createAudioContext, getAudioContextCtor } from "@/domains/chat/voice/audio-context";
+import {
+  createAudioContext,
+  getAudioContextCtor,
+} from "@/domains/chat/voice/audio-context";
 import { LIVE_VOICE_AUDIO_FORMAT } from "@/domains/chat/voice/live-voice/protocol";
 import { getVoiceInputMediaStream } from "@/utils/voice-input-device";
 
@@ -46,6 +52,16 @@ const AMPLITUDE_SCALE = 14.0;
 
 const WORKLET_PROCESSOR_NAME = "pcm-downsample";
 
+// Coalesce worklet output (one ~43-sample post per 128-frame render quantum,
+// ~375/s) into 50 ms / 800-sample frames before handing chunks to the
+// consumer. Each chunk becomes its own WebSocket frame on every relay leg
+// downstream (client → gateway → daemon → speech relay), so per-quantum
+// granularity floods per-message buffers with ~2.7 ms of audio a frame.
+// Batching lives on the main thread (not in the worklet) so flush() is
+// synchronous with the consumer's forwarding gate — a push-to-talk release
+// can drain the tail before the release frame is sent.
+const BATCH_SAMPLES = 800;
+
 /** Reason a capture failed to start, mapped from `getUserMedia` DOMExceptions. */
 export type LiveVoiceCaptureError =
   | "unsupported"
@@ -56,8 +72,7 @@ export type LiveVoiceCaptureError =
   | "unknown";
 
 export type LiveVoiceCaptureResult =
-  | { ok: true }
-  | { ok: false; error: LiveVoiceCaptureError; cause?: unknown };
+  { ok: true } | { ok: false; error: LiveVoiceCaptureError; cause?: unknown };
 
 export interface LiveVoiceAudioCaptureOptions {
   /** Receives each 16 kHz mono Int16 LE PCM chunk as a transferred buffer. */
@@ -120,6 +135,10 @@ export class LiveVoiceAudioCapture {
   private source: MediaStreamAudioSourceNode | null = null;
   private worklet: AudioWorkletNode | null = null;
   private smoothedAmplitude = 0;
+  // Batch accumulator for onChunk (see BATCH_SAMPLES). Amplitude metering
+  // stays per-quantum; only chunk delivery is coalesced.
+  private batch = new Int16Array(BATCH_SAMPLES);
+  private batchLength = 0;
   private disposed = false;
   // Incremented by stop()/shutdown() so an in-flight start() can detect that
   // it was cancelled mid-await and fully tear down instead of wiring up a mic
@@ -137,9 +156,15 @@ export class LiveVoiceAudioCapture {
    * throw. Calling `start()` while already running is a no-op success.
    */
   async start(): Promise<LiveVoiceCaptureResult> {
-    if (this.disposed) return { ok: false, error: "unsupported" };
-    if (this.context) return { ok: true };
-    if (!isSupported()) return { ok: false, error: "unsupported" };
+    if (this.disposed) {
+      return { ok: false, error: "unsupported" };
+    }
+    if (this.context) {
+      return { ok: true };
+    }
+    if (!isSupported()) {
+      return { ok: false, error: "unsupported" };
+    }
 
     // Snapshot the cancel epoch at entry. A stop()/shutdown() that races our
     // awaits bumps the epoch (and/or sets `disposed`); seeing either change
@@ -180,7 +205,7 @@ export class LiveVoiceAudioCapture {
       worklet.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
         const buf = event.data;
         this.emitAmplitude(buf);
-        this.onChunk(buf);
+        this.accumulate(buf);
       };
       source.connect(worklet);
 
@@ -208,11 +233,47 @@ export class LiveVoiceAudioCapture {
     await this.teardown();
   }
 
+  /**
+   * Emit any partially-filled batch immediately. Call at a forwarding
+   * boundary (push-to-talk release, dictation stop) so the final <50ms of
+   * captured speech is not stranded in the accumulator when the consumer
+   * closes its gate. Synchronous: onChunk fires before this returns.
+   */
+  flush(): void {
+    if (this.batchLength === 0) {
+      return;
+    }
+    const tail = this.batch.buffer.slice(0, this.batchLength * 2);
+    this.batchLength = 0;
+    this.onChunk(tail);
+  }
+
+  /** Copy a worklet quantum into the batch, emitting each full 50ms frame. */
+  private accumulate(buf: ArrayBuffer): void {
+    let samples = new Int16Array(buf);
+    while (samples.length > 0) {
+      const take = Math.min(BATCH_SAMPLES - this.batchLength, samples.length);
+      this.batch.set(samples.subarray(0, take), this.batchLength);
+      this.batchLength += take;
+      samples = samples.subarray(take);
+      if (this.batchLength === BATCH_SAMPLES) {
+        this.batchLength = 0;
+        const full = this.batch;
+        this.batch = new Int16Array(BATCH_SAMPLES);
+        this.onChunk(full.buffer);
+      }
+    }
+  }
+
   /** Computes and forwards the smoothed RMS amplitude for a PCM chunk. */
   private emitAmplitude(buf: ArrayBuffer): void {
-    if (!this.onAmplitude) return;
+    if (!this.onAmplitude) {
+      return;
+    }
     const samples = new Int16Array(buf);
-    if (samples.length === 0) return;
+    if (samples.length === 0) {
+      return;
+    }
 
     let sumSquares = 0;
     for (let i = 0; i < samples.length; i++) {
@@ -227,6 +288,9 @@ export class LiveVoiceAudioCapture {
   }
 
   private async teardown(): Promise<void> {
+    // Drop any sub-batch tail: a stopped graph has no forwarding consumer
+    // left, and a stale tail must not leak into a later start().
+    this.batchLength = 0;
     if (this.worklet) {
       this.worklet.port.onmessage = null;
       this.worklet.disconnect();

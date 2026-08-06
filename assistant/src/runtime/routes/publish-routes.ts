@@ -16,7 +16,6 @@ import { z } from "zod";
 import {
   getApp,
   getAppDirPath,
-  isMultifileApp,
   resolveEffectiveAppHtml,
 } from "../../apps/app-store.js";
 import {
@@ -45,23 +44,21 @@ async function handlePublish({ pathParams }: RouteHandlerArgs) {
     throw new NotFoundError(`App not found: ${appId}`);
   }
 
-  // Compile multi-file apps if needed (same pattern as handleOpenApp)
-  if (isMultifileApp(app)) {
-    const appDir = getAppDirPath(appId);
-    const distIndex = join(appDir, "dist", "index.html");
-    if (!existsSync(distIndex)) {
-      const result = await compileApp(appDir);
-      if (!result.ok) {
-        log.warn(
-          { appId, errors: result.errors },
-          "Auto-compile failed before publish",
-        );
-        return {
-          success: false,
-          errorCode: "compile_failed",
-          error: `App failed to compile: ${result.errors?.join("; ") ?? "unknown error"}`,
-        };
-      }
+  // Compile if needed (same pattern as handleOpenApp)
+  const appDir = getAppDirPath(appId);
+  const distIndex = join(appDir, "dist", "index.html");
+  if (!existsSync(distIndex)) {
+    const result = await compileApp(appDir);
+    if (!result.ok) {
+      log.warn(
+        { appId, errors: result.errors },
+        "Auto-compile failed before publish",
+      );
+      return {
+        success: false,
+        errorCode: "compile_failed",
+        error: `App failed to compile: ${result.errors?.join("; ") ?? "unknown error"}`,
+      };
     }
   }
 

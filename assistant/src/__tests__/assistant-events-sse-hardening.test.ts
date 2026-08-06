@@ -8,26 +8,7 @@
  *   - Subscription cleanup on request abort.
  *   - Subscription cleanup on reader cancel.
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -289,7 +270,9 @@ describe("SSE route — heartbeat", () => {
           setTimeout(() => r({ value: undefined, done: true }), 20),
         ),
       ]);
-      if (done || !value) break;
+      if (done || !value) {
+        break;
+      }
       chunks.push(new TextDecoder().decode(value));
     }
 

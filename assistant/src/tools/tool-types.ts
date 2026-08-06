@@ -163,19 +163,6 @@ export interface ToolExecutionResult {
   isContainerized?: boolean;
   /** Scope options ladder for the rule editor (narrowest to broadest). */
   riskScopeOptions?: Array<{ pattern: string; label: string }>;
-  /**
-   * When present, indicates that a CES tool returned an `approval_required`
-   * response. The executor uses the approval bridge to prompt the guardian,
-   * commit the grant decision to CES, and retry the original tool invocation
-   * with the granted grantId. CES tools populate this field rather than
-   * returning a textual error so the executor can intercept and handle the
-   * approval flow transparently.
-   *
-   * Declared as `unknown` here to keep this package free of CES runtime
-   * imports; the assistant narrows it back to the concrete `ApprovalRequired`
-   * shape via intersection.
-   */
-  cesApprovalRequired?: unknown;
 }
 
 export type ProxyToolResolver = (
@@ -245,8 +232,21 @@ export interface ToolContext {
   sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
   /** True when an interactive client is connected (not just a no-op callback). */
   isInteractive?: boolean;
-  /** Memory scope ID from the conversation's memory policy, so memory tools can target the correct scope. */
-  memoryScopeId?: string;
+  /**
+   * Whether the current turn's channel can render dynamic UI surfaces
+   * (interactive cards, tappable option pickers, secure prompts). `false` on
+   * text-only channels (e.g. Telegram, SMS); `undefined` is treated as
+   * supported. UI-dependent tools read this to degrade to a text-formatted
+   * equivalent instead of emitting a surface the channel silently drops.
+   */
+  supportsDynamicUi?: boolean;
+  /**
+   * Whether a parked `ask_question` on this turn's channel can be delivered as
+   * a guardian-request card with tappable answer options; `undefined`/`false`
+   * means no card delivery is possible. See the ToolContext field of the same
+   * name in `types.ts`.
+   */
+  supportsGuardianQuestionCards?: boolean;
   /** When true, tools with side effects should always prompt for confirmation. */
   forcePromptSideEffects?: boolean;
   /**
@@ -255,9 +255,9 @@ export interface ToolContext {
    * "Always Allow" rules, or non-interactive auto-approve shortcuts may
    * bypass the prompt. This flag is independently sufficient: it
    * promotes allow → prompt decisions on its own and suppresses
-   * temporary override options in the prompt UI. Used by
-   * `manage_secure_command_tool` to ensure a human reviews each secure
-   * bundle installation.
+   * temporary override options in the prompt UI. Used by the `run_workflow`
+   * launch path so a human consents to a run whose capability manifest grants
+   * side-effecting tools.
    */
   requireFreshApproval?: boolean;
   /** Approval callback for proxy policy decisions that require user confirmation. */

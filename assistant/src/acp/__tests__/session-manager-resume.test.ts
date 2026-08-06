@@ -12,13 +12,6 @@
 import { tmpdir } from "node:os";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ---------------------------------------------------------------------------
 // Fake AcpAgentProcess with scriptable capabilities and history replay.
 // ---------------------------------------------------------------------------
@@ -88,7 +81,9 @@ class FakeAcpAgentProcess {
   }
 
   async resumeSession(sessionId: string, cwd: string): Promise<void> {
-    if (resumeSessionGate) await resumeSessionGate;
+    if (resumeSessionGate) {
+      await resumeSessionGate;
+    }
     this.resumeSessionCalls.push({ sessionId, cwd });
   }
 
@@ -161,7 +156,9 @@ mock.module("../prepare-agent-env.js", () => ({
     args: string[];
     env?: Record<string, string | undefined>;
   }) => {
-    if (prepareAgentEnvGate) await prepareAgentEnvGate;
+    if (prepareAgentEnvGate) {
+      await prepareAgentEnvGate;
+    }
     prepareAgentEnvCommands.push(agentConfig.command);
     return {
       ...agentConfig,
@@ -210,8 +207,8 @@ const BUN_BIN = "/usr/local/bin/bun";
 /** Key the exec stub uses for the global install. */
 const BUN_ADD_KEY = `${BUN_BIN} add`;
 
-import type { ServerMessage } from "../../daemon/message-protocol.js";
-import type { AcpSessionUpdate } from "../../daemon/message-types/acp.js";
+import type { AcpSessionUpdateEvent } from "../../api/events/acp-session-update.js";
+import type { AssistantEvent } from "../../api/index.js";
 import { getSqlite } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
 import type { AcpSessionState } from "../types.js";
@@ -243,7 +240,7 @@ function countHistoryRows(): number {
 
 type ManagerInternals = {
   sessions: Map<string, { clientHandler: FakeClient; command: string }>;
-  eventBuffers: Map<string, Array<{ update: AcpSessionUpdate }>>;
+  eventBuffers: Map<string, Array<{ update: AcpSessionUpdateEvent }>>;
   pendingResumes: Map<string, Promise<void>>;
 };
 
@@ -278,7 +275,7 @@ beforeEach(() => {
   which.setWhich({});
 });
 
-const PERSISTED_EVENT: AcpSessionUpdate = {
+const PERSISTED_EVENT: AcpSessionUpdateEvent = {
   type: "acp_session_update",
   acpSessionId: "resume-1",
   updateType: "agent_message_chunk",
@@ -295,7 +292,7 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     });
 
     const manager = new AcpSessionManager(4);
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     await manager.resumeFromHistory("resume-1", (msg) => sent.push(msg));
 
     const fake = fakeInstances[0]!;
@@ -348,7 +345,7 @@ describe("AcpSessionManager.resumeFromHistory", () => {
   test("live updates after resume continue seq past the persisted max", async () => {
     fakeCaps.resume = true;
     // Persisted log whose updates carry seq up to 4.
-    const persisted: AcpSessionUpdate[] = [
+    const persisted: AcpSessionUpdateEvent[] = [
       { ...PERSISTED_EVENT, seq: 2 },
       { ...PERSISTED_EVENT, seq: 4 },
     ];
@@ -358,7 +355,7 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     });
 
     const manager = new AcpSessionManager(4);
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     await manager.resumeFromHistory("resume-seq-1", (msg) => sent.push(msg));
 
     const fake = fakeInstances[0]!;
@@ -367,7 +364,7 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     // The first live update continues at 5 (max persisted seq + 1), not 1, so
     // the web client's highWaterMark de-dupe doesn't drop it.
     const liveUpdates = sent.filter(
-      (m): m is AcpSessionUpdate => m.type === "acp_session_update",
+      (m): m is AcpSessionUpdateEvent => m.type === "acp_session_update",
     );
     expect(liveUpdates).toHaveLength(1);
     expect(liveUpdates[0]!.seq).toBe(5);
@@ -719,7 +716,7 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     insertHistoryRow({ id: "race-1" });
 
     const manager = new AcpSessionManager(4);
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const [a, b] = await Promise.allSettled([
       manager.resumeFromHistory("race-1", (msg) => sent.push(msg)),
       manager.resumeFromHistory("race-1", (msg) => sent.push(msg)),
@@ -865,7 +862,7 @@ describe("AcpSessionManager.steerOrResume", () => {
     insertHistoryRow({ id: "sor-resume-1" });
 
     const manager = new AcpSessionManager(4);
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const result = await manager.steerOrResume(
       "sor-resume-1",
       "continue the work",
@@ -907,7 +904,7 @@ describe("AcpSessionManager.steerOrResume", () => {
     insertHistoryRow({ id: "sor-race-1" });
 
     const manager = new AcpSessionManager(4);
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const [a, b] = await Promise.all([
       manager.steerOrResume("sor-race-1", "first instruction", (msg) =>
         sent.push(msg),
@@ -946,7 +943,7 @@ describe("AcpSessionManager.steerOrResume", () => {
     });
 
     const manager = new AcpSessionManager(4);
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const first = manager.steerOrResume(
       "sor-init-1",
       "first instruction",

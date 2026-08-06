@@ -49,7 +49,9 @@ let pending: Promise<void> = Promise.resolve();
  * - The name is empty or unchanged since the last request.
  */
 export function syncIdentityNameToPlatform(name: string): void {
-  if (!name || name === lastRequestedName) return;
+  if (!name || name === lastRequestedName) {
+    return;
+  }
 
   lastRequestedName = name;
 
@@ -85,10 +87,14 @@ export function syncWorkspaceIdentityToPlatform(): void {
 async function doSync(name: string, requestSeq: number): Promise<void> {
   try {
     // A newer call has already been enqueued — skip this stale request.
-    if (requestSeq !== seq) return;
+    if (requestSeq !== seq) {
+      return;
+    }
 
     // Re-check after awaiting the previous request in the chain.
-    if (name === lastSyncedName) return;
+    if (name === lastSyncedName) {
+      return;
+    }
 
     const client = await VellumPlatformClient.create();
     if (!client) {

@@ -32,16 +32,22 @@ function contactExists(id: string): boolean {
   );
 }
 
-function channelRow(
-  id: string,
-): { contact_id: string; is_primary: number; external_chat_id: string | null } | null {
+function channelRow(id: string): {
+  contact_id: string;
+  is_primary: number;
+  external_chat_id: string | null;
+} | null {
   return (
     (getSqlite()
       .prepare(
         "SELECT contact_id, is_primary, external_chat_id FROM contact_channels WHERE id = ?",
       )
       .get(id) as
-      | { contact_id: string; is_primary: number; external_chat_id: string | null }
+      | {
+          contact_id: string;
+          is_primary: number;
+          external_chat_id: string | null;
+        }
       | undefined) ?? null
   );
 }
@@ -243,12 +249,20 @@ describe("contacts_mirror_apply", () => {
     expect(result).toEqual({ ok: true });
     // The gateway-keyed row survived and moved to the new address.
     const g3 = getSqlite()
-      .prepare("SELECT contact_id, address, is_primary FROM contact_channels WHERE id = ?")
+      .prepare(
+        "SELECT contact_id, address, is_primary FROM contact_channels WHERE id = ?",
+      )
       .get("g3-ch");
-    expect(g3).toEqual({ contact_id: "g3-co", address: "NEW-3", is_primary: 1 });
+    expect(g3).toEqual({
+      contact_id: "g3-co",
+      address: "NEW-3",
+      is_primary: 1,
+    });
     // The stale duplicate is gone — exactly one channel row remains.
     expect(
-      getSqlite().prepare("SELECT 1 FROM contact_channels WHERE id = ?").get("stale-ch"),
+      getSqlite()
+        .prepare("SELECT 1 FROM contact_channels WHERE id = ?")
+        .get("stale-ch"),
     ).toBeNull();
     const count = getSqlite()
       .prepare("SELECT COUNT(*) AS n FROM contact_channels")
@@ -265,8 +279,6 @@ describe("contacts_mirror_apply", () => {
   });
 
   test("rejects an empty ops array", () => {
-    expect(() =>
-      handleContactsMirrorApply({ body: { ops: [] } }),
-    ).toThrow();
+    expect(() => handleContactsMirrorApply({ body: { ops: [] } })).toThrow();
   });
 });

@@ -12,9 +12,17 @@ import { useCallback, useEffect, useState } from "react";
 
 import { useNavigate } from "react-router";
 
-import { DiskPressureBanner, type DiskPressureBannerMode } from "@/components/disk-pressure-banner";
+import {
+  DiskPressureBanner,
+  type DiskPressureBannerMode,
+} from "@/components/disk-pressure-banner";
 import type { UseDiskPressureMonitorResult } from "@/assistant/use-disk-pressure-monitor";
-import { getLocalBool, removeLocalSetting, setLocalBool } from "@/utils/local-settings";
+import {
+  getLocalBool,
+  removeLocalSetting,
+  setLocalBool,
+} from "@/utils/local-settings";
+import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { routes } from "@/utils/routes";
 
 // ---------------------------------------------------------------------------
@@ -38,6 +46,7 @@ export function DiskPressureBannerSlot({
   assistantStateKind,
 }: DiskPressureBannerSlotProps) {
   const navigate = useNavigate();
+  const isNativeAndroid = useIsNativeAndroid();
 
   const dismissedKey = assistantId
     ? `vellum:diskPressureDismissed:${assistantId}`
@@ -47,11 +56,15 @@ export function DiskPressureBannerSlot({
     : null;
 
   const [warningDismissed, setWarningDismissed] = useState(() => {
-    if (!dismissedKey) return false;
+    if (!dismissedKey) {
+      return false;
+    }
     return getLocalBool(dismissedKey, false);
   });
   const [warningSuppressed, setWarningSuppressed] = useState(() => {
-    if (!suppressedKey) return false;
+    if (!suppressedKey) {
+      return false;
+    }
     return getLocalBool(suppressedKey, false);
   });
 
@@ -84,10 +97,19 @@ export function DiskPressureBannerSlot({
     }
   }, [diskPressure.status?.state, warningDismissed, dismissedKey]);
 
-  if (!diskPressure.status) return null;
-  const mode = diskPressure.mode === "inactive" ? null : (diskPressure.mode as DiskPressureBannerMode | null);
-  if (!mode) return null;
-  if (mode === "warning" && (warningDismissed || warningSuppressed)) return null;
+  if (!diskPressure.status) {
+    return null;
+  }
+  const mode =
+    diskPressure.mode === "inactive"
+      ? null
+      : (diskPressure.mode as DiskPressureBannerMode | null);
+  if (!mode) {
+    return null;
+  }
+  if (mode === "warning" && (warningDismissed || warningSuppressed)) {
+    return null;
+  }
 
   return (
     <DiskPressureBanner
@@ -97,8 +119,14 @@ export function DiskPressureBannerSlot({
       acknowledgeError={diskPressure.acknowledgeError?.message ?? null}
       onAcknowledge={() => void diskPressure.acknowledge()}
       onDismissWarning={dismissWarning}
-      onReviewWorkspaceData={() => void navigate(`${routes.workspace}?sort=size`)}
-      onUpgradeStorage={assistantStateKind === "active" ? () => void navigate(`${routes.settings.billing}?adjust_plan=1`) : null}
+      onReviewWorkspaceData={() =>
+        void navigate(`${routes.workspace}?sort=size`)
+      }
+      onUpgradeStorage={
+        assistantStateKind === "active" && !isNativeAndroid
+          ? () => void navigate(routes.plans)
+          : null
+      }
     />
   );
 }

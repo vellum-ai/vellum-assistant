@@ -30,7 +30,9 @@ export async function getMcpHeaders(
   serverId: string,
 ): Promise<Record<string, string> | undefined> {
   const raw = await getSecureKeyAsync(headersKey(serverId));
-  if (!raw) return undefined;
+  if (!raw) {
+    return undefined;
+  }
   try {
     return JSON.parse(raw) as Record<string, string>;
   } catch {

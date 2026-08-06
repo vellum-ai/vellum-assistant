@@ -6,9 +6,7 @@ export function getPushToTalkTarget(): PushToTalkTarget | null {
   return activeTarget;
 }
 
-export function registerPushToTalkTarget(
-  target: PushToTalkTarget,
-): () => void {
+export function registerPushToTalkTarget(target: PushToTalkTarget): () => void {
   activeTarget = target;
   return () => {
     if (activeTarget === target) {

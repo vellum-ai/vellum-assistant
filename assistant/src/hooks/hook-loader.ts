@@ -29,11 +29,9 @@
  *   {@link collectUserHookEntries}, which resolves that one hook name across the
  *   discovered owners; repeat reads are pure map lookups.
  * - **Lifecycle hooks** run once per activation / teardown. {@link runInitHook}
- *   resolves `init` (to run) and `shutdown` (to cache) while the owner's
- *   directory is present; {@link runShutdownHook} then reads that cached
- *   `shutdown`. Because the reconcile always tears an owner down *before*
- *   evicting it, the cached `shutdown` is still resident at teardown even when
- *   an uninstall has already removed the directory.
+ *   resolves and runs `init`; {@link runShutdownHook} resolves and runs one
+ *   owner's `shutdown` for a targeted teardown (uninstall, disable, reload).
+ *   Both go through the same resolution, so nothing is pre-warmed.
  *
  * Source changes reach the cache through the source-versions reconcile in
  * `../plugins/mtime-cache.ts`: it evicts the owner ({@link evictHooksForOwner}
@@ -65,10 +63,18 @@ import type {
   ShutdownContext,
 } from "../plugin-api/types.js";
 import { listSurfaceDir } from "../plugins/external-plugin-loader.js";
-import { evictModule, importWithTimeout } from "../plugins/surface-import.js";
+import {
+  evictModule,
+  importWithTimeout,
+  withTimeout,
+} from "../plugins/surface-import.js";
 import type { HookEntry } from "../plugins/types.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir, getWorkspaceHooksDir } from "../util/platform.js";
+import {
+  getWorkspaceDir,
+  getWorkspaceHooksDir,
+  getWorkspacePluginsDir,
+} from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
 
 const log = getLogger("hook-loader");
@@ -121,12 +127,21 @@ function ownerKeyPrefix(kind: HookOwnerKind, ownerName: string): string {
 }
 
 /**
- * The hooks directory for an owner: `<pluginDir>/hooks` for a plugin, or the
- * standalone workspace hooks directory for {@link WORKSPACE_HOOKS_OWNER}
- * (whose `pluginDir` is `null`).
+ * The hooks directory an owner's hooks are resolved from, derived purely from
+ * `(kind, ownerName)`:
+ *
+ * - `workspace` → the standalone workspace hooks directory.
+ * - `plugin` → `<workspace>/plugins/<ownerName>/hooks`.
+ *
+ * A plugin's install slug *is* its manifest name (the installer enforces
+ * `manifest.name === <install dir basename>`; see
+ * `cli/lib/install-from-github.ts`), so the directory is a function of the name
+ * alone — no caller needs to thread the plugin directory in.
  */
-function ownerHooksDir(pluginDir: string | null): string {
-  return pluginDir === null ? getWorkspaceHooksDir() : join(pluginDir, "hooks");
+function ownerHooksDir(kind: HookOwnerKind, ownerName: string): string {
+  return kind === "workspace"
+    ? getWorkspaceHooksDir()
+    : join(getWorkspacePluginsDir(), ownerName, "hooks");
 }
 
 /**
@@ -138,17 +153,20 @@ function ownerHooksDir(pluginDir: string | null): string {
  * This is the single point where hook code enters the process, shared by
  * dispatch reads ({@link collectUserHookEntries}) and lifecycle runs
  * ({@link runInitHook} / {@link runShutdownHook}).
+ *
+ * The owner's hooks directory is derived from `(kind, ownerName)` via
+ * {@link ownerHooksDir} — callers pass only what identifies the owner, never
+ * the directory.
  */
 function resolveHook(
   kind: HookOwnerKind,
-  hooksDir: string,
   ownerName: string,
   hookName: string,
 ): Promise<HookFunction | null> {
   const key = hookKey(kind, ownerName, hookName);
   let entry = hookCache.get(key);
   if (entry === undefined) {
-    entry = importHook(hooksDir, ownerName, hookName);
+    entry = importHook(ownerHooksDir(kind, ownerName), ownerName, hookName);
     hookCache.set(key, entry);
   }
   return entry;
@@ -202,12 +220,13 @@ async function importHook(
  * evicted — is a pure map lookup. Owners without the hook contribute nothing
  * (their negative cache entry keeps them from being re-stat'd).
  *
- * `pluginDirs` is the orchestrator's discovered `[dir, ownerName]` set (in
- * install-date order). Each plugin's hook runs first, then the standalone
- * workspace hook runs last — so a plugin can shape the threaded context
- * before a workspace-wide hook observes or finalizes it. Resolutions are kicked
- * off together and awaited in that order, so a cold first read imports the
- * owners' files concurrently without disturbing chain order.
+ * `pluginNames` is the orchestrator's discovered plugin names, in install-date
+ * order. Each plugin's hook runs first, then the standalone workspace hook runs
+ * last — so a plugin can shape the threaded context before a workspace-wide hook
+ * observes or finalizes it. Resolutions are kicked off together and awaited in
+ * that order, so a cold first read imports the owners' files concurrently
+ * without disturbing chain order. Each owner's hooks directory is derived from
+ * its name by {@link resolveHook}, so discovery passes names, not directories.
  *
  * Added, removed, and edited hook files (including helper modules they import)
  * land when the source-versions reconcile evicts the owner and the next read
@@ -221,7 +240,7 @@ async function importHook(
  */
 export async function collectUserHookEntries<TCtx = unknown>(
   hookName: string,
-  pluginDirs: Iterable<readonly [string, string]>,
+  pluginNames: Iterable<string>,
   effectiveEnabledPlugins?: Set<string> | null,
 ): Promise<HookEntry<TCtx>[]> {
   const pending: Array<{
@@ -229,7 +248,7 @@ export async function collectUserHookEntries<TCtx = unknown>(
     hook: Promise<HookFunction | null>;
   }> = [];
 
-  for (const [pluginDir, pluginName] of pluginDirs) {
+  for (const pluginName of pluginNames) {
     if (
       effectiveEnabledPlugins != null &&
       !effectiveEnabledPlugins.has(pluginName)
@@ -238,12 +257,7 @@ export async function collectUserHookEntries<TCtx = unknown>(
     }
     pending.push({
       owner: { kind: "plugin", id: pluginName },
-      hook: resolveHook(
-        "plugin",
-        ownerHooksDir(pluginDir),
-        pluginName,
-        hookName,
-      ),
+      hook: resolveHook("plugin", pluginName, hookName),
     });
   }
 
@@ -251,12 +265,7 @@ export async function collectUserHookEntries<TCtx = unknown>(
   // that are not part of any plugin (no package.json, no tools — just hooks).
   pending.push({
     owner: { kind: "workspace", id: WORKSPACE_HOOKS_OWNER },
-    hook: resolveHook(
-      "workspace",
-      ownerHooksDir(null),
-      WORKSPACE_HOOKS_OWNER,
-      hookName,
-    ),
+    hook: resolveHook("workspace", WORKSPACE_HOOKS_OWNER, hookName),
   });
 
   const out: HookEntry<TCtx>[] = [];
@@ -279,15 +288,12 @@ export function hasWorkspaceHooks(): boolean {
 }
 
 /**
- * Run the `init` hook for `ownerName` if the owner defines one. Resolves the
- * owner's `shutdown` first — while the directory is still present — so it's
- * cached for teardown even after an uninstall removes the directory, then
- * resolves and runs `init`. `init` can't ride the whole-chain `runHook` the way
- * dispatch hooks do because its context is per-plugin (config, logger, storage
- * dir), so it's dispatched per-owner here. Shared by user plugins and
- * standalone workspace hooks so both get the same init-context shape and
- * per-owner isolation (a thrown `init` is logged and swallowed, never blocking
- * boot).
+ * Run the `init` hook for `ownerName` if the owner defines one. `init` can't
+ * ride the whole-chain `runHook` the way dispatch hooks do because its context
+ * is per-plugin (config, logger, storage dir), so it's dispatched per-owner
+ * here. Shared by user plugins and standalone workspace hooks so both get the
+ * same init-context shape and per-owner isolation (a thrown `init` is logged and
+ * swallowed, never blocking boot).
  *
  * For user plugins, `pluginDir` is the absolute path to the installed plugin
  * directory (`<workspace>/plugins/<name>/`). Config and data now live inside
@@ -310,14 +316,8 @@ export async function runInitHook(
 ): Promise<void> {
   // A plugin always has a directory; only the workspace owner passes `null`.
   const kind: HookOwnerKind = pluginDir === null ? "workspace" : "plugin";
-  const hooksDir = ownerHooksDir(pluginDir);
 
-  // Resolve `shutdown` now, while the directory is present, so it's cached for
-  // teardown even after an uninstall removes the directory (runShutdownHook
-  // reads the cache, never disk). The result is discarded here — this is a warm.
-  await resolveHook(kind, hooksDir, ownerName, HOOKS.SHUTDOWN);
-
-  const initHook = await resolveHook(kind, hooksDir, ownerName, HOOKS.INIT);
+  const initHook = await resolveHook(kind, ownerName, HOOKS.INIT);
   if (initHook === null) {
     return;
   }
@@ -339,38 +339,41 @@ export async function runInitHook(
   }
 }
 
+/** How long a single teardown `shutdown` invocation may run before we move on. */
+const SHUTDOWN_TIMEOUT_MS = 5_000;
+
 /**
- * Run one owner's `shutdown` hook from the cache — the targeted single-owner
- * teardown for a runtime uninstall / disable / reload (the whole-chain
- * `runHook(HOOKS.SHUTDOWN)` at process exit runs *every* owner's shutdown; this
- * runs exactly one). The reconcile tears an owner down before evicting it, so
- * the `shutdown` cached at activation is still resident here even when the
- * directory is already gone. Best-effort: a thrown shutdown is logged and
- * swallowed. `reason` is threaded into the log for attribution only.
+ * Run one owner's `shutdown` — the targeted single-owner teardown for a managed
+ * uninstall, disable, or reload (the whole-chain `runHook(HOOKS.SHUTDOWN)` at
+ * process exit runs *every* owner's; this runs exactly one). Resolves it through
+ * the same {@link resolveHook} the dispatch path uses — cache or disk, so it
+ * needs nothing pre-warmed and works in any process (a `shutdown` hook must not
+ * assume it shares a process with its `init`; see {@link ShutdownContext}) —
+ * then invokes it under the shared {@link withTimeout} so a hook that hangs
+ * can't block teardown (e.g. the `rmSync` a managed uninstall runs next). No-op
+ * when the owner defines no `shutdown`. Best-effort: a thrown, timed-out, or
+ * malformed shutdown is logged and swallowed.
  */
 export async function runShutdownHook(
   kind: HookOwnerKind,
   ownerName: string,
-  context: ShutdownContext,
-  reason: string,
+  reason: ShutdownContext["reason"],
 ): Promise<void> {
-  // Read from the cache (resolved at activation, while the directory existed) —
-  // never re-resolve here, since an uninstall may have already removed it.
-  const entry = hookCache.get(hookKey(kind, ownerName, HOOKS.SHUTDOWN));
-  if (entry === undefined) {
-    return;
-  }
-  const shutdown = await entry;
+  const shutdown = await resolveHook(kind, ownerName, HOOKS.SHUTDOWN);
   if (shutdown === null) {
     return;
   }
-
+  const context: ShutdownContext = { assistantVersion: APP_VERSION, reason };
   try {
-    await shutdown(context);
+    await withTimeout(
+      Promise.resolve(shutdown(context)),
+      SHUTDOWN_TIMEOUT_MS,
+      `shutdown hook for ${ownerName} exceeded ${SHUTDOWN_TIMEOUT_MS}ms`,
+    );
   } catch (err) {
     log.warn(
       { err, plugin: ownerName, reason },
-      "user hooks shutdown failed (continuing)",
+      "user hooks shutdown failed or timed out (continuing)",
     );
   }
 }

@@ -2,8 +2,10 @@ import { useCallback, useState, type ReactNode } from "react";
 
 import type { LucideIcon } from "lucide-react";
 
+import { IconTile } from "@/domains/chat/components/icon-tile";
 import type { Conversation } from "@/types/conversation-types";
 import { Popover, Tooltip } from "@vellumai/design-library";
+import { cn } from "@vellumai/design-library/utils/cn";
 
 // ---------------------------------------------------------------------------
 // Indicator state
@@ -55,6 +57,33 @@ const INDICATOR_CLASS: Record<Exclude<GroupIndicatorState, null>, string> = {
   unread: "bg-[var(--system-mid-strong)]",
 };
 
+/**
+ * The colored activity dot for a group of conversations. Renders nothing when
+ * there's no activity. Callers position it — the collapsed rail overlays it on
+ * the icon corner; the expanded section header renders it inline.
+ */
+export function GroupIndicatorDot({
+  state,
+  className,
+}: {
+  state: GroupIndicatorState;
+  className?: string;
+}) {
+  if (state == null) {
+    return null;
+  }
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "h-2.5 w-2.5 rounded-full",
+        INDICATOR_CLASS[state],
+        className,
+      )}
+    />
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -77,7 +106,13 @@ export interface CollapsedGroupIconProps {
    * Popover content. Accepts a render function that receives a `close` callback
    * to programmatically dismiss the popover (e.g. after selecting a conversation).
    */
-  children?: ReactNode | ((close: () => void) => ReactNode);
+  /**
+   * Popover body. Receives a close callback and the popover's own scrollport,
+   * so a long list can window against it rather than opening a second one.
+   */
+  children?:
+    | ReactNode
+    | ((close: () => void, scrollParent: HTMLElement | null) => ReactNode);
 }
 
 export function CollapsedGroupIcon({
@@ -89,6 +124,7 @@ export function CollapsedGroupIcon({
   children,
 }: CollapsedGroupIconProps) {
   const [open, setOpen] = useState(false);
+  const [contentEl, setContentEl] = useState<HTMLElement | null>(null);
   const handleOpenChange = useCallback(
     (next: boolean) => {
       setOpen(next);
@@ -117,32 +153,24 @@ export function CollapsedGroupIcon({
 
   return (
     <Popover.Root open={open} onOpenChange={handleOpenChange}>
-      <Tooltip content={label} side="right">
-        <Popover.Trigger asChild>
-          <button
-            type="button"
-            aria-label={label}
-            aria-haspopup="dialog"
-            className="relative flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-[6px] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] aria-[expanded=true]:bg-[var(--surface-active)] aria-[expanded=true]:text-[var(--content-default)]"
-          >
-            <Icon size={14} />
-            {indicatorState != null ? (
-              <span
-                aria-hidden
-                className={`absolute right-0 top-0 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-overlay)] ${INDICATOR_CLASS[indicatorState]}`}
-              />
-            ) : null}
-          </button>
-        </Popover.Trigger>
-      </Tooltip>
+      <Popover.Trigger asChild>
+        <IconTile label={label} side="right" aria-haspopup="dialog">
+          <Icon size={14} />
+          <GroupIndicatorDot
+            state={indicatorState}
+            className="absolute right-0 top-0 border-2 border-[var(--surface-overlay)]"
+          />
+        </IconTile>
+      </Popover.Trigger>
       <Popover.Content
+        ref={setContentEl}
         side="right"
         align="start"
         sideOffset={8}
         onOpenAutoFocus={(e) => e.preventDefault()}
         className="max-h-[500px] w-72 overflow-y-auto rounded-lg py-2 px-0"
       >
-        {typeof children === "function" ? children(close) : children}
+        {typeof children === "function" ? children(close, contentEl) : children}
       </Popover.Content>
     </Popover.Root>
   );

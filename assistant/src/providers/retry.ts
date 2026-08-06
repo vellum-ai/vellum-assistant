@@ -4,7 +4,12 @@ import {
   resolveUsageAttribution,
   sanitizeUsageMetadataValue,
 } from "../usage/attribution.js";
-import { ProviderError } from "../util/errors.js";
+import { resolveSubagentAttribution } from "../usage/subagent-attribution.js";
+import {
+  type ProviderCredentialSource,
+  ProviderError,
+  type ProviderErrorReason,
+} from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
   computeRetryDelay,
@@ -18,8 +23,12 @@ import {
   isAnthropicModel,
 } from "./anthropic-gateway-shared.js";
 import { resolveLogitBiasPreset } from "./inference/logit-bias.js";
-import { isAdaptiveThinkingOnlyModel } from "./model-catalog.js";
 import {
+  isAdaptiveThinkingOnlyModel,
+  isAdaptiveThinkingUnsupportedModel,
+} from "./model-catalog.js";
+import {
+  isThinkingConfigAdaptive,
   isThinkingConfigDisabled,
   normalizeThinkingConfigForWire,
 } from "./thinking-config.js";
@@ -30,6 +39,7 @@ import {
   type ProviderResponse,
   type SendMessageOptions,
 } from "./types.js";
+import { UNPARSEABLE_TOOL_ARGS_SDK_MESSAGE } from "./unparseable-tool-args.js";
 
 const log = getLogger("retry");
 
@@ -40,7 +50,18 @@ const USAGE_ATTRIBUTION_HEADER_NAMES = {
   resolvedProvider: "X-Vellum-Resolved-Provider",
   resolvedModel: "X-Vellum-Resolved-Model",
   resolvedMixArm: "X-Vellum-Resolved-Mix-Arm",
+  // Delegated-work attribution. Every subagent variety shares
+  // `llm_call_site = "subagentSpawn"`, so on the authoritative billing path
+  // these two orthogonal dimensions are the only way to tell an advisor
+  // consult from a fork from a regular spawn.
+  subagentRole: "X-Vellum-Subagent-Role",
+  subagentSpawnMode: "X-Vellum-Subagent-Spawn-Mode",
 } as const;
+
+/** Providers whose transports consume `promptCacheKey` (OpenAI Responses
+ *  `prompt_cache_key`); `RetryProvider` derives it from `selectionSeed` for
+ *  these only. */
+const PROMPT_CACHE_KEY_PROVIDERS = new Set(["openai", "openrouter"]);
 
 /** Providers that support the `effort` config (extended thinking / reasoning). */
 const EFFORT_SUPPORTED_PROVIDERS = new Set([
@@ -50,6 +71,8 @@ const EFFORT_SUPPORTED_PROVIDERS = new Set([
   "vercel-ai-gateway",
   "fireworks",
   "together",
+  "baseten",
+  "poolside",
 ]);
 
 // For these providers, disabling reasoning is encoded through the same effort
@@ -59,7 +82,30 @@ const DISABLED_THINKING_USES_EFFORT_PROVIDERS = new Set([
   "openai",
   "fireworks",
   "together",
+  "openrouter",
+  "vercel-ai-gateway",
+  "baseten",
+  "poolside",
 ]);
+
+// Whether a disabled `thinking` config must be encoded as `effort: "none"`
+// for this provider/model. Gateway calls that delegate `anthropic/*` models
+// to the Anthropic Messages API are excluded: the delegate honors a disabled
+// `thinking` natively and `effort` keeps its Anthropic meaning there, so
+// forcing it would diverge from the direct `anthropic` provider.
+function disabledThinkingForcesEffortNone(
+  providerName: string,
+  model: unknown,
+): boolean {
+  if (!DISABLED_THINKING_USES_EFFORT_PROVIDERS.has(providerName)) {
+    return false;
+  }
+  return !(
+    isAnthropicDelegatingGateway(providerName) &&
+    typeof model === "string" &&
+    isAnthropicModel(model)
+  );
+}
 
 /**
  * Providers that consume the `thinking` config. Anthropic uses it directly on
@@ -96,7 +142,63 @@ const RETRYABLE_STREAM_PATTERNS = [
   "stream ended without producing",
   "request ended without sending any chunks",
   "stream has ended, this shouldn't happen",
+  // The SDK's stream accumulator throws this when the model emits tool-call
+  // arguments that don't parse as JSON (e.g. an unquoted string value). The
+  // Anthropic client salvages most of these into a `_raw`-wrapped tool call
+  // before they surface (see anthropic/stream-content-shadow.ts); ones that
+  // still reach here retry with a corrective note
+  // (`withUnparseableToolArgsHint`) because the malformation can be
+  // conditioned on the request context — a byte-identical resend can
+  // reproduce it indefinitely.
+  UNPARSEABLE_TOOL_ARGS_SDK_MESSAGE,
 ];
+
+/**
+ * One-shot note appended to the retried request after a tool-argument JSON
+ * parse failure. Appended as a trailing text block on the latest user
+ * message: the request tail sits after every prompt-cache anchor, so the
+ * hint costs no cache reuse (a system-prompt edit would invalidate the whole
+ * cached prefix).
+ */
+const UNPARSEABLE_TOOL_ARGS_RETRY_HINT =
+  "[assistant runtime] The previous attempt at this response was discarded: " +
+  "a tool call's arguments were not valid JSON (typically an unquoted string " +
+  "value). Respond again, emitting tool-call arguments as strict JSON — " +
+  "every string value double-quoted, including values that begin with '[' " +
+  "or '{'.";
+
+function isUnparseableToolArgsError(error: unknown): boolean {
+  if (!(error instanceof ProviderError)) {
+    return false;
+  }
+  if (error.statusCode !== undefined) {
+    return false;
+  }
+  return error.message.includes(UNPARSEABLE_TOOL_ARGS_SDK_MESSAGE);
+}
+
+/**
+ * Copy of `messages` with the corrective note appended to the latest user
+ * message. When the request doesn't end on a user message (assistant
+ * prefill), returns `messages` unchanged — appending anything there would
+ * change prefill semantics.
+ */
+function withUnparseableToolArgsHint(messages: Message[]): Message[] {
+  const last = messages[messages.length - 1];
+  if (last === undefined || last.role !== "user") {
+    return messages;
+  }
+  return [
+    ...messages.slice(0, -1),
+    {
+      ...last,
+      content: [
+        ...last.content,
+        { type: "text", text: UNPARSEABLE_TOOL_ARGS_RETRY_HINT },
+      ],
+    },
+  ];
+}
 
 /**
  * Patterns that indicate a transient provider error even when no HTTP status
@@ -139,24 +241,43 @@ const RETRYABLE_TRANSPORT_ABORT_PATTERNS = [
   /^anthropic api error:\s*request was aborted/i,
 ];
 
+/** Semantic provider-error reasons that are safe to retry. */
+const RETRYABLE_PROVIDER_ERROR_REASONS = new Set<ProviderErrorReason>([
+  "rate_limited",
+  "overloaded",
+  "server_error",
+]);
+
 function isRetryableStreamError(error: unknown): boolean {
-  if (!(error instanceof ProviderError)) return false;
-  if (error.statusCode !== undefined) return false; // has a real HTTP status — not a stream error
+  if (!(error instanceof ProviderError)) {
+    return false;
+  }
+  if (error.statusCode !== undefined) {
+    return false;
+  } // has a real HTTP status — not a stream error
   return RETRYABLE_STREAM_PATTERNS.some((p) => error.message.includes(p));
 }
 
 function isRetryableProviderMessage(error: unknown): boolean {
-  if (!(error instanceof ProviderError)) return false;
-  if (error.statusCode !== undefined) return false; // has a real HTTP status — handled by status check
+  if (!(error instanceof ProviderError)) {
+    return false;
+  }
+  if (error.statusCode !== undefined) {
+    return false;
+  } // has a real HTTP status — handled by status check
   return RETRYABLE_PROVIDER_MESSAGE_PATTERNS.some((p) => p.test(error.message));
 }
 
 function isRetryableTransportAbort(error: unknown): boolean {
-  if (!(error instanceof ProviderError)) return false;
+  if (!(error instanceof ProviderError)) {
+    return false;
+  }
   // Transport aborts surface with ``status === undefined`` (the SDK never
   // saw an HTTP response). A real HTTP status here means a server error,
   // which is handled by the status check.
-  if (error.statusCode !== undefined) return false;
+  if (error.statusCode !== undefined) {
+    return false;
+  }
   return RETRYABLE_TRANSPORT_ABORT_PATTERNS.some((p) => p.test(error.message));
 }
 
@@ -165,7 +286,9 @@ function isRetryableError(error: unknown): boolean {
   // will never succeed. Short-circuit before the generic 429/5xx check so
   // ContextOverflowError (which extends ProviderError and may carry a 429
   // statusCode on Gemini/Vertex) never triggers exponential backoff.
-  if (isContextOverflowError(error)) return false;
+  if (isContextOverflowError(error)) {
+    return false;
+  }
   // Daemon/user-initiated aborts are never retryable. The catch-site tags
   // these with `abortReason` exactly when `signal.aborted` was true at the
   // time of failure, so this short-circuits before any message-based pattern
@@ -174,12 +297,30 @@ function isRetryableError(error: unknown): boolean {
   if (error instanceof ProviderError && error.abortReason !== undefined) {
     return false;
   }
-  if (error instanceof ProviderError && error.statusCode !== undefined) {
-    if (error.statusCode === 429 || error.statusCode >= 500) return true;
+  // Prefer the provider-stamped semantic reason: a known reason decides
+  // retryability outright, superseding the status/regex fallback below. Only
+  // `unknown` (and a reason-less error) falls through.
+  if (
+    error instanceof ProviderError &&
+    error.reason &&
+    error.reason !== "unknown"
+  ) {
+    return RETRYABLE_PROVIDER_ERROR_REASONS.has(error.reason);
   }
-  if (isRetryableProviderMessage(error)) return true;
-  if (isRetryableStreamError(error)) return true;
-  if (isRetryableTransportAbort(error)) return true;
+  if (error instanceof ProviderError && error.statusCode !== undefined) {
+    if (error.statusCode === 429 || error.statusCode >= 500) {
+      return true;
+    }
+  }
+  if (isRetryableProviderMessage(error)) {
+    return true;
+  }
+  if (isRetryableStreamError(error)) {
+    return true;
+  }
+  if (isRetryableTransportAbort(error)) {
+    return true;
+  }
   return isRetryableNetworkError(error);
 }
 
@@ -226,7 +367,9 @@ function normalizeSendMessageOptions(
   normalizeOptions: { forwardUsageAttributionHeaders?: boolean } = {},
 ): SendMessageOptions | undefined {
   const config = options?.config;
-  if (!config) return options;
+  if (!config) {
+    return options;
+  }
 
   const nextConfig: Record<string, unknown> = { ...config };
 
@@ -235,14 +378,34 @@ function normalizeSendMessageOptions(
   delete nextConfig.usageAttributionHeaders;
   delete nextConfig.usageTracking;
 
-  // `overrideProfile`, `forceOverrideProfile`, and `selectionSeed` are
-  // routing/resolution-time concerns (consumed by the resolver below and
-  // `CallSiteRoutingProvider`'s provider selection); none is a wire-format
-  // field. Strip unconditionally so they never leak into provider request
-  // bodies even when callers set them without a `callSite`.
+  // Preserve the per-conversation prompt-cache key before `selectionSeed` is
+  // stripped below. Gated to providers whose Responses transport consumes it
+  // as `prompt_cache_key` (direct OpenAI, and OpenRouter's `openai/*`
+  // Responses delegate); creating it elsewhere would leak a non-wire field
+  // through clients that spread config into request bodies. The Anthropic
+  // client strips `promptCacheKey` from its wire config, which also covers
+  // OpenRouter's `anthropic/*` delegation path. An explicit caller-set value
+  // wins.
+  if (
+    PROMPT_CACHE_KEY_PROVIDERS.has(providerName) &&
+    nextConfig.promptCacheKey === undefined &&
+    typeof config.selectionSeed === "string" &&
+    config.selectionSeed.length > 0
+  ) {
+    nextConfig.promptCacheKey = config.selectionSeed;
+  }
+
+  // `overrideProfile`, `forceOverrideProfile`, `selectionSeed`, and
+  // `conversationId` are routing/resolution-time concerns (consumed by the
+  // resolver below, `CallSiteRoutingProvider`'s provider selection, and
+  // `UsageTrackingProvider`'s ledger attribution); none is a wire-format
+  // field. Strip unconditionally (after the `openai` promptCacheKey copy
+  // above) so they never leak into provider request bodies even when callers
+  // set them without a `callSite`.
   delete nextConfig.overrideProfile;
   delete nextConfig.forceOverrideProfile;
   delete nextConfig.selectionSeed;
+  delete nextConfig.conversationId;
 
   if (config.callSite !== undefined) {
     const resolved = resolveCallSiteConfig(config.callSite, getConfig().llm, {
@@ -266,6 +429,10 @@ function normalizeSendMessageOptions(
     // downstream as a wire-format field.
     delete nextConfig.callSite;
     if (normalizeOptions.forwardUsageAttributionHeaders === true) {
+      // Read from the conversation row rather than the live SubagentManager:
+      // the row is durable and the lookup is a memoized primary-key read that
+      // can never throw, so billing attribution cannot destabilize dispatch.
+      const subagent = resolveSubagentAttribution(config.conversationId);
       const usageAttributionHeaders = buildUsageAttributionHeaders({
         callSite: attribution.callSite,
         appliedProfile: attribution.appliedProfile,
@@ -273,6 +440,8 @@ function normalizeSendMessageOptions(
         resolvedProvider: attribution.resolvedProvider,
         resolvedModel: attribution.resolvedModel,
         resolvedMixArm: attribution.resolvedMixArm,
+        subagentRole: subagent.subagentRole,
+        subagentSpawnMode: subagent.subagentSpawnMode,
       });
       if (Object.keys(usageAttributionHeaders).length > 0) {
         nextConfig.usageAttributionHeaders = usageAttributionHeaders;
@@ -386,7 +555,7 @@ function normalizeSendMessageOptions(
 
   if (
     isThinkingConfigDisabled(nextConfig.thinking) &&
-    DISABLED_THINKING_USES_EFFORT_PROVIDERS.has(providerName)
+    disabledThinkingForcesEffortNone(providerName, nextConfig.model)
   ) {
     nextConfig.effort = "none";
   }
@@ -399,6 +568,21 @@ function normalizeSendMessageOptions(
     typeof nextConfig.model === "string" &&
     isAdaptiveThinkingOnlyModel(nextConfig.model) &&
     isThinkingConfigDisabled(nextConfig.thinking)
+  ) {
+    delete nextConfig.thinking;
+  }
+
+  // Pre-adaptive Claude models (Haiku 4.5, Opus 4.5, Sonnet 4.5) reject
+  // `thinking: { type: "adaptive" }` (Anthropic 400s the request), and Vellum
+  // never sends the legacy budget_tokens form. Drop an adaptive thinking
+  // config for these models so the request goes out without thinking instead
+  // of failing. A pass-through `{ type: "enabled", budget_tokens }` config is
+  // left intact: these models do support that shape.
+  if (
+    typeof nextConfig.model === "string" &&
+    isAdaptiveThinkingUnsupportedModel(nextConfig.model) &&
+    isThinkingConfigAdaptive(nextConfig.thinking) &&
+    targetsAnthropicWire(providerName, nextConfig.model)
   ) {
     delete nextConfig.thinking;
   }
@@ -427,7 +611,9 @@ function normalizeSendMessageOptions(
     if (wire.level !== undefined || wire.streamThinking !== undefined) {
       const scrubbed: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(wire)) {
-        if (key === "level" || key === "streamThinking") continue;
+        if (key === "level" || key === "streamThinking") {
+          continue;
+        }
         scrubbed[key] = value;
       }
       nextConfig.thinking = scrubbed;
@@ -447,10 +633,16 @@ function normalizeSendMessageOptions(
   // `reasoning` parameter via `buildExtraCreateParams` and may support
   // reasoning with forced tool_choice).
   const isThinkingForcedToolConflict = (() => {
-    if (nextConfig.thinking == null) return false;
-    if (isThinkingConfigDisabled(nextConfig.thinking)) return false;
+    if (nextConfig.thinking == null) {
+      return false;
+    }
+    if (isThinkingConfigDisabled(nextConfig.thinking)) {
+      return false;
+    }
     const tc = nextConfig.tool_choice as Record<string, unknown> | undefined;
-    if (tc == null || (tc.type !== "tool" && tc.type !== "any")) return false;
+    if (tc == null || (tc.type !== "tool" && tc.type !== "any")) {
+      return false;
+    }
     const model = typeof nextConfig.model === "string" ? nextConfig.model : "";
     return targetsAnthropicWire(providerName, model);
   })();
@@ -590,6 +782,8 @@ function buildUsageAttributionHeaders(input: {
   resolvedProvider: string;
   resolvedModel: string;
   resolvedMixArm: string | null;
+  subagentRole: string | null;
+  subagentSpawnMode: string | null;
 }): Record<string, string> {
   const headers: Record<string, string> = {};
   addSanitizedHeader(
@@ -624,6 +818,16 @@ function buildUsageAttributionHeaders(input: {
     USAGE_ATTRIBUTION_HEADER_NAMES.resolvedMixArm,
     input.resolvedMixArm,
   );
+  addSanitizedHeader(
+    headers,
+    USAGE_ATTRIBUTION_HEADER_NAMES.subagentRole,
+    input.subagentRole,
+  );
+  addSanitizedHeader(
+    headers,
+    USAGE_ATTRIBUTION_HEADER_NAMES.subagentSpawnMode,
+    input.subagentSpawnMode,
+  );
   return headers;
 }
 
@@ -649,6 +853,8 @@ function addSanitizedHeader(
 export class RetryProvider implements Provider {
   public readonly name: string;
 
+  private inner: Provider;
+
   get tokenEstimationProvider(): string | undefined {
     return this.inner.tokenEstimationProvider;
   }
@@ -667,47 +873,123 @@ export class RetryProvider implements Provider {
   // the wrapper chain (callers gate on its presence). Bound straight to the
   // inner provider — count_tokens is a cheap separate endpoint and its caller
   // already falls back on error, so it needs no retry wrapping.
+  // Deliberately not re-bound when a credential refresh swaps `inner`: every
+  // outer wrapper snapshots this the same way at construction, so a re-bind
+  // here would never reach callers. count_tokens on the pre-refresh credential
+  // fails soft — its caller falls back to estimation.
   public readonly countInputTokens?: NonNullable<Provider["countInputTokens"]>;
 
   constructor(
-    private readonly inner: Provider,
-    private readonly options: { forwardUsageAttributionHeaders?: boolean } = {},
+    inner: Provider,
+    private readonly options: {
+      forwardUsageAttributionHeaders?: boolean;
+      credentialSource?: ProviderCredentialSource;
+      connectionName?: string;
+      refreshCredentialProvider?: () => Promise<Provider | null>;
+    } = {},
   ) {
+    this.inner = inner;
     this.name = inner.name;
     if (inner.countInputTokens) {
       this.countInputTokens = inner.countInputTokens.bind(inner);
     }
   }
 
+  private shouldRefreshManagedCredential(error: unknown): boolean {
+    return (
+      this.options.credentialSource === "vellum-managed" &&
+      this.options.refreshCredentialProvider !== undefined &&
+      error instanceof ProviderError &&
+      (error.statusCode === 401 || error.statusCode === 403) &&
+      (error.reason === undefined ||
+        error.reason === "unknown" ||
+        error.reason === "invalid_credentials")
+    );
+  }
+
+  private attributeCredential(error: unknown): void {
+    const { credentialSource, connectionName } = this.options;
+    if (
+      !(error instanceof ProviderError) ||
+      (!credentialSource && !connectionName)
+    ) {
+      return;
+    }
+    // Merges under whatever a closer layer already stamped, so a route
+    // resolved at dispatch keeps precedence over this adapter's own view.
+    error.attachRouteAttribution({
+      ...(credentialSource ? { credentialSource } : {}),
+      ...(connectionName ? { connectionName } : {}),
+    });
+  }
+
   async sendMessage(
     messages: Message[],
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
-    let lastError: unknown;
     let didRetry = false;
+    let retryAttempt = 0;
+    let credentialRefreshAttempted = false;
+    let messagesForAttempt = messages;
 
     const normalizedOptions = normalizeSendMessageOptions(this.name, options, {
       forwardUsageAttributionHeaders:
         this.options.forwardUsageAttributionHeaders === true,
     });
 
-    for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
+    while (true) {
       try {
         const result = await this.inner.sendMessage(
-          messages,
+          messagesForAttempt,
           normalizedOptions,
         );
         return result;
       } catch (error) {
-        lastError = error;
+        if (
+          !credentialRefreshAttempted &&
+          this.shouldRefreshManagedCredential(error)
+        ) {
+          credentialRefreshAttempted = true;
+          try {
+            const refreshed = await this.options.refreshCredentialProvider?.();
+            if (refreshed) {
+              this.inner = refreshed;
+              log.info(
+                {
+                  provider: this.name,
+                  connectionName: this.options.connectionName,
+                },
+                "Retrying managed inference with refreshed assistant credentials",
+              );
+              continue;
+            }
+          } catch (refreshError) {
+            log.warn(
+              {
+                provider: this.name,
+                connectionName: this.options.connectionName,
+                refreshError,
+              },
+              "Failed to reload managed assistant credentials",
+            );
+          }
+        }
 
-        if (attempt < DEFAULT_MAX_RETRIES && isRetryableError(error)) {
+        if (retryAttempt < DEFAULT_MAX_RETRIES && isRetryableError(error)) {
+          // Malformed tool-argument JSON is conditioned on the request, so
+          // resend with the corrective note. Built from the original
+          // `messages` each time — the note appears exactly once no matter
+          // how many attempts fail this way.
+          if (isUnparseableToolArgsError(error)) {
+            messagesForAttempt = withUnparseableToolArgsHint(messages);
+          }
           // Prefer server-provided Retry-After; fall back to exponential backoff.
           const retryAfter =
             error instanceof ProviderError ? error.retryAfterMs : undefined;
           const MAX_RETRY_DELAY_MS = 60_000; // Cap server-suggested delays at 60s
           const delay = Math.min(
-            retryAfter ?? computeRetryDelay(attempt, DEFAULT_BASE_DELAY_MS),
+            retryAfter ??
+              computeRetryDelay(retryAttempt, DEFAULT_BASE_DELAY_MS),
             MAX_RETRY_DELAY_MS,
           );
           const errorType =
@@ -726,17 +1008,19 @@ export class RetryProvider implements Provider {
                       : "network_error";
           log.warn(
             {
-              attempt: attempt + 1,
+              attempt: retryAttempt + 1,
               maxRetries: DEFAULT_MAX_RETRIES,
               delay,
               retryAfterHeader: retryAfter !== undefined,
               errorType,
+              correctiveHint: messagesForAttempt !== messages,
               provider: this.name,
               message: error instanceof Error ? error.message : String(error),
             },
             "Retrying after transient error",
           );
           didRetry = true;
+          retryAttempt++;
           await sleep(delay);
           continue;
         }
@@ -752,16 +1036,9 @@ export class RetryProvider implements Provider {
             true;
         }
 
+        this.attributeCredential(error);
         throw error;
       }
     }
-
-    // Unreachable in practice — the loop body always either returns or throws —
-    // but mark the last error in case execution somehow falls through.
-    if (lastError instanceof Error && isRetryableError(lastError)) {
-      (lastError as Error & { retriesExhausted?: boolean }).retriesExhausted =
-        true;
-    }
-    throw lastError;
   }
 }

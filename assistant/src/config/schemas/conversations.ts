@@ -26,7 +26,7 @@ export const ConversationsConfigSchema = z
       })
       .default(false)
       .describe(
-        "Controls how conversations left mid-turn by a previous shutdown are handled on startup. When false (default), their stale processing flag is cleared so they come up idle. When true, the daemon will instead automatically resume the interrupted turn for each such conversation.",
+        "Controls how conversations left mid-turn by a previous shutdown are handled on startup. Their stale processing flags are always cleared so they come up idle. When true, the assistant additionally resumes each interrupted turn in the background after startup completes, at most 2 consecutive times per conversation (the budget refills whenever a turn completes cleanly) so a turn that repeatedly interrupts the process is eventually left idle.",
       ),
   })
   .describe("Conversation behavior configuration");

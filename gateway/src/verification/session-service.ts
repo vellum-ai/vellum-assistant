@@ -507,5 +507,6 @@ function applyPhoneGuardianBindingGatewayWrites(
     deliveryChatId: chatId,
     guardianPrincipalId: canonicalPrincipal,
     verifiedVia: "challenge",
+    reactivateRevoked: true,
   });
 }

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { selectTranscriptMessages } from "@/domains/chat/transcript/select-transcript-messages";
@@ -14,11 +14,37 @@ import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 
 const CONV = "conv-A";
 
+// Records which conversations opened a switch-telemetry window and why one was
+// closed, so the gate in `switchToConversation` can be asserted without
+// reaching the ingest layer. The module's other exports are stubbed too: a
+// module mock is process-wide, so a sibling file sharing this Bun process must
+// still find them.
+const switchStartedConversationIds: string[] = [];
+const switchAbandonReasons: string[] = [];
+mock.module("@/lib/telemetry/switch-telemetry", () => ({
+  noteConversationSwitchStarted: (conversationId: string) => {
+    switchStartedConversationIds.push(conversationId);
+  },
+  noteSwitchTranscriptPainted: () => {},
+  abandonSwitchMeasurement: (reason: string) => {
+    switchAbandonReasons.push(reason);
+  },
+  useSwitchPaintMeasurement: () => {},
+  subscribeSwitchTelemetry: () => () => {},
+  __resetSwitchTelemetryForTests: () => {},
+}));
+
 function snapshot(
   messages: DisplayMessage[],
   seq: number | null,
 ): PaginatedHistoryResult {
-  return { messages, hasMore: false, oldestTimestamp: null, oldestMessageId: null, seq };
+  return {
+    messages,
+    hasMore: false,
+    oldestTimestamp: null,
+    oldestMessageId: null,
+    seq,
+  };
 }
 function textRow(id: string, text: string): DisplayMessage {
   return {
@@ -29,7 +55,11 @@ function textRow(id: string, text: string): DisplayMessage {
     contentBlocks: [{ type: "text", text }],
   };
 }
-function envelope(seq: number, conversationId: string, message: AssistantEvent): AssistantEventEnvelope {
+function envelope(
+  seq: number,
+  conversationId: string,
+  message: AssistantEvent,
+): AssistantEventEnvelope {
   return {
     id: `e${seq}`,
     conversationId,
@@ -39,7 +69,11 @@ function envelope(seq: number, conversationId: string, message: AssistantEvent):
   } as AssistantEventEnvelope;
 }
 const textDelta = (seq: number, conv: string, id: string, text: string) =>
-  envelope(seq, conv, { type: "assistant_text_delta", messageId: id, text } as AssistantEvent);
+  envelope(seq, conv, {
+    type: "assistant_text_delta",
+    messageId: id,
+    text,
+  } as AssistantEvent);
 
 const store = () => useChatSessionStore.getState();
 
@@ -66,9 +100,9 @@ describe("chat-session-store — snapshot + optimistic", () => {
 
     store().seedSnapshot(CONV, snapshot([textRow("a1", "persisted")], 5));
 
-    expect(store().snapshot?.messages.find((m) => m.id === "a1")?.textSegments).toEqual([
-      "persisted + live",
-    ]);
+    expect(
+      store().snapshot?.messages.find((m) => m.id === "a1")?.textSegments,
+    ).toEqual(["persisted + live"]);
     expect(store().snapshot?.seq).toBe(6);
   });
 
@@ -99,13 +133,17 @@ describe("chat-session-store — snapshot + optimistic", () => {
     } as AssistantEvent);
     pushSseEvent(id, echo);
     store().applyEnvelopeToSnapshot(echo);
-    expect(store().snapshot?.messages.some((m) => m.id === "msg-user-1")).toBe(true);
+    expect(store().snapshot?.messages.some((m) => m.id === "msg-user-1")).toBe(
+      true,
+    );
 
     const before = store().snapshot;
     store().seedSnapshot(CONV, snapshot([textRow("a1", "earlier")], 100));
 
     expect(store().snapshot).toBe(before);
-    expect(store().snapshot?.messages.some((m) => m.id === "msg-user-1")).toBe(true);
+    expect(store().snapshot?.messages.some((m) => m.id === "msg-user-1")).toBe(
+      true,
+    );
   });
 
   test("seedSnapshot accepts a caught-up anchor after dropping a stale one", () => {
@@ -123,20 +161,25 @@ describe("chat-session-store — snapshot + optimistic", () => {
     // The authoritative reconcile refetch lands with the persisted user row
     // and an anchor at (or past) the live watermark — reseeds normally.
     const fresh = snapshot(
-      [textRow("a1", "earlier"), { ...textRow("msg-user-1", "hi"), role: "user" }],
+      [
+        textRow("a1", "earlier"),
+        { ...textRow("msg-user-1", "hi"), role: "user" },
+      ],
       500,
     );
     store().seedSnapshot(CONV, fresh);
-    expect(store().snapshot?.messages.some((m) => m.id === "msg-user-1")).toBe(true);
+    expect(store().snapshot?.messages.some((m) => m.id === "msg-user-1")).toBe(
+      true,
+    );
     expect(store().snapshot?.seq).toBe(500);
   });
 
   test("applyEnvelopeToSnapshot folds a live event once seeded; idempotent by seq", () => {
     store().seedSnapshot(CONV, snapshot([textRow("a1", "persisted")], 5));
     store().applyEnvelopeToSnapshot(textDelta(6, CONV, "a1", " live"));
-    expect(store().snapshot?.messages.find((m) => m.id === "a1")?.textSegments).toEqual([
-      "persisted live",
-    ]);
+    expect(
+      store().snapshot?.messages.find((m) => m.id === "a1")?.textSegments,
+    ).toEqual(["persisted live"]);
     // Re-applying seq 6 is a no-op.
     const before = store().snapshot;
     store().applyEnvelopeToSnapshot(textDelta(6, CONV, "a1", " live"));
@@ -149,10 +192,18 @@ describe("chat-session-store — snapshot + optimistic", () => {
   });
 
   test("optimistic sends add and retire via setOptimisticSends", () => {
-    const send: DisplayMessage = { ...textRow("u1", "hi"), role: "user", clientMessageId: "nonce-1" };
+    const send: DisplayMessage = {
+      ...textRow("u1", "hi"),
+      role: "user",
+      clientMessageId: "nonce-1",
+    };
     store().addOptimisticSend(send);
-    expect(store().optimisticSends.map((m) => m.clientMessageId)).toEqual(["nonce-1"]);
-    store().setOptimisticSends((prev) => prev.filter((m) => m.clientMessageId !== "nonce-1"));
+    expect(store().optimisticSends.map((m) => m.clientMessageId)).toEqual([
+      "nonce-1",
+    ]);
+    store().setOptimisticSends((prev) =>
+      prev.filter((m) => m.clientMessageId !== "nonce-1"),
+    );
     expect(store().optimisticSends).toEqual([]);
   });
 
@@ -176,14 +227,23 @@ describe("chat-session-store — snapshot + optimistic", () => {
       snapshot([{ ...textRow("msg-server-1", "pic"), role: "user" }], 5),
     );
 
-    expect(store().optimisticSends.map((m) => m.clientMessageId)).toEqual(["nonce-2"]);
+    expect(store().optimisticSends.map((m) => m.clientMessageId)).toEqual([
+      "nonce-2",
+    ]);
   });
 
   test("switching conversation resets snapshot and optimistic sends", () => {
     store().seedSnapshot(CONV, snapshot([textRow("a1", "x")], 1));
-    store().addOptimisticSend({ ...textRow("u1", "hi"), role: "user", clientMessageId: "n" });
+    store().addOptimisticSend({
+      ...textRow("u1", "hi"),
+      role: "user",
+      clientMessageId: "n",
+    });
 
-    store().switchToConversation({ assistantId: "asst-1", activeConversationId: "conv-B" });
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-B",
+    });
 
     expect(store().snapshot).toBeNull();
     expect(store().optimisticSends).toEqual([]);
@@ -299,7 +359,10 @@ describe("chat-session-store — snapshot + optimistic", () => {
       clientMessageId: "nonce-1",
       attachments: [{ ...attachment, previewUrl: "data:image/png;base64,x" }],
     };
-    store().seedSnapshot(CONV, snapshot([textRow("a1", "earlier"), serverRow], 7));
+    store().seedSnapshot(
+      CONV,
+      snapshot([textRow("a1", "earlier"), serverRow], 7),
+    );
 
     expect(store().optimisticSends).toEqual([]);
     const afterReseed = selectTranscriptMessages(
@@ -310,5 +373,122 @@ describe("chat-session-store — snapshot + optimistic", () => {
       afterReseed.find((m) => m.id === "msg-server-1")?.attachments?.[0]
         ?.previewUrl,
     ).toBe("data:image/png;base64,x");
+  });
+});
+
+describe("chat-session-store: switch telemetry gate", () => {
+  beforeEach(() => {
+    switchStartedConversationIds.length = 0;
+    switchAbandonReasons.length = 0;
+    useChatSessionStore.setState({
+      previousConversationId: null,
+      previousAssistantId: null,
+      draftConversationIdResolution: false,
+    });
+  });
+
+  test("a cold mount with no prior conversation opens no window", () => {
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-A",
+    });
+
+    expect(switchStartedConversationIds).toEqual([]);
+  });
+
+  test("a move between two conversations of one assistant opens a window", () => {
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-A",
+    });
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-B",
+    });
+
+    expect(switchStartedConversationIds).toEqual(["conv-B"]);
+  });
+
+  test("an assistant change opens no window", () => {
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-A",
+    });
+    store().switchToConversation({
+      assistantId: "asst-2",
+      activeConversationId: "conv-B",
+    });
+
+    expect(switchStartedConversationIds).toEqual([]);
+  });
+
+  test("re-entering the same conversation opens no window", () => {
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-A",
+    });
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-A",
+    });
+
+    expect(switchStartedConversationIds).toEqual([]);
+  });
+
+  test("a draft-key resolution is not a switch", () => {
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-A",
+    });
+    store().markDraftResolution();
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-server-1",
+    });
+
+    expect(switchStartedConversationIds).toEqual([]);
+  });
+
+  test("every unmeasured move closes any window it inherited", () => {
+    // Each of these leaves the panel on a conversation that cannot paint under
+    // the id of a window an earlier switch opened.
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-A",
+    });
+    store().switchToConversation({
+      assistantId: "asst-2",
+      activeConversationId: "conv-B",
+    });
+    store().switchToConversation({
+      assistantId: "asst-2",
+      activeConversationId: "conv-B",
+    });
+    store().markDraftResolution();
+    store().switchToConversation({
+      assistantId: "asst-2",
+      activeConversationId: "conv-server-1",
+    });
+
+    expect(switchAbandonReasons).toEqual([
+      "context_change",
+      "context_change",
+      "context_change",
+      "draft_resolution",
+    ]);
+  });
+
+  test("a measured move opens a window instead of abandoning", () => {
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-A",
+    });
+    switchAbandonReasons.length = 0;
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-B",
+    });
+
+    expect(switchAbandonReasons).toEqual([]);
   });
 });

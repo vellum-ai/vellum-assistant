@@ -23,10 +23,12 @@ import {
   listSkills,
   listSkillsFiltered,
   searchSkills,
+  skillExistsLocally,
   uninstallSkill,
   updateSkill,
 } from "../../daemon/handlers/skills.js";
 import { getCategories } from "../../skills/categories-cache.js";
+import { getSkillHistory } from "../../skills/skill-history.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -142,6 +144,12 @@ const skillDetailSchema = z.discriminatedUnion("origin", [
   z.object({
     ...slimSkillBaseWithOwner,
     origin: z.literal("assistant-memory"),
+    sourceConversationId: z
+      .string()
+      .optional()
+      .describe(
+        "Conversation whose trace the retrospective distilled this skill from. Present only when recorded in install-meta.",
+      ),
   }),
 ]);
 
@@ -297,8 +305,12 @@ export const ROUTES: RouteDefinition[] = [
       }
       const result = await getSkillFileContent(pathParams!.id, path);
       if ("error" in result) {
-        if (result.status === 400) throw new BadRequestError(result.error);
-        if (result.status === 404) throw new NotFoundError(result.error);
+        if (result.status === 400) {
+          throw new BadRequestError(result.error);
+        }
+        if (result.status === 404) {
+          throw new NotFoundError(result.error);
+        }
         throw new InternalError(result.error);
       }
       return result;
@@ -333,10 +345,89 @@ export const ROUTES: RouteDefinition[] = [
     handler: async ({ pathParams }: RouteHandlerArgs) => {
       const result = await getSkillFiles(pathParams!.id);
       if ("error" in result) {
-        if (result.status === 404) throw new NotFoundError(result.error);
+        if (result.status === 404) {
+          throw new NotFoundError(result.error);
+        }
         throw new InternalError(result.error);
       }
       return result;
+    },
+  },
+  {
+    operationId: "getSkillHistory",
+    endpoint: "skills/:id/history",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get skill revision history",
+    description:
+      "Return a skill's recent updates, newest first, each with a combined diff across the skill directory. Read-only: revisions come from the workspace git repository, which already retains prior content. Commits whose only in-skill change is the `lastUsedAt` usage stamp are omitted, so entries are edits rather than loads.",
+    tags: ["skills"],
+    queryParams: [
+      {
+        name: "limit",
+        schema: { type: "integer" },
+        required: false,
+        description:
+          "Maximum revisions to return, newest first. Defaults to 20 and is clamped to 100.",
+      },
+    ],
+    responseBody: z.object({
+      skillId: z.string().describe("The skill these revisions belong to"),
+      revisions: z
+        .array(
+          z.object({
+            id: z.string().describe("Opaque revision identifier"),
+            changedAt: z.string().describe("ISO-8601 time of the update"),
+            files: z
+              .array(z.string())
+              .describe("Paths changed, relative to the skill directory"),
+            diff: z
+              .string()
+              .describe("Unified diff of this update, scoped to the skill"),
+          }),
+        )
+        .describe("Recent updates, newest first"),
+      truncatedByCompaction: z
+        .boolean()
+        .describe(
+          "Older history was squashed away, so the oldest entry is a floor rather than the skill's creation",
+        ),
+    }),
+    handler: async ({ pathParams, queryParams }: RouteHandlerArgs) => {
+      const rawLimit = queryParams?.limit;
+      const limit =
+        typeof rawLimit === "string" && rawLimit.trim().length > 0
+          ? Number.parseInt(rawLimit, 10)
+          : undefined;
+      try {
+        // Same current-resource boundary as the file routes. Git retains a
+        // deleted skill's commits, so without this a removed skill keeps
+        // answering with history for something the rest of the API reports as
+        // gone. An existing skill with nothing recorded still gets an empty
+        // list, which is the honest answer for a bundled skill or one the
+        // workspace has not committed yet.
+        if (!skillExistsLocally(pathParams!.id)) {
+          throw new NotFoundError(`Skill "${pathParams!.id}" not found`);
+        }
+        return await getSkillHistory(pathParams!.id, {
+          ...(limit !== undefined && Number.isFinite(limit) ? { limit } : {}),
+        });
+      } catch (err) {
+        if (err instanceof NotFoundError) {
+          throw err;
+        }
+        const message = err instanceof Error ? err.message : String(err);
+        // The id reaches a git pathspec, so a malformed one is the caller's
+        // error. Anything else escaping the service is a server fault: the
+        // read is otherwise fail-soft and returns an empty history.
+        if (message.startsWith("Invalid skill id")) {
+          throw new BadRequestError(message);
+        }
+        throw new InternalError(message);
+      }
     },
   },
   {
@@ -353,7 +444,9 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({ ok: z.boolean() }),
     handler: ({ pathParams }: RouteHandlerArgs) => {
       const result = enableSkill(pathParams!.id);
-      if (!result.success) throw new InternalError(result.error);
+      if (!result.success) {
+        throw new InternalError(result.error);
+      }
       return { ok: true };
     },
   },
@@ -371,7 +464,9 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({ ok: z.boolean() }),
     handler: ({ pathParams }: RouteHandlerArgs) => {
       const result = disableSkill(pathParams!.id);
-      if (!result.success) throw new InternalError(result.error);
+      if (!result.success) {
+        throw new InternalError(result.error);
+      }
       return { ok: true };
     },
   },
@@ -398,7 +493,9 @@ export const ROUTES: RouteDefinition[] = [
         apiKey: body.apiKey as string | undefined,
         config: body.config as Record<string, unknown> | undefined,
       });
-      if (!result.success) throw new InternalError(result.error);
+      if (!result.success) {
+        throw new InternalError(result.error);
+      }
       return { ok: true };
     },
   },
@@ -418,7 +515,9 @@ export const ROUTES: RouteDefinition[] = [
     }),
     handler: async () => {
       const result = await checkSkillUpdates();
-      if (!result.success) throw new InternalError(result.error);
+      if (!result.success) {
+        throw new InternalError(result.error);
+      }
       return { data: result.data };
     },
   },
@@ -452,13 +551,17 @@ export const ROUTES: RouteDefinition[] = [
     }),
     handler: async ({ queryParams = {} }: RouteHandlerArgs) => {
       const query = queryParams.q ?? "";
-      if (!query) throw new BadRequestError("q query parameter is required");
+      if (!query) {
+        throw new BadRequestError("q query parameter is required");
+      }
       const limitRaw = queryParams.limit;
       const limit = limitRaw
         ? Math.max(1, Number.parseInt(limitRaw, 10) || 25)
         : 25;
       const result = await searchSkills(query, limit);
-      if (!result.success) throw new InternalError(result.error);
+      if (!result.success) {
+        throw new InternalError(result.error);
+      }
       return { skills: result.skills };
     },
   },
@@ -502,7 +605,9 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({ ok: z.boolean() }),
     handler: async ({ pathParams }: RouteHandlerArgs) => {
       const result = await updateSkill(pathParams!.id);
-      if (!result.success) throw new InternalError(result.error);
+      if (!result.success) {
+        throw new InternalError(result.error);
+      }
       return { ok: true };
     },
   },
@@ -552,7 +657,9 @@ export const ROUTES: RouteDefinition[] = [
     handler: async ({ pathParams }: RouteHandlerArgs) => {
       const result = await getSkill(pathParams!.id);
       if ("error" in result) {
-        if (result.status === 404) throw new NotFoundError(result.error);
+        if (result.status === 404) {
+          throw new NotFoundError(result.error);
+        }
         throw new InternalError(result.error);
       }
       return result;
@@ -572,7 +679,9 @@ export const ROUTES: RouteDefinition[] = [
     responseStatus: "204",
     handler: async ({ pathParams }: RouteHandlerArgs) => {
       const result = await uninstallSkill(pathParams!.id);
-      if (!result.success) throw new InternalError(result.error);
+      if (!result.success) {
+        throw new InternalError(result.error);
+      }
       return null;
     },
   },
@@ -637,7 +746,9 @@ export const ROUTES: RouteDefinition[] = [
         catalogOnly: body.catalogOnly as boolean | undefined,
         overwrite: body.overwrite as boolean | undefined,
       });
-      if (!result.success) throw new InternalError(result.error);
+      if (!result.success) {
+        throw new InternalError(result.error);
+      }
       return { ok: true, skillId: result.skillId };
     },
   },
@@ -676,7 +787,9 @@ export const ROUTES: RouteDefinition[] = [
         description,
         bodyMarkdown,
       });
-      if (!result.success) throw new InternalError(result.error);
+      if (!result.success) {
+        throw new InternalError(result.error);
+      }
       return { ok: true };
     },
   },
@@ -695,7 +808,9 @@ export const ROUTES: RouteDefinition[] = [
     handler: ({ pathParams }: RouteHandlerArgs) => {
       const result = getSkillLocalDetail(pathParams!.id);
       if (!result.ok) {
-        if (result.status === 404) throw new NotFoundError(result.error);
+        if (result.status === 404) {
+          throw new NotFoundError(result.error);
+        }
         throw new InternalError(result.error);
       }
       return result;

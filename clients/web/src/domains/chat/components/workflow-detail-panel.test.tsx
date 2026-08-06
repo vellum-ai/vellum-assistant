@@ -36,7 +36,9 @@ import type {
 
 const noop = () => {};
 
-function makeLeaf(overrides: Partial<WorkflowLeaf> & { seq: number }): WorkflowLeaf {
+function makeLeaf(
+  overrides: Partial<WorkflowLeaf> & { seq: number },
+): WorkflowLeaf {
   return {
     status: "running",
     ...overrides,
@@ -144,7 +146,12 @@ describe("WorkflowDetailPanel", () => {
   });
 
   test("shows an empty state when there are no subagents yet", () => {
-    render(<WorkflowDetailPanel entry={makeEntry({ leaves: new Map() })} onClose={noop} />);
+    render(
+      <WorkflowDetailPanel
+        entry={makeEntry({ leaves: new Map() })}
+        onClose={noop}
+      />,
+    );
     expect(screen.getByText("No subagents yet")).toBeDefined();
   });
 

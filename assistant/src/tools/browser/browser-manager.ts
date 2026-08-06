@@ -47,8 +47,9 @@ function findSystemChrome(): string | null {
  * macOS and Windows always have a display; Linux requires DISPLAY or WAYLAND_DISPLAY.
  */
 function canDisplayGui(): boolean {
-  if (process.platform === "darwin" || process.platform === "win32")
+  if (process.platform === "darwin" || process.platform === "win32") {
     return true;
+  }
   return !!(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
 }
 
@@ -237,8 +238,12 @@ class BrowserManager {
   }
 
   private async ensureContext(): Promise<BrowserContext> {
-    if (this.context) return this.context;
-    if (this.contextCreating) return this.contextCreating;
+    if (this.context) {
+      return this.context;
+    }
+    if (this.contextCreating) {
+      return this.contextCreating;
+    }
 
     this.contextCreating = (async () => {
       await authSessionCache.load();
@@ -378,8 +383,9 @@ class BrowserManager {
           this.snapshotBackendNodeMaps.clear();
           this.downloads.clear();
           for (const pending of this.pendingDownloads.values()) {
-            for (const waiter of pending)
+            for (const waiter of pending) {
               waiter.reject(new Error("Browser closed"));
+            }
           }
           this.pendingDownloads.clear();
         };
@@ -460,8 +466,9 @@ class BrowserManager {
     // Reject any pending download waiters
     const pending = this.pendingDownloads.get(conversationId);
     if (pending) {
-      for (const waiter of pending)
+      for (const waiter of pending) {
         waiter.reject(new Error("Browser page closed"));
+      }
       this.pendingDownloads.delete(conversationId);
     }
     log.debug({ conversationId }, "Conversation page closed");
@@ -492,7 +499,9 @@ class BrowserManager {
     this.preferredBackendKinds.clear();
     this.downloads.clear();
     for (const pending of this.pendingDownloads.values()) {
-      for (const waiter of pending) waiter.reject(new Error("Browser closed"));
+      for (const waiter of pending) {
+        waiter.reject(new Error("Browser closed"));
+      }
     }
     this.pendingDownloads.clear();
 
@@ -605,13 +614,19 @@ class BrowserManager {
     elementId: string,
   ): number | null {
     const map = this.snapshotBackendNodeMaps.get(conversationId);
-    if (!map) return null;
+    if (!map) {
+      return null;
+    }
     return map.get(elementId) ?? null;
   }
 
   private async ensureBrowserWindowId(): Promise<number | null> {
-    if (!this.browserCdpSession) return null;
-    if (this.browserWindowId != null) return this.browserWindowId;
+    if (!this.browserCdpSession) {
+      return null;
+    }
+    if (this.browserWindowId != null) {
+      return this.browserWindowId;
+    }
     try {
       const targets = (await this.browserCdpSession.send(
         "Target.getTargets",
@@ -621,7 +636,9 @@ class BrowserManager {
       const pageTarget = targets.targetInfos.find(
         (t: { type: string }) => t.type === "page",
       );
-      if (!pageTarget) return null;
+      if (!pageTarget) {
+        return null;
+      }
       const result = (await this.browserCdpSession.send(
         "Browser.getWindowForTarget",
         {
@@ -645,9 +662,13 @@ class BrowserManager {
    * user can watch automation while still seeing assistant messages on the left.
    */
   async positionWindowSidebar(): Promise<void> {
-    if (!this.browserCdpSession) return;
+    if (!this.browserCdpSession) {
+      return;
+    }
     const windowId = await this.ensureBrowserWindowId();
-    if (windowId == null) return;
+    if (windowId == null) {
+      return;
+    }
     try {
       await this.browserCdpSession.send("Browser.setWindowBounds", {
         windowId,
@@ -672,9 +693,13 @@ class BrowserManager {
    * Move the browser window onscreen and resize it for user interaction.
    */
   async moveWindowOnscreen(): Promise<void> {
-    if (!this.browserCdpSession) return;
+    if (!this.browserCdpSession) {
+      return;
+    }
     const windowId = await this.ensureBrowserWindowId();
-    if (windowId == null) return;
+    if (windowId == null) {
+      return;
+    }
     try {
       await this.browserCdpSession.send("Browser.setWindowBounds", {
         windowId,
@@ -713,7 +738,9 @@ class BrowserManager {
     conversationId: string,
     timeoutMs: number = 300_000,
   ): Promise<void> {
-    if (!this.interactiveModeSessions.has(conversationId)) return;
+    if (!this.interactiveModeSessions.has(conversationId)) {
+      return;
+    }
 
     // Cancel any existing pending handoff for this session
     const existing = this.handoffResolvers.get(conversationId);
@@ -730,7 +757,9 @@ class BrowserManager {
 
       const resolver = () => {
         clearTimeout(timer);
-        if (pollTimer) clearInterval(pollTimer);
+        if (pollTimer) {
+          clearInterval(pollTimer);
+        }
         if (this.handoffResolvers.get(conversationId) === resolver) {
           this.handoffResolvers.delete(conversationId);
         }
@@ -738,7 +767,9 @@ class BrowserManager {
       };
 
       const timer = setTimeout(() => {
-        if (pollTimer) clearInterval(pollTimer);
+        if (pollTimer) {
+          clearInterval(pollTimer);
+        }
         if (this.handoffResolvers.get(conversationId) === resolver) {
           this.handoffResolvers.delete(conversationId);
         }
@@ -799,7 +830,9 @@ class BrowserManager {
    * Extract cookies from the browser via CDP, optionally filtered by domain.
    */
   async extractCookies(domain?: string): Promise<ExtractedCredential[]> {
-    if (!this.browserCdpSession) return [];
+    if (!this.browserCdpSession) {
+      return [];
+    }
     try {
       const result = (await this.browserCdpSession.send(
         "Network.getAllCookies",
@@ -864,8 +897,9 @@ class BrowserManager {
         if (pending && pending.length > 0) {
           const waiter = pending.shift()!;
           waiter.resolve(info);
-          if (pending.length === 0)
+          if (pending.length === 0) {
             this.pendingDownloads.delete(conversationId);
+          }
         } else {
           const list = this.downloads.get(conversationId) ?? [];
           list.push(info);
@@ -891,8 +925,9 @@ class BrowserManager {
           waiter.reject(
             new Error(`Download failed: ${failure ?? String(err)}`),
           );
-          if (pending.length === 0)
+          if (pending.length === 0) {
             this.pendingDownloads.delete(conversationId);
+          }
         }
       }
     });
@@ -900,7 +935,9 @@ class BrowserManager {
 
   getLastDownload(conversationId: string): DownloadInfo | null {
     const list = this.downloads.get(conversationId);
-    if (!list || list.length === 0) return null;
+    if (!list || list.length === 0) {
+      return null;
+    }
     return list[list.length - 1];
   }
 
@@ -912,7 +949,9 @@ class BrowserManager {
     const existing = this.downloads.get(conversationId);
     if (existing && existing.length > 0) {
       const info = existing.shift()!;
-      if (existing.length === 0) this.downloads.delete(conversationId);
+      if (existing.length === 0) {
+        this.downloads.delete(conversationId);
+      }
       return Promise.resolve(info);
     }
 
@@ -922,9 +961,12 @@ class BrowserManager {
         const pending = this.pendingDownloads.get(conversationId);
         if (pending) {
           const idx = pending.findIndex((w) => w.resolve === wrappedResolve);
-          if (idx >= 0) pending.splice(idx, 1);
-          if (pending.length === 0)
+          if (idx >= 0) {
+            pending.splice(idx, 1);
+          }
+          if (pending.length === 0) {
             this.pendingDownloads.delete(conversationId);
+          }
         }
         reject(new Error(`Download timed out after ${timeoutMs}ms`));
       }, timeoutMs);

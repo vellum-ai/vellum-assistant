@@ -1,15 +1,10 @@
 import type { Database } from "bun:sqlite";
 
 import { getMemoryDbPath } from "../../util/memory-db-path.js";
+import type { DrizzleDb } from "../db-connection.js";
 import {
-  type DrizzleDb,
-  getMemorySqlite,
-  getSqliteFrom,
-} from "../db-connection.js";
-import {
-  drainStagedTable,
   type RelocationSpec,
-  stageTableForRelocation,
+  runMemoryTableRelocation,
 } from "./helpers/relocation.js";
 
 /**
@@ -94,35 +89,16 @@ function createIndexes(raw: Database) {
  * The jobs store reads/writes the queue over the dedicated memory connection
  * (see `getMemoryDb()`).
  *
- * Like the `llm_request_logs` move (migration 297) this is incremental: create
- * the table (and indexes) on the memory connection, rename any populated
- * `main.memory_jobs` aside to `memory_jobs__relocating`, then drain it in
- * awaited batches (see `helpers/relocation.ts`) per {@link MEMORY_JOBS_RELOCATION}.
- *
  * Because the drain is awaited as part of this step, the pending/running jobs
  * are in their new home before the memory jobs worker starts later in daemon
  * startup — the worker never observes a transiently empty queue.
- *
- * Throws (rather than returning) if the memory database cannot be opened, so
- * the runner records the step as failed instead of applied and retries it on a
- * later boot — never renaming the source aside without a target to write to,
- * and never marking the relocation done while it has not happened. The throw is
- * caught per-step by the runner, so startup is not aborted.
  */
 export async function migrateMoveMemoryJobsToMemoryDb(
   database: DrizzleDb,
 ): Promise<void> {
-  const memoryRaw = getMemorySqlite();
-  if (!memoryRaw) {
-    throw new Error(
-      "memory database unavailable — deferring memory_jobs relocation",
-    );
-  }
-
-  ensureMemoryJobsSchema(memoryRaw);
-
-  const raw = getSqliteFrom(database);
-  const needsDrain = stageTableForRelocation(raw, MEMORY_JOBS_RELOCATION.table);
-
-  if (needsDrain) await drainStagedTable(raw, MEMORY_JOBS_RELOCATION);
+  await runMemoryTableRelocation(
+    database,
+    MEMORY_JOBS_RELOCATION,
+    ensureMemoryJobsSchema,
+  );
 }

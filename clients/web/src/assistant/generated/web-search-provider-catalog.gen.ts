@@ -3,6 +3,7 @@
 
 /** Ordered list of provider ids — drives the picker option order. */
 export const WEB_SEARCH_PROVIDER_IDS: readonly string[] = [
+  "vellum",
   "inference-provider-native",
   "perplexity",
   "brave",
@@ -14,6 +15,7 @@ export const WEB_SEARCH_PROVIDER_IDS: readonly string[] = [
 export const WEB_SEARCH_PROVIDER_DISPLAY_NAMES: Readonly<
   Record<string, string>
 > = {
+  vellum: "Vellum",
   "inference-provider-native": "Provider Native",
   perplexity: "Perplexity",
   brave: "Brave",
@@ -32,14 +34,13 @@ export const WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS: Readonly<
 };
 
 /** localStorage key used to persist each BYOK provider's user-supplied key. */
-export const WEB_SEARCH_PROVIDER_KEY_STORAGE: Readonly<
-  Record<string, string>
-> = {
-  perplexity: "vellum:ai:perplexityKey",
-  brave: "vellum:ai:braveKey",
-  tavily: "vellum:ai:tavilyKey",
-  firecrawl: "vellum:ai:firecrawlKey",
-};
+export const WEB_SEARCH_PROVIDER_KEY_STORAGE: Readonly<Record<string, string>> =
+  {
+    perplexity: "vellum:ai:perplexityKey",
+    brave: "vellum:ai:braveKey",
+    tavily: "vellum:ai:tavilyKey",
+    firecrawl: "vellum:ai:firecrawlKey",
+  };
 
 /** Provider ids that require a user-supplied API key. */
 export const WEB_SEARCH_BYOK_PROVIDER_IDS: ReadonlySet<string> = new Set([

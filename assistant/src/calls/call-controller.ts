@@ -8,14 +8,15 @@
  * barge-in, state machine, guardian verification).
  */
 
+import type { AssistantEvent } from "../api/index.js";
 import { revokeScopedApprovalGrantsForContext } from "../approvals/scoped-approval-grants.js";
 import {
-  expireCanonicalGuardianRequest,
-  getCanonicalRequestByPendingQuestionId,
-  getPendingCanonicalRequestByCallSessionId,
-  listCanonicalGuardianDeliveries,
-} from "../contacts/canonical-guardian-store.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+  expireGuardianRequest,
+  getPendingRequestByCallSession,
+  getPendingRequestByCallSessionOrNull,
+  getRequestByPendingQuestionOrNull,
+  listGuardianRequestDeliveriesOrEmpty,
+} from "../channels/gateway-guardian-requests.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
@@ -30,6 +31,7 @@ import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import type { CallAudioFormat } from "./audio-store.js";
 import {
+  getEndCallDrainMaxWaitMs,
   getEndCallListenWindowMs,
   getMaxCallDurationMs,
   getSilenceTimeoutMs,
@@ -75,6 +77,7 @@ import {
   stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
 import {
+  CONVERSATION_BUSY_MESSAGE,
   startVoiceTurn,
   type VoiceTurnHandle,
 } from "./voice-session-bridge.js";
@@ -103,6 +106,12 @@ interface PendingGuardianInput {
   timer: ReturnType<typeof setTimeout>;
 }
 
+interface PendingEndCall {
+  cancelled: boolean;
+  /** Settles the teardown's current in-flight wait (drain cap or listen window). */
+  wake: (() => void) | null;
+}
+
 export class CallController {
   private callSessionId: string;
   private transport: CallTransport;
@@ -112,7 +121,12 @@ export class CallController {
   private currentTurnPromise: Promise<void> | null = null;
   private destroyed = false;
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
-  private endCallListenTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Cancellation token for the in-flight end-call teardown (drain → listen).
+   * `wake` settles the teardown's current wait; all wait state lives on the
+   * token so a superseding teardown never clobbers a prior one's timers.
+   */
+  private pendingEndCall: PendingEndCall | null = null;
   /**
    * How many times the caller has re-engaged (spoken) after an END_CALL
    * marker was emitted but before the listen window fired. Each caller
@@ -152,7 +166,7 @@ export class CallController {
   /** Monotonic run id used to suppress stale turn side effects after interruption. */
   private llmRunVersion = 0;
   /** Optional broadcast function for emitting events to connected clients. */
-  private broadcast?: (msg: ServerMessage) => void;
+  private broadcast?: (msg: AssistantEvent) => void;
   /** Assistant identity for scoping guardian bindings. */
   private assistantId: string;
   /** Guardian trust context for the current caller, when available. */
@@ -181,7 +195,7 @@ export class CallController {
     transport: CallTransport,
     task: string | null,
     opts?: {
-      broadcast?: (msg: ServerMessage) => void;
+      broadcast?: (msg: AssistantEvent) => void;
       assistantId?: string;
       trustContext?: TrustContext;
     },
@@ -246,8 +260,12 @@ export class CallController {
    * Kick off the first outbound call utterance from the assistant.
    */
   async startInitialGreeting(): Promise<void> {
-    if (this.initialGreetingStarted) return;
-    if (this.state !== "idle") return;
+    if (this.initialGreetingStarted) {
+      return;
+    }
+    if (this.state !== "idle") {
+      return;
+    }
 
     this.initialGreetingStarted = true;
     this.resetSilenceTimer();
@@ -261,8 +279,12 @@ export class CallController {
    * greet naturally with context that verification just happened.
    */
   async startPostVerificationGreeting(): Promise<void> {
-    if (this.initialGreetingStarted) return;
-    if (this.state !== "idle") return;
+    if (this.initialGreetingStarted) {
+      return;
+    }
+    if (this.state !== "idle") {
+      return;
+    }
 
     this.initialGreetingStarted = true;
     this.resetSilenceTimer();
@@ -279,11 +301,15 @@ export class CallController {
     transcript: string,
     speaker?: PromptSpeakerContext,
   ): Promise<void> {
-    // If the caller speaks while an END_CALL listen window is pending,
-    // this is a deferral — the caller is re-engaging after we tried to
-    // hang up. Track it so we can cap repeat deferrals.
-    if (this.endCallListenTimer) {
+    // If the caller speaks while an END_CALL teardown is pending (during the
+    // drain wait or the listen window), this is a deferral — the caller is
+    // re-engaging after we tried to hang up. Track it so we can cap repeats.
+    if (this.pendingEndCall) {
       this.endCallDeferralCount++;
+      // The goodbye's speech was queued while state was idle, so the
+      // media-stream barge-in ignored it. Cancel it here so it can't play
+      // over the caller's follow-up or the next turn.
+      this.transport.cancelPendingSpeech?.();
     }
     this.cancelPendingEndCall();
 
@@ -455,10 +481,16 @@ export class CallController {
    */
   destroy(): void {
     this.destroyed = true;
-    if (this.silenceTimer) clearTimeout(this.silenceTimer);
-    if (this.endCallListenTimer) clearTimeout(this.endCallListenTimer);
-    if (this.durationTimer) clearTimeout(this.durationTimer);
-    if (this.durationWarningTimer) clearTimeout(this.durationWarningTimer);
+    if (this.silenceTimer) {
+      clearTimeout(this.silenceTimer);
+    }
+    this.cancelPendingEndCall();
+    if (this.durationTimer) {
+      clearTimeout(this.durationTimer);
+    }
+    if (this.durationWarningTimer) {
+      clearTimeout(this.durationWarningTimer);
+    }
     if (this.pendingGuardianInput) {
       clearTimeout(this.pendingGuardianInput.timer);
       this.pendingGuardianInput = null;
@@ -468,7 +500,6 @@ export class CallController {
       this.durationEndTimer = null;
     }
     this.pendingInstructions = [];
-    this.endCallListenTimer = null;
     this.llmRunVersion++;
     this.abortCurrentTurn();
     this.abortActiveSynthesis();
@@ -542,7 +573,9 @@ export class CallController {
     transcript: string,
     speaker?: PromptSpeakerContext,
   ): string {
-    if (!speaker) return transcript;
+    if (!speaker) {
+      return transcript;
+    }
     const safeId = speaker.speakerId.replaceAll('"', "'");
     const safeLabel = speaker.speakerLabel.replaceAll('"', "'");
     const confidencePart =
@@ -563,7 +596,9 @@ export class CallController {
   }
 
   private async runTurnInner(content: string): Promise<void> {
-    if (this.destroyed) return;
+    if (this.destroyed) {
+      return;
+    }
     const runVersion = ++this.llmRunVersion;
     const runSignal = this.abortController.signal;
 
@@ -586,9 +621,11 @@ export class CallController {
         runVersion,
         runSignal,
       );
-      if (!this.isCurrentRun(runVersion)) return;
+      if (!this.isCurrentRun(runVersion)) {
+        return;
+      }
 
-      this.handleTurnCompletion(fullResponseText);
+      await this.handleTurnCompletion(fullResponseText);
     } catch (err: unknown) {
       this.currentTurnHandle = null;
       // Aborted requests are expected (interruptions, rapid utterances)
@@ -680,6 +717,10 @@ export class CallController {
     // (transport FIFO gives gapless playback).
     const synthProvider = useSynthesizedPath ? provider : null;
     let pendingSynthText = "";
+    // Eager segmentation applies until the turn's first segment is
+    // enqueued: the opening clause flushes early so speech onset does not
+    // wait for a full sentence.
+    let firstSynthSegmentEnqueued = false;
     let synthesisChain: Promise<void> = Promise.resolve();
     // After a segment fails, the rest of the turn stays off the primary
     // provider so text is never spoken out of order: non-PCM transports
@@ -753,6 +794,7 @@ export class CallController {
         if (segment.length === 0) {
           continue;
         }
+        firstSynthSegmentEnqueued = true;
         synthesisChain = synthesisChain.then(async () => {
           if (
             !this.isCurrentRun(runVersion) ||
@@ -810,20 +852,27 @@ export class CallController {
         const { segments, remainder } = extractSpeakableSegments(
           pendingSynthText,
           false,
+          { eager: !firstSynthSegmentEnqueued },
         );
         pendingSynthText = remainder;
         enqueueSynthesisSegments(synthProvider, segments);
       } else {
         const cleaned = sanitizeForTts(safeText);
-        if (cleaned.length === 0) return;
+        if (cleaned.length === 0) {
+          return;
+        }
         this.beginSpeakingOnAudioStart(runVersion);
         this.transport.sendTextToken(cleaned, false);
       }
     };
 
     const flushSafeText = (): void => {
-      if (!this.isCurrentRun(runVersion)) return;
-      if (ttsBuffer.length === 0) return;
+      if (!this.isCurrentRun(runVersion)) {
+        return;
+      }
+      if (ttsBuffer.length === 0) {
+        return;
+      }
       const bracketIdx = ttsBuffer.indexOf("[");
       if (bracketIdx === -1) {
         // No bracket at all — safe to flush everything
@@ -860,7 +909,9 @@ export class CallController {
     // Use a promise to track completion of the voice turn
     const turnComplete = new Promise<void>((resolve, reject) => {
       const onTextDelta = (text: string): void => {
-        if (!this.isCurrentRun(runVersion)) return;
+        if (!this.isCurrentRun(runVersion)) {
+          return;
+        }
         fullResponseText += text;
         ttsBuffer += text;
         ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
@@ -966,7 +1017,9 @@ export class CallController {
     // latency; re-check the run wasn't superseded meanwhile so a stale turn
     // doesn't inject its end-of-turn marker (or fallback text) into the next
     // turn's output stream.
-    if (!this.isCurrentRun(runVersion)) return fullResponseText;
+    if (!this.isCurrentRun(runVersion)) {
+      return fullResponseText;
+    }
 
     // Signal end of this turn's speech.  An empty token with `last: true`
     // tells the transport to start listening — it does NOT trigger TTS
@@ -1109,7 +1162,7 @@ export class CallController {
    * (ASK_GUARDIAN_APPROVAL / ASK_GUARDIAN), call finalization (END_CALL),
    * and normal idle transition.
    */
-  private handleTurnCompletion(fullResponseText: string): void {
+  private async handleTurnCompletion(fullResponseText: string): Promise<void> {
     const responseText = fullResponseText;
 
     // Record the assistant response event
@@ -1269,13 +1322,13 @@ export class CallController {
             // Expire the previous consultation's storage records so stale
             // guardian answers cannot match the old request.
             expirePendingQuestions(this.callSessionId);
-            const previousRequest = getPendingCanonicalRequestByCallSessionId(
+            const previousRequest = await getPendingRequestByCallSession(
               this.callSessionId,
             );
             if (previousRequest) {
               // Immediately expire with 'superseded' reason to prevent
               // stale answers from resolving the old request.
-              expireCanonicalGuardianRequest(previousRequest.id);
+              await expireGuardianRequest(previousRequest.id);
               log.info(
                 {
                   callSessionId: this.callSessionId,
@@ -1331,50 +1384,102 @@ export class CallController {
     this.state = "idle";
     this.currentTurnHandle = null;
 
-    if (this.endCallListenTimer) {
-      clearTimeout(this.endCallListenTimer);
-      this.endCallListenTimer = null;
-    }
+    // Cancel any teardown still in flight from a prior END_CALL so it can't
+    // fire or cancel a later run.
+    this.cancelPendingEndCall();
 
-    const listenWindowMs = getEndCallListenWindowMs();
-    // After the caller has re-engaged once post-END_CALL, complete
-    // immediately on the next END_CALL. The first deferral gets a
-    // listen window (caller might say "wait, one more thing"); a
-    // second END_CALL means the assistant wants out and the caller
-    // already had their chance to re-engage.
-    const effectiveListenWindowMs =
-      this.endCallDeferralCount > 0 ? 0 : listenWindowMs;
-    const callContinues =
-      this.pendingInstructions.length > 0 || effectiveListenWindowMs > 0;
-    if (clearedPendingGuardianInput && callContinues) {
+    // The call always continues past END_CALL — either flushing queued
+    // instructions or waiting for playback drain — so restore in_progress if
+    // we just cleared a pending guardian consultation for the end.
+    if (clearedPendingGuardianInput) {
       updateCallSession(this.callSessionId, { status: "in_progress" });
     }
 
+    // Queued instructions mean the call is continuing — flush and skip teardown.
     if (this.pendingInstructions.length > 0) {
       this.flushPendingInstructions();
       return;
     }
 
-    if (effectiveListenWindowMs <= 0) {
-      this.completeCallFromEndMarker();
+    const pending: PendingEndCall = { cancelled: false, wake: null };
+    this.pendingEndCall = pending;
+    void this.runEndCallTeardown(pending);
+  }
+
+  /**
+   * End-of-call teardown: wait for goodbye audio to drain (capped), then run
+   * the re-engagement listen window, then end the session. Cancellable at
+   * every step via the `pending` token (caller re-engagement, destroy).
+   */
+  private async runEndCallTeardown(pending: PendingEndCall): Promise<void> {
+    if (this.transport.awaitPlaybackDrained) {
+      await this.awaitCancellable(pending, (resolve) => {
+        const cap = setTimeout(resolve, getEndCallDrainMaxWaitMs());
+        void this.transport.awaitPlaybackDrained!().then(resolve, resolve);
+        return () => clearTimeout(cap);
+      });
+    }
+    if (pending.cancelled || this.destroyed) {
       return;
     }
 
-    this.resetSilenceTimer();
-    this.endCallListenTimer = setTimeout(() => {
-      this.endCallListenTimer = null;
-      this.completeCallFromEndMarker();
-    }, effectiveListenWindowMs);
+    // After one deferral, subsequent END_CALL markers skip the listen window
+    // (the caller already had their grace re-engagement).
+    const listenWindowMs =
+      this.endCallDeferralCount > 0 ? 0 : getEndCallListenWindowMs();
+    if (listenWindowMs > 0) {
+      this.resetSilenceTimer();
+      await this.awaitCancellable(pending, (resolve) => {
+        const timer = setTimeout(resolve, listenWindowMs);
+        return () => clearTimeout(timer);
+      });
+    }
+    if (pending.cancelled || this.destroyed) {
+      return;
+    }
+
+    this.completeCallFromEndMarker();
+  }
+
+  /**
+   * Await a wait that {@link cancelPendingEndCall} can settle early. `arm`
+   * starts the wait and returns a cleanup for its timers. The resolver lives
+   * on the `pending` token (not shared instance state) so a superseding
+   * teardown's wait is never clobbered by a prior teardown's continuation.
+   */
+  private awaitCancellable(
+    pending: PendingEndCall,
+    arm: (resolve: () => void) => () => void,
+  ): Promise<void> {
+    return new Promise<void>((resolve) => {
+      let cleanup: (() => void) | null = null;
+      const done = (): void => {
+        if (pending.wake === done) {
+          pending.wake = null;
+        }
+        cleanup?.();
+        resolve();
+      };
+      pending.wake = done;
+      cleanup = arm(done);
+    });
   }
 
   private cancelPendingEndCall(): void {
-    if (!this.endCallListenTimer) return;
-    clearTimeout(this.endCallListenTimer);
-    this.endCallListenTimer = null;
+    const pending = this.pendingEndCall;
+    this.pendingEndCall = null;
+    if (pending) {
+      pending.cancelled = true;
+      // Settle its in-flight wait so runEndCallTeardown unblocks and returns
+      // instead of leaking a pending promise.
+      pending.wake?.();
+    }
   }
 
   private clearPendingGuardianInputForCallEnd(): boolean {
-    if (!this.pendingGuardianInput) return false;
+    if (!this.pendingGuardianInput) {
+      return false;
+    }
 
     clearTimeout(this.pendingGuardianInput.timer);
 
@@ -1382,19 +1487,30 @@ export class CallController {
     // a completed call with a dangling pendingQuestion, and guardian
     // replies are cleanly rejected instead of hitting answerCall failures.
     expirePendingQuestions(this.callSessionId);
-    const previousRequest = getPendingCanonicalRequestByCallSessionId(
-      this.callSessionId,
-    );
-    if (previousRequest) {
-      expireCanonicalGuardianRequest(previousRequest.id);
-    }
+    // Fire-and-forget: the sync end-call path can't await the gateway
+    // expiry; a failure leaves a pending row the TTL sweep reaps.
+    void getPendingRequestByCallSession(this.callSessionId)
+      .then((previousRequest) =>
+        previousRequest ? expireGuardianRequest(previousRequest.id) : undefined,
+      )
+      .catch((err) => {
+        log.error(
+          { err, callSessionId: this.callSessionId },
+          "Failed to expire guardian request on call end",
+        );
+      });
 
     this.pendingGuardianInput = null;
     return true;
   }
 
   private completeCallFromEndMarker(): void {
-    if (this.destroyed) return;
+    // The teardown has run to completion; drop the token so a later utterance
+    // can't read it as a still-pending end-call.
+    this.pendingEndCall = null;
+    if (this.destroyed) {
+      return;
+    }
 
     const currentSession = getCallSession(this.callSessionId);
     if (currentSession && isTerminalState(currentSession.status)) {
@@ -1436,7 +1552,9 @@ export class CallController {
   }
 
   private isExpectedAbortError(err: unknown): boolean {
-    if (!(err instanceof Error)) return false;
+    if (!(err instanceof Error)) {
+      return false;
+    }
     return err.name === "AbortError" || err.name === "APIUserAbortError";
   }
 
@@ -1447,8 +1565,7 @@ export class CallController {
    */
   private isLockContentionError(err: unknown): boolean {
     return (
-      err instanceof Error &&
-      err.message.includes("already processing a message")
+      err instanceof Error && err.message.includes(CONVERSATION_BUSY_MESSAGE)
     );
   }
 
@@ -1460,7 +1577,9 @@ export class CallController {
    * waiting for the processing lock or generating with no audio yet.
    */
   private beginSpeaking(runVersion: number): void {
-    if (!this.isCurrentRun(runVersion)) return;
+    if (!this.isCurrentRun(runVersion)) {
+      return;
+    }
     if (this.state === "processing") {
       this.state = "speaking";
     }
@@ -1539,23 +1658,22 @@ export class CallController {
         pendingQuestion,
         toolName: effectiveToolMeta?.toolName,
         inputDigest: effectiveToolMeta?.inputDigest,
-      }).then(() => {
-        // Backfill supersession chain: now that the new request exists in
-        // the store, link the old request to the new one.
+      }).then(async () => {
+        // Log the supersession chain now that the new request exists.
+        // The old request was already expired above; the read only feeds
+        // the log line, so it degrades to null on gateway failure.
         if (supersededRequestId) {
-          const newRequest = getCanonicalRequestByPendingQuestionId(
+          const newRequest = await getRequestByPendingQuestionOrNull(
             stablePendingQuestionId,
           );
           if (newRequest) {
-            // Canonical store does not track supersession metadata;
-            // the old request was already expired above.
             log.info(
               {
                 callSessionId: this.callSessionId,
                 oldRequestId: supersededRequestId,
                 newRequestId: newRequest.id,
               },
-              "Supersession chain: new canonical request created",
+              "Supersession chain: new guardian request created",
             );
           }
         }
@@ -1569,8 +1687,9 @@ export class CallController {
       if (
         !this.pendingGuardianInput ||
         this.pendingGuardianInput.questionId !== pendingQuestion.id
-      )
+      ) {
         return;
+      }
 
       log.info(
         { callSessionId: this.callSessionId },
@@ -1580,37 +1699,34 @@ export class CallController {
       // Mark the linked guardian action request as timed out and
       // send expiry notices to guardian destinations. Deliveries
       // must be captured before expiring the request changes
-      // their status.
-      const pendingActionRequest = getPendingCanonicalRequestByCallSessionId(
-        this.callSessionId,
-      );
-      if (pendingActionRequest) {
-        const canonicalDeliveries = listCanonicalGuardianDeliveries(
+      // their status. Fire-and-forget: the timer callback has no
+      // caller to propagate to, so failures are logged.
+      void (async () => {
+        const pendingActionRequest = await getPendingRequestByCallSessionOrNull(
+          this.callSessionId,
+        );
+        if (!pendingActionRequest) {
+          return;
+        }
+        const requestDeliveries = await listGuardianRequestDeliveriesOrEmpty(
           pendingActionRequest.id,
         );
-        // Expire the canonical request and its deliveries
-        expireCanonicalGuardianRequest(pendingActionRequest.id);
+        // Expire the guardian request and its deliveries
+        await expireGuardianRequest(pendingActionRequest.id);
         log.info(
           {
             callSessionId: this.callSessionId,
             requestId: pendingActionRequest.id,
           },
-          "Marked canonical guardian request as timed out",
+          "Marked guardian request as timed out",
         );
-        void sendGuardianExpiryNotices(
-          canonicalDeliveries,
-          this.assistantId,
-        ).catch((err) => {
-          log.error(
-            {
-              err,
-              callSessionId: this.callSessionId,
-              requestId: pendingActionRequest.id,
-            },
-            "Failed to send guardian action expiry notices after call timeout",
-          );
-        });
-      }
+        await sendGuardianExpiryNotices(requestDeliveries, this.assistantId);
+      })().catch((err) => {
+        log.error(
+          { err, callSessionId: this.callSessionId },
+          "Failed to expire guardian request after consultation timeout",
+        );
+      });
 
       // Expire pending questions and update call state
       expirePendingQuestions(this.callSessionId);
@@ -1650,8 +1766,12 @@ export class CallController {
    * Drain any instructions that were queued while the LLM was active.
    */
   private flushPendingInstructions(): void {
-    if (this.destroyed) return;
-    if (this.pendingInstructions.length === 0) return;
+    if (this.destroyed) {
+      return;
+    }
+    if (this.pendingInstructions.length === 0) {
+      return;
+    }
 
     const parts = this.pendingInstructions.map((instr) =>
       instr.startsWith("[") ? instr : `[USER_INSTRUCTION: ${instr}]`,
@@ -1737,8 +1857,12 @@ export class CallController {
   }
 
   private resetSilenceTimer(): void {
-    if (this.silenceTimer) clearTimeout(this.silenceTimer);
-    if (this.destroyed) return;
+    if (this.silenceTimer) {
+      clearTimeout(this.silenceTimer);
+    }
+    if (this.destroyed) {
+      return;
+    }
     this.silenceTimer = setTimeout(() => {
       // During an in-call guardian consultation, suppress the generic
       // "Are you still there?" — it is confusing when the caller is

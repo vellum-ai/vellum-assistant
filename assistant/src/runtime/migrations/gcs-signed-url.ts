@@ -120,7 +120,9 @@ export function validateGcsSignedUrl(
 
 function hasTraversalSegment(pathname: string): boolean {
   for (const segment of pathname.split("/")) {
-    if (segment === "..") return true;
+    if (segment === "..") {
+      return true;
+    }
   }
   return false;
 }
@@ -141,22 +143,32 @@ function hasTraversalSegment(pathname: string): boolean {
  */
 function hasTraversalInRawPath(raw: string): boolean {
   const schemeEnd = raw.indexOf("://");
-  if (schemeEnd === -1) return false;
+  if (schemeEnd === -1) {
+    return false;
+  }
   const afterScheme = raw.slice(schemeEnd + 3);
   const pathStart = afterScheme.search(/[\/\\]/);
-  if (pathStart === -1) return false;
+  if (pathStart === -1) {
+    return false;
+  }
   let path = afterScheme.slice(pathStart);
   const queryIdx = path.indexOf("?");
-  if (queryIdx !== -1) path = path.slice(0, queryIdx);
+  if (queryIdx !== -1) {
+    path = path.slice(0, queryIdx);
+  }
   const hashIdx = path.indexOf("#");
-  if (hashIdx !== -1) path = path.slice(0, hashIdx);
+  if (hashIdx !== -1) {
+    path = path.slice(0, hashIdx);
+  }
 
   // Normalize percent-encoded forms of `/` and `\` so that encoded
   // separators participate in the segment split.
   const normalized = path.replace(/%2[fF]/g, "/").replace(/%5[cC]/g, "\\");
 
   for (const segment of normalized.split(/[\/\\]/)) {
-    if (segment === "..") return true;
+    if (segment === "..") {
+      return true;
+    }
     // Percent-decoded forms of ".." — e.g. "%2E%2E", ".%2e", "%2e.".
     // Also re-split on `/` and `\` to catch encoded separators that
     // weren't covered by the top-level normalization (e.g. a decoded
@@ -169,7 +181,9 @@ function hasTraversalInRawPath(raw: string): boolean {
       continue;
     }
     for (const sub of decoded.split(/[\/\\]/)) {
-      if (sub === "..") return true;
+      if (sub === "..") {
+        return true;
+      }
     }
   }
   return false;

@@ -32,7 +32,9 @@ const BLOCK = 512;
 
 function padToBlock(data: Uint8Array): Uint8Array {
   const r = data.length % BLOCK;
-  if (r === 0) return data;
+  if (r === 0) {
+    return data;
+  }
   const out = new Uint8Array(data.length + (BLOCK - r));
   out.set(data);
   return out;
@@ -45,7 +47,9 @@ function writeOctal(
   value: number,
 ): void {
   const s = value.toString(8).padStart(length - 1, "0");
-  for (let i = 0; i < s.length; i++) buf[offset + i] = s.charCodeAt(i);
+  for (let i = 0; i < s.length; i++) {
+    buf[offset + i] = s.charCodeAt(i);
+  }
   buf[offset + length - 1] = 0;
 }
 

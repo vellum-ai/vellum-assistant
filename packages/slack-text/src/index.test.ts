@@ -14,6 +14,36 @@ describe("extractSlackUserMentionIds", () => {
       extractSlackUserMentionIds("<@U123> hi <@W456> and <@U123> again"),
     ).toEqual(["U123", "W456"]);
   });
+
+  test("includes pipe-form user mention IDs", () => {
+    expect(extractSlackUserMentionIds("<@U123|jane> and <@W456|>")).toEqual([
+      "U123",
+      "W456",
+    ]);
+  });
+});
+
+describe("buildSlackUserLabelMap", () => {
+  test("skips pipe-form mentions with usable embedded labels, queues the rest", async () => {
+    const requested: string[] = [];
+    const labels = await buildSlackUserLabelMap(
+      ["<@U123|jane> <@U456|> <@U789|U789> <@U999>"],
+      async (id) => {
+        requested.push(id);
+        return `name-${id}`;
+      },
+    );
+
+    // Usable embedded label: rendered from the token, no lookup.
+    expect(requested).not.toContain("U123");
+    // Empty or ID-shaped embedded labels still need resolution.
+    expect(requested.sort()).toEqual(["U456", "U789", "U999"]);
+    expect(labels).toEqual({
+      U456: "name-U456",
+      U789: "name-U789",
+      U999: "name-U999",
+    });
+  });
 });
 
 describe("extractSlackChannelReferenceIds", () => {
@@ -50,6 +80,24 @@ describe("renderSlackTextForModel", () => {
         userLabels: { U123: "U123" },
       }),
     ).toBe("hello @unknown-user");
+  });
+
+  test("prefers embedded pipe-form user labels over lookups", () => {
+    expect(renderSlackTextForModel("hi <@U123|jane>")).toBe("hi @jane");
+    expect(
+      renderSlackTextForModel("hi <@U123|jane>", {
+        userLabels: { U123: "Jane Doe" },
+      }),
+    ).toBe("hi @jane");
+  });
+
+  test("falls back past ID-shaped embedded user labels to resolved ones", () => {
+    expect(
+      renderSlackTextForModel("hi <@U123|U123>", {
+        userLabels: { U123: "Jane Doe" },
+      }),
+    ).toBe("hi @Jane Doe");
+    expect(renderSlackTextForModel("hi <@U123|U123>")).toBe("hi @unknown-user");
   });
 
   test("renders channel references with labels and fallbacks", () => {
@@ -133,6 +181,77 @@ describe("renderSlackTextForModel", () => {
         channelFallbackLabel: "# missing channel ",
       }),
     ).toBe("@missing user #missing channel");
+  });
+
+  test("decodes Slack HTML entities so quote markers survive to markdown", () => {
+    // Slack entity-encodes every literal &, <, > in message text. `&gt; ` at
+    // line start must decode back to `> ` — markdown resolves entities only
+    // after block parsing, so an encoded marker never forms a blockquote.
+    expect(renderSlackTextForModel("&gt; quoted line\nreply")).toBe(
+      "> quoted line\nreply",
+    );
+    expect(renderSlackTextForModel("1 &lt; 2 &amp;&amp; 3 &gt; 2")).toBe(
+      "1 < 2 && 3 > 2",
+    );
+  });
+
+  test("decodes entities inside link URLs after token rendering", () => {
+    expect(
+      renderSlackTextForModel("<https://example.com?a=1&amp;b=2|docs>"),
+    ).toBe("docs (https://example.com?a=1&b=2)");
+  });
+
+  test("a user-typed literal entity round-trips instead of over-decoding", () => {
+    // Someone typing the four characters `&gt;` in Slack arrives
+    // double-encoded as `&amp;gt;` — one decode pass must yield `&gt;`,
+    // not collapse it all the way to `>`.
+    expect(renderSlackTextForModel("escape it as &amp;gt; in HTML")).toBe(
+      "escape it as &gt; in HTML",
+    );
+  });
+
+  test("decoded angle brackets do not re-enter token parsing", () => {
+    // `&lt;@U123&gt;` is literal text about a mention, not a mention — after
+    // decoding it must render as the characters `<@U123>` untouched.
+    expect(
+      renderSlackTextForModel("say &lt;@U123&gt; to mention", {
+        userLabels: { U123: "Alice" },
+      }),
+    ).toBe("say <@U123> to mention");
+  });
+
+  test("caller-resolved labels are never entity-decoded", () => {
+    // Labels come from the caller (resolved display names), not from Slack's
+    // entity-encoded message text — literal entity text in them must pass
+    // through verbatim.
+    expect(
+      renderSlackTextForModel("<@U123>", {
+        userLabels: { U123: "A &gt; B" },
+      }),
+    ).toBe("@A &gt; B");
+  });
+
+  test("an encoded bracket in a display name cannot bypass label sanitization", () => {
+    // sanitizeLabel strips raw brackets from labels; an entity-encoded
+    // bracket must not decode into `<`/`>` after that stripping has run.
+    expect(
+      renderSlackTextForModel("hi <@U123>", {
+        userLabels: { U123: "&lt;fake-token&gt;" },
+      }),
+    ).toBe("hi @&lt;fake-token&gt;");
+  });
+
+  test("token-embedded labels are Slack-sourced and decode before sanitization", () => {
+    expect(renderSlackTextForModel("<#C123|a&amp;b>")).toBe("#a&b");
+    expect(renderSlackTextForModel("<!subteam^S123|eng &amp; data>")).toBe(
+      "@eng & data",
+    );
+  });
+
+  test("unrecognized tokens stay byte-for-byte verbatim", () => {
+    expect(renderSlackTextForModel("<mailbox:a&amp;b>")).toBe(
+      "<mailbox:a&amp;b>",
+    );
   });
 });
 

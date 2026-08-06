@@ -1,28 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
-}));
-
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: {
-      default: {
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 200_000,
-          compactThreshold: 0.8,
-        },
-      },
-    },
-  }),
 }));
 
 mock.module("../../../../context/token-estimator.js", () => ({
@@ -40,8 +19,8 @@ mock.module("../helpers.js", () => ({
   addPlaygroundMessage: async () => ({ id: "msg-test" }),
 }));
 
+import type { AssistantEvent } from "../../../../api/index.js";
 import type { Conversation } from "../../../../daemon/conversation.js";
-import type { ServerMessage } from "../../../../daemon/message-protocol.js";
 import { RouteError } from "../../errors.js";
 import { ROUTES } from "../index.js";
 
@@ -54,7 +33,7 @@ interface FakeConversationState {
 
 interface FakeConversation {
   conversation: Conversation;
-  sent: ServerMessage[];
+  sent: AssistantEvent[];
   state: FakeConversationState;
 }
 
@@ -68,7 +47,7 @@ function makeFakeConversation(
     contextCompactedAt: null,
     ...overrides,
   };
-  const sent: ServerMessage[] = [];
+  const sent: AssistantEvent[] = [];
   const compactionCircuit = {
     get consecutiveCompactionFailures(): number {
       return state.consecutiveCompactionFailures;
@@ -93,7 +72,7 @@ function makeFakeConversation(
       return state.contextCompactedAt;
     },
     getMessages: () => [],
-    sendToClient: (msg: ServerMessage) => {
+    sendToClient: (msg: AssistantEvent) => {
       sent.push(msg);
     },
   } as unknown as Conversation;
@@ -105,7 +84,9 @@ function findRoute() {
   const route = ROUTES.find(
     (r) => r.operationId === "playgroundResetCompactionCircuit",
   );
-  if (!route) throw new Error("reset-circuit route not registered");
+  if (!route) {
+    throw new Error("reset-circuit route not registered");
+  }
   return route;
 }
 

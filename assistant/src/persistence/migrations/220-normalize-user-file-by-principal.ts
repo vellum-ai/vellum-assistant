@@ -46,11 +46,17 @@ export function isAutoIncrementedUserFile(
   userFile: string,
   displayName?: string,
 ): boolean {
-  if (DATE_LIKE_SUFFIX.test(userFile)) return false;
-  if (!INTEGER_SUFFIX.test(userFile)) return false;
+  if (DATE_LIKE_SUFFIX.test(userFile)) {
+    return false;
+  }
+  if (!INTEGER_SUFFIX.test(userFile)) {
+    return false;
+  }
   if (displayName !== undefined) {
     const expectedBase = `${computeUserFileBaseSlug(displayName)}.md`;
-    if (expectedBase === userFile) return false;
+    if (expectedBase === userFile) {
+      return false;
+    }
   }
   return true;
 }
@@ -89,7 +95,9 @@ export function migrateNormalizeUserFileByPrincipal(database: DrizzleDb): void {
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'contacts'`,
     )
     .get();
-  if (!tableExists) return;
+  if (!tableExists) {
+    return;
+  }
 
   const userFileColExists = raw
     .query(
@@ -101,7 +109,9 @@ export function migrateNormalizeUserFileByPrincipal(database: DrizzleDb): void {
       `SELECT 1 FROM pragma_table_info('contacts') WHERE name = 'principal_id'`,
     )
     .get();
-  if (!userFileColExists || !principalColExists) return;
+  if (!userFileColExists || !principalColExists) {
+    return;
+  }
 
   try {
     raw.exec("BEGIN");
@@ -141,7 +151,9 @@ export function migrateNormalizeUserFileByPrincipal(database: DrizzleDb): void {
         created_at: number;
         id: string;
       }>;
-      if (candidates.length === 0) continue;
+      if (candidates.length === 0) {
+        continue;
+      }
 
       candidates.sort((a, b) => {
         const aAuto = isAutoIncrementedUserFile(a.user_file, a.display_name)
@@ -150,8 +162,12 @@ export function migrateNormalizeUserFileByPrincipal(database: DrizzleDb): void {
         const bAuto = isAutoIncrementedUserFile(b.user_file, b.display_name)
           ? 1
           : 0;
-        if (aAuto !== bAuto) return aAuto - bAuto;
-        if (a.created_at !== b.created_at) return a.created_at - b.created_at;
+        if (aAuto !== bAuto) {
+          return aAuto - bAuto;
+        }
+        if (a.created_at !== b.created_at) {
+          return a.created_at - b.created_at;
+        }
         return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
       });
 

@@ -59,14 +59,10 @@ export const memoryGraphNodes = sqliteTable(
     narrativeRole: text("narrative_role"),
     partOfStory: text("part_of_story"),
 
-    /** Memory scope for multi-scope isolation. */
-    scopeId: text("scope_id").notNull().default("default"),
-
     /** JSON array of ImageRef objects — images attached to this memory. */
     imageRefs: text("image_refs"),
   },
   (table) => [
-    index("idx_graph_nodes_scope_id").on(table.scopeId),
     index("idx_graph_nodes_type").on(table.type),
     index("idx_graph_nodes_fidelity").on(table.fidelity),
     index("idx_graph_nodes_created").on(table.created),
@@ -165,6 +161,9 @@ export const memoryGraphNodeEdits = sqliteTable("memory_graph_node_edits", {
  *
  * No FK to conversations.id — fork() may copy state for a child
  * conversation that hasn't been persisted yet, and stale rows are cheap.
+ *
+ * Lives in the dedicated memory database (`assistant-memory.db`), not main —
+ * access it via the memory connection (`getMemoryDb()` / `getMemorySqlite()`).
  */
 export const activationState = sqliteTable("activation_state", {
   conversationId: text("conversation_id").primaryKey(),

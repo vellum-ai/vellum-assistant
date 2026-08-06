@@ -190,6 +190,18 @@ describe("VercelAIGatewayProvider", () => {
       ).toEqual({});
     });
 
+    test("disabled thinking with effort none nests an explicit reasoning opt-out", () => {
+      const provider = new ProbeVercelAIGatewayProvider(
+        "fake-key",
+        "openai/gpt-5.5",
+      );
+      expect(
+        provider.probeExtras({
+          config: { thinking: { type: "disabled" }, effort: "none" },
+        }),
+      ).toEqual({ reasoning: { effort: "none" } });
+    });
+
     test("final wire params carry reasoning object and no flat reasoning_effort", async () => {
       const provider = new VercelAIGatewayProvider(
         "fake-key",

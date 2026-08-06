@@ -18,7 +18,9 @@ export const seedRecallCallsiteMigration: WorkspaceMigration = {
   id: "054-seed-recall-callsite",
   description: "Seed cost-optimized default for recall LLM call site",
   run(workspaceDir: string): void {
-    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) return;
+    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) {
+      return;
+    }
 
     const configPath = join(workspaceDir, "config.json");
     const configExisted = existsSync(configPath);
@@ -27,7 +29,9 @@ export const seedRecallCallsiteMigration: WorkspaceMigration = {
     if (configExisted) {
       try {
         const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+          return;
+        }
         config = raw as Record<string, unknown>;
       } catch {
         return;
@@ -36,7 +40,9 @@ export const seedRecallCallsiteMigration: WorkspaceMigration = {
 
     const llm = readObject(config.llm) ?? {};
     const callSites = readObject(llm.callSites) ?? {};
-    if (readObject(callSites.recall) !== null) return;
+    if (readObject(callSites.recall) !== null) {
+      return;
+    }
 
     // Migration 052 seeds empty `{}` profile shells for non-Anthropic
     // workspaces, so a present-but-empty `cost-optimized` profile would set
@@ -57,7 +63,9 @@ export const seedRecallCallsiteMigration: WorkspaceMigration = {
       const defaultBlock = readObject(llm.default);
       const provider = readString(defaultBlock?.provider) ?? "anthropic";
       const cheapModel = resolveLatencyModel(provider);
-      if (cheapModel === undefined) return;
+      if (cheapModel === undefined) {
+        return;
+      }
 
       callSites.recall = {
         model: cheapModel,

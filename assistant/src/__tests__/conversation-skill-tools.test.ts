@@ -1,4 +1,3 @@
-import * as realFs from "node:fs";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
@@ -57,7 +56,9 @@ mock.module("../config/skills.js", () => ({
       ? skills
       : skills.filter((skill) => {
           const owner = skill.owner;
-          if (owner?.kind !== "plugin") return true;
+          if (owner?.kind !== "plugin") {
+            return true;
+          }
           return effectiveEnabledPluginSet.has(owner.id);
         }),
 }));
@@ -82,10 +83,16 @@ mock.module("../skills/active-skill-tools.js", () => {
     const entries: Array<{ id: string; version?: string }> = [];
     for (const msg of messages) {
       for (const block of msg.content) {
-        if (block.type !== "tool_result") continue;
-        if (!skillLoadUseIds.has(block.tool_use_id)) continue;
+        if (block.type !== "tool_result") {
+          continue;
+        }
+        if (!skillLoadUseIds.has(block.tool_use_id)) {
+          continue;
+        }
         const text = block.content;
-        if (!text) continue;
+        if (!text) {
+          continue;
+        }
         for (const match of text.matchAll(re)) {
           if (!seen.has(match[1])) {
             seen.add(match[1]);
@@ -170,7 +177,22 @@ mock.module("../tools/registry.js", () => ({
     let found: Tool | undefined;
     for (const tools of mockRegisteredTools.values()) {
       for (const tool of tools) {
-        if (tool.name === name) found = tool;
+        if (tool.name === name) {
+          found = tool;
+        }
+      }
+    }
+    return found;
+  },
+  // Sync peek mirrors getTool — the skill-tool projection path reads via
+  // resolveTool synchronously.
+  resolveTool: (name: string): Tool | undefined => {
+    let found: Tool | undefined;
+    for (const tools of mockRegisteredTools.values()) {
+      for (const tool of tools) {
+        if (tool.name === name) {
+          found = tool;
+        }
       }
     }
     return found;
@@ -184,7 +206,9 @@ mock.module("../tools/registry.js", () => ({
     let ownerSkillId: string | undefined;
     for (const [skillId, tools] of mockRegisteredTools.entries()) {
       for (const tool of tools) {
-        if (tool.name === name) ownerSkillId = skillId;
+        if (tool.name === name) {
+          ownerSkillId = skillId;
+        }
       }
     }
     return ownerSkillId === undefined
@@ -202,18 +226,25 @@ mock.module("../tools/registry.js", () => ({
   },
 }));
 
-// Stub existsSync so TOOLS.json existence checks pass for skills that have manifests
-mock.module("node:fs", () => ({
-  ...realFs,
-  existsSync: (p: string) => {
-    if (typeof p === "string" && p.endsWith("TOOLS.json")) {
-      const parts = p.split("/");
-      const skillId = parts[parts.length - 2];
-      return skillId in mockManifests;
-    }
-    return realFs.existsSync(p);
-  },
-}));
+// Stub existsSync so TOOLS.json existence checks pass for skills that have
+// manifests. `require("fs")` inside the factory captures the real
+// implementation eagerly; a top-level `import * as realFs` spread would
+// live-bind back into this mock and deadlock the real config loader.
+mock.module("node:fs", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const realFs = require("fs");
+  return {
+    ...realFs,
+    existsSync: (p: string) => {
+      if (typeof p === "string" && p.endsWith("TOOLS.json")) {
+        const parts = p.split("/");
+        const skillId = parts[parts.length - 2];
+        return skillId in mockManifests;
+      }
+      return realFs.existsSync(p);
+    },
+  };
+});
 
 mock.module("../skills/version-hash.js", () => ({
   computeSkillVersionHash: (skillDir: string) => {
@@ -227,25 +258,6 @@ mock.module("../skills/version-hash.js", () => ({
     }
     return `v1:default-hash-${skillId}`;
   },
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    debug: () => {},
-    error: () => {},
-  }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    skills: { entries: {}, allowBundled: null },
-  }),
-  loadConfig: () => ({
-    skills: { entries: {}, allowBundled: null },
-  }),
-  invalidateConfigCache: () => {},
 }));
 
 mock.module("../config/assistant-feature-flags.js", () => ({

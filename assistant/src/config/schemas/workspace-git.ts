@@ -26,6 +26,29 @@ export const WorkspaceGitConfigSchema = z
       .describe(
         "Maximum delay for exponential backoff after a git operation failure (ms)",
       ),
+    maxFileSizeBytes: z
+      .number({ error: "workspaceGit.maxFileSizeBytes must be a number" })
+      .int("workspaceGit.maxFileSizeBytes must be an integer")
+      .positive("workspaceGit.maxFileSizeBytes must be a positive integer")
+      .default(256000)
+      .describe(
+        "Files larger than this (bytes) are excluded from workspace auto-commits",
+      ),
+    historyCompaction: z
+      .object({
+        enabled: z
+          .boolean({
+            error: "workspaceGit.historyCompaction.enabled must be a boolean",
+          })
+          .default(true)
+          .describe(
+            "Whether background history compaction runs automatically. Manual compaction via the admin route is unaffected.",
+          ),
+      })
+      .default({ enabled: true })
+      .describe(
+        "Background compaction of workspace git history (squashes commits older than the retention window to reclaim oversized blobs from .git)",
+      ),
     interactiveGitTimeoutMs: z
       .number({
         error: "workspaceGit.interactiveGitTimeoutMs must be a number",

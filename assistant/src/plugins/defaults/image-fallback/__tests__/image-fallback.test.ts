@@ -15,6 +15,11 @@ import type {
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 
+// The current-turn boundary is the real host helper `caption-blocks.ts`
+// reaches through `@vellumai/plugin-api`; wire it into the mock so the sweep
+// tests exercise the shipped scope behavior rather than a stand-in.
+import { lastToolResultUserMessageIndex } from "../../../../context/outbound-sanitize.js";
+
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
 // Control doesSupportVision from the test: by profile key for the
@@ -53,6 +58,7 @@ mock.module("@vellumai/plugin-api", () => ({
   getModelProfiles: () => mockProfiles,
   resolveMediaSourceData: mockResolveMediaSourceData,
   getConfiguredProvider: async () => (providerResolves ? fakeProvider : null),
+  lastToolResultUserMessageIndex,
 }));
 
 // Mock the image-persist module to avoid filesystem side effects in tests.

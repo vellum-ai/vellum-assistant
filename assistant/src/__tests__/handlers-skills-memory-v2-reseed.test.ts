@@ -17,8 +17,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Programmable test state
 // ---------------------------------------------------------------------------
 
-const configState = { v2Enabled: true };
-
 const mockRefreshSkillCapabilityMemories = mock(
   (_config: { memory: { v2: { enabled: boolean } } }) => {},
 );
@@ -46,33 +44,6 @@ mock.module("../config/skills.js", () => ({
       source: "bundled" as const,
     },
   ],
-}));
-
-// Stub both `getConfig` and `loadConfig`. `loadConfig` is reached by code
-// paths transitively imported during teardown (e.g. dynamic imports inside
-// `oauth2.ts`); leaving it undefined here would break sibling test files
-// run in the same Bun process because `mock.module` replacements persist
-// across files.
-mock.module("../config/loader.js", () => ({
-  API_KEY_PROVIDERS: [],
-  applyNestedDefaults: (c: unknown) => c,
-  deepMergeOverwrite: (a: unknown) => a,
-  mergeDefaultWorkspaceConfig: () => {},
-  getConfig: () => ({
-    memory: { v2: { enabled: configState.v2Enabled } },
-  }),
-  getConfigReadOnly: () => ({
-    memory: { v2: { enabled: configState.v2Enabled } },
-  }),
-  loadConfig: () => ({
-    memory: { v2: { enabled: configState.v2Enabled } },
-  }),
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  _writeQuarantineNotice: () => {},
 }));
 
 mock.module("../config/skill-state.js", () => ({
@@ -163,54 +134,14 @@ mock.module("../daemon/skill-memory-refresh.js", () => ({
   refreshSkillCapabilityMemories: mockRefreshSkillCapabilityMemories,
 }));
 
-mock.module("../util/platform.js", () => {
-  const stub = () => "/tmp/test-stub";
-  return {
-    getWorkspaceSkillsDir: () => "/tmp/test-skills",
-    vellumRoot: stub,
-    isMacOS: () => false,
-    isLinux: () => true,
-    isWindows: () => false,
-    getPlatformName: () => "linux",
-    normalizeAssistantId: (id: string) => id,
-    getDataDir: stub,
-    getEmbeddingModelsDir: stub,
-    getSandboxRootDir: stub,
-    getSandboxWorkingDir: stub,
-    getSoundsDir: stub,
-    getAvatarDir: stub,
-    AVATAR_IMAGE_FILENAME: "avatar-image.png",
-    getAvatarImagePath: stub,
-    getXdgVellumConfigDirName: () => ".vellum",
-    getPidPath: stub,
-    getDbPath: stub,
-    getLogsDir: stub,
-    getHistoryPath: stub,
-    getProtectedDir: stub,
-    getSignalsDir: stub,
-    getDaemonStderrLogPath: stub,
-    getDaemonStartupLockPath: stub,
-    getExternalDir: stub,
-    getBinDir: stub,
-    getDotEnvPath: stub,
-    getEmbedWorkerPidPath: stub,
-    getWorkspaceDir: stub,
-    getWorkspaceDirDisplay: stub,
-    getWorkspaceConfigPath: stub,
-    getWorkspaceHooksDir: stub,
-    getWorkspacePluginsDir: stub,
-    getWorkspaceRoutesDir: stub,
-    getDeprecatedDir: stub,
-    getConversationsDir: stub,
-    getWorkspacePromptPath: stub,
-    getProfilerRootDir: stub,
-    getProfilerRunsDir: stub,
-    getProfilerRunDir: stub,
-    getSkillRuntimePath: stub,
-    getBundledBunPath: () => undefined,
-    ensureDataDir: () => {},
-  };
-});
+// Keep the real platform module (the config loader resolves the workspace
+// config path through it) and only pin the skills directory.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPlatform = require("../util/platform.js");
+mock.module("../util/platform.js", () => ({
+  ...realPlatform,
+  getWorkspaceSkillsDir: () => "/tmp/test-skills",
+}));
 
 mock.module("../daemon/handlers/shared.js", () => ({
   CONFIG_RELOAD_DEBOUNCE_MS: 100,
@@ -236,6 +167,18 @@ mock.module("../daemon/config-watcher.js", () => ({
 // Import after mocking
 const { installSkill, uninstallSkill, updateSkill } =
   await import("../daemon/handlers/skills.js");
+const { setConfig } = await import("./helpers/set-config.js");
+
+/** Seed `memory.v2.enabled` into the workspace config for real. */
+function seedMemoryV2(enabled: boolean): void {
+  setConfig("memory", { v2: { enabled } });
+}
+
+/** The `memory.v2.enabled` value from the config a handler passed along. */
+function refreshCallV2Enabled(callIndex: number): boolean | undefined {
+  return mockRefreshSkillCapabilityMemories.mock.calls[callIndex]?.[0]?.memory
+    ?.v2?.enabled;
+}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -243,7 +186,7 @@ const { installSkill, uninstallSkill, updateSkill } =
 
 describe("v2 skill refresh delegation in skill handlers", () => {
   beforeEach(() => {
-    configState.v2Enabled = true;
+    seedMemoryV2(true);
     mockRefreshSkillCapabilityMemories.mockClear();
     mockClawhubUpdate.mockReset();
     mockClawhubUpdate.mockImplementation(async () => ({ success: true }));
@@ -254,21 +197,17 @@ describe("v2 skill refresh delegation in skill handlers", () => {
 
     expect(result.success).toBe(true);
     expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
-    expect(mockRefreshSkillCapabilityMemories.mock.calls[0]?.[0]).toEqual({
-      memory: { v2: { enabled: true } },
-    });
+    expect(refreshCallV2Enabled(0)).toBe(true);
   });
 
   test("config.memory.v2.enabled off → helper receives disabled config", async () => {
-    configState.v2Enabled = false;
+    seedMemoryV2(false);
 
     const result = await installSkill({ slug: "bundled-skill" });
 
     expect(result.success).toBe(true);
     expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
-    expect(mockRefreshSkillCapabilityMemories.mock.calls[0]?.[0]).toEqual({
-      memory: { v2: { enabled: false } },
-    });
+    expect(refreshCallV2Enabled(0)).toBe(false);
   });
 
   test("uninstall delegates to refresh helper", async () => {
@@ -276,9 +215,7 @@ describe("v2 skill refresh delegation in skill handlers", () => {
 
     expect(result.success).toBe(true);
     expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
-    expect(mockRefreshSkillCapabilityMemories.mock.calls[0]?.[0]).toEqual({
-      memory: { v2: { enabled: true } },
-    });
+    expect(refreshCallV2Enabled(0)).toBe(true);
   });
 
   test("successful update delegates to refresh helper with live config", async () => {
@@ -286,9 +223,7 @@ describe("v2 skill refresh delegation in skill handlers", () => {
 
     expect(result.success).toBe(true);
     expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
-    expect(mockRefreshSkillCapabilityMemories.mock.calls[0]?.[0]).toEqual({
-      memory: { v2: { enabled: true } },
-    });
+    expect(refreshCallV2Enabled(0)).toBe(true);
   });
 
   test("failed update returns the error and does not refresh", async () => {

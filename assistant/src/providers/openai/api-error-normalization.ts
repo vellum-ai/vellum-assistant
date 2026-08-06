@@ -1,5 +1,12 @@
 import type OpenAI from "openai";
 
+import type { ProviderErrorReason } from "../../util/errors.js";
+import {
+  DAILY_LIMIT_PATTERNS,
+  INSUFFICIENT_CREDITS_PATTERNS,
+  VISION_NOT_SUPPORTED_PATTERNS,
+} from "../../util/provider-error-patterns.js";
+
 /**
  * Normalized view of an OpenAI-compatible `APIError`. The SDK reads
  * `error.message` and renders bodies it can't parse as "(no body)", so
@@ -22,6 +29,87 @@ export interface NormalizedOpenAIAPIError {
    * `captureRawErrorBodyFetch` intentionally doesn't drain.
    */
   rawBody?: string;
+  /**
+   * Semantic failure classification derived from status + body signals by
+   * {@link deriveReason}. The OpenAI-compat throw sites forward it onto the
+   * thrown `ProviderError.reason` so downstream classification/retry can switch
+   * on intent rather than re-deriving from status/regex.
+   */
+  reason?: ProviderErrorReason;
+}
+
+/**
+ * All human-readable text from a normalized error — message, detail, and raw
+ * body — joined for case-insensitive substring/regex scanning. Classifying off
+ * the intact upstream payload (not the SDK's lossy `error.message`) is what lets
+ * OpenRouter's wrapped errors be matched, where the real reason lives in
+ * `metadata.raw`.
+ */
+export function normalizedErrorText(n: NormalizedOpenAIAPIError): string {
+  return `${n.message} ${n.detail ?? ""} ${n.rawBody ?? ""}`;
+}
+
+/**
+ * Map an OpenAI-compatible error to a semantic {@link ProviderErrorReason}.
+ * Order matters — the model-restriction check precedes the generic 401/403
+ * credential branch, and billing precedes credentials.
+ */
+export function deriveReason(
+  n: NormalizedOpenAIAPIError,
+  status: number | undefined,
+): ProviderErrorReason {
+  const haystack = normalizedErrorText(n);
+
+  if (
+    status === 403 &&
+    (n.apiErrorType === "no_providers_available" ||
+      n.apiErrorParam === "RestrictedModelsError" ||
+      /RestrictedModelsError/i.test(haystack) ||
+      /do(?:es)? ?n[o']t have access to this model/i.test(haystack))
+  ) {
+    return "model_restricted";
+  }
+
+  if (
+    /model .*(?:not found|does not exist)/i.test(haystack) ||
+    /model_not_found/i.test(`${n.apiErrorCode ?? ""} ${n.apiErrorType ?? ""}`)
+  ) {
+    return "model_not_found";
+  }
+
+  if (VISION_NOT_SUPPORTED_PATTERNS.some((re) => re.test(haystack))) {
+    return "vision_unsupported";
+  }
+
+  // The managed proxy's daily-limit 402 shares the status with generic credit
+  // exhaustion; match its specific body code first so it isn't swallowed.
+  if (DAILY_LIMIT_PATTERNS.some((re) => re.test(haystack))) {
+    return "daily_limit_reached";
+  }
+
+  if (
+    status === 402 ||
+    INSUFFICIENT_CREDITS_PATTERNS.some((re) => re.test(haystack))
+  ) {
+    return "insufficient_credits";
+  }
+
+  if (status === 401 || status === 403) {
+    return "invalid_credentials";
+  }
+  if (status === 429) {
+    return "rate_limited";
+  }
+  if (status === 529 || /overloaded/i.test(haystack)) {
+    return "overloaded";
+  }
+  if (status !== undefined && status >= 500) {
+    return "server_error";
+  }
+  if (status !== undefined && status >= 400) {
+    return "bad_request";
+  }
+  return "unknown";
 }
 
 const MAX_DETAIL_CHARS = 2000;
@@ -56,19 +144,25 @@ export const captureRawErrorBodyFetch = async (
   init?: RequestInit,
 ): Promise<Response> => {
   const res = await globalThis.fetch(url, init);
-  if (res.ok) return res;
+  if (res.ok) {
+    return res;
+  }
   // Don't drain bodies the SDK will retry: reading a large or slow upstream
   // error page on every attempt would delay those retries and buffer the whole
   // body. We still capture terminal (non-retryable) errors — that's where the
   // actionable upstream detail lives (unsupported model, invalid key, malformed
   // request, etc.).
-  if (sdkWillRetry(res)) return res;
+  if (sdkWillRetry(res)) {
+    return res;
+  }
   // clone() so reading the body leaves the SDK's own read of `res` intact.
   const body = await res
     .clone()
     .text()
     .catch(() => undefined);
-  if (!body) return res;
+  if (!body) {
+    return res;
+  }
   capturedErrorBodies.set(
     res.headers,
     body.length > MAX_CAPTURED_BODY_CHARS
@@ -87,8 +181,12 @@ export const captureRawErrorBodyFetch = async (
  */
 function sdkWillRetry(res: Response): boolean {
   const shouldRetryHeader = res.headers.get("x-should-retry");
-  if (shouldRetryHeader === "true") return true;
-  if (shouldRetryHeader === "false") return false;
+  if (shouldRetryHeader === "true") {
+    return true;
+  }
+  if (shouldRetryHeader === "false") {
+    return false;
+  }
   return (
     res.status === 408 ||
     res.status === 409 ||
@@ -117,17 +215,30 @@ export function normalizeOpenAIAPIError(
     "Request failed";
 
   const out: NormalizedOpenAIAPIError = { message };
-  if (body.detail && body.detail !== message) out.detail = body.detail;
+  if (body.detail && body.detail !== message) {
+    out.detail = body.detail;
+  }
   const code = body.apiErrorCode ?? scalar((error as { code?: unknown }).code);
   const type = body.apiErrorType ?? scalar((error as { type?: unknown }).type);
   const param =
     body.apiErrorParam ?? scalar((error as { param?: unknown }).param);
-  if (code) out.apiErrorCode = code;
-  if (type) out.apiErrorType = type;
-  if (param) out.apiErrorParam = param;
+  if (code) {
+    out.apiErrorCode = code;
+  }
+  if (type) {
+    out.apiErrorType = type;
+  }
+  if (param) {
+    out.apiErrorParam = param;
+  }
   const requestId = readHeader(error.headers);
-  if (requestId) out.requestId = requestId;
-  if (rawBody) out.rawBody = rawBody;
+  if (requestId) {
+    out.requestId = requestId;
+  }
+  if (rawBody) {
+    out.rawBody = rawBody;
+  }
+  out.reason = deriveReason(out, error.status);
   return out;
 }
 
@@ -158,9 +269,13 @@ interface BodyDetails {
 }
 
 function extractBody(body: unknown): BodyDetails {
-  if (typeof body === "string") return { message: trunc(body.trim()) };
+  if (typeof body === "string") {
+    return { message: trunc(body.trim()) };
+  }
   const rec = asRecord(body);
-  if (!rec) return {};
+  if (!rec) {
+    return {};
+  }
 
   // OpenAI/OpenRouter nest under `error`; Django puts `detail` at the top.
   // A plain `error: "string"` is the whole message but may still carry
@@ -198,7 +313,9 @@ function extractBody(body: unknown): BodyDetails {
 
 function parseBody(raw: string | undefined): unknown {
   const trimmed = raw?.trim();
-  if (!trimmed) return undefined;
+  if (!trimmed) {
+    return undefined;
+  }
   try {
     return JSON.parse(trimmed);
   } catch {
@@ -213,8 +330,12 @@ function stripLeadingStatus(
   const trimmed = message.trim();
   // SDK sentinel for an unparseable/empty body — carries no signal, so let the
   // caller fall back to "Request failed" rather than surface SDK phrasing.
-  if (/^\d*\s*status code \(no body\)$/i.test(trimmed)) return "";
-  if (typeof status !== "number") return trimmed;
+  if (/^\d*\s*status code \(no body\)$/i.test(trimmed)) {
+    return "";
+  }
+  if (typeof status !== "number") {
+    return trimmed;
+  }
   return trimmed.replace(new RegExp(`^${status}\\s+`), "").trim() || trimmed;
 }
 
@@ -228,8 +349,12 @@ function withScalar(key: keyof BodyDetails, value: unknown): BodyDetails {
 }
 
 function scalar(value: unknown): string | undefined {
-  if (typeof value === "string" && value.length > 0) return value;
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "string" && value.length > 0) {
+    return value;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
   return undefined;
 }
 
@@ -251,14 +376,18 @@ function readHeaderValue(
   headers: unknown,
   names: readonly string[],
 ): string | undefined {
-  if (!headers) return undefined;
+  if (!headers) {
+    return undefined;
+  }
   const get = (headers as { get?: unknown }).get;
   const getter = typeof get === "function" ? get.bind(headers) : undefined;
   for (const name of names) {
     const raw = getter
       ? (getter(name) as string | null)
       : (asRecord(headers)?.[name] ?? asRecord(headers)?.[name.toLowerCase()]);
-    if (typeof raw === "string" && raw.length > 0) return raw;
+    if (typeof raw === "string" && raw.length > 0) {
+      return raw;
+    }
   }
   return undefined;
 }

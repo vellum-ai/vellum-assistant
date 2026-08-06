@@ -1,8 +1,9 @@
 /**
- * Tests for `handleRemember` routing between v1 (PKB) and v2 (memory/).
+ * Tests for `handleRemember` writing to the concept-page memory buffer.
  *
- * Routing follows `config.memory.v2.enabled`: when true, writes go to
- * memory/; otherwise they fall back to v1 PKB.
+ * Every remember write lands in `memory/buffer.md` + the daily archive —
+ * the concept-page substrate's intake — regardless of which injection
+ * engine (v2 or v3) is live. The PKB tree is never touched.
  */
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,15 +26,10 @@ let previousWorkspaceEnv: string | undefined;
 const enqueueCalls: Array<{
   pkbRoot: string;
   absPath: string;
-  memoryScopeId: string;
 }> = [];
 
-mock.module("../../jobs/embed-pkb-file.js", () => ({
-  enqueuePkbIndexJob: (input: {
-    pkbRoot: string;
-    absPath: string;
-    memoryScopeId: string;
-  }) => {
+mock.module("../../v1/jobs/embed-pkb-file.js", () => ({
+  enqueuePkbIndexJob: (input: { pkbRoot: string; absPath: string }) => {
     enqueueCalls.push(input);
     return "job-mock-id";
   },
@@ -89,7 +85,6 @@ describe("handleRemember — memory.v2.enabled on", () => {
     const result = handleRemember(
       { content: "do not save this" },
       "conv-memory-off",
-      "default",
       CONFIG_MEMORY_OFF,
     );
 
@@ -104,7 +99,6 @@ describe("handleRemember — memory.v2.enabled on", () => {
     const result = handleRemember(
       { content: "Alice prefers VS Code over Vim" },
       "conv-test-1",
-      "default",
       CONFIG,
     );
 
@@ -128,7 +122,6 @@ describe("handleRemember — memory.v2.enabled on", () => {
     const result = handleRemember(
       { content: "Bob lives in Austin" },
       "conv-test-2",
-      "default",
       CONFIG,
     );
 
@@ -140,7 +133,6 @@ describe("handleRemember — memory.v2.enabled on", () => {
     handleRemember(
       { content: "First entry of the day" },
       "conv-test-3",
-      "default",
       CONFIG,
     );
 
@@ -158,8 +150,8 @@ describe("handleRemember — memory.v2.enabled on", () => {
   });
 
   test("appends multiple entries to the same buffer", () => {
-    handleRemember({ content: "first" }, "c", "default", CONFIG);
-    handleRemember({ content: "second" }, "c", "default", CONFIG);
+    handleRemember({ content: "first" }, "c", CONFIG);
+    handleRemember({ content: "second" }, "c", CONFIG);
 
     const buffer = readFileSync(
       join(tmpWorkspace, "memory", "buffer.md"),
@@ -170,12 +162,7 @@ describe("handleRemember — memory.v2.enabled on", () => {
   });
 
   test("rejects empty content without writing", () => {
-    const result = handleRemember(
-      { content: "   " },
-      "conv-test-4",
-      "default",
-      CONFIG,
-    );
+    const result = handleRemember({ content: "   " }, "conv-test-4", CONFIG);
 
     expect(result.success).toBe(false);
     expect(existsSync(join(tmpWorkspace, "memory", "buffer.md"))).toBe(false);
@@ -183,48 +170,28 @@ describe("handleRemember — memory.v2.enabled on", () => {
   });
 });
 
-describe("handleRemember — memory.v2.enabled off (v1 PKB path)", () => {
-  test("writes to pkb/buffer.md and pkb/archive/<today>.md", () => {
+describe("handleRemember — memory.v2.enabled off", () => {
+  test("still writes to memory/, never the PKB tree", () => {
     const result = handleRemember(
-      { content: "v1 path still works" },
+      { content: "buffered regardless of the v2 flag" },
       "conv-v1-1",
-      "default",
       CONFIG_V2_OFF,
     );
 
     expect(result.success).toBe(true);
 
-    const pkbDir = join(tmpWorkspace, "pkb");
-    const bufferPath = join(pkbDir, "buffer.md");
-    const archivePath = join(pkbDir, "archive", todaysArchiveBasename());
-
-    expect(readFileSync(bufferPath, "utf-8")).toContain("v1 path still works");
-    expect(readFileSync(archivePath, "utf-8")).toContain("v1 path still works");
-
-    // v1 must NOT touch the v2 memory/ tree.
-    expect(existsSync(join(tmpWorkspace, "memory"))).toBe(false);
-  });
-
-  test("enqueues PKB re-index jobs for both buffer and archive", () => {
-    const result = handleRemember(
-      { content: "index me" },
-      "conv-v1-2",
-      "default",
-      CONFIG_V2_OFF,
+    const memoryDir = join(tmpWorkspace, "memory");
+    const buffer = readFileSync(join(memoryDir, "buffer.md"), "utf-8");
+    expect(buffer).toContain("buffered regardless of the v2 flag");
+    const archive = readFileSync(
+      join(memoryDir, "archive", todaysArchiveBasename()),
+      "utf-8",
     );
+    expect(archive).toContain("buffered regardless of the v2 flag");
 
-    expect(result.success).toBe(true);
-
-    const pkbDir = join(tmpWorkspace, "pkb");
-    const bufferPath = join(pkbDir, "buffer.md");
-    const archivePath = join(pkbDir, "archive", todaysArchiveBasename());
-
-    expect(enqueueCalls).toHaveLength(2);
-    expect(enqueueCalls[0]?.absPath).toBe(bufferPath);
-    expect(enqueueCalls[1]?.absPath).toBe(archivePath);
-    for (const call of enqueueCalls) {
-      expect(call.pkbRoot).toBe(pkbDir);
-    }
+    // The PKB tree is never written and no PKB re-index jobs are enqueued.
+    expect(existsSync(join(tmpWorkspace, "pkb"))).toBe(false);
+    expect(enqueueCalls).toEqual([]);
   });
 });
 
@@ -233,7 +200,6 @@ describe("handleRemember — batch (array) content", () => {
     const result = handleRemember(
       { content: ["fact one", "fact two", "fact three"] },
       "conv-batch-1",
-      "default",
       CONFIG,
     );
 
@@ -256,32 +222,31 @@ describe("handleRemember — batch (array) content", () => {
     expect(archive).toContain("fact three");
   });
 
-  test("v1: a batched call still enqueues exactly two re-index jobs (per file, not per fact)", () => {
+  test("batched call with the v2 flag off still writes memory/ and enqueues nothing", () => {
     const result = handleRemember(
       { content: ["alpha", "beta", "gamma"] },
       "conv-batch-2",
-      "default",
       CONFIG_V2_OFF,
     );
 
     expect(result.success).toBe(true);
 
-    const pkbDir = join(tmpWorkspace, "pkb");
-    const buffer = readFileSync(join(pkbDir, "buffer.md"), "utf-8");
+    const buffer = readFileSync(
+      join(tmpWorkspace, "memory", "buffer.md"),
+      "utf-8",
+    );
     expect(buffer).toContain("alpha");
     expect(buffer).toContain("beta");
     expect(buffer).toContain("gamma");
     expect(buffer.match(/^- /gm)?.length).toBe(3);
 
-    // One enqueue per written file (buffer + archive), regardless of fact count.
-    expect(enqueueCalls).toHaveLength(2);
+    expect(enqueueCalls).toEqual([]);
   });
 
   test("drops blank entries and rejects an all-empty array", () => {
     const ok = handleRemember(
       { content: ["   ", "kept fact", ""] },
       "conv-batch-3",
-      "default",
       CONFIG,
     );
     expect(ok.success).toBe(true);
@@ -295,7 +260,6 @@ describe("handleRemember — batch (array) content", () => {
     const empty = handleRemember(
       { content: ["   ", ""] },
       "conv-batch-4",
-      "default",
       CONFIG,
     );
     expect(empty.success).toBe(false);
@@ -306,7 +270,6 @@ describe("handleRemember — batch (array) content", () => {
     const result = handleRemember(
       { content: "lone fact" },
       "conv-batch-5",
-      "default",
       CONFIG,
     );
     expect(result.success).toBe(true);

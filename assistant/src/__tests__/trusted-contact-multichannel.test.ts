@@ -12,13 +12,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
@@ -52,10 +45,6 @@ mock.module("../runtime/access-request-helper.js", () => ({
       requestId: `mock-req-${Date.now()}`,
     };
   },
-  // acl-enforcement imports this alongside notifyGuardianOfAccessRequest; stub
-  // it so the terminal-deny check never falls through to the real DB-backed
-  // helper in this mocked suite.
-  isAccessRequestDenied: () => false,
 }));
 
 const deliverReplyCalls: Array<{

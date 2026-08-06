@@ -50,7 +50,9 @@ mock.module("../../daemon/process-message.js", () => ({
 
   prepareConversationForMessage: async () => ({}),
   processMessage: (...args: unknown[]) => {
-    if (_adapterProcessMessage) return _adapterProcessMessage(...args);
+    if (_adapterProcessMessage) {
+      return _adapterProcessMessage(...args);
+    }
     return Promise.resolve({ messageId: `mock-msg-adapter-${Date.now()}` });
   },
   processMessageInBackground: async () => ({ messageId: "mock-bg" }),
@@ -60,6 +62,16 @@ mock.module("../../daemon/approval-generators.js", () => ({
   createApprovalCopyGenerator: () => undefined,
   createApprovalConversationGenerator: () => undefined,
 }));
+
+// The inbound pipeline creates guardian requests and delivery rows through
+// the gateway client; tests here have no live gateway, so serve that surface
+// from the in-memory bridge fake (seed/inspect/reset via its `bridgeState`).
+import { gatewayGuardianRequestsStoreBridge } from "./gateway-guardian-requests-store-bridge.js";
+
+mock.module(
+  "../../channels/gateway-guardian-requests.js",
+  () => gatewayGuardianRequestsStoreBridge,
+);
 
 import type { TrustClass, TrustVerdict } from "@vellumai/gateway-client";
 
@@ -133,12 +145,16 @@ export async function handleChannelInbound(
  */
 function stampTrustVerdict(body: Record<string, unknown>): void {
   const meta = body.sourceMetadata as Record<string, unknown> | undefined;
-  if (meta && "trustVerdict" in meta) return;
+  if (meta && "trustVerdict" in meta) {
+    return;
+  }
 
   const channelType = String(body.sourceChannel ?? "");
   const actorExternalId =
     typeof body.actorExternalId === "string" ? body.actorExternalId : undefined;
-  if (!channelType) return;
+  if (!channelType) {
+    return;
+  }
 
   const verdict = resolveLocalTrustVerdict({
     channelType,
@@ -180,10 +196,13 @@ export function resolveLocalTrustVerdict(input: {
     trustClass = "guardian";
   } else if (memberAcl) {
     const status = memberAcl.status;
-    if (status === "active") trustClass = "trusted_contact";
-    else if (status === "unverified" || status === "pending")
+    if (status === "active") {
+      trustClass = "trusted_contact";
+    } else if (status === "unverified" || status === "pending") {
       trustClass = "unverified_contact";
-    else trustClass = "unknown";
+    } else {
+      trustClass = "unknown";
+    }
   } else {
     trustClass = "unknown";
   }
@@ -193,8 +212,9 @@ export function resolveLocalTrustVerdict(input: {
   if (guardian) {
     verdict.guardianExternalUserId = guardian.address;
     verdict.guardianDeliveryChatId = guardian.externalChatId ?? null;
-    if (guardian.principalId)
+    if (guardian.principalId) {
       verdict.guardianPrincipalId = guardian.principalId;
+    }
     verdict.guardianDisplayName = guardian.displayName ?? undefined;
   }
 

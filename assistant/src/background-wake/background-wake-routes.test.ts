@@ -69,7 +69,9 @@ function findHandler(operationId: string) {
   const route = ROUTES.find(
     (candidate) => candidate.operationId === operationId,
   );
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 
@@ -83,7 +85,6 @@ function schedulerResultFixture(
     completed: 0,
     failed: 0,
     skipped: 0,
-    stillPending: 0,
     ...overrides,
   };
 }
@@ -118,7 +119,9 @@ function acceptedResponse(
 function lastCompletionPayload(): MockCompletionPayload {
   const calls = mockCompleteBackgroundWakeLease.mock.calls;
   const call = calls[calls.length - 1] as unknown[] | undefined;
-  if (!call) throw new Error("completeBackgroundWakeLease was not called");
+  if (!call) {
+    throw new Error("completeBackgroundWakeLease was not called");
+  }
   return call[0] as MockCompletionPayload;
 }
 
@@ -573,7 +576,7 @@ describe("background wake runtime routes", () => {
       skipped: 0,
     }));
     const schedulerRunDue = mock(async () =>
-      schedulerResultFixture({ skipped: 2, stillPending: 2 }),
+      schedulerResultFixture({ skipped: 2 }),
     );
     setBackgroundWakeRuntime({
       heartbeat: {
@@ -711,7 +714,9 @@ describe("background wake runtime routes", () => {
       });
       expect(schedulerRunDue).toHaveBeenCalledTimes(1);
     } finally {
-      for (const resolve of schedulerResolvers) resolve();
+      for (const resolve of schedulerResolvers) {
+        resolve();
+      }
     }
 
     await flushBackgroundWakeDrainsForTest();
@@ -725,7 +730,7 @@ describe("background wake runtime routes", () => {
 
   test("drain-due runs scheduler work even when pending work remains", async () => {
     const schedulerRunDue = mock(async () =>
-      schedulerResultFixture({ claimed: 1, completed: 1, stillPending: 1 }),
+      schedulerResultFixture({ claimed: 1, completed: 1 }),
     );
     setBackgroundWakeRuntime({
       heartbeat: {

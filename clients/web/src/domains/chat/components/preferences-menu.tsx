@@ -1,36 +1,31 @@
-import { useQuery } from "@tanstack/react-query";
 import {
-    ChartColumn,
-    ChevronDown,
-    ChevronUp,
-    Gift,
-    MessageSquareText,
-    Settings as SettingsIcon,
-    Shield,
-    SlidersHorizontal,
+  ChevronDown,
+  ChevronUp,
+  CircleUser,
+  MessageSquareText,
+  Settings as SettingsIcon,
+  Shield,
 } from "lucide-react";
 import { lazy, useState } from "react";
 import { useNavigate } from "react-router";
 
 import {
-    BottomSheet,
-    PanelItem,
-    Popover,
-    SideMenu,
+  BottomSheet,
+  Button,
+  PanelItem,
+  Popover,
+  SideMenu,
 } from "@vellumai/design-library";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { useIsOrgReady } from "@/hooks/use-is-org-ready";
-import {
-    useActiveAssistantIsPlatformHosted,
-    usePlatformGate,
-} from "@/hooks/use-platform-gate";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
 import { openUrl } from "@/runtime/browser";
+import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { adminUrl, routes } from "@/utils/routes";
 
 import { CreditsCard } from "./credits-card";
@@ -43,28 +38,35 @@ const ShareFeedbackModal = lazy(() =>
     default: m.ShareFeedbackModal,
   })),
 );
-const EarnCreditsModal = lazy(() =>
-  import("@/components/earn-credits-modal").then((m) => ({
-    default: m.EarnCreditsModal,
-  })),
-);
+
+/**
+ * The trigger names the menu it opens, never the signed-in account. This is a
+ * settings entry point rather than a profile row, and the account's identity
+ * belongs on the Settings page the menu links to.
+ */
+const PREFERENCES_LABEL = "Preferences";
 
 export interface PreferencesMenuProps {
   assistantId?: string | null;
   assistantVersion?: string | null;
   activeConversationId?: string | null;
+  /**
+   * Trigger presentation. `item` is the labeled side-menu footer row (rail);
+   * `pill` is a floating rounded button for the mobile overlay's action row.
+   */
+  triggerVariant?: "item" | "pill";
 }
 
 export function PreferencesMenu({
   assistantId,
   assistantVersion,
   activeConversationId,
+  triggerVariant = "item",
 }: PreferencesMenuProps) {
   const isAuthenticated = useIsAuthenticated();
   const isMobile = useIsMobile();
   const [isOpen, setIsOpen] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
-  const [isEarnCreditsOpen, setIsEarnCreditsOpen] = useState(false);
 
   if (!isAuthenticated) {
     return null;
@@ -72,20 +74,34 @@ export function PreferencesMenu({
 
   const closeMenu = () => setIsOpen(false);
 
-  const trigger = (
-    <SideMenu.Item
-      icon={SlidersHorizontal}
-      label="Preferences"
-      trailingIcon={isOpen ? ChevronDown : ChevronUp}
-      active={isOpen}
-    />
-  );
+  const trigger =
+    triggerVariant === "pill" ? (
+      /* Solid surface + shadow: the pill floats over the scrolling
+         conversation list, so it can't be transparent like `ghost`. */
+      <Button
+        variant="ghost"
+        leftIcon={<CircleUser />}
+        className="h-10 w-full min-w-0 rounded-full border border-[var(--border-base)] bg-[var(--surface-lift)] px-4 shadow-[var(--shadow-lg)]"
+      >
+        {/* `truncate` is belt-and-braces: the label is a fixed short string,
+            but the pill shares its row with New Chat and must never grow
+            wide enough to overlap it at narrow viewports. */}
+        <span className="min-w-0 truncate">{PREFERENCES_LABEL}</span>
+      </Button>
+    ) : (
+      <SideMenu.Item
+        icon={CircleUser}
+        label={PREFERENCES_LABEL}
+        trailingIcon={isOpen ? ChevronDown : ChevronUp}
+        active={isOpen}
+        data-tour-id="settings"
+      />
+    );
 
   const content = (
     <PreferencesMenuContent
       onClose={closeMenu}
       onShareFeedback={() => setIsFeedbackOpen(true)}
-      onEarnCredits={() => setIsEarnCreditsOpen(true)}
     />
   );
 
@@ -108,6 +124,12 @@ export function PreferencesMenu({
             side="top"
             align="start"
             sideOffset={8}
+            tabIndex={-1}
+            onOpenAutoFocus={(event) => {
+              const content = event.currentTarget as HTMLElement | null;
+              event.preventDefault();
+              content?.focus();
+            }}
             className="w-64 rounded-lg p-4"
           >
             {content}
@@ -126,15 +148,6 @@ export function PreferencesMenu({
           />
         </LazyBoundary>
       ) : null}
-
-      {isEarnCreditsOpen ? (
-        <LazyBoundary>
-          <EarnCreditsModal
-            open={isEarnCreditsOpen}
-            onClose={() => setIsEarnCreditsOpen(false)}
-          />
-        </LazyBoundary>
-      ) : null}
     </>
   );
 }
@@ -142,27 +155,18 @@ export function PreferencesMenu({
 interface PreferencesMenuContentProps {
   onClose: () => void;
   onShareFeedback: () => void;
-  onEarnCredits: () => void;
 }
 
 function PreferencesMenuContent({
   onClose,
   onShareFeedback,
-  onEarnCredits,
 }: PreferencesMenuContentProps) {
   const navigate = useNavigate();
   const user = useAuthStore.use.user();
   const platformGate = usePlatformGate();
-  const billingPlatformGate = usePlatformGate({ platformHostedOnly: true });
-  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
-  const isOrgReady = useIsOrgReady();
-  const showBillingRows =
-    billingPlatformGate === "full" && isPlatformHosted && isOrgReady;
-  const { data: billingSummary } = useQuery({
-    ...organizationsBillingSummaryRetrieveOptions(),
-    enabled: showBillingRows,
-  });
-  const effectiveBalance = billingSummary?.effective_balance ?? null;
+  const { enabled: showBillingRows, balance: effectiveBalance } =
+    useBillingBalanceStatus();
+  const isNativeAndroid = useIsNativeAndroid();
 
   return (
     <>
@@ -174,33 +178,17 @@ function PreferencesMenuContent({
         <div className="my-2">
           <CreditsCard
             balance={formatWholeCredits(effectiveBalance)}
-            onAddCredits={() => {
-              onClose();
-              navigate(routes.settings.billing);
-            }}
+            onAddCredits={
+              isNativeAndroid
+                ? undefined
+                : () => {
+                    onClose();
+                    navigate(routes.settings.usageBilling);
+                  }
+            }
           />
         </div>
       ) : null}
-
-      {showBillingRows ? (
-        <PanelItem
-          icon={Gift}
-          label="Earn Free Credits"
-          onSelect={() => {
-            onClose();
-            onEarnCredits();
-          }}
-        />
-      ) : null}
-
-      <PanelItem
-        icon={ChartColumn}
-        label="Usage"
-        onSelect={() => {
-          onClose();
-          navigate(routes.logs.usage);
-        }}
-      />
 
       {(platformGate === "full" || isElectron()) && (
         <PanelItem

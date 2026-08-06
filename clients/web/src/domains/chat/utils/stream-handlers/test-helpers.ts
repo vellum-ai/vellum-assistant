@@ -49,6 +49,7 @@ export function makeCtx(
       onToolResult: mock(() => {}),
       onToolActivityMetadata: mock(() => {}),
       onActivityThinking: mock(() => {}),
+      recoverFromAwaitingUserInput: mock(() => {}),
       showSurface: mock(() => {}),
       updateSurface: mock(() => {}),
       dismissSurface: mock(() => {}),
@@ -65,6 +66,7 @@ export function makeCtx(
       onPollReconciled: mock(() => {}),
       onTurnTimeout: mock(() => {}),
       resetTurn: mock(() => {}),
+      clearStaleTurn: mock(() => {}),
       enqueueMessage: mock(() => {}),
       dequeueMessage: mock(() => {}),
       deleteQueuedMessage: mock(() => {}),
@@ -88,6 +90,14 @@ export function makeCtx(
     shiftPendingQueuedMessageId: mock(() => {
       return queueState.pendingQueuedMessageIds.shift();
     }),
+    takePendingQueuedMessageId: mock((messageId: string) => {
+      const idx = queueState.pendingQueuedMessageIds.indexOf(messageId);
+      if (idx === -1) {
+        return undefined;
+      }
+      queueState.pendingQueuedMessageIds.splice(idx, 1);
+      return messageId;
+    }),
     setRequestIdMapping: mock((requestId: string, messageId: string) => {
       queueState.requestIdToMessageId.set(requestId, messageId);
     }),
@@ -99,7 +109,9 @@ export function makeCtx(
       return value;
     }),
     consumePendingLocalDeletion: mock((messageId: string) => {
-      if (!queueState.pendingLocalDeletions.has(messageId)) return false;
+      if (!queueState.pendingLocalDeletions.has(messageId)) {
+        return false;
+      }
       queueState.pendingLocalDeletions.delete(messageId);
       return true;
     }),

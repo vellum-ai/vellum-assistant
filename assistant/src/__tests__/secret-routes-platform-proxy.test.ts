@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { LLMSchema } from "../config/schemas/llm.js";
+import { getConfig } from "../config/loader.js";
 import { credentialKey } from "../security/credential-key.js";
 
 let lastGeminiConstructorOpts: Record<string, unknown> | null = null;
@@ -21,31 +21,6 @@ const MANAGED_PROVIDERS = [
 ] as const;
 
 let platformBaseUrlOverride: string | undefined;
-
-const baseLlm = LLMSchema.parse({});
-
-const mockConfig = {
-  services: {
-    inference: {},
-    "image-generation": {
-      mode: "your-own" as const,
-      provider: "gemini",
-      model: "gemini-3.1-flash-image-preview",
-    },
-    "web-search": {
-      mode: "your-own" as const,
-      provider: "inference-provider-native",
-    },
-  },
-  llm: {
-    ...baseLlm,
-    default: {
-      ...baseLlm.default,
-      provider: "anthropic" as const,
-      model: "test-model",
-    },
-  },
-};
 
 mock.module("@google/genai", () => ({
   GoogleGenAI: class MockGoogleGenAI {
@@ -75,11 +50,6 @@ mock.module("../config/env.js", () => ({
   setPlatformBaseUrl: (value: string | undefined) => {
     platformBaseUrlOverride = value;
   },
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
 }));
 
 mock.module("../providers/provider-secret-catalog.js", () => ({
@@ -118,17 +88,10 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
   },
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // `handleAddSecret` fires this detached when a managed-proxy credential lands —
 // a v2-memory side effect outside this suite's provider-registry scope. Stub it
-// to a no-op; its behavior is covered by memory-v2-startup.test.ts.
-mock.module("../plugins/defaults/memory/v2/memory-v2-startup.js", () => ({
+// to a no-op; its behavior is covered by boot-maintenance.test.ts.
+mock.module("../plugins/defaults/memory/substrate/boot-maintenance.js", () => ({
   maybeReseedCapabilitiesAfterManagedCredential: async () => {},
 }));
 
@@ -145,7 +108,10 @@ import {
   initializeProviders,
   listProviders,
 } from "../providers/registry.js";
-import { ROUTES } from "../runtime/routes/secret-routes.js";
+import {
+  notifyCesOfAssistantApiKeyUpdate,
+  ROUTES,
+} from "../runtime/routes/secret-routes.js";
 
 const addRoute = ROUTES.find(
   (r) => r.method === "POST" && r.endpoint === "secrets",
@@ -187,7 +153,7 @@ describe("secret routes managed proxy registry sync", () => {
     lastGeminiConstructorOpts = null;
     platformBaseUrlOverride = undefined;
     providerRefreshCalls = 0;
-    await initializeProviders(mockConfig);
+    await initializeProviders(getConfig());
   });
 
   test("adding vellum:assistant_api_key bootstraps managed fallback providers immediately", async () => {
@@ -213,6 +179,31 @@ describe("secret routes managed proxy registry sync", () => {
     expect(lastGeminiConstructorOpts).toBeDefined();
   });
 
+  test("the CES key-update notification with no CES client logs a warning", async () => {
+    // When getCesClient() is undefined the push is skipped, but the skip must
+    // be logged, not dropped silently. Exercise the extracted helper directly
+    // with an injected logger.
+    const warns: string[] = [];
+    const fakeLogger = {
+      info: () => {},
+      warn: (a: unknown, b?: unknown) => {
+        warns.push(typeof a === "string" ? a : String(b));
+      },
+    };
+
+    await notifyCesOfAssistantApiKeyUpdate(
+      "ast-managed-key",
+      undefined,
+      fakeLogger as unknown as Parameters<
+        typeof notifyCesOfAssistantApiKeyUpdate
+      >[2],
+    );
+
+    expect(warns.some((m) => m.includes("no CES client is connected"))).toBe(
+      true,
+    );
+  });
+
   test("provider API key writes notify live-conversation refresh listeners", async () => {
     await addApiKey("fireworks", "fw-key");
 
@@ -228,7 +219,7 @@ describe("secret routes managed proxy registry sync", () => {
 
   test("deleting vellum:assistant_api_key clears managed fallback providers immediately", async () => {
     secureKeyStore[ASSISTANT_API_KEY_PATH] = "ast-managed-key";
-    await initializeProviders(mockConfig);
+    await initializeProviders(getConfig());
 
     for (const provider of MANAGED_PROVIDERS) {
       expect(listProviders()).toContain(provider);

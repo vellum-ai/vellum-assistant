@@ -50,8 +50,10 @@ export interface FetchProviderCatalogEntry {
 export const FETCH_PROVIDER_CATALOG: readonly FetchProviderCatalogEntry[] = [
   {
     id: "default",
-    displayName: "Built-in",
-    displayNameLong: "Built-in fetcher",
+    // Display-only: fetching runs in the daemon, not through the platform
+    // proxy. The id stays `default` until a managed fetch route exists.
+    displayName: "Vellum",
+    displayNameLong: "Vellum built-in fetcher",
     kind: "builtin",
   },
   {
@@ -66,8 +68,9 @@ export const FETCH_PROVIDER_CATALOG: readonly FetchProviderCatalogEntry[] = [
 ];
 
 /** Provider ids accepted by the web-fetch config schema. */
-export const FETCH_PROVIDER_IDS: readonly string[] =
-  FETCH_PROVIDER_CATALOG.map((p) => p.id);
+export const FETCH_PROVIDER_IDS: readonly string[] = FETCH_PROVIDER_CATALOG.map(
+  (p) => p.id,
+);
 
 /** Catalog entries that require a user-supplied API key. */
 export const BYOK_FETCH_PROVIDERS: readonly FetchProviderCatalogEntry[] =

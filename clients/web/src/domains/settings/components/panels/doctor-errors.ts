@@ -7,20 +7,20 @@ import { ApiError } from "@/utils/api-errors";
  * service whose replicas cycle during deploys and autoscaler scale-downs.
  * Django maps those upstream connection failures to gateway-class statuses
  * (502/503/504) with bodies like `{"detail": "Bad gateway"}`. Surfacing that
- * raw detail reads as the *assistant* being unreachable — a different failure
- * domain — so these statuses get a Doctor-specific transient message instead.
+ * raw detail reads as the *assistant* being unreachable, which is a different
+ * failure domain. These statuses get a Doctor-specific transient message.
  */
 export const DOCTOR_UNAVAILABLE_STATUSES: ReadonlySet<number> = new Set([
   502, 503, 504,
 ]);
 
 const DOCTOR_UNAVAILABLE_BASE =
-  "Doctor is temporarily unavailable — this is usually brief. Your assistant itself is not affected.";
+  "Doctor is temporarily unavailable. This is usually brief. Your assistant itself is not affected.";
 
 export const DOCTOR_UNAVAILABLE_MESSAGE = `${DOCTOR_UNAVAILABLE_BASE} Please try again in a moment.`;
 
-// Durable sessions survive a Doctor restart, so point users at Reconnect —
-// the session and its transcript resume where they left off.
+// Durable sessions survive a Doctor restart. Reconnect resumes the session
+// and transcript where they left off.
 export const DOCTOR_UNAVAILABLE_STREAM_MESSAGE = `${DOCTOR_UNAVAILABLE_BASE} Reconnect in a moment to continue this session.`;
 
 /**

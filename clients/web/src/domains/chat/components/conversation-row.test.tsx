@@ -37,22 +37,15 @@ function conv(overrides: Partial<Conversation> = {}): Conversation {
 }
 
 describe("buildMenuProps", () => {
-  test("marks channel conversations read-only and omits analyze", () => {
-    const props = buildMenuProps(
-      makeCtx({ onAnalyze: () => {} }),
+  test("marks channel conversations read-only", () => {
+    const channel = buildMenuProps(
+      makeCtx(),
       conv({ originChannel: "telegram" }),
     );
-    expect(props.isReadonly).toBe(true);
-    expect(props.onAnalyze).toBeUndefined();
-  });
+    expect(channel.isReadonly).toBe(true);
 
-  test("wires analyze for native conversations", () => {
-    const props = buildMenuProps(
-      makeCtx({ onAnalyze: () => {} }),
-      conv({ originChannel: "vellum" }),
-    );
-    expect(props.isReadonly).toBe(false);
-    expect(typeof props.onAnalyze).toBe("function");
+    const native = buildMenuProps(makeCtx(), conv({ originChannel: "vellum" }));
+    expect(native.isReadonly).toBe(false);
   });
 
   test("only wires callbacks the context provides", () => {
@@ -92,9 +85,9 @@ describe("buildDragProps", () => {
   const b = conv({ conversationId: "b" });
 
   test("returns nothing when reordering is disabled", () => {
-    expect(buildDragProps(makeCtx({ canReorder: false }), a, "pinned", [a, b])).toEqual(
-      {},
-    );
+    expect(
+      buildDragProps(makeCtx({ canReorder: false }), a, "pinned", [a, b]),
+    ).toEqual({});
   });
 
   test("returns nothing without a section or with fewer than two siblings", () => {

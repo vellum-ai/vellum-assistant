@@ -13,7 +13,6 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import * as actualLoader from "../../../config/loader.js";
 import type { ResourceSample } from "../../../monitoring/resource-sample-types.js";
 import { getMonitoringPidPath } from "../../../util/platform.js";
 
@@ -46,13 +45,6 @@ mock.module("../../../monitoring/sample-ring-buffer.js", () => ({
       return latestSample;
     }
   },
-}));
-
-mock.module("../../../config/loader.js", () => ({
-  ...actualLoader,
-  getConfigReadOnly: () => ({
-    monitoring: { ringBufferSize: 4000 },
-  }),
 }));
 
 const { ROUTES } = await import("../monitoring-routes.js");

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
+  QuestionPromptOutcome,
   QuestionPromptParams,
   QuestionPromptResult,
 } from "../../permissions/question-prompter.js";
@@ -25,16 +26,23 @@ function setNextResult(result: QuestionPromptResult): void {
 
 mock.module("../../permissions/question-prompter.js", () => ({
   QuestionPrompter: class {
-    async prompt(params: QuestionPromptParams): Promise<QuestionPromptResult> {
+    async prompt(params: QuestionPromptParams): Promise<QuestionPromptOutcome> {
       calls.push(params);
-      return nextResult;
+      // Mirror the real prompter: it mints the request id and assigns the
+      // per-question `q1..qN` ids, then returns them alongside the resolution.
+      return {
+        requestId: "req-stub",
+        questions: params.questions.map((q, i) => ({ id: `q${i + 1}`, ...q })),
+        ...nextResult,
+      };
     }
   },
 }));
 
 // Import after the mock so the tool's `import { QuestionPrompter }` binds
 // to the stub class above.
-const { askQuestionTool } = await import("./ask-question-tool.js");
+const { askQuestionTool, formatQuestionsAsTextFallback, toAnsweredQuestion } =
+  await import("./ask-question-tool.js");
 
 type PromptParams = QuestionPromptParams;
 
@@ -287,6 +295,156 @@ describe("AskQuestionTool.execute", () => {
       makeContext({ signal: ac.signal }),
     );
     expect(calls[0]?.signal).toBe(ac.signal);
+  });
+});
+
+// ── Text fallback on channels without dynamic UI ────────────────────
+
+describe("AskQuestionTool text fallback (supportsDynamicUi === false)", () => {
+  test("returns a formatted text block without ever prompting", async () => {
+    const result = await askQuestionTool.execute(
+      validInput,
+      makeContext({ supportsDynamicUi: false }),
+    );
+
+    // The channel can't render the interactive card, so the prompter must
+    // never be invoked — broadcasting a question_request would reach app
+    // clients but never the channel the turn came from. Instead the model gets
+    // text to relay in its reply, which IS what reaches the channel.
+    expect(calls).toHaveLength(0);
+    expect(result.isError).toBe(false);
+    // Carries the question, both option labels, the option description, and an
+    // instruction to present the question as plain text.
+    expect(result.content).toContain(singleQ.question);
+    expect(result.content).toContain("Apple");
+    expect(result.content).toContain("Banana");
+    expect(result.content).toContain("Ripe");
+    expect(result.content).toContain("Options:");
+    expect(result.content.toLowerCase()).toContain("plain-text");
+  });
+
+  test("still prompts when supportsDynamicUi is true or unset", async () => {
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
+
+    // The fallback keys off an explicit `false`; a dynamic-UI channel (true)
+    // and a client that never set the flag (unset) both take the card path.
+    await askQuestionTool.execute(
+      validInput,
+      makeContext({ supportsDynamicUi: true }),
+    );
+    await askQuestionTool.execute(validInput, makeContext());
+
+    expect(calls).toHaveLength(2);
+  });
+
+  test("isInteractive:false short-circuits before the text fallback", async () => {
+    const result = await askQuestionTool.execute(
+      validInput,
+      makeContext({ isInteractive: false, supportsDynamicUi: false }),
+    );
+
+    // No interactive user present wins over the channel fallback: there is no
+    // one to answer at all, so proceed with defaults rather than emitting a
+    // question the turn would never get a reply to.
+    expect(calls).toHaveLength(0);
+    expect(result.content.toLowerCase()).toContain("no interactive user");
+  });
+
+  test("parks a single guardian question on a card-capable channel", async () => {
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
+
+    // A guardian's single-question turn on a channel with a card-rendering
+    // notification adapter parks on the prompter: the guardian-request
+    // pipeline delivers it as a tappable card, so falling back to text would
+    // regress it to an untappable message.
+    await askQuestionTool.execute(
+      validInput,
+      makeContext({
+        supportsDynamicUi: false,
+        supportsGuardianQuestionCards: true,
+        trustClass: "guardian",
+      }),
+    );
+
+    expect(calls).toHaveLength(1);
+  });
+
+  test("text fallback when the channel has no question-card delivery", async () => {
+    const result = await askQuestionTool.execute(
+      validInput,
+      makeContext({
+        supportsDynamicUi: false,
+        supportsGuardianQuestionCards: false,
+        trustClass: "guardian",
+      }),
+    );
+
+    expect(calls).toHaveLength(0);
+    expect(result.content.toLowerCase()).toContain("plain-text");
+  });
+
+  test("text fallback for a non-guardian channel turn even with card delivery", async () => {
+    // The pipeline delivers cards to the guardian; a non-guardian chatter
+    // would never see one, so their turn degrades to text.
+    const result = await askQuestionTool.execute(
+      validInput,
+      makeContext({
+        supportsDynamicUi: false,
+        supportsGuardianQuestionCards: true,
+        trustClass: "trusted_contact",
+      }),
+    );
+
+    expect(calls).toHaveLength(0);
+    expect(result.content.toLowerCase()).toContain("plain-text");
+  });
+
+  test("text fallback for a multi-question batch on a channel", async () => {
+    // One card carries one answer; multi-question batches stay text on
+    // channels (the app card still handles them when dynamic UI is present).
+    const result = await askQuestionTool.execute(
+      { questions: [singleQ, { ...singleQ, question: "Which size?" }] },
+      makeContext({
+        supportsDynamicUi: false,
+        supportsGuardianQuestionCards: true,
+        trustClass: "guardian",
+      }),
+    );
+
+    expect(calls).toHaveLength(0);
+    expect(result.content.toLowerCase()).toContain("plain-text");
+  });
+});
+
+describe("formatQuestionsAsTextFallback", () => {
+  test("renders a single question with un-numbered options by label", () => {
+    const text = formatQuestionsAsTextFallback([singleQ]);
+
+    expect(text).toContain("Question: Which fruit?");
+    expect(text).toContain("Pick one to add to the smoothie.");
+    expect(text).toContain("Options:");
+    expect(text).toContain("- Apple");
+    expect(text).toContain("- Banana — Ripe");
+    // A single question is not numbered.
+    expect(text).not.toContain("Question 1:");
+  });
+
+  test("numbers questions in a multi-question batch", () => {
+    const q2 = {
+      question: "Preferred time?",
+      options: [
+        { id: "morning", label: "Morning" },
+        { id: "afternoon", label: "Afternoon" },
+      ],
+    };
+
+    const text = formatQuestionsAsTextFallback([singleQ, q2]);
+
+    expect(text).toContain("2 questions");
+    expect(text).toContain("Question 1: Which fruit?");
+    expect(text).toContain("Question 2: Preferred time?");
+    expect(text).toContain("- Morning");
+    expect(text).toContain("- Afternoon");
   });
 });
 
@@ -557,5 +715,113 @@ describe("askQuestionTool definition (batched schema)", () => {
     // The legacy flat fields are gone.
     expect(schema.properties.question).toBeUndefined();
     expect(schema.properties.options).toBeUndefined();
+  });
+});
+
+describe("answered-question record", () => {
+  test("carries the option the user chose, keyed to the questions as asked", async () => {
+    setNextResult({
+      entries: [{ questionId: "q1", decision: "option", optionId: "b" }],
+      overall: "completed",
+    });
+
+    const result = await askQuestionTool.execute(validInput, makeContext());
+
+    expect(result.answeredQuestion).toEqual({
+      requestId: "req-stub",
+      questions: [{ id: "q1", ...singleQ }],
+      responses: [{ questionId: "q1", decision: "option", optionId: "b" }],
+      overall: "completed",
+    });
+  });
+
+  test("carries a free-text answer", async () => {
+    setNextResult({
+      entries: [{ questionId: "q1", decision: "free_text", text: "Cherry" }],
+      overall: "completed",
+    });
+
+    const result = await askQuestionTool.execute(validInput, makeContext());
+
+    expect(result.answeredQuestion?.responses).toEqual([
+      { questionId: "q1", decision: "free_text", text: "Cherry" },
+    ]);
+  });
+
+  test("records a closed card as every question skipped", async () => {
+    setNextResult({
+      entries: [
+        { questionId: "q1", decision: "skipped" },
+        { questionId: "q2", decision: "skipped" },
+      ],
+      overall: "closed",
+    });
+
+    const result = await askQuestionTool.execute(
+      { questions: [singleQ, singleQ] },
+      makeContext(),
+    );
+
+    expect(result.answeredQuestion?.overall).toBe("closed");
+    expect(result.answeredQuestion?.responses).toEqual([
+      { questionId: "q1", decision: "skipped" },
+      { questionId: "q2", decision: "skipped" },
+    ]);
+  });
+
+  test("keeps per-question skips inside an otherwise completed batch", async () => {
+    setNextResult({
+      entries: [
+        { questionId: "q1", decision: "option", optionId: "a" },
+        { questionId: "q2", decision: "skipped" },
+      ],
+      overall: "completed",
+    });
+
+    const result = await askQuestionTool.execute(
+      { questions: [singleQ, singleQ] },
+      makeContext(),
+    );
+
+    expect(result.answeredQuestion?.responses).toEqual([
+      { questionId: "q1", decision: "option", optionId: "a" },
+      { questionId: "q2", decision: "skipped" },
+    ]);
+  });
+
+  test("records nothing for a prompt that timed out or was aborted", async () => {
+    for (const overall of ["timed_out", "aborted"] as const) {
+      setNextResult({
+        entries: [{ questionId: "q1", decision: overall }],
+        overall,
+      });
+
+      const result = await askQuestionTool.execute(validInput, makeContext());
+
+      expect(result.isError).toBe(true);
+      expect(result.answeredQuestion).toBeUndefined();
+    }
+  });
+
+  test("records nothing when the channel degrades to the text fallback", async () => {
+    const result = await askQuestionTool.execute(
+      validInput,
+      makeContext({ supportsDynamicUi: false }),
+    );
+
+    // No card was ever shown, so there is no answered state to keep.
+    expect(result.answeredQuestion).toBeUndefined();
+    expect(calls).toHaveLength(0);
+  });
+
+  test("toAnsweredQuestion is undefined for non-user outcomes", () => {
+    expect(
+      toAnsweredQuestion({
+        requestId: "req-1",
+        questions: [],
+        entries: [],
+        overall: "timed_out",
+      }),
+    ).toBeUndefined();
   });
 });

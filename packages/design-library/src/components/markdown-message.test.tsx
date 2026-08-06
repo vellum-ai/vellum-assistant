@@ -47,7 +47,10 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("mx-0");
     expect(html).toContain("flex");
     expect(html).toContain("gap-3");
-    expect(html).toContain("h-5");
+    // The accent bar stretches with the quote so multi-line quotes get a
+    // full-height rule, not a fixed-height pill floating mid-quote.
+    expect(html).toContain("self-stretch");
+    expect(html).not.toContain("h-5");
     expect(html).toContain("w-0.5");
     expect(html).toContain("rounded-full");
     expect(html).toContain("min-w-0");
@@ -104,35 +107,60 @@ describe("MarkdownMessage", () => {
     expect(html).toContain('<li value="1"');
   });
 
-  test("tables render with the body-small typography token", () => {
+  test("tables render with the small prose typography token", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {
         content: "| a | b |\n| - | - |\n| 1 | 2 |",
       }),
     );
 
-    expect(html).toContain("text-body-small-default");
+    // The prose token (real leading), not the single-line label token —
+    // cell content wraps, and the label token's line-height:1 collapses
+    // wrapped lines onto each other.
+    expect(html).toContain("text-body-small-lighter");
+    expect(html).not.toContain("text-body-small-default");
   });
 
   test("inline code in table cells wraps with preserved spacing and breathing room", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {
-        content: "| Function | Usage |\n| --- | --- |\n| `useState` | `const [s, setS] = useState(v)` |",
+        content:
+          "| Function | Usage |\n| --- | --- |\n| `useState` | `const [s, setS] = useState(v)` |",
       }),
     );
 
     // Both <td> and <th> let inline code wrap while preserving its spacing.
-    // leading-relaxed is load-bearing: the body-small token sets line-height:1,
-    // which clips the padded inline-code background once it wraps onto a second
-    // line.
     const tdMatches = html.match(/<td\b[^>]*class="([^"]*)"/g) ?? [];
     const thMatches = html.match(/<th\b[^>]*class="([^"]*)"/g) ?? [];
     for (const match of [...tdMatches, ...thMatches]) {
       expect(match).toContain("whitespace-pre-wrap");
-      expect(match).toContain("leading-relaxed");
     }
-    // Code elements inside cells are still inline code (not block).
-    expect(html).toContain("<code");
+    // Code elements inside cells are still inline code (not block), and carry
+    // the small prose token so the padded chip background stays inside its
+    // own line box once it wraps in a cell.
+    const cellCodeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
+    expect(cellCodeTag).toContain("text-body-small-lighter");
+  });
+
+  test("inline code and blockquotes use the small prose token so chips never overlap prose", () => {
+    // The body-small *label* token bakes line-height:1 into its utility. A
+    // quote's wrapped prose would get 12px line boxes while a padded
+    // inline-code chip paints ~18px tall — chips from one line would cover
+    // the lines above and below. Both the quote block and the chip must use
+    // the small *prose* token (real leading) instead.
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "> Set `backup.enabled` to `false` in the config file.",
+      }),
+    );
+
+    const blockquoteTag = html.match(/<blockquote[^>]*>/)?.[0] ?? "";
+    expect(blockquoteTag).toContain("text-body-small-lighter");
+    expect(blockquoteTag).not.toContain("text-body-small-default");
+
+    const codeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
+    expect(codeTag).toContain("text-body-small-lighter");
+    expect(codeTag).not.toContain("text-body-small-default");
   });
 
   test("forwards a supplied className onto the wrapper", () => {
@@ -197,6 +225,34 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("const a = 1\nconst b = 2");
     expect(html).not.toContain("const a = 1  \n");
     expect(html.match(/<code[\s\S]*?<\/code>/)?.[0]).not.toContain("<br");
+  });
+
+  test("fenced code renders a single scroll container — pre scrolls, code does not", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "```sql\nSELECT 1;\n```",
+      }),
+    );
+
+    const preTag = html.match(/<pre[^>]*>/)?.[0] ?? "";
+    const codeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
+
+    expect(preTag).toContain("overflow-auto");
+    expect(preTag).toContain("max-height:400px");
+    expect(codeTag).toContain("w-max");
+    expect(codeTag).toContain("min-w-full");
+    expect(codeTag).not.toContain("overflow-");
+  });
+
+  test("inline code renders a chip with no scroll container", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "an `x` value" }),
+    );
+
+    const codeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
+
+    expect(codeTag).toContain("rounded bg-stone-100 px-1 py-0.5");
+    expect(codeTag).not.toContain("overflow-");
   });
 
   test("hardLineBreaks does not break table parsing", () => {
@@ -384,9 +440,183 @@ describe("MarkdownMessage", () => {
     expect(html).not.toContain("\\$");
   });
 
+  test("ChatGPT-style inline delimiters render as inline math", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "The identity \\(E = mc^2\\) still holds.",
+      }),
+    );
+
+    expect(html).toContain("katex");
+    // Inline math stays inline: no display-mode wrapper, no leaked delimiters.
+    expect(html).not.toContain("katex-display");
+    expect(html).not.toContain("\\(");
+    expect(html).not.toContain("(E = mc^2)");
+  });
+
+  test("ChatGPT-style display delimiters render as display math", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "The area is:\n\n\\[\nA = \\pi r^2\n\\]\n\nas expected.",
+      }),
+    );
+
+    expect(html).toContain("katex-display");
+    expect(html).not.toContain("\\[");
+  });
+
+  test("display delimiters mid-sentence still typeset in display mode", () => {
+    // remark-math only treats `$$` as a block when the fence opens a line, so a
+    // `\[…\]` span inside a sentence has to be lifted out of its paragraph.
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "Given \\[\\sum_{i=1}^n i\\] we are done.",
+      }),
+    );
+
+    expect(html).toContain("katex-display");
+    expect(html).toContain("Given");
+    expect(html).toContain("we are done.");
+  });
+
+  test("display math inside a list item stays inside the list", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "1. First compute \\[x = a + b\\]\n2. Then stop",
+      }),
+    );
+
+    expect(html).toContain("katex-display");
+    // The math is lifted to a block *within* the list item, not after the list.
+    expect(html).toMatch(/<li[^>]*>[\s\S]*katex-display[\s\S]*<\/li>/);
+    expect(html).toContain("Then stop");
+  });
+
+  test("both delimiter styles coexist in one message", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "With \\(a\\) and \\(b\\):\n\n\\[\nc = a + b\n\\]",
+      }),
+    );
+
+    expect(html).toContain("katex-display");
+    expect(html.match(/katex/g)?.length).toBeGreaterThan(2);
+    expect(html).not.toContain("\\(");
+    expect(html).not.toContain("\\[");
+  });
+
+  test("escaped delimiters inside code stay verbatim", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "Write `\\(x\\)` for inline math.\n\n```tex\n\\[x\\]\n```",
+      }),
+    );
+
+    // Code is a verbatim region: no math runs and the source survives exactly.
+    expect(html).not.toContain("katex");
+    expect(html).toContain("\\(x\\)");
+    expect(html).toContain("\\[x\\]");
+  });
+
+  test("an unpaired delimiter is left as literal text", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "An open \\[ bracket and a stray $ sign.",
+      }),
+    );
+
+    // Converting the lone opener would let it pair with the unrelated `$`.
+    expect(html).not.toContain("katex");
+    expect(html).toContain("[ bracket");
+  });
+
+  test("a stray opener does not consume the equation that follows it", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "Prefix \\( literal; then \\(x = 1\\) here.",
+      }),
+    );
+
+    // Pairing the stray opener with the real equation's closer would hand
+    // KaTeX `\( literal; then \(x = 1` and lose the equation entirely.
+    expect(html).toContain("katex");
+    expect(html).not.toContain("katex-error");
+    expect(html).toContain("Prefix ( literal; then ");
+    expect(html).toContain("here.");
+  });
+
+  test("a stray display opener does not consume the equation that follows", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "Arrays \\[ literal; the identity \\[E = mc^2\\] holds.",
+      }),
+    );
+
+    expect(html).toContain("katex-display");
+    expect(html).not.toContain("katex-error");
+    expect(html).toContain("Arrays [ literal; the identity");
+    expect(html).toContain("holds.");
+  });
+
+  test("delimiters separated by a blank line are not paired into math", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "Arrays use \\[ here.\n\nAnd close \\] over there.",
+      }),
+    );
+
+    expect(html).not.toContain("katex");
+  });
+
+  test("a delimiter pair straddling inline code is left alone", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "Use \\( the `code()` call \\) carefully.",
+      }),
+    );
+
+    // Math tokenization would swallow the code span, so the pair is skipped.
+    expect(html).not.toContain("katex");
+    expect(html).toContain("<code");
+  });
+
+  test("display delimiters survive hard line breaks", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "Result:\n\\[\nE = mc^2\n\\]",
+        hardLineBreaks: true,
+      }),
+    );
+
+    expect(html).toContain("katex-display");
+    expect(html).not.toContain("\\[");
+  });
+
+  test("currency is not mangled by delimiter conversion", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "It costs $5, and \\(x = 5\\) is the count.",
+      }),
+    );
+
+    expect(html).toContain("$5");
+    expect(html).toContain("katex");
+    expect(html).not.toContain("\\$");
+  });
+
   test("custom linkComponent replaces the default link renderer", () => {
-    function CustomLink({ href, children }: { href?: string; children?: React.ReactNode }) {
-      return <a href={href} data-custom="true">{children}</a>;
+    function CustomLink({
+      href,
+      children,
+    }: {
+      href?: string;
+      children?: React.ReactNode;
+    }) {
+      return (
+        <a href={href} data-custom="true">
+          {children}
+        </a>
+      );
     }
 
     const html = renderToStaticMarkup(
@@ -398,6 +628,97 @@ describe("MarkdownMessage", () => {
 
     expect(html).toContain('data-custom="true"');
     expect(html).not.toContain('rel="noopener noreferrer"');
+  });
+
+  test("custom imageComponent receives absolute host paths", () => {
+    const seen: { src: string; alt: string }[] = [];
+    function CustomImage({ src, alt }: { src: string; alt: string }) {
+      seen.push({ src, alt });
+      return <span data-custom-image={src}>{alt}</span>;
+    }
+
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "![chart](/Users/alice/files/chart.png)",
+        imageComponent: CustomImage,
+      }),
+    );
+
+    expect(seen).toEqual([
+      { src: "/Users/alice/files/chart.png", alt: "chart" },
+    ]);
+    expect(html).toContain('data-custom-image="/Users/alice/files/chart.png"');
+    expect(html).not.toContain("<img");
+  });
+
+  test("custom imageComponent receives data: srcs", () => {
+    const seen: string[] = [];
+    function CustomImage({ src, alt }: { src: string; alt: string }) {
+      seen.push(src);
+      return <span data-custom-image="true">{alt}</span>;
+    }
+
+    const dataUri = "data:image/png;base64,iVBORw0KGgo=";
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: `![inline](${dataUri})`,
+        imageComponent: CustomImage,
+        // react-markdown's default sanitizer rejects `data:`, so the consumer's
+        // transform is what lets the payload through to the component.
+        urlTransform: (url: string) => url,
+      }),
+    );
+
+    expect(seen).toEqual([dataUri]);
+    expect(html).toContain('data-custom-image="true"');
+    expect(html).not.toContain("<img");
+  });
+
+  test("custom imageComponent receives srcs the url transform rejected", () => {
+    const seen: string[] = [];
+    function CustomImage({ src, alt }: { src: string; alt: string }) {
+      seen.push(src);
+      return <span data-custom-image="true">{alt}</span>;
+    }
+
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        // The default sanitizer blanks the `data:` src, and the empty result
+        // still belongs to the consumer's component, not a bare <img>.
+        content: "![inline](data:image/png;base64,iVBORw0KGgo=)",
+        imageComponent: CustomImage,
+      }),
+    );
+
+    expect(seen).toEqual([""]);
+    expect(html).not.toContain("<img");
+  });
+
+  test("without an imageComponent local srcs render a bare img", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content:
+          "![chart](/Users/alice/files/chart.png)\n\n![thumb](./thumb.png)",
+      }),
+    );
+
+    expect(html).toContain(
+      '<img src="/Users/alice/files/chart.png" alt="chart"',
+    );
+    expect(html).toContain('<img src="./thumb.png" alt="thumb"');
+    expect(html).toContain("my-1 max-w-full rounded");
+  });
+
+  test("without an imageComponent remote srcs show the blocked placeholder", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "![blocked](https://example.com/blocked.png)",
+      }),
+    );
+
+    expect(html).toContain("External image not rendered");
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("https://example.com/blocked.png");
   });
 
   test("emoji inside markdown italic renders upright, not skewed", () => {

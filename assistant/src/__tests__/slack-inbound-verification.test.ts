@@ -14,13 +14,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
@@ -84,11 +77,14 @@ function seedGatewayGuardian(
   });
 }
 
-import { createCanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import {
+  handleChannelInbound,
+  seedContactChannel,
+} from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { bridgeState } from "./helpers/gateway-guardian-requests-store-bridge.js";
 import {
   createOutboundSession,
   createOutboundSessionGuarded,
@@ -121,12 +117,11 @@ const TEST_BEARER_TOKEN = "test-token";
 
 function resetState(): void {
   resetVerificationSessionsSim();
+  bridgeState.reset();
   const db = getDb();
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM notification_events");
-  db.run("DELETE FROM canonical_guardian_requests");
-  db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
   gatewayGuardians = [];
@@ -206,20 +201,16 @@ describe("Slack inbound trusted contact verification", () => {
     ).toContain("I don't recognize you yet");
   });
 
-  test("a terminally-denied Slack sender gets no challenge and no guardian re-prompt", async () => {
-    // Guardian previously denied this sender (terminal). Seed the denied
-    // canonical request under the assistant-scoped conversationId the ingress
-    // path derives for (self, slack, U0123UNKNOWN).
-    createCanonicalGuardianRequest({
-      id: `denied-${Date.now()}`,
-      kind: "access_request",
-      sourceType: "channel",
+  test("a blocked (revoked) Slack contact gets no challenge and no guardian re-prompt", async () => {
+    // "Block" persists a `revoked` contact — a durable keep-out. On re-contact
+    // the sender must NOT get a fresh (unusable) self-verify challenge, and the
+    // guardian must NOT be re-notified: they already decided to keep this
+    // contact out, and blocking is how the prompts are stopped.
+    seedContactChannel({
       sourceChannel: "slack",
-      conversationId: "access-req-self-slack-U0123UNKNOWN",
-      requesterExternalUserId: "U0123UNKNOWN",
-      guardianPrincipalId: "guardian-principal",
-      toolName: "ingress_access_request",
-      status: "denied",
+      externalUserId: "U0123UNKNOWN",
+      displayName: "Alice Unknown",
+      status: "revoked",
     });
 
     const resp = await handleChannelInbound(
@@ -229,16 +220,42 @@ describe("Slack inbound trusted contact verification", () => {
     );
     const json = (await resp.json()) as Record<string, unknown>;
 
-    // Still denied — but not via a fresh, unusable verification challenge.
+    // Kept out at the door, with no re-engagement side effects.
     expect(json.denied).toBe(true);
-    expect(json.reason).not.toBe("verification_challenge_sent");
+    expect(json.reason).toBe("member_revoked");
     expect(json.verificationSessionId).toBeUndefined();
-
-    // No verification session was minted for the denied sender.
     expect(findActiveSession("slack")).toBeNull();
-
-    // And the guardian was not re-notified.
     expect(emitSignalCalls.length).toBe(0);
+  });
+
+  test("a left-unverified Slack contact is re-challenged when it messages on a trust-gated channel", async () => {
+    // "Leave unverified" parks the sender as an `unverified` contact — a
+    // neutral park, NOT a keep-out. A later message on a channel that needs
+    // trust (the default `trusted_contacts` floor) re-fires the flow: a fresh
+    // self-verify challenge for the sender and a fresh card for the guardian.
+    // This is the D1 behavior — a parked contact is never silently dead-ended.
+    seedContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "U0123UNKNOWN",
+      displayName: "Alice Unknown",
+      status: "unverified",
+    });
+
+    const resp = await handleChannelInbound(
+      buildSlackInboundRequest({
+        sourceMetadata: { admissionPolicy: "trusted_contacts" },
+      }),
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    const json = (await resp.json()) as Record<string, unknown>;
+
+    // Re-fired: fresh challenge minted + guardian re-notified.
+    expect(json.denied).toBe(true);
+    expect(json.reason).toBe("verification_challenge_sent");
+    expect(json.verificationSessionId).toBeDefined();
+    expect(findActiveSession("slack")).not.toBeNull();
+    expect(emitSignalCalls.length).toBe(1);
   });
 
   test("verification session is identity-bound to the Slack user", async () => {

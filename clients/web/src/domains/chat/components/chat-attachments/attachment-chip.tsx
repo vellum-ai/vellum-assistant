@@ -1,32 +1,29 @@
-
 import {
-    Archive,
-    Code2,
-    FileAudio,
-    File as FileIcon,
-    FileImage,
-    FileSpreadsheet,
-    FileText,
-    FileType2,
-    FileVideo,
-    X,
+  Archive,
+  Code2,
+  FileAudio,
+  File as FileIcon,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+  FileType2,
+  FileVideo,
+  X,
 } from "lucide-react";
 import type { FC, ReactNode } from "react";
 
 import { Button } from "@vellumai/design-library";
 
 import {
-    classifyAttachment,
-    formatAttachmentSize,
-    middleTruncate,
-    type AttachmentIconKind,
+  classifyAttachment,
+  middleTruncate,
+  type AttachmentIconKind,
 } from "@/domains/chat/components/chat-attachments/utils";
 
 interface AttachmentChipProps {
   id: string;
   filename: string;
   mimeType: string;
-  sizeBytes: number;
   previewUrl: string | null;
   /** When omitted, the chip renders in read-only mode (no remove button).
    *  This lets the same chip be reused inside sent user message bubbles. */
@@ -52,14 +49,12 @@ export const AttachmentChip: FC<AttachmentChipProps> = ({
   id,
   filename,
   mimeType,
-  sizeBytes,
   previewUrl,
   onRemove,
   onPreview,
 }) => {
   const kind = classifyAttachment(mimeType, filename);
   const displayName = middleTruncate(filename);
-  const displaySize = formatAttachmentSize(sizeBytes);
   const hasPreview = kind === "image" && previewUrl !== null;
   const isClickable = hasPreview && onPreview != null;
 
@@ -93,14 +88,9 @@ export const AttachmentChip: FC<AttachmentChipProps> = ({
       >
         {hasPreview ? null : ICON_BY_KIND[kind]}
       </div>
-      <div className="flex min-w-0 max-w-[156px] flex-col gap-1">
-        <span className="truncate text-body-small-default text-[var(--content-secondary)]">
-          {displayName}
-        </span>
-        <span className="truncate text-label-small-default text-[var(--content-tertiary)]">
-          {displaySize}
-        </span>
-      </div>
+      <span className="min-w-0 max-w-[156px] truncate text-body-small-default leading-4 text-[var(--content-secondary)]">
+        {displayName}
+      </span>
       {onRemove ? (
         <div className="flex shrink-0 items-center gap-2">
           <div className="h-8 w-px shrink-0 bg-[var(--border-disabled)]" />

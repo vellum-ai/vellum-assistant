@@ -1,6 +1,6 @@
-import type { ApprovalRequired } from "@vellumai/service-contracts/credential-rpc";
 import { z } from "zod";
 
+import type { AnsweredQuestion } from "../api/events/question-answered.js";
 import type { InterfaceId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
@@ -53,8 +53,27 @@ export interface ToolExecutionResult {
   content: string;
   /** When true, the agent loop treats `content` as an error and may surface it / retry. */
   isError: boolean;
+  /**
+   * Stable, machine-readable classification for an error result (e.g.
+   * `acp_claude_oauth_missing`). Threaded to the client on the `tool_result`
+   * event so surfaces can render a structured affordance for a known failure
+   * instead of re-parsing the human `content` string. Only meaningful when
+   * `isError` is true.
+   */
+  errorCode?: string;
   /** Optional short status message for client display (e.g. `"truncated"`, `"timed out"`). */
   status?: string;
+  /**
+   * Typed side channel from the app-builder executors to their post-execution
+   * side-effect hooks (`daemon/tool-side-effects.ts`): the exact app id the
+   * executor operated on. `app_id` is optional for the fallback tools
+   * (`app_update`, `app_refresh`, `app_generate_icon`) — when the model omits
+   * it the skill script resolves the conversation's active app — so hooks read
+   * this authoritative id instead of re-parsing the LLM-facing `content`
+   * payload, whose shape must stay decoupled from daemon logic (see
+   * assistant/AGENTS.md § Post-execution hooks). Set only by the app_* executors.
+   */
+  resolvedAppId?: string;
   /**
    * When true, the agent loop should yield control back to the user after
    * returning this result — tool results are pushed to history and the loop
@@ -112,18 +131,17 @@ export interface ToolExecutionResult {
   }>;
   /** Directory scope ladder for the rule editor (narrowest to broadest). */
   riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
-  /**
-   * When present, indicates that a CES tool returned an `approval_required`
-   * response. The executor uses the approval bridge to prompt the guardian,
-   * commit the grant decision to CES, and retry the original tool invocation
-   * with the granted grantId. CES tools populate this field rather than
-   * returning a textual error so the executor can intercept and handle the
-   * approval flow transparently.
-   */
-  cesApprovalRequired?: ApprovalRequired;
   /** Structured activity metadata for client rendering (web search, web fetch, etc).
    *  Populated by daemon-internal tools; plugins must not set this. */
   activityMetadata?: ToolActivityMetadata;
+  /**
+   * Typed side channel from the `ask_question` executor to the agent loop: the
+   * questions asked and the answers the user gave. The loop forwards it on the
+   * `tool_result` event and persists it on the tool_use block, so the answered
+   * card renders live and survives a history reopen instead of the decision
+   * disappearing with the interactive prompt. Set only by `ask_question`.
+   */
+  answeredQuestion?: AnsweredQuestion;
 }
 
 export type ProxyToolResolver = (
@@ -180,6 +198,23 @@ export interface ToolContext {
   assistantId?: string;
   /** True when an interactive client is connected (not just a no-op callback). */
   isInteractive?: boolean;
+  /**
+   * Whether the current turn's channel can render dynamic UI surfaces
+   * (interactive cards, tappable option pickers, secure prompts). `false` on
+   * text-only channels (e.g. Telegram, SMS). UI-dependent tools read this to
+   * degrade to a text-formatted equivalent instead of emitting a surface the
+   * channel silently drops. `undefined` means unknown and is treated as
+   * supported (desktop/web/app clients).
+   */
+  supportsDynamicUi?: boolean;
+  /**
+   * Whether a parked `ask_question` on this turn's channel can be delivered as
+   * a guardian-request card with tappable answer options (via the notification
+   * pipeline's channel adapters). `ask_question` parks when this is true even
+   * without dynamic UI; otherwise channel turns degrade to the plain-text
+   * fallback. `undefined`/`false` means no card delivery is possible.
+   */
+  supportsGuardianQuestionCards?: boolean;
   /**
    * When set, the tool execution is part of a task run. Used to retrieve ephemeral permission rules.
    * @legacy
@@ -244,9 +279,9 @@ export interface ToolContext {
    * "Always Allow" rules, or non-interactive auto-approve shortcuts may
    * bypass the prompt. This flag is independently sufficient: it
    * promotes allow → prompt decisions on its own and suppresses
-   * temporary override options in the prompt UI. Used by
-   * `manage_secure_command_tool` to ensure a human reviews each secure
-   * bundle installation.
+   * temporary override options in the prompt UI. Used by the `run_workflow`
+   * launch path so a human consents to a run whose capability manifest grants
+   * side-effecting tools.
    * @legacy
    */
   requireFreshApproval?: boolean;
@@ -319,6 +354,14 @@ export interface ToolContext {
    */
   requesterChatId?: string;
   /**
+   * Channel-native id (`ts` for Slack) of the inbound message that started
+   * the current turn. Lets tool-grant escalations link approval cards to
+   * the exact triggering message.
+   */
+  sourceMessageId?: string;
+  /** Channel-native thread id of that message, when it arrived in a thread. */
+  sourceThreadId?: string;
+  /**
    * Human-readable identifier for the requester (e.g., @username).
    * @legacy
    */
@@ -374,6 +417,14 @@ export interface ToolContext {
    */
   overrideProfile?: string;
   /**
+   * The firing's `cron_runs.id` when a schedule triggered this turn, `null`
+   * otherwise. Tools that spawn further LLM work (`subagent_spawn`,
+   * `subagent_message`) forward it so the delegated usage rows carry the same
+   * stamp and attribute to the firing rather than dropping out of schedule
+   * cost reporting.
+   */
+  cronRunId?: string | null;
+  /**
    * The LLM call site of the turn currently executing this tool (`mainAgent`,
    * `heartbeatAgent`, scheduled work, etc.). `subagent_spawn` reads it to
    * default a spawned subagent's inference profile to the profile the invoking
@@ -384,10 +435,12 @@ export interface ToolContext {
   invokingCallSite?: LLMCallSite;
   /**
    * Canonical principal ID of the actor on whose behalf this tool invocation
-   * is running. Sourced from `conversation.trustContext.guardianPrincipalId`.
+   * is running — the turn's actor principal, falling back to the trust
+   * context's `guardianPrincipalId` (see `resolveTurnActorPrincipalId`).
    * Used by host proxies to bind cross-client targeted execution to the same
-   * authenticated user identity. May be undefined for legacy/internal flows
-   * with no resolved actor identity.
+   * authenticated user identity, so it must resolve to the SAME principal a
+   * desktop client registers with on its SSE stream. May be undefined for
+   * legacy/internal flows with no resolved actor identity.
    * @legacy
    */
   sourceActorPrincipalId?: string;
@@ -500,16 +553,22 @@ export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
 export type Tool = Required<Omit<ToolDefinition, "exclusive">> &
   Pick<ToolDefinition, "exclusive">;
 
-/** The kind of extension that owns a tool. Core tools have no owner. */
-export type OwnerKind = "skill" | "mcp" | "plugin" | "workspace";
+/**
+ * The kind of entity that owns a tool. `"default"` is the built-in tool set
+ * that ships with the assistant; the others are extension surfaces. Every
+ * *registered* tool has an owner — {@link ../tools/registry.getToolOwner}
+ * returns `undefined` only for a name that is not registered at all.
+ */
+export type OwnerKind = "default" | "skill" | "mcp" | "plugin" | "workspace";
 
 /**
- * Identifies which extension owns a tool (skill / plugin / MCP server).
- * Tracked by the tool registry keyed by tool name, not stored on the `Tool`
- * object itself — query via {@link ../tools/registry.getToolOwner}.
+ * Identifies what owns a tool: the built-in default set, or a skill / plugin /
+ * MCP server / workspace override. Tracked by the tool registry keyed by tool
+ * name, not stored on the `Tool` object itself — query via
+ * {@link ../tools/registry.getToolOwner}.
  */
 export interface OwnerInfo {
   kind: OwnerKind;
-  /** ID of the owning extension (skill id / plugin name / MCP server id / workspace path). */
+  /** ID of the owner: skill id / plugin name / MCP server id / workspace path, or `"default"` for built-ins. */
   id: string;
 }

@@ -96,7 +96,9 @@ mock.module("openai", () => ({
         ) => {
           lastCreateParams = params;
           lastCreateOptions = options ?? null;
-          if (shouldThrow) throw shouldThrow;
+          if (shouldThrow) {
+            throw shouldThrow;
+          }
 
           return {
             [Symbol.asyncIterator]: async function* () {
@@ -1620,6 +1622,17 @@ describe("OpenRouterProvider reasoning", () => {
 
     expect(lastCreateParams).toBeTruthy();
     expect(lastCreateParams!.reasoning).toBeUndefined();
+  });
+
+  test("disabled thinking with effort none sends the flat opt-out and no nested reasoning", async () => {
+    const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
+    await provider.sendMessage([userMsg("hi")], {
+      config: { thinking: { type: "disabled" }, effort: "none" },
+    });
+
+    expect(lastCreateParams).toBeTruthy();
+    expect(lastCreateParams!.reasoning).toBeUndefined();
+    expect(lastCreateParams!.reasoning_effort).toBe("none");
   });
 
   test("omits reasoning when thinking config is absent", async () => {

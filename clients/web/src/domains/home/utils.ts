@@ -1,8 +1,10 @@
 import type {
   FeedItem,
   FeedItemCategory,
-  FeedItemSourceType,
+  FeedItemStatus,
 } from "@vellumai/assistant-api";
+
+import { flattenSummary } from "./feed-preview";
 
 /**
  * Client-side grouping of feed items by recency. Not part of the wire
@@ -15,7 +17,9 @@ export type FeedTimeGroup = "today" | "yesterday" | "older";
  */
 export function sortFeedItems(items: FeedItem[]): FeedItem[] {
   return [...items].sort((a, b) => {
-    if (a.priority !== b.priority) return b.priority - a.priority;
+    if (a.priority !== b.priority) {
+      return b.priority - a.priority;
+    }
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
 }
@@ -52,9 +56,15 @@ export function groupByTime(items: FeedItem[]): Map<FeedTimeGroup, FeedItem[]> {
   }
 
   const result = new Map<FeedTimeGroup, FeedItem[]>();
-  if (groups.today.length > 0) result.set("today", groups.today);
-  if (groups.yesterday.length > 0) result.set("yesterday", groups.yesterday);
-  if (groups.older.length > 0) result.set("older", groups.older);
+  if (groups.today.length > 0) {
+    result.set("today", groups.today);
+  }
+  if (groups.yesterday.length > 0) {
+    result.set("yesterday", groups.yesterday);
+  }
+  if (groups.older.length > 0) {
+    result.set("older", groups.older);
+  }
 
   return result;
 }
@@ -66,7 +76,9 @@ export function filterByCategory(
   items: FeedItem[],
   category: FeedItemCategory | null,
 ): FeedItem[] {
-  if (category === null) return items;
+  if (category === null) {
+    return items;
+  }
   return items.filter((item) => (item.category ?? "system") === category);
 }
 
@@ -80,6 +92,77 @@ export function excludeHighUrgency(items: FeedItem[]): FeedItem[] {
 }
 
 /**
+ * The items the notification surfaces show: dismissed items are hidden and
+ * high-urgency items surface through their own channels. Shared by the
+ * Activity page and the notifications bell so the bell's unread dot and
+ * bulk actions always agree with the page it links to.
+ */
+export function getVisibleFeedItems(items: FeedItem[]): FeedItem[] {
+  return excludeHighUrgency(items.filter((i) => i.status !== "dismissed"));
+}
+
+/**
+ * Scheduled-run notifications (`schedule.notify`) carry their originating
+ * schedule id in `metadata.scheduleId`, letting a detail view link to the
+ * schedule. Returns null for feed items not tied to a schedule. Shared by the
+ * Activity page and the notifications bell so both offer the link on exactly
+ * the same items.
+ */
+export function getFeedItemScheduleId(item: FeedItem | null): string | null {
+  const id = item?.metadata?.scheduleId;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
+/**
+ * Name for an item with neither a title nor a summary that renders as text, so
+ * the surface showing it always has something to name it by. The category is
+ * not used here: on a card carrying its category chip, repeating it would read
+ * the same word twice.
+ */
+const UNNAMED_ITEM_TITLE = "Notification";
+
+/**
+ * Display name for a feed item: its own title, or its summary when it carries
+ * none. `summary` is markdown, so the fallback goes through the flattener
+ * rather than showing syntax. Shared by the Activity page's rows and the
+ * notifications bell so the title the user clicked is the title they land on.
+ *
+ * Flattening parses markdown, so callers rendering a list memoize the result on
+ * the two fields it reads.
+ */
+export function resolveFeedItemTitle(
+  item: Pick<FeedItem, "title" | "summary">,
+): string {
+  const resolved = item.title ?? flattenSummary(item.summary);
+  return resolved.length > 0 ? resolved : UNNAMED_ITEM_TITLE;
+}
+
+/** Arguments for the feed's bulk status mutation (`markAll`). */
+export interface FeedMarkAllArgs {
+  from: FeedItemStatus[];
+  to: FeedItemStatus;
+  ids: string[];
+}
+
+/** Bulk payload marking every visible unread item as read. */
+export function markAllReadArgs(visibleItems: FeedItem[]): FeedMarkAllArgs {
+  return {
+    from: ["new"],
+    to: "seen",
+    ids: visibleItems.filter((i) => i.status === "new").map((i) => i.id),
+  };
+}
+
+/** Bulk payload dismissing every visible item ("Clear all"). */
+export function clearAllArgs(visibleItems: FeedItem[]): FeedMarkAllArgs {
+  return {
+    from: ["new", "seen", "acted_on"],
+    to: "dismissed",
+    ids: visibleItems.map((i) => i.id),
+  };
+}
+
+/**
  * Return deduplicated list of categories present in the items.
  */
 export function getPresentCategories(items: FeedItem[]): FeedItemCategory[] {
@@ -88,59 +171,4 @@ export function getPresentCategories(items: FeedItem[]): FeedItemCategory[] {
     categories.add(item.category ?? "system");
   }
   return [...categories];
-}
-
-/**
- * A distinct producer of feed items, identified by `key`. Schedules each
- * get their own key (`schedule:<id>`); other producers (heartbeat, memory
- * consolidation, …) share a key per `type`. Used to build the source filter.
- */
-export interface FeedSource {
-  key: string;
-  label: string;
-  type: FeedItemSourceType;
-}
-
-// Display order for the source filter: producer types first in a fixed
-// order, schedules grouped together and sorted by name within that band.
-const SOURCE_TYPE_ORDER: Record<FeedItemSourceType, number> = {
-  heartbeat: 0,
-  memory_consolidation: 1,
-  schedule: 2,
-  auto_analysis: 3,
-  user: 4,
-  other: 5,
-};
-
-/**
- * Return the distinct sources present in the items, ordered for display.
- * Items missing a `sourceKey` (e.g. not yet enriched) are skipped — they
- * remain visible under the "All sources" option.
- */
-export function getPresentSources(items: FeedItem[]): FeedSource[] {
-  const byKey = new Map<string, FeedSource>();
-  for (const item of items) {
-    const key = item.sourceKey;
-    if (!key || byKey.has(key)) continue;
-    byKey.set(key, {
-      key,
-      label: item.sourceLabel ?? key,
-      type: item.sourceType ?? "other",
-    });
-  }
-  return [...byKey.values()].sort((a, b) => {
-    const rankDiff = SOURCE_TYPE_ORDER[a.type] - SOURCE_TYPE_ORDER[b.type];
-    return rankDiff !== 0 ? rankDiff : a.label.localeCompare(b.label);
-  });
-}
-
-/**
- * Filter items by source key. If sourceKey is null, return all items.
- */
-export function filterBySource(
-  items: FeedItem[],
-  sourceKey: string | null,
-): FeedItem[] {
-  if (sourceKey === null) return items;
-  return items.filter((item) => item.sourceKey === sourceKey);
 }

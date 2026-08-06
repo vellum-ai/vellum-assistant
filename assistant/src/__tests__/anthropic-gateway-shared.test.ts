@@ -79,6 +79,32 @@ describe("retagDelegateError", () => {
     expect(err.cause).toBe(inner);
   });
 
+  test("carries reason + structured fields across the re-tag", () => {
+    const inner = new ProviderError("model restricted", "anthropic", 403, {
+      reason: "model_restricted",
+      apiErrorType: "permission_error",
+      apiErrorCode: "restricted",
+      apiErrorParam: "model",
+      rawBody: '{"type":"error"}',
+    });
+
+    let caught: unknown;
+    try {
+      retagDelegateError(inner, providerName);
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(ProviderError);
+    const err = caught as ProviderError;
+    expect(err.provider).toBe(providerName);
+    expect(err.reason).toBe("model_restricted");
+    expect(err.apiErrorType).toBe("permission_error");
+    expect(err.apiErrorCode).toBe("restricted");
+    expect(err.apiErrorParam).toBe("model");
+    expect(err.rawBody).toBe('{"type":"error"}');
+  });
+
   test("re-tags a delegate ContextOverflowError, preserving token counts", () => {
     const inner = new ContextOverflowError("context overflow", "anthropic", {
       actualTokens: 250_000,

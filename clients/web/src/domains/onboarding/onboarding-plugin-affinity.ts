@@ -27,6 +27,8 @@
  * model decide) over a loose keyword that mis-installs.
  */
 
+import { pluginsFromAttribution } from "@/domains/onboarding/plugin-attribution";
+
 /**
  * Capabilities installed for every new user, regardless of role — a universal
  * baseline that should never be left to the model's discretion. Still gated by
@@ -139,7 +141,10 @@ const PLUGIN_AFFINITIES: readonly PluginAffinity[] = [
  * match inside "developer".
  */
 function normalizeRole(role: string): string {
-  return ` ${role.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
+  return ` ${role
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()} `;
 }
 
 /** Whether a keyword (single token or token phrase) appears whole in the role. */
@@ -164,21 +169,33 @@ export function pluginsForRole(role: string): string[] {
 }
 
 /**
- * The deterministic install set for a run: the always-install baseline unioned
- * with the role's affinity matches, narrowed to capabilities actually present in
- * the fetched catalog (`validNames`) so a name the marketplace doesn't carry —
- * or that's filtered out (non-Vellum, infra) — never hits the install route.
- * Baseline first, then role matches; deduped, order-stable.
+ * The deterministic install set for a run: the always-install baseline, the
+ * plugins the user was attributed to (the marketing "Install" click that
+ * preceded onboarding — see `plugin-attribution`), and the role's affinity
+ * matches, narrowed to capabilities actually present in the fetched catalog
+ * (`validNames`) so a name the marketplace doesn't carry — or that's filtered
+ * out (non-Vellum, infra) — never hits the install route. Baseline first, then
+ * attribution, then role matches; deduped, order-stable.
+ *
+ * Attribution rides the same `validNames` gate as everything else: onboarding
+ * stays scoped to first-party plugins, so a non-first-party attributed name is
+ * simply dropped here.
  */
 export function resolveDeterministicPlugins(
   role: string,
   validNames: Set<string>,
 ): string[] {
-  const ordered = [...ALWAYS_INSTALL_PLUGINS, ...pluginsForRole(role)];
+  const ordered = [
+    ...ALWAYS_INSTALL_PLUGINS,
+    ...pluginsFromAttribution(),
+    ...pluginsForRole(role),
+  ];
   const seen = new Set<string>();
   const result: string[] = [];
   for (const name of ordered) {
-    if (!validNames.has(name) || seen.has(name)) continue;
+    if (!validNames.has(name) || seen.has(name)) {
+      continue;
+    }
     seen.add(name);
     result.push(name);
   }

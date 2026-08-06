@@ -80,10 +80,16 @@ export function getStepName(step: MigrationStep): string {
 export function getMaxRollbackVersion(steps: MigrationStep[]): number {
   let max = 0;
   for (const step of steps) {
-    if (typeof step === "function") continue;
-    if (!step.rollback) continue;
+    if (typeof step === "function") {
+      continue;
+    }
+    if (!step.rollback) {
+      continue;
+    }
     for (const entry of step.rollback) {
-      if (entry.version > max) max = entry.version;
+      if (entry.version > max) {
+        max = entry.version;
+      }
     }
   }
   return max;
@@ -109,6 +115,8 @@ export interface MigrationRunResult {
   failed: string[];
   /** Steps skipped because a prior run already applied them. */
   skipped: string[];
+  /** Steps not run because a declared dependsOn prerequisite is not applied. */
+  deferred: string[];
 }
 
 /**
@@ -164,7 +172,9 @@ export function recoverCrashedMigrations(database: DrizzleDb): string[] {
   const crashed = rows
     .filter((r) => r.value === "started" || r.value === "rolling_back")
     .map((r) => r.key);
-  if (crashed.length === 0) return [];
+  if (crashed.length === 0) {
+    return [];
+  }
 
   log.error(
     { crashed },
@@ -213,6 +223,11 @@ export function recoverCrashedMigrations(database: DrizzleDb): string[] {
  * Individual step failures are caught and logged so one broken migration does
  * not prevent independent later ones from succeeding; a failed step is not
  * checkpointed and is retried on the next boot.
+ *
+ * A step whose declared `dependsOn` prerequisites are not all applied — because
+ * a dependency failed this boot or was never run — is deferred rather than
+ * executed against missing state. A deferred step writes nothing to the ledger,
+ * so it retries on the next boot once its prerequisites have been applied.
  */
 export async function runMigrationSteps(
   database: DrizzleDb,
@@ -242,6 +257,7 @@ export async function runMigrationSteps(
   const failed: string[] = [];
   const skipped: string[] = [];
   const ran: string[] = [];
+  const deferred: string[] = [];
 
   const totalSteps = steps.length;
   for (const [index, step] of steps.entries()) {
@@ -254,6 +270,19 @@ export async function runMigrationSteps(
     if (checkpointable && applied.has(name)) {
       skipped.push(name);
       log.debug({ migration: name }, `Skipping applied migration: ${name}`);
+      continue;
+    }
+
+    // Defer a step whose prerequisites are not applied rather than run it
+    // against missing state. Nothing is written to the ledger — no 'started'
+    // marker, no checkpoint — so the step retries on the next boot.
+    const missing = (obj.dependsOn ?? []).filter((dep) => !applied.has(dep));
+    if (missing.length > 0) {
+      deferred.push(name);
+      log.warn(
+        { migration: name, missing, step: stepNumber, totalSteps },
+        `Deferring migration "${name}" — prerequisites not applied: ${missing.join(", ")}`,
+      );
       continue;
     }
 
@@ -276,6 +305,9 @@ export async function runMigrationSteps(
       if (checkpointable) {
         markApplied.run(`${STEP_CHECKPOINT_PREFIX}${name}`, Date.now());
         ran.push(name);
+        // Record the success in the in-memory set too, so a later step in this
+        // same boot can depend on it without being deferred.
+        applied.add(name);
       }
     } catch (err) {
       // Leave the 'started' marker in place (if one was written) —
@@ -289,7 +321,7 @@ export async function runMigrationSteps(
     }
   }
 
-  return { applied: ran, failed, skipped };
+  return { applied: ran, failed, skipped, deferred };
 }
 
 /**

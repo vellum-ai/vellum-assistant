@@ -45,17 +45,23 @@ export function evaluateRequest(
 
   for (const id of credentialIds) {
     const tpls = templates.get(id);
-    if (!tpls) continue;
+    if (!tpls) {
+      continue;
+    }
 
     let bestMatch: HostMatchKind = "none";
     let bestCandidates: CredentialInjectionTemplate[] = [];
 
     for (const tpl of tpls) {
-      if (tpl.injectionType === "query") continue;
+      if (tpl.injectionType === "query") {
+        continue;
+      }
       const match = matchHostPattern(hostname, tpl.hostPattern, {
         includeApexForWildcard: true,
       });
-      if (match === "none") continue;
+      if (match === "none") {
+        continue;
+      }
 
       const cmp = compareMatchSpecificity(match, bestMatch);
       if (cmp < 0) {
@@ -147,7 +153,9 @@ export function evaluateRequestWithApproval(
   // cause a false ask_missing_credential on the HTTP forwarder path.
   const matchingPatterns: string[] = [];
   for (const tpl of allKnownTemplates) {
-    if (tpl.injectionType === "query") continue;
+    if (tpl.injectionType === "query") {
+      continue;
+    }
     if (
       matchHostPattern(hostname, tpl.hostPattern, {
         includeApexForWildcard: true,

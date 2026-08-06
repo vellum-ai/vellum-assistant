@@ -1,4 +1,7 @@
-import { resolveImageGenCredentials } from "../../../../media/image-credentials.js";
+import {
+  resolveImageGenCredentials,
+  resolveImageGenRouting,
+} from "../../../../media/image-credentials.js";
 import {
   describeImageModels,
   resolveImageModel,
@@ -6,7 +9,6 @@ import {
 import {
   generateImage,
   mapImageGenError,
-  providerForModel,
 } from "../../../../media/image-service.js";
 import { getFilePathBySourcePath } from "../../../../persistence/attachments-store.js";
 import type { ImageContent } from "../../../../providers/types.js";
@@ -37,13 +39,17 @@ export async function run(
     }
     modelOverride = entry.id;
   }
-  // Derive provider from the explicit model when supplied so that requesting
-  // e.g. `gpt-image-2` while config.provider === "gemini" routes to OpenAI
-  // instead of silently falling back to the Gemini default model.
-  const provider = providerForModel(modelOverride, svc.provider);
+  // Backend and managed-ness resolve together: an explicit model re-routes
+  // to the model's backend (e.g. `gpt-image-2` under a gemini config routes
+  // to OpenAI), and provider "vellum" runs managed with a model-derived
+  // backend.
+  const { backendProvider: provider, managed } = resolveImageGenRouting(
+    svc,
+    modelOverride,
+  );
   const { credentials, errorHint } = await resolveImageGenCredentials({
     provider,
-    mode: svc.mode,
+    managed,
   });
   if (!credentials) {
     return {

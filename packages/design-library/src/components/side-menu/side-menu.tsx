@@ -106,23 +106,31 @@ const ROOT_BASE_CLASSES = [
   "flex flex-col",
   "bg-[var(--surface-overlay)]",
   "text-[color:var(--content-default)]",
-  "border border-[var(--border-base)]",
   "overflow-hidden",
 ].join(" ");
 
+/* The 1px border is desktop-card chrome: the rail floats on the page
+ * background, so it needs an edge. The full-bleed mobile overlay is a
+ * full-screen sheet — a border there draws visible hairlines along the
+ * screen edges (top/bottom safe-area boundaries on iOS). */
+const ROOT_RAIL_BORDER_CLASSES = "border border-[var(--border-base)]";
+
 const ROOT_RAIL_EXPANDED_CLASSES = [
+  ROOT_RAIL_BORDER_CLASSES,
   "w-[230px]",
   "rounded-[12px]",
   "pt-4 px-4 pb-2",
 ].join(" ");
 
 const ROOT_RAIL_COLLAPSED_CLASSES = [
+  ROOT_RAIL_BORDER_CLASSES,
   "w-[48px]",
   "rounded-[12px]",
   "pt-4 px-2 pb-2",
 ].join(" ");
 
 const ROOT_RAIL_RESIZABLE_CLASSES = [
+  ROOT_RAIL_BORDER_CLASSES,
   "rounded-[12px]",
   "pt-4 px-4 pb-2",
 ].join(" ");
@@ -562,7 +570,10 @@ function SideMenuItem({
   const collapsed = isCollapsedRail(ctx);
 
   const rowClasses = cn(
-    "group relative flex items-center",
+    // `w-full` matters for the `<button>` render path: buttons keep
+    // fit-content sizing even as flex containers, so without it a
+    // button-backed item shrink-wraps while anchor-backed items fill the rail.
+    "group relative flex w-full items-center",
     "rounded-[6px]",
     "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
     "cursor-pointer select-none",
@@ -582,7 +593,9 @@ function SideMenuItem({
   );
 
   const labelNode = collapsed ? null : (
-    <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+    <span className="min-w-0 flex-1 truncate text-left text-optical-center">
+      {label}
+    </span>
   );
   const badgeNode = collapsed || !badge ? null : <ItemBadge>{badge}</ItemBadge>;
   const trailingNode =

@@ -21,7 +21,10 @@ afterEach(() => {
 describe("handleAppViewerAction — relay_prompt", () => {
   it("relays to the active conversation without touching the view", () => {
     useConversationStore.setState({ activeConversationId: "conv-1" });
-    useViewerStore.setState({ mainView: "app-editing", openedAppState: SAMPLE_APP });
+    useViewerStore.setState({
+      mainView: "app-editing",
+      openedAppState: SAMPLE_APP,
+    });
     const ctx = makeCtx();
 
     handleAppViewerAction(ctx, "relay_prompt", { prompt: "hello" });
@@ -87,7 +90,10 @@ describe("handleAppViewerAction — set_view", () => {
   });
 
   it("'full' exits the side-by-side to full-width", () => {
-    useViewerStore.setState({ mainView: "app-editing", openedAppState: SAMPLE_APP });
+    useViewerStore.setState({
+      mainView: "app-editing",
+      openedAppState: SAMPLE_APP,
+    });
 
     handleAppViewerAction(makeCtx(), "set_view", { view: "full" });
 
@@ -101,7 +107,9 @@ describe("handleAppViewerAction — set_view", () => {
     handleAppViewerAction(makeCtx(false), "set_view", { view: "split" });
 
     expect(useViewerStore.getState().mainView).toBe("app-editing");
-    expect(useConversationStore.getState().editingConversationId).toBe("conv-1");
+    expect(useConversationStore.getState().editingConversationId).toBe(
+      "conv-1",
+    );
   });
 
   it("'split' is ignored on mobile", () => {
@@ -120,6 +128,34 @@ describe("handleAppViewerAction — set_view", () => {
     handleAppViewerAction(makeCtx(false), "set_view", { view: "split" });
 
     expect(useViewerStore.getState().mainView).toBe("app");
+  });
+});
+
+describe("handleAppViewerAction — open_conversation", () => {
+  it("navigates to the specified conversation without sending a prompt", () => {
+    useConversationStore.setState({ activeConversationId: "old-conv" });
+    const ctx = makeCtx();
+
+    handleAppViewerAction(ctx, "open_conversation", {
+      conversationId: "target-conv",
+    });
+
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      "target-conv",
+    );
+    expect(ctx.navigate.mock.calls[0][0]).toContain(
+      "/assistant/conversations/target-conv",
+    );
+    // Must NOT contain a prompt param
+    expect(ctx.navigate.mock.calls[0][0]).not.toContain("prompt=");
+  });
+
+  it("is a no-op without a conversationId", () => {
+    const ctx = makeCtx();
+
+    handleAppViewerAction(ctx, "open_conversation", {});
+
+    expect(ctx.navigate).not.toHaveBeenCalled();
   });
 });
 

@@ -12,6 +12,8 @@ import { rawAll, rawExec, rawGet, rawRun } from "./raw-query.js";
 export interface ConversationGroupRow {
   id: string;
   name: string;
+  /** Client-chosen icon name; null when the group has no explicit icon. */
+  icon: string | null;
   sortPosition: number;
   isSystemGroup: boolean;
   createdAt?: number;
@@ -32,17 +34,19 @@ export function listGroups(): ConversationGroupRow[] {
   const rows = rawAll<{
     id: string;
     name: string;
+    icon: string | null;
     sort_position: number;
     is_system_group: number;
     created_at: number;
     updated_at: number;
   }>(
     "group:listGroups",
-    "SELECT id, name, sort_position, is_system_group, created_at, updated_at FROM conversation_groups WHERE id NOT GLOB '_*' ORDER BY sort_position ASC",
+    "SELECT id, name, icon, sort_position, is_system_group, created_at, updated_at FROM conversation_groups WHERE id NOT GLOB '_*' ORDER BY sort_position ASC",
   );
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
+    icon: r.icon,
     sortPosition: r.sort_position,
     isSystemGroup: r.is_system_group === 1,
     createdAt: r.created_at,
@@ -59,19 +63,23 @@ export function getGroup(groupId: string): ConversationGroupRow | null {
   const row = rawGet<{
     id: string;
     name: string;
+    icon: string | null;
     sort_position: number;
     is_system_group: number;
     created_at: number;
     updated_at: number;
   }>(
     "group:getGroup",
-    "SELECT id, name, sort_position, is_system_group, created_at, updated_at FROM conversation_groups WHERE id = ?",
+    "SELECT id, name, icon, sort_position, is_system_group, created_at, updated_at FROM conversation_groups WHERE id = ?",
     groupId,
   );
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
   return {
     id: row.id,
     name: row.name,
+    icon: row.icon,
     sortPosition: row.sort_position,
     isSystemGroup: row.is_system_group === 1,
     createdAt: row.created_at,
@@ -89,7 +97,10 @@ export function getGroup(groupId: string): ConversationGroupRow | null {
  * First custom group gets position 4. Fallback ?? 3 ensures 3 + 1 = 4 when
  * no custom groups exist.
  */
-export function createGroup(name: string): ConversationGroupRow {
+export function createGroup(
+  name: string,
+  icon?: string | null,
+): ConversationGroupRow {
   ensureGroupMigration();
   const maxPos =
     rawGet<{ max: number | null }>(
@@ -101,9 +112,10 @@ export function createGroup(name: string): ConversationGroupRow {
   const now = Math.floor(Date.now() / 1000);
   rawRun(
     "group:createGroup:insert",
-    "INSERT INTO conversation_groups (id, name, sort_position, is_system_group, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
+    "INSERT INTO conversation_groups (id, name, icon, sort_position, is_system_group, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
     id,
     name,
+    icon ?? null,
     sortPosition,
     now,
     now,
@@ -111,6 +123,7 @@ export function createGroup(name: string): ConversationGroupRow {
   return {
     id,
     name,
+    icon: icon ?? null,
     sortPosition,
     isSystemGroup: false,
     createdAt: now,
@@ -124,25 +137,33 @@ export function createGroup(name: string): ConversationGroupRow {
 
 export function updateGroup(
   groupId: string,
-  updates: { name?: string; sortPosition?: number },
+  updates: { name?: string; icon?: string | null; sortPosition?: number },
 ): ConversationGroupRow | null {
   ensureGroupMigration();
   const existing = getGroup(groupId);
-  if (!existing) return null;
+  if (!existing) {
+    return null;
+  }
 
   const fields: string[] = [];
-  const values: (string | number)[] = [];
+  const values: (string | number | null)[] = [];
 
   if (updates.name !== undefined) {
     fields.push("name = ?");
     values.push(updates.name);
+  }
+  if (updates.icon !== undefined) {
+    fields.push("icon = ?");
+    values.push(updates.icon);
   }
   if (updates.sortPosition !== undefined) {
     fields.push("sort_position = ?");
     values.push(updates.sortPosition);
   }
 
-  if (fields.length === 0) return existing;
+  if (fields.length === 0) {
+    return existing;
+  }
 
   fields.push("updated_at = ?");
   const now = Math.floor(Date.now() / 1000);
@@ -199,8 +220,12 @@ export function reorderGroups(
         "SELECT id, is_system_group FROM conversation_groups WHERE id = ?",
         update.groupId,
       );
-      if (!group) continue;
-      if (group.is_system_group === 1) continue;
+      if (!group) {
+        continue;
+      }
+      if (group.is_system_group === 1) {
+        continue;
+      }
 
       if (update.sortPosition < 4) {
         throw new Error(

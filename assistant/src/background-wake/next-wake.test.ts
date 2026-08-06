@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "../__tests__/helpers/set-config.js";
+
 type MockHeartbeatConfig = {
   enabled: boolean;
   intervalMs: number;
@@ -29,12 +31,6 @@ let heartbeatConsecutiveRunCapReached: boolean;
 let schedules: MockSchedule[];
 let computedCronNextRunAt: number;
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    heartbeat: heartbeatConfig,
-  }),
-}));
-
 mock.module("../heartbeat/heartbeat-service.js", () => ({
   HeartbeatService: {
     getInstance: () =>
@@ -60,6 +56,13 @@ mock.module("../schedule/schedule-store.js", () => ({
 
 const { computeNextBackgroundWakeIntent } = await import("./next-wake.js");
 
+// Seed the current heartbeat config for real before invoking the intent
+// computer, mirroring the per-call read the old getConfig mock provided.
+function computeWakeIntent(now: number) {
+  setConfig("heartbeat", heartbeatConfig);
+  return computeNextBackgroundWakeIntent(now);
+}
+
 const NOW = 1_800_000_000_000;
 
 describe("computeNextBackgroundWakeIntent", () => {
@@ -80,7 +83,7 @@ describe("computeNextBackgroundWakeIntent", () => {
   });
 
   test("returns heartbeat-only interval wake intent", () => {
-    const intent = computeNextBackgroundWakeIntent(NOW);
+    const intent = computeWakeIntent(NOW);
 
     expect(intent).not.toBeNull();
     expect(intent!.nextWakeAt).toBe(NOW + heartbeatConfig.intervalMs);
@@ -98,7 +101,7 @@ describe("computeNextBackgroundWakeIntent", () => {
   test("uses the running heartbeat service next run when available", () => {
     heartbeatNextRunAt = NOW + 12_345;
 
-    const intent = computeNextBackgroundWakeIntent(NOW);
+    const intent = computeWakeIntent(NOW);
 
     expect(intent).not.toBeNull();
     expect(intent!.nextWakeAt).toBe(heartbeatNextRunAt);
@@ -111,7 +114,7 @@ describe("computeNextBackgroundWakeIntent", () => {
     heartbeatConfig.timezone = "America/New_York";
     computedCronNextRunAt = NOW + 42_000;
 
-    const intent = computeNextBackgroundWakeIntent(NOW);
+    const intent = computeWakeIntent(NOW);
 
     expect(intent).not.toBeNull();
     expect(intent!.nextWakeAt).toBe(computedCronNextRunAt);
@@ -137,7 +140,7 @@ describe("computeNextBackgroundWakeIntent", () => {
       }),
     ];
 
-    const intent = computeNextBackgroundWakeIntent(NOW);
+    const intent = computeWakeIntent(NOW);
 
     expect(intent).not.toBeNull();
     expect(intent!.nextWakeAt).toBe(NOW + 30_000);
@@ -161,7 +164,7 @@ describe("computeNextBackgroundWakeIntent", () => {
       }),
     ];
 
-    const intent = computeNextBackgroundWakeIntent(NOW);
+    const intent = computeWakeIntent(NOW);
 
     expect(intent).not.toBeNull();
     expect(intent!.nextWakeAt).toBe(NOW + 10_000);
@@ -183,7 +186,7 @@ describe("computeNextBackgroundWakeIntent", () => {
       }),
     ];
 
-    const intent = computeNextBackgroundWakeIntent(NOW);
+    const intent = computeWakeIntent(NOW);
 
     expect(intent).not.toBeNull();
     expect(intent!.nextWakeAt).toBe(NOW + 50_000);
@@ -201,7 +204,7 @@ describe("computeNextBackgroundWakeIntent", () => {
       }),
     ];
 
-    expect(computeNextBackgroundWakeIntent(NOW)).toBeNull();
+    expect(computeWakeIntent(NOW)).toBeNull();
   });
 
   test("ignores inactive enabled schedules", () => {
@@ -218,7 +221,7 @@ describe("computeNextBackgroundWakeIntent", () => {
       }),
     ];
 
-    expect(computeNextBackgroundWakeIntent(NOW)).toBeNull();
+    expect(computeWakeIntent(NOW)).toBeNull();
   });
 
   test("reports far-future due work without applying storage horizon", () => {
@@ -231,7 +234,7 @@ describe("computeNextBackgroundWakeIntent", () => {
       }),
     ];
 
-    const intent = computeNextBackgroundWakeIntent(NOW);
+    const intent = computeWakeIntent(NOW);
 
     expect(intent).not.toBeNull();
     expect(intent!.reason).toBe("schedule");
@@ -249,7 +252,7 @@ describe("computeNextBackgroundWakeIntent", () => {
     ];
     const before = Date.now();
 
-    const intent = computeNextBackgroundWakeIntent(NOW);
+    const intent = computeWakeIntent(NOW);
 
     const after = Date.now();
     expect(intent).not.toBeNull();
@@ -266,9 +269,9 @@ describe("computeNextBackgroundWakeIntent", () => {
       }),
     ];
 
-    const first = computeNextBackgroundWakeIntent(NOW);
+    const first = computeWakeIntent(NOW);
     await new Promise((resolve) => setTimeout(resolve, 2));
-    const second = computeNextBackgroundWakeIntent(NOW);
+    const second = computeWakeIntent(NOW);
 
     expect(first).not.toBeNull();
     expect(second).not.toBeNull();
@@ -280,7 +283,7 @@ describe("computeNextBackgroundWakeIntent", () => {
     heartbeatNextRunAt = NOW + 30_000;
     heartbeatConsecutiveRunCapReached = true;
 
-    expect(computeNextBackgroundWakeIntent(NOW)).toBeNull();
+    expect(computeWakeIntent(NOW)).toBeNull();
   });
 
   test("returns schedule-only intent when heartbeat consecutive run cap is reached", () => {
@@ -293,7 +296,7 @@ describe("computeNextBackgroundWakeIntent", () => {
       }),
     ];
 
-    const intent = computeNextBackgroundWakeIntent(NOW);
+    const intent = computeWakeIntent(NOW);
 
     expect(intent).not.toBeNull();
     expect(intent!.reason).toBe("schedule");

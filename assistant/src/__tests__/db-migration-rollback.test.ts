@@ -69,6 +69,7 @@ import { migrateRenameThreadStartersCheckpointsDown } from "../persistence/migra
 import { migrateBackfillAudioAttachmentMimeTypesDown } from "../persistence/migrations/191-backfill-audio-attachment-mime-types.js";
 import { migrateLlmUsageAttribution } from "../persistence/migrations/235-llm-usage-attribution.js";
 import {
+  getStepName,
   type MigrationStep,
   runMigrationSteps,
 } from "../persistence/migrations/run-migrations.js";
@@ -873,8 +874,12 @@ describe("schema-drift recovery: migration handles unexpected schema state", () 
     // the migration comments cannot be relied upon.
     const rollbackVersions: number[] = [];
     for (const step of migrationSteps) {
-      if (typeof step === "function") continue;
-      if (!step.rollback) continue;
+      if (typeof step === "function") {
+        continue;
+      }
+      if (!step.rollback) {
+        continue;
+      }
       for (const entry of step.rollback) {
         rollbackVersions.push(entry.version);
       }
@@ -896,12 +901,41 @@ describe("schema-drift recovery: migration handles unexpected schema state", () 
       migrationSteps.map((s) => (typeof s === "function" ? s.name : s.name)),
     );
     for (const step of migrationSteps) {
-      if (typeof step === "function") continue;
-      if (!step.dependsOn) continue;
+      if (typeof step === "function") {
+        continue;
+      }
+      if (!step.dependsOn) {
+        continue;
+      }
       for (const dep of step.dependsOn) {
         expect(allNames.has(dep)).toBe(true);
       }
     }
+  });
+
+  test("migrationSteps: every dependsOn reference points to an earlier step", () => {
+    // The runner defers a step whose dependsOn prerequisites are not yet
+    // applied. A dependency declared at a later index or a misspelled name can
+    // never be satisfied when both steps are pending, which would leave the
+    // step deferring forever at runtime. This test makes such mis-declarations
+    // a CI failure instead.
+    const indexByName = new Map<string, number>();
+    migrationSteps.forEach((step, index) => {
+      indexByName.set(getStepName(step), index);
+    });
+    migrationSteps.forEach((step, index) => {
+      if (typeof step === "function") {
+        return;
+      }
+      if (!step.dependsOn) {
+        return;
+      }
+      for (const dep of step.dependsOn) {
+        const depIndex = indexByName.get(dep);
+        expect(depIndex).toBeDefined();
+        expect(depIndex!).toBeLessThan(index);
+      }
+    });
   });
 
   test("migrateMemoryEntityRelationDedup: idempotent on already-deduplicated table", () => {
@@ -1014,7 +1048,9 @@ describe("rollbackMemoryMigration", () => {
 
     // Simulate all three migrations as completed via their step checkpoints.
     for (const entry of testSteps) {
-      if (typeof entry === "function") continue;
+      if (typeof entry === "function") {
+        continue;
+      }
       raw.exec(
         `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:${entry.name}', '1', ${now})`,
       );

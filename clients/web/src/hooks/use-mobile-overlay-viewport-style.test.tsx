@@ -22,9 +22,8 @@ mock.module("@/hooks/use-visible-viewport", () => ({
   useVisibleViewport: () => visibleViewport,
 }));
 
-const { useMobileOverlayViewportStyle } = await import(
-  "@/hooks/use-mobile-overlay-viewport-style"
-);
+const { useMobileOverlayViewportStyle } =
+  await import("@/hooks/use-mobile-overlay-viewport-style");
 
 function captureStyle(): React.CSSProperties {
   let captured: React.CSSProperties = {};

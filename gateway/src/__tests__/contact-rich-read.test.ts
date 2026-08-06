@@ -214,7 +214,7 @@ describe("ContactStore.listContactsRich", () => {
       type: "telegram",
       address: "tg-001",
       status: "active",
-      policy: "escalate",
+      policy: "deny",
       verifiedAt: 555,
       revokedReason: "spam",
       interactionCount: 4,
@@ -241,7 +241,7 @@ describe("ContactStore.listContactsRich", () => {
     // Channel ACL fields from gateway DB.
     const ch = c1.channels[0];
     expect(ch.status).toBe("active");
-    expect(ch.policy).toBe("escalate");
+    expect(ch.policy).toBe("deny");
     expect(ch.verifiedAt).toBe(555);
     expect(ch.revokedReason).toBe("spam");
     expect(ch.blockedReason).toBeNull();

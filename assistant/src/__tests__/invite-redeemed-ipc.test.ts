@@ -7,13 +7,6 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Prevent channel adapters (imported transitively via contact-routes) from
 // reading real credentials.
 mock.module("../security/secure-keys.js", () => ({

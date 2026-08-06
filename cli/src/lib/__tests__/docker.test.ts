@@ -7,6 +7,7 @@ import {
   AVATAR_DEVICE_ENV_VAR,
   collectWatchTargets,
   dockerResourceNames,
+  ensureDockerDaemonRunning,
   resolveAvatarDevicePath,
   resolveDockerHatchMode,
   resolveDockerProviderCredentialSetupAction,
@@ -378,5 +379,60 @@ describe("collectWatchTargets", () => {
     // THEN absent paths are not emitted
     expect(dirs).toEqual([join(repoRoot, "packages", "contracts-only", "src")]);
     expect(files).toEqual([join(repoRoot, "gateway", "package.json")]);
+  });
+});
+
+/**
+ * Build a fake `exec` that records calls and fails the probes named in `fail`.
+ * Injected into `ensureDockerDaemonRunning` so these cases need no `mock.module`
+ * (which is process-global and would leak across the CLI's single-process test
+ * run) and no real Docker/Colima subprocesses.
+ */
+function fakeExec(fail: { dockerInfo?: boolean; colimaStatus?: boolean }) {
+  const calls: Array<{ cmd: string; args: string[] }> = [];
+  const exec = async (cmd: string, args: string[] = []): Promise<void> => {
+    calls.push({ cmd, args });
+    if (cmd === "docker" && args[0] === "info" && fail.dockerInfo) {
+      throw new Error("Cannot connect to the Docker daemon");
+    }
+    if (cmd === "colima" && args[0] === "status" && fail.colimaStatus) {
+      throw new Error("colima is not running");
+    }
+  };
+  const ran = (cmd: string, sub: string): boolean =>
+    calls.some((c) => c.cmd === cmd && c.args[0] === sub);
+  return { exec: exec as typeof import("../step-runner.js").exec, ran };
+}
+
+describe("ensureDockerDaemonRunning", () => {
+  // Regression: waking an instance hatched under Docker Desktop must NOT start
+  // Colima, because that switches the active `docker context` and points
+  // `docker start` at a VM that never held the instance's containers.
+  test("reuses an already-reachable daemon (e.g. Docker Desktop) and never touches Colima", async () => {
+    const { exec, ran } = fakeExec({ dockerInfo: false });
+
+    await ensureDockerDaemonRunning(exec);
+
+    expect(ran("docker", "info")).toBe(true);
+    expect(ran("colima", "status")).toBe(false);
+    expect(ran("colima", "start")).toBe(false);
+  });
+
+  test("starts Colima only when no daemon is reachable", async () => {
+    const { exec, ran } = fakeExec({ dockerInfo: true, colimaStatus: true });
+
+    await ensureDockerDaemonRunning(exec);
+
+    expect(ran("docker", "info")).toBe(true);
+    expect(ran("colima", "start")).toBe(true);
+  });
+
+  test("does not restart Colima when it is already running", async () => {
+    const { exec, ran } = fakeExec({ dockerInfo: true, colimaStatus: false });
+
+    await ensureDockerDaemonRunning(exec);
+
+    expect(ran("colima", "status")).toBe(true);
+    expect(ran("colima", "start")).toBe(false);
   });
 });

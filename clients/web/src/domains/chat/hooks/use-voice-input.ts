@@ -1,13 +1,15 @@
-
-import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { useComposerStore } from "@/domains/chat/composer-store";
-import {
-  type VoiceInputButtonHandle,
-} from "@/domains/chat/components/voice-input-button";
-import {
-  shouldShowMicPrimer,
-} from "@/domains/chat/components/mic-permission-primer";
+import { type VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
+import { shouldShowMicPrimer } from "@/domains/chat/components/mic-permission-primer";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { postDictation } from "@/domains/chat/voice/dictation-api";
 import { registerPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
@@ -134,7 +136,9 @@ export function useVoiceInput({
     // must fire directly — any pre-prompt UI with a dismiss affordance violates
     // Apple HIG / App Store Guideline 5.1.1(iv).
     // https://developer.apple.com/design/human-interface-guidelines/requesting-permission
-    if (isNative) return true;
+    if (isNative) {
+      return true;
+    }
     if (shouldShowMicPrimer()) {
       setShowPrimer(true);
       return new Promise<boolean>((resolve) => {

@@ -10,8 +10,8 @@
  *   - a stranger's reaction creates no conversation, binding, or transcript
  *     row — it is dropped as channel noise,
  *   - a known contact's reaction is recorded as an inline transcript signal,
- *   - a guardian's reaction on an approval card is routed through the canonical
- *     guardian decision pipeline (the same path as buttons and text replies).
+ *   - a guardian's reaction on an approval card is routed through the guardian
+ *     decision pipeline (the same path as buttons and text replies).
  *
  * The reactor's trust is read solely from the gateway-stamped verdict on
  * `sourceMetadata`; a missing/failed/contradictory verdict fails closed to
@@ -58,9 +58,13 @@ export function isSlackReactionEvent(body: {
   sourceChannel?: string;
   callbackData?: string;
 }): boolean {
-  if (body.sourceChannel !== "slack") return false;
+  if (body.sourceChannel !== "slack") {
+    return false;
+  }
   const cb = body.callbackData;
-  if (typeof cb !== "string") return false;
+  if (typeof cb !== "string") {
+    return false;
+  }
   return cb.startsWith("reaction:") || cb.startsWith("reaction_removed:");
 }
 
@@ -83,7 +87,9 @@ export function parseSlackReactionCallbackData(
   } else {
     return null;
   }
-  if (emoji.length === 0) return null;
+  if (emoji.length === 0) {
+    return null;
+  }
   return { op, emoji };
 }
 
@@ -226,7 +232,7 @@ export async function handleSlackReactionIntercept(
     });
   }
 
-  // Guardian approval-by-reaction → canonical decision pipeline, exactly like
+  // Guardian approval-by-reaction → guardian decision pipeline, exactly like
   // buttons and text replies. Only `reaction:` (added) expresses intent;
   // `reaction_removed:` never does. `handleGuardianReplyIntercept` self-gates
   // on `trustClass === "guardian"`, so a contact's reaction returns no response
@@ -318,7 +324,9 @@ async function persistSlackReactionAsMessage(params: {
   reactedMessageTs: string;
   duplicate: boolean;
 }): Promise<void> {
-  if (params.duplicate) return;
+  if (params.duplicate) {
+    return;
+  }
 
   const parsed = parseSlackReactionCallbackData(params.callbackData);
   if (!parsed) {

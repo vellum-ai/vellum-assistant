@@ -47,7 +47,10 @@ let processMessageImpl: (
   conversationId: string,
   content: string,
   options: Record<string, unknown> | undefined,
-) => Promise<{ messageId: string }> = async () => ({ messageId: "msg-1" });
+) => Promise<{
+  messageId: string;
+  turnFailure?: { failureCode?: string };
+}> = async () => ({ messageId: "msg-1" });
 const processMessageCalls: Array<{
   conversationId: string;
   content: string;
@@ -93,8 +96,6 @@ mock.module("../pre-first-message-gate.js", () => ({
 
 // Import after mocks are in place.
 const { runBackgroundJob } = await import("../background-job-runner.js");
-const { bufferIfDeferred, resetDeferredForTest } =
-  await import("../../notifications/deferred-emit.js");
 
 // ── Shared fixtures ──────────────────────────────────────────────────
 
@@ -122,7 +123,6 @@ beforeEach(() => {
   processMessageCalls.length = 0;
   emitCalls.length = 0;
   addMessageCalls.length = 0;
-  resetDeferredForTest();
   preFirstMessageGateOpen = true;
   processMessageImpl = async () => ({ messageId: "msg-1" });
   emitImpl = async () => ({
@@ -179,6 +179,52 @@ describe("runBackgroundJob", () => {
     });
   });
 
+  test("threads allowedTools + toolGateMode into processMessage options when set", async () => {
+    await runBackgroundJob(
+      baseOpts({
+        allowedTools: ["file_read", "bash"],
+        toolGateMode: "wire",
+      }),
+    );
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].options).toMatchObject({
+      allowedTools: ["file_read", "bash"],
+      toolGateMode: "wire",
+    });
+  });
+
+  test("omits allowedTools/toolGateMode from processMessage options when unset (ordinary jobs unchanged)", async () => {
+    await runBackgroundJob(baseOpts());
+
+    expect(processMessageCalls).toHaveLength(1);
+    const opts = processMessageCalls[0].options as {
+      allowedTools?: unknown;
+      toolGateMode?: unknown;
+    };
+    expect(opts.allowedTools).toBeUndefined();
+    expect(opts.toolGateMode).toBeUndefined();
+  });
+
+  test("threads skipPromptIndexing as skipUserMessageIndexing when set", async () => {
+    await runBackgroundJob(baseOpts({ skipPromptIndexing: true }));
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].options).toMatchObject({
+      skipUserMessageIndexing: true,
+    });
+  });
+
+  test("omits skipUserMessageIndexing when skipPromptIndexing is unset (prompts index by default)", async () => {
+    await runBackgroundJob(baseOpts());
+
+    expect(processMessageCalls).toHaveLength(1);
+    const opts = processMessageCalls[0].options as {
+      skipUserMessageIndexing?: unknown;
+    };
+    expect(opts.skipUserMessageIndexing).toBeUndefined();
+  });
+
   test("generic exception: returns ok=false with errorKind=exception and emits activity.failed with dedupeKey", async () => {
     processMessageImpl = async () => {
       throw new Error("boom");
@@ -213,6 +259,32 @@ describe("runBackgroundJob", () => {
     expect(emitted.dedupeKey as string).toMatch(
       /^activity-failed:test-job:\d{4}-\d{2}-\d{2}$/,
     );
+  });
+
+  test("non-throwing turn failure: returns ok=false with errorKind=model_provider and emits activity.failed", async () => {
+    // A failed LLM call (e.g. an invalid provider) does NOT throw — the turn
+    // persists a synthetic error message and processMessage resolves with a
+    // `turnFailure`. The runner must surface this as a failure, not ok=true.
+    processMessageImpl = async () => ({
+      messageId: "msg-failed-turn",
+      turnFailure: { failureCode: "provider_error" },
+    });
+
+    const result = await runBackgroundJob(baseOpts());
+
+    expect(result.ok).toBe(false);
+    expect(result.errorKind).toBe("model_provider");
+    expect(result.error?.message).toContain("provider_error");
+    expect(result.conversationId).toBe(STUB_CONVERSATION_ID);
+    // The stable classified code rides the result so callers can branch on
+    // the failure class without parsing the error message.
+    expect(result.failureCode).toBe("provider_error");
+
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].sourceEventName).toBe("activity.failed");
+    expect(
+      (emitCalls[0].contextPayload as { errorKind: string }).errorKind,
+    ).toBe("model_provider");
   });
 
   test("timeout: returns ok=false with errorKind=timeout and emits activity.failed", async () => {
@@ -371,131 +443,6 @@ describe("runBackgroundJob", () => {
       expect(result.skipReason).toBeUndefined();
       expect(bootstrapCalls).toBe(1);
       expect(processMessageCalls).toHaveLength(1);
-    });
-  });
-
-  describe("deferNotifications", () => {
-    function buildSkillNotificationParams(message: string) {
-      return {
-        sourceEventName: "assistant.share",
-        sourceChannel: "assistant_tool" as const,
-        sourceContextId: "skill-ctx",
-        contextPayload: { requestedMessage: message },
-        attentionHints: {
-          requiresAction: false,
-          urgency: "low" as const,
-          isAsyncBackground: false,
-          visibleInSourceNow: false,
-        },
-      };
-    }
-
-    test("success path commits buffered in-band notifications", async () => {
-      processMessageImpl = async () => {
-        // Stand in for the IPC route's bufferIfDeferred call when the model
-        // invokes `notifications send` mid-turn.
-        const buffered = bufferIfDeferred(
-          STUB_CONVERSATION_ID,
-          buildSkillNotificationParams("all green"),
-        );
-        expect(buffered).not.toBeNull();
-        expect(buffered!.dispatched).toBe(false);
-        return { messageId: "msg-success" };
-      };
-
-      const result = await runBackgroundJob(
-        baseOpts({ deferNotifications: true }),
-      );
-
-      expect(result.ok).toBe(true);
-      // Commit flushed the buffered notification through emitNotificationSignal.
-      const successEmits = emitCalls.filter(
-        (e) => e.sourceEventName !== "activity.failed",
-      );
-      expect(successEmits).toHaveLength(1);
-      expect(successEmits[0].sourceEventName).toBe("assistant.share");
-    });
-
-    // Regression for the PR #31216 Codex P1 finding: a heartbeat that calls
-    // the notifications skill and then times out must not leave a "success"
-    // notification standing alongside the runner's `activity.failed` emit.
-    test("timeout drops buffered in-band notifications; only activity.failed emits", async () => {
-      processMessageImpl = () => {
-        bufferIfDeferred(
-          STUB_CONVERSATION_ID,
-          buildSkillNotificationParams("premature success"),
-        );
-        return new Promise(() => {});
-      };
-
-      const result = await runBackgroundJob(
-        baseOpts({ deferNotifications: true, timeoutMs: 30 }),
-      );
-
-      expect(result.ok).toBe(false);
-      expect(result.errorKind).toBe("timeout");
-      // Only the runner's failure signal makes it out — the buffered
-      // "success" notification is discarded.
-      expect(emitCalls).toHaveLength(1);
-      expect(emitCalls[0].sourceEventName).toBe("activity.failed");
-    });
-
-    test("thrown exception also drops buffered notifications", async () => {
-      processMessageImpl = async () => {
-        bufferIfDeferred(
-          STUB_CONVERSATION_ID,
-          buildSkillNotificationParams("doomed"),
-        );
-        throw new Error("kaboom");
-      };
-
-      const result = await runBackgroundJob(
-        baseOpts({ deferNotifications: true }),
-      );
-
-      expect(result.ok).toBe(false);
-      expect(emitCalls).toHaveLength(1);
-      expect(emitCalls[0].sourceEventName).toBe("activity.failed");
-    });
-
-    // Regression: after timeout, `processMessage` keeps running and may
-    // emit a late skill call. The tombstone must swallow it instead of
-    // letting it bypass the buffer and reach the dispatch pipeline.
-    test("late skill call after timeout is swallowed by the tombstone", async () => {
-      processMessageImpl = () => new Promise(() => {});
-
-      const result = await runBackgroundJob(
-        baseOpts({ deferNotifications: true, timeoutMs: 20 }),
-      );
-      expect(result.ok).toBe(false);
-
-      const late = bufferIfDeferred(
-        STUB_CONVERSATION_ID,
-        buildSkillNotificationParams("post-timeout"),
-      );
-      expect(late).not.toBeNull();
-      expect(late!.dispatched).toBe(false);
-      expect(late!.reason).toMatch(/did not complete/);
-
-      // Only the runner's failure signal made it out.
-      expect(emitCalls).toHaveLength(1);
-      expect(emitCalls[0].sourceEventName).toBe("activity.failed");
-    });
-
-    test("without deferNotifications, bufferIfDeferred is a no-op", async () => {
-      processMessageImpl = async () => {
-        const buffered = bufferIfDeferred(
-          STUB_CONVERSATION_ID,
-          buildSkillNotificationParams("immediate"),
-        );
-        // Buffer was never armed, so the call returns null and the IPC
-        // handler would emit directly.
-        expect(buffered).toBeNull();
-        return { messageId: "msg-success" };
-      };
-
-      const result = await runBackgroundJob(baseOpts());
-      expect(result.ok).toBe(true);
     });
   });
 });

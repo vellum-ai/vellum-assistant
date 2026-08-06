@@ -20,23 +20,25 @@
  * - https://tanstack.com/query/latest/docs/framework/react/guides/updates-from-mutation-responses
  */
 
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import {
-  groupsGetOptions,
-} from "@/generated/daemon/@tanstack/react-query.gen";
+import { groupsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Options } from "@/generated/daemon/sdk.gen";
-import type {
-  GroupsGetData,
-} from "@/generated/daemon/types.gen";
+import type { GroupsGetData } from "@/generated/daemon/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
-import type { Conversation, ConversationGroup } from "@/types/conversation-types";
+import type {
+  Conversation,
+  ConversationGroup,
+} from "@/types/conversation-types";
+import { countUnreadConversationsInList } from "@/utils/conversation-predicates";
 import {
   archivedConversationListOptions,
   backgroundConversationListOptions,
   conversationListOptions,
   originChannelConversationListOptions,
   scheduledConversationListOptions,
+  unreadConversationCountOptions,
 } from "@/utils/conversation-list-fetchers";
 import type { OriginChannel } from "@/utils/conversation-list-fetchers";
 
@@ -113,6 +115,8 @@ export function useBackgroundConversationListQuery(
   conversations: Conversation[];
   isLoading: boolean;
   isPending: boolean;
+  isError: boolean;
+  refetch: () => void;
 } {
   const isOrgReady = useIsOrgReady();
   const query = useQuery({
@@ -123,6 +127,10 @@ export function useBackgroundConversationListQuery(
     conversations: query.data ?? EMPTY_CONVERSATIONS,
     isLoading: query.isLoading,
     isPending: query.isPending,
+    isError: query.isError,
+    refetch: () => {
+      void query.refetch();
+    },
   };
 }
 
@@ -145,6 +153,8 @@ export function useScheduledConversationListQuery(
   conversations: Conversation[];
   isLoading: boolean;
   isPending: boolean;
+  isError: boolean;
+  refetch: () => void;
 } {
   const isOrgReady = useIsOrgReady();
   const query = useQuery({
@@ -155,6 +165,10 @@ export function useScheduledConversationListQuery(
     conversations: query.data ?? EMPTY_CONVERSATIONS,
     isLoading: query.isLoading,
     isPending: query.isPending,
+    isError: query.isError,
+    refetch: () => {
+      void query.refetch();
+    },
   };
 }
 
@@ -190,6 +204,66 @@ export function useOriginChannelConversationListQuery(
     isLoading: query.isLoading,
     isPending: query.isPending,
   };
+}
+
+/**
+ * Subscribe to the raw server-side unread conversation count
+ * (`GET /v1/conversations/unread-count`).
+ *
+ * Returns the count, or `null` while unresolved and when the connected
+ * assistant does not serve the endpoint (pre-unread-count daemons 404 the
+ * read, which the fetcher maps to `null`).
+ *
+ * Most callers want {@link useUnreadConversationCount}, which resolves that
+ * `null` into a usable number. Use this one only when "the server does not
+ * provide a count" has to be distinguishable from "the count is zero".
+ *
+ * Freshness comes from three channels rather than focus refetches:
+ * optimistic deltas applied by the seen/unseen mutations
+ * (`adjustUnreadCountCache`), the settle-time invalidation in
+ * `invalidateConversationQueries`, and the `sync_changed`-driven
+ * invalidation in `use-conversation-sync.ts`.
+ */
+export function useUnreadConversationCountQuery(
+  assistantId: string | null,
+  enabled: boolean = true,
+): number | null {
+  const isOrgReady = useIsOrgReady();
+  const query = useQuery({
+    ...unreadConversationCountOptions(assistantId!),
+    enabled: enabled && Boolean(assistantId) && isOrgReady,
+  });
+  return query.data ?? null;
+}
+
+/**
+ * The unread conversation count to display: the server's count when it is
+ * available, otherwise derived from `fallbackConversations`.
+ *
+ * Every unread-count surface should read this rather than compose the
+ * fallback itself, so the "which source won" rule lives in one place.
+ *
+ * The fallback covers assistants without the endpoint and the window before
+ * the query resolves. It counts only the conversations it is handed, so it is
+ * accurate only while the caller holds the complete list; see
+ * {@link countUnreadConversationsInList}.
+ *
+ * Clamping at zero happens here rather than in `adjustUnreadCountCache`,
+ * which keeps optimistic adjustments exactly reversible: the cached value can
+ * dip below zero when optimistic writes outrun the server, and this is the
+ * boundary where that becomes a number a user sees.
+ */
+export function useUnreadConversationCount(
+  assistantId: string | null,
+  fallbackConversations: readonly Conversation[],
+  enabled: boolean = true,
+): number {
+  const serverCount = useUnreadConversationCountQuery(assistantId, enabled);
+  const derivedCount = useMemo(
+    () => countUnreadConversationsInList(fallbackConversations),
+    [fallbackConversations],
+  );
+  return Math.max(0, serverCount ?? derivedCount);
 }
 
 /**

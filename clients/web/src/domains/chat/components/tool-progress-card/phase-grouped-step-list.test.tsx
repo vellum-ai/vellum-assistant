@@ -116,17 +116,17 @@ describe("PhaseGroupedStepList — phase header status icon", () => {
     expect(icons[0]!.children.length).toBe(3);
   });
 
-  test("phase with a tool_error step renders the failed icon", () => {
+  test("phase with a tool_error step renders the completed icon (no error chrome)", () => {
     const steps: ToolCallCardStep[] = [
       { kind: "tool_error", message: "context window exceeded" },
     ];
     const { getAllByTestId } = render(<PhaseGroupedStepList steps={steps} />);
     const icons = getAllByTestId("phase-header-status-icon");
     expect(icons.length).toBe(1);
-    expect(icons[0]!.getAttribute("data-status")).toBe("failed");
+    expect(icons[0]!.getAttribute("data-status")).toBe("completed");
   });
 
-  test("phase with a tool step status='error' renders the failed icon", () => {
+  test("phase with a tool step status='error' renders the completed icon (no error chrome)", () => {
     const steps: ToolCallCardStep[] = [
       bash("ls", "completed", "1s", "tc-a"),
       bash("rm -rf /nope", "error", "1s", "tc-b"),
@@ -134,17 +134,17 @@ describe("PhaseGroupedStepList — phase header status icon", () => {
     const { getAllByTestId } = render(<PhaseGroupedStepList steps={steps} />);
     const icons = getAllByTestId("phase-header-status-icon");
     expect(icons.length).toBe(1);
-    expect(icons[0]!.getAttribute("data-status")).toBe("failed");
+    expect(icons[0]!.getAttribute("data-status")).toBe("completed");
   });
 
-  test("phase with a tool step status='denied' renders the failed icon", () => {
+  test("phase with a tool step status='denied' renders the completed icon (no error chrome)", () => {
     const steps: ToolCallCardStep[] = [
       bash("sudo rm -rf /", "denied", "", "tc-a"),
     ];
     const { getAllByTestId } = render(<PhaseGroupedStepList steps={steps} />);
     const icons = getAllByTestId("phase-header-status-icon");
     expect(icons.length).toBe(1);
-    expect(icons[0]!.getAttribute("data-status")).toBe("failed");
+    expect(icons[0]!.getAttribute("data-status")).toBe("completed");
   });
 
   test("phase with a failed step and a running step renders three-dot (running wins)", () => {
@@ -200,10 +200,7 @@ describe("PhaseGroupedStepList — phase header status icon", () => {
 
 describe("PhaseGroupedStepList — renderStep override", () => {
   test("calls renderStep for each step and skips the default pill", () => {
-    const steps: ToolCallCardStep[] = [
-      thinking("First"),
-      thinking("Second"),
-    ];
+    const steps: ToolCallCardStep[] = [thinking("First"), thinking("Second")];
     const seen: string[] = [];
     const { queryAllByTestId, getByText } = render(
       <PhaseGroupedStepList
@@ -242,9 +239,7 @@ describe("PhaseGroupedStepList — timeline mode", () => {
   });
 
   test("completed section renders the circular CheckCircle2 node with data-status", () => {
-    const steps: ToolCallCardStep[] = [
-      bash("ls", "completed", "1s", "tc-a"),
-    ];
+    const steps: ToolCallCardStep[] = [bash("ls", "completed", "1s", "tc-a")];
     const { getAllByTestId } = render(
       <PhaseGroupedStepList steps={steps} timeline />,
     );
@@ -257,7 +252,7 @@ describe("PhaseGroupedStepList — timeline mode", () => {
     expect(icons[0]!.tagName.toLowerCase()).toBe("svg");
   });
 
-  test("failed section renders the circular AlertCircle node with data-status", () => {
+  test("failed section renders the circular completed node (no error chrome)", () => {
     const steps: ToolCallCardStep[] = [
       { kind: "tool_error", message: "context window exceeded" },
     ];
@@ -265,14 +260,12 @@ describe("PhaseGroupedStepList — timeline mode", () => {
       <PhaseGroupedStepList steps={steps} timeline />,
     );
     const icons = getAllByTestId("phase-header-status-icon");
-    expect(icons[0]!.getAttribute("data-status")).toBe("failed");
+    expect(icons[0]!.getAttribute("data-status")).toBe("completed");
     expect(icons[0]!.tagName.toLowerCase()).toBe("svg");
   });
 
   test("running section keeps the three-dot indicator node", () => {
-    const steps: ToolCallCardStep[] = [
-      bash("sleep 5", "running", "", "tc-a"),
-    ];
+    const steps: ToolCallCardStep[] = [bash("sleep 5", "running", "", "tc-a")];
     const { getAllByTestId } = render(
       <PhaseGroupedStepList steps={steps} timeline />,
     );
@@ -387,13 +380,13 @@ describe("phaseHeaderStatus", () => {
     expect(phaseHeaderStatus(steps)).toBe("running");
   });
 
-  test("returns 'failed' when a step errored or was denied with none running", () => {
+  test("returns 'completed' when a step errored or was denied with none running", () => {
     expect(
       phaseHeaderStatus([bash("rm -rf /nope", "error", "1s", "tc-a")]),
-    ).toBe("failed");
+    ).toBe("completed");
     expect(
       phaseHeaderStatus([bash("sudo rm -rf /", "denied", "", "tc-b")]),
-    ).toBe("failed");
+    ).toBe("completed");
   });
 
   test("returns 'completed' otherwise", () => {

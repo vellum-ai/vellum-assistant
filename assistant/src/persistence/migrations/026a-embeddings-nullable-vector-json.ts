@@ -16,7 +16,9 @@ export function migrateEmbeddingsNullableVectorJson(database: DrizzleDb): void {
   const checkpoint = raw
     .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
     .get(checkpointKey);
-  if (checkpoint) return;
+  if (checkpoint) {
+    return;
+  }
 
   // Check if vector_json has a NOT NULL constraint
   const ddl = raw
@@ -121,7 +123,9 @@ export function downEmbeddingsNullableVectorJson(database: DrizzleDb): void {
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'memory_embeddings'`,
     )
     .get();
-  if (!tableExists) return;
+  if (!tableExists) {
+    return;
+  }
 
   // Check if vector_json already has NOT NULL — already rolled back
   const ddl = raw
@@ -129,7 +133,9 @@ export function downEmbeddingsNullableVectorJson(database: DrizzleDb): void {
       `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memory_embeddings'`,
     )
     .get() as { sql: string } | null;
-  if (ddl && isColumnNotNull(ddl.sql, "vector_json")) return;
+  if (ddl && isColumnNotNull(ddl.sql, "vector_json")) {
+    return;
+  }
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {

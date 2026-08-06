@@ -6,13 +6,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Track enqueued jobs
 const enqueuedJobs: Array<{ type: string; payload: Record<string, unknown> }> =
   [];
@@ -21,13 +14,6 @@ mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: (type: string, payload: Record<string, unknown>) => {
     enqueuedJobs.push({ type, payload });
   },
-}));
-
-// Stub config — multimodal disabled so we only test the graph path
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    memory: { enabled: true },
-  }),
 }));
 
 mock.module("../persistence/embeddings/embedding-backend.js", () => ({
@@ -43,9 +29,10 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "../persistence/schema/index.js";
 
 let db: ReturnType<typeof drizzle>;
+let sqlite: Database;
 
 function createTestDb() {
-  const sqlite = new Database(":memory:");
+  sqlite = new Database(":memory:");
   db = drizzle(sqlite, { schema });
 
   // Create minimal tables needed by rebuildIndexJob
@@ -126,13 +113,18 @@ function createTestDb() {
   return { sqlite, db };
 }
 
+// The graph cluster now lives on the memory connection, which rebuildIndexJob
+// reads through memoryDbOrNull. Point both handles at the single in-memory db
+// that holds every table this test creates.
 mock.module("../persistence/db-connection.js", () => ({
   getDb: () => db,
+  getMemoryDb: () => db,
+  getMemorySqlite: () => sqlite,
 }));
 
 // ── Tests ────────────────────────────────────────────────────────────
 
-import { rebuildIndexJob } from "../plugins/defaults/memory/job-handlers/index-maintenance.js";
+import { rebuildIndexJob } from "../plugins/defaults/memory/v1/job-handlers/index-maintenance.js";
 
 describe("rebuildIndexJob", () => {
   beforeEach(() => {
@@ -167,7 +159,6 @@ describe("rebuildIndexJob", () => {
           stability: 14,
           reinforcementCount: 0,
           lastReinforced: now,
-          scopeId: "default",
         },
         {
           id: "node-2",
@@ -183,7 +174,6 @@ describe("rebuildIndexJob", () => {
           stability: 14,
           reinforcementCount: 0,
           lastReinforced: now,
-          scopeId: "default",
         },
         {
           id: "node-gone",
@@ -199,7 +189,6 @@ describe("rebuildIndexJob", () => {
           stability: 1,
           reinforcementCount: 0,
           lastReinforced: now,
-          scopeId: "default",
         },
       ])
       .run();
@@ -240,7 +229,6 @@ describe("rebuildIndexJob", () => {
         stability: 14,
         reinforcementCount: 0,
         lastReinforced: now,
-        scopeId: "default",
       })
       .run();
 

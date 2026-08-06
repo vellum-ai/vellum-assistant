@@ -1,30 +1,42 @@
+import { Coins, Info, X } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router";
 
-import { brandLabel, formatBrandLast4 } from "@/domains/settings/utils/payment-method-brand";
 import {
-    organizationsBillingAutoTopUpDisableCreateMutation,
-    organizationsBillingAutoTopUpRetrieveOptions,
-    organizationsBillingAutoTopUpRetrieveQueryKey,
-    organizationsBillingAutoTopUpRetrieveSetQueryData,
-    organizationsBillingAutoTopUpUpdateMutation,
+  organizationsBillingAutoTopUpDisableCreateMutation,
+  organizationsBillingAutoTopUpRemovePaymentMethodCreateMutation,
+  organizationsBillingAutoTopUpRetrieveOptions,
+  organizationsBillingAutoTopUpRetrieveQueryKey,
+  organizationsBillingAutoTopUpRetrieveSetQueryData,
+  organizationsBillingAutoTopUpUpdateMutation,
+  organizationsBillingDailyCreditLimitRetrieveOptions,
+  organizationsBillingDailyCreditLimitRetrieveQueryKey,
+  organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
+import { Typography } from "@vellumai/design-library/components/typography";
 
 import { AutoTopUpDisableConfirm } from "@/domains/settings/components/auto-top-up-disable-confirm";
 import {
-    AutoTopUpForm,
-    type AutoTopUpFormValues,
+  AutoTopUpForm,
+  type AutoTopUpFormValues,
 } from "@/domains/settings/components/auto-top-up-form";
+import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal";
+import { PaymentMethodRow } from "@/domains/settings/components/payment-method-row";
+import { extractDrfFieldErrors } from "@/domains/settings/utils/drf-errors";
 
 type Mode = "view" | "form";
 
 /** Convert API-format decimal string (e.g. "25.00") to integer string ("25") for form display. */
 function apiToIntStr(v: string | null | undefined): string {
-  if (!v) return "";
+  if (!v) {
+    return "";
+  }
   const n = parseFloat(v);
   return Number.isFinite(n) ? String(Math.trunc(n)) : "";
 }
@@ -35,9 +47,13 @@ function apiToIntStr(v: string | null | undefined): string {
  * ("Add $200 when the balance falls under $50").
  */
 function formatUsdShort(value: string | null | undefined): string {
-  if (!value) return "$0";
+  if (!value) {
+    return "$0";
+  }
   const n = parseFloat(value);
-  if (!Number.isFinite(n)) return "$0";
+  if (!Number.isFinite(n)) {
+    return "$0";
+  }
   const abs = Math.abs(n);
   const formatted = abs.toLocaleString("en-US", {
     minimumFractionDigits: 2,
@@ -78,50 +94,38 @@ export const DISABLED_CONFIG: AutoTopUpConfigResponse = {
 };
 
 /**
- * Flatten DRF field errors (`{ field: [msg, ...] }`) into a single message
- * per field. Exported so unit tests can exercise the parsing without
- * rendering the card.
+ * Neutral pill shared by the enabled-state summary row — the "add $X under
+ * $Y" chip and the monthly-cap progress chip use identical chrome so they
+ * read as one control group.
  */
-export function extractAutoTopUpServerErrors(err: unknown): Record<string, string> {
-  if (!err || typeof err !== "object" || Array.isArray(err)) return {};
-  const out: Record<string, string> = {};
-  for (const [key, messages] of Object.entries(err)) {
-    if (Array.isArray(messages) && typeof messages[0] === "string") {
-      out[key] = messages[0];
-    }
-  }
-  return out;
-}
-
-/**
- * Build the saved-PM display string for the enabled-state summary:
- * - "Charged to <brand> •••• <last4>" when both fields are present
- * - "Charged to <brand>" when only the brand is present
- * - null when neither is present (caller renders nothing)
- *
- * The "<brand> •••• <last4>" shape is shared with `PaymentMethodsCard` via
- * `formatBrandLast4` in `lib/billing/payment-method-brand.ts` — both cards
- * agree on the brand-fallback (`"card"`) and last4-fallback (`"????"`).
- */
-export function formatSavedPaymentMethodLine(args: {
-  brand: string | null;
-  last4: string | null;
-}): string | null {
-  const { brand, last4 } = args;
-  if (!brand && !last4) return null;
-  // When last4 is missing we render "Charged to <brand>" (no bullets), so
-  // we don't route through formatBrandLast4 here — that helper always
-  // emits the "•••• <last4>" tail.
-  if (!last4) return `Charged to ${brandLabel(brand ?? "card")}`;
-  return `Charged to ${formatBrandLast4(brand, last4)}`;
+function SummaryChip({
+  testId,
+  children,
+}: {
+  testId: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      data-testid={testId}
+      className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg bg-[var(--surface-base)] px-2"
+    >
+      {children}
+    </div>
+  );
 }
 
 /**
  * Settings → Billing auto-reload section. Embedded directly inside the
  * Credit Balance card by `BillingPanel.tsx` (no outer Card wrapper of its
- * own). Toggle controls enable/disable; Adjust enters configure mode.
+ * own). Toggle controls enable/disable; Adjust enters configure mode. This
+ * card also owns saving a new payment method (via
+ * `AutoTopUpPaymentMethodModal`) for the no-PM gate below.
  *
- * - Off: just the toggle (helper notice below).
+ * - Off: just the toggle.
+ * - On + no payment method: toggle + an amber "connect a credit card" banner
+ *   and an "Add a Credit Card" button that opens the Stripe setup modal;
+ *   saving a card advances straight into the form.
  * - On + view: toggle + inline summary ("Add $X when balance falls under
  *   $Y") + spend-vs-cap when a monthly cap is set + Adjust button.
  * - On + configuring (mode === "form"): toggle + 3-input row (threshold,
@@ -130,26 +134,108 @@ export function formatSavedPaymentMethodLine(args: {
 export function AutoTopUpCard() {
   const queryClient = useQueryClient();
   const configQuery = useQuery(organizationsBillingAutoTopUpRetrieveOptions());
-  const updateMutation = useMutation(organizationsBillingAutoTopUpUpdateMutation());
+  // Drives the "we'll apply the default daily limit" note in the enable form:
+  // the backend applies its default limit when auto top-up is turned on and the
+  // org has none.
+  const dailyLimitQuery = useQuery(
+    organizationsBillingDailyCreditLimitRetrieveOptions(),
+  );
+  const updateMutation = useMutation(
+    organizationsBillingAutoTopUpUpdateMutation(),
+  );
   const disableMutation = useMutation(
     organizationsBillingAutoTopUpDisableCreateMutation(),
   );
+  const removeMutation = useMutation(
+    organizationsBillingAutoTopUpRemovePaymentMethodCreateMutation(),
+  );
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const cardRef = useRef<HTMLDivElement>(null);
 
   const [mode, setMode] = useState<Mode>("view");
   const [pendingEnable, setPendingEnable] = useState(false);
   const [confirmingDisable, setConfirmingDisable] = useState(false);
-  const [showNoPmNotice, setShowNoPmNotice] = useState(false);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const [showAddPm, setShowAddPm] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [pmModalOpen, setPmModalOpen] = useState(false);
 
-  // Auto-dismiss the no-PM notice once a PM appears (e.g. after the user
-  // adds one in PaymentMethodsCard). Declared before the early-return
-  // branches to satisfy rules-of-hooks; reads through `configQuery.data`
-  // since `config` isn't bound until after the loading/error guards below.
+  // Auto-dismiss the no-PM gate once a PM appears (e.g. after the user saves
+  // one via `AutoTopUpPaymentMethodModal` below). Declared before the
+  // early-return branches to satisfy rules-of-hooks; reads through
+  // `configQuery.data` since `config` isn't bound until after the
+  // loading/error guards below.
   useEffect(() => {
-    if (showNoPmNotice && configQuery.data?.has_payment_method) {
-      // auto-dismiss the gate notice once the user adds a PM in PaymentMethodsCard
-      setShowNoPmNotice(false);
+    if (showAddPm && configQuery.data?.has_payment_method) {
+      setShowAddPm(false);
     }
-  }, [showNoPmNotice, configQuery.data?.has_payment_method]);
+  }, [showAddPm, configQuery.data?.has_payment_method]);
+
+  /**
+   * Transition into form mode. Resets any prior mutation errors so stale
+   * field-level errors (from `updateMutation`) or the disable-failure
+   * banner (from `disableMutation`) don't render the moment the form
+   * re-mounts (e.g. after Cancel + re-Edit, or after a failed Disable).
+   * Hoisted above the loading/error guards so the deeplink effect below can
+   * reuse it; depends only on the mutations and `setMode`, all bound above.
+   */
+  const enterFormMode = () => {
+    updateMutation.reset();
+    disableMutation.reset();
+    setMode("form");
+  };
+
+  /**
+   * Shared "turn Extra Usage on from disabled" flow, used by both the toggle
+   * (`handleToggleChange`) and the `?configure_top_up=1` deeplink effect: with
+   * no usable PM (none on file, or auto-reload paused after repeated declines)
+   * reveal the add-card gate, otherwise open the configure form. Never persists
+   * — Save still does. Both callers run it only while disabled, so
+   * `disabled_due_to_repeated_failures` alone matches `disabledAfterDeclines`.
+   */
+  const beginEnableFlow = (cfg: AutoTopUpConfigResponse) => {
+    setPendingEnable(true);
+    if (
+      !cfg.has_payment_method ||
+      cfg.disabled_due_to_repeated_failures === true
+    ) {
+      setShowAddPm(true);
+      setBannerDismissed(false);
+      return;
+    }
+    setShowAddPm(false);
+    enterFormMode();
+  };
+
+  // Arriving with `?configure_top_up=1` (deeplinked from the Add Credits
+  // modal) replays the toggle-on path once, then strips the param. Never
+  // mutates the server; persistence still requires Save. Must sit before the
+  // loading/error guards below (rules-of-hooks), so it reads through
+  // `configQuery.data` and reuses `beginEnableFlow` (the same flow the toggle
+  // runs) rather than the post-guard `config`/handlers.
+  const configureTopUpRequested = searchParams.get("configure_top_up") === "1";
+  useEffect(() => {
+    if (!configureTopUpRequested || configQuery.data == null) {
+      return;
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("configure_top_up");
+    setSearchParams(next, { replace: true });
+    const cfg = configQuery.data;
+    if (cfg.enabled === true) {
+      return;
+    }
+    beginEnableFlow(cfg);
+    const reduceMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+    cardRef.current?.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "center",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per arrival; `beginEnableFlow`/`searchParams` intentionally excluded
+  }, [configureTopUpRequested, configQuery.data]);
 
   if (configQuery.isLoading) {
     return (
@@ -184,18 +270,6 @@ export function AutoTopUpCard() {
   // while the config is currently disabled (`if (next && !enabled)`).
   const disabledAfterDeclines =
     config.disabled_due_to_repeated_failures === true && !enabled;
-
-  /**
-   * Transition into form mode. Resets any prior mutation errors so stale
-   * field-level errors (from `updateMutation`) or the disable-failure
-   * banner (from `disableMutation`) don't render the moment the form
-   * re-mounts (e.g. after Cancel + re-Edit, or after a failed Disable).
-   */
-  const enterFormMode = () => {
-    updateMutation.reset();
-    disableMutation.reset();
-    setMode("form");
-  };
 
   const exitFormMode = () => {
     setMode("view");
@@ -256,6 +330,17 @@ export function AutoTopUpCard() {
           void queryClient.invalidateQueries({
             queryKey: organizationsBillingAutoTopUpRetrieveQueryKey(),
           });
+          if (!enabled) {
+            // Turning auto top-up on makes the backend apply its default daily
+            // credit limit when the org has none, so refresh the daily-limit
+            // card and the summary that carries the derived limit fields.
+            void queryClient.invalidateQueries({
+              queryKey: organizationsBillingDailyCreditLimitRetrieveQueryKey(),
+            });
+            void queryClient.invalidateQueries({
+              queryKey: organizationsBillingSummaryRetrieveQueryKey(),
+            });
+          }
           exitFormMode();
         },
       },
@@ -272,9 +357,7 @@ export function AutoTopUpCard() {
         //
         // CRITICAL: the disable endpoint preserves
         // `stripe_payment_method_id` (it only flips `enabled=False`), so
-        // the cache must reflect that — otherwise PaymentMethodsCard, the
-        // sibling on this page that reads from the SAME query key (via
-        // `organizationsBillingAutoTopUpRetrieveQueryKey()`), would
+        // the cache must reflect that — otherwise this card would
         // incorrectly render "No payment method on file" the moment the
         // user clicks Disable. Merge `DISABLED_CONFIG` with the prior
         // cached PM fields so the card stays accurate until the next GET
@@ -292,14 +375,13 @@ export function AutoTopUpCard() {
               // endpoint flips `enabled=False` but does NOT clear
               // `stripe_payment_method_id` or its updated_at marker — so
               // dropping the marker here would corrupt the polling snapshot
-              // in PaymentMethodsCard's Change PM flow: it reads
-              // `priorMarker` from this same cache, then polls until the
-              // backend's marker advances past it. If we seed `null` after
-              // disable, the user's next "Change PM" click takes a
-              // priorMarker=null snapshot, the first poll reads the
-              // backend's still-set timestamp, and the poll exits
-              // immediately with stale data — modal closes showing the old
-              // PM. Carry forward the prior marker so the snapshot matches
+              // in `handlePmSaved` below: it reads `priorMarker` from this
+              // same cache, then polls until the backend's marker advances
+              // past it. If we seed `null` after disable, the user's next
+              // "Add a Credit Card" click takes a priorMarker=null
+              // snapshot, the first poll reads the backend's still-set
+              // timestamp, and the poll exits immediately with stale data.
+              // Carry forward the prior marker so the snapshot matches
               // backend reality.
               stripe_payment_method_updated_at:
                 prior?.stripe_payment_method_updated_at ?? null,
@@ -314,39 +396,70 @@ export function AutoTopUpCard() {
   };
 
   /**
-   * Click handler for the "Enable Auto-Reload" toggle.
+   * The remove endpoint clears the PM AND flips `enabled=False` server-side,
+   * so the optimistic write lands on the disabled/no-PM state — matching what
+   * the follow-up GET returns, with no separate disable call needed.
+   */
+  const handleConfirmRemove = () => {
+    removeMutation.mutate(
+      {},
+      {
+        onSuccess: () => {
+          organizationsBillingAutoTopUpRetrieveSetQueryData(
+            queryClient,
+            undefined,
+            {
+              ...config,
+              enabled: false,
+              has_payment_method: false,
+              payment_method_brand: null,
+              payment_method_last4: null,
+            },
+          );
+          void queryClient.invalidateQueries({
+            queryKey: organizationsBillingAutoTopUpRetrieveQueryKey(),
+          });
+          setConfirmingRemove(false);
+          // Removal disables auto-reload, so leave the Adjust form (if open)
+          // to keep the OFF toggle and a saveable form from coexisting.
+          exitFormMode();
+        },
+        // Close the dialog on failure so the error notice isn't hidden behind
+        // the overlay; the card row stays put for a retry.
+        onError: () => {
+          setConfirmingRemove(false);
+        },
+      },
+    );
+  };
+
+  /**
+   * Click handler for the "Enable Extra Usage" toggle. The toggle itself is
+   * never disabled — turning it on always flips visually to reflect intent
+   * (`pendingEnable`), even when a payment method still needs to be added.
    *
-   * - Toggle on while disabled → enter form mode with `pendingEnable=true`
-   *   so the toggle visually reflects the user's intent. The save endpoint
-   *   actually flips the enabled bit; cancel reverts to disabled.
+   * - Toggle on while disabled, no usable PM (missing, or cut off after
+   *   repeated declines) → flip on and gate on the "Add a Credit Card"
+   *   button instead of entering the form. In the cutoff case the saved
+   *   card is still attached (`has_payment_method: true`), so gating here
+   *   stops the user from re-enabling with the SAME declined card — they
+   *   must add a new one.
+   * - Toggle on while disabled, with a usable PM → enter form mode directly.
+   *   The save endpoint actually flips the enabled bit; cancel reverts to
+   *   disabled.
    * - Toggle off while a pending enable is in flight → cancel out of the
-   *   form so the toggle visibly snaps back to off without making the user
-   *   hunt for the form's Cancel button.
+   *   form/gate so the toggle visibly snaps back to off without making the
+   *   user hunt for the form's Cancel button.
    * - Toggle off while enabled → trigger the disable-confirm dialog. The
    *   disable endpoint flips it on confirm; otherwise we leave state alone.
    */
   const handleToggleChange = (next: boolean) => {
     if (next && !enabled) {
-      if (!config.has_payment_method || disabledAfterDeclines) {
-        // Block enable — either no PM on file, or the backend cut auto-reload
-        // off after repeated declines. In the cutoff case the saved card is
-        // still attached (`has_payment_method: true`), so without this guard
-        // the user could re-enable with the SAME declined card, contradicting
-        // the cutoff notice that tells them to add a NEW payment method. The
-        // generic add-PM notice this sets is suppressed in the render while
-        // `disabledAfterDeclines` is true (the grid is gated on
-        // `showNoPmNotice && !disabledAfterDeclines`), so the cutoff notice
-        // stays the single message — keeping the two notices mutually
-        // exclusive.
-        setShowNoPmNotice(true);
-        return;
-      }
-      setShowNoPmNotice(false);
-      setPendingEnable(true);
-      enterFormMode();
+      beginEnableFlow(config);
       return;
     }
     if (!next && !enabled && pendingEnable) {
+      setShowAddPm(false);
       exitFormMode();
       return;
     }
@@ -355,8 +468,55 @@ export function AutoTopUpCard() {
     }
   };
 
+  /**
+   * Called after `AutoTopUpPaymentMethodModal` confirms a card was saved.
+   * The `setup_intent.succeeded` webhook persists `stripe_payment_method_id`
+   * asynchronously, so a single invalidate+refetch can race the webhook and
+   * leave the cache stale. Poll until `stripe_payment_method_updated_at`
+   * actually advances past its pre-save value, with a timeout so this never
+   * spins forever if the webhook never lands. Once the PM is confirmed
+   * fresh, drop the no-PM gate and — if the user got here via the toggle —
+   * advance straight into the configure form.
+   */
+  const handlePmSaved = async () => {
+    const POLL_INTERVAL_MS = 1500;
+    const MAX_POLL_MS = 20_000;
+    const start = Date.now();
+    const priorMarker = config.stripe_payment_method_updated_at ?? null;
+
+    try {
+      await queryClient.invalidateQueries({
+        queryKey: organizationsBillingAutoTopUpRetrieveQueryKey(),
+      });
+    } catch {
+      // fall through to polling below
+    }
+
+    while (Date.now() - start < MAX_POLL_MS) {
+      try {
+        const refetched = await queryClient.fetchQuery(
+          organizationsBillingAutoTopUpRetrieveOptions(),
+        );
+        if (
+          refetched.has_payment_method &&
+          refetched.stripe_payment_method_updated_at !== priorMarker
+        ) {
+          break;
+        }
+      } catch {
+        // sleep and retry
+      }
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+    }
+
+    setShowAddPm(false);
+    if (pendingEnable) {
+      enterFormMode();
+    }
+  };
+
   const isFormMode = mode === "form";
-  const fieldErrors = extractAutoTopUpServerErrors(updateMutation.error);
+  const fieldErrors = extractDrfFieldErrors(updateMutation.error);
   // Surface a generic notice when the mutation failed but no field-level
   // DRF errors were parsed (network failure, 5xx, non-DRF body, etc.).
   // Without this, a failed Save can otherwise look like a silent no-op.
@@ -364,74 +524,142 @@ export function AutoTopUpCard() {
     updateMutation.isError && Object.keys(fieldErrors).length === 0;
 
   const toggleChecked = enabled || pendingEnable;
-  const savedPmLine = formatSavedPaymentMethodLine({
-    brand: config.payment_method_brand,
-    last4: config.payment_method_last4,
-  });
+  // Only claim the default will be applied once the daily-limit config has
+  // loaded and reports no limit; a loading or failed query stays quiet.
+  const dailyLimitMissing =
+    dailyLimitQuery.data != null &&
+    dailyLimitQuery.data.daily_credit_limit_usd == null;
 
   return (
-    <div data-testid="auto-top-up-card">
+    <div ref={cardRef} data-testid="auto-top-up-card">
       <div className="flex items-center justify-between gap-4">
         <Toggle
           checked={toggleChecked}
           onChange={handleToggleChange}
-          label="Enable Auto-Reload"
+          label="Enable Extra Usage"
         />
-
-        {enabled && !isFormMode && (
-          <div className="flex items-center gap-3">
-            <div className="text-right">
-              <p
-                className="text-body-small-default text-[var(--content-tertiary)]"
-                data-testid="auto-top-up-summary"
-              >
-                Add {formatUsdShort(config.amount_usd)} when the balance falls
-                under {formatUsdShort(config.threshold_usd)}
-              </p>
-              {config.monthly_cap_usd != null && (
-                <p
-                  className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]"
-                  data-testid="auto-top-up-cap-progress"
-                >
-                  {formatUsdShort(config.current_month_credits_purchased_usd)} of{" "}
-                  {formatUsdShort(config.monthly_cap_usd)} this month
-                </p>
-              )}
-            </div>
-            <Button
-              variant="outlined"
-              onClick={enterFormMode}
-              data-testid="auto-top-up-edit-button"
-            >
-              Adjust
-            </Button>
-          </div>
-        )}
       </div>
+
+      {config.has_payment_method && (
+        <div className="mt-3">
+          <PaymentMethodRow
+            brand={config.payment_method_brand}
+            last4={config.payment_method_last4}
+            onUpdateCard={() => setPmModalOpen(true)}
+            onRemove={() => setConfirmingRemove(true)}
+            removing={removeMutation.isPending}
+          />
+        </div>
+      )}
+
+      {enabled && !isFormMode && (
+        <div className="mt-3 flex w-full items-center gap-2">
+          <SummaryChip testId="auto-top-up-summary">
+            <Coins
+              className="h-3.5 w-3.5 shrink-0 text-[var(--content-default)]"
+              aria-hidden="true"
+            />
+            <Typography
+              variant="body-medium-default"
+              className="truncate text-[var(--content-default)]"
+            >
+              Add {formatUsdShort(config.amount_usd)} when balance falls under{" "}
+              {formatUsdShort(config.threshold_usd)}
+            </Typography>
+          </SummaryChip>
+          {config.monthly_cap_usd != null && (
+            <SummaryChip testId="auto-top-up-cap-progress">
+              <Typography
+                variant="body-medium-default"
+                className="truncate text-[var(--content-default)]"
+              >
+                <span>
+                  {formatUsdShort(
+                    config.current_month_credits_purchased_usd,
+                  )}{" "}
+                </span>
+                <span className="text-[var(--content-tertiary)]">
+                  / {formatUsdShort(config.monthly_cap_usd)} this month
+                </span>
+              </Typography>
+            </SummaryChip>
+          )}
+          <Button
+            variant="outlined"
+            onClick={enterFormMode}
+            data-testid="auto-top-up-edit-button"
+            className="shrink-0"
+          >
+            Adjust
+          </Button>
+        </div>
+      )}
 
       {disabledAfterDeclines && (
         <Notice
           tone="warning"
           className="mt-3"
           data-testid="auto-top-up-declined-cutoff"
+          actions={
+            <Button
+              variant="outlined"
+              onClick={() => setPmModalOpen(true)}
+              data-testid="auto-top-up-add-pm-button"
+            >
+              Add payment method
+            </Button>
+          }
         >
           We paused automatic reloads after several declined payments. Add a new
-          payment method below to turn auto-reload back on.
+          payment method to turn auto-reload back on.
         </Notice>
       )}
 
       <div
         className="grid transition-[grid-template-rows] duration-200 ease-in-out"
         style={{
-          gridTemplateRows:
-            showNoPmNotice && !disabledAfterDeclines ? "1fr" : "0fr",
+          gridTemplateRows: showAddPm && !disabledAfterDeclines ? "1fr" : "0fr",
         }}
       >
         <div className="overflow-hidden">
-          <Notice tone="warning" className="mt-3">
-            You must first add a Payment Method before you can enable automatic
-            credit reloads.
-          </Notice>
+          <div className="mt-3 flex flex-col gap-3">
+            {!bannerDismissed && (
+              <div className="flex h-8 items-center justify-between gap-3 rounded-lg bg-[var(--system-mid-weak)] px-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Info
+                    className="h-4 w-4 shrink-0 text-[var(--system-mid-strong)]"
+                    aria-hidden="true"
+                  />
+                  <Typography
+                    variant="body-medium-default"
+                    className="truncate text-[var(--system-mid-strong)]"
+                  >
+                    Extra usage requires you to connect a credit card.
+                  </Typography>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Dismiss"
+                  onClick={() => setBannerDismissed(true)}
+                  className="flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 text-[var(--system-mid-strong)] opacity-70 transition-opacity hover:opacity-100"
+                >
+                  <X
+                    className="h-2.5 w-2.5"
+                    strokeWidth={2}
+                    aria-hidden="true"
+                  />
+                </button>
+              </div>
+            )}
+            <Button
+              variant="primary"
+              onClick={() => setPmModalOpen(true)}
+              data-testid="auto-top-up-add-pm-button"
+              className="self-start"
+            >
+              Add a Credit Card
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -455,6 +683,16 @@ export function AutoTopUpCard() {
         </Notice>
       )}
 
+      {removeMutation.isError && (
+        <Notice
+          tone="error"
+          className="mt-4"
+          data-testid="auto-top-up-remove-error"
+        >
+          Failed to remove the payment method. Please try again.
+        </Notice>
+      )}
+
       {isFormMode && (
         <AutoTopUpForm
           initialValues={
@@ -468,24 +706,10 @@ export function AutoTopUpCard() {
           }
           submitting={updateMutation.isPending}
           serverErrors={fieldErrors}
+          showDefaultDailyLimitNote={!enabled && dailyLimitMissing}
           onCancel={exitFormMode}
           onSave={handleSave}
         />
-      )}
-
-      {enabled && !config.has_payment_method && (
-        <Notice tone="warning" className="mt-3" data-testid="auto-top-up-no-pm">
-          You must add a Payment Method.
-        </Notice>
-      )}
-
-      {enabled && config.has_payment_method && (
-        <p
-          className="mt-3 text-body-small-default text-[var(--content-tertiary)]"
-          data-testid="auto-top-up-saved-pm"
-        >
-          {savedPmLine ?? "Charged to a saved card"}
-        </p>
       )}
 
       {(enabled || isFormMode) && (
@@ -500,6 +724,24 @@ export function AutoTopUpCard() {
         confirming={disableMutation.isPending}
         onCancel={dismissDisableConfirm}
         onConfirm={handleConfirmDisable}
+      />
+
+      <ConfirmDialog
+        open={confirmingRemove}
+        title="Remove payment method?"
+        message="Removing your card will turn off Extra Usage."
+        confirmLabel={removeMutation.isPending ? "Removing…" : "Remove"}
+        isPending={removeMutation.isPending}
+        cancelLabel="Keep card"
+        destructive
+        onConfirm={handleConfirmRemove}
+        onCancel={() => setConfirmingRemove(false)}
+      />
+
+      <AutoTopUpPaymentMethodModal
+        open={pmModalOpen}
+        onClose={() => setPmModalOpen(false)}
+        onSavedOptimistic={handlePmSaved}
       />
     </div>
   );

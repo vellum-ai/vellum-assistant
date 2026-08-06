@@ -48,14 +48,14 @@ function ContactMergeDialogInner({
 
   const filteredCandidates = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return candidates;
-    return candidates.filter((c) =>
-      c.displayName.toLowerCase().includes(q),
-    );
+    if (!q) {
+      return candidates;
+    }
+    return candidates.filter((c) => c.displayName.toLowerCase().includes(q));
   }, [candidates, search]);
 
   const donor = donorId
-    ? candidates.find((c) => c.id === donorId) ?? null
+    ? (candidates.find((c) => c.id === donorId) ?? null)
     : null;
 
   const survivorLabel = formatSurvivorName(survivor);
@@ -64,7 +64,9 @@ function ContactMergeDialogInner({
     <Modal.Root
       open={open}
       onOpenChange={(next) => {
-        if (!next && !pending) onClose();
+        if (!next && !pending) {
+          onClose();
+        }
       }}
     >
       <Modal.Content size="md">
@@ -187,8 +189,12 @@ function CandidateList({
 function CandidateRow({
   contact,
   onPick,
-}: { contact: ContactPayload; onPick: () => void }) {
-  const channelLabel = mergeDialogChannelTypeLabels(contact).join(" | ") || undefined;
+}: {
+  contact: ContactPayload;
+  onPick: () => void;
+}) {
+  const channelLabel =
+    mergeDialogChannelTypeLabels(contact).join(" | ") || undefined;
   return (
     <PanelItem asChild label="">
       <button
@@ -216,7 +222,10 @@ function CandidateRow({
 function MergeSummary({
   survivor,
   donor,
-}: { survivor: ContactPayload; donor: ContactPayload }) {
+}: {
+  survivor: ContactPayload;
+  donor: ContactPayload;
+}) {
   const survivorLabel = formatSurvivorName(survivor);
   const { moved, duplicates } = classifyMergedChannels(survivor, donor);
 
@@ -295,14 +304,19 @@ export function classifyMergedChannels(
   const moved: ContactPayload["channels"] = [];
   const duplicates: ContactPayload["channels"] = [];
   for (const dc of donor.channels) {
-    if (dc.status === "revoked") continue;
+    if (dc.status === "revoked") {
+      continue;
+    }
     const exists = survivor.channels.some(
       (sc) =>
         sc.type === dc.type &&
         sc.address.toLowerCase() === dc.address.toLowerCase(),
     );
-    if (exists) duplicates.push(dc);
-    else moved.push(dc);
+    if (exists) {
+      duplicates.push(dc);
+    } else {
+      moved.push(dc);
+    }
   }
   return { moved, duplicates };
 }
@@ -311,9 +325,13 @@ function mergeDialogChannelTypeLabels(contact: ContactPayload): string[] {
   const seen = new Set<string>();
   const labels: string[] = [];
   for (const ch of contact.channels) {
-    if (ch.status === "revoked") continue;
+    if (ch.status === "revoked") {
+      continue;
+    }
     const key = ch.type.toLowerCase();
-    if (seen.has(key)) continue;
+    if (seen.has(key)) {
+      continue;
+    }
     seen.add(key);
     labels.push(CHANNEL_TYPE_LABEL[key] ?? ch.type);
   }

@@ -255,6 +255,26 @@ describe("background wake platform client", () => {
     );
   });
 
+  test("attaches an abort-timeout signal to every platform request", async () => {
+    // Guards the publisher's single-in-flight serialization: a wake request
+    // that hangs (half-open socket during a platform reconnect) would wedge the
+    // in-flight promise and silence every future refresh. Each request must
+    // carry a timeout so it rejects instead of hanging forever.
+    await publishBackgroundWakeIntent(intentFixture());
+    await clearBackgroundWakeIntent(intentFixture());
+    await renewBackgroundWakeLease("lease-123");
+    await completeBackgroundWakeLease({
+      leaseId: "lease-123",
+      status: "completed",
+    });
+
+    expect(mockClientFetch).toHaveBeenCalledTimes(4);
+    for (const call of mockClientFetch.mock.calls) {
+      const [, init] = call as [string, RequestInit];
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+
   test("throws on non-OK platform responses", async () => {
     mockClientFetch = mock(
       async () => new Response("bad gateway", { status: 502 }),

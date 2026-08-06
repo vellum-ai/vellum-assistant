@@ -10,13 +10,6 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Guardian identity resolves via the gateway delivery cache, not the local
 // contacts DB. Seed it per-test via seedGatewayGuardian; persona resolution
 // joins the local contact (userFile) by the delivery's channelType + address.
@@ -28,7 +21,9 @@ interface GatewayGuardian {
 let gatewayGuardians: GatewayGuardian[] = [];
 mock.module("../contacts/guardian-delivery-reader.js", () => ({
   peekCachedGuardianDelivery: (input?: { channelTypes?: string[] }) => {
-    if (!input?.channelTypes) return gatewayGuardians;
+    if (!input?.channelTypes) {
+      return gatewayGuardians;
+    }
     return gatewayGuardians.filter((g) =>
       input.channelTypes!.includes(g.channelType),
     );

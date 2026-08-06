@@ -6,24 +6,13 @@
  * of "Unknown" after a conversation reload.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { setConfig } from "./helpers/set-config.js";
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
+// The `addMessage` calls below don't skip indexing; keep memory off so no
+// background indexing kicks in.
+setConfig("memory", { enabled: false, v2: { enabled: false } });
 
 import {
   addMessage,
@@ -97,7 +86,7 @@ describe("handleListMessages tool_result merging", () => {
       ]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     // Should be 2 messages: user prompt + assistant (tool_result user msg suppressed)
@@ -161,7 +150,7 @@ describe("handleListMessages tool_result merging", () => {
       ]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(2);
@@ -191,7 +180,7 @@ describe("handleListMessages tool_result merging", () => {
       JSON.stringify([{ type: "text", text: "how are you?" }]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(3);
@@ -217,7 +206,7 @@ describe("handleListMessages tool_result merging", () => {
       JSON.stringify([{ type: "text", text: "Done." }]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(2);
@@ -252,7 +241,7 @@ describe("handleListMessages tool_result merging", () => {
       JSON.stringify([{ type: "text", text: "response" }]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     // User row dropped entirely; only the assistant survives.
@@ -284,7 +273,7 @@ describe("handleListMessages tool_result merging", () => {
       JSON.stringify([{ type: "text", text: "answering" }]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(2);
@@ -318,7 +307,7 @@ describe("handleListMessages tool_result merging", () => {
       JSON.stringify([{ type: "text", text: "ok" }]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(1);
@@ -375,7 +364,7 @@ describe("handleListMessages tool_result merging", () => {
       JSON.stringify([{ type: "text", text: "thanks" }]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     // Consecutive assistant messages are merged at query time so the client
@@ -425,7 +414,7 @@ describe("handleListMessages tool_result merging", () => {
       ]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id));
+    const response = await handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(2);

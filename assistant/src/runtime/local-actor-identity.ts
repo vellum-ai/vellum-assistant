@@ -57,12 +57,14 @@ export async function findLocalGuardianPrincipalId(): Promise<
   string | undefined
 > {
   const list = await getGuardianDelivery({ channelTypes: ["vellum"] });
-  if (!list) return undefined;
+  if (!list) {
+    return undefined;
+  }
   return guardianForChannel(list, "vellum")?.principalId ?? undefined;
 }
 
 /**
- * Resolve a decidable guardian principal for canonical guardian-request
+ * Resolve a decidable guardian principal for guardian-request
  * creation: the channel binding's principal when present, else the vellum
  * anchor principal (the adopt/repair path for guardian rows that carry no
  * principal). A falsy binding principal (`null` or `""`) is unresolved by
@@ -82,8 +84,8 @@ export async function resolveDecidableGuardianPrincipalId(
  * {@link findLocalGuardianPrincipalIdFromStore}, which reads only the IO-free
  * cache snapshot. On a cold cache (auth-disabled / local startup, before any
  * async `getGuardianDelivery` has run) it returns undefined, so the FIRST SSE
- * registration would carry no `actorPrincipalId` and host-proxy same-user
- * targeting would regress until a later reconnect warms the cache.
+ * registration would carry no `actorPrincipalId` until the route's async
+ * self-heal fills the hub record.
  *
  * Called during daemon startup (after the gateway IPC is reachable) so the
  * cache is populated before clients register. Best-effort: a cold gateway
@@ -100,13 +102,17 @@ export async function warmLocalGuardianPrincipalCache(): Promise<void> {
  * path (`events-routes`), which registers before the stream is created.
  *
  * Reads the same gateway-owned binding as the async path via a sync, IO-free
- * snapshot of the guardian-delivery cache (kept fresh by the async hot paths
- * and event-driven invalidation), so SSE registers the SAME principal the
- * send/result routes resolve.
+ * snapshot of the guardian-delivery cache, so SSE registers the SAME
+ * principal the send/result routes resolve. Returns `undefined` on a cold or
+ * expired cache (there is no fallback fetch); the SSE route compensates by
+ * resolving async after subscribe and filling the hub record
+ * (`fillClientActorPrincipalId`).
  */
 export function findLocalGuardianPrincipalIdFromStore(): string | undefined {
   const cached = peekCachedGuardianDelivery({ channelTypes: ["vellum"] });
-  if (!cached) return undefined;
+  if (!cached) {
+    return undefined;
+  }
   return guardianForChannel(cached, "vellum")?.principalId ?? undefined;
 }
 
@@ -134,10 +140,14 @@ export function findLocalGuardianPrincipalIdFromStore(): string | undefined {
 export async function resolveActorPrincipalIdForLocalGuardian(
   rawHeader: string | undefined,
 ): Promise<string | undefined> {
-  if (rawHeader !== "dev-bypass" || !isHttpAuthDisabled()) return rawHeader;
+  if (rawHeader !== "dev-bypass" || !isHttpAuthDisabled()) {
+    return rawHeader;
+  }
 
   const guardianPrincipalId = await findLocalGuardianPrincipalId();
-  if (guardianPrincipalId) return guardianPrincipalId;
+  if (guardianPrincipalId) {
+    return guardianPrincipalId;
+  }
 
   log.warn(
     "dev-bypass actor principal received but no vellum guardian binding found; returning undefined",
@@ -149,18 +159,22 @@ export async function resolveActorPrincipalIdForLocalGuardian(
  * Synchronous variant of {@link resolveActorPrincipalIdForLocalGuardian} for
  * the SSE eager-subscribe path, which registers before the response stream is
  * created and cannot await. Resolves the guardian from the IO-free gateway
- * cache snapshot first (same source the async path reads), falling back to the
- * local store when the cache is cold — so SSE registers the SAME principal the
- * send/result routes resolve and host-proxy targeting matches the same-user
- * client even when the local contact row is stale.
+ * cache snapshot only (same source the async path reads), so SSE registers
+ * the SAME principal the send/result routes resolve. On a cold cache this
+ * returns `undefined`; the SSE route then self-heals the registration via the
+ * async resolver once it completes.
  */
 export function resolveActorPrincipalIdForLocalGuardianSync(
   rawHeader: string | undefined,
 ): string | undefined {
-  if (rawHeader !== "dev-bypass" || !isHttpAuthDisabled()) return rawHeader;
+  if (rawHeader !== "dev-bypass" || !isHttpAuthDisabled()) {
+    return rawHeader;
+  }
 
   const guardianPrincipalId = findLocalGuardianPrincipalIdFromStore();
-  if (guardianPrincipalId) return guardianPrincipalId;
+  if (guardianPrincipalId) {
+    return guardianPrincipalId;
+  }
 
   log.warn(
     "dev-bypass actor principal received but no vellum guardian binding found; returning undefined",

@@ -11,13 +11,6 @@ const REBUILD_SENTINEL_PATH = join(
   ".memory-v1-rebuild-required",
 );
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../util/platform.js", () => ({
   getDataDir: () => TEST_DATA_DIR,
   // Bun shares mocked modules across test files; peer tests import

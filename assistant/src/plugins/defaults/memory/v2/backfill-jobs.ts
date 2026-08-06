@@ -2,44 +2,39 @@
 // Memory v2 — Backfill job handlers
 // ---------------------------------------------------------------------------
 //
-// Three operator-triggered backfills, all wired through the same job queue so
+// Two operator-triggered v2 backfills, wired through the same job queue so
 // they can be enqueued from the IPC route, the CLI, or recovery paths:
 //
 //   - `memory_v2_migrate`              — one-shot v1→v2 synthesis (PR 16).
-//   - `memory_v2_reembed`              — fan out an `embed_concept_page` job
-//     per concept-page slug.
 //   - `memory_v2_activation_recompute` — recompute persisted activation
 //     state for every conversation, no rendering. Used after consolidation
 //     replaces or deletes pages that other conversations still reference.
 //
 // Each handler is intentionally small — heavy lifting lives in the modules
-// they delegate to (`migration.ts`, `page-store.ts`, `embed-concept-page.ts`,
-// `activation.ts`, `activation-store.ts`). Keeping the wrappers thin means
-// the same code paths exercised by tests of those modules run unchanged when
-// a backfill kicks them off.
+// they delegate to (`migration.ts`, `activation.ts`, `activation-store.ts`).
+// Keeping the wrappers thin means the same code paths exercised by tests of
+// those modules run unchanged when a backfill kicks them off.
+
+import {
+  getMessages,
+  listConversations,
+  stringifyMessageContent,
+} from "@vellumai/plugin-api";
 
 import type { AssistantConfig } from "../../../../config/types.js";
-import { getMessages } from "../../../../persistence/conversation-crud.js";
-import { listConversations } from "../../../../persistence/conversation-queries.js";
-import { getDb } from "../../../../persistence/db-connection.js";
+import { getMemoryDb } from "../../../../persistence/db-connection.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
-import { stringifyMessageContent } from "../../../../persistence/message-content.js";
-import { getLogger } from "../../../../util/logger.js";
-import { getWorkspaceDir } from "../../../../util/platform.js";
-import { enqueueEmbedConceptPageJob } from "../jobs/embed-concept-page.js";
-import {
-  computeOwnActivation,
-  selectCandidates,
-  spreadActivation,
-} from "./activation.js";
+import { getLogger } from "../logging.js";
+import { getWorkspaceDir } from "../paths.js";
+import { getEdgeIndex } from "../substrate/edge-index.js";
+import { spreadActivation } from "../substrate/spread.js";
+import { computeOwnActivation, selectCandidates } from "./activation.js";
 import { hydrate, save } from "./activation-store.js";
-import { getEdgeIndex } from "./edge-index.js";
 import {
   MigrationAlreadyAppliedError,
   runMemoryV2Migration,
 } from "./migration.js";
 import { loadNowText } from "./now-text.js";
-import { listPages } from "./page-store.js";
 
 const log = getLogger("memory-v2-backfill");
 
@@ -62,10 +57,20 @@ export async function memoryV2MigrateJob(
   const force =
     typeof job.payload.force === "boolean" ? job.payload.force : false;
 
+  // The v1 graph the migration reads now lives in the dedicated memory
+  // database, so gatherV1State reads it there. Defer (throw for retry) if that
+  // connection cannot be opened rather than migrating an empty graph.
+  const database = getMemoryDb();
+  if (!database) {
+    throw new Error(
+      "memory database unavailable — deferring memory v2 migration",
+    );
+  }
+
   try {
     const result = await runMemoryV2Migration({
       workspaceDir: getWorkspaceDir(),
-      database: getDb(),
+      database,
       force,
       config,
     });
@@ -86,42 +91,6 @@ export async function memoryV2MigrateJob(
     }
     throw err;
   }
-}
-
-// ---------------------------------------------------------------------------
-// memory_v2_reembed — fan out embed jobs for every concept page
-// ---------------------------------------------------------------------------
-
-/**
- * Job handler: enqueue an `embed_concept_page` job per concept-page slug.
- *
- * Returns the total number of jobs enqueued. Callers (and tests) use the
- * return value to assert progress without inspecting the job table directly.
- *
- * Note on meta files: `essentials.md` / `threads.md` / `recent.md` /
- * `buffer.md` are direct-injected into the system prompt every turn via
- * `_autoinject.md`. They are NOT enqueued for embedding here — their slugs
- * (`__essentials__` etc.) contain underscores that the concept-page slug
- * validator rejects (`[a-z0-9][a-z0-9-]*`), and they live at `memory/<name>.md`
- * rather than `memory/concepts/<name>.md`, so path resolution would also miss.
- * Embedding them would be redundant with the direct injection regardless.
- */
-export async function memoryV2ReembedJob(
-  _job: MemoryJob,
-  _config: AssistantConfig,
-): Promise<number> {
-  const workspaceDir = getWorkspaceDir();
-  const slugs = await listPages(workspaceDir);
-
-  for (const slug of slugs) {
-    enqueueEmbedConceptPageJob({ slug });
-  }
-
-  log.info(
-    { conceptPages: slugs.length, total: slugs.length },
-    "Memory v2 reembed enqueued",
-  );
-  return slugs.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,12 +124,11 @@ export async function memoryV2ActivationRecomputeJob(
   config: AssistantConfig,
 ): Promise<number> {
   const workspaceDir = getWorkspaceDir();
-  const database = getDb();
 
   // Activation maps still need to refresh for archived conversations — a
   // consolidated page can leave stale slugs above epsilon in their persisted
   // state — so this job opts back into seeing archived rows.
-  const conversations = listConversations(
+  const conversations = await listConversations(
     ACTIVATION_RECOMPUTE_CONVERSATION_LIMIT,
     "standard",
     0,
@@ -171,8 +139,10 @@ export async function memoryV2ActivationRecomputeJob(
 
   let updated = 0;
   for (const conv of conversations) {
-    const priorState = await hydrate(database, conv.id);
-    if (!priorState) continue; // Nothing to recompute when no row exists.
+    const priorState = await hydrate(conv.id);
+    if (!priorState) {
+      continue;
+    } // Nothing to recompute when no row exists.
 
     let nextState;
     try {
@@ -191,8 +161,10 @@ export async function memoryV2ActivationRecomputeJob(
       continue;
     }
 
-    if (!nextState) continue;
-    await save(database, conv.id, nextState);
+    if (!nextState) {
+      continue;
+    }
+    await save(conv.id, nextState);
     updated += 1;
   }
 
@@ -224,8 +196,10 @@ async function recomputeForConversation(
 ): Promise<Awaited<ReturnType<typeof hydrate>> | null> {
   const { conversationId, priorState, edgeIndex, nowText, config } = params;
 
-  const { userText, assistantText } = lastExchangeTexts(conversationId);
-  if (!userText && !assistantText) return null;
+  const { userText, assistantText } = await lastExchangeTexts(conversationId);
+  if (!userText && !assistantText) {
+    return null;
+  }
 
   const { candidates } = await selectCandidates({
     priorState,
@@ -252,7 +226,9 @@ async function recomputeForConversation(
   const epsilon = config.memory.v2.epsilon;
   const sparseState: Record<string, number> = {};
   for (const [slug, value] of spread) {
-    if (value > epsilon) sparseState[slug] = value;
+    if (value > epsilon) {
+      sparseState[slug] = value;
+    }
   }
 
   return {
@@ -274,12 +250,14 @@ async function recomputeForConversation(
  * circuit cleanly. Tool-call content is dropped (only `text` blocks survive)
  * — same shape `loadRecentMessagesText` produces in `sweep-job.ts`.
  */
-function lastExchangeTexts(conversationId: string): {
+async function lastExchangeTexts(conversationId: string): Promise<{
   userText: string;
   assistantText: string;
-} {
-  const all = getMessages(conversationId);
-  if (all.length === 0) return { userText: "", assistantText: "" };
+}> {
+  const all = await getMessages(conversationId);
+  if (all.length === 0) {
+    return { userText: "", assistantText: "" };
+  }
 
   let userText = "";
   let assistantText = "";
@@ -290,7 +268,9 @@ function lastExchangeTexts(conversationId: string): {
     } else if (!assistantText && row.role === "assistant") {
       assistantText = stringifyMessageContent(row.content);
     }
-    if (userText && assistantText) break;
+    if (userText && assistantText) {
+      break;
+    }
   }
   return { userText, assistantText };
 }

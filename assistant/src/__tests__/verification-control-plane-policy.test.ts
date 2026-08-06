@@ -12,52 +12,7 @@ import type { ToolExecutionResult } from "../tools/types.js";
 
 // -- Module mocks (must precede real imports) --
 
-const mockConfig = {
-  provider: "anthropic",
-  model: "test",
-  maxTokens: 4096,
-  dataDir: "/tmp",
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-  },
-  sandbox: {
-    enabled: false,
-    backend: "native" as const,
-    docker: {
-      image: "vellum-sandbox:latest",
-      cpus: 1,
-      memoryMb: 512,
-      pidsLimit: 256,
-      network: "none" as const,
-    },
-  },
-  rateLimit: { maxRequestsPerMinute: 0 },
-  secretDetection: {
-    enabled: false,
-  },
-};
-
 let fakeToolResult: ToolExecutionResult = { content: "ok", isError: false };
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
 
 mock.module("../permissions/checker.js", () => ({
   isDynamicSkillLoadInvocation: () => false,
@@ -107,6 +62,19 @@ function resetAuditCalls(): void {
 
 mock.module("../tools/registry.js", () => ({
   getTool: (name: string) => {
+    if (name === "unknown_tool") {
+      return undefined;
+    }
+    return {
+      name,
+      description: "test tool",
+      category: "test",
+      defaultRiskLevel: "low",
+      input_schema: {},
+      execute: async () => fakeToolResult,
+    };
+  },
+  resolveTool: (name: string) => {
     if (name === "unknown_tool") {
       return undefined;
     }

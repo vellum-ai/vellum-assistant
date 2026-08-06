@@ -6,47 +6,118 @@
  */
 
 import {
-    queryOptions,
-    useMutation,
-    useQuery,
-    useQueryClient,
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
 } from "@tanstack/react-query";
 import {
-    Download,
-    FileIcon,
-    FileText,
-    FolderOpen,
-    Image as ImageIcon,
-    Loader2,
-    Video,
+  Download,
+  FileIcon,
+  FileText,
+  FolderOpen,
+  Image as ImageIcon,
+  Loader2,
+  Video,
 } from "lucide-react";
-import {
-    useCallback,
-    useEffect,
-    useState,
-    type ReactNode,
-} from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import {
-    ContentActionBar,
-    EditFooter,
-    FileTextarea,
-    SourcePre,
+  ContentActionBar,
+  EditFooter,
+  FileTextarea,
+  SourcePre,
 } from "@/components/file-editor";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
-import { downloadWorkspaceFile } from "@/domains/workspace/utils/download-workspace-file";
 import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json";
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
 import { isHiddenPath } from "@/domains/workspace/utils/is-hidden-path";
 import {
-    workspaceFileContentGet,
-    workspaceFileGet,
-    workspaceWritePost,
+  workspaceFileContentGet,
+  workspaceFileGet,
+  workspaceWritePost,
 } from "@/generated/daemon/sdk.gen";
 import type { WorkspaceFileGetResponse } from "@/generated/daemon/types.gen";
+import { downloadWorkspaceFile } from "@/utils/download-workspace-file";
 import { Button } from "@vellumai/design-library/components/button";
 
 import type { WorkspaceViewMode } from "@/domains/workspace/components/workspace-browser";
+
+/**
+ * Download state for a single workspace file — shared by the binary-fallback
+ * card and the preview header's download affordance so both surfaces report
+ * in-progress and failure the same way.
+ */
+function useWorkspaceFileDownload(opts: {
+  assistantId: string;
+  path: string;
+  name: string;
+  showHidden?: boolean;
+}) {
+  const { assistantId, path, name, showHidden } = opts;
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [error, setError] = useState(false);
+
+  const download = useCallback(async () => {
+    setError(false);
+    setIsDownloading(true);
+    try {
+      await downloadWorkspaceFile({
+        assistantId,
+        path,
+        filename: name,
+        showHidden,
+      });
+    } catch {
+      setError(true);
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [assistantId, path, name, showHidden]);
+
+  return { isDownloading, error, download };
+}
+
+/**
+ * Icon-only download button for a previewed file's header. Images, video, and
+ * other inline-rendered files have no other download path, so this lives in the
+ * header's top-right corner alongside any view-mode controls.
+ */
+function HeaderDownloadButton({
+  assistantId,
+  path,
+  name,
+  showHidden,
+}: {
+  assistantId: string;
+  path: string;
+  name: string;
+  showHidden?: boolean;
+}) {
+  const { isDownloading, error, download } = useWorkspaceFileDownload({
+    assistantId,
+    path,
+    name,
+    showHidden,
+  });
+  return (
+    <Button
+      variant="ghost"
+      size="regular"
+      iconOnly={
+        isDownloading ? (
+          <Loader2 className="animate-spin" aria-hidden />
+        ) : (
+          <Download aria-hidden />
+        )
+      }
+      onClick={() => void download()}
+      disabled={isDownloading}
+      aria-label={`Download ${name}`}
+      tooltip={error ? "Download failed. Try again." : "Download"}
+    />
+  );
+}
 
 function workspaceFileRetrieveOptions(opts: {
   path: { assistant_id: string };
@@ -61,7 +132,9 @@ function workspaceFileRetrieveOptions(opts: {
           ...(opts.query.showHidden ? { showHidden: "true" } : {}),
         },
       });
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
       return data!;
     },
     queryKey: ["assistantsWorkspaceFileRetrieve", opts],
@@ -72,9 +145,11 @@ function FileHeaderIcon({ mimeType }: { mimeType: string }) {
   const semi = mimeType.indexOf(";");
   const baseMime = (semi === -1 ? mimeType : mimeType.slice(0, semi)).trim();
   let Icon = FileText;
-  if (baseMime.startsWith("image/")) Icon = ImageIcon;
-  else if (baseMime.startsWith("video/")) Icon = Video;
-  else if (
+  if (baseMime.startsWith("image/")) {
+    Icon = ImageIcon;
+  } else if (baseMime.startsWith("video/")) {
+    Icon = Video;
+  } else if (
     !baseMime.startsWith("text/") &&
     baseMime !== "application/json" &&
     baseMime !== "application/octet-stream"
@@ -192,7 +267,9 @@ function BinaryContentViewer({
         query: { path, ...(showHidden ? { showHidden: "true" } : {}) },
         parseAs: "blob",
       });
-      if (res.error) throw res.error;
+      if (res.error) {
+        throw res.error;
+      }
       return res.data!;
     },
     queryKey: [
@@ -205,7 +282,9 @@ function BinaryContentViewer({
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!blob) return;
+    if (!blob) {
+      return;
+    }
     const url = URL.createObjectURL(blob);
     setObjectUrl(url);
     return () => {
@@ -225,7 +304,9 @@ function BinaryContentViewer({
     );
   }
 
-  if (!objectUrl) return null;
+  if (!objectUrl) {
+    return null;
+  }
 
   if (mimeType.startsWith("image/")) {
     return (
@@ -271,20 +352,11 @@ function BinaryFileCard({
   modifiedAt?: string | null;
   showHidden?: boolean;
 }) {
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [error, setError] = useState(false);
-
-  const handleDownload = useCallback(async () => {
-    setError(false);
-    setIsDownloading(true);
-    try {
-      await downloadWorkspaceFile({ assistantId, path, filename: name, showHidden });
-    } catch {
-      setError(true);
-    } finally {
-      setIsDownloading(false);
-    }
-  }, [assistantId, path, name, showHidden]);
+  const {
+    isDownloading,
+    error,
+    download: handleDownload,
+  } = useWorkspaceFileDownload({ assistantId, path, name, showHidden });
 
   return (
     <div className="flex h-full flex-col">
@@ -406,7 +478,9 @@ export function WorkspaceFileViewer({
   // folder) is renamed — otherwise the draft is orphaned under the old path
   // and silently disappears from the editor.
   useEffect(() => {
-    if (!pathRename) return;
+    if (!pathRename) {
+      return;
+    }
     const { from, to } = pathRename;
     const remap = (p: string) =>
       p === from
@@ -424,7 +498,9 @@ export function WorkspaceFileViewer({
   // recreating the same path doesn't resurrect the old contents — and Save
   // can't write them into the new file.
   useEffect(() => {
-    if (!pathDelete) return;
+    if (!pathDelete) {
+      return;
+    }
     const { path } = pathDelete;
     const covers = (p: string) => p === path || p.startsWith(`${path}/`);
     setEditingPath((prev) => (prev != null && covers(prev) ? null : prev));
@@ -567,7 +643,9 @@ export function WorkspaceFileViewer({
             <ViewModeToggle
               viewMode={viewMode}
               onChange={(mode) => {
-                if (isEditing) stopEditing();
+                if (isEditing) {
+                  stopEditing();
+                }
                 onChangeViewMode(mode);
               }}
             />
@@ -625,7 +703,9 @@ export function WorkspaceFileViewer({
             <ViewModeToggle
               viewMode={viewMode}
               onChange={(mode) => {
-                if (isEditing) stopEditing();
+                if (isEditing) {
+                  stopEditing();
+                }
                 onChangeViewMode(mode);
               }}
             />
@@ -707,7 +787,19 @@ export function WorkspaceFileViewer({
   if (mimeType.startsWith("image/") || mimeType.startsWith("video/")) {
     return (
       <div className="flex h-full flex-col">
-        <FileHeader name={name} mimeType={mimeType} size={data.size} />
+        <FileHeader
+          name={name}
+          mimeType={mimeType}
+          size={data.size}
+          rightContent={
+            <HeaderDownloadButton
+              assistantId={assistantId}
+              path={selectedPath}
+              name={name}
+              showHidden={showHidden}
+            />
+          }
+        />
         <div className="flex-1 overflow-auto">
           <BinaryContentViewer
             assistantId={assistantId}

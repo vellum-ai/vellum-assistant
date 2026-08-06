@@ -86,9 +86,12 @@ export interface BusEventMap {
   "sse.closed": { reason: string };
   /**
    * Published by `useEventStream`'s reachability-retry burst limiter
-   * after the reachability probe flips back to "ready". Tells the bus
-   * to close + reopen its SSE connection so the conversation-scoped
-   * reconcile pass can run.
+   * when the reachability probe recovers into "ready" from a degraded
+   * phase ("connecting", "checking", or "failed"). Tells the bus to
+   * close + reopen its SSE connection so the conversation-scoped
+   * reconcile pass can run. A "ready" entered from "idle" or "ready"
+   * confirms an already-healthy stream (boot, remount) and does not
+   * publish.
    */
   "reachability.retry-requested": Record<string, never>;
   /**
@@ -141,6 +144,45 @@ export interface BusEventMap {
    */
   "deeplink.send": { message: string };
   "deeplink.openThread": { threadId: string };
+  /**
+   * Stripe Checkout finished for a checkout the Electron shell started
+   * in the system browser. The platform bounces the browser to
+   * `<scheme>://billing/checkout-complete`; the billing domain consumes
+   * this to land the user back on billing (and open the post-checkout
+   * Pro onboarding wizard on success).
+   */
+  "deeplink.billingCheckoutComplete":
+    | { status: "success"; sessionId: string }
+    | { status: "cancel"; sessionId: null };
+  /**
+   * The user asked to talk, from outside the SPA:
+   * `<scheme>://voice?mode=new|resume&prompt=…`. The single native→SPA
+   * voice command channel — Siri / the Action Button (App Intents), the
+   * Dynamic Island Live Activity's tap-to-return `widgetURL`, and
+   * manual test links all publish through it.
+   *
+   * `useGlobalDeepLinkConsumer` navigates and hands the request to the
+   * live-voice starter, parking it when the layout-scoped session
+   * controller has not mounted yet (cold launch).
+   *
+   * `prompt` is what the user already said before the app was up (Siri's
+   * "Ask …" intent). It is `null` unless the link carried usable text —
+   * `parseStartVoiceDeepLink` bounds and sanitizes it, so subscribers get
+   * either trustworthy text or nothing.
+   */
+  "deeplink.startVoice": { mode: "new" | "resume"; prompt: string | null };
+  /**
+   * Electron host only: inbound `<scheme>://connect` URL from the pair
+   * page's "Open in the Vellum app" button or a `vellum pair --qr --app`
+   * QR code. `bundle` is a pairing bundle that prefills the connect
+   * dialog's paste field; it is secret material, so consumers must never
+   * log or breadcrumb it. `url` is the https server base a url+code link
+   * carried (the device-code exchange cannot produce a durable desktop
+   * pairing, so those links get guidance naming the host instead).
+   * `useGlobalDeepLinkConsumer` parks the request in the connect-dialog
+   * store and navigates to the assistant chooser.
+   */
+  "deeplink.connect": { url: string | null; bundle: string | null };
   "deeplink.unknown": { url: string };
   /**
    * Connectivity state change from the Electron host. Main fuses
@@ -187,9 +229,13 @@ export function subscribe<K extends BusEventName>(
   set.add(handler as AnyHandler);
   return () => {
     const current = handlers.get(event);
-    if (!current) return;
+    if (!current) {
+      return;
+    }
     current.delete(handler as AnyHandler);
-    if (current.size === 0) handlers.delete(event);
+    if (current.size === 0) {
+      handlers.delete(event);
+    }
   };
 }
 
@@ -199,7 +245,9 @@ export function publish<K extends BusEventName>(
   payload: BusEventPayload<K>,
 ): void {
   const set = handlers.get(event);
-  if (!set || set.size === 0) return;
+  if (!set || set.size === 0) {
+    return;
+  }
   // Snapshot before iterating so handlers that unsubscribe (or
   // resubscribe) during dispatch don't mutate the in-flight set.
   for (const handler of Array.from(set)) {

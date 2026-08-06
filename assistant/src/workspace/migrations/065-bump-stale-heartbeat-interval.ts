@@ -25,20 +25,29 @@ export const bumpStaleHeartbeatIntervalMigration: WorkspaceMigration = {
     "Bump legacy heartbeat.intervalMs defaults of 3h/6h to the current 30-minute default",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const heartbeat = config.heartbeat;
-    if (!heartbeat || typeof heartbeat !== "object" || Array.isArray(heartbeat))
+    if (
+      !heartbeat ||
+      typeof heartbeat !== "object" ||
+      Array.isArray(heartbeat)
+    ) {
       return;
+    }
 
     const heartbeatConfig = heartbeat as Record<string, unknown>;
     const intervalMs = heartbeatConfig.intervalMs;

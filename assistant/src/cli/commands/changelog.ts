@@ -23,8 +23,16 @@ import { dirname, join } from "node:path";
 import type { Command } from "commander";
 
 import { getWorkspaceDir } from "../../util/platform.js";
+import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
+import {
+  CACHE_STABLE_LIMIT,
+  changelogHelp,
+  DEFAULT_LIST_LIMIT,
+  LIST_TTL_MS,
+  REPO,
+} from "./changelog.help.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -61,16 +69,7 @@ interface CacheStore {
 
 // ── Config ───────────────────────────────────────────────────────────
 
-const REPO = "vellum-ai/vellum-assistant";
-const LIST_TTL_MS = 60 * 60 * 1000;
-const DEFAULT_LIST_LIMIT = 30;
 const MAX_LIST_LIMIT = 100;
-/**
- * Maximum number of stable releases we persist in the rolling `recent` slot.
- * Most callers only ever read the latest one or two; capping the cache keeps
- * the file small and the network round-trip predictable.
- */
-const CACHE_STABLE_LIMIT = 5;
 /**
  * When fetching, request a page size that comfortably covers the caller's
  * requested limit plus a small buffer to absorb the occasional draft or
@@ -90,7 +89,9 @@ function getCachePath(): string {
 function readCache(): CacheStore | null {
   try {
     const path = getCachePath();
-    if (!existsSync(path)) return null;
+    if (!existsSync(path)) {
+      return null;
+    }
     const parsed = JSON.parse(
       readFileSync(path, "utf-8"),
     ) as Partial<CacheStore>;
@@ -121,7 +122,9 @@ function writeCache(store: CacheStore): void {
 
 function isStale(cache: CacheStore): boolean {
   const fetchedAt = Date.parse(cache.fetchedAt);
-  if (Number.isNaN(fetchedAt)) return true;
+  if (Number.isNaN(fetchedAt)) {
+    return true;
+  }
   return Date.now() - fetchedAt > LIST_TTL_MS;
 }
 
@@ -173,7 +176,9 @@ async function fetchReleaseList(limit: number): Promise<GitHubRelease[]> {
 async function fetchReleaseByTag(tag: string): Promise<GitHubRelease | null> {
   const url = `https://api.github.com/repos/${REPO}/releases/tags/${encodeURIComponent(tag)}`;
   const res = await githubFetch(url);
-  if (res.status === 404) return null;
+  if (res.status === 404) {
+    return null;
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(describeGithubError(res.status, text));
@@ -249,10 +254,14 @@ async function loadReleaseByTag(
     const cache = readCache();
     const hit =
       cache?.byTag[tag] ?? cache?.recent.find((r) => r.tag_name === tag);
-    if (hit) return hit;
+    if (hit) {
+      return hit;
+    }
   }
   const release = await fetchReleaseByTag(tag);
-  if (release) persistByTag(release);
+  if (release) {
+    persistByTag(release);
+  }
   return release;
 }
 
@@ -285,7 +294,9 @@ function compareTags(a: string, b: string): number {
   const len = Math.max(pa.length, pb.length);
   for (let i = 0; i < len; i++) {
     const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (diff !== 0) return diff;
+    if (diff !== 0) {
+      return diff;
+    }
   }
   return 0;
 }
@@ -296,16 +307,25 @@ function renderRelease(r: GitHubRelease): string {
   const heading = r.name && r.name.trim().length > 0 ? r.name : r.tag_name;
   const date = r.published_at ? r.published_at.slice(0, 10) : "";
   const lines = [`# ${heading}`];
-  if (date) lines.push(`Published: ${date}`);
-  if (r.html_url) lines.push(r.html_url);
+  if (date) {
+    lines.push(`Published: ${date}`);
+  }
+  if (r.html_url) {
+    lines.push(r.html_url);
+  }
   lines.push("");
-  if (r.body && r.body.trim().length > 0) lines.push(r.body.trim());
-  else lines.push("(no release body)");
+  if (r.body && r.body.trim().length > 0) {
+    lines.push(r.body.trim());
+  } else {
+    lines.push("(no release body)");
+  }
   return lines.join("\n");
 }
 
 function renderList(releases: GitHubRelease[]): string {
-  if (releases.length === 0) return "No releases found.";
+  if (releases.length === 0) {
+    return "No releases found.";
+  }
   const tagWidth = Math.max(...releases.map((r) => r.tag_name.length), 6);
   return releases
     .map((r) => {
@@ -320,7 +340,9 @@ function renderList(releases: GitHubRelease[]): string {
 
 function parseLimit(input: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(String(input ?? ""), 10);
-  if (Number.isNaN(parsed) || parsed <= 0) return fallback;
+  if (Number.isNaN(parsed) || parsed <= 0) {
+    return fallback;
+  }
   return Math.min(parsed, MAX_LIST_LIMIT);
 }
 
@@ -356,8 +378,11 @@ async function runDefault(opts: DefaultOpts): Promise<void> {
       .filter((r) => compareTags(r.tag_name, floor) > 0)
       .sort((a, b) => compareTags(b.tag_name, a.tag_name));
     if (newer.length === 0) {
-      if (useJson) emit(JSON.stringify({ releases: [] }));
-      else log.info(`No releases newer than ${floor}.`);
+      if (useJson) {
+        emit(JSON.stringify({ releases: [] }));
+      } else {
+        log.info(`No releases newer than ${floor}.`);
+      }
       return;
     }
     if (useJson) {
@@ -376,8 +401,11 @@ async function runDefault(opts: DefaultOpts): Promise<void> {
     emitError("No releases found.");
   }
   const latest = releases[0];
-  if (useJson) emit(JSON.stringify(latest, null, 2));
-  else emit(renderRelease(latest));
+  if (useJson) {
+    emit(JSON.stringify(latest, null, 2));
+  } else {
+    emit(renderRelease(latest));
+  }
 }
 
 async function runShow(version: string, opts: CommonOpts): Promise<void> {
@@ -388,8 +416,11 @@ async function runShow(version: string, opts: CommonOpts): Promise<void> {
   if (!release) {
     emitError(`No release found for tag ${tag}.`);
   }
-  if (useJson) emit(JSON.stringify(release, null, 2));
-  else emit(renderRelease(release));
+  if (useJson) {
+    emit(JSON.stringify(release, null, 2));
+  } else {
+    emit(renderRelease(release));
+  }
 }
 
 async function runList(opts: CommonOpts): Promise<void> {
@@ -416,63 +447,32 @@ async function withErrorHandling(fn: () => Promise<void>): Promise<void> {
 
 export function registerChangelogCommand(program: Command): void {
   registerCommand(program, {
-    name: "changelog",
+    name: changelogHelp.name,
     transport: "local",
-    description:
-      "Show release notes of the Vellum Assistant to see what new capabilities you have!",
+    description: changelogHelp.description,
     build: (cmd) => {
-      cmd.addHelpText(
-        "after",
-        `
-Release notes are fetched on demand from the public GitHub Releases of
-${REPO}. The most recent ${CACHE_STABLE_LIMIT} stable releases are cached
-locally for ${LIST_TTL_MS / 60_000} minutes; pass --no-cache to bypass.
-Specific tags are cached indefinitely once seen because release tags are
-immutable.
+      // Shared flags live on the parent (declared in the help data) so
+      // they're inherited by subcommands via `command.optsWithGlobals()`.
+      // Declaring the same flag on both parent and subcommand confuses
+      // commander's option resolution — the parent wins and the
+      // subcommand's copy never gets populated.
+      applyCommandHelp(cmd, changelogHelp);
 
-Examples:
-  $ assistant changelog                       Show the latest release
-  $ assistant changelog --since 0.7.0         Show every release since 0.7.0
-  $ assistant changelog show 0.8.0            Show a specific release
-  $ assistant changelog list                  List recent release tags
-  $ assistant changelog --json                JSON output for tooling`,
-      );
+      cmd.action(async (opts: DefaultOpts) => {
+        await withErrorHandling(() => runDefault(opts));
+      });
 
-      // Shared flags live on the parent so they're inherited by subcommands
-      // via `command.optsWithGlobals()`. Declaring the same flag on both
-      // parent and subcommand confuses commander's option resolution — the
-      // parent wins and the subcommand's copy never gets populated.
-      cmd
-        .option(
-          "--since <version>",
-          "Show notes for every stable release newer than this version (e.g. 0.7.0)",
-        )
-        .option("--no-cache", "Bypass the local cache")
-        .option("--json", "Output structured JSON")
-        .option(
-          "--limit <n>",
-          "Max releases to consider when listing or filtering (1-100)",
-          String(DEFAULT_LIST_LIMIT),
-        )
-        .action(async (opts: DefaultOpts) => {
-          await withErrorHandling(() => runDefault(opts));
-        });
-
-      cmd
-        .command("show <version>")
-        .description("Show release notes for a specific version tag")
-        .action(async (version: string, _opts, command: Command) => {
+      subcommand(cmd, "show").action(
+        async (version: string, _opts, command: Command) => {
           const merged = command.optsWithGlobals() as CommonOpts;
           await withErrorHandling(() => runShow(version, merged));
-        });
+        },
+      );
 
-      cmd
-        .command("list")
-        .description("List recent release tags")
-        .action(async (_opts, command: Command) => {
-          const merged = command.optsWithGlobals() as CommonOpts;
-          await withErrorHandling(() => runList(merged));
-        });
+      subcommand(cmd, "list").action(async (_opts, command: Command) => {
+        const merged = command.optsWithGlobals() as CommonOpts;
+        await withErrorHandling(() => runList(merged));
+      });
     },
   });
 }

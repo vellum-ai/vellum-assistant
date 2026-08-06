@@ -1,6 +1,6 @@
 /**
  * Handles actions a sandboxed app viewer dispatches through
- * `window.vellum.sendAction(actionId, data)`. Two independent actions:
+ * `window.vellum.sendAction(actionId, data)`. Three independent actions:
  *
  * - `relay_prompt` ({ prompt, conversation }) — sends `prompt` to a conversation
  *   via the `?prompt=` auto-send pathway (see `use-auto-send-effects.ts`).
@@ -8,6 +8,11 @@
  *   fresh draft). It never touches the layout. Each relay carries a unique
  *   token so the auto-send dedupe re-fires even when the same prompt is relayed
  *   repeatedly. No-op for `"active"` when no conversation is open.
+ *
+ * - `open_conversation` ({ conversationId }) — navigates to an existing
+ *   conversation by ID without sending a message. Used by plugins that
+ *   manage their own background conversations (e.g. battleship) to let the
+ *   user view the conversation from within the app UI.
  *
  * - `set_view` ({ view }) — moves the app panel: `"split"` (side by side with
  *   chat), `"full"` (full-width), or `"chat"` (close the app). Side-by-side has
@@ -35,7 +40,9 @@ function relayPrompt(
   data?: Record<string, unknown>,
 ): void {
   const prompt = typeof data?.prompt === "string" ? data.prompt : "";
-  if (!prompt) return;
+  if (!prompt) {
+    return;
+  }
 
   let conversationId: string | null;
   if (data?.conversation === "new") {
@@ -44,11 +51,26 @@ function relayPrompt(
   } else {
     conversationId = useConversationStore.getState().activeConversationId;
   }
-  if (!conversationId) return;
+  if (!conversationId) {
+    return;
+  }
 
   ctx.navigate(
     routes.conversationWithPrompt(conversationId, prompt, crypto.randomUUID()),
   );
+}
+
+function openConversation(
+  ctx: AppViewerActionContext,
+  data?: Record<string, unknown>,
+): void {
+  const conversationId =
+    typeof data?.conversationId === "string" ? data.conversationId : "";
+  if (!conversationId) {
+    return;
+  }
+  useConversationStore.getState().setActiveConversationId(conversationId);
+  ctx.navigate(routes.conversation(conversationId));
 }
 
 function setView(
@@ -61,13 +83,19 @@ function setView(
       viewer.closeApp();
       return;
     case "full":
-      if (viewer.mainView === "app-editing") viewer.exitAppEditing();
+      if (viewer.mainView === "app-editing") {
+        viewer.exitAppEditing();
+      }
       return;
     case "split": {
-      if (ctx.isMobile) return;
+      if (ctx.isMobile) {
+        return;
+      }
       const conversationId =
         useConversationStore.getState().activeConversationId;
-      if (!conversationId) return;
+      if (!conversationId) {
+        return;
+      }
       useConversationStore.getState().setEditingConversationId(conversationId);
       viewer.enterAppEditing();
       return;
@@ -84,6 +112,8 @@ export function handleAppViewerAction(
 ): void {
   if (actionId === "relay_prompt") {
     relayPrompt(ctx, data);
+  } else if (actionId === "open_conversation") {
+    openConversation(ctx, data);
   } else if (actionId === "set_view") {
     setView(ctx, data);
   }

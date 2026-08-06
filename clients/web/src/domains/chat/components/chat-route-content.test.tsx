@@ -107,14 +107,15 @@ mock.module("motion/react", () => ({
       get: (_target, tag) => (props: Record<string, unknown>) => {
         const domProps: Record<string, unknown> = {};
         for (const key in props) {
-          if (!MOTION_ONLY_PROPS.has(key)) domProps[key] = props[key];
+          if (!MOTION_ONLY_PROPS.has(key)) {
+            domProps[key] = props[key];
+          }
         }
         return createElement(MotionStub, {
           ...domProps,
           tag: String(tag),
           onAnimationComplete: props.onAnimationComplete as
-            | (() => void)
-            | undefined,
+            (() => void) | undefined,
         });
       },
     },
@@ -160,6 +161,7 @@ function Harness({
     mainView: "chat",
     openedAppState: null,
     isAssistantBusy: false,
+    showCreditsUpsell: false,
     onSelectStarter: () => {},
     onSelectSuggestion: setSelected,
   });
@@ -190,7 +192,9 @@ function Harness({
         <BottomSheet.Root
           open={Boolean(selected)}
           onOpenChange={(next) => {
-            if (!next) handleClose();
+            if (!next) {
+              handleClose();
+            }
           }}
         >
           <BottomSheet.Content aria-describedby={undefined}>

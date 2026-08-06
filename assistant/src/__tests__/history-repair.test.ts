@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
-import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
+import { deepRepairHistory } from "../agent/history-repair/history-repair.js";
+import { isRepairableOrderingError } from "../agent/history-repair/history-repair.js";
+import { repairHistory } from "../agent/history-repair/history-repair.js";
 import type { Message } from "../providers/types.js";
 
 describe("repairHistory", () => {
@@ -571,8 +572,10 @@ describe("repairHistory", () => {
     ).toBe(true);
   });
 
-  test("trailing server_tool_use gets synthetic result in same assistant message", () => {
-    // No trailing user message needed — result goes in the assistant message
+  test("trailing server_tool_use is preserved as a deferred execution", () => {
+    // An unanswered server_tool_use at the tail is a deferred search the
+    // provider executes on the next request; repairing it would cancel the
+    // search.
     const messages: Message[] = [
       { role: "user", content: [{ type: "text", text: "Go" }] },
       {
@@ -590,19 +593,105 @@ describe("repairHistory", () => {
 
     const { messages: repaired, stats } = repairHistory(messages);
 
-    expect(stats.missingToolResultsInserted).toBe(1);
-    // Result is in the assistant message
+    expect(stats.missingToolResultsInserted).toBe(0);
     expect(repaired).toHaveLength(2);
     expect(repaired[1].role).toBe("assistant");
-    expect(repaired[1].content).toHaveLength(2);
-    expect(repaired[1].content[1]).toMatchObject({
-      type: "web_search_tool_result",
-      tool_use_id: "stu_1",
-      content: {
-        type: "web_search_tool_result_error",
-        error_code: "unavailable",
-      },
+    expect(repaired[1].content).toHaveLength(1);
+    expect(repaired[1].content[0]).toMatchObject({
+      type: "server_tool_use",
+      id: "stu_1",
     });
+  });
+
+  test("deferred mixed tail (tool_use + server_tool_use, then tool_result) survives a reload untouched", () => {
+    // Persisted mid-deferral shape: the model called a client tool and a
+    // search in one parallel group, the client result came back, and the
+    // daemon reloaded before the next model call ran the search.
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Check both" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu_a", name: "file_read", input: {} },
+          {
+            type: "server_tool_use",
+            id: "stu_deferred",
+            name: "web_search",
+            input: { query: "news" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tu_a", content: "file" },
+        ],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(stats.missingToolResultsInserted).toBe(0);
+    expect(stats.orphanToolResultsDowngraded).toBe(0);
+    expect(repaired).toHaveLength(3);
+    expect(repaired[1].content.map((b) => b.type)).toEqual([
+      "tool_use",
+      "server_tool_use",
+    ]);
+  });
+
+  test("cross-message server tool pair from a completed deferred execution survives a reload untouched", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Check both" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu_a", name: "file_read", input: {} },
+          {
+            type: "server_tool_use",
+            id: "stu_split",
+            name: "web_search",
+            input: { query: "news" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tu_a", content: "file" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "stu_split",
+            content: [
+              {
+                type: "web_search_result",
+                url: "https://example.com",
+                title: "Example",
+              },
+            ],
+          },
+          { type: "text", text: "Found it." },
+        ],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(stats.missingToolResultsInserted).toBe(0);
+    expect(stats.orphanToolResultsDowngraded).toBe(0);
+    expect(repaired[1].content.map((b) => b.type)).toEqual([
+      "tool_use",
+      "server_tool_use",
+    ]);
+    expect(repaired[3].content.map((b) => b.type)).toEqual([
+      "web_search_tool_result",
+      "text",
+    ]);
   });
 
   test("synthetic web_search_tool_result is placed immediately after its server_tool_use, not at end", () => {
@@ -646,6 +735,12 @@ describe("repairHistory", () => {
             content: "Skill loaded",
           },
         ],
+      },
+      // A later assistant message closes the deferral window: the searches
+      // never executed, so they are genuine orphans.
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Skill ready." }],
       },
     ];
 
@@ -865,6 +960,12 @@ describe("repairHistory", () => {
           },
         ],
       },
+      // A later exchange closes the deferral window for stu_missing_result.
+      { role: "user", content: [{ type: "text", text: "and?" }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+      },
     ];
 
     const { messages: repaired, stats } = repairHistory(messages);
@@ -928,6 +1029,102 @@ describe("repairHistory", () => {
       tool_use_id: "tu_1",
       is_error: true,
     });
+  });
+});
+
+describe("repairHistory inputToOutputIndex", () => {
+  test("identity mapping for a clean history", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+      { role: "assistant", content: [{ type: "text", text: "Hi" }] },
+      { role: "user", content: [{ type: "text", text: "More" }] },
+      { role: "assistant", content: [{ type: "text", text: "Sure" }] },
+    ];
+
+    const { inputToOutputIndex } = repairHistory(messages);
+
+    expect(inputToOutputIndex).toEqual([0, 1, 2, 3]);
+  });
+
+  test("consecutive same-role inputs map to the same output index", () => {
+    // The awaiting-user-action surface shape: the turn ends on a
+    // user(tool_result-only) row and the user's next real message lands as a
+    // second consecutive user row; the merge collapses them into one message.
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "tu_1", name: "surface", input: {} }],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tu_1", content: "shown" },
+        ],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "Love it — keep going" }],
+      },
+      { role: "assistant", content: [{ type: "text", text: "Will do" }] },
+    ];
+
+    const { messages: repaired, inputToOutputIndex } = repairHistory(messages);
+
+    expect(repaired).toHaveLength(4);
+    expect(inputToOutputIndex).toEqual([0, 1, 2, 2, 3]);
+  });
+
+  test("synthetic tool_result insertion shifts later outputs without consuming input slots", () => {
+    // assistant(tool_use) followed directly by another assistant message —
+    // repair inserts a synthetic user(tool_result) between them, so every
+    // input from the second assistant on lands one output slot later.
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Run it" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu_1", name: "bash", input: { cmd: "ls" } },
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "continued" }] },
+      { role: "user", content: [{ type: "text", text: "next" }] },
+      { role: "assistant", content: [{ type: "text", text: "done" }] },
+    ];
+
+    const { messages: repaired, inputToOutputIndex } = repairHistory(messages);
+
+    expect(repaired).toHaveLength(6);
+    expect(repaired[2].role).toBe("user");
+    expect(inputToOutputIndex).toEqual([0, 1, 3, 4, 5]);
+  });
+
+  test("trailing synthetic tool_result occupies no input slot", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Run it" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu_1", name: "bash", input: { cmd: "ls" } },
+        ],
+      },
+    ];
+
+    const { messages: repaired, inputToOutputIndex } = repairHistory(messages);
+
+    expect(repaired).toHaveLength(3);
+    expect(inputToOutputIndex).toEqual([0, 1]);
+  });
+
+  test("deepRepairHistory returns no mapping — its pre-passes are untraceable", () => {
+    const messages: Message[] = [
+      { role: "assistant", content: [{ type: "text", text: "leading" }] },
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+    ];
+
+    const { inputToOutputIndex } = deepRepairHistory(messages);
+
+    expect(inputToOutputIndex).toBeUndefined();
   });
 });
 
@@ -1012,5 +1209,43 @@ describe("deepRepairHistory", () => {
     expect(stats.assistantToolResultsMigrated).toBe(0);
     expect(stats.missingToolResultsInserted).toBe(0);
     expect(stats.orphanToolResultsDowngraded).toBe(0);
+  });
+});
+
+describe("isRepairableOrderingError", () => {
+  test("matches Anthropic tool ordering rejections", () => {
+    expect(
+      isRepairableOrderingError(
+        "Requests which include `tool_use` blocks must have a corresponding `tool_result` block in the next message.",
+      ),
+    ).toBe(true);
+    expect(
+      isRepairableOrderingError(
+        "messages.5: tool_result block references tool_use_id toolu_abc which was not found",
+      ),
+    ).toBe(true);
+  });
+
+  test("matches the OpenAI Responses orphan function_call_output rejection", () => {
+    expect(
+      isRepairableOrderingError(
+        "No tool call found for function call output with call_id call_abc123.",
+      ),
+    ).toBe(true);
+  });
+
+  test("matches the OpenAI Chat Completions orphan tool_call_id rejection", () => {
+    expect(
+      isRepairableOrderingError(
+        "Invalid parameter: 'tool_call_id' of 'call_abc123' not found in 'tool_calls' of previous message.",
+      ),
+    ).toBe(true);
+  });
+
+  test("does not match unrelated provider errors", () => {
+    expect(isRepairableOrderingError("Rate limit exceeded")).toBe(false);
+    expect(
+      isRepairableOrderingError("Request too large for model context window"),
+    ).toBe(false);
   });
 });

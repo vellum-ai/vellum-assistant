@@ -13,6 +13,7 @@ import { getLogger } from "../../../util/logger.js";
 import {
   callTelegramBotApi,
   callTelegramBotApiMultipart,
+  type TelegramMessage,
   TelegramNonRetryableError,
 } from "./api.js";
 import { renderTelegramHtml } from "./render.js";
@@ -36,12 +37,43 @@ const TELEGRAM_IMAGE_MIME_PREFIXES = [
   "image/webp",
 ];
 
+/**
+ * Per-send options shared by the Telegram send helpers.
+ *
+ * `messageThreadId` targets a private-chat topic (the Telegram analog of a
+ * Slack thread); omitted, the send lands in the main chat. The value is the
+ * `message_thread_id` carried on the inbound update. Carried as a string
+ * because it originates as a URL param and multipart sends need the string
+ * form; payloads convert once in {@link threadIdPayloadFields}.
+ */
+export interface TelegramSendOptions {
+  messageThreadId?: string;
+}
+
+/**
+ * Topic-targeting field for a send payload, or undefined when the send
+ * targets the main chat — spread into the payload literal.
+ *
+ * `message_thread_id` is the Bot API topic field for both forum supergroups
+ * and private chats of bots with topic ("threaded") mode enabled — the same
+ * field inbound updates carry. (`direct_messages_topic_id` is a different
+ * surface — channel direct-messages/monoforum chats — and is not used here.)
+ */
+function threadIdPayloadFields(
+  opts?: TelegramSendOptions,
+): { message_thread_id: number } | undefined {
+  const id = opts?.messageThreadId?.trim();
+  return id ? { message_thread_id: Number(id) } : undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Text splitting
 // ---------------------------------------------------------------------------
 
 function splitText(text: string, maxLen: number): string[] {
-  if (text.length <= maxLen) return [text];
+  if (text.length <= maxLen) {
+    return [text];
+  }
 
   const chunks: string[] = [];
   let cursor = 0;
@@ -90,6 +122,17 @@ function buildInlineKeyboard(approval: ApprovalUIMetadata): {
 // Public API
 // ---------------------------------------------------------------------------
 
+/** Outcome of a Telegram reply send. */
+export interface TelegramSendResult {
+  /**
+   * Channel-native id of the last sent chunk (the message carrying the
+   * inline keyboard when an approval was attached). Callers that need to
+   * address the message later (e.g. approval-card withdrawal) persist this.
+   * Undefined when the API response did not carry a message id.
+   */
+  lastMessageId?: string;
+}
+
 /**
  * Send a Telegram text reply, splitting long messages and optionally
  * attaching inline keyboard buttons for approval prompts.
@@ -98,13 +141,16 @@ export async function sendTelegramReply(
   chatId: string,
   text: string,
   approval?: ApprovalUIMetadata,
-): Promise<void> {
+  opts?: TelegramSendOptions,
+): Promise<TelegramSendResult> {
   const chunks = splitText(text, TELEGRAM_MAX_MESSAGE_LEN);
 
+  let lastMessageId: string | undefined;
   for (let i = 0; i < chunks.length; i++) {
     const payload: Record<string, unknown> = {
       chat_id: chatId,
       text: chunks[i],
+      ...threadIdPayloadFields(opts),
     };
 
     // Attach inline keyboard only to the last chunk so buttons appear after
@@ -113,10 +159,18 @@ export async function sendTelegramReply(
       payload.reply_markup = buildInlineKeyboard(approval);
     }
 
-    await callTelegramBotApi("sendMessage", payload);
+    const sent = await callTelegramBotApi<TelegramMessage>(
+      "sendMessage",
+      payload,
+    );
+    lastMessageId =
+      typeof sent?.message_id === "number"
+        ? String(sent.message_id)
+        : undefined;
   }
 
   log.debug({ chatId, chunks: chunks.length }, "Telegram reply sent");
+  return lastMessageId !== undefined ? { lastMessageId } : {};
 }
 
 /**
@@ -150,17 +204,19 @@ export async function sendTelegramRichReply(
   chatId: string,
   markdown: string,
   approval?: ApprovalUIMetadata,
+  opts?: TelegramSendOptions,
 ): Promise<void> {
   const html = renderTelegramHtml(markdown);
   if (html === undefined) {
     // No renderable rich content — send as plain text.
-    await sendTelegramReply(chatId, markdown, approval);
+    await sendTelegramReply(chatId, markdown, approval, opts);
     return;
   }
 
   const payload: Record<string, unknown> = {
     chat_id: chatId,
     rich_message: { html, skip_entity_detection: true },
+    ...threadIdPayloadFields(opts),
   };
   if (approval) {
     payload.reply_markup = buildInlineKeyboard(approval);
@@ -175,7 +231,7 @@ export async function sendTelegramRichReply(
         { chatId, description: err.description },
         "Telegram rejected rich message; falling back to plain text",
       );
-      await sendTelegramReply(chatId, markdown, approval);
+      await sendTelegramReply(chatId, markdown, approval, opts);
       return;
     }
     throw err;
@@ -195,8 +251,10 @@ export type TelegramAttachmentResult = {
 export async function sendTelegramAttachments(
   chatId: string,
   attachments: RuntimeAttachmentMetadata[],
+  opts?: TelegramSendOptions,
 ): Promise<TelegramAttachmentResult> {
   const failures: string[] = [];
+  const threadFields = threadIdPayloadFields(opts);
 
   for (const meta of attachments) {
     // Skip oversized attachments when size is known upfront
@@ -238,6 +296,9 @@ export async function sendTelegramAttachments(
       const blob = new Blob([new Uint8Array(content)], { type: mimeType });
       const form = new FormData();
       form.set("chat_id", chatId);
+      if (threadFields) {
+        form.set("message_thread_id", String(threadFields.message_thread_id));
+      }
 
       const isImage = TELEGRAM_IMAGE_MIME_PREFIXES.some((p) =>
         mimeType.startsWith(p),
@@ -267,7 +328,7 @@ export async function sendTelegramAttachments(
   if (failures.length > 0) {
     const notice = `\u26a0\ufe0f ${failures.length} attachment(s) could not be delivered: ${failures.join(", ")}`;
     try {
-      await sendTelegramReply(chatId, notice);
+      await sendTelegramReply(chatId, notice, undefined, opts);
     } catch (err) {
       log.error({ err, chatId }, "Failed to send attachment failure notice");
     }
@@ -286,11 +347,13 @@ export async function sendTelegramAttachments(
  */
 export async function sendTelegramTypingIndicator(
   chatId: string,
+  opts?: TelegramSendOptions,
 ): Promise<boolean> {
   try {
     await callTelegramBotApi("sendChatAction", {
       chat_id: chatId,
       action: "typing",
+      ...threadIdPayloadFields(opts),
     });
     return true;
   } catch (err) {

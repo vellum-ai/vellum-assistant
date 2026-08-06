@@ -73,7 +73,9 @@ export function installExecFileStub(): ExecFileStubHandle {
       const key = `${command} ${args[0]}`;
       const script = execScripts.get(key);
       queueMicrotask(() => {
-        if (!callback) return;
+        if (!callback) {
+          return;
+        }
         if (!script) {
           callback(new Error(`No script for ${key}`), "", "");
           return;

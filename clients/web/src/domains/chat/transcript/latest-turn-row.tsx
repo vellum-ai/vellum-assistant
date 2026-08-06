@@ -1,7 +1,9 @@
-
 import { Fragment, memo, type ReactNode } from "react";
 
-import type { MessageItem, TranscriptItem } from "@/domains/chat/transcript/types";
+import type {
+  MessageItem,
+  TranscriptItem,
+} from "@/domains/chat/transcript/types";
 
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
 import { useTurnStore } from "@/domains/chat/turn-store";
@@ -30,6 +32,8 @@ export interface LatestTurnRowProps {
     data?: Record<string, unknown>,
   ) => void;
   onForkConversation?: (messageId: string) => void;
+  onSummarizeUpToHere?: (messageId: string) => void;
+  onRetryLatestTurn?: () => void;
   onInspectMessage?: (messageId: string) => void;
   renderOnboardingChoice?: () => ReactNode;
   onOpenRuleEditor?: (context: {
@@ -49,7 +53,9 @@ export interface LatestTurnRowProps {
     toolCall: ChatMessageToolCall,
   ) => void | Promise<void>;
   /** Callback when the user picks "Allow & Create Rule" from the split button. */
-  onAllowAndCreateRule?: (toolCall: ChatMessageToolCall) => void | Promise<void>;
+  onAllowAndCreateRule?: (
+    toolCall: ChatMessageToolCall,
+  ) => void | Promise<void>;
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   assistantId?: string | null;
@@ -63,6 +69,10 @@ export interface LatestTurnRowProps {
   onWorkflowClick?: (runId: string) => void;
   /** Callback to abort/stop a running workflow from an inline card. */
   onStopWorkflow?: (runId: string) => void;
+  /** Changed-document ids per transcript item key, resolved across whole
+   *  responses by `Transcript`. Only the message that ends a completed response
+   *  has an entry, and the in-flight response has none. */
+  changedDocumentIdsByKey?: ReadonlyMap<string, string[]>;
 }
 
 export const LatestTurnRow = memo(function LatestTurnRow({
@@ -72,6 +82,8 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   assistantDisplayName,
   onSurfaceAction,
   onForkConversation,
+  onSummarizeUpToHere,
+  onRetryLatestTurn,
   onInspectMessage,
   renderOnboardingChoice,
   onOpenRuleEditor,
@@ -86,6 +98,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   onStopSubagent,
   onWorkflowClick,
   onStopWorkflow,
+  changedDocumentIdsByKey,
 }: LatestTurnRowProps) {
   // The response cluster is "streaming" whenever the turn is in flight. This
   // keeps each response message's last tool-call group expanded for the whole
@@ -93,6 +106,14 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   const phase = useTurnStore.use.phase();
   const isStreaming =
     phase === "queued" || phase === "thinking" || phase === "streaming";
+  // The last message-kind item of the cluster collapses its hover-actions row
+  // (see `TranscriptRowProps.isLatestMessage`). Trailing non-message rows —
+  // the thinking slot, pending prompts — carry no trailer of their own, so
+  // the flag skips past them; this keeps the space collapsed while the turn
+  // is still streaming, not just after it settles.
+  const lastMessageItem = responseItems.findLast(
+    (item) => item.kind === "message",
+  );
   return (
     <div className="flex flex-col" data-latest-turn="true">
       <TranscriptRow
@@ -101,6 +122,8 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         assistantDisplayName={assistantDisplayName}
         onSurfaceAction={onSurfaceAction}
         onForkConversation={onForkConversation}
+        onSummarizeUpToHere={onSummarizeUpToHere}
+        onRetryLatestTurn={onRetryLatestTurn}
         onInspectMessage={onInspectMessage}
         renderOnboardingChoice={renderOnboardingChoice}
         onOpenRuleEditor={onOpenRuleEditor}
@@ -115,6 +138,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         onStopSubagent={onStopSubagent}
         onWorkflowClick={onWorkflowClick}
         onStopWorkflow={onStopWorkflow}
+        isLatestMessage={!lastMessageItem}
       />
       {responseItems.map((response) => (
         <Fragment key={response.key}>
@@ -124,6 +148,8 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             assistantDisplayName={assistantDisplayName}
             onSurfaceAction={onSurfaceAction}
             onForkConversation={onForkConversation}
+            onSummarizeUpToHere={onSummarizeUpToHere}
+            onRetryLatestTurn={onRetryLatestTurn}
             onInspectMessage={onInspectMessage}
             renderOnboardingChoice={renderOnboardingChoice}
             onOpenRuleEditor={onOpenRuleEditor}
@@ -138,7 +164,9 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             onStopSubagent={onStopSubagent}
             onWorkflowClick={onWorkflowClick}
             onStopWorkflow={onStopWorkflow}
+            changedDocumentIds={changedDocumentIdsByKey?.get(response.key)}
             isStreaming={isStreaming}
+            isLatestMessage={response === lastMessageItem}
           />
         </Fragment>
       ))}

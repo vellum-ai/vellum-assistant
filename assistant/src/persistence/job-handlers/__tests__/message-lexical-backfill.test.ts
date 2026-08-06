@@ -2,13 +2,6 @@ import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SparseEmbedding } from "../../embeddings/embedding-types.js";
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Capture the batched upserts into the lexical index singleton.
 const upsertBatchCalls: Array<
   Array<{

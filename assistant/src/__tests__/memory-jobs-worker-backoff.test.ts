@@ -9,23 +9,6 @@ import { describe, expect, mock, test } from "bun:test";
 
 // ── Mocks (must precede imports of tested module) ──────────────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-// Mock config — memory disabled so runMemoryJobsOnce returns 0 immediately
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    memory: { enabled: false },
-  }),
-  loadConfig: () => ({
-    memory: { enabled: false },
-  }),
-}));
-
 // Mock jobs-store (accesses DB)
 mock.module("../persistence/jobs-store.js", () => ({
   resetRunningJobsToPending: () => 0,
@@ -48,8 +31,12 @@ mock.module("../persistence/checkpoints.js", () => ({
 import {
   POLL_INTERVAL_MAX_MS,
   POLL_INTERVAL_MIN_MS,
-  startMemoryJobsWorker,
+  startMemoryJobsWorkerLoop,
 } from "../plugins/defaults/memory/jobs-worker.js";
+import { setConfig } from "./helpers/set-config.js";
+
+// Memory disabled so each idle tick stays on the mocked-store fast path.
+setConfig("memory", { enabled: false });
 
 describe("memory jobs worker adaptive poll interval", () => {
   test("exports expected poll interval constants", () => {
@@ -97,7 +84,7 @@ describe("memory jobs worker adaptive poll interval", () => {
     globalThis.clearTimeout = (() => {}) as typeof clearTimeout;
 
     try {
-      const worker = startMemoryJobsWorker();
+      const worker = startMemoryJobsWorkerLoop();
 
       // Wait for the initial tick() promise to settle
       await new Promise((resolve) => originalSetTimeout(resolve, 20));

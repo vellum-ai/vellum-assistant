@@ -161,7 +161,6 @@ describe("resolveOffsiteDestinations", () => {
   });
 });
 
-
 describe("formatBackupFilename", () => {
   const fixture = new Date("2026-04-11T15:30:45.000Z");
 

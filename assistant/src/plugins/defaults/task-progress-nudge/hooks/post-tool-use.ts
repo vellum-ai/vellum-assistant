@@ -71,14 +71,16 @@ export const TASK_PROGRESS_NUDGE_TEXT =
 export const TASK_PROGRESS_NUDGE_ROUND_THRESHOLD = 3;
 
 /**
- * Weaker open-weight model families (Kimi, DeepSeek, MiniMax, GLM) that tend to
+ * Weaker open-weight models (Kimi K2, DeepSeek, MiniMax, GLM) that tend to
  * disregard the static progress-card instruction and so benefit from the
- * mid-turn nudge. This is the plugin's own coaching policy, kept local and
- * matched against `ctx.model` rather than read off a shared context flag —
- * "weak" / "needs steering" is a judgement specific to this nudge, not a
- * general property of the turn, and the set is the plugin owner's to tune.
+ * mid-turn nudge. Kimi is scoped to the K2 generation — K3+ is frontier-class
+ * and follows static instructions. This is the plugin's own coaching policy,
+ * kept local and matched against `ctx.model` rather than read off a shared
+ * context flag — "weak" / "needs steering" is a judgement specific to this
+ * nudge, not a general property of the turn, and the set is the plugin
+ * owner's to tune.
  */
-const NUDGE_TARGET_MODEL_PATTERN = /kimi|deepseek|minimax|glm/i;
+const NUDGE_TARGET_MODEL_PATTERN = /kimi-k2|deepseek|minimax|glm/i;
 
 /**
  * Round count at the last nudge, per conversation. A non-zero entry means the
@@ -99,9 +101,13 @@ export function resetTaskProgressNudgeStateForTests(): void {
  * server-side normalization tolerance.
  */
 function isTaskProgressShowInput(input: unknown): boolean {
-  if (input === null || typeof input !== "object") return false;
+  if (input === null || typeof input !== "object") {
+    return false;
+  }
   const record = input as Record<string, unknown>;
-  if (record.template === "task_progress") return true;
+  if (record.template === "task_progress") {
+    return true;
+  }
   const data = record.data;
   return (
     data !== null &&
@@ -130,19 +136,27 @@ function scanTurn(messages: ReadonlyArray<Message>): {
           block.type === "tool_result" ||
           block.type === "web_search_tool_result",
       );
-      if (!carriesToolResult) break; // genuine user prompt — turn boundary
+      if (!carriesToolResult) {
+        break;
+      } // genuine user prompt — turn boundary
       continue;
     }
-    if (message.role !== "assistant") continue;
+    if (message.role !== "assistant") {
+      continue;
+    }
     let hasToolUse = false;
     for (const block of message.content) {
-      if (block.type !== "tool_use") continue;
+      if (block.type !== "tool_use") {
+        continue;
+      }
       hasToolUse = true;
       if (block.name === "ui_show" && isTaskProgressShowInput(block.input)) {
         taskProgressShown = true;
       }
     }
-    if (hasToolUse) rounds++;
+    if (hasToolUse) {
+      rounds++;
+    }
   }
   return { rounds, taskProgressShown };
 }
@@ -153,9 +167,15 @@ const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
   // `subagentSpawn`, background work under its own call sites), on a client
   // that can actually render the card, driven by a model family this nudge
   // targets.
-  if (ctx.callSite !== "mainAgent") return;
-  if (!ctx.supportsDynamicUi) return;
-  if (!NUDGE_TARGET_MODEL_PATTERN.test(ctx.model)) return;
+  if (ctx.callSite !== "mainAgent") {
+    return;
+  }
+  if (!ctx.supportsDynamicUi) {
+    return;
+  }
+  if (!NUDGE_TARGET_MODEL_PATTERN.test(ctx.model)) {
+    return;
+  }
 
   const { rounds, taskProgressShown } = scanTurn(ctx.messages);
 
@@ -174,8 +194,12 @@ const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
     return;
   }
 
-  if (rounds < TASK_PROGRESS_NUDGE_ROUND_THRESHOLD) return;
-  if (lastNudged !== 0) return; // already nudged this turn
+  if (rounds < TASK_PROGRESS_NUDGE_ROUND_THRESHOLD) {
+    return;
+  }
+  if (lastNudged !== 0) {
+    return;
+  } // already nudged this turn
 
   lastNudgedRoundsByConversation.set(ctx.conversationId, rounds);
   ctx.logger.info(

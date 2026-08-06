@@ -6,35 +6,6 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// ── Mock platform (must precede imports that read it) ─────────────────────────
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({
-    skills: {
-      entries: {},
-      load: { extraDirs: [], watch: false, watchDebounceMs: 0 },
-      install: { nodeManager: "npm" },
-      allowBundled: null,
-      remoteProviders: {
-        skillssh: { enabled: true },
-        clawhub: { enabled: true },
-      },
-      remotePolicy: {
-        blockSuspicious: true,
-        blockMalware: true,
-        maxSkillsShRisk: "medium",
-      },
-    },
-  }),
-  loadConfig: () => ({}),
-}));
-
 mock.module("../../persistence/conversation-crud.js", () => ({
   addMessage: () => ({ id: "mock-msg-id" }),
   getMessageById: () => null,
@@ -49,6 +20,7 @@ mock.module("../../persistence/llm-request-log-store.js", () => ({
 }));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
+import type { AssistantEvent } from "../../api/index.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -59,7 +31,6 @@ import {
   formatFetchStatusText,
   formatSearchStatusText,
 } from "../conversation-agent-loop-handlers.js";
-import type { ServerMessage } from "../message-protocol.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -97,7 +68,7 @@ function createCollectorDeps(): {
       markWorkspaceTopLevelDirty: () => {},
       currentTurnSurfaces: [],
     } as unknown as EventHandlerDeps["ctx"],
-    onEvent: (_msg: ServerMessage) => {},
+    onEvent: (_msg: AssistantEvent) => {},
     reqId: "req-status-text",
     isFirstMessage: false,
     shouldGenerateTitle: false,

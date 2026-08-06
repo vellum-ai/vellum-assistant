@@ -4,13 +4,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Module mocks — must appear before any imports of the modules under test
 // ---------------------------------------------------------------------------
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // -- Config mock -----------------------------------------------------------
 
 let mockElevenLabsConfig = {
@@ -43,21 +36,6 @@ let mockXaiConfig = {
   bitRate: 128000,
 };
 
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({
-    services: {
-      tts: {
-        providers: {
-          elevenlabs: mockElevenLabsConfig,
-          "fish-audio": mockFishAudioConfig,
-          deepgram: mockDeepgramConfig,
-          xai: mockXaiConfig,
-        },
-      },
-    },
-  }),
-}));
-
 // -- Secure keys mock ------------------------------------------------------
 
 let mockApiKey: string | null = "test-elevenlabs-api-key";
@@ -66,11 +44,15 @@ let mockXaiApiKey: string | null = "test-xai-api-key";
 
 mock.module("../../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key?: string) => {
-    if (key === "credential/xai/api_key") return mockXaiApiKey;
+    if (key === "credential/xai/api_key") {
+      return mockXaiApiKey;
+    }
     return mockApiKey;
   },
   getProviderKeyAsync: async (provider: string) => {
-    if (provider === "deepgram") return mockDeepgramApiKey;
+    if (provider === "deepgram") {
+      return mockDeepgramApiKey;
+    }
     return mockApiKey;
   },
 }));
@@ -121,6 +103,7 @@ mock.module("../providers/xai-tts-socket.js", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
+import { setConfig } from "../../__tests__/helpers/set-config.js";
 import {
   getProviderDefinition,
   getTtsProvider,
@@ -140,6 +123,20 @@ import { FishAudioTtsError } from "../providers/fish-audio-provider.js";
 import { createXaiProvider, XaiTtsError } from "../providers/xai-provider.js";
 import type { XaiTtsSocketOptions } from "../providers/xai-tts-socket.js";
 import type { TtsSynthesisRequest } from "../types.js";
+
+/** Seed the current per-provider TTS config into the workspace config file. */
+function seedTtsConfig(): void {
+  setConfig("services", {
+    tts: {
+      providers: {
+        elevenlabs: mockElevenLabsConfig,
+        "fish-audio": mockFishAudioConfig,
+        deepgram: mockDeepgramConfig,
+        xai: mockXaiConfig,
+      },
+    },
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Fetch mock helpers
@@ -181,6 +178,7 @@ beforeEach(() => {
   mockSynthesizeWithFishAudio.mockClear();
   mockSynthesizeOverXaiTtsSocket.mockClear();
   mockSynthesizeOverXaiTtsSocket.mockImplementation(defaultXaiSocketImpl);
+  seedTtsConfig();
 });
 
 afterEach(() => {
@@ -220,7 +218,9 @@ function mockFetchError(status: number, body: string): void {
 function streamOf(...parts: Uint8Array[]): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     start(controller) {
-      for (const part of parts) controller.enqueue(part);
+      for (const part of parts) {
+        controller.enqueue(part);
+      }
       controller.close();
     },
   });
@@ -318,6 +318,7 @@ describe("ElevenLabs TTS provider adapter", () => {
 
   test("uses configured voiceModelId when set", async () => {
     mockElevenLabsConfig.voiceModelId = "eleven_turbo_v2_5";
+    seedTtsConfig();
 
     const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
     let capturedBody = "";
@@ -552,6 +553,7 @@ describe("ElevenLabs TTS provider adapter", () => {
 
   test("synthesizeStream respects configured voiceModelId over flash default", async () => {
     mockElevenLabsConfig.voiceModelId = "eleven_turbo_v2_5";
+    seedTtsConfig();
     let capturedBody = "";
 
     globalThis.fetch = mock(
@@ -979,6 +981,7 @@ describe("Fish Audio TTS provider adapter", () => {
 
   test("explicit format request does not set a sample rate", async () => {
     mockFishAudioConfig.format = "wav";
+    seedTtsConfig();
     const provider = createFishAudioProvider();
     await provider.synthesize(makeRequest());
 
@@ -1011,6 +1014,7 @@ describe("Fish Audio TTS provider adapter", () => {
 
   test("returns audio/mpeg content type for mp3 format", async () => {
     mockFishAudioConfig.format = "mp3";
+    seedTtsConfig();
     const provider = createFishAudioProvider();
     const result = await provider.synthesize(makeRequest());
     expect(result.contentType).toBe("audio/mpeg");
@@ -1018,6 +1022,7 @@ describe("Fish Audio TTS provider adapter", () => {
 
   test("returns audio/wav content type for wav format", async () => {
     mockFishAudioConfig.format = "wav";
+    seedTtsConfig();
     const provider = createFishAudioProvider();
     const result = await provider.synthesize(makeRequest());
     expect(result.contentType).toBe("audio/wav");
@@ -1025,6 +1030,7 @@ describe("Fish Audio TTS provider adapter", () => {
 
   test("returns audio/opus content type for opus format", async () => {
     mockFishAudioConfig.format = "opus";
+    seedTtsConfig();
     const provider = createFishAudioProvider();
     const result = await provider.synthesize(makeRequest());
     expect(result.contentType).toBe("audio/opus");
@@ -1034,6 +1040,7 @@ describe("Fish Audio TTS provider adapter", () => {
 
   test("throws FISH_AUDIO_TTS_NO_REFERENCE_ID when no reference ID is available", async () => {
     mockFishAudioConfig.referenceId = "";
+    seedTtsConfig();
 
     const provider = createFishAudioProvider();
 
@@ -1051,6 +1058,7 @@ describe("Fish Audio TTS provider adapter", () => {
 
   test("throws FISH_AUDIO_TTS_NO_REFERENCE_ID in synthesizeStream when no reference ID", async () => {
     mockFishAudioConfig.referenceId = "";
+    seedTtsConfig();
 
     const provider = createFishAudioProvider();
 
@@ -1263,6 +1271,7 @@ describe("Deepgram TTS provider adapter", () => {
 
   test("translates wav config format to linear16 encoding with container=wav", async () => {
     mockDeepgramConfig.format = "wav";
+    seedTtsConfig();
     const audioPayload = new Uint8Array([0x52, 0x49, 0x46, 0x46]);
     let capturedUrl = "";
 
@@ -1282,6 +1291,7 @@ describe("Deepgram TTS provider adapter", () => {
 
   test("uses configured model", async () => {
     mockDeepgramConfig.model = "aura-luna-en";
+    seedTtsConfig();
     const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
     let capturedUrl = "";
 
@@ -1516,6 +1526,24 @@ describe("Deepgram TTS provider adapter", () => {
     }
   });
 
+  test("surfaces a friendly, JSON-free message on a 401 auth failure", async () => {
+    mockFetchError(401, '{"err_code":"INVALID_AUTH","err_msg":"expired"}');
+
+    const provider = createDeepgramProvider();
+
+    try {
+      await provider.synthesize(makeRequest());
+      throw new Error("Expected synthesize to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DeepgramTtsError);
+      const message = (err as DeepgramTtsError).message;
+      expect(message).not.toContain("{");
+      expect(message).not.toContain("INVALID_AUTH");
+      expect(message).toContain("API key");
+      expect(message).toContain("Settings");
+    }
+  });
+
   test("throws DEEPGRAM_TTS_EMPTY_RESPONSE on empty audio body", async () => {
     mockFetchReturning(new Uint8Array(0));
 
@@ -1639,6 +1667,7 @@ describe("xAI TTS provider adapter", () => {
 
   test("uses configured voiceId when request has none", async () => {
     mockXaiConfig.voiceId = "ara";
+    seedTtsConfig();
     const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
     let capturedBody = "";
 
@@ -1658,6 +1687,7 @@ describe("xAI TTS provider adapter", () => {
 
   test("wav config format produces codec=wav without bit_rate", async () => {
     mockXaiConfig.format = "wav";
+    seedTtsConfig();
     const audioPayload = new Uint8Array([0x52, 0x49, 0x46, 0x46]);
     let capturedBody = "";
 

@@ -6,8 +6,9 @@
  * (the per-message hover toggle and the Settings → Bookmarks tab). TanStack is
  * the single source of truth — there is no separate store mirroring the list.
  *
- * The query only runs when the `bookmarks` client feature flag is on AND an
- * assistant is resolved, so flag-off installs never hit the endpoint.
+ * The query only runs once an assistant is resolved AND that assistant is
+ * new enough to expose the bookmark routes (see `useSupportsBookmarks`), so
+ * a current bundle connected to a pre-0.8.1 assistant never 404s the list.
  *
  * Cross-client invalidation (a bookmark made in another tab/window) is handled
  * by `use-bookmarks-sync.ts`, which listens for the daemon's
@@ -26,8 +27,8 @@ import {
   bookmarksPost,
 } from "@/generated/daemon/sdk.gen";
 import type { BookmarksGetResponse } from "@/generated/daemon/types.gen";
+import { useSupportsBookmarks } from "@/lib/backwards-compat/use-supports-bookmarks";
 import { captureError } from "@/lib/sentry/capture-error";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { toast } from "@vellumai/design-library";
 
@@ -36,15 +37,14 @@ export type Bookmark = NonNullable<BookmarksGetResponse>["bookmarks"][number];
 
 const EMPTY_BOOKMARKS: Bookmark[] = [];
 
-/** Whether the `bookmarks` client feature flag is enabled. */
-export function useBookmarksEnabled(): boolean {
-  return useClientFeatureFlagStore.use.bookmarks();
-}
-
 /** Active assistant id + whether the shared bookmark query should run. */
-function useBookmarkQueryGate(): { assistantId: string | null; enabled: boolean } {
+function useBookmarkQueryGate(): {
+  assistantId: string | null;
+  enabled: boolean;
+} {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const enabled = useBookmarksEnabled() && Boolean(assistantId);
+  const supportsBookmarks = useSupportsBookmarks(assistantId);
+  const enabled = supportsBookmarks && Boolean(assistantId);
   return { assistantId, enabled };
 }
 
@@ -87,6 +87,27 @@ export function useIsBookmarked(messageId: string | undefined): boolean {
 }
 
 /**
+ * Whether `message` can be bookmarked. Requires the active assistant to be new
+ * enough to expose the bookmark routes (see `useSupportsBookmarks`, scoped to
+ * that assistant) and a persisted row the daemon can resolve —
+ * optimistic/streaming messages carry a client-generated id, and a bookmark
+ * keys on (messageId, conversationId).
+ */
+export function useCanBookmark(
+  message: { id?: string; isOptimistic?: boolean },
+  conversationId: string | null | undefined,
+): boolean {
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const supportsBookmarks = useSupportsBookmarks(assistantId);
+  return (
+    supportsBookmarks &&
+    Boolean(conversationId) &&
+    Boolean(message.id) &&
+    !message.isOptimistic
+  );
+}
+
+/**
  * Returns a stable `toggle(messageId, conversationId, currentlyBookmarked)`
  * that creates or deletes a bookmark with an optimistic cache update (rolled
  * back on error), then invalidates to reconcile with the server. Mirrors the
@@ -102,7 +123,9 @@ export function useBookmarkToggle(): (
 
   return useCallback(
     async (messageId, conversationId, currentlyBookmarked) => {
-      if (!assistantId) return;
+      if (!assistantId) {
+        return;
+      }
       const queryKey = bookmarksGetQueryKey({
         path: { assistant_id: assistantId },
       });
@@ -115,7 +138,9 @@ export function useBookmarkToggle(): (
         if (currentlyBookmarked) {
           return { bookmarks: list.filter((b) => b.messageId !== messageId) };
         }
-        if (list.some((b) => b.messageId === messageId)) return old;
+        if (list.some((b) => b.messageId === messageId)) {
+          return old;
+        }
         const now = Date.now();
         const optimistic: Bookmark = {
           id: `optimistic-${messageId}`,

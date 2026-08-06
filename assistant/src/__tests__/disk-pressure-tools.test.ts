@@ -1,49 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { Conversation } from "../daemon/conversation.js";
 import type { SkillProjectionCache } from "../daemon/conversation-skill-tools.js";
-import type { SkillProjectionContext } from "../daemon/conversation-tool-setup.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { DiskUsageInfo } from "../util/disk-usage.js";
 import * as realDiskUsage from "../util/disk-usage.js";
 
 let diskSample: DiskUsageInfo | null = null;
-
-const mockConfig = {
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-  },
-  sandbox: {
-    enabled: false,
-    backend: "native" as const,
-    docker: {
-      image: "vellum-sandbox:latest",
-      cpus: 1,
-      memoryMb: 512,
-      pidsLimit: 256,
-      network: "none" as const,
-    },
-  },
-  permissions: { mode: "workspace" as const },
-  tools: { exclude: [] },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  getConfigReadOnly: () => mockConfig,
-  loadConfig: () => mockConfig,
-  applyNestedDefaults: () => mockConfig,
-  deepMergeOverwrite: (_base: unknown, override: unknown) => override,
-  invalidateConfigCache: () => undefined,
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => undefined,
-  getNestedValue: () => undefined,
-  setNestedValue: () => undefined,
-  mergeDefaultWorkspaceConfig: (config: unknown) => config,
-  API_KEY_PROVIDERS: [] as const,
-  _writeQuarantineNotice: () => undefined,
-}));
 
 mock.module("../daemon/conversation-skill-tools.js", () => ({
   projectSkillTools: mock((_history: Message[], _opts: unknown) => ({
@@ -111,15 +74,14 @@ function makeToolDef(name: string): ToolDefinition {
 }
 
 function makeProjectionCtx(
-  overrides: Partial<SkillProjectionContext> = {},
-): SkillProjectionContext {
+  overrides: Partial<Conversation> = {},
+): Conversation {
   return {
     skillProjectionState: new Map(),
     skillProjectionCache: {} as SkillProjectionCache,
-    coreToolNames: new Set(),
     toolsDisabledDepth: 0,
     ...overrides,
-  };
+  } as unknown as Conversation;
 }
 
 function setDiskUsage(usedMb: number, totalMb = 100): void {
@@ -234,7 +196,7 @@ describe("disk pressure cleanup tool restrictions", () => {
     expect(result.tool.name).toBe("skill_load");
   });
 
-  test("locking cancels registered terminal background tools with disk pressure reason", () => {
+  test("locking cancels registered terminal background tools with disk pressure reason", async () => {
     const bashCancel = mock((_reason?: string) => undefined);
     const hostCancel = mock((_reason?: string) => undefined);
     const otherCancel = mock((_reason?: string) => undefined);
@@ -265,7 +227,7 @@ describe("disk pressure cleanup tool restrictions", () => {
     });
 
     setDiskUsage(DISK_PRESSURE_THRESHOLD_PERCENT);
-    const status = evaluateDiskPressureNow();
+    const status = await evaluateDiskPressureNow();
 
     expect(status.locked).toBe(true);
     expect(bashCancel).toHaveBeenCalledWith("disk_pressure");

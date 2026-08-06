@@ -17,57 +17,6 @@ const originalVellumDev = process.env.VELLUM_DEV;
 
 process.env.VELLUM_DEV = "1";
 
-// In-memory config store for tests
-let configStore: Record<string, unknown> = {};
-
-function setNestedValue(
-  obj: Record<string, unknown>,
-  path: string,
-  value: unknown,
-): void {
-  const keys = path.split(".");
-  let current = obj;
-  for (let i = 0; i < keys.length - 1; i++) {
-    const key = keys[i];
-    if (current[key] == null || typeof current[key] !== "object") {
-      current[key] = {};
-    }
-    current = current[key] as Record<string, unknown>;
-  }
-  current[keys[keys.length - 1]] = value;
-}
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    slack: {
-      deliverAuthBypass: false,
-      teamId:
-        ((configStore.slack as Record<string, unknown>)?.teamId as string) ??
-        "",
-      teamName:
-        ((configStore.slack as Record<string, unknown>)?.teamName as string) ??
-        "",
-      teamUrl:
-        ((configStore.slack as Record<string, unknown>)?.teamUrl as string) ??
-        "",
-      botUserId:
-        ((configStore.slack as Record<string, unknown>)?.botUserId as string) ??
-        "",
-      botUsername:
-        ((configStore.slack as Record<string, unknown>)
-          ?.botUsername as string) ?? "",
-    },
-  }),
-  loadConfig: () => ({}),
-  loadRawConfig: () => structuredClone(configStore),
-  saveRawConfig: (raw: Record<string, unknown>) => {
-    configStore = structuredClone(raw);
-  },
-  invalidateConfigCache: () => {},
-  setNestedValue,
-}));
-
 mock.module("../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},
@@ -125,7 +74,9 @@ mock.module("../oauth/manual-token-connection.js", () => ({
   },
   syncManualTokenConnection: async (provider: string, accountInfo?: string) => {
     const { getSecureKeyAsync } = await import("../security/secure-keys.js");
-    if (provider !== "slack_channel") return;
+    if (provider !== "slack_channel") {
+      return;
+    }
     const hasBotToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "bot_token"),
     ));
@@ -147,6 +98,7 @@ mock.module("../oauth/manual-token-connection.js", () => ({
 // Mock fetch for Slack API validation
 const originalFetch = globalThis.fetch;
 
+import { loadRawConfig } from "../config/loader.js";
 import {
   clearSlackChannelConfig,
   clearSlackUserToken,
@@ -167,6 +119,7 @@ import {
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
 import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
+import { setConfig } from "./helpers/set-config.js";
 
 afterAll(() => {
   globalThis.fetch = originalFetch;
@@ -183,7 +136,7 @@ afterAll(() => {
 describe("Slack channel config handler", () => {
   beforeEach(() => {
     oauthConnectionStore = {};
-    configStore = {};
+    setConfig("slack", {});
     globalThis.fetch = originalFetch;
     rmSync(secureStorePath, { force: true });
     rmSync(metadataPath, { force: true });
@@ -276,15 +229,13 @@ describe("Slack channel config handler", () => {
         "xapp-test",
       ),
     ]);
-    configStore = {
-      slack: {
-        teamId: "T123",
-        teamName: "TestTeam",
-        teamUrl: "https://example.slack.com/",
-        botUserId: "U_BOT",
-        botUsername: "testbot",
-      },
-    };
+    setConfig("slack", {
+      teamId: "T123",
+      teamName: "TestTeam",
+      teamUrl: "https://example.slack.com/",
+      botUserId: "U_BOT",
+      botUsername: "testbot",
+    });
 
     const result = await getSlackChannelConfig();
     expect(result.teamId).toBe("T123");
@@ -338,7 +289,7 @@ describe("Slack channel config handler", () => {
     expect(result.teamUrl).toBe("https://myteam.slack.com/");
 
     // Assert metadata was written to config (not credential metadata)
-    const slack = configStore.slack as Record<string, unknown>;
+    const slack = loadRawConfig().slack as Record<string, unknown>;
     expect(slack.teamId).toBe("T_TEAM");
     expect(slack.teamName).toBe("MyTeam");
     expect(slack.teamUrl).toBe("https://myteam.slack.com/");
@@ -378,14 +329,12 @@ describe("Slack channel config handler", () => {
     ]);
     upsertCredentialMetadata("slack_channel", "bot_token", {});
     upsertCredentialMetadata("slack_channel", "app_token", {});
-    configStore = {
-      slack: {
-        teamId: "T123",
-        teamName: "TestTeam",
-        botUserId: "U_BOT",
-        botUsername: "testbot",
-      },
-    };
+    setConfig("slack", {
+      teamId: "T123",
+      teamName: "TestTeam",
+      botUserId: "U_BOT",
+      botUsername: "testbot",
+    });
 
     const result = await clearSlackChannelConfig();
     expect(result.success).toBe(true);
@@ -402,7 +351,7 @@ describe("Slack channel config handler", () => {
     expect(listCredentialMetadata()).toHaveLength(0);
 
     // Assert config values were cleared
-    const slack = configStore.slack as Record<string, unknown>;
+    const slack = loadRawConfig().slack as Record<string, unknown>;
     expect(slack.teamId).toBe("");
     expect(slack.teamName).toBe("");
     expect(slack.teamUrl).toBe("");
@@ -714,7 +663,9 @@ describe("Slack channel config handler", () => {
     const userTokenKey = credentialKey("slack_channel", "user_token");
     const deleteSpy = spyOn(secureKeys, "deleteSecureKeyAsync");
     deleteSpy.mockImplementation(async (account: string) => {
-      if (account === userTokenKey) return "error";
+      if (account === userTokenKey) {
+        return "error";
+      }
       // Fall through to real implementation would require the original ref;
       // this test only triggers deletion of the user_token, so returning
       // "not-found" for any other key is safe (none are asserted on).
@@ -748,14 +699,12 @@ describe("Slack channel config handler", () => {
   test("POST rejects user token from a different workspace than the bot token", async () => {
     // Pre-seed config with bot-token-derived team id (T_TEAM) to simulate that
     // a bot token has already been configured.
-    configStore = {
-      slack: {
-        teamId: "T_TEAM",
-        teamName: "TestTeam",
-        botUserId: "U_BOT",
-        botUsername: "testbot",
-      },
-    };
+    setConfig("slack", {
+      teamId: "T_TEAM",
+      teamName: "TestTeam",
+      botUserId: "U_BOT",
+      botUsername: "testbot",
+    });
 
     globalThis.fetch = (async () => {
       // User token's auth.test returns a different team_id.

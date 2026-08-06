@@ -3,8 +3,8 @@
  *
  * A plugin may contribute lifecycle hooks ({@link PluginHooks}) that the
  * runtime invokes at named events, and model-visible capabilities (`tools`,
- * `routes`, `skills`). The registry tracks every registered plugin in
- * registration order.
+ * `skills`). The registry tracks every registered plugin in registration
+ * order.
  *
  * Design doc: `.private/plans/agent-plugin-system.md`.
  */
@@ -13,19 +13,18 @@ import type { CompactionCircuitClosedEvent } from "../api/events/compaction-circ
 import type { CompactionCircuitOpenEvent } from "../api/events/compaction-circuit-open.js";
 import type { HookEventOwner } from "../api/events/hook-event.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import type { AssistantConfig } from "../config/types.js";
 import type {
   ChannelCapabilities,
   InboundActorContext,
   InjectionMode,
 } from "../daemon/conversation-runtime-assembly.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import type { MemoryJob } from "../persistence/jobs-store.js";
 import type { HookFunction } from "../plugin-api/types.js";
 import type { Message } from "../providers/types.js";
-import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import type { Tool } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
-import type { ConversationGraphMemory } from "./defaults/memory/graph/conversation-graph-memory.js";
-import type { JobHandler } from "./defaults/memory/jobs-worker.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
 
@@ -55,6 +54,27 @@ export interface PluginManifest {
    * validators land in M2/M3 PRs.
    */
   config?: unknown;
+  /**
+   * Declared API-key formats for the plugin's service, parsed from the
+   * plugin's `package.json` `credentialKeyPatterns` field. Each entry pairs
+   * a human-readable label with a regex source string matching the service's
+   * credential format. Security-validated and fed into secret ingress
+   * detection + redaction when the plugin activates; the loader only
+   * enforces shape (a malformed declaration degrades to `undefined` and
+   * never blocks plugin load).
+   */
+  credentialKeyPatterns?: PluginCredentialKeyPattern[];
+}
+
+/**
+ * One declared credential format for a plugin's service: a display `label`
+ * plus the regex source string (`pattern`) that matches keys of that format.
+ */
+export interface PluginCredentialKeyPattern {
+  /** Human-readable name for the key format (e.g. "Example API token"). */
+  label: string;
+  /** Regex source string matching the service's credential format. */
+  pattern: string;
 }
 
 // ─── Public plugin-API types ─────────────────────────────────────────────────
@@ -68,23 +88,11 @@ export type {
   ShutdownReason,
 } from "../plugin-api/types.js";
 
-// ─── Memory-graph result ─────────────────────────────────────────────────────
-
-/**
- * Full output of a single memory-graph retrieval — the object returned by
- * {@link ConversationGraphMemory.prepareMemory} (injected messages, query
- * vectors, metrics). The agent loop consumes these fields directly to drive
- * PKB hint search and runtime injection.
- */
-export type GraphMemoryResult = Awaited<
-  ReturnType<ConversationGraphMemory["prepareMemory"]>
->;
-
 /**
  * The complete set of compaction circuit-breaker transition events:
  * `compaction_circuit_open` when the breaker trips and `compaction_circuit_closed`
- * on the open→closed transition. Both are a subset of `ServerMessage`, so any
- * existing `ServerMessage` sink remains assignable to a
+ * on the open→closed transition. Both are a subset of `AssistantEvent`, so any
+ * existing `AssistantEvent` sink remains assignable to a
  * `(msg: CompactionCircuitEvent) => void` parameter.
  */
 export type CompactionCircuitEvent =
@@ -145,6 +153,26 @@ export interface TurnContext {
    * transport interface.
    */
   readonly clientOs?: string;
+  /**
+   * The app the client has open on screen, resolved from the id the client
+   * reports with each message. Rendered as the `visible_app:` line so the
+   * assistant can resolve "the app" to what the user is looking at instead of
+   * guessing or asking. Absent when no app is in view.
+   */
+  readonly visibleApp?: {
+    /** Canonical id the app tools key off (an opaque UUID for workspace apps). */
+    appId: string;
+    name: string;
+    /**
+     * Directory stem: the readable handle for an otherwise opaque id, and the
+     * piece the model joins with the workspace root and the app-builder skill's
+     * `data/apps/<slug>/` layout to reach the app's files. The resolved
+     * directory itself is not sent, being derivable from those three.
+     */
+    slug: string;
+    /** Owning plugin, when the app is plugin-bundled rather than sandbox-built. */
+    pluginName?: string;
+  } | null;
   /** Channel label gating response-discretion guidance in `<turn_context>`. */
   readonly channelName?: string;
   /**
@@ -318,23 +346,77 @@ export interface Injector {
 }
 
 // ─── Model-visible capability slots ──────────────────────────────────────────
-// Concrete shapes are defined by the tool/route registries. Tool
-// contributions use the canonical `Tool` interface; route contributions use
-// the `SkillRoute` shape from the skill-route registry. Skills ship on disk
-// inside an installed plugin (`plugins/<name>/skills/<id>/SKILL.md`) and are
-// discovered by the skill catalog loader, so they need no contribution slot.
+// Concrete shapes are defined by the tool registry. Tool contributions use the
+// canonical `Tool` interface. Skills ship on disk inside an installed plugin
+// (`plugins/<name>/skills/<id>/SKILL.md`) and are discovered by the skill
+// catalog loader, so they need no contribution slot. A plugin's other on-disk
+// surfaces (e.g. `routes/`) are served from their workspace location rather
+// than wired through the loader, so they carry no `Plugin` contribution slot.
 
 /**
- * HTTP route registration contributed by a plugin. Plugins express routes as
- * {@link SkillRoute} values — the same shape the skill-route registry
- * consumes — so `registerSkillRoute` can accept them directly. Bootstrap
- * wires the registrations after `init()` succeeds, retains the opaque
- * handle returned by each `registerSkillRoute` call, and uses those handles
- * (not the regex patterns themselves) to unregister the plugin's routes on
- * shutdown. Identity-keyed unregistration is what keeps sibling owners that
- * happen to register the same regex from evicting each other's routes.
+ * How the worker resolves a claimed job row after its handler returns
+ * without throwing. Handlers that report failure through a returned domain
+ * outcome (rather than a throw) translate that outcome into one of these at
+ * the registration site, so the persisted `memory_jobs.status` reflects what
+ * actually happened instead of unconditionally reading `completed`.
+ *
+ * - `completed`: the work succeeded (or was a legitimate no-op).
+ * - `failed`: terminal failure; the row is dead-lettered with
+ *   `errorMessage` as `last_error`. Use when retry is owned elsewhere
+ *   (event-driven re-enqueue, durable backoff checkpoints).
+ * - `retryable`: transient failure; the row re-enters the queue's
+ *   attempt-budgeted retry machinery with `errorMessage` recorded.
+ * - `deferred`: the work could not run yet for a reason external to the
+ *   job (e.g. its source conversation is mid-turn); the row goes back to
+ *   pending on the deferral counter's backoff curve and dead-letters with
+ *   `deferralExhaustedMessage` once the deferral budget is spent.
  */
-export type PluginRouteRegistration = SkillRoute;
+export interface JobQueueResolution {
+  queueResolution: "completed" | "failed" | "retryable" | "deferred";
+  /** Persisted to `memory_jobs.last_error` for `failed` / `retryable`. */
+  errorMessage?: string;
+  /** Retry delay override for `retryable`. */
+  retryDelayMs?: number;
+  /** Terminal `last_error` when a `deferred` job exhausts its budget. */
+  deferralExhaustedMessage?: string;
+}
+
+const QUEUE_RESOLUTIONS = new Set([
+  "completed",
+  "failed",
+  "retryable",
+  "deferred",
+]);
+
+/**
+ * Narrow an arbitrary handler return value to a {@link JobQueueResolution}.
+ * Anything else (including `undefined` and legacy domain outcomes) resolves
+ * as `completed`, preserving the historical contract for handlers that only
+ * signal failure by throwing.
+ */
+export function isJobQueueResolution(
+  value: unknown,
+): value is JobQueueResolution {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "queueResolution" in value &&
+    typeof (value as { queueResolution: unknown }).queueResolution ===
+      "string" &&
+    QUEUE_RESOLUTIONS.has(
+      (value as { queueResolution: string }).queueResolution,
+    )
+  );
+}
+
+/**
+ * Processes one claimed background job: receives the claimed job row and the
+ * live assistant config. A handler signals failure by throwing (recorded
+ * against the job's attempt budget) or by returning a
+ * {@link JobQueueResolution}; any other return value resolves the row as
+ * `completed`.
+ */
+export type JobHandler = (job: MemoryJob, config: AssistantConfig) => unknown;
 
 /**
  * A single background-job-handler entry: a job `type` string paired with the
@@ -402,12 +484,10 @@ export interface Plugin {
    * stamped by `registerPluginTools` at registration time.
    */
   tools?: Tool[];
-  /** HTTP route registrations served by the assistant. */
-  routes?: PluginRouteRegistration[];
   /**
    * Runtime injectors contributed to the per-turn injection chain. Bootstrap
    * registers these into the global injector registry before `init()` runs,
-   * symmetric with `tools`/`routes`. The registry unions every plugin's
+   * symmetric with `tools`. The registry unions every plugin's
    * injectors and stable-sorts by ascending `order`, so contribution order
    * does not affect the produced sequence except as the tiebreak among
    * injectors sharing an `order`. See `plugins/injector-registry.ts`.

@@ -78,7 +78,9 @@ mock.module("../contacts/contact-store.js", () => ({
 
 mock.module("../contacts/guardian-delivery-reader.js", () => ({
   peekCachedGuardianDelivery: (input?: { channelTypes?: string[] }) => {
-    if (!input?.channelTypes) return mockGuardianDeliveries;
+    if (!input?.channelTypes) {
+      return mockGuardianDeliveries;
+    }
     return mockGuardianDeliveries.filter((g) =>
       input.channelTypes!.includes(g.channelType),
     );
@@ -143,9 +145,35 @@ describe("writeOnboardingSection", () => {
     expect(content).toContain("- **Daily tools:** GitHub, Linear, Slack");
   });
 
+  test("renders user-confirmed research findings as nested bullets", () => {
+    seedVellumGuardian("alice.md");
+    const guardianPath = workspacePath("users/alice.md");
+    mkdirSync(workspacePath("users"), { recursive: true });
+    writeFileSync(guardianPath, "# User Profile\n\n- **Name:** Alice\n");
+
+    writeOnboardingSection({
+      preferredName: "Alice",
+      commonWork: [],
+      dailyTools: [],
+      researchFindings: [
+        "Maintains a popular open-source charting library",
+        "Climbs at Movement on Tuesdays",
+      ],
+    });
+
+    const content = readFileSync(guardianPath, "utf-8");
+    expect(content).toContain(
+      "- **Research findings** (surfaced during onboarding, confirmed by the user):",
+    );
+    expect(content).toContain(
+      "  - Maintains a popular open-source charting library",
+    );
+    expect(content).toContain("  - Climbs at Movement on Tuesdays");
+  });
+
   test("falls back to users/default.md when guardian path is null", () => {
     mockGuardianDeliveries = [];
-  mockContactsByAddress = {};
+    mockContactsByAddress = {};
     mkdirSync(workspacePath("users"), { recursive: true });
     writeFileSync(
       workspacePath("users/default.md"),
@@ -170,7 +198,7 @@ describe("writeOnboardingSection", () => {
 
   test("falls back to USER.md when no users/ files exist", () => {
     mockGuardianDeliveries = [];
-  mockContactsByAddress = {};
+    mockContactsByAddress = {};
 
     writeOnboardingSection({
       preferredName: "Alice",
@@ -186,7 +214,7 @@ describe("writeOnboardingSection", () => {
 
   test("creates file with header + section when target doesn't exist", () => {
     mockGuardianDeliveries = [];
-  mockContactsByAddress = {};
+    mockContactsByAddress = {};
 
     writeOnboardingSection({
       preferredName: "Alice",
@@ -204,7 +232,7 @@ describe("writeOnboardingSection", () => {
 
   test("idempotent: calling twice produces the same file content", () => {
     mockGuardianDeliveries = [];
-  mockContactsByAddress = {};
+    mockContactsByAddress = {};
     const normalized = {
       preferredName: "Alice",
       commonWork: ["builds code, apps, or tools"],
@@ -222,7 +250,7 @@ describe("writeOnboardingSection", () => {
 
   test("replaces existing onboarding section with updated data", () => {
     mockGuardianDeliveries = [];
-  mockContactsByAddress = {};
+    mockContactsByAddress = {};
 
     writeOnboardingSection({
       preferredName: "Alice",
@@ -249,7 +277,7 @@ describe("writeOnboardingSection", () => {
 
   test("preserves content outside the managed section", () => {
     mockGuardianDeliveries = [];
-  mockContactsByAddress = {};
+    mockContactsByAddress = {};
     writeFileSync(
       workspacePath("USER.md"),
       "# User Profile\n\n- **Name:** Alice\n- **Role:** Engineer\n",
@@ -270,7 +298,7 @@ describe("writeOnboardingSection", () => {
 
   test("omits empty fields", () => {
     mockGuardianDeliveries = [];
-  mockContactsByAddress = {};
+    mockContactsByAddress = {};
 
     writeOnboardingSection({
       commonWork: [],
@@ -286,7 +314,7 @@ describe("writeOnboardingSection", () => {
 
   test("omits preferredName when undefined", () => {
     mockGuardianDeliveries = [];
-  mockContactsByAddress = {};
+    mockContactsByAddress = {};
 
     writeOnboardingSection({
       preferredName: undefined,
@@ -302,7 +330,7 @@ describe("writeOnboardingSection", () => {
 
   test("preserves content after onboarding section when followed by another heading", () => {
     mockGuardianDeliveries = [];
-  mockContactsByAddress = {};
+    mockContactsByAddress = {};
     writeFileSync(
       workspacePath("USER.md"),
       [

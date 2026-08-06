@@ -4,10 +4,10 @@ Operational procedures for inspecting, managing, and debugging the trusted conta
 
 Two databases hold this state — pick the right one before reaching for SQL:
 
-| Data                                                                                                                | Database                    | Location                                                                                                 |
-| ------------------------------------------------------------------------------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Contact ACL (`contacts` role, `contact_channels` status/policy/reasons), verification sessions, rate limits, invites | Gateway DB (`gateway.sqlite`) | `$GATEWAY_SECURITY_DIR/gateway.sqlite` (Docker: the `/gateway-security` volume; local fallback: `~/.vellum/protected/`) |
-| Access requests (`canonical_guardian_requests`), notification pipeline, contact info/identity mirror                 | Assistant DB (`assistant.db`) | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db` (local fallback: `~/.vellum/workspace/`)                                                                 |
+| Data                                                                                                                                                                                          | Database                      | Location                                                                                                                |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Contact ACL (`contacts` role, `contact_channels` status/policy/reasons), guardian requests (`guardian_requests` + `guardian_request_deliveries`), verification sessions, rate limits, invites | Gateway DB (`gateway.sqlite`) | `$GATEWAY_SECURITY_DIR/gateway.sqlite` (Docker: the `/gateway-security` volume; local fallback: `~/.vellum/protected/`) |
+| Notification pipeline, contact info/identity mirror                                                                                                                                           | Assistant DB (`assistant.db`) | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db` (local fallback: `~/.vellum/workspace/`)                                   |
 
 Prefer the CLI and HTTP surfaces below over raw SQL — they go through the gateway's validation (status vocabulary, revoke-of-blocked guard) and emit the change events clients rely on. Raw SQL is break-glass only.
 
@@ -103,13 +103,13 @@ Response shape (ACL fields come from the gateway DB; info fields like `notes` ar
 
 ## 2. Inspect Pending Access Requests
 
-Access requests live in the **assistant DB** table `canonical_guardian_requests` (`kind = 'access_request'`, `tool_name = 'ingress_access_request'`).
+Access requests live in the **gateway DB** table `guardian_requests` (`kind = 'access_request'`, `tool_name = 'ingress_access_request'`). There is no `source_type` column — derive it from `source_channel` (`phone` → voice, `vellum` → desktop, anything else → channel); the requester-side conversation is `source_conversation_id`. Delivered approval cards are tracked per surface in `guardian_request_deliveries` (`request_id` → `guardian_requests.id`).
 
 ```bash
-sqlite3 "file:$AST_DB?mode=ro" \
+sqlite3 "file:$GW_DB?mode=ro" \
   "SELECT id, source_channel, requester_external_user_id, requester_chat_id, \
    guardian_external_user_id, status, request_code, created_at, expires_at \
-   FROM canonical_guardian_requests \
+   FROM guardian_requests \
    WHERE kind = 'access_request' AND status = 'pending' \
    ORDER BY created_at DESC;"
 ```
@@ -117,10 +117,10 @@ sqlite3 "file:$AST_DB?mode=ro" \
 ### Check all access requests (including resolved)
 
 ```bash
-sqlite3 "file:$AST_DB?mode=ro" \
+sqlite3 "file:$GW_DB?mode=ro" \
   "SELECT id, source_channel, requester_external_user_id, status, \
    decided_by_external_user_id, created_at \
-   FROM canonical_guardian_requests \
+   FROM guardian_requests \
    WHERE kind = 'access_request' \
    ORDER BY created_at DESC LIMIT 20;"
 ```
@@ -234,13 +234,13 @@ sqlite3 "file:$GW_DB?mode=ro" \
 
 ### Common verification failure causes
 
-| Symptom                                                | Likely cause                                                                     | Resolution                                                                                                                                                     |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "Invalid or expired code" (correct code)               | Identity mismatch: the code was entered from a different user/chat than expected | Verify the requester is using the same account that originally requested access                                                                                |
-| "Invalid or expired code" (correct code, correct user) | Rate-limited (5+ failures in 15 min window)                                      | Wait 30 minutes or reset rate limits via SQLite (gateway DB)                                                                                                   |
-| "Invalid or expired code" (old code)                   | Code TTL expired (10 min)                                                        | Guardian must re-approve to generate a new code                                                                                                                |
-| "Invalid or expired code" (blocked/revoked channel)    | The gateway ACL row for this actor is `blocked` (or `revoked` for contact flows) | A correct code does not restore trust for a blocked actor. Unblock the channel first (see §4), then re-run the flow                                            |
-| Code never delivered to guardian                       | `deliverChannelReply` failed                                                     | Check daemon logs for "Failed to deliver verification code to guardian"                                                                                        |
+| Symptom                                                | Likely cause                                                                     | Resolution                                                                                                                                                  |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Invalid or expired code" (correct code)               | Identity mismatch: the code was entered from a different user/chat than expected | Verify the requester is using the same account that originally requested access                                                                             |
+| "Invalid or expired code" (correct code, correct user) | Rate-limited (5+ failures in 15 min window)                                      | Wait 30 minutes or reset rate limits via SQLite (gateway DB)                                                                                                |
+| "Invalid or expired code" (old code)                   | Code TTL expired (10 min)                                                        | Guardian must re-approve to generate a new code                                                                                                             |
+| "Invalid or expired code" (blocked/revoked channel)    | The gateway ACL row for this actor is `blocked` (or `revoked` for contact flows) | A correct code does not restore trust for a blocked actor. Unblock the channel first (see §4), then re-run the flow                                         |
+| Code never delivered to guardian                       | `deliverChannelReply` failed                                                     | Check daemon logs for "Failed to deliver verification code to guardian"                                                                                     |
 | No notification to guardian                            | No guardian binding resolvable                                                   | Verify with `assistant contacts list --role guardian`: the gateway `contacts` table needs a `role = 'guardian'` row with an active `contact_channels` entry |
 
 ## 6. Check Notification Delivery Status
@@ -342,11 +342,11 @@ sqlite3 "$GW_DB" \
 
 ### Expire stale access requests
 
-The daemon's `sweepExpiredCanonicalGuardianRequests()` timer handles this automatically every 60 seconds (it also withdraws the approval cards and notifies the requester). Manual fallback against the **assistant DB**:
+The daemon's guardian expiry sweep (`runGuardianExpirySweep()`, every 60 seconds) asks the gateway to CAS-expire stale pending requests, then withdraws the approval cards and notifies the requester. Manual fallback against the **gateway DB** (stop the gateway first; this skips the daemon-side card withdrawal):
 
 ```bash
-sqlite3 "$AST_DB" \
-  "UPDATE canonical_guardian_requests \
+sqlite3 "$GW_DB" \
+  "UPDATE guardian_requests \
    SET status = 'expired' \
    WHERE status = 'pending' AND expires_at < $(date +%s)000;"
 ```

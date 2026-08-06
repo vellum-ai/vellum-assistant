@@ -17,11 +17,17 @@ async function restartLocalAssistant(
 ): Promise<{ ok: boolean; error?: string }> {
   const sleepResult = await sleepLocalAssistantHost(assistantId);
   if (!sleepResult.ok) {
-    return { ok: false, error: sleepResult.error ?? "Failed to stop assistant." };
+    return {
+      ok: false,
+      error: sleepResult.error ?? "Failed to stop assistant.",
+    };
   }
   const wakeResult = await wakeLocalAssistantHost(assistantId);
   if (!wakeResult.ok) {
-    return { ok: false, error: wakeResult.error ?? "Failed to start assistant." };
+    return {
+      ok: false,
+      error: wakeResult.error ?? "Failed to start assistant.",
+    };
   }
   return { ok: true };
 }

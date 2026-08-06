@@ -13,7 +13,9 @@ export async function retireAppleContainer(
   name: string,
   entry: AssistantEntry,
 ): Promise<void> {
-  console.log(`\u{1F5D1}\ufe0f  Retiring Apple Container assistant '${name}'...\n`);
+  console.log(
+    `\u{1F5D1}\ufe0f  Retiring Apple Container assistant '${name}'...\n`,
+  );
 
   const mgmtSocket = entry.mgmtSocket as string | undefined;
   if (!mgmtSocket) {
@@ -46,7 +48,9 @@ export async function retireAppleContainer(
 
     socket.setTimeout(TIMEOUT_MS);
     socket.on("timeout", () => {
-      console.error("Timed out waiting for retire response from the macOS app.");
+      console.error(
+        "Timed out waiting for retire response from the macOS app.",
+      );
       socket.destroy();
       process.exit(1);
     });
@@ -77,9 +81,7 @@ export async function retireAppleContainer(
         resolve();
       } else {
         reject(
-          new Error(
-            `Retire failed: ${response.message || "unknown error"}`,
-          ),
+          new Error(`Retire failed: ${response.message || "unknown error"}`),
         );
       }
     });

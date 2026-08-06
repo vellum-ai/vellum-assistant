@@ -13,7 +13,7 @@ while IFS= read -r entry; do
   [ -n "$entry" ] && index+=("$entry")
 done < <(
   find . \
-    \( -path '*/node_modules' -o -path '*/.git' -o -name generated -o -name dist -o -name build \) -prune -o \
+    \( -path '*/node_modules' -o -path '*/.git' -o -name worktrees -o -name '.worktrees' -o -name '*-worktrees' -o -name generated -o -name dist -o -name build \) -prune -o \
     \( -name AGENTS.md -o -name CLAUDE.md \) -print 2>/dev/null |
     sed 's|^\./||' | sort
 )

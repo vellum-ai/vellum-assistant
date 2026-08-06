@@ -42,9 +42,9 @@ describe("NewChatPluginsPicker", () => {
     expect(html).toContain("Add plugins for new chat");
     // The info tooltip trigger renders the lucide Info glyph.
     expect(html).toContain("lucide-info");
-    // Manage Plugins links to the plugins route.
+    // Manage Plugins links to the plugin-filtered My Superpowers page.
     expect(html).toContain("Manage Plugins");
-    expect(html).toContain('href="/assistant/plugins"');
+    expect(html).toContain('href="/assistant/superpowers?filter=plugins"');
     // One pill per installed plugin.
     expect(html).toContain("simple-memory");
     expect(html).toContain("weather");

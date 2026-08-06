@@ -5,14 +5,7 @@
  * `daemon_restarted` stop reason on the next manager construction.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getSqlite } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";

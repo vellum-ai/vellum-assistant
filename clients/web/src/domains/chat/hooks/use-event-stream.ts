@@ -9,9 +9,10 @@
  *    epoch bump, watchdog rescue telemetry).
  * 3. `sse.closed` → end the in-flight turn, kick the reachability
  *    probe so the burst-limiter below can take over.
- * 4. `reachabilityPhase` → `reachabilityBurstLimiter` (3-burst /
- *    10s window retry budget; on success publishes
- *    `reachability.retry-requested` so the bus bounces its SSE).
+ * 4. `reachabilityPhase` → `reachabilityBurstLimiter` on recovery
+ *    into `"ready"` (3-burst / 10s window retry budget; on success
+ *    publishes `reachability.retry-requested` so the bus bounces its
+ *    SSE).
  *
  * Bus subscriptions use `useBusSubscription` per EVENT_BUS.md. The
  * stream-context lifecycle (setup / teardown of the stream-store
@@ -22,12 +23,7 @@
  * does not register any `visibilitychange` listener of its own.
  */
 
-import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-} from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -143,7 +139,7 @@ export function useEventStream({
   /* eslint-disable react-hooks/refs -- lazy-init (runs once) */
   if (burstLimiterRef.current == null) {
     burstLimiterRef.current = createReachabilityBurstLimiter({
-      onReady: () => useTurnStore.getState().resetTurn(),
+      onReady: () => useTurnStore.getState().clearStaleTurn(),
       onClearError: () => useChatSessionStore.getState().setError(null),
       onExhausted: (err) => useChatSessionStore.getState().setError(err),
       onReset: () => reachabilityResetRef.current(),
@@ -359,8 +355,35 @@ export function useEventStream({
   // phase. The limiter publishes `reachability.retry-requested` on
   // success so the bus bounces its SSE; `reconcileOnReopen` runs the
   // post-reconnect reconcile on the resulting `sse.opened`.
+  //
+  // A `"ready"` reached from a degraded phase (`"connecting"`,
+  // `"checking"`, `"failed"`) is a recovery and must bounce: the
+  // stream is closed or stale by then. A `"ready"` reached from
+  // `"idle"` or `"ready"` is a boot or remount confirmation over an
+  // already-healthy stream, and bouncing it costs a duplicate daemon
+  // connect plus the full non-fresh reconcile fan-out.
+  //
+  // The suppression is scoped to the bounce alone. Entering `"ready"`
+  // always runs the limiter's stale-UI cleanup, so a remount that
+  // lands on an already-healthy assistant still drops a leftover
+  // "Connection lost" banner and stale turn UI left by an earlier
+  // transient error or an exhausted retry budget. `runReadyCleanup()`
+  // publishes nothing and leaves the burst window untouched, so a
+  // confirmation neither spends budget nor slides the window. Every
+  // other phase still reaches the limiter so its budget bookkeeping is
+  // unchanged.
   // --------------------------------------------------------------------------
+  const previousReachabilityPhaseRef = useRef(reachabilityPhase);
   useEffect(() => {
+    const previousPhase = previousReachabilityPhaseRef.current;
+    previousReachabilityPhaseRef.current = reachabilityPhase;
+    const isHealthyStreamConfirmation =
+      reachabilityPhase === "ready" &&
+      (previousPhase === "idle" || previousPhase === "ready");
+    if (isHealthyStreamConfirmation) {
+      burstLimiterRef.current!.runReadyCleanup();
+      return;
+    }
     burstLimiterRef.current!.handleReachabilityPhase(reachabilityPhase);
   }, [reachabilityPhase]);
 

@@ -11,6 +11,10 @@ import { createRequire } from "module";
 import { homedir, networkInterfaces, platform, tmpdir } from "os";
 import { basename, dirname, join } from "path";
 
+import {
+  findAssistantCommand,
+  isRepoCheckoutPath,
+} from "@vellumai/environments";
 import { isValidReleaseVersion } from "@vellumai/local-mode";
 
 import {
@@ -42,8 +46,8 @@ const _require = createRequire(import.meta.url);
 const DARWIN_UNIX_SOCKET_MAX_PATH_BYTES = 103;
 
 // The longest socket filename we place in the workspace directory.
-// assistant-skill.sock = 20 chars, plus 1 for the "/" separator = 21 overhead.
-const LONGEST_SOCKET_FILENAME = "assistant-skill.sock";
+// assistant.sock = 14 chars, plus 1 for the "/" separator = 15 overhead.
+const LONGEST_SOCKET_FILENAME = "assistant.sock";
 const LOCAL_RUNTIME_PACKAGE = "vellum";
 
 export interface LocalRuntimeInstall {
@@ -94,9 +98,26 @@ function hasLocalRuntimeComponents(installDir: string): boolean {
   );
 }
 
-function resolveBunExecutable(): string {
+/**
+ * True when this process is a compiled standalone binary (desktop app or
+ * `bun build --compile` CLI) rather than a script executed by a plain `bun`
+ * binary (source tree, bunx, npm/global install).
+ *
+ * Only a compiled binary may trust product siblings in
+ * `dirname(process.execPath)`: under plain bun that directory is bun's own
+ * bin dir (e.g. `~/.bun/bin`), where bin links of globally-installed packages
+ * (`assistant`, `credential-executor`) collide with app-bundle binary names
+ * and point at whatever version happens to be installed globally.
+ */
+export function isCompiledCli(): boolean {
   const execBase = basename(process.execPath);
-  if (execBase === "bun" || execBase.startsWith("bun-")) {
+  return (
+    execBase !== "bun" && execBase !== "bunx" && !execBase.startsWith("bun-")
+  );
+}
+
+function resolveBunExecutable(): string {
+  if (!isCompiledCli()) {
     return process.execPath;
   }
 
@@ -117,11 +138,13 @@ function resolveBunExecutable(): string {
 
 function envWithBunPath(
   env: Record<string, string | undefined>,
+  commandDirs: string[] = [],
 ): Record<string, string | undefined> {
   const bunPath = resolveBunExecutable();
   const basePath = env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
   const extraDirs = [
     bunPath.includes("/") ? dirname(bunPath) : "",
+    ...commandDirs,
     join(homedir(), ".bun", "bin"),
     join(homedir(), ".local", "bin"),
   ].filter((dir) => dir && !basePath.split(":").includes(dir));
@@ -283,7 +306,7 @@ function warnIfLegacyWorkspaceFallbackDetected(
 }
 
 /**
- * On macOS, if `{workspaceDir}/assistant-skill.sock` would exceed the
+ * On macOS, if `{workspaceDir}/assistant.sock` would exceed the
  * 103-byte AF_UNIX path limit, compute a short tmpdir-based IPC socket
  * directory and return it.  Returns `undefined` when no override is needed
  * (the workspace path is short enough, or we're not on macOS).
@@ -323,7 +346,6 @@ function applyIpcSocketDirOverride(
   mkdirSync(override, { recursive: true });
   env.GATEWAY_IPC_SOCKET_DIR = override;
   env.ASSISTANT_IPC_SOCKET_DIR = override;
-  env.ASSISTANT_SKILL_IPC_SOCKET_DIR = override;
 }
 
 function isAssistantSourceDir(dir: string): boolean {
@@ -532,6 +554,7 @@ export function generateLocalSigningKey(): string {
 type DaemonStartOptions = {
   foreground?: boolean;
   defaultWorkspaceConfigPath?: string;
+  requireReady?: boolean;
   signingKey?: string;
 };
 
@@ -581,7 +604,10 @@ function applyDaemonEnvOverrides(
   applyIpcSocketDirOverride(env);
 }
 
-function logDaemonReadiness(readiness: DaemonReadiness): void {
+function logDaemonReadiness(
+  readiness: DaemonReadiness,
+  requireReady = false,
+): void {
   switch (readiness) {
     case "ready":
       console.log("   Assistant ready\n");
@@ -597,6 +623,11 @@ function logDaemonReadiness(readiness: DaemonReadiness): void {
       );
       break;
     default:
+      if (requireReady) {
+        throw new Error(
+          "Assistant did not bind its local port within 60 seconds.",
+        );
+      }
       console.log(
         "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
       );
@@ -650,9 +681,15 @@ async function startDaemonFromSource(
     ...process.env,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
     VELLUM_CLOUD: "local",
-    VELLUM_DEV: "1",
     VELLUM_ENVIRONMENT: process.env.VELLUM_ENVIRONMENT || "local",
   };
+  // "From source" covers both a developer's checkout and the npm-installed
+  // runtime the desktop app runs. Only the former is a dev run: marking an
+  // installed runtime as dev suppresses its telemetry and skips the
+  // `assistant` command install. An inherited VELLUM_DEV is left alone.
+  if (isRepoCheckoutPath(assistantIndex)) {
+    env.VELLUM_DEV = "1";
+  }
   applyDaemonEnvOverrides(env, resources, options);
 
   // Write a sentinel PID file before spawning so concurrent hatch() calls
@@ -660,7 +697,11 @@ async function startDaemonFromSource(
   writeFileSync(pidFile, "starting", "utf-8");
 
   const bunPath = resolveBunExecutable();
-  const spawnEnv = envWithBunPath(env);
+  const assistantCommand = findAssistantCommand(assistantIndex);
+  const spawnEnv = envWithBunPath(
+    env,
+    assistantCommand ? [dirname(assistantCommand)] : [],
+  );
   const child = foreground
     ? spawn(bunPath, ["run", daemonMainPath], {
         stdio: "inherit",
@@ -781,7 +822,7 @@ function resolveGatewayDir(resources?: LocalInstanceResources): string {
 
   // Compiled binary: gateway/ bundled adjacent to the CLI executable.
   const binGateway = join(dirname(process.execPath), "gateway");
-  if (isGatewaySourceDir(binGateway)) {
+  if (isCompiledCli() && isGatewaySourceDir(binGateway)) {
     return binGateway;
   }
 
@@ -897,7 +938,7 @@ export async function startCes(
   let ces;
   const runtimeCesDir = !watch ? localRuntimeCesDir(resources) : undefined;
   const cesBinary = join(dirname(process.execPath), "credential-executor");
-  if (!runtimeCesDir && existsSync(cesBinary) && !watch) {
+  if (!runtimeCesDir && isCompiledCli() && existsSync(cesBinary) && !watch) {
     // Compiled binary alongside the CLI (desktop app / compiled CLI).
     const cesLogFd = openLogFile("hatch.log");
     ces = spawn(cesBinary, [], {
@@ -1253,7 +1294,7 @@ export function isGatewayWatchModeAvailable(): boolean {
  */
 function writeAssistantWrapper(resources: LocalInstanceResources): void {
   const assistantBinary = join(dirname(process.execPath), "assistant");
-  if (!existsSync(assistantBinary)) return;
+  if (!isCompiledCli() || !existsSync(assistantBinary)) return;
 
   const workspaceDir = join(resources.instanceDir, ".vellum", "workspace");
   const protectedDir = join(resources.instanceDir, ".vellum", "protected");
@@ -1304,6 +1345,7 @@ export async function startLocalDaemon(
           resources.daemonPort,
           Date.now() + 60000,
         ),
+        options?.requireReady,
       );
     }
     return;
@@ -1315,7 +1357,7 @@ export async function startLocalDaemon(
   // the user runs the compiled CLI directly from the terminal (e.g. via a
   // /usr/local/bin/vellum symlink into the app bundle).
   const daemonBinary = join(dirname(process.execPath), "vellum-daemon");
-  if (existsSync(daemonBinary) && !watch) {
+  if (isCompiledCli() && existsSync(daemonBinary) && !watch) {
     // In watch mode, skip the bundled binary and use source (bun --watch
     // only works with source files, not compiled binaries).
 
@@ -1346,6 +1388,7 @@ export async function startLocalDaemon(
         // classifies it without blocking on an in-flight migration.
         logDaemonReadiness(
           await probeDaemonReadinessWithRetry(resources.daemonPort),
+          options?.requireReady,
         );
         return;
       }
@@ -1367,7 +1410,13 @@ export async function startLocalDaemon(
       const localBinDir = join(home, ".local", "bin");
       const basePath =
         process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
-      const extraDirs = [bunBinDir, localBinDir].filter(
+      // The compiled `assistant` ships beside the daemon binary, so its
+      // directory is what puts `assistant …` on PATH for agent-run commands.
+      const daemonBinaryDir = dirname(daemonBinary);
+      const assistantBinaryDir = existsSync(join(daemonBinaryDir, "assistant"))
+        ? [daemonBinaryDir]
+        : [];
+      const extraDirs = [...assistantBinaryDir, bunBinDir, localBinDir].filter(
         (d) => !basePath.split(":").includes(d),
       );
       const daemonEnv: Record<string, string> = {
@@ -1497,7 +1546,7 @@ export async function startLocalDaemon(
         readiness = await probeDaemonReadiness(resources.daemonPort);
       }
 
-      logDaemonReadiness(readiness);
+      logDaemonReadiness(readiness, options?.requireReady);
     }
   } else {
     console.log("🔨 Starting local assistant...");
@@ -1519,6 +1568,7 @@ export async function startLocalDaemon(
           resources.daemonPort,
           Date.now() + 60000,
         ),
+        options?.requireReady,
       );
     }
   }
@@ -1531,6 +1581,7 @@ export async function startGateway(
     signingKey?: string;
     bootstrapSecret?: string;
     envOverrides?: Record<string, string>;
+    requireReady?: boolean;
   },
 ): Promise<string> {
   const effectiveGatewayPort = resources?.gatewayPort ?? GATEWAY_PORT;
@@ -1563,8 +1614,6 @@ export async function startGateway(
     // Pass gateway operational settings via env vars so the CLI does not
     // need direct access to the workspace config file.
     RUNTIME_PROXY_REQUIRE_AUTH: "true",
-    UNMAPPED_POLICY: "default",
-    DEFAULT_ASSISTANT_ID: "self",
     ...(options?.signingKey
       ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
       : {}),
@@ -1609,7 +1658,12 @@ export async function startGateway(
     ? localRuntimeGatewayDir(resources)
     : undefined;
   const gatewayBinary = join(dirname(process.execPath), "vellum-gateway");
-  if (!runtimeGatewayDir && existsSync(gatewayBinary) && !watch) {
+  if (
+    !runtimeGatewayDir &&
+    isCompiledCli() &&
+    existsSync(gatewayBinary) &&
+    !watch
+  ) {
     // Use the compiled gateway binary when available (desktop app or compiled
     // CLI invoked from the terminal). In watch mode, skip the bundled binary
     // and use source (bun --watch only works with source files).
@@ -1655,6 +1709,11 @@ export async function startGateway(
   // connection-refused errors.
   const ready = await waitForDaemonReady(effectiveGatewayPort, 30000);
   if (!ready) {
+    if (options?.requireReady) {
+      throw new Error(
+        "Assistant gateway did not bind its local port within 30 seconds.",
+      );
+    }
     console.warn(
       "⚠ Gateway started but health check did not respond within 30s",
     );

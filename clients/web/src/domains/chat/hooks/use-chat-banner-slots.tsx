@@ -10,8 +10,8 @@ import { type ReactNode, useMemo } from "react";
 
 import { DiscordNudgeBanner } from "@/components/nudges/discord-nudge-banner";
 import { GitHubNudgeBanner } from "@/components/nudges/github-nudge-banner";
-import { IOSAppBanner } from "@/components/nudges/ios-app-banner";
 import { MacOSAppBanner } from "@/components/nudges/macos-app-banner";
+import { NativeAppBanner } from "@/components/nudges/native-app-banner";
 import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
@@ -27,7 +27,6 @@ export interface UseChatBannerSlotsParams {
   onCancelAllQueued: () => void;
   onSteerMessage: (messageId: string) => void;
   onEditQueueTail: () => void;
-  queueSteering: boolean;
 }
 
 export interface ChatBannerSlots {
@@ -46,20 +45,24 @@ export function useChatBannerSlots({
   onCancelAllQueued,
   onSteerMessage,
   onEditQueueTail,
-  queueSteering,
 }: UseChatBannerSlotsParams): ChatBannerSlots {
   const {
-    showBanner, isOnIOS, nudge,
-    showGitHubBanner, githubNudge,
-    showDiscordBanner, discordNudge,
+    showBanner,
+    nativeAppPlatform,
+    nudge,
+    showGitHubBanner,
+    githubNudge,
+    showDiscordBanner,
+    discordNudge,
   } = nudges;
 
   const mainBannerSlot = useMemo((): ReactNode => {
     if (showBanner) {
       return (
-        <div className="pointer-events-auto w-full px-3 pb-2 sm:px-6">
-          {isOnIOS ? (
-            <IOSAppBanner
+        <div className="w-full px-3 pb-2 sm:px-6">
+          {nativeAppPlatform ? (
+            <NativeAppBanner
+              platform={nativeAppPlatform}
               onDownload={nudge.handleDownload}
               onDismiss={nudge.handleBannerDismiss}
             />
@@ -74,7 +77,7 @@ export function useChatBannerSlots({
     }
     if (showGitHubBanner) {
       return (
-        <div className="pointer-events-auto w-full px-3 pb-2 sm:px-6">
+        <div className="w-full px-3 pb-2 sm:px-6">
           <GitHubNudgeBanner
             onStar={githubNudge.handleStar}
             onDismiss={githubNudge.handleBannerDismiss}
@@ -84,7 +87,7 @@ export function useChatBannerSlots({
     }
     if (showDiscordBanner) {
       return (
-        <div className="pointer-events-auto w-full px-3 pb-2 sm:px-6">
+        <div className="w-full px-3 pb-1 sm:px-6">
           <DiscordNudgeBanner
             onJoin={discordNudge.handleJoin}
             onDismiss={discordNudge.handleBannerDismiss}
@@ -93,18 +96,34 @@ export function useChatBannerSlots({
       );
     }
     return null;
-  }, [showBanner, isOnIOS, nudge, showGitHubBanner, githubNudge, showDiscordBanner, discordNudge]);
+  }, [
+    showBanner,
+    nativeAppPlatform,
+    nudge,
+    showGitHubBanner,
+    githubNudge,
+    showDiscordBanner,
+    discordNudge,
+  ]);
 
-  const mainQueuedDrawerSlot = useMemo((): ReactNode => (
-    <QueuedMessagesDrawer
-      queuedMessages={queuedMessages}
-      onCancelMessage={onCancelQueuedMessage}
-      onCancelAll={onCancelAllQueued}
-      onSteer={onSteerMessage}
-      showSteer={queueSteering}
-      onEditTail={onEditQueueTail}
-    />
-  ), [queuedMessages, onCancelQueuedMessage, onCancelAllQueued, onSteerMessage, queueSteering, onEditQueueTail]);
+  const mainQueuedDrawerSlot = useMemo(
+    (): ReactNode => (
+      <QueuedMessagesDrawer
+        queuedMessages={queuedMessages}
+        onCancelMessage={onCancelQueuedMessage}
+        onCancelAll={onCancelAllQueued}
+        onSteer={onSteerMessage}
+        onEditTail={onEditQueueTail}
+      />
+    ),
+    [
+      queuedMessages,
+      onCancelQueuedMessage,
+      onCancelAllQueued,
+      onSteerMessage,
+      onEditQueueTail,
+    ],
+  );
 
   return { mainBannerSlot, mainQueuedDrawerSlot };
 }

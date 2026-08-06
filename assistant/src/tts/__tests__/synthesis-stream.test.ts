@@ -1,10 +1,10 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
-mock.module("../../config/loader.js", () => ({
-  loadConfig: () => ({
-    ingress: { publicBaseUrl: "https://assistant.example.com" },
-  }),
-}));
+import { setConfig } from "../../__tests__/helpers/set-config.js";
+
+// The audio-store sink builds play URLs from `ingress.publicBaseUrl` (defaults
+// to ""), so seed the base URL the tests assert on.
+setConfig("ingress", { publicBaseUrl: "https://assistant.example.com" });
 
 import type { StreamingAudioHandle } from "../../calls/audio-store.js";
 import {

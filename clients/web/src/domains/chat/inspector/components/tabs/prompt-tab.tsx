@@ -1,9 +1,10 @@
-import { ChevronRight, Copy } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { CacheBreakpointMapCard } from "@/domains/chat/inspector/components/cache-breakpoint-map-card";
 import { CacheDiffCard } from "@/domains/chat/inspector/components/cache-diff-card";
 import { CacheHealthCard } from "@/domains/chat/inspector/components/cache-health-card";
+import { CopyButton } from "@/domains/chat/inspector/components/copy-button";
 import { ToolDefinitionsContent } from "@/domains/chat/inspector/components/tool-definitions-content";
 import { parseToolDefinitions } from "@/domains/chat/inspector/tool-definitions";
 import type {
@@ -214,13 +215,10 @@ function PromptSectionItem({
       </Collapsible.Trigger>
 
       {!toolDefs && (
-        <Button
-          variant="ghost"
-          size="compact"
-          iconOnly={<Copy aria-hidden />}
-          aria-label={`Copy ${title}`}
+        <CopyButton
+          text={text}
+          ariaLabel={`Copy ${title}`}
           className="absolute right-2 top-3"
-          onClick={() => void navigator.clipboard.writeText(text)}
         />
       )}
 
@@ -259,7 +257,9 @@ function isToolResultKind(kind: string): boolean {
 
 function sectionTitle(section: LLMContextSection, index: number): string {
   const lbl = section.label?.trim();
-  if (lbl) return lbl;
+  if (lbl) {
+    return lbl;
+  }
   return `${humanKindLabel(section.kind)} ${index + 1}`;
 }
 
@@ -272,7 +272,9 @@ function humanKindLabel(kind: string): string {
 }
 
 function languageFormatLabel(language: string | null): string | null {
-  if (!language) return null;
+  if (!language) {
+    return null;
+  }
   switch (language.toLowerCase()) {
     case "json":
     case "application/json":

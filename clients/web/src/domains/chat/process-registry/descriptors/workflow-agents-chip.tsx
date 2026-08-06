@@ -26,12 +26,16 @@ export function WorkflowAgentsChip({ runId }: { runId: string }) {
 
   // `stepCount` is the pre-formatted noun string (e.g. "3 agents"). No entry yet
   // → render nothing, matching the inline card's short-circuit.
-  if (!data) return null;
+  if (!data) {
+    return null;
+  }
   const countLabel = data.stepCount;
 
   // Hide the chip for 0- or 1-agent workflows: a single-agent (or empty) run
   // doesn't warrant the avatar-stack chip.
-  if (countLabel.startsWith("0 ") || countLabel.startsWith("1 ")) return null;
+  if (countLabel.startsWith("0 ") || countLabel.startsWith("1 ")) {
+    return null;
+  }
 
   return (
     <div

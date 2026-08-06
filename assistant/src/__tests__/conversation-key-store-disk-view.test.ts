@@ -6,7 +6,7 @@ import {
   rmSync,
 } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
@@ -14,38 +14,7 @@ const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 const conversationsDir = join(testDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    contextWindow: { maxInputTokens: 200000 },
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-}));
-
+import type { AssistantEventEnvelope } from "../api/index.js";
 import { getOrCreateConversation } from "../persistence/conversation-key-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -53,7 +22,6 @@ import {
   conversationKeys,
   conversations,
 } from "../persistence/schema/index.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
 import {
   _resetStreamStateForTesting,
   _simulateRestartForTesting,
@@ -119,7 +87,7 @@ describe("conversation-key-store disk view", () => {
     // /messages for their entire first turn — the anchor-less snapshot that
     // let mid-turn refetches wipe streamed transcript content on clients.
     _resetStreamStateForTesting();
-    const event: AssistantEvent = {
+    const event: AssistantEventEnvelope = {
       id: "seed-evt",
       conversationId: "other-conversation",
       emittedAt: new Date().toISOString(),
@@ -127,7 +95,7 @@ describe("conversation-key-store disk view", () => {
         type: "assistant_text_delta",
         conversationId: "other-conversation",
         text: "x",
-      } as AssistantEvent["message"],
+      } as AssistantEventEnvelope["message"],
     };
     stampAndBuffer(event);
     const baseline = getCurrentSeq();
@@ -148,7 +116,7 @@ describe("conversation-key-store disk view", () => {
     // its ceiling — a conversation created before the first stamp must seed
     // from that ceiling, not report NULL as if the assistant were brand new.
     _resetStreamStateForTesting();
-    const event: AssistantEvent = {
+    const event: AssistantEventEnvelope = {
       id: "restart-evt",
       conversationId: "other-conversation",
       emittedAt: new Date().toISOString(),
@@ -156,7 +124,7 @@ describe("conversation-key-store disk view", () => {
         type: "assistant_text_delta",
         conversationId: "other-conversation",
         text: "x",
-      } as AssistantEvent["message"],
+      } as AssistantEventEnvelope["message"],
     };
     stampAndBuffer(event);
     _simulateRestartForTesting();

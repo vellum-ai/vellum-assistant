@@ -38,17 +38,9 @@
  * the persistence; nothing else is stored.
  */
 
-import {
-  type DrizzleDb,
-  getSqliteFrom,
-} from "../../../../persistence/db-connection.js";
+import { memorySqliteOrNull } from "../memory-db.js";
 import type { EdgeGraph } from "./edge.js";
 import type { Slug } from "./types.js";
-
-export interface LearnedEdgesDeps {
-  /** Handle to the database containing `memory_v3_selections`. */
-  db: DrizzleDb;
-}
 
 export interface LearnedEdgesOptions {
   /** Decay half-life in milliseconds: a selector call this old contributes
@@ -86,20 +78,28 @@ interface SelectionRow {
  * Deterministic for fixed inputs: per-page neighbors order by NPMI desc, then
  * peer slug asc. Symmetric by construction — an edge contributes to BOTH
  * endpoints' neighbor lists (each independently subject to `maxPerPage`).
+ *
+ * Reads `memory_v3_selections` over the dedicated memory connection.
+ * Fail-soft: an unavailable memory database yields an empty graph — the lane
+ * simply surfaces no learned associations.
  */
-export function computeLearnedEdgeGraph(
-  deps: LearnedEdgesDeps,
-  opts: LearnedEdgesOptions,
-): EdgeGraph {
+export function computeLearnedEdgeGraph(opts: LearnedEdgesOptions): EdgeGraph {
   const { halfLifeMs, minCount, npmiFloor, maxPerPage, now, windowMs } = opts;
   const empty: EdgeGraph = {
     adjacency: new Map(),
     hubs: new Set(),
     slugs: opts.knownSlugs,
   };
-  if (maxPerPage <= 0) return empty;
+  if (maxPerPage <= 0) {
+    return empty;
+  }
 
-  const rows = getSqliteFrom(deps.db)
+  const raw = memorySqliteOrNull("computeLearnedEdgeGraph");
+  if (!raw) {
+    return empty;
+  }
+
+  const rows = raw
     .query(
       /*sql*/ `
       SELECT conversation_id, slug, created_at FROM memory_v3_selections
@@ -107,12 +107,16 @@ export function computeLearnedEdgeGraph(
     `,
     )
     .all(now - windowMs) as SelectionRow[];
-  if (rows.length === 0) return empty;
+  if (rows.length === 0) {
+    return empty;
+  }
 
   // Group into selector calls; one decayed weight per call.
   const calls = new Map<string, { weight: number; slugs: Set<Slug> }>();
   for (const row of rows) {
-    if (!opts.knownSlugs.has(row.slug)) continue;
+    if (!opts.knownSlugs.has(row.slug)) {
+      continue;
+    }
     const key = `${row.conversation_id}|${row.created_at}`;
     let call = calls.get(key);
     if (!call) {
@@ -131,7 +135,9 @@ export function computeLearnedEdgeGraph(
   for (const { weight, slugs } of calls.values()) {
     total += weight;
     const arr = [...slugs];
-    for (const slug of arr) uni.set(slug, (uni.get(slug) ?? 0) + weight);
+    for (const slug of arr) {
+      uni.set(slug, (uni.get(slug) ?? 0) + weight);
+    }
     for (let i = 0; i < arr.length; i++) {
       for (let j = i + 1; j < arr.length; j++) {
         const key =
@@ -140,7 +146,9 @@ export function computeLearnedEdgeGraph(
       }
     }
   }
-  if (total <= 0) return empty;
+  if (total <= 0) {
+    return empty;
+  }
 
   // Score pairs and collect each endpoint's qualifying neighbors.
   const neighbors = new Map<Slug, Array<{ peer: Slug; npmi: number }>>();
@@ -153,7 +161,9 @@ export function computeLearnedEdgeGraph(
     list.push({ peer, npmi });
   };
   for (const [key, mass] of pair) {
-    if (mass < minCount) continue;
+    if (mass < minCount) {
+      continue;
+    }
     const [a, b] = key.split("\t") as [Slug, Slug];
     const pab = mass / total;
     const pa = uni.get(a)! / total;
@@ -175,7 +185,9 @@ export function computeLearnedEdgeGraph(
   for (const [slug, list] of neighbors) {
     list.sort((x, y) => y.npmi - x.npmi || (x.peer < y.peer ? -1 : 1));
     const out = new Map<Slug, string | undefined>();
-    for (const { peer } of list.slice(0, maxPerPage)) out.set(peer, undefined);
+    for (const { peer } of list.slice(0, maxPerPage)) {
+      out.set(peer, undefined);
+    }
     adjacency.set(slug, out);
   }
 

@@ -419,3 +419,90 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
     });
   });
 });
+
+// ── Request body validation ──────────────────────────────────────────────────
+
+describe("handleHostCuResult: request body validation", () => {
+  beforeEach(() => {
+    pendingStore.clear();
+    conversationStore.clear();
+    actorPrincipalByClient.clear();
+    resolvedIds.length = 0;
+    cuResolveSpy.length = 0;
+    registerConversation("conv-cu-1");
+  });
+
+  test("rejects a body that is not an object", () => {
+    expect(() => handleHostCuResult({ body: undefined })).toThrow(
+      BadRequestError,
+    );
+  });
+
+  test("rejects an empty-string requestId", () => {
+    expect(() => handleHostCuResult({ body: cuBody("") })).toThrow(
+      BadRequestError,
+    );
+  });
+
+  test("rejects a wrongly typed field before the interaction is consumed", () => {
+    const requestId = "req-cu-bad-screenshot-width";
+    registerPending(requestId);
+
+    expect(() =>
+      handleHostCuResult({
+        body: { ...cuBody(requestId), screenshotWidthPx: "800" },
+      }),
+    ).toThrow(BadRequestError);
+
+    expect(cuResolveSpy).toHaveLength(0);
+    expect(pendingStore.has(requestId)).toBe(true);
+  });
+
+  test("forwards a full observation payload unchanged", async () => {
+    const requestId = "req-cu-full-observation";
+    registerPending(requestId);
+
+    const result = await handleHostCuResult({
+      body: {
+        requestId,
+        axTree: "Button [1]",
+        axDiff: "+Button [1]",
+        screenshot: "base64png",
+        screenshotWidthPx: 1600,
+        screenshotHeightPx: 1000,
+        screenWidthPt: 800,
+        screenHeightPt: 500,
+        executionResult: "Clicked",
+        executionError: undefined,
+        secondaryWindows: "none",
+        userGuidance: "look here",
+      },
+    });
+
+    expect(result).toEqual({ accepted: true });
+    expect(cuResolveSpy[0].payload).toMatchObject({
+      axTree: "Button [1]",
+      axDiff: "+Button [1]",
+      screenshot: "base64png",
+      screenshotWidthPx: 1600,
+      screenshotHeightPx: 1000,
+      screenWidthPt: 800,
+      screenHeightPt: 500,
+      executionResult: "Clicked",
+      secondaryWindows: "none",
+      userGuidance: "look here",
+    });
+  });
+
+  test("tolerates unknown keys", async () => {
+    const requestId = "req-cu-unknown-keys";
+    registerPending(requestId);
+
+    const result = await handleHostCuResult({
+      body: { ...cuBody(requestId), somethingNew: "ignored" },
+    });
+
+    expect(result).toEqual({ accepted: true });
+    expect(cuResolveSpy[0].payload).not.toHaveProperty("somethingNew");
+  });
+});

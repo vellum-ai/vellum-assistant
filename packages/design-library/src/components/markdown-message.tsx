@@ -1,4 +1,3 @@
-
 import { Check, Copy } from "lucide-react";
 import {
   type AnchorHTMLAttributes,
@@ -25,13 +24,34 @@ import { cn } from "../utils/cn";
 const MAX_CODE_BLOCK_HEIGHT = 400;
 
 export const quoteBlockquoteClassName = cn(
-  "mx-0 mt-0 mb-3 flex w-full items-center gap-3 rounded-md bg-[var(--surface-sunken)] px-3 py-2.5 text-body-small-default text-[var(--content-secondary)] last:mb-0",
+  // Small *prose* token, not the label token: quoted markdown wraps across
+  // lines, so it needs real leading (the label token's line-height:1 would
+  // let inline code chips paint over adjacent lines).
+  "mx-0 mt-0 mb-3 flex w-full items-center gap-3 rounded-md bg-[var(--surface-sunken)] px-3 py-2.5 text-body-small-lighter text-[var(--content-secondary)] last:mb-0",
 );
 export const quoteBlockquoteAccentClassName =
-  "h-5 w-0.5 shrink-0 rounded-full bg-[var(--content-tertiary)]";
+  // self-stretch: the bar spans the full quote height (multi-line quotes get
+  // a full-height rule, single-line quotes a text-height one).
+  "w-0.5 shrink-0 self-stretch rounded-full bg-[var(--content-tertiary)]";
 export const quoteBlockquoteContentClassName = "min-w-0 flex-1 [&_p]:mb-0";
 
-function CopyButton({ visible, onClick, copied }: {
+/**
+ * Inline (non-fenced) code chip styling. Exported so consumers that replace a
+ * code span with their own element via `extraComponents` — e.g. a workspace
+ * path that resolves into a file link — can render identically to the code
+ * span they stand in for, instead of forking the class list.
+ *
+ * Small *prose* token: its 18px leading keeps the chip's padded background
+ * inside its own line box in tight-leading contexts (blockquotes, table cells).
+ */
+export const MARKDOWN_INLINE_CODE_CLASS =
+  "rounded bg-stone-100 px-1 py-0.5 font-mono text-body-small-lighter dark:bg-moss-800";
+
+function CopyButton({
+  visible,
+  onClick,
+  copied,
+}: {
   visible: boolean;
   onClick: () => void;
   copied: boolean;
@@ -45,7 +65,9 @@ function CopyButton({ visible, onClick, copied }: {
         // Touch devices (hover: none): always visible since hover isn't available.
         // Constraint: WKWebView on Capacitor iOS lacks hover events.
         "flex h-6 w-6 cursor-pointer items-center justify-center rounded-md bg-stone-200/80 text-[var(--content-tertiary)] transition-[opacity] duration-150 ease-out hover:bg-stone-300 hover:text-[var(--content-secondary)] [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100 dark:bg-moss-600/80 dark:hover:bg-moss-500 dark:hover:text-stone-200",
-        visible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+        visible
+          ? "pointer-events-auto opacity-100"
+          : "pointer-events-none opacity-0",
       )}
     >
       <div className="relative h-3.5 w-3.5">
@@ -83,23 +105,30 @@ function CodeBlockWrapper({ children }: { children: ReactNode }) {
   const codeChild = childArray.find(
     (child) =>
       isValidElement(child) &&
-      (child.props as { className?: string }).className?.startsWith("language-"),
+      (child.props as { className?: string }).className?.startsWith(
+        "language-",
+      ),
   );
   const language = isValidElement(codeChild)
-    ? (codeChild.props as { className?: string }).className
-        ?.replace("language-", "")
+    ? (codeChild.props as { className?: string }).className?.replace(
+        "language-",
+        "",
+      )
     : undefined;
 
   const handleCopy = useCallback(() => {
     const text = preRef.current?.textContent ?? "";
-    navigator.clipboard.writeText(text).then(() => {
-      setShowCopied(true);
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => {
-        setShowCopied(false);
-        timerRef.current = null;
-      }, 1500);
-    }).catch(() => {});
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setShowCopied(true);
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => {
+          setShowCopied(false);
+          timerRef.current = null;
+        }, 1500);
+      })
+      .catch(() => {});
   }, []);
 
   const buttonVisible = isHovered || hasFocusWithin;
@@ -119,7 +148,7 @@ function CodeBlockWrapper({ children }: { children: ReactNode }) {
       {language && (
         <div className="flex items-center justify-between px-3 pt-2">
           {/* typography: off-scale — monospace language label */}
-          { }
+          {}
           <span className="font-mono text-xs font-medium uppercase text-[var(--content-tertiary)]">
             {language}
           </span>
@@ -132,8 +161,8 @@ function CodeBlockWrapper({ children }: { children: ReactNode }) {
       )}
       <pre
         ref={preRef}
-        className="overflow-x-auto p-3"
-        style={{ maxHeight: MAX_CODE_BLOCK_HEIGHT, overflowY: "auto" }}
+        className="overflow-auto p-3"
+        style={{ maxHeight: MAX_CODE_BLOCK_HEIGHT }}
       >
         {children}
       </pre>
@@ -170,9 +199,10 @@ export type MarkdownLinkComponent = (
   props: Pick<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "children">,
 ) => ReactNode;
 
-export type MarkdownImageComponent = (
-  props: { src: string; alt: string },
-) => ReactNode;
+export type MarkdownImageComponent = (props: {
+  src: string;
+  alt: string;
+}) => ReactNode;
 
 /**
  * Browser-default `<em>` italic synthesizes an oblique skew on every glyph in
@@ -266,18 +296,24 @@ function buildMarkdownComponents(
     // so a plain `font-bold` loses to the custom rule; `!important` wins).
     h1: ({ children }) => (
       // typography: off-scale — bold weight override on canonical size
-       
-      <h1 className="mb-2 mt-3 text-title-medium !font-bold first:mt-0">{children}</h1>
+
+      <h1 className="mb-2 mt-3 text-title-medium !font-bold first:mt-0">
+        {children}
+      </h1>
     ),
     h2: ({ children }) => (
       // typography: off-scale — bold weight override on canonical size
-       
-      <h2 className="mb-2 mt-3 text-title-small !font-bold first:mt-0">{children}</h2>
+
+      <h2 className="mb-2 mt-3 text-title-small !font-bold first:mt-0">
+        {children}
+      </h2>
     ),
     h3: ({ children }) => (
       // typography: off-scale — bold weight override on canonical size
-       
-      <h3 className="mb-1 mt-2 text-body-medium-default !font-bold first:mt-0">{children}</h3>
+
+      <h3 className="mb-1 mt-2 text-body-medium-default !font-bold first:mt-0">
+        {children}
+      </h3>
     ),
     ul: ({ children }) => (
       <ul className="mb-2 list-disc pl-5 last:mb-0">{children}</ul>
@@ -287,7 +323,9 @@ function buildMarkdownComponents(
     // model continues from a prior number). Dropping it silently renumbers
     // every such list to 1 — e.g. "3." would render as "1.".
     ol: ({ children, start }) => (
-      <ol start={start} className="mb-2 list-decimal pl-5 last:mb-0">{children}</ol>
+      <ol start={start} className="mb-2 list-decimal pl-5 last:mb-0">
+        {children}
+      </ol>
     ),
     // h4-h6 are rare in assistant output but must not fall through to
     // unstyled browser defaults (a Tailwind reset strips their size/weight,
@@ -296,40 +334,52 @@ function buildMarkdownComponents(
     h4: ({ children }) => (
       // typography: off-scale — bold weight override on canonical size
 
-      <h4 className="mb-1 mt-2 text-body-medium-default !font-bold first:mt-0">{children}</h4>
+      <h4 className="mb-1 mt-2 text-body-medium-default !font-bold first:mt-0">
+        {children}
+      </h4>
     ),
     h5: ({ children }) => (
       // typography: off-scale — bold weight override on canonical size
 
-      <h5 className="mb-1 mt-2 text-body-small-default !font-bold first:mt-0">{children}</h5>
+      <h5 className="mb-1 mt-2 text-body-small-lighter !font-bold first:mt-0">
+        {children}
+      </h5>
     ),
     h6: ({ children }) => (
       // typography: off-scale — bold weight override on canonical size
 
-      <h6 className="mb-1 mt-2 text-body-small-default !font-bold text-[var(--content-secondary)] first:mt-0">{children}</h6>
+      <h6 className="mb-1 mt-2 text-body-small-lighter !font-bold text-[var(--content-secondary)] first:mt-0">
+        {children}
+      </h6>
     ),
     // `value` is forwarded so a list item whose source ordinal breaks the
     // running sequence (set by remarkPreserveOrderedListNumbers) renders at its
     // typed number via the HTML `<li value="N">` attribute.
-    li: ({ children, value }) => <li value={value} className="mb-0.5">{children}</li>,
-    a: ({ href, children }) => <LinkComponent href={href}>{children}</LinkComponent>,
+    li: ({ children, value }) => (
+      <li value={value} className="mb-0.5">
+        {children}
+      </li>
+    ),
+    a: ({ href, children }) => (
+      <LinkComponent href={href}>{children}</LinkComponent>
+    ),
     code: ({ className, children, ...props }) => {
       const isBlock = className?.startsWith("language-");
       if (isBlock) {
         return (
           <code
-            className={cn("block overflow-x-auto font-mono text-body-small-default", className)}
+            className={cn(
+              // w-max min-w-full keeps the <pre>'s right padding visible when scrolled horizontally.
+              "block w-max min-w-full font-mono text-body-small-lighter",
+              className,
+            )}
             {...props}
           >
             {children}
           </code>
         );
       }
-      return (
-        <code className="rounded bg-stone-100 px-1 py-0.5 font-mono text-body-small-default dark:bg-moss-800">
-          {children}
-        </code>
-      );
+      return <code className={MARKDOWN_INLINE_CODE_CLASS}>{children}</code>;
     },
     pre: ({ children }) => <CodeBlockWrapper>{children}</CodeBlockWrapper>,
     // No styling change vs. the browser default `<em>`, except emoji inside the
@@ -343,29 +393,38 @@ function buildMarkdownComponents(
     ),
     table: ({ children }) => (
       <div className="mb-2 overflow-x-auto last:mb-0">
-        <table className="min-w-full border-collapse text-body-small-default">{children}</table>
+        <table className="min-w-full border-collapse text-body-small-lighter">
+          {children}
+        </table>
       </div>
     ),
     thead: ({ children }) => (
       <thead className="bg-[var(--surface-sunken)]">{children}</thead>
     ),
     th: ({ children }) => (
-       
-      <th className={"border border-stone-200 px-2 py-1 text-left font-semibold [&_code]:whitespace-pre-wrap [&_code]:break-words [&_code]:box-decoration-clone [&_code]:leading-relaxed dark:border-moss-600" /* typography: off-scale — no canonical variant */}>
+      <th
+        className={
+          "border border-stone-200 px-2 py-1 text-left font-semibold [&_code]:whitespace-pre-wrap [&_code]:break-words [&_code]:box-decoration-clone dark:border-moss-600" /* typography: off-scale — no canonical variant */
+        }
+      >
         {children}
       </th>
     ),
     td: ({ children }) => (
-      <td className="border border-stone-200 px-2 py-1 [&_code]:whitespace-pre-wrap [&_code]:break-words [&_code]:box-decoration-clone [&_code]:leading-relaxed dark:border-moss-600">
+      <td className="border border-stone-200 px-2 py-1 [&_code]:whitespace-pre-wrap [&_code]:break-words [&_code]:box-decoration-clone dark:border-moss-600">
         {children}
       </td>
     ),
-    hr: () => (
-      <hr className="my-3 border-[var(--border-subtle)]" />
-    ),
+    hr: () => <hr className="my-3 border-[var(--border-subtle)]" />,
     img: ({ src, alt }) => {
       const srcStr = typeof src === "string" ? src : "";
       const altStr = typeof alt === "string" ? alt : "";
+      // Every src goes to the consumer's component, absolute host paths and
+      // inline `data:`/`blob:` payloads included: only the app knows which of
+      // them it can resolve into a real image.
+      if (ImageComponent) {
+        return <ImageComponent src={srcStr} alt={altStr} />;
+      }
       const isLocal =
         !srcStr ||
         srcStr.startsWith("/") ||
@@ -373,10 +432,9 @@ function buildMarkdownComponents(
         srcStr.startsWith("blob:") ||
         srcStr.startsWith(".");
       if (isLocal) {
-        return <img src={srcStr} alt={altStr} className="my-1 max-w-full rounded" />;
-      }
-      if (ImageComponent) {
-        return <ImageComponent src={srcStr} alt={altStr} />;
+        return (
+          <img src={srcStr} alt={altStr} className="my-1 max-w-full rounded" />
+        );
       }
       return (
         <span className="inline-flex items-center gap-1 rounded bg-stone-100 px-1.5 py-0.5 text-body-small-default text-stone-500 dark:bg-moss-800 dark:text-stone-400">
@@ -429,18 +487,31 @@ const CURRENCY_AMOUNT =
  */
 const structureParser = unified().use(remarkParse).use(remarkGfm);
 
+/** Prose: the only node type a source rewrite may touch. */
+const TEXT_NODES: ReadonlySet<string> = new Set(["text"]);
+
+/** Regions a source rewrite must leave byte-for-byte intact. */
+const VERBATIM_NODES: ReadonlySet<string> = new Set([
+  "inlineCode",
+  "code",
+  "html",
+]);
+
 /**
- * Source offset ranges of every `text` node in `content`, in document order.
- * Verbatim regions — inline code, fenced code, link/image destinations,
- * autolinks — are non-`text` nodes, so they are excluded: a rewrite scoped to
- * these ranges leaves them byte-for-byte intact. Shared by currency escaping
- * and soft-break conversion so both stay confined to prose.
+ * Source offset ranges of every node in `tree` whose type is in `types`, in
+ * document order. Matched nodes are not descended into.
  */
-function collectTextRanges(content: string): Array<[number, number]> {
-  const tree = structureParser.parse(content);
+function collectRanges(
+  tree: unknown,
+  types: ReadonlySet<string>,
+): Array<[number, number]> {
   const ranges: Array<[number, number]> = [];
-  const collect = (node: { type: string; position?: { start: { offset?: number }; end: { offset?: number } }; children?: unknown[] }) => {
-    if (node.type === "text") {
+  const collect = (node: {
+    type: string;
+    position?: { start: { offset?: number }; end: { offset?: number } };
+    children?: unknown[];
+  }) => {
+    if (types.has(node.type)) {
       const start = node.position?.start.offset;
       const end = node.position?.end.offset;
       if (typeof start === "number" && typeof end === "number") {
@@ -456,6 +527,18 @@ function collectTextRanges(content: string): Array<[number, number]> {
   };
   collect(tree as Parameters<typeof collect>[0]);
   return ranges;
+}
+
+/**
+ * Source offset ranges of every `text` node in `content`, in document order.
+ * Verbatim regions (inline code, fenced code, link/image destinations,
+ * autolinks) are non-`text` nodes, so they are excluded: a rewrite scoped to
+ * these ranges leaves them byte-for-byte intact. Shared by currency escaping,
+ * soft-break conversion, and math-delimiter conversion so all three stay
+ * confined to prose.
+ */
+function collectTextRanges(content: string): Array<[number, number]> {
+  return collectRanges(structureParser.parse(content), TEXT_NODES);
 }
 
 /**
@@ -487,7 +570,8 @@ function escapeCurrencyDollars(content: string): string {
   if (ranges.length === 0) return content;
   return rewriteTextSlices(content, ranges, (slice, start) =>
     slice.replace(CURRENCY_AMOUNT, (match, amount: string, offset: number) => {
-      const prev = offset > 0 ? slice[offset - 1] : start > 0 ? content[start - 1] : "";
+      const prev =
+        offset > 0 ? slice[offset - 1] : start > 0 ? content[start - 1] : "";
       if (prev === "$" || prev === "\\") return match;
       return `\\$${amount}`;
     }),
@@ -511,7 +595,275 @@ function hardBreakNewlines(content: string): string {
   if (!content.includes("\n")) return content;
   const ranges = collectTextRanges(content);
   if (ranges.length === 0) return content;
-  return rewriteTextSlices(content, ranges, (slice) => slice.replace(/\n/g, "  \n"));
+  return rewriteTextSlices(content, ranges, (slice) =>
+    slice.replace(/\n/g, "  \n"),
+  );
+}
+
+/**
+ * Math delimiter pairs in the ChatGPT house style (`\(…\)` inline, `\[…\]`
+ * display), mapped to the `$`-delimited form remark-math understands.
+ */
+const LATEX_MATH_DELIMITERS = [
+  { open: "\\[", close: "\\]", dollars: "$$" },
+  { open: "\\(", close: "\\)", dollars: "$" },
+] as const;
+
+/**
+ * Whether a single range in `ranges` holds both characters of the delimiter at
+ * `offset`. Binary search, not a linear probe: this runs at every delimiter in
+ * the message, and a long message has many of both.
+ *
+ * `ranges` must be sorted and non-overlapping, which document-order collection
+ * guarantees.
+ */
+function containsDelimiter(
+  ranges: Array<[number, number]>,
+  offset: number,
+): boolean {
+  let low = 0;
+  let high = ranges.length - 1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    const [start, end] = ranges[mid]!;
+    if (offset < start) {
+      high = mid - 1;
+    } else if (offset >= end) {
+      low = mid + 1;
+    } else {
+      return offset + 2 <= end;
+    }
+  }
+  return false;
+}
+
+/**
+ * Offset of the `close` delimiter pairing with the opener that ends at `from`,
+ * or -1 when there is none.
+ *
+ * The search stops at the next opener of either style: no equation contains
+ * one, so a closer reached past it belongs to that opener rather than this one.
+ * Without the stop, a stray `\(` earlier in the prose would pair with the
+ * closer of the next real equation and swallow it. Stopping also bounds the
+ * scan by the distance to the next opener, which keeps a message full of
+ * unmatched openers linear rather than quadratic.
+ *
+ * Every other backslash consumes the character it escapes, so a `\\]` (an
+ * escaped backslash followed by a bracket) never reads as a closer.
+ */
+function findClosingDelimiter(
+  content: string,
+  from: number,
+  close: string,
+  inProse: (offset: number) => boolean,
+): number {
+  for (let i = from; i < content.length; i += 1) {
+    if (content[i] !== "\\") {
+      continue;
+    }
+    if (content.startsWith(close, i) && inProse(i)) {
+      return i;
+    }
+    const opensAgain = LATEX_MATH_DELIMITERS.some((candidate) =>
+      content.startsWith(candidate.open, i),
+    );
+    if (opensAgain && inProse(i)) {
+      return -1;
+    }
+    i += 1;
+  }
+  return -1;
+}
+
+/**
+ * Rewrite ChatGPT-style math delimiters to the `$` form remark-math parses:
+ * `\(x\)` becomes `$x$` and `\[x\]` becomes `$$x$$`. Models trained on that
+ * house style emit it regardless of which renderer is downstream, and CommonMark
+ * reads `\(` as a plain escaped paren, so without this the equation renders as
+ * literal text with the backslashes stripped.
+ *
+ * Only paired delimiters are converted, and only where both halves sit in
+ * prose: a lone `\[` left as `$$` would pair with the next unrelated `$$` and
+ * swallow the text between them. For the same reason a pair whose contents span
+ * a blank line (which ends the enclosing block), a verbatim region (inline or
+ * fenced code), or another opener is left alone: none of those is an equation.
+ * A rejected opener is skipped rather than abandoning the rest of the message,
+ * so a stray delimiter never costs a real equation that follows it.
+ */
+function convertLatexDelimiters(content: string): string {
+  // Fast path: neither opener present means no work to do.
+  if (!content.includes("\\[") && !content.includes("\\(")) {
+    return content;
+  }
+  const tree = structureParser.parse(content);
+  const prose = collectRanges(tree, TEXT_NODES);
+  if (prose.length === 0) {
+    return content;
+  }
+  const verbatim = collectRanges(tree, VERBATIM_NODES);
+  const inProse = (offset: number) => containsDelimiter(prose, offset);
+
+  let result = "";
+  let cursor = 0;
+  let i = 0;
+  while (i < content.length) {
+    if (content[i] !== "\\") {
+      i += 1;
+      continue;
+    }
+    const delimiter = LATEX_MATH_DELIMITERS.find((candidate) =>
+      content.startsWith(candidate.open, i),
+    );
+    if (!delimiter || !inProse(i)) {
+      i += 2; // skip the escaped character
+      continue;
+    }
+    const close = findClosingDelimiter(
+      content,
+      i + delimiter.open.length,
+      delimiter.close,
+      inProse,
+    );
+    const inner =
+      close === -1 ? "" : content.slice(i + delimiter.open.length, close);
+    if (!inner.trim() || /\n[ \t]*\n/.test(inner)) {
+      i += 2;
+      continue;
+    }
+    if (verbatim.some(([start, end]) => start < close && end > i)) {
+      i += 2;
+      continue;
+    }
+    result += content.slice(cursor, i);
+    result += `${delimiter.dollars}${inner}${delimiter.dollars}`;
+    cursor = close + delimiter.close.length;
+    i = cursor;
+  }
+  return result + content.slice(cursor);
+}
+
+/**
+ * The block-level `math` node remark-math emits for a `$$` fence that opens a
+ * line, built by hand for a `$$…$$` span found mid-paragraph. The `data` hints
+ * are what mdast→hast turns into the `math-display` element rehype-katex
+ * typesets in display mode.
+ */
+function displayMathNode(value: string) {
+  return {
+    type: "math",
+    value,
+    data: {
+      hName: "pre",
+      hChildren: [
+        {
+          type: "element",
+          tagName: "code",
+          properties: { className: ["language-math", "math-display"] },
+          children: [{ type: "text", value }],
+        },
+      ],
+    },
+  };
+}
+
+interface PhrasingNode {
+  type: string;
+  value?: string;
+  position?: { start: { offset?: number } };
+}
+
+/** A node that contributes nothing visible once its paragraph is split. */
+function isBlankPhrasing(node: PhrasingNode): boolean {
+  if (node.type === "break") {
+    return true;
+  }
+  return node.type === "text" && (node.value ?? "").trim() === "";
+}
+
+/**
+ * remark plugin: lift `$$…$$` math out of the paragraph it was typed in so
+ * KaTeX typesets it in display mode.
+ *
+ * remark-math only produces a block `math` node when the `$$` fence opens a
+ * line; the same span mid-sentence becomes an inline `inlineMath` node, which
+ * KaTeX renders in text mode (cramped sum/integral limits, inline fractions).
+ * Display delimiters mean display math wherever they appear (`\[x\]` arrives
+ * here as `$$x$$` after delimiter conversion), so each double-dollar span
+ * becomes its own block and the surrounding prose splits around it. Single-`$`
+ * math is untouched, and math inside a heading or table cell stays inline
+ * because neither can host a block child.
+ */
+function remarkDisplayMathBlocks() {
+  return (tree: unknown, file: { toString(): string }) => {
+    const source = String(file);
+    const isDisplay = (node: PhrasingNode) => {
+      const offset = node.position?.start.offset;
+      return (
+        node.type === "inlineMath" &&
+        typeof offset === "number" &&
+        source.startsWith("$$", offset)
+      );
+    };
+    const split = (paragraph: { children: PhrasingNode[] }) => {
+      const blocks: unknown[] = [];
+      let buffer: PhrasingNode[] = [];
+      const flush = () => {
+        while (buffer.length > 0 && isBlankPhrasing(buffer[0]!)) {
+          buffer.shift();
+        }
+        while (
+          buffer.length > 0 &&
+          isBlankPhrasing(buffer[buffer.length - 1]!)
+        ) {
+          buffer.pop();
+        }
+        if (buffer.length > 0) {
+          blocks.push({ type: "paragraph", children: buffer });
+        }
+        buffer = [];
+      };
+      for (const child of paragraph.children) {
+        if (isDisplay(child)) {
+          flush();
+          blocks.push(displayMathNode(child.value ?? ""));
+        } else {
+          buffer.push(child);
+        }
+      }
+      flush();
+      return blocks;
+    };
+    const visit = (node: { type: string; children?: unknown[] }) => {
+      if (!Array.isArray(node.children)) {
+        return;
+      }
+      const rebuilt: unknown[] = [];
+      let changed = false;
+      for (const child of node.children) {
+        const candidate = child as {
+          type: string;
+          children?: PhrasingNode[];
+        };
+        if (
+          candidate.type === "paragraph" &&
+          Array.isArray(candidate.children) &&
+          candidate.children.some(isDisplay)
+        ) {
+          rebuilt.push(...split(candidate as { children: PhrasingNode[] }));
+          changed = true;
+        } else {
+          rebuilt.push(child);
+        }
+      }
+      if (changed) {
+        node.children = rebuilt;
+      }
+      for (const child of node.children) {
+        visit(child as Parameters<typeof visit>[0]);
+      }
+    };
+    visit(tree as Parameters<typeof visit>[0]);
+  };
 }
 
 /** Leading marker of an ordered-list item: up to 3 spaces, digits, then `.`/`)`. */
@@ -540,14 +892,20 @@ function remarkPreserveOrderedListNumbers() {
       data?: { hProperties?: Record<string, unknown> };
       children?: unknown[];
     }) => {
-      if (node.type === "list" && node.ordered && Array.isArray(node.children)) {
+      if (
+        node.type === "list" &&
+        node.ordered &&
+        Array.isArray(node.children)
+      ) {
         let counter = node.start ?? 1;
         for (const child of node.children) {
           const item = child as Parameters<typeof visit>[0];
           const offset = item.position?.start.offset;
           let literal = counter;
           if (typeof offset === "number") {
-            const marker = ORDERED_MARKER.exec(source.slice(offset, offset + 16));
+            const marker = ORDERED_MARKER.exec(
+              source.slice(offset, offset + 16),
+            );
             if (marker) literal = Number(marker[1]);
           }
           if (literal !== counter) {
@@ -583,9 +941,13 @@ export interface MarkdownMessageProps {
    */
   linkComponent?: MarkdownLinkComponent;
   /**
-   * Custom image component for rendering external `<img>` elements inside
-   * markdown. Receives `src` and `alt` props. By default, external images
-   * are blocked and show a placeholder label.
+   * Custom image component for rendering every `<img>` element inside
+   * markdown. Receives `src` and `alt` props, whatever the src looks like:
+   * remote URLs, absolute host paths, relative paths, `data:`/`blob:`
+   * payloads, and the empty string a rejected `urlTransform` leaves behind.
+   *
+   * Without it, local-looking srcs render a plain `<img>` and remote ones are
+   * blocked behind a placeholder label.
    *
    * Pass a stable reference (module-level function or `useCallback`) to
    * avoid rebuilding internal component overrides on every render.
@@ -600,6 +962,27 @@ export interface MarkdownMessageProps {
    * @see https://github.com/remarkjs/react-markdown?tab=readme-ov-file#urltransform
    */
   urlTransform?: (url: string) => string;
+  /**
+   * Extra rehype plugins appended after the built-in ones (KaTeX). Lets
+   * consumers post-process the HTML tree — e.g. wrapping streamed words for
+   * entrance animations — without the design library knowing the domain.
+   *
+   * Pass a stable reference (module-level array) so the plugin list doesn't
+   * churn ReactMarkdown's pipeline on every render.
+   */
+  extraRehypePlugins?: readonly import("unified").Pluggable[];
+  /**
+   * Extra component overrides merged after the built-in ones, keyed by tag
+   * name. Pairs with `extraRehypePlugins`: a consumer plugin can emit
+   * domain-specific elements (custom tag names included) and map them to
+   * React components here — without the design library knowing the domain.
+   *
+   * Pass a stable reference (module-level object or `useMemo`) so the
+   * component map doesn't churn ReactMarkdown's renderer on every render.
+   */
+  extraComponents?: Readonly<
+    Record<string, import("react").ComponentType<never>>
+  >;
 }
 
 export function MarkdownMessage({
@@ -609,16 +992,47 @@ export function MarkdownMessage({
   linkComponent,
   imageComponent,
   urlTransform,
+  extraRehypePlugins,
+  extraComponents,
 }: MarkdownMessageProps) {
   const processed = useMemo(() => {
     const escaped = escapeCurrencyDollars(content);
-    return hardLineBreaks ? hardBreakNewlines(escaped) : escaped;
+    const broken = hardLineBreaks ? hardBreakNewlines(escaped) : escaped;
+    // Last: currency escaping would otherwise read a converted `\(5\)` as an
+    // amount and escape the `$` it just introduced.
+    return convertLatexDelimiters(broken);
   }, [content, hardLineBreaks]);
   const Link = linkComponent ?? DefaultLink;
-  const components = useMemo(() => buildMarkdownComponents(Link, imageComponent), [Link, imageComponent]);
+  const components = useMemo(
+    () =>
+      ({
+        ...buildMarkdownComponents(Link, imageComponent),
+        // Custom tag names from consumer rehype plugins are not part of
+        // react-markdown's intrinsic `Components` key set, hence the cast.
+        ...extraComponents,
+      }) as Components,
+    [Link, imageComponent, extraComponents],
+  );
+  const rehypePlugins = useMemo(
+    () => [rehypeKatex, ...(extraRehypePlugins ?? [])],
+    [extraRehypePlugins],
+  );
   return (
-    <div data-slot="markdown-message" className={cn("text-chat text-[var(--content-default)]", className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath, remarkPreserveOrderedListNumbers]} rehypePlugins={[rehypeKatex]} components={components} urlTransform={urlTransform}>
+    <div
+      data-slot="markdown-message"
+      className={cn("text-chat text-[var(--content-default)]", className)}
+    >
+      <ReactMarkdown
+        remarkPlugins={[
+          remarkGfm,
+          remarkMath,
+          remarkPreserveOrderedListNumbers,
+          remarkDisplayMathBlocks,
+        ]}
+        rehypePlugins={rehypePlugins}
+        components={components}
+        urlTransform={urlTransform}
+      >
         {processed}
       </ReactMarkdown>
     </div>

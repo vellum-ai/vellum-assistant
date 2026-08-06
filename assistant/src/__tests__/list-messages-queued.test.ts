@@ -9,24 +9,7 @@
  * `message_queued` SSE events would otherwise be the only source of.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { Conversation } from "../daemon/conversation.js";
 import type { QueuedMessage } from "../daemon/conversation-queue-manager.js";
@@ -54,7 +37,7 @@ function resetTables() {
 interface MessagePayload {
   id: string;
   role: string;
-  content?: string;
+  contentBlocks?: Array<{ type: string; text?: string }>;
   clientMessageId?: string;
   queueStatus?: "queued" | "processing";
   queuePosition?: number;
@@ -108,7 +91,7 @@ describe("handleListMessages in-memory queue", () => {
     ]);
 
     // WHEN the messages snapshot is built for the newest page
-    const response = handleListMessages({
+    const response = await handleListMessages({
       queryParams: { conversationId: conv.id },
     });
     const body = response as { messages: MessagePayload[] };
@@ -123,7 +106,10 @@ describe("handleListMessages in-memory queue", () => {
     expect(first.queuePosition).toBe(1);
     expect(first.role).toBe("user");
     expect(first.id).toBe("req-queued-1");
-    expect(first.content).toBe("please also do this");
+    expect(first.contentBlocks?.[0]).toEqual({
+      type: "text",
+      text: "please also do this",
+    });
     expect(first.clientMessageId).toBe("nonce-queued");
 
     const second = body.messages[2];
@@ -142,13 +128,16 @@ describe("handleListMessages in-memory queue", () => {
       }),
     ]);
 
-    const response = handleListMessages({
+    const response = await handleListMessages({
       queryParams: { conversationId: conv.id },
     });
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(1);
-    expect(body.messages[0].content).toBe("what the user actually typed");
+    expect(body.messages[0].contentBlocks?.[0]).toEqual({
+      type: "text",
+      text: "what the user actually typed",
+    });
   });
 
   test("renders queued attachments with a derived kind", async () => {
@@ -167,7 +156,7 @@ describe("handleListMessages in-memory queue", () => {
       }),
     ]);
 
-    const response = handleListMessages({
+    const response = await handleListMessages({
       queryParams: { conversationId: conv.id },
     });
     const body = response as { messages: MessagePayload[] };
@@ -193,7 +182,50 @@ describe("handleListMessages in-memory queue", () => {
       makeQueued({ requestId: "req-visible", content: "a real message" }),
     ]);
 
-    const response = handleListMessages({
+    const response = await handleListMessages({
+      queryParams: { conversationId: conv.id },
+    });
+    const body = response as { messages: MessagePayload[] };
+
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].id).toBe("req-visible");
+    expect(body.messages[0].queuePosition).toBe(1);
+  });
+
+  test("filters daemon-injected notifications from the snapshot, keeping positions contiguous", async () => {
+    // A subagent's completion summary injected into a busy parent queues like
+    // any other turn, but it is scaffolding the user follows through the
+    // subagent card — never a queued bubble they could steer or cancel. Same
+    // for ACP run outcomes and wake triggers.
+    const conv = createConversation();
+    registerLiveConversation(conv.id, [
+      makeQueued({
+        requestId: "req-subagent",
+        content: '[Subagent "hermes-local-review" — important] review finished',
+        metadata: {
+          subagentNotification: {
+            subagentId: "sub-1",
+            label: "hermes-local-review",
+            status: "completed",
+            conversationId: "conv-sub-1",
+            objective: "review the diff",
+          },
+        },
+      }),
+      makeQueued({
+        requestId: "req-acp",
+        content: "[ACP run finished]",
+        metadata: { acpNotification: { acpSessionId: "acp-1" } },
+      }),
+      makeQueued({
+        requestId: "req-wake",
+        content: '<background_event source="schedule">',
+        metadata: { backgroundEventSource: "schedule" },
+      }),
+      makeQueued({ requestId: "req-visible", content: "a real message" }),
+    ]);
+
+    const response = await handleListMessages({
       queryParams: { conversationId: conv.id },
     });
     const body = response as { messages: MessagePayload[] };
@@ -215,7 +247,7 @@ describe("handleListMessages in-memory queue", () => {
     registerLiveConversation(conv.id, [makeQueued({ requestId: "req-old" })]);
 
     // WHEN paging older history
-    const response = handleListMessages({
+    const response = await handleListMessages({
       queryParams: {
         conversationId: conv.id,
         beforeTimestamp: String(Date.now() + 1_000),
@@ -237,7 +269,7 @@ describe("handleListMessages in-memory queue", () => {
       { skipIndexing: true },
     );
 
-    const response = handleListMessages({
+    const response = await handleListMessages({
       queryParams: { conversationId: conv.id },
     });
     const body = response as { messages: MessagePayload[] };

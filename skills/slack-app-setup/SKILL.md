@@ -46,7 +46,7 @@ Call `ui_show` with `surface_type: "channel_setup"` and `data: { channel: "slack
 
 After `ui_show` returns success, tell the user:
 
-> I've opened the Slack setup wizard in the side panel. It will walk you through creating a Slack app, generating tokens, and connecting — complete the steps there. The wizard will auto-notify me when you close it. If you run into issues along the way, ask me in chat.
+> I've opened the Slack setup wizard in the side panel. It will walk you through creating a Slack app from a manifest and connecting it — complete the steps there. The wizard will auto-notify me when you close it. If you run into issues along the way, ask me in chat.
 
 **Hand-off notification (phones and narrow windows).** On phone-sized clients the setup opens on the Contacts page instead of a side drawer, and completing it there cannot auto-notify. The client signals this with a hidden message like `[User action on channel_setup surface: moved the slack setup to the Contacts page]`. When you receive that hand-off notification, tell the user:
 
@@ -58,7 +58,7 @@ If the `ui_show` call fails, do NOT send that message — tell the user the wiza
 
 > ✓ Checkpoint: The successful `ui_show` tool result appears earlier in this turn than your announcement. If it does not, the wizard is not open — make the call before claiming it is.
 
-The wizard handles the entire flow: manifest URL generation, app-level token creation, bot token installation, and credential storage. Tokens are entered in secure input fields within the wizard and saved directly via the API — they never enter the chat conversation.
+The wizard handles the entire flow: manifest generation, app creation in Slack, and credential storage. The user copies the manifest from the wizard, hands it to Slack's **From a manifest** option, and Slack returns both tokens at once on **Create and Install**. Tokens are entered in secure input fields within the wizard and saved directly via the API — they never enter the chat conversation.
 
 ⚠️ CRITICAL: **Do NOT collect tokens in chat.** Do NOT use `assistant credentials prompt` for Slack setup. Do NOT ask the user to paste tokens into the conversation. The wizard's secure input fields are the only path for credential entry.
 
@@ -133,7 +133,16 @@ If identity was skipped → swap the last two lines for:
 
 **Messages not arriving.** Verify **Event Subscriptions → Subscribe to bot events** includes `message.channels`. The manifest pre-configures it, but it can be edited out by hand.
 
-**No Bot User OAuth Token on the Install App page.** The app was likely created without the manifest. Verify **OAuth & Permissions → Scopes → Bot Token Scopes** is populated; if empty → start over from Step 1. Do not hand-edit scopes.
+**No tokens after creating the app.** Slack shows both under **Your app credentials** in the "your app is ready" modal, collapsed behind a toggle — expand it. If that panel is missing entirely, the app was created from a template (**AI agent**, **Starter app**, **Blank app**) rather than **From a manifest**; scopes will be wrong too, so start over from Step 1. Do not hand-edit scopes.
+
+**Calls fail with `missing_scope` even though setup succeeded.** Slack sometimes installs an app carrying only a fraction of the manifest's scopes — a live install produced 2 of 18. `auth.test` still passes, so a green connection check does not prove the scopes arrived. Confirm by reading the `x-oauth-scopes` response header on any Slack API call and comparing it against the scopes in the manifest.
+
+To fix, in this order:
+
+1. Open the app at <https://api.slack.com/apps>. Slack interrupts with a prompt to **update** the app — accept it. Reinstalling without this step does not restore the scopes.
+2. Go to **OAuth & Permissions → Reinstall to Workspace**.
+
+The same bot token then carries the full scope set — it is not rotated, so nothing needs re-entering in the wizard.
 
 ## Optional: add a User OAuth Token later
 

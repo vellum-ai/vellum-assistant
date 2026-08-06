@@ -23,8 +23,7 @@ export type MemoryGraphEdge = MemoryGraph["edges"][number];
  * nodes and gets its own "no concepts yet" copy.
  */
 export type MemoryGraphResult =
-  | { kind: "ready"; graph: MemoryGraph }
-  | { kind: "unsupported" };
+  { kind: "ready"; graph: MemoryGraph } | { kind: "unsupported" };
 
 /** Detail for a single node — the concept's rendered markdown, fetched on open. */
 export type MemoryGraphNodeDetail = MemorygraphnodeGetResponse;

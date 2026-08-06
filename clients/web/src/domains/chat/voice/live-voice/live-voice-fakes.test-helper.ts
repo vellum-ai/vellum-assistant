@@ -30,6 +30,11 @@ import type {
   LiveVoiceAudioCaptureOptions,
   LiveVoiceCaptureResult,
 } from "@/domains/chat/voice/live-voice/pcm-capture";
+import type {
+  LiveVoicePlaybackProgress,
+  TtsOutputRoute,
+  TtsOutputRouteDiagnostics,
+} from "@/domains/chat/voice/live-voice/tts-playback";
 import {
   useLiveVoiceStore,
   type LiveVoiceSessionControls,
@@ -41,10 +46,16 @@ export class FakeClient {
     assistantId: string;
     conversationId?: string;
     turnDetection?: "manual" | "server_vad";
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
   } | null = null;
   sentAudio: ArrayBuffer[] = [];
   pttReleaseCount = 0;
   interruptCount = 0;
+  updateConfigCalls: {
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
+  }[] = [];
   ended = false;
   closed = false;
 
@@ -70,6 +81,8 @@ export class FakeClient {
     assistantId: string;
     conversationId?: string;
     turnDetection?: "manual" | "server_vad";
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
   }): Promise<void> {
     this.connectArgs = args;
   }
@@ -82,6 +95,12 @@ export class FakeClient {
   }
   interrupt(): void {
     this.interruptCount++;
+  }
+  updateConfig(config: {
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
+  }): void {
+    this.updateConfigCalls.push(config);
   }
   end(): void {
     this.ended = true;
@@ -108,7 +127,16 @@ export class FakeCapture {
   startCount = 0;
   stopCount = 0;
   shutdownCount = 0;
+  flushCount = 0;
   startResult: LiveVoiceCaptureResult = { ok: true };
+  /**
+   * When true, `start()` stays pending until {@link resolveStart} — lets tests
+   * hold the mic acquisition open across `ready`/teardown. Must be set before
+   * `start()` is called (i.e. at creation, in the `createCapture` factory,
+   * since the controller starts the capture at connect time).
+   */
+  deferStart = false;
+  private startResolvers: Array<(result: LiveVoiceCaptureResult) => void> = [];
 
   constructor(options: LiveVoiceAudioCaptureOptions) {
     this.onChunk = options.onChunk;
@@ -117,6 +145,9 @@ export class FakeCapture {
 
   async start(): Promise<LiveVoiceCaptureResult> {
     this.startCount++;
+    if (this.deferStart) {
+      return new Promise((resolve) => this.startResolvers.push(resolve));
+    }
     return this.startResult;
   }
   async stop(): Promise<void> {
@@ -124,6 +155,18 @@ export class FakeCapture {
   }
   async shutdown(): Promise<void> {
     this.shutdownCount++;
+  }
+  flush(): void {
+    this.flushCount++;
+  }
+
+  /** Resolve pending deferred `start()` calls with the current `startResult`. */
+  resolveStart(): void {
+    const resolvers = this.startResolvers;
+    this.startResolvers = [];
+    for (const resolve of resolvers) {
+      resolve(this.startResult);
+    }
   }
 
   /** Feed a captured PCM chunk to the controller. */
@@ -141,11 +184,56 @@ export class FakePlayer {
   stopCount = 0;
   disposeCount = 0;
   prewarmCount = 0;
+  resetPlaybackProgressCount = 0;
   isPlaying = false;
+  /**
+   * Assistant-mute the controller last pushed into the graph. The real player
+   * holds this flag itself, which is how a mute survives a reconnect onto a new
+   * graph, so the fake holds it too rather than counting calls only.
+   */
+  outputMuted = false;
+  /** Progress the fake reports; tests set it to drive the store's provider. */
+  playbackProgress: LiveVoicePlaybackProgress | null = null;
+  /** Speaker amplitude the fake reports, for the store's output provider. */
+  outputAmplitude = 0;
+  /** Route the fake reports, and how many times it was asked to re-render it. */
+  outputRoute: TtsOutputRoute = "unsupported";
+  restartOutputRouteCount = 0;
   private drainResolvers: Array<() => void> = [];
 
   prewarm(): void {
     this.prewarmCount++;
+  }
+  getOutputAmplitude(): number {
+    return this.outputAmplitude;
+  }
+  readOutputLevel(): number {
+    return this.outputAmplitude;
+  }
+  restartOutputRoute(): Promise<void> {
+    this.restartOutputRouteCount++;
+    return Promise.resolve();
+  }
+  getOutputRouteDiagnostics(): TtsOutputRouteDiagnostics {
+    return {
+      route: this.outputRoute,
+      mediaStreamRouteRequested: this.outputRoute !== "unsupported",
+      mediaStreamApiAvailable: true,
+      playAttempts: 0,
+      playRejectionName: null,
+      elementPaused: null,
+      elementReadyState: null,
+      contextState: null,
+    };
+  }
+  getPlaybackProgress(): LiveVoicePlaybackProgress | null {
+    return this.playbackProgress;
+  }
+  resetPlaybackProgress(): void {
+    this.resetPlaybackProgressCount++;
+  }
+  setOutputMuted(muted: boolean): void {
+    this.outputMuted = muted;
   }
   enqueue(chunk: unknown): void {
     this.enqueued.push(chunk);
@@ -193,6 +281,17 @@ export function makeControlsSpies() {
     stop: mock(() => {}),
     release: mock(() => {}),
     interrupt: mock(() => {}),
+    setMuted: mock((_muted: boolean) => {}),
+    setOutputMuted: mock((_muted: boolean) => {}),
+    updateConfig: mock(
+      (_config: {
+        silenceThresholdMs?: number;
+        bargeInMinSpeechMs?: number;
+      }) => {},
+    ),
+    // Defaults to delivered. The reconnect-gap case (false) is asserted by the
+    // tests that care, so the common path stays uncluttered.
+    attachImage: mock((_attachmentId: string) => true),
   } satisfies LiveVoiceSessionControls;
 }
 
@@ -216,4 +315,11 @@ export function seedLiveVoiceSession(
     store.setControls(options.controls);
   }
   store.setState(state);
+  // Mirror the controller's first-`tts_audio` write: entering `speaking` means
+  // audio is flowing, so the avatar reads `responding`. (A silent mid-turn
+  // `speaking` pause is the exception, exercised directly against
+  // `toVoiceAvatarVisual`.)
+  if (state === "speaking") {
+    store.setAssistantAudioActive(true);
+  }
 }

@@ -4,7 +4,7 @@
  * No DOM environment — mirroring `button.test.tsx`, we verify behavior through
  * two angles:
  *   1. `renderToStaticMarkup` — asserts the HTML the component emits, including
- *      the icon-only geometry that PR 1 enlarges to match the iOS mock.
+ *      the track/segment radii shared by both modes.
  *   2. The pure `resolveSegmentSelection` helper that each segment's onClick
  *      delegates to — asserts the click→onChange decision without a renderer.
  */
@@ -49,8 +49,12 @@ function containerClassName(html: string): string {
   return match?.match(/class="([^"]*)"/)?.[1] ?? "";
 }
 
-describe("SegmentControl icon-only geometry", () => {
-  test("container uses the enlarged 10px radius", () => {
+// The outer track uses a strict 8px radius (`rounded-md`: this repo's token
+// scale maps md to 8px in tokens.css) and the inner segments a strict 6px
+// radius, identical in icon-only and text modes. These tests pin that shared
+// geometry, so any per-mode radius special-casing fails here.
+describe("SegmentControl geometry (normalized radii)", () => {
+  test("icon-only container uses the shared 8px track radius, not an enlarged one", () => {
     const html = renderToStaticMarkup(
       <SegmentControl
         items={iconItems}
@@ -60,10 +64,13 @@ describe("SegmentControl icon-only geometry", () => {
         ariaLabel="Theme"
       />,
     );
-    expect(containerClassName(html)).toContain("rounded-[10px]");
+    const container = containerClassName(html);
+    expect(container).toContain("rounded-md");
+    expect(container).not.toContain("rounded-[10px]");
+    expect(container).not.toContain("rounded-lg");
   });
 
-  test("each segment uses the enlarged radius (rounded-lg) and padding (px-2)", () => {
+  test("icon-only segments use the shared 6px radius and px-2 padding", () => {
     const html = renderToStaticMarkup(
       <SegmentControl
         items={iconItems}
@@ -76,14 +83,13 @@ describe("SegmentControl icon-only geometry", () => {
     const classes = radioClassNames(html);
     expect(classes).toHaveLength(iconItems.length);
     for (const cls of classes) {
-      expect(cls).toContain("rounded-lg");
+      expect(cls).toContain("rounded-[6px]");
+      expect(cls).not.toContain("rounded-lg");
       expect(cls).toContain("px-2");
     }
   });
-});
 
-describe("SegmentControl text-mode (non-icon-only) geometry is unchanged", () => {
-  test("container stays rounded-lg and does NOT gain the 10px radius", () => {
+  test("text-mode container shares the same radius and spans full width", () => {
     const html = renderToStaticMarkup(
       <SegmentControl
         items={textItems}
@@ -93,11 +99,13 @@ describe("SegmentControl text-mode (non-icon-only) geometry is unchanged", () =>
       />,
     );
     const container = containerClassName(html);
-    expect(container).toContain("rounded-lg");
+    expect(container).toContain("rounded-md");
+    expect(container).toContain("w-full");
     expect(container).not.toContain("rounded-[10px]");
+    expect(container).not.toContain("rounded-lg");
   });
 
-  test("each segment keeps flex-1, px-3 and py-1.5", () => {
+  test("text-mode segments keep flex-1 and px-3, sized by fixed height rather than py-1.5", () => {
     const html = renderToStaticMarkup(
       <SegmentControl
         items={textItems}
@@ -111,7 +119,67 @@ describe("SegmentControl text-mode (non-icon-only) geometry is unchanged", () =>
     for (const cls of classes) {
       expect(cls).toContain("flex-1");
       expect(cls).toContain("px-3");
-      expect(cls).toContain("py-1.5");
+      expect(cls).toContain("rounded-[6px]");
+      // Single-line segments are height-sized (see the size describe below);
+      // py-1.5 appears only when a sublabel switches the segment to h-auto.
+      expect(cls).not.toContain("py-1.5");
+    }
+  });
+});
+
+describe("SegmentControl size", () => {
+  test("defaults to the 28px segment height", () => {
+    const html = renderToStaticMarkup(
+      <SegmentControl
+        items={textItems}
+        value="light"
+        onChange={() => {}}
+        ariaLabel="Theme"
+      />,
+    );
+    for (const cls of radioClassNames(html)) {
+      expect(cls).toContain("h-7");
+      expect(cls).not.toContain("h-6");
+    }
+  });
+
+  test("sm shrinks the segments to 24px, and grows them back for touch", () => {
+    const html = renderToStaticMarkup(
+      <SegmentControl
+        items={textItems}
+        value="light"
+        onChange={() => {}}
+        ariaLabel="Theme"
+        size="sm"
+      />,
+    );
+    for (const cls of radioClassNames(html)) {
+      expect(cls).toContain("h-6");
+      expect(cls).not.toContain("h-7");
+      // 24px is under a comfortable touch target, so it grows below `md`.
+      expect(cls).toContain("max-md:h-9");
+    }
+  });
+
+  // Sublabels need height to follow content, so they win over the size map
+  // rather than being clipped by a fixed height.
+  test("sublabels override the size in either mode", () => {
+    const items: SegmentControlItem<ThemeValue>[] = [
+      { value: "light", label: "Light", sublabel: "Always" },
+      { value: "dark", label: "Dark", sublabel: "Always" },
+    ];
+    const html = renderToStaticMarkup(
+      <SegmentControl
+        items={items}
+        value="light"
+        onChange={() => {}}
+        ariaLabel="Theme"
+        size="sm"
+      />,
+    );
+    for (const cls of radioClassNames(html)) {
+      expect(cls).toContain("h-auto");
+      expect(cls).not.toContain("h-6");
     }
   });
 });

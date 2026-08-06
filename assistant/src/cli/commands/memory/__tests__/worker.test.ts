@@ -13,6 +13,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
 
+import { applyCommandHelp } from "../../../lib/cli-command-help.js";
+import { memoryHelp } from "../index.help.js";
+
 // ---------------------------------------------------------------------------
 // Mock state
 // ---------------------------------------------------------------------------
@@ -68,6 +71,7 @@ function buildProgram(): Command {
   program.exitOverride();
   program.configureOutput({ writeErr: () => {}, writeOut: () => {} });
   const memory = program.command("memory");
+  applyCommandHelp(memory, memoryHelp);
   registerMemoryWorkerCommand(memory);
   return program;
 }
@@ -89,7 +93,9 @@ async function runCommand(
   try {
     await buildProgram().parseAsync(["node", "assistant", ...args]);
   } catch {
-    if (process.exitCode === 0) process.exitCode = 1;
+    if (process.exitCode === 0) {
+      process.exitCode = 1;
+    }
   } finally {
     process.stdout.write = originalStdoutWrite;
     process.stderr.write = originalStderrWrite;
@@ -140,7 +146,6 @@ describe("memory worker start", () => {
       result: {
         pid: 4242,
         alreadyRunning: false,
-        workerEnabled: true,
         pidPath: "/x/memory-worker.pid",
       },
     });
@@ -156,7 +161,6 @@ describe("memory worker start", () => {
     const result = {
       pid: 7,
       alreadyRunning: true,
-      workerEnabled: true,
       pidPath: "/x/p.pid",
     };
     responses.set("memory_worker_start", { ok: true, result });
@@ -190,7 +194,7 @@ describe("memory worker stop", () => {
   test("calls memory_worker_stop and renders the signalled PID", async () => {
     responses.set("memory_worker_stop", {
       ok: true,
-      result: { workerWasRunning: true, pid: 555, workerEnabled: false },
+      result: { workerWasRunning: true, pid: 555 },
     });
 
     const { exitCode } = await runCommand(["memory", "worker", "stop"]);
@@ -212,8 +216,13 @@ describe("memory worker status", () => {
     const result = {
       status: "running",
       pid: 321,
-      workerEnabled: true,
-      syncRunner: { status: "not_running" },
+      embedding: {
+        enabled: true,
+        degraded: false,
+        provider: "local",
+        model: "Xenova/all-MiniLM-L6-v2",
+        reason: null,
+      },
     };
     responses.set("memory_worker_status", { ok: true, result });
 

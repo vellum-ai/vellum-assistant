@@ -1,6 +1,8 @@
 import type { Logger } from "pino";
 import { buildEmailTransportMetadata } from "../channels/transport-hints.js";
 import type { GatewayConfig } from "../config.js";
+import type { CredentialCache } from "../credential-cache.js";
+import { resolveCredentialWithRefresh } from "../credential-refresh.js";
 import { recordDenialReplyIfAllowed } from "../db/denial-reply-rate-limiter.js";
 import type { StringDedupCache } from "../dedup-cache.js";
 import { handleInbound } from "../handlers/handle-inbound.js";
@@ -9,6 +11,10 @@ import {
   handleCircuitBreakerError,
   processInboundResult,
 } from "../webhook-pipeline.js";
+import {
+  appendFailedEmailAttachmentNotice,
+  ingestEmailAttachments,
+} from "./attachments.js";
 import type { VellumEmailPayload } from "./normalize.js";
 import { normalizeEmailWebhook } from "./normalize.js";
 
@@ -43,6 +49,46 @@ export interface EmailInboundPipelineOptions {
   sendReply: EmailReplySender | undefined;
   /** Extra fields for the received/forwarded log lines (e.g. Resend emailId). */
   logFields?: Record<string, unknown>;
+}
+
+/**
+ * Resolve a provider credential after the caller has already reserved
+ * `dedupKey`. `resolveCredentialWithRefresh` reads through the credential
+ * cache, which re-throws on a credential-backend failure; left unguarded that
+ * throw would strand the reservation — a {@link StringDedupCache} reservation
+ * has no TTL, so the provider's retries would dedup as duplicates and the
+ * email would be silently dropped. On a throw, release the reservation and
+ * return a 500 so the provider retries and the retry is processed. A missing
+ * credential is not an error: it resolves to `undefined` and the caller
+ * decides whether that is fatal.
+ */
+export async function resolveEmailCredentialOrRelease(opts: {
+  credentials: CredentialCache | undefined;
+  key: string;
+  dedupCache: StringDedupCache;
+  dedupKey: string;
+  log: Logger;
+  label: string;
+}): Promise<
+  { ok: true; value: string | undefined } | { ok: false; response: Response }
+> {
+  try {
+    const value = await resolveCredentialWithRefresh(
+      opts.credentials,
+      opts.key,
+    );
+    return { ok: true, value };
+  } catch (err) {
+    opts.log.error(
+      { err },
+      `Failed to resolve ${opts.label} credential — releasing dedup reservation for retry`,
+    );
+    opts.dedupCache.unreserve(opts.dedupKey);
+    return {
+      ok: false,
+      response: Response.json({ error: "Internal error" }, { status: 500 }),
+    };
+  }
 }
 
 /**
@@ -85,7 +131,13 @@ export async function runEmailInboundPipeline(
     return Response.json({ ok: true });
   }
 
-  const { event: gatewayEvent, eventId, recipientAddress } = normalized;
+  const {
+    event: gatewayEvent,
+    eventId,
+    recipientAddress,
+    senderAuthenticated,
+    attachments,
+  } = normalized;
   const senderAddress = gatewayEvent.actor.actorExternalId;
 
   log.info(
@@ -121,7 +173,19 @@ export async function runEmailInboundPipeline(
   const replySubject = `Re: ${vellumPayload.subject ?? "(no subject)"}`;
 
   try {
+    // Ingest inline base64 attachments into the assistant's attachment store
+    // (stored in the conversation workspace) and forward the ids. A transient
+    // upload failure throws into the catch below → 500 so the provider retries.
+    const ingested = await ingestEmailAttachments(config, attachments, log);
+    const attachmentIds =
+      ingested.attachmentIds.length > 0 ? ingested.attachmentIds : undefined;
+    gatewayEvent.message.content = appendFailedEmailAttachmentNotice(
+      gatewayEvent.message.content,
+      ingested.failedAttachmentNames,
+    );
+
     const result = await handleInbound(config, gatewayEvent, {
+      ...(attachmentIds ? { attachmentIds } : {}),
       transportMetadata: buildEmailTransportMetadata({
         senderAddress,
         recipientAddress,
@@ -131,6 +195,9 @@ export async function runEmailInboundPipeline(
       replyCallbackUrl: undefined,
       traceId,
       routingOverride: routing,
+      // Provider SPF/DKIM/DMARC verdict (from the normalizer). `false` collapses
+      // a forged `From:` out of guardian/trusted_contact; `undefined` is a no-op.
+      senderAuthenticated,
       sourceMetadata: {
         emailProvider: source,
         emailSubject: vellumPayload.subject ?? undefined,

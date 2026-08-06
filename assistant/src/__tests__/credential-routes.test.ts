@@ -10,8 +10,11 @@ import type { CredentialMetadata } from "../tools/credentials/metadata-store.js"
 let secureStore: Map<string, string>;
 let metadataStore: Map<string, CredentialMetadata>;
 let syncedServices: string[];
+let syncRejects: boolean;
 let disconnectedProviders: string[];
 let credentialIdCounter: number;
+let scrubbedValues: string[];
+let scrubRejects: boolean;
 
 function metaKey(service: string, field: string): string {
   return `${service}:${field}`;
@@ -23,6 +26,15 @@ function metaKey(service: string, field: string): string {
 
 mock.module("../runtime/auth/route-policy.js", () => ({
   ACTOR_PRINCIPALS: [],
+}));
+
+let chatCredentialRevealFlag = false;
+mock.module("../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: (key: string) =>
+    key === "chat-credential-reveal" && chatCredentialRevealFlag,
+}));
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({}),
 }));
 
 mock.module("../security/credential-key.js", () => ({
@@ -91,6 +103,9 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 
 mock.module("../oauth/manual-token-connection.js", () => ({
   syncManualTokenConnection: mock(async (service: string) => {
+    if (syncRejects) {
+      throw new Error("simulated oauth-store failure");
+    }
     syncedServices.push(service);
   }),
 }));
@@ -108,11 +123,45 @@ mock.module("../credential-execution/managed-catalog.js", () => ({
   fetchManagedCatalog: mock(async () => ({ ok: true, descriptors: [] })),
 }));
 
+mock.module("../daemon/credential-transcript-scrub.js", () => ({
+  scrubStoredCredentialFromTranscripts: mock(async (value: string) => {
+    scrubbedValues.push(value);
+    if (scrubRejects) {
+      throw new Error("transcript sweep failed");
+    }
+    return { dbMessagesScrubbed: 0, residentMessagesScrubbed: 0 };
+  }),
+}));
+
+// Stub the prompted-credential persist path's Slack + broker collaborators so
+// importing it exercises the ACP guard without loading their real dep chains.
+mock.module("../daemon/handlers/config-slack-channel.js", () => ({
+  setSlackChannelConfig: mock(async () => ({
+    success: true,
+    connected: false,
+  })),
+}));
+mock.module("../tools/credentials/broker.js", () => ({
+  credentialBroker: { injectTransient: mock(() => {}) },
+}));
+
+import { persistPromptedCredential } from "../credential-execution/prompted-credential.js";
+import {
+  forChatMintsSince,
+  resetForChatMintRegistryForTest,
+} from "../runtime/for-chat-mint-registry.js";
+import {
+  _resetRevealSuccessRegistryForTest,
+  currentRevealSuccessWatermark,
+  openRevealProofWindow,
+  revealedValueSince,
+} from "../runtime/reveal-success-registry.js";
 import { ROUTES } from "../runtime/routes/credential-routes.js";
 
 const setRoute = ROUTES.find((r) => r.operationId === "credentials_set");
 const listRoute = ROUTES.find((r) => r.operationId === "credentials_list");
 const deleteRoute = ROUTES.find((r) => r.operationId === "credentials_delete");
+const revealRoute = ROUTES.find((r) => r.operationId === "credentials_reveal");
 
 type SetResponse = { credentialId: string; service: string; field: string };
 type ListResponse = {
@@ -133,8 +182,241 @@ describe("credentials routes", () => {
     secureStore = new Map();
     metadataStore = new Map();
     syncedServices = [];
+    syncRejects = false;
     disconnectedProviders = [];
     credentialIdCounter = 0;
+    scrubbedValues = [];
+    scrubRejects = false;
+    _resetRevealSuccessRegistryForTest();
+    resetForChatMintRegistryForTest();
+    chatCredentialRevealFlag = false;
+  });
+
+  describe("credentials_reveal", () => {
+    test("a local-principal reveal returns the value and records proof", async () => {
+      /**
+       * A tool shell's `assistant credentials reveal` reaches this route as
+       * the direct-IPC `local` principal; its success is the ground truth
+       * the chat-credential persist seams use to promote staged refs.
+       */
+      // GIVEN a stored credential, a staged tool reveal (open proof
+      // window), and the staging watermark
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      openRevealProofWindow();
+      const watermark = currentRevealSuccessWatermark();
+
+      // WHEN revealed by the local principal with its tool-shell nonce
+      const result = (await revealRoute!.handler({
+        body: {
+          service: "vercel",
+          field: "api_token",
+          revealNonce: "nonce-A",
+        },
+        headers: { "x-vellum-principal-type": "local" },
+      })) as { value: string };
+
+      // THEN the value is returned and the proof is recorded
+      expect(result.value).toBe(SECRET_VALUE);
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
+      ).toBe(SECRET_VALUE);
+    });
+
+    test("a web/gateway reveal returns the value but records no proof", async () => {
+      /**
+       * The Settings row and chat chips hit this same handler over HTTP or
+       * the gateway proxy. Those reveals are not evidence any tool ran a
+       * reveal — recording them would let a UI click promote a staged ref
+       * in a concurrent turn whose command merely echoed the invocation.
+       */
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      openRevealProofWindow();
+      const watermark = currentRevealSuccessWatermark();
+
+      for (const principal of ["user", "svc_gateway"]) {
+        const result = (await revealRoute!.handler({
+          body: {
+            service: "vercel",
+            field: "api_token",
+            revealNonce: "nonce-A",
+          },
+          headers: { "x-vellum-principal-type": principal },
+        })) as { value: string };
+        expect(result.value).toBe(SECRET_VALUE);
+      }
+
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
+      ).toBeUndefined();
+    });
+
+    test("a gateway-proxied local-principal reveal records no proof", async () => {
+      /**
+       * In local mode the gateway derives the `local` principal from the
+       * verified JWT for WEB calls too, but it always stamps
+       * `x-vellum-proxy-server: ipc` — only a direct (unproxied) local call
+       * is a tool shell's CLI and may become proof.
+       */
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      openRevealProofWindow();
+      const watermark = currentRevealSuccessWatermark();
+
+      const result = (await revealRoute!.handler({
+        body: {
+          service: "vercel",
+          field: "api_token",
+          revealNonce: "nonce-A",
+        },
+        headers: {
+          "x-vellum-principal-type": "local",
+          "x-vellum-proxy-server": "ipc",
+        },
+      })) as { value: string };
+
+      expect(result.value).toBe(SECRET_VALUE);
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
+      ).toBeUndefined();
+    });
+
+    test("a local reveal with NO staged tool reveal records no proof", async () => {
+      /**
+       * A user's own terminal CLI reveal outside any assistant tool turn
+       * has no pending proof to satisfy — the registry must not retain its
+       * plaintext at all (recording is gated on an open proof window).
+       */
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      const watermark = currentRevealSuccessWatermark();
+
+      const result = (await revealRoute!.handler({
+        body: { service: "vercel", field: "api_token" },
+        headers: { "x-vellum-principal-type": "local" },
+      })) as { value: string };
+
+      expect(result.value).toBe(SECRET_VALUE);
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
+      ).toBeUndefined();
+    });
+
+    test("a reveal with no principal header records no proof (fails closed)", async () => {
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      openRevealProofWindow();
+      const watermark = currentRevealSuccessWatermark();
+
+      const result = (await revealRoute!.handler({
+        body: { service: "vercel", field: "api_token" },
+      })) as { value: string };
+
+      expect(result.value).toBe(SECRET_VALUE);
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
+      ).toBeUndefined();
+    });
+  });
+
+  describe("credentials_reveal --for-chat", () => {
+    test("rejects forChat when the chat-credential-reveal flag is off", async () => {
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      await expect(
+        revealRoute!.handler({
+          body: { service: "vercel", field: "api_token", forChat: true },
+          headers: { "x-vellum-principal-type": "local" },
+        }),
+      ).rejects.toThrow("chat-credential-reveal feature flag");
+    });
+
+    test("a direct local forChat reveal returns the sentinel, records the mint, and no plaintext proof", async () => {
+      chatCredentialRevealFlag = true;
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      openRevealProofWindow();
+      const watermark = currentRevealSuccessWatermark();
+
+      const result = (await revealRoute!.handler({
+        body: {
+          service: "vercel",
+          field: "api_token",
+          forChat: true,
+          revealNonce: "nonce-A",
+        },
+        headers: { "x-vellum-principal-type": "local" },
+      })) as { value: string };
+
+      expect(result.value).toBe(
+        "\u3014redacted:Credential:vercel:api_token\u3015",
+      );
+      expect(result.value).not.toContain(SECRET_VALUE);
+      expect(forChatMintsSince(0)).toEqual([
+        {
+          service: "vercel",
+          field: "api_token",
+          sentinel: result.value,
+          nonce: "nonce-A",
+        },
+      ]);
+      // The channel never returns plaintext to the tool, so the plaintext
+      // proof registry must not retain the secret for it.
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
+      ).toBeUndefined();
+    });
+
+    test("a gateway-proxied forChat reveal returns the sentinel but records no mint", async () => {
+      chatCredentialRevealFlag = true;
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+
+      const result = (await revealRoute!.handler({
+        body: {
+          service: "vercel",
+          field: "api_token",
+          forChat: true,
+          revealNonce: "nonce-A",
+        },
+        headers: {
+          "x-vellum-principal-type": "local",
+          "x-vellum-proxy-server": "ipc",
+        },
+      })) as { value: string };
+
+      expect(result.value).toContain("\u3014redacted:");
+      expect(forChatMintsSince(0)).toEqual([]);
+    });
+
+    test("a direct local reveal WITHOUT a nonce records no authority at all", async () => {
+      // Direct terminal use (outside any conversation's tool shell) has no
+      // nonce to forward. The reveal works, but neither registry records —
+      // there is no conversation whose transcript could spend the record.
+      chatCredentialRevealFlag = true;
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+      openRevealProofWindow();
+      const watermark = currentRevealSuccessWatermark();
+
+      await revealRoute!.handler({
+        body: { service: "vercel", field: "api_token" },
+        headers: { "x-vellum-principal-type": "local" },
+      });
+      await revealRoute!.handler({
+        body: { service: "vercel", field: "api_token", forChat: true },
+        headers: { "x-vellum-principal-type": "local" },
+      });
+
+      expect(
+        revealedValueSince(watermark, "vercel", "api_token", "nonce-A"),
+      ).toBeUndefined();
+      expect(forChatMintsSince(0)).toEqual([]);
+    });
+
+    test("a forChat reveal with no principal header records no mint (fails closed)", async () => {
+      chatCredentialRevealFlag = true;
+      secureStore.set("vercel:api_token", SECRET_VALUE);
+
+      const result = (await revealRoute!.handler({
+        body: { service: "vercel", field: "api_token", forChat: true },
+      })) as { value: string };
+
+      expect(result.value).toContain("\u3014redacted:");
+      expect(forChatMintsSince(0)).toEqual([]);
+    });
   });
 
   describe("credentials_set", () => {
@@ -188,6 +470,246 @@ describe("credentials routes", () => {
       // THEN it rejects with a BadRequestError and stores nothing
       await expect(call).rejects.toBeInstanceOf(BadRequestError);
       expect(secureStore.size).toBe(0);
+    });
+
+    test("rejects an Anthropic API key written into the ACP OAuth-token field", async () => {
+      /**
+       * Pasting an `sk-ant-api…` key into `acp/claude_oauth_token` 401s at
+       * runtime; the write seam rejects it with a clear 400-class error and
+       * persists nothing.
+       */
+      const call = setRoute!.handler({
+        body: {
+          service: "acp",
+          field: "claude_oauth_token",
+          value: "sk-ant-api03-not-an-oauth-token",
+        },
+      });
+
+      await expect(call).rejects.toBeInstanceOf(BadRequestError);
+      await expect(call).rejects.toThrow("Claude OAuth token");
+      expect(secureStore.size).toBe(0);
+    });
+
+    test("accepts a Claude OAuth token in the ACP OAuth-token field", async () => {
+      const result = (await setRoute!.handler({
+        body: {
+          service: "acp",
+          field: "claude_oauth_token",
+          value: "sk-ant-oat01-a-real-oauth-token",
+        },
+      })) as SetResponse;
+
+      expect(result.service).toBe("acp");
+      expect(result.field).toBe("claude_oauth_token");
+      expect(secureStore.get("acp:claude_oauth_token")).toBe(
+        "sk-ant-oat01-a-real-oauth-token",
+      );
+    });
+
+    test("a successful set scrubs the normalized value from transcripts exactly once", async () => {
+      /**
+       * The pasted plaintext may already sit in recent transcripts, so a
+       * successful store triggers one retroactive scrub — with the
+       * normalized (edge-trimmed) value that was actually persisted, not
+       * the raw paste.
+       */
+      // WHEN a credential is stored with paste-artifact edge whitespace
+      await setRoute!.handler({
+        body: {
+          service: "vercel",
+          field: "api_token",
+          value: `  ${SECRET_VALUE}\n`,
+        },
+      });
+
+      // THEN the transcript scrub runs exactly once with the stored value
+      expect(scrubbedValues).toEqual([SECRET_VALUE]);
+    });
+
+    test("a validation-rejected set never triggers a transcript scrub", async () => {
+      /**
+       * Nothing was stored, so there is nothing to scrub — neither the
+       * whitespace-only value guard nor the ACP token-format guard may
+       * reach the scrub.
+       */
+      // WHEN a whitespace-only value is rejected by normalization
+      await expect(
+        setRoute!.handler({
+          body: { service: "vercel", field: "api_token", value: "   " },
+        }),
+      ).rejects.toBeInstanceOf(BadRequestError);
+
+      // AND an Anthropic API key is rejected by the ACP format guard
+      await expect(
+        setRoute!.handler({
+          body: {
+            service: "acp",
+            field: "claude_oauth_token",
+            value: "sk-ant-api03-not-an-oauth-token",
+          },
+        }),
+      ).rejects.toBeInstanceOf(BadRequestError);
+
+      // THEN the scrub never runs
+      expect(scrubbedValues).toEqual([]);
+    });
+
+    test("the scrub still runs when the post-store connection sync throws", async () => {
+      /**
+       * `syncManualTokenConnection` performs oauth-store work that can
+       * throw. The secret is already in secure storage at that point, so
+       * the transcript scrub must have run BEFORE the failing side effect
+       * — a stored secret whose plaintext lingers in transcripts is the
+       * leak this seam exists to close.
+       */
+      // GIVEN a connection sync that throws after the store
+      syncRejects = true;
+
+      // WHEN the set is attempted
+      await expect(
+        setRoute!.handler({
+          body: { service: "vercel", field: "api_token", value: SECRET_VALUE },
+        }),
+      ).rejects.toThrow("simulated oauth-store failure");
+
+      // THEN the secret was stored and the scrub ran despite the failure
+      expect(secureStore.get("vercel:api_token")).toBe(SECRET_VALUE);
+      expect(scrubbedValues).toEqual([SECRET_VALUE]);
+    });
+
+    test("non-secret vellum platform fields are stored but never scrubbed", async () => {
+      /**
+       * Platform identity ids and the base URL are benign UUIDs/URLs that
+       * legitimately appear in transcripts; scrubbing them would redact
+       * ordinary conversation content. Shares the exemption with the
+       * /v1/secrets credential branch via isNonSecretPlatformField.
+       */
+      for (const field of [
+        "platform_assistant_id",
+        "platform_organization_id",
+        "platform_user_id",
+        "platform_base_url",
+      ]) {
+        const result = (await setRoute!.handler({
+          body: {
+            service: "vellum",
+            field,
+            value: "0198f4c2-1111-2222-3333-444455556666",
+          },
+        })) as SetResponse;
+        expect(result.service).toBe("vellum");
+      }
+
+      expect(scrubbedValues).toEqual([]);
+    });
+
+    test("the set still succeeds when the transcript scrub rejects", async () => {
+      /**
+       * The scrub is post-store hygiene: the credential IS stored, so a
+       * scrub failure is logged and must stay invisible to the caller.
+       */
+      // GIVEN a scrub that rejects
+      scrubRejects = true;
+
+      // WHEN a credential is stored
+      const result = (await setRoute!.handler({
+        body: { service: "vercel", field: "api_token", value: SECRET_VALUE },
+      })) as SetResponse;
+
+      // THEN the route still returns success and the secret is persisted
+      expect(result.service).toBe("vercel");
+      expect(result.credentialId).toBe("cred-1");
+      expect(secureStore.get("vercel:api_token")).toBe(SECRET_VALUE);
+      expect(scrubbedValues).toEqual([SECRET_VALUE]);
+    });
+
+    test("leaves a non-ACP service unaffected by the OAuth-field guard", async () => {
+      /**
+       * The guard is scoped to the ACP service; the same field name on another
+       * service stores whatever value it is given.
+       */
+      const result = (await setRoute!.handler({
+        body: {
+          service: "vercel",
+          field: "claude_oauth_token",
+          value: "sk-ant-api03-not-an-oauth-token",
+        },
+      })) as SetResponse;
+
+      expect(result.service).toBe("vercel");
+      expect(secureStore.get("vercel:claude_oauth_token")).toBe(
+        "sk-ant-api03-not-an-oauth-token",
+      );
+    });
+  });
+
+  describe("persistPromptedCredential ACP guard", () => {
+    test("rejects an Anthropic API key prompted into the ACP OAuth-token field", async () => {
+      /**
+       * The secure-prompt persist path shares the same footgun as the route:
+       * an `sk-ant-api…` key in `acp/claude_oauth_token` is surfaced through
+       * the existing error channel and never written.
+       */
+      const result = await persistPromptedCredential({
+        service: "acp",
+        field: "claude_oauth_token",
+        value: "sk-ant-api03-not-an-oauth-token",
+        delivery: "store",
+        policy: {},
+      });
+
+      expect(result.outcome).toBe("error");
+      if (result.outcome === "error") {
+        expect(result.message).toContain("Claude OAuth token");
+      }
+      expect(secureStore.size).toBe(0);
+    });
+
+    test("stores a Claude OAuth token prompted into the ACP OAuth-token field", async () => {
+      const result = await persistPromptedCredential({
+        service: "acp",
+        field: "claude_oauth_token",
+        value: "sk-ant-oat01-a-real-oauth-token",
+        delivery: "store",
+        policy: {},
+      });
+
+      expect(result.outcome).toBe("stored");
+      expect(secureStore.get("acp:claude_oauth_token")).toBe(
+        "sk-ant-oat01-a-real-oauth-token",
+      );
+    });
+
+    test("a stored prompted credential scrubs recent transcripts", async () => {
+      /**
+       * The prompt flow is routinely used to RE-collect a secret the user
+       * already pasted into chat; the 06 rail promises the pasted message
+       * is scrubbed after storage, so the store path must run the scrub.
+       */
+      const result = await persistPromptedCredential({
+        service: "vercel",
+        field: "api_token",
+        value: SECRET_VALUE,
+        delivery: "store",
+        policy: {},
+      });
+
+      expect(result.outcome).toBe("stored");
+      expect(scrubbedValues).toEqual([SECRET_VALUE]);
+    });
+
+    test("a rejected prompted credential never scrubs", async () => {
+      const result = await persistPromptedCredential({
+        service: "acp",
+        field: "claude_oauth_token",
+        value: "sk-ant-api03-not-an-oauth-token",
+        delivery: "store",
+        policy: {},
+      });
+
+      expect(result.outcome).toBe("error");
+      expect(scrubbedValues).toEqual([]);
     });
   });
 

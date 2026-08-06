@@ -42,7 +42,7 @@ function isCompactRoute(pathname: string): boolean {
  * layout. Off Electron the call is a no-op, so this is inert on web and iOS.
  * Driving it from the route — not the `onboarding.completed` flag — keeps
  * the small window applied across the whole pre-app surface, including the
- * post-completion-flag prechat/hatching screens.
+ * post-completion-flag hatching and research-onboarding screens.
  */
 export function useOnboardingWindowSize(): void {
   const { pathname } = useLocation();

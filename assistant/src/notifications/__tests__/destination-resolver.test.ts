@@ -4,21 +4,15 @@
  * null/empty or carries no entry for it.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import type { GuardianDelivery } from "@vellumai/gateway-client";
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
 
 const { resolveDestinations } = await import("../destination-resolver.js");
 
 function guardian(
-  overrides: Partial<GuardianDelivery> & Pick<GuardianDelivery, "channelType" | "address">,
+  overrides: Partial<GuardianDelivery> &
+    Pick<GuardianDelivery, "channelType" | "address">,
 ): GuardianDelivery {
   return {
     contactId: "contact-1",
@@ -30,7 +24,11 @@ function guardian(
 describe("resolveDestinations — gateway guardian list", () => {
   test("vellum carries guardianPrincipalId from the gateway list", () => {
     const list = [
-      guardian({ channelType: "vellum", address: "user@example.com", principalId: "prin-1" }),
+      guardian({
+        channelType: "vellum",
+        address: "user@example.com",
+        principalId: "prin-1",
+      }),
     ];
     const result = resolveDestinations(["vellum"], list);
     expect(result.get("vellum")).toEqual({
@@ -41,7 +39,11 @@ describe("resolveDestinations — gateway guardian list", () => {
 
   test("platform carries guardianPrincipalId from the vellum guardian", () => {
     const list = [
-      guardian({ channelType: "vellum", address: "user@example.com", principalId: "prin-1" }),
+      guardian({
+        channelType: "vellum",
+        address: "user@example.com",
+        principalId: "prin-1",
+      }),
     ];
     const result = resolveDestinations(["platform"], list);
     expect(result.get("platform")).toEqual({
@@ -143,7 +145,11 @@ describe("resolveDestinations — gateway empty or missing channel", () => {
   test("gateway list missing the channel omits slack", () => {
     // Gateway returns a telegram guardian but no slack entry.
     const list = [
-      guardian({ channelType: "telegram", address: "tg", externalChatId: "999" }),
+      guardian({
+        channelType: "telegram",
+        address: "tg",
+        externalChatId: "999",
+      }),
     ];
     const result = resolveDestinations(["slack"], list);
     expect(result.has("slack")).toBe(false);

@@ -1,12 +1,15 @@
 /**
  * Chat-domain MarkdownMessage that composes the design-library primitive
  * with OAuth-aware link handling, vellum:// file link support, and inline
- * image previews for external URLs and workspace/host file attachments.
+ * media for external URLs, message attachments, and workspace files.
  */
 
+import { ExternalLink } from "lucide-react";
 import {
   type AnchorHTMLAttributes,
+  isValidElement,
   memo,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -23,11 +26,33 @@ import {
 import type { DisplayAttachment } from "@/types/attachment-types";
 import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
 import { defaultUrlTransform } from "react-markdown";
+import { handleNativeAnchorClick } from "@/utils/native-anchor";
 
 import {
   openMarkdownOAuthLinkInPopup,
   shouldOpenMarkdownLinkInOAuthPopup,
 } from "@/domains/chat/utils/oauth-popup-links";
+import {
+  RedactedCredentialChip,
+  type RedactedCredentialChipProps,
+} from "@/domains/chat/components/redacted-credential-chip";
+import {
+  REDACTED_CREDENTIAL_TAG,
+  rehypeRedactedCredential,
+} from "@/domains/chat/utils/rehype-redacted-credential";
+import { rehypeStreamWordFade } from "@/domains/chat/utils/rehype-stream-word-fade";
+import { rehypeWorkspacePath } from "@/domains/chat/utils/rehype-workspace-path";
+import {
+  toVellumWorkspaceHref,
+  WORKSPACE_PATH_TAG,
+} from "@/domains/chat/utils/workspace-path-links";
+import { WorkspacePathLink } from "@/domains/chat/components/workspace-path-link";
+import { classifyMarkdownHref } from "@/domains/chat/utils/local-file-links";
+import { LocalFileEmbed } from "@/domains/chat/components/local-file/local-file-embed";
+import { LocalFileLink } from "@/domains/chat/components/local-file/local-file-link";
+import { resolveLocalFileTarget } from "@/domains/chat/components/local-file/local-file-target";
+import { toggleLocalFile } from "@/domains/chat/components/local-file/open-local-file";
+import { useConversationStore } from "@/stores/conversation-store";
 
 /** Returns true when `href` is a known `vellum://` attachment link. */
 export function isVellumLink(href: string | undefined): boolean {
@@ -44,10 +69,7 @@ export function isVellumLink(href: string | undefined): boolean {
  * `vellum://` shapes are rejected to limit protocol-handler attack surface.
  */
 function vellumUrlTransform(url: string): string {
-  if (
-    url.startsWith("vellum://workspace/") ||
-    url.startsWith("vellum://host/")
-  ) {
+  if (isVellumLink(url)) {
     return url;
   }
   return defaultUrlTransform(url);
@@ -58,6 +80,7 @@ function OAuthAwareLink({
   children,
 }: Pick<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "children">) {
   const opensOAuthPopup = shouldOpenMarkdownLinkInOAuthPopup(href);
+  const isWebUrl = /^https?:\/\//i.test(href ?? "");
 
   return (
     <a
@@ -67,16 +90,51 @@ function OAuthAwareLink({
       onClick={(event) => {
         if (openMarkdownOAuthLinkInPopup(href)) {
           event.preventDefault();
+          return;
         }
+        // In the iOS webview a `target="_blank"` anchor silently no-ops;
+        // route through the native opener there (no-op elsewhere).
+        handleNativeAnchorClick(event, href);
       }}
       className="text-[var(--system-positive-strong)] underline hover:opacity-80"
     >
       {children}
+      {/* Inline (not inline-flex) anchor so long link text still wraps; the
+          icon aligns via a small baseline shift instead. */}
+      {isWebUrl ? (
+        <ExternalLink
+          aria-hidden
+          className="ml-0.5 inline h-3.5 w-3.5 shrink-0 align-[-0.125em]"
+        />
+      ) : null}
     </a>
   );
 }
 
-const IMAGE_CLASSES = "my-2 max-w-full max-h-[400px] rounded-lg border border-[var(--border-default)] object-contain";
+/**
+ * Visible text of a markdown link's children, matching what the rendered
+ * anchor's `textContent` would report. The file-action modal matches this label
+ * against stored attachment filenames, so emphasis, code spans, and the
+ * per-word spans of the streaming reveal all have to flatten to their text.
+ */
+function markdownChildrenText(children: ReactNode): string {
+  if (typeof children === "string") {
+    return children;
+  }
+  if (typeof children === "number") {
+    return String(children);
+  }
+  if (Array.isArray(children)) {
+    return children.map(markdownChildrenText).join("");
+  }
+  if (isValidElement<{ children?: ReactNode }>(children)) {
+    return markdownChildrenText(children.props.children);
+  }
+  return "";
+}
+
+const IMAGE_CLASSES =
+  "my-2 max-w-full max-h-[400px] rounded-lg border border-[var(--border-element)] object-contain";
 
 function ImageErrorFallback({ alt }: { alt: string }) {
   return (
@@ -116,27 +174,46 @@ function decodeBasename(raw: string): string {
   }
 }
 
+/**
+ * The message attachment a `vellum://` image src names, when that attachment
+ * holds image bytes. The attachment's own blob is the closest copy of what the
+ * assistant produced, and it carries the transcript's zoom-to-preview modal.
+ *
+ * Attachments rehydrated from message text can arrive without a `mimeType`,
+ * so an absent type is treated as "not known to be an image".
+ */
+function matchingImageAttachment(
+  src: string,
+  attachments: DisplayAttachment[] | undefined,
+): DisplayAttachment | undefined {
+  const pathBasename = decodeBasename(src.split("/").pop() ?? "");
+  const attachment = attachments?.find((a) => a.filename === pathBasename);
+  if (!attachment) {
+    return undefined;
+  }
+  const mimeType: string | undefined = attachment.mimeType;
+  if (mimeType === undefined || !mimeType.startsWith("image/")) {
+    return undefined;
+  }
+  return attachment;
+}
+
 function WorkspaceInlineImage({
-  src,
+  attachment,
   alt,
-  attachments,
   assistantId,
   onOpenPreview,
 }: {
-  src: string;
+  attachment: DisplayAttachment;
   alt: string;
-  attachments: DisplayAttachment[] | undefined;
   assistantId: string | null | undefined;
   onOpenPreview?: (attachment: DisplayAttachment) => void;
 }) {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
-  const pathBasename = decodeBasename(src.split("/").pop() ?? "");
-  const attachment = attachments?.find((a) => a.filename === pathBasename);
-
   useEffect(() => {
-    if (!attachment || !assistantId || attachment.id.startsWith("rehydrated:")) {
+    if (!assistantId || attachment.id.startsWith("rehydrated:")) {
       return;
     }
 
@@ -160,7 +237,10 @@ function WorkspaceInlineImage({
       } catch (err) {
         if (!revoked) {
           setFailed(true);
-          captureError(err, { context: "WorkspaceInlineImage", bestEffort: true });
+          captureError(err, {
+            context: "WorkspaceInlineImage",
+            bestEffort: true,
+          });
         }
       }
     })();
@@ -176,8 +256,8 @@ function WorkspaceInlineImage({
     };
   }, [attachment, assistantId]);
 
-  if (failed || (!attachment && !objectUrl)) {
-    return <ImageErrorFallback alt={alt || pathBasename} />;
+  if (failed) {
+    return <ImageErrorFallback alt={alt || attachment.filename} />;
   }
 
   if (!objectUrl) {
@@ -190,7 +270,7 @@ function WorkspaceInlineImage({
 
   const image = <img src={objectUrl} alt={alt} className={IMAGE_CLASSES} />;
 
-  if (!attachment || !onOpenPreview) {
+  if (!onOpenPreview) {
     return image;
   }
 
@@ -206,12 +286,16 @@ function WorkspaceInlineImage({
   );
 }
 
-export interface ChatMarkdownMessageProps extends Omit<MarkdownMessageProps, "linkComponent" | "imageComponent"> {
+export interface ChatMarkdownMessageProps
+  extends Omit<MarkdownMessageProps, "linkComponent" | "imageComponent"> {
   /**
-   * Callback invoked when a `vellum://` link is clicked. Receives the full
-   * href (e.g. `vellum://workspace/scratch/report.pdf`) and the visible
-   * link text (e.g. `report.pdf`). When provided, `vellum://` links
-   * render as download triggers instead of navigating.
+   * Fallback for file links the document drawer cannot open: a reference with
+   * no assistant to read it through, or a `vellum://host/` link with no
+   * workspace route to its bytes. Everything else opens in the drawer, so this
+   * is not called for it. Receives the full `vellum://` href (e.g.
+   * `vellum://workspace/scratch/report.pdf`, converted from an absolute or
+   * relative workspace path when the markdown used one) and the visible link
+   * text (e.g. `report.pdf`).
    *
    * Pass a stable reference (useCallback) to avoid rebuilding the markdown
    * component tree on every render.
@@ -221,6 +305,39 @@ export interface ChatMarkdownMessageProps extends Omit<MarkdownMessageProps, "li
   attachments?: DisplayAttachment[];
   /** Active assistant ID for fetching attachment content from the daemon. */
   assistantId?: string | null;
+  /**
+   * Streamed-text reveal sweep (see `rehypeStreamWordFade`): each word is
+   * wrapped in a fade span, and while `"revealing"` the words nearest the
+   * reveal edge are graded toward transparent so the text appears through a
+   * soft left-to-right gradient wipe. Pass `"caughtUp"` once the reveal has
+   * drained the stream backlog so the tail lifts to full opacity (spans stay
+   * mounted, ready for the next chunk). Only enable for the actively-growing
+   * text of a streaming message — the spans cost DOM weight, so settled
+   * content should render plain (`undefined`).
+   */
+  streamWordFade?: "revealing" | "caughtUp";
+  /**
+   * Render redacted-credential sentinels as interactive chips (see
+   * `rehypeRedactedCredential`). Enable ONLY for daemon-persisted content
+   * (assistant text, tool results) — the persist seams neutralize forged
+   * sentinel strings there, so surviving sentinels are redactor-authored.
+   * Never enable for user-authored content: a pasted sentinel-shaped string
+   * must render as literal text, not manufacture a reveal affordance.
+   */
+  redactedCredentialChips?: boolean;
+  /**
+   * Resolve inline code spans that hold a workspace file path into file links
+   * (see `rehypeWorkspacePath`). The resolved link behaves exactly like an
+   * explicit `vellum://` link: a click opens the file in the document drawer,
+   * and falls back to `onVellumLinkClick` for the references the drawer cannot
+   * reach. That fallback is also what enables the affordance, so this needs
+   * `onVellumLinkClick` to have any effect.
+   *
+   * Enable only for assistant-authored content. The affordance is a claim
+   * that the assistant is referring to a file it worked with; a path the user
+   * typed is their own prose and should render as they wrote it.
+   */
+  workspacePathLinks?: boolean;
 }
 
 export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
@@ -230,10 +347,34 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
   onVellumLinkClick,
   attachments,
   assistantId,
+  streamWordFade,
+  redactedCredentialChips,
+  workspacePathLinks,
 }: ChatMarkdownMessageProps) {
   const { openPreview, previewModal } = useAttachmentPreview(
     assistantId,
     attachments,
+  );
+  // Markdown opens as a document bound to the conversation it was opened from,
+  // so the active conversation decides where a click on a code-span path lands.
+  const conversationId = useConversationStore.use.activeConversationId();
+
+  /**
+   * Click handler for a code span that resolved to a real workspace file. The
+   * affordance is a file link, so it lands where an explicit file link lands:
+   * the document drawer, through the same toggle. The modal is the fallback
+   * for the references the drawer cannot reach.
+   */
+  const handleWorkspacePathOpen = useCallback(
+    (href: string, linkText: string) => {
+      const { workspacePath, filename } = resolveLocalFileTarget(href);
+      if (assistantId && workspacePath !== null) {
+        toggleLocalFile(workspacePath, filename, assistantId, conversationId);
+        return;
+      }
+      onVellumLinkClick?.(href, linkText);
+    },
+    [assistantId, conversationId, onVellumLinkClick],
   );
 
   const linkComponent = useCallback(
@@ -241,47 +382,172 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
       href,
       children,
     }: Pick<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "children">) => {
-      if (onVellumLinkClick && isVellumLink(href)) {
+      if (href != null && isVellumLink(href)) {
+        // A `vellum://host/` link has no workspace route to its bytes, so it
+        // resolves to a null path and only the modal can act on it.
+        const { workspacePath } = resolveLocalFileTarget(href);
+        // The drawer opens every file type now, so it is where a click on a
+        // file link belongs. The modal is the fallback for the references the
+        // drawer cannot reach: no assistant to read the file through, or no
+        // workspace route to its bytes.
+        const drawerCanOpen = !!assistantId && workspacePath !== null;
         return (
-          <a
+          <LocalFileLink
             href={href}
-            onClick={(event) => {
-              event.preventDefault();
-              if (href) {
-                const text = event.currentTarget.textContent ?? "";
-                onVellumLinkClick(href, text);
-              }
-            }}
-            className="text-[var(--system-positive-strong)] underline hover:opacity-80 cursor-pointer"
+            workspacePath={workspacePath}
+            assistantId={assistantId ?? undefined}
+            onActivate={
+              onVellumLinkClick && !drawerCanOpen
+                ? () => onVellumLinkClick(href, markdownChildrenText(children))
+                : undefined
+            }
           >
             {children}
-          </a>
+          </LocalFileLink>
+        );
+      }
+
+      const target = classifyMarkdownHref(href);
+      if (href != null && target.kind === "local-file") {
+        const { workspacePath } = target;
+        return (
+          <LocalFileLink
+            href={href}
+            workspacePath={workspacePath}
+            assistantId={assistantId ?? undefined}
+            onActivate={
+              onVellumLinkClick && workspacePath !== null && !assistantId
+                ? () =>
+                    onVellumLinkClick(
+                      toVellumWorkspaceHref(workspacePath),
+                      markdownChildrenText(children),
+                    )
+                : undefined
+            }
+          >
+            {children}
+          </LocalFileLink>
         );
       }
 
       return <OAuthAwareLink href={href}>{children}</OAuthAwareLink>;
     },
-    [onVellumLinkClick],
+    [onVellumLinkClick, assistantId],
+  );
+
+  const extraRehypePlugins = useMemo(
+    () => [
+      // Upgrade redacted-credential sentinels into chip elements — only for
+      // content the daemon persisted (assistant text, tool results), where
+      // forged sentinel strings are neutralized at the persist seams. User
+      // messages never enable this, so pasted sentinel-shaped text renders
+      // as literal text instead of manufacturing a reveal affordance.
+      ...(redactedCredentialChips
+        ? [rehypeRedactedCredential as import("unified").Pluggable]
+        : []),
+      // Only worth running when a click handler exists to receive the
+      // resolved path — without one the upgraded span renders as plain code
+      // anyway.
+      ...(workspacePathLinks && onVellumLinkClick
+        ? [rehypeWorkspacePath as import("unified").Pluggable]
+        : []),
+      ...(streamWordFade
+        ? [
+            [
+              rehypeStreamWordFade,
+              { caughtUp: streamWordFade === "caughtUp" },
+            ] as import("unified").Pluggable,
+          ]
+        : []),
+    ],
+    [
+      redactedCredentialChips,
+      streamWordFade,
+      workspacePathLinks,
+      onVellumLinkClick,
+    ],
   );
 
   const imageComponent: MarkdownImageComponent = useMemo(
     () =>
       ({ src, alt }: { src: string; alt: string }) => {
+        // The reference is resolved against the workspace: media renders
+        // inline and anything else renders as a file card.
+        const workspaceEmbed = (
+          <LocalFileEmbed
+            href={src}
+            alt={alt}
+            assistantId={assistantId ?? undefined}
+          />
+        );
+
         if (isVellumLink(src)) {
-          return (
-            <WorkspaceInlineImage
-              src={src}
-              alt={alt}
-              attachments={attachments}
-              assistantId={assistantId}
-              onOpenPreview={openPreview}
-            />
-          );
+          const attachment = matchingImageAttachment(src, attachments);
+          if (attachment) {
+            return (
+              <WorkspaceInlineImage
+                attachment={attachment}
+                alt={alt}
+                assistantId={assistantId}
+                onOpenPreview={openPreview}
+              />
+            );
+          }
+          return workspaceEmbed;
         }
+
+        if (classifyMarkdownHref(src).kind === "local-file") {
+          return workspaceEmbed;
+        }
+
+        // `urlTransform` blanks schemes it won't allow through.
+        if (src.length === 0) {
+          return <ImageErrorFallback alt={alt} />;
+        }
+
         return <InlineImage src={src} alt={alt} />;
       },
     [attachments, assistantId, openPreview],
   );
+
+  // Built per-render (not module-level) so the chip's reveal request is scoped
+  // to THIS transcript's assistant. A static map would leave the chip reading
+  // the globally active assistant, which can differ from the transcript owner
+  // (inspector, document view, multi-assistant surfaces) and reveal the wrong
+  // assistant's credential for a colliding service:field name.
+  //
+  // The chip is keyed by its full identity (assistant + vault coordinates):
+  // when a re-render puts a DIFFERENT sentinel at the same tree position
+  // (transcript snapshot replacing streamed content, edited history), React
+  // would otherwise preserve the old instance's state by position — leaving
+  // a revealed plaintext, or an in-flight reveal response, attached to the
+  // new credential's label. The key change remounts the chip with fresh
+  // state, and any in-flight reveal resolves against the unmounted instance
+  // as a no-op.
+  const extraComponents = useMemo(
+    () => ({
+      [REDACTED_CREDENTIAL_TAG]: (props: RedactedCredentialChipProps) => (
+        <RedactedCredentialChip
+          key={`${assistantId ?? ""}\u0000${props.service ?? ""}\u0000${props.field ?? ""}`}
+          {...props}
+          assistantId={assistantId}
+        />
+      ),
+      [WORKSPACE_PATH_TAG]: (props: { path?: string; raw?: string }) => (
+        <WorkspacePathLink
+          {...props}
+          assistantId={assistantId}
+          onOpen={onVellumLinkClick ? handleWorkspacePathOpen : undefined}
+        />
+      ),
+    }),
+    [assistantId, onVellumLinkClick, handleWorkspacePathOpen],
+  );
+
+  // Both tags are registered together: each is only ever emitted by its own
+  // rehype plugin, so a tag whose plugin didn't run never appears in the tree.
+  const hasExtraComponents =
+    redactedCredentialChips || (workspacePathLinks && onVellumLinkClick);
 
   return (
     <>
@@ -292,6 +558,8 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
         linkComponent={linkComponent}
         imageComponent={imageComponent}
         urlTransform={vellumUrlTransform}
+        extraRehypePlugins={extraRehypePlugins}
+        extraComponents={hasExtraComponents ? extraComponents : undefined}
       />
       {previewModal}
     </>

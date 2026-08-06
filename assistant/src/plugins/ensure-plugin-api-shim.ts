@@ -9,7 +9,11 @@
  * finds `<workspaceDir>/node_modules/@vellumai/plugin-api/` — a tiny
  * shim package whose `index.js` re-binds the plugin-api namespace that
  * the assistant already loaded into its module graph (and parked on
- * `globalThis` under {@link PLUGIN_API_REGISTRY_KEY}).
+ * `globalThis` under {@link PLUGIN_API_REGISTRY_KEY}). When no host
+ * process installed that namespace — a plugin-spawned subprocess — the
+ * shim imports the plugin-api source directly from
+ * {@link pluginApiFallbackEntry} instead, so process-portable
+ * surfaces (config, CES-backed credentials, STT) work out-of-process.
  *
  * This avoids duplicating the plugin-api package per plugin while still
  * letting the assistant's compiled binary be the single source of truth
@@ -46,16 +50,41 @@ const log = getLogger("plugin-api-shim");
 const PACKAGE_NAME = "@vellumai/plugin-api";
 
 /**
+ * Where the shim imports the plugin-api implementation from when no host
+ * process installed the namespace on `globalThis`. Resolved relative to
+ * this module's own location at shim-generation time, so it points at the
+ * live source tree wherever it is hosted (/app/assistant in the Docker and
+ * hosted images, a checkout path in local dev). Baked into the generated
+ * shim as an absolute file:// URL — no env var involved, so sanitized
+ * subprocess environments cannot strip it.
+ */
+export function pluginApiFallbackEntry(): string {
+  return new URL("../plugin-api/index.ts", import.meta.url).href;
+}
+
+/**
  * Build the body of the workspace shim's `index.js`. Exported so the
  * smoke test can assert against the same generator the daemon uses.
+ *
+ * The generated module prefers the namespace the assistant parked on
+ * `globalThis` (a plugin loaded inside an assistant process), and falls
+ * back to importing the plugin-api source directly when the namespace is
+ * absent — a plugin-spawned subprocess that never evaluated the
+ * assistant's embed wrapper. Long term the direct import replaces the
+ * `globalThis` trampoline entirely.
  */
 export function buildShimSource(
   exports: readonly string[] = PLUGIN_API_EXPORTS,
   registryKey: symbol = PLUGIN_API_REGISTRY_KEY,
+  fallbackEntry: string = pluginApiFallbackEntry(),
 ): string {
   const description = registryKey.description ?? "";
+  const key = `Symbol.for(${JSON.stringify(description)})`;
   const lines = [
-    `const api = globalThis[Symbol.for(${JSON.stringify(description)})];`,
+    `let api = globalThis[${key}];`,
+    `if (api === undefined) {`,
+    `  api = await import(${JSON.stringify(fallbackEntry)});`,
+    `}`,
     ...exports.map((name) => `export const ${name} = api.${name};`),
   ];
   return `${lines.join("\n")}\n`;

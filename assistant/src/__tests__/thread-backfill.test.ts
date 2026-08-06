@@ -28,13 +28,6 @@ import {
 // into other test files (e.g. backfill.test.ts) that import the same module.
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
@@ -81,8 +74,12 @@ mock.module("../messaging/providers/slack/adapter.js", () => ({
     _account: string | undefined,
     botId: string,
   ) => {
-    if (botId === "B_ASSISTANT") return "U_BOT";
-    if (botId === "B_OTHER") return "U_OTHER_BOT";
+    if (botId === "B_ASSISTANT") {
+      return "U_BOT";
+    }
+    if (botId === "B_OTHER") {
+      return "U_OTHER_BOT";
+    }
     return null;
   },
 }));
@@ -2248,12 +2245,16 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
 
     const channelTimestamps = new Set<string>();
     for (const row of rows) {
-      if (!row.metadata) continue;
+      if (!row.metadata) {
+        continue;
+      }
       try {
         const envelope = JSON.parse(row.metadata) as Record<string, unknown>;
         if (typeof envelope.slackMeta === "string") {
           const slackMeta = readSlackMetadata(envelope.slackMeta);
-          if (slackMeta) channelTimestamps.add(slackMeta.channelTs);
+          if (slackMeta) {
+            channelTimestamps.add(slackMeta.channelTs);
+          }
         }
       } catch {
         // ignore
@@ -2687,10 +2688,14 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
       .all() as Array<{ metadata: string | null }>;
     const tsBefore = rowsBeforeResolve
       .map((row) => {
-        if (!row.metadata) return undefined;
+        if (!row.metadata) {
+          return undefined;
+        }
         try {
           const env = JSON.parse(row.metadata) as Record<string, unknown>;
-          if (typeof env.slackMeta !== "string") return undefined;
+          if (typeof env.slackMeta !== "string") {
+            return undefined;
+          }
           const meta = readSlackMetadata(env.slackMeta);
           return meta?.channelTs;
         } catch {
@@ -2711,10 +2716,14 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
       .all() as Array<{ metadata: string | null }>;
     const tsAfter = rowsAfter
       .map((row) => {
-        if (!row.metadata) return undefined;
+        if (!row.metadata) {
+          return undefined;
+        }
         try {
           const env = JSON.parse(row.metadata) as Record<string, unknown>;
-          if (typeof env.slackMeta !== "string") return undefined;
+          if (typeof env.slackMeta !== "string") {
+            return undefined;
+          }
           const meta = readSlackMetadata(env.slackMeta);
           return meta?.channelTs;
         } catch {

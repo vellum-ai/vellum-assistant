@@ -24,6 +24,7 @@ const TYPOGRAPHY_UTILITIES = [
   "body-large-lighter",
   "body-medium-default",
   "body-medium-lighter",
+  "body-small-lighter",
   "body-small-default",
   "body-small-emphasised",
   "label-medium-default",

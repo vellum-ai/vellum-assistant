@@ -71,11 +71,11 @@ Returning `undefined` is acceptable only for **lookup functions** where "not fou
 | Subagent manager (`subagent/manager.ts`)              | Throws for precondition violations, string literal unions for expected outcomes | Depth limit exceeded is a bug; `sendMessage` returns `'not_found' \| 'terminal' \| 'queue_full'` as expected states            |
 | Interactive UI (`cli/commands/ui.ts`)                 | Result object (`InteractiveUiResult`) with `status` + exit codes                | User cancel and timeout are expected operational outcomes, not errors. IPC failures are exceptional.                           |
 
-## 4. Interactive UI interactions (`assistant ui confirm` / `assistant ui request`)
+## 4. Interactive UI Interactions (`assistant ui confirm` / `assistant ui request`)
 
 The `assistant ui` commands present blocking interactive surfaces (confirmations, forms) to the user and wait for a response. Their error model distinguishes three categories:
 
-### Expected outcomes (not errors)
+### Expected Outcomes (Not Errors)
 
 User decisions — including declining — are normal operational results:
 
@@ -92,7 +92,7 @@ User decisions — including declining — are normal operational results:
 
 Scripts must handle all three non-confirmation outcomes. A `cancelled` status means the user deliberately chose not to proceed — log it as a normal flow, not an error. A `timed_out` status means the user was unresponsive — abort without side effects.
 
-### Cancellation reasons (`ui request` only)
+### Cancellation Reasons (`ui request` only)
 
 When using `assistant ui request --json`, a `cancelled` result includes a `cancellationReason` field that distinguishes **user-driven** cancellations from **operational fail-closed** cancellations. This allows scripts to choose different recovery strategies depending on why the surface was cancelled.
 

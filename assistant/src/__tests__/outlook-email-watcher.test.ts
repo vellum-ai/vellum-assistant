@@ -46,15 +46,6 @@ mock.module("../oauth/connection-resolver.js", () => ({
   resolveOAuthConnection: mockResolveOAuthConnection,
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-  }),
-}));
-
 // Import module under test after mocks
 const { outlookProvider, DeltaSyncExpiredError } =
   await import("../watcher/providers/outlook.js");

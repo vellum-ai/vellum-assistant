@@ -22,38 +22,50 @@ const { getSqlite } = await import("../../../../persistence/db-connection.js");
 const { initializeDb } = await import("../../../../persistence/db-init.js");
 const { deleteMemoryCheckpoint, getMemoryCheckpoint } =
   await import("../../../../persistence/checkpoints.js");
-const { maybeRunDbMaintenance } =
+const { maybeRunDbMaintenance, maybeRunPassiveWalCheckpoint } =
   await import("../../../../persistence/db-maintenance.js");
-const { getLastUserMessageTimestamp } =
+const { getLastInteractiveUserMessageTimestamp } =
   await import("../../../../persistence/conversation-crud.js");
 const { getDbPath } = await import("../../../../util/platform.js");
 
 await initializeDb();
 
 const MAINTENANCE_CHECKPOINT_KEY = "db_maintenance:last_run";
+const PASSIVE_CHECKPOINT_KEY = "db_maintenance:last_passive_checkpoint";
 const QUIET_PERIOD_MS = 3 * 60 * 60 * 1000;
 
 beforeEach(() => {
   deleteMemoryCheckpoint(MAINTENANCE_CHECKPOINT_KEY);
+  deleteMemoryCheckpoint(PASSIVE_CHECKPOINT_KEY);
   const sqlite = getSqlite();
   sqlite.exec("DELETE FROM messages");
   sqlite.exec("DELETE FROM conversations");
 });
 
 /** Insert a message row directly, bypassing indexing/job side effects. */
-function insertMessage(role: "user" | "assistant", createdAt: number): void {
+function insertMessage(
+  role: "user" | "assistant",
+  createdAt: number,
+  conversationType: "standard" | "background" | "scheduled" = "standard",
+): void {
   const sqlite = getSqlite();
-  const convId = `conv-${createdAt}-${role}`;
+  const convId = `conv-${createdAt}-${role}-${conversationType}`;
   sqlite
     .prepare(
-      "INSERT OR IGNORE INTO conversations (id, created_at, updated_at) VALUES (?, ?, ?)",
+      "INSERT OR IGNORE INTO conversations (id, created_at, updated_at, conversation_type) VALUES (?, ?, ?, ?)",
     )
-    .run(convId, createdAt, createdAt);
+    .run(convId, createdAt, createdAt, conversationType);
   sqlite
     .prepare(
       "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)",
     )
-    .run(`msg-${createdAt}-${role}`, convId, role, "[]", createdAt);
+    .run(
+      `msg-${createdAt}-${role}-${conversationType}`,
+      convId,
+      role,
+      "[]",
+      createdAt,
+    );
 }
 
 /** Pile writes into the WAL (without checkpointing) so a truncating
@@ -186,16 +198,79 @@ describe("maybeRunDbMaintenance", () => {
     // THEN it still runs, since only user activity gates it
     expect(getMemoryCheckpoint(MAINTENANCE_CHECKPOINT_KEY)).toBe(String(now));
   });
+
+  test("a recent user-role message in a background conversation does not keep maintenance deferred", async () => {
+    /** Background machinery persists user-role rows of its own — the
+     *  memory-retrospective instruction message lands as `role: "user"` in a
+     *  `background` conversation, and scheduled wake hints land in
+     *  `scheduled` ones. On an always-on install those arrive around the
+     *  clock, so counting them would starve maintenance forever. */
+    // GIVEN the human has been quiet past the quiet period
+    const now = Date.now();
+    insertMessage("user", now - (QUIET_PERIOD_MS + 60_000));
+    // AND background machinery wrote user-role rows just now
+    insertMessage("user", now - 60_000, "background");
+    insertMessage("user", now - 30_000, "scheduled");
+
+    // WHEN maintenance is considered
+    await maybeRunDbMaintenance(now);
+
+    // THEN it still runs — only interactive-conversation activity gates it
+    expect(getMemoryCheckpoint(MAINTENANCE_CHECKPOINT_KEY)).toBe(String(now));
+  });
 });
 
-describe("getLastUserMessageTimestamp", () => {
+describe("maybeRunPassiveWalCheckpoint", () => {
+  test("runs despite recent user activity — the passive pass has no quiet gate", async () => {
+    /** PASSIVE checkpoints block no readers or writers, so they must not be
+     *  deferred by user activity; deferring them is what lets the WAL
+     *  backlog grow on always-active installs. */
+    // GIVEN the user is active right now
+    const now = Date.now();
+    insertMessage("user", now - 1_000);
+
+    // WHEN the passive pass is considered
+    await maybeRunPassiveWalCheckpoint(now);
+
+    // THEN it runs and stamps its own checkpoint key
+    expect(getMemoryCheckpoint(PASSIVE_CHECKPOINT_KEY)).toBe(String(now));
+    // AND the truncating-maintenance key is untouched
+    expect(getMemoryCheckpoint(MAINTENANCE_CHECKPOINT_KEY)).toBeNull();
+  });
+
+  test("respects its own interval and skips when the last pass was recent", async () => {
+    const now = Date.now();
+    const recent = now - 60_000;
+    const { setMemoryCheckpoint } =
+      await import("../../../../persistence/checkpoints.js");
+    setMemoryCheckpoint(PASSIVE_CHECKPOINT_KEY, String(recent));
+
+    await maybeRunPassiveWalCheckpoint(now);
+
+    expect(getMemoryCheckpoint(PASSIVE_CHECKPOINT_KEY)).toBe(String(recent));
+  });
+});
+
+describe("applyConnectionPragmas", () => {
+  test("sets journal_size_limit so WAL resets shrink the file", () => {
+    /** Checkpointing alone never shrinks the WAL file; the size limit is what
+     *  truncates it back after a burst. Pin that every connection carries it. */
+    const sqlite = getSqlite();
+    const row = sqlite.query("PRAGMA journal_size_limit").get() as {
+      journal_size_limit: number;
+    };
+    expect(row.journal_size_limit).toBe(67108864);
+  });
+});
+
+describe("getLastInteractiveUserMessageTimestamp", () => {
   test("returns 0 when no user message exists", () => {
     /** With only non-user rows present, there is no user activity to report. */
     // GIVEN only an assistant message exists
     insertMessage("assistant", Date.now());
 
     // WHEN the last user message timestamp is read
-    const result = getLastUserMessageTimestamp();
+    const result = getLastInteractiveUserMessageTimestamp();
 
     // THEN it reports 0 (no user activity)
     expect(result).toBe(0);
@@ -211,7 +286,7 @@ describe("getLastUserMessageTimestamp", () => {
     insertMessage("assistant", base);
 
     // WHEN the last user message timestamp is read
-    const result = getLastUserMessageTimestamp();
+    const result = getLastInteractiveUserMessageTimestamp();
 
     // THEN it returns the most recent user message, not the assistant row
     expect(result).toBe(base - 5_000);
@@ -230,9 +305,28 @@ describe("getLastUserMessageTimestamp", () => {
     insertMessage("user", base - 60 * 60 * 1000);
 
     // WHEN the last user message timestamp is read
-    const result = getLastUserMessageTimestamp();
+    const result = getLastInteractiveUserMessageTimestamp();
 
     // THEN it reports the genuinely most recent turn, not the last-inserted one
     expect(result).toBe(base - 5_000);
+  });
+
+  test("ignores user-role rows in background and scheduled conversations", () => {
+    /** The memory-retrospective instruction message is persisted as
+     *  `role: "user"` inside a `background` fork, and scheduled/heartbeat
+     *  wake hints land in `scheduled`/`background` conversations — machine
+     *  writes, not human activity. */
+    // GIVEN an older interactive user message
+    const base = Date.now();
+    insertMessage("user", base - 10_000);
+    // AND newer user-role rows written by background machinery
+    insertMessage("user", base - 5_000, "background");
+    insertMessage("user", base - 1_000, "scheduled");
+
+    // WHEN the last interactive user message timestamp is read
+    const result = getLastInteractiveUserMessageTimestamp();
+
+    // THEN only the interactive conversation's message counts
+    expect(result).toBe(base - 10_000);
   });
 });

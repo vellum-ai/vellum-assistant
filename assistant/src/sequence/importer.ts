@@ -104,8 +104,12 @@ function detectColumns(headers: string[]): {
 // ── CSV parsing ─────────────────────────────────────────────────────
 
 function detectDelimiter(firstLine: string): string {
-  if (firstLine.includes("\t")) return "\t";
-  if (firstLine.includes(";")) return ";";
+  if (firstLine.includes("\t")) {
+    return "\t";
+  }
+  if (firstLine.includes(";")) {
+    return ";";
+  }
   return ",";
 }
 
@@ -170,19 +174,25 @@ function splitCSVRows(content: string): string[] {
         current += ch;
       } else if (ch === "\r" && content[i + 1] === "\n") {
         // CRLF row boundary
-        if (current.trim().length > 0) rows.push(current);
+        if (current.trim().length > 0) {
+          rows.push(current);
+        }
         current = "";
         i++; // skip the \n
       } else if (ch === "\n") {
         // LF row boundary
-        if (current.trim().length > 0) rows.push(current);
+        if (current.trim().length > 0) {
+          rows.push(current);
+        }
         current = "";
       } else {
         current += ch;
       }
     }
   }
-  if (current.trim().length > 0) rows.push(current);
+  if (current.trim().length > 0) {
+    rows.push(current);
+  }
   return rows;
 }
 
@@ -288,7 +298,9 @@ export function bulkEnroll(
   contacts: ParsedContact[],
 ): EnrollResult {
   const seq = getSequence(sequenceId);
-  if (!seq) throw new Error(`Sequence not found: ${sequenceId}`);
+  if (!seq) {
+    throw new Error(`Sequence not found: ${sequenceId}`);
+  }
 
   const enrolled: string[] = [];
   const skipped: Array<{ email: string; reason: string }> = [];

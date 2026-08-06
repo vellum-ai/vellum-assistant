@@ -112,12 +112,10 @@ Commands:
 // ---------------------------------------------------------------------------
 
 function showList() {
-  const scopeId = "default";
   const typeIdx = args.indexOf("--type");
   const typeFilter = typeIdx >= 0 ? args[typeIdx + 1] : undefined;
 
   const allNodes = queryNodes({
-    scopeId,
     fidelityNot: ["gone"],
     limit: 100000,
   });
@@ -145,20 +143,24 @@ function showList() {
 function relativeAge(epochMs: number): string {
   const elapsed = Date.now() - epochMs;
   const mins = Math.floor(elapsed / 60_000);
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60) {
+    return `${mins}m ago`;
+  }
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
   const days = Math.floor(hours / 24);
-  if (days <= 90) return `${days}d ago`;
+  if (days <= 90) {
+    return `${days}d ago`;
+  }
   const months = Math.floor(days / 30);
   return `${months}mo ago`;
 }
 
 async function showStats() {
-  const scopeId = "default";
-  const total = countNodes(scopeId);
+  const total = countNodes();
   const allNodes = queryNodes({
-    scopeId,
     fidelityNot: ["gone"],
     limit: 100000,
   });
@@ -178,7 +180,7 @@ async function showStats() {
   // Edges are counted twice (once per endpoint), so halve
   totalEdges = Math.floor(totalEdges / 2);
 
-  console.log(`\n  Memory Graph Stats (scope: ${scopeId})`);
+  console.log(`\n  Memory Graph Stats`);
   console.log(`  ${"─".repeat(40)}`);
   console.log(`  Total nodes: ${total}`);
   console.log(`  Total edges: ${totalEdges}`);
@@ -220,7 +222,6 @@ async function showContextLoad() {
   console.log("\n  Simulating context load (conversation start)...\n");
 
   const result = await loadContextMemory({
-    scopeId: "default",
     recentSummaries: [], // No recent summaries for standalone test
     config,
   });
@@ -325,9 +326,12 @@ function showNode(nodeId: string) {
   console.log(
     `  Emotional: valence=${node.emotionalCharge.valence.toFixed(2)} intensity=${node.emotionalCharge.intensity.toFixed(2)} curve=${node.emotionalCharge.decayCurve}`,
   );
-  if (node.narrativeRole)
+  if (node.narrativeRole) {
     console.log(`  Narrative role: ${node.narrativeRole}`);
-  if (node.partOfStory) console.log(`  Part of story: ${node.partOfStory}`);
+  }
+  if (node.partOfStory) {
+    console.log(`  Part of story: ${node.partOfStory}`);
+  }
   console.log(`  Source conversations: ${node.sourceConversations.length}`);
   console.log(`\n  Content:\n  ${node.content}\n`);
 
@@ -385,7 +389,6 @@ async function showTurn(userMessage: string) {
   const result = await retrieveForTurn({
     assistantLastMessage: "",
     userLastMessage: userMessage,
-    scopeId: "default",
     config,
     tracker,
   });
@@ -526,7 +529,9 @@ async function runDecay() {
 // ---------------------------------------------------------------------------
 
 function printScoredNodes(nodes: ScoredNode[]) {
-  if (nodes.length === 0) return;
+  if (nodes.length === 0) {
+    return;
+  }
   console.log(`  Scored nodes:`);
   for (const s of nodes) {
     const b = s.scoreBreakdown;

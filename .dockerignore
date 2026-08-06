@@ -6,14 +6,21 @@
 !bun.lock
 !patches/
 !patches/**
-!clients/macos/package.json
-!clients/web/package.json
+# Docs site image: the builder copies the full clients/docs sources (this also
+# covers the clients/docs/package.json manifest the other images install from).
+!clients/docs/
+!clients/docs/**
+# Every clients/* workspace member manifest must reach the context: bun's
+# frozen-lockfile install validates the full workspace set, so a member whose
+# package.json is missing fails every image build.
+!clients/*/package.json
 !cli/package.json
 # Although we have a `**` ignore that correctly excludes large build artifacts from the build context,
 # it seems the walker doesn't prune a directory when there are `!` exceptions that can include files
 # beneath that directory. This manifests as an extremely long build context load time.
 # Adding an explicit exclusion rule seems to help with this.
 clients/.build
+clients/docs/.next
 clients/ios
 clients/chrome-extension
 clients/macos/apple-containers-runtime
@@ -36,24 +43,14 @@ clients/macos/src
 # assistant/src/skills/categories-cache.ts getLocalCategorySlugs). Without it the
 # Docker image degrades every plugin category to "system" until the remote cache warms.
 !skills/skill-categories-catalog.yaml
-!skills/meet-join/
-!skills/meet-join/package.json
-!skills/meet-join/bun.lock
-!skills/meet-join/config-schema.ts
-!skills/meet-join/meet-config.ts
-!skills/meet-join/register.ts
-!skills/meet-join/contracts/
-!skills/meet-join/contracts/**
-!skills/meet-join/daemon/
-!skills/meet-join/daemon/**
-!skills/meet-join/tools/
-!skills/meet-join/tools/**
-!skills/meet-join/routes/
-!skills/meet-join/routes/**
-!skills/meet-join/shared/
-!skills/meet-join/shared/**
-!skills/meet-join/scripts/
-!skills/meet-join/scripts/**
+
+# Plugin marketplace manifest: the offline plugin catalog reader statically
+# imports this (assistant/src/cli/lib/plugin-catalog-local.ts, loaded even when
+# platform features are enabled). It is the canonical source for the git-ignored
+# assistant/src/cli/lib/bundled-marketplace.json, which the Dockerfile copies
+# into place. Without it the assistant image cannot resolve that import.
+!plugins/
+!plugins/marketplace.json
 
 # Exclude local dependencies and build outputs from included directories.
 assistant/dist/
@@ -63,13 +60,13 @@ assistant/.env
 assistant/.env.*
 # Authoring-reference example plugins are not shipped with the production image.
 assistant/examples/
+clients/docs/.env
+clients/docs/.env.*
 credential-executor/.env
 credential-executor/.env.*
 gateway/.env
 gateway/.env.*
 packages/*/.env
 packages/*/.env.*
-skills/meet-join/**/__tests__/
-skills/meet-join/**/*.test.ts
 
 **/node_modules/

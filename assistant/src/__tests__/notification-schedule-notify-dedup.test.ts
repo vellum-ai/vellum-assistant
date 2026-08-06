@@ -3,21 +3,13 @@
  * deduplicated against prior firings of the same schedule.
  *
  * The scheduler supplies a unique per-firing dedupeKey
- * (`schedule:notify:<id>:<timestamp>`) so `updateEventDedupeKey` is never
+ * (`schedule:notify:<id>:<timestamp>`) so `setEventDedupeKey` is never
  * called for schedule signals and `checkDedupe` never finds a matching
  * row when the LLM decision engine generates a stable key like
  * `schedule:notify:<id>`.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { runDeterministicChecks } from "../notifications/deterministic-checks.js";
 import { createEvent } from "../notifications/events-store.js";

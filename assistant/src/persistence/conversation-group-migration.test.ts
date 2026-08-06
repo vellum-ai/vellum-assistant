@@ -1,11 +1,4 @@
-import { beforeAll, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { beforeAll, describe, expect, test } from "bun:test";
 
 import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { initializeDb } from "./db-init.js";

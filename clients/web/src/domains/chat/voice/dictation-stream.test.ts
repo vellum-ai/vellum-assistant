@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import type { LiveVoiceAudioCaptureOptions, LiveVoiceCaptureResult } from "@/domains/chat/voice/live-voice/pcm-capture";
+import type {
+  LiveVoiceAudioCaptureOptions,
+  LiveVoiceCaptureResult,
+} from "@/domains/chat/voice/live-voice/pcm-capture";
 
 let ingressUrl: string | null = "http://localhost:8500";
 let actorToken: string | null = "actor-jwt";
@@ -26,9 +29,8 @@ mock.module("@/domains/chat/voice/live-voice/pcm-capture", () => ({
   },
 }));
 
-const { buildSttStreamWsUrl, startDictationStream } = await import(
-  "./dictation-stream"
-);
+const { buildSttStreamWsUrl, startDictationStream } =
+  await import("./dictation-stream");
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -118,7 +120,9 @@ function startWithFakes(
       captureFactory: captureFake.factory,
     },
   );
-  if (!handle || !ws) throw new Error("expected stream to start");
+  if (!handle || !ws) {
+    throw new Error("expected stream to start");
+  }
   return { handle, ws: ws as FakeWebSocket, captureFake };
 }
 
@@ -135,7 +139,9 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("buildSttStreamWsUrl", () => {
-  test("http ingress with a path prefix maps to ws and keeps the prefix", () => {
+  test("local __gateway proxy path dials the loopback gateway directly", () => {
+    // The HTTP-only __gateway proxy can't carry a WS upgrade, so the dictation
+    // stream must bypass it and hit 127.0.0.1:<port> directly (shared bypass).
     const url = new URL(
       buildSttStreamWsUrl({
         ingressUrl: "http://localhost:3000/assistant/__gateway/8500/",
@@ -144,7 +150,8 @@ describe("buildSttStreamWsUrl", () => {
     );
 
     expect(url.protocol).toBe("ws:");
-    expect(url.pathname).toBe("/assistant/__gateway/8500/v1/stt/stream");
+    expect(url.host).toBe("127.0.0.1:8500");
+    expect(url.pathname).toBe("/v1/stt/stream");
     expect(url.searchParams.get("token")).toBe("tok en");
     expect(url.searchParams.get("mimeType")).toBe("audio/pcm");
     expect(url.searchParams.get("sampleRate")).toBe("16000");
@@ -181,6 +188,24 @@ describe("startDictationStream", () => {
     actorToken = "actor-jwt";
     pcmSupported = false;
     expect(startDictationStream({ onPartial: () => undefined })).toBeNull();
+  });
+
+  test("returns null for a paired-assistant ingress without dialling a socket", () => {
+    // The paired __gateway-paired proxy is HTTP-only, so streaming partials
+    // must skip deterministically; batch dictation is unaffected.
+    ingressUrl = "http://localhost:3000/assistant/__gateway-paired/asst-1";
+    let dialled = 0;
+    const handle = startDictationStream(
+      { onPartial: () => undefined },
+      {
+        webSocketFactory: () => {
+          dialled += 1;
+          throw new Error("unexpected socket dial for a paired ingress");
+        },
+      },
+    );
+    expect(handle).toBeNull();
+    expect(dialled).toBe(0);
   });
 
   test("starts capture on open and composes partial/final transcripts", async () => {

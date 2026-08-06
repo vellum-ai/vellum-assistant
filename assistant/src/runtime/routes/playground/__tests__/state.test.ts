@@ -1,19 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: {
-      default: {
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 200_000,
-          compactThreshold: 0.8,
-        },
-      },
-    },
-  }),
-}));
-
 mock.module("../../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
 }));
@@ -68,7 +54,9 @@ function findRoute() {
   const route = ROUTES.find(
     (r) => r.operationId === "playgroundGetCompactionState",
   );
-  if (!route) throw new Error("compaction-state route not registered");
+  if (!route) {
+    throw new Error("compaction-state route not registered");
+  }
   return route;
 }
 

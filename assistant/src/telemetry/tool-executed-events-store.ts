@@ -1,7 +1,7 @@
 import { and, asc, eq, gt, isNotNull, ne, or } from "drizzle-orm";
 
-import { getDb } from "../persistence/db-connection.js";
 import { toolInvocations } from "../persistence/schema/index.js";
+import { getTelemetryMainDb } from "./telemetry-main-db.js";
 
 /**
  * A `tool_invocations` audit row projected for `tool_executed` telemetry
@@ -62,7 +62,7 @@ export function queryUnreportedToolExecutedEvents(
   afterId: string | undefined,
   limit: number,
 ): UnreportedToolExecutedEvent[] {
-  const db = getDb();
+  const db = getTelemetryMainDb();
   const cursorPredicate = afterId
     ? or(
         gt(toolInvocations.createdAt, afterCreatedAt),

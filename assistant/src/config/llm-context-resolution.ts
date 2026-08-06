@@ -1,4 +1,8 @@
-import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
+import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
+import {
+  getCatalogProviderForModel,
+  PROVIDER_CATALOG,
+} from "../providers/model-catalog.js";
 import { resolveCallSiteConfig } from "./llm-resolver.js";
 import {
   type ContextWindow,
@@ -50,8 +54,13 @@ export function resolveEffectiveContextWindow({
     forceOverrideProfile,
     selectionSeed,
   });
+  // Routing identities are not catalog providers; the model's catalog owner
+  // carries its context-window limits.
+  const catalogProviderId = ROUTING_IDENTITY_PROVIDERS.has(resolved.provider)
+    ? getCatalogProviderForModel(resolved.model)
+    : resolved.provider;
   const catalogModel = PROVIDER_CATALOG.find(
-    (provider) => provider.id === resolved.provider,
+    (provider) => provider.id === catalogProviderId,
   )?.models.find((model) => model.id === resolved.model);
 
   const modelMaxInputTokens =

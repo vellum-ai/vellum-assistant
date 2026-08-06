@@ -6,15 +6,7 @@
  * (the `buildGenericCopy` fallback path).
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
@@ -249,6 +241,7 @@ describe("checkRenderedCopyQuality (via runDeterministicChecks)", () => {
     });
     const decision = makeDecision({
       reasoningSummary: "assistant_tool pass-through",
+      verbatimCopy: true,
       renderedCopy: {
         vellum: { title: "Assistant share", body: "assistant share" },
       },
@@ -261,6 +254,7 @@ describe("checkRenderedCopyQuality (via runDeterministicChecks)", () => {
     const signal = makeSignal({ sourceChannel: "assistant_tool" });
     const decision = makeDecision({
       reasoningSummary: "assistant_tool pass-through",
+      verbatimCopy: true,
       renderedCopy: {
         vellum: { title: "Reminder", body: "" },
       },
@@ -268,6 +262,25 @@ describe("checkRenderedCopyQuality (via runDeterministicChecks)", () => {
     const result = await runDeterministicChecks(signal, decision, context);
     expect(result.passed).toBe(false);
     expect(result.reason).toContain("empty");
+  });
+
+  test("passes assistant_reply pass-through after downstream suffixes mutate the reasoning summary", async () => {
+    // `emit-signal` and routing-intent enforcement append suffixes to
+    // `reasoningSummary`, so the exemption must key off `verbatimCopy`.
+    const signal = makeSignal({
+      sourceChannel: "vellum",
+      sourceEventName: "chat.assistant_reply",
+    });
+    const decision = makeDecision({
+      reasoningSummary:
+        "assistant_reply pass-through (vellum forced: high urgency)",
+      verbatimCopy: true,
+      renderedCopy: {
+        vellum: { title: "Assistant", body: "chat assistant reply" },
+      },
+    });
+    const result = await runDeterministicChecks(signal, decision, context);
+    expect(result.passed).toBe(true);
   });
 
   test("still fails non-pass-through decision when body matches event name", async () => {

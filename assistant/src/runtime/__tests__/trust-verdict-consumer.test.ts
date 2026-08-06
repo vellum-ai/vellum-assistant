@@ -113,7 +113,7 @@ describe("trustContextFromVerdict", () => {
       type: "slack",
       address: "u-1",
       status: "unverified",
-      policy: "escalate",
+      policy: "deny",
     } satisfies TrustVerdict;
 
     const result = trustContextFromVerdict(verdict, {
@@ -124,7 +124,7 @@ describe("trustContextFromVerdict", () => {
     expect(result.requesterContactId).toBe("contact-1");
     // "unverified" maps to the API-facing "pending" member status.
     expect(result.memberStatus).toBe("pending");
-    expect(result.memberPolicy).toBe("escalate");
+    expect(result.memberPolicy).toBe("deny");
   });
 
   test("carries the verdict's gateway-owned interaction count onto the context", () => {
@@ -436,7 +436,7 @@ describe("actorTrustContextFromVerdict", () => {
       type: "slack",
       address: "u-1",
       status: "unverified",
-      policy: "escalate",
+      policy: "deny",
       memberDisplayName: "Dora",
     } satisfies TrustVerdict;
     const input = {
@@ -490,7 +490,7 @@ describe("toTrustContext member grounding", () => {
   function ctxWithMember(
     acl: { status: ChannelStatus; policy: ChannelPolicy } = {
       status: "unverified",
-      policy: "escalate",
+      policy: "deny",
     },
   ): ActorTrustContext {
     return {
@@ -522,7 +522,7 @@ describe("toTrustContext member grounding", () => {
     expect(context.requesterContactId).toBe("contact-1");
     // "unverified" maps to the API-facing "pending" member status.
     expect(context.memberStatus).toBe("pending");
-    expect(context.memberPolicy).toBe("escalate");
+    expect(context.memberPolicy).toBe("deny");
   });
 
   test("passes through active status + allow policy", () => {
@@ -635,6 +635,23 @@ describe("verdictMemberFromVerdict", () => {
         policy: "bogus",
       } satisfies TrustVerdict),
     ).toBeNull();
+  });
+
+  test('stale "escalate" policy returns null (fail-closed backstop for un-migrated gateways)', () => {
+    const verdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "u-8",
+      contactId: "contact-8",
+      channelId: "channel-8",
+      status: "active",
+      policy: "escalate",
+    } satisfies TrustVerdict;
+
+    expect(verdictMemberFromVerdict(verdict)).toBeNull();
+    expect(verdictUsability(verdict)).toEqual({
+      usable: false,
+      reason: "member unresolvable",
+    });
   });
 
   test("missing status or policy returns null (fail-closed)", () => {

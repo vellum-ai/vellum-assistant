@@ -16,9 +16,8 @@ mock.module("@/runtime/main-window", () => ({
   setOnboardingWindow: setOnboardingWindowMock,
 }));
 
-const { useOnboardingWindowSize } = await import(
-  "@/hooks/use-onboarding-window-size"
-);
+const { useOnboardingWindowSize } =
+  await import("@/hooks/use-onboarding-window-size");
 
 beforeEach(() => {
   currentPath = "/assistant";
@@ -66,7 +65,6 @@ describe("useOnboardingWindowSize", () => {
       "/assistant/onboarding/hosting",
       "/assistant/onboarding/api-key",
       "/assistant/onboarding/privacy",
-      "/assistant/onboarding/prechat",
       "/assistant/onboarding/hatching",
     ]) {
       setOnboardingWindowMock.mockClear();

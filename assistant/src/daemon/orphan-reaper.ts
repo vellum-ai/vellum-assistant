@@ -67,7 +67,9 @@ let waitStatusPtr: unknown = null;
  * is unavailable so daemon startup never fails on this subsystem.
  */
 function initWaitpid(): boolean {
-  if (waitpid) return true;
+  if (waitpid) {
+    return true;
+  }
   try {
     const lib = dlopen("libc.so.6", {
       waitpid: {
@@ -105,12 +107,16 @@ export function parseProcStat(
 ): { comm: string; state: string; ppid: number } | null {
   const lparen = content.indexOf("(");
   const rparen = content.lastIndexOf(")");
-  if (lparen === -1 || rparen === -1 || rparen < lparen) return null;
+  if (lparen === -1 || rparen === -1 || rparen < lparen) {
+    return null;
+  }
   const comm = content.slice(lparen + 1, rparen);
   const rest = content.slice(rparen + 2).split(" ");
   const state = rest[0];
   const ppid = Number(rest[1]);
-  if (!state || !Number.isInteger(ppid)) return null;
+  if (!state || !Number.isInteger(ppid)) {
+    return null;
+  }
   return { comm, state, ppid };
 }
 
@@ -145,7 +151,9 @@ function findZombieChildren(): ZombieChild[] {
   }
   for (const entry of entries) {
     const pid = Number(entry);
-    if (!Number.isInteger(pid) || pid <= 1) continue;
+    if (!Number.isInteger(pid) || pid <= 1) {
+      continue;
+    }
     let stat: string;
     try {
       stat = readFileSync(`/proc/${pid}/stat`, "utf8");
@@ -166,7 +174,9 @@ function findZombieChildren(): ZombieChild[] {
  * leaving newly-defunct children for libuv to reap first.
  */
 function reapScan(): void {
-  if (!waitpid) return;
+  if (!waitpid) {
+    return;
+  }
   const zombies = findZombieChildren();
   const byPid = new Map(zombies.map((z) => [z.pid, z]));
   const { reap, nextSeen } = selectReapable([...byPid.keys()], seenLastScan);
@@ -174,7 +184,9 @@ function reapScan(): void {
   for (const pid of reap) {
     const rc = waitpid(pid, waitStatusPtr, WNOHANG);
     // rc > 0: reaped. rc <= 0 (0 = not yet, -1 = ECHILD/raced): leave it.
-    if (rc > 0) reaped.push(byPid.get(pid)!);
+    if (rc > 0) {
+      reaped.push(byPid.get(pid)!);
+    }
   }
   seenLastScan = nextSeen;
   if (reaped.length > 0) {
@@ -194,7 +206,9 @@ function reapScan(): void {
  * (otherwise reparented orphans are reaped by the real init).
  */
 export function startOrphanReaper(): void {
-  if (scanTimer) return;
+  if (scanTimer) {
+    return;
+  }
   if (process.platform !== "linux" || process.pid !== 1) {
     log.info(
       { platform: process.platform, pid: process.pid },
@@ -202,7 +216,9 @@ export function startOrphanReaper(): void {
     );
     return;
   }
-  if (!initWaitpid()) return;
+  if (!initWaitpid()) {
+    return;
+  }
   seenLastScan = new Set();
   scanTimer = setInterval(reapScan, SCAN_INTERVAL_MS);
   scanTimer.unref?.();

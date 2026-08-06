@@ -12,7 +12,9 @@ export interface AcpChatPlanBlockProps {
 }
 
 export function AcpChatPlanBlock({ entries }: AcpChatPlanBlockProps) {
-  if (entries.length === 0) return null;
+  if (entries.length === 0) {
+    return null;
+  }
 
   return (
     <div

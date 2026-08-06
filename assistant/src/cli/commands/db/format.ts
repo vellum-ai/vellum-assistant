@@ -7,8 +7,12 @@
 
 /** Format a byte count as a human-readable string. */
 export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
   if (bytes < 1024 * 1024 * 1024) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
@@ -22,11 +26,19 @@ export function formatCount(n: number): string {
 
 /** Short relative age: "32s ago", "12m ago", "3h ago", "5d ago". */
 export function formatAge(ms: number): string {
-  if (ms < 0) ms = 0;
+  if (ms < 0) {
+    ms = 0;
+  }
   const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  if (s < 60) {
+    return `${s}s ago`;
+  }
+  if (s < 3600) {
+    return `${Math.floor(s / 60)}m ago`;
+  }
+  if (s < 86400) {
+    return `${Math.floor(s / 3600)}h ago`;
+  }
   return `${Math.floor(s / 86400)}d ago`;
 }
 

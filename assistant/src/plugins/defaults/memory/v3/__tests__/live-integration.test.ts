@@ -31,10 +31,11 @@ import type {
 } from "@vellumai/plugin-api";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
+import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
+import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import { wrapMemoryBlock } from "../../memory-marker.js";
-import type { PageIndexEntry } from "../../v2/page-index.js";
+import type { PageIndexEntry } from "../../substrate/page-index.js";
 import { cardBytes, renderCard } from "../card.js";
 import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";
@@ -48,7 +49,9 @@ import type { MemoryRoutingTurn, SectionIndex, Slug } from "../types.js";
 
 let providerStub: Provider | null = null;
 
+const realPluginApi = await import("@vellumai/plugin-api");
 mock.module("@vellumai/plugin-api", () => ({
+  ...realPluginApi,
   getConfiguredProvider: async () => providerStub,
 }));
 
@@ -83,11 +86,17 @@ const realDbConnection = {
   ...(await import("../../../../../persistence/db-connection.js")),
 };
 let testSqlite: Database;
+// The everInjected carry and v3 selection rows live on the dedicated memory
+// connection, resolved via `getMemorySqlite` — stubbed to a second in-memory DB
+// carrying the relocated tables' schema.
+let memorySqlite: Database;
 let testDb = makeDb();
 function makeDb() {
   testSqlite = new Database(":memory:");
   const db = drizzle(testSqlite, { schema });
-  migrateAddMemoryV3EverInjected(db);
+  memorySqlite = new Database(":memory:");
+  ensureMemoryV3SelectionsSchema(memorySqlite);
+  ensureMemoryV3EverInjectedSchema(memorySqlite);
   return db;
 }
 mock.module("../../../../../persistence/db-connection.js", () => ({
@@ -99,6 +108,12 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
       : realDbConnection.getSqliteFrom(
           db as Parameters<typeof realDbConnection.getSqliteFrom>[0],
         ),
+  getMemorySqlite: () =>
+    denseMockActive ? memorySqlite : realDbConnection.getMemorySqlite(),
+  getMemoryDb: () =>
+    denseMockActive
+      ? drizzle(memorySqlite, { schema })
+      : realDbConnection.getMemoryDb(),
 }));
 
 const { orchestrate } = await import("../orchestrate.js");
@@ -127,6 +142,7 @@ function makeEntries(): PageIndexEntry[] {
     edges: [],
     leaves: [],
     modifiedAt: 0,
+    freshAt: null,
   }));
 }
 
@@ -177,7 +193,9 @@ function candidateSlugs(messages: Message[]): Slug[] {
   const entries: Array<{ id: number; slug: string }> = [];
   for (const msg of messages) {
     for (const block of msg.content) {
-      if (block.type !== "text") continue;
+      if (block.type !== "text") {
+        continue;
+      }
       const cards = /<candidate_cards>\n([\s\S]*?)\n<\/candidate_cards>/.exec(
         block.text,
       );
@@ -194,7 +212,9 @@ function candidateSlugs(messages: Message[]): Slug[] {
       if (finder) {
         for (const line of finder[1].split("\n")) {
           const m = /^\[(\d+)\] (?:\([^)]*\) )?(\S+)(?: — |$)/.exec(line);
-          if (m) entries.push({ id: Number(m[1]), slug: m[2]! });
+          if (m) {
+            entries.push({ id: Number(m[1]), slug: m[2]! });
+          }
         }
       }
     }
@@ -211,8 +231,12 @@ function selectProvider(keep: Slug[], pin: Slug[] = []): Provider {
       const ids: number[] = [];
       const pinned_ids: number[] = [];
       pool.forEach((slug, i) => {
-        if (keep.includes(slug)) ids.push(i + 1);
-        if (pin.includes(slug)) pinned_ids.push(i + 1);
+        if (keep.includes(slug)) {
+          ids.push(i + 1);
+        }
+        if (pin.includes(slug)) {
+          pinned_ids.push(i + 1);
+        }
       });
       return toolUseResponse({ ids, pinned_ids });
     },

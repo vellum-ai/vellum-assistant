@@ -45,11 +45,12 @@
  * the `post-model-call` chain — later hooks see (and may override) its decision.
  */
 
-import type {
-  ContentBlock,
-  HookFunction,
-  Message,
-  PostModelCallContext,
+import {
+  type ContentBlock,
+  type HookFunction,
+  INTERNAL_NUDGE_OUTPUT_SUPPRESSION,
+  type Message,
+  type PostModelCallContext,
 } from "@vellumai/plugin-api";
 
 import {
@@ -64,7 +65,9 @@ import {
  * is genuinely still running.
  */
 export const SURFACE_COMPLETION_NUDGE_TEXT =
-  '<system_notice>You showed the user a progress surface this turn (a task_progress card or a work_result) and are about to end the turn with it still marked in_progress. If that work is finished, advance it to a terminal state now — call ui_update to set its status to "completed" (or "failed"), or ui_dismiss it — so the user is not left watching a card spin forever. Do this only if the work it represents is actually done; if it is genuinely still running, leave it. Then give your final reply.</system_notice>';
+  '<system_notice>You showed the user a progress surface this turn (a task_progress card or a work_result) and are about to end the turn with it still marked in_progress. If that work is finished, advance it to a terminal state now — call ui_update to set its status to "completed" (or "failed"), or ui_dismiss it — so the user is not left watching a card spin forever. Do this only if the work it represents is actually done; if it is genuinely still running, leave it. Then give your final reply.' +
+  INTERNAL_NUDGE_OUTPUT_SUPPRESSION +
+  "</system_notice>";
 
 /**
  * Surface statuses that mean the progress surface has reached a terminal state
@@ -172,7 +175,9 @@ interface SurfaceState {
 }
 
 function isNonTerminal(state: SurfaceState): boolean {
-  if (state.dismissed) return false;
+  if (state.dismissed) {
+    return false;
+  }
   return state.status === undefined || !TERMINAL_STATUSES.has(state.status);
 }
 
@@ -195,41 +200,59 @@ function hasDanglingProgressSurface(messages: ReadonlyArray<Message>): boolean {
   for (const message of currentCycleMessages(messages)) {
     if (message.role === "assistant") {
       for (const block of message.content) {
-        if (block.type !== "tool_use") continue;
+        if (block.type !== "tool_use") {
+          continue;
+        }
         if (block.name === "ui_show") {
           const info = progressShowInfo(block.input);
-          if (info.isProgress) pendingShows.set(block.id, info.status);
+          if (info.isProgress) {
+            pendingShows.set(block.id, info.status);
+          }
         } else if (block.name === "ui_update") {
           const id = surfaceIdOf(block.input);
           const status = extractStatus(block.input);
           if (id && status !== undefined) {
             const existing = surfaces.get(id);
-            if (existing) existing.status = status;
-            else surfaces.set(id, { status, dismissed: false });
+            if (existing) {
+              existing.status = status;
+            } else {
+              surfaces.set(id, { status, dismissed: false });
+            }
           }
         } else if (block.name === "ui_dismiss") {
           const id = surfaceIdOf(block.input);
           if (id) {
             const existing = surfaces.get(id);
-            if (existing) existing.dismissed = true;
-            else surfaces.set(id, { status: undefined, dismissed: true });
+            if (existing) {
+              existing.dismissed = true;
+            } else {
+              surfaces.set(id, { status: undefined, dismissed: true });
+            }
           }
         }
       }
       continue;
     }
-    if (message.role !== "user") continue;
+    if (message.role !== "user") {
+      continue;
+    }
     for (const block of message.content) {
       // guard:allow-tool-result-only — only the local tool executor's
       // `tool_result` carries a `ui_show` `surfaceId` to correlate. A
       // `web_search_tool_result` comes from a `server_tool_use`, never a
       // `ui_show`, so it can never match a pending show and is correctly skipped.
-      if (block.type !== "tool_result") continue;
-      if (!pendingShows.has(block.tool_use_id)) continue;
+      if (block.type !== "tool_result") {
+        continue;
+      }
+      if (!pendingShows.has(block.tool_use_id)) {
+        continue;
+      }
       const initialStatus = pendingShows.get(block.tool_use_id);
       pendingShows.delete(block.tool_use_id);
       const id = parseSurfaceId(block.content);
-      if (!id) continue;
+      if (!id) {
+        continue;
+      }
       const existing = surfaces.get(id);
       // A later update/dismiss can register the id before its show result is
       // scanned only if history was reordered; guard so we never clobber a
@@ -245,7 +268,9 @@ function hasDanglingProgressSurface(messages: ReadonlyArray<Message>): boolean {
   }
 
   for (const state of surfaces.values()) {
-    if (isNonTerminal(state)) return true;
+    if (isNonTerminal(state)) {
+      return true;
+    }
   }
   return false;
 }
@@ -253,17 +278,27 @@ function hasDanglingProgressSurface(messages: ReadonlyArray<Message>): boolean {
 const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   // A provider rejection carries no turn content to assess (a recovery hook
   // owns the rejection).
-  if (ctx.error) return;
+  if (ctx.error) {
+    return;
+  }
   // A tool-bearing turn continues mid-run — the loop runs the tools and the
   // model gets another chance to close the surface — so leave it alone.
-  if (hasToolUse(ctx.content)) return;
+  if (hasToolUse(ctx.content)) {
+    return;
+  }
   // Only nudge the user-facing reply: background call sites have no live user
   // watching a spinner.
-  if (ctx.callSite !== "mainAgent") return;
+  if (ctx.callSite !== "mainAgent") {
+    return;
+  }
   // One nudge per run; the sibling `stop` hook clears the mark on terminal stop.
-  if (isSurfaceCompletionNudged(ctx.conversationId)) return;
+  if (isSurfaceCompletionNudged(ctx.conversationId)) {
+    return;
+  }
 
-  if (!hasDanglingProgressSurface(ctx.messages)) return;
+  if (!hasDanglingProgressSurface(ctx.messages)) {
+    return;
+  }
 
   markSurfaceCompletionNudged(ctx.conversationId);
   ctx.messages.push({

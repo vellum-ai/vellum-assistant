@@ -125,6 +125,20 @@ import { correctDefaultUserBoundaryCommentsMigration } from "./124-correct-defau
 import { repointManagedConnectionsToVellumMigration } from "./125-repoint-managed-connections-to-vellum.js";
 import { stripManagedProfileBodiesMigration } from "./126-strip-managed-profile-bodies.js";
 import { backfillDefaultProviderMigration } from "./127-backfill-default-provider.js";
+import { repairStaleOpenrouterGrokModelIdsMigration } from "./128-repair-stale-openrouter-grok-model-ids.js";
+import { removeAnalyzeConversationConfigMigration } from "./129-remove-analyze-conversation-config.js";
+import { speechModeToProviderMigration } from "./130-speech-mode-to-provider.js";
+import { dropWebFetchModeMigration } from "./131-drop-web-fetch-mode.js";
+import { webSearchModeToProviderMigration } from "./132-web-search-mode-to-provider.js";
+import { collapseProviderConnectionsMigration } from "./133-collapse-provider-connections.js";
+import { imageGenerationModeToProviderMigration } from "./134-image-generation-mode-to-provider.js";
+import { copySubstrateTunablesMigration } from "./135-copy-substrate-tunables.js";
+import { repairStaleFireworksKimiModelIdMigration } from "./136-repair-stale-fireworks-kimi-model-id.js";
+import { repairRetiredFireworksMinimaxModelIdMigration } from "./137-repair-retired-fireworks-minimax-model-id.js";
+import { backfillHomeFeedTitlesMigration } from "./138-backfill-home-feed-titles.js";
+import { clearRenamedCostProfileLabelMigration } from "./139-clear-renamed-cost-profile-label.js";
+import { repairSeedPinnedMemoryV3LiveMigration } from "./140-repair-seed-pinned-memory-v3-live.js";
+import { sttEnglishDefaultToMultilingualMigration } from "./141-stt-english-default-to-multilingual.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -261,4 +275,22 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   repointManagedConnectionsToVellumMigration,
   stripManagedProfileBodiesMigration,
   backfillDefaultProviderMigration,
+  repairStaleOpenrouterGrokModelIdsMigration,
+  removeAnalyzeConversationConfigMigration,
+  // 130 sits before 131 despite landing later: getLastWorkspaceMigrationId()
+  // reports the final array entry as the registry ceiling (identity/rollback
+  // routes), so the highest id must stay last. The two touch disjoint config
+  // keys, so relative execution order is irrelevant.
+  speechModeToProviderMigration,
+  dropWebFetchModeMigration,
+  webSearchModeToProviderMigration,
+  collapseProviderConnectionsMigration,
+  imageGenerationModeToProviderMigration,
+  copySubstrateTunablesMigration,
+  repairStaleFireworksKimiModelIdMigration,
+  repairRetiredFireworksMinimaxModelIdMigration,
+  backfillHomeFeedTitlesMigration,
+  clearRenamedCostProfileLabelMigration,
+  repairSeedPinnedMemoryV3LiveMigration,
+  sttEnglishDefaultToMultilingualMigration,
 ];

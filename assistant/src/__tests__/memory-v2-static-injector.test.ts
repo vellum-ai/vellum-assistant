@@ -17,28 +17,16 @@
  *
  * The injector sources its content itself via `readMemoryV2StaticContent()`
  * behind the personal-memory trust gate, so each test seeds the workspace
- * memory files rather than passing the content in as an option. Mocks
- * `config/loader` so the v2 gates are on without standing up a full config.
+ * memory files rather than passing the content in as an option. The v2 gates
+ * (`memory.enabled`, `memory.v2.enabled`) are on by schema default, so the
+ * real config loader needs no seeding.
  */
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-const realLoader = await import("../config/loader.js");
-
-mock.module("../config/loader.js", () => ({
-  ...realLoader,
-  loadConfig: () => ({
-    memory: { enabled: true, v2: { enabled: true } },
-  }),
-  getConfig: () => ({
-    memory: { enabled: true, v2: { enabled: true } },
-  }),
-}));
-
-const { memoryInjectors } =
-  await import("../plugins/defaults/memory/injectors.js");
+import { memoryInjectors } from "../plugins/defaults/memory/injectors.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 import { getWorkspacePromptPath } from "../util/platform.js";

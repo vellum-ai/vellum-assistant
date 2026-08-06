@@ -8,7 +8,7 @@
 
 import { parse as parseYaml } from "yaml";
 
-import { getLogger } from "../../../util/logger.js";
+import { getLogger } from "./logging.js";
 
 const log = getLogger("memory-frontmatter");
 
@@ -32,7 +32,9 @@ export function parseFrontmatterFields(
   content: string,
 ): FrontmatterParseResult | null {
   const match = content.match(FRONTMATTER_REGEX);
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
 
   const frontmatter = match[1];
   const body = content.slice(match[0].length);

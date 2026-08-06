@@ -7,14 +7,7 @@
  * listeners) live here so they don't execute during non-active states.
  */
 
-import {
-  lazy,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
@@ -49,11 +42,15 @@ import { useDraftPersistence } from "@/domains/chat/hooks/use-draft-persistence"
 import { useOnboardingOrchestrator } from "@/domains/chat/hooks/use-onboarding-orchestrator";
 
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
+import { useAssistantCapability } from "@/hooks/use-assistant-capability";
+import { useSupportsSummarizeUpToHere } from "@/lib/backwards-compat/use-supports-summarize-up-to-here";
 import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
 import { useMessageLifecycle } from "@/domains/chat/hooks/use-message-lifecycle";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync";
+import { useAcpAutoContinue } from "@/domains/chat/hooks/use-acp-auto-continue";
 import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer";
+import { ACP_CONNECT_CONTINUE_PROMPT } from "@/domains/chat/utils/acp-connect";
 
 import { useChatDebugRegistration } from "@/domains/chat/hooks/use-chat-debug-registration";
 import { useDeepLinkApp } from "@/domains/chat/hooks/use-deep-link-app";
@@ -62,21 +59,19 @@ import { lifecycleService } from "@/assistant/lifecycle-service";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
 import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
-const AddCreditsModal = lazy(() =>
-  import("@/components/add-credits-modal").then((m) => ({
-    default: m.AddCreditsModal,
-  })),
-);
 const DeployDialogs = lazy(() =>
   import("@/components/deploy-dialogs").then((m) => ({
     default: m.DeployDialogs,
   })),
 );
 
+import { LazyAddCreditsModal } from "@/domains/chat/components/lazy-add-credits-modal";
 import { MobileChatOverlays } from "@/domains/chat/components/mobile-chat-overlays";
 import { useChatHeaderRegistration } from "@/domains/chat/hooks/use-chat-header-registration";
 import { useConversationChangeEffects } from "@/domains/chat/hooks/use-conversation-change-effects";
+import { useSubagentReconcile } from "@/domains/chat/hooks/use-subagent-reconcile";
 import { useComposerKeyboard } from "@/domains/chat/hooks/use-composer-keyboard";
 import { useAutoSendEffects } from "@/domains/chat/hooks/use-auto-send-effects";
 import { useOnboardingAttribution } from "@/hooks/use-onboarding-attribution";
@@ -91,7 +86,9 @@ import type { ChatMainPanelProps } from "@/domains/chat/components/chat-route-co
 export function ActiveChatView() {
   const showLlmInspector = useCanUseLlmInspector();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { conversationId: urlConversationId } = useParams<{ conversationId?: string }>();
+  const { conversationId: urlConversationId } = useParams<{
+    conversationId?: string;
+  }>();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const turnPhase = useTurnStore.use.phase();
@@ -103,8 +100,6 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   // Local state (not store-backed)
   // -------------------------------------------------------------------------
-  const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);
-
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
 
@@ -126,12 +121,14 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   // Pin-sync side-effect
   // -------------------------------------------------------------------------
-  useActiveAppPinSync(useCallback((appId: string) => {
-    const didClose = useViewerStore.getState().handleAppUnpinned(appId);
-    if (didClose) {
-      useConversationStore.getState().setEditingConversationId(null);
-    }
-  }, []));
+  useActiveAppPinSync(
+    useCallback((appId: string) => {
+      const didClose = useViewerStore.getState().handleAppUnpinned(appId);
+      if (didClose) {
+        useConversationStore.getState().setEditingConversationId(null);
+      }
+    }, []),
+  );
 
   // -------------------------------------------------------------------------
   // Shared refs — owned here, read/written by hooks
@@ -153,7 +150,7 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   const {
     didOnboarding,
-    onboardingTasksEmpty,
+    onboardingChoiceEligible,
     onboardingConversationId,
     pendingOnboardingContextRef,
     onboardingDraftConversationIdRef,
@@ -164,7 +161,9 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   const reachability = useAssistantReachability(assistantId);
   const reachabilityReadyEpoch = useMemo(() => {
-    if (reachability.state.phase === "ready") return refreshEpoch + 1;
+    if (reachability.state.phase === "ready") {
+      return refreshEpoch + 1;
+    }
     return 0;
   }, [reachability.state.phase, refreshEpoch]);
 
@@ -225,7 +224,6 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   const {
     refreshConversations,
-    switchConversation,
     startNewConversation,
     conversationExistsOnServer,
     historyResult,
@@ -260,7 +258,8 @@ export function ActiveChatView() {
     assistantStateKind: assistantState.kind,
     activeConversationId,
     conversationExistsOnServer,
-    latestPageOldestTimestamp: historyResult.pagination.latestPageOldestTimestamp,
+    latestPageOldestTimestamp:
+      historyResult.pagination.latestPageOldestTimestamp,
     reachability,
     setAssetsRefreshKey,
   });
@@ -297,10 +296,21 @@ export function ActiveChatView() {
     sendMessage,
     reachabilityPhase: reachability.state.phase,
     reachabilityProbe: reachability.probe,
-    getPendingInitialMessage: () => peekPendingPreChatContext()?.initialMessage ?? undefined,
+    getPendingInitialMessage: () =>
+      peekPendingPreChatContext()?.initialMessage ?? undefined,
     getPendingInitialMessageHidden: () =>
       peekPendingPreChatContext()?.initialMessageHidden === true,
   });
+
+  // Auto-continue after the inline "Connect Claude Code" card finishes: the card
+  // flips a store flag (it can't reach `sendMessage`), and here we turn that into
+  // a hidden continuation send so the assistant re-runs the failed spawn without
+  // the user typing "retry".
+  const sendAcpContinue = useCallback(
+    () => void sendMessage(ACP_CONNECT_CONTINUE_PROMPT, [], { hidden: true }),
+    [sendMessage],
+  );
+  useAcpAutoContinue(sendAcpContinue);
 
   // Onboarding deep-link attribution: emit the research-onboarding check-in
   // funnel step when the user lands here from the Day-2 calendar event's CTA.
@@ -311,7 +321,9 @@ export function ActiveChatView() {
   });
 
   useEffect(() => {
-    if (reachability.state.phase !== "failed") return;
+    if (reachability.state.phase !== "failed") {
+      return;
+    }
     useChatSessionStore.getState().setError({
       message: "Connection lost. Please try again.",
     });
@@ -323,8 +335,12 @@ export function ActiveChatView() {
   const pendingFollowupMessage =
     useOnboardingFocusStore.use.pendingFollowupMessage();
   useEffect(() => {
-    if (!pendingFollowupMessage) return;
-    if (isSending(useTurnStore.getState().phase)) return;
+    if (!pendingFollowupMessage) {
+      return;
+    }
+    if (isSending(useTurnStore.getState().phase)) {
+      return;
+    }
     useOnboardingFocusStore.getState().clearFollowup();
     void sendMessage(pendingFollowupMessage);
   }, [pendingFollowupMessage, sendMessage]);
@@ -348,7 +364,9 @@ export function ActiveChatView() {
       lifecycleService.clearExpectingFirstMessage();
       return;
     }
-    if (isSending(useTurnStore.getState().phase)) return;
+    if (isSending(useTurnStore.getState().phase)) {
+      return;
+    }
     lifecycleService.markExpectingFirstMessage();
     void sendMessage(message);
   }, [sendMessage]);
@@ -359,6 +377,15 @@ export function ActiveChatView() {
   // Conversation-change side effects (dismiss prompts, reset subagent state,
   // auto-fetch subagent details for entries reconstructed from history)
   useConversationChangeEffects(assistantId, activeConversationId);
+
+  // Resync subagent rows from the daemon on load and after an SSE reopen, so a
+  // run that streamed nothing this session still shows up (and a stuck-running
+  // entry the daemon has forgotten settles).
+  useSubagentReconcile(
+    assistantId,
+    activeConversationId,
+    conversationExistsOnServer,
+  );
 
   // Debug API — dev-facing surface for in-the-moment chat inspection.
   // Unconditionally attached; negligible production overhead.
@@ -381,14 +408,15 @@ export function ActiveChatView() {
   });
 
   // -------------------------------------------------------------------------
-  // Conversation secondary actions (fork, analyze, inspect, copy, etc.)
+  // Conversation secondary actions (fork, inspect, copy, etc.)
   // Primary actions (archive, pin, rename, mark-read) are owned by
   // ChatConversationHeader in chat-layout.tsx.
   // -------------------------------------------------------------------------
   const {
     handleForkConversation,
     handleForkConversationFromMenu,
-    handleAnalyzeConversation,
+    handleSummarizeUpToMessage,
+    handleRetryLatestTurn,
     handleOpenInNewWindow,
     handleInspectConversation,
     handleInspectMessage,
@@ -396,8 +424,61 @@ export function ActiveChatView() {
   } = useConversationSecondaryActions({
     activeConversation: activeConversation ?? null,
     refreshConversations,
-    switchConversation,
   });
+
+  // "Summarize up to here" confirm dialog. The hover action only records the
+  // target message; the POST fires from the dialog's confirm button — a
+  // misfired summarize mutates the assistant's live context with no undo, so
+  // it always goes through an explicit confirmation. Version-gated at the
+  // callback source: assistants below the endpoint's release get no
+  // `onSummarizeUpToHere`, so the hover button never renders and the dialog
+  // is unreachable.
+  const supportsSummarizeUpToHere = useSupportsSummarizeUpToHere();
+  const [pendingSummarizeMessageId, setPendingSummarizeMessageId] = useState<
+    string | null
+  >(null);
+  const [summarizePending, setSummarizePending] = useState(false);
+  const handleSummarizeUpToHere = useCallback((messageId: string) => {
+    setPendingSummarizeMessageId(messageId);
+  }, []);
+  const handleConfirmSummarize = useCallback(() => {
+    if (!pendingSummarizeMessageId) {
+      return;
+    }
+    setSummarizePending(true);
+    // Errors toast inside the handler; the dialog just closes.
+    void handleSummarizeUpToMessage(pendingSummarizeMessageId).finally(() => {
+      setSummarizePending(false);
+      setPendingSummarizeMessageId(null);
+    });
+  }, [pendingSummarizeMessageId, handleSummarizeUpToMessage]);
+  const handleCancelSummarize = useCallback(() => {
+    setPendingSummarizeMessageId(null);
+  }, []);
+
+  // "Retry" confirm dialog. Same shape as summarize: the hover action only
+  // opens the dialog; the POST fires from its confirm button — retry
+  // permanently discards the latest assistant response, so it always goes
+  // through an explicit confirmation. Capability-gated at the callback
+  // source: daemons without the retry endpoint get no `onRetryLatestTurn`,
+  // so the hover button never renders and the dialog is unreachable.
+  const supportsRetryTurn = useAssistantCapability("retryLastTurn");
+  const [retryConfirmOpen, setRetryConfirmOpen] = useState(false);
+  const [retryPending, setRetryPending] = useState(false);
+  const handleRetryLatestTurnRequested = useCallback(() => {
+    setRetryConfirmOpen(true);
+  }, []);
+  const handleConfirmRetry = useCallback(() => {
+    setRetryPending(true);
+    // Errors toast inside the handler; the dialog just closes.
+    void handleRetryLatestTurn().finally(() => {
+      setRetryPending(false);
+      setRetryConfirmOpen(false);
+    });
+  }, [handleRetryLatestTurn]);
+  const handleCancelRetry = useCallback(() => {
+    setRetryConfirmOpen(false);
+  }, []);
 
   // Manual "Refresh" menu item — re-fetch the latest history page through the
   // same TanStack Query invalidation the pull-to-refresh gesture uses, so the
@@ -412,7 +493,6 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   useChatHeaderRegistration({
     assetsRefreshKey,
-    handleAnalyzeConversation,
     handleForkConversationFromMenu,
     handleOpenInNewWindow,
     handleInspectConversation,
@@ -464,6 +544,12 @@ export function ActiveChatView() {
 
     // Conversation secondary actions
     handleForkConversation,
+    onSummarizeUpToHere: supportsSummarizeUpToHere
+      ? handleSummarizeUpToHere
+      : undefined,
+    onRetryLatestTurn: supportsRetryTurn
+      ? handleRetryLatestTurnRequested
+      : undefined,
     handleInspectMessage: showLlmInspector ? handleInspectMessage : undefined,
 
     // History pagination
@@ -473,7 +559,6 @@ export function ActiveChatView() {
     diskPressure,
 
     // Upward signals
-    setShowAddCreditsModal,
     setRefreshEpoch,
 
     // Shared refs
@@ -484,7 +569,7 @@ export function ActiveChatView() {
     uiContextRef,
 
     // Onboarding
-    onboardingTasksEmpty,
+    onboardingChoiceEligible,
     didOnboarding,
     onboardingConversationId,
   };
@@ -492,14 +577,6 @@ export function ActiveChatView() {
   return (
     <>
       <ChatContentLayout {...chatRouteProps} />
-      {showAddCreditsModal ? (
-        <LazyBoundary>
-          <AddCreditsModal
-            open={showAddCreditsModal}
-            onOpenChange={setShowAddCreditsModal}
-          />
-        </LazyBoundary>
-      ) : null}
 
       {assistantId && (isTokenDialogOpen || complexDeployApp) ? (
         <LazyBoundary>
@@ -510,7 +587,28 @@ export function ActiveChatView() {
           />
         </LazyBoundary>
       ) : null}
+      <ConfirmDialog
+        open={pendingSummarizeMessageId !== null}
+        title="Summarize up to here?"
+        message="The assistant will summarize the conversation before this point and carry only the summary in its working memory going forward. Messages stay visible and are never deleted."
+        confirmLabel="Summarize"
+        isPending={summarizePending}
+        onConfirm={handleConfirmSummarize}
+        onCancel={handleCancelSummarize}
+      />
+      <ConfirmDialog
+        open={retryConfirmOpen}
+        title="Retry this response?"
+        message="The latest response will be discarded and regenerated. This can't be undone."
+        confirmLabel="Retry"
+        isPending={retryPending}
+        onConfirm={handleConfirmRetry}
+        onCancel={handleCancelRetry}
+      />
       <MobileChatOverlays />
+      {/* Stable mount for the Add Credits checkout, so it outlives the
+          billing-state-conditional CTAs that open it. */}
+      <LazyAddCreditsModal />
     </>
   );
 }

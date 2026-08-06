@@ -1,5 +1,5 @@
 /**
- * Conversation secondary actions — fork, analyze, inspect, open-in-new-window,
+ * Conversation secondary actions — fork, inspect, open-in-new-window,
  * copy transcript, and share-feedback modal state.
  *
  * These are the "utility" actions surfaced in the conversation header chevron
@@ -7,23 +7,26 @@
  * unarchive, pin, rename, mark read/unread) live in `useConversationActions`.
  */
 
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { captureError } from "@/lib/sentry/capture-error";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-} from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { useNavigate } from "react-router";
+import { toast } from "@vellumai/design-library";
 
 import type { Conversation } from "@/types/conversation-types";
-import { conversationsByIdAnalyzePost, conversationsForkPost } from "@/generated/daemon/sdk.gen";
+import {
+  conversationsByIdRetryPost,
+  conversationsForkPost,
+  conversationsSummarizePost,
+} from "@/generated/daemon/sdk.gen";
+import { ApiError } from "@/utils/api-errors";
 import { isElectron } from "@/runtime/is-electron";
 import { openPopoutWindow } from "@/runtime/popout-window";
+import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
-import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -37,7 +40,6 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 export interface UseConversationSecondaryActionsParams {
   activeConversation: Conversation | null | undefined;
   refreshConversations: () => void;
-  switchConversation: (key: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -47,7 +49,8 @@ export interface UseConversationSecondaryActionsParams {
 export interface UseConversationSecondaryActionsReturn {
   handleForkConversation: (throughMessageId: string) => Promise<void>;
   handleForkConversationFromMenu: () => void;
-  handleAnalyzeConversation: (conversation: Conversation) => Promise<void>;
+  handleSummarizeUpToMessage: (beforeMessageId: string) => Promise<void>;
+  handleRetryLatestTurn: () => Promise<void>;
   handleOpenInNewWindow: (conversation: Conversation) => void;
   handleInspectConversation: (conversation: Conversation) => void;
   handleInspectMessage: (messageId: string) => void;
@@ -86,7 +89,6 @@ function turnHeadMessageId(
 export function useConversationSecondaryActions({
   activeConversation,
   refreshConversations,
-  switchConversation,
 }: UseConversationSecondaryActionsParams): UseConversationSecondaryActionsReturn {
   const navigate = useNavigate();
 
@@ -102,8 +104,10 @@ export function useConversationSecondaryActions({
 
   const handleForkConversation = useCallback(
     async (throughMessageId: string) => {
-      const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-      const activeConversationId = useConversationStore.getState().activeConversationId;
+      const assistantId =
+        useResolvedAssistantsStore.getState().activeAssistantId;
+      const activeConversationId =
+        useConversationStore.getState().activeConversationId;
       if (!assistantId || !activeConversationId) {
         return;
       }
@@ -116,7 +120,11 @@ export function useConversationSecondaryActions({
           throwOnError: true,
         });
         refreshConversations();
-        void navigate(routes.conversation(data.conversation.id));
+        // The haptic already fired at action start; silence the navigator's
+        // own tap so forking doesn't double-buzz.
+        navigateToConversation(navigate, data.conversation.id, {
+          silent: true,
+        });
       } catch (err) {
         captureError(err, { context: "fork_conversation" });
       }
@@ -124,46 +132,85 @@ export function useConversationSecondaryActions({
     [refreshConversations, navigate],
   );
 
-  const handleForkConversationFromMenu = useCallback(() => {
-    const latestPersisted = transcriptRef.current.findLast(
-      (m) => m.id != null,
-    );
-    const throughMessageId = latestPersisted?.id;
-    if (!throughMessageId) return;
-    void handleForkConversation(throughMessageId);
-  }, [handleForkConversation]);
+  // Asks the daemon to summarize everything before `beforeMessageId` in the
+  // assistant's working memory. Fire-and-forget from the client's point of
+  // view: the daemon acknowledges with 202 and progress/result arrive through
+  // the existing turn SSE events, so there is no navigation, list refresh, or
+  // history invalidation here.
+  const handleSummarizeUpToMessage = useCallback(
+    async (beforeMessageId: string) => {
+      const assistantId =
+        useResolvedAssistantsStore.getState().activeAssistantId;
+      const activeConversationId =
+        useConversationStore.getState().activeConversationId;
+      if (!assistantId || !activeConversationId) {
+        return;
+      }
+      haptic.light();
 
-  const handleAnalyzeConversation = useCallback(
-    async (conversation: Conversation) => {
-      const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-      if (!assistantId) return;
       try {
-        const { data } = await conversationsByIdAnalyzePost({
-          path: { assistant_id: assistantId, id: conversation.conversationId },
+        await conversationsSummarizePost({
+          path: { assistant_id: assistantId },
+          body: { conversationId: activeConversationId, beforeMessageId },
           throwOnError: true,
         });
-        await refreshConversations();
-        switchConversation(data.conversation.id);
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Failed to analyze conversation.";
-        useChatSessionStore.getState().setError({ message });
-        captureError(err, { context: "analyzeConversation" });
-      }
-    },
-    [refreshConversations, switchConversation],
-  );
-
-  const handleOpenInNewWindow = useCallback(
-    (conversation: Conversation) => {
-      if (isElectron()) {
-        void openPopoutWindow(conversation.conversationId);
-      } else {
-        window.open(routes.conversation(conversation.conversationId), "_blank");
+        captureError(err, { context: "summarize_up_to_here" });
+        toast.error(
+          err instanceof ApiError && err.status === 409
+            ? "Your assistant is busy. Try again when it finishes replying."
+            : "Couldn't summarize the conversation",
+        );
       }
     },
     [],
   );
+
+  // Discards the latest assistant display turn and re-runs generation from
+  // its user message. Fire-and-forget like summarize: the daemon acknowledges
+  // with 202, the regenerated turn streams over the existing SSE events, and
+  // the discarded rows disappear via the messages sync invalidation — no
+  // local state to update here.
+  const handleRetryLatestTurn = useCallback(async () => {
+    const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
+    const activeConversationId =
+      useConversationStore.getState().activeConversationId;
+    if (!assistantId || !activeConversationId) {
+      return;
+    }
+    haptic.light();
+
+    try {
+      await conversationsByIdRetryPost({
+        path: { assistant_id: assistantId, id: activeConversationId },
+        throwOnError: true,
+      });
+    } catch (err) {
+      captureError(err, { context: "retry_latest_turn" });
+      toast.error(
+        err instanceof ApiError && err.status === 409
+          ? "Your assistant is busy. Try again when it finishes replying."
+          : "Couldn't retry the response",
+      );
+    }
+  }, []);
+
+  const handleForkConversationFromMenu = useCallback(() => {
+    const latestPersisted = transcriptRef.current.findLast((m) => m.id != null);
+    const throughMessageId = latestPersisted?.id;
+    if (!throughMessageId) {
+      return;
+    }
+    void handleForkConversation(throughMessageId);
+  }, [handleForkConversation]);
+
+  const handleOpenInNewWindow = useCallback((conversation: Conversation) => {
+    if (isElectron()) {
+      void openPopoutWindow(conversation.conversationId);
+    } else {
+      window.open(routes.conversation(conversation.conversationId), "_blank");
+    }
+  }, []);
 
   // Navigate to the per-conversation LLM context inspector. The
   // conversation lives in the path;
@@ -178,7 +225,8 @@ export function useConversationSecondaryActions({
   const handleInspectConversation = useCallback(
     (conversation: Conversation) => {
       const params = new URLSearchParams();
-      const currentActiveId = useConversationStore.getState().activeConversationId;
+      const currentActiveId =
+        useConversationStore.getState().activeConversationId;
       if (conversation.conversationId === currentActiveId) {
         const latestUser = transcriptRef.current.findLast(
           (m) => m.role === "user" && m.id != null,
@@ -197,10 +245,16 @@ export function useConversationSecondaryActions({
 
   const handleInspectMessage = useCallback(
     (messageId: string) => {
-      const activeConversationId = useConversationStore.getState().activeConversationId;
-      if (!activeConversationId) return;
+      const activeConversationId =
+        useConversationStore.getState().activeConversationId;
+      if (!activeConversationId) {
+        return;
+      }
       const params = new URLSearchParams();
-      params.set("messageId", turnHeadMessageId(messageId, transcriptRef.current));
+      params.set(
+        "messageId",
+        turnHeadMessageId(messageId, transcriptRef.current),
+      );
       void navigate(
         `${routes.inspect(activeConversationId)}?${params.toString()}`,
       );
@@ -216,19 +270,27 @@ export function useConversationSecondaryActions({
     }
     for (const msg of transcriptRef.current) {
       const text = messagePlainText(msg);
-      if (!text.trim()) continue;
+      if (!text.trim()) {
+        continue;
+      }
       const sender = msg.role === "user" ? "You" : name;
       parts.push(`### ${sender}\n${text}`);
     }
-    if (parts.length === 0) return;
+    if (parts.length === 0) {
+      return;
+    }
     const markdown = parts.join("\n\n---\n\n");
-    void navigator.clipboard.writeText(markdown);
+    copyToClipboard(markdown, {
+      successMessage: "Conversation copied to clipboard.",
+      errorMessage: "Couldn't copy the conversation.",
+    });
   }, [activeConversation?.title]);
 
   return {
     handleForkConversation,
     handleForkConversationFromMenu,
-    handleAnalyzeConversation,
+    handleSummarizeUpToMessage,
+    handleRetryLatestTurn,
     handleOpenInNewWindow,
     handleInspectConversation,
     handleInspectMessage,

@@ -15,13 +15,6 @@ const callTelegramBotApiMock = mock<CallTelegramBotApi>(
   async () => ({}) as never,
 );
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("./api.js", () => ({
   callTelegramBotApi: (method: string, body: Record<string, unknown>) =>
     callTelegramBotApiMock(method, body),
@@ -37,7 +30,7 @@ mock.module("./api.js", () => ({
 }));
 
 const { TelegramNonRetryableError } = await import("./api.js");
-const { sendTelegramRichReply } = await import("./send.js");
+const { sendTelegramReply, sendTelegramRichReply } = await import("./send.js");
 const { telegramTransport } = await import("./transport.js");
 
 const approval: ApprovalUIMetadata = {
@@ -155,6 +148,36 @@ describe("sendTelegramRichReply", () => {
   });
 });
 
+describe("sendTelegramReply message id capture", () => {
+  test("returns the sent message id so approval cards can be addressed later", async () => {
+    callTelegramBotApiMock.mockImplementation(
+      async () => ({ message_id: 42 }) as never,
+    );
+
+    const result = await sendTelegramReply("123", "Please approve", approval);
+
+    expect(result.lastMessageId).toBe("42");
+  });
+
+  test("returns the id of the last chunk for a split message", async () => {
+    let nextId = 1;
+    callTelegramBotApiMock.mockImplementation(
+      async () => ({ message_id: nextId++ }) as never,
+    );
+
+    const result = await sendTelegramReply("123", "x".repeat(4500));
+
+    expect(callsTo("sendMessage")).toHaveLength(2);
+    expect(result.lastMessageId).toBe("2");
+  });
+
+  test("omits the message id when the API response lacks one", async () => {
+    const result = await sendTelegramReply("123", "Hello");
+
+    expect(result.lastMessageId).toBeUndefined();
+  });
+});
+
 describe("telegramTransport.deliver routing", () => {
   const ctx: CallbackContext = { callbackUrl: "/deliver/telegram", params: {} };
 
@@ -192,6 +215,94 @@ describe("telegramTransport.deliver routing", () => {
       chat_id: "123",
       rich_message: { html: "<p>hello</p>", skip_entity_detection: true },
       reply_markup: expectedKeyboard,
+    });
+  });
+});
+
+describe("telegramTransport topic targeting", () => {
+  // A `threadId` param on the deliver callback URL identifies the private-chat
+  // topic the inbound message arrived in; every outbound send must echo it.
+  const topicCtx: CallbackContext = {
+    callbackUrl: "/deliver/telegram?threadId=777",
+    params: { threadId: "777" },
+  };
+
+  function payload(
+    overrides: Partial<ChannelReplyPayload>,
+  ): ChannelReplyPayload {
+    return {
+      chatId: "123",
+      text: "hello",
+      ...overrides,
+    } as ChannelReplyPayload;
+  }
+
+  test("plain replies target the topic from the callback threadId param", async () => {
+    await telegramTransport.deliver(topicCtx, payload({ useBlocks: false }));
+
+    expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendMessage", {
+      chat_id: "123",
+      text: "hello",
+      message_thread_id: 777,
+    });
+  });
+
+  test("rich replies target the topic", async () => {
+    await telegramTransport.deliver(topicCtx, payload({ useBlocks: true }));
+
+    expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendRichMessage", {
+      chat_id: "123",
+      rich_message: { html: "<p>hello</p>", skip_entity_detection: true },
+      message_thread_id: 777,
+    });
+  });
+
+  test("the plain-text fallback of a rejected rich send stays in the topic", async () => {
+    callTelegramBotApiMock.mockImplementationOnce(async () => {
+      throw new TelegramNonRetryableError("rejected", "rejected");
+    });
+
+    await telegramTransport.deliver(topicCtx, payload({ useBlocks: true }));
+
+    expect(callTelegramBotApiMock).toHaveBeenNthCalledWith(2, "sendMessage", {
+      chat_id: "123",
+      text: "hello",
+      message_thread_id: 777,
+    });
+  });
+
+  test("typing indicators target the topic", async () => {
+    await telegramTransport.sendTyping!(
+      topicCtx,
+      payload({ chatAction: "typing" }),
+    );
+
+    expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendChatAction", {
+      chat_id: "123",
+      action: "typing",
+      message_thread_id: 777,
+    });
+  });
+
+  test("a callback URL without threadId keeps sends thread-less", async () => {
+    const bareCtx: CallbackContext = {
+      callbackUrl: "/deliver/telegram",
+      params: {},
+    };
+
+    await telegramTransport.deliver(bareCtx, payload({ useBlocks: false }));
+    await telegramTransport.sendTyping!(
+      bareCtx,
+      payload({ chatAction: "typing" }),
+    );
+
+    expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendMessage", {
+      chat_id: "123",
+      text: "hello",
+    });
+    expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendChatAction", {
+      chat_id: "123",
+      action: "typing",
     });
   });
 });

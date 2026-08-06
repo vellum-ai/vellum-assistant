@@ -22,7 +22,14 @@ mock.module("electron-log/main", () => {
       error: noop,
       debug: noop,
       initialize: noop,
-      transports: { file: { maxSize: 0, fileName: "", format: "", getFile: () => ({ path: "" }) } },
+      transports: {
+        file: {
+          maxSize: 0,
+          fileName: "",
+          format: "",
+          getFile: () => ({ path: "" }),
+        },
+      },
     },
   };
 });
@@ -113,35 +120,47 @@ describe("host-file-executor", () => {
   describe("detectAudioByMagicBytes", () => {
     test("detects MP3 with ID3 tag", () => {
       const buf = Buffer.from([0x49, 0x44, 0x33, 0x00]);
-      expect(__testing.detectAudioByMagicBytes(buf)).toEqual({ mimeType: "audio/mpeg" });
+      expect(__testing.detectAudioByMagicBytes(buf)).toEqual({
+        mimeType: "audio/mpeg",
+      });
     });
 
     test("detects MP3 sync word", () => {
       const buf = Buffer.from([0xff, 0xfb, 0x90, 0x00]);
-      expect(__testing.detectAudioByMagicBytes(buf)).toEqual({ mimeType: "audio/mpeg" });
+      expect(__testing.detectAudioByMagicBytes(buf)).toEqual({
+        mimeType: "audio/mpeg",
+      });
     });
 
     test("detects OGG", () => {
       const buf = Buffer.from([0x4f, 0x67, 0x67, 0x53]);
-      expect(__testing.detectAudioByMagicBytes(buf)).toEqual({ mimeType: "audio/ogg" });
+      expect(__testing.detectAudioByMagicBytes(buf)).toEqual({
+        mimeType: "audio/ogg",
+      });
     });
 
     test("detects FLAC", () => {
       const buf = Buffer.from([0x66, 0x4c, 0x61, 0x43]);
-      expect(__testing.detectAudioByMagicBytes(buf)).toEqual({ mimeType: "audio/flac" });
+      expect(__testing.detectAudioByMagicBytes(buf)).toEqual({
+        mimeType: "audio/flac",
+      });
     });
 
     test("detects WAV", () => {
       const buf = Buffer.alloc(12);
       buf.write("RIFF", 0);
       buf.write("WAVE", 8);
-      expect(__testing.detectAudioByMagicBytes(buf)).toEqual({ mimeType: "audio/wav" });
+      expect(__testing.detectAudioByMagicBytes(buf)).toEqual({
+        mimeType: "audio/wav",
+      });
     });
 
     test("detects M4A", () => {
       const buf = Buffer.alloc(8);
       buf.write("ftyp", 4);
-      expect(__testing.detectAudioByMagicBytes(buf)).toEqual({ mimeType: "audio/mp4" });
+      expect(__testing.detectAudioByMagicBytes(buf)).toEqual({
+        mimeType: "audio/mp4",
+      });
     });
 
     test("returns null for text", () => {
@@ -192,6 +211,36 @@ describe("host-file-executor", () => {
       expect(result.content).toContain("exceeds the 100.0 MB limit");
     });
 
+    test("caps an unbounded read at the default line limit and says so", () => {
+      const dir = freshTmpDir();
+      const filePath = path.join(dir, "big.txt");
+      const total = 2500;
+      fs.writeFileSync(
+        filePath,
+        Array.from({ length: total }, (_, i) => `line${i + 1}`).join("\n"),
+      );
+
+      const result = __testing.executeRead({ path: filePath });
+      expect(result.content).toContain("line2000");
+      expect(result.content).not.toContain("line2001");
+      expect(result.content).toContain(
+        `[Truncated: showing through line 2000 of ${total}. Read on with offset=2001`,
+      );
+    });
+
+    test("an explicit limit is honored rather than replaced by the default", () => {
+      const dir = freshTmpDir();
+      const filePath = path.join(dir, "big.txt");
+      fs.writeFileSync(
+        filePath,
+        Array.from({ length: 2500 }, (_, i) => `line${i + 1}`).join("\n"),
+      );
+
+      const result = __testing.executeRead({ path: filePath, limit: 2500 });
+      expect(result.content).toContain("line2500");
+      expect(result.content).not.toContain("[Truncated:");
+    });
+
     test("reads text file and returns content", () => {
       const dir = freshTmpDir();
       const filePath = path.join(dir, "hello.txt");
@@ -207,14 +256,21 @@ describe("host-file-executor", () => {
       const filePath = path.join(dir, "lines.txt");
       fs.writeFileSync(filePath, "a\nb\nc\nd\ne");
 
-      const result = __testing.executeRead({ path: filePath, offset: 2, limit: 2 });
-      expect(result.content).toBe("b\nc");
+      const result = __testing.executeRead({
+        path: filePath,
+        offset: 2,
+        limit: 2,
+      });
+      const [body] = result.content!.split("\n\n[Truncated:");
+      expect(body).toBe("b\nc");
     });
 
     test("returns base64 imageData for PNG file", () => {
       const dir = freshTmpDir();
       const filePath = path.join(dir, "img.png");
-      const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+      const pngHeader = Buffer.from([
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      ]);
       fs.writeFileSync(filePath, pngHeader);
 
       const result = __testing.executeRead({ path: filePath });
@@ -245,7 +301,10 @@ describe("host-file-executor", () => {
       const dir = freshTmpDir();
       const filePath = path.join(dir, "backup.key");
 
-      const result = __testing.executeWrite({ path: filePath, content: "secret" });
+      const result = __testing.executeWrite({
+        path: filePath,
+        content: "secret",
+      });
       expect(result.isError).toBe(true);
       expect(result.content).toContain('Access to "backup.key" is denied');
       expect(fs.existsSync(filePath)).toBe(false);
@@ -254,7 +313,10 @@ describe("host-file-executor", () => {
     test("rejects oversized content before writing", () => {
       const dir = freshTmpDir();
       const filePath = path.join(dir, "large.txt");
-      const result = __testing.validateContentSize("x".repeat(100 * 1024 * 1024 + 1), filePath);
+      const result = __testing.validateContentSize(
+        "x".repeat(100 * 1024 * 1024 + 1),
+        filePath,
+      );
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
@@ -270,7 +332,10 @@ describe("host-file-executor", () => {
       fs.writeFileSync(target, "original");
       fs.symlinkSync(target, link);
 
-      const result = __testing.executeWrite({ path: link, content: "overwritten" });
+      const result = __testing.executeWrite({
+        path: link,
+        content: "overwritten",
+      });
       expect(result.isError).toBe(true);
       expect(result.content).toContain('Access to ".backup.key" is denied');
       expect(fs.readFileSync(target, "utf-8")).toBe("original");
@@ -298,14 +363,20 @@ describe("host-file-executor", () => {
       fs.symlinkSync(target, mid);
       fs.symlinkSync(mid, link);
 
-      const result = __testing.executeWrite({ path: link, content: "overwritten" });
+      const result = __testing.executeWrite({
+        path: link,
+        content: "overwritten",
+      });
       expect(result.isError).toBe(true);
       expect(result.content).toContain('Access to ".backup.key" is denied');
       expect(fs.readFileSync(target, "utf-8")).toBe("original");
     });
 
     test("rejects writing to existing non-regular file", () => {
-      const result = __testing.executeWrite({ path: "/dev/null", content: "data" });
+      const result = __testing.executeWrite({
+        path: "/dev/null",
+        content: "data",
+      });
       expect(result.isError).toBe(true);
       expect(result.content).toContain("Not a regular file");
     });
@@ -314,7 +385,10 @@ describe("host-file-executor", () => {
       const dir = freshTmpDir();
       const filePath = path.join(dir, "out.txt");
 
-      const result = __testing.executeWrite({ path: filePath, content: "hello" });
+      const result = __testing.executeWrite({
+        path: filePath,
+        content: "hello",
+      });
       expect(result.isError).toBeUndefined();
       expect(fs.readFileSync(filePath, "utf-8")).toBe("hello");
     });
@@ -445,7 +519,12 @@ describe("host-file-executor", () => {
 
       const { poster, body } = capturingPoster();
       hostFileExecutor.handleRequest(
-        { type: "host_file_request", requestId: "r1", operation: "read", path: filePath },
+        {
+          type: "host_file_request",
+          requestId: "r1",
+          operation: "read",
+          path: filePath,
+        },
         poster,
       );
       await flush();
@@ -469,7 +548,12 @@ describe("host-file-executor", () => {
     test("posts error for fs failure", async () => {
       const { poster, body } = capturingPoster();
       hostFileExecutor.handleRequest(
-        { type: "host_file_request", requestId: "r3", operation: "read", path: "/nonexistent/path/file.txt" },
+        {
+          type: "host_file_request",
+          requestId: "r3",
+          operation: "read",
+          path: "/nonexistent/path/file.txt",
+        },
         poster,
       );
       await flush();

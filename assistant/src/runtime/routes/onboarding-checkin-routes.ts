@@ -20,7 +20,9 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 const log = getLogger("onboarding-checkin-routes");
 
 function asOptionalString(value: unknown, field: string): string | undefined {
-  if (value === undefined || value === null) return undefined;
+  if (value === undefined || value === null) {
+    return undefined;
+  }
   if (typeof value !== "string") {
     throw new BadRequestError(`${field} must be a string`);
   }

@@ -3,11 +3,13 @@ import {
   secretsPost,
   sttTranscribePost,
 } from "@/generated/daemon/sdk.gen";
+import { MACOS_NATIVE_STT_PROVIDER_ID } from "@/lib/provider-catalogs";
 import { isNativeDictationSupported } from "@/runtime/native-dictation-partials";
+import { getLocalSetting, removeLocalSetting } from "@/utils/local-settings";
 import {
-  getLocalSetting,
-  removeLocalSetting,
-} from "@/utils/local-settings";
+  LS_STT_API_KEY_PREFIX,
+  LS_STT_PROVIDER,
+} from "@/utils/local-settings-keys";
 
 export interface SttTranscribeOk {
   status: "ok";
@@ -45,19 +47,7 @@ export interface SttTranscribeFailure {
 
 export type SttTranscribeOutcome = SttTranscribeOk | SttTranscribeFailure;
 
-const LS_STT_PROVIDER = "vellum:voice:sttProvider";
-const LS_STT_API_KEY_PREFIX = "vellum:voice:sttApiKey:";
 const DEFAULT_STT_PROVIDER_ID = "deepgram";
-
-/**
- * Provider id for the explicit "macOS Native Dictation" settings choice.
- * Not a daemon provider: when selected, dictation routes through the mac
- * helper's `SFSpeechRecognizer` and never calls `/v1/stt/transcribe`.
- * Mirrors `MACOS_NATIVE_STT_PROVIDER_ID` in
- * `@/domains/settings/ai/provider-catalogs.ts` — cross-domain constants stay
- * duplicated here, like the `LS_STT_*` keys above.
- */
-const MACOS_NATIVE_STT_PROVIDER_ID = "macos-native";
 
 /**
  * True when the user explicitly chose macOS native dictation as the STT
@@ -78,7 +68,9 @@ export function prefersMacosNativeStt(): boolean {
 }
 
 function normalizeSttProviderId(provider: string): string {
-  if (provider === "openai" || provider === "whisper") return "openai-whisper";
+  if (provider === "openai" || provider === "whisper") {
+    return "openai-whisper";
+  }
   return provider;
 }
 
@@ -105,7 +97,9 @@ function legacyKeyAliases(provider: string): string[] {
 function readLegacyLocalSttKey(provider: string): string {
   for (const alias of legacyKeyAliases(provider)) {
     const value = getLocalSetting(LS_STT_API_KEY_PREFIX + alias, "");
-    if (value.trim()) return value;
+    if (value.trim()) {
+      return value;
+    }
   }
   return "";
 }
@@ -123,7 +117,9 @@ async function migrateLegacyLocalSttSettings(
     getLocalSetting(LS_STT_PROVIDER, DEFAULT_STT_PROVIDER_ID),
   );
   const credentialValue = readLegacyLocalSttKey(provider).trim();
-  if (!credentialValue) return false;
+  if (!credentialValue) {
+    return false;
+  }
 
   const credentialProvider = credentialProviderForSttProvider(provider);
   try {
@@ -160,7 +156,10 @@ async function migrateLegacyLocalSttSettings(
       throwOnError: true,
     });
   } catch (err) {
-    console.warn("postSttTranscribe: legacy STT settings migration failed", err);
+    console.warn(
+      "postSttTranscribe: legacy STT settings migration failed",
+      err,
+    );
     return false;
   }
 
@@ -195,8 +194,12 @@ function reasonFromHttp(
       return "provider-error";
     case 503: {
       const text = (message ?? "").toLowerCase();
-      if (text.includes("not configured") || text.includes("no speech-to-text"))
+      if (
+        text.includes("not configured") ||
+        text.includes("no speech-to-text")
+      ) {
         return "config-missing";
+      }
       return "unavailable";
     }
     case 504:
@@ -213,12 +216,16 @@ function reasonFromHttp(
  * This function handles both shapes.
  */
 function extractMessage(data: unknown): string | undefined {
-  if (typeof data === "string") return data;
+  if (typeof data === "string") {
+    return data;
+  }
   if (data && typeof data === "object") {
     const record = data as Record<string, unknown>;
     for (const key of ["detail", "message"] as const) {
       const value = record[key];
-      if (typeof value === "string" && value.length > 0) return value;
+      if (typeof value === "string" && value.length > 0) {
+        return value;
+      }
     }
     // Recurse into `{ error: { message: "..." } }` envelope from httpError().
     if (record.error && typeof record.error === "object") {
@@ -347,6 +354,8 @@ export async function postSttTranscribe(
   }
 
   const migratedAfterFailure = await migrateLegacyLocalSttSettings(assistantId);
-  if (!migratedAfterFailure) return firstAttempt;
+  if (!migratedAfterFailure) {
+    return firstAttempt;
+  }
   return send();
 }

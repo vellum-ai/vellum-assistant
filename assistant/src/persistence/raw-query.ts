@@ -29,7 +29,12 @@
 
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 
-import { getLogsSqlite, getMemorySqlite, getSqlite } from "./db-connection.js";
+import {
+  getLogsSqlite,
+  getMemorySqlite,
+  getSqlite,
+  getTelemetrySqlite,
+} from "./db-connection.js";
 
 type SqlParam = SQLQueryBindings;
 
@@ -109,15 +114,42 @@ export function rawChanges(): number {
 /** The memory connection, or a thrown error when it cannot be opened. */
 function memorySqlite(): Database {
   const sqlite = getMemorySqlite();
-  if (!sqlite) throw new Error("memory database unavailable");
+  if (!sqlite) {
+    throw new Error("memory database unavailable");
+  }
   return sqlite;
 }
 
 /** The logs connection, or a thrown error when it cannot be opened. */
 function logsSqlite(): Database {
   const sqlite = getLogsSqlite();
-  if (!sqlite) throw new Error("logs database unavailable");
+  if (!sqlite) {
+    throw new Error("logs database unavailable");
+  }
   return sqlite;
+}
+
+/** The telemetry connection, or a thrown error when it cannot be opened. */
+function telemetrySqlite(): Database {
+  const sqlite = getTelemetrySqlite();
+  if (!sqlite) {
+    throw new Error("telemetry database unavailable");
+  }
+  return sqlite;
+}
+
+/** {@link rawGet} against the memory connection. */
+export function rawMemoryGet<T>(
+  label: string,
+  sql: string,
+  ...params: SqlParam[]
+): T | null {
+  return (
+    (memorySqlite()
+      .label(label)
+      .query(sql)
+      .get(...params) as T) ?? null
+  );
 }
 
 /** {@link rawAll} against the memory connection. */
@@ -159,6 +191,20 @@ export function rawLogsRun(
   ...params: SqlParam[]
 ): number {
   const sqlite = logsSqlite();
+  sqlite
+    .label(label)
+    .query(sql)
+    .run(...params);
+  return (sqlite.query("SELECT changes() AS c").get() as { c: number }).c;
+}
+
+/** {@link rawRun} against the telemetry connection. */
+export function rawTelemetryRun(
+  label: string,
+  sql: string,
+  ...params: SqlParam[]
+): number {
+  const sqlite = telemetrySqlite();
   sqlite
     .label(label)
     .query(sql)

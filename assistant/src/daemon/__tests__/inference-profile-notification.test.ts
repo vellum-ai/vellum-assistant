@@ -8,18 +8,12 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 
-// ── Mock platform (must precede imports that read it) ────────────────────────
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { setConfig } from "../../__tests__/helpers/set-config.js";
 
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({ memory: {} }),
-  loadConfig: () => ({}),
-}));
+// The finalize path indexes tool-result messages into memory; keep it inert
+// (the old partial mock left memory undefined/disabled) so no real embedding
+// backend is touched.
+setConfig("memory", { enabled: false, v2: { enabled: false } });
 
 const setLastNotifiedInferenceProfile = mock(
   (_conversationId: string, _profileKey: string) => {},
@@ -48,12 +42,9 @@ mock.module("../../plugins/defaults/memory/memory-recall-log-store.js", () => ({
   backfillMemoryRecallLogMessageId: () => {},
 }));
 
-mock.module(
-  "../../plugins/defaults/memory/memory-v2-activation-log-store.js",
-  () => ({
-    backfillMemoryV2ActivationMessageId: () => {},
-  }),
-);
+mock.module("../../plugins/defaults/memory/v2/activation-log-store.js", () => ({
+  backfillMemoryV2ActivationMessageId: () => {},
+}));
 
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 import type { AgentEvent } from "../../agent/loop.js";

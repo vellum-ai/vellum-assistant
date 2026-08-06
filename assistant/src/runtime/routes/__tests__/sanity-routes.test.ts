@@ -25,13 +25,6 @@ mock.module("../../../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (_key: string) => storedToken,
 }));
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 const FAKE_WORKSPACE = "/tmp/sanity-routes-test-workspace";
 
 mock.module("../../../util/platform.js", () => ({
@@ -67,7 +60,9 @@ afterAll(() => {
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 
@@ -90,7 +85,9 @@ const originalFetch = globalThis.fetch;
 function mockFetch(url: string | URL | Request): Promise<Response> {
   const urlStr =
     typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
-  if (!mockFetchImpl) throw new Error(`Unexpected fetch: ${urlStr}`);
+  if (!mockFetchImpl) {
+    throw new Error(`Unexpected fetch: ${urlStr}`);
+  }
   const result = mockFetchImpl(urlStr);
   return Promise.resolve({
     ok: result.status >= 200 && result.status < 300,

@@ -1,19 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Silence the logger.
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Toggle for the share_analytics opt-out gate the audit listener consults
 // when populating the telemetry columns.
 let shareAnalytics = true;
 
 mock.module("../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics,
+  getRawShareAnalytics: () => shareAnalytics,
 }));
 
 import {

@@ -66,25 +66,29 @@ mock.module("@/domains/chat/components/conversation-assets-pill", () => ({
     createElement("div", { "data-testid": "assets-pill" }),
 }));
 
-mock.module("@/domains/chat/components/inchat-plugin-pill/inchat-plugin-pill", () => ({
-  InChatPluginPill: () =>
-    createElement("div", { "data-testid": "plugin-pill" }),
-}));
+mock.module(
+  "@/domains/chat/components/inchat-plugin-pill/inchat-plugin-pill",
+  () => ({
+    InChatPluginPill: () =>
+      createElement("div", { "data-testid": "plugin-pill" }),
+  }),
+);
 
 mock.module("@/domains/chat/components/channel-source-link-pill", () => ({
   ChannelSourceLinkPill: ({ href }: { href: string }) =>
-    createElement("div", { "data-testid": "channel-source-link-pill", "data-href": href }),
+    createElement("div", {
+      "data-testid": "channel-source-link-pill",
+      "data-href": href,
+    }),
 }));
 
-const { useChatHeaderRegistration } = await import(
-  "./use-chat-header-registration"
-);
+const { useChatHeaderRegistration } =
+  await import("./use-chat-header-registration");
 
 function renderRegistration() {
   return renderHook(() =>
     useChatHeaderRegistration({
       assetsRefreshKey: 0,
-      handleAnalyzeConversation: async () => {},
       handleForkConversationFromMenu: () => {},
       handleOpenInNewWindow: () => {},
       handleInspectConversation: () => {},

@@ -138,11 +138,14 @@ export async function backfillLexicalIndexJob(
     })
     .from(messages)
     .where(
-      or(
-        gt(messages.createdAt, cursor.createdAt),
-        and(
-          eq(messages.createdAt, cursor.createdAt),
-          gt(messages.id, cursor.messageId),
+      and(
+        eq(messages.finalized, 1),
+        or(
+          gt(messages.createdAt, cursor.createdAt),
+          and(
+            eq(messages.createdAt, cursor.createdAt),
+            gt(messages.id, cursor.messageId),
+          ),
         ),
       ),
     )

@@ -29,7 +29,9 @@ export function ensureDir(dir: string): void {
 /** Read a UTF-8 text file, returning null if it doesn't exist or is unreadable. */
 export function readTextFileSync(path: string): string | null {
   try {
-    if (!existsSync(path)) return null;
+    if (!existsSync(path)) {
+      return null;
+    }
     return readFileSync(path, "utf-8");
   } catch {
     return null;

@@ -1,12 +1,20 @@
 import { describe, expect, test } from "bun:test";
 
-import type { PageIndexEntry } from "../../v2/page-index.js";
+import type { PageIndexEntry } from "../../substrate/page-index.js";
 import { buildEdgeGraph, edgeExpand } from "../edge.js";
 import type { Slug } from "../types.js";
 
 /** Minimal page-index entry factory — only the fields the edge lane reads. */
 function entry(id: number, slug: Slug, edges: number[] = []): PageIndexEntry {
-  return { id, slug, summary: "", edges, leaves: [], modifiedAt: 0 };
+  return {
+    id,
+    slug,
+    summary: "",
+    edges,
+    leaves: [],
+    modifiedAt: 0,
+    freshAt: null,
+  };
 }
 
 /** Build a raw-page reader from a fixture map; missing slugs read as "". */

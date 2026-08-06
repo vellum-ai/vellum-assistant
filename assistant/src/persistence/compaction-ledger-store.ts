@@ -43,7 +43,9 @@ export function getLatestCompactionEventAtOrBefore(
   conversationId: string,
   atOrBefore: number | null,
 ): CompactionEvent | null {
-  if (atOrBefore == null) return null;
+  if (atOrBefore == null) {
+    return null;
+  }
   const db = getDb();
   const row = db
     .select({
@@ -76,7 +78,9 @@ export function forkCompactionLedger(
   forkConversationId: string,
   boundaryCreatedAt: number | null,
 ): void {
-  if (boundaryCreatedAt == null) return;
+  if (boundaryCreatedAt == null) {
+    return;
+  }
   const events = db
     .select({
       compactedAt: conversationCompactionEvents.compactedAt,

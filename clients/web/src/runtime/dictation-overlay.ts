@@ -22,10 +22,10 @@ import {
  * Publish the current dictation lifecycle state to the overlay.
  * Fire-and-forget — interim transcription updates are high-frequency.
  */
-export function setDictationOverlayState(
-  state: DictationOverlayMessage,
-): void {
-  if (!isElectron()) return;
+export function setDictationOverlayState(state: DictationOverlayMessage): void {
+  if (!isElectron()) {
+    return;
+  }
   window.vellum?.dictationOverlay?.setState(state);
 }
 
@@ -56,7 +56,9 @@ export async function getDictationOverlayState(): Promise<DictationOverlayState 
 }
 
 export function requestDictationOverlayStop(): void {
-  if (!isElectron()) return;
+  if (!isElectron()) {
+    return;
+  }
   window.vellum?.dictationOverlay?.requestStop?.();
 }
 
@@ -70,6 +72,8 @@ export function subscribeToDictationOverlayStop(
 }
 
 export function setDictationOverlayInteractive(interactive: boolean): void {
-  if (!isElectron()) return;
+  if (!isElectron()) {
+    return;
+  }
   window.vellum?.dictationOverlay?.setInteractive?.(interactive);
 }

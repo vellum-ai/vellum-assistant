@@ -23,7 +23,9 @@ function createMockExtensionBackend(state: MockBackendState): BrowserBackend {
     sendCdp: async (command, signal) => {
       state.lastCommand = command;
       state.lastSignal = signal;
-      if (state.sendImpl) return state.sendImpl(command, signal);
+      if (state.sendImpl) {
+        return state.sendImpl(command, signal);
+      }
       return { result: { ok: true } };
     },
     dispose: () => {
@@ -38,7 +40,9 @@ function createMockLocalBackend(state: MockBackendState): BrowserBackend {
     sendCdp: async (command, signal) => {
       state.lastCommand = command;
       state.lastSignal = signal;
-      if (state.sendImpl) return state.sendImpl(command, signal);
+      if (state.sendImpl) {
+        return state.sendImpl(command, signal);
+      }
       return { result: { ok: true, kind: "local" } };
     },
     dispose: () => {

@@ -8,15 +8,29 @@ import {
 } from "../security/untrusted-content.js";
 import { getLogger } from "../util/logger.js";
 import { isLexicalBackfillComplete } from "./checkpoints.js";
+import { unseenAttentionStateConditions } from "./conversation-attention-store.js";
 import type { ConversationRow } from "./conversation-crud.js";
 import { parseConversation } from "./conversation-crud.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { searchMessageIdsLexical } from "./conversation-search-lexical.js";
-import type { ConversationType } from "./conversation-types.js";
+import {
+  type ConversationType,
+  PINNED_GROUP_ID,
+  UNGROUPED_GROUP_ID,
+} from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
+import { tokenize } from "./embeddings/sparse-tokenize.js";
+import {
+  parseContentRef,
+  resolveMessageContentBlocks,
+} from "./message-content-file.js";
 import { rawAll } from "./raw-query.js";
-import { conversations, messages } from "./schema/index.js";
+import {
+  conversationAssistantAttentionState,
+  conversations,
+  messages,
+} from "./schema/index.js";
 
 const log = getLogger("conversation-store");
 
@@ -104,13 +118,19 @@ function archiveStatusClause(status: ArchiveStatusFilter) {
  * drift: anything the sidebar shows in Recents is also findable by search,
  * and vice versa.
  *
- * Two arms:
+ * Three arms:
  * - Foreground rows: not background/scheduled/private by type, and not routed
  *   to the `system:background` / `system:scheduled` groups.
  * - Surfaced rows (`surfaced_at IS NOT NULL`): background/scheduled rows
  *   explicitly promoted via the surface API. Private rows stay excluded
  *   unconditionally, and subagent runs are excluded from the surfaced arm so
  *   they can never reach the sidebar.
+ * - Custom-group rows: rows filed into a user-created group (a non-`system:`
+ *   `group_id`), regardless of conversation type. Filing is an explicit
+ *   organizational action (the web "Move to group" menu, the
+ *   conversation-groups skill, or a schedule's configured group), so the row
+ *   must render inside that group on a cold sidebar load. Same
+ *   private/subagent exclusions as the surfaced arm.
  *
  * @param alias Table name or alias qualifying the column references
  *              (e.g. `"c"` in the search joins).
@@ -119,7 +139,24 @@ function standardListingVisibilitySql(alias = "conversations"): string {
   return (
     `((${alias}.conversation_type NOT IN ('background', 'scheduled', 'private')` +
     ` AND COALESCE(${alias}.group_id, 'system:all') NOT IN ('system:background', 'system:scheduled'))` +
-    ` OR ${surfacedVisibilitySql(alias)})`
+    ` OR ${surfacedVisibilitySql(alias)}` +
+    ` OR ${customGroupVisibilitySql(alias)})`
+  );
+}
+
+/**
+ * Raw SQL predicate for the custom-group arm of standard-listing visibility:
+ * rows whose `group_id` names a user-created group (custom groups are UUIDs;
+ * system groups use the `system:` prefix). Private rows are excluded
+ * unconditionally and subagent runs are excluded so they can never reach the
+ * sidebar, mirroring {@link surfacedVisibilitySql}.
+ */
+function customGroupVisibilitySql(alias = "conversations"): string {
+  return (
+    `(${alias}.group_id IS NOT NULL` +
+    ` AND ${alias}.group_id NOT LIKE 'system:%'` +
+    ` AND ${alias}.conversation_type != 'private'` +
+    ` AND (${alias}.source IS NULL OR ${alias}.source != 'subagent'))`
   );
 }
 
@@ -138,6 +175,26 @@ function surfacedVisibilitySql(alias = "conversations"): string {
     `(${alias}.surfaced_at IS NOT NULL` +
     ` AND ${alias}.conversation_type != 'private'` +
     ` AND (${alias}.source IS NULL OR ${alias}.source != 'subagent'))`
+  );
+}
+
+/**
+ * Raw SQL predicate for "not an automated background/scheduled row".
+ *
+ * A background or scheduled row counts as foreground only once it has been
+ * explicitly surfaced. {@link standardListingVisibilitySql} already admits
+ * such rows through its surfaced and custom-group arms, so a caller that
+ * must distinguish "visible in the listing" from "user-facing foreground"
+ * (unread counting) applies this on top.
+ *
+ * The SQL twin of `isBackgroundConversation` in the web client's
+ * `utils/conversation-predicates.ts`.
+ */
+function notBackgroundVisibilitySql(alias = "conversations"): string {
+  return (
+    `NOT ((${alias}.conversation_type IN ('background', 'scheduled')` +
+    ` OR COALESCE(${alias}.group_id, 'system:all') IN ('system:background', 'system:scheduled'))` +
+    ` AND ${alias}.surfaced_at IS NULL)`
   );
 }
 
@@ -183,34 +240,132 @@ function conversationTypeClause(type: ConversationType) {
   }
 }
 
+/**
+ * The predicates that select which conversations a listing covers, shared by
+ * {@link listConversations} and {@link countConversations} so a list and its
+ * count can never disagree about what they are describing.
+ *
+ * Named rather than positional on purpose: `originChannel` and `groupId` are
+ * both optional strings, and as adjacent positional arguments they were a
+ * transposition waiting to happen.
+ */
+export interface ConversationListFilter {
+  conversationType?: ConversationType;
+  archiveStatus?: ArchiveStatusFilter;
+  originChannel?: string;
+  /**
+   * Restrict to one group. {@link UNGROUPED_GROUP_ID} selects rows in no
+   * group (the sidebar's flat list), {@link PINNED_GROUP_ID} the Pinned
+   * section, and a UUID one custom group. Omit to span every group.
+   */
+  groupId?: string;
+}
+
+export interface ConversationListQuery extends ConversationListFilter {
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * SQL predicate for {@link ConversationListFilter.groupId}.
+ *
+ * The ungrouped case has to match NULL as well as the literal sentinel:
+ * `group_id` is only written when a conversation is filed somewhere, so the
+ * overwhelming majority of rows carry NULL rather than `'system:all'`.
+ *
+ * `group_id` is referenced as raw SQL because it is not a Drizzle column:
+ * it, `display_order`, and `is_pinned` are added by the lazy
+ * `ensureDisplayOrderMigration` / `ensureGroupMigration` steps rather than
+ * declared in `schema/conversations.ts`.
+ */
+function groupIdClause(groupId: string) {
+  if (groupId === UNGROUPED_GROUP_ID) {
+    // "Ungrouped" means every row the sidebar's flat list shows: not pinned
+    // and not filed in a custom group. It deliberately admits the system
+    // buckets, because a surfaced background or scheduled conversation keeps
+    // its `system:background` / `system:scheduled` group id (surfacing writes
+    // only `surfaced_at`) while the standard listing renders it in Recents.
+    // Whether such a row is actually visible stays with
+    // `conversationTypeClause`, which admits the surfaced ones and excludes
+    // the rest; matching on group id alone here would drop them.
+    return sql`(group_id IS NULL OR (group_id LIKE 'system:%' AND group_id != ${PINNED_GROUP_ID}))`;
+  }
+  // `group_id` is single-valued and authoritative, so a row belongs to
+  // exactly one section by construction. `is_pinned` is a derived duplicate
+  // that reads do not consult: `ensureGroupMigration` backfills
+  // `group_id = 'system:pinned'` for every legacy `is_pinned` row before any
+  // query runs, and pinning writes both together thereafter.
+  return sql`group_id = ${groupId}`;
+}
+
+/**
+ * Order a group's rows the way the user arranged them: by explicit
+ * `display_order` first, then by recency. Only meaningful for a real group;
+ * the ungrouped bucket is pure recency, since a row that was dragged inside a
+ * group and later removed keeps a stale `display_order` that must not
+ * resurface as a sort key.
+ */
+function isUserOrderedGroup(groupId: string | undefined): boolean {
+  if (groupId === undefined) {
+    return false;
+  }
+  // Pinned and custom groups are the only drag-reorderable sections, so they
+  // are the only ones whose `display_order` means anything. Every other
+  // system bucket sorts by recency: `batchSetDisplayOrders` writes
+  // `display_order` alongside `group_id` when a row moves into
+  // `system:background` / `system:scheduled`, and that value persists through
+  // later moves, so honouring it would order the same section differently
+  // depending on whether it was fetched by `conversationType` or `groupId`.
+  return groupId === PINNED_GROUP_ID || !groupId.startsWith("system:");
+}
+
+function conversationListWhere(filter: ConversationListFilter) {
+  const {
+    conversationType = "standard",
+    archiveStatus = "active",
+    originChannel,
+    groupId,
+  } = filter;
+  return and(
+    conversationTypeClause(conversationType),
+    archiveStatusClause(archiveStatus) ?? undefined,
+    originChannel ? eq(conversations.originChannel, originChannel) : undefined,
+    groupId ? groupIdClause(groupId) : undefined,
+  );
+}
+
 export function listConversations(
-  limit?: number,
-  conversationType: ConversationType = "standard",
-  offset = 0,
-  archiveStatus: ArchiveStatusFilter = "active",
-  originChannel?: string,
+  query: ConversationListQuery = {},
 ): ConversationRow[] {
   ensureDisplayOrderMigration();
   ensureGroupMigration();
   const db = getDb();
-  const typeCond = conversationTypeClause(conversationType);
-  const archiveCond = archiveStatusClause(archiveStatus);
-  const channelCond = originChannel
-    ? eq(conversations.originChannel, originChannel)
-    : undefined;
-  const where = and(typeCond, archiveCond ?? undefined, channelCond);
-  const query = db
+  const { limit, offset = 0, ...filter } = query;
+  const recency = desc(
+    sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
+  );
+  // `id` closes the ordering so the sort is a total order. Rows tied on every
+  // preceding key would otherwise have no defined relative order, which
+  // becomes duplicated and skipped rows once a cursor pages across a tie
+  // boundary.
+  //
+  // Deliberately untested here: SQLite returns a stable arrangement for
+  // identical queries over identical data, so no assertion at this layer can
+  // distinguish a total order from a lucky one. The guarantee becomes
+  // observable, and gets its test, with the keyset pagination work.
+  const tiebreak = desc(conversations.id);
+  const orderBy = isUserOrderedGroup(filter.groupId)
+    ? [sql`COALESCE(display_order, 999999) ASC`, recency, tiebreak]
+    : [recency, tiebreak];
+  return db
     .select()
     .from(conversations)
-    .where(where)
-    .orderBy(
-      desc(
-        sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
-      ),
-    )
+    .where(conversationListWhere(filter))
+    .orderBy(...orderBy)
     .limit(limit ?? 100)
-    .offset(offset);
-  return query.all().map(parseConversation);
+    .offset(offset)
+    .all()
+    .map(parseConversation);
 }
 
 /**
@@ -394,23 +549,69 @@ export function listConversationsByTitlePrefix(
   }));
 }
 
+/**
+ * How many conversations {@link listConversations} would return for the same
+ * filter, ignoring `limit` / `offset`. Both read through
+ * {@link conversationListWhere}, so a page and its total always describe the
+ * same set.
+ */
 export function countConversations(
-  conversationType: ConversationType = "standard",
-  archiveStatus: ArchiveStatusFilter = "active",
-  originChannel?: string,
+  filter: ConversationListFilter = {},
 ): number {
   ensureGroupMigration();
   const db = getDb();
-  const typeCond = conversationTypeClause(conversationType);
-  const archiveCond = archiveStatusClause(archiveStatus);
-  const channelCond = originChannel
-    ? eq(conversations.originChannel, originChannel)
-    : undefined;
-  const where = and(typeCond, archiveCond ?? undefined, channelCond);
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)
-    .where(where)
+    .where(conversationListWhere(filter))
+    .all();
+  return total;
+}
+
+/**
+ * Count of foreground conversations whose latest assistant message is unseen.
+ *
+ * The server-side twin of the web client's `contributesToUnreadCount`
+ * predicate (`clients/web/src/utils/conversation-predicates.ts`), so the
+ * count returned by `GET /v1/conversations/unread-count` always matches what
+ * the sidebar's unread indicators would sum to over the full list.
+ *
+ * **Two definitions of one rule.** Changing what counts here means changing
+ * the client predicate too. Both sides assert the same named scenario matrix
+ * ("unread-count contract") so a one-sided change is visible in review: see
+ * `__tests__/conversation-list-routes.test.ts` here and
+ * `conversation-predicates.test.ts` there. The duplication exists only to
+ * keep a fallback for assistants without this route, and goes away with it.
+ *
+ * The rules:
+ *
+ * - visible in the standard (Recents) listing ({@link conversationTypeClause}),
+ * - not archived,
+ * - not an unsurfaced background/scheduled row
+ *   ({@link notBackgroundVisibilitySql}), which excludes automated rows the
+ *   listing admits through its custom-group arm,
+ * - unseen per the attention projection
+ *   ({@link unseenAttentionStateConditions}); conversations without a
+ *   projection row read as seen, hence the inner join.
+ */
+export function countUnreadConversations(): number {
+  ensureGroupMigration();
+  const db = getDb();
+  const [{ total }] = db
+    .select({ total: count() })
+    .from(conversations)
+    .innerJoin(
+      conversationAssistantAttentionState,
+      eq(conversationAssistantAttentionState.conversationId, conversations.id),
+    )
+    .where(
+      and(
+        conversationTypeClause("standard"),
+        isNull(conversations.archivedAt),
+        sql.raw(notBackgroundVisibilitySql()),
+        ...unseenAttentionStateConditions(),
+      ),
+    )
     .all();
   return total;
 }
@@ -531,7 +732,19 @@ function isMessageContentSearchAvailable(): boolean {
  */
 export async function searchConversations(
   query: string,
-  opts?: { limit?: number; maxMessagesPerConversation?: number },
+  opts?: {
+    limit?: number;
+    maxMessagesPerConversation?: number;
+    /**
+     * When true, search results include conversations whose `archived_at`
+     * is non-null. Defaults to `false` to preserve the historical
+     * "search matches the sidebar" invariant (anything in the standard
+     * listing is findable, archived rows are hidden). Surfaced only to
+     * opt-in callers like the global Search box toggle — never applied to
+     * background listing endpoints.
+     */
+    includeArchived?: boolean;
+  },
 ): Promise<ConversationSearchResult[]> {
   if (!query.trim()) {
     return [];
@@ -595,13 +808,20 @@ export async function searchConversations(
         conversation_id: string;
       }
       const placeholders = candidateIds.map(() => "?").join(",");
+      const whereClauses = [
+        `m.id IN (${placeholders})`,
+        standardListingVisibilitySql("c"),
+      ];
+      if (!opts?.includeArchived) {
+        whereClauses.push(`c.archived_at IS NULL`);
+      }
       const visibleRows = rawAll<CandidateRow>(
         "conversation:searchConversations:visibleCandidates",
         `
         SELECT m.id, m.conversation_id
         FROM messages m
         JOIN conversations c ON c.id = m.conversation_id
-        WHERE m.id IN (${placeholders}) AND ${standardListingVisibilitySql("c")} AND c.archived_at IS NULL
+        WHERE ${whereClauses.join(" AND ")}
       `,
         ...candidateIds,
       );
@@ -656,16 +876,17 @@ export async function searchConversations(
   }
 
   // Title-only matches (message-content indexes don't cover conversation titles).
+  const titleConditions = [
+    sql.raw(standardListingVisibilitySql()),
+    sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
+  ];
+  if (!opts?.includeArchived) {
+    titleConditions.push(sql`${conversations.archivedAt} IS NULL`);
+  }
   const titleMatchConvs = db
     .select({ id: conversations.id })
     .from(conversations)
-    .where(
-      and(
-        sql.raw(standardListingVisibilitySql()),
-        sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
-        sql`${conversations.archivedAt} IS NULL`,
-      ),
-    )
+    .where(and(...titleConditions))
     .all();
   for (const row of titleMatchConvs) {
     contentConvIds.add(row.id);
@@ -772,65 +993,98 @@ function buildExcerptWithExternalContentMode(
 ): string {
   // Try to extract plain text from JSON content blocks first.
   let text = rawContent;
-  try {
-    const parsed = JSON.parse(rawContent);
-    if (Array.isArray(parsed)) {
-      const parts: string[] = [];
-      let preservedExternalContent = false;
-      for (const block of parsed) {
-        if (typeof block === "object" && block != null) {
-          if (block.type === "text" && typeof block.text === "string") {
-            if (externalContentMode === "display") {
-              parts.push(unwrapExternalContentForDisplay(block.text));
-            } else {
-              const excerpt = buildRecallEvidenceText(block.text, query);
-              parts.push(excerpt.text);
-              preservedExternalContent ||= excerpt.preservedExternalContent;
+  let sawStructuredContent = false;
+  const parts: string[] = [];
+  let preservedExternalContent = false;
+
+  const pushPart = (value: string): void => {
+    if (externalContentMode === "display") {
+      parts.push(unwrapExternalContentForDisplay(value));
+    } else {
+      const excerpt = buildRecallEvidenceText(value, query);
+      parts.push(excerpt.text);
+      preservedExternalContent ||= excerpt.preservedExternalContent;
+    }
+  };
+
+  const walkBlocks = (blocks: unknown[]): void => {
+    for (const block of blocks) {
+      if (typeof block !== "object" || block == null) {
+        continue;
+      }
+      const rec = block as Record<string, unknown>;
+      if (rec.type === "text" && typeof rec.text === "string") {
+        pushPart(rec.text);
+      } else if (rec.type === "thinking" && typeof rec.thinking === "string") {
+        pushPart(rec.thinking);
+      } else if (
+        rec.type === "file" &&
+        typeof rec.extracted_text === "string"
+      ) {
+        pushPart(rec.extracted_text);
+      } else if (
+        rec.type === "tool_result" ||
+        rec.type === "web_search_tool_result"
+      ) {
+        if (typeof rec.content === "string") {
+          pushPart(rec.content);
+        } else if (Array.isArray(rec.content)) {
+          for (const inner of rec.content) {
+            if (typeof inner !== "object" || inner == null) {
+              continue;
             }
-          } else if (
-            block.type === "tool_result" ||
-            block.type === "web_search_tool_result"
-          ) {
-            const inner = Array.isArray(block.content) ? block.content : [];
-            for (const ib of inner) {
-              if (ib?.type === "text" && typeof ib.text === "string") {
-                if (externalContentMode === "display") {
-                  parts.push(unwrapExternalContentForDisplay(ib.text));
-                } else {
-                  const excerpt = buildRecallEvidenceText(ib.text, query);
-                  parts.push(excerpt.text);
-                  preservedExternalContent ||= excerpt.preservedExternalContent;
-                }
-              }
+            const innerRec = inner as Record<string, unknown>;
+            if (innerRec.type === "text" && typeof innerRec.text === "string") {
+              pushPart(innerRec.text);
             }
           }
         }
       }
-      if (parts.length > 0) {
-        text = parts.join(" ");
-        if (externalContentMode === "preserve" && preservedExternalContent) {
-          return text;
-        }
-      }
-    } else if (typeof parsed === "string") {
-      text = parsed;
     }
-  } catch {
-    // Not JSON — use as-is
+  };
+
+  if (parseContentRef(rawContent)) {
+    sawStructuredContent = true;
+    walkBlocks(resolveMessageContentBlocks(rawContent));
+  } else {
+    try {
+      const parsed = JSON.parse(rawContent);
+      if (Array.isArray(parsed)) {
+        sawStructuredContent = true;
+        walkBlocks(parsed);
+      } else if (typeof parsed === "string") {
+        text = parsed;
+      } else if (typeof parsed === "object" && parsed != null) {
+        sawStructuredContent = true;
+      }
+    } catch {
+      // Not JSON, legacy plain-text rows are used as-is.
+    }
+  }
+
+  if (parts.length > 0) {
+    text = parts.join(" ");
+    if (externalContentMode === "preserve" && preservedExternalContent) {
+      return text;
+    }
+  } else if (sawStructuredContent && externalContentMode === "display") {
+    // Structured content with no legible text (tool_use or image-only
+    // blocks, unresolved refs): an empty excerpt beats raw JSON in the UI.
+    return "";
   }
 
   if (externalContentMode === "display") {
     text = unwrapExternalContentForDisplay(text);
-  } else {
-    const envelope = parseExternalContentEnvelope(text);
-    if (envelope) {
-      const innerExcerpt = buildExcerptFromText(envelope.content, query);
-      return wrapRecallEvidenceExcerpt(
-        innerExcerpt,
-        envelope.source,
-        envelope.origin,
-      );
-    }
+    return buildExcerptFromText(text, query, DISPLAY_EXCERPT_LEADING_CHARS);
+  }
+  const envelope = parseExternalContentEnvelope(text);
+  if (envelope) {
+    const innerExcerpt = buildExcerptFromText(envelope.content, query);
+    return wrapRecallEvidenceExcerpt(
+      innerExcerpt,
+      envelope.source,
+      envelope.origin,
+    );
   }
 
   return buildExcerptFromText(text, query);
@@ -865,20 +1119,73 @@ function wrapRecallEvidenceExcerpt(
     : wrapUntrustedContent(excerpt, { source });
 }
 
-function buildExcerptFromText(text: string, query: string): string {
-  const WINDOW = 100;
-  const lowerText = text.toLowerCase();
-  const lowerQuery = query.toLowerCase();
-  const idx = lowerText.indexOf(lowerQuery);
-  if (idx === -1) {
-    // Query matched the raw JSON but not the extracted text — fall back to raw start
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Earliest case-insensitive match of the query in `text`: the contiguous
+ * query when present, otherwise the earliest of its lexical tokens (same
+ * tokenizer as the sparse index, which matches tokens independently).
+ * Both branches are anchored to the tokenizer's alphanumeric boundaries
+ * so neither the query nor a token ever matches inside a larger word the
+ * index would tokenize differently. Matching runs on the original string
+ * so offsets stay aligned even when lowercasing would change string
+ * length (e.g. Turkish dotted I).
+ */
+function findEarliestMatch(
+  text: string,
+  query: string,
+): { index: number; length: number } | null {
+  const execAnchored = (pattern: string): RegExpExecArray | null => {
+    return new RegExp(
+      `(?<![\\p{L}\\p{N}])(?:${pattern})(?![\\p{L}\\p{N}])`,
+      "iu",
+    ).exec(text);
+  };
+
+  const whole = execAnchored(escapeRegExp(query));
+  if (whole) {
+    return { index: whole.index, length: whole[0].length };
+  }
+  const tokens = [...new Set(tokenize(query))].sort(
+    (a, b) => b.length - a.length,
+  );
+  if (tokens.length === 0) {
+    return null;
+  }
+  const match = execAnchored(tokens.map(escapeRegExp).join("|"));
+  return match ? { index: match.index, length: match[0].length } : null;
+}
+
+const EXCERPT_WINDOW = 100;
+
+/**
+ * Leading context for palette display excerpts. The result row truncates
+ * from the right, so a wide leading window can push the match past the
+ * visible cutoff; recall evidence keeps the full window.
+ */
+const DISPLAY_EXCERPT_LEADING_CHARS = 30;
+
+function buildExcerptFromText(
+  text: string,
+  query: string,
+  leadingChars: number = EXCERPT_WINDOW,
+): string {
+  const match = findEarliestMatch(text, query);
+  if (!match) {
+    // Neither the query nor any of its tokens is present (e.g. the lexical
+    // index matched JSON structure instead); fall back to the text start.
     return text
-      .slice(0, WINDOW * 2)
+      .slice(0, EXCERPT_WINDOW * 2)
       .replace(/\s+/g, " ")
       .trim();
   }
-  const start = Math.max(0, idx - WINDOW);
-  const end = Math.min(text.length, idx + query.length + WINDOW);
+  const start = Math.max(0, match.index - leadingChars);
+  const end = Math.min(
+    text.length,
+    match.index + match.length + EXCERPT_WINDOW,
+  );
   const excerpt =
     (start > 0 ? "\u2026" : "") +
     text.slice(start, end).replace(/\s+/g, " ").trim() +

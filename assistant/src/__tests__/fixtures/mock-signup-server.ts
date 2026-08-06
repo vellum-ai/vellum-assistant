@@ -39,11 +39,15 @@ function generateVerificationCode(): string {
 }
 
 function parseCookies(header: string | null): Record<string, string> {
-  if (!header) return {};
+  if (!header) {
+    return {};
+  }
   const cookies: Record<string, string> = {};
   for (const pair of header.split(";")) {
     const eqIdx = pair.indexOf("=");
-    if (eqIdx === -1) continue;
+    if (eqIdx === -1) {
+      continue;
+    }
     const key = pair.slice(0, eqIdx).trim();
     const value = pair.slice(eqIdx + 1).trim();
     cookies[key] = value;

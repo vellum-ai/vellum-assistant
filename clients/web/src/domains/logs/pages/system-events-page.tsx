@@ -4,8 +4,8 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { SystemEventsTab } from "@/domains/logs/components/system-events-tab";
 import {
-    useActiveAssistantIsPlatformHosted,
-    usePlatformGate,
+  useActiveAssistantIsPlatformHosted,
+  usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
 import { Notice } from "@vellumai/design-library/components/notice";

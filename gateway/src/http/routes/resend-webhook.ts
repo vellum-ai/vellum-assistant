@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Logger } from "pino";
+import { z } from "zod";
 import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
@@ -10,9 +11,15 @@ import {
 } from "../../credential-refresh.js";
 import { StringDedupCache } from "../../dedup-cache.js";
 import type { EmailReplySender } from "../../email/inbound-pipeline.js";
-import { runEmailInboundPipeline } from "../../email/inbound-pipeline.js";
+import {
+  resolveEmailCredentialOrRelease,
+  runEmailInboundPipeline,
+} from "../../email/inbound-pipeline.js";
 import type { VellumEmailPayload } from "../../email/normalize.js";
-import { parseEmailAddress } from "../../email/normalize.js";
+import {
+  evaluateSenderAuthentication,
+  parseEmailAddress,
+} from "../../email/normalize.js";
 import { getLogger } from "../../logger.js";
 import { readLimitedBody } from "../read-limited-body.js";
 
@@ -84,31 +91,42 @@ function verifySvixSignature(
 
 // ── Resend inbound payload normalization ────────────────────────────
 
+const optionalString = () => z.string().optional().catch(undefined);
+
 /**
- * Shape of the Resend `email.received` webhook event.
+ * Shape of the Resend `email.received` webhook event — untrusted external input
+ * from Resend/Svix. Field types are validated while staying tolerant: a
+ * malformed value collapses to `undefined` so the existing null-checks drop an
+ * unprocessable event rather than trusting garbage (e.g. a non-array `to`).
  *
  * The webhook payload contains metadata only — the email body must be
  * fetched separately via `GET /emails/receiving/{email_id}`.
  */
-interface ResendReceivedEvent {
-  type: "email.received";
-  created_at: string;
-  data: {
-    email_id: string;
-    created_at: string;
-    from: string;
-    to: string[];
-    cc?: string[];
-    bcc?: string[];
-    subject: string;
-    message_id: string;
-    attachments?: Array<{
-      id: string;
-      filename: string;
-      content_type: string;
-    }>;
-  };
-}
+const resendReceivedEventSchema = z.object({
+  type: z.literal("email.received"),
+  created_at: optionalString(),
+  data: z.object({
+    email_id: optionalString(),
+    created_at: optionalString(),
+    from: optionalString(),
+    to: z.array(z.string()).optional().catch(undefined),
+    cc: z.array(z.string()).optional().catch(undefined),
+    bcc: z.array(z.string()).optional().catch(undefined),
+    subject: optionalString(),
+    message_id: optionalString(),
+    attachments: z
+      .array(
+        z.object({
+          id: optionalString(),
+          filename: optionalString(),
+          content_type: optionalString(),
+        }),
+      )
+      .optional()
+      .catch(undefined),
+  }),
+});
+type ResendReceivedEvent = z.infer<typeof resendReceivedEventSchema>;
 
 /**
  * Fetch the full email content from the Resend Receiving API.
@@ -161,7 +179,7 @@ async function fetchResendEmailContent(
  * Normalize a Resend `email.received` webhook event into a
  * `VellumEmailPayload` suitable for `normalizeEmailWebhook()`.
  */
-function normalizeResendToVellumPayload(
+export function normalizeResendToVellumPayload(
   event: ResendReceivedEvent,
   content: {
     html: string | null;
@@ -193,6 +211,16 @@ function normalizeResendToVellumPayload(
   // Parse from into canonical address + optional display name
   const parsed = parseEmailAddress(data.from);
 
+  // Bind the spoofable From: to the receiving API's SPF/DKIM/DMARC verdict
+  // (fetchResendEmailContent lowercases header keys) so a forged sender is
+  // downgraded out of the guardian/contact tiers. Omitted (not false) when the
+  // header is absent — e.g. the content fetch failed — so behavior is unchanged
+  // on missing data.
+  const senderAuthenticated = evaluateSenderAuthentication({
+    authResults: content?.headers["authentication-results"],
+    fromEmail: parsed.address,
+  });
+
   return {
     from: parsed.address,
     fromName: parsed.displayName,
@@ -205,6 +233,7 @@ function normalizeResendToVellumPayload(
     references,
     conversationId,
     timestamp: data.created_at,
+    ...(senderAuthenticated !== undefined ? { senderAuthenticated } : {}),
   };
 }
 
@@ -322,7 +351,14 @@ export function createResendWebhookHandler(
         tlog.debug({ type: parsed.type }, "Ignoring non-received Resend event");
         return Response.json({ ok: true });
       }
-      event = parsed as unknown as ResendReceivedEvent;
+      const validated = resendReceivedEventSchema.safeParse(parsed);
+      if (!validated.success) {
+        // An `email.received` event whose payload is unusable carries nothing
+        // to process — acknowledge without forwarding, as Resend expects a 2xx.
+        tlog.debug("Ignoring malformed Resend email.received event");
+        return Response.json({ ok: true });
+      }
+      event = validated.data;
     } catch {
       return Response.json({ error: "Invalid JSON" }, { status: 400 });
     }
@@ -345,10 +381,18 @@ export function createResendWebhookHandler(
     // The webhook payload only has metadata — we need the API to get
     // the actual email body and headers.
 
-    const apiKey = await resolveCredentialWithRefresh(
-      caches?.credentials,
-      credentialKey("resend", "api_key"),
-    );
+    const apiKeyResult = await resolveEmailCredentialOrRelease({
+      credentials: caches?.credentials,
+      key: credentialKey("resend", "api_key"),
+      dedupCache,
+      dedupKey: messageId,
+      log: tlog,
+      label: "Resend",
+    });
+    if (!apiKeyResult.ok) {
+      return apiKeyResult.response;
+    }
+    const apiKey = apiKeyResult.value;
 
     let emailContent: Awaited<ReturnType<typeof fetchResendEmailContent>> =
       null;

@@ -9,6 +9,9 @@ import {
   isRepairableGatewayTokenError,
   setRemoteGatewayToken,
 } from "@/lib/auth/gateway-session";
+import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
+import type { LockfileAssistant } from "@/runtime/local-mode-host";
+import { useLockfileStore } from "@/stores/lockfile-store";
 
 const realFetch = globalThis.fetch;
 
@@ -22,6 +25,9 @@ afterEach(() => {
   window.__VELLUM_CONFIG__ = undefined;
   globalThis.fetch = realFetch;
   clearGatewayToken();
+  setSelfHostedConnection(null);
+  useLockfileStore.setState({ lockfile: null, committed: false });
+  process.env.VITE_PLATFORM_MODE = "true";
 });
 
 describe("remote gateway mode", () => {
@@ -37,6 +43,69 @@ describe("remote gateway mode", () => {
     });
 
     expect(isGatewayAuthMode()).toBe(true);
+  });
+});
+
+describe("paired selection", () => {
+  function selectPaired(runtimeUrl?: string): void {
+    const paired = {
+      assistantId: "paired-a",
+      cloud: "paired",
+      ...(runtimeUrl != null && { runtimeUrl }),
+    } as LockfileAssistant;
+    useLockfileStore.setState({
+      lockfile: { assistants: [paired], activeAssistant: "paired-a" },
+    });
+  }
+
+  test("gateway auth is enabled for a paired selection with a usable runtimeUrl", () => {
+    process.env.VITE_PLATFORM_MODE = "";
+    selectPaired("https://gw.example.com");
+
+    expect(isGatewayAuthEnabled()).toBe(true);
+  });
+
+  test("gateway auth stays disabled when the paired runtimeUrl is unusable", () => {
+    process.env.VITE_PLATFORM_MODE = "";
+    selectPaired();
+
+    expect(isGatewayAuthEnabled()).toBe(false);
+  });
+
+  test("gateway auth stays disabled for a paired selection outside local mode", () => {
+    selectPaired("https://gw.example.com");
+
+    expect(isGatewayAuthEnabled()).toBe(false);
+  });
+
+  test("paired auth mode requires a host-primed proxy connection", () => {
+    process.env.VITE_PLATFORM_MODE = "";
+    selectPaired("https://gw.example.com");
+    const fetchSpy = mock(async () => {
+      throw new Error("unexpected fetch");
+    });
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    expect(isGatewayAuthMode()).toBe(false);
+
+    setSelfHostedConnection({
+      url: `${window.location.origin}/assistant/__gateway-paired/paired-a`,
+      token: null,
+    });
+
+    expect(isGatewayAuthMode()).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  test("paired auth mode rejects a primed connection for another assistant", () => {
+    process.env.VITE_PLATFORM_MODE = "";
+    selectPaired("https://gw.example.com");
+    setSelfHostedConnection({
+      url: `${window.location.origin}/assistant/__gateway-paired/paired-b`,
+      token: null,
+    });
+
+    expect(isGatewayAuthMode()).toBe(false);
   });
 });
 

@@ -24,9 +24,11 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
+import { monitoringHelp } from "./monitoring.help.js";
 
 interface ReclaimCounters {
   pgscanDirect: number | null;
@@ -112,35 +114,14 @@ function formatMib(bytes: number): string {
 
 export function registerMonitoringCommand(program: Command): void {
   registerCommand(program, {
-    name: "monitoring",
+    name: monitoringHelp.name,
     transport: "ipc",
-    description: "Manage the resource monitor process (start/stop/status)",
+    description: monitoringHelp.description,
     build: (monitor) => {
-      monitor.addHelpText(
-        "after",
-        `
-The resource monitor samples the container's own cgroup memory + workspace disk
-in a separate OS process, off the assistant's main event loop, so it keeps
-recording during a main-thread freeze and its samples survive an OOM SIGKILL.
-The daemon owns the process, so it is spawned as a child of the daemon and shows
-up in \`assistant ps\`.
+      applyCommandHelp(monitor, monitoringHelp);
 
-The monitor runs by default — the daemon spawns it at every boot. \`stop\`
-pauses it for the current daemon session only; it respawns on the next boot.
-Samples and high-memory snapshots are written under the data directory
-reported by \`status\`.
-
-Examples:
-  $ assistant monitoring start
-  $ assistant monitoring status
-  $ assistant monitoring stop`,
-      );
-
-      monitor
-        .command("start")
-        .description("Start the resource monitor process")
-        .option("--json", "Emit raw JSON instead of a formatted summary")
-        .action(async (_opts: { json?: boolean }, cmd: Command) => {
+      subcommand(monitor, "start").action(
+        async (_opts: { json?: boolean }, cmd: Command) => {
           const r = await cliIpcCall<StartResponse>("monitoring_start");
           if (!r.ok) {
             return exitFromIpcResult(r);
@@ -156,15 +137,11 @@ Examples:
               ? `Resource monitor is already running (PID ${res.pid})`
               : `Resource monitor started (PID ${res.pid})`,
           );
-        });
+        },
+      );
 
-      monitor
-        .command("stop")
-        .description(
-          "Stop the resource monitor process until the next daemon boot",
-        )
-        .option("--json", "Emit raw JSON instead of a formatted summary")
-        .action(async (_opts: { json?: boolean }, cmd: Command) => {
+      subcommand(monitor, "stop").action(
+        async (_opts: { json?: boolean }, cmd: Command) => {
           const r = await cliIpcCall<StopResponse>("monitoring_stop");
           if (!r.ok) {
             return exitFromIpcResult(r);
@@ -181,13 +158,11 @@ Examples:
             log.info("Resource monitor process was not running");
           }
           log.info("The monitor respawns on the next daemon boot");
-        });
+        },
+      );
 
-      monitor
-        .command("status")
-        .description("Report the monitor process state and the latest sample")
-        .option("--json", "Emit raw JSON instead of a formatted summary")
-        .action(async (_opts: { json?: boolean }, cmd: Command) => {
+      subcommand(monitor, "status").action(
+        async (_opts: { json?: boolean }, cmd: Command) => {
           const r = await cliIpcCall<StatusResponse>("monitoring_status");
           if (!r.ok) {
             return exitFromIpcResult(r);
@@ -271,7 +246,8 @@ Examples:
               .join(", ");
             log.info(`  Processing: ${items}`);
           }
-        });
+        },
+      );
     },
   });
 }

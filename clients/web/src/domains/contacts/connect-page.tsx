@@ -22,7 +22,10 @@ function isContactsGetKey(queryKey: readonly unknown[]): boolean {
   );
 }
 
-function mapErrorCode(errorCode: string | undefined, errorMessage: string | undefined): string {
+function mapErrorCode(
+  errorCode: string | undefined,
+  errorMessage: string | undefined,
+): string {
   switch (errorCode) {
     case "expired":
     case "not_found":
@@ -60,7 +63,9 @@ function ConnectPageInner({ assistantId }: { assistantId: string }) {
 
   const mutation = useMutation({
     mutationFn: () => {
-      if (!parsed) throw new Error("Invalid invite link");
+      if (!parsed) {
+        throw new Error("Invalid invite link");
+      }
       return redeemA2AInvite(assistantId, {
         senderAssistantId: parsed.senderAssistantId,
         token: parsed.token,
@@ -109,16 +114,18 @@ function ConnectPageInner({ assistantId }: { assistantId: string }) {
         <Card className="w-full max-w-md">
           <div className="flex flex-col gap-4 p-6">
             <div className="flex items-center gap-3">
-              <AlertTriangle className="h-6 w-6" style={{ color: "var(--system-negative-strong)" }} />
-              <Typography variant="title-small">
-                Invalid invite link
-              </Typography>
+              <AlertTriangle
+                className="h-6 w-6"
+                style={{ color: "var(--system-negative-strong)" }}
+              />
+              <Typography variant="title-small">Invalid invite link</Typography>
             </div>
             <Typography
               variant="body-medium-lighter"
               style={{ color: "var(--content-secondary)" }}
             >
-              The link you followed is missing required parameters and cannot be used.
+              The link you followed is missing required parameters and cannot be
+              used.
             </Typography>
             <div className="flex gap-2 pt-2">
               <Button variant="primary" onClick={handleCancel}>
@@ -136,17 +143,19 @@ function ConnectPageInner({ assistantId }: { assistantId: string }) {
       <Card className="w-full max-w-md">
         <div className="flex flex-col gap-4 p-6">
           <div className="flex items-center gap-3">
-            <Link2 className="h-6 w-6" style={{ color: "var(--content-secondary)" }} />
-            <Typography variant="title-small">
-              Connect assistants
-            </Typography>
+            <Link2
+              className="h-6 w-6"
+              style={{ color: "var(--content-secondary)" }}
+            />
+            <Typography variant="title-small">Connect assistants</Typography>
           </div>
 
           <Typography
             variant="body-medium-lighter"
             style={{ color: "var(--content-secondary)" }}
           >
-            Accepting this link will create a trusted A2A connection between your assistant and the sender&apos;s.
+            Accepting this link will create a trusted A2A connection between
+            your assistant and the sender&apos;s.
           </Typography>
 
           {errorMessage && (

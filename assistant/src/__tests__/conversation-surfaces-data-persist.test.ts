@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 
 const realEventHub = await import("../runtime/assistant-event-hub.js");
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   ...realEventHub,
-  broadcastMessage: (_msg: ServerMessage) => {},
+  broadcastMessage: (_msg: AssistantEvent) => {},
 }));
 
 // Mock the persistence layer the surface helpers reach into so we can
@@ -16,7 +16,7 @@ let getMessagesImpl: (conversationId: string) => Array<{
   id: string;
   conversationId: string;
   role: string;
-  content: string;
+  content: unknown;
   createdAt: number;
   metadata: string | null;
 }> = () => [];
@@ -46,15 +46,16 @@ const {
   surfaceProxyResolver,
 } = await import("../daemon/conversation-surfaces.js");
 
-import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
+import type { Conversation } from "../daemon/conversation.js";
 import type {
   CardSurfaceData,
   SurfaceData,
   SurfaceType,
 } from "../daemon/message-protocol.js";
+import { asConversation } from "./helpers/mock-conversation.js";
 
-function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext {
-  return {
+function makeContext(sent: AssistantEvent[] = []): Conversation {
+  return asConversation({
     conversationId: "conv-persist-1",
     sendToClient: (msg) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
@@ -62,10 +63,7 @@ function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext {
       string,
       { actionId: string; data?: Record<string, unknown> }
     >(),
-    surfaceState: new Map<
-      string,
-      { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-    >(),
+    surfaceState: new Map(),
     surfaceUndoStacks: new Map<string, string[]>(),
     accumulatedSurfaceState: new Map<string, Record<string, unknown>>(),
     surfaceActionRequestIds: new Set<string>(),
@@ -77,7 +75,7 @@ function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext {
     getQueueDepth: () => 0,
     processMessage: async () => "ok",
     withSurface: createSurfaceMutex(),
-  };
+  });
 }
 
 function seedRows(rows: Array<{ id: string; content: unknown }>): void {
@@ -87,7 +85,9 @@ function seedRows(rows: Array<{ id: string; content: unknown }>): void {
       conversationId: "conv-persist-1",
       role: "assistant",
       content:
-        typeof r.content === "string" ? r.content : JSON.stringify(r.content),
+        typeof r.content === "string"
+          ? [{ type: "text", text: r.content }]
+          : r.content,
       createdAt: 0,
       metadata: null,
     }));
@@ -112,7 +112,7 @@ describe("ui_surface_update persistence", () => {
   });
 
   test("ui_update schedules a debounced DB write that lands within ~600ms", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     // Seed an existing in-memory surface and a persisted message that
@@ -165,7 +165,7 @@ describe("ui_surface_update persistence", () => {
   });
 
   test("multiple rapid updates collapse to a single DB write", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const surfaceId = "surface-debounced-2";
@@ -432,7 +432,7 @@ describe("ui_dismiss persisted-state convergence", () => {
   });
 
   test("passive dismiss drops the surface from the turn snapshot and strips the persisted block", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
     const surfaceId = "surface-dismiss-1";
     // A progress card the model marked `completed` while leaving step 4 spinning.
@@ -480,7 +480,7 @@ describe("ui_dismiss persisted-state convergence", () => {
   });
 
   test("dismiss cancels a pending debounced persist so a stale update cannot re-add the block", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
     const surfaceId = "surface-dismiss-2";
     const data: CardSurfaceData = {

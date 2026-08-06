@@ -6,6 +6,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 let globalCursor: number | null = null;
 mock.module("@/lib/streaming/reconnect-cursor", () => ({
   getReconnectCursor: () => globalCursor,
+  getAbandonedGenerationCeiling: () => null,
+  recordAbandonedGeneration: () => {},
+  getSeqGeneration: () => 0,
+  advanceSeqGeneration: () => {},
   // Monotonic — matches the real implementation (won't lower the cursor).
   advanceReconnectCursor: (seq: number) => {
     if (globalCursor === null || seq > globalCursor) {

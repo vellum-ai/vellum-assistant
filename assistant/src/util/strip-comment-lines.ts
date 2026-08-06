@@ -18,7 +18,9 @@ export function stripCommentLines(content: string): string {
         openFenceChar = null;
       }
     }
-    if (openFenceChar) return true;
+    if (openFenceChar) {
+      return true;
+    }
     return !line.trimStart().startsWith("_");
   });
   return filtered

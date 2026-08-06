@@ -1,26 +1,21 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 
+import {
+  EDGE_SWIPE_EASING,
+  EDGE_SWIPE_EXIT_MS,
+  EDGE_SWIPE_FALLBACK_SLACK_MS,
+  EDGE_SWIPE_SLIDE_MS,
+} from "@/hooks/edge-swipe-motion";
 import { computeVisualOffset, useEdgeSwipe } from "@/hooks/use-edge-swipe";
+import { prefetchRoute } from "@/lib/prefetch-route";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Duration (ms) for the cancel/snap-back animation. */
-const CANCEL_ANIMATION_MS = 200;
-
-/** Duration (ms) for the commit/slide-off-screen animation. */
-const COMMIT_ANIMATION_MS = 180;
-
-/** Duration (ms) for the incoming page entrance animation. */
-const ENTRANCE_ANIMATION_MS = 200;
-
 /** Fraction of viewport width the incoming page slides in from. */
 const ENTRANCE_OFFSET_RATIO = 0.25;
-
-/** Slack (ms) added to animation durations for the safety-fallback timers. */
-const ANIMATION_FALLBACK_SLACK_MS = 50;
 
 /** Clear the four inline styles this hook owns, returning the element to rest. */
 function resetTransientStyles(el: HTMLElement): void {
@@ -49,6 +44,14 @@ export interface UseEdgeSwipeBackArgs {
    * briefly show the outgoing page.
    */
   navKey: string;
+  /**
+   * Where `onBack()` will navigate. Its lazy chunks are requested the moment
+   * the gesture is recognised as horizontal, which is a few hundred
+   * milliseconds of head start on the drag: a chunk still in flight when the
+   * finger lifts holds the navigation open, and the transition shows an empty
+   * screen for the whole wait. Optional, and purely an optimisation.
+   */
+  prefetchHref?: string;
 }
 
 /**
@@ -78,11 +81,17 @@ export function useEdgeSwipeBack({
   onBack,
   enabled,
   navKey,
+  prefetchHref,
 }: UseEdgeSwipeBackArgs): void {
   const onBackRef = useRef(onBack);
   useLayoutEffect(() => {
     onBackRef.current = onBack;
   }, [onBack]);
+
+  const prefetchHrefRef = useRef(prefetchHref);
+  useLayoutEffect(() => {
+    prefetchHrefRef.current = prefetchHref;
+  }, [prefetchHref]);
 
   // Set true the instant a swipe commits; the entrance layout effect consumes
   // it on the next `navKey` change so the reveal is synced to the route swap.
@@ -97,7 +106,9 @@ export function useEdgeSwipeBack({
   const unregisterBackOwner =
     useEdgeSwipeArbiterStore.use.unregisterBackOwner();
   useEffect(() => {
-    if (!enabled) {return;}
+    if (!enabled) {
+      return;
+    }
     registerBackOwner();
     return unregisterBackOwner;
   }, [enabled, registerBackOwner, unregisterBackOwner]);
@@ -107,17 +118,23 @@ export function useEdgeSwipeBack({
     const timers = timersRef.current;
     return () => {
       cancelledRef.current = true;
-      for (const id of timers) {clearTimeout(id);}
+      for (const id of timers) {
+        clearTimeout(id);
+      }
       timers.clear();
       const el = containerRef.current;
-      if (el) {resetTransientStyles(el);}
+      if (el) {
+        resetTransientStyles(el);
+      }
     };
   }, [containerRef]);
 
   const scheduleTimeout = (fn: () => void, ms: number) => {
     const id = setTimeout(() => {
       timersRef.current.delete(id);
-      if (!cancelledRef.current) {fn();}
+      if (!cancelledRef.current) {
+        fn();
+      }
     }, ms);
     timersRef.current.add(id);
   };
@@ -127,7 +144,7 @@ export function useEdgeSwipeBack({
   };
 
   const snapBack = (el: HTMLElement) => {
-    el.style.transition = `transform ${CANCEL_ANIMATION_MS}ms ease-out`;
+    el.style.transition = `transform ${EDGE_SWIPE_SLIDE_MS}ms ${EDGE_SWIPE_EASING}`;
     applyOffset(el, 0);
     const onEnd = () => {
       el.removeEventListener("transitionend", onEnd);
@@ -137,17 +154,19 @@ export function useEdgeSwipeBack({
     // Safety fallback if transitionend doesn't fire.
     scheduleTimeout(
       () => resetTransientStyles(el),
-      CANCEL_ANIMATION_MS + ANIMATION_FALLBACK_SLACK_MS,
+      EDGE_SWIPE_SLIDE_MS + EDGE_SWIPE_FALLBACK_SLACK_MS,
     );
   };
 
   const runCommitAnimation = (el: HTMLElement) => {
     // Slide the outgoing page off to the right.
-    el.style.transition = `transform ${COMMIT_ANIMATION_MS}ms ease-in`;
+    el.style.transition = `transform ${EDGE_SWIPE_EXIT_MS}ms ${EDGE_SWIPE_EASING}`;
     applyOffset(el, window.innerWidth);
     let didFinish = false;
     const finish = () => {
-      if (didFinish || cancelledRef.current) {return;}
+      if (didFinish || cancelledRef.current) {
+        return;
+      }
       didFinish = true;
       el.removeEventListener("transitionend", finish);
 
@@ -172,23 +191,31 @@ export function useEdgeSwipeBack({
           pendingRevealRef.current = false;
           resetTransientStyles(el);
         }
-      }, ENTRANCE_ANIMATION_MS * 2);
+      }, EDGE_SWIPE_SLIDE_MS * 2);
     };
     el.addEventListener("transitionend", finish, { once: true });
-    scheduleTimeout(finish, COMMIT_ANIMATION_MS + ANIMATION_FALLBACK_SLACK_MS);
+    scheduleTimeout(finish, EDGE_SWIPE_EXIT_MS + EDGE_SWIPE_FALLBACK_SLACK_MS);
   };
 
   useEdgeSwipe({
     enabled,
     onConfirm: () => {
+      // Ahead of the element check: a detail page still on its loading branch
+      // has no container to drag, but its committed swipe still navigates
+      // (see the null-container path in `onCommit`).
+      prefetchRoute(prefetchHrefRef.current);
       const el = containerRef.current;
-      if (!el) {return;}
+      if (!el) {
+        return;
+      }
       el.style.transition = "none";
       el.style.willChange = "transform";
     },
     onMove: (dx, threshold) => {
       const el = containerRef.current;
-      if (!el) {return;}
+      if (!el) {
+        return;
+      }
       applyOffset(el, computeVisualOffset(dx, threshold));
     },
     onCommit: () => {
@@ -207,7 +234,9 @@ export function useEdgeSwipeBack({
     },
     onCancel: (animate) => {
       const el = containerRef.current;
-      if (!el) {return;}
+      if (!el) {
+        return;
+      }
       if (animate) {
         snapBack(el);
       } else {
@@ -222,20 +251,26 @@ export function useEdgeSwipeBack({
   // so here we just transition it to rest — the outgoing page is already gone,
   // so nothing stale is ever revealed.
   useLayoutEffect(() => {
-    if (!pendingRevealRef.current) {return;}
+    if (!pendingRevealRef.current) {
+      return;
+    }
     pendingRevealRef.current = false;
     const el = containerRef.current;
-    if (!el) {return;}
+    if (!el) {
+      return;
+    }
 
     let settled = false;
     const settle = () => {
-      if (settled) {return;}
+      if (settled) {
+        return;
+      }
       settled = true;
       el.removeEventListener("transitionend", settle);
       resetTransientStyles(el);
     };
 
-    el.style.transition = `transform ${ENTRANCE_ANIMATION_MS}ms ease-out, opacity ${ENTRANCE_ANIMATION_MS}ms ease-out`;
+    el.style.transition = `transform ${EDGE_SWIPE_SLIDE_MS}ms ${EDGE_SWIPE_EASING}, opacity ${EDGE_SWIPE_SLIDE_MS}ms ${EDGE_SWIPE_EASING}`;
     el.style.transform = "";
     el.style.opacity = "";
     el.addEventListener("transitionend", settle, { once: true });
@@ -243,7 +278,7 @@ export function useEdgeSwipeBack({
     // fire after a normal end is a no-op.
     const fallbackId = setTimeout(
       settle,
-      ENTRANCE_ANIMATION_MS + ANIMATION_FALLBACK_SLACK_MS,
+      EDGE_SWIPE_SLIDE_MS + EDGE_SWIPE_FALLBACK_SLACK_MS,
     );
 
     return () => {

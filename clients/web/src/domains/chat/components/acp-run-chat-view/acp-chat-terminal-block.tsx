@@ -48,7 +48,9 @@ function formatTerminalTime(ms: number): string {
 
 /** De-emphasized "at {time}" suffix shown beside a terminal label. */
 function TerminalTime({ completedAt }: { completedAt: number | undefined }) {
-  if (completedAt === undefined) return null;
+  if (completedAt === undefined) {
+    return null;
+  }
   return (
     <span data-testid="acp-chat-terminal-time">
       at {formatTerminalTime(completedAt)}
@@ -62,7 +64,9 @@ export function AcpChatTerminalBlock({
   error,
   completedAt,
 }: AcpChatTerminalBlockProps) {
-  if (isActiveAcpStatus(status)) return null;
+  if (isActiveAcpStatus(status)) {
+    return null;
+  }
 
   if (status === "failed") {
     return (

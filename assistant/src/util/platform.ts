@@ -26,7 +26,9 @@ export function vellumRoot(): string {
   const override = getWorkspaceDirOverride();
   if (override) {
     const parent = dirname(override);
-    if (parent !== "/") return parent;
+    if (parent !== "/") {
+      return parent;
+    }
   }
   return VELLUM_ROOT;
 }
@@ -63,10 +65,14 @@ export function getPlatformName(): string {
  * so both sides use a consistent DB key.
  */
 export function normalizeAssistantId(assistantId: string): string {
-  if (assistantId === "self") return "self";
+  if (assistantId === "self") {
+    return "self";
+  }
 
   const ownName = process.env.VELLUM_ASSISTANT_NAME;
-  if (ownName && assistantId === ownName) return "self";
+  if (ownName && assistantId === ownName) {
+    return "self";
+  }
 
   return assistantId;
 }
@@ -93,6 +99,25 @@ export function getDataDir(): string {
  */
 export function getConfigQuarantineNoticePath(): string {
   return join(getDataDir(), "config-quarantine-notice.json");
+}
+
+/**
+ * Returns the path to the config-validation-reset notice sentinel
+ * (`<workspace>/data/config-validation-reset-notice.json`).
+ *
+ * Written by the config loader when `config.json` parses as JSON but fails
+ * schema validation so hard that the loader falls back to *full* defaults
+ * (e.g. an unknown key that masks a `superRefine` violation until the offending
+ * key is stripped). Unlike a quarantine, the on-disk file is left untouched —
+ * the user's customized values are still present but inactive until the invalid
+ * entries are fixed. Read by the per-turn `config-validation-reset-notice`
+ * injector so the agent can explain a settings/connection change the user did
+ * not make. Lives beside the quarantine sentinel under the internal data dir
+ * for the same reasons (daemon-written bookkeeping; resolves without loading
+ * config, so it is safe during early-boot config load).
+ */
+export function getConfigValidationResetNoticePath(): string {
+  return join(getDataDir(), "config-validation-reset-notice.json");
 }
 
 /**
@@ -164,8 +189,12 @@ const KNOWN_ENVIRONMENTS: ReadonlySet<string> = new Set(Object.keys(SEEDS));
  */
 export function getXdgVellumConfigDirName(): string {
   const raw = process.env.VELLUM_ENVIRONMENT?.trim();
-  if (!raw || raw === "production") return "vellum";
-  if (!KNOWN_ENVIRONMENTS.has(raw)) return "vellum";
+  if (!raw || raw === "production") {
+    return "vellum";
+  }
+  if (!KNOWN_ENVIRONMENTS.has(raw)) {
+    return "vellum";
+  }
   return `vellum-${raw}`;
 }
 
@@ -270,6 +299,42 @@ export function getMonitoringPidPath(): string {
 }
 
 /**
+ * Root holding every daemon-managed subprocess's runtime directory
+ * ($VELLUM_WORKSPACE_DIR/procs). Each managed subprocess keeps its IPC socket,
+ * PID file, and per-process scratch under `procs/<name>/`, so `ls procs` is a
+ * census of managed subprocesses and cleanup is one `rm -rf` of the subdir.
+ */
+export function getProcsDir(): string {
+  return join(getWorkspaceDir(), "procs");
+}
+
+/** The runtime directory for one managed subprocess: `procs/<name>/`. */
+export function getProcDir(name: string): string {
+  return join(getProcsDir(), name);
+}
+
+/** Create (if needed) and return a managed subprocess's runtime directory. */
+export function ensureProcDir(name: string): string {
+  const dir = getProcDir(name);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/**
+ * The IPC socket a managed subprocess binds and the daemon connects to
+ * (`procs/<name>/ipc.sock`). The basename is fixed — the directory already
+ * carries the subprocess name. Keep it short: Unix `sun_path` is ~104–108 bytes.
+ */
+export function getProcSocketPath(name: string): string {
+  return join(getProcDir(name), "ipc.sock");
+}
+
+/** The PID file a managed subprocess writes on readiness (`procs/<name>/<name>.pid`). */
+export function getProcPidPath(name: string): string {
+  return join(getProcDir(name), `${name}.pid`);
+}
+
+/**
  * Returns the workspace root for user-facing state.
  *
  * When the VELLUM_WORKSPACE_DIR env var is set, returns that value (used in
@@ -278,7 +343,9 @@ export function getMonitoringPidPath(): string {
  */
 export function getWorkspaceDir(): string {
   const override = getWorkspaceDirOverride();
-  if (override) return override;
+  if (override) {
+    return override;
+  }
   return join(VELLUM_ROOT, "workspace");
 }
 
@@ -379,6 +446,21 @@ export function getWorkspacePromptPath(file: string): string {
   return join(getWorkspaceDir(), file);
 }
 
+/**
+ * Returns `<workspaceDir>/prompts/system` — the workspace override layer for
+ * system prompt sections. Layout: `prompts/system/<NN-name>.md`.
+ *
+ * The bundled section registry (`prompts/templates/system-sections.ts`) is
+ * the source of default truth; a file here with the same id replaces the
+ * bundled body (or, stripped to nothing, silences it), and a brand-new
+ * `<NN-name>` adds a workspace-only section. Because that includes the
+ * security-policy sections, writes under this directory are gated as a
+ * control-plane prompt surface (`permissions/workspace-policy.ts`).
+ */
+export function getWorkspaceSystemPromptDir(): string {
+  return join(getWorkspaceDir(), "prompts", "system");
+}
+
 // ── Profiler filesystem layout ──────────────────────────────────────────
 // Managed profiler runs live under <workspace>/data/profiler/. These
 // helpers enforce a single canonical layout so every runtime caller
@@ -406,66 +488,6 @@ export function getProfilerRunsDir(): string {
  */
 export function getProfilerRunDir(runId: string): string {
   return join(getProfilerRunsDir(), runId);
-}
-
-/**
- * Resolve the shipped source directory for a first-party skill (e.g.
- * `meet-join`) whose runtime is launched outside the compiled daemon
- * binary — notably the meet-host child process spawned via
- * `bun run <skill>/register.ts`.
- *
- * Layers on top of `getRepoSkillsDir()` from `skills/catalog-install.ts`:
- * that helper locates the first-party skills root (validated by
- * `catalog.json`); this helper appends the skill id and validates the
- * per-skill entry point (`register.ts`). Returns `undefined` when the
- * root is unavailable (e.g. dev-mode build without `VELLUM_DEV=1`) or
- * the skill directory has no `register.ts`.
- *
- * Implemented here instead of `skills/catalog-install.ts` to avoid
- * pulling that module's platform-API dependencies (fetch, memory graph)
- * into callers that only need a path resolution. Takes the first-party
- * skills root as a dependency to keep this module free of a reverse
- * import.
- */
-export function getSkillRuntimePath(
-  skillId: string,
-  firstPartySkillsRoot: string | undefined,
-): string | undefined {
-  if (!firstPartySkillsRoot) return undefined;
-  const candidate = join(firstPartySkillsRoot, skillId);
-  if (existsSync(join(candidate, "register.ts"))) {
-    return candidate;
-  }
-  return undefined;
-}
-
-/**
- * Resolve the on-disk path to a standalone `bun` binary that the meet-host
- * supervisor (PR 27) uses to spawn external skills. Prefers the
- * packaging-site-bundled copy before falling back to the shared
- * download/PATH resolver in `bun-runtime.ts`.
- *
- * Resolution order:
- *
- *   1. macOS `.app` bundle: `Contents/Resources/bun` — bundled at a version
- *      that matches `.tool-versions`.
- *   2. Next-to-binary: `<execDir>/bun` for Docker/generic compiled layouts
- *      that stage a bun binary alongside the daemon (PR 29 wires this up).
- *
- * Returns `undefined` when no bundled copy is present; callers should
- * fall back to `ensureBun()` from `./bun-runtime.ts`, which handles PATH
- * lookup and JIT download for bare-metal dev.
- */
-export function getBundledBunPath(): string | undefined {
-  const importDir = import.meta.dir;
-  if (!importDir.startsWith("/$bunfs/")) return undefined;
-
-  const execDir = dirname(process.execPath);
-  const resourcesPath = join(execDir, "..", "Resources", "bun");
-  if (existsSync(resourcesPath)) return resourcesPath;
-  const execDirPath = join(execDir, "bun");
-  if (existsSync(execDirPath)) return execDirPath;
-  return undefined;
 }
 
 export function ensureDataDir(): void {

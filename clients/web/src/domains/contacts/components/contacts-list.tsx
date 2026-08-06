@@ -1,4 +1,11 @@
-import { Loader2, MoreVertical, Pencil, Plus, Search, UserPlus } from "lucide-react";
+import {
+  Loader2,
+  MoreVertical,
+  Pencil,
+  Plus,
+  Search,
+  UserPlus,
+} from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
@@ -10,8 +17,8 @@ import { Tag } from "@vellumai/design-library/components/tag";
 
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
 import type {
-    ContactSelection,
-    ContactSummary,
+  ContactSelection,
+  ContactSummary,
 } from "@/domains/contacts/types";
 
 interface ContactsListProps {
@@ -55,7 +62,13 @@ export function ContactsList({
           <Button
             type="button"
             variant="ghost"
-            iconOnly={addingContact ? <Loader2 className="animate-spin" aria-hidden /> : <Plus aria-hidden />}
+            iconOnly={
+              addingContact ? (
+                <Loader2 className="animate-spin" aria-hidden />
+              ) : (
+                <Plus aria-hidden />
+              )
+            }
             onClick={onAddContact}
             disabled={addingContact}
             aria-label="Add contact"
@@ -66,13 +79,18 @@ export function ContactsList({
         <div className="flex flex-col gap-1">
           {guardian ? (
             <ContactRow
-              name={guardian.displayName ? `${guardian.displayName} (You)` : "You"}
+              name={
+                guardian.displayName ? `${guardian.displayName} (You)` : "You"
+              }
               role={guardian.role}
               channelTypes={guardian.channelTypes}
               selected={
-                selection?.kind === "contact" && selection.contactId === guardian.id
+                selection?.kind === "contact" &&
+                selection.contactId === guardian.id
               }
-              onClick={() => onSelect({ kind: "contact", contactId: guardian.id })}
+              onClick={() =>
+                onSelect({ kind: "contact", contactId: guardian.id })
+              }
               trailingIcon="pencil"
             />
           ) : null}
@@ -85,7 +103,10 @@ export function ContactsList({
           />
         </div>
 
-        <div className="border-t" style={{ borderColor: "var(--border-base)" }} />
+        <div
+          className="border-t"
+          style={{ borderColor: "var(--border-base)" }}
+        />
 
         {regularContacts.length > 0 ? (
           <Input
@@ -109,7 +130,8 @@ export function ContactsList({
                 channelTypes={contact.channelTypes}
                 verified={contact.verified}
                 selected={
-                  selection?.kind === "contact" && selection.contactId === contact.id
+                  selection?.kind === "contact" &&
+                  selection.contactId === contact.id
                 }
                 onClick={() =>
                   onSelect({ kind: "contact", contactId: contact.id })
@@ -133,7 +155,13 @@ export function ContactsList({
             onClick={onAddContact}
             disabled={addingContact}
             tintColor="var(--primary-base)"
-            leftIcon={addingContact ? <Loader2 className="animate-spin" aria-hidden /> : <UserPlus aria-hidden />}
+            leftIcon={
+              addingContact ? (
+                <Loader2 className="animate-spin" aria-hidden />
+              ) : (
+                <UserPlus aria-hidden />
+              )
+            }
           >
             Add Contact
           </Button>

@@ -25,8 +25,7 @@ import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import { countConversations as countConversationsDb } from "../persistence/conversation-queries.js";
 import { resolveGuardianPersonaPath } from "../prompts/persona-resolver.js";
-import { buildAssistantEvent } from "../runtime/assistant-event.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -129,10 +128,17 @@ export function writeOnboardingSidecar(ctx: OnboardingContext): void {
 function readOnboardingSidecar(): OnboardingContext | null {
   try {
     const path = getOnboardingSidecarPath();
-    if (!existsSync(path)) return null;
-    const parsed = JSON.parse(readFileSync(path, "utf-8")) as OnboardingContext;
-    if (!parsed || !Array.isArray(parsed.tools) || !Array.isArray(parsed.tasks))
+    if (!existsSync(path)) {
       return null;
+    }
+    const parsed = JSON.parse(readFileSync(path, "utf-8")) as OnboardingContext;
+    if (
+      !parsed ||
+      !Array.isArray(parsed.tools) ||
+      !Array.isArray(parsed.tasks)
+    ) {
+      return null;
+    }
     return parsed;
   } catch (err) {
     log.warn({ err }, "Failed to read onboarding-context.json sidecar");
@@ -316,16 +322,10 @@ export async function writeRelationshipState(): Promise<void> {
  * just landed on disk.
  */
 function publishRelationshipStateUpdated(updatedAt: string): void {
-  assistantEventHub
-    .publish(
-      buildAssistantEvent({
-        type: "relationship_state_updated",
-        updatedAt,
-      }),
-    )
-    .catch((err) => {
-      log.warn({ err }, "Failed to publish relationship_state_updated event");
-    });
+  broadcastMessage({
+    type: "relationship_state_updated",
+    updatedAt,
+  });
 }
 
 /**
@@ -347,7 +347,9 @@ function publishRelationshipStateUpdated(updatedAt: string): void {
  */
 export async function backfillRelationshipStateIfMissing(): Promise<void> {
   const path = getRelationshipStatePath();
-  if (existsSync(path)) return; // idempotent — only runs once
+  if (existsSync(path)) {
+    return;
+  } // idempotent — only runs once
   log.info("Backfilling relationship-state.json for existing or upgraded user");
   await writeRelationshipState();
 }
@@ -378,7 +380,9 @@ function resolveGuardianUserContent(): string {
     const guardianPath = resolveGuardianPersonaPath();
     if (guardianPath) {
       const content = safeRead(guardianPath);
-      if (content) return content;
+      if (content) {
+        return content;
+      }
     }
   } catch (err) {
     log.warn(
@@ -393,7 +397,9 @@ function resolveGuardianUserContent(): string {
   try {
     const defaultUserPath = join(getWorkspaceDir(), "users", "default.md");
     const defaultContent = safeRead(defaultUserPath);
-    if (defaultContent) return defaultContent;
+    if (defaultContent) {
+      return defaultContent;
+    }
   } catch (err) {
     log.warn({ err }, "Failed to read users/default.md; trying legacy USER.md");
   }
@@ -402,7 +408,9 @@ function resolveGuardianUserContent(): string {
   // that predate migration 031.
   const legacyPath = getWorkspacePromptPath("USER.md");
   const legacy = safeRead(legacyPath);
-  if (legacy) return legacy;
+  if (legacy) {
+    return legacy;
+  }
 
   return "";
 }
@@ -416,7 +424,9 @@ function resolveGuardianUserContent(): string {
  */
 function safeRead(path: string): string {
   try {
-    if (!existsSync(path)) return "";
+    if (!existsSync(path)) {
+      return "";
+    }
     return readFileSync(path, "utf-8");
   } catch {
     return "";
@@ -467,7 +477,9 @@ function extractFacts(input: {
   if (input.onboarding) {
     for (const tool of input.onboarding.tools) {
       const text = tool.trim();
-      if (!text) continue;
+      if (!text) {
+        continue;
+      }
       facts.push({
         id: nextId("onboarding"),
         category: "world",
@@ -478,7 +490,9 @@ function extractFacts(input: {
     }
     for (const task of input.onboarding.tasks) {
       const text = task.trim();
-      if (!text) continue;
+      if (!text) {
+        continue;
+      }
       facts.push({
         id: nextId("onboarding"),
         category: "priorities",
@@ -516,9 +530,13 @@ function extractFacts(input: {
 
   for (const line of iterateBulletLines(input.userContent)) {
     const parsed = parseBulletLabelValue(line);
-    if (!parsed) continue;
+    if (!parsed) {
+      continue;
+    }
     const { label, value } = parsed;
-    if (!value) continue;
+    if (!value) {
+      continue;
+    }
     const lower = label.toLowerCase();
     const isPriority = priorityKeywords.some((k) => lower.startsWith(k));
     const category: Fact["category"] = isPriority ? "priorities" : "world";
@@ -533,9 +551,13 @@ function extractFacts(input: {
 
   for (const line of iterateBulletLines(input.soulContent)) {
     const parsed = parseBulletLabelValue(line);
-    if (!parsed) continue;
+    if (!parsed) {
+      continue;
+    }
     const { label, value } = parsed;
-    if (!value) continue;
+    if (!value) {
+      continue;
+    }
     facts.push({
       id: nextId("soul"),
       category: "voice",
@@ -554,14 +576,24 @@ function extractFacts(input: {
  * trimmed bullet body, without the leading `-` or `*`.
  */
 function* iterateBulletLines(content: string): Generator<string> {
-  if (!content) return;
+  if (!content) {
+    return;
+  }
   for (const raw of content.split("\n")) {
     const line = raw.trim();
-    if (!line) continue;
-    if (line.startsWith("_")) continue;
-    if (!line.startsWith("- ") && !line.startsWith("* ")) continue;
+    if (!line) {
+      continue;
+    }
+    if (line.startsWith("_")) {
+      continue;
+    }
+    if (!line.startsWith("- ") && !line.startsWith("* ")) {
+      continue;
+    }
     const body = line.slice(2).trim();
-    if (body.length === 0) continue;
+    if (body.length === 0) {
+      continue;
+    }
     yield body;
   }
 }
@@ -575,10 +607,14 @@ function parseBulletLabelValue(
 ): { label: string; value: string } | null {
   const stripped = body.replace(/\*\*/g, "").replace(/__/g, "");
   const idx = stripped.indexOf(":");
-  if (idx <= 0) return null;
+  if (idx <= 0) {
+    return null;
+  }
   const label = stripped.slice(0, idx).trim();
   const value = stripped.slice(idx + 1).trim();
-  if (!label) return null;
+  if (!label) {
+    return null;
+  }
   return { label, value };
 }
 
@@ -588,7 +624,9 @@ function parseBulletLabelValue(
  */
 function capitalizeLabel(label: string): string {
   const trimmed = label.trim();
-  if (!trimmed) return trimmed;
+  if (!trimmed) {
+    return trimmed;
+  }
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
 }
 
@@ -650,7 +688,9 @@ function resolveConnectedProviders(): Set<string> {
     const rows = listConnections();
     const set = new Set<string>();
     for (const row of rows) {
-      if (row.status === "active") set.add(row.provider);
+      if (row.status === "active") {
+        set.add(row.provider);
+      }
     }
     return set;
   } catch (err) {
@@ -706,7 +746,9 @@ function parseIdentity(identityPath: string): {
 
   for (const line of iterateBulletLines(content)) {
     const parsed = parseBulletLabelValue(line);
-    if (!parsed || !parsed.value) continue;
+    if (!parsed || !parsed.value) {
+      continue;
+    }
     const lower = parsed.label.toLowerCase();
     // Accept any label whose lowercased form looks like a "name"
     // label: `Name`, `Assistant Name`, `Preferred Name`, etc.
@@ -748,10 +790,14 @@ function parseIdentity(identityPath: string): {
  * is present so the caller can leave `userName` off the wire.
  */
 function parseUserName(content: string): string | undefined {
-  if (!content) return undefined;
+  if (!content) {
+    return undefined;
+  }
   for (const line of iterateBulletLines(content)) {
     const parsed = parseBulletLabelValue(line);
-    if (!parsed) continue;
+    if (!parsed) {
+      continue;
+    }
     const lower = parsed.label.toLowerCase();
     if (
       (lower === "user" ||

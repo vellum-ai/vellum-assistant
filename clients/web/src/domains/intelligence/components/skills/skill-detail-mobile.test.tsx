@@ -15,10 +15,8 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-import type {
-  SkillFileEntry,
-  SkillInfo,
-} from "@/domains/intelligence/skills/types.js";
+import type { SkillInfo } from "@/domains/intelligence/skills/types.js";
+import type { SkillFileEntry } from "@/hooks/use-skill-detail-files.js";
 
 const FILE_ENTRIES: SkillFileEntry[] = [
   {
@@ -67,7 +65,7 @@ function setActiveFile(file: SkillFileEntry): void {
   hookState.fileContent = file.content ?? "";
 }
 
-mock.module("@/domains/intelligence/skills/use-skill-detail-files", () => ({
+mock.module("@/hooks/use-skill-detail-files", () => ({
   useSkillDetailFiles: () => ({
     fileEntries: FILE_ENTRIES,
     skillMd: FILE_ENTRIES[0],
@@ -76,15 +74,16 @@ mock.module("@/domains/intelligence/skills/use-skill-detail-files", () => ({
     activePath: hookState.activePath,
     activeFile: hookState.activeFile,
     isFilesLoading: false,
+    isFilesPending: false,
     fileContent: hookState.fileContent,
     isBinary: false,
     isContentLoading: false,
+    isContentPending: false,
   }),
 }));
 
-const { SkillDetailMobile } = await import(
-  "@/domains/intelligence/components/skills/skill-detail-mobile.js"
-);
+const { SkillDetailMobile } =
+  await import("@/domains/intelligence/components/skills/skill-detail-mobile.js");
 
 afterEach(() => {
   cleanup();
@@ -119,7 +118,13 @@ describe("SkillDetailMobile", () => {
   test("back button calls onBack", () => {
     const onBack = mock(() => {});
 
-    render(<SkillDetailMobile assistantId="asst-1" skill={makeSkill()} onBack={onBack} />);
+    render(
+      <SkillDetailMobile
+        assistantId="asst-1"
+        skill={makeSkill()}
+        onBack={onBack}
+      />,
+    );
 
     fireEvent.click(getButton("Back to skills"));
 
@@ -164,7 +169,11 @@ describe("SkillDetailMobile", () => {
 
   test("file dropdown lists the provided file names", () => {
     render(
-      <SkillDetailMobile assistantId="asst-1" skill={makeSkill()} onBack={() => {}} />,
+      <SkillDetailMobile
+        assistantId="asst-1"
+        skill={makeSkill()}
+        onBack={() => {}}
+      />,
     );
 
     // Open the inline file menu via its trigger (shows the active file name).
@@ -181,7 +190,11 @@ describe("SkillDetailMobile", () => {
 
   test("markdown file: toggles between rendered preview and raw source", () => {
     render(
-      <SkillDetailMobile assistantId="asst-1" skill={makeSkill()} onBack={() => {}} />,
+      <SkillDetailMobile
+        assistantId="asst-1"
+        skill={makeSkill()}
+        onBack={() => {}}
+      />,
     );
 
     // Default is preview: rendered markdown (no raw <pre>, heading text shown).
@@ -204,7 +217,11 @@ describe("SkillDetailMobile", () => {
     setActiveFile(JSON_FILE);
 
     render(
-      <SkillDetailMobile assistantId="asst-1" skill={makeSkill()} onBack={() => {}} />,
+      <SkillDetailMobile
+        assistantId="asst-1"
+        skill={makeSkill()}
+        onBack={() => {}}
+      />,
     );
 
     expect(getButton("Preview").disabled).toBe(true);

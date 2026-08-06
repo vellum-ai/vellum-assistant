@@ -1,3 +1,5 @@
+import { VELLUM_SERVED_PROVIDERS } from "@/assistant/llm-model-catalog";
+
 export const OPENAI_COMPATIBLE_PROVIDER = "openai-compatible";
 
 /**
@@ -18,7 +20,24 @@ export const INFERENCE_PROVIDERS = [
   "ollama",
   "minimax",
   "atlascloud",
+  "litellm",
+  "baseten",
+  "poolside",
 ] as const;
+
+/**
+ * Narrows a stored provider to the picker's domain. `LlmProvider` is wider:
+ * it also carries routing sentinels (`openai-compatible`, `vellum`,
+ * `chatgpt`) that deliberately never appear in the provider picker.
+ */
+export function isInferenceProvider(
+  provider: string | null | undefined,
+): provider is (typeof INFERENCE_PROVIDERS)[number] {
+  return (
+    provider != null &&
+    (INFERENCE_PROVIDERS as readonly string[]).includes(provider)
+  );
+}
 
 /**
  * `provider` value stored on the single Vellum-managed connection. It is a
@@ -34,13 +53,9 @@ export const VELLUM_CONNECTION_PROVIDER = "vellum";
  * connection, so the editor must treat that connection as available for these
  * providers even though its own `provider` is `vellum`.
  */
-export const MANAGED_ROUTABLE_PROVIDERS = new Set<string>([
-  "anthropic",
-  "openai",
-  "gemini",
-  "fireworks",
-  "together",
-]);
+export const MANAGED_ROUTABLE_PROVIDERS = new Set<string>(
+  VELLUM_SERVED_PROVIDERS,
+);
 
 export const TOKEN_SLIDER_MIN_TOKENS = 1_000;
 export const TOKEN_SLIDER_STEP_TOKENS = 1_000;

@@ -2,25 +2,19 @@
  * Host shell tool - `host_bash`.
  *
  * Unlike the sandboxed `bash` tool, `host_bash` runs commands directly on the
- * host machine without the OS-level sandbox. Under CES shell lockdown for
- * untrusted actors, `host_bash` remains available as a user-approved escape
- * hatch - the guardian must explicitly approve each invocation. It is NOT part
- * of the strong CES secrecy guarantee because it runs unsandboxed and could
- * access protected paths or credential material on disk.
- *
- * To mitigate risk, when CES shell lockdown is active for untrusted sessions:
- * - Persistent approvals are disabled (every invocation requires fresh approval).
- * - The VELLUM_UNTRUSTED_SHELL=1 env flag is set so CLI commands self-deny
- *   raw-token/secret reveal flows.
+ * host machine without the OS-level sandbox. Each invocation is approval-gated -
+ * the guardian must explicitly approve it. It runs unsandboxed and could access
+ * protected paths or credential material on disk.
  */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute } from "node:path";
 
+import { z } from "zod";
+
 import { supportsHostProxy } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
-import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
@@ -28,7 +22,7 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../../runtime/assistant-event-hub.js";
-import { isUntrustedShellLockdownActive } from "../../runtime/effective-capabilities.js";
+import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import type { CompletedBackgroundTool } from "../background-tool-registry.js";
@@ -44,6 +38,11 @@ import {
   formatShellOutput,
   MAX_OUTPUT_LENGTH,
 } from "../shared/shell-output.js";
+import {
+  invalidToolInputResult,
+  nullAsOmitted,
+  toToolInputSchema,
+} from "../shared/zod-tool-schema.js";
 import { buildSanitizedEnv } from "../terminal/safe-env.js";
 import type {
   ToolContext,
@@ -80,10 +79,7 @@ function buildHostShellEnv(): Record<string, string> {
   return env;
 }
 
-function buildHostBashProxyEnv(
-  hostLockdownActive: boolean,
-  conversationId: string,
-): Record<string, string> {
+function buildHostBashProxyEnv(conversationId: string): Record<string, string> {
   const env: Record<string, string> = {};
 
   for (const key of HOST_BASH_PROXY_ENV_KEYS) {
@@ -93,85 +89,90 @@ function buildHostBashProxyEnv(
     }
   }
 
-  if (hostLockdownActive) {
-    env.VELLUM_UNTRUSTED_SHELL = "1";
-  }
-
   // Keep nested `assistant` CLI calls in host_bash aligned with the
   // originating conversation so browser IPC can resolve live proxy context.
   env.__CONVERSATION_ID = conversationId;
+  // Secret binding for reveal-derived chat authority — see reveal-nonce.ts.
+  env.__REVEAL_NONCE = conversationRevealNonce(conversationId);
   return env;
 }
+
+/**
+ * Model-input schema, the single source for both runtime validation (via
+ * `TOOL_INPUT_SCHEMAS`) and the advertised `input_schema` below.
+ * `timeout_seconds` / `background` / `target_client_id` / `activity` catch
+ * to `undefined` so a malformed value degrades to its default (configured
+ * timeout, foreground, untargeted, status-only). `working_dir` treats an
+ * explicit null as omitted (the run defaults to the user home) but does NOT
+ * catch — a malformed working directory fails the parse rather than
+ * silently running in the wrong place, and the null-byte / absolute-path
+ * checks stay bespoke below.
+ */
+export const hostShellInputSchema = z.looseObject({
+  command: z.string().min(1).describe("The host shell command to execute."),
+  activity: z
+    .string()
+    .describe(
+      'Brief non-technical explanation of what this command does and why, shown to a non-technical user in the permission prompt. Avoid jargon and technical terms. Good: "to check if a required program is installed on your computer". Bad: "to check if gcloud CLI is installed". Good: "to download a helper program". Bad: "to run npm install".',
+    )
+    .optional()
+    .catch(undefined),
+  working_dir: nullAsOmitted(
+    z
+      .string()
+      .describe(
+        "Optional absolute path on the host's filesystem, which is separate from your workspace (defaults to the host user's home).",
+      ),
+  ),
+  timeout_seconds: z
+    .number()
+    .describe(
+      "Optional timeout in seconds. Uses configured default and max limits.",
+    )
+    .optional()
+    .catch(undefined),
+  background: z
+    .boolean()
+    .describe(
+      "Run the command in the background on the host machine. The tool returns immediately with a background tool ID. When the process exits, its output is delivered to the conversation as a wake.",
+    )
+    .optional()
+    .catch(undefined),
+  target_client_id: z
+    .string()
+    .describe(
+      "ID of the specific client to execute this command on. Required when multiple clients support host_bash; omit when only one client is connected. Obtain IDs from `assistant clients list --capability host_bash`.",
+    )
+    .optional()
+    .catch(undefined),
+});
 
 export const hostShellTool = {
   name: "host_bash",
   description:
-    "LAST RESORT — Execute a shell command directly on the host machine. You MUST strongly prefer the regular `bash` tool for all commands. Only use `host_bash` when you are absolutely certain the command MUST run on the host machine and CANNOT run in the workspace (e.g., managing host-level system services, accessing host-only peripherals, or interacting with host paths outside the workspace). If in doubt, use `bash` instead. Approval-gated: each invocation must be explicitly approved. Do not use for commands that require injected credentials or secrets.",
+    "LAST RESORT — Execute a shell command directly on the host machine. You MUST strongly prefer the regular `bash` tool for all commands. Only use `host_bash` when you are absolutely certain the command MUST run on the host machine and CANNOT run in the workspace (e.g., managing host-level system services, accessing host-only peripherals, or interacting with host paths outside the workspace). If in doubt, use `bash` instead. Paths resolve on the host's filesystem, which is separate from your workspace; write output somewhere on the host and read it back with `host_file_read`. Approval-gated: each invocation must be explicitly approved. Do not use for commands that require injected credentials or secrets.",
   category: "host-terminal",
   executionTarget: "host",
-  // host_bash is a weaker-tier escape hatch under CES lockdown. It remains
-  // Medium risk by default but persistent approvals are disabled for
-  // untrusted sessions (see execute()).
   defaultRiskLevel: RiskLevel.Medium,
 
-  input_schema: {
-    type: "object",
-    properties: {
-      command: {
-        type: "string",
-        description: "The host shell command to execute.",
-      },
-      activity: {
-        type: "string",
-        description:
-          'Brief non-technical explanation of what this command does and why, shown to a non-technical user in the permission prompt. Avoid jargon and technical terms. Good: "to check if a required program is installed on your computer". Bad: "to check if gcloud CLI is installed". Good: "to download a helper program". Bad: "to run npm install".',
-      },
-      working_dir: {
-        type: "string",
-        description:
-          "Optional absolute host working directory (defaults to user home)",
-      },
-      timeout_seconds: {
-        type: "number",
-        description:
-          "Optional timeout in seconds. Uses configured default and max limits.",
-      },
-      background: {
-        type: "boolean",
-        description:
-          "Run the command in the background on the host machine. The tool returns immediately with a background tool ID. When the process exits, its output is delivered to the conversation as a wake.",
-      },
-      target_client_id: {
-        type: "string",
-        description:
-          "ID of the specific client to execute this command on. Required when multiple clients support host_bash; omit when only one client is connected. Obtain IDs from `assistant clients list --capability host_bash`.",
-      },
-    },
-    required: ["command", "activity"],
-  },
+  input_schema: toToolInputSchema(hostShellInputSchema, {
+    advertiseRequired: ["activity"],
+  }),
 
   async execute(
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    const command = input.command as string;
-    if (!command || typeof command !== "string") {
-      return {
-        content: "Error: command is required and must be a string",
-        isError: true,
-      };
+    const parsed = hostShellInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return invalidToolInputResult("host_bash", parsed.error);
     }
+    const command = parsed.data.command;
     if (command.includes("\0")) {
       return { content: "Error: command contains null bytes", isError: true };
     }
 
-    const rawWorkingDir = input.working_dir;
-    if (rawWorkingDir != null && typeof rawWorkingDir !== "string") {
-      return {
-        content: "Error: working_dir must be a string when provided",
-        isError: true,
-      };
-    }
+    const rawWorkingDir = parsed.data.working_dir;
     if (typeof rawWorkingDir === "string" && rawWorkingDir.includes("\0")) {
       return {
         content: "Error: working_dir contains null bytes",
@@ -184,7 +185,7 @@ export const hostShellTool = {
         isError: true,
       };
     }
-    const background = input.background === true;
+    const background = parsed.data.background === true;
     if (background && context.diskPressureCleanupModeActive === true) {
       return {
         content:
@@ -194,28 +195,12 @@ export const hostShellTool = {
     }
 
     const targetClientId =
-      typeof input.target_client_id === "string" &&
-      input.target_client_id !== ""
-        ? input.target_client_id
+      parsed.data.target_client_id !== ""
+        ? parsed.data.target_client_id
         : undefined;
 
     const config = getConfig();
     const { shellDefaultTimeoutSec, shellMaxTimeoutSec } = config.timeouts;
-
-    // CES shell lockdown: host_bash is the weaker-tier escape hatch. When
-    // lockdown is active for untrusted actors, persistent approvals are
-    // disabled (every invocation requires fresh guardian approval) and the
-    // VELLUM_UNTRUSTED_SHELL flag is injected to self-deny raw-secret CLI
-    // commands. This does NOT provide the strong CES secrecy guarantee -
-    // the subprocess runs unsandboxed and could access protected paths.
-    //
-    // NOTE: forcePromptSideEffects is set in executor.ts BEFORE the
-    // permission check runs, not here. Setting it here would be too late
-    // because execute() is called after permissions have already been evaluated.
-    const hostLockdownActive = isUntrustedShellLockdownActive({
-      trustClass: context.trustClass,
-      lockdownEnabled: isCesShellLockdownEnabled(config),
-    });
 
     // Guard: non-host-proxy interfaces need an explicit target when multiple
     // capable clients are connected to avoid ambiguous untargeted broadcasts.
@@ -261,21 +246,15 @@ export const hostShellTool = {
     // Proxy to connected client for execution on the user's machine
     // when a capable client is available (managed/cloud-hosted mode).
     if (HostBashProxy.instance.isAvailable()) {
-      const rawSec =
-        typeof input.timeout_seconds === "number"
-          ? input.timeout_seconds
-          : shellDefaultTimeoutSec;
+      const rawSec = parsed.data.timeout_seconds ?? shellDefaultTimeoutSec;
       const normalizedTimeout = Math.max(
         1,
         Math.min(rawSec, shellMaxTimeoutSec),
       );
       // Forward instance-routing env vars so nested `assistant` CLI commands
       // executed on a proxied host machine can still resolve the correct
-      // daemon IPC socket and workspace, plus lockdown marker when required.
-      const proxyEnv = buildHostBashProxyEnv(
-        hostLockdownActive,
-        context.conversationId,
-      );
+      // daemon IPC socket and workspace.
+      const proxyEnv = buildHostBashProxyEnv(context.conversationId);
 
       if (background) {
         // Check the registry limit BEFORE starting the proxy request so we
@@ -453,10 +432,7 @@ export const hostShellTool = {
     const workingDir =
       typeof rawWorkingDir === "string" ? rawWorkingDir : homedir();
 
-    const requestedSec =
-      typeof input.timeout_seconds === "number"
-        ? input.timeout_seconds
-        : shellDefaultTimeoutSec;
+    const requestedSec = parsed.data.timeout_seconds ?? shellDefaultTimeoutSec;
     const timeoutSec = Math.max(1, Math.min(requestedSec, shellMaxTimeoutSec));
     const timeoutMs = timeoutSec * 1000;
 
@@ -466,21 +442,16 @@ export const hostShellTool = {
         cwd: workingDir,
         timeoutSec,
         conversationId: context.conversationId,
-        hostLockdownActive,
         background,
       },
       "Executing host shell command",
     );
 
     const hostEnv = buildHostShellEnv();
-    // Inject VELLUM_UNTRUSTED_SHELL=1 so assistant CLI commands self-deny
-    // raw-token/secret reveal flows when invoked from an untrusted shell.
-    if (hostLockdownActive) {
-      hostEnv.VELLUM_UNTRUSTED_SHELL = "1";
-    }
     // Match `bash` tool behavior so nested assistant CLI calls can bind to
     // the active conversation when running through host_bash.
     hostEnv.__CONVERSATION_ID = context.conversationId;
+    hostEnv.__REVEAL_NONCE = conversationRevealNonce(context.conversationId);
 
     if (background) {
       // Check the registry limit BEFORE spawning so we never leak an
@@ -539,7 +510,9 @@ export const hostShellTool = {
       let completed = false;
 
       child.on("close", (code) => {
-        if (completed) return;
+        if (completed) {
+          return;
+        }
         completed = true;
         clearTimeout(timer);
         const stdout = Buffer.concat(stdoutChunks).toString();
@@ -611,7 +584,9 @@ export const hostShellTool = {
       });
 
       child.on("error", (err) => {
-        if (completed) return;
+        if (completed) {
+          return;
+        }
         completed = true;
         clearTimeout(timer);
         const status = aborted ? "cancelled" : "failed";

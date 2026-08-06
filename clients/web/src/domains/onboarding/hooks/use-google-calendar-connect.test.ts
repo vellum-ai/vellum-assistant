@@ -29,7 +29,9 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
 let resolvedPlatformId = "11111111-2222-4333-8444-555555555555";
 let resolveShouldThrow = false;
 const resolveMock = mock(async (id: string): Promise<string> => {
-  if (resolveShouldThrow) throw new Error("identity resolution failed");
+  if (resolveShouldThrow) {
+    throw new Error("identity resolution failed");
+  }
   return id === "vellum-local-assistant" ? resolvedPlatformId : id;
 });
 mock.module("@/lib/local-platform-identity", () => ({
@@ -50,9 +52,8 @@ mock.module("@tanstack/react-query", () => ({
   useQueryClient: () => ({ fetchQuery: async () => [] }),
 }));
 
-const { useGoogleCalendarConnect } = await import(
-  "./use-google-calendar-connect"
-);
+const { useGoogleCalendarConnect } =
+  await import("./use-google-calendar-connect");
 
 // The hook opens a blank popup synchronously before the async identity
 // resolution; stub a minimal Window the flow can point at Google later.

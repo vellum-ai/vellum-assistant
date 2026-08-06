@@ -6,15 +6,9 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before importing the module under test
 // ---------------------------------------------------------------------------
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 // Stub the event hub so tests don't need a running event bus.
 // Exposed as a `mock(...)` so individual tests can assert publish calls.
@@ -30,24 +24,34 @@ mock.module("../runtime/assistant-event.js", () => ({
   buildAssistantEvent: (event: unknown) => event,
 }));
 
-// ---------------------------------------------------------------------------
-// Config mock — controlled per test so we can inject profiles
-// ---------------------------------------------------------------------------
-
-let mockProfiles: Record<string, unknown> = {};
-let mockMaxTtl: number | undefined;
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({
-    llm: {
-      profiles: mockProfiles,
-      profileSession: {
-        defaultTtlSeconds: 1800,
-        maxTtlSeconds: mockMaxTtl ?? 43200,
-      },
-    },
+// The default profiles used below (`balanced`, `cost-optimized`) route through
+// the Vellum-managed connection, and the handler's availability guard judges
+// that route for real. Stand in for a signed-in platform session so the pin
+// path under test is the healthy one; `managedProxyEnabled` is flipped by the
+// guard test.
+let managedProxyEnabled = true;
+mock.module("../providers/platform-proxy/context.js", () => ({
+  resolveManagedProxyContext: async () => ({
+    enabled: managedProxyEnabled,
+    platformBaseUrl: "https://platform.example",
+    assistantApiKey: managedProxyEnabled ? "key" : "",
   }),
 }));
+
+// Vault stand-in: tests that exercise BYOK availability drop the credential
+// they need into this map and clean it up after.
+const storedKeys: Record<string, string> = {};
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKeyResultAsync: async (key: string) => ({
+    value: storedKeys[key],
+    unreachable: false,
+  }),
+}));
+
+// The handler reads the real config: the "balanced" and "cost-optimized"
+// profiles used below are code-default catalog entries that always resolve,
+// and llm.profileSession's schema defaults (1800/43200) are what the TTL
+// tests assert — no config seeding is needed.
 
 // ---------------------------------------------------------------------------
 // Real DB — same pattern as conversation-crud-inference-profile.test.ts
@@ -64,8 +68,23 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { providerConnections } from "../persistence/schema/inference.js";
+import { setConfig } from "./helpers/set-config.js";
 
 await initializeDb();
+
+// The Vellum-managed connection row the default profiles resolve to.
+getDb()
+  .insert(providerConnections)
+  .values({
+    name: "vellum",
+    provider: "vellum",
+    auth: JSON.stringify({ type: "platform" }),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  })
+  .onConflictDoNothing()
+  .run();
 
 import {
   closeInferenceProfileSession,
@@ -121,8 +140,6 @@ function makeLiveConversationStub(conversationId: string): Conversation {
 describe("setInferenceProfileSession", () => {
   beforeEach(() => {
     resetDb();
-    mockProfiles = { balanced: {}, "cost-optimized": {} };
-    mockMaxTtl = undefined; // reset to default 43200
     publishMock.mockClear();
     broadcastMessageMock.mockClear();
   });
@@ -366,6 +383,62 @@ describe("setInferenceProfileSession", () => {
     );
   });
 
+  test("open with an unavailable profile — refuses the pin and names the fix", async () => {
+    const conv = createConversation("sess-handler-unavailable-profile");
+    managedProxyEnabled = false;
+    try {
+      const promise = setInferenceProfileSession({
+        conversationId: conv.id,
+        profile: "balanced",
+        ttlSeconds: 300,
+      });
+      await expect(promise).rejects.toThrow(/Not signed in to Vellum/);
+      await expect(promise).rejects.toThrow(
+        /assistant inference send --profile balanced "Reply with OK"/,
+      );
+      // Nothing was pinned.
+      expect(getConversation(conv.id)?.inferenceProfile).toBeNull();
+    } finally {
+      managedProxyEnabled = true;
+    }
+  });
+
+  test("BYOK default provider — pins a managed preset without a Vellum sign-in", async () => {
+    const conv = createConversation("sess-handler-byok-preset");
+    // Signed out of Vellum, but llm.defaultProvider points the managed
+    // presets at the user's own anthropic connection — the pin must judge
+    // that body, not the Vellum column.
+    managedProxyEnabled = false;
+    storedKeys["credential/anthropic/api_key"] = "test-key";
+    getDb()
+      .insert(providerConnections)
+      .values({
+        name: "anthropic-personal",
+        provider: "anthropic",
+        auth: JSON.stringify({
+          type: "api_key",
+          credential: "credential/anthropic/api_key",
+        }),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+      .onConflictDoNothing()
+      .run();
+    setConfig("llm", { defaultProvider: { provider: "anthropic" } });
+    try {
+      const result = await setInferenceProfileSession({
+        conversationId: conv.id,
+        profile: "balanced",
+        ttlSeconds: 300,
+      });
+      expect(result.profile).toBe("balanced");
+    } finally {
+      managedProxyEnabled = true;
+      delete storedKeys["credential/anthropic/api_key"];
+      setConfig("llm", {});
+    }
+  });
+
   test("open with ttlSeconds=null — expiresAt=null, sessionId=null, profile kept", async () => {
     const conv = createConversation("sess-handler-null-ttl");
 
@@ -409,8 +482,6 @@ describe("setInferenceProfileSession", () => {
 describe("closeInferenceProfileSession", () => {
   beforeEach(() => {
     resetDb();
-    mockProfiles = { balanced: {} };
-    mockMaxTtl = undefined;
   });
 
   test("close — returns closed with profile and sessionId, noop=false", async () => {
@@ -464,8 +535,6 @@ describe("closeInferenceProfileSession", () => {
 describe("listInferenceProfileSessionsWithRemaining", () => {
   beforeEach(() => {
     resetDb();
-    mockProfiles = { balanced: {} };
-    mockMaxTtl = undefined;
   });
 
   test("lists active sessions with remainingSeconds > 0", async () => {

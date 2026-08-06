@@ -23,7 +23,9 @@ interface FakeTrack {
 class FakeMediaStream {
   tracks: FakeTrack[] = [{ stopped: false, stop() {} }];
   constructor() {
-    for (const t of this.tracks) t.stop = () => (t.stopped = true);
+    for (const t of this.tracks) {
+      t.stop = () => (t.stopped = true);
+    }
   }
   getTracks(): FakeTrack[] {
     return this.tracks;
@@ -99,8 +101,9 @@ function installAudioGlobals(): void {
     return node;
   } as unknown;
   // `start()` calls `isSupported()`, which probes AudioContext.prototype.
-  (FakeAudioContext.prototype as unknown as Record<string, unknown>).audioWorklet =
-    {};
+  (
+    FakeAudioContext.prototype as unknown as Record<string, unknown>
+  ).audioWorklet = {};
 }
 
 beforeEach(() => {
@@ -151,7 +154,9 @@ describe("pcm-downsample worklet (cross-quantum continuity)", () => {
     // Cache-bust so each test gets a fresh module evaluation / processor.
     const mod = `./pcm-downsample-worklet.ts?t=${Math.random()}`;
     await import(mod);
-    if (!Ctor) throw new Error("processor not registered");
+    if (!Ctor) {
+      throw new Error("processor not registered");
+    }
     return new (Ctor as new () => ProcessorLike)();
   }
 
@@ -161,7 +166,9 @@ describe("pcm-downsample worklet (cross-quantum continuity)", () => {
     // zeros and skipped boundary samples. A linear ramp at full scale would
     // clip, so keep values in (0, 1].
     const processor = await loadProcessor(48000, (buf) => {
-      for (const v of new Int16Array(buf)) chunks.push(v);
+      for (const v of new Int16Array(buf)) {
+        chunks.push(v);
+      }
     });
 
     const BLOCK = 128;
@@ -221,7 +228,9 @@ describe("permission handling", () => {
     const result = await capture.start();
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toBe("permission-denied");
+    if (!result.ok) {
+      expect(result.error).toBe("permission-denied");
+    }
     // No AudioContext should have been constructed on the denied path.
     expect(FakeAudioContext.lastInstance).toBeNull();
   });
@@ -234,7 +243,9 @@ describe("permission handling", () => {
     const result = await capture.start();
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toBe("no-device");
+    if (!result.ok) {
+      expect(result.error).toBe("no-device");
+    }
   });
 });
 
@@ -270,7 +281,9 @@ describe("lifecycle", () => {
 
     const result = await capture.start();
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toBe("unsupported");
+    if (!result.ok) {
+      expect(result.error).toBe("unsupported");
+    }
   });
 
   test("stop() while start()'s getUserMedia is pending cancels the start (mic stays off)", async () => {
@@ -282,7 +295,9 @@ describe("lifecycle", () => {
         resolveGum = resolve;
       });
 
-    const capture = new LiveVoiceAudioCapture({ onChunk: (b) => chunks.push(b) });
+    const capture = new LiveVoiceAudioCapture({
+      onChunk: (b) => chunks.push(b),
+    });
 
     // Kick off start(); it parks on the pending getUserMedia.
     const startPromise = capture.start();
@@ -294,7 +309,9 @@ describe("lifecycle", () => {
 
     // start() must report it was aborted and not wire up the graph.
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toBe("aborted");
+    if (!result.ok) {
+      expect(result.error).toBe("aborted");
+    }
     // The late-arriving stream's track must be stopped, not left live.
     expect(stream.tracks.every((t) => t.stopped)).toBe(true);
     // No worklet should have been attached, so no chunks can flow.
@@ -303,16 +320,49 @@ describe("lifecycle", () => {
     expect(chunks.length).toBe(0);
   });
 
-  test("emitted PCM chunks reach onChunk", async () => {
+  test("worklet quanta are coalesced into 800-sample batches", async () => {
     const chunks: ArrayBuffer[] = [];
-    const capture = new LiveVoiceAudioCapture({ onChunk: (b) => chunks.push(b) });
+    const capture = new LiveVoiceAudioCapture({
+      onChunk: (b) => chunks.push(b),
+    });
     await capture.start();
 
-    const buf = new Int16Array([1, 2, 3]).buffer;
-    lastWorklet!.port.emit(buf);
+    // 10 quanta of 128 samples = 1280: one full batch plus a 480-sample
+    // tail held in the accumulator. Each quantum is filled with its ordinal
+    // so boundary continuity is observable.
+    for (let i = 0; i < 10; i++) {
+      const quantum = new Int16Array(128).fill(i + 1);
+      lastWorklet!.port.emit(quantum.buffer);
+    }
 
     expect(chunks.length).toBe(1);
+    const batch = new Int16Array(chunks[0]!);
+    expect(batch.length).toBe(800);
+    // Continuity across quantum boundaries: index 128k..128(k+1) holds
+    // quantum k+1's fill value, uninterrupted through the batch.
+    expect(batch[0]).toBe(1);
+    expect(batch[127]).toBe(1);
+    expect(batch[128]).toBe(2);
+    expect(batch[799]).toBe(7);
+  });
+
+  test("flush() emits the sub-batch tail synchronously and resets", async () => {
+    const chunks: ArrayBuffer[] = [];
+    const capture = new LiveVoiceAudioCapture({
+      onChunk: (b) => chunks.push(b),
+    });
+    await capture.start();
+
+    lastWorklet!.port.emit(new Int16Array([1, 2, 3]).buffer);
+    expect(chunks.length).toBe(0); // held in the accumulator
+
+    capture.flush();
+    expect(chunks.length).toBe(1);
     expect(new Int16Array(chunks[0]!)).toEqual(new Int16Array([1, 2, 3]));
+
+    // The accumulator was reset: a second flush emits nothing.
+    capture.flush();
+    expect(chunks.length).toBe(1);
   });
 });
 

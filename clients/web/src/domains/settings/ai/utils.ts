@@ -1,8 +1,6 @@
 import type { LlmCatalogModel } from "@/assistant/llm-model-catalog";
 import { WEB_FETCH_PROVIDER_KEY_STORAGE } from "@/assistant/generated/web-fetch-provider-catalog.gen";
-import {
-  WEB_SEARCH_PROVIDER_KEY_STORAGE,
-} from "@/assistant/generated/web-search-provider-catalog.gen";
+import { WEB_SEARCH_PROVIDER_KEY_STORAGE } from "@/assistant/generated/web-search-provider-catalog.gen";
 import type { ProfileEntry, ServiceMode } from "@/generated/daemon/types.gen";
 
 import { TOKEN_SLIDER_MIN_TOKENS } from "@/domains/settings/ai/constants";
@@ -24,13 +22,19 @@ export interface InferenceTokenBudgetState {
 // Service mode validation
 // ---------------------------------------------------------------------------
 
-const SERVICE_MODE_VALUES: ReadonlySet<string> = new Set<ServiceMode>(["managed", "your-own"]);
+const SERVICE_MODE_VALUES: ReadonlySet<string> = new Set<ServiceMode>([
+  "managed",
+  "your-own",
+]);
 
 /**
  * Validates a raw string (e.g. from localStorage) as a `ServiceMode`.
  * Returns `fallback` when the value is not a known mode.
  */
-export function parseServiceMode(raw: string, fallback: ServiceMode): ServiceMode {
+export function parseServiceMode(
+  raw: string,
+  fallback: ServiceMode,
+): ServiceMode {
   return SERVICE_MODE_VALUES.has(raw) ? (raw as ServiceMode) : fallback;
 }
 
@@ -59,6 +63,17 @@ export function buildOrderedProfiles(
   return [...ordered, ...extras];
 }
 
+/**
+ * Display label for a profile name: the entry's label, falling back to the
+ * raw name when the entry is missing or unlabeled.
+ */
+export function profileDisplayLabel(
+  profiles: ReadonlyArray<ProfileWithName>,
+  name: string,
+): string {
+  return profiles.find((p) => p.name === name)?.label ?? name;
+}
+
 export function assertProvisionSuccess(result: unknown): void {
   if (
     result &&
@@ -66,7 +81,9 @@ export function assertProvisionSuccess(result: unknown): void {
     "success" in result &&
     result.success === false
   ) {
-    throw new Error("Failed to provision API key: server returned success=false");
+    throw new Error(
+      "Failed to provision API key: server returned success=false",
+    );
   }
 }
 
@@ -112,10 +129,7 @@ export function resolveTokenBudgetStateForModel(
     : model.maxOutputTokens;
 
   return {
-    maxOutputTokens: clampTokenBudget(
-      maxOutputBudget,
-      model.maxOutputTokens,
-    ),
+    maxOutputTokens: clampTokenBudget(maxOutputBudget, model.maxOutputTokens),
     maxOutputTouched: state.maxOutputTouched,
     contextWindowTokens: clampTokenBudget(
       contextBudget,

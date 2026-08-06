@@ -34,8 +34,7 @@ export const MAX_VARIANTS = 4;
 
 /**
  * Derive the image-generation provider from a model identifier by prefix.
- * Shared with the runtime dispatcher `providerForModel` in
- * `image-service.ts`; prefixes must stay in sync with that function.
+ * Sibling of {@link providerForModel} below; prefixes must stay in sync.
  * Unknown models fall through to "gemini".
  */
 export function providerForImageModelPrefix(model: string): ImageGenProvider {
@@ -43,6 +42,28 @@ export function providerForImageModelPrefix(model: string): ImageGenProvider {
     return "openai";
   }
   return "gemini";
+}
+
+/**
+ * Like {@link providerForImageModelPrefix}, but for untrusted caller input:
+ * a non-string or empty `model` (e.g. an LLM tool call's raw `input.model`)
+ * and unknown prefixes fall back to the provided provider instead of gemini.
+ * Prefixes must stay in sync with providerForImageModelPrefix.
+ */
+export function providerForModel(
+  model: unknown,
+  fallback: ImageGenProvider,
+): ImageGenProvider {
+  if (typeof model !== "string" || !model) {
+    return fallback;
+  }
+  if (model.startsWith("gpt-") || model.startsWith("dall-e-")) {
+    return "openai";
+  }
+  if (model.startsWith("gemini-")) {
+    return "gemini";
+  }
+  return fallback;
 }
 
 /**
@@ -74,7 +95,9 @@ export function isImageProviderBillingError(args: {
   status?: number;
   message?: string;
 }): boolean {
-  if (args.status === 402) return true;
+  if (args.status === 402) {
+    return true;
+  }
   const message = args.message ?? "";
   return BILLING_MESSAGE_PATTERNS.some((pattern) => pattern.test(message));
 }

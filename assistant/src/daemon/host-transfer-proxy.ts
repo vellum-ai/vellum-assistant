@@ -52,7 +52,9 @@ interface TransferEntry {
  * This gives 120s minimum, plus ~1s per MB + 30s buffer for larger files.
  */
 function computeTimeoutMs(sizeBytes?: number): number {
-  if (sizeBytes == null) return 120_000;
+  if (sizeBytes == null) {
+    return 120_000;
+  }
   const sizeBased = (sizeBytes / (1024 * 1024)) * 1000 + 30_000;
   return Math.max(120_000, sizeBased);
 }
@@ -181,7 +183,9 @@ export class HostTransferProxy {
         targetClientId: resolvedTargetClientId,
         op: "host_transfer",
       });
-      if (rejection != null) return Promise.resolve(rejection);
+      if (rejection != null) {
+        return Promise.resolve(rejection);
+      }
     }
 
     const requestId = uuid();
@@ -383,7 +387,9 @@ export class HostTransferProxy {
         targetClientId: resolvedTargetClientId,
         op: "host_transfer",
       });
-      if (rejection != null) return Promise.resolve(rejection);
+      if (rejection != null) {
+        return Promise.resolve(rejection);
+      }
     }
 
     const requestId = uuid();
@@ -514,7 +520,9 @@ export class HostTransferProxy {
       return;
     }
     const transferId = interaction.metadata?.transferId as string | undefined;
-    if (transferId) this.transfers.delete(transferId);
+    if (transferId) {
+      this.transfers.delete(transferId);
+    }
 
     if (result.isError) {
       interaction.rpcResolve({
@@ -582,7 +590,9 @@ export class HostTransferProxy {
     transferId: string,
   ): { sizeBytes: number; sha256: string } | null {
     const meta = this.justConsumedMetadata.get(transferId);
-    if (!meta) return null;
+    if (!meta) {
+      return null;
+    }
     this.justConsumedMetadata.delete(transferId);
     return meta;
   }
@@ -659,9 +669,13 @@ export class HostTransferProxy {
   /** Cancel a pending transfer by requestId. */
   cancel(requestId: string): void {
     const interaction = pendingInteractions.get(requestId);
-    if (!interaction) return;
+    if (!interaction) {
+      return;
+    }
     const transferId = interaction.metadata?.transferId as string | undefined;
-    if (transferId) this.transfers.delete(transferId);
+    if (transferId) {
+      this.transfers.delete(transferId);
+    }
     pendingInteractions.resolve(requestId, "cancelled");
     const { conversationId } = interaction;
     try {
@@ -720,7 +734,9 @@ export class HostTransferProxy {
   dispose(): void {
     for (const entry of pendingInteractions.getByKind("host_transfer")) {
       const transferId = entry.metadata?.transferId as string | undefined;
-      if (transferId) this.transfers.delete(transferId);
+      if (transferId) {
+        this.transfers.delete(transferId);
+      }
       pendingInteractions.resolve(entry.requestId, "cancelled");
       const { conversationId } = entry;
       try {

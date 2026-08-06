@@ -39,6 +39,10 @@ mock.module("../../../../oauth/connection-resolver.js", () => ({
 }));
 mock.module("../../../../oauth/oauth-store.js", () => ({
   isProviderConnected: async () => false,
+  // A stored connection row exists so resolveSlackAuth's OAuth-path guard
+  // passes through to the resolveOAuthConnection stub above (bot-token cases
+  // return before this is consulted).
+  getConnectionByProvider: () => ({ id: "conn-oauth" }),
 }));
 
 // Stub contact DB access so the adapter doesn't touch SQLite during the test.
@@ -146,7 +150,9 @@ describe("Slack adapter token routing", () => {
     });
     getSecureKeyAsyncMock.mockReset();
     getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
-      if (key === credentialKey("slack_channel", "bot_token")) return BOT_TOKEN;
+      if (key === credentialKey("slack_channel", "bot_token")) {
+        return BOT_TOKEN;
+      }
       return null;
     });
     installFetchStub();
@@ -183,9 +189,12 @@ describe("Slack adapter token routing", () => {
     // adapter can see channels the user is in but the bot isn't. Writes
     // MUST stay on the bot token so posts come from the bot identity.
     getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
-      if (key === credentialKey("slack_channel", "bot_token")) return BOT_TOKEN;
-      if (key === credentialKey("slack_channel", "user_token"))
+      if (key === credentialKey("slack_channel", "bot_token")) {
+        return BOT_TOKEN;
+      }
+      if (key === credentialKey("slack_channel", "user_token")) {
         return USER_TOKEN;
+      }
       return null;
     });
 
@@ -231,9 +240,12 @@ describe("Slack adapter token routing", () => {
     // with the bot token and reset the read cache so subsequent reads in the
     // same session don't re-hit the failure path.
     getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
-      if (key === credentialKey("slack_channel", "bot_token")) return BOT_TOKEN;
-      if (key === credentialKey("slack_channel", "user_token"))
+      if (key === credentialKey("slack_channel", "bot_token")) {
+        return BOT_TOKEN;
+      }
+      if (key === credentialKey("slack_channel", "user_token")) {
         return USER_TOKEN;
+      }
       return null;
     });
 
@@ -303,8 +315,9 @@ describe("Slack adapter token routing", () => {
     // documents current behavior — user-token-only without an OAuth
     // connection is not a supported install configuration.
     getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
-      if (key === credentialKey("slack_channel", "user_token"))
+      if (key === credentialKey("slack_channel", "user_token")) {
         return USER_TOKEN;
+      }
       return null;
     });
 

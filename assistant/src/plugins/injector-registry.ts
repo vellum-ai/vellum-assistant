@@ -58,7 +58,9 @@ export function registerPluginInjectors(
     }
     seenInContribution.add(injector.name);
     for (const [owner, existing] of injectorsByPlugin) {
-      if (owner === pluginName) continue;
+      if (owner === pluginName) {
+        continue;
+      }
       if (existing.some((e) => e.name === injector.name)) {
         throw new Error(
           `Injector "${injector.name}" contributed by plugin "${pluginName}" is already registered by plugin "${owner}"`,
@@ -106,7 +108,9 @@ export function getRegisteredInjectors(): Injector[] {
   if (cachedChain === null) {
     const pairs: Array<{ plugin: string; injector: Injector }> = [];
     for (const [plugin, injectors] of injectorsByPlugin) {
-      for (const injector of injectors) pairs.push({ plugin, injector });
+      for (const injector of injectors) {
+        pairs.push({ plugin, injector });
+      }
     }
     pairs.sort((a, b) => a.injector.order - b.injector.order);
     cachedChain = pairs;

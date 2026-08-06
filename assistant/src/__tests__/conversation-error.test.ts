@@ -15,6 +15,7 @@ import {
   isUserCancellation,
 } from "../daemon/conversation-error.js";
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
+import { normalizeOpenAIAPIError } from "../providers/openai/api-error-normalization.js";
 import {
   type AbortReasonKind,
   createAbortReason,
@@ -168,6 +169,112 @@ describe("classifyConversationError", () => {
       expect(result.code).toBe("PROVIDER_RATE_LIMIT");
       expect(result.userMessage).toContain("AI provider");
       expect(result.errorCategory).toBe("rate_limit");
+    });
+
+    it("uses the ChatGPT OAuth route instead of the OpenAI registry default", () => {
+      providerRoutingSources.openai = "managed-proxy";
+      const err = new ProviderError(
+        "OpenAI API error (429): Too many requests",
+        "openai",
+        429,
+        { reason: "rate_limited" },
+      );
+
+      const result = classifyConversationError(err, {
+        ...baseCtx,
+        connectionName: "chatgpt-subscription",
+        isManagedRoute: false,
+      });
+
+      expect(result.code).toBe("PROVIDER_RATE_LIMIT");
+      expect(result.userMessage).toContain("AI provider");
+      expect(result.errorCategory).toBe("rate_limit");
+    });
+
+    it("prefers the failed call's direct route over stale managed turn attribution", () => {
+      providerRoutingSources.openai = "managed-proxy";
+      const err = new ProviderError(
+        "OpenAI API error (429): Too many requests",
+        "openai",
+        429,
+        { reason: "rate_limited" },
+      );
+      err.attachRouteAttribution({
+        connectionName: "chatgpt-subscription",
+        profileName: "chatgpt",
+        isManagedRoute: false,
+      });
+
+      const result = classifyConversationError(err, {
+        ...baseCtx,
+        connectionName: "vellum",
+        profileName: "managed",
+        isManagedRoute: true,
+      });
+
+      expect(result.code).toBe("PROVIDER_RATE_LIMIT");
+      expect(result.userMessage).toContain("AI provider");
+      expect(result.errorCategory).toBe("rate_limit");
+    });
+
+    it("prefers the failed call's managed fallback over stale direct turn attribution", () => {
+      const err = new ProviderError(
+        "Anthropic API error (429): Too many requests",
+        "anthropic",
+        429,
+        { reason: "rate_limited" },
+      );
+      err.attachRouteAttribution({
+        profileName: "direct",
+        isManagedRoute: true,
+      });
+
+      const result = classifyConversationError(err, {
+        ...baseCtx,
+        connectionName: "anthropic-key",
+        profileName: "direct",
+        isManagedRoute: false,
+      });
+
+      expect(result.code).toBe("MANAGED_USAGE_LIMIT");
+      expect(result.userMessage).toContain("Vellum managed inference");
+      expect(result.errorCategory).toBe("managed_usage_limit");
+    });
+
+    it("does not apply a managed LLM route to a plain rate-limit error", () => {
+      const result = classifyConversationError(
+        new Error("429 Too Many Requests from a tool API"),
+        {
+          ...baseCtx,
+          isManagedRoute: true,
+        },
+      );
+
+      expect(result.code).toBe("PROVIDER_RATE_LIMIT");
+      expect(result.errorCategory).toBe("rate_limit");
+    });
+
+    it("falls back to context for fields the failed call's route omits", () => {
+      const err = new ProviderError("Unauthorized", "anthropic", 401);
+      err.attachRouteAttribution({ profileName: "direct" });
+
+      const result = classifyConversationError(err, {
+        ...baseCtx,
+        connectionName: "anthropic-key",
+      });
+
+      expect(result.connectionName).toBe("anthropic-key");
+      expect(result.profileName).toBe("direct");
+    });
+
+    it("still recognizes a rewrapped Vellum quota body", () => {
+      const result = classifyConversationError(
+        new Error('429 {"code":"daily_quota_exceeded"}'),
+        baseCtx,
+      );
+
+      expect(result.code).toBe("MANAGED_USAGE_LIMIT");
+      expect(result.errorCategory).toBe("managed_usage_limit");
     });
   });
 
@@ -376,6 +483,42 @@ describe("classifyConversationError", () => {
       expect(result.code).toBe("IMAGE_TOO_LARGE");
       expect(result.errorCategory).toBe("image_dimensions_too_large");
       expect(result.retryable).toBe(false);
+    });
+
+    it("classifies Anthropic 400 media-type mismatch as image_media_type_mismatch (non-retryable)", () => {
+      // The rejection for an image whose declared media type disagrees with
+      // its bytes (e.g. a JPEG renamed to .png before upload). It must route
+      // to the image-recovery classification so the relabel path fires, not
+      // loop through the generic PROVIDER_API branch.
+      const err = new ProviderError(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"messages.50.content.0.image.source.base64.data: Image does not match the provided media type image/png"},"request_id":"req_011Ccs00000000000000000"}',
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("IMAGE_TOO_LARGE");
+      expect(result.errorCategory).toBe("image_media_type_mismatch");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).not.toContain("invalid_request_error");
+      expect(result.userMessage.toLowerCase()).toContain("image");
+    });
+
+    it("classifies Anthropic 400 'Could not process image' as image_unprocessable (non-retryable)", () => {
+      // The rejection Anthropic returns for images below its minimum size
+      // floor (e.g. a 16×14 px upload). It must route to the image-recovery
+      // classification with a friendly message, not surface the raw JSON body
+      // through the generic PROVIDER_API branch.
+      const err = new ProviderError(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"Could not process image"},"request_id":"req_011CcsLvPnYo5Xnvhs5edSS2"}',
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("IMAGE_TOO_LARGE");
+      expect(result.errorCategory).toBe("image_unprocessable");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).not.toContain("invalid_request_error");
+      expect(result.userMessage.toLowerCase()).toContain("image");
     });
 
     it("does not steal generic 400s that happen to mention 'image'", () => {
@@ -634,6 +777,9 @@ describe("classifyConversationError", () => {
       expect(result.code).toBe("PROVIDER_INVALID_KEY");
       expect(result.retryable).toBe(false);
       expect(result.errorCategory).toBe("provider_invalid_key");
+      expect(result.userMessage).toBe(
+        "Your personal Anthropic API key was rejected by Anthropic. Update that key in Settings → Models & Services.",
+      );
     });
 
     it("classifies managed-proxy auth failures as managed credential refresh failures", () => {
@@ -648,10 +794,28 @@ describe("classifyConversationError", () => {
 
       expect(result.code).toBe("MANAGED_KEY_INVALID");
       expect(result.userMessage).toBe(
-        "Couldn't refresh assistant credentials.",
+        "Vellum's managed inference credential was rejected. This isn't a personal provider API key — Vellum provisions this one, so there's nothing to update in Settings.",
       );
       expect(result.retryable).toBe(false);
       expect(result.errorCategory).toBe("managed_key_invalid");
+    });
+
+    it("keeps credential-shaped 4xx failures on the request's managed route", () => {
+      providerRoutingSources.anthropic = "user-key";
+      const err = new ProviderError(
+        "Authentication error: invalid API key",
+        "anthropic",
+        400,
+      );
+      err.attachRouteAttribution({ credentialSource: "vellum-managed" });
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("MANAGED_KEY_INVALID");
+      expect(result.errorCategory).toBe("managed_key_invalid");
+      expect(result.userMessage).toBe(
+        "Vellum's managed inference credential was rejected. This isn't a personal provider API key — Vellum provisions this one, so there's nothing to update in Settings.",
+      );
     });
 
     it("classifies ProviderError 401 with 'invalid x-api-key' message as PROVIDER_INVALID_KEY", () => {
@@ -671,6 +835,8 @@ describe("classifyConversationError", () => {
       const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_INVALID_KEY");
       expect(result.errorCategory).toBe("provider_invalid_key");
+      expect(result.userMessage).toContain("personal OpenAI API key");
+      expect(result.userMessage).toContain("rejected by OpenAI");
     });
 
     it("includes connection/profile attribution in PROVIDER_INVALID_KEY when provided", () => {
@@ -683,7 +849,84 @@ describe("classifyConversationError", () => {
       expect(result.code).toBe("PROVIDER_INVALID_KEY");
       expect(result.connectionName).toBe("my-anthropic");
       expect(result.profileName).toBe("personal");
-      expect(result.userMessage).toContain("personal");
+      expect(result.userMessage).toBe(
+        'Your personal Anthropic API key for profile "personal" (connection "my-anthropic") was rejected by Anthropic. Update that key in Settings → Models & Services.',
+      );
+    });
+
+    it("uses the request's BYOK attribution when the same provider also has a managed route", () => {
+      providerRoutingSources.anthropic = "managed-proxy";
+      const err = new ProviderError("Unauthorized", "anthropic", 401);
+      err.attachRouteAttribution({
+        credentialSource: "byok",
+        connectionName: "anthropic-personal",
+      });
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_INVALID_KEY");
+      expect(result.connectionName).toBe("anthropic-personal");
+      expect(result.userMessage).toBe(
+        'Your personal Anthropic API key for connection "anthropic-personal" was rejected by Anthropic. Update that key in Settings → Models & Services.',
+      );
+    });
+
+    it("uses the request's managed attribution when the same provider also has a BYOK route", () => {
+      providerRoutingSources.anthropic = "user-key";
+      const err = new ProviderError("Unauthorized", "anthropic", 401);
+      err.attachRouteAttribution({
+        credentialSource: "vellum-managed",
+        connectionName: "vellum",
+      });
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("MANAGED_KEY_INVALID");
+      expect(result.userMessage).toBe(
+        "Vellum's managed inference credential was rejected. This isn't a personal provider API key — Vellum provisions this one, so there's nothing to update in Settings.",
+      );
+    });
+
+    it("uses subscription-specific recovery when the same provider also has a managed route", () => {
+      providerRoutingSources.openai = "managed-proxy";
+      const err = new ProviderError("Unauthorized", "openai", 401, {
+        reason: "invalid_credentials",
+      });
+      err.attachRouteAttribution({
+        credentialSource: "oauth-subscription",
+        connectionName: "chatgpt-subscription",
+      });
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("provider_subscription_auth");
+      expect(result.retryable).toBe(false);
+      expect(result.connectionName).toBe("chatgpt-subscription");
+      expect(result.userMessage).toBe(
+        'Your OpenAI subscription login for connection "chatgpt-subscription" was rejected by OpenAI. Reconnect that account in Settings → Models & Services.',
+      );
+    });
+
+    it("explains when a no-auth endpoint rejects an unauthenticated request", () => {
+      providerRoutingSources["openai-compatible"] = "managed-proxy";
+      const err = new ProviderError("Unauthorized", "openai-compatible", 401, {
+        reason: "invalid_credentials",
+      });
+      err.attachRouteAttribution({
+        credentialSource: "no-auth",
+        connectionName: "local-model-server",
+      });
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("provider_endpoint_auth_required");
+      expect(result.retryable).toBe(false);
+      expect(result.connectionName).toBe("local-model-server");
+      expect(result.userMessage).toBe(
+        'The OpenAI-compatible endpoint for connection "local-model-server" requires authentication, but that connection is configured without credentials. Configure authentication for that endpoint in Settings → Models & Services.',
+      );
     });
 
     it("classifies direct ProviderError with 402 as provider_billing (non-retryable)", () => {
@@ -751,8 +994,9 @@ describe("classifyConversationError", () => {
       expect(result.code).toBe("PROVIDER_BILLING");
       expect(result.errorCategory).toBe("credits_exhausted");
       expect(result.retryable).toBe(false);
-      expect(result.userMessage).toContain("Add funds");
-      expect(result.userMessage).toContain("assistant");
+      expect(result.userMessage).toBe(
+        "You're out of credits. Add credits in Settings → Billing to continue.",
+      );
     });
 
     it("classifies direct Anthropic, OpenAI, and OpenRouter 402 responses as provider_billing", () => {
@@ -794,6 +1038,36 @@ describe("classifyConversationError", () => {
       }
     });
 
+    it("classifies OpenRouter 403 spend-cap ('Key limit exceeded') as provider_billing, not invalid key", () => {
+      providerRoutingSources.openrouter = "user-key";
+      // Derive the reason the way the provider does — run the raw 403 body
+      // through normalizeOpenAIAPIError — so this exercises the deriveReason
+      // spend-cap regex end to end rather than asserting a hardcoded reason. A
+      // reason-less 403 would otherwise short-circuit to the invalid-key path.
+      const normalized = normalizeOpenAIAPIError(
+        {
+          status: 403,
+          message: "403 status code",
+          headers: new Headers(),
+        } as unknown as Parameters<typeof normalizeOpenAIAPIError>[0],
+        '{"error":{"code":403,"message":"Key limit exceeded"}}',
+      );
+      expect(normalized.reason).toBe("insufficient_credits");
+
+      const err = new ProviderError(
+        "OpenRouter API error (403): Key limit exceeded",
+        "openrouter",
+        403,
+        { reason: normalized.reason },
+      );
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("provider_billing");
+      expect(result.retryable).toBe(false);
+      expect(result.code).not.toBe("PROVIDER_INVALID_KEY");
+    });
+
     it("classifies managed-proxy OpenRouter insufficient_balance bodies as credits_exhausted", () => {
       providerRoutingSources.openrouter = "managed-proxy";
       const err = new ProviderError(
@@ -824,6 +1098,231 @@ describe("classifyConversationError", () => {
       expect(result.retryable).toBe(false);
       expect(result.userMessage).toContain("provider");
       expect(result.userMessage).toContain("Settings");
+    });
+  });
+
+  describe("reason-driven classification (ProviderError.reason)", () => {
+    it("classifies reason=model_restricted on the skew-safe PROVIDER_API code with a specific errorCategory", () => {
+      const err = new ProviderError(
+        "Vercel AI Gateway API error (403): Model claude-opus-4 is restricted on your plan [type=no_providers_available]",
+        "vercel-ai-gateway",
+        403,
+        { reason: "model_restricted" },
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      // Rides the existing PROVIDER_API code so version-skewed clients still
+      // parse the event; the specific signal is on the free-form errorCategory.
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("provider_model_restricted");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain(
+        "Model claude-opus-4 is restricted on your plan",
+      );
+      expect(result.userMessage).toContain("upgrade your plan");
+    });
+
+    it("falls back to the plan sentence without detail when none is extractable", () => {
+      const err = new ProviderError(
+        "Vercel AI Gateway API error (403): [type=no_providers_available]",
+        "vercel-ai-gateway",
+        403,
+        { reason: "model_restricted" },
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("provider_model_restricted");
+      expect(result.userMessage).toContain(
+        "This model isn't available on your current provider plan. Switch",
+      );
+    });
+
+    it("routes reason=invalid_credentials to MANAGED_KEY_INVALID under managed-proxy", () => {
+      providerRoutingSources["vercel-ai-gateway"] = "managed-proxy";
+      const err = new ProviderError(
+        "Vercel AI Gateway API error (401): unauthorized",
+        "vercel-ai-gateway",
+        401,
+        { reason: "invalid_credentials" },
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("MANAGED_KEY_INVALID");
+      expect(result.errorCategory).toBe("managed_key_invalid");
+      expect(result.retryable).toBe(false);
+    });
+
+    it("routes reason=invalid_credentials to PROVIDER_INVALID_KEY under a user key", () => {
+      providerRoutingSources.openai = "user-key";
+      const err = new ProviderError(
+        "OpenAI API error (401): invalid api key",
+        "openai",
+        401,
+        { reason: "invalid_credentials" },
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_INVALID_KEY");
+      expect(result.errorCategory).toBe("provider_invalid_key");
+    });
+
+    it("overlays reason=rate_limited both ways (managed vs user)", () => {
+      providerRoutingSources.openrouter = "managed-proxy";
+      const managed = classifyConversationError(
+        new ProviderError("rate limited", "openrouter", 429, {
+          reason: "rate_limited",
+        }),
+        baseCtx,
+      );
+      expect(managed.code).toBe("MANAGED_USAGE_LIMIT");
+      expect(managed.errorCategory).toBe("managed_usage_limit");
+
+      providerRoutingSources.openai = "user-key";
+      const user = classifyConversationError(
+        new ProviderError("rate limited", "openai", 429, {
+          reason: "rate_limited",
+        }),
+        baseCtx,
+      );
+      expect(user.code).toBe("PROVIDER_RATE_LIMIT");
+      expect(user.errorCategory).toBe("rate_limit");
+    });
+
+    it("classifies reason=rate_limited managed quota bodies as MANAGED_USAGE_LIMIT even without a managed routing source", () => {
+      // Per-connection platform auth path leaves routingSource unset, so the
+      // managed quota body pattern must still win over PROVIDER_RATE_LIMIT.
+      providerRoutingSources.openai = "user-key";
+      const result = classifyConversationError(
+        new ProviderError('{"code":"daily_quota_exceeded"}', "openai", 429, {
+          reason: "rate_limited",
+        }),
+        baseCtx,
+      );
+      expect(result.code).toBe("MANAGED_USAGE_LIMIT");
+      expect(result.errorCategory).toBe("managed_usage_limit");
+    });
+
+    it("defers reason=bad_request to the existing status/regex fallback", () => {
+      const err = new ProviderError(
+        "context_length_exceeded: your prompt is too long",
+        "openai",
+        400,
+        { reason: "bad_request" },
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      // Falls through to the 4xx context-too-large branch, unchanged.
+      expect(result.code).toBe("CONTEXT_TOO_LARGE");
+      expect(result.errorCategory).toBe("context_too_large");
+    });
+
+    it("routes reason=daily_limit_reached to PROVIDER_BILLING/daily_limit_reached under managed-proxy", () => {
+      providerRoutingSources["vercel-ai-gateway"] = "managed-proxy";
+      const err = new ProviderError(
+        'Vercel AI Gateway API error (402): {"code":"daily_limit_reached","detail":"Daily credit limit reached"}',
+        "vercel-ai-gateway",
+        402,
+        { reason: "daily_limit_reached" },
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("daily_limit_reached");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain("daily credit limit");
+      expect(result.userMessage).toContain("Billing settings");
+    });
+
+    it("classifies reason=daily_limit_reached as daily_limit_reached even when the routing map says user-key", () => {
+      // Per-connection platform-auth routes can leave the global routing map
+      // at user-key; the stamped reason comes only from the platform proxy's
+      // body code, so it must win regardless of the map.
+      providerRoutingSources.openai = "user-key";
+      const err = new ProviderError(
+        'OpenAI API error (402): {"code":"daily_limit_reached","detail":"Daily credit limit reached"}',
+        "openai",
+        402,
+        { reason: "daily_limit_reached" },
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("daily_limit_reached");
+      expect(result.retryable).toBe(false);
+    });
+
+    it("keeps a plain managed-proxy 402 without the daily-limit code as credits_exhausted", () => {
+      providerRoutingSources.openrouter = "managed-proxy";
+      const err = new ProviderError(
+        "OpenRouter API error (402): Payment Required",
+        "openrouter",
+        402,
+        { reason: "insufficient_credits" },
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("credits_exhausted");
+      expect(result.retryable).toBe(false);
+    });
+
+    it("honors a stamped reason on a statusless ProviderError (no HTTP status)", () => {
+      // SDK streaming failures throw with statusCode undefined but can still
+      // carry a reason; it must classify semantically, not fall to the fallback.
+      const err = new ProviderError("stream failed", "openai", undefined, {
+        reason: "insufficient_credits",
+      });
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("provider_billing");
+    });
+
+    it("keeps reason-less ProviderErrors on the legacy status path", () => {
+      const err = new ProviderError("Unauthorized", "anthropic", 401);
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_INVALID_KEY");
+      expect(result.errorCategory).toBe("provider_invalid_key");
+    });
+  });
+
+  describe("reason-less fallback stays functional", () => {
+    it("classifies a reason-less network Error via the regex battery", () => {
+      const result = classifyConversationError(
+        new Error("ECONNREFUSED"),
+        baseCtx,
+      );
+      expect(result.code).toBe("PROVIDER_NETWORK");
+      expect(result.errorCategory).toBe("provider_network");
+    });
+
+    it("classifies a reason-less ProviderError 500 via the status switch", () => {
+      const err = new ProviderError("Internal server error", "openai", 500);
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("provider_server_error");
+    });
+
+    it("yields the same classification for a stamped reason and its reason-less twin", () => {
+      const withReason = classifyConversationError(
+        new ProviderError("boom", "openai", 500, { reason: "server_error" }),
+        baseCtx,
+      );
+      const withoutReason = classifyConversationError(
+        new ProviderError("boom", "openai", 500),
+        baseCtx,
+      );
+      expect(withReason.code).toBe(withoutReason.code);
+      expect(withReason.errorCategory).toBe(withoutReason.errorCategory);
+      expect(withReason.userMessage).toBe(withoutReason.userMessage);
     });
   });
 
@@ -875,7 +1374,6 @@ describe("classifyConversationError", () => {
       "subagent_aborted",
       "signal_cancel",
       "voice_session_aborted",
-      "work_item_aborted",
     ];
 
     for (const kind of taggedKinds) {
@@ -1058,7 +1556,7 @@ describe("ConnectionResolutionError classification", () => {
     expect(result.profileName).toBe("custom-fast");
   });
 
-  it("classifies missing_connection with an add-a-key fix and no sentinel name", () => {
+  it("classifies missing_connection offering inline recovery and no sentinel name", () => {
     const err = new ConnectionResolutionError(
       "<llm.default>",
       "missing_connection",
@@ -1068,7 +1566,10 @@ describe("ConnectionResolutionError classification", () => {
     expect(result.userMessage).toContain(
       "No provider connection is configured",
     );
-    expect(result.userMessage).toContain("Add an API key or log in");
+    // The user is locked out of chat here, so the copy must offer recovery in
+    // the conversation itself, not only a settings detour.
+    expect(result.userMessage).toContain("Ask me to set one up right here");
+    expect(result.userMessage).toContain("Settings → Models & Services");
     expect(result.userMessage).not.toContain("<llm.default>");
     expect(result.connectionName).toBeUndefined();
   });
@@ -1096,6 +1597,47 @@ describe("ConnectionResolutionError classification", () => {
     expect(err.cause).toBe(cause);
     const result = classifyConversationError(err, errCtx);
     expect(result.userMessage).toContain("Restart the assistant");
+  });
+
+  it("classifies missing_credential naming the connection and fix", () => {
+    const err = new ConnectionResolutionError(
+      "anthropic-personal",
+      "missing_credential",
+      "no key",
+      { profileName: "custom-fast" },
+    );
+    const result = classifyConversationError(err, errCtx);
+    expect(result.code).toBe("PROVIDER_NOT_CONFIGURED");
+    expect(result.userMessage).toContain('"anthropic-personal"');
+    expect(result.userMessage).toContain("no stored credential");
+    expect(result.userMessage).toContain('profile "custom-fast"');
+  });
+
+  it("classifies platform_unauthenticated with a log-in fix on a non-platform install", () => {
+    const err = new ConnectionResolutionError(
+      "vellum",
+      "platform_unauthenticated",
+      "not logged in",
+    );
+    const result = classifyConversationError(err, errCtx);
+    expect(result.userMessage).toContain("platform login");
+    expect(result.userMessage).toContain("Log in");
+  });
+
+  it("classifies platform_unauthenticated as a re-provision hint on a platform-managed assistant", () => {
+    const err = new ConnectionResolutionError(
+      "vellum",
+      "platform_unauthenticated",
+      "unavailable",
+    );
+    process.env.IS_PLATFORM = "true";
+    try {
+      const result = classifyConversationError(err, errCtx);
+      expect(result.userMessage).toContain("re-provisioned");
+      expect(result.userMessage).not.toContain("Log in");
+    } finally {
+      delete process.env.IS_PLATFORM;
+    }
   });
 
   it("is a structured VellumError (ConfigError) for logging/monitoring", () => {

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 
+import { resolveMessageContentBlocks } from "../persistence/message-content-file.js";
 import type { RuntimeAttachmentMetadata } from "../runtime/http-types.js";
 
 type DeliveryCall = {
@@ -104,16 +105,26 @@ mock.module("../persistence/conversation-crud.js", () => ({
   }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
-  getMessages: () => conversationMessages,
+  getMessages: () =>
+    conversationMessages.map((m) => ({
+      ...m,
+      content: resolveMessageContentBlocks(m.content),
+    })),
   getMessagesAfter: (
     _conversationId: string,
     afterMessageId: string | null,
   ) => {
-    if (!afterMessageId) return conversationMessages;
-    const index = conversationMessages.findIndex(
+    const resolved = conversationMessages.map((m) => ({
+      ...m,
+      content: resolveMessageContentBlocks(m.content),
+    }));
+    if (!afterMessageId) {
+      return resolved;
+    }
+    const index = resolved.findIndex(
       (message) => message.id === afterMessageId,
     );
-    return index === -1 ? [] : conversationMessages.slice(index + 1);
+    return index === -1 ? [] : resolved.slice(index + 1);
   },
   getMessageById: (messageId: string) =>
     conversationMessages.find((m) => m.id === messageId) ?? null,
@@ -123,7 +134,9 @@ mock.module("../persistence/conversation-crud.js", () => ({
   ) => {
     updateMessageMetadataCalls.push({ messageId, updates });
     const row = conversationMessages.find((m) => m.id === messageId);
-    if (!row) return;
+    if (!row) {
+      return;
+    }
     const existing =
       row.metadata && typeof row.metadata === "string"
         ? (JSON.parse(row.metadata) as Record<string, unknown>)

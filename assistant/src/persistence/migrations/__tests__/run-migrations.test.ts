@@ -346,6 +346,161 @@ describe("runMigrationSteps — checkpointing", () => {
     expect(result.skipped).toEqual([]);
   });
 
+  test("defers a step whose dependency failed this boot, without checkpointing it", async () => {
+    /**
+     * A step must not run against the missing state a failed prerequisite was
+     * supposed to create. It is deferred — not run, not checkpointed — and
+     * reported in `deferred` so readiness gating can surface it.
+     */
+
+    // GIVEN a failing creator step and a dependent step
+    const calls = { creator: 0, dependent: 0 };
+    const steps: MigrationStep[] = [
+      {
+        name: "creatorStep",
+        run: () => {
+          calls.creator++;
+          throw new Error("creator failed");
+        },
+      },
+      {
+        name: "dependentStep",
+        dependsOn: ["creatorStep"],
+        run: () => {
+          calls.dependent++;
+        },
+      },
+    ];
+    const db = createTestDb();
+
+    // WHEN the runner executes
+    const result = await runMigrationSteps(db, steps);
+
+    // THEN the dependent step never ran and is reported deferred
+    expect(calls.dependent).toBe(0);
+    expect(result.failed).toEqual(["creatorStep"]);
+    expect(result.deferred).toEqual(["dependentStep"]);
+
+    // AND nothing was written to the ledger for the deferred step —
+    // no 'started' marker and no applied checkpoint
+    const rows = getSqliteFrom(db)
+      .query(
+        `SELECT 1 FROM memory_checkpoints WHERE key = 'step:dependentStep'`,
+      )
+      .all();
+    expect(rows).toEqual([]);
+  });
+
+  test("a deferred step runs on the next boot once its dependency succeeds", async () => {
+    /**
+     * Deferral is a retry mechanism, not a permanent skip: once the
+     * prerequisite is applied on a later boot, the deferred step runs.
+     */
+
+    // GIVEN a creator that fails on its first run and a dependent step
+    const calls = { creator: 0, dependent: 0 };
+    const steps: MigrationStep[] = [
+      {
+        name: "creatorStep",
+        run: () => {
+          calls.creator++;
+          if (calls.creator === 1) {
+            throw new Error("transient failure");
+          }
+        },
+      },
+      {
+        name: "dependentStep",
+        dependsOn: ["creatorStep"],
+        run: () => {
+          calls.dependent++;
+        },
+      },
+    ];
+    const db = createTestDb();
+
+    // WHEN the first boot defers the dependent step
+    const first = await runMigrationSteps(db, steps);
+    expect(first.deferred).toEqual(["dependentStep"]);
+
+    // AND the next boot retries
+    const second = await runMigrationSteps(db, steps);
+
+    // THEN both steps run and nothing is deferred or failed
+    expect(calls).toEqual({ creator: 2, dependent: 1 });
+    expect(second.applied).toEqual(["creatorStep", "dependentStep"]);
+    expect(second.deferred).toEqual([]);
+    expect(second.failed).toEqual([]);
+  });
+
+  test("a step depending on an earlier same-boot step runs without deferral", async () => {
+    /**
+     * The runner adds each success to the in-memory applied set, so a
+     * dependency satisfied earlier in the same boot does not defer the
+     * dependent step — creator and dependent can ship in one release.
+     */
+
+    // GIVEN a creator and a dependent, both pending
+    const order: string[] = [];
+    const steps: MigrationStep[] = [
+      {
+        name: "creatorStep",
+        run: () => {
+          order.push("creator");
+        },
+      },
+      {
+        name: "dependentStep",
+        dependsOn: ["creatorStep"],
+        run: () => {
+          order.push("dependent");
+        },
+      },
+    ];
+    const db = createTestDb();
+
+    // WHEN the runner executes both in one boot
+    const result = await runMigrationSteps(db, steps);
+
+    // THEN they run in order with no deferral
+    expect(order).toEqual(["creator", "dependent"]);
+    expect(result.applied).toEqual(["creatorStep", "dependentStep"]);
+    expect(result.deferred).toEqual([]);
+  });
+
+  test("a step whose dependency is already checkpointed runs normally", async () => {
+    /**
+     * A dependency applied on a prior boot satisfies dependsOn through the
+     * checkpoint ledger, so the dependent step runs even though the creator
+     * was skipped this boot.
+     */
+
+    // GIVEN a database where the creator step was applied on a prior boot
+    const creator: MigrationStep = {
+      name: "creatorStep",
+      run: () => {
+        // no-op
+      },
+    };
+    const db = createTestDb();
+    await runMigrationSteps(db, [creator]);
+
+    // WHEN a dependent step ships in a later release
+    const dependent: MigrationStep = {
+      name: "dependentStep",
+      dependsOn: ["creatorStep"],
+      run: () => {
+        // no-op
+      },
+    };
+    const result = await runMigrationSteps(db, [creator, dependent]);
+
+    // THEN the dependent step runs while the creator is skipped
+    expect(result.skipped).toEqual(["creatorStep"]);
+    expect(result.applied).toEqual(["dependentStep"]);
+    expect(result.deferred).toEqual([]);
+  });
+
   test("writes 'started' marker before running each step", async () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);

@@ -15,6 +15,7 @@ import {
   userMessage,
 } from "../../providers/provider-send-message.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Request / response shapes ─────────────────────────────────────────
@@ -29,24 +30,10 @@ interface DirectoryScopeOption {
   label: string;
 }
 
-interface SuggestTrustRuleRequest {
-  tool: string;
-  command: string;
-  riskAssessment: {
-    risk: string;
-    reasoning: string;
-    reasonDescription: string;
-  };
-  scopeOptions: ScopeOption[];
-  directoryScopeOptions?: DirectoryScopeOption[];
-  currentThreshold: string;
-  intent: "auto_approve" | "escalate";
-  existingRule?: {
-    id: string;
-    pattern: string;
-    risk: string;
-  };
-}
+// The request shape is derived from the Zod schema (`RequestSchema`, declared
+// as the route's `requestBody`) so the wire contract and the handler's type
+// stay a single source of truth.
+type SuggestTrustRuleRequest = z.infer<typeof RequestSchema>;
 
 interface SuggestTrustRuleResponse {
   pattern: string;
@@ -173,7 +160,7 @@ function buildUserMessage(req: SuggestTrustRuleRequest): string {
 async function handleSuggestTrustRule({
   body = {},
 }: RouteHandlerArgs): Promise<SuggestTrustRuleResponse> {
-  const req = body as unknown as SuggestTrustRuleRequest;
+  const req = parseBody(RequestSchema, body);
 
   const provider = await getConfiguredProvider("trustRuleSuggestion");
   if (!provider) {

@@ -1,4 +1,10 @@
-import { CalendarPlus, ExternalLink, Loader2, Plus, Trash2 } from "lucide-react";
+import {
+  CalendarPlus,
+  ExternalLink,
+  Loader2,
+  Plus,
+  Trash2,
+} from "lucide-react";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import type { OAuthConnectPreset } from "@/domains/settings/oauth-scope-presets";
@@ -120,7 +126,13 @@ export function ManagedTab({
               <Button
                 variant="dangerOutline"
                 size="compact"
-                iconOnly={isDisconnecting ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                iconOnly={
+                  isDisconnecting ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <Trash2 />
+                  )
+                }
                 onClick={() => onDisconnect(connection)}
                 disabled={isDisconnecting}
                 aria-label={`Disconnect ${connection.account_label ?? `${displayName} account`}`}

@@ -34,11 +34,15 @@ import {
   resolve,
 } from "node:path";
 
+import { resolveConversationLineage } from "../daemon/conversation-lineage.js";
 import { rawAll } from "../persistence/raw-query.js";
+import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { EditEngineResult } from "../tools/shared/filesystem/edit-engine.js";
 import { applyEdit } from "../tools/shared/filesystem/edit-engine.js";
 import { getLogger } from "../util/logger.js";
-import { getDataDir } from "../util/platform.js";
+import { getDataDir, getWorkspacePluginsDir } from "../util/platform.js";
+
+const log = getLogger("app-store");
 
 export interface AppDefinition {
   id: string;
@@ -53,34 +57,60 @@ export interface AppDefinition {
   pages?: Record<string, string>;
   createdAt: number;
   updatedAt: number;
-  /** App format version. undefined or 1 = legacy single-HTML, 2 = multi-file TSX. */
+  /** App format version; 2 = multi-file TSX (the only supported format). */
   formatVersion?: number;
   /** Filesystem directory/file stem. Frozen at creation -- never changes on rename. */
   dirName?: string;
   /** Conversation IDs that have interacted with this app (create/open/refresh). */
   conversationIds?: string[];
+  /**
+   * The subset of {@link conversationIds} the app reached only by lineage —
+   * ancestors of the conversation that actually interacted with it. Absent
+   * means every association is direct.
+   */
+  inheritedConversationIds?: string[];
 }
 
 /**
- * Returns true if the app uses the multi-file TSX format (formatVersion 2).
+ * Fallback body served for apps in the retired single-file HTML format.
+ * These apps have no compilable `src/`, so there is nothing to build or serve.
  */
-export function isMultifileApp(app: AppDefinition): boolean {
-  return app.formatVersion === 2;
+export const UNSUPPORTED_LEGACY_APP_HTML = `<p>This app uses the retired single-file format and can no longer be opened. Ask the assistant to recreate it.</p>`;
+
+/**
+ * Detect an app directory in the retired single-file HTML format: a root
+ * `index.html` with no `src/` to compile. Used to serve a clear message
+ * instead of a misleading "compilation failed" fallback.
+ */
+export function isLegacySingleFileDir(sourceDir: string): boolean {
+  return (
+    !existsSync(join(sourceDir, "src")) &&
+    existsSync(join(sourceDir, "index.html"))
+  );
 }
 
 /**
- * Resolve the effective HTML for an app. For single-file apps this is
- * `htmlDefinition` (the root index.html). For multifile apps it reads the
- * compiled `dist/index.html` and inlines JS/CSS assets so the result is a
+ * Resolve the effective HTML for an app by reading the compiled
+ * `dist/index.html` and inlining JS/CSS assets so the result is a
  * self-contained HTML string suitable for `loadHTMLString`.
  */
 export function resolveEffectiveAppHtml(app: AppDefinition): string {
-  if (!isMultifileApp(app)) return app.htmlDefinition;
+  return resolveEffectiveAppHtmlFromDir(getAppDirPath(app.id));
+}
 
-  const appDir = getAppDirPath(app.id);
-  const distIndex = join(appDir, "dist", "index.html");
+/**
+ * Resolve the effective, self-contained HTML for an app given its source
+ * directory, without needing a loaded {@link AppDefinition}. Used to render
+ * apps addressed by path (e.g. plugin-bundled apps). Serves the compiled
+ * dist/index.html with JS/CSS inlined.
+ */
+export function resolveEffectiveAppHtmlFromDir(sourceDir: string): string {
+  const distIndex = join(sourceDir, "dist", "index.html");
   if (existsSync(distIndex)) {
-    return inlineDistAssets(appDir, readFileSync(distIndex, "utf-8"));
+    return inlineDistAssets(sourceDir, readFileSync(distIndex, "utf-8"));
+  }
+  if (isLegacySingleFileDir(sourceDir)) {
+    return UNSUPPORTED_LEGACY_APP_HTML;
   }
   return `<p>App compilation failed. Edit a source file to trigger a rebuild.</p>`;
 }
@@ -226,7 +256,9 @@ export function generateAppDirName(
   existingNames: Set<string>,
 ): string {
   const base = slugify(name);
-  if (!existingNames.has(base)) return base;
+  if (!existingNames.has(base)) {
+    return base;
+  }
   let counter = 2;
   while (existingNames.has(`${base}-${counter}`)) {
     counter++;
@@ -263,7 +295,9 @@ export function resolveAppDir(id: string): {
   const entries = readdirSync(dir);
 
   for (const entry of entries) {
-    if (!entry.endsWith(".json")) continue;
+    if (!entry.endsWith(".json")) {
+      continue;
+    }
     const filePath = join(dir, entry);
     try {
       const raw = readFileSync(filePath, "utf-8");
@@ -297,7 +331,9 @@ export function getAppDirPath(appId: string): string {
  */
 export function resolveAppIdByDirName(dirName: string): string | null {
   const cached = dirNameToIdCache.get(dirName);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
 
   // Check forward cache (reverse iteration)
   for (const [id, dn] of idToDirNameCache) {
@@ -338,11 +374,15 @@ export function resolveAppIdFromPath(filePath: string): string | null {
   } catch {
     return null;
   }
-  if (!filePath.startsWith(appsDir + "/")) return null;
+  if (!filePath.startsWith(appsDir + "/")) {
+    return null;
+  }
 
   const relPath = filePath.slice(appsDir.length + 1);
   const slashIdx = relPath.indexOf("/");
-  if (slashIdx === -1) return null; // file directly in apps/ (e.g. the .json definition)
+  if (slashIdx === -1) {
+    return null;
+  } // file directly in apps/ (e.g. the .json definition)
 
   const dirName = relPath.slice(0, slashIdx);
   const innerPath = relPath.slice(slashIdx + 1);
@@ -360,7 +400,9 @@ function invalidateDirNameCache(appId?: string): void {
   if (appId) {
     const dirName = idToDirNameCache.get(appId);
     idToDirNameCache.delete(appId);
-    if (dirName) dirNameToIdCache.delete(dirName);
+    if (dirName) {
+      dirNameToIdCache.delete(dirName);
+    }
   } else {
     idToDirNameCache.clear();
     dirNameToIdCache.clear();
@@ -377,6 +419,16 @@ function invalidateDirNameCache(appId?: string): void {
  * Returns the resolved absolute path.
  */
 function validateFilePath(appId: string, path: string): string {
+  return validateFilePathInDir(getAppDirPath(appId), path);
+}
+
+/**
+ * Validate a relative file path within a known app directory (absolute path).
+ * Prevents path traversal and access to protected directories. Used when the
+ * app directory is already resolved (e.g. plugin-bundled apps addressed by
+ * path rather than by a workspace app id).
+ */
+function validateFilePathInDir(appDir: string, path: string): string {
   if (!path || path.trim() === "") {
     throw new Error(`Invalid file path: path is empty`);
   }
@@ -391,7 +443,6 @@ function validateFilePath(appId: string, path: string): string {
   if (normalized === "records" || normalized.startsWith("records/")) {
     throw new Error(`Invalid file path: 'records/' directory is protected`);
   }
-  const appDir = getAppDirPath(appId);
   const resolved = resolve(appDir, path);
   // Ensure the resolved path is still within the app directory
   if (!resolved.startsWith(appDir + "/") && resolved !== appDir) {
@@ -453,9 +504,13 @@ function savePages(appDirPath: string, pages: Record<string, string>): void {
 /** Load pages from disk. Returns undefined if no pages directory exists. */
 function loadPages(appDirPath: string): Record<string, string> | undefined {
   const pagesDir = join(appDirPath, "pages");
-  if (!existsSync(pagesDir)) return undefined;
+  if (!existsSync(pagesDir)) {
+    return undefined;
+  }
   const entries = readdirSync(pagesDir);
-  if (entries.length === 0) return undefined;
+  if (entries.length === 0) {
+    return undefined;
+  }
   const pages: Record<string, string> = {};
   for (const entry of entries) {
     pages[entry] = readFileSync(join(pagesDir, entry), "utf-8");
@@ -473,7 +528,9 @@ function collectExistingDirNames(): Set<string> {
   const entries = readdirSync(dir);
   const names = new Set<string>();
   for (const entry of entries) {
-    if (!entry.endsWith(".json")) continue;
+    if (!entry.endsWith(".json")) {
+      continue;
+    }
     try {
       const raw = readFileSync(join(dir, entry), "utf-8");
       const parsed = JSON.parse(raw) as { id?: string; dirName?: string };
@@ -499,7 +556,6 @@ export function createApp(params: {
   htmlDefinition: string;
   version?: string;
   pages?: Record<string, string>;
-  formatVersion?: number;
 }): AppDefinition {
   const dir = getAppsDir();
   const now = Date.now();
@@ -519,7 +575,7 @@ export function createApp(params: {
     version: params.version,
     createdAt: now,
     updatedAt: now,
-    formatVersion: params.formatVersion,
+    formatVersion: 2,
     dirName,
   };
 
@@ -564,7 +620,9 @@ export function getApp(id: string): AppDefinition | null {
   const { dirName, appDir } = resolveAppDir(id);
   const dir = getAppsDir();
   const filePath = join(dir, `${dirName}.json`);
-  if (!existsSync(filePath)) return null;
+  if (!existsSync(filePath)) {
+    return null;
+  }
   const raw = readFileSync(filePath, "utf-8");
   const app = JSON.parse(raw) as AppDefinition;
 
@@ -609,7 +667,9 @@ export function listApps(): AppDefinition[] {
   const entries = readdirSync(dir);
   const apps: AppDefinition[] = [];
   for (const entry of entries) {
-    if (!entry.endsWith(".json")) continue;
+    if (!entry.endsWith(".json")) {
+      continue;
+    }
     const filePath = join(dir, entry);
     try {
       const raw = readFileSync(filePath, "utf-8");
@@ -622,6 +682,250 @@ export function listApps(): AppDefinition[] {
   }
   apps.sort((a, b) => b.updatedAt - a.updatedAt);
   return apps;
+}
+
+// ---------------------------------------------------------------------------
+// Cross-source enumeration (workspace + plugin-bundled apps)
+// ---------------------------------------------------------------------------
+
+/**
+ * Where an app is provided from. Workspace apps are user-created and live under
+ * `<workspace>/data/apps/`; plugin apps are bundled by an installed plugin
+ * under `<workspace>/plugins/<name>/apps/`.
+ */
+export type AppOrigin =
+  | { readonly kind: "workspace" }
+  | { readonly kind: "plugin"; readonly pluginName: string };
+
+/**
+ * Id prefix marking a plugin-bundled app. A plugin app's id encodes its
+ * location: `plugins~<pluginName>~<appDir>`, which maps to
+ * `<workspace>/plugins/<pluginName>/apps/<appDir>` (the `apps/` segment is
+ * implied). Unlike workspace apps — whose id is an opaque UUID looked up by
+ * scanning — a plugin app is resolved by a direct path build.
+ *
+ * The delimiter is `~` (a URL-unreserved character), not `/`, so the id is a
+ * single URL path segment: it survives `:id` route params and proxies without
+ * percent-encoding (`%2F` in a path is widely mishandled).
+ */
+const PLUGIN_APP_ID_PREFIX = "plugins~";
+const PLUGIN_APP_ID_SEP = "~";
+
+/** Build the addressable id for a plugin-bundled app. */
+function pluginAppId(pluginName: string, appDir: string): string {
+  return `${PLUGIN_APP_ID_PREFIX}${pluginName}${PLUGIN_APP_ID_SEP}${appDir}`;
+}
+
+/** True when an app id addresses a plugin-bundled app (vs a workspace app). */
+export function isPluginAppId(id: string): boolean {
+  return id.startsWith(PLUGIN_APP_ID_PREFIX);
+}
+
+/** An app paired with the absolute path to its source and its origin. */
+export interface EnumeratedApp {
+  /**
+   * Addressable app id: an opaque UUID for workspace apps, or
+   * `plugins~<name>~<app>` for plugin-bundled apps.
+   */
+  readonly id: string;
+  /** Human-readable app name. */
+  readonly name: string;
+  /** Absolute path to the app's source directory. */
+  readonly sourcePath: string;
+  /** Where the app is provided from. */
+  readonly origin: AppOrigin;
+}
+
+/**
+ * Enumerate apps bundled under a single plugin's `apps/` directory. Each
+ * immediate subdirectory is one app: its directory name is the app name and
+ * its path is the source.
+ */
+function listAppsForPlugin(
+  pluginName: string,
+  pluginDir: string,
+): EnumeratedApp[] {
+  const appsDir = join(pluginDir, "apps");
+  let entries: string[];
+  try {
+    entries = readdirSync(appsDir);
+  } catch {
+    // No apps/ directory (or unreadable) — this plugin bundles no apps.
+    return [];
+  }
+  const apps: EnumeratedApp[] = [];
+  for (const entry of entries) {
+    const appDir = join(appsDir, entry);
+    try {
+      // statSync follows symlinks so a symlinked app directory still counts.
+      if (!statSync(appDir).isDirectory()) {
+        continue;
+      }
+    } catch {
+      continue;
+    }
+    apps.push({
+      id: pluginAppId(pluginName, entry),
+      name: entry,
+      sourcePath: appDir,
+      origin: { kind: "plugin", pluginName },
+    });
+  }
+  return apps;
+}
+
+/**
+ * Enumerate apps bundled by installed, enabled plugins under
+ * `<workspace>/plugins/<name>/apps/`.
+ *
+ * Plugin discovery mirrors the plugin loader's `scanPlugins`: a plugin is an
+ * entry that resolves to a directory (following symlinks) and carries a
+ * `package.json` manifest. Stray directories without a manifest are ignored,
+ * and disabled plugins (those with a `.disabled` sentinel) contribute nothing,
+ * matching how their other surfaces (tools, hooks, routes) are gated.
+ */
+export function listPluginApps(): EnumeratedApp[] {
+  const pluginsRoot = getWorkspacePluginsDir();
+  if (!existsSync(pluginsRoot)) {
+    return [];
+  }
+  let entries: string[];
+  try {
+    entries = readdirSync(pluginsRoot);
+  } catch {
+    return [];
+  }
+  const apps: EnumeratedApp[] = [];
+  for (const name of entries) {
+    const pluginDir = join(pluginsRoot, name);
+    try {
+      if (!statSync(pluginDir).isDirectory()) {
+        continue;
+      }
+    } catch {
+      continue;
+    }
+    if (!existsSync(join(pluginDir, "package.json"))) {
+      continue;
+    }
+    if (isPluginDisabled(name)) {
+      continue;
+    }
+    apps.push(...listAppsForPlugin(name, pluginDir));
+  }
+  return apps;
+}
+
+/**
+ * Enumerate every app the assistant can surface, tagged with its origin:
+ * workspace apps (user-created) followed by apps bundled by installed plugins.
+ */
+export function listAllApps(): EnumeratedApp[] {
+  const workspaceApps: EnumeratedApp[] = listApps().map((definition) => ({
+    id: definition.id,
+    name: definition.name,
+    sourcePath: getAppDirPath(definition.id),
+    origin: { kind: "workspace" as const },
+  }));
+  return [...workspaceApps, ...listPluginApps()];
+}
+
+/** An app id resolved to its on-disk source and metadata. */
+export interface ResolvedAppSource {
+  /** The id that was resolved (echoed back for the caller). */
+  readonly id: string;
+  /** Human-readable app name. */
+  readonly name: string;
+  /** Filesystem directory stem — the workspace slug or the plugin app dir. */
+  readonly dirName: string;
+  /** Absolute path to the app's source directory. */
+  readonly sourceDir: string;
+  /** Where the app is provided from. */
+  readonly origin: AppOrigin;
+}
+
+/**
+ * Validate a single plugin-app id path segment (plugin name or app directory).
+ * Rejects empty, traversal, separators, and untrimmed values so an id can be
+ * mapped to a filesystem path without escaping the plugins root.
+ */
+function isSafeIdSegment(segment: string): boolean {
+  return (
+    segment.length > 0 &&
+    segment === segment.trim() &&
+    !segment.includes("/") &&
+    !segment.includes("\\") &&
+    !segment.includes("..") &&
+    segment !== "."
+  );
+}
+
+/**
+ * Resolve an app id to its on-disk source, for both workspace apps (opaque
+ * UUID, looked up via {@link getApp}) and plugin-bundled apps
+ * (`plugins~<name>~<app>`, resolved by direct path build). Returns null when
+ * the app does not exist, or when a plugin id fails the same installed-plugin
+ * gates as discovery (directory, `package.json` manifest, not disabled).
+ */
+export function resolveAppSource(id: string): ResolvedAppSource | null {
+  if (id.startsWith(PLUGIN_APP_ID_PREFIX)) {
+    const rest = id.slice(PLUGIN_APP_ID_PREFIX.length);
+    // Split on the first delimiter: the plugin name is kebab-case (no `~`), so
+    // everything after it is the app directory (which may itself contain `~`).
+    const sep = rest.indexOf(PLUGIN_APP_ID_SEP);
+    if (sep === -1) {
+      return null;
+    }
+    const pluginName = rest.slice(0, sep);
+    const appDirName = rest.slice(sep + PLUGIN_APP_ID_SEP.length);
+    // Both must be safe single path components — the app segment, used as a
+    // directory name, must not smuggle in separators or traversal.
+    if (!isSafeIdSegment(pluginName) || !isSafeIdSegment(appDirName)) {
+      return null;
+    }
+    const pluginDir = join(getWorkspacePluginsDir(), pluginName);
+    try {
+      if (!statSync(pluginDir).isDirectory()) {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+    if (!existsSync(join(pluginDir, "package.json"))) {
+      return null;
+    }
+    if (isPluginDisabled(pluginName)) {
+      return null;
+    }
+    const sourceDir = join(pluginDir, "apps", appDirName);
+    try {
+      if (!statSync(sourceDir).isDirectory()) {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+    return {
+      id,
+      name: appDirName,
+      dirName: appDirName,
+      sourceDir,
+      origin: { kind: "plugin", pluginName },
+    };
+  }
+
+  const app = getApp(id);
+  if (!app) {
+    return null;
+  }
+  const { dirName } = resolveAppDir(id);
+  return {
+    id,
+    name: app.name,
+    dirName,
+    sourceDir: getAppDirPath(id),
+    origin: { kind: "workspace" },
+  };
 }
 
 export function updateApp(
@@ -642,7 +946,9 @@ export function updateApp(
 ): AppDefinition {
   validateId(id);
   const existing = getApp(id);
-  if (!existing) throw new Error(`App not found: ${id}`);
+  if (!existing) {
+    throw new Error(`App not found: ${id}`);
+  }
 
   const { dirName, appDir } = resolveAppDir(id);
 
@@ -723,7 +1029,9 @@ export function createAppRecord(
 ): AppRecord {
   validateId(appId);
   const app = getApp(appId);
-  if (!app) throw new Error(`App not found: ${appId}`);
+  if (!app) {
+    throw new Error(`App not found: ${appId}`);
+  }
   const recordsDir = join(getAppDirPath(appId), "records");
   mkdirSync(recordsDir, { recursive: true });
   const now = Date.now();
@@ -748,7 +1056,9 @@ export function getAppRecord(
   validateId(appId);
   validateId(recordId);
   const filePath = join(getAppDirPath(appId), "records", `${recordId}.json`);
-  if (!existsSync(filePath)) return null;
+  if (!existsSync(filePath)) {
+    return null;
+  }
   const raw = readFileSync(filePath, "utf-8");
   return JSON.parse(raw) as AppRecord;
 }
@@ -756,11 +1066,15 @@ export function getAppRecord(
 export function queryAppRecords(appId: string): AppRecord[] {
   validateId(appId);
   const recordsDir = join(getAppDirPath(appId), "records");
-  if (!existsSync(recordsDir)) return [];
+  if (!existsSync(recordsDir)) {
+    return [];
+  }
   const entries = readdirSync(recordsDir);
   const records: AppRecord[] = [];
   for (const entry of entries) {
-    if (!entry.endsWith(".json")) continue;
+    if (!entry.endsWith(".json")) {
+      continue;
+    }
     try {
       const raw = readFileSync(join(recordsDir, entry), "utf-8");
       records.push(JSON.parse(raw) as AppRecord);
@@ -779,7 +1093,9 @@ export function updateAppRecord(
   validateId(appId);
   validateId(recordId);
   const existing = getAppRecord(appId, recordId);
-  if (!existing) throw new Error(`AppRecord not found: ${appId}/${recordId}`);
+  if (!existing) {
+    throw new Error(`AppRecord not found: ${appId}/${recordId}`);
+  }
   const updated: AppRecord = {
     ...existing,
     data,
@@ -813,7 +1129,9 @@ export function deleteAppRecord(appId: string, recordId: string): void {
 export function listAppFiles(appId: string): string[] {
   validateId(appId);
   const appDir = getAppDirPath(appId);
-  if (!existsSync(appDir)) return [];
+  if (!existsSync(appDir)) {
+    return [];
+  }
 
   const results: string[] = [];
 
@@ -824,10 +1142,13 @@ export function listAppFiles(appId: string): string[] {
       const relPath = relative(appDir, fullPath);
       // Skip records/ directory
       const normalized = relPath.replace(/\\/g, "/");
-      if (normalized === "records" || normalized.startsWith("records/"))
+      if (normalized === "records" || normalized.startsWith("records/")) {
         continue;
+      }
       // Skip app.json
-      if (normalized === "app.json") continue;
+      if (normalized === "app.json") {
+        continue;
+      }
 
       const stat = statSync(fullPath);
       if (stat.isDirectory()) {
@@ -863,6 +1184,38 @@ export function readAppFile(appId: string, path: string): string {
     throw new Error(`File not found: ${path}`);
   }
   return readFileSync(resolved, "utf-8");
+}
+
+/**
+ * Read a file from the app directory as raw bytes.
+ * Path is validated to prevent traversal. Use for binary assets (images,
+ * audio, video, fonts) where {@link readAppFile}'s utf-8 decoding corrupts
+ * the data.
+ */
+export function readAppFileBytes(appId: string, path: string): Buffer {
+  validateId(appId);
+  const resolved = validateFilePath(appId, path);
+  if (!existsSync(resolved)) {
+    throw new Error(`File not found: ${path}`);
+  }
+  return readFileSync(resolved);
+}
+
+/**
+ * Read a file as raw bytes from an app directory addressed by its absolute
+ * path (rather than by a workspace app id). Path is validated to prevent
+ * traversal. Used to serve assets for plugin-bundled apps, whose source dir is
+ * resolved via {@link resolveAppSource}.
+ */
+export function readAppFileBytesFromDir(
+  sourceDir: string,
+  path: string,
+): Buffer {
+  const resolved = validateFilePathInDir(sourceDir, path);
+  if (!existsSync(resolved)) {
+    throw new Error(`File not found: ${path}`);
+  }
+  return readFileSync(resolved);
 }
 
 /**
@@ -913,15 +1266,22 @@ export function editAppFile(
  * Associate a conversation with an app. Writes directly to the JSON metadata
  * file without bumping `updatedAt` so the app list ordering is preserved.
  *
+ * `inherited` marks an association the app reached through a descendant's
+ * lineage rather than through work done in the conversation itself. A direct
+ * association supersedes an inherited one for the same conversation.
+ *
  * @returns `true` if the association was added, `false` if the app was not
  *   found or the conversationId was already present (dedup).
  */
 export function addAppConversationId(
   appId: string,
   conversationId: string,
+  options?: { inherited?: boolean },
 ): boolean {
   const app = getApp(appId);
-  if (!app) return false;
+  if (!app) {
+    return false;
+  }
 
   const { dirName } = resolveAppDir(appId);
   const dir = getAppsDir();
@@ -938,17 +1298,83 @@ export function addAppConversationId(
   const onDiskIds = Array.isArray(parsed.conversationIds)
     ? (parsed.conversationIds as string[])
     : [];
+  // An absent list means the record holds only direct associations.
+  const onDiskInherited = Array.isArray(parsed.inheritedConversationIds)
+    ? (parsed.inheritedConversationIds as string[])
+    : [];
+  const inherited = options?.inherited === true;
 
-  if (onDiskIds.includes(conversationId)) return false;
+  if (onDiskIds.includes(conversationId)) {
+    if (inherited || !onDiskInherited.includes(conversationId)) {
+      return false;
+    }
+    parsed.inheritedConversationIds = onDiskInherited.filter(
+      (id) => id !== conversationId,
+    );
+    writeFileSync(jsonPath, JSON.stringify(parsed, null, 2));
+    return false;
+  }
 
   parsed.conversationIds = [...onDiskIds, conversationId];
+  if (inherited) {
+    parsed.inheritedConversationIds = [...onDiskInherited, conversationId];
+  }
   writeFileSync(jsonPath, JSON.stringify(parsed, null, 2));
 
   return true;
 }
 
 /**
- * Return all apps associated with a given conversation ID.
+ * Associate an app with the conversation that produced it and every subagent
+ * ancestor above it. A background subagent (e.g. the live-voice duplex
+ * continuation) runs in a forked conversation the user never sees, so linking
+ * only the fork leaves the app unopenable from the thread the user actually
+ * has in front of them. Associations are additive and de-duplicated, so
+ * linking the whole chain is safe.
+ *
+ * The seed conversation's association is direct; every ancestor's is
+ * inherited, so an implicit "the app I am working on" lookup in an ancestor
+ * thread is not captured by a background run's app.
+ *
+ * Best-effort per id: a link failure must never break app creation or opening.
+ * Returns the number of associations added.
+ */
+export function linkAppToConversationLineage(
+  appId: string,
+  conversationId: string,
+): number {
+  // Lineage resolution reaches the conversation store; an unexpected throw
+  // there degrades to the conversation itself rather than breaking the link.
+  let lineage: string[];
+  try {
+    lineage = resolveConversationLineage(conversationId);
+  } catch (err) {
+    log.warn(
+      { err, appId, conversationId },
+      "Failed to resolve conversation lineage for app association",
+    );
+    lineage = [conversationId];
+  }
+  let associationsAdded = 0;
+  for (const [index, id] of lineage.entries()) {
+    try {
+      if (addAppConversationId(appId, id, { inherited: index > 0 })) {
+        associationsAdded += 1;
+      }
+    } catch (err) {
+      log.warn(
+        { err, appId, conversationId: id },
+        "Failed to associate app with conversation",
+      );
+    }
+  }
+  return associationsAdded;
+}
+
+/**
+ * Return all apps associated with a given conversation ID, whether the
+ * association is direct or inherited from a descendant subagent run — a user
+ * finds and opens a background run's app from the thread they can see.
  */
 export function listAppsByConversation(
   conversationId: string,
@@ -956,6 +1382,19 @@ export function listAppsByConversation(
   return listApps().filter((app) =>
     app.conversationIds?.includes(conversationId),
   );
+}
+
+/**
+ * Whether an app's association with a conversation is direct — the app was
+ * created or operated on in that conversation itself, rather than reaching it
+ * through a descendant's lineage. A record carrying no
+ * `inheritedConversationIds` holds only direct associations.
+ */
+export function isDirectAppConversation(
+  app: AppDefinition,
+  conversationId: string,
+): boolean {
+  return app.inheritedConversationIds?.includes(conversationId) !== true;
 }
 
 // ---------------------------------------------------------------------------
@@ -975,8 +1414,6 @@ export function listAppsByConversation(
  * Wrapped in try/catch so failures never block daemon start.
  */
 export function backfillAppConversationIds(): void {
-  const log = getLogger("app-store");
-
   // Check sentinel — skip the potentially expensive scan when already done.
   const sentinelPath = join(getAppsDir(), ".conversation-ids-backfilled");
   if (existsSync(sentinelPath)) {
@@ -1002,7 +1439,9 @@ export function backfillAppConversationIds(): void {
         continue;
       }
 
-      if (!Array.isArray(parsed)) continue;
+      if (!Array.isArray(parsed)) {
+        continue;
+      }
 
       for (const block of parsed) {
         if (

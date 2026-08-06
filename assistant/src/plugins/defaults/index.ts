@@ -37,22 +37,20 @@ import { documentsInjectors } from "./documents/injectors.js";
 import documentsPkg from "./documents/package.json" with { type: "json" };
 import emptyResponsePostModelCall from "./empty-response/hooks/post-model-call.js";
 import emptyResponseStop from "./empty-response/hooks/stop.js";
+import emptyResponseUserPromptSubmit from "./empty-response/hooks/user-prompt-submit.js";
 import { resetEmptyResponseNudgeStoreForTests } from "./empty-response/nudge-state-store.js";
 import emptyResponsePkg from "./empty-response/package.json" with { type: "json" };
 import explorationDriftPostToolUse, {
   resetExplorationDriftStateForTests,
 } from "./exploration-drift/hooks/post-tool-use.js";
 import explorationDriftPkg from "./exploration-drift/package.json" with { type: "json" };
-import historyRepairPostModelCall from "./history-repair/hooks/post-model-call.js";
-import historyRepairStop from "./history-repair/hooks/stop.js";
-import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
-import historyRepairPkg from "./history-repair/package.json" with { type: "json" };
-import { resetRepairStateStoreForTests } from "./history-repair/repair-state-store.js";
 import imageFallbackConversationDeleted from "./image-fallback/hooks/conversation-deleted.js";
 import imageFallbackInit from "./image-fallback/hooks/init.js";
 import imageFallbackPostCompact from "./image-fallback/hooks/post-compact.js";
+import imageFallbackPostModelCall from "./image-fallback/hooks/post-model-call.js";
 import imageFallbackPostToolUse from "./image-fallback/hooks/post-tool-use.js";
 import imageFallbackShutdown from "./image-fallback/hooks/shutdown.js";
+import imageFallbackStop from "./image-fallback/hooks/stop.js";
 import imageFallbackUserPromptSubmit from "./image-fallback/hooks/user-prompt-submit.js";
 import imageFallbackPkg from "./image-fallback/package.json" with { type: "json" };
 import { resetCaptionCacheForTests } from "./image-fallback/src/caption-cache.js";
@@ -65,16 +63,14 @@ import maxTokensContinuePostModelCall from "./max-tokens-continue/hooks/post-mod
 import maxTokensContinueStop from "./max-tokens-continue/hooks/stop.js";
 import maxTokensContinuePkg from "./max-tokens-continue/package.json" with { type: "json" };
 import memoryConversationDeleted from "./memory/hooks/conversation-deleted.js";
+import memoryConversationsCleared from "./memory/hooks/conversations-cleared.js";
 import memoryInit from "./memory/hooks/init.js";
 import memoryPostCompact from "./memory/hooks/post-compact.js";
 import memoryShutdown from "./memory/hooks/shutdown.js";
 import memoryUserPromptSubmit from "./memory/hooks/user-prompt-submit.js";
 import { memoryInjectors } from "./memory/injectors.js";
 import memoryPkg from "./memory/package.json" with { type: "json" };
-import {
-  memoryV3Injector,
-  memoryV3SpotlightInjector,
-} from "./memory/v3/injector.js";
+import platformHostedPkg from "./platform-hosted/package.json" with { type: "json" };
 import { sessionInjectors } from "./session/injectors.js";
 import sessionPkg from "./session/package.json" with { type: "json" };
 import surfaceCompletionNudgePostModelCall from "./surface-completion-nudge/hooks/post-model-call.js";
@@ -106,12 +102,18 @@ import workspacePkg from "./workspace/package.json" with { type: "json" };
  * screenshot) nested in the tool result's `contentBlocks`; the `post-compact`
  * hook re-sweeps the rebuilt history after a mid-turn compaction, whose
  * retained images and persistence-restored tool results land after the
- * turn-start sweep. Fail-open with a placeholder when no vision profile is
- * configured or captioning fails. A read-through content-hash cache (in-memory
- * LRU over a plugin-owned SQLite file, opened by `init` in the plugin's
- * storage dir and closed by `shutdown`) avoids re-captioning the same image
- * across turns, compactions, and restarts; `conversation-deleted` removes the
- * deleted conversation's cache rows.
+ * turn-start sweep. The `post-model-call` hook backstops raw images that
+ * reach the provider anyway (messages joining an in-flight turn, catalog
+ * entries that call a model vision-capable when its serving endpoint rejects
+ * images): on a vision-not-supported rejection it captions the working
+ * history and retries, bounded to one pass per turn, with the `stop` hook
+ * clearing the recovery bound on a terminal stop. Fail-open with a
+ * placeholder when no vision profile is configured or captioning fails. A
+ * read-through content-hash cache (in-memory LRU over a plugin-owned SQLite
+ * file, opened by `init` in the plugin's storage dir and closed by
+ * `shutdown`) avoids re-captioning the same image across turns, compactions,
+ * and restarts; `conversation-deleted` removes the deleted conversation's
+ * cache rows.
  */
 export const defaultImageFallbackPlugin: Plugin = {
   manifest: {
@@ -124,6 +126,8 @@ export const defaultImageFallbackPlugin: Plugin = {
     "user-prompt-submit": imageFallbackUserPromptSubmit,
     "post-tool-use": imageFallbackPostToolUse,
     "post-compact": imageFallbackPostCompact,
+    "post-model-call": imageFallbackPostModelCall,
+    stop: imageFallbackStop,
     "conversation-deleted": imageFallbackConversationDeleted,
   },
 };
@@ -146,7 +150,12 @@ export const defaultCompactionPlugin: Plugin = {
  * `empty-response` — a `post-model-call` hook that re-queries the model when a
  * turn yields with no tool calls but came back empty (or as a provider
  * refusal); the `stop` hook clears the one-shot nudge bound on a terminal stop
- * so the next run nudges afresh.
+ * so the next run nudges afresh. The `user-prompt-submit` hook runs a turn-start
+ * sweep that drops previously-refused exchanges (marked by the persisted
+ * `REFUSAL_FALLBACK_TEXT`) from the working history, so a single refusal doesn't
+ * poison the conversation by re-sending the flagged prompt every turn. It is
+ * registered before `history-repair`, which normalizes any role-alternation
+ * artifact a dropped run leaves behind.
  */
 export const defaultEmptyResponsePlugin: Plugin = {
   manifest: {
@@ -154,6 +163,7 @@ export const defaultEmptyResponsePlugin: Plugin = {
     version: emptyResponsePkg.version,
   },
   hooks: {
+    "user-prompt-submit": emptyResponseUserPromptSubmit,
     "post-model-call": emptyResponsePostModelCall,
     stop: emptyResponseStop,
   },
@@ -168,14 +178,14 @@ export const defaultEmptyResponsePlugin: Plugin = {
  * the initial injection, and `post-compact` re-applies the injections onto
  * the compacted history after a mid-turn compaction; a `conversation-deleted`
  * hook fails the plugin's pending background jobs when a conversation is
- * deleted. It contributes its personal-memory
- * runtime injectors (PKB context/reminder and the memory-v2 static block, plus
- * the two memory-v3 injectors) to the global injector registry via the
- * `injectors` field; the registry unions them with the domain plugins'
- * injectors and sorts by `order` into the per-turn chain, and the v3 injectors
- * self-gate on `memory.v3.live`. Registered first among the default plugins so
- * later `user-prompt-submit` hooks (history repair, title) see the fully
- * memory-injected history.
+ * deleted. Its runtime injectors (PKB context/reminder, the memory-v2 static
+ * block, and the two memory-v3 injectors) reach the global injector registry
+ * through `memory/injectors.ts` — the plugin's single injector entry point, so
+ * the host stays off the tier directories; the registry unions them with the
+ * domain plugins' injectors and sorts by `order` into the per-turn chain, and
+ * the v3 injectors self-gate on `memory.v3.live`. Registered first among the
+ * default plugins so later `user-prompt-submit` hooks (history repair, title)
+ * see the fully memory-injected history.
  */
 export const defaultMemoryPlugin: Plugin = {
   manifest: {
@@ -188,8 +198,9 @@ export const defaultMemoryPlugin: Plugin = {
     "user-prompt-submit": memoryUserPromptSubmit,
     "post-compact": memoryPostCompact,
     "conversation-deleted": memoryConversationDeleted,
+    "conversations-cleared": memoryConversationsCleared,
   },
-  injectors: [...memoryInjectors, memoryV3Injector, memoryV3SpotlightInjector],
+  injectors: memoryInjectors,
 };
 
 /**
@@ -258,23 +269,15 @@ export const defaultSessionPlugin: Plugin = {
 };
 
 /**
- * `history-repair` — normalizes the working message history (tool-use/tool-result
- * pairing, role alternation). The `user-prompt-submit` hook normalizes the
- * history before each provider call; the `post-model-call` hook handles the
- * provider rejection where the call failed on an ordering violation,
- * deep-repairing the history and asking the loop to retry; the `stop` hook
- * clears the one-shot repair bound on a terminal stop so the next turn repairs
- * afresh.
+ * `platform-hosted` — contributes the platform-hosted `/reengage` route. It
+ * ships no hooks, tools, or injectors, so it registers as a manifest only;
+ * the route source is served once the assistant dispatches default-plugin
+ * routes.
  */
-export const defaultHistoryRepairPlugin: Plugin = {
+export const defaultPlatformHostedPlugin: Plugin = {
   manifest: {
-    name: historyRepairPkg.name,
-    version: historyRepairPkg.version,
-  },
-  hooks: {
-    "user-prompt-submit": historyRepairUserPromptSubmit,
-    "post-model-call": historyRepairPostModelCall,
-    stop: historyRepairStop,
+    name: platformHostedPkg.name,
+    version: platformHostedPkg.version,
   },
 };
 
@@ -353,7 +356,7 @@ export const defaultToolErrorPlugin: Plugin = {
  * file_list) with no user-facing text, or (on loop-prone models such as Kimi
  * K2.6 and MiniMax M3) the model re-issuing a byte-identical exploration call — and nudges
  * the model via `additionalContext` to summarize progress for the user and
- * delegate the remaining investigation to an `investigator` subagent rather
+ * delegate the remaining investigation to a `researcher` subagent rather
  * than continuing inline.
  */
 export const defaultExplorationDriftPlugin: Plugin = {
@@ -431,6 +434,7 @@ export function getAllDefaultPlugins(): readonly Plugin[] {
     defaultDocumentsPlugin,
     defaultChannelPlugin,
     defaultSessionPlugin,
+    defaultPlatformHostedPlugin,
     defaultImageFallbackPlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
@@ -439,7 +443,6 @@ export function getAllDefaultPlugins(): readonly Plugin[] {
     defaultExplorationDriftPlugin,
     defaultTaskProgressNudgePlugin,
     defaultSurfaceCompletionNudgePlugin,
-    defaultHistoryRepairPlugin,
     defaultImageRecoveryPlugin,
     defaultCompactionPlugin,
     defaultTitleGeneratePlugin,
@@ -505,7 +508,6 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   resetPluginRegistryForTests();
   resetEmptyResponseNudgeStoreForTests();
   resetMaxTokensContinueStoreForTests();
-  resetRepairStateStoreForTests();
   resetImageRecoveryStoreForTests();
   resetExplorationDriftStateForTests();
   resetTaskProgressNudgeStateForTests();

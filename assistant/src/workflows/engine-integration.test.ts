@@ -39,8 +39,6 @@
 
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../__tests__/helpers/mock-logger.js";
-
 // ---------------------------------------------------------------------------
 // Mocks — defined before importing the module under test.
 //
@@ -48,10 +46,6 @@ import { makeMockLogger } from "../__tests__/helpers/mock-logger.js";
 // other surface — sandbox, leaf runner, agent loop, journal store,
 // capabilities, config — is the real implementation.
 // ---------------------------------------------------------------------------
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 interface SendOptions {
   signal?: AbortSignal;
@@ -74,7 +68,9 @@ function lastUserPrompt(
 ): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
-    if (m?.role !== "user") continue;
+    if (m?.role !== "user") {
+      continue;
+    }
     return m.content
       .filter((b) => b.type === "text")
       .map((b) => b.text ?? "")

@@ -270,7 +270,7 @@ describe("ContactStore.markChannelVerified", () => {
     expect(result!.channel.verifiedVia).toBe("manual");
   });
 
-  test("upgrades a previously challenge-verified channel to manual", async () => {
+  test("refuses to demote a challenge-verified channel to manual (LUM-2505)", async () => {
     seedContact("c1");
     seedChannel({
       id: "ch1",
@@ -280,12 +280,33 @@ describe("ContactStore.markChannelVerified", () => {
       verifiedVia: "challenge",
     });
 
-    const before = Date.now();
+    // A `manual` attest (e.g. a roster "Link account") must not lower the
+    // stronger `challenge` proof on an active binding — the existing binding
+    // stands as an idempotent no-op.
     const result = await new ContactStore().markChannelVerified("ch1");
     expect(result).not.toBeNull();
+    expect(result!.didWrite).toBe(false);
+    expect(result!.channel.verifiedVia).toBe("challenge");
+    expect(result!.channel.verifiedAt).toBe(500);
+  });
+
+  test("applies an upgrade: manual -> challenge on an active channel", async () => {
+    seedContact("c1");
+    seedChannel({
+      id: "ch1",
+      contactId: "c1",
+      status: "active",
+      verifiedAt: 500,
+      verifiedVia: "manual",
+    });
+
+    const result = await new ContactStore().markChannelVerified(
+      "ch1",
+      "challenge",
+    );
+    expect(result).not.toBeNull();
     expect(result!.didWrite).toBe(true);
-    expect(result!.channel.verifiedVia).toBe("manual");
-    expect(result!.channel.verifiedAt!).toBeGreaterThanOrEqual(before);
+    expect(result!.channel.verifiedVia).toBe("challenge");
   });
 
   test("re-activates a non-active channel that previously had verifiedAt", async () => {
@@ -511,9 +532,7 @@ describe("ContactStore.markChannelVerified", () => {
 
     // Exactly one gateway channel row: the existing gateway row is verified in
     // place, keyed by (type,address).
-    expect(
-      getGatewayDb().select().from(contactChannels).all().length,
-    ).toBe(1);
+    expect(getGatewayDb().select().from(contactChannels).all().length).toBe(1);
   });
 
   test("legacy cross-contact: resolves the gateway row by (type,address) even under a different contact", async () => {
@@ -545,6 +564,75 @@ describe("ContactStore.markChannelVerified", () => {
     expect(result!.channel.contactId).toBe("gw-contact");
     expect(result!.channel.status).toBe("active");
     expect(result!.channel.verifiedVia).toBe("challenge");
+  });
+});
+
+describe("ContactStore.upsertContact binding-strength guard (LUM-2505)", () => {
+  test("does not demote an active challenge channel via a weaker verifiedVia upsert", async () => {
+    seedContact("c1", "contact");
+    seedChannel({
+      id: "ch1",
+      contactId: "c1",
+      status: "active",
+      verifiedAt: 500,
+      verifiedVia: "challenge",
+      address: "addr-ch1",
+    });
+
+    await new ContactStore().upsertContact({
+      id: "c1",
+      channels: [
+        {
+          type: "vellum",
+          address: "addr-ch1",
+          status: "active",
+          verifiedVia: "manual_channel_claim",
+          verifiedAt: 999,
+        },
+      ],
+    });
+
+    const row = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, "ch1"))
+      .get();
+    expect(row!.verifiedVia).toBe("challenge");
+    expect(row!.verifiedAt).toBe(500);
+    expect(row!.status).toBe("active");
+  });
+
+  test("applies an upgrade via upsert (manual_channel_claim -> challenge)", async () => {
+    seedContact("c1", "contact");
+    seedChannel({
+      id: "ch1",
+      contactId: "c1",
+      status: "active",
+      verifiedAt: 500,
+      verifiedVia: "manual_channel_claim",
+      address: "addr-ch1",
+    });
+
+    await new ContactStore().upsertContact({
+      id: "c1",
+      channels: [
+        {
+          type: "vellum",
+          address: "addr-ch1",
+          status: "active",
+          verifiedVia: "challenge",
+          verifiedAt: 999,
+        },
+      ],
+    });
+
+    const row = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, "ch1"))
+      .get();
+    expect(row!.verifiedVia).toBe("challenge");
+    expect(row!.verifiedAt).toBe(999);
   });
 });
 
@@ -588,9 +676,7 @@ describe("ContactStore.markChannelRevoked", () => {
 
     // Exactly one gateway channel row: the existing gateway row is revoked in
     // place, keyed by (type,address).
-    expect(
-      getGatewayDb().select().from(contactChannels).all().length,
-    ).toBe(1);
+    expect(getGatewayDb().select().from(contactChannels).all().length).toBe(1);
   });
 });
 

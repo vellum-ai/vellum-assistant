@@ -1,59 +1,11 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
 
 import { GATEWAY_PORT } from "./constants.js";
-import { resolveTunnelTargetPort } from "./nginx-ingress.js";
-
-// ── Workspace config helpers (mirrors the pattern in ngrok.ts) ───────────────
-
-function getDefaultWorkspaceDir(): string {
-  return (
-    process.env.VELLUM_WORKSPACE_DIR?.trim() ||
-    join(homedir(), ".vellum", "workspace")
-  );
-}
-
-function getConfigPath(workspaceDir: string): string {
-  return join(workspaceDir, "config.json");
-}
-
-function loadRawConfig(workspaceDir: string): Record<string, unknown> {
-  const configPath = getConfigPath(workspaceDir);
-  if (!existsSync(configPath)) return {};
-  return JSON.parse(readFileSync(configPath, "utf-8")) as Record<
-    string,
-    unknown
-  >;
-}
-
-function saveRawConfig(
-  workspaceDir: string,
-  config: Record<string, unknown>,
-): void {
-  const configPath = getConfigPath(workspaceDir);
-  const dir = dirname(configPath);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-}
-
-function saveIngressUrl(workspaceDir: string, publicUrl: string): void {
-  const config = loadRawConfig(workspaceDir);
-  const ingress = (config.ingress ?? {}) as Record<string, unknown>;
-  ingress.publicBaseUrl = publicUrl;
-  ingress.enabled = true;
-  config.ingress = ingress;
-  saveRawConfig(workspaceDir, config);
-}
-
-function clearIngressUrl(workspaceDir: string): void {
-  const config = loadRawConfig(workspaceDir);
-  const ingress = (config.ingress ?? {}) as Record<string, unknown>;
-  delete ingress.publicBaseUrl;
-  config.ingress = ingress;
-  saveRawConfig(workspaceDir, config);
-}
+import {
+  clearIngressUrl,
+  getDefaultWorkspaceDir,
+  saveIngressUrl,
+} from "./ingress-config.js";
 
 // ── Cloudflare Tunnel ─────────────────────────────────────────────────────────
 
@@ -163,7 +115,7 @@ export function waitForCloudflareTunnelUrl(
 /**
  * Run the cloudflared quick-tunnel workflow:
  * 1. Verify cloudflared is installed.
- * 2. Start a quick tunnel pointing at the gateway port.
+ * 2. Start a quick tunnel pointing at the local edge port.
  * 3. Parse the public URL from cloudflared output.
  * 4. Persist the URL to the workspace config as the ingress base URL.
  * 5. Block until the process exits or the user presses Ctrl+C.
@@ -172,12 +124,12 @@ export function waitForCloudflareTunnelUrl(
  * No Cloudflare account is required — quick tunnels are free and ephemeral.
  */
 export interface RunCloudflareTunnelOptions {
-  /** Gateway port to forward. Defaults to the global GATEWAY_PORT. */
+  /** Local edge port to forward. Defaults to the global GATEWAY_PORT. */
   port?: number;
   /** Workspace directory for config read/write. Defaults to ~/.vellum/workspace. */
   workspaceDir?: string;
-  /** Prefer nginx ingress over the gateway port when it is running. */
-  preferNginxIngress?: boolean;
+  /** Lockfile entry to mirror the ingress URL onto (`ingressUrl`). */
+  assistantId?: string;
 }
 
 export async function runCloudflareTunnel(
@@ -201,17 +153,7 @@ export async function runCloudflareTunnel(
   console.log(`Using ${version}`);
 
   const workspaceDir = opts.workspaceDir ?? getDefaultWorkspaceDir();
-  const gatewayPort = opts.port ?? GATEWAY_PORT;
-  const { port, viaIngress } = resolveTunnelTargetPort(
-    workspaceDir,
-    gatewayPort,
-    { preferNginxIngress: opts.preferNginxIngress === true },
-  );
-  if (viaIngress) {
-    console.log(
-      `nginx ingress detected — tunneling to it on 127.0.0.1:${port}.`,
-    );
-  }
+  const port = opts.port ?? GATEWAY_PORT;
 
   console.log(`Starting cloudflared quick tunnel to localhost:${port}...`);
   console.log("No Cloudflare account required — quick tunnels are free.");
@@ -224,7 +166,7 @@ export async function runCloudflareTunnel(
     if (!child.killed) child.kill("SIGTERM");
     if (publicUrl) {
       console.log("\nClearing ingress URL from config...");
-      clearIngressUrl(workspaceDir);
+      clearIngressUrl(workspaceDir, opts.assistantId);
     }
   };
 
@@ -246,7 +188,7 @@ export async function runCloudflareTunnel(
     // Always clear the saved ingress URL when the tunnel process ends so
     // webhook integrations don't keep hitting a dead endpoint.
     if (publicUrl !== undefined) {
-      clearIngressUrl(workspaceDir);
+      clearIngressUrl(workspaceDir, opts.assistantId);
     }
     if (code !== null && code !== 0) {
       console.error(`\ncloudflared exited with code ${code}.`);
@@ -277,7 +219,7 @@ export async function runCloudflareTunnel(
   console.log(`Forwarding to:     localhost:${port}`);
   console.log("");
 
-  saveIngressUrl(workspaceDir, publicUrl);
+  saveIngressUrl(workspaceDir, publicUrl, opts.assistantId);
   console.log("Ingress URL saved to config.");
   console.log("");
   console.log("Press Ctrl+C to stop the tunnel and clear the ingress URL.");

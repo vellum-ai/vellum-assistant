@@ -8,7 +8,9 @@ let mockRouterResult: unknown;
 let mockRouterError: Error | undefined;
 
 const generateAvatarFn = mock(async () => {
-  if (mockRouterError) throw mockRouterError;
+  if (mockRouterError) {
+    throw mockRouterError;
+  }
   return mockRouterResult;
 });
 
@@ -18,15 +20,6 @@ const generateAvatarFn = mock(async () => {
 
 mock.module("../media/avatar-router.js", () => ({
   generateAvatar: generateAvatarFn,
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    debug: () => {},
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
 }));
 
 // Import after mocking

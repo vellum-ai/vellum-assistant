@@ -52,6 +52,8 @@ describe("unknown command handling", () => {
   it("does not flag known commands when --help is passed", async () => {
     const program = await buildCliProgram();
     expect(detectUnknownCommand(program, ["status", "--help"])).toBeNull();
-    expect(detectUnknownCommand(program, ["config", "list", "--help"])).toBeNull();
+    expect(
+      detectUnknownCommand(program, ["config", "list", "--help"]),
+    ).toBeNull();
   });
 });

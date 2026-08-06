@@ -1,10 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-import { makeMockLogger } from "../__tests__/helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { initializeDb } from "../persistence/db-init.js";
 import { rawRun, resetTestTables } from "../persistence/raw-query.js";

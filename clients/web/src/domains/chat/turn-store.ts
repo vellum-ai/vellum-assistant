@@ -34,12 +34,7 @@ export type TurnPhase =
   | "errored";
 
 export type TerminalReason =
-  | "complete"
-  | "error"
-  | "cancelled"
-  | "timeout"
-  | "session_error"
-  | null;
+  "complete" | "error" | "cancelled" | "timeout" | "session_error" | null;
 
 export interface TurnState {
   phase: TurnPhase;
@@ -126,6 +121,8 @@ export interface ToolActivityMetadataEvent {
 export interface ActivityStateThinking {
   type: "ACTIVITY_STATE_THINKING";
   statusText?: string;
+  /** Mirrors `onActivityThinking`'s `canStartFromIdle` option. */
+  canStartFromIdle?: boolean;
 }
 
 export interface UISurfaceShow {
@@ -190,6 +187,10 @@ export interface TurnTimeout {
   type: "TURN_TIMEOUT";
 }
 
+export interface StaleTurnCleared {
+  type: "STALE_TURN_CLEARED";
+}
+
 export interface TurnReset {
   type: "TURN_RESET";
 }
@@ -230,6 +231,7 @@ export type DomainEvent =
   | PollReconciled
   | TurnTimeout
   | TurnReset
+  | StaleTurnCleared
   | MessageQueued
   | MessageDequeued
   | MessageQueuedDeleted;
@@ -248,7 +250,17 @@ export interface TurnActions {
     toolUseId: string,
     metadata: ToolActivityMetadata,
   ) => void;
-  onActivityThinking: (statusText?: string) => void;
+  onActivityThinking: (
+    statusText?: string,
+    opts?: {
+      /** Allow the thinking signal to START activity from an idle turn
+       *  store. Set by the stream handler only when the event belongs to
+       *  the ACTIVE conversation — daemon-initiated work (e.g. summarize
+       *  up to here) reports thinking without a client-initiated turn. */
+      canStartFromIdle?: boolean;
+    },
+  ) => void;
+  recoverFromAwaitingUserInput: () => void;
   showSurface: (interactive?: boolean) => void;
   updateSurface: () => void;
   dismissSurface: () => void;
@@ -265,6 +277,7 @@ export interface TurnActions {
   onPollReconciled: (turnId?: string) => void;
   onTurnTimeout: () => void;
   resetTurn: () => void;
+  clearStaleTurn: () => void;
   enqueueMessage: () => void;
   dequeueMessage: () => void;
   deleteQueuedMessage: () => void;
@@ -325,7 +338,9 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
     // meaning a turn is genuinely in progress. After terminal events
     // clear activeTurnId, stale deltas are discarded.
     if (s.phase === "idle" || s.phase === "errored") {
-      if (!s.activeTurnId) return;
+      if (!s.activeTurnId) {
+        return;
+      }
       set({ phase: "streaming" });
       return;
     }
@@ -338,7 +353,9 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
 
   onToolUseStart: () => {
     const s = get();
-    if (isStale(s)) return;
+    if (isStale(s)) {
+      return;
+    }
     set({
       phase:
         s.phase === "idle" || s.phase === "errored" || s.phase === "queued"
@@ -358,7 +375,9 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
     // Stale guard: a tool_result for the previous turn may arrive after we
     // already transitioned to idle. Don't repopulate liveWebActivity post
     // terminal — it'll just leak into the next turn's card render.
-    if (isStale(s)) return;
+    if (isStale(s)) {
+      return;
+    }
     set({
       liveWebActivity: { ...s.liveWebActivity, [toolUseId]: metadata },
     });
@@ -366,26 +385,65 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
 
   // ----- Daemon activity state -----
 
-  onActivityThinking: (statusText) => {
+  onActivityThinking: (statusText, opts) => {
     const s = get();
     // Server-driven thinking signal — the daemon reports that the agent
     // is processing (e.g. after a tool_result, during context compaction,
     // or after confirmation resolution). Transition back to "thinking"
     // so the thinking indicator re-appears in the post-tool-call gap.
-    if (isStale(s)) return;
-    if (s.phase === "awaiting_user_input") return;
+    if (isStale(s)) {
+      // No client-initiated turn is active. Daemon-initiated work (e.g.
+      // summarize-up-to-here) still reports thinking — accept it only when
+      // the handler scoped the event to the active conversation, so a
+      // background conversation's activity can't light this tab's
+      // indicator. Terminal teardown arrives via the paired idle activity
+      // event or the result card's message_complete (both call endTurn).
+      if (!opts?.canStartFromIdle) {
+        return;
+      }
+      set({
+        phase: "thinking",
+        statusText: statusText ?? null,
+        lastTerminalReason: null,
+      });
+      return;
+    }
+    if (s.phase === "awaiting_user_input") {
+      return;
+    }
     set({ phase: "thinking", statusText: statusText ?? null });
+  },
+
+  /**
+   * Rejoin the live turn when a phase is stranded at `awaiting_user_input`.
+   *
+   * Server activity signals call this when no pending prompt or interactive
+   * surface remains: the prompt that moved the phase to `awaiting_user_input`
+   * resolved without a turn-state transition, so the phase would otherwise
+   * stay stuck while the turn keeps streaming. Restoring `thinking` re-enables
+   * the live-turn affordances (Stop control, busy indicators).
+   */
+  recoverFromAwaitingUserInput: () => {
+    const s = get();
+    if (s.phase !== "awaiting_user_input") {
+      return;
+    }
+    set({ phase: "thinking" });
   },
 
   // ----- UI surfaces -----
 
   showSurface: (interactive) => {
     const s = get();
-    if (isStale(s)) return;
+    if (isStale(s)) {
+      return;
+    }
     // Only transition to awaiting_user_input for interactive surfaces
     // (form, confirmation, file_upload). Non-interactive surfaces (card,
     // table, list) are display-only and shouldn't pause the turn.
-    if (!interactive) return;
+    if (!interactive) {
+      return;
+    }
     set({ phase: "awaiting_user_input" });
   },
 
@@ -417,22 +475,30 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
   // ----- Interruptions (awaiting user input) -----
 
   onSecretRequest: () => {
-    if (isStale(get())) return;
+    if (isStale(get())) {
+      return;
+    }
     set({ phase: "awaiting_user_input" });
   },
 
   onConfirmationRequest: () => {
-    if (isStale(get())) return;
+    if (isStale(get())) {
+      return;
+    }
     set({ phase: "awaiting_user_input" });
   },
 
   onQuestionRequest: () => {
-    if (isStale(get())) return;
+    if (isStale(get())) {
+      return;
+    }
     set({ phase: "awaiting_user_input" });
   },
 
   onContactRequest: () => {
-    if (isStale(get())) return;
+    if (isStale(get())) {
+      return;
+    }
     set({ phase: "awaiting_user_input" });
   },
 
@@ -453,7 +519,9 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
   },
 
   handoffGeneration: () => {
-    if (isStale(get())) return;
+    if (isStale(get())) {
+      return;
+    }
     // Current assistant chunk is finalized; more chunks expected.
     set({ phase: "thinking", activeToolCallCount: 0, statusText: null });
   },
@@ -513,8 +581,12 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
     // polling says the turn is done. Only transition if still active.
     // When turnId is provided, only honour if it matches the current
     // turn — makes completion idempotent when SSE and polling race.
-    if (turnId && turnId !== s.activeTurnId) return;
-    if (!isSending(s.phase)) return;
+    if (turnId && turnId !== s.activeTurnId) {
+      return;
+    }
+    if (!isSending(s.phase)) {
+      return;
+    }
     set({
       phase: "idle",
       activeTurnId: null,
@@ -528,6 +600,25 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
   // ----- Hard reset -----
 
   resetTurn: () => set({ ...INITIAL_TURN_STATE }),
+
+  /**
+   * Reset only when no turn is genuinely in flight — for "clean up possibly
+   * stale turn UI" callers (the reachability burst-limiter's ready signal)
+   * that must NOT clobber a live turn. The initial reachability probe
+   * resolves "ready" during a new conversation's first send; a hard reset
+   * there nulls `activeTurnId` mid-turn, after which `onTextDelta`'s
+   * stale-delta guard refuses to re-activate the phase and the whole first
+   * turn renders as phase "idle" (no thinking indicator, no streaming
+   * affordances). A live turn that just survived a reconnect needs no reset
+   * anyway: the post-reconnect reconcile resyncs its true state.
+   */
+  clearStaleTurn: () => {
+    const s = get();
+    if (s.activeTurnId && isSending(s.phase)) {
+      return;
+    }
+    set({ ...INITIAL_TURN_STATE });
+  },
 
   // ----- Queue management -----
 
@@ -597,7 +688,9 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
 
     case "ASSISTANT_TEXT_DELTA":
       if (state.phase === "idle" || state.phase === "errored") {
-        if (!state.activeTurnId) return state;
+        if (!state.activeTurnId) {
+          return state;
+        }
         return { ...state, phase: "streaming" };
       }
       if (state.phase === "thinking" || state.phase === "queued") {
@@ -606,7 +699,9 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
       return state;
 
     case "TOOL_USE_START":
-      if (isStale(state)) return state;
+      if (isStale(state)) {
+        return state;
+      }
       return {
         ...state,
         phase:
@@ -625,7 +720,9 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
       };
 
     case "TOOL_ACTIVITY_METADATA":
-      if (isStale(state)) return state;
+      if (isStale(state)) {
+        return state;
+      }
       return {
         ...state,
         liveWebActivity: {
@@ -635,8 +732,22 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
       };
 
     case "ACTIVITY_STATE_THINKING":
-      if (isStale(state)) return state;
-      if (state.phase === "awaiting_user_input") return state;
+      if (isStale(state)) {
+        // Daemon-initiated activity (e.g. summarize-up-to-here) may start
+        // without a client-initiated turn — mirrors `onActivityThinking`.
+        if (!event.canStartFromIdle) {
+          return state;
+        }
+        return {
+          ...state,
+          phase: "thinking",
+          statusText: event.statusText ?? null,
+          lastTerminalReason: null,
+        };
+      }
+      if (state.phase === "awaiting_user_input") {
+        return state;
+      }
       return {
         ...state,
         phase: "thinking",
@@ -644,8 +755,12 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
       };
 
     case "UI_SURFACE_SHOW":
-      if (isStale(state)) return state;
-      if (!event.interactive) return state;
+      if (isStale(state)) {
+        return state;
+      }
+      if (!event.interactive) {
+        return state;
+      }
       return { ...state, phase: "awaiting_user_input" };
 
     case "UI_SURFACE_UPDATE":
@@ -673,7 +788,9 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
     case "CONFIRMATION_REQUEST":
     case "QUESTION_REQUEST":
     case "CONTACT_REQUEST":
-      if (isStale(state)) return state;
+      if (isStale(state)) {
+        return state;
+      }
       return { ...state, phase: "awaiting_user_input" };
 
     case "MESSAGE_QUEUED":
@@ -788,7 +905,9 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
       };
 
     case "POLL_RECONCILED": {
-      if (!isSending(state.phase)) return state;
+      if (!isSending(state.phase)) {
+        return state;
+      }
       if (
         event.turnId &&
         state.activeTurnId &&
@@ -831,6 +950,13 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
       };
 
     case "TURN_RESET":
+      return { ...INITIAL_TURN_STATE };
+
+    case "STALE_TURN_CLEARED":
+      // See `clearStaleTurn` action for rationale.
+      if (state.activeTurnId && isSending(state.phase)) {
+        return state;
+      }
       return { ...INITIAL_TURN_STATE };
   }
 }

@@ -20,11 +20,7 @@ import { v4 as uuid } from "uuid";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { ToolExecutor } from "./executor.js";
-import {
-  areCoreToolsInitialized,
-  getTool,
-  initializeTools,
-} from "./registry.js";
+import { resolveTool } from "./registry.js";
 import type { ToolContext } from "./types.js";
 
 /** Thrown when the requested tool is not present in the registry. */
@@ -59,14 +55,10 @@ export async function runToolStandalone(
   input: Record<string, unknown>,
   opts?: { workingDir?: string; signal?: AbortSignal },
 ): Promise<StandaloneToolResult> {
-  // Populate the registry from the filesystem. The daemon does this at
-  // startup; a short-lived CLI process has to do it itself. Guarded so a
-  // repeat call in the same process is a no-op.
-  if (!areCoreToolsInitialized()) {
-    await initializeTools();
-  }
-
-  const tool = getTool(toolName);
+  // `resolveTool` lazily initializes the registry on first access (the daemon
+  // does this at startup; a short-lived CLI process relies on the same lazy
+  // ensure).
+  const tool = await resolveTool(toolName);
   if (!tool) {
     throw new UnknownToolError(toolName);
   }

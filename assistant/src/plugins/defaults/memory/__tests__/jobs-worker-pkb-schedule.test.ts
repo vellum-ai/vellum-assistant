@@ -128,6 +128,13 @@ function countPendingJobs(type: string): number {
 // every migration on the next access.
 await initializeDb();
 
+// Open the memory connection now, while VELLUM_WORKSPACE_DIR still points at the
+// migrated per-process workspace. beforeAll swaps it to a fresh dir; without
+// pinning here, the first getMemoryDb() below would lazily open
+// assistant-memory.db in the swapped (empty) workspace and fail with
+// "no such table: memory_jobs".
+getMemoryDb();
+
 beforeEach(() => {
   getMemoryDb()!.run("DELETE FROM memory_jobs");
   resetTestTables("memory_checkpoints");

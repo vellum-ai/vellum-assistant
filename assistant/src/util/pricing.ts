@@ -12,6 +12,7 @@ interface ModelPricing {
   inputPer1M: number; // USD per 1M input tokens
   outputPer1M: number; // USD per 1M output tokens
   cacheReadPer1M?: number; // USD per 1M cache-read input tokens
+  cacheWritePer1M?: number; // USD per 1M cache-write input tokens
   tiers?: ModelPricingTier[];
 }
 
@@ -20,6 +21,7 @@ interface ModelPricingTier {
   inputPer1M: number;
   outputPer1M: number;
   cacheReadPer1M?: number;
+  cacheWritePer1M?: number;
 }
 
 const ANTHROPIC_PROMPT_CACHE_MULTIPLIERS = {
@@ -69,6 +71,7 @@ function catalogPricingToInternal(p: CatalogModelPricing): ModelPricing {
     inputPer1M: p.inputPer1mTokens,
     outputPer1M: p.outputPer1mTokens,
     cacheReadPer1M: p.cacheReadPer1mTokens,
+    cacheWritePer1M: p.cacheWritePer1mTokens,
     tiers: p.tiers?.map(catalogTierToInternal),
   };
 }
@@ -81,6 +84,7 @@ function catalogTierToInternal(
     inputPer1M: tier.inputPer1mTokens,
     outputPer1M: tier.outputPer1mTokens,
     cacheReadPer1M: tier.cacheReadPer1mTokens,
+    cacheWritePer1M: tier.cacheWritePer1mTokens,
   };
 }
 
@@ -90,15 +94,21 @@ function findCatalogPricing(
   model: string,
 ): ModelPricing | undefined {
   const entry = PROVIDER_CATALOG.find((p) => p.id === provider);
-  if (!entry) return undefined;
+  if (!entry) {
+    return undefined;
+  }
   // Exact match
   const exact = entry.models.find((m) => m.id === model && m.pricing);
-  if (exact?.pricing) return catalogPricingToInternal(exact.pricing);
+  if (exact?.pricing) {
+    return catalogPricingToInternal(exact.pricing);
+  }
   // Longest-prefix match against catalog model IDs
   let best: CatalogModel | undefined;
   let bestLen = 0;
   for (const m of entry.models) {
-    if (!m.pricing) continue;
+    if (!m.pricing) {
+      continue;
+    }
     if (model.startsWith(m.id) && m.id.length > bestLen) {
       best = m;
       bestLen = m.id.length;
@@ -166,7 +176,9 @@ function findInFallback(
   model: string,
 ): ModelPricing | undefined {
   // Exact match
-  if (table[model]) return table[model];
+  if (table[model]) {
+    return table[model];
+  }
 
   // Prefix match: find the longest matching prefix
   let bestMatch: ModelPricing | undefined;
@@ -189,9 +201,13 @@ function findPricing(
   model: string,
 ): ModelPricing | undefined {
   const fromCatalog = findCatalogPricing(provider, model);
-  if (fromCatalog) return fromCatalog;
+  if (fromCatalog) {
+    return fromCatalog;
+  }
   const fallbackTable = LEGACY_PRICING_FALLBACK[provider];
-  if (!fallbackTable) return undefined;
+  if (!fallbackTable) {
+    return undefined;
+  }
   return findInFallback(fallbackTable, model);
 }
 
@@ -200,12 +216,16 @@ function findOverride(
   provider: string,
   model: string,
 ): ModelPricingOverride | undefined {
-  if (!overrides || overrides.length === 0) return undefined;
+  if (!overrides || overrides.length === 0) {
+    return undefined;
+  }
 
   let bestOverride: ModelPricingOverride | undefined;
   let bestLen = 0;
   for (const override of overrides) {
-    if (override.provider !== provider) continue;
+    if (override.provider !== provider) {
+      continue;
+    }
     if (
       model === override.modelPattern ||
       model.startsWith(override.modelPattern)
@@ -239,7 +259,9 @@ function selectPricingTier(
   pricing: ModelPricing,
   usage: PricingUsage,
 ): ModelPricing {
-  if (!pricing.tiers || pricing.tiers.length === 0) return pricing;
+  if (!pricing.tiers || pricing.tiers.length === 0) {
+    return pricing;
+  }
 
   const totalPromptInputTokens = getTotalPromptInputTokens(usage);
   let selectedTier: ModelPricingTier | undefined;
@@ -253,13 +275,16 @@ function selectPricingTier(
     }
   }
 
-  if (!selectedTier) return pricing;
+  if (!selectedTier) {
+    return pricing;
+  }
 
   return {
     ...pricing,
     inputPer1M: selectedTier.inputPer1M,
     outputPer1M: selectedTier.outputPer1M,
     cacheReadPer1M: selectedTier.cacheReadPer1M ?? pricing.cacheReadPer1M,
+    cacheWritePer1M: selectedTier.cacheWritePer1M ?? pricing.cacheWritePer1M,
   };
 }
 
@@ -318,6 +343,10 @@ function calculateUsageCost(
       tieredPricing.cacheReadPer1M == null
         ? undefined
         : tieredPricing.cacheReadPer1M * speedMultiplier,
+    cacheWritePer1M:
+      tieredPricing.cacheWritePer1M == null
+        ? undefined
+        : tieredPricing.cacheWritePer1M * speedMultiplier,
   };
 
   const directInputCost = calculateTokenCost(
@@ -334,7 +363,7 @@ function calculateUsageCost(
       directInputCost +
       outputCost +
       calculateTokenCost(
-        effectivePricing.inputPer1M,
+        effectivePricing.cacheWritePer1M ?? effectivePricing.inputPer1M,
         usage.cacheCreationInputTokens,
       ) +
       calculateTokenCost(

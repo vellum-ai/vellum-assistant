@@ -1,79 +1,125 @@
+import { z } from "zod";
+
+import type {
+  Audio,
+  CallbackQuery,
+  Chat,
+  Document as TelegramApiDocument,
+  Message,
+  PhotoSize,
+  Update,
+  User,
+  Voice,
+} from "@grammyjs/types";
+
 import type { GatewayInboundEvent } from "../types.js";
+import type {
+  Expect,
+  ModeledKeysAreOfficial,
+  OfficialValueSatisfiesOurs,
+} from "../webhook-crosscheck.js";
 
-interface TelegramPhotoSize {
-  file_id: string;
-  file_unique_id: string;
-  width: number;
-  height: number;
-  file_size?: number;
+// Telegram webhook payloads are untrusted external input (Telegram Bot API).
+// These schemas validate the *types* of the nested fields the normalizer reads
+// while staying tolerant: a malformed field collapses to `undefined` (or an
+// empty string for required ids) rather than rejecting the whole update, so the
+// downstream null-checks drop an unsupported message instead of forwarding a
+// malformed value. Unknown keys are stripped from the parsed working copy; the
+// original payload is preserved verbatim as `raw`.
+const optionalNumber = () => z.number().optional().catch(undefined);
+const optionalString = () => z.string().optional().catch(undefined);
+const optionalBoolean = () => z.boolean().optional().catch(undefined);
+/** A required id string: a missing/non-string value collapses to `""`. */
+const idString = () => z.string().catch("");
+
+const TelegramPhotoSizeSchema = z.object({
+  file_id: idString(),
+  file_unique_id: optionalString(),
+  width: optionalNumber(),
+  height: optionalNumber(),
+  file_size: optionalNumber(),
+});
+
+const TelegramDocumentSchema = z.object({
+  file_id: idString(),
+  file_unique_id: optionalString(),
+  file_name: optionalString(),
+  mime_type: optionalString(),
+  file_size: optionalNumber(),
+});
+
+const TelegramVoiceSchema = z.object({
+  file_id: idString(),
+  file_unique_id: optionalString(),
+  duration: optionalNumber(),
+  mime_type: optionalString(),
+  file_size: optionalNumber(),
+});
+
+const TelegramAudioSchema = z.object({
+  file_id: idString(),
+  file_unique_id: optionalString(),
+  duration: optionalNumber(),
+  performer: optionalString(),
+  title: optionalString(),
+  file_name: optionalString(),
+  mime_type: optionalString(),
+  file_size: optionalNumber(),
+});
+
+const TelegramFromSchema = z
+  .object({
+    id: optionalNumber(),
+    is_bot: optionalBoolean(),
+    username: optionalString(),
+    first_name: optionalString(),
+    last_name: optionalString(),
+    language_code: optionalString(),
+  })
+  .optional()
+  .catch(undefined);
+
+const TelegramMessageSchema = z.object({
+  message_id: optionalNumber(),
+  message_thread_id: optionalNumber(),
+  text: optionalString(),
+  caption: optionalString(),
+  chat: z
+    .object({ id: optionalNumber(), type: optionalString() })
+    .optional()
+    .catch(undefined),
+  from: TelegramFromSchema,
+  photo: z.array(TelegramPhotoSizeSchema).optional().catch(undefined),
+  document: TelegramDocumentSchema.optional().catch(undefined),
+  voice: TelegramVoiceSchema.optional().catch(undefined),
+  audio: TelegramAudioSchema.optional().catch(undefined),
+});
+type TelegramMessage = z.infer<typeof TelegramMessageSchema>;
+
+/**
+ * Topic thread id of a private-chat message, as a string, or undefined for
+ * messages outside a topic. Callers run after the DM-only guard, so a thread
+ * id here always identifies a private-chat topic.
+ */
+function threadIdFromMessage(message: TelegramMessage): string | undefined {
+  return message.message_thread_id != null
+    ? String(message.message_thread_id)
+    : undefined;
 }
 
-interface TelegramDocument {
-  file_id: string;
-  file_unique_id: string;
-  file_name?: string;
-  mime_type?: string;
-  file_size?: number;
-}
+const TelegramCallbackQuerySchema = z.object({
+  id: idString(),
+  from: TelegramFromSchema,
+  message: TelegramMessageSchema.optional().catch(undefined),
+  data: optionalString(),
+});
 
-interface TelegramVoice {
-  file_id: string;
-  file_unique_id: string;
-  duration: number;
-  mime_type?: string;
-  file_size?: number;
-}
-
-interface TelegramAudio {
-  file_id: string;
-  file_unique_id: string;
-  duration: number;
-  performer?: string;
-  title?: string;
-  file_name?: string;
-  mime_type?: string;
-  file_size?: number;
-}
-
-interface TelegramMessage {
-  message_id?: number;
-  text?: string;
-  caption?: string;
-  chat?: { id?: number; type?: string };
-  from?: {
-    id?: number;
-    is_bot?: boolean;
-    username?: string;
-    first_name?: string;
-    last_name?: string;
-    language_code?: string;
-  };
-  photo?: TelegramPhotoSize[];
-  document?: TelegramDocument;
-  voice?: TelegramVoice;
-  audio?: TelegramAudio;
-}
-
-interface TelegramCallbackQuery {
-  id: string;
-  from: {
-    id?: number;
-    is_bot?: boolean;
-    username?: string;
-    first_name?: string;
-    last_name?: string;
-    language_code?: string;
-  };
-  message?: TelegramMessage;
-  data?: string;
-}
-
-interface TelegramUpdate {
-  update_id?: number;
-  message?: TelegramMessage;
-  edited_message?: TelegramMessage;
-  callback_query?: TelegramCallbackQuery;
-}
+const TelegramUpdateSchema = z.object({
+  update_id: optionalNumber(),
+  message: TelegramMessageSchema.optional().catch(undefined),
+  edited_message: TelegramMessageSchema.optional().catch(undefined),
+  callback_query: TelegramCallbackQuerySchema.optional().catch(undefined),
+});
 
 /**
  * Normalize a Telegram webhook payload into a GatewayInboundEvent.
@@ -83,7 +129,11 @@ interface TelegramUpdate {
 export function normalizeTelegramUpdate(
   payload: Record<string, unknown>,
 ): GatewayInboundEvent | null {
-  const update = payload as TelegramUpdate;
+  const parsed = TelegramUpdateSchema.safeParse(payload);
+  if (!parsed.success) {
+    return null;
+  }
+  const update = parsed.data;
   const updateId = update.update_id;
 
   // Handle callback_query updates (inline button clicks)
@@ -114,6 +164,7 @@ export function normalizeTelegramUpdate(
     }
 
     const actorExternalId = String(cbq.from.id);
+    const callbackThreadId = threadIdFromMessage(cbq.message);
 
     const displayName = [cbq.from?.first_name, cbq.from?.last_name]
       .filter(Boolean)
@@ -147,6 +198,7 @@ export function normalizeTelegramUpdate(
             ? String(cbq.message.message_id)
             : undefined,
         chatType: cbq.message.chat.type,
+        ...(callbackThreadId ? { threadId: callbackThreadId } : {}),
       },
       raw: payload,
     };
@@ -182,6 +234,8 @@ export function normalizeTelegramUpdate(
     .filter(Boolean)
     .join(" ")
     .trim();
+
+  const topicThreadId = threadIdFromMessage(message);
 
   const content = message.text || message.caption || "";
 
@@ -253,7 +307,56 @@ export function normalizeTelegramUpdate(
       messageId:
         message.message_id != null ? String(message.message_id) : undefined,
       chatType: message.chat.type,
+      ...(topicThreadId ? { threadId: topicThreadId } : {}),
     },
     raw: payload,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Compile-time cross-check against the official Telegram Bot API types.
+//
+// `@grammyjs/types` is a types-only dev dependency: it contributes nothing at
+// runtime (the `import type` above is erased from the build) and the schemas
+// above stay the sole runtime validators. Its only job is to make TypeScript
+// prove, via the shared `webhook-crosscheck` helpers, that a drift from the
+// real Bot API shape fails `tsc` instead of silently mis-parsing a live
+// webhook — e.g. a field-name typo like `messsage_thread_id` (which would
+// otherwise always parse to `undefined`) or a wrong primitive (`chat.id` as a
+// string).
+type TelegramFrom = NonNullable<z.infer<typeof TelegramFromSchema>>;
+type TelegramChat = NonNullable<TelegramMessage["chat"]>;
+
+type _TelegramApiCrossChecks = [
+  Expect<ModeledKeysAreOfficial<z.infer<typeof TelegramUpdateSchema>, Update>>,
+  Expect<
+    OfficialValueSatisfiesOurs<z.infer<typeof TelegramUpdateSchema>, Update>
+  >,
+  Expect<ModeledKeysAreOfficial<TelegramMessage, Message>>,
+  Expect<OfficialValueSatisfiesOurs<TelegramMessage, Message>>,
+  Expect<
+    ModeledKeysAreOfficial<
+      z.infer<typeof TelegramCallbackQuerySchema>,
+      CallbackQuery
+    >
+  >,
+  Expect<
+    OfficialValueSatisfiesOurs<
+      z.infer<typeof TelegramCallbackQuerySchema>,
+      CallbackQuery
+    >
+  >,
+  Expect<ModeledKeysAreOfficial<TelegramChat, Chat>>,
+  Expect<ModeledKeysAreOfficial<TelegramFrom, User>>,
+  Expect<
+    ModeledKeysAreOfficial<z.infer<typeof TelegramPhotoSizeSchema>, PhotoSize>
+  >,
+  Expect<
+    ModeledKeysAreOfficial<
+      z.infer<typeof TelegramDocumentSchema>,
+      TelegramApiDocument
+    >
+  >,
+  Expect<ModeledKeysAreOfficial<z.infer<typeof TelegramVoiceSchema>, Voice>>,
+  Expect<ModeledKeysAreOfficial<z.infer<typeof TelegramAudioSchema>, Audio>>,
+];

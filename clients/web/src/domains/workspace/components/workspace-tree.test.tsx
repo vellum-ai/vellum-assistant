@@ -27,7 +27,11 @@ mock.module("@vellumai/design-library/components/bottom-sheet", () => ({
   BottomSheet: {
     Root: passthrough,
     Trigger: ({ children }: Record<string, unknown>) =>
-      createElement("div", { "data-testid": "bs-trigger" }, children as ReactNode),
+      createElement(
+        "div",
+        { "data-testid": "bs-trigger" },
+        children as ReactNode,
+      ),
     Content: passthrough,
     Header: passthrough,
     Title: ({ children }: Record<string, unknown>) =>
@@ -40,11 +44,19 @@ mock.module("@vellumai/design-library/components/menu", () => ({
   Menu: {
     Root: passthrough,
     Trigger: ({ children }: Record<string, unknown>) =>
-      createElement("div", { "data-testid": "menu-trigger" }, children as ReactNode),
+      createElement(
+        "div",
+        { "data-testid": "menu-trigger" },
+        children as ReactNode,
+      ),
     // Mirror the roles the real Radix menu primitives render with.
     Content: ({ children }: Record<string, unknown>) =>
       createElement("div", { role: "menu" }, children as ReactNode),
-    Item: ({ children, onSelect, leftIcon: _leftIcon }: Record<string, unknown>) =>
+    Item: ({
+      children,
+      onSelect,
+      leftIcon: _leftIcon,
+    }: Record<string, unknown>) =>
       createElement(
         "button",
         { role: "menuitem", onClick: onSelect as () => void },

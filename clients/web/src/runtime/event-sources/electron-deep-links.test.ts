@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 type DeepLink =
   | { kind: "send"; message: string }
   | { kind: "openThread"; threadId: string }
+  | { kind: "billingCheckoutComplete"; status: "success"; sessionId: string }
+  | { kind: "billingCheckoutComplete"; status: "cancel"; sessionId: null }
+  | { kind: "connect"; url?: string; bundle?: string }
   | { kind: "unknown"; url: string };
 
 let activeCallback: ((link: DeepLink) => void) | null = null;
@@ -16,7 +19,9 @@ const subscribeToDeepLinksMock = mock((cb: (link: DeepLink) => void) => {
   return unsubscribeMock;
 });
 const drainPendingDeepLinksMock = mock(async (): Promise<DeepLink[]> => {
-  if (drainError) throw drainError;
+  if (drainError) {
+    throw drainError;
+  }
   const drained = pendingFixture;
   pendingFixture = [];
   return drained;
@@ -45,12 +50,18 @@ mock.module("@sentry/react", () => ({
 }));
 
 import * as eventBus from "@/lib/event-bus";
+import {
+  __resetConnectDialogForTesting,
+  useConnectDialogStore,
+} from "@/stores/connect-dialog-store";
 
 const publishSpy = spyOn(eventBus, "publish");
 
-const { publishElectronDeepLinksSource } = await import(
-  "@/runtime/event-sources/electron-deep-links"
-);
+const { publishElectronDeepLinksSource } =
+  await import("@/runtime/event-sources/electron-deep-links");
+
+/** Flush the drain promise chain (then/catch/finally). */
+const settleDrain = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
   activeCallback = null;
@@ -61,6 +72,7 @@ beforeEach(() => {
   unsubscribeMock.mockClear();
   captureExceptionMock.mockClear();
   publishSpy.mockClear();
+  __resetConnectDialogForTesting();
 });
 
 describe("publishElectronDeepLinksSource", () => {
@@ -69,11 +81,36 @@ describe("publishElectronDeepLinksSource", () => {
 
     activeCallback!({ kind: "send", message: "hi" });
     activeCallback!({ kind: "openThread", threadId: "t-1" });
+    activeCallback!({
+      kind: "billingCheckoutComplete",
+      status: "success",
+      sessionId: "cs_test_a1B2",
+    });
+    activeCallback!({
+      kind: "billingCheckoutComplete",
+      status: "cancel",
+      sessionId: null,
+    });
+    activeCallback!({ kind: "connect", bundle: "eyJnYXRld2F5" });
+    activeCallback!({
+      kind: "connect",
+      url: "https://assistant.example.com",
+    });
     activeCallback!({ kind: "unknown", url: "javascript:alert(1)" });
 
     expect(publishSpy.mock.calls).toEqual([
       ["deeplink.send", { message: "hi" }],
       ["deeplink.openThread", { threadId: "t-1" }],
+      [
+        "deeplink.billingCheckoutComplete",
+        { status: "success", sessionId: "cs_test_a1B2" },
+      ],
+      [
+        "deeplink.billingCheckoutComplete",
+        { status: "cancel", sessionId: null },
+      ],
+      ["deeplink.connect", { url: null, bundle: "eyJnYXRld2F5" }],
+      ["deeplink.connect", { url: "https://assistant.example.com", bundle: null }],
       ["deeplink.unknown", { url: "javascript:alert(1)" }],
     ]);
   });
@@ -117,6 +154,29 @@ describe("publishElectronDeepLinksSource", () => {
       level: "warning",
       tags: { context: "deep_link_drain" },
     });
+  });
+
+  test("latches the drain-settled flag only after the backlog has published", async () => {
+    pendingFixture = [{ kind: "connect", bundle: "eyJnYXRld2F5" }];
+
+    publishElectronDeepLinksSource();
+    expect(useConnectDialogStore.getState().deepLinkDrainSettled).toBe(false);
+
+    await settleDrain();
+
+    expect(publishSpy.mock.calls).toEqual([
+      ["deeplink.connect", { url: null, bundle: "eyJnYXRld2F5" }],
+    ]);
+    expect(useConnectDialogStore.getState().deepLinkDrainSettled).toBe(true);
+  });
+
+  test("a drain failure still latches the drain-settled flag", async () => {
+    drainError = new Error("ipc transport failed");
+
+    publishElectronDeepLinksSource();
+    await settleDrain();
+
+    expect(useConnectDialogStore.getState().deepLinkDrainSettled).toBe(true);
   });
 
   test("returns the subscribe-side unsubscribe so cleanup detaches the live bridge", () => {

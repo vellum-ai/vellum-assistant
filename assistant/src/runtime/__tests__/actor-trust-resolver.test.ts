@@ -6,11 +6,6 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 let mockGuardianList: Array<Record<string, unknown>> | undefined = [];
 
 mock.module("../../contacts/guardian-delivery-reader.js", () => ({
@@ -22,9 +17,8 @@ mock.module("../../contacts/guardian-delivery-reader.js", () => ({
 }));
 
 const { resolveActorTrust } = await import("../actor-trust-resolver.js");
-const { __resetMemberVerdictCacheForTest, setMemberVerdict } = await import(
-  "../member-verdict-cache.js"
-);
+const { __resetMemberVerdictCacheForTest, setMemberVerdict } =
+  await import("../member-verdict-cache.js");
 
 const GUARDIAN_ADDRESS = "vellum-principal-guardian";
 

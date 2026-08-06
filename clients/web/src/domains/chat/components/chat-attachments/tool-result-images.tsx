@@ -1,33 +1,51 @@
-import { Download } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Download, Loader2 } from "lucide-react";
 import type { FC } from "react";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Tooltip } from "@vellumai/design-library";
 
-import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
+import {
+  downloadAttachment,
+  fetchAttachmentContentBlob,
+} from "@/domains/chat/components/chat-attachments/download-attachment";
 import { estimateBase64Bytes } from "@/domains/chat/components/chat-attachments/utils";
 import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
+import { sniffMimeType } from "@/domains/chat/utils/mime-sniff";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
+/** Base64 characters decoded for sniffing: enough for every image signature. */
+const BASE64_HEAD_CHARS = 48;
+
+/** Decode the leading bytes of a base64 payload, or nothing when undecodable. */
+function decodeBase64Head(base64: string): Uint8Array {
+  const whole = base64.slice(0, BASE64_HEAD_CHARS);
+  const aligned = whole.slice(0, whole.length - (whole.length % 4));
+  if (aligned.length === 0) {
+    return new Uint8Array(0);
+  }
+  try {
+    const binary = atob(aligned);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  } catch {
+    return new Uint8Array(0);
+  }
+}
+
+/**
+ * MIME type of a raw base64 image payload. Tool-result images are images by
+ * construction, so a sniff that lands outside `image/*` (or comes back
+ * inconclusive) falls back to PNG rather than mislabelling the data URL.
+ */
 function inferImageMimeType(base64: string): string {
   const normalized = base64.replace(/\s/g, "");
-  if (normalized.startsWith("iVBORw0KGgo")) {
-    return "image/png";
-  }
-  if (normalized.startsWith("/9j/")) {
-    return "image/jpeg";
-  }
-  if (normalized.startsWith("UklGR")) {
-    return "image/webp";
-  }
-  if (normalized.startsWith("R0lGOD")) {
-    return "image/gif";
-  }
-  if (normalized.startsWith("Qk")) {
-    return "image/bmp";
-  }
-  return "image/png";
+  const sniffed = sniffMimeType(decodeBase64Head(normalized));
+  return sniffed?.startsWith("image/") ? sniffed : "image/png";
 }
 
 const DATA_URI_RE = /^data:(image\/[a-z0-9.+-]+);base64,/i;
@@ -77,14 +95,38 @@ function toolNameToFilePrefix(toolName?: string): string {
     .toLowerCase();
 }
 
+function toolResultImageInputs(toolCall: ChatMessageToolCall): {
+  refIds: string[];
+  base64Images: string[];
+} {
+  const refIds = toolCall.imageAttachmentIds ?? [];
+  const base64Images = toolCall.imageDataList?.length
+    ? toolCall.imageDataList
+    : toolCall.imageData
+      ? [toolCall.imageData]
+      : [];
+  return { refIds, base64Images };
+}
+
 /**
- * Project a message's tool-result images into synthetic {@link DisplayAttachment}
- * objects. The base64 payload is embedded directly as a data-URL `previewUrl`,
- * so the preview modal renders it without a daemon fetch and downloads save the
- * bytes straight from the URL. Filenames use the server's `<tool-prefix>.<ext>`
- * naming; a tool that emits more than one image additionally gets an index
- * suffix so the names stay distinct (the server keeps same-named attachments
- * apart by id instead).
+ * Project a message's tool-result images into {@link DisplayAttachment}
+ * objects.
+ *
+ * Two shapes flow in. A tool-result image persisted as a workspace reference
+ * arrives as an entry in `imageAttachmentIds` — a real attachment id with no
+ * inline bytes, so the attachment carries `previewUrl: null` and the strip
+ * fetches the content by id on render (mirroring the preview modal's lazy
+ * fetch). Legacy inline base64 (`imageDataList` / the deprecated `imageData`)
+ * is embedded directly as a data-URL `previewUrl`, rendered without a daemon
+ * fetch. A daemon emits ids for referenced media and base64 for legacy rows,
+ * never both for the same image.
+ *
+ * Filenames use the server's `<tool-prefix>.<ext>` naming; a tool that emits
+ * more than one image additionally gets an index suffix so the names stay
+ * distinct (the server keeps same-named attachments apart by id instead).
+ * Referenced entries have no wire-carried MIME/size, so they default to a
+ * generic image type — the fetched blob supplies the real bytes for preview
+ * and download.
  */
 function buildToolResultAttachments(
   toolCalls: ChatMessageToolCall[],
@@ -92,21 +134,34 @@ function buildToolResultAttachments(
   const attachments: DisplayAttachment[] = [];
   let globalIndex = 0;
   for (const tc of toolCalls) {
-    const images = tc.imageDataList?.length
-      ? tc.imageDataList
-      : tc.imageData
-        ? [tc.imageData]
-        : [];
+    const { refIds, base64Images } = toolResultImageInputs(tc);
+    const total = refIds.length + base64Images.length;
     const prefix = toolNameToFilePrefix(tc.name);
-    images.forEach((imageData, i) => {
+    let localIndex = 0;
+    const nameFor = (ext: string): string => {
+      const base = tc.name ? prefix : `image-${globalIndex}`;
+      const suffix = total > 1 ? `-${localIndex}` : "";
+      return `${base}${suffix}.${ext}`;
+    };
+    refIds.forEach((attachmentId) => {
       globalIndex += 1;
+      localIndex += 1;
+      attachments.push({
+        id: attachmentId,
+        filename: nameFor("png"),
+        mimeType: "image/png",
+        sizeBytes: 0,
+        previewUrl: null,
+      });
+    });
+    base64Images.forEach((imageData) => {
+      globalIndex += 1;
+      localIndex += 1;
       const { mimeType, base64, src } = normalizeToolResultImage(imageData);
       const ext = mimeType.split("/")[1] ?? "png";
-      const base = tc.name ? prefix : `image-${globalIndex}`;
-      const suffix = images.length > 1 ? `-${i + 1}` : "";
       attachments.push({
-        id: `tool-image:${tc.id}:${i}`,
-        filename: `${base}${suffix}.${ext}`,
+        id: `tool-image:${tc.id}:${localIndex}`,
+        filename: nameFor(ext),
         mimeType,
         sizeBytes: estimateBase64Bytes(base64),
         previewUrl: src,
@@ -115,6 +170,112 @@ function buildToolResultAttachments(
   }
   return attachments;
 }
+
+export function hasToolResultImages(toolCalls: ChatMessageToolCall[]): boolean {
+  return toolCalls.some((toolCall) => {
+    const { refIds, base64Images } = toolResultImageInputs(toolCall);
+    return refIds.length > 0 || base64Images.length > 0;
+  });
+}
+
+const IMAGE_CLASS =
+  "max-h-72 max-w-full rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] object-contain sm:max-w-[28rem]";
+
+/**
+ * Renders the inline `<img>` for one tool-result image. An attachment with an
+ * inline `previewUrl` (legacy base64) renders straight from that data URL with
+ * no daemon round-trip — and, crucially, without depending on a React Query
+ * context. A workspace-referenced attachment (`previewUrl: null` + a real id)
+ * defers to {@link ReferencedToolResultImage}, which owns the lazy fetch.
+ */
+const ToolResultImageThumb: FC<{
+  attachment: DisplayAttachment;
+  assistantId?: string | null;
+}> = ({ attachment, assistantId }) => {
+  if (attachment.previewUrl) {
+    return (
+      <img
+        data-testid="tool-result-image"
+        src={attachment.previewUrl}
+        alt={attachment.filename}
+        className={IMAGE_CLASS}
+      />
+    );
+  }
+  return (
+    <ReferencedToolResultImage
+      attachment={attachment}
+      assistantId={assistantId}
+    />
+  );
+};
+
+/**
+ * Lazily fetches a workspace-referenced tool-result image by attachment id and
+ * renders it from an object URL, revoked on unmount. Uses the same fetch/cache
+ * key as the preview modal, so opening the modal reuses the already-fetched
+ * blob. Until the fetch resolves (or when no assistant id is available to fetch
+ * with), a spinner placeholder holds the slot.
+ */
+const ReferencedToolResultImage: FC<{
+  attachment: DisplayAttachment;
+  assistantId?: string | null;
+}> = ({ attachment, assistantId }) => {
+  const shouldFetch = !!assistantId && !!attachment.id;
+
+  const { data: blob, isError } = useQuery({
+    queryKey: ["attachmentContent", assistantId, attachment.id],
+    queryFn: async () => {
+      const data = await fetchAttachmentContentBlob(
+        assistantId!,
+        attachment.id,
+      );
+      if (!data) {
+        throw new Error("Failed to load image");
+      }
+      return data;
+    },
+    enabled: shouldFetch,
+    staleTime: Infinity,
+    retry: false,
+  });
+
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!blob) {
+      setObjectUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    setObjectUrl(url);
+    return () => {
+      URL.revokeObjectURL(url);
+      setObjectUrl(null);
+    };
+  }, [blob]);
+
+  if (!objectUrl) {
+    return (
+      <div
+        data-testid="tool-result-image-placeholder"
+        className={`flex h-40 w-40 items-center justify-center ${IMAGE_CLASS}`}
+      >
+        {!isError && (
+          <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      data-testid="tool-result-image"
+      src={objectUrl}
+      alt={attachment.filename}
+      className={IMAGE_CLASS}
+    />
+  );
+};
 
 interface ToolResultImagesProps {
   toolCalls: ChatMessageToolCall[];
@@ -129,8 +290,9 @@ interface ToolResultImagesProps {
  * (e.g. `file_read` on an image, generated images). Each image opens the shared
  * full-screen {@link AttachmentPreviewModal} on click and exposes a hover
  * download affordance — the same interactivity end-of-turn attachments get via
- * {@link MessageAttachmentSquare} — while the base64 payloads are not yet
- * persisted attachments with daemon ids.
+ * {@link MessageAttachmentSquare}. Referenced images (from `imageAttachmentIds`)
+ * are daemon-id-backed and fetch their bytes by id on render; legacy inline
+ * base64 images render straight from their data URL.
  */
 export const ToolResultImages: FC<ToolResultImagesProps> = ({
   toolCalls,
@@ -146,11 +308,15 @@ export const ToolResultImages: FC<ToolResultImagesProps> = ({
     attachments,
   );
 
-  const handleDownload = useCallback((att: DisplayAttachment) => {
-    // No daemon id backs these data-URL images, so download saves the
-    // `previewUrl` bytes directly (assistantId omitted skips the fetch path).
-    void downloadAttachment(att, undefined);
-  }, []);
+  const handleDownload = useCallback(
+    (att: DisplayAttachment) => {
+      // Referenced images (no inline `previewUrl`) fetch their bytes by id via
+      // the daemon content endpoint; legacy base64 images have their data URL in
+      // `previewUrl`, so downloading straight from it skips a needless fetch.
+      void downloadAttachment(att, att.previewUrl ? undefined : assistantId);
+    },
+    [assistantId],
+  );
 
   if (attachments.length === 0) {
     return null;
@@ -175,12 +341,7 @@ export const ToolResultImages: FC<ToolResultImagesProps> = ({
             }}
             className="group/toolimg relative w-fit cursor-pointer"
           >
-            <img
-              data-testid="tool-result-image"
-              src={att.previewUrl!}
-              alt={att.filename}
-              className="max-h-72 max-w-full rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] object-contain sm:max-w-[28rem]"
-            />
+            <ToolResultImageThumb attachment={att} assistantId={assistantId} />
             <div className="pointer-events-none absolute inset-0 rounded-md bg-black/50 opacity-0 transition-opacity group-hover/toolimg:pointer-events-auto group-hover/toolimg:opacity-100 group-focus-within/toolimg:pointer-events-auto group-focus-within/toolimg:opacity-100">
               <Tooltip content="Download">
                 <button

@@ -171,8 +171,7 @@ describe("FaviconChip — layout tokens", () => {
         title="Example"
       />,
     );
-    const slot = container
-      .firstElementChild!.firstElementChild as HTMLElement;
+    const slot = container.firstElementChild!.firstElementChild as HTMLElement;
     expect(slot.className).toContain("h-[14px]");
     expect(slot.className).toContain("w-[14px]");
     expect(slot.className).toContain("rounded-[var(--radius-sm)]");

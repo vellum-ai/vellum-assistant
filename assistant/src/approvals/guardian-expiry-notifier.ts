@@ -1,7 +1,7 @@
 /**
- * Expiry side effects for canonical guardian requests.
+ * Expiry side effects for guardian requests.
  *
- * When the canonical expiry sweep transitions a pending request to `expired`,
+ * When the expiry sweep transitions a pending request to `expired`,
  * the request's cards are withdrawn — but nobody is told and any in-memory
  * interaction is left dangling. This module fills that gap:
  *
@@ -22,7 +22,7 @@
  * surface as a sweep failure. Nothing here throws.
  */
 
-import type { CanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
+import type { GuardianRequestWire } from "../channels/gateway-guardian-requests.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
 import { introductionMode } from "../runtime/introduction-policy.js";
@@ -33,11 +33,11 @@ import { resolveDeliverCallbackUrlForChannel } from "./guardian-channel-delivery
 const log = getLogger("guardian-expiry-notifier");
 
 /**
- * Run the expiry side effects for a single canonical guardian request that the
- * sweep just transitioned to `expired`. Dispatches by kind; never throws.
+ * Run the expiry side effects for a single guardian request that the sweep
+ * just transitioned to `expired`. Dispatches by kind; never throws.
  */
 export async function notifyExpiredGuardianRequest(
-  request: CanonicalGuardianRequest,
+  request: GuardianRequestWire,
 ): Promise<void> {
   try {
     switch (request.kind) {
@@ -47,7 +47,7 @@ export async function notifyExpiredGuardianRequest(
       case "access_request":
         // Admitted-mode nudges expire silently for the requester — the
         // sender made no request and keeps whatever access the floor grants.
-        if (!introductionMode(request.trigger).notifyRequesterOnExpiry) {
+        if (!introductionMode(request.requestTrigger).notifyRequesterOnExpiry) {
           break;
         }
         await notifyRequesterOfExpiry(
@@ -65,7 +65,7 @@ export async function notifyExpiredGuardianRequest(
         return;
       case "pending_question":
         // Voice call sessions own their own lifecycle and timeout. By the time
-        // the canonical TTL lapses the call is long over and there is no
+        // the request TTL lapses the call is long over and there is no
         // durable requester channel to notify, so there is nothing to do.
         return;
       default:
@@ -74,7 +74,7 @@ export async function notifyExpiredGuardianRequest(
   } catch (err) {
     log.warn(
       { err, requestId: request.id, kind: request.kind },
-      "Expiry side effects failed for canonical guardian request (non-fatal)",
+      "Expiry side effects failed for guardian request (non-fatal)",
     );
   }
 }
@@ -83,16 +83,17 @@ export async function notifyExpiredGuardianRequest(
  * Release the in-memory pending interaction for an expired `tool_approval`.
  *
  * `tool_approval` is the one interaction-bound kind the periodic sweep can
- * reach (it carries a 30-minute `expiresAt`). In practice the canonical request
- * id does not key a *blocking* prompter interaction: ingress escalations — the
- * sole producer of this kind — register no interaction at all, and
- * PermissionPrompter confirmations are keyed by their own request id with their
- * own (far shorter) timeout. So this is a safe cleanup: it no-ops when nothing
- * is registered under the request id, and otherwise drops a waiter-less async
- * entry and emits `interaction_resolved` so clients clear the attention
- * indicator. `cancelled` is the documented runtime-termination/timeout outcome.
+ * reach (it carries a 30-minute `expiresAt`). In practice the request
+ * id does not key a *blocking* prompter interaction: PermissionPrompter
+ * confirmations are keyed by their own request id with their own (far
+ * shorter) timeout, so a `tool_approval` row without a live pending
+ * interaction can occur transiently. So this is a safe cleanup: it no-ops
+ * when nothing is registered under the request id, and otherwise drops a
+ * waiter-less async entry and emits `interaction_resolved` so clients clear
+ * the attention indicator. `cancelled` is the documented
+ * runtime-termination/timeout outcome.
  */
-function releaseExpiredInteraction(request: CanonicalGuardianRequest): void {
+function releaseExpiredInteraction(request: GuardianRequestWire): void {
   const released = pendingInteractions.resolve(request.id, "cancelled");
   if (released) {
     log.info(
@@ -114,7 +115,7 @@ function releaseExpiredInteraction(request: CanonicalGuardianRequest): void {
  * unknown. Best-effort: a delivery failure is logged, never thrown.
  */
 async function notifyRequesterOfExpiry(
-  request: CanonicalGuardianRequest,
+  request: GuardianRequestWire,
   text: string,
 ): Promise<void> {
   const channel = request.sourceChannel ?? "";

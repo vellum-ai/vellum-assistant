@@ -31,11 +31,7 @@ import { createSelectors } from "@/utils/create-selectors";
 // ---------------------------------------------------------------------------
 
 export type VoiceRecordingPhase =
-  | "idle"
-  | "recording"
-  | "processing"
-  | "done"
-  | "error";
+  "idle" | "recording" | "processing" | "done" | "error";
 
 export interface VoiceRecordingState {
   /** Current phase of the recording lifecycle. */
@@ -177,4 +173,6 @@ const useVoiceRecordingStoreBase = create<VoiceRecordingStore>()((set) => ({
   },
 }));
 
-export const useVoiceRecordingStore = createSelectors(useVoiceRecordingStoreBase);
+export const useVoiceRecordingStore = createSelectors(
+  useVoiceRecordingStoreBase,
+);

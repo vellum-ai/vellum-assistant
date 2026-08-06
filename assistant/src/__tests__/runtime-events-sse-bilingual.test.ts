@@ -13,25 +13,7 @@
  * `?conversationKey=` happy/error path.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getOrCreateConversation } from "../persistence/conversation-key-store.js";
 import { getDb } from "../persistence/db-connection.js";
@@ -73,7 +55,7 @@ describe("GET /v1/events — bilingual scope query params", () => {
 
     // Publish an event scoped to that conversation — should be delivered.
     await testHub.publish(
-      buildAssistantEvent({ type: "pong" }, conversationId),
+      buildAssistantEvent({ type: "message_complete" }, conversationId),
     );
 
     const { value, done } = await reader.read();
@@ -120,9 +102,13 @@ describe("GET /v1/events — bilingual scope query params", () => {
 
     // Publish on the "key" conversation — should NOT be delivered (filter
     // is locked to idConv because conversationId wins).
-    await testHub.publish(buildAssistantEvent({ type: "pong" }, keyConv));
+    await testHub.publish(
+      buildAssistantEvent({ type: "message_complete" }, keyConv),
+    );
     // Publish on the "id" conversation — should be delivered.
-    await testHub.publish(buildAssistantEvent({ type: "pong" }, idConv));
+    await testHub.publish(
+      buildAssistantEvent({ type: "message_complete" }, idConv),
+    );
 
     const { value } = await reader.read();
     ac.abort();

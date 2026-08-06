@@ -24,18 +24,34 @@ const log = getLogger("ps-routes");
 
 type ProcessStatus = "running" | "not_running" | "unreachable";
 
+/**
+ * `workspace` for the daemon and its subsystems; `plugin:<name>` for a
+ * process spawned from a plugin (e.g. `plugin:default-memory`, `plugin:cognee`).
+ */
+type ProcessOrigin = "workspace" | `plugin:${string}`;
+
 interface ProcessEntry {
   name: string;
   status: ProcessStatus;
+  /** `workspace`, or `plugin:<name>` when spawned from a plugin. */
+  origin: ProcessOrigin;
   children?: ProcessEntry[];
   info?: string;
 }
+
+const processOriginSchema = z
+  .string()
+  .regex(/^(workspace|plugin:.+)$/)
+  .describe(
+    "Process origin: 'workspace' for the daemon and its subsystems, or 'plugin:<name>' for a process spawned from a plugin (e.g. 'plugin:default-memory', 'plugin:cognee').",
+  ) as z.ZodType<ProcessOrigin>;
 
 const processEntrySchema: z.ZodType<ProcessEntry> = z
   .lazy(() =>
     z.object({
       name: z.string(),
       status: z.enum(["running", "not_running", "unreachable"]),
+      origin: processOriginSchema,
       children: z.array(processEntrySchema).optional(),
       info: z.string().optional(),
     }),
@@ -52,6 +68,7 @@ function toEntry(node: ProcTreeNode): ProcessEntry {
     name: node.name,
     // Every node in the walk is a live process by definition.
     status: "running",
+    origin: node.origin,
     info: `pid ${node.pid}`,
   };
   if (node.children.length > 0) {
@@ -72,6 +89,7 @@ async function getProcessStatus() {
     entry = {
       name: "assistant",
       status: "running",
+      origin: "workspace",
       info: `pid ${process.pid}`,
     };
   }

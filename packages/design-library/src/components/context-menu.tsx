@@ -35,11 +35,28 @@ const Root = ContextMenuPrimitive.Root;
 
 type TriggerProps = ComponentProps<typeof ContextMenuPrimitive.Trigger>;
 
-function Trigger({ asChild = true, ...props }: TriggerProps) {
+/**
+ * Nested triggers resolve innermost-first, matching what a right-click means
+ * everywhere else: the most specific thing under the pointer wins.
+ *
+ * Radix's own handler calls `preventDefault()` but not `stopPropagation()`, so
+ * a trigger inside another trigger's subtree lets the event keep bubbling and
+ * **both** menus open at once. Stopping it here makes nesting safe for every
+ * consumer rather than leaving each call site to remember - a region menu (a
+ * list, a canvas) can wrap rows that have menus of their own.
+ *
+ * `composeEventHandlers` runs same-element listeners regardless, so Radix
+ * still opens this trigger's own menu.
+ */
+function Trigger({ asChild = true, onContextMenu, ...props }: TriggerProps) {
   return (
     <ContextMenuPrimitive.Trigger
       data-slot="context-menu-trigger"
       asChild={asChild}
+      onContextMenu={(event) => {
+        onContextMenu?.(event);
+        event.stopPropagation();
+      }}
       {...props}
     />
   );

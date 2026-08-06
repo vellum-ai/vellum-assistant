@@ -27,53 +27,42 @@
  *      a conversation offline.
  */
 
-import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import { getIsPlatform } from "../config/env-registry.js";
+import {
+  resolveCallSiteConfig,
+  selectWinningProfile,
+} from "../config/llm-resolver.js";
 import { getDb } from "../persistence/db-connection.js";
-import { ConfigError } from "../util/errors.js";
+import { credentialKey } from "../security/credential-key.js";
+import { ProviderNotConfiguredError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
   describeSubscriptionModelIncompatibility,
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
-import { getConnection, listConnections } from "./inference/connections.js";
+import {
+  canonicalVellumConnection,
+  getConnection,
+  listConnections,
+} from "./inference/connections.js";
+import { resolveManagedProxyContext } from "./platform-proxy/context.js";
+import { checkCredentialPresence } from "./provider-availability.js";
 import type { ProvidersConfig } from "./registry.js";
 import { resolveProviderFromConnection } from "./registry.js";
+import {
+  ConnectionResolutionError,
+  resolveRoutingIdentity,
+} from "./routing-identity.js";
 import type { Provider } from "./types.js";
 import {
   isVellumManagedConnection,
   MANAGED_ROUTABLE_PROVIDERS,
+  VELLUM_MANAGED_CONNECTION_NAME,
 } from "./vellum-model-routing.js";
 
+export { ConnectionResolutionError, resolveRoutingIdentity };
+
 const log = getLogger("providers/connection-resolution");
-
-/**
- * Error raised when a `provider_connection` reference cannot be resolved
- * because the configuration is broken (DB lookup throws, no such row, or
- * the connection's provider does not match the resolving profile's
- * declared provider). These are deterministic configuration bugs that
- * should fail loudly rather than silently rerouting.
- */
-export class ConnectionResolutionError extends ConfigError {
-  public readonly model?: string;
-  public readonly profileName?: string;
-
-  constructor(
-    public readonly connectionName: string,
-    public readonly reason:
-      | "lookup_failed"
-      | "not_found"
-      | "provider_mismatch"
-      | "missing_connection"
-      | "model_incompatible",
-    message: string,
-    options?: { cause?: unknown; model?: string; profileName?: string },
-  ) {
-    super(message, { cause: options?.cause });
-    this.name = "ConnectionResolutionError";
-    this.model = options?.model;
-    this.profileName = options?.profileName;
-  }
-}
 
 /**
  * Resolve a Provider through a named `provider_connection`.
@@ -105,6 +94,16 @@ export async function tryResolveProviderForConnectionName(
   expectedProvider?: string,
   model?: string,
 ): Promise<Provider | null> {
+  // Routing identities carry no upstream of their own: translate to the
+  // identity's canonical connection row and derived upstream before any
+  // lookup. The stored connectionName is overridden — an identity has
+  // exactly one authoritative row.
+  const declaredProvider = expectedProvider;
+  const identity = resolveRoutingIdentity(expectedProvider, model);
+  if (identity) {
+    connectionName = identity.connectionName;
+    expectedProvider = identity.expectedProvider;
+  }
   let connection;
   try {
     connection = getConnection(getDb(), connectionName);
@@ -122,6 +121,24 @@ export async function tryResolveProviderForConnectionName(
       "not_found",
       `provider_connection "${connectionName}" not found in DB — check your config or run the boot-time backfill`,
     );
+  }
+  // Any route through the canonical connection name is platform-billed, so it
+  // resolves on platform auth and ignores a user-owned row claiming that name
+  // (boot seeding refuses to overwrite such a row, so these installs have no
+  // canonical row at all). Keyed on the name rather than the declared
+  // provider: a call-site tweak pinning a concrete upstream over a managed
+  // profile keeps the managed connection while replacing the provider
+  // (`llm-resolver.ts`), and that route is platform-billed just the same.
+  if (
+    connectionName === VELLUM_MANAGED_CONNECTION_NAME &&
+    !isVellumManagedConnection(connection)
+  ) {
+    const provider = await resolveThroughPlatform(
+      config,
+      expectedProvider ?? declaredProvider,
+      model,
+    );
+    return attachProviderRoute(provider, canonicalVellumConnection());
   }
   // The provider-agnostic Vellum-managed connection carries only the `vellum`
   // sentinel, so the usual `connection.provider === expectedProvider` equality
@@ -206,10 +223,11 @@ export async function tryResolveProviderForConnectionName(
   // catch is specifically for in-flight failures that should not take
   // dispatch offline.
   try {
-    return await resolveProviderFromConnection(connection, config, {
+    const provider = await resolveProviderFromConnection(connection, config, {
       model,
       providerOverride: isVellumRoute ? expectedProvider : undefined,
     });
+    return attachProviderRoute(provider, connection);
   } catch (err) {
     log.warn(
       { err, connectionName },
@@ -219,12 +237,80 @@ export async function tryResolveProviderForConnectionName(
   }
 }
 
+function attachProviderRoute(
+  provider: Provider | null,
+  connection: { name: string; provider: string; auth: { type: string } },
+): Provider | null {
+  if (provider) {
+    provider.routeAttribution = {
+      connectionName: connection.name,
+      isManagedRoute: isVellumManagedConnection(connection),
+    };
+  }
+  return provider;
+}
+
+/**
+ * Whether a route through this connection name is Vellum-managed
+ * (platform-billed), for callers that hold only the name. Returns undefined
+ * when the row can't be read, so the caller can fall back rather than assert
+ * a BYOK route it never confirmed.
+ *
+ * The canonical name is always managed: a user-owned row claiming it is
+ * ignored and the route resolves through platform auth regardless (see
+ * `tryResolveProviderForConnectionName`).
+ */
+export function isManagedConnectionRoute(
+  connectionName: string,
+): boolean | undefined {
+  if (connectionName === VELLUM_MANAGED_CONNECTION_NAME) {
+    return true;
+  }
+  let connection;
+  try {
+    connection = getConnection(getDb(), connectionName);
+  } catch {
+    return undefined;
+  }
+  return connection ? isVellumManagedConnection(connection) : undefined;
+}
+
+/**
+ * Resolve a managed route through platform auth without reading a connection
+ * row. Used when the canonical `vellum` row is claimed by a user-owned
+ * connection, so the row boot seeding would have written does not exist.
+ */
+async function resolveThroughPlatform(
+  config: ProvidersConfig,
+  upstream: string | undefined,
+  model: string | undefined,
+): Promise<Provider | null> {
+  if (!upstream || !MANAGED_ROUTABLE_PROVIDERS.has(upstream)) {
+    return null;
+  }
+  log.info(
+    { upstream, model },
+    "Vellum-managed route resolved through platform auth: a user-owned connection claims the canonical connection name",
+  );
+  try {
+    return await resolveProviderFromConnection(
+      canonicalVellumConnection(),
+      config,
+      { model, providerOverride: upstream },
+    );
+  } catch (err) {
+    log.warn({ err }, "Platform fallback auth resolution failed transiently");
+    return null;
+  }
+}
+
 /**
  * Resolve the connection-aware default provider for the satellite
  * construction-time path (subagent manager, conversation store,
  * approval/guardian generators, rollup producer).
  *
- * Reads `config.llm.default.{provider, provider_connection}`.
+ * Resolves the mainAgent call-site config and reads its
+ * `{provider, provider_connection}`.
  *
  *   - Throws `ConnectionResolutionError` if the default profile has no
  *     `provider_connection` (boot-time backfill should have set one;
@@ -240,6 +326,15 @@ export async function resolveDefaultProvider(
 ): Promise<Provider | null> {
   const resolved = resolveCallSiteConfig("mainAgent", config.llm);
   let connectionName = resolved.provider_connection;
+  // A routing-identity provider names its own connection row; the
+  // provider-keyed auto-resolve scan below cannot find it ("chatgpt" rows
+  // store provider "openai"), so short-circuit to the canonical name.
+  if (!connectionName) {
+    connectionName = resolveRoutingIdentity(
+      resolved.provider,
+      resolved.model,
+    )?.connectionName;
+  }
   if (!connectionName) {
     // The merged config has no provider_connection — the profile likely set
     // provider without a connection ("Any active" selection), and the merge
@@ -276,16 +371,16 @@ export async function resolveDefaultProvider(
         : null;
       if (incompatMsg) {
         throw new ConnectionResolutionError(
-          "<llm.default>",
+          "<default>",
           "model_incompatible",
           incompatMsg,
           { model: resolved.model },
         );
       }
       throw new ConnectionResolutionError(
-        "<llm.default>",
+        "<default>",
         "missing_connection",
-        `llm.default.provider_connection is unset — every profile must declare a provider_connection. The boot-time backfill in lifecycle.ts populates this field; if you see this error, the backfill did not run or the field was manually cleared.`,
+        `The resolved default config carries no provider_connection and no active connection exists for provider "${resolved.provider}". Connect a provider or point llm.defaultProvider at one with credentials.`,
       );
     }
   }
@@ -294,5 +389,219 @@ export async function resolveDefaultProvider(
     config,
     resolved.provider,
     resolved.model,
+  );
+}
+
+/**
+ * Statically verify a resolved config can dispatch, throwing a
+ * reason-carrying `ConnectionResolutionError` that names the profile,
+ * connection, and fix when it provably cannot:
+ *
+ *   - connection row missing (`not_found`)
+ *   - connection bound to a different provider (`provider_mismatch`), with
+ *     the provider-agnostic Vellum-managed exception for managed-routable
+ *     providers
+ *   - API-key/subscription credential absent from the vault
+ *     (`missing_credential`)
+ *   - platform auth without a platform login (`platform_unauthenticated`)
+ *   - model not servable by the connection (`model_incompatible`)
+ *
+ * Returns silently when the config is healthy AND when it is indeterminate:
+ * a credential store that is unreachable must never be reported as a missing
+ * credential, so the caller falls through to its existing retryable
+ * handling. Purely a read — never mutates, never auto-recovers.
+ */
+export async function preflightResolvedConfig(
+  resolved: {
+    provider: string;
+    provider_connection?: string;
+    model: string;
+  },
+  attribution: { profileName?: string } = {},
+): Promise<void> {
+  // Routing identities preflight through their canonical row and derived
+  // upstream; an unroutable vellum model throws here — it is statically
+  // detectable, exactly what preflight exists to surface.
+  const identity = resolveRoutingIdentity(resolved.provider, resolved.model);
+  const provider = identity?.expectedProvider ?? resolved.provider;
+  const connectionName =
+    identity?.connectionName ?? resolved.provider_connection;
+  if (!connectionName) {
+    return;
+  }
+  const errorOptions = {
+    model: resolved.model,
+    ...(attribution.profileName != null
+      ? { profileName: attribution.profileName }
+      : {}),
+  };
+
+  let connection;
+  try {
+    connection = getConnection(getDb(), connectionName);
+  } catch {
+    // DB unavailable — indeterminate, not a config error.
+    return;
+  }
+  if (!connection) {
+    throw new ConnectionResolutionError(
+      connectionName,
+      "not_found",
+      `provider_connection "${connectionName}" does not exist — add a connection for provider "${resolved.provider}" or pick a different default in Settings`,
+      errorOptions,
+    );
+  }
+  // Dispatch routes anything through the canonical name on platform auth, so
+  // preflight judges the platform rather than a claiming row's credentials.
+  if (
+    connectionName === VELLUM_MANAGED_CONNECTION_NAME &&
+    !isVellumManagedConnection(connection)
+  ) {
+    connection = canonicalVellumConnection();
+  }
+
+  if (isVellumManagedConnection(connection)) {
+    if (!MANAGED_ROUTABLE_PROVIDERS.has(provider)) {
+      throw new ConnectionResolutionError(
+        connectionName,
+        "provider_mismatch",
+        `provider_connection "${connectionName}" is the Vellum-managed connection, which cannot serve provider "${provider}"`,
+        errorOptions,
+      );
+    }
+    const presence = await platformLoginPresence();
+    if (presence === "ok") {
+      return;
+    }
+    if (getIsPlatform()) {
+      // A platform-managed assistant cannot present a login screen or switch
+      // providers, so the login-or-switch wording never fits. An unreachable
+      // store is transient and recovers on its own, so it reads as a retry. A
+      // reachable but empty store can only be fixed by re-provisioning the
+      // credential platform-side.
+      if (presence === "indeterminate") {
+        throw new ConnectionResolutionError(
+          connectionName,
+          "platform_unauthenticated",
+          "The assistant's platform credentials are temporarily unavailable; retrying automatically.",
+          errorOptions,
+        );
+      }
+      log.error(
+        {
+          connectionName,
+          model: resolved.model,
+          profileName: attribution.profileName,
+        },
+        "Managed platform credential is missing and must be re-provisioned",
+      );
+      throw new ConnectionResolutionError(
+        connectionName,
+        "platform_unauthenticated",
+        "This assistant's platform credential is missing and must be re-provisioned on the Vellum platform.",
+        errorOptions,
+      );
+    }
+    if (presence === "unauthenticated") {
+      throw new ConnectionResolutionError(
+        connectionName,
+        "platform_unauthenticated",
+        `provider_connection "${connectionName}" routes through the Vellum platform, but no platform login is available — log in or pick a different provider`,
+        errorOptions,
+      );
+    }
+    return;
+  }
+  if (connection.provider !== provider) {
+    throw new ConnectionResolutionError(
+      connectionName,
+      "provider_mismatch",
+      `provider_connection "${connectionName}" has provider="${connection.provider}" but the resolved config declares provider="${provider}"`,
+      errorOptions,
+    );
+  }
+
+  switch (connection.auth.type) {
+    case "api_key":
+    case "oauth_subscription": {
+      const presence = await checkCredentialPresence(
+        connection.auth.credential,
+      );
+      if (presence !== "absent") {
+        // `indeterminate` (credential store unreachable) must never be
+        // claimed as a missing credential.
+        return;
+      }
+      throw new ConnectionResolutionError(
+        connectionName,
+        "missing_credential",
+        `provider_connection "${connectionName}" has no ${connection.auth.type === "api_key" ? "API key" : "credential"} stored — add one in Settings`,
+        errorOptions,
+      );
+    }
+    case "platform": {
+      if ((await platformLoginPresence()) === "unauthenticated") {
+        throw new ConnectionResolutionError(
+          connectionName,
+          "platform_unauthenticated",
+          `provider_connection "${connectionName}" uses platform auth, but no platform login is available — log in to use it`,
+          errorOptions,
+        );
+      }
+      return;
+    }
+    default:
+      return;
+  }
+}
+
+/**
+ * Platform-login state with the credential-store-outage case kept distinct:
+ * `resolveManagedProxyContext` collapses an unreachable key read into
+ * "no key", which must not be reported as a logout. A missing platform base
+ * URL is definitively unauthenticated (it is config, not a credential read).
+ */
+async function platformLoginPresence(): Promise<
+  "ok" | "unauthenticated" | "indeterminate"
+> {
+  const ctx = await resolveManagedProxyContext();
+  if (ctx.enabled) {
+    return "ok";
+  }
+  if (!ctx.platformBaseUrl) {
+    return "unauthenticated";
+  }
+  const presence = await checkCredentialPresence(
+    credentialKey("vellum", "assistant_api_key"),
+  );
+  if (presence === "present") {
+    return "ok";
+  }
+  return presence === "indeterminate" ? "indeterminate" : "unauthenticated";
+}
+
+/**
+ * Shared guard for the call sites that must fail loudly when the default
+ * provider resolves to no usable adapter: the flag-gated preflight throws a
+ * reason-carrying error when it can statically pinpoint the breakage;
+ * otherwise the returned generic retryable error is for the caller to
+ * throw (returned rather than thrown so `throw await …` keeps TypeScript's
+ * reachability narrowing at the call site).
+ */
+export async function mainAgentResolutionError(
+  llm: Parameters<typeof resolveCallSiteConfig>[1],
+  registeredProviders: string[],
+): Promise<ProviderNotConfiguredError> {
+  const resolved = resolveCallSiteConfig("mainAgent", llm);
+  await preflightResolvedConfig(resolved, {
+    profileName:
+      selectWinningProfile("mainAgent", llm, {}).profileName ?? undefined,
+  });
+  return new ProviderNotConfiguredError(
+    resolved.provider,
+    registeredProviders,
+    {
+      connectionName: resolved.provider_connection,
+    },
   );
 }

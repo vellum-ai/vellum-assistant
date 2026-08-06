@@ -14,16 +14,17 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { uploadAttachment } from "../persistence/attachments-store.js";
 import {
   addMessage,
   createConversation,
   getMessages,
 } from "../persistence/conversation-crud.js";
-import { getDb } from "../persistence/db-connection.js";
+import { getDb, getMemorySqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
-  oversizedImageReplacement,
   persistUnsendableImageDowngrades,
+  unsendableImageReplacement,
 } from "../plugins/defaults/image-recovery/recover.js";
 import type { ContentBlock } from "../providers/types.js";
 
@@ -33,8 +34,8 @@ function resetTables(): void {
   const db = getDb();
   db.run("DELETE FROM message_attachments");
   db.run("DELETE FROM attachments");
-  db.run("DELETE FROM memory_segments");
-  db.run("DELETE FROM memory_embeddings");
+  getMemorySqlite()?.run("DELETE FROM memory_segments");
+  getMemorySqlite()?.run("DELETE FROM memory_embeddings");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
 }
@@ -83,10 +84,10 @@ function makePngBase64(width: number, height: number, padBytes = 0): string {
   return padBytes > 0 ? header + "A".repeat(padBytes) : header;
 }
 
-function imageBlock(data: string): ContentBlock {
+function imageBlock(data: string, mediaType = "image/png"): ContentBlock {
   return {
     type: "image",
-    source: { type: "base64", media_type: "image/png", data },
+    source: { type: "base64", media_type: mediaType, data },
   };
 }
 
@@ -105,9 +106,7 @@ function toolResultWithImage(data: string): ContentBlock {
 }
 
 function storedContent(conversationId: string): ContentBlock[][] {
-  return getMessages(conversationId).map(
-    (row) => JSON.parse(row.content) as ContentBlock[],
-  );
+  return getMessages(conversationId).map((row) => row.content);
 }
 
 const PROVIDER_MAX_IMAGE_DIMENSION = 8000;
@@ -133,7 +132,7 @@ describe("persistUnsendableImageDowngrades", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = await persistUnsendableImageDowngrades(conv.id);
 
     // THEN one message is rewritten with no image block left
     expect(rewritten).toBe(1);
@@ -163,7 +162,7 @@ describe("persistUnsendableImageDowngrades", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = await persistUnsendableImageDowngrades(conv.id);
 
     // THEN only the rejected original is removed
     expect(rewritten).toBe(1);
@@ -185,7 +184,7 @@ describe("persistUnsendableImageDowngrades", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = await persistUnsendableImageDowngrades(conv.id);
 
     // THEN nothing is rewritten and the image remains
     expect(rewritten).toBe(0);
@@ -203,9 +202,31 @@ describe("persistUnsendableImageDowngrades", () => {
     });
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = await persistUnsendableImageDowngrades(conv.id);
 
     // THEN the oversized-payload image is removed
+    expect(rewritten).toBe(1);
+    const [content] = storedContent(conv.id);
+    expect(content.some((b) => b.type === "image")).toBe(false);
+  });
+
+  /** The minimum-size floor is enforced alongside the oversized caps: an
+   *  image the provider rejects with "Could not process image" (e.g. a
+   *  16×14 px upload) must not rehydrate and re-reject on later turns. */
+  test("removes an image below the minimum-size floor", async () => {
+    // GIVEN a message holding a tiny image below the provider minimum
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([imageBlock(makePngBase64(16, 14))]),
+      { skipIndexing: true },
+    );
+
+    // WHEN the downgrade is persisted
+    const rewritten = await persistUnsendableImageDowngrades(conv.id);
+
+    // THEN the undersized image is removed (upscale is a no-op on this host)
     expect(rewritten).toBe(1);
     const [content] = storedContent(conv.id);
     expect(content.some((b) => b.type === "image")).toBe(false);
@@ -227,7 +248,7 @@ describe("persistUnsendableImageDowngrades", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = await persistUnsendableImageDowngrades(conv.id);
 
     // THEN the message is rewritten with the nested image swapped for a note
     expect(rewritten).toBe(1);
@@ -253,7 +274,7 @@ describe("persistUnsendableImageDowngrades", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = await persistUnsendableImageDowngrades(conv.id);
 
     // THEN nothing is rewritten and the nested image remains
     expect(rewritten).toBe(0);
@@ -266,6 +287,41 @@ describe("persistUnsendableImageDowngrades", () => {
     );
   });
 
+  /** A stored image whose declared media type disagrees with its bytes (e.g.
+   *  a JPEG renamed to .png before upload) is relabeled in place — bytes kept,
+   *  media_type corrected — so it stops re-rejecting on every later turn. */
+  test("relabels a mislabeled image instead of removing it", async () => {
+    // GIVEN a normally-sized PNG stored with a declared type of image/jpeg
+    const conv = createConversation();
+    const pngData = makePngBase64(1024, 768);
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([imageBlock(pngData, "image/jpeg")]),
+      { skipIndexing: true },
+    );
+
+    // WHEN the downgrade is persisted
+    const rewritten = await persistUnsendableImageDowngrades(conv.id);
+
+    // THEN the image survives with its media type corrected to the sniffed one
+    expect(rewritten).toBe(1);
+    const [content] = storedContent(conv.id);
+    const image = content.find((b) => b.type === "image") as Extract<
+      ContentBlock,
+      { type: "image" }
+    >;
+    expect(image).toBeDefined();
+    expect(image.source).toMatchObject({
+      type: "base64",
+      media_type: "image/png",
+      data: pngData,
+    });
+
+    // AND a second run is a no-op (the corrected block no longer mismatches)
+    expect(await persistUnsendableImageDowngrades(conv.id)).toBe(0);
+  });
+
   /** Re-running after a rewrite is a safe no-op (no image blocks remain). */
   test("is idempotent — a second run rewrites nothing", async () => {
     // GIVEN a conversation whose oversized image has already been downgraded
@@ -276,36 +332,96 @@ describe("persistUnsendableImageDowngrades", () => {
       JSON.stringify([imageBlock(makePngBase64(10000, 10000))]),
       { skipIndexing: true },
     );
-    expect(persistUnsendableImageDowngrades(conv.id)).toBe(1);
+    expect(await persistUnsendableImageDowngrades(conv.id)).toBe(1);
 
     // WHEN the downgrade runs a second time
-    const secondRun = persistUnsendableImageDowngrades(conv.id);
+    const secondRun = await persistUnsendableImageDowngrades(conv.id);
 
     // THEN nothing further is rewritten
     expect(secondRun).toBe(0);
   });
 });
 
-describe("oversizedImageReplacement", () => {
+describe("unsendableImageReplacement", () => {
   /** A still-sendable image must be left alone — never replaced with a note.
    *  This is the gate that keeps the in-memory recovery from discarding valid
    *  screenshots when only one image in the turn was actually oversized. */
-  test("returns null for an image within the provider caps", () => {
+  test("returns null for an image within the provider caps", async () => {
     const sendable = imageBlock(makePngBase64(1024, 768)) as Extract<
       ContentBlock,
       { type: "image" }
     >;
-    expect(oversizedImageReplacement(sendable)).toBeNull();
+    expect(await unsendableImageReplacement(sendable)).toBeNull();
   });
 
   /** An image past the provider caps that cannot be shrunk on this host (fake
    *  PNG that sips cannot decode) collapses to the unsendable note. */
-  test("returns the unsendable note when an oversized image cannot be shrunk", () => {
+  test("returns the unsendable note when an oversized image cannot be shrunk", async () => {
     const oversized = imageBlock(makePngBase64(12000, 9000)) as Extract<
       ContentBlock,
       { type: "image" }
     >;
-    const replacement = oversizedImageReplacement(oversized);
+    const replacement = await unsendableImageReplacement(oversized);
     expect(replacement?.type).toBe("text");
+  });
+
+  /** An image below the provider's minimum-size floor (rejected with "Could
+   *  not process image") that cannot be upscaled on this host collapses to
+   *  the unsendable note, same as the oversized direction. */
+  test("returns the unsendable note when an undersized image cannot be upscaled", async () => {
+    const undersized = imageBlock(makePngBase64(16, 14)) as Extract<
+      ContentBlock,
+      { type: "image" }
+    >;
+    const replacement = await unsendableImageReplacement(undersized);
+    expect(replacement?.type).toBe("text");
+  });
+
+  /** A within-limits image whose declared media type disagrees with its bytes
+   *  is relabeled with the sniffed type instead of being noted out. */
+  test("relabels a mislabeled image with its sniffed media type", async () => {
+    const pngData = makePngBase64(1024, 768);
+    const mislabeled = imageBlock(pngData, "image/jpeg") as Extract<
+      ContentBlock,
+      { type: "image" }
+    >;
+    const replacement = await unsendableImageReplacement(mislabeled);
+    expect(replacement).toMatchObject({
+      type: "image",
+      source: { type: "base64", media_type: "image/png", data: pngData },
+    });
+  });
+
+  /** Relabeling a persisted (workspace_ref) image keeps the reference shape —
+   *  inlining it would bake the full payload into the stored message row. */
+  test("relabels a mislabeled workspace_ref without inlining the payload", async () => {
+    const pngData = makePngBase64(1024, 768);
+    const stored = await uploadAttachment("photo.png", "image/png", pngData);
+    const mislabeledRef = {
+      type: "image",
+      source: {
+        type: "workspace_ref",
+        media_type: "image/jpeg",
+        attachmentId: stored.id,
+        sizeBytes: Buffer.from(pngData, "base64").length,
+      },
+    } as Extract<ContentBlock, { type: "image" }>;
+
+    const replacement = await unsendableImageReplacement(mislabeledRef);
+
+    expect(replacement).toMatchObject({
+      type: "image",
+      source: {
+        type: "workspace_ref",
+        media_type: "image/png",
+        attachmentId: stored.id,
+      },
+    });
+    // AND the corrected reference no longer matches on a second pass
+    expect(
+      await unsendableImageReplacement(
+        replacement as Extract<ContentBlock, { type: "image" }>,
+      ),
+    ).toBeNull();
   });
 });

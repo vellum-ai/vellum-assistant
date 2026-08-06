@@ -6,7 +6,7 @@
  * (`../cli/lib/plugin-fingerprint.ts`, drift detection against the pinned
  * commit) and the live-reload source fingerprint
  * (`./source-fingerprint.ts`, change detection for redeploys). This module
- * owns the walk and the excluded-entry constants so the two can't drift.
+ * owns the walk and its excluded-entry rules so the two can't drift.
  *
  * Symlinks are never followed, at any depth: install never materializes
  * them, and following a symlinked directory would let a link like
@@ -40,12 +40,48 @@ export const PRESERVED_ENTRIES = [
   ".disabled",
 ] as const;
 
+/**
+ * Directory names {@link walkPluginTree} skips at any depth, unconditionally.
+ * `node_modules` holds a plugin's installed dependencies — derived from the
+ * pinned `package.json` and re-installed on every (re)install and upgrade (see
+ * `../cli/lib/install-plugin-dependencies.ts`), never tracked source. Excluding
+ * it keeps installed dependencies out of the install fingerprint / content hash
+ * (`../cli/lib/plugin-fingerprint.ts`) and the live-reload source fingerprint
+ * (`./source-fingerprint.ts`), so a re-materialized baseline — which has no
+ * `node_modules/` — still matches what install recorded. It is baked into the
+ * walk rather than opted into per call because no plugin-tree walk ever wants
+ * to descend it.
+ */
+const ALWAYS_EXCLUDED_DIRS: ReadonlySet<string> = new Set(["node_modules"]);
+
+/**
+ * Generated app build output: `apps/<app>/dist`. This is compiled output (the
+ * plugin source watcher builds each multi-file app's `src/` into its sibling
+ * `dist/`), never tracked source, so — like {@link PRESERVED_ENTRIES} — every
+ * fingerprint walk excludes it:
+ *
+ * - the **live-reload** change detector (`./source-fingerprint.ts`), so the
+ *   watcher's own compile does not read as a source change and re-trigger
+ *   itself in a loop, and
+ * - the **install/drift** fingerprint (`../cli/lib/plugin-fingerprint.ts`), so
+ *   generated output is not reported as drift/added against the pinned commit.
+ *
+ * A path pattern rather than a bare name so it stays scoped to `apps/<app>/dist`
+ * — a plugin's own top-level `dist/` (if it ships built code its hooks import)
+ * is still tracked. Matched against the POSIX path relative to the plugin root.
+ */
+export const GENERATED_APP_BUILD_DIR = /^apps\/[^/]+\/dist$/;
+
 /** Options controlling which entries a {@link walkPluginTree} visits. */
 export interface PluginTreeWalkOptions {
-  /** Top-level entry names to skip (e.g. {@link PRESERVED_ENTRIES}). */
-  readonly excludeRootEntries?: Iterable<string>;
-  /** Directory names skipped at any depth (e.g. `node_modules`). */
-  readonly excludeDirsAnywhere?: ReadonlySet<string>;
+  /**
+   * Entries to exclude. A `string` matches a top-level entry by name (e.g.
+   * {@link PRESERVED_ENTRIES}); a `RegExp` matches any entry — at any depth —
+   * by its POSIX path relative to the walk root, and when it matches a
+   * directory the whole subtree is skipped (e.g. {@link
+   * GENERATED_APP_BUILD_DIR}).
+   */
+  readonly excludeRootEntries?: Iterable<string | RegExp>;
   /** Skip entries whose name starts with `.`, at any depth. */
   readonly excludeDotEntries?: boolean;
   /**
@@ -67,7 +103,17 @@ export function walkPluginTree(
   options: PluginTreeWalkOptions,
   visit: (rel: string, abs: string) => void,
 ): void {
-  const excludedRoot = new Set(options.excludeRootEntries ?? []);
+  // Split the exclusion list: bare strings match a top-level entry name;
+  // RegExps match an entry's relative path at any depth.
+  const excludedRootNames = new Set<string>();
+  const excludePatterns: RegExp[] = [];
+  for (const entry of options.excludeRootEntries ?? []) {
+    if (typeof entry === "string") {
+      excludedRootNames.add(entry);
+    } else {
+      excludePatterns.push(entry);
+    }
+  }
 
   const walk = (relDir: string): void => {
     const absDir = relDir ? join(root, relDir) : root;
@@ -82,7 +128,7 @@ export function walkPluginTree(
     }
     for (const entry of entries) {
       const name = entry.name;
-      if (relDir === "" && excludedRoot.has(name)) {
+      if (relDir === "" && excludedRootNames.has(name)) {
         continue;
       }
       if (options.excludeDotEntries === true && name.startsWith(".")) {
@@ -92,8 +138,11 @@ export function walkPluginTree(
         continue;
       }
       const rel = relDir ? `${relDir}/${name}` : name;
+      if (excludePatterns.some((pattern) => pattern.test(rel))) {
+        continue;
+      }
       if (entry.isDirectory()) {
-        if (options.excludeDirsAnywhere?.has(name) === true) {
+        if (ALWAYS_EXCLUDED_DIRS.has(name)) {
           continue;
         }
         walk(rel);

@@ -7,7 +7,10 @@ import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import { useSandboxFetchProxy } from "@/hooks/use-sandbox-fetch-proxy";
 import { injectBridge } from "@/utils/sandbox-bridge";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import { isSurfaceToolCallComplete, type Surface } from "@/domains/chat/types/types";
+import {
+  isSurfaceToolCallComplete,
+  type Surface,
+} from "@/domains/chat/types/types";
 import { getDynamicPageAppId } from "@/domains/chat/components/surfaces/dynamic-page-app-id";
 
 // ---------------------------------------------------------------------------
@@ -35,12 +38,21 @@ interface DynamicPageSurfaceData {
 
 interface DynamicPageSurfaceProps {
   surface: Surface;
-  onAction: (surfaceId: string, actionId: string, data?: Record<string, unknown>) => void;
+  onAction: (
+    surfaceId: string,
+    actionId: string,
+    data?: Record<string, unknown>,
+  ) => void;
   assistantId?: string | null;
   onOpenApp?: (appId: string) => void;
   /** Tool calls of the message this surface belongs to. The preview unlocks
    *  once the surface's originating tool call has completed. */
   toolCalls?: ChatMessageToolCall[];
+  /** Handler for `vellum://` file links clicked inside the sandboxed iframe.
+   *  The sandbox can't navigate or `window.open()` these, so the click is
+   *  forwarded here to resolve the linked attachment and download it — the
+   *  same behavior as chat's `onVellumLinkClick`. */
+  onVellumLinkClick?: (href: string, linkText: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -55,11 +67,16 @@ function StatusPill({ text }: { text: string }) {
   }
 
   useEffect(() => {
-    const timer = setTimeout(() => setState((s) => ({ ...s, hidden: true })), 3000);
+    const timer = setTimeout(
+      () => setState((s) => ({ ...s, hidden: true })),
+      3000,
+    );
     return () => clearTimeout(timer);
   }, [text]);
 
-  if (state.hidden) return null;
+  if (state.hidden) {
+    return null;
+  }
 
   return (
     <div className="absolute top-2 right-2 z-10 rounded-full bg-[var(--primary-base)]/80 px-3 py-1 text-body-small-default text-[var(--content-inset)] shadow-sm backdrop-blur-sm transition-opacity duration-300">
@@ -78,6 +95,7 @@ export function DynamicPageSurface({
   assistantId,
   onOpenApp,
   toolCalls,
+  onVellumLinkClick,
 }: DynamicPageSurfaceProps) {
   const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
   const togglePin = usePinnedAppsStore.use.togglePin();
@@ -87,9 +105,8 @@ export function DynamicPageSurface({
     () => isSurfaceToolCallComplete(surface, toolCalls),
     [surface, toolCalls],
   );
-  const inlineHtml = typeof data.html === "string" && data.html.length > 0
-    ? data.html
-    : null;
+  const inlineHtml =
+    typeof data.html === "string" && data.html.length > 0 ? data.html : null;
   const [expanded, setExpanded] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -106,7 +123,8 @@ export function DynamicPageSurface({
   }, [data.html, surface.surfaceId]);
 
   const srcdoc = useMemo(
-    () => injectBridge(data.html || "", surface.surfaceId, { fetch: enableFetch }),
+    () =>
+      injectBridge(data.html || "", surface.surfaceId, { fetch: enableFetch }),
     [data.html, surface.surfaceId, enableFetch],
   );
 
@@ -128,6 +146,7 @@ export function DynamicPageSurface({
     assistantId: assistantId ?? "",
     enabled: enableFetch,
     onAction: handleSurfaceAction,
+    onOpenVellumLink: onVellumLinkClick,
   });
 
   const handleCollapse = useCallback(() => setExpanded(false), []);
@@ -141,11 +160,12 @@ export function DynamicPageSurface({
     }
   }, [appId, inlineHtml, onOpenApp]);
 
-  const onOpenPreview = appId && onOpenApp
-    ? handleOpenPreview
-    : inlineHtml != null
+  const onOpenPreview =
+    appId && onOpenApp
       ? handleOpenPreview
-      : undefined;
+      : inlineHtml != null
+        ? handleOpenPreview
+        : undefined;
 
   const loadHtmlForPreview = useMemo(
     () =>
@@ -168,10 +188,6 @@ export function DynamicPageSurface({
             id: appId,
             name: cardName,
             icon: data.preview?.icon,
-            createdAt: 0,
-            updatedAt: 0,
-            version: "",
-            contentId: "",
           })
       : undefined;
     return (

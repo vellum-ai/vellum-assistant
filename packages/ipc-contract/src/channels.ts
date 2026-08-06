@@ -66,6 +66,7 @@ export const LOCAL_MODE_READ_LOCKFILE = "vellum:localMode:readLockfile";
 export const LOCAL_MODE_SAVE_ASSISTANT = "vellum:localMode:saveLockfileAssistant";
 export const LOCAL_MODE_REPLACE_PLATFORM = "vellum:localMode:replacePlatformAssistants";
 export const LOCAL_MODE_RETIRE = "vellum:localMode:retire";
+export const LOCAL_MODE_UNPAIR = "vellum:localMode:unpair";
 export const LOCAL_MODE_SLEEP = "vellum:localMode:sleep";
 export const LOCAL_MODE_WAKE = "vellum:localMode:wake";
 export const LOCAL_MODE_UPGRADE = "vellum:localMode:upgrade";
@@ -131,6 +132,19 @@ export const DICTATION_OVERLAY_STOP_REQUESTED =
   "vellum:dictationOverlay:stopRequested";
 export const DICTATION_OVERLAY_SET_INTERACTIVE =
   "vellum:dictationOverlay:setInteractive";
+
+// Voice activity: the floating live-voice session surface
+export const VOICE_ACTIVITY_START = "vellum:voiceActivity:start";
+export const VOICE_ACTIVITY_UPDATE = "vellum:voiceActivity:update";
+export const VOICE_ACTIVITY_END = "vellum:voiceActivity:end";
+export const VOICE_ACTIVITY_GET_STATE = "vellum:voiceActivity:getState";
+export const VOICE_ACTIVITY_STATE_EVENT = "vellum:voiceActivity:state";
+export const VOICE_ACTIVITY_CONTROL = "vellum:voiceActivity:control";
+export const VOICE_ACTIVITY_CONTROL_EVENT = "vellum:voiceActivity:controlEvent";
+export const VOICE_ACTIVITY_ACTIVATE = "vellum:voiceActivity:activate";
+export const VOICE_ACTIVITY_DISMISS = "vellum:voiceActivity:dismiss";
+export const VOICE_ACTIVITY_SET_COLLAPSED =
+  "vellum:voiceActivity:setCollapsed";
 
 // Popout
 export const POPOUT_OPEN = "vellum:popout:open";

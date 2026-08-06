@@ -15,6 +15,7 @@
 import type { Button, CardBlock, ContextBlock, KnownBlock } from "@slack/types";
 
 import { sendSlackReply } from "../../messaging/providers/slack/send.js";
+import { APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX } from "../../messaging/providers/slack/withdraw.js";
 import type { ApprovalUIMetadata } from "../../runtime/channel-approval-types.js";
 import { getLogger } from "../../util/logger.js";
 import {
@@ -24,6 +25,7 @@ import {
   buildAccessRequestCardView,
   buildAccessRequestInviteDirective,
 } from "../access-request-copy.js";
+import type { ToolApprovalSourceView } from "../guardian-question-mode.js";
 import { truncate } from "../notification-utils.js";
 import type {
   ChannelAdapter,
@@ -110,6 +112,29 @@ function buildAccessRequestBody(view: AccessRequestCardView): string {
   return accessRequestCardSubtitle(view.admitted);
 }
 
+/**
+ * Slack source context block: channel/DM label with a permalink to the
+ * originating message when one is available. Shared by the access-request
+ * and tool-approval cards so the source line renders identically on both.
+ */
+function buildSlackSourceContextBlock(params: {
+  isDm: boolean;
+  chatId: string;
+  permalink: string | undefined;
+}): ContextBlock {
+  const label = params.isDm
+    ? "Source: Slack — Direct message"
+    : `Source: Slack — <#${params.chatId}>`;
+  const sourceText = params.permalink
+    ? `${label} · <${params.permalink}|View message>`
+    : label;
+
+  return {
+    type: "context",
+    elements: [{ type: "mrkdwn", text: sourceText }],
+  };
+}
+
 /** Source-channel context block with Slack permalink when available. */
 function buildSourceContextBlock(
   view: AccessRequestCardView,
@@ -118,22 +143,43 @@ function buildSourceContextBlock(
     return undefined;
   }
 
-  const permalink = view.messagePermalink;
+  return buildSlackSourceContextBlock({
+    isDm: view.isSlackDm,
+    chatId: view.conversationExternalId,
+    permalink: view.messagePermalink,
+  });
+}
 
-  let sourceText: string;
-  if (view.isSlackDm) {
-    sourceText = permalink
-      ? `Source: Slack — Direct message · <${permalink}|View message>`
-      : "Source: Slack — Direct message";
-  } else {
-    sourceText = permalink
-      ? `Source: Slack — <#${view.conversationExternalId}> · <${permalink}|View message>`
-      : `Source: Slack — <#${view.conversationExternalId}>`;
+/**
+ * Source context block for a tool-approval card. Slack-originated requests
+ * get the channel/DM-aware label; any other source channel renders its
+ * channel id with the resolved link, so a new channel's approvals link back
+ * to their source as soon as its resolver is registered.
+ */
+function buildToolApprovalSourceContextBlock(
+  view: ToolApprovalSourceView | undefined,
+): ContextBlock | undefined {
+  if (!view) {
+    return undefined;
   }
-
+  if (view.channel === "slack" && view.chatId) {
+    return buildSlackSourceContextBlock({
+      isDm: view.isSlackDm,
+      chatId: view.chatId,
+      permalink: view.permalink,
+    });
+  }
+  if (!view.permalink) {
+    return undefined;
+  }
   return {
     type: "context",
-    elements: [{ type: "mrkdwn", text: sourceText }],
+    elements: [
+      {
+        type: "mrkdwn",
+        text: `Source: ${view.channel} · <${view.permalink}|View message>`,
+      },
+    ],
   };
 }
 
@@ -216,8 +262,12 @@ function buildAccessRequestCardBlocks(
     blocks.push(idBlock);
   }
 
+  // Instruction / CTA blocks below are tagged so card withdrawal can strip
+  // them once a decision is recorded — the guardian has nothing left to do,
+  // so the "open invite flow" prompt and verification nudge must disappear.
   blocks.push({
     type: "context",
+    block_id: `${APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX}:invite`,
     elements: [{ type: "mrkdwn", text: buildAccessRequestInviteDirective() }],
   });
 
@@ -228,6 +278,7 @@ function buildAccessRequestCardBlocks(
   ) {
     blocks.push({
       type: "context",
+      block_id: `${APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX}:verify`,
       elements: [
         {
           type: "mrkdwn",
@@ -318,6 +369,15 @@ function buildToolApprovalCardBlocks(
       type: "section",
       text: { type: "mrkdwn", text: truncate(`… ${tail}`, 3000) },
     });
+  }
+
+  // Link the guardian back to the conversation that triggered the request,
+  // when the broadcaster resolved a source reference.
+  const sourceBlock = buildToolApprovalSourceContextBlock(
+    payload.toolApprovalSource,
+  );
+  if (sourceBlock) {
+    blocks.push(sourceBlock);
   }
 
   return blocks;

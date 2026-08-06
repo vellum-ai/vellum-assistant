@@ -24,7 +24,9 @@ export function migrateRemoveAssistantIdColumns(database: DrizzleDb): void {
   const checkpoint = raw
     .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
     .get(checkpointKey);
-  if (checkpoint) return;
+  if (checkpoint) {
+    return;
+  }
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {
@@ -251,7 +253,9 @@ export function downRemoveAssistantIdColumns(database: DrizzleDb): void {
     const ddl = raw
       .query(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`)
       .get(table) as { sql: string } | null;
-    if (!ddl || ddl.sql.includes("assistant_id")) continue;
+    if (!ddl || ddl.sql.includes("assistant_id")) {
+      continue;
+    }
 
     try {
       raw.exec(

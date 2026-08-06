@@ -6,11 +6,13 @@ import {
   subscribeToDeepLinks,
   type DeepLink,
 } from "@/runtime/deep-links";
+import { useConnectDialogStore } from "@/stores/connect-dialog-store";
 
 /**
  * Electron `vellum://` deep-link bridge → typed bus events:
  * `deeplink.send { message }` / `deeplink.openThread { threadId }`
- * / `deeplink.unknown { url }`.
+ * / `deeplink.billingCheckoutComplete { status, sessionId }`
+ * / `deeplink.connect { url, bundle }` / `deeplink.unknown { url }`.
  *
  * Two surfaces because deep links can arrive BEFORE the renderer
  * exists (OS launches the app via a `vellum://` click → `open-url`
@@ -41,6 +43,20 @@ export function publishElectronDeepLinksSource(): () => void {
       case "openThread":
         publish("deeplink.openThread", { threadId: link.threadId });
         break;
+      case "billingCheckoutComplete":
+        publish(
+          "deeplink.billingCheckoutComplete",
+          link.status === "success"
+            ? { status: "success", sessionId: link.sessionId }
+            : { status: "cancel", sessionId: null },
+        );
+        break;
+      case "connect":
+        publish("deeplink.connect", {
+          url: link.url ?? null,
+          bundle: link.bundle ?? null,
+        });
+        break;
       case "unknown":
         publish("deeplink.unknown", { url: link.url });
         break;
@@ -51,10 +67,17 @@ export function publishElectronDeepLinksSource(): () => void {
 
   void drainPendingDeepLinks()
     .then((pending) => {
-      for (const link of pending) publishDeepLink(link);
+      for (const link of pending) {
+        publishDeepLink(link);
+      }
     })
     .catch((err) => {
       captureError(err, { context: "deep_link_drain", level: "warning" });
+    })
+    .finally(() => {
+      // Latch after the backlog publishes so a buffered connect link parks
+      // its dialog state before the chooser's auto-skip resumes.
+      useConnectDialogStore.getState().markDeepLinkDrainSettled();
     });
 
   return unsubscribe;

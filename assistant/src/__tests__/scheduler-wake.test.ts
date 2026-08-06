@@ -1,13 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 const mockWakeAgentForOpportunity = mock(
   (): Promise<{
     invoked: boolean;
@@ -24,20 +16,21 @@ mock.module("../daemon/process-message.js", () => ({
   processMessage: mockProcessMessage,
 }));
 
-import { loadRawConfig, saveRawConfig } from "../config/loader.js";
+import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
+import {
+  createConversation,
+  setConversationOriginChannelIfUnset,
+} from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { createSchedule } from "../schedule/schedule-store.js";
-import { runScheduleDueWorkOnce } from "../schedule/scheduler.js";
+import { resolveDefaultScheduleInferenceProfile } from "../schedule/inference-profile.js";
+import {
+  createOwnerDeferredWake,
+  createSchedule,
+} from "../schedule/schedule-store.js";
+import { runDueSchedulesOnce } from "../schedule/scheduler.js";
 
 await initializeDb();
-
-// The schedule worker is on by default, which stands the daemon's in-process
-// scheduler down. These tests exercise that in-process execution path directly,
-// so pin the worker flag off for this test process.
-const rawConfig = loadRawConfig();
-rawConfig.schedules = { worker: { enabled: false } };
-saveRawConfig(rawConfig);
 
 /** Access the underlying bun:sqlite Database for raw parameterized queries. */
 function getRawDb(): import("bun:sqlite").Database {
@@ -67,30 +60,65 @@ describe("scheduler wake mode", () => {
   });
 
   test("wake schedule calls wakeAgentForOpportunity with correct args", async () => {
-    // GIVEN a one-shot wake schedule with a conversation ID
-    const schedule = await createSchedule({
+    // GIVEN a one-shot wake schedule targeting a local conversation
+    createConversation({ id: "conv-xyz" });
+    const schedule = await createOwnerDeferredWake({
+      conversationId: "conv-xyz",
+      hint: "Check back on this",
+      fireAt: Date.now() - 1000,
       name: "Wake Test",
-      message: "Check back on this",
-      mode: "wake",
-      wakeConversationId: "conv-xyz",
-      nextRunAt: Date.now() - 1000,
     });
     forceScheduleDue(schedule.id);
 
     // WHEN the scheduler fires
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
-    // THEN wakeAgentForOpportunity is called with the correct arguments
+    // THEN wakeAgentForOpportunity is called with the correct arguments,
+    // including the target conversation's guardian resting trust, which the
+    // resumed turn runs under.
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledWith({
       conversationId: "conv-xyz",
       hint: "Check back on this",
       source: "defer",
       persistTriggerAsEvent: true,
+      trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
+      // Every schedule is pinned at creation, so the row always carries a
+      // profile for the woken turn to run under.
+      forceOverrideProfile: resolveDefaultScheduleInferenceProfile()!,
     });
 
     // AND processMessage is never called (wake mode doesn't use it)
     expect(mockProcessMessage).not.toHaveBeenCalled();
+  });
+
+  test("a wake on a remote-channel conversation carries no elevated trust", async () => {
+    // GIVEN a wake schedule whose target conversation originated on a remote
+    // channel, so no resting trust can be reconstructed for it
+    createConversation({ id: "conv-telegram" });
+    setConversationOriginChannelIfUnset("conv-telegram", "telegram");
+    const schedule = await createSchedule({
+      name: "Remote Wake",
+      message: "Follow up",
+      mode: "wake",
+      wakeConversationId: "conv-telegram",
+      nextRunAt: Date.now() - 1000,
+    });
+    forceScheduleDue(schedule.id);
+
+    // WHEN the scheduler fires
+    await runDueSchedulesOnce();
+
+    // THEN the wake runs with no trust context at all, so the turn resolves the
+    // fail-closed `unknown` class and sensitive tools stay denied
+    expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
+    expect(mockWakeAgentForOpportunity).toHaveBeenCalledWith({
+      conversationId: "conv-telegram",
+      hint: "Follow up",
+      source: "defer",
+      persistTriggerAsEvent: true,
+      forceOverrideProfile: resolveDefaultScheduleInferenceProfile()!,
+    });
   });
 
   test("missing wakeConversationId logs warning and completes (not fails)", async () => {
@@ -111,7 +139,7 @@ describe("scheduler wake mode", () => {
     forceScheduleDue(schedule.id);
 
     // WHEN the scheduler fires
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // THEN wakeAgentForOpportunity is NOT called
     expect(mockWakeAgentForOpportunity).not.toHaveBeenCalled();
@@ -140,7 +168,7 @@ describe("scheduler wake mode", () => {
     forceScheduleDue(schedule.id);
 
     // WHEN the scheduler fires
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // THEN the one-shot is marked as completed (status = 'fired')
     const row = getRawDb()
@@ -163,7 +191,7 @@ describe("scheduler wake mode", () => {
     forceScheduleDue(schedule.id);
 
     // WHEN the scheduler fires
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // THEN the one-shot is reverted to 'active' for retry (failOneShot behavior)
     const row = getRawDb()
@@ -195,7 +223,7 @@ describe("scheduler wake mode", () => {
     forceScheduleDue(schedule.id);
 
     // WHEN the first tick runs
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // THEN the job is NOT completed — it's reverted to 'active' for retry
     const rowAfterFirst = getRawDb()
@@ -205,7 +233,7 @@ describe("scheduler wake mode", () => {
     expect(rowAfterFirst?.retry_count).toBe(1);
 
     // WHEN the second tick fires
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // THEN the job IS completed (status = 'fired')
     const rowAfterSecond = getRawDb()
@@ -240,7 +268,7 @@ describe("scheduler wake mode", () => {
     ]);
 
     // WHEN the scheduler fires
-    await runScheduleDueWorkOnce();
+    await runDueSchedulesOnce();
 
     // THEN the job is permanently failed (status = 'cancelled', enabled = false)
     const row = getRawDb()

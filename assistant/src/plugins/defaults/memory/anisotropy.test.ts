@@ -11,7 +11,9 @@ const META = { provider: "gemini" as const, model: "test-model" };
 
 function dot(a: readonly number[], b: readonly number[]): number {
   let s = 0;
-  for (let i = 0; i < a.length; i++) s += a[i] * b[i];
+  for (let i = 0; i < a.length; i++) {
+    s += a[i] * b[i];
+  }
   return s;
 }
 
@@ -21,7 +23,9 @@ function l2Norm(v: readonly number[]): number {
 
 function l2Normalize(v: readonly number[]): number[] {
   const n = l2Norm(v);
-  if (n === 0) return [...v];
+  if (n === 0) {
+    return [...v];
+  }
   return v.map((x) => x / n);
 }
 
@@ -48,9 +52,13 @@ function buildAnisotropicCorpus(
     const v = new Array<number>(dim);
     // Strong common direction component, slightly varied per sample.
     const along = 1 + (rand() - 0.5) * 0.1;
-    for (let j = 0; j < dim; j++) v[j] = along * ax[j];
+    for (let j = 0; j < dim; j++) {
+      v[j] = along * ax[j];
+    }
     // Orthogonal noise.
-    for (let j = 0; j < dim; j++) v[j] += (rand() - 0.5) * noiseScale;
+    for (let j = 0; j < dim; j++) {
+      v[j] += (rand() - 0.5) * noiseScale;
+    }
     out.push(v);
   }
   return out;
@@ -179,8 +187,12 @@ describe("applyAnisotropyCorrection", () => {
       let min = Infinity;
       let max = -Infinity;
       for (const s of sims) {
-        if (s < min) min = s;
-        if (s > max) max = s;
+        if (s < min) {
+          min = s;
+        }
+        if (s > max) {
+          max = s;
+        }
       }
       return max - min;
     }

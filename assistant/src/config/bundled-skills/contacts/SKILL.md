@@ -90,7 +90,7 @@ The response contains `{ ok: true, contacts: [...] }` where each contact has:
   - `displayName` -- channel-specific display name
   - `username` -- channel username (e.g., Telegram @handle)
   - `status` -- current status (`active`, `revoked`, `blocked`, etc.)
-  - `policy` -- current policy (`allow`, `deny`, `escalate`)
+  - `policy` -- current policy (`allow`, `deny`)
 - `createdAt` -- when the contact was added
 
 **Presenting results**: Format the contact list as a readable table or list. Include display name, role, and per-channel status/policy. If no contacts exist, tell the user their contact list is empty.

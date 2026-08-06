@@ -9,27 +9,9 @@
  * Rule: cc-cutover-proof (see PR_B_TASK.md).
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-// ── Module mocks (must come before imports) ──────────────────────────────────
-
-mock.module("../../../config/loader.js", () => ({
-  getConfigReadOnly: () => ({}),
-  getConfig: () => ({}),
-  invalidateConfigCache: () => {},
-  // Unused by these tests, but the route module's import chain
-  // (config/default-provider.js) needs the named exports to resolve.
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-}));
-
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 // ── Real imports ──────────────────────────────────────────────────────────────
-
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import { providerConnections } from "../../../persistence/schema/inference.js";
@@ -48,7 +30,9 @@ await initializeDb();
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 
@@ -84,7 +68,9 @@ describe("CLI vs HTTP route parity", () => {
     // ── CLI path ──────────────────────────────────────────────────────────────
     const cliResult = createConnection(getDb(), payload);
     expect(cliResult.ok).toBe(true);
-    if (!cliResult.ok) throw new Error("CLI create failed");
+    if (!cliResult.ok) {
+      throw new Error("CLI create failed");
+    }
     const cliRow = getConnection(getDb(), payload.name);
     expect(cliRow).not.toBeNull();
 
@@ -113,14 +99,16 @@ describe("CLI vs HTTP route parity", () => {
 
   test("platform connection: CLI createConnection and HTTP POST produce identical DB rows", async () => {
     const payload = {
-      name: "parity-openai-managed",
-      provider: "openai" as const,
+      name: "parity-vellum-managed",
+      provider: "vellum" as const,
       auth: { type: "platform" as const },
     };
 
     const cliResult = createConnection(getDb(), payload);
     expect(cliResult.ok).toBe(true);
-    if (!cliResult.ok) throw new Error("CLI create failed");
+    if (!cliResult.ok) {
+      throw new Error("CLI create failed");
+    }
     const cliRow = getConnection(getDb(), payload.name);
 
     clearConnections();
@@ -146,7 +134,9 @@ describe("CLI vs HTTP route parity", () => {
 
     const cliResult = createConnection(getDb(), payload);
     expect(cliResult.ok).toBe(true);
-    if (!cliResult.ok) throw new Error("CLI create failed");
+    if (!cliResult.ok) {
+      throw new Error("CLI create failed");
+    }
     const cliRow = getConnection(getDb(), payload.name);
 
     clearConnections();

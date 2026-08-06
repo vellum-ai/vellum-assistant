@@ -12,7 +12,10 @@ interface MeterStatProps {
 
 function MeterStat({ label, value }: MeterStatProps) {
   return (
-    <div className="flex items-baseline gap-1" data-usage-stat={label.toLowerCase()}>
+    <div
+      className="flex items-baseline gap-1"
+      data-usage-stat={label.toLowerCase()}
+    >
       <Typography
         variant="label-small-default"
         className="text-[var(--content-tertiary)]"
@@ -37,7 +40,9 @@ function MeterStat({ label, value }: MeterStatProps) {
  */
 export function AcpUsageMeter({ entry }: { entry: AcpRunEntry }) {
   const { inputTokens, outputTokens, costAmount, costCurrency } = entry;
-  if (inputTokens === undefined && outputTokens === undefined) return null;
+  if (inputTokens === undefined && outputTokens === undefined) {
+    return null;
+  }
 
   const input = inputTokens ?? 0;
   const output = outputTokens ?? 0;
@@ -48,7 +53,10 @@ export function AcpUsageMeter({ entry }: { entry: AcpRunEntry }) {
       <MeterStat label="Input" value={TOKEN_FORMAT.format(input)} />
       <MeterStat label="Output" value={TOKEN_FORMAT.format(output)} />
       {hasCost && (
-        <MeterStat label="Cost" value={formatAcpCost(costAmount, costCurrency)} />
+        <MeterStat
+          label="Cost"
+          value={formatAcpCost(costAmount, costCurrency)}
+        />
       )}
     </div>
   );

@@ -24,9 +24,8 @@ const realMemoryV3Gate = {
   ...(await import("../../config/memory-v3-gate.js")),
 };
 const realV2Qdrant = {
-  ...(await import("../../plugins/defaults/memory/v2/qdrant.js")),
+  ...(await import("../../plugins/defaults/memory/substrate/qdrant.js")),
 };
-const realLoader = { ...(await import("../../config/loader.js")) };
 const realSectionDenseStore = {
   ...(await import("../../plugins/defaults/memory/v3/section-dense-store.js")),
 };
@@ -87,7 +86,9 @@ function makeDeps(opts: {
         : { provider: "gemini" as const, model: "m", dim: opts.probeDim },
     ),
     readConceptPageCollectionDim: mock(async () => {
-      if (opts.committedDimError) throw opts.committedDimError;
+      if (opts.committedDimError) {
+        throw opts.committedDimError;
+      }
       return opts.committedDim ?? null;
     }),
     decideEmbeddingReconcile: mock(() => opts.decision),
@@ -361,7 +362,7 @@ async function withDefaultDepsMocks(opts: {
       realMemoryV3Gate.isMemoryV3Live,
     ),
   }));
-  mock.module("../../plugins/defaults/memory/v2/qdrant.js", () => ({
+  mock.module("../../plugins/defaults/memory/substrate/qdrant.js", () => ({
     ...realV2Qdrant,
     ensureConceptPageCollection: delegate(
       spies.ensureConceptPageCollection,
@@ -370,16 +371,6 @@ async function withDefaultDepsMocks(opts: {
     recreateConceptPageCollection: delegate(
       spies.recreateConceptPageCollection,
       realV2Qdrant.recreateConceptPageCollection,
-    ),
-  }));
-  mock.module("../../config/loader.js", () => ({
-    ...realLoader,
-    loadRawConfig: delegate(() => ({}), realLoader.loadRawConfig),
-    saveRawConfig: delegate(() => undefined, realLoader.saveRawConfig),
-    setNestedValue: delegate(() => undefined, realLoader.setNestedValue),
-    invalidateConfigCache: delegate(
-      () => undefined,
-      realLoader.invalidateConfigCache,
     ),
   }));
   mock.module(

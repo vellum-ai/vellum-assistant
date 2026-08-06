@@ -22,14 +22,6 @@
  * isAlive/close) so the mock is trivial and cannot diverge from real
  * behaviour.
  *
- * The **server-side** lazy `ApiKeyRef` pattern used in `main.ts`
- * is tested directly in
- * `credential-executor/src/__tests__/managed-lazy-getters.test.ts`
- * against the production `buildLazyGetters` function. A structural guard
- * below verifies that `main.ts` imports `buildLazyGetters` from
- * `managed-lazy-getters.ts`, so these two test files stay coupled to
- * production code.
- *
  * These tests mock the transport layer (no real processes or sockets)
  * to verify the contract and wiring in isolation.
  */
@@ -273,37 +265,5 @@ describe("CesClient.updateAssistantApiKey()", () => {
     }
 
     client.close();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Structural guard: main.ts uses production buildLazyGetters
-// ---------------------------------------------------------------------------
-
-describe("structural guard: main.ts uses production buildLazyGetters", () => {
-  test("main.ts imports buildLazyGetters from managed-lazy-getters", async () => {
-    // This guard ensures that main.ts exercises the production
-    // buildLazyGetters function (tested in managed-lazy-getters.test.ts),
-    // not a local reimplementation. If the import is removed or the source
-    // module changes, this test will fail and signal that the companion
-    // test coverage may no longer be wired to production code.
-    const { readFileSync } = await import("node:fs");
-    const { join, dirname } = await import("node:path");
-
-    // Resolve from the repo root (three levels up from __tests__/)
-    const repoRoot = join(dirname(import.meta.dir), "..", "..");
-    const managedMainPath = join(
-      repoRoot,
-      "credential-executor",
-      "src",
-      "main.ts",
-    );
-
-    const source = readFileSync(managedMainPath, "utf-8");
-
-    expect(source).toContain('from "./managed-lazy-getters.js"');
-    expect(source).toMatch(
-      /import\s+\{[^}]*buildLazyGetters[^}]*\}\s+from\s+["']\.\/managed-lazy-getters\.js["']/,
-    );
   });
 });

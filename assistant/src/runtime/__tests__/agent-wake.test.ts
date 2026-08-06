@@ -6,7 +6,7 @@
  * yields a live `Conversation`. These tests build a lightweight structural
  * double typed as `Conversation` (`makeWakeConversation`) that stubs only the
  * handful of members the wake touches — `getMessages`, `messages.push`,
- * `isProcessing`/`setProcessing`, `currentTurnTrustContext`,
+ * `isProcessing`/`setProcessing`/`waitForIdle`, `currentTurnTrustContext`,
  * `setSubagentAllowedTools`, `drainQueue`, `maybeCompact`,
  * `contextWindowManager.estimateInputTokens`, and a scripted `agentLoop.run()`.
  *
@@ -115,6 +115,18 @@ interface WakeConversationProbe {
    * sizes against the wake's window instead of mainAgent's.
    */
   maybeCompactSizings: unknown[];
+  /**
+   * Options passed to each `conversation.waitForIdle()` call — the wake's
+   * pre-run busy gate. Lets tests pin the wait budget the wake hands to the
+   * conversation's event-driven wait.
+   */
+  waitForIdleCalls: Array<{ timeoutMs: number }>;
+  /**
+   * Count of `setProcessing(true)` calls that landed while the lock was
+   * already held — a stomp on a competing turn's just-acquired lock. Must
+   * stay 0: the wake re-checks `isProcessing()` before acquiring.
+   */
+  processingLockStomps: number;
 }
 
 const wakeConvRegistry = new Map<string, WakeConversationProbe>();
@@ -175,7 +187,9 @@ mock.module("../assistant-event-hub.js", () => ({
     const probe = frame.conversationId
       ? wakeConvRegistry.get(frame.conversationId)
       : undefined;
-    if (!probe) return;
+    if (!probe) {
+      return;
+    }
     if (frame.type === "ui_surface_show") {
       const source = (
         frame.data as
@@ -214,26 +228,6 @@ mock.module("../../daemon/conversation-store.js", () => ({
     mockGetOrCreateConversationCalls.push({ conversationId, options });
     return Promise.resolve(mockResolverTarget);
   },
-}));
-
-const mockConfig = {
-  llm: { profiles: { balanced: {} }, activeProfile: "balanced" },
-};
-
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getConfigReadOnly: () => mockConfig,
-  applyNestedDefaults: (config: unknown) => config,
-  deepMergeOverwrite: (base: unknown) => base,
-  mergeDefaultWorkspaceConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  API_KEY_PROVIDERS: [],
-  _writeQuarantineNotice: () => {},
-  invalidateConfigCache: () => {},
 }));
 
 mock.module("../../config/llm-context-resolution.js", () => ({
@@ -400,6 +394,17 @@ function makeWakeConversation(options: {
   estimatedInputTokens?: number;
   /** Seed for the conversation's resting `trustContext`. */
   initialTrustContext?: unknown;
+  /**
+   * Replaces the double's default `waitForIdle` behavior (fast-path `true`
+   * when idle, `true` on the `setProcessing(false)` transition, `false`
+   * after a real `timeoutMs` timer). Lets the timeout test script the
+   * `false` outcome without waiting out the production budget. Calls are
+   * recorded in `waitForIdleCalls` either way.
+   */
+  waitForIdleImpl?: (waitOptions: {
+    timeoutMs: number;
+    signal?: AbortSignal;
+  }) => Promise<boolean>;
 }): WakeConversation {
   const conversationId = options.conversationId ?? "conv-test";
   const probe: WakeConversationProbe = {
@@ -419,10 +424,13 @@ function makeWakeConversation(options: {
     persistedAtEachEmit: [],
     maybeCompactOrders: [],
     maybeCompactSizings: [],
+    waitForIdleCalls: [],
+    processingLockStomps: 0,
   };
   wakeConvRegistry.set(conversationId, probe);
 
   let processing = options.isProcessing ?? false;
+  const idleWaiters = new Set<() => void>();
   let order = 0;
   let activeAllowedTools = options.initialAllowedTools;
   let wakePersonaOverride: unknown;
@@ -515,9 +523,47 @@ function makeWakeConversation(options: {
     getMessages: () => messages,
     isProcessing: () => processing,
     setProcessing: (on: boolean) => {
+      if (on && processing) {
+        probe.processingLockStomps += 1;
+      }
       processing = on;
       probe.processingToggles.push(on);
       probe.callSequence.push(on ? "processing:true" : "processing:false");
+      // Mirrors Conversation.setProcessing: a clear releases pending
+      // waitForIdle waiters (copy-and-clear, like the real notifier).
+      if (!on) {
+        const waiters = [...idleWaiters];
+        idleWaiters.clear();
+        for (const notify of waiters) {
+          notify();
+        }
+      }
+    },
+    // Mirrors Conversation.waitForIdle for the signal-less shape the wake
+    // uses: fast-path `true` when idle, `true` on the setProcessing(false)
+    // transition, `false` when `timeoutMs` elapses first.
+    waitForIdle: (waitOptions: {
+      timeoutMs: number;
+      signal?: AbortSignal;
+    }): Promise<boolean> => {
+      probe.waitForIdleCalls.push({ timeoutMs: waitOptions.timeoutMs });
+      if (options.waitForIdleImpl) {
+        return options.waitForIdleImpl(waitOptions);
+      }
+      if (!processing) {
+        return Promise.resolve(true);
+      }
+      return new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => {
+          idleWaiters.delete(notify);
+          resolve(false);
+        }, waitOptions.timeoutMs);
+        const notify = () => {
+          clearTimeout(timer);
+          resolve(true);
+        };
+        idleWaiters.add(notify);
+      });
     },
     get currentTurnTrustContext() {
       return currentTurnTrustContext;
@@ -819,7 +865,11 @@ describe("wakeAgentForOpportunity", () => {
       { resolveTarget: async () => conversation },
     );
 
-    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "run_error",
+    });
     expect(conversation.personaOverrideSets).toEqual([override, undefined]);
   });
 
@@ -1492,11 +1542,267 @@ describe("wakeAgentForOpportunity", () => {
       { resolveTarget: async () => conversation },
     );
 
-    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    // A throw before anything went live is a failed run, not a silent
+    // no-op — callers like the memory retrospective advance their
+    // processed-message watermark on `invoked: true`, so a phantom
+    // success would permanently consume their trigger window.
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "run_error",
+    });
     // Critical: the finally block must have released the flag despite
     // the thrown error, otherwise the next user turn would hang.
     expect(conversation.processingToggles).toEqual([true, false]);
     expect(conversation.isProcessing()).toBe(false);
+  });
+
+  test("reports run_error when the loop throws before any output", async () => {
+    const conversation = makeWakeConversation({
+      conversationId: "conv-err-turn0",
+      runImpl: async () => {
+        throw new Error("provider 402: insufficient balance");
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      { conversationId: "conv-err-turn0", hint: "boom", source: "t" },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "run_error",
+    });
+    // No checkpoint fired and nothing was flushed: the failed run must
+    // not have pushed or persisted anything.
+    expect(conversation.pushedMessages).toEqual([]);
+    expect(conversation.persistedTailCalls).toEqual([]);
+  });
+
+  test("keeps invoked true when the loop throws after a checkpoint went live", async () => {
+    // A completed tool turn (checkpoint) means side effects have already
+    // landed and partial output was pushed + persisted — a later throw
+    // must NOT read as "the wake never ran", or callers would re-run a
+    // pass whose side effects already fired.
+    const assistantToolMsg: Message = {
+      role: "assistant",
+      content: [{ type: "tool_use", id: "tu-1", name: "remember", input: {} }],
+    };
+    const toolResultMsg: Message = {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "tu-1", content: "saved" }],
+    };
+    const conversation = makeWakeConversation({
+      conversationId: "conv-err-after-checkpoint",
+      runImpl: async (input, _onEvent, runOptions) => {
+        const history = [...input, assistantToolMsg, toolResultMsg];
+        await runOptions?.onCheckpoint?.({
+          turnIndex: 0,
+          toolCount: 1,
+          hasToolUse: true,
+          history,
+        });
+        throw new Error("provider died mid-run");
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: "conv-err-after-checkpoint",
+        hint: "boom",
+        source: "t",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    // The checkpoint's flush pushed + persisted the partial tail before
+    // the throw.
+    expect(conversation.pushedMessages.length).toBeGreaterThan(0);
+    expect(conversation.persistedTailCalls.length).toBeGreaterThan(0);
+  });
+
+  test("reports run_error when the loop swallows a provider rejection into a no-output stop", async () => {
+    // The loop's catch does not rethrow provider rejections: it emits
+    // `error` + `agent_loop_exit(reason: "error")` and returns the history
+    // unchanged. Without the exit-reason gate this read as a successful
+    // silent no-op, so state-advancing callers (the memory retrospective
+    // watermark) permanently consumed their trigger on a pass that never
+    // ran.
+    const conversation = makeWakeConversation({
+      conversationId: "conv-swallowed-rejection",
+      runImpl: async (input, onEvent) => {
+        await onEvent({
+          type: "error",
+          error: new Error("provider 400: image input not supported"),
+        });
+        await onEvent({ type: "agent_loop_exit", reason: "error" });
+        return runResult([...input]);
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      { conversationId: "conv-swallowed-rejection", hint: "boom", source: "t" },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "run_error",
+    });
+    // Nothing pushed, persisted, or emitted: the failed run left no trace.
+    expect(conversation.pushedMessages).toEqual([]);
+    expect(conversation.persistedTailCalls).toEqual([]);
+    expect(conversation.emittedEvents).toHaveLength(0);
+  });
+
+  test("reports run_error when a no-output run was aborted", async () => {
+    const conversation = makeWakeConversation({
+      conversationId: "conv-aborted-no-output",
+      runImpl: async (input, onEvent) => {
+        await onEvent({ type: "agent_loop_exit", reason: "aborted_pre_call" });
+        return runResult([...input]);
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      { conversationId: "conv-aborted-no-output", hint: "boom", source: "t" },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "run_error",
+    });
+  });
+
+  test("reports run_error when a no-output run exhausted its output budget (max_tokens_reached)", async () => {
+    // Hidden thinking can consume the whole output budget before any
+    // visible text or executable tool call lands. That is "no usable
+    // output", not a clean silent no-op: state-advancing callers must see
+    // a retryable failure. A truncated response that produced SOME output
+    // takes the normal produced-output path and never reaches this check.
+    const conversation = makeWakeConversation({
+      conversationId: "conv-max-tokens-no-output",
+      runImpl: async (input, onEvent) => {
+        await onEvent({
+          type: "agent_loop_exit",
+          reason: "max_tokens_reached",
+        });
+        return runResult([...input]);
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: "conv-max-tokens-no-output",
+        hint: "boom",
+        source: "t",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "run_error",
+    });
+  });
+
+  test("keeps invoked true on a non-clean exit when a checkpoint already went live", async () => {
+    // Mirror of the throw path's went-live guard: once a checkpoint fired,
+    // side effects (e.g. `remember` calls) have already landed, so even a
+    // rebased history whose tail slice reads empty must not report the run
+    // as skipped: callers would re-run a pass whose side effects fired.
+    const assistantToolMsg: Message = {
+      role: "assistant",
+      content: [{ type: "tool_use", id: "tu-1", name: "remember", input: {} }],
+    };
+    const toolResultMsg: Message = {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "tu-1", content: "saved" }],
+    };
+    const conversation = makeWakeConversation({
+      conversationId: "conv-live-then-error",
+      runImpl: async (input, onEvent, runOptions) => {
+        const history = [...input, assistantToolMsg, toolResultMsg];
+        await runOptions?.onCheckpoint?.({
+          turnIndex: 0,
+          toolCount: 1,
+          hasToolUse: true,
+          history,
+        });
+        await onEvent({ type: "agent_loop_exit", reason: "error" });
+        // Return a history rebased below the wake's tail boundary, as the
+        // loop's deep-repair / recovery-hook paths can produce.
+        return runResult([...input]);
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      { conversationId: "conv-live-then-error", hint: "boom", source: "t" },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    // The checkpoint's flush pushed + persisted the partial tail.
+    expect(conversation.pushedMessages.length).toBeGreaterThan(0);
+    expect(conversation.persistedTailCalls.length).toBeGreaterThan(0);
+  });
+
+  test("keeps the silent no-op on a clean no_tool_calls exit with no output", async () => {
+    // A clean model-driven stop that produced nothing stays `invoked: true`:
+    // the pass really ran, the model just had nothing to say.
+    const conversation = makeWakeConversation({
+      conversationId: "conv-clean-empty",
+      runImpl: async (input, onEvent) => {
+        await onEvent({ type: "agent_loop_exit", reason: "no_tool_calls" });
+        return runResult([...input]);
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      { conversationId: "conv-clean-empty", hint: "hi", source: "t" },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+  });
+
+  test("reports no_output on a clean empty reply when the caller requires usable output", async () => {
+    // Same clean no_tool_calls empty run as above, but the caller consumes
+    // its trigger on success (memory retrospective): the empty reply must
+    // read as a retryable failure, not a silent success.
+    const conversation = makeWakeConversation({
+      conversationId: "conv-clean-empty-required",
+      runImpl: async (input, onEvent) => {
+        await onEvent({ type: "agent_loop_exit", reason: "no_tool_calls" });
+        return runResult([...input]);
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: "conv-clean-empty-required",
+        hint: "hi",
+        source: "t",
+        requireUsableOutput: true,
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "no_output",
+    });
+    // Nothing persisted or emitted by the failed pass.
+    expect(conversation.persistedTailCalls).toEqual([]);
+    expect(conversation.emittedEvents).toHaveLength(0);
   });
 
   test("elevates the turn's trust context before the agent loop runs", async () => {
@@ -1768,11 +2074,166 @@ describe("wakeAgentForOpportunity", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(settled).toBe(false);
 
-    // "User turn" completes — wake now proceeds.
+    // "User turn" completes — wake now proceeds. The release notification
+    // resolves the wait; the double's only other exit is its (untriggered)
+    // 30s timeout timer, so the wake proceeding here proves the wait is
+    // event-driven rather than clock-driven.
     conversation.setProcessing(false);
     const result = await wakePromise;
     expect(result.invoked).toBe(true);
     expect(result.producedToolCalls).toBe(false);
+    expect(conversation.waitForIdleCalls).toEqual([{ timeoutMs: 30_000 }]);
+  });
+
+  test("re-waits when a competing idle waiter takes the lock before the wake's continuation runs", async () => {
+    // Idle waiters are notified FIFO from the same `setProcessing(false)`
+    // transition. A waiter registered before the wake (e.g. a queued voice
+    // turn) can take the lock synchronously in its continuation — the wake
+    // must observe the re-taken lock, re-wait, and acquire only after the
+    // competitor's real release.
+    const conversation = makeWakeConversation({
+      conversationId: "conv-contended",
+      isProcessing: true,
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "reply" }],
+      },
+    });
+
+    // Competing turn: registered FIRST, so it is notified first and grabs
+    // the lock synchronously in its continuation.
+    void conversation.waitForIdle({ timeoutMs: 30_000 }).then(() => {
+      conversation.setProcessing(true);
+    });
+
+    const wakePromise = wakeAgentForOpportunity(
+      {
+        conversationId: "conv-contended",
+        hint: "co-woken opportunity",
+        source: "unit-test",
+      },
+      { resolveTarget: async () => conversation },
+    );
+    // Let the wake reach its waitForIdle registration (behind the competitor's).
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(conversation.waitForIdleCalls).toHaveLength(2);
+
+    // The original turn releases. The competitor is notified first and
+    // re-takes the lock; the wake must NOT start its agent loop.
+    conversation.setProcessing(false);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(conversation.runCalls).toHaveLength(0);
+    expect(conversation.isProcessing()).toBe(true);
+    // The wake went back to waiting, on the remaining budget.
+    expect(conversation.waitForIdleCalls).toHaveLength(3);
+    expect(conversation.waitForIdleCalls[2]!.timeoutMs).toBeGreaterThan(0);
+    expect(conversation.waitForIdleCalls[2]!.timeoutMs).toBeLessThanOrEqual(
+      30_000,
+    );
+
+    // The competitor's real release lets the wake proceed.
+    conversation.setProcessing(false);
+    const result = await wakePromise;
+    expect(result.invoked).toBe(true);
+    expect(conversation.runCalls).toHaveLength(1);
+    // Lock hand-offs stayed clean — release, competitor take, competitor
+    // release, wake take, wake release — with no acquisition landing while
+    // the lock was already held.
+    expect(conversation.processingToggles).toEqual([
+      false,
+      true,
+      false,
+      true,
+      false,
+    ]);
+    expect(conversation.processingLockStomps).toBe(0);
+  });
+
+  test("acquires the lock only after a passing isProcessing() re-check, on the remaining budget", async () => {
+    // Scripted waitForIdle resolves `true` while the lock is still held —
+    // the exact state a wake continuation observes when a competing waiter
+    // was notified first. The wake must not trust the resolution alone: it
+    // re-checks `isProcessing()`, re-waits on the remaining budget, and
+    // acquires only once the check passes.
+    let fakeNow = 1_000_000;
+    let waitCalls = 0;
+    const conversation = makeWakeConversation({
+      conversationId: "conv-recheck",
+      isProcessing: true,
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "reply" }],
+      },
+      waitForIdleImpl: async () => {
+        waitCalls += 1;
+        if (waitCalls === 1) {
+          // Resolve true with the lock still held (a competitor re-took
+          // it), burning 5s of the wake's 30s budget.
+          fakeNow += 5_000;
+          return true;
+        }
+        // The competitor releases for real before the second wait resolves.
+        conversation.setProcessing(false);
+        return true;
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: "conv-recheck",
+        hint: "co-woken opportunity",
+        source: "unit-test",
+      },
+      { resolveTarget: async () => conversation, now: () => fakeNow },
+    );
+
+    expect(result.invoked).toBe(true);
+    // The lying first resolution did not start the loop — the wake re-waited
+    // on the remaining budget (30s total minus the 5s already burned).
+    expect(waitCalls).toBe(2);
+    expect(conversation.waitForIdleCalls).toEqual([
+      { timeoutMs: 30_000 },
+      { timeoutMs: 25_000 },
+    ]);
+    expect(conversation.runCalls).toHaveLength(1);
+    // setProcessing(true) never landed while the lock was held.
+    expect(conversation.processingLockStomps).toBe(0);
+  });
+
+  test("returns reason 'timeout' when the lock stays contended past the wait budget", async () => {
+    // The re-check loop is budget-bounded: when every wakeup finds the lock
+    // re-taken and the 30s total budget runs out, the wake skips with the
+    // same "timeout" outcome as a plain busy conversation.
+    let fakeNow = 0;
+    const conversation = makeWakeConversation({
+      conversationId: "conv-contended-timeout",
+      isProcessing: true,
+      runImpl: async (input) => runResult(input),
+      waitForIdleImpl: async () => {
+        // Always resolves true with the lock still held, burning 20s each
+        // time — the second wakeup lands past the 30s deadline.
+        fakeNow += 20_000;
+        return true;
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      { conversationId: "conv-contended-timeout", hint: "x", source: "y" },
+      { resolveTarget: async () => conversation, now: () => fakeNow },
+    );
+
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "timeout",
+    });
+    // The agent loop never ran and the lock was never touched.
+    expect(conversation.runCalls).toHaveLength(0);
+    expect(conversation.processingToggles).toEqual([]);
+    expect(conversation.waitForIdleCalls).toEqual([
+      { timeoutMs: 30_000 },
+      { timeoutMs: 10_000 },
+    ]);
   });
 
   test("returns invoked: false with reason 'not_found' when the conversation cannot be resolved", async () => {
@@ -1788,37 +2249,34 @@ describe("wakeAgentForOpportunity", () => {
   });
 
   test("returns invoked: false with reason 'timeout' when the target stays busy past the wait-until-idle window", async () => {
-    // Resolver returns a target that is permanently `processing`. Fast-
-    // forward the injected `now` past the 30s deadline so waitUntilIdle
-    // returns false. Without the distinct `timeout` reason, callers
-    // cannot tell this case apart from "not_found".
+    // Resolver returns a target that is permanently `processing`. The
+    // scripted `waitForIdle` resolves `false` — the real Conversation's
+    // timeout outcome — without holding the test for the 30s production
+    // budget. Without the distinct `timeout` reason, callers cannot tell
+    // this case apart from "not_found".
     const conversation = makeWakeConversation({
       conversationId: "conv-busy",
       isProcessing: true,
       runImpl: async (input) => runResult(input),
+      waitForIdleImpl: async () => false,
     });
-    let t = 0;
-    const now = () => {
-      // First call establishes the deadline at +30_000. Every subsequent
-      // call jumps past the deadline so the polling loop exits after one
-      // 50ms tick.
-      const v = t;
-      t += 31_000;
-      return v;
-    };
 
     const result = await wakeAgentForOpportunity(
       { conversationId: "conv-busy", hint: "x", source: "y" },
-      { resolveTarget: async () => conversation, now },
+      { resolveTarget: async () => conversation },
     );
     expect(result).toEqual({
       invoked: false,
       producedToolCalls: false,
       reason: "timeout",
     });
+    // The wake handed the conversation's event-driven wait its full 30s
+    // budget, and did not start the agent loop on the busy conversation.
+    expect(conversation.waitForIdleCalls).toEqual([{ timeoutMs: 30_000 }]);
+    expect(conversation.runCalls).toHaveLength(0);
   });
 
-  test("agent loop error is treated as a no-op", async () => {
+  test("agent loop error before any output is reported as run_error", async () => {
     const conversation = makeWakeConversation({
       conversationId: "conv-err",
       runImpl: async () => {
@@ -1831,7 +2289,11 @@ describe("wakeAgentForOpportunity", () => {
       { resolveTarget: async () => conversation },
     );
 
-    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "run_error",
+    });
     expect(conversation.persistedTailCalls).toHaveLength(0);
   });
 
@@ -1887,7 +2349,11 @@ describe("wakeAgentForOpportunity", () => {
       { resolveTarget: async () => conversation },
     );
 
-    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "run_error",
+    });
     // Drain ran AFTER setProcessing(false), satisfying the
     // enqueueMessage gate invariant. Snapshot proves the flag was
     // false at the moment drain ran.
@@ -2963,7 +3429,7 @@ describe("wakeAgentForOpportunity", () => {
       expect(conversation.drainQueueCalls).toBe(1);
     });
 
-    test("suppressed wake treats an unrelated rewrapped error as a generic no-op, not an overflow", async () => {
+    test("suppressed wake treats an unrelated rewrapped error as a run_error, not an overflow", async () => {
       const conversation = makeWakeConversation({
         estimatedInputTokens: 0,
         runImpl: async () => {
@@ -2981,7 +3447,13 @@ describe("wakeAgentForOpportunity", () => {
         { resolveTarget: async () => conversation },
       );
 
-      expect(result).toEqual({ invoked: true, producedToolCalls: false });
+      // Not mapped to "context_overflow" (the error is unrelated), but the
+      // run still died before producing output — reported as run_error.
+      expect(result).toEqual({
+        invoked: false,
+        producedToolCalls: false,
+        reason: "run_error",
+      });
     });
 
     test("the compaction gate is sized with the wake's call site and forced profile", async () => {

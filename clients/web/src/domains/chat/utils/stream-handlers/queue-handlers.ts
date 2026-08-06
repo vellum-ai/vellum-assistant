@@ -1,5 +1,6 @@
 import {
-  clearQueueStatus,
+  applyQueuedMessageDequeue,
+  markMessageQueued,
   removeQueuedMessage,
   setQueuePosition,
 } from "@/domains/chat/utils/stream-updaters/shared";
@@ -9,33 +10,52 @@ import type {
   MessageQueuedDeletedEvent,
   MessageQueuedEvent,
   MessageRequestCompleteEvent,
+  MessageRequeuedEvent,
 } from "@vellumai/assistant-api";
-import { deleteQueuedMessage } from "@/domains/chat/api/messages";
 import { useConversationStore } from "@/stores/conversation-store";
+import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
+import { confirmQueuedMessageDeletion } from "@/domains/chat/queue-cancellation";
 
 export function handleMessageQueued(
   event: MessageQueuedEvent,
   ctx: StreamHandlerContext,
 ): void {
   ctx.turnActions.enqueueMessage();
-  const { requestId, position } = event;
-  const messageId = ctx.shiftPendingQueuedMessageId();
-  if (!messageId) return;
+  const { requestId, position, clientMessageId } = event;
+  // When the ack names its send, bind by identity: consume that exact
+  // pending entry, and ignore acks for sends this client did not originate
+  // (another tab's send or a daemon-internal enqueue must not touch local
+  // rows). Events without a nonce (surface actions, older daemons) fall
+  // back to the arrival-order FIFO shift.
+  const messageId = clientMessageId
+    ? ctx.takePendingQueuedMessageId(clientMessageId)
+    : ctx.shiftPendingQueuedMessageId();
+  if (!messageId) {
+    return;
+  }
 
   ctx.setRequestIdMapping(requestId, messageId);
 
   if (ctx.consumePendingLocalDeletion(messageId)) {
-    const conversationId =
-      useConversationStore.getState().activeConversationId;
+    const conversationId = useConversationStore.getState().activeConversationId;
     if (ctx.assistantId && conversationId) {
-      void deleteQueuedMessage(
-        ctx.assistantId,
+      void confirmQueuedMessageDeletion({
+        assistantId: ctx.assistantId,
         conversationId,
         requestId,
-      );
+        messageId,
+        setOptimisticSends: ctx.setOptimisticSends,
+        onDeleted: () => {
+          ctx.popRequestIdMapping(requestId);
+        },
+      });
     }
   } else {
-    ctx.setOptimisticSends((prev) => setQueuePosition(prev, messageId, position + 1));
+    // The wire position is already 1-based (it counts visible queue items,
+    // matching the queued rows list-messages synthesizes on a cold load).
+    ctx.setOptimisticSends((prev) =>
+      setQueuePosition(prev, messageId, position),
+    );
   }
 }
 
@@ -46,10 +66,49 @@ export function handleMessageDequeued(
   ctx.turnActions.dequeueMessage();
   const dequeuedMessageId = ctx.popRequestIdMapping(event.requestId);
   if (dequeuedMessageId) {
-    ctx.setOptimisticSends((prev) => clearQueueStatus(prev, dequeuedMessageId));
+    ctx.setOptimisticSends((prev) =>
+      applyQueuedMessageDequeue(prev, dequeuedMessageId),
+    );
   }
+  patchTranscriptMessages((prev) =>
+    applyQueuedMessageDequeue(prev, dequeuedMessageId ?? event.requestId),
+  );
 }
 
+/**
+ * Corrective counterpart to `handleMessageDequeued`: the daemon announced the
+ * dequeue, then had to put the message back (another turn took the processing
+ * lock, or the drain threw before its turn started). Restore the pending row
+ * this client already cleared instead of leaving it invisible until a later
+ * drain.
+ *
+ * The dequeue consumed the requestId mapping, so re-register it from the
+ * event's own correlation key. The queue updaters match a row by either its
+ * local id or its `clientMessageId`, so either value works as the key.
+ */
+export function handleMessageRequeued(
+  event: MessageRequeuedEvent,
+  ctx: StreamHandlerContext,
+): void {
+  ctx.turnActions.enqueueMessage();
+  const messageKey = event.clientMessageId ?? event.requestId;
+  ctx.setRequestIdMapping(event.requestId, messageKey);
+  ctx.setOptimisticSends((prev) =>
+    markMessageQueued(prev, messageKey, event.position),
+  );
+  patchTranscriptMessages((prev) =>
+    markMessageQueued(prev, messageKey, event.position),
+  );
+}
+
+/**
+ * The single decrement for a cancelled queued message, on every device
+ * including the one that issued the DELETE. It is unconditional to mirror
+ * `handleMessageQueued`, which increments for every `message_queued` before it
+ * knows whether this client originated the send: the count tracks the
+ * conversation's queue, not this client's share of it, so gating either side
+ * on a local mapping would desync passive devices.
+ */
 export function handleMessageQueuedDeleted(
   event: MessageQueuedDeletedEvent,
   ctx: StreamHandlerContext,
@@ -57,8 +116,13 @@ export function handleMessageQueuedDeleted(
   ctx.turnActions.deleteQueuedMessage();
   const deletedMessageId = ctx.popRequestIdMapping(event.requestId);
   if (deletedMessageId) {
-    ctx.setOptimisticSends((prev) => removeQueuedMessage(prev, deletedMessageId));
+    ctx.setOptimisticSends((prev) =>
+      removeQueuedMessage(prev, deletedMessageId),
+    );
   }
+  patchTranscriptMessages((prev) =>
+    removeQueuedMessage(prev, deletedMessageId ?? event.requestId),
+  );
 }
 
 export function handleMessageRequestComplete(

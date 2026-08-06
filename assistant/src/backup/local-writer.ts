@@ -33,7 +33,9 @@ async function resolveUniqueDestPath(
   try {
     await stat(primary);
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return primary;
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return primary;
+    }
     throw err;
   }
   // Path occupied — insert a short random token before the extension. Loop in
@@ -47,7 +49,9 @@ async function resolveUniqueDestPath(
     try {
       await stat(candidate);
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return candidate;
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        return candidate;
+      }
       throw err;
     }
   }
@@ -88,7 +92,9 @@ export async function writeLocalSnapshot(
   try {
     await rename(tempVBundlePath, destPath);
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
+    if ((err as NodeJS.ErrnoException).code !== "EXDEV") {
+      throw err;
+    }
     // Cross-device fallback: copy then remove the source so callers don't
     // leak the temp file. We deliberately use copyFile (not a stream pipe)
     // because the bundle has already been fully written to disk by the

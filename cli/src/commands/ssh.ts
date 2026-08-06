@@ -1,9 +1,6 @@
 import { spawn } from "child_process";
 
-import {
-  extractHostFromUrl,
-  resolveAssistant,
-} from "../lib/assistant-config";
+import { extractHostFromUrl, resolveAssistant } from "../lib/assistant-config";
 import { dockerResourceNames } from "../lib/docker";
 import { getPlatformUrl, readPlatformToken } from "../lib/platform-client";
 import { sshAppleContainer } from "../lib/ssh-apple-container";

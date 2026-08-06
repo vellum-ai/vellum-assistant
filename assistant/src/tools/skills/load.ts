@@ -265,11 +265,15 @@ export const skillLoadTool = {
       const MAX_INSTALL_ROUNDS = 5;
       for (let round = 0; round < MAX_INSTALL_ROUNDS; round++) {
         const missing = collectAllMissing(skill.id, catalogIndex);
-        if (missing.size === 0) break;
+        if (missing.size === 0) {
+          break;
+        }
 
         // Under the disk-pressure lock, never auto-install missing includes
         // (that writes to the workspace). Leave them advisory ("not loaded").
-        if (cleanupMode) break;
+        if (cleanupMode) {
+          break;
+        }
 
         // Lazily resolve catalog on first round with missing includes
         if (!remoteCatalog) {
@@ -306,7 +310,9 @@ export const skillLoadTool = {
           }
         }
 
-        if (!installedAny) break; // Nothing could be installed, stop trying
+        if (!installedAny) {
+          break;
+        } // Nothing could be installed, stop trying
 
         // Reload catalog to pick up newly installed skills
         catalog = loadSkillCatalog();
@@ -408,16 +414,21 @@ export const skillLoadTool = {
       const childLines: string[] = [];
       for (const childId of skill.includes) {
         const child = catalogIndex.get(childId);
-        if (!child) continue;
+        if (!child) {
+          continue;
+        }
         // Skip a child whose owning plugin is outside this conversation's
         // effective set — do not list it, load its body, or surface its tools.
-        if (childOutOfPluginScope(child)) continue;
+        if (childOutOfPluginScope(child)) {
+          continue;
+        }
         const childFlagKey = skillFlagKey(child);
         if (
           childFlagKey &&
           !isAssistantFeatureFlagEnabled(childFlagKey, config)
-        )
+        ) {
           continue;
+        }
 
         childLines.push(
           `  - ${child.id}: ${child.displayName} - ${child.description} (${child.skillFilePath})`,
@@ -550,17 +561,22 @@ export const skillLoadTool = {
     if (skill.includes && skill.includes.length > 0 && catalogIndex) {
       for (const childId of skill.includes) {
         const child = catalogIndex.get(childId);
-        if (!child) continue;
+        if (!child) {
+          continue;
+        }
         // Same per-chat plugin scope gate as the body loop: never emit a
         // loaded-skill marker (which projects the child's tools) for a child
         // whose owning plugin is outside the effective set.
-        if (childOutOfPluginScope(child)) continue;
+        if (childOutOfPluginScope(child)) {
+          continue;
+        }
         const childFlagKey2 = skillFlagKey(child);
         if (
           childFlagKey2 &&
           !isAssistantFeatureFlagEnabled(childFlagKey2, config)
-        )
+        ) {
           continue;
+        }
         let childHash: string | undefined;
         try {
           childHash = computeSkillVersionHash(child.directoryPath);

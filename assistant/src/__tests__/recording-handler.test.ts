@@ -17,33 +17,6 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => noopLogger,
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    daemon: { standaloneRecording: true },
-    provider: "mock-provider",
-    permissions: { mode: "workspace" },
-    timeouts: { toolExecutionTimeoutSec: 30, permissionTimeoutSec: 5 },
-    skills: { load: { extraDirs: [] } },
-    secretDetection: { enabled: false, allowOneTimeSend: false },
-    contextWindow: {
-      enabled: true,
-      maxInputTokens: 180000,
-      targetBudgetRatio: 0.3,
-      compactThreshold: 0.8,
-      summaryBudgetRatio: 0.05,
-    },
-  }),
-  invalidateConfigCache: noop,
-  loadConfig: noop,
-  saveConfig: noop,
-  loadRawConfig: () => ({}),
-  saveRawConfig: noop,
-  getNestedValue: () => undefined,
-  setNestedValue: noop,
-}));
-
 // Conversation store mock
 const mockMessages: Array<{ id: string; role: string; content: string }> = [];
 let mockMessageIdCounter = 0;
@@ -138,12 +111,15 @@ mock.module("node:fs", () => {
     ...realFs,
     existsSync: (p: string) => {
       // Intercept paths that look like recording files (allowed dir or /tmp/)
-      if (p.includes("recording") || p.includes("/tmp/")) return mockFileExists;
+      if (p.includes("recording") || p.includes("/tmp/")) {
+        return mockFileExists;
+      }
       return realFs.existsSync(p);
     },
     statSync: (p: string, opts?: any) => {
-      if (p.includes("recording") || p.includes("/tmp/"))
+      if (p.includes("recording") || p.includes("/tmp/")) {
         return { size: mockFileSize };
+      }
       return realFs.statSync(p, opts);
     },
     realpathSync: (p: string) => {
@@ -153,8 +129,9 @@ mock.module("node:fs", () => {
         p.includes("recording") ||
         p.includes("/tmp/") ||
         p.includes("vellum-assistant")
-      )
+      ) {
         return p;
+      }
       return realFs.realpathSync(p);
     },
     readFileSync: realFs.readFileSync,

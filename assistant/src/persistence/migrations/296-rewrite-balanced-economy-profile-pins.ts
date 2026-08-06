@@ -36,7 +36,9 @@ const PIN_TABLES = ["conversations", "cron_jobs"] as const;
 export function migrateRewriteBalancedEconomyProfilePins(
   database: DrizzleDb,
 ): void {
-  if (isUserOwnedEconomyProfile()) return;
+  if (isUserOwnedEconomyProfile()) {
+    return;
+  }
 
   const raw = getSqliteFrom(database);
 
@@ -44,7 +46,9 @@ export function migrateRewriteBalancedEconomyProfilePins(
     const cols = raw.prepare(`PRAGMA table_info(${table})`).all() as {
       name: string;
     }[];
-    if (!cols.some((c) => c.name === "inference_profile")) continue;
+    if (!cols.some((c) => c.name === "inference_profile")) {
+      continue;
+    }
 
     raw
       .prepare(

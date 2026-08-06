@@ -21,33 +21,13 @@ import {
 
 import { eq } from "drizzle-orm";
 
-import { makeMockLogger } from "../../../../__tests__/helpers/mock-logger.js";
-import { DEFAULT_CONFIG } from "../../../../config/defaults.js";
-import type { AssistantConfig } from "../../../../config/types.js";
-
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
-const TEST_CONFIG: AssistantConfig = {
-  ...DEFAULT_CONFIG,
-  memory: {
-    ...DEFAULT_CONFIG.memory,
-    enabled: true,
-    v2: { ...DEFAULT_CONFIG.memory.v2, enabled: true },
-  },
-};
-
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => TEST_CONFIG,
-  loadConfig: () => TEST_CONFIG,
-  invalidateConfigCache: () => {},
-}));
+// `memory.enabled` and `memory.v2.enabled` both default true, so the real
+// loader reading this file's (empty) workspace config already yields the
+// v2-enabled state this regression needs — no seeding required.
 
 let triggerHandlerCalls = 0;
 
 mock.module("../graph/graph-search.js", () => ({
-  searchGraphNodes: async () => [],
   embedGraphNodeDirect: async () => {},
   embedGraphNodeJob: async (): Promise<void> => {},
   enqueueGraphNodeEmbed: () => {},
@@ -55,6 +35,15 @@ mock.module("../graph/graph-search.js", () => ({
     triggerHandlerCalls += 1;
   },
   enqueueGraphTriggerEmbed: () => {},
+}));
+
+// `searchGraphNodes` lives in the v1 tier, and the handler-registration import
+// graph still reaches it (`job-handlers.js` → `v1/graph/extraction-job.js` →
+// `v1/graph/extraction.js`). Stubbing it keeps the real Qdrant search module —
+// and its client graph — out of this test, which is what makes the file
+// hermetic and fast.
+mock.module("../v1/graph/graph-search.js", () => ({
+  searchGraphNodes: async () => [],
 }));
 
 mock.module("../../../../persistence/db-maintenance.js", () => ({

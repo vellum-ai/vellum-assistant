@@ -3,15 +3,15 @@ import { useCallback } from "react";
 
 import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
 import {
-    hasLocalEdits as computeHasLocalEdits,
-    type PluginDrift,
-    usePluginDrift,
+  hasLocalEdits as computeHasLocalEdits,
+  type PluginDrift,
+  usePluginDrift,
 } from "@/domains/intelligence/use-plugin-drift";
 import {
-    pluginsByNameGetOptions,
-    usePluginsByNameDeleteMutation,
-    usePluginsByNameUpgradePostMutation,
-    usePluginsInstallPostMutation,
+  pluginsByNameGetOptions,
+  usePluginsByNameDeleteMutation,
+  usePluginsByNameUpgradePostMutation,
+  usePluginsInstallPostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
 import { toast } from "@vellumai/design-library";

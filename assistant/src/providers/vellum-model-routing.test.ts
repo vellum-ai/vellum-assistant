@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   formatVellumModel,
+  getManagedUpstream,
   MANAGED_ROUTABLE_PROVIDERS,
   parseVellumModel,
 } from "./vellum-model-routing.js";
@@ -36,6 +37,31 @@ describe("vellum-model-routing", () => {
     expect(parseVellumModel("minimax/minimax-m3")).toBeNull(); // not managed
     expect(parseVellumModel("fireworks/")).toBeNull(); // empty model
     expect(parseVellumModel("/foo")).toBeNull(); // empty provider
+  });
+
+  test("getManagedUpstream resolves a bare catalog id to its owner", () => {
+    expect(getManagedUpstream("claude-fable-5")).toBe("anthropic");
+  });
+
+  test("getManagedUpstream resolves a routing string by its prefix", () => {
+    expect(
+      getManagedUpstream("fireworks/accounts/fireworks/models/minimax-m3"),
+    ).toBe("fireworks");
+  });
+
+  test("getManagedUpstream returns null for non-managed owners", () => {
+    expect(getManagedUpstream("MiniMax-M3")).toBeNull(); // minimax, not managed
+    expect(getManagedUpstream("openrouter/whatever")).toBeNull();
+  });
+
+  test("getManagedUpstream returns null for unknown models", () => {
+    expect(getManagedUpstream("not-a-real-model")).toBeNull();
+    expect(getManagedUpstream("")).toBeNull();
+  });
+
+  test("getManagedUpstream rejects managed-prefixed strings whose model is not cataloged under that provider", () => {
+    expect(getManagedUpstream("anthropic/definitely-not-a-model")).toBeNull();
+    expect(getManagedUpstream("openai/accounts/foo/bar")).toBeNull();
   });
 
   test("managed set matches the platform proxy table", () => {

@@ -697,6 +697,56 @@ describe("parseAssistantEvent", () => {
   });
 
   // ---------------------------------------------------------------------
+  // message_requeued (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses message_requeued with all required fields", () => {
+    const event = parseEvent({
+      type: "message_requeued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      position: 1,
+    });
+    expect(event).toEqual({
+      type: "message_requeued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      position: 1,
+    });
+  });
+
+  test("returns unknown message_requeued event when position is missing", () => {
+    const data = {
+      type: "message_requeued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+    };
+    expect(parseEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "message_requeued",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("carries the optional clientMessageId on message_requeued", () => {
+    const event = parseEvent({
+      type: "message_requeued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      position: 2,
+      clientMessageId: "nonce-1",
+    });
+    expect(event).toEqual({
+      type: "message_requeued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      position: 2,
+      clientMessageId: "nonce-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
   // message_queued_deleted (schema-validated)
   // ---------------------------------------------------------------------
 
@@ -1424,6 +1474,44 @@ describe("parseAssistantEvent", () => {
     expect(event).toEqual({
       type: "unknown",
       rawType: "navigate_settings",
+      data,
+    });
+  });
+
+  test("parses open_conversation with all fields (not unknown)", () => {
+    const event = parseEvent({
+      type: "open_conversation",
+      conversationId: "conv-1",
+      title: "New conversation",
+      anchorMessageId: "msg-42",
+      focus: true,
+    });
+    expect(event).toEqual({
+      type: "open_conversation",
+      conversationId: "conv-1",
+      title: "New conversation",
+      anchorMessageId: "msg-42",
+      focus: true,
+    });
+  });
+
+  test("parses open_conversation with only the required conversationId", () => {
+    const event = parseEvent({
+      type: "open_conversation",
+      conversationId: "conv-1",
+    });
+    expect(event).toEqual({
+      type: "open_conversation",
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown open_conversation event when conversationId is missing", () => {
+    const data = { type: "open_conversation", focus: true };
+    const event = parseEvent(data);
+    expect(event).toEqual({
+      type: "unknown",
+      rawType: "open_conversation",
       data,
     });
   });
@@ -2270,6 +2358,54 @@ describe("parseAssistantEvent", () => {
         totalOutputTokens: 50,
         estimatedCost: 0.0021,
         model: "claude-sonnet-4",
+      });
+    });
+  });
+
+  describe("context_window_usage", () => {
+    test("parses context_window_usage with all required fields", () => {
+      const event = parseEvent({
+        type: "context_window_usage",
+        conversationId: "conv-1",
+        tokens: 18000,
+        maxTokens: 200000,
+      });
+      expect(event).toEqual({
+        type: "context_window_usage",
+        conversationId: "conv-1",
+        tokens: 18000,
+        maxTokens: 200000,
+      });
+    });
+
+    test("returns unknown when a required field is missing", () => {
+      const data = {
+        type: "context_window_usage",
+        conversationId: "conv-1",
+        tokens: 18000,
+      };
+      const event = parseEvent(data);
+      expect(event).toEqual({
+        type: "unknown",
+        rawType: "context_window_usage",
+        data,
+        conversationId: "conv-1",
+      });
+    });
+
+    test("strips unknown top-level fields", () => {
+      const event = parseEvent({
+        type: "context_window_usage",
+        conversationId: "conv-1",
+        tokens: 18000,
+        maxTokens: 200000,
+        fillRatio: 0.09,
+      });
+      expect(event).toEqual({
+        type: "context_window_usage",
+        conversationId: "conv-1",
+        tokens: 18000,
+        maxTokens: 200000,
       });
     });
   });
@@ -3362,7 +3498,9 @@ describe("envelope format parsing", () => {
         title: "Connect Google",
       },
     });
-    if (event.type !== "open_url") throw new Error("expected open_url");
+    if (event.type !== "open_url") {
+      throw new Error("expected open_url");
+    }
     expect(event.url).toBe("https://example.com/oauth");
     expect(event.title).toBe("Connect Google");
     expect(event.conversationId).toBeUndefined();
@@ -3381,7 +3519,9 @@ describe("envelope format parsing", () => {
         conversationId: "inner-conv",
       },
     });
-    if (event.type !== "open_url") throw new Error("expected open_url");
+    if (event.type !== "open_url") {
+      throw new Error("expected open_url");
+    }
     expect(event.conversationId).toBe("inner-conv");
   });
 });

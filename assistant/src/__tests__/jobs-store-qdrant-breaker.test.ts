@@ -1,17 +1,11 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({}),
-  getConfig: () => ({}),
-  invalidateConfigCache: () => {},
-}));
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 
 import { eq } from "drizzle-orm";
 
@@ -36,6 +30,12 @@ describe("claimMemoryJobs with Qdrant circuit breaker", () => {
   beforeEach(() => {
     const db = getMemoryDb()!;
     db.run("DELETE FROM memory_jobs");
+    _resetQdrantBreaker();
+  });
+
+  // bun shares module state across a run, so a breaker left open by these cases
+  // (the last one leaves it open) would leak into later test files — reset here.
+  afterEach(() => {
     _resetQdrantBreaker();
   });
 

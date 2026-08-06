@@ -1,6 +1,5 @@
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 
-import { bundledToolRegistry } from "../../config/bundled-tool-registry.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import type { ExecutionTarget } from "../tool-types.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
@@ -20,9 +19,9 @@ export interface RunSkillToolScriptOptions {
    *  to `computeSkillVersionHash` from the version-hash module. Provided as an
    *  option to support testing and custom resolution strategies. */
   skillDirHashResolver?: (skillDir: string) => string;
-  /** Whether this is a bundled (first-party) skill. When true and running inside
-   *  a compiled binary, the runner uses the pre-imported bundled tool registry
-   *  instead of a dynamic filesystem import. */
+  /** Whether this is a bundled (first-party) skill. Only bundled skills may run
+   *  with `execution_target: host` (in-process); non-bundled skills are forced to
+   *  execute in the sandbox. */
   bundled?: boolean;
 }
 
@@ -92,28 +91,18 @@ export async function runSkillToolScript(
     }
   }
 
-  // For bundled skills, use the pre-imported registry instead of dynamic import.
-  // In compiled binaries the scripts' relative imports (e.g. ../../../../tools/...)
-  // can't resolve because those modules are inside the virtual /$bunfs/ filesystem.
-  let module: SkillToolScript | undefined;
-  if (options?.bundled) {
-    const registryKey = `${basename(skillDir)}:${executorPath}`;
-    module = bundledToolRegistry.get(registryKey);
+  let module: SkillToolScript;
+  try {
+    module = await import(scriptPath);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      content: `Failed to load skill tool script "${executorPath}": ${message}`,
+      isError: true,
+    };
   }
 
-  if (!module) {
-    try {
-      module = await import(scriptPath);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return {
-        content: `Failed to load skill tool script "${executorPath}": ${message}`,
-        isError: true,
-      };
-    }
-  }
-
-  if (typeof module!.run !== "function") {
+  if (typeof module.run !== "function") {
     return {
       content: `Skill tool script "${executorPath}" does not export a "run" function`,
       isError: true,
@@ -121,7 +110,7 @@ export async function runSkillToolScript(
   }
 
   try {
-    return await module!.run(input, context);
+    return await module.run(input, context);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {

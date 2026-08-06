@@ -1,4 +1,4 @@
-import { truncate } from "../../../../util/truncate.js";
+import { truncate } from "../host-utils.js";
 import { ALL_RECALL_SOURCES, normalizeRecallSources } from "./limits.js";
 import type { RecallEvidence, RecallSource } from "./types.js";
 
@@ -235,7 +235,9 @@ export function truncateRecallEvidenceToBudget(
   let remaining = Math.floor(maxTextChars);
 
   for (const item of evidence) {
-    if (remaining <= 0) break;
+    if (remaining <= 0) {
+      break;
+    }
 
     const excerpt = truncate(item.excerpt, remaining);
     if (excerpt.length === 0) {

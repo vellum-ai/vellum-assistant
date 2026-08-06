@@ -81,12 +81,21 @@ export interface SearchOptions {
   cursor?: string;
 }
 
+/** A file to attach to an outbound message, with its content already read into memory. */
+export interface OutboundAttachment {
+  filename: string;
+  mimeType: string;
+  data: Buffer;
+}
+
 export interface SendOptions {
   threadId?: string;
   /** For email: subject line */
   subject?: string;
   /** For email: in-reply-to message ID */
   inReplyTo?: string;
+  /** For email: files to attach. Providers that don't support attachments ignore this. */
+  attachments?: OutboundAttachment[];
   /** Optional assistant scope for multi-assistant channels. */
   assistantId?: string;
 }

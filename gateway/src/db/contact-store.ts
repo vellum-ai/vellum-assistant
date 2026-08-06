@@ -2,6 +2,7 @@ import { type Database } from "bun:sqlite";
 
 import { and, desc, eq, gt, ne, sql } from "drizzle-orm";
 
+import { isBindingDemotion } from "@vellumai/gateway-client";
 import {
   type AssistantContactMetadata,
   type ContactRead,
@@ -240,9 +241,7 @@ export class ContactStore {
    * by channel `id`. Empty input → empty map. Contacts/channels absent from the
    * gateway are simply absent from the map (the caller leaves them untouched).
    */
-  async getAclByContactIds(
-    ids: string[],
-  ): Promise<Map<string, ContactAcl>> {
+  async getAclByContactIds(ids: string[]): Promise<Map<string, ContactAcl>> {
     const result = new Map<string, ContactAcl>();
     if (ids.length === 0) return result;
 
@@ -725,6 +724,25 @@ export class ContactStore {
     if (!gwChannel) return null;
     const gwChannelId = gwChannel.id;
 
+    // Binding-strength guard (LUM-2505): never demote an active binding's
+    // provenance. A lower-strength verifiedVia (e.g. a `manual` roster attest)
+    // over an already-active, higher-strength channel (e.g. `challenge`) is
+    // refused — the stronger existing binding stands, as an idempotent no-op.
+    if (
+      gwChannel.status === "active" &&
+      isBindingDemotion(gwChannel.verifiedVia, verifiedVia)
+    ) {
+      log.warn(
+        {
+          channelId: gwChannelId,
+          existingVerifiedVia: gwChannel.verifiedVia,
+          incomingVerifiedVia: verifiedVia,
+        },
+        "markChannelVerified: refusing binding-strength demotion; preserving stronger verified_via",
+      );
+      return { channel: gwChannel, didWrite: false };
+    }
+
     const now = Date.now();
     const raw = (this.db as unknown as { $client: Database }).$client;
     const result = raw
@@ -770,7 +788,28 @@ export class ContactStore {
     // returns null.
     const channel = await this.resolveGatewayChannel(channelId);
     if (!channel) return null;
-    const gwChannelId = channel.id;
+    return this.markChannelRevokedById(channel.id, reason);
+  }
+
+  /**
+   * Synchronous core of {@link markChannelRevoked}, keyed on an
+   * already-resolved GATEWAY channel id (no assistant-side id fallback) —
+   * plain statements over the gateway DB, composable inside a caller-owned
+   * transaction. Same guards: guardian downgrade rejection, blocked no-op,
+   * idempotent re-revoke.
+   */
+  markChannelRevokedById(
+    gwChannelId: string,
+    reason?: string,
+  ): { channel: ContactChannel; didWrite: boolean } | null {
+    const channel = this.db
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, gwChannelId))
+      .get();
+    if (!channel) {
+      return null;
+    }
 
     const contact = this.getContact(channel.contactId);
     if (
@@ -778,10 +817,10 @@ export class ContactStore {
       reason !== GUARDIAN_BINDING_REVOKE_REASON
     ) {
       log.warn(
-        { channelId, reason },
+        { channelId: gwChannelId, reason },
         "markChannelRevoked: rejected guardian channel downgrade",
       );
-      throw new CannotDowngradeGuardianError(channelId);
+      throw new CannotDowngradeGuardianError(gwChannelId);
     }
 
     // A blocked channel stays blocked: blocked is stricter than revoked, and
@@ -817,7 +856,9 @@ export class ContactStore {
       .from(contactChannels)
       .where(eq(contactChannels.id, gwChannelId))
       .get();
-    if (!after) return null;
+    if (!after) {
+      return null;
+    }
 
     return { channel: after, didWrite: true };
   }
@@ -1146,6 +1187,71 @@ export class ContactStore {
       blockedReason?: string | null;
     }>;
   }): Promise<{ contact: ContactWithInfo; created: boolean }> {
+    const { contactId, created, mirrorParams } =
+      this.upsertContactGatewayWrites(params);
+
+    // ── Mirror to assistant DB (best-effort typed op) ──────────────────
+    await this.mirrorContactUpsertBestEffort(contactId, mirrorParams);
+
+    // ── Read back full contact shape (best-effort) ─────────────────────
+    // Source ACL (role/principalId, channel status/policy/verified_*) from the
+    // gateway DB — the just-written source of truth — and overlay assistant-
+    // owned info. The assistant mirror would report stale unverified/allow/
+    // contact defaults for fresh creates.
+    const fullContact = await this.getContactWithInfo(contactId).catch(
+      (err) => {
+        log.warn(
+          { contactId, err },
+          "upsertContact: gateway read-back failed; returning gateway fallback",
+        );
+        return null;
+      },
+    );
+
+    if (fullContact) {
+      return { contact: fullContact, created };
+    }
+
+    // Fallback: synthesize from gateway row + provided params.
+    const gatewayRow = this.db
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, contactId))
+      .get()!;
+    return {
+      contact: {
+        id: gatewayRow.id,
+        displayName: gatewayRow.displayName,
+        role: gatewayRow.role,
+        principalId: gatewayRow.principalId,
+        notes: params.notes ?? null,
+        contactType: params.contactType ?? "human",
+        userFile: null,
+        createdAt: gatewayRow.createdAt,
+        updatedAt: gatewayRow.updatedAt,
+        interactionCount: 0,
+        lastInteraction: null,
+        channels: [],
+        assistantMetadata: null,
+      },
+      created,
+    };
+  }
+
+  /**
+   * Synchronous gateway-DB core of {@link upsertContact}: contact resolution
+   * (explicit id → channel logical key → create) plus channel sync, as plain
+   * statements with no assistant IO — composable inside a caller-owned
+   * transaction. `mirrorParams` is the canonicalized input for the
+   * post-commit {@link mirrorContactUpsertBestEffort}.
+   */
+  upsertContactGatewayWrites(
+    params: Parameters<ContactStore["upsertContact"]>[0],
+  ): {
+    contactId: string;
+    created: boolean;
+    mirrorParams: Parameters<ContactStore["upsertContact"]>[0];
+  } {
     const now = Date.now();
     let contactId = params.id;
     let created = false;
@@ -1248,12 +1354,23 @@ export class ContactStore {
       this.syncChannels(contactId, canonicalChannels, now);
     }
 
-    // ── 5. Mirror to assistant DB (best-effort typed op) ──────────────
-    const canonicalParams = canonicalChannels
+    const mirrorParams = canonicalChannels
       ? { ...params, channels: canonicalChannels }
       : params;
+    return { contactId, created, mirrorParams };
+  }
+
+  /**
+   * Best-effort assistant-DB mirror for a committed gateway contact upsert.
+   * Failures are logged (a daemon missing the typed op escalates via the
+   * watchdog reporter) and never thrown.
+   */
+  async mirrorContactUpsertBestEffort(
+    contactId: string,
+    params: Parameters<ContactStore["upsertContact"]>[0],
+  ): Promise<void> {
     try {
-      await this.mirrorContactToAssistantDb(contactId, canonicalParams);
+      await this.mirrorContactToAssistantDb(contactId, params);
     } catch (err) {
       // Unknown method = old daemon without the typed op: the gateway write
       // stands with no mirror and no fallback — escalate loudly.
@@ -1266,48 +1383,6 @@ export class ContactStore {
         );
       }
     }
-
-    // ── 6. Read back full contact shape (best-effort) ─────────────────
-    // Source ACL (role/principalId, channel status/policy/verified_*) from the
-    // gateway DB — the just-written source of truth — and overlay assistant-
-    // owned info. The assistant mirror would report stale unverified/allow/
-    // contact defaults for fresh creates.
-    const fullContact = await this.getContactWithInfo(contactId).catch((err) => {
-      log.warn(
-        { contactId, err },
-        "upsertContact: gateway read-back failed; returning gateway fallback",
-      );
-      return null;
-    });
-
-    if (fullContact) {
-      return { contact: fullContact, created };
-    }
-
-    // Fallback: synthesize from gateway row + provided params.
-    const gatewayRow = this.db
-      .select()
-      .from(contacts)
-      .where(eq(contacts.id, contactId))
-      .get()!;
-    return {
-      contact: {
-        id: gatewayRow.id,
-        displayName: gatewayRow.displayName,
-        role: gatewayRow.role,
-        principalId: gatewayRow.principalId,
-        notes: params.notes ?? null,
-        contactType: params.contactType ?? "human",
-        userFile: null,
-        createdAt: gatewayRow.createdAt,
-        updatedAt: gatewayRow.updatedAt,
-        interactionCount: 0,
-        lastInteraction: null,
-        channels: [],
-        assistantMetadata: null,
-      },
-      created,
-    };
   }
 
   /**
@@ -1490,9 +1565,27 @@ export class ContactStore {
           if (ch.blockedReason !== undefined)
             updateSet.blockedReason = ch.blockedReason;
         }
-        if (ch.verifiedAt !== undefined) updateSet.verifiedAt = ch.verifiedAt;
-        if (ch.verifiedVia !== undefined)
-          updateSet.verifiedVia = ch.verifiedVia;
+        // Binding-strength guard (LUM-2505): a lower-strength verifiedVia must
+        // not demote an active binding. When it would, preserve the stronger
+        // existing verified_via/verified_at; benign field updates still apply.
+        if (
+          existing.status === "active" &&
+          ch.verifiedVia !== undefined &&
+          isBindingDemotion(existing.verifiedVia, ch.verifiedVia)
+        ) {
+          log.warn(
+            {
+              channelId: existing.id,
+              existingVerifiedVia: existing.verifiedVia,
+              incomingVerifiedVia: ch.verifiedVia,
+            },
+            "syncChannels: refusing binding-strength demotion; preserving stronger verified_via",
+          );
+        } else {
+          if (ch.verifiedAt !== undefined) updateSet.verifiedAt = ch.verifiedAt;
+          if (ch.verifiedVia !== undefined)
+            updateSet.verifiedVia = ch.verifiedVia;
+        }
         if (ch.inviteId !== undefined) updateSet.inviteId = ch.inviteId;
         this.db
           .update(contactChannels)
@@ -1649,7 +1742,6 @@ export class ContactStore {
     }
     return `${slug}-${crypto.randomUUID().slice(0, 8)}.md`;
   }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -1763,9 +1855,13 @@ export class CannotDowngradeGuardianError extends Error {
 
 /**
  * Thrown by `mergeContacts` for validation errors (self-merge, contact not
- * found). The caller maps this to HTTP 400.
+ * found, guardian donor). The HTTP handler maps this to a 400; the gateway
+ * IPC server mirrors `statusCode`/`code` into the wire envelope.
  */
 export class MergeContactsError extends Error {
+  readonly statusCode = 400;
+  readonly code = "MERGE_CONTACTS_INVALID";
+
   constructor(message: string) {
     super(message);
     this.name = "MergeContactsError";

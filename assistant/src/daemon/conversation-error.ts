@@ -1,16 +1,31 @@
+import {
+  ORDERING_ERROR_PATTERNS,
+  WEB_SEARCH_ORDERING_PATTERNS,
+} from "../agent/history-repair/history-repair.js";
 import type {
   ConversationErrorCode,
   ConversationErrorEvent,
 } from "../api/events/conversation-error.js";
+import { getIsPlatform } from "../config/env-registry.js";
 import {
-  ORDERING_ERROR_PATTERNS,
-  WEB_SEARCH_ORDERING_PATTERNS,
-} from "../plugins/defaults/history-repair/terminal.js";
-import { isImageDimensionsTooLargeError } from "../plugins/defaults/image-recovery/detect.js";
+  isImageDimensionsTooLargeError,
+  isImageMediaTypeMismatchError,
+  isImageUnprocessableError,
+} from "../plugins/defaults/image-recovery/detect.js";
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
+import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { getProviderRoutingSource } from "../providers/registry.js";
 import { isAbortReason } from "../util/abort-reasons.js";
-import { ProviderError, ProviderNotConfiguredError } from "../util/errors.js";
+import {
+  type ProviderCredentialSource,
+  ProviderError,
+  type ProviderErrorReason,
+  ProviderNotConfiguredError,
+} from "../util/errors.js";
+import {
+  INSUFFICIENT_CREDITS_PATTERNS,
+  isVisionNotSupportedError,
+} from "../util/provider-error-patterns.js";
 
 /**
  * Classified conversation error ready for client emission.
@@ -51,6 +66,14 @@ export interface ClassifiedConversationError {
 export interface ConversationErrorAttribution {
   connectionName?: string;
   profileName?: string;
+  /** Whether the resolved turn route uses Vellum-managed inference. */
+  isManagedRoute?: boolean;
+  /**
+   * Which credential the failed request presented. Splits the non-managed side
+   * of `isManagedRoute` into personal keys, subscription logins, and keyless
+   * endpoints so rejection copy names the right thing to fix.
+   */
+  credentialSource?: ProviderCredentialSource;
 }
 
 // Network-level error patterns (connection refused, timeout, DNS, reset)
@@ -82,8 +105,7 @@ const MANAGED_USAGE_LIMIT_PATTERNS = [
 ];
 
 const PROVIDER_BILLING_PATTERNS = [
-  /credit balance is too low/i,
-  /insufficient.*credits?/i,
+  ...INSUFFICIENT_CREDITS_PATTERNS,
   /requires more credits/i,
   /can only afford/i,
 ];
@@ -146,16 +168,6 @@ const STREAMING_ERROR_PATTERNS = [
   /stream has ended.*this shouldn't happen/i,
 ];
 
-const VISION_NOT_SUPPORTED_PATTERNS = [
-  /no endpoints found that support image input/i,
-  /does not support image/i,
-  /doesn't support image input/i,
-  /image input is not supported/i,
-  /this model does not support vision/i,
-  /vision is not supported/i,
-  /multi-?modal.*not.*support/i,
-];
-
 const CANCEL_PATTERNS = [/abort/i, /cancel/i];
 
 /**
@@ -180,6 +192,11 @@ export interface ErrorContext {
    * underlying connection name is generic.
    */
   profileName?: string;
+  /**
+   * Whether the resolved turn route uses Vellum-managed inference. Turn routing
+   * takes precedence over the provider registry's boot-time default.
+   */
+  isManagedRoute?: boolean;
 }
 
 /**
@@ -198,13 +215,21 @@ export interface ErrorContext {
  * recognized as cancellation too.
  */
 export function isUserCancellation(error: unknown, ctx: ErrorContext): boolean {
-  if (!ctx.aborted) return false;
-  if (error instanceof DOMException && error.name === "AbortError") return true;
-  if (error instanceof Error && error.name === "AbortError") return true;
+  if (!ctx.aborted) {
+    return false;
+  }
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return true;
+  }
+  if (error instanceof Error && error.name === "AbortError") {
+    return true;
+  }
   if (error instanceof ProviderError && isAbortReason(error.abortReason)) {
     return true;
   }
-  if (isAbortReason(error)) return true;
+  if (isAbortReason(error)) {
+    return true;
+  }
   return false;
 }
 
@@ -215,7 +240,9 @@ const MAX_DEBUG_DETAIL_LENGTH = 4000;
  * Truncate debug details to a reasonable size for transport.
  */
 function truncateDebugDetails(details: string): string {
-  if (details.length <= MAX_DEBUG_DETAIL_LENGTH) return details;
+  if (details.length <= MAX_DEBUG_DETAIL_LENGTH) {
+    return details;
+  }
   return details.slice(0, MAX_DEBUG_DETAIL_LENGTH) + "\n… (truncated)";
 }
 
@@ -242,9 +269,22 @@ export function classifyConversationError(
   // credential-related classifications can name the exact slot to fix.
   // A `ProviderNotConfiguredError` instance carries its own attribution
   // (from the throw site) which takes priority over context when present.
+  // The failed call's own route wins field by field — it is resolved at
+  // dispatch, while context describes the turn and can be stale for this
+  // call. Per-field, so a route carrying only some fields doesn't blank the
+  // rest.
+  const providerRoute =
+    error instanceof ProviderError ? error.routeAttribution : undefined;
+  const connectionName = providerRoute?.connectionName ?? ctx.connectionName;
+  const profileName = providerRoute?.profileName ?? ctx.profileName;
+  const isManagedRoute = providerRoute?.isManagedRoute ?? ctx.isManagedRoute;
   const attribution: ConversationErrorAttribution = {
-    ...(ctx.connectionName ? { connectionName: ctx.connectionName } : {}),
-    ...(ctx.profileName ? { profileName: ctx.profileName } : {}),
+    ...(connectionName ? { connectionName } : {}),
+    ...(profileName ? { profileName } : {}),
+    ...(isManagedRoute !== undefined ? { isManagedRoute } : {}),
+    ...(providerRoute?.credentialSource
+      ? { credentialSource: providerRoute.credentialSource }
+      : {}),
   };
 
   // Dedicated classification for missing provider API key
@@ -287,7 +327,7 @@ export function classifyConversationError(
 }
 
 /**
- * Internal throw sites use sentinel pseudo-names (`<llm.default>`,
+ * Internal throw sites use sentinel pseudo-names (`<default>`,
  * `<resolved-callsite>`) when no real connection row is involved; those must
  * not render as literal connection names.
  */
@@ -313,15 +353,31 @@ function connectionResolutionUserMessage(
     case "provider_mismatch":
       return `${connection}${usedBy} is bound to a different provider than the profile declares. Update the profile's connection in ${fixPath}.`;
     case "missing_connection":
-      return `No provider connection is configured${usedBy}. Add an API key or log in via ${fixPath}.`;
+      return `No provider connection is configured${usedBy}. Ask me to set one up right here, or add an API key in ${fixPath}.`;
+    case "unroutable_managed_model":
+      return `The model "${error.model ?? "<unset>"}"${usedBy} isn't served by the Vellum managed route. Pick a model from the Vellum catalog, or choose a concrete provider in ${fixPath}.`;
+    case "missing_credential":
+      // Provider-neutral: api_key connections store keys, oauth_subscription
+      // connections store login tokens — the fix differs but the location
+      // doesn't.
+      return `${connection}${usedBy} has no stored credential. Add an API key or reconnect it in ${fixPath}.`;
+    case "platform_unauthenticated":
+      // A platform-managed assistant cannot log in or switch providers, and
+      // this classifier only sees the reason code, so one honest wording covers
+      // both the transient and the re-provision cases.
+      if (getIsPlatform()) {
+        return `${connection}${usedBy} is unavailable. If this persists, the platform credential may need to be re-provisioned on the Vellum platform.`;
+      }
+      return `${connection}${usedBy} requires a Vellum platform login. Log in, or pick a different provider in ${fixPath}.`;
     case "model_incompatible":
       return `${error.model ? `Model "${error.model}"` : "The requested model"} isn't available on ${connectionName ? `connection "${connectionName}"` : "the configured connection"}${usedBy}. Pick a different model or connection in ${fixPath}.`;
   }
 }
 
 /**
- * Core classification: check ProviderError.statusCode first for
- * deterministic classification, then fall back to regex patterns.
+ * Core classification: the provider-stamped `reason` short-circuit is the
+ * primary source of truth. The status switch + regex battery below is the
+ * reason-less fallback — reached only when no `reason` classified the error.
  *
  * `attribution` carries the resolved connection / profile names (when the
  * caller knows them) so credential-related results can name the exact
@@ -333,76 +389,69 @@ function classifyCore(
   message: string,
   attribution: ConversationErrorAttribution = {},
 ): Omit<ClassifiedConversationError, "debugDetails"> {
-  // ProviderError with statusCode — deterministic classification
+  const isManagedRoute =
+    error instanceof ProviderError &&
+    (attribution.isManagedRoute ??
+      getProviderRoutingSource(error.provider) === "managed-proxy");
+  // Which credential the request actually presented. Only rejection copy needs
+  // this finer axis; every other branch keys off `isManagedRoute`. Routes that
+  // predate per-request stamping collapse to the managed/personal split.
+  const credentialSource: ProviderCredentialSource =
+    attribution.credentialSource ??
+    (isManagedRoute ? "vellum-managed" : "byok");
+
+  // Prefer the semantic reason stamped by the provider layer, regardless of
+  // HTTP status — statusless errors (e.g. SDK streaming failures) still carry a
+  // reason. Reasons that map cleanly win here; `bad_request`/`unknown` (and a
+  // reason-less error) fall through to the status switch + regex battery below.
+  if (error instanceof ProviderError && error.reason) {
+    const c = reasonToClassification(error.reason, {
+      isManagedRoute,
+      credentialSource,
+      attribution,
+      message,
+      providerName: error.provider,
+    });
+    if (c) {
+      return c;
+    }
+  }
+
+  // Reason-less (or bad_request/unknown) ProviderError with a status — the
+  // deterministic status switch + regex battery, sharing the same producers.
   if (error instanceof ProviderError && error.statusCode !== undefined) {
     if (error.statusCode === 413) {
-      return {
-        code: "CONTEXT_TOO_LARGE",
-        userMessage:
-          "This conversation is too long. Please start a new conversation.",
-        retryable: false,
-        errorCategory: "context_too_large",
-      };
+      return contextTooLargeClassification();
     }
     if (error.statusCode === 401 || error.statusCode === 403) {
-      // Both managed-proxy and user-key 401/403s reach this branch.
-      // Managed-proxy routes through the assistant API key; if that
-      // credential is stale, the user cannot fix it from model settings.
-      // Everything else is a user-set credential that the upstream provider
-      // rejected, so emit `PROVIDER_INVALID_KEY` and let the chat banner point
-      // at Settings.
-      const providerName = error.provider;
-      if (getProviderRoutingSource(providerName) === "managed-proxy") {
-        return {
-          code: "MANAGED_KEY_INVALID",
-          userMessage: "Couldn't refresh assistant credentials.",
-          retryable: false,
-          errorCategory: "managed_key_invalid",
-        };
-      }
-      return invalidApiKeyClassification(attribution);
+      // Managed routes through the assistant API key; if that credential is
+      // stale, the user cannot fix it from model settings. Everything else is
+      // a credential the user owns, so the copy names which one to update and
+      // the chat banner points at Settings.
+      return rejectedCredentialClassification(
+        error.provider,
+        credentialSource,
+        attribution,
+      );
     }
     if (error.statusCode === 402) {
-      if (isManagedBalanceError(error)) {
+      if (isManagedRoute) {
         return managedBalanceClassification();
       }
       return providerBillingClassification();
     }
     if (error.statusCode === 429) {
-      if (isManagedUsageLimitError(error, message)) {
-        return {
-          code: "MANAGED_USAGE_LIMIT",
-          userMessage:
-            "Vellum managed inference is rate limited. This is a Vellum-side usage limit, not an AI provider outage.",
-          retryable: true,
-          errorCategory: "managed_usage_limit",
-        };
+      if (isManagedUsageLimitError(message, isManagedRoute)) {
+        return managedUsageLimitClassification();
       }
-      return {
-        code: "PROVIDER_RATE_LIMIT",
-        userMessage:
-          "You are being rate limited by the AI provider. Please try again in a moment.",
-        retryable: true,
-        errorCategory: "rate_limit",
-      };
+      return rateLimitClassification();
     }
     // Anthropic uses 529 for overloaded_error
     if (error.statusCode === 529) {
-      return {
-        code: "PROVIDER_OVERLOADED",
-        userMessage:
-          "The AI provider is temporarily overloaded. Please try again in a moment.",
-        retryable: true,
-        errorCategory: "provider_overloaded",
-      };
+      return providerOverloadedClassification();
     }
     if (error.statusCode >= 500) {
-      return {
-        code: "PROVIDER_API",
-        userMessage: "The AI provider returned a server error.",
-        retryable: true,
-        errorCategory: "provider_server_error",
-      };
+      return providerServerErrorClassification();
     }
     // 4xx (non-429) — check for context-too-large, ordering errors, then generic fallback
     if (error.statusCode >= 400) {
@@ -410,13 +459,7 @@ function classifyCore(
         return emptyRequestMessagesClassification();
       }
       if (isContextTooLarge(message)) {
-        return {
-          code: "CONTEXT_TOO_LARGE",
-          userMessage:
-            "This conversation is too long. Please start a new conversation.",
-          retryable: false,
-          errorCategory: "context_too_large",
-        };
+        return contextTooLargeClassification();
       }
       if (isWebSearchOrderingError(message)) {
         return {
@@ -455,7 +498,11 @@ function classifyCore(
         // Mirror the 401/403 branch: a credential-shaped 4xx is an
         // "invalid key" surface (banner: "Invalid API key"), distinct
         // from "no key configured" (banner: "API key required").
-        return invalidApiKeyClassification(attribution);
+        return rejectedCredentialClassification(
+          error.provider,
+          credentialSource,
+          attribution,
+        );
       }
       if (isImageDimensionsTooLargeError(message)) {
         return {
@@ -466,14 +513,34 @@ function classifyCore(
           errorCategory: "image_dimensions_too_large",
         };
       }
-      if (isVisionNotSupported(message)) {
+      if (isImageUnprocessableError(message)) {
+        // Reuses the IMAGE_TOO_LARGE wire code: clients validate the code
+        // enum, so a new value would break stale clients, and they render
+        // `userMessage` verbatim anyway. `errorCategory` carries the
+        // distinction for triage.
         return {
-          code: "PROVIDER_API",
+          code: "IMAGE_TOO_LARGE",
           userMessage:
-            "This model doesn't support image input. Remove the image or switch to a vision-capable model.",
+            "An image in this conversation could not be processed by the AI provider — it may be below the provider's minimum image size. It was automatically adjusted where possible; send your message again to continue.",
           retryable: false,
-          errorCategory: "vision_not_supported",
+          errorCategory: "image_unprocessable",
         };
+      }
+      if (isImageMediaTypeMismatchError(message)) {
+        // Same wire-code reuse as image_unprocessable above. This surfaces only
+        // when auto-correction could not resolve the mismatch — a recognized
+        // format is relabeled and the retry succeeds without ever reaching here,
+        // so the copy must not claim a fix that didn't happen.
+        return {
+          code: "IMAGE_TOO_LARGE",
+          userMessage:
+            "An image in this conversation is in a format the AI provider can't read, and it couldn't be converted automatically. Re-save it as PNG or JPEG and upload it again.",
+          retryable: false,
+          errorCategory: "image_media_type_mismatch",
+        };
+      }
+      if (isVisionNotSupportedError(message)) {
+        return visionNotSupportedClassification();
       }
       // Extract the provider detail after "API error (NNN): " prefix
       const detailMatch = message.match(/API error \(\d+\):\s*(.+)/i);
@@ -491,7 +558,115 @@ function classifyCore(
   }
 
   // Regex fallback for non-ProviderError or ProviderError without statusCode
-  return classifyByMessage(error, message);
+  return classifyByMessage(message, isManagedRoute);
+}
+
+/**
+ * Strip the `API error (NNN): ` prefix and a trailing `[type=…]` bracket from a
+ * provider error message, returning the human-readable detail (truncated to
+ * ~200 chars) or `undefined` when nothing meaningful remains.
+ */
+function extractProviderDetail(message: string): string | undefined {
+  let detail = message.replace(/^.*?API error \(\d+\):\s*/i, "");
+  detail = detail.replace(/\s*\[[^\]]*\]\s*$/, "").trim();
+  if (!detail || detail === message.trim()) {
+    // No recognizable prefix — only surface prose that isn't the whole raw line.
+    if (/API error \(\d+\)/i.test(message)) {
+      return undefined;
+    }
+  }
+  if (!detail) {
+    return undefined;
+  }
+  return detail.length > 200 ? `${detail.slice(0, 200)}…` : detail;
+}
+
+/**
+ * Map a provider-stamped {@link ProviderErrorReason} to a classification,
+ * applying the managed-proxy-vs-user-key routing overlay inline. Returns `null`
+ * for reasons that should defer to the legacy status/regex fallback
+ * (`bad_request`, `unknown`).
+ */
+function reasonToClassification(
+  reason: ProviderErrorReason,
+  args: {
+    isManagedRoute: boolean;
+    credentialSource: ProviderCredentialSource;
+    attribution?: ConversationErrorAttribution;
+    message: string;
+    providerName: string;
+  },
+): Omit<ClassifiedConversationError, "debugDetails"> | null {
+  const managed = args.isManagedRoute;
+  switch (reason) {
+    case "invalid_credentials":
+      return rejectedCredentialClassification(
+        args.providerName,
+        args.credentialSource,
+        args.attribution,
+      );
+    case "rate_limited":
+      // Match managed usage-limit body patterns, as the legacy path does.
+      if (
+        managed ||
+        MANAGED_USAGE_LIMIT_PATTERNS.some((p) => p.test(args.message))
+      ) {
+        return managedUsageLimitClassification();
+      }
+      return rateLimitClassification();
+    case "insufficient_credits":
+      return managed
+        ? managedBalanceClassification()
+        : providerBillingClassification();
+    case "daily_limit_reached":
+      // The reason is stamped only from the platform proxy's
+      // `"code":"daily_limit_reached"` body, so it is authoritative on its
+      // own — the global routing map can lag per-connection platform-auth
+      // routes and must not downgrade this to the generic billing surface.
+      return dailyLimitClassification();
+    case "overloaded":
+      return providerOverloadedClassification();
+    case "server_error":
+      return providerServerErrorClassification();
+    case "context_overflow":
+      return contextTooLargeClassification();
+    case "vision_unsupported":
+      return visionNotSupportedClassification();
+    case "network_error":
+      return {
+        code: "PROVIDER_NETWORK",
+        userMessage:
+          "The provider returned an empty response with no body — this typically indicates a network proxy or egress filter intercepting the request, not a genuine provider error. Check your network configuration.",
+        retryable: true,
+        errorCategory: "provider_network_proxy_intercepted",
+      };
+    case "model_not_found":
+      return {
+        code: "PROVIDER_API",
+        userMessage:
+          "The selected model wasn't found by the provider. Switch models in Settings → Models & Services.",
+        retryable: false,
+        errorCategory: "provider_model_not_found",
+      };
+    case "model_restricted": {
+      const detail = extractProviderDetail(args.message);
+      const prefix = "This model isn't available on your current provider plan";
+      const suffix =
+        "Switch to a different model or upgrade your plan in Settings → Models & Services.";
+      // Skew-safe code; the specific signal rides errorCategory.
+      return {
+        code: "PROVIDER_API",
+        userMessage: detail
+          ? `${prefix}: ${detail} ${suffix}`
+          : `${prefix}. ${suffix}`,
+        retryable: false,
+        errorCategory: "provider_model_restricted",
+      };
+    }
+    case "bad_request":
+    case "unknown":
+      return null;
+  }
 }
 
 /** Check whether an error message indicates a context-too-large failure. */
@@ -525,10 +700,6 @@ function emptyRequestMessagesClassification(): Omit<
   };
 }
 
-function isVisionNotSupported(message: string): boolean {
-  return VISION_NOT_SUPPORTED_PATTERNS.some((p) => p.test(message));
-}
-
 /** Check whether an error message indicates a web-search-specific ordering failure. */
 function isWebSearchOrderingError(message: string): boolean {
   return WEB_SEARCH_ORDERING_PATTERNS.some((p) => p.test(message));
@@ -553,18 +724,13 @@ function isStreamingError(message: string): boolean {
   return STREAMING_ERROR_PATTERNS.some((p) => p.test(message));
 }
 
-function isManagedUsageLimitError(error: unknown, message: string): boolean {
-  if (
-    error instanceof ProviderError &&
-    getProviderRoutingSource(error.provider) === "managed-proxy"
-  ) {
-    return true;
-  }
-  return MANAGED_USAGE_LIMIT_PATTERNS.some((p) => p.test(message));
-}
-
-function isManagedBalanceError(error: ProviderError): boolean {
-  return getProviderRoutingSource(error.provider) === "managed-proxy";
+function isManagedUsageLimitError(
+  message: string,
+  isManagedRoute: boolean,
+): boolean {
+  return (
+    isManagedRoute || MANAGED_USAGE_LIMIT_PATTERNS.some((p) => p.test(message))
+  );
 }
 
 function isProviderBillingError(message: string): boolean {
@@ -577,8 +743,14 @@ function managedBalanceClassification(): Omit<
 > {
   return {
     code: "PROVIDER_BILLING",
+    // This classification feeds two surfaces with different semantics: the
+    // terminal provider-error path (the turn ends with no reply) and the
+    // non-terminal memory-v3 degraded notice (a normal reply still follows).
+    // Keep the wording context-neutral so it is true in both places; the
+    // terminal persist site in conversation-agent-loop.ts swaps in
+    // assistant-voice copy for the synthetic assistant row.
     userMessage:
-      "You've run out of credits. Add funds to continue using the assistant.",
+      "You're out of credits. Add credits in Settings → Billing to continue.",
     retryable: false,
     errorCategory: "credits_exhausted",
   };
@@ -597,24 +769,213 @@ function providerBillingClassification(): Omit<
   };
 }
 
+function dailyLimitClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_BILLING",
+    userMessage:
+      "You've hit your daily credit limit. Raise the limit in Billing settings to keep going today.",
+    retryable: false,
+    errorCategory: "daily_limit_reached",
+  };
+}
+
+// Shared classification producers — single source of `code`+`errorCategory`
+// for both the reason short-circuit and the reason-less fallback.
+
+function rateLimitClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_RATE_LIMIT",
+    userMessage:
+      "You are being rate limited by the AI provider. Please try again in a moment.",
+    retryable: true,
+    errorCategory: "rate_limit",
+  };
+}
+
+function managedUsageLimitClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "MANAGED_USAGE_LIMIT",
+    userMessage:
+      "Vellum managed inference is rate limited. This is a Vellum-side usage limit, not an AI provider outage.",
+    retryable: true,
+    errorCategory: "managed_usage_limit",
+  };
+}
+
+/**
+ * Deliberately instruction-free. The assistant API key is provisioned and
+ * pushed by the platform — the assistant only ever reads it — so there is no
+ * Settings affordance to re-provision it and no user action that would help.
+ * The copy's job is to rule out the user's own provider key as the cause;
+ * clients that can offer a real next step attach one (web renders Doctor).
+ */
+function managedKeyInvalidClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "MANAGED_KEY_INVALID",
+    userMessage:
+      "Vellum's managed inference credential was rejected. This isn't a personal provider API key — Vellum provisions this one, so there's nothing to update in Settings.",
+    retryable: false,
+    errorCategory: "managed_key_invalid",
+  };
+}
+
+function providerOverloadedClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_OVERLOADED",
+    userMessage:
+      "The AI provider is temporarily overloaded. Please try again in a moment.",
+    retryable: true,
+    errorCategory: "provider_overloaded",
+  };
+}
+
+function providerServerErrorClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_API",
+    userMessage: "The AI provider returned a server error.",
+    retryable: true,
+    errorCategory: "provider_server_error",
+  };
+}
+
+function contextTooLargeClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "CONTEXT_TOO_LARGE",
+    userMessage:
+      "This conversation is too long. Please start a new conversation.",
+    retryable: false,
+    errorCategory: "context_too_large",
+  };
+}
+
+function visionNotSupportedClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_API",
+    userMessage:
+      "This model doesn't support image input. Remove the image or switch to a vision-capable model.",
+    retryable: false,
+    errorCategory: "vision_not_supported",
+  };
+}
+
 /**
  * Build a user-facing message that names the exact profile / connection
  * to fix when one is known, falling back to a generic phrase otherwise.
  * Profile is preferred because that's the entity the user picks in the
- * chat picker; connection is shown when no profile is in play (e.g.
- * `llm.default` direct dispatch) or as a parenthetical when both differ.
+ * chat picker; connection is shown when no profile is in play (e.g. the
+ * profileless anchor dispatch) or as a parenthetical when both differ.
  */
 function describeAttribution(
   attribution: ConversationErrorAttribution | undefined,
 ): string {
-  if (!attribution) return "";
+  if (!attribution) {
+    return "";
+  }
   const { profileName, connectionName } = attribution;
   if (profileName && connectionName && profileName !== connectionName) {
     return ` for profile "${profileName}" (connection "${connectionName}")`;
   }
-  if (profileName) return ` for profile "${profileName}"`;
-  if (connectionName) return ` for connection "${connectionName}"`;
+  if (profileName) {
+    return ` for profile "${profileName}"`;
+  }
+  if (connectionName) {
+    return ` for connection "${connectionName}"`;
+  }
   return "";
+}
+
+function providerDisplayName(providerName: string): string {
+  return (
+    PROVIDER_CATALOG.find((provider) => provider.id === providerName)
+      ?.displayName ?? providerName
+  );
+}
+
+function classificationAttribution(
+  attribution: ConversationErrorAttribution | undefined,
+): Pick<ClassifiedConversationError, "connectionName" | "profileName"> {
+  return {
+    ...(attribution?.connectionName
+      ? { connectionName: attribution.connectionName }
+      : {}),
+    ...(attribution?.profileName
+      ? { profileName: attribution.profileName }
+      : {}),
+  };
+}
+
+function rejectedCredentialClassification(
+  providerName: string,
+  credentialSource: ProviderCredentialSource,
+  attribution?: ConversationErrorAttribution,
+): Omit<ClassifiedConversationError, "debugDetails"> {
+  switch (credentialSource) {
+    case "vellum-managed":
+      return managedKeyInvalidClassification();
+    case "oauth-subscription":
+      return subscriptionLoginRejectedClassification(providerName, attribution);
+    case "no-auth":
+      return endpointAuthenticationRequiredClassification(
+        providerName,
+        attribution,
+      );
+    case "byok":
+      return invalidApiKeyClassification(providerName, attribution);
+  }
+}
+
+function endpointAuthenticationRequiredClassification(
+  providerName: string,
+  attribution?: ConversationErrorAttribution,
+): Omit<ClassifiedConversationError, "debugDetails"> {
+  const provider = providerDisplayName(providerName);
+  const target = describeAttribution(attribution);
+  return {
+    code: "PROVIDER_API",
+    userMessage: `The ${provider} endpoint${target} requires authentication, but that connection is configured without credentials. Configure authentication for that endpoint in Settings → Models & Services.`,
+    retryable: false,
+    errorCategory: "provider_endpoint_auth_required",
+    ...classificationAttribution(attribution),
+  };
+}
+
+function subscriptionLoginRejectedClassification(
+  providerName: string,
+  attribution?: ConversationErrorAttribution,
+): Omit<ClassifiedConversationError, "debugDetails"> {
+  const provider = providerDisplayName(providerName);
+  const target = describeAttribution(attribution);
+  return {
+    code: "PROVIDER_API",
+    userMessage: `Your ${provider} subscription login${target} was rejected by ${provider}. Reconnect that account in Settings → Models & Services.`,
+    retryable: false,
+    errorCategory: "provider_subscription_auth",
+    ...classificationAttribution(attribution),
+  };
 }
 
 /**
@@ -625,22 +986,17 @@ function describeAttribution(
  * different recovery actions (update vs. add).
  */
 function invalidApiKeyClassification(
+  providerName: string,
   attribution?: ConversationErrorAttribution,
 ): Omit<ClassifiedConversationError, "debugDetails"> {
+  const provider = providerDisplayName(providerName);
   const target = describeAttribution(attribution);
   return {
     code: "PROVIDER_INVALID_KEY",
-    userMessage: target
-      ? `The API key${target} was rejected by the provider. Update it in Settings → Models & Services.`
-      : "Your API key was rejected by the provider. Update it in Settings → Models & Services.",
+    userMessage: `Your personal ${provider} API key${target} was rejected by ${provider}. Update that key in Settings → Models & Services.`,
     retryable: false,
     errorCategory: "provider_invalid_key",
-    ...(attribution?.connectionName
-      ? { connectionName: attribution.connectionName }
-      : {}),
-    ...(attribution?.profileName
-      ? { profileName: attribution.profileName }
-      : {}),
+    ...classificationAttribution(attribution),
   };
 }
 
@@ -671,9 +1027,15 @@ function providerNotConfiguredClassification(
   };
 }
 
+/**
+ * Last-resort regex fallback for reason-less, non-HTTP, or otherwise
+ * unclassifiable errors (network failures, streaming corruption, re-wrapped
+ * errors, ProviderErrors with no statusCode). Reached only after the reason
+ * short-circuit and the status switch both decline to classify.
+ */
 function classifyByMessage(
-  error: unknown,
   message: string,
+  isManagedRoute: boolean,
 ): Omit<ClassifiedConversationError, "debugDetails"> {
   // Empty-request-messages is always an internal construction failure — check
   // it before the provider/network patterns so a ProviderError that carries the
@@ -684,47 +1046,23 @@ function classifyByMessage(
 
   // Check context-too-large before other patterns
   if (isContextTooLarge(message)) {
-    return {
-      code: "CONTEXT_TOO_LARGE",
-      userMessage:
-        "This conversation is too long. Please start a new conversation.",
-      retryable: false,
-      errorCategory: "context_too_large",
-    };
+    return contextTooLargeClassification();
   }
 
   // Check rate limit first (before network, since 429 could match both)
   for (const pattern of RATE_LIMIT_PATTERNS) {
     if (pattern.test(message)) {
-      if (isManagedUsageLimitError(error, message)) {
-        return {
-          code: "MANAGED_USAGE_LIMIT",
-          userMessage:
-            "Vellum managed inference is rate limited. This is a Vellum-side usage limit, not an AI provider outage.",
-          retryable: true,
-          errorCategory: "managed_usage_limit",
-        };
+      if (isManagedUsageLimitError(message, isManagedRoute)) {
+        return managedUsageLimitClassification();
       }
-      return {
-        code: "PROVIDER_RATE_LIMIT",
-        userMessage:
-          "You are being rate limited by the AI provider. Please try again in a moment.",
-        retryable: true,
-        errorCategory: "rate_limit",
-      };
+      return rateLimitClassification();
     }
   }
 
   // Overloaded — provider is capacity-constrained (not the user's fault)
   for (const pattern of OVERLOADED_PATTERNS) {
     if (pattern.test(message)) {
-      return {
-        code: "PROVIDER_OVERLOADED",
-        userMessage:
-          "The AI provider is temporarily overloaded. Please try again in a moment.",
-        retryable: true,
-        errorCategory: "provider_overloaded",
-      };
+      return providerOverloadedClassification();
     }
   }
 
@@ -773,12 +1111,7 @@ function classifyByMessage(
   // Provider API errors (before timeout so "gateway timeout" keeps its specific message)
   for (const pattern of PROVIDER_API_PATTERNS) {
     if (pattern.test(message)) {
-      return {
-        code: "PROVIDER_API",
-        userMessage: "The AI provider returned a server error.",
-        retryable: true,
-        errorCategory: "provider_server_error",
-      };
+      return providerServerErrorClassification();
     }
   }
 

@@ -25,6 +25,8 @@ interface FakeRequest {
 interface FakeResponse {
   status: number;
   body?: LlmContextResponse | null;
+  /** Parsed error envelope the SDK exposes as `error` on non-2xx responses. */
+  error?: unknown;
 }
 
 const requests: FakeRequest[] = [];
@@ -59,19 +61,23 @@ mock.module("@/generated/daemon/client.gen", () => ({
           return { text: async () => "error-body" };
         },
       };
-      return { data: next.body, response };
+      return { data: next.body, error: next.error, response };
     },
   },
 }));
 
 mock.module("@/domains/chat/api/messages", () => ({
-  fetchConversationMessages: async () => ({ messages: mockMessages, seq: null }),
+  fetchConversationMessages: async () => ({
+    messages: mockMessages,
+    seq: null,
+  }),
 }));
 
 // Subject imported after mocks.
 import {
   fetchConversationLlmContext,
   fetchMessageLlmContextOrThrow,
+  isLlmRequestLogsDisabledError,
 } from "@/domains/chat/inspector/inspector-api";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
@@ -158,6 +164,37 @@ describe("fetchConversationLlmContext — happy path", () => {
     expect(caught).toBeDefined();
     expect((caught as { status: number; message: string }).status).toBe(500);
     expect((caught as { name: string }).name).toBe("LlmContextRequestError");
+  });
+
+  test("surfaces the disabled code + message from the daemon error envelope", async () => {
+    nextResponses = [
+      {
+        status: 403,
+        body: null,
+        error: {
+          error: {
+            code: "LLM_REQUEST_LOGS_DISABLED",
+            message:
+              "LLM request logging is disabled. Enable it to view request logs.",
+          },
+        },
+      },
+    ];
+
+    let caught: unknown;
+    try {
+      await fetchConversationLlmContext("asst-1", "conv-1", undefined);
+    } catch (err) {
+      caught = err;
+    }
+    expect(isLlmRequestLogsDisabledError(caught)).toBe(true);
+    expect((caught as { status: number }).status).toBe(403);
+    expect((caught as { code?: string }).code).toBe(
+      "LLM_REQUEST_LOGS_DISABLED",
+    );
+    expect((caught as { message: string }).message).toContain(
+      "LLM request logging is disabled",
+    );
   });
 });
 

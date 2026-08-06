@@ -17,8 +17,8 @@
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import { isEmbeddingDimensionAvailable } from "../../../../persistence/embeddings/embedding-backend.js";
-import { getLogger } from "../../../../util/logger.js";
 import { embedWithBackend } from "../embeddings.js";
+import { getLogger } from "../logging.js";
 import {
   getSectionDenseClient,
   SECTION_COLLECTION,
@@ -67,7 +67,9 @@ export async function denseLaneScored(
   query: string,
   k: number,
 ): Promise<DenseHitScored[]> {
-  if (k <= 0) return [];
+  if (k <= 0) {
+    return [];
+  }
 
   let points: Array<{ payload?: unknown; score?: number }>;
   try {
@@ -82,7 +84,9 @@ export async function denseLaneScored(
 
     const { vectors } = await embedWithBackend(config, [query]);
     const vector = vectors[0];
-    if (!vector || vector.length === 0) return [];
+    if (!vector || vector.length === 0) {
+      return [];
+    }
 
     const result = await getSectionDenseClient().query(SECTION_COLLECTION, {
       query: vector,
@@ -106,11 +110,17 @@ export async function denseLaneScored(
       | undefined;
     const article = payload?.article;
     const ordinal = payload?.ordinal;
-    if (typeof article !== "string" || typeof ordinal !== "number") continue;
-    if (seen.has(article)) continue;
+    if (typeof article !== "string" || typeof ordinal !== "number") {
+      continue;
+    }
+    if (seen.has(article)) {
+      continue;
+    }
     seen.add(article);
     hits.push({ article, section: ordinal, score: point.score ?? 0 });
-    if (hits.length >= k) break;
+    if (hits.length >= k) {
+      break;
+    }
   }
 
   return hits;

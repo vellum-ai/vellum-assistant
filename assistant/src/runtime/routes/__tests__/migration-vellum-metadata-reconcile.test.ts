@@ -28,6 +28,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { credentialKey } from "../../../security/credential-key.js";
+import * as actualMetadataStore from "../../../tools/credentials/metadata-store.js";
 
 type MetadataRecord = {
   credentialId: string;
@@ -80,7 +81,13 @@ mock.module("../../../security/secure-keys.js", () => ({
   _resetBackend: () => {},
 }));
 
+// Spread the real module so every export the reconcile handler's transitive
+// graph links (e.g. getCredentialMetadataById, listCredentialMetadata pulled in
+// via the plugin-api hub) stays present; only the two functions under test are
+// overridden. A partial mock replaces the whole namespace and fails to link the
+// unlisted exports.
 mock.module("../../../tools/credentials/metadata-store.js", () => ({
+  ...actualMetadataStore,
   getCredentialMetadata: (service: string, field: string) =>
     metadataStore.get(`${service}:${field}`),
   upsertCredentialMetadata: (

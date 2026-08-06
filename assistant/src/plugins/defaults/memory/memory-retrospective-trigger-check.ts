@@ -15,10 +15,15 @@
 // First-run case (no state row) skips the cooldown — `lastRunAt = 0` so the
 // gap is effectively `Infinity`. The interval threshold trips immediately;
 // the message-count threshold trips once enough messages accumulate.
+//
+// The count is kind-aware: the retrospective's own `skill-authored-card`
+// message is inserted AFTER the cursor it just persisted, so the generic
+// count would treat it as unprocessed content and re-wake a retrospective
+// over the assistant's own card. See `memory-retrospective-accounting.ts`.
 
 import type { AssistantConfig } from "../../../config/types.js";
-import { countMessagesAfter } from "../../../persistence/conversation-crud.js";
-import { getLogger } from "../../../util/logger.js";
+import { getLogger } from "./logging.js";
+import { countRetrospectiveMessagesAfter } from "./memory-retrospective-accounting.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "./memory-retrospective-enqueue.js";
 import { getRetrospectiveState } from "./memory-retrospective-state.js";
 
@@ -48,12 +53,20 @@ export function shouldEnqueueRetrospective(args: {
     minCooldownMs,
   } = args;
 
-  if (state && now - state.lastRunAt < minCooldownMs) return null;
+  if (state && now - state.lastRunAt < minCooldownMs) {
+    return null;
+  }
 
-  if (state && now - state.lastRunAt >= timeThresholdMs) return "interval";
-  if (!state) return "interval";
+  if (state && now - state.lastRunAt >= timeThresholdMs) {
+    return "interval";
+  }
+  if (!state) {
+    return "interval";
+  }
 
-  if (newMessageCount >= messageThreshold) return "message_count";
+  if (newMessageCount >= messageThreshold) {
+    return "message_count";
+  }
   return null;
 }
 
@@ -68,11 +81,13 @@ export function maybeEnqueueRetrospective(
 ): void {
   try {
     const state = getRetrospectiveState(conversationId);
-    const newMessageCount = countMessagesAfter(
+    const newMessageCount = countRetrospectiveMessagesAfter(
       conversationId,
       state?.lastProcessedMessageId ?? null,
     );
-    if (newMessageCount === 0) return;
+    if (newMessageCount === 0) {
+      return;
+    }
 
     const trigger = shouldEnqueueRetrospective({
       state,
@@ -82,7 +97,9 @@ export function maybeEnqueueRetrospective(
       messageThreshold: config.memory.retrospective.messageThreshold,
       minCooldownMs: config.memory.retrospective.minCooldownMs,
     });
-    if (!trigger) return;
+    if (!trigger) {
+      return;
+    }
 
     enqueueMemoryRetrospectiveIfEnabled({ conversationId, trigger });
   } catch (err) {

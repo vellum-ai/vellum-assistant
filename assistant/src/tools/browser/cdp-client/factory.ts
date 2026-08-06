@@ -67,7 +67,9 @@ export function recordDesktopAutoCooldown(): void {
  * window has not yet elapsed.
  */
 export function isDesktopAutoCooldownActive(cooldownMs: number): boolean {
-  if (_desktopAutoCooldownSince === 0 || cooldownMs <= 0) return false;
+  if (_desktopAutoCooldownSince === 0 || cooldownMs <= 0) {
+    return false;
+  }
   return Date.now() - _desktopAutoCooldownSince < cooldownMs;
 }
 
@@ -140,11 +142,15 @@ export function isHostBridgeCooldownActive(
   cooldownMs: number,
   sourceActorPrincipalId?: string,
 ): boolean {
-  if (cooldownMs <= 0) return false;
+  if (cooldownMs <= 0) {
+    return false;
+  }
   const since = _hostBridgeCooldownSince.get(
     hostBridgeCooldownKey(sourceActorPrincipalId),
   );
-  if (since === undefined) return false;
+  if (since === undefined) {
+    return false;
+  }
   return Date.now() - since < cooldownMs;
 }
 
@@ -280,25 +286,25 @@ export function buildPinnedCandidateList(
 
   switch (mode) {
     case "extension": {
-        const hostBrowserProxy = HostBrowserProxy.instance;
-        if (!hostBrowserProxy.hasExtensionClient(sourceActorPrincipalId)) {
-          throw new CdpError(
-            "transport_error",
-            `Pinned mode "extension" unavailable: no Chrome Extension connected`,
-            {
-              attemptDiagnostics: [
-                {
-                  candidateKind: "extension",
-                  inclusionReason: `pinned mode: extension`,
-                  stage: "candidate_selection",
-                  errorCode: "transport_error",
-                  errorMessage: "no Chrome Extension connected",
-                },
-              ],
-            },
-          );
-        }
-        return [
+      const hostBrowserProxy = HostBrowserProxy.instance;
+      if (!hostBrowserProxy.hasExtensionClient(sourceActorPrincipalId)) {
+        throw new CdpError(
+          "transport_error",
+          `Pinned mode "extension" unavailable: no Chrome Extension connected`,
+          {
+            attemptDiagnostics: [
+              {
+                candidateKind: "extension",
+                inclusionReason: `pinned mode: extension`,
+                stage: "candidate_selection",
+                errorCode: "transport_error",
+                errorMessage: "no Chrome Extension connected",
+              },
+            ],
+          },
+        );
+      }
+      return [
         {
           kind: "extension",
           reason: "pinned mode: extension",
@@ -429,7 +435,10 @@ export function buildPinnedCandidateList(
  *
  * Exported for testing.
  */
-export function buildCandidateList(context: ToolContext, targetClientId?: string): BackendCandidate[] {
+export function buildCandidateList(
+  context: ToolContext,
+  targetClientId?: string,
+): BackendCandidate[] {
   const { conversationId, sourceActorPrincipalId } = context;
   const candidates: BackendCandidate[] = [];
   const hostBrowserProxy = HostBrowserProxy.instance;
@@ -789,7 +798,9 @@ export function buildChainedClient(
     },
 
     dispose(): void {
-      if (disposed) return;
+      if (disposed) {
+        return;
+      }
       disposed = true;
       for (const m of materialisedManagers) {
         m.disposeAll();
@@ -836,7 +847,10 @@ export function buildChainedClient(
       // Fresh client: route through the failover walk so the extension
       // backend is selected automatically. The Vellum.listTabs pseudo-method
       // is handled by the extension dispatcher before chrome.debugger.sendCommand.
-      const result = await scopedClient.send<{ tabs?: TabInfo[] }>("Vellum.listTabs", {});
+      const result = await scopedClient.send<{ tabs?: TabInfo[] }>(
+        "Vellum.listTabs",
+        {},
+      );
       if (!active?.client.listTabs) {
         // Backend became sticky but isn't an extension client — not supported.
         throw new CdpError(
@@ -1312,10 +1326,14 @@ function unwrapResult<T>(
  * "ECONNREFUSED", "DISCOVERY_TIMEOUT") that is useful for diagnostics.
  */
 function extractDiscoveryCode(underlying: unknown): string | undefined {
-  if (underlying == null) return undefined;
+  if (underlying == null) {
+    return undefined;
+  }
   if (typeof underlying === "object" && "code" in underlying) {
     const code = (underlying as Record<string, unknown>).code;
-    if (typeof code === "string") return code;
+    if (typeof code === "string") {
+      return code;
+    }
   }
   if (underlying instanceof Error && "cause" in underlying) {
     return extractDiscoveryCode(underlying.cause);

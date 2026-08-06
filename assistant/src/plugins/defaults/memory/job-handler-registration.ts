@@ -20,6 +20,7 @@
  * are safe.
  */
 
+import { usesConceptPageMemory } from "../../../config/memory-v3-gate.js";
 import { buildConversationSummaryJob } from "../../../conversations/job-handlers/summarization.js";
 import { generateConversationStartersJob } from "../../../home/job-handlers/conversation-starters.js";
 import { mediaProcessingJob } from "../../../media/job-handlers/media-processing.js";
@@ -34,7 +35,6 @@ import {
   purgeConversationLexicalJob,
 } from "../../../persistence/job-handlers/message-lexical.js";
 import { backfillLexicalIndexJob } from "../../../persistence/job-handlers/message-lexical-backfill.js";
-import { conversationAnalyzeJob } from "../../../runtime/services/conversation-analyze-job.js";
 import { memoryJobHandlers } from "./job-handlers.js";
 import { registerJobHandler } from "./jobs-worker.js";
 
@@ -73,19 +73,15 @@ export function registerMemoryPluginJobHandlers(): void {
     pruneOldToolInvocationsJob(job, config),
   );
   registerJobHandler("build_conversation_summary", async (job, config) => {
-    // Stale rows enqueued before v2 was enabled must not consume the
-    // `conversationSummarization` LLM budget — v2 readers do not consume
-    // `memorySummaries`, mirroring the `graph_extract` gate in the memory
-    // plugin's job handlers.
-    if (config.memory.v2.enabled) {
+    // Stale v1 rows must not consume the `conversationSummarization` LLM
+    // budget — concept-page readers do not consume `memorySummaries`,
+    // mirroring the `graph_extract` gate in the memory plugin's job handlers.
+    if (usesConceptPageMemory(config.memory)) {
       return;
     }
     await buildConversationSummaryJob(job, config);
   });
   registerJobHandler("media_processing", (job) => mediaProcessingJob(job));
-  registerJobHandler("conversation_analyze", (job, config) =>
-    conversationAnalyzeJob(job, config),
-  );
   registerJobHandler("generate_conversation_starters", (job) =>
     generateConversationStartersJob(job),
   );

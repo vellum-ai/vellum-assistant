@@ -12,6 +12,8 @@ import type {
  * buildCliProgram() in the local environment.
  */
 const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
+  "apps",
+  "apps list",
   "attachment",
   "attachment register",
   "attachment lookup",
@@ -107,14 +109,8 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "conversations export",
   "conversations clear",
   "conversations wake",
-  "credential-execution",
-  "credential-execution grants",
-  "credential-execution grants list",
   "pending",
   "pending list",
-  "credential-execution grants revoke",
-  "credential-execution audit",
-  "credential-execution audit list",
   "credentials",
   "credentials list",
   "credentials prompt",
@@ -127,18 +123,38 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "db status",
   "db repair",
   "gateway",
+  "gateway status",
   "gateway logs",
   "gateway logs tail",
   "image-generation",
   "image-generation generate",
   "inference",
+  "inference callsites",
+  "inference callsites get",
+  "inference callsites list",
+  "inference models",
+  "inference models list",
+  "inference profiles",
+  "inference profiles active",
+  "inference profiles create",
+  "inference profiles delete",
+  "inference profiles get",
+  "inference profiles list",
+  "inference profiles update",
   "inference providers",
+  "inference providers create",
+  "inference providers delete",
+  "inference providers get",
+  "inference providers list",
+  "inference providers update",
   "inference providers connections",
   "inference providers connections create",
   "inference providers connections delete",
   "inference providers connections get",
   "inference providers connections list",
   "inference providers connections update",
+  "inference providers default",
+  "inference providers login-chatgpt",
   "inference send",
   "inference session",
   "inference session open",
@@ -157,6 +173,12 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "mcp auth",
   "mcp remove",
   "memory",
+  "memory ingest",
+  "memory nodes",
+  "memory nodes stats",
+  "memory nodes list",
+  "memory nodes delete",
+  "memory nodes update",
   "memory items",
   "memory items list",
   "memory items get",
@@ -168,12 +190,18 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "memory v2 reembed-skills",
   "memory v2 activation",
   "memory v2 validate",
+  "memory v2 ema",
+  "memory v2 simulate",
+  "memory v2 compare",
   "memory v3",
   "memory v3 rebuild-index",
   "memory v3 backfill-sections",
   "memory v3 eval",
+  "memory v3 eval-tally",
+  "memory v3 gate-stats",
   "memory retrospective",
   "memory retrospective run",
+  "memory retrospective list",
   "memory worker",
   "memory worker start",
   "memory worker stop",
@@ -204,6 +232,11 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "platform connect",
   "platform status",
   "platform credits",
+  "platform subscription",
+  "platform plans",
+  "platform invoices",
+  "platform invoices list",
+  "platform invoices get",
   "platform disconnect",
   "platform callback-routes",
   "platform callback-routes register",
@@ -261,9 +294,11 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "trust list",
   "tts",
   "tts synthesize",
+  "tts voice",
   "ui",
   "ui request",
   "ui confirm",
+  "ui snapshot",
   "usage",
   "usage totals",
   "usage daily",
@@ -432,7 +467,6 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "conversations new", risk: "low" },
   { path: "conversations rename", risk: "low" },
   { path: "conversations wake", risk: "low" },
-  { path: "credential-execution grants revoke", risk: "medium" },
   {
     path: "db repair",
     risk: "medium",
@@ -445,6 +479,93 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "email send", risk: "high" },
   { path: "image-generation generate", risk: "medium" },
   { path: "inference send", risk: "medium" },
+  {
+    path: "inference models list",
+    risk: "low",
+    reason: "Read-only listing of the code-owned model catalog",
+  },
+  {
+    path: "inference profiles list",
+    risk: "low",
+    reason: "Read-only listing of the effective inference profiles",
+  },
+  {
+    path: "inference profiles get",
+    risk: "low",
+    reason: "Read-only fetch of a single effective profile",
+  },
+  {
+    path: "inference profiles create",
+    risk: "medium",
+    reason:
+      "Writes a validated custom profile to llm.profiles; daemon rejects managed names",
+  },
+  {
+    path: "inference profiles update",
+    risk: "medium",
+    reason:
+      "Mutates a custom profile in llm.profiles; daemon rejects managed profiles",
+  },
+  {
+    path: "inference profiles delete",
+    risk: "medium",
+    reason:
+      "Deletes a custom profile from llm.profiles; daemon rejects managed profiles",
+  },
+  {
+    path: "inference profiles active",
+    risk: "medium",
+    reason:
+      "Reads or switches llm.activeProfile — the user's chat-model selection",
+  },
+  {
+    path: "inference callsites list",
+    risk: "low",
+    reason: "Read-only per-call-site resolution summary",
+  },
+  {
+    path: "inference callsites get",
+    risk: "low",
+    reason: "Read-only resolution detail for one call site",
+  },
+  {
+    path: "inference providers login-chatgpt",
+    risk: "medium",
+    reason:
+      "Runs a browser OAuth flow and writes ChatGPT subscription credentials to CES",
+  },
+  {
+    path: "inference providers default",
+    risk: "medium",
+    reason:
+      "Reads the default provider, or replaces llm.defaultProvider when a name is passed",
+  },
+  {
+    path: "inference providers list",
+    risk: "low",
+    reason: "Read-only listing of provider entries",
+  },
+  {
+    path: "inference providers get",
+    risk: "low",
+    reason: "Read-only fetch of a single provider entry",
+  },
+  {
+    path: "inference providers create",
+    risk: "medium",
+    reason: "Inserts a provider entry referenced by inference profiles",
+  },
+  {
+    path: "inference providers update",
+    risk: "medium",
+    reason: "Mutates provider auth config in place",
+  },
+  {
+    path: "inference providers delete",
+    risk: "medium",
+    reason:
+      "Deletes a provider entry; the daemon refuses while profiles still reference it",
+  },
   {
     path: "inference providers connections list",
     risk: "low",
@@ -500,6 +621,24 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "mcp auth", risk: "medium" },
   { path: "mcp remove", risk: "low" },
   {
+    path: "memory ingest",
+    risk: "medium",
+    reason:
+      "Writes concept pages directly into assistant memory, bypassing the consolidation buffer, and enqueues reindex jobs",
+  },
+  {
+    path: "memory nodes delete",
+    risk: "medium",
+    reason:
+      "Permanently deletes a memory graph node by content match and removes it from the recall index",
+  },
+  {
+    path: "memory nodes update",
+    risk: "medium",
+    reason:
+      "Rewrites a memory graph node's content by content match and re-embeds it for recall",
+  },
+  {
     path: "memory items create",
     risk: "medium",
     reason:
@@ -539,6 +678,24 @@ const riskOverrides: AssistantRiskOverride[] = [
     reason: "Read-only diagnostic walk over concept pages and edges",
   },
   {
+    path: "memory v2 ema",
+    risk: "low",
+    reason:
+      "Read-only listing of concept pages sorted by injection-frequency EMA score",
+  },
+  {
+    path: "memory v2 simulate",
+    risk: "medium",
+    reason:
+      "Invokes runRouter which calls provider.sendMessage — spends a real LLM provider call even though no local state is written",
+  },
+  {
+    path: "memory v2 compare",
+    risk: "medium",
+    reason:
+      "Re-runs the router (one LLM call) for each sampled historical turn; user-controlled --limit means many paid provider calls can be triggered",
+  },
+  {
     path: "memory v3 backfill-sections",
     risk: "medium",
     reason:
@@ -555,6 +712,18 @@ const riskOverrides: AssistantRiskOverride[] = [
     risk: "low",
     reason:
       "Invalidates the in-memory v3 section lanes so they rebuild on the next turn",
+  },
+  {
+    path: "memory v3 eval-tally",
+    risk: "medium",
+    reason:
+      "Daemon handler is read-only, but the CLI writes the tally result to a user-supplied path when --out is provided; classifying medium so file-write invocations are not auto-approved as read-only",
+  },
+  {
+    path: "memory v3 gate-stats",
+    risk: "low",
+    reason:
+      "Read-only telemetry diagnostic: queries the local SQLite telemetry outbox and prints gate pass-rate stats; no writes, no daemon required",
   },
   {
     path: "memory retrospective run",
@@ -664,8 +833,7 @@ const riskOverrides: AssistantRiskOverride[] = [
   {
     path: "schedules worker stop",
     risk: "medium",
-    reason:
-      "Disables schedules.worker.enabled and sends SIGTERM to the schedule worker process",
+    reason: "Sends SIGTERM to the schedule worker process",
   },
   {
     path: "schedules worker status",
@@ -707,6 +875,9 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "skills add", risk: "high" },
   { path: "stt transcribe", risk: "medium" },
   { path: "tts synthesize", risk: "medium" },
+  // Mutates the active provider's voice config (via config_set) — same
+  // low-risk class as `config set`.
+  { path: "tts voice", risk: "low" },
   { path: "watchers create", risk: "medium" },
   { path: "watchers update", risk: "medium" },
   { path: "watchers delete", risk: "medium" },

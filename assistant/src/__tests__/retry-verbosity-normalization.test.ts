@@ -5,20 +5,8 @@
  * the unknown field on the wire.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ llm: mockLlmConfig }),
-}));
-
-import { LLMSchema } from "../config/schemas/llm.js";
 import { RetryProvider } from "../providers/retry.js";
 import type {
   Message,
@@ -26,13 +14,14 @@ import type {
   ProviderResponse,
   SendMessageOptions,
 } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
 function setLlmConfig(raw: unknown): void {
-  mockLlmConfig = LLMSchema.parse(raw) as Record<string, unknown>;
+  setConfig("llm", raw);
 }
 
 beforeEach(() => {
-  mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
+  setLlmConfig({});
 });
 
 function makePipeline(providerName: string): {
@@ -69,10 +58,12 @@ const userMessage: Message = {
 describe("retry normalization for verbosity", () => {
   test("forwards verbosity on the outbound config for openai", async () => {
     setLlmConfig({
-      default: {
-        provider: "openai",
-        model: "gpt-5.5",
-        verbosity: "high",
+      callSites: {
+        mainAgent: {
+          provider: "openai",
+          model: "gpt-5.5",
+          verbosity: "high",
+        },
       },
     });
     const { provider, lastConfig } = makePipeline("openai");
@@ -98,13 +89,17 @@ describe("retry normalization for verbosity", () => {
     expect(lastConfig()?.verbosity).toBe(undefined);
   });
 
-  test("call-site override replaces default verbosity", async () => {
+  test("call-site override replaces the winning profile's verbosity", async () => {
     setLlmConfig({
-      default: {
-        provider: "openai",
-        model: "gpt-5.5",
-        verbosity: "low",
+      profiles: {
+        "openai-profile": {
+          source: "user",
+          provider: "openai",
+          model: "gpt-5.5",
+          verbosity: "low",
+        },
       },
+      activeProfile: "openai-profile",
       callSites: {
         mainAgent: { verbosity: "high" },
       },
@@ -118,11 +113,15 @@ describe("retry normalization for verbosity", () => {
 
   test("per-call explicit verbosity overrides resolved call-site value", async () => {
     setLlmConfig({
-      default: {
-        provider: "openai",
-        model: "gpt-5.5",
-        verbosity: "low",
+      profiles: {
+        "openai-profile": {
+          source: "user",
+          provider: "openai",
+          model: "gpt-5.5",
+          verbosity: "low",
+        },
       },
+      activeProfile: "openai-profile",
       callSites: {
         mainAgent: { verbosity: "medium" },
       },
