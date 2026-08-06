@@ -586,9 +586,67 @@ describe("emitAssistantReplyNotification", () => {
       );
     });
 
-    test("stays silent when a media-only reply has no attachments either", async () => {
+    // Remote embeds are as valid as `vellum://` ones per the system prompt, but
+    // they register nothing in the attachment store, so the alt text is the
+    // only thing left to name them by. Going silent here would be worse than
+    // the raw markdown this change removes.
+    test("names a remote embed by its alt text", async () => {
       assistantRow = makeAssistantRow([
-        { type: "text", text: "![orphan](vellum://workspace/gone.png)" },
+        {
+          type: "text",
+          text: "![the Q3 chart](https://cdn.example.com/q3.png)",
+        },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent the Q3 chart",
+      );
+    });
+
+    test("counts several remote embeds", async () => {
+      assistantRow = makeAssistantRow([
+        {
+          type: "text",
+          text: "![one](https://e.com/1.png) ![two](https://e.com/2.png)",
+        },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent 2 attachments",
+      );
+    });
+
+    test("falls back to generic copy for a remote embed with no alt", async () => {
+      assistantRow = makeAssistantRow([
+        { type: "text", text: "![](https://cdn.example.com/q3.png)" },
+      ] as ContentBlock[]);
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent an attachment",
+      );
+    });
+
+    test("prefers the attachment row over the alt text when both exist", async () => {
+      assistantRow = makeAssistantRow([
+        { type: "text", text: "![scene](vellum://workspace/cut.mp4)" },
+      ] as ContentBlock[]);
+      assistantAttachments = [{ originalFilename: "cut.mp4" }];
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe("Sent cut.mp4");
+    });
+
+    test("stays silent when a reply has no text, attachments, or embeds", async () => {
+      assistantRow = makeAssistantRow([
+        { type: "text", text: "## \n\n---" },
       ] as ContentBlock[]);
 
       await run();
