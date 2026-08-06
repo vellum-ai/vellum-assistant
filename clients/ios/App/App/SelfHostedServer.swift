@@ -71,6 +71,11 @@ enum SelfHostedServer {
         components.password = nil
         components.query = nil
         components.fragment = nil
+        // The web's URL.origin collapses the scheme default port; match it
+        // (validate only admits https).
+        if components.port == 443 {
+            components.port = nil
+        }
         // Trim through the percent-encoded path so escaped separators
         // (e.g. %2F) survive the round-trip instead of being decoded.
         while components.percentEncodedPath.hasSuffix("/") {
