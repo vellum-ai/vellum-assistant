@@ -1,7 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Input, Textarea } from "@vellumai/design-library/components/input";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -250,7 +250,7 @@ export function ProfileEditorFields({
         >
           Provider
         </label>
-        <Dropdown
+        <Select
           value={
             editor.creatingProvider
               ? (editor.pendingCreateProvider ?? CREATE_NEW_PROVIDER_SENTINEL)

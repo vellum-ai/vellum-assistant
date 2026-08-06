@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -479,15 +478,16 @@ export function ProfileEditorProviderSection({
             </Button>
           </>
         ) : (
-          <Dropdown
+          <Select
             value={model}
             onChange={handleModelSelection}
             disabled={isReadOnly || !provider}
+            aria-label="Model"
+            // Radix reserves the empty string, and the leading row this used
+            // to fake is what `placeholder` is for: an unset field, not a
+            // choosable option.
+            placeholder={modelEmptyStateCopy?.placeholder ?? "Select a model"}
             options={[
-              {
-                value: "",
-                label: modelEmptyStateCopy?.placeholder ?? "Select a model",
-              },
               ...modelOptions.map((m) => ({
                 value: m.id,
                 label: m.displayName,

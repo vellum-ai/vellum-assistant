@@ -212,6 +212,32 @@ describe("getSkillHistory", () => {
     expect(history.skillId).toBe("never-committed");
   });
 
+  test("a repository-controlled textconv driver is never executed", async () => {
+    // `.gitattributes` selects a diff driver and git config names the program
+    // for it. Both are writable through ordinary workspace paths, so rendering
+    // a patch must not hand control to them (ATL-1238).
+    write("skills/alpha/SKILL.md", "# Alpha\n");
+    write(".gitattributes", "*.md diff=evil\n");
+    commit("initial");
+    write("skills/alpha/SKILL.md", "# Alpha\n\nEdited.\n");
+    commit("auto-commit: heartbeat safety net (1 file)");
+
+    const sentinel = join(repoDir, "textconv-executed");
+    git("config", "diff.evil.textconv", `sh -c "touch ${sentinel}; cat"`);
+
+    const history = await getSkillHistory("alpha");
+
+    // The driver stays unrun...
+    expect(existsSync(sentinel)).toBe(false);
+    // ...and the diff still renders, so the hardening did not cost the feature.
+    expect(history.revisions[0]!.diff).toContain("Edited.");
+  });
+
+  // `--no-ext-diff` guards the sibling vector, `diff.<driver>.command`, but has
+  // no test here: an external diff driver does not fire in this environment
+  // even without the flag, so an assertion about it would pass whether or not
+  // the guard were present.
+
   test("a traversal-shaped id is rejected before it reaches a pathspec", async () => {
     write("skills/alpha/SKILL.md", "# Alpha\n");
     commit("initial");

@@ -75,10 +75,15 @@ let configPatchBodies: unknown[] = [];
 let servedConfig: unknown = CONFIG;
 // Same deal for the call-site catalog.
 let servedCatalog: unknown = CATALOG;
+// Counts catalog fetches so a test can prove a write refetched the winners.
+let catalogFetches = 0;
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
-  configLlmCallsitesGet: mock(async () => ({ data: servedCatalog })),
+  configLlmCallsitesGet: mock(async () => {
+    catalogFetches += 1;
+    return { data: servedCatalog };
+  }),
   configGet: mock(async () => ({ data: servedConfig })),
   configPatch: async (options?: { body?: unknown }) => {
     configPatchBodies.push(options?.body);
@@ -86,8 +91,9 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { OverridesDetailPanel } =
-  await import("@/domains/settings/ai/overrides-detail-panel");
+const { OverridesDetailPanel } = await import(
+  "@/domains/settings/ai/overrides-detail-panel"
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -129,6 +135,7 @@ function pickOption(trigger: HTMLElement, optionLabel: string): void {
 
 beforeEach(() => {
   configPatchBodies = [];
+  catalogFetches = 0;
   servedConfig = CONFIG;
   servedCatalog = CATALOG;
 });
@@ -295,6 +302,29 @@ describe("OverridesDetailPanel - tuning-only entries (LUM-2949)", () => {
     expect(body.llm.callSites.workflowLeaf).toBeTruthy();
   });
 
+  // The catalog reports each call site's winning profile, and it is cached
+  // with a 60s staleTime. A save changes those winners, so without an
+  // explicit invalidation the panel keeps showing the pre-save winner for a
+  // full minute — and the bulk swap, which treats the winner as
+  // authoritative, would act on it.
+  test("saving refetches the call-site winners", async () => {
+    renderWith(CONFIG);
+    await waitFor(() => {
+      expect(renderedText()).toContain("Workflow Leaf");
+    });
+    const before = catalogFetches;
+
+    fireEvent.click(toggleFor("Workflow Leaf"));
+    fireEvent.click(getButton("Save"));
+
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    await waitFor(() => {
+      expect(catalogFetches).toBeGreaterThan(before);
+    });
+  });
+
   test("switching a row off still sends null so the entry is deleted", async () => {
     const ACTIVE_CONFIG = {
       ...CONFIG,
@@ -370,5 +400,146 @@ describe("OverridesDetailPanel - default caption", () => {
     fireEvent.click(toggle);
     expect(renderedText()).toContain("Default: Quality");
     expect(renderedText()).not.toContain("Default: My BYOK");
+  });
+});
+
+describe("OverridesDetailPanel - bulk change", () => {
+  function renderWith(config: unknown, catalog: unknown = CATALOG) {
+    servedConfig = config;
+    servedCatalog = catalog;
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0 } },
+    });
+    client.setQueryData([{ _id: "configLlmCallsitesGet" }], catalog);
+    client.setQueryData([{ _id: "configGet" }], config);
+    return render(
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(OverridesDetailPanel, {
+          assistantId: "asst-1",
+          onClose: () => {},
+        }),
+      ),
+    );
+  }
+
+  const OVERRIDDEN_CONFIG = {
+    ...CONFIG,
+    llm: {
+      ...CONFIG.llm,
+      callSites: { workflowLeaf: { profile: "quality" } },
+    },
+  };
+
+  // A live pin shows up as the call site's winning profile, so the catalog
+  // has to report it. The base fixture reports no winner anywhere, which is
+  // the shape of a pin the resolver could not use.
+  const PINNED_CATALOG = {
+    ...CATALOG,
+    callSites: CATALOG.callSites.map((cs) =>
+      cs.id === "workflowLeaf" ? { ...cs, defaultProfile: "quality" } : cs,
+    ),
+  };
+
+  test("disabled when no action carries a profile", async () => {
+    // The fixture catalog has no default profiles, and a provider/model
+    // pin renders as "Custom" and references no profile, so nothing is
+    // swappable.
+    const CUSTOM_ONLY_CONFIG = {
+      ...CONFIG,
+      llm: {
+        ...CONFIG.llm,
+        callSites: {
+          workflowLeaf: { provider: "anthropic", model: "claude-fable-5" },
+        },
+      },
+    };
+    renderWith(CUSTOM_ONLY_CONFIG);
+    await waitFor(() => {
+      expect(renderedText()).toContain("Workflow Leaf");
+    });
+    expect(getButton("Bulk change").disabled).toBe(true);
+  });
+
+  test("enabled by default profiles alone, listing them in the modal", async () => {
+    // No overrides at all: actions still run on their default profiles,
+    // and those count as "currently using" for the bulk swap.
+    const DEFAULTED_CATALOG = {
+      domains: [{ id: "agentLoop", displayName: "Agent Loop" }],
+      callSites: [
+        {
+          id: "workflowLeaf",
+          displayName: "Workflow Leaf",
+          description: "Runs an ephemeral leaf agent.",
+          domain: "agentLoop",
+          defaultProfile: "quality",
+        },
+        {
+          id: "heartbeatAgent",
+          displayName: "Heartbeat Agent",
+          description: "Runs background tasks on a schedule.",
+          domain: "agentLoop",
+          defaultProfile: "quality",
+        },
+      ],
+    };
+    renderWith(CONFIG, DEFAULTED_CATALOG);
+    await waitFor(() => {
+      expect(renderedText()).toContain("Workflow Leaf");
+    });
+
+    const button = getButton("Bulk change");
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      expect(renderedText()).toContain("Change Action Overrides");
+    });
+    expect(renderedText()).toContain("2 actions currently use Quality");
+  });
+
+  test("a pin the resolver skipped leaves nothing to swap", async () => {
+    // The catalog reports no winner for the pinned site, so the action is
+    // not running on the pinned profile and must not be offered as if it
+    // were. The only other entries are Custom pins, so nothing is eligible.
+    renderWith(OVERRIDDEN_CONFIG);
+    await waitFor(() => {
+      expect(renderedText()).toContain("Workflow Leaf");
+    });
+    expect(getButton("Bulk change").disabled).toBe(true);
+  });
+
+  test("opens the swap modal seeded with the overridden profile", async () => {
+    renderWith(OVERRIDDEN_CONFIG, PINNED_CATALOG);
+    await waitFor(() => {
+      expect(renderedText()).toContain("Workflow Leaf");
+    });
+
+    const button = getButton("Bulk change");
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      expect(renderedText()).toContain("Change Action Overrides");
+    });
+    expect(renderedText()).toContain("1 action currently uses Quality");
+  });
+
+  test("disabled while the editor holds unsaved drafts", async () => {
+    renderWith(OVERRIDDEN_CONFIG, PINNED_CATALOG);
+    await waitFor(() => {
+      expect(renderedText()).toContain("Advisor");
+    });
+
+    const advisorTrigger = Array.from(
+      document.querySelectorAll<HTMLElement>('button[role="combobox"]'),
+    ).find((t) => t.textContent?.includes("Quality"));
+    if (!advisorTrigger) {
+      throw new Error("expected the advisor dropdown trigger");
+    }
+    pickOption(advisorTrigger, "My BYOK");
+
+    expect(getButton("Bulk change").disabled).toBe(true);
   });
 });

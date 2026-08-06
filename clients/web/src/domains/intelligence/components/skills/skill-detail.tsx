@@ -27,7 +27,10 @@ import {
 } from "@/domains/intelligence/skills/types";
 import { useWorkspaceWritePostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useSkillDetailFiles } from "@/hooks/use-skill-detail-files";
-import { useSkillHistory } from "@/hooks/use-skill-history";
+import {
+  shouldShowHistoryTab,
+  useSkillHistory,
+} from "@/hooks/use-skill-history";
 import { captureError } from "@/lib/sentry/capture-error";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
 import { invalidateSkillsList, isRemovableSkill } from "@/utils/skills";
@@ -72,19 +75,23 @@ export function SkillDetail({
     isContentLoading,
   } = useSkillDetailFiles(assistantId, skill.id);
 
-  // An assistant without the history route reports `isUnsupported`, which
-  // hides the tab strip entirely so the page renders exactly as it did before
-  // revisions existed. Shares a query key with the panel, so this is one
-  // request, not two.
-  const { isUnsupported: isHistoryUnsupported } = useSkillHistory(
-    assistantId,
-    skill.id,
-  );
+  // Shares a query key with the panel below, so this is one request, not two.
+  const {
+    revisions,
+    isLoading: isHistoryLoading,
+    isError: isHistoryError,
+  } = useSkillHistory(assistantId, skill.id);
+
+  const showHistory = shouldShowHistoryTab({
+    isLoading: isHistoryLoading,
+    isError: isHistoryError,
+    revisionCount: revisions.length,
+  });
 
   const [selectedTab, setSelectedTab] = useState("files");
-  // Falling back to Files when history turns out to be unsupported keeps the
-  // page coherent if the query answers after a tab was already chosen.
-  const activeTab = isHistoryUnsupported ? "files" : selectedTab;
+  // Pin to Files whenever the strip is hidden, so the page never rests on an
+  // unrendered panel.
+  const activeTab = showHistory ? selectedTab : "files";
 
   const header = (
     <div className="mb-4 flex items-start gap-3">
@@ -269,7 +276,7 @@ export function SkillDetail({
         onValueChange={setSelectedTab}
         className="flex min-h-0 flex-1 flex-col"
       >
-        {!isHistoryUnsupported && (
+        {showHistory && (
           <Tabs.List className="mb-3">
             <Tabs.Trigger value="files">Files</Tabs.Trigger>
             <Tabs.Trigger value="history">History</Tabs.Trigger>
@@ -283,7 +290,7 @@ export function SkillDetail({
         >
           {filesCard}
         </Tabs.Panel>
-        {!isHistoryUnsupported && (
+        {showHistory && (
           <Tabs.Panel value="history" className="flex min-h-0 flex-1 flex-col">
             <Card.Root asChild noPadding>
               <div className="min-h-0 flex-1 overflow-y-auto">

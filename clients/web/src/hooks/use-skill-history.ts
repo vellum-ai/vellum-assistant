@@ -3,16 +3,18 @@
  *
  * Deliberately not version-gated. This is a read whose only fallback is "the
  * feature is absent", which is exactly what an assistant without the route
- * produces: `fetchSkillHistory` maps its 404 to `null`, the History tab hides,
- * and the detail page renders the way it did before revisions existed. That is
- * the documented exemption in BACKWARDS_COMPAT.md ("When a gate is
- * unnecessary"), and it lets same-source self-hosted setups (which report the
- * last released version while running unreleased code) get the tab without a
- * debug override.
+ * produces: `fetchSkillHistory` maps its 404 to `null` and the detail page
+ * renders just the files card. That is the documented exemption in
+ * BACKWARDS_COMPAT.md ("When a gate is unnecessary"), and it lets same-source
+ * self-hosted setups (which report the last released version while running
+ * unreleased code) get the tab without a debug override.
  *
- * `null` and an empty `revisions` array mean different things and must stay
- * distinct: `null` is "this assistant cannot report history", while `[]` is
- * "history is available and this skill has no recorded edits".
+ * `null` (this assistant cannot report history) and `[]` (it can, and this
+ * skill has no recorded edits) stay distinct in the fetch, because the 404
+ * mapping is what makes the missing route degrade quietly. Callers are free to
+ * treat them the same: the detail page shows the History tab only when there
+ * are revisions to show, which both cases fail for the same reason from a
+ * reader's point of view.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -56,6 +58,29 @@ export async function fetchSkillHistory(
   return data ?? null;
 }
 
+/**
+ * Whether the skill detail page should offer its History tab.
+ *
+ * A tab is a promise that there is something behind it, so an empty result
+ * hides the strip entirely rather than opening onto an empty state. A FAILED
+ * read is not empty: collapsing it into the same case would make a transient
+ * failure indistinguishable from a skill that has never been edited, leaving
+ * the reader no signal and no way to retry short of reloading.
+ *
+ * Pure and exported so the distinction between "nothing to show" and "could
+ * not find out" is pinned by a test rather than by reading the JSX.
+ */
+export function shouldShowHistoryTab(state: {
+  isLoading: boolean;
+  isError: boolean;
+  revisionCount: number;
+}): boolean {
+  if (state.isLoading) {
+    return false;
+  }
+  return state.isError || state.revisionCount > 0;
+}
+
 export function useSkillHistory(assistantId: string | null, skillId: string) {
   const enabled = Boolean(assistantId && skillId);
 
@@ -76,8 +101,6 @@ export function useSkillHistory(assistantId: string | null, skillId: string) {
     history: query.data ?? null,
     revisions: query.data?.revisions ?? [],
     truncatedByCompaction: query.data?.truncatedByCompaction ?? false,
-    /** The connected assistant cannot report history, so hide the surface. */
-    isUnsupported: query.isSuccess && query.data === null,
     isLoading: query.isLoading,
     isError: query.isError,
   };

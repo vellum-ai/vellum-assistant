@@ -1,22 +1,22 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 import { KeyboardResize, KeyboardStyle } from "@capacitor/keyboard";
+// The `/seeds` subpath (not the package index) is deliberate: Capacitor's
+// node-based TS config loader transpiles one file at a time and cannot
+// resolve the index's `.js`-suffixed runtime re-exports, while the seeds
+// module is self-contained (type-only imports) and loads cleanly.
+import { cloudAssistantHubUrl } from "@vellumai/environments/seeds";
 
 // `server.url` is baked into native Capacitor config by `cap sync`, so
 // whatever URL resolves here at sync time is what the archived mobile build
 // ships with. Defaults to dev; set `VELLUM_ENVIRONMENT=production` before
 // syncing a production mobile build.
 //
-// The `/assistant` suffix is deliberate — booting on the bare host lands
-// on the marketing page, whose CTA redirects to `www.vellum.ai/assistant`
-// and bounces non-prod shells off their own host.
+// The environment-to-hub mapping (including the deliberate `/assistant`
+// suffix) is shared with the CLI's remote-web edge via
+// `@vellumai/environments`; see `cloudAssistantHubUrl` for the rationale.
 const env = process.env.VELLUM_ENVIRONMENT ?? "dev";
 
-const ENV_SERVER_URL =
-  env === "production"
-    ? "https://www.vellum.ai/assistant"
-    : env === "staging"
-      ? "https://staging-assistant.vellum.ai/assistant"
-      : "https://dev-assistant.vellum.ai/assistant";
+const ENV_SERVER_URL = cloudAssistantHubUrl(env);
 
 // `VELLUM_SERVER_URL` points the shell at a self-hosted assistant's own HTTPS
 // origin, taking precedence over the environment-derived Vellum Cloud URL. It

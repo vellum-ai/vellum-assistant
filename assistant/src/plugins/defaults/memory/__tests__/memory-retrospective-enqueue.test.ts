@@ -12,6 +12,8 @@ const upsertCalls: Array<{
   runAfter: number;
 }> = [];
 let cfgRequireUserActivity = true;
+let cfgRetrospectiveEnabled = true;
+let cfgThrows = false;
 let mockStateRow: {
   conversationId: string;
   lastProcessedMessageId: string;
@@ -44,9 +46,19 @@ mock.module("../../../../persistence/jobs-store.js", () => ({
 }));
 
 mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => ({
-    memory: { retrospective: { requireUserActivity: cfgRequireUserActivity } },
-  }),
+  getConfig: () => {
+    if (cfgThrows) {
+      throw new Error("config unavailable");
+    }
+    return {
+      memory: {
+        retrospective: {
+          enabled: cfgRetrospectiveEnabled,
+          requireUserActivity: cfgRequireUserActivity,
+        },
+      },
+    };
+  },
 }));
 
 mock.module("../memory-retrospective-state.js", () => ({
@@ -79,6 +91,8 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     convSource = "user";
     upsertCalls.length = 0;
     cfgRequireUserActivity = true;
+    cfgRetrospectiveEnabled = true;
+    cfgThrows = false;
     mockStateRow = null;
     tailQualifies = true;
     gateProbeThrows = false;
@@ -99,6 +113,37 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     expect(call.payload).toEqual({ conversationId: "c1" });
     expect(call.runAfter).toBeGreaterThanOrEqual(before);
     expect(call.runAfter).toBeLessThanOrEqual(after);
+  });
+
+  test("enabled=false declines every trigger before any other gate", () => {
+    cfgRetrospectiveEnabled = false;
+
+    for (const trigger of [
+      "interval",
+      "message_count",
+      "compaction",
+      "sweep",
+    ] as const) {
+      expect(
+        enqueueMemoryRetrospectiveIfEnabled({ conversationId: "c1", trigger }),
+      ).toBe(false);
+    }
+
+    expect(upsertCalls).toHaveLength(0);
+    // The kill switch short-circuits ahead of the user-activity probe, so a
+    // disabled retrospective costs no per-conversation message scan.
+    expect(gateProbeCalls).toHaveLength(0);
+  });
+
+  test("unreadable config: the kill switch fails closed", () => {
+    cfgThrows = true;
+    const result = enqueueMemoryRetrospectiveIfEnabled({
+      conversationId: "c1",
+      trigger: "interval",
+    });
+
+    expect(result).toBe(false);
+    expect(upsertCalls).toHaveLength(0);
   });
 
   test("assistant-only tail — user-activity gate skips the enqueue", () => {

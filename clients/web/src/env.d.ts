@@ -79,6 +79,10 @@ interface Window {
     disablePlatform?: boolean;
     mode?: string;
     platformUrl?: string;
+    /** Serving assistant's display name (remote-web ingress configs only). */
+    assistantName?: string;
+    /** Cloud web SPA base for this build's environment (remote-web ingress configs only). */
+    hubUrl?: string;
   };
   /**
    * SDK-defined override for the session-replay recorder script URL. Set before

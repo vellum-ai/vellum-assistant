@@ -36,9 +36,9 @@ import {
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
-import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useConnectivityState } from "@/hooks/use-connectivity-state";
 import { useNetworkStatus } from "@/hooks/use-network-status";
+import { useResumeGrace } from "@/hooks/use-resume-grace";
 import { isCliWakeableAssistant } from "@/lib/local-mode";
 import { captureError } from "@/lib/sentry/capture-error";
 import { isElectron } from "@/runtime/is-electron";
@@ -64,25 +64,6 @@ interface BannerConfig {
 }
 
 const LOCAL_WAKE_SETTLING_MS = 60_000;
-
-// Window after an `app.resume` (tab foreground, network back) during which a
-// transient `unreachable` reading or status-query error is treated as a
-// still-waking assistant rather than a hard failure. On resume from
-// background the first status probe frequently reads `unreachable` (pod
-// idle-slept, or the probe raced the pod waking) before settling to
-// `active`, and the background poll timers were throttled so the
-// `wasRecentlyActive` / `wasRecentlySleeping` suppression never observed the
-// preceding reading. Matches the `wasRecentlyActive` clear window.
-let resumeGraceMs = 15_000;
-
-/**
- * Override the resume grace window. Test-only seam so specs can exercise the
- * auto-clear without real-time waits; never call from production code.
- * @internal
- */
-export function __setResumeGraceMsForTesting(ms: number): void {
-  resumeGraceMs = ms;
-}
 
 export type StatusBannerPlacement = "web" | "electron";
 
@@ -405,9 +386,24 @@ function operationalStatusBannerConfig(
 
 function localHealthBannerConfig(
   health: LocalAssistantHealth | null,
+  isPaired: boolean,
   wakeAction?: ReactNode,
   wakeError?: ReactNode,
 ): BannerConfig | null {
+  // A paired entry is reached over a tunnel to a remote host, so a failed
+  // health probe only proves the link is down; there is no meaningful
+  // sleeping/unreachable distinction, and Wake can't help from here. Wake is
+  // never offered for paired entries, so any wakeError belongs to a
+  // previously-viewed local assistant and must not color this banner.
+  if (isPaired && (health === "sleeping" || health === "unreachable")) {
+    return {
+      tone: "neutral",
+      title: "Your assistant can't be reached",
+      icon: <CloudOff className="h-4 w-4" aria-hidden="true" />,
+      children:
+        "The connection to the paired assistant's host is down. Check the host machine and its tunnel.",
+    };
+  }
   switch (health) {
     case "sleeping":
       return {
@@ -550,6 +546,16 @@ function useAssistantBannerConfig(): BannerConfig | null {
     operationalStatusAssistantId ??
     activeAssistantId ??
     selectedOperationalStatusAssistantId;
+  // Paired entries (`cloud: "paired"`) are reached over a tunnel to a remote
+  // host; their local-health banners get link-down copy and no wake action.
+  const isPairedActiveAssistant = useMemo(
+    () =>
+      assistants.some(
+        (assistant) =>
+          assistant.id === activeAssistantId && assistant.isPaired === true,
+      ),
+    [assistants, activeAssistantId],
+  );
   const showDoctorAction =
     assistantState.kind === "active" &&
     !assistantState.isLocal &&
@@ -625,32 +631,8 @@ function useAssistantBannerConfig(): BannerConfig | null {
   // client. On resume the first status probe often reads `unreachable`
   // before settling, and because background poll timers were throttled the
   // `wasRecentlyActive` / `wasRecentlySleeping` suppression never observed
-  // the preceding reading. Arm a short grace window on every `app.resume`
-  // so a transient `unreachable` reads as "waking" instead of an error.
-  const [resumeGraceUntil, setResumeGraceUntil] = useState<number | null>(
-    null,
-  );
-  useBusSubscription("app.resume", () => {
-    setResumeGraceUntil(Date.now() + resumeGraceMs);
-  });
-  // Auto-clear when the window elapses so a genuinely unreachable assistant
-  // still surfaces the real error + Doctor action. Keyed on the deadline so a
-  // later resume re-arms the timer instead of being collapsed into the first.
-  useEffect(() => {
-    if (resumeGraceUntil === null) {
-      return;
-    }
-    const remaining = resumeGraceUntil - Date.now();
-    if (remaining <= 0) {
-      setResumeGraceUntil(null);
-      return;
-    }
-    const timeout = setTimeout(() => {
-      setResumeGraceUntil(null);
-    }, remaining);
-    return () => clearTimeout(timeout);
-  }, [resumeGraceUntil]);
-  const isResumeGraceActive = resumeGraceUntil !== null;
+  // the preceding reading.
+  const isResumeGraceActive = useResumeGrace();
 
   // Suppress the brief "crash_loop" flash during a restart. The pod bounce
   // bumps the container restart counter, which the platform can briefly
@@ -846,8 +828,13 @@ function useAssistantBannerConfig(): BannerConfig | null {
 
   // A local / self-hosted assistant can surface where local-mode operations
   // aren't available (managed web, remote-web tunnel). There's no transport to
-  // wake it from here, so the banner is informative and action-free.
-  if (!isLocalModeHostAvailable() && canWakeLocalHealth(localHealth)) {
+  // wake it from here, so the banner is informative and action-free. Paired
+  // entries fall through to their own "can't be reached" banner instead.
+  if (
+    !isPairedActiveAssistant &&
+    !isLocalModeHostAvailable() &&
+    canWakeLocalHealth(localHealth)
+  ) {
     return {
       tone: "neutral",
       title: "Your assistant runs locally",
@@ -857,14 +844,19 @@ function useAssistantBannerConfig(): BannerConfig | null {
     };
   }
 
+  // Wake state is not keyed by assistant, so an in-flight wake started for a
+  // local assistant must not rewrite a paired entry's health to "starting".
   const effectiveLocalHealth =
     (isWakingLocalAssistant || isLocalWakeSettling) &&
+    !isPairedActiveAssistant &&
     canWakeLocalHealth(localHealth)
       ? "starting"
       : localHealth;
   // Only offer "Wake up" when the CLI can actually start this assistant —
-  // `vellum wake` works on plain local entries, not Docker/apple-container.
+  // `vellum wake` works on plain local entries, not Docker/apple-container,
+  // and never a paired entry (the remote host isn't ours to start).
   const localWakeAction =
+    !isPairedActiveAssistant &&
     canWakeLocalHealth(effectiveLocalHealth) &&
     !!activeAssistantId &&
     isCliWakeableAssistant(activeAssistantId) ? (
@@ -886,6 +878,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
     ) : undefined;
   const localHealthBanner = localHealthBannerConfig(
     effectiveLocalHealth,
+    isPairedActiveAssistant,
     localWakeAction,
     wakeLocalAssistantError,
   );
