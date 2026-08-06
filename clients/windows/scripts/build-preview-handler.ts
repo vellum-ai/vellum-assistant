@@ -128,17 +128,10 @@ async function main() {
   for (const architecture of resolveArchitectures(argValue("--arch"))) {
     const platform = architecture === "arm64" ? "ARM64" : "x64";
     const project = join(handlerRoot, "Vellum.PreviewHandler.vcxproj");
-    await run([
-      msbuild, project, "/p:Configuration=Release", `/p:Platform=${platform}`, "/m",
-    ]);
-    await run([
-      msbuild, project, "/p:Configuration=Tests", `/p:Platform=${platform}`, "/m",
-    ]);
+    await run([msbuild, project, "/p:Configuration=Release", `/p:Platform=${platform}`, "/m"]);
+    await run([msbuild, project, "/p:Configuration=Tests", `/p:Platform=${platform}`, "/m"]);
     const output = join(handlerRoot, "build", platform, "Release");
-    await writeFile(
-      join(output, "registration.json"),
-      `${JSON.stringify(registrationMetadata(architecture), null, 2)}\n`,
-    );
+    await writeFile(join(output, "registration.json"), `${JSON.stringify(registrationMetadata(architecture), null, 2)}\n`);
     if (architecture === (process.arch === "arm64" ? "arm64" : "x64")) {
       await run([
         join(handlerRoot, "build", platform, "Tests", "BundleReaderTests.exe"),

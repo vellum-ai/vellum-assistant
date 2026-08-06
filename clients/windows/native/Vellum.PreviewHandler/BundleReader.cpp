@@ -10,7 +10,7 @@ namespace {
 constexpr std::size_t kMaxBundle = 25 * 1024 * 1024;
 constexpr std::size_t kMaxManifest = 64 * 1024;
 constexpr std::size_t kMaxIcon = 1024 * 1024;
-constexpr std::size_t kMaxEntries = 50;
+constexpr std::size_t kMaxFiles = 50;
 std::uint16_t U16(const std::uint8_t* p) { return p[0] | (p[1] << 8); }
 std::uint32_t U32(const std::uint8_t* p) {
   return static_cast<std::uint32_t>(p[0]) |
@@ -147,7 +147,7 @@ BundleResult ReadBundleImpl(const std::uint8_t* data, std::size_t size) {
   const std::size_t count = U16(data + eocd + 10);
   const std::size_t directorySize = U32(data + eocd + 12);
   const std::size_t directoryOffset = U32(data + eocd + 16);
-  if (count == 0 || count > kMaxEntries || directoryOffset > eocd ||
+  if (count == 0 || directoryOffset > eocd ||
       directorySize > eocd - directoryOffset) {
     return Fail(BundleError::BoundsExceeded);
   }
@@ -156,6 +156,7 @@ BundleResult ReadBundleImpl(const std::uint8_t* data, std::size_t size) {
   bool hasManifest = false;
   bool hasIcon = false;
   std::uint64_t expanded = 0;
+  std::size_t fileCount = 0;
   std::size_t cursor = directoryOffset;
   std::vector<std::string> names;
   names.reserve(count);
@@ -176,6 +177,10 @@ BundleResult ReadBundleImpl(const std::uint8_t* data, std::size_t size) {
                 U32(data + cursor + 24), U32(data + cursor + 42)};
     if (!SafePath(entry.name)) {
       return Fail(BundleError::Traversal);
+    }
+    if (entry.name.back() != '/' && entry.name.back() != '\\' &&
+        ++fileCount > kMaxFiles) {
+      return Fail(BundleError::BoundsExceeded);
     }
     if (U16(data + cursor + 34) != 0 || (entry.flags & 0x2021) != 0 ||
         (entry.method != 0 && entry.method != 8)) {
