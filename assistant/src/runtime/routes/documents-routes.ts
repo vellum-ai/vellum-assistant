@@ -16,12 +16,17 @@ import {
   getDocumentById,
   getDocumentByWorkspacePath,
   getDocumentsForConversation,
+  isDocumentAssociatedWithConversation,
   refreshDocumentContentFromFile,
   saveDocument,
 } from "../../documents/document-store.js";
 import { rawAll } from "../../persistence/raw-query.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import {
+  getOriginClientId,
+  publishDocumentsChanged,
+} from "../sync/resource-sync-events.js";
 import { renderMarkdownToPDF } from "./document-pdf-renderer.js";
 import {
   BadRequestError,
@@ -162,6 +167,7 @@ function loadDocumentPayload(surfaceId: string): Record<string, unknown> {
  */
 function handleDocumentForWorkspaceFile({
   body,
+  headers,
 }: RouteHandlerArgs): Record<string, unknown> {
   const { path, conversationId } = (body ?? {}) as {
     path?: string;
@@ -194,8 +200,13 @@ function handleDocumentForWorkspaceFile({
   if (existing) {
     // Opening the file from another conversation grants that conversation
     // access, the same association the link route writes.
+    const alreadyLinked = isDocumentAssociatedWithConversation(
+      existing.surfaceId,
+      conversationId,
+    );
     addDocumentConversation(existing.surfaceId, conversationId);
 
+    let refreshed = false;
     if (existing.content !== fileText) {
       const refresh = refreshDocumentContentFromFile(
         existing.surfaceId,
@@ -204,10 +215,17 @@ function handleDocumentForWorkspaceFile({
       if (!refresh.success) {
         throw new InternalError(refresh.error);
       }
+      refreshed = true;
       log.info(
         { surfaceId: existing.surfaceId, workspacePath: relativePath },
         "Refreshed file-backed document from disk",
       );
+    }
+
+    // Reopening an unchanged, already-linked file writes nothing, so it must
+    // not invalidate every client's document list on each open.
+    if (!alreadyLinked || refreshed) {
+      publishDocumentsChanged(getOriginClientId(headers));
     }
     return loadDocumentPayload(existing.surfaceId);
   }
@@ -227,7 +245,14 @@ function handleDocumentForWorkspaceFile({
     if (!raced) {
       throw new InternalError(created.error);
     }
+    const racedAlreadyLinked = isDocumentAssociatedWithConversation(
+      raced.surfaceId,
+      conversationId,
+    );
     addDocumentConversation(raced.surfaceId, conversationId);
+    if (!racedAlreadyLinked) {
+      publishDocumentsChanged(getOriginClientId(headers));
+    }
     return loadDocumentPayload(raced.surfaceId);
   }
 
@@ -235,6 +260,7 @@ function handleDocumentForWorkspaceFile({
     { surfaceId, workspacePath: relativePath, conversationId },
     "Bound workspace file to a new document",
   );
+  publishDocumentsChanged(getOriginClientId(headers));
   return loadDocumentPayload(surfaceId);
 }
 
@@ -325,7 +351,7 @@ export const ROUTES: RouteDefinition[] = [
       success: z.literal(true),
       surfaceId: z.string(),
     }),
-    handler: ({ body }) => {
+    handler: ({ body, headers }) => {
       const { surfaceId, conversationId, title, content, wordCount } = (body ??
         {}) as {
         surfaceId?: string;
@@ -362,6 +388,7 @@ export const ROUTES: RouteDefinition[] = [
       if (!result.success) {
         throw new InternalError(result.error);
       }
+      publishDocumentsChanged(getOriginClientId(headers));
       return result;
     },
   },
@@ -412,7 +439,7 @@ export const ROUTES: RouteDefinition[] = [
       conversationId: z.string().describe("Conversation to link"),
     }),
     responseBody: z.object({ success: z.literal(true) }),
-    handler: ({ pathParams, body }) => {
+    handler: ({ pathParams, body, headers }) => {
       const { conversationId } = (body ?? {}) as { conversationId?: string };
       if (!conversationId) {
         throw new BadRequestError("conversationId is required");
@@ -426,6 +453,7 @@ export const ROUTES: RouteDefinition[] = [
         { surfaceId: pathParams!.id, conversationId },
         "Linked document to conversation",
       );
+      publishDocumentsChanged(getOriginClientId(headers));
       return { success: true as const };
     },
   },
