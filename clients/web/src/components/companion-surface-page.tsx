@@ -11,7 +11,12 @@ import {
   startCompanionVoice,
   subscribeCompanionState,
 } from "@/runtime/companion-surface";
-import type { CompanionAnchor } from "@vellumai/ipc-contract";
+import { sendVoiceActivityControl } from "@/runtime/desktop-voice-activity";
+import type {
+  CompanionAnchor,
+  CompanionSurfaceState,
+  VoiceActivityState,
+} from "@vellumai/ipc-contract";
 
 /**
  * The companion surface inside its Electron canvas
@@ -28,10 +33,16 @@ import type { CompanionAnchor } from "@vellumai/ipc-contract";
  * only the page knows where the pill is actually drawn, so it tells main when
  * the pointer is over the surface and main makes the window clickable for
  * exactly that long.
+ *
+ * **It draws the running call, and holds none of it.** The session lives in the
+ * window with the chat layout in it; main holds the snapshot and pushes it here
+ * with the rest of the surface's state, and presses go back out the same way.
+ * That is what lets this window reload mid-call without the call noticing.
  */
 export function CompanionSurfacePage() {
   const [anchor, setAnchor] = useState<CompanionAnchor>("center");
   const [avatarSrc, setAvatarSrc] = useState<string | undefined>();
+  const [call, setCall] = useState<VoiceActivityState | null>(null);
   const [hovered, setHovered] = useState(false);
   // Mirrors what main was last told, so a pointer crossing the pill does not
   // send the same instruction on every mouse-move.
@@ -43,16 +54,14 @@ export function CompanionSurfacePage() {
   const dragRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
-    const apply = (state: {
-      anchor: CompanionAnchor;
-      avatarBase64?: string;
-    }) => {
+    const apply = (state: CompanionSurfaceState) => {
       setAnchor(state.anchor);
       setAvatarSrc(
         state.avatarBase64 === undefined
           ? undefined
           : `data:image/png;base64,${state.avatarBase64}`,
       );
+      setCall(state.call);
     };
     const unsubscribe = subscribeCompanionState(apply);
     // The route chunk loads lazily after the window is created, so a state
@@ -116,7 +125,23 @@ export function CompanionSurfacePage() {
     setInteractive(inside);
   };
 
-  const phase: CompanionSurfacePhase = hovered ? "hover" : "resting";
+  // **A running call outranks the pointer.** The surface is otherwise a circle
+  // that only becomes a pill while it is being pointed at, and a live
+  // microphone that hides itself the moment the pointer leaves is a live
+  // microphone the user cannot see. So the call holds the pill open, and
+  // hovering it changes nothing: the controls it wants are already there.
+  const phase: CompanionSurfacePhase =
+    call !== null ? "call" : hovered ? "hover" : "resting";
+
+  // The avatar's own colour, which arrives with the session. It is `""` until
+  // the avatar resolves and the contract makes no promise it parses, so
+  // anything that is not an obvious `#RRGGBB` falls back to the component's
+  // default rather than being handed to CSS, where an invalid value silently
+  // drops the custom property and takes the glyph's colour with it.
+  const accentHex =
+    call !== null && /^#[0-9a-f]{6}$/i.test(call.accentHex)
+      ? call.accentHex
+      : undefined;
 
   return (
     <div
@@ -137,15 +162,24 @@ export function CompanionSurfacePage() {
         phase={phase}
         anchor={anchor}
         avatarSrc={avatarSrc}
+        accentHex={accentHex}
+        call={call ?? undefined}
         rootRef={pillRef}
         onSurfaceMouseDown={(event) => {
           dragRef.current = { x: event.screenX, y: event.screenY };
         }}
         // The press leaves this window immediately: the session lives in the
         // renderer holding the chat layout, and this page only asks for one.
-        // Nothing here changes as a result, which is what makes the
-        // voice-activity panel the visible answer for now.
+        // What comes back is `call`, once that renderer has a session to
+        // report.
         onTalk={startCompanionVoice}
+        // Out through main and back down into whichever renderer holds the
+        // session. This page has no session to act on: it draws one.
+        onControl={(action, requestId) => {
+          sendVoiceActivityControl(
+            requestId === undefined ? { action } : { action, requestId },
+          );
+        }}
       />
     </div>
   );

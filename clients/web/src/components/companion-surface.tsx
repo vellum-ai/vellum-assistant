@@ -1,9 +1,16 @@
 import {
   ArrowUp,
   AudioLines,
+  Brain,
+  Check,
   Keyboard,
+  MessageSquareText,
   Mic,
+  MicOff,
+  PhoneOff,
+  RadioTower,
   Volume2,
+  VolumeX,
   X,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -13,6 +20,12 @@ import type {
   ReactNode,
   Ref,
 } from "react";
+
+import type {
+  VoiceActivityControlAction,
+  VoiceActivityPhase,
+  VoiceActivityState,
+} from "@vellumai/ipc-contract";
 
 /**
  * The macOS companion surface (LUM-3086): the assistant's avatar floating from
@@ -221,10 +234,24 @@ export interface CompanionSurfaceProps {
    */
   onTalk?: () => void;
   /**
-   * When the call started, for the elapsed clock. Absent leaves the clock at a
-   * fixed sample, which is what the static stories want.
+   * The running session, when `phase` is `call`.
+   *
+   * Absent renders the call state from fixed sample values, which is what the
+   * static stories want: there is no session behind them.
    */
-  callStartedAt?: number;
+  call?: VoiceActivityState;
+  /**
+   * Act on the running session: mute, unmute, end, or answer the confirmation
+   * it is waiting on.
+   *
+   * **Each action is the absolute state the button's own label promised, never
+   * a toggle.** The surface can be drawing content a beat behind the session,
+   * so a toggle resolved against live state would be self-consistent and still
+   * wrong for the user: a button reading "Mute assistant" over an already-muted
+   * session would unmute it. Sending what the button said makes a stale press a
+   * no-op the next push corrects.
+   */
+  onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
 }
 
 export function CompanionSurface({
@@ -241,7 +268,8 @@ export function CompanionSurface({
   onSurfaceMouseDown,
   spotlight,
   onTalk,
-  callStartedAt,
+  call,
+  onControl,
 }: CompanionSurfaceProps) {
   const expanded = phase !== "resting";
   const typing = phase === "typing";
@@ -376,7 +404,7 @@ export function CompanionSurface({
             }}
           >
             {phase === "call" ? (
-              <CallBody startedAt={callStartedAt} />
+              <CallBody call={call} onControl={onControl} />
             ) : (
               <IdleBody spotlight={spotlight} onTalk={onTalk} />
             )}
@@ -553,33 +581,187 @@ function IdleBody({
   );
 }
 
-/** Expanded, mid-call: the session's own controls, at pill scale. */
-function CallBody({ startedAt }: { startedAt?: number }) {
+/**
+ * Expanded, mid-call: what the session is doing, and the controls that act on
+ * it.
+ *
+ * **This is the desktop's whole live-voice surface**, so it carries what the
+ * iOS Lock Screen card carries: the phase as a glyph and as the session's own
+ * wording, elapsed time, and the session's controls. It has one line where that
+ * card has several, which is what the choices below are about.
+ *
+ * **No phase copy of its own.** Every word here is `label` or `detail`, passed
+ * through from the session's store, because the phase wording deploys
+ * continuously with the web bundle while this surface's shell ships on release
+ * cadence. A surface that re-words its own phases is how the two come to
+ * disagree. The glyph is the exception, and is not copy: the phase vocabulary
+ * is the contract, so a new phase makes its switch a compile error.
+ */
+function CallBody({
+  call,
+  onControl,
+}: {
+  call?: VoiceActivityState;
+  onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
+}) {
+  // The confirmation takes the row rather than crowding into it. The turn is
+  // stopped until it is answered, so it is the only thing here worth pressing,
+  // and a pill that tried to carry five controls would make each of them a
+  // smaller target than the decision deserves.
+  if (call !== undefined && call.approvalRequestId !== "") {
+    return (
+      <ApprovalBody
+        detail={call.detail}
+        requestId={call.approvalRequestId}
+        onControl={onControl}
+      />
+    );
+  }
+
+  const phase = call?.phase ?? "listening";
+  // The activity line when the turn has one, the phase otherwise. `detail` is
+  // the more specific of the two ("Reading a file" against "Thinking…") and is
+  // empty for most of a call, so this reads as the surface saying more exactly
+  // when there is more to say. The glyph carries the phase either way.
+  const line = call === undefined ? "Listening" : call.detail || call.label;
+  const muted = call?.muted ?? false;
+  const outputMuted = call?.outputMuted ?? false;
+
   return (
     <>
-      {/* Sized to its content, not shrunk to fit. The pill now measures this
-          row to decide how wide to be, so a label that collapses under pressure
-          would measure its own collapsed self: the width and the truncation
-          would chase each other down. The cap is what keeps a pathological
-          label from growing the pill without bound. */}
+      {/* Sized to its content, not shrunk to fit. The pill measures this row to
+          decide how wide to be, so a label that collapses under pressure would
+          measure its own collapsed self: the width and the truncation would
+          chase each other down. The cap is what keeps a pathological label from
+          growing the pill without bound. */}
       <span className="ml-1 flex shrink-0 items-center gap-1.5">
-        <Mic className="size-3.5 shrink-0 text-[var(--accent)]" aria-hidden />
-        <span className="max-w-[140px] truncate text-[12px] text-white/85">
-          Listening
+        <PhaseGlyph phase={phase} />
+        <span className="max-w-[120px] truncate text-[12px] text-white/85">
+          {line}
         </span>
       </span>
       <span className="ml-1 shrink-0 font-mono text-[11px] tabular-nums text-white/60">
-        <Elapsed startedAt={startedAt} />
+        <Elapsed startedAt={call?.startedAt} />
       </span>
-      <PillButton icon={<Mic className="size-4" />} label="Mute microphone" />
-      <PillButton icon={<Volume2 className="size-4" />} label="Mute assistant" />
+      <PillButton
+        icon={
+          muted ? <MicOff className="size-4" /> : <Mic className="size-4" />
+        }
+        label={muted ? "Unmute microphone" : "Mute microphone"}
+        onClick={() => {
+          onControl?.(muted ? "unmuteMicrophone" : "muteMicrophone");
+        }}
+      />
+      <PillButton
+        icon={
+          outputMuted ? (
+            <VolumeX className="size-4" />
+          ) : (
+            <Volume2 className="size-4" />
+          )
+        }
+        label={outputMuted ? "Unmute assistant" : "Mute assistant"}
+        onClick={() => {
+          onControl?.(
+            outputMuted ? "unmuteAssistantAudio" : "muteAssistantAudio",
+          );
+        }}
+      />
+      {/* The room's own end control, at pill scale: the same glyph at the same
+          weight in the same destructive tone. Ending a call is the one
+          irreversible thing on this surface, so it looks identical wherever the
+          user meets it. */}
       <PillButton
         icon={<X className="size-4" strokeWidth={2.5} />}
         label="End session"
         tone="negative"
+        onClick={() => {
+          onControl?.("endSession");
+        }}
       />
     </>
   );
+}
+
+/**
+ * Answer the confirmation the turn is blocked on.
+ *
+ * The request id travels with the press so the session answers the question the
+ * user was actually shown: between the push that drew these buttons and the
+ * press that answers them the request can be decided in the app, time out, or
+ * be superseded, and the next one to arrive would be a different question
+ * wearing the same buttons.
+ */
+function ApprovalBody({
+  detail,
+  requestId,
+  onControl,
+}: {
+  detail: string;
+  requestId: string;
+  onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
+}) {
+  return (
+    <>
+      {detail !== "" && (
+        <span className="ml-1 max-w-[120px] shrink-0 truncate text-[12px] text-white/85">
+          {detail}
+        </span>
+      )}
+      <PillButton
+        icon={<Check className="size-4" />}
+        label="Allow"
+        showLabel
+        tone="positive"
+        onClick={() => {
+          onControl?.("approveRequest", requestId);
+        }}
+      />
+      <PillButton
+        icon={<X className="size-4" />}
+        label="Deny"
+        showLabel
+        tone="negative"
+        onClick={() => {
+          onControl?.("denyRequest", requestId);
+        }}
+      />
+    </>
+  );
+}
+
+/**
+ * The phase as a glyph, matching `phaseSymbol` in
+ * `VoiceSessionIslandViews.swift` one-for-one.
+ *
+ * It earns its place by being legible at a glance from across a desk, which a
+ * 12px caption is not: someone whose assistant sits in a screen corner reads
+ * its state peripherally, and the glyph is what survives that. It is also what
+ * keeps the phase visible on the frames where the line above shows the turn's
+ * activity instead.
+ *
+ * Known corner, shared with the island: a `speaking` phase gone silent
+ * mid-turn relabels to "Thinking…" through `liveVoiceSurfaceLabel` while
+ * `phase` stays `speaking`, so the glyph reads as a speaker beside that word.
+ * It is not fixable on one surface alone, because the daemon's push path
+ * composes the island's content from the raw phase.
+ */
+function PhaseGlyph({ phase }: { phase: VoiceActivityPhase }) {
+  const className = "size-3.5 shrink-0 text-[var(--accent)]";
+  switch (phase) {
+    case "connecting":
+      return <RadioTower className={className} aria-hidden />;
+    case "listening":
+      return <Mic className={className} aria-hidden />;
+    case "transcribing":
+      return <MessageSquareText className={className} aria-hidden />;
+    case "thinking":
+      return <Brain className={className} aria-hidden />;
+    case "speaking":
+      return <Volume2 className={className} aria-hidden />;
+    case "ending":
+      return <PhoneOff className={className} aria-hidden />;
+  }
 }
 
 /**
@@ -631,7 +813,7 @@ function PillButton({
 }: {
   icon: ReactNode;
   label: string;
-  tone?: "negative";
+  tone?: "positive" | "negative";
   showLabel?: boolean;
   /** Held down, for a control whose surface is currently open. */
   active?: boolean;
@@ -650,7 +832,13 @@ function PillButton({
       }}
       className={`flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${
         active ? "bg-white/15" : ""
-      } ${tone === "negative" ? "text-[#ff6b6b]" : "text-white/85"}`}
+      } ${
+        tone === "negative"
+          ? "text-[#ff6b6b]"
+          : tone === "positive"
+            ? "text-[#5ee08a]"
+            : "text-white/85"
+      }`}
     >
       {icon}
       {showLabel && <span>{label}</span>}

@@ -7,6 +7,26 @@ import {
 } from "@/components/companion-surface";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { composeSvg } from "@/utils/avatar-svg-compositor";
+import type { VoiceActivityState } from "@vellumai/ipc-contract";
+
+/**
+ * A session for the demo reel to draw. `startedAt` is restamped on every run,
+ * so it is the one field the player overrides.
+ *
+ * Listening and unmuted with nothing waiting on a decision: the ordinary middle
+ * of a call, which is what the reel is showing.
+ */
+const DEMO_CALL: VoiceActivityState = {
+  phase: "listening",
+  label: "Listening",
+  accentHex: "",
+  muted: false,
+  outputMuted: false,
+  detail: "",
+  approvalRequestId: "",
+  assistantName: "Ziggy",
+  startedAt: 0,
+};
 
 /**
  * A real assistant avatar, composed from the same bundled character components
@@ -105,6 +125,45 @@ export const Hover: Story = {
 /** Expanded mid-call: the session's own controls, at pill scale. */
 export const InCall: Story = {
   args: { phase: "call" },
+};
+
+/**
+ * Mid-call with a turn stopped on a confirmation.
+ *
+ * The decision takes the control row rather than crowding in beside it, which
+ * is the same trade the iOS Lock Screen card makes: the turn is going nowhere
+ * until this is answered, so it is the only thing here worth pressing. The
+ * activity line says what is being asked; the pill is not the place to render a
+ * tool call's arguments, and the app is a click away for that.
+ *
+ * This is the widest the surface ever gets, so it is what `MAX_PILL_WIDTH` in
+ * `companion-window.ts` sizes the canvas to hold.
+ */
+export const PendingApproval: Story = {
+  args: {
+    phase: "call",
+    call: {
+      ...DEMO_CALL,
+      phase: "thinking",
+      label: "Thinking…",
+      detail: "Read package.json",
+      approvalRequestId: "req-1",
+      startedAt: Date.now() - 14_000,
+    },
+  },
+};
+
+/** Mid-call with both mutes on, which is what the two buttons swap to. */
+export const InCallMuted: Story = {
+  args: {
+    phase: "call",
+    call: {
+      ...DEMO_CALL,
+      muted: true,
+      outputMuted: true,
+      startedAt: Date.now() - 14_000,
+    },
+  },
 };
 
 /**
@@ -424,7 +483,11 @@ function DemoReelPlayer(args: StoryArgs) {
           spotlight={active?.spotlight}
           // Restamped whenever the call step is entered, so the clock starts
           // from zero on every run rather than from whenever the page loaded.
-          callStartedAt={phase === "call" ? callStartedAt : undefined}
+          call={
+            phase === "call" && callStartedAt !== undefined
+              ? { ...DEMO_CALL, startedAt: callStartedAt }
+              : undefined
+          }
           // No turns: Type opens on the empty composer, which is the same
           // elongated single line as the states either side of it. Opening onto
           // a card of history would make this the one step that changes the

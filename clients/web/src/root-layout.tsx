@@ -309,8 +309,8 @@ export function RootLayout() {
       //
       // The window is deliberately not raised. This command comes from the
       // companion surface, which the user reached for precisely because they
-      // are working somewhere else, and the call gets its own floating readout
-      // from the voice-activity panel.
+      // are working somewhere else, and that surface is where the call then
+      // shows itself.
       void navigate(routes.assistant);
       requestVoiceStart();
     },

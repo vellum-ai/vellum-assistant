@@ -45,7 +45,6 @@ import type {
   VoiceActivityContent,
   VoiceActivityControl,
   VoiceActivityStart,
-  VoiceActivityState,
 } from "./types";
 
 /**
@@ -293,31 +292,24 @@ export interface VellumBridge {
     setInteractive(interactive: boolean): void;
   };
   /**
-   * The floating live-voice session surface (macOS). Two renderers use
-   * different halves: the main window drives `start`/`update`/`end` and
-   * listens for `onControl`; the panel's own route reads `getState`/`onState`
-   * and sends `control`.
+   * The running live-voice session, as the desktop shows it. Two renderers use
+   * different halves: the window holding the session drives `start`/`update`/
+   * `end` and listens for `onControl`; the companion surface's own route reads
+   * the session off `companion.onState` and presses `control`.
    */
   voiceActivity: {
     start(state: VoiceActivityStart): void;
     update(content: VoiceActivityContent): void;
     end(): void;
-    getState(): Promise<VoiceActivityState | null>;
-    onState(callback: (state: VoiceActivityState | null) => void): () => void;
     control(control: VoiceActivityControl): void;
     onControl(callback: (control: VoiceActivityControl) => void): () => void;
-    /** Bring the app forward, the panel's way back to the conversation. */
-    activate(): void;
-    /** Hide the window. The session keeps running. */
-    dismiss(): void;
-    /** Shrink to the chip, or restore. */
-    setCollapsed(collapsed: boolean): void;
   };
   /**
-   * The always-present companion surface (macOS). Only the surface's own route
-   * uses it: it reads the anchor main computed from the window's position, and
-   * reports whether the pointer is over the pill so main can make the window
-   * clickable without the transparent canvas swallowing clicks meant for
+   * The always-present companion surface (macOS), which is also where a running
+   * session is shown. Only the surface's own route uses it: it reads the anchor
+   * main computed from the window's position and the session main is holding,
+   * and reports whether the pointer is over the pill so main can make the
+   * window clickable without the transparent canvas swallowing clicks meant for
    * whatever is behind it.
    */
   companion: {
@@ -330,8 +322,8 @@ export interface VellumBridge {
      * Ask for a live-voice session, which is what Talk does.
      *
      * The surface is its own renderer and holds no session, so the press is
-     * handed to main and dispatched to the window that does. Nothing comes
-     * back: the session's readout is the voice-activity panel.
+     * handed to main and dispatched to the window that does. What comes back is
+     * the session itself, on `onState`.
      */
     startVoice(): void;
   };

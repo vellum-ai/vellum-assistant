@@ -1,7 +1,14 @@
-import { screen } from "electron";
+import { BrowserWindow, screen } from "electron";
 import { z } from "zod";
 
-import type { CompanionAnchor, CompanionSurfaceState } from "@vellumai/ipc-contract";
+import {
+  voiceActivityContentSchema,
+  voiceActivityControlSchema,
+  voiceActivityStartSchema,
+  type CompanionAnchor,
+  type CompanionSurfaceState,
+  type VoiceActivityState,
+} from "@vellumai/ipc-contract";
 
 import { getAvatarPng, onAvatarChange } from "./avatar";
 import { createFloatingWindow, getFloatingWindow } from "./floating-window";
@@ -15,7 +22,18 @@ import {
 /**
  * The always-present companion surface (LUM-3086): the assistant's avatar
  * floating from app launch, expanding on hover into a pill with the voice and
- * type-chat options.
+ * type-chat options, and holding that expansion for as long as a call runs.
+ *
+ * **It is also the desktop's live-voice session surface**, the counterpart to
+ * the iOS Dynamic Island and Lock Screen activity. Main holds the session
+ * snapshot the window renderer publishes and pushes it down to the surface,
+ * which is why a session survives the surface's own renderer reloading: the
+ * elapsed clock is anchored on this side.
+ *
+ * A session is shown on the surface that is already there rather than in a
+ * window of its own. One assistant, one place on screen: a separate panel for
+ * calls meant the avatar sat inert beside a window describing the call it was
+ * supposedly having.
  *
  * **A transparent canvas, not a window that resizes.** The canvas is fixed at
  * the widest extent any state can reach and the pill is drawn inside it, so the
@@ -39,8 +57,14 @@ const COMPANION_ROUTE = "/floating/companion";
 /** The avatar's resting footprint, matching `CompanionSurface`. */
 const AVATAR_BOX = 44;
 
-/** The widest the pill gets, matching `WIDTHS.call` in the renderer. */
-const MAX_PILL_WIDTH = 296;
+/**
+ * The widest the pill gets, matching `FALLBACK_WIDTHS.call` in the renderer.
+ *
+ * A ceiling rather than a width: the pill measures its own content, so this is
+ * what the canvas is sized to hold, and content wider than it is clipped by the
+ * window. The call's approval row is the widest thing the surface renders.
+ */
+const MAX_PILL_WIDTH = 360;
 
 /**
  * How far the pill can reach from the avatar's centre.
@@ -65,6 +89,16 @@ const DEFAULT_MARGIN = 24;
 let anchor: CompanionAnchor = "center";
 
 /**
+ * The running live-voice session, or `null` when none is.
+ *
+ * Held here rather than in the surface's renderer because that renderer can
+ * load, reload, or be recreated mid-call, and an elapsed clock anchored in it
+ * would restart when that happened: the one fact on the surface a user would
+ * read as "the call dropped and came back".
+ */
+let call: VoiceActivityState | null = null;
+
+/**
  * The state the renderer sees, rebuilt on demand.
  *
  * The avatar is read from the cache main already keeps for the Dock and Tray
@@ -76,8 +110,43 @@ const currentState = (): CompanionSurfaceState => {
   return {
     anchor,
     avatarBase64: png === null ? undefined : png.toString("base64"),
+    call,
   };
 };
+
+/**
+ * The session after a `start`, which is not always a new session.
+ *
+ * A redundant start updates the running call rather than restarting its clock.
+ * The mirror re-syncs on mount and the session controller remounts across
+ * layout-level route changes while the store persists, so a second start for a
+ * call already on screen is expected traffic, and an elapsed timer that jumped
+ * back to zero on a route change would be a visible lie about a session that
+ * never stopped.
+ *
+ * Exported for its tests, which is also why it takes `now` rather than reading
+ * the clock.
+ */
+export const callOnStart = (
+  current: VoiceActivityState | null,
+  start: Omit<VoiceActivityState, "startedAt">,
+  now: number,
+): VoiceActivityState =>
+  current === null ? { ...start, startedAt: now } : { ...current, ...start };
+
+/**
+ * The session after an `update`, or `null` when there is nothing to update.
+ *
+ * An update with no session is dropped rather than promoted into one: it
+ * carries no assistant name and no avatar, so honoring it would put an
+ * anonymous call on the surface. In practice this is the tail of a session that
+ * has already ended.
+ */
+export const callOnUpdate = (
+  current: VoiceActivityState | null,
+  content: Partial<VoiceActivityState>,
+): VoiceActivityState | null =>
+  current === null ? null : { ...current, ...content };
 
 /**
  * Which way the pill may grow, from where the avatar actually sits.
@@ -216,12 +285,12 @@ export const installCompanionWindow = (): void => {
    *
    * **A window that exists is not raised, and one that does not is created.**
    * A user reaching for a floating avatar has chosen not to go back to Vellum,
-   * and the session gets its own on-screen readout from the voice-activity
-   * panel, so an existing window is left exactly where it was. But closing the
-   * main window destroys it while this surface stays on screen, and a command
-   * dispatched into that gap lands nowhere: Talk would read as broken. There is
-   * no way to host a session without a renderer to host it in, so that case
-   * builds one, which necessarily shows it.
+   * and the session shows itself on this surface, so an existing window is left
+   * exactly where it was. But closing the main window destroys it while this
+   * surface stays on screen, and a command dispatched into that gap lands
+   * nowhere: Talk would read as broken. There is no way to host a session
+   * without a renderer to host it in, so that case builds one, which
+   * necessarily shows it.
    */
   on("vellum:companion:startVoice", z.tuple([]), () => {
     if (currentMainWindow() !== null) {
@@ -234,6 +303,72 @@ export const installCompanionWindow = (): void => {
       dispatchToMain({ kind: "startVoice" });
     });
   });
+
+  // -------------------------------------------------------------------------
+  // The running session
+  //
+  // Published by whichever renderer holds it (the main window's live-voice
+  // mirror), held here, and pushed down to the surface as part of its state.
+  // The same payload the iOS bridge sends to ActivityKit, which is why the
+  // types live in the contract package rather than here.
+  // -------------------------------------------------------------------------
+
+  on(
+    "vellum:voiceActivity:start",
+    z.tuple([voiceActivityStartSchema]),
+    ([start]) => {
+      call = callOnStart(call, start, Date.now());
+      pushState();
+    },
+  );
+
+  on(
+    "vellum:voiceActivity:update",
+    z.tuple([voiceActivityContentSchema]),
+    ([content]) => {
+      const next = callOnUpdate(call, content);
+      if (next === null) {
+        return;
+      }
+      call = next;
+      pushState();
+    },
+  );
+
+  on("vellum:voiceActivity:end", z.tuple([]), () => {
+    if (call === null) {
+      return;
+    }
+    call = null;
+    pushState();
+  });
+
+  /**
+   * Deliver a press on the surface to the session that can act on it.
+   *
+   * Broadcast rather than addressed, the same shape the dictation overlay uses
+   * for its stop: main does not know which renderer owns the session, and the
+   * session's own listener is mounted for exactly the session's lifetime, so a
+   * press with no owner lands nowhere rather than being misrouted. The surface
+   * is excluded because it is the sender.
+   */
+  on(
+    "vellum:voiceActivity:control",
+    z.tuple([voiceActivityControlSchema]),
+    ([control]) => {
+      const surface = getFloatingWindow(COMPANION_KIND);
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (
+          win === surface ||
+          win.isDestroyed() ||
+          win.webContents.isDestroyed()
+        ) {
+          continue;
+        }
+        win.webContents.send("vellum:voiceActivity:controlEvent", control);
+      }
+    },
+  );
 
   // One avatar feeds every surface, so a change to the Dock icon is a change
   // here too.

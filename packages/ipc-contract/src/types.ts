@@ -275,8 +275,8 @@ export interface VoiceActivityContent {
   phase: VoiceActivityPhase;
   /**
    * User-facing phase copy, passed through from the web layer verbatim
-   * (`liveVoiceSurfaceLabel`), so the panel shows exactly what the voice room
-   * shows. Main and the panel own no phase wording of their own. The wording
+   * (`liveVoiceSurfaceLabel`), so the surface shows exactly what the voice room
+   * shows. Main and the surface own no phase wording of their own. The wording
    * deploys continuously with the web bundle while the shell ships on release
    * cadence, so a `switch` over `phase` on this side would fossilize.
    */
@@ -290,7 +290,7 @@ export interface VoiceActivityContent {
   detail: string;
   /**
    * The confirmation the turn is waiting on, or `""` when it is waiting on
-   * none. Non-empty is what puts Approve/Deny on the panel, and the id travels
+   * none. Non-empty is what puts Approve/Deny on the surface, and the id travels
    * with them so a decision answers the request the user was shown.
    */
   approvalRequestId: string;
@@ -301,7 +301,7 @@ export interface VoiceActivityStart extends VoiceActivityContent {
   assistantName: string;
   /**
    * The assistant's avatar as a base64 PNG or JPEG. Omitted when there is
-   * none, which the panel renders as its accent glyph instead.
+   * none, which the surface renders as its accent glyph instead.
    *
    * Sent once at `start` and never re-sent: it cannot change while a session
    * runs, and it is the one field in this payload big enough for re-sending to
@@ -311,29 +311,23 @@ export interface VoiceActivityStart extends VoiceActivityContent {
 }
 
 /**
- * What the panel's own renderer receives: everything the session sent, plus
+ * What the surface's own renderer receives: everything the session sent, plus
  * `startedAt`, which main stamps.
  *
- * `startedAt` is main's rather than the sender's because the panel is a
+ * `startedAt` is main's rather than the sender's because the surface is a
  * separate renderer that can load, reload, or be recreated mid-session, and an
  * elapsed clock anchored in either renderer would restart when that happened.
  */
 export interface VoiceActivityState extends VoiceActivityStart {
-  /** Epoch ms when main opened this surface. */
+  /** Epoch ms when main first saw this session. */
   startedAt: number;
-  /**
-   * Whether the window is shrunk to its chip. Main owns it because the window
-   * has to be resized around it, and the page must never draw a chip into a
-   * window still the size of the expanded panel.
-   */
-  collapsed: boolean;
 }
 
 /**
- * What a panel button asks of the session.
+ * What a control on the session surface asks of the session.
  *
  * Each mute is **absolute: the state the button's own label promised**, not
- * a toggle. The panel renders content that can be a beat old, so a toggle
+ * a toggle. The surface renders content that can be a beat old, so a toggle
  * resolved against live session state is self-consistent and still wrong for
  * the user: a button reading "Mute assistant" over an already-muted session
  * would unmute it. Sending what the button said makes that press a no-op,
@@ -572,6 +566,16 @@ export type CompanionAnchor = (typeof COMPANION_ANCHORS)[number];
 /** What main tells the companion renderer. */
 export interface CompanionSurfaceState {
   anchor: CompanionAnchor;
+  /**
+   * The live-voice session the surface is showing, or `null` when none is
+   * running.
+   *
+   * This is what makes the companion the desktop's session surface rather than
+   * a launcher for one: while it is set the pill holds its expanded call state
+   * whether or not the pointer is anywhere near it, because a live microphone
+   * that only shows itself on hover is a live microphone the user cannot see.
+   */
+  call: VoiceActivityState | null;
   /**
    * The assistant's avatar as a base64 PNG, or `undefined` when there is none.
    *

@@ -320,15 +320,8 @@ declare global {
         start(state: VoiceActivityStart): void;
         update(content: VoiceActivityContent): void;
         end(): void;
-        getState(): Promise<VoiceActivityState | null>;
-        onState(
-          callback: (state: VoiceActivityState | null) => void,
-        ): () => void;
         control(control: VoiceActivityControl): void;
         onControl(callback: (control: VoiceActivityControl) => void): () => void;
-        activate?(): void;
-        dismiss?(): void;
-        setCollapsed?(collapsed: boolean): void;
       };
       companion?: {
         getState(): Promise<CompanionSurfaceState | null>;

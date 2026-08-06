@@ -133,18 +133,13 @@ export const DICTATION_OVERLAY_STOP_REQUESTED =
 export const DICTATION_OVERLAY_SET_INTERACTIVE =
   "vellum:dictationOverlay:setInteractive";
 
-// Voice activity: the floating live-voice session surface
+// Voice activity: the running live-voice session, as the companion surface
+// renders it. The session's window publishes; the surface's window presses.
 export const VOICE_ACTIVITY_START = "vellum:voiceActivity:start";
 export const VOICE_ACTIVITY_UPDATE = "vellum:voiceActivity:update";
 export const VOICE_ACTIVITY_END = "vellum:voiceActivity:end";
-export const VOICE_ACTIVITY_GET_STATE = "vellum:voiceActivity:getState";
-export const VOICE_ACTIVITY_STATE_EVENT = "vellum:voiceActivity:state";
 export const VOICE_ACTIVITY_CONTROL = "vellum:voiceActivity:control";
 export const VOICE_ACTIVITY_CONTROL_EVENT = "vellum:voiceActivity:controlEvent";
-export const VOICE_ACTIVITY_ACTIVATE = "vellum:voiceActivity:activate";
-export const VOICE_ACTIVITY_DISMISS = "vellum:voiceActivity:dismiss";
-export const VOICE_ACTIVITY_SET_COLLAPSED =
-  "vellum:voiceActivity:setCollapsed";
 
 // Companion surface: the always-present floating avatar
 export const COMPANION_GET_STATE = "vellum:companion:getState";
