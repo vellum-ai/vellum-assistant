@@ -19,6 +19,7 @@ import * as encryptedStore from "../security/encrypted-store.js";
 import {
   _resetBackend,
   deleteSecureKeyAsync,
+  getActiveBackendName,
   getSecureKeyAsync,
   getSecureKeyResultAsync,
   listSecureKeysAsync,
@@ -58,6 +59,9 @@ describe("secure-keys", () => {
     _resetBackend();
     delete process.env.VELLUM_DEV;
     delete process.env.VELLUM_DESKTOP_APP;
+    delete process.env.IS_CONTAINERIZED;
+    delete process.env.CES_CREDENTIAL_URL;
+    delete process.env.CES_LOCAL_SOCKET;
   });
 
   afterAll(() => {
@@ -505,6 +509,93 @@ describe("secure-keys", () => {
       expect(
         encryptedStore.getKey("credential/vellum/api_key"),
       ).toBeUndefined();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Encrypted-store → CES upgrade without a reconnect callback
+  // -----------------------------------------------------------------------
+  //
+  // Worker/CLI processes inject a CES client whose handshake is still in
+  // flight, so the first credential read falls back to the encrypted store.
+  // These processes never register `_cesReconnect`. Once the handshake
+  // completes and the client reports ready, the next read must upgrade to
+  // CES RPC, since the live client already exists and no reconnect is needed.
+  describe("encrypted-store → CES upgrade without a reconnect callback", () => {
+    test("upgrades to CES RPC once the injected client becomes ready", async () => {
+      const client = makeMockCesClient(false);
+      setCesClient(client);
+
+      // Not ready yet → falls back to the encrypted store (local mode).
+      encryptedStore.setKey("openai", "local-value");
+      expect(await getSecureKeyAsync("openai")).toBe("local-value");
+      expect(getActiveBackendName()).toBe("encrypted-store");
+
+      // Handshake completes; no `_cesReconnect` was ever registered.
+      client.setReady(true);
+
+      await getSecureKeyResultAsync("openai");
+      expect(getActiveBackendName()).toBe("ces-rpc");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Containerized pod with no ready CES backend
+  // -----------------------------------------------------------------------
+  //
+  // On a pod the local encrypted store does not exist. When no CES path is
+  // ready, reads must report the store as unreachable (presence
+  // indeterminate) rather than absent. A provisioned credential is never
+  // reported as "no key". The unreachable result must not be pinned: once a
+  // CES client arrives, the next read routes through it.
+  describe("containerized pod with no ready CES backend", () => {
+    test("reads report unreachable (indeterminate), never absent", async () => {
+      process.env.IS_CONTAINERIZED = "1";
+      delete process.env.CES_CREDENTIAL_URL;
+      delete process.env.CES_LOCAL_SOCKET;
+      _resetBackend();
+
+      const result = await getSecureKeyResultAsync("openai");
+      expect(result.value).toBeUndefined();
+      // unreachable → presence indeterminate, NEVER absent.
+      expect(result.unreachable).toBe(true);
+    });
+
+    test("does not pin the unreachable result: a ready CES client wins the next read", async () => {
+      process.env.IS_CONTAINERIZED = "1";
+      delete process.env.CES_CREDENTIAL_URL;
+      delete process.env.CES_LOCAL_SOCKET;
+      _resetBackend();
+
+      expect((await getSecureKeyResultAsync("openai")).unreachable).toBe(true);
+
+      setCesClient(makeMockCesClient(true));
+
+      const afterAttach = await getSecureKeyResultAsync("openai");
+      expect(afterAttach.unreachable).toBe(false);
+      expect(getActiveBackendName()).toBe("ces-rpc");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Encrypted-store read error vs genuinely-absent (local mode)
+  // -----------------------------------------------------------------------
+  describe("encrypted-store read error vs absent", () => {
+    test("genuinely-missing store → absent (unreachable false)", async () => {
+      const result = await getSecureKeyResultAsync("nope");
+      expect(result.value).toBeUndefined();
+      expect(result.unreachable).toBe(false);
+    });
+
+    test("store exists but key material is missing → unreachable", async () => {
+      encryptedStore.setKey("openai", "sk-1");
+      // Remove the store key so the existing entry can no longer be decrypted.
+      rmSync(join(TEST_DIR, "store.key"));
+      _resetBackend();
+
+      const result = await getSecureKeyResultAsync("openai");
+      expect(result.value).toBeUndefined();
+      expect(result.unreachable).toBe(true);
     });
   });
 });

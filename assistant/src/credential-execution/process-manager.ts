@@ -224,7 +224,7 @@ export function createCesProcessManager(
  */
 function createCloseNotifier(): {
   isAlive: () => boolean;
-  markDead: () => void;
+  markDead: (reason?: string) => void;
   onClose: (handler: () => void) => void;
 } {
   let alive = true;
@@ -232,12 +232,16 @@ function createCloseNotifier(): {
   const handlers: Array<() => void> = [];
   return {
     isAlive: () => alive,
-    markDead() {
+    markDead(reason?: string) {
       alive = false;
       if (notified) {
         return;
       }
       notified = true;
+      log.warn(
+        { reason: reason ?? "unknown" },
+        "CES socket transport died; credential ops will fail over or reconnect",
+      );
       for (const handler of handlers) {
         try {
           handler();
@@ -278,12 +282,12 @@ function createSocketTransport(socket: Socket): CesTransport {
   });
 
   socket.on("close", () => {
-    death.markDead();
+    death.markDead("socket closed");
   });
 
   socket.on("error", (err) => {
     log.warn({ err }, "CES socket transport error");
-    death.markDead();
+    death.markDead("socket error");
   });
 
   return {
@@ -305,7 +309,7 @@ function createSocketTransport(socket: Socket): CesTransport {
     onClose: death.onClose,
 
     close(): void {
-      death.markDead();
+      death.markDead("transport.close() called");
       socket.destroy();
     },
   };
