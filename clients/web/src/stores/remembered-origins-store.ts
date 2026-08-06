@@ -309,9 +309,12 @@ const useRememberedOriginsStoreBase = create<RememberedOriginsStore>()(
         } catch {
           return { ok: false };
         }
-        if (epoch === hydrationEpoch) {
-          set({ origins });
+        // A provider swap during the save supersedes this mutation: the
+        // active provider does not hold the origin, so report failure.
+        if (epoch !== hydrationEpoch) {
+          return { ok: false };
         }
+        set({ origins });
         return { ok: true, origin };
       });
     },
