@@ -77,8 +77,6 @@ import {
   acpRunIdForCall,
   resolveAcpRunIds,
   resolveBackgroundTaskIds,
-  resolveChangedDocuments,
-  resolveEditedDocuments,
   resolveSpawnedSubagentIds,
   resolveWorkflowRunIds,
   SlackMessageAttribution,
@@ -141,6 +139,7 @@ export function TranscriptMessageBody({
   onStopSubagent,
   onWorkflowClick,
   onStopWorkflow,
+  changedDocumentIds,
   isStreaming = false,
   isLatestMessage = false,
 }: TranscriptMessageBodyProps) {
@@ -377,15 +376,6 @@ export function TranscriptMessageBody({
   const claimedWorkflowIds = new Set<string>();
   const claimedAcpIds = new Set<string>();
   const claimedBackgroundTaskIds = new Set<string>();
-  // Document surface ids claim in their own namespace. Sharing a Set with the
-  // process kinds above would let an unrelated id suppress a reopen link.
-  const claimedDocumentIds = new Set<string>();
-  // Resolved before the render pass so a `document_preview` card knows whether
-  // the turn writes to its document past the point where the card renders.
-  const editedDocumentIds = useMemo(
-    () => resolveEditedDocuments(message.toolCalls ?? []),
-    [message.toolCalls],
-  );
   const cardBackedWorkflowRunId = (tc: ChatMessageToolCall): string | null => {
     const rid = workflowRunIdForCall(tc, byToolUseIdWf);
     return rid !== null && cardBackedWorkflowRunIds.has(rid) ? rid : null;
@@ -751,24 +741,6 @@ export function TranscriptMessageBody({
     surface: ConversationMessageSurface,
     key: string,
   ): ReactNode => {
-    // A `document_preview` card opens its own document, so claim that document
-    // before the end-of-message resolution runs and the reopen link would
-    // otherwise repeat the same affordance right beside the card. A document
-    // the turn also edits is left unclaimed: the card sits where its tool ran,
-    // above the edits, so that turn still ends with a link. The preview's own
-    // `surfaceId` is the surface (`preview-<doc id>`); the document it opens
-    // rides in `data.surfaceId`, which is what a document tool call reports in
-    // its result.
-    if (surface.surfaceType === "document_preview") {
-      const documentSurfaceId = surface.data?.surfaceId;
-      if (
-        typeof documentSurfaceId === "string" &&
-        documentSurfaceId !== "" &&
-        !editedDocumentIds.has(documentSurfaceId)
-      ) {
-        claimedDocumentIds.add(documentSurfaceId);
-      }
-    }
     return (
       <div key={key} className="w-full">
         <SurfaceRouter
@@ -1134,15 +1106,12 @@ export function TranscriptMessageBody({
         })
       : renderedGroups;
 
-  // Resolved after the group render pass, so every inline affordance has taken
-  // its claims first. Without a handler the link opens nothing, so it does not
-  // render.
+  // Resolved across the whole response by `Transcript` and handed only to the
+  // message that ends it. Without a handler the link opens nothing, so it does
+  // not render.
   const documentReopenLinks =
     isAssistant && onOpenDocument
-      ? resolveChangedDocuments(
-          message.toolCalls ?? [],
-          claimedDocumentIds,
-        ).map((surfaceId) => (
+      ? changedDocumentIds?.map((surfaceId) => (
           <DocumentReopenLink
             key={`document-reopen-${surfaceId}`}
             surfaceId={surfaceId}

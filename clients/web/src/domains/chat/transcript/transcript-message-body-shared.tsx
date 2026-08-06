@@ -85,6 +85,14 @@ export interface TranscriptMessageBodyProps {
   /** Callback to abort/stop a running workflow from an inline card. */
   onStopWorkflow?: (runId: string) => void;
   /**
+   * Ids of the documents this message's whole response changed, resolved by
+   * `Transcript` (see `resolveResponseDocumentIds`) and set only on the message
+   * that ends a completed response. Each one renders a reopen link below the
+   * message body, so a response closes with one link per document however many
+   * of its messages wrote to it.
+   */
+  changedDocumentIds?: string[];
+  /**
    * True when this message belongs to the turn that is actively streaming.
    * Set by `LatestTurnRow` for the in-progress response cluster; history
    * rows leave it `false`. Keeps the message's last tool-call group expanded
@@ -507,9 +515,8 @@ function extractDocumentSurfaceIdFromResult(
  * reseed, unlike the ephemeral `document_editor_update` event.
  *
  * The caller owns the `claimed` Set so it persists across every invocation
- * within a single message. That collapses repeated edits of one document into a
- * single entry and stops two non-consecutive tool-call groups from both
- * anchoring the same document.
+ * within a single response. That collapses repeated edits of one document into
+ * a single entry, whether they ran in one message or spread across several.
  */
 export function resolveChangedDocuments(
   toolCalls: ChatMessageToolCall[],
@@ -536,9 +543,9 @@ export function resolveChangedDocuments(
  * `document_replace_text`, ignoring the create that opened them.
  *
  * An inline `document_preview` card renders where its tool ran, so it stands in
- * for the end-of-response reopen link only on a document the turn leaves alone
- * afterwards. A document the turn keeps writing to is changed below its card
- * and still owes a link at the end.
+ * for the end-of-response reopen link only on a document the response leaves
+ * alone afterwards. A document the response keeps writing to is changed below
+ * its card and still owes a link at the end.
  */
 export function resolveEditedDocuments(
   toolCalls: ChatMessageToolCall[],

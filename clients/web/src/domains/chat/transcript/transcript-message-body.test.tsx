@@ -2227,6 +2227,13 @@ describe("TranscriptMessageBody — redacted-credential chip version gate", () =
   });
 });
 
+/**
+ * The links themselves are resolved across a whole response by `Transcript`
+ * (see `resolve-response-documents.test` for which documents a response
+ * anchors, and `transcript.test` for which message ends up carrying them).
+ * What the body owns is the slot: it renders exactly the ids it is handed,
+ * below the response body and above the footer, and nothing without a handler.
+ */
 describe("TranscriptMessageBody: changed-document reopen links", () => {
   const DOC_ASSISTANT_ID = "asst-doc";
   const DOC_CONVERSATION_ID = "conv-doc";
@@ -2247,14 +2254,15 @@ describe("TranscriptMessageBody: changed-document reopen links", () => {
   }
 
   /**
-   * A turn that narrates, runs `toolCalls`, then answers. The lead-in and the
-   * tool run collapse into "Earlier activity", so any reopen link that renders
-   * has to sit outside that disclosure to still be visible.
+   * A message that narrates, runs `document_update`, then answers. The lead-in
+   * and the tool run collapse into "Earlier activity", so any reopen link that
+   * renders has to sit outside that disclosure to still be visible.
    */
   function turnElement(
-    toolCalls: ChatMessageToolCall[],
+    changedDocumentIds: string[] | undefined,
     onOpenDocument: ((surfaceId: string) => void) | undefined,
   ) {
+    const toolCalls = [documentUpdateCall("tc-doc", "surf-notes")];
     return (
       <TranscriptMessageBody
         message={{
@@ -2270,14 +2278,15 @@ describe("TranscriptMessageBody: changed-document reopen links", () => {
         }}
         conversationId={DOC_CONVERSATION_ID}
         assistantId={DOC_ASSISTANT_ID}
+        changedDocumentIds={changedDocumentIds}
         onOpenDocument={onOpenDocument}
         onSurfaceAction={noop}
       />
     );
   }
 
-  function renderTurn(toolCalls: ChatMessageToolCall[]) {
-    return render(turnElement(toolCalls, onOpenDocumentMock));
+  function renderTurn(changedDocumentIds: string[] | undefined) {
+    return render(turnElement(changedDocumentIds, onOpenDocumentMock));
   }
 
   function reopenLinks(container: HTMLElement): HTMLElement[] {
@@ -2298,10 +2307,8 @@ describe("TranscriptMessageBody: changed-document reopen links", () => {
     onOpenDocumentMock.mockClear();
   });
 
-  test("renders one reopen link for a turn that changed a document", () => {
-    const { container } = renderTurn([
-      documentUpdateCall("tc-doc", "surf-notes"),
-    ]);
+  test("renders one reopen link per id its response resolved", () => {
+    const { container } = renderTurn(["surf-notes"]);
 
     const links = reopenLinks(container);
     expect(links.length).toBe(1);
@@ -2312,10 +2319,14 @@ describe("TranscriptMessageBody: changed-document reopen links", () => {
     );
   });
 
+  test("renders the ids in the order the response resolved them", () => {
+    const { container } = renderTurn(["surf-notes", "surf-plan"]);
+
+    expect(reopenSurfaceIds(container)).toEqual(["surf-notes", "surf-plan"]);
+  });
+
   test("places the reopen link after the response body and above the footer", () => {
-    const { container, getByText } = renderTurn([
-      documentUpdateCall("tc-doc", "surf-notes"),
-    ]);
+    const { container, getByText } = renderTurn(["surf-notes"]);
 
     const link = reopenLinks(container)[0]!;
     // A direct child of the message column, so it is a sibling of the
@@ -2338,42 +2349,17 @@ describe("TranscriptMessageBody: changed-document reopen links", () => {
     ).not.toBe(0);
   });
 
-  test("renders a reopen link for each document a turn changed", () => {
-    const { container } = renderTurn([
-      documentUpdateCall("tc-doc-a", "surf-notes"),
-      documentUpdateCall("tc-doc-b", "surf-plan"),
-    ]);
-
-    expect(reopenSurfaceIds(container)).toEqual(["surf-notes", "surf-plan"]);
-  });
-
-  test("collapses repeated edits of one document into a single reopen link", () => {
-    const { container } = renderTurn([
-      documentUpdateCall("tc-doc-a", "surf-notes"),
-      documentUpdateCall("tc-doc-b", "surf-notes"),
-    ]);
-
-    expect(reopenSurfaceIds(container)).toEqual(["surf-notes"]);
-  });
-
-  test("renders no reopen link for a turn that changed no document", () => {
-    const { container } = renderTurn([
-      {
-        id: "tc-read",
-        name: "file_read",
-        input: { path: "/tmp/notes.md" },
-        result: JSON.stringify({ surface_id: "surf-notes" }),
-        completedAt: 1,
-      },
-    ]);
+  test("renders no reopen link for its own document tool calls", () => {
+    // The message writes a document, but the response anchored the link on a
+    // later message. Resolution belongs to the response, not to each message
+    // that wrote.
+    const { container } = renderTurn(undefined);
 
     expect(reopenLinks(container).length).toBe(0);
   });
 
   test("clicking the reopen link opens that document", () => {
-    const { container } = renderTurn([
-      documentUpdateCall("tc-doc", "surf-notes"),
-    ]);
+    const { container } = renderTurn(["surf-notes"]);
 
     fireEvent.click(reopenLinks(container)[0]!);
 
@@ -2381,143 +2367,9 @@ describe("TranscriptMessageBody: changed-document reopen links", () => {
     expect(onOpenDocumentMock).toHaveBeenCalledWith("surf-notes");
   });
 
-  test("keeps the reopen link when the transcript reseeds from history", () => {
-    const toolCall = documentUpdateCall("tc-doc", "surf-notes");
-    const { container, rerender } = renderTurn([toolCall]);
-    expect(reopenLinks(container).length).toBe(1);
-
-    // A reseed from `/messages` rebuilds the row out of the persisted wire
-    // payload: fresh object identities, none of the live stream state.
-    const reseeded = JSON.parse(
-      JSON.stringify(toolCall),
-    ) as ChatMessageToolCall;
-    rerender(turnElement([reseeded], onOpenDocumentMock));
-
-    expect(reopenSurfaceIds(container)).toEqual(["surf-notes"]);
-  });
-
   test("renders no reopen link without a handler to open the document", () => {
-    const { container } = render(
-      turnElement([documentUpdateCall("tc-doc", "surf-notes")], undefined),
-    );
+    const { container } = render(turnElement(["surf-notes"], undefined));
 
     expect(reopenLinks(container).length).toBe(0);
-  });
-
-  /** A settled `document_create` whose result names the document it opened. */
-  function documentCreateCall(
-    id: string,
-    surfaceId: string,
-  ): ChatMessageToolCall {
-    return {
-      id,
-      name: "document_create",
-      input: { title: "Notes" },
-      result: JSON.stringify({ surface_id: surfaceId, opened: true }),
-      completedAt: 1,
-    };
-  }
-
-  /**
-   * The inline `document_preview` surface `document_create` emits alongside its
-   * result. The card carries its own `preview-` surface id; the document it
-   * opens rides in `data.surfaceId`.
-   */
-  function documentPreviewBlock(surfaceId: string): ConversationContentBlock {
-    return {
-      type: "surface",
-      surface: {
-        surfaceId: `preview-${surfaceId}`,
-        surfaceType: "document_preview",
-        title: "Notes",
-        data: { title: "Notes", surfaceId, subtitle: "Document" },
-      },
-    };
-  }
-
-  /** A turn that runs `toolCalls` and renders `surfaceBlocks` between them. */
-  function surfaceTurn(
-    toolCalls: ChatMessageToolCall[],
-    surfaceBlocks: ConversationContentBlock[],
-  ) {
-    return render(
-      <TranscriptMessageBody
-        message={{
-          id: "m-doc-surface-turn",
-          role: "assistant",
-          contentBlocks: [
-            textBlock("Writing your notes."),
-            ...toolCalls.map(toolUseBlock),
-            ...surfaceBlocks,
-            textBlock("Done."),
-          ],
-          toolCalls,
-          timestamp: 1_000,
-        }}
-        conversationId={DOC_CONVERSATION_ID}
-        assistantId={DOC_ASSISTANT_ID}
-        onOpenDocument={onOpenDocumentMock}
-        onSurfaceAction={noop}
-      />,
-    );
-  }
-
-  test("renders no reopen link for a document its inline preview card already opens", () => {
-    const { container } = surfaceTurn(
-      [documentCreateCall("tc-doc", "surf-notes")],
-      [documentPreviewBlock("surf-notes")],
-    );
-
-    // The card is the turn's only affordance for this document.
-    expect(
-      container.querySelector("[data-surface-id='preview-surf-notes']"),
-    ).not.toBeNull();
-    expect(reopenLinks(container).length).toBe(0);
-  });
-
-  test("renders a reopen link for a created document the turn then edits", () => {
-    const { container } = surfaceTurn(
-      [
-        documentCreateCall("tc-doc-a", "surf-notes"),
-        documentUpdateCall("tc-doc-b", "surf-notes"),
-      ],
-      [documentPreviewBlock("surf-notes")],
-    );
-
-    // The card renders where the create ran, above the writes that followed.
-    expect(
-      container.querySelector("[data-surface-id='preview-surf-notes']"),
-    ).not.toBeNull();
-    expect(reopenSurfaceIds(container)).toEqual(["surf-notes"]);
-  });
-
-  test("renders a reopen link for a changed document no preview card covers", () => {
-    const { container } = surfaceTurn(
-      [
-        documentCreateCall("tc-doc-a", "surf-notes"),
-        documentUpdateCall("tc-doc-b", "surf-plan"),
-      ],
-      [documentPreviewBlock("surf-notes")],
-    );
-
-    expect(reopenSurfaceIds(container)).toEqual(["surf-plan"]);
-  });
-
-  test("keeps the reopen link when a non-preview surface names the same id", () => {
-    const { container } = surfaceTurn(
-      [documentUpdateCall("tc-doc", "surf-notes")],
-      [
-        {
-          type: "surface",
-          surface: {
-            surfaceId: "card-1",
-            surfaceType: "card",
-            data: { surfaceId: "surf-notes" },
-          },
-        },
-      ],
-    );
-
-    expect(reopenSurfaceIds(container)).toEqual(["surf-notes"]);
   });
 });
