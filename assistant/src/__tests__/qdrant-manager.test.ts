@@ -104,6 +104,8 @@ describe("QdrantManager", () => {
       binaryName: "qdrant.exe",
       filename: "qdrant-x86_64-pc-windows-msvc.zip",
       format: "zip",
+      sha256:
+        "9d3b1d1fa58566bc71709347c4c9b83a0111d23a550daa93c3ee48e3150c4470",
     });
   });
 

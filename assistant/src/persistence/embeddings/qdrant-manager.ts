@@ -37,7 +37,12 @@ const STDERR_CAPTURE_LIMIT = 4_096;
 export function resolveQdrantReleaseAsset(
   os: NodeJS.Platform,
   cpu: string,
-): { binaryName: string; filename: string; format: "tar.gz" | "zip" } {
+): {
+  binaryName: string;
+  filename: string;
+  format: "tar.gz" | "zip";
+  sha256?: string;
+} {
   let target: string;
   if (os === "darwin" && cpu === "arm64") {
     target = "aarch64-apple-darwin";
@@ -52,6 +57,8 @@ export function resolveQdrantReleaseAsset(
       binaryName: "qdrant.exe",
       filename: "qdrant-x86_64-pc-windows-msvc.zip",
       format: "zip",
+      sha256:
+        "9d3b1d1fa58566bc71709347c4c9b83a0111d23a550daa93c3ee48e3150c4470",
     };
   } else {
     throw new Error(
@@ -222,10 +229,10 @@ export class QdrantManager {
 
     log.info({ url, binaryPath }, "Downloading Qdrant binary");
 
-    // Fetch the tarball and its SHA-256 checksum in parallel
+    // Fetch the archive and its SHA-256 checksum in parallel
     const [response, checksumResponse] = await Promise.all([
       fetch(url),
-      fetch(checksumUrl),
+      release.sha256 ? Promise.resolve(null) : fetch(checksumUrl),
     ]);
 
     if (!response.ok) {
@@ -236,9 +243,11 @@ export class QdrantManager {
 
     const archive = await response.arrayBuffer();
 
-    // Verify SHA-256 integrity if the checksum file is available
-    if (checksumResponse.ok) {
-      const checksumText = (await checksumResponse.text()).trim();
+    // Verify SHA-256 integrity if a pinned or published checksum is available
+    if (release.sha256 || checksumResponse?.ok) {
+      const checksumText = release.sha256
+        ? release.sha256
+        : (await checksumResponse!.text()).trim();
       // Checksum files contain "<hex>  <filename>" or just "<hex>"
       const expectedHash = checksumText.split(/\s+/)[0].toLowerCase();
       const actualHash = createHash("sha256")
@@ -254,8 +263,8 @@ export class QdrantManager {
       log.info({ hash: actualHash }, "Qdrant binary checksum verified");
     } else {
       log.warn(
-        { checksumUrl, status: checksumResponse.status },
-        "Could not fetch Qdrant checksum — skipping integrity check",
+        { checksumUrl, status: checksumResponse?.status },
+        "Could not fetch Qdrant checksum; skipping integrity check",
       );
     }
 
