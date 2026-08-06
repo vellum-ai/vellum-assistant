@@ -8,6 +8,10 @@
  * actually asked.
  */
 
+import { REMOTE_WEB_PAIRING_CODE_TTL_MS } from "@vellumai/service-contracts/remote-web-pairing";
+
+const CODE_TTL_MINUTES = Math.round(REMOTE_WEB_PAIRING_CODE_TTL_MS / 60_000);
+
 /**
  * Extract the `error.code` from a gateway JSON error envelope
  * (`{"error":{"code":...,"message":...}}`). Returns null when the body is not
@@ -45,7 +49,7 @@ export function formatWebApproveFailure(
       : "No such pairing code on";
   return [
     `${rejection} ${gatewayUrl} (assistant "${assistantReference}", environment "${envName}").`,
-    "Codes are minted by the gateway that serves the pair page, expire after 10 minutes, and are single-use.",
+    `Codes are minted by the gateway that serves the pair page, expire after ${CODE_TTL_MINUTES} minutes, and are single-use.`,
     "If the pair page came from a different assistant or environment (e.g. the desktop app's), re-run with that environment's VELLUM_ENVIRONMENT and that assistant's name.",
   ].join("\n");
 }

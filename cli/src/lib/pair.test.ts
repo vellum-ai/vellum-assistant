@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
+import { REMOTE_WEB_PAIRING_CODE_TTL_MS } from "@vellumai/service-contracts/remote-web-pairing";
+
 import { formatWebApproveFailure, parseGatewayErrorCode } from "./pair.js";
 
 const GATEWAY_URL = "http://127.0.0.1:20100";
 // Callers pass formatAssistantReference() output: display name plus stable ID.
 const ASSISTANT_REFERENCE = "example-assistant (asst_0123456789abcdef)";
 const ENV_NAME = "local";
+const TTL_NOTE = `expire after ${Math.round(REMOTE_WEB_PAIRING_CODE_TTL_MS / 60_000)} minutes`;
 
 describe("formatWebApproveFailure", () => {
   test("INVALID_USER_CODE names the gateway, assistant reference, and environment", () => {
@@ -29,7 +32,7 @@ describe("formatWebApproveFailure", () => {
       ENV_NAME,
       "INVALID_USER_CODE",
     );
-    expect(message).toContain("expire after 10 minutes");
+    expect(message).toContain(TTL_NOTE);
     expect(message).toContain("single-use");
     expect(message).toContain("different assistant or environment");
     expect(message).toContain("VELLUM_ENVIRONMENT");
@@ -43,14 +46,19 @@ describe("formatWebApproveFailure", () => {
       "EXPIRED_USER_CODE",
     );
     expect(message).toContain(`Pairing code expired on ${GATEWAY_URL}`);
-    expect(message).toContain("expire after 10 minutes");
+    expect(message).toContain(TTL_NOTE);
     expect(message).toContain("VELLUM_ENVIRONMENT");
   });
 
   test("unknown error codes return null so callers fall back to the generic HTTP error", () => {
     for (const code of ["RATE_LIMITED", "BAD_REQUEST", "", null]) {
       expect(
-        formatWebApproveFailure(GATEWAY_URL, ASSISTANT_REFERENCE, ENV_NAME, code),
+        formatWebApproveFailure(
+          GATEWAY_URL,
+          ASSISTANT_REFERENCE,
+          ENV_NAME,
+          code,
+        ),
       ).toBeNull();
     }
   });

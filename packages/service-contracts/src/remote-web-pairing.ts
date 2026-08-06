@@ -21,6 +21,12 @@
  * `Date#toISOString()`.
  */
 
+/**
+ * Pairing-challenge TTL in milliseconds (10 minutes): the gateway's challenge
+ * store enforces it and the `vellum pair` CLI renders it in user-facing copy.
+ */
+export const REMOTE_WEB_PAIRING_CODE_TTL_MS = 10 * 60 * 1000;
+
 /** `POST /v1/remote-web/pairing-challenge` request body. */
 export interface RemoteWebPairingChallengeRequest {
   /** Public https base URL the scanning device can reach the assistant at. */
