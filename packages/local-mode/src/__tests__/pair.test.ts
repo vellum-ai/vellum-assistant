@@ -8,6 +8,7 @@ import {
   connectImport,
   decodePairBundle,
   MAX_PAIR_BUNDLE_LENGTH,
+  MAX_PAIR_LABEL_LENGTH,
   pairAssistant,
   type PairBundle,
 } from "../pair";
@@ -59,6 +60,7 @@ describe("decodePairBundle", () => {
         refreshToken: "refresh",
         refreshTokenExpiresAt: 1893456000000,
         refreshAfter: "2026-07-01T00:00:00.000Z",
+        label: "Office Mac",
       }),
     );
 
@@ -72,8 +74,31 @@ describe("decodePairBundle", () => {
         refreshToken: "refresh",
         refreshTokenExpiresAt: 1893456000000,
         refreshAfter: "2026-07-01T00:00:00.000Z",
+        label: "Office Mac",
       },
     });
+  });
+
+  test("trims the label and drops an empty, oversized, or non-string one", () => {
+    const decode = (label: unknown): string | undefined => {
+      const result = decodePairBundle(
+        encodeBundle({
+          gatewayUrl: "http://10.0.0.5:7830",
+          token: "tok",
+          label,
+        }),
+      );
+      expect(result.ok).toBe(true);
+      return result.ok ? result.bundle.label : undefined;
+    };
+
+    const longest = "a".repeat(MAX_PAIR_LABEL_LENGTH);
+    expect(decode("  Office Mac  ")).toBe("Office Mac");
+    expect(decode(longest)).toBe(longest);
+    expect(decode("")).toBeUndefined();
+    expect(decode("   ")).toBeUndefined();
+    expect(decode(`${longest}a`)).toBeUndefined();
+    expect(decode(42)).toBeUndefined();
   });
 
   test("drops malformed optional fields instead of failing", () => {
@@ -155,7 +180,7 @@ describe("pairAssistant", () => {
     const entry = (onDisk.assistants as Array<Record<string, unknown>>)[0]!;
     expect(entry).toEqual({
       assistantId: "paired-dev-aaa",
-      name: "paired (10.0.0.5:7830)",
+      name: "Paired assistant",
       runtimeUrl: "http://10.0.0.5:7830",
       cloud: "paired",
       paired: true,
@@ -306,6 +331,40 @@ describe("pairAssistant", () => {
       return;
     }
     expect(result.accessOnly).toBe(true);
+  });
+
+  test("a bundle label becomes the display name without touching the id", () => {
+    const result = pairAssistant([lockfilePath], configDir, {
+      bundle: bundle({ label: "Office Mac", deviceId: "dev-lbl" }),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    // The label never feeds the id slug; only an explicit name does.
+    expect(result.assistantId).toBe("paired-dev-lbl");
+    const entry = (
+      readLockfileFromDisk().assistants as Array<Record<string, unknown>>
+    )[0]!;
+    expect(entry.name).toBe("Office Mac");
+  });
+
+  test("an explicit name wins over the bundle label and drives the id slug", () => {
+    const result = pairAssistant([lockfilePath], configDir, {
+      bundle: bundle({ label: "Office Mac" }),
+      name: "Desk Box",
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.assistantId).toBe("desk-box");
+    const entry = (
+      readLockfileFromDisk().assistants as Array<Record<string, unknown>>
+    )[0]!;
+    expect(entry.name).toBe("Desk Box");
   });
 
   test("a name is slugified into the id while the entry keeps the raw name", () => {
@@ -514,6 +573,36 @@ describe("connectImport", () => {
       paired: true,
       runtimeUrl: "https://gw.example.com",
     });
+  });
+
+  test("a bundle label names the entry; an oversized one still imports", () => {
+    const labeled = connectImport([lockfilePath], configDir, {
+      bundle: encodeBundle({
+        gatewayUrl: "https://gw.example.com",
+        token: "tok",
+        deviceId: "dev-lbl",
+        label: "Office Mac",
+      }),
+    });
+    expect(labeled.ok).toBe(true);
+
+    const oversized = connectImport([lockfilePath], configDir, {
+      bundle: encodeBundle({
+        gatewayUrl: "https://gw.example.com",
+        token: "tok",
+        deviceId: "dev-big",
+        label: "a".repeat(MAX_PAIR_LABEL_LENGTH + 1),
+      }),
+    });
+    expect(oversized.ok).toBe(true);
+
+    const names = (
+      readLockfileFromDisk().assistants as Array<Record<string, unknown>>
+    ).map((a) => [a.assistantId, a.name]);
+    expect(names).toEqual([
+      ["paired-dev-lbl", "Office Mac"],
+      ["paired-dev-big", "Paired assistant"],
+    ]);
   });
 
   test("a missing, empty, or non-string bundle is a 400", () => {

@@ -28,11 +28,18 @@ export interface PairBundle {
   refreshToken?: string;
   refreshTokenExpiresAt?: string | number;
   refreshAfter?: string;
+  // Optional display name from `vellum pair --label`, used as the imported
+  // entry's name when the importer doesn't supply one. Never feeds the local
+  // id derivation.
+  label?: string;
 }
 
 export type DecodePairBundleResult =
   | { ok: true; bundle: PairBundle }
   | { ok: false; error: string };
+
+/** Longest bundle label kept on import; longer ones are dropped, not fatal. */
+export const MAX_PAIR_LABEL_LENGTH = 64;
 
 /**
  * Decode and validate a base64 pairing bundle. Total and non-throwing:
@@ -64,6 +71,10 @@ export function decodePairBundle(encoded: string): DecodePairBundleResult {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     return { ok: false, error: "Bundle gatewayUrl is not an http(s) URL" };
   }
+  // Dropped (not a bundle failure) when empty or oversized: the label is
+  // cosmetic, so a bad one degrades to the default name rather than refusing
+  // an otherwise valid pairing.
+  const label = typeof b.label === "string" ? b.label.trim() : "";
   return {
     ok: true,
     bundle: {
@@ -81,6 +92,7 @@ export function decodePairBundle(encoded: string): DecodePairBundleResult {
           : undefined,
       refreshAfter:
         typeof b.refreshAfter === "string" ? b.refreshAfter : undefined,
+      label: label && label.length <= MAX_PAIR_LABEL_LENGTH ? label : undefined,
     },
   };
 }
@@ -148,9 +160,8 @@ export function pairAssistant(
   configDir: string,
   { bundle, name }: PairOptions,
 ): PairResult {
-  let gatewayHost: string;
   try {
-    gatewayHost = new URL(bundle.gatewayUrl).host;
+    new URL(bundle.gatewayUrl);
   } catch {
     return {
       ok: false,
@@ -251,7 +262,9 @@ export function pairAssistant(
     lockfilePaths,
     {
       assistantId: localId,
-      name: name ?? `paired (${gatewayHost})`,
+      // Host-free display name: renderers append their own `Paired · <host>`
+      // suffix (pairedHostLabel), so the host must not appear here too.
+      name: name ?? bundle.label ?? "Paired assistant",
       runtimeUrl: bundle.gatewayUrl,
       // Paired entries are reached by bearer token at the remote runtimeUrl
       // (a non-"vellum" cloud selects the bearer-token auth path in client.ts).

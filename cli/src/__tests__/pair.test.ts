@@ -11,9 +11,13 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// Real assistant-config reads the lockfile from VELLUM_LOCKFILE_DIR.
+// Real assistant-config reads the lockfile from VELLUM_LOCKFILE_DIR. The
+// XDG redirect keeps a developer's `~/.config/vellum/environment` selection
+// from repointing the lockfile name away from the one written below.
 const testDir = mkdtempSync(join(tmpdir(), "pair-command-test-"));
 process.env.VELLUM_LOCKFILE_DIR = testDir;
+const ORIGINAL_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
+process.env.XDG_CONFIG_HOME = testDir;
 
 import { buildAppConnectUrl, pair } from "../commands/pair.js";
 
@@ -55,6 +59,11 @@ describe("pair command", () => {
   afterAll(() => {
     rmSync(testDir, { recursive: true, force: true });
     delete process.env.VELLUM_LOCKFILE_DIR;
+    if (ORIGINAL_CONFIG_HOME === undefined) {
+      delete process.env.XDG_CONFIG_HOME;
+    } else {
+      process.env.XDG_CONFIG_HOME = ORIGINAL_CONFIG_HOME;
+    }
   });
 
   test("POSTs a cli device-bound pair request and prints a decodable bundle", async () => {
@@ -111,6 +120,40 @@ describe("pair command", () => {
     expect(out.assistantId).toBe("self");
     expect(out.token).toBe("test-access-token");
     expect(out.deviceId).toBe(body.deviceId);
+    // No --label, so the bundle carries no label key at all.
+    expect("label" in out).toBe(false);
+  });
+
+  test("--label is carried in the bundle for the importer's display name", async () => {
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          token: "t",
+          expiresAt: "2026-06-04T00:00:00.000Z",
+          guardianId: "g",
+          assistantId: "self",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )) as unknown as typeof fetch;
+
+    const logs: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation(
+      (...a: unknown[]) => {
+        logs.push(a.join(" "));
+      },
+    );
+
+    process.argv = ["bun", "vellum", "pair", "--label", "Office Mac", "--json"];
+    try {
+      await pair();
+    } finally {
+      logSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    const out = JSON.parse(logs.join("\n"));
+    expect(out.label).toBe("Office Mac");
   });
 
   test("resolves an unquoted multi-word display name", async () => {

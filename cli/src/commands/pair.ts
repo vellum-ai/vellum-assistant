@@ -89,7 +89,8 @@ ARGUMENTS:
 OPTIONS:
     --url <url>      Reachable gateway URL to advertise in the bundle
                     (default: the assistant's runtime URL, not loopback)
-    --label <name>   Human label for this pairing (echoed in the output)
+    --label <name>   Human label for this pairing, carried in the bundle and
+                    used as the imported assistant's display name
     --web            Create a browser pairing URL for remote web access
     --web-approve <code>
                     Approve a browser pairing code shown by /assistant/pair
@@ -567,6 +568,9 @@ export async function pair(): Promise<void> {
     assistantId: result.assistantId,
     token: result.token,
     deviceId,
+    // The importer uses the label as the entry's display name when no
+    // explicit name is given at import time.
+    ...(label ? { label } : {}),
     // Carry the refresh credential through when the gateway issued one, so the
     // imported client can renew without re-pairing. Omitted entirely for an
     // access-only (older gateway) response so the bundle stays clean.
