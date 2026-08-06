@@ -1,7 +1,7 @@
 {
   "name": "vellum-preview-handler",
   "version-string": "0.1.0",
-  "builtin-baseline": "39344dff01c5a5a0134caf2624cdd492f05d30ea",
+  "builtin-baseline": "a51bb4d1434e6d0927ff79db8033bed8522b85df",
   "dependencies": ["nlohmann-json", "zlib"],
   "overrides": [
     { "name": "nlohmann-json", "version": "3.12.0", "port-version": 2 },
