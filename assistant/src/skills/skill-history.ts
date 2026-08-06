@@ -84,6 +84,38 @@ export interface SkillHistory {
 const FIELD = "\u001f";
 
 /**
+ * Diff options that must accompany EVERY git read here.
+ *
+ * `git show` and `git diff` honour repository-controlled helpers by default:
+ * a `.gitattributes` entry can select a diff driver, and a `diff.<driver>.
+ * textconv` or `diff.<driver>.command` setting names a program git then
+ * EXECUTES while rendering the patch. Workspace files and git metadata are
+ * writable by model and tool paths, so without these flags merely viewing a
+ * skill's history would run whatever the workspace asked for, inside the
+ * daemon, on behalf of any caller holding `settings.read` (ATL-1238).
+ *
+ * Applied through `readGit` rather than at each call site, so a future reader
+ * cannot add a git invocation that quietly omits them.
+ */
+const DIFF_HARDENING = ["--no-textconv", "--no-ext-diff"];
+
+/**
+ * Run one hardened, non-initializing git read. The subcommand is passed
+ * separately because the hardening flags have to follow it.
+ */
+async function readGit(
+  git: ReturnType<typeof getWorkspaceGitService>,
+  subcommand: "log" | "show",
+  args: string[],
+): Promise<{ stdout: string; stderr: string }> {
+  return git.runReadOnlyGitWithoutInit([
+    subcommand,
+    ...DIFF_HARDENING,
+    ...args,
+  ]);
+}
+
+/**
  * Read a skill's recent revisions from workspace git.
  *
  * Returns an empty history rather than throwing when git is unavailable, the
@@ -127,8 +159,7 @@ export async function getSkillHistory(
 
   let shas: Array<{ sha: string; changedAt: string }>;
   try {
-    const { stdout } = await git.runReadOnlyGitWithoutInit([
-      "log",
+    const { stdout } = await readGit(git, "log", [
       // Committer date, not author date. `git log` orders by commit date, so
       // reporting the author date could label the list newest-first while its
       // displayed dates disagree with that order.
@@ -163,15 +194,8 @@ export async function getSkillHistory(
     let files: string[];
     try {
       const [diffResult, nameResult] = await Promise.all([
-        git.runReadOnlyGitWithoutInit([
-          "show",
-          "--format=",
-          sha,
-          "--",
-          ...pathspec,
-        ]),
-        git.runReadOnlyGitWithoutInit([
-          "show",
+        readGit(git, "show", ["--format=", sha, "--", ...pathspec]),
+        readGit(git, "show", [
           "--format=",
           "--name-only",
           sha,
@@ -214,8 +238,7 @@ async function hasCompactedHistory(
   git: ReturnType<typeof getWorkspaceGitService>,
 ): Promise<boolean> {
   try {
-    const { stdout } = await git.runReadOnlyGitWithoutInit([
-      "log",
+    const { stdout } = await readGit(git, "log", [
       "--format=%s",
       "--max-count=1",
       "--grep=Compacted workspace history",
