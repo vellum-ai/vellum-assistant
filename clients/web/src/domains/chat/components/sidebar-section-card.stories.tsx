@@ -12,7 +12,6 @@
  */
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Folder } from "lucide-react";
 
 import { cn } from "@vellumai/design-library";
 
@@ -171,12 +170,20 @@ export const Pinned: Story = {
   ),
 };
 
-/** A custom group, collapsed, carrying its unread dot in the header. */
+/**
+ * A custom group, collapsed, carrying its unread dot in the header.
+ *
+ * No leading icon: `CollapsibleNavSection.Section` renders `icon` only in its
+ * non-collapsible branch, so a collapsible section drops it. The design gives
+ * custom groups a folder glyph, which means the shared section component needs
+ * to render icons on collapsible headers before these cards can show one. That
+ * is a change to a component the current sidebar renders through, so it is
+ * tracked separately rather than folded into this presentational slice.
+ */
 export const CollapsedGroup: Story = {
   args: {
     value: "car-chat",
     label: "Car Chat",
-    icon: Folder,
     items: [],
     collapsedIndicator: <GroupIndicatorDot state="unread" />,
     groupMenu: GROUP_MENU,
@@ -252,7 +259,6 @@ export const Composed: Story = {
       <SidebarSectionCard
         value="car-chat"
         label="Car Chat"
-        icon={Folder}
         items={[]}
         collapsedIndicator={<GroupIndicatorDot state="unread" />}
         groupMenu={GROUP_MENU}

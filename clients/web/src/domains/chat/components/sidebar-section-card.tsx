@@ -6,10 +6,10 @@
  *
  * This component owns *only* the card surface. The header, chevron, collapse
  * behavior, collapsed-only indicator, row list, and drag-to-reorder all come
- * from {@link ConversationNavSection}, which every sidebar section already
- * uses. Anything that belongs to "a sidebar section" belongs there, not here,
- * so the card and the sections it replaces can never drift in typography,
- * geometry, or pointer behavior.
+ * from {@link ConversationNavSection}. Anything that belongs to "a sidebar
+ * section" belongs there, not here, so every section reads identically in
+ * typography, geometry, and pointer behavior whether or not it sits on a
+ * card.
  *
  * That layer is also what keeps the two menus distinct. A section's own
  * actions (mark all read, archive all, rename, delete, reorder) come from a
