@@ -33,6 +33,7 @@ import {
   type DocumentViewerContainerHandle,
 } from "./components/document-viewer-container";
 import { useDocumentCommentEvents } from "./hooks/use-document-comment-events";
+import { useUnseenDocumentChangesStore } from "./unseen-document-changes-store";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -75,6 +76,11 @@ export function DocumentViewerPage() {
           return;
         }
         setDoc(result);
+        // This route is a second way into a document, separate from the
+        // in-chat viewer, so it clears the unseen record itself.
+        useUnseenDocumentChangesStore
+          .getState()
+          .clearDocumentEverywhere(surfaceId);
       } catch {
         if (!cancelled) {
           setError("Failed to load document.");

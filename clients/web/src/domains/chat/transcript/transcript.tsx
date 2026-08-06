@@ -10,7 +10,9 @@ import {
 } from "react";
 
 import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn";
+import { resolveResponseDocumentIds } from "@/domains/chat/transcript/resolve-response-documents";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
+import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 
 import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row";
 import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinner";
@@ -197,6 +199,18 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       ? -1
       : partition.historyItems.findLastIndex((item) => item.kind === "message");
 
+    // A document a response changed earns one reopen link at the end of that
+    // response, not one per message that wrote to it. Resolved here because
+    // this is where the flat item list is read as turns; the in-flight response
+    // is withheld until the turn settles, `awaiting_user_input` included, so a
+    // paused turn never reads as finished.
+    const turnPhase = useTurnStore.use.phase();
+    const turnActive = isSending(turnPhase);
+    const changedDocumentIdsByKey = useMemo(
+      () => resolveResponseDocumentIds(items, { turnActive }),
+      [items, turnActive],
+    );
+
     useImperativeHandle(
       ref,
       (): TranscriptHandle => ({
@@ -316,6 +330,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
                 <TranscriptRow
                   item={item}
                   {...rowProps}
+                  changedDocumentIds={changedDocumentIdsByKey.get(item.key)}
                   isLatestMessage={i === latestHistoryMessageIndex}
                 />
               </div>
@@ -365,6 +380,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
                   anchorMessage={partition.anchorMessage}
                   responseItems={partition.responseItems}
                   {...rowProps}
+                  changedDocumentIdsByKey={changedDocumentIdsByKey}
                 />
               )}
               {rest.renderAvatar && (

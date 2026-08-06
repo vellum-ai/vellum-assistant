@@ -25219,8 +25219,9 @@ paths:
         per conversation after activity (time/message thresholds, pre-compaction) — there is no global schedule, so
         `nextRunAt` is always null and no run-now endpoint exists. `intervalMs` is the per-conversation time threshold
         (`memory.retrospective.timeThresholdMs`), `lastRunAt` is the `createdAt` of the most recent retrospective
-        conversation across both legacy and fork sources, and `available` gates on `memory.enabled` (not
-        `memory.v2.enabled`).
+        conversation across both legacy and fork sources, `available` gates on `memory.enabled` (not
+        `memory.v2.enabled`), and `enabled` narrows that by `memory.retrospective.enabled`, the per-pass kill switch
+        that stops retrospectives without disabling the rest of memory.
       tags:
         - retrospective
       responses:
@@ -29404,6 +29405,73 @@ paths:
                   - mimeType
                   - isBinary
                   - content
+                additionalProperties: false
+  /v1/skills/{id}/history:
+    get:
+      operationId: skills_by_id_history_get
+      summary: Get skill revision history
+      description:
+        "Return a skill's recent updates, newest first, each with a combined diff across the skill directory.
+        Read-only: revisions come from the workspace git repository, which already retains prior content. Commits whose
+        only in-skill change is the `lastUsedAt` usage stamp are omitted, so entries are edits rather than loads."
+      tags:
+        - skills
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Maximum revisions to return, newest first. Defaults to 20 and is clamped to 100.
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skillId:
+                    type: string
+                    description: The skill these revisions belong to
+                  revisions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          description: Opaque revision identifier
+                        changedAt:
+                          type: string
+                          description: ISO-8601 time of the update
+                        files:
+                          type: array
+                          items:
+                            type: string
+                          description: Paths changed, relative to the skill directory
+                        diff:
+                          type: string
+                          description: Unified diff of this update, scoped to the skill
+                      required:
+                        - id
+                        - changedAt
+                        - files
+                        - diff
+                      additionalProperties: false
+                    description: Recent updates, newest first
+                  truncatedByCompaction:
+                    type: boolean
+                    description: Older history was squashed away, so the oldest entry is a floor rather than the skill's creation
+                required:
+                  - skillId
+                  - revisions
+                  - truncatedByCompaction
                 additionalProperties: false
   /v1/skills/{id}/inspect:
     get:

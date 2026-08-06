@@ -173,6 +173,13 @@ export {
   CredentialResolutionError,
   resolveCredential,
 } from "./resolve-credential.js";
+// Resolve the public URL a third party should deliver to for one of the
+// plugin's own ingress routes. Which URL is correct depends on how the
+// assistant is reachable (a managed platform callback route, or a configured
+// public ingress), and `ingress.publicBaseUrl` alone does not decide it. Uses
+// the same resolution as `webhooks register`, and registers the callback route
+// on the managed branches. The plugin defaults to the one in context.
+export { resolveWebhookUrl, type WebhookUrlOptions } from "./webhook-url.js";
 // Resolve a provider for a call site (optionally overriding the profile) so a
 // plugin can run inference through the workspace's configured profiles and
 // credentials — managed-proxy or BYOK — without supplying its own API key.

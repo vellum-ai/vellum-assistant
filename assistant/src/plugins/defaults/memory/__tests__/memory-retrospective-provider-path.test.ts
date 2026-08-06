@@ -372,6 +372,7 @@ function makeConfig(): Parameters<typeof memoryRetrospectiveJob>[1] {
     memory: {
       v2: { enabled: true },
       retrospective: {
+        enabled: true,
         keepSupersededRuns: false,
         matchConversationProfile: false,
         promptPath: null,

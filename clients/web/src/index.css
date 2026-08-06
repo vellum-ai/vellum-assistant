@@ -268,6 +268,28 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   border-radius: var(--radius-lg);
 }
 
+/* Unseen-changes dot attention pulse, applied when the dot appears so a
+ * change landing while the user reads the transcript is noticeable. Bounded
+ * on purpose: this dot lives in a persistent header, where anything looping
+ * forever reads as noise. It needs no fill mode because the last keyframe is
+ * already the resting style. The consumer also holds it static via
+ * useReducedMotion; the media query is defense-in-depth for callers that
+ * don't. */
+@keyframes unseen-dot-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.35); }
+}
+
+.unseen-dot-pulse {
+  animation: unseen-dot-pulse 0.6s ease-in-out 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .unseen-dot-pulse {
+    animation: none;
+  }
+}
+
 /* Streamed word fade — applied by `rehypeStreamWordFade` to each word of the
  * actively-streaming assistant message's trailing text. The plugin grades the
  * words nearest the reveal edge with inline opacities; this transition is

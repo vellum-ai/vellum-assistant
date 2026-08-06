@@ -10,6 +10,7 @@
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import type { ChannelId } from "../channels/types.js";
 import { cleanupBootstrapFiles } from "../prompts/bootstrap-cleanup.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { getLogger } from "../util/logger.js";
@@ -162,6 +163,17 @@ export function getOrCreateConversation(
      * untouched. Ignored when the conversation already exists.
      */
     title?: string;
+    /**
+     * The channel this conversation originates on, stamped into
+     * `origin_channel` when this call creates the row.
+     *
+     * This is the principal inbound materialization seam, so it is where a
+     * channel conversation gets its provenance. Callers that resolve a
+     * source channel before reaching here already hold the value; omitting
+     * it leaves the column unset for first-message attribution, which is
+     * what every caller did before this option existed.
+     */
+    origin?: ChannelId;
   },
 ): {
   conversationId: string;
@@ -259,6 +271,7 @@ export function getOrCreateConversation(
         contextCompactedMessageCount: 0,
         contextCompactedAt: null,
         conversationType,
+        originChannel: opts?.origin ?? null,
       })
       .run();
 
@@ -280,12 +293,13 @@ export function getOrCreateConversation(
         title,
         createdAt: now,
         conversationType,
+        originChannel: opts?.origin ?? null,
       },
     };
   });
 
   if (result.created) {
-    initConversationDir({ ...result.conversation, originChannel: null });
+    initConversationDir(result.conversation);
     // Attribution for every key-materialized conversation: this is the single
     // choke point through which all unseen-key creations flow, and the key
     // shape + caller frames identify the entry point from the log alone. The

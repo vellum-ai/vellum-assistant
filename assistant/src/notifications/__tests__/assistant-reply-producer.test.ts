@@ -135,6 +135,7 @@ function makeConversation(
     originInterface: null,
     forkParentConversationId: null,
     forkParentMessageId: null,
+    forkStrategy: null,
     isAutoTitle: 0,
     scheduleJobId: null,
     lastMessageAt: null,

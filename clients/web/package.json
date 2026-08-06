@@ -70,6 +70,7 @@
     "@tiptap/starter-kit": "3.23.5",
     "@vellumai/assistant-api": "workspace:*",
     "@vellumai/design-library": "workspace:*",
+    "@vellumai/environments": "workspace:*",
     "@vellumai/ipc-contract": "workspace:*",
     "@vellumai/local-mode": "workspace:*",
     "@vellumai/service-contracts": "workspace:*",

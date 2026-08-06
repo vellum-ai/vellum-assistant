@@ -5,8 +5,9 @@ import WebKit
 /// Custom `CAPBridgeViewController` subclass that:
 ///
 /// 1. Registers `NativeAuthPlugin`, `NativeBiometricPlugin`,
-///    `VoiceAudioSessionPlugin`, `VoiceLiveActivityPlugin`, and
-///    `ApnsEnvironmentPlugin` as local plugin instances at bridge init time.
+///    `VoiceAudioSessionPlugin`, `VoiceLiveActivityPlugin`,
+///    `ApnsEnvironmentPlugin`, and `SelfHostedServersPlugin` as local plugin
+///    instances at bridge init time.
 ///    These plugins live inside the App target (no SPM module) so the bridge
 ///    won't discover them automatically.
 ///
@@ -55,6 +56,12 @@ class MyViewController: CAPBridgeViewController {
     /// any self-hosted override is applied so a cleared preference and the "Use
     /// Vellum Cloud" fallback can always return here.
     private var bakedServerURL: URL?
+
+    /// The baked Vellum Cloud URL as a string, exposed for the
+    /// `SelfHostedServers` plugin's `list` result.
+    var bakedServerURLString: String? {
+        return bakedServerURL?.absoluteString
+    }
 
     /// Retains the navigation-delegate decorator. Capacitor stores its
     /// `navigationDelegate` weakly, so the proxy must be owned here to stay
@@ -160,6 +167,7 @@ class MyViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(VoiceAudioSessionPlugin())
         bridge?.registerPluginInstance(VoiceLiveActivityPlugin())
         bridge?.registerPluginInstance(ApnsEnvironmentPlugin())
+        bridge?.registerPluginInstance(SelfHostedServersPlugin())
         installNavigationDelegateProxy()
         installInputZoomPreventionUserScript()
         installViewportZoomLockUserScript()
@@ -191,12 +199,12 @@ class MyViewController: CAPBridgeViewController {
     /// useful offline state.
     @objc private func reloadIfConfiguredOriginChanged() {
         let destination = SelfHostedServer.configuredURL() ?? bakedServerURL
-        guard let destination else { return }
-        guard destination.absoluteString != appliedServerURL?.absoluteString else {
+        guard let destination,
+              destination.absoluteString != appliedServerURL?.absoluteString
+        else {
             return
         }
-        appliedServerURL = destination
-        webView?.load(URLRequest(url: destination))
+        applyConfiguredOrigin()
     }
 
     /// Apply any deep link that arrived before the web view was ready. A cold
@@ -217,6 +225,17 @@ class MyViewController: CAPBridgeViewController {
     /// re-detected as a change on the next foreground.
     func bindServerTrackingToConfiguredOrigin() {
         appliedServerURL = SelfHostedServer.configuredURL() ?? bakedServerURL
+    }
+
+    /// Load the effective server URL (the configured self-hosted origin or the
+    /// baked default) and re-arm foreground change detection against it. Backs
+    /// the `SelfHostedServers` plugin's `switchTo`; must run on the main queue.
+    func applyConfiguredOrigin() {
+        bindServerTrackingToConfiguredOrigin()
+        guard let destination = appliedServerURL else {
+            return
+        }
+        webView?.load(URLRequest(url: destination))
     }
 
     // MARK: - Quote-and-reply edit menu

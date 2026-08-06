@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, mock, test } from "bun:test";
-import { screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 
 import {
   CHECKOUT,
@@ -84,5 +84,70 @@ describe("LoginPage native split", () => {
 
     expect(screen.getByText("Sign in")).toBeTruthy();
     expect(screen.queryByText("Sign in to Vellum")).toBeNull();
+  });
+});
+
+/**
+ * What the user is left looking at when the platform refuses the sign-in — the
+ * failure they report as "I tried to log in and it errored right away". The
+ * refusal happens in the session exchange that runs after the auth sheet
+ * closes, and the native shell names its cause in `data.authError`.
+ */
+describe("LoginPage native sign-in failures", () => {
+  setupAuthEntry();
+
+  const nativeRejection = (code: string, data?: Record<string, unknown>) =>
+    Object.assign(new Error("rejected"), { code, ...(data ? { data } : {}) });
+
+  const signIn = () => {
+    authEntry.native = true;
+    renderAuthEntry(LoginPage, ROUTE, entryUrl(ROUTE, CHECKOUT));
+    fireEvent.click(screen.getByText("Sign in"));
+  };
+
+  test("a closed signup is explained, not reported as a generic glitch", async () => {
+    authEntry.nativeLoginError = nativeRejection("AUTH_ERROR", {
+      authError: "signup_closed",
+    });
+    signIn();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Sign-ups are currently closed/)).toBeTruthy();
+    });
+    expect(screen.queryByText(/Something went wrong/)).toBeNull();
+  });
+
+  test("an unlinked provider account says an account is needed first", async () => {
+    authEntry.nativeLoginError = nativeRejection("AUTH_ERROR", {
+      authError: "provider_signup",
+    });
+    signIn();
+
+    await waitFor(() => {
+      expect(screen.getByText(/No Vellum account is linked/)).toBeTruthy();
+    });
+  });
+
+  test("an unclassified failure still falls back to the generic message", async () => {
+    authEntry.nativeLoginError = new Error("Failed to fetch");
+    signIn();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Something went wrong/)).toBeTruthy();
+    });
+  });
+
+  test("a dismissed auth sheet shows no error at all", async () => {
+    authEntry.nativeLoginError = nativeRejection("USER_CANCELLED");
+    signIn();
+
+    // The CTA re-enables, so the dismissal has been processed rather than
+    // simply not having landed yet.
+    await waitFor(() => {
+      expect(screen.getByText("Sign in").closest("button")?.disabled).toBe(
+        false,
+      );
+    });
+    expect(screen.queryByText(/Something went wrong/)).toBeNull();
   });
 });

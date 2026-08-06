@@ -1,4 +1,4 @@
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 
 interface ProfileOption {
   value: string;
@@ -50,7 +50,7 @@ export function AdvisorProfileRow({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Dropdown
+          <Select
             value={value}
             onChange={onChange}
             options={profileOptions}

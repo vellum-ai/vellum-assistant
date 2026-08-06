@@ -40,6 +40,10 @@ import type {
   TextInsertionResult,
   UpdateState,
   VellumCommand,
+  VoiceActivityContent,
+  VoiceActivityControl,
+  VoiceActivityStart,
+  VoiceActivityState,
 } from "./types";
 
 /**
@@ -282,6 +286,27 @@ export interface VellumBridge {
     requestStop(): void;
     onStopRequested(callback: () => void): () => void;
     setInteractive(interactive: boolean): void;
+  };
+  /**
+   * The floating live-voice session surface (macOS). Two renderers use
+   * different halves: the main window drives `start`/`update`/`end` and
+   * listens for `onControl`; the panel's own route reads `getState`/`onState`
+   * and sends `control`.
+   */
+  voiceActivity: {
+    start(state: VoiceActivityStart): void;
+    update(content: VoiceActivityContent): void;
+    end(): void;
+    getState(): Promise<VoiceActivityState | null>;
+    onState(callback: (state: VoiceActivityState | null) => void): () => void;
+    control(control: VoiceActivityControl): void;
+    onControl(callback: (control: VoiceActivityControl) => void): () => void;
+    /** Bring the app forward, the panel's way back to the conversation. */
+    activate(): void;
+    /** Hide the window. The session keeps running. */
+    dismiss(): void;
+    /** Shrink to the chip, or restore. */
+    setCollapsed(collapsed: boolean): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;

@@ -3,7 +3,7 @@ import { decideGuardianRequest } from "../../channels/gateway-guardian-requests.
 import {
   clearAll,
   getConversation,
-  isHiddenMessageMetadata,
+  isSuppressedQueuedMessage,
 } from "../../persistence/conversation-crud.js";
 import { resolveConversationId } from "../../persistence/conversation-key-store.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
@@ -283,7 +283,9 @@ function mayActOnQueuedMessage(
  * `message_queued_deleted`. It is the counterpart to the `message_queued` ack
  * and the only signal that closes out a queued row that never runs: without it
  * a client that didn't originate the delete leaves the pending indicator up
- * forever, since no `message_dequeued` is ever coming. Hidden sends are
+ * forever, since no `message_dequeued` is ever coming. Rows with no
+ * client-visible queued counterpart ({@link isSuppressedQueuedMessage} —
+ * hidden sends and daemon-injected subagent/ACP/wake notifications) are
  * suppressed for the same reason they get no ack: they have no client row to
  * close.
  */
@@ -325,7 +327,7 @@ export function deleteQueuedMessage(
     return { removed: false, reason: "forbidden" };
   }
   conversation.removeQueuedMessage(requestId);
-  if (!isHiddenMessageMetadata(queued.metadata)) {
+  if (!isSuppressedQueuedMessage(queued.metadata)) {
     queued.onEvent({
       type: "message_queued_deleted",
       conversationId,

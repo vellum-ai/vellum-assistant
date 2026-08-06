@@ -342,6 +342,23 @@ export const routeTree = [
     },
   },
 
+  // Voice activity panel: the floating live-voice session surface rendered
+  // inside the Electron window that shows for the length of a session (the
+  // desktop counterpart to the iOS Dynamic Island).
+  // Standalone like the dictation overlay: outside auth middleware and
+  // RootLayout so it paints as soon as the window opens.
+  {
+    path: "/assistant/floating/voice-activity",
+    ErrorBoundary: RouteErrorBoundary,
+    HydrateFallback: RootHydrateFallback,
+    lazy: {
+      Component: () =>
+        import("@/components/voice-activity-panel-page").then(
+          (m) => m.VoiceActivityPanelPage,
+        ),
+    },
+  },
+
   // Dictation overlay — live transcription pill rendered inside the
   // Electron dictation overlay BrowserWindow (a floating panel pinned
   // top-center of the screen while push-to-talk dictation is active).

@@ -9,8 +9,10 @@ import { memoryStatsOptions } from "@/domains/intelligence/memory-graph/get-memo
 import {
   appsGetQueryKey,
   configGetQueryKey,
+  documentsGetQueryKey,
   homeFeedGetQueryKey,
   homeStateGetQueryKey,
+  configLlmCallsitesGetQueryKey,
   inferenceProfilesGetQueryKey,
   pluginsGetQueryKey,
   pluginsSearchGetQueryKey,
@@ -39,6 +41,35 @@ function freshQueryClient(): QueryClient {
     defaultOptions: { queries: { retry: false } },
   });
 }
+
+type QueryPredicate = (query: { queryKey: readonly unknown[] }) => boolean;
+
+/**
+ * Swaps `invalidateQueries` for a capture that records every predicate handed
+ * to it, so a test can ask which query keys the hook claimed.
+ */
+function capturePredicates(queryClient: QueryClient): QueryPredicate[] {
+  const predicates: QueryPredicate[] = [];
+  queryClient.invalidateQueries = ((arg: unknown) => {
+    const predicate = (arg as { predicate?: QueryPredicate }).predicate;
+    if (predicate) {
+      predicates.push(predicate);
+    }
+    return Promise.resolve();
+  }) as never;
+  return predicates;
+}
+
+/** The shape `domains/library/use-library-data.ts` reads documents under. */
+const LIBRARY_DOCUMENTS_KEY = documentsGetQueryKey({
+  path: { assistant_id: "asst-1" },
+});
+
+/** The shape `domains/chat/components/conversation-assets-pill.tsx` reads under. */
+const CONVERSATION_DOCUMENTS_KEY = documentsGetQueryKey({
+  path: { assistant_id: "asst-1" },
+  query: { conversationId: "convo-1" },
+});
 
 function syncEvent(tags: string[]): SyncChangedEvent {
   return { type: "sync_changed", tags };
@@ -146,6 +177,7 @@ describe("useAssistantResourceSync", () => {
         expect.arrayContaining([
           configGetQueryKey(pathOpts),
           inferenceProfilesGetQueryKey(pathOpts),
+          configLlmCallsitesGetQueryKey(pathOpts),
           soundsConfigGetQueryKey(pathOpts),
           schedulesGetQueryKey(pathOpts),
           [
@@ -227,16 +259,16 @@ describe("useAssistantResourceSync", () => {
     renderHook(() => useAssistantResourceSync("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    emit((syncEvent([SYNC_TAGS.assistantConfig]) as unknown) as AssistantEvent);
+    emit(syncEvent([SYNC_TAGS.assistantConfig]) as unknown as AssistantEvent);
     await waitFor(() => {
       const queryKeys = calls.map(
-        ([arg]) => (arg as { queryKey: readonly unknown[] }).queryKey
+        ([arg]) => (arg as { queryKey: readonly unknown[] }).queryKey,
       );
       expect(queryKeys).toEqual(
         expect.arrayContaining([
           memoryGraphOptions("asst-1").queryKey,
           memoryStatsOptions("asst-1").queryKey,
-        ]) as never
+        ]) as never,
       );
     });
   });
@@ -258,13 +290,13 @@ describe("useAssistantResourceSync", () => {
     publish("sse.opened", { assistantId: "asst-1", cause: "error" });
     await waitFor(() => {
       const queryKeys = calls.map(
-        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey
+        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey,
       );
       expect(queryKeys).toEqual(
         expect.arrayContaining([
           memoryGraphOptions("asst-1").queryKey,
           memoryStatsOptions("asst-1").queryKey,
-        ]) as never
+        ]) as never,
       );
     });
   });
@@ -272,7 +304,8 @@ describe("useAssistantResourceSync", () => {
   test("invalidates app list queries on apps:list sync tag", async () => {
     const queryClient = freshQueryClient();
     let predicate:
-      ((query: { queryKey: readonly unknown[] }) => boolean) | undefined;
+      | ((query: { queryKey: readonly unknown[] }) => boolean)
+      | undefined;
     queryClient.invalidateQueries = ((arg: unknown) => {
       predicate = (
         arg as {
@@ -296,6 +329,46 @@ describe("useAssistantResourceSync", () => {
       }),
     ).toBe(true);
     expect(predicate!({ queryKey: avatarQueryKey("asst-1") })).toBe(false);
+  });
+
+  // The Library keys the documents read by assistant alone while the
+  // conversation assets pill adds `query.conversationId`. Covering only the
+  // conversation-scoped key leaves the Library serving a pre-edit list.
+  test("invalidates both documents key shapes on documents:list sync tag", async () => {
+    const queryClient = freshQueryClient();
+    const predicates = capturePredicates(queryClient);
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    emit(syncEvent([SYNC_TAGS.documentsList]) as unknown as AssistantEvent);
+
+    const claims = (queryKey: readonly unknown[]) =>
+      predicates.some((p) => p({ queryKey }));
+    await waitFor(() => {
+      expect(claims(LIBRARY_DOCUMENTS_KEY)).toBe(true);
+    });
+    expect(claims(CONVERSATION_DOCUMENTS_KEY)).toBe(true);
+    expect(claims(appsGetQueryKey({ path: { assistant_id: "asst-1" } }))).toBe(
+      false,
+    );
+  });
+
+  test("reconciles both documents key shapes on non-fresh sse.opened reconnect", async () => {
+    const queryClient = freshQueryClient();
+    const predicates = capturePredicates(queryClient);
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+
+    const claims = (queryKey: readonly unknown[]) =>
+      predicates.some((p) => p({ queryKey }));
+    await waitFor(() => {
+      expect(claims(LIBRARY_DOCUMENTS_KEY)).toBe(true);
+    });
+    expect(claims(CONVERSATION_DOCUMENTS_KEY)).toBe(true);
   });
 
   test("invalidates plugin list / catalog / open-detail queries on plugins:list sync tag", async () => {
@@ -379,7 +452,8 @@ describe("useAssistantResourceSync", () => {
   test("invalidates home-feed query on home_feed_updated", async () => {
     const queryClient = freshQueryClient();
     let predicate:
-      ((query: { queryKey: readonly unknown[] }) => boolean) | undefined;
+      | ((query: { queryKey: readonly unknown[] }) => boolean)
+      | undefined;
     queryClient.invalidateQueries = ((arg: unknown) => {
       predicate = (
         arg as {

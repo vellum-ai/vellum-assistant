@@ -33,3 +33,12 @@ export function diagnosticsConsentGranted(): boolean {
   }
   return readConsentHydrated();
 }
+
+/** Whether native diagnostics can be destructively disabled. */
+export function diagnosticsReportingResolvedOff(): boolean {
+  const { platformSession } = useAuthStore.getState();
+  return (
+    platformSession === "absent" ||
+    getDeviceSetting("diagnosticsReporting", "") === "false"
+  );
+}

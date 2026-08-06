@@ -38,6 +38,10 @@ import type {
   UpdateState,
   VellumBridge,
   VellumCommand,
+  VoiceActivityContent,
+  VoiceActivityControl,
+  VoiceActivityStart,
+  VoiceActivityState,
 } from "@vellumai/ipc-contract";
 
 export type {
@@ -557,6 +561,57 @@ const bridge: VellumBridge = {
     },
     setInteractive: (interactive: boolean): void => {
       ipcRenderer.send("vellum:dictationOverlay:setInteractive", interactive);
+    },
+  },
+  voiceActivity: {
+    start: (state: VoiceActivityStart): void => {
+      ipcRenderer.send("vellum:voiceActivity:start", state);
+    },
+    update: (content: VoiceActivityContent): void => {
+      ipcRenderer.send("vellum:voiceActivity:update", content);
+    },
+    end: (): void => {
+      ipcRenderer.send("vellum:voiceActivity:end");
+    },
+    getState: (): Promise<VoiceActivityState | null> =>
+      ipcRenderer.invoke(
+        "vellum:voiceActivity:getState",
+      ) as Promise<VoiceActivityState | null>,
+    onState: (callback) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        payload: VoiceActivityState | null,
+      ) => {
+        callback(payload);
+      };
+      ipcRenderer.on("vellum:voiceActivity:state", handler);
+      return () => {
+        ipcRenderer.off("vellum:voiceActivity:state", handler);
+      };
+    },
+    control: (control: VoiceActivityControl): void => {
+      ipcRenderer.send("vellum:voiceActivity:control", control);
+    },
+    onControl: (callback) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        payload: VoiceActivityControl,
+      ) => {
+        callback(payload);
+      };
+      ipcRenderer.on("vellum:voiceActivity:controlEvent", handler);
+      return () => {
+        ipcRenderer.off("vellum:voiceActivity:controlEvent", handler);
+      };
+    },
+    activate: (): void => {
+      ipcRenderer.send("vellum:voiceActivity:activate");
+    },
+    dismiss: (): void => {
+      ipcRenderer.send("vellum:voiceActivity:dismiss");
+    },
+    setCollapsed: (collapsed: boolean): void => {
+      ipcRenderer.send("vellum:voiceActivity:setCollapsed", collapsed);
     },
   },
   popout: {

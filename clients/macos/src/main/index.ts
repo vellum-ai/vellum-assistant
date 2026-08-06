@@ -98,6 +98,11 @@ import { installIdentityIpc } from "./identity";
 import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTextInsertionIpc } from "./textInsertion";
 import { installTray } from "./tray";
+import {
+  installVoiceActivityWindow,
+  isVoiceActivityRunning,
+  reopenVoiceActivityPanel,
+} from "./voice-activity-window";
 import { hardenedWebPreferences } from "./windows";
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
@@ -479,6 +484,7 @@ app
     installApplicationMenu();
     installQuickInput();
     installDictationOverlay({ onRecordingLifecycle: setDictationRecording });
+    installVoiceActivityWindow();
     installPopoutWindows();
     installGlobalShortcuts();
     // Register the avatar channel before the Dock and Tray install so their
@@ -510,6 +516,8 @@ app
       toggleMainWindow: toggleMainWindowVisibility,
       ensureMainWindow: ensureMainWindowVisible,
       openAbout: openAboutWindow,
+      isVoicePanelAvailable: isVoiceActivityRunning,
+      showVoicePanel: reopenVoiceActivityPanel,
     });
     installNativeAuth();
     installMainWindow();
