@@ -570,6 +570,24 @@ describe("ElevenLabs TTS provider adapter", () => {
     expect(body.language_code).toBe("hi");
   });
 
+  test("omits language_code for a language the v2.5 models do not support", async () => {
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(streamOf(new Uint8Array([0x01])), { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+    await provider.synthesizeStream!(makeRequest({ language: "he" }), () => {});
+
+    const body = JSON.parse(capturedBody);
+    expect(body.model_id).toBe("eleven_flash_v2_5");
+    expect("language_code" in body).toBe(false);
+  });
+
   test("omits language_code when the configured model does not support enforcement", async () => {
     mockElevenLabsConfig.voiceModelId = "eleven_multilingual_v2";
     seedTtsConfig();
@@ -1752,10 +1770,28 @@ describe("xAI TTS provider adapter", () => {
     ) as unknown as typeof globalThis.fetch;
 
     const provider = createXaiProvider();
-    await provider.synthesize(makeRequest({ language: "es" }));
+    await provider.synthesize(makeRequest({ language: "hi" }));
 
     const body = JSON.parse(capturedBody);
-    expect(body.language).toBe("es");
+    expect(body.language).toBe("hi");
+  });
+
+  test("keeps configured language for a request code outside the code-switching roster", async () => {
+    const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(audioPayload, { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createXaiProvider();
+    await provider.synthesize(makeRequest({ language: "th" }));
+
+    const body = JSON.parse(capturedBody);
+    expect(body.language).toBe("auto");
   });
 
   test("wav config format produces codec=wav without bit_rate", async () => {
@@ -1983,6 +2019,16 @@ describe("xAI TTS provider adapter", () => {
       );
 
       expect(capturedSocketOptions().url).toContain("language=es");
+    });
+
+    test("keeps configured language in the stream URL for an out-of-roster request code", async () => {
+      const provider = createXaiProvider();
+      await provider.synthesizeStream!(
+        makeRequest({ language: "th" }),
+        () => {},
+      );
+
+      expect(capturedSocketOptions().url).toContain("language=auto");
     });
 
     test("mp3 requests carry codec=mp3 and bit_rate and resolve audio/mpeg", async () => {
