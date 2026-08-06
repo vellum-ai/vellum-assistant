@@ -589,18 +589,30 @@ describe("default call protocol numbered rules", () => {
   });
 
   test("a monolingual listening language becomes the pre-speech fallback", () => {
-    // An assistant pinned to services.stt.language = "es" is already
-    // transcribing Spanish, so the opener must not default to English. The
-    // default test config runs the auto-detect branch ("multi"), so the
-    // pinned branch is covered at the fragment level.
-    expect(preSpeechLanguageRuleFragment("es")).toContain(
+    // An assistant pinned to services.stt.language = "es" on a provider that
+    // honors the pin (deepgram, vellum) is already transcribing Spanish, so
+    // the opener must not default to English. The default test config runs
+    // the auto-detect branch ("multi"), so the pinned branch is covered at
+    // the fragment level.
+    expect(preSpeechLanguageRuleFragment("es", "deepgram")).toContain(
       'configured listening language ("es")',
     );
-    expect(preSpeechLanguageRuleFragment("es")).toContain(
+    expect(preSpeechLanguageRuleFragment("es", "vellum")).toContain(
       "default to English only when neither gives a language",
     );
     for (const autoDetect of ["multi", "", "  ", undefined]) {
-      expect(preSpeechLanguageRuleFragment(autoDetect)).toBe(
+      expect(preSpeechLanguageRuleFragment(autoDetect, "deepgram")).toBe(
+        "use the language the Task context implies, if any; otherwise default to English",
+      );
+    }
+  });
+
+  test("a language pin on an auto-detecting provider keeps the English fallback", () => {
+    // google-gemini and openai-whisper ignore services.stt.language entirely
+    // (languageSelection: "auto"), so a persisted "es" pin must not force a
+    // Spanish greeting the transcriber will not honor.
+    for (const provider of ["google-gemini", "openai-whisper", undefined]) {
+      expect(preSpeechLanguageRuleFragment("es", provider)).toBe(
         "use the language the Task context implies, if any; otherwise default to English",
       );
     }
