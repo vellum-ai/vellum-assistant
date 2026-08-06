@@ -89,7 +89,8 @@ ARGUMENTS:
 OPTIONS:
     --url <url>      Reachable gateway URL to advertise in the bundle
                     (default: the assistant's runtime URL, not loopback)
-    --label <name>   Human label for this pairing (echoed in the output)
+    --label <name>   Human label for this pairing (echoed in the output; with
+                    --qr --app it also names the assistant in the connect link)
     --web            Create a browser pairing URL for remote web access
     --web-approve <code>
                     Approve a browser pairing code shown by /assistant/pair
@@ -100,8 +101,10 @@ OPTIONS:
                     loopback or non-https URLs.
     --app            With --qr: encode the QR as a vellum-assistant://connect
                     link that opens the Vellum iOS app directly (the plain
-                    https pairing URL is printed as a fallback). Requires an
-                    app build with the connect handler installed on the phone.
+                    https pairing URL is printed as a fallback). The link
+                    carries the assistant's name (--label overrides it) so the
+                    app can label the pairing. Requires an app build with the
+                    connect handler installed on the phone.
     --app-scheme <scheme>
                     URL scheme for --app links (default: vellum-assistant;
                     dev/staging app builds use vellum-assistant-dev /
@@ -138,15 +141,20 @@ const DEFAULT_APP_CONNECT_SCHEME = "vellum-assistant";
 
 /**
  * Compose the custom-scheme link the iOS app's connect handler accepts:
- * `<scheme>://connect?url=<base>&code=<device code>`. The app persists the
- * base as its self-hosted server and opens the pair page with the code.
+ * `<scheme>://connect?url=<base>&code=<device code>[&name=<label>]`. The app
+ * persists the base (and the label, when present) as its self-hosted server
+ * and opens the pair page with the code.
  */
 export function buildAppConnectUrl(
   scheme: string,
   baseUrl: string,
   deviceCode: string,
+  name?: string,
 ): string {
   const params = new URLSearchParams({ url: baseUrl, code: deviceCode });
+  if (name) {
+    params.set("name", name);
+  }
   return `${scheme}://connect?${params.toString()}`;
 }
 
@@ -502,6 +510,7 @@ export async function pair(): Promise<void> {
           appSchemeOverride ?? DEFAULT_APP_CONNECT_SCHEME,
           qrBaseUrl,
           challenge.deviceCode,
+          label || assistantDisplayName(entry),
         )
       : null;
 

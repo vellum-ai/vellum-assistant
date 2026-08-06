@@ -17,6 +17,11 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
 import {
+  getAssistantDisplayName,
+  lookupAssistantByIdentifier,
+} from "./assistant-config.js";
+import { getCurrentEnvironment } from "./environments/resolve.js";
+import {
   isAssistantFeatureFlagEnabled,
   WEB_REMOTE_INGRESS_FLAG,
 } from "./feature-flags.js";
@@ -148,17 +153,40 @@ export interface RemoteWebIngressOptions {
   webDistDir: string;
   indexHtmlPath?: string;
   config?: Record<string, unknown>;
+  /** Serving assistant's display name, stamped into the served config so
+   *  remote clients can label this origin. Absent in older served configs. */
+  assistantName?: string;
+  /** Cloud web SPA base the remote client can hand this origin to (see
+   *  `cloudWebHubUrl`). Absent in older served configs. */
+  hubUrl?: string;
+}
+
+/**
+ * Cloud web SPA base URL for a build environment. Same mapping as
+ * `clients/web/capacitor.config.ts`: unknown and non-cloud environments fall
+ * back to the dev SPA.
+ */
+export function cloudWebHubUrl(env: string | undefined): string {
+  if (env === "production") {
+    return "https://www.vellum.ai/assistant";
+  }
+  if (env === "staging") {
+    return "https://staging-assistant.vellum.ai/assistant";
+  }
+  return "https://dev-assistant.vellum.ai/assistant";
 }
 
 function remoteWebIngressConfig(
-  config: Record<string, unknown> | undefined,
+  opts: Pick<RemoteWebIngressOptions, "config" | "assistantName" | "hubUrl">,
 ): Record<string, unknown> {
   return {
     mode: "remote-gateway",
     apiBaseUrl: "/v1",
     platformDisabled: true,
     disablePlatform: true,
-    ...config,
+    ...(opts.assistantName ? { assistantName: opts.assistantName } : {}),
+    ...(opts.hubUrl ? { hubUrl: opts.hubUrl } : {}),
+    ...opts.config,
   };
 }
 
@@ -194,7 +222,7 @@ export function buildIngressNginxConfig(opts: {
         gatewayPort: opts.gatewayPort,
         webDistDir: remoteWebIngress.webDistDir,
         indexHtmlPath: remoteWebIngress.indexHtmlPath,
-        config: remoteWebIngressConfig(remoteWebIngress.config),
+        config: remoteWebIngressConfig(remoteWebIngress),
       })
     : `${DENYLIST_LOCATIONS}
 
@@ -486,7 +514,7 @@ export function startIngressNginx(opts: {
   const remoteWebIngress = opts.remoteWebIngress
     ? {
         ...opts.remoteWebIngress,
-        config: remoteWebIngressConfig(opts.remoteWebIngress.config),
+        config: remoteWebIngressConfig(opts.remoteWebIngress),
         indexHtmlPath: join(paths.dir, "assistant-index.html"),
       }
     : undefined;
@@ -655,6 +683,12 @@ export async function startRemoteWebIngress(opts: {
    */
   includeWebApp?: boolean;
   /**
+   * Serving assistant's display name, stamped into the served remote-web
+   * config (`__VELLUM_CONFIG__.assistantName`) so remote clients can label
+   * this origin. Omitted when unknown; consumers tolerate its absence.
+   */
+  assistantName?: string;
+  /**
    * Invoked once, after every preflight check passes and immediately before
    * nginx is spawned, so callers can emit their own "starting" progress line
    * with the resolved version/dist/port (webDistDir is null in webhooks-only
@@ -721,7 +755,13 @@ export async function startRemoteWebIngress(opts: {
     workspaceDir: opts.workspaceDir,
     gatewayPort: opts.gatewayPort,
     listenPort,
-    remoteWebIngress: webDistDir ? { webDistDir } : undefined,
+    remoteWebIngress: webDistDir
+      ? {
+          webDistDir,
+          hubUrl: cloudWebHubUrl(getCurrentEnvironment().name),
+          ...(opts.assistantName ? { assistantName: opts.assistantName } : {}),
+        }
+      : undefined,
   });
   let exited = false;
   child.once("exit", () => {
@@ -826,6 +866,17 @@ async function resolveEdgeIncludesWebApp(
   );
 }
 
+/**
+ * Display name recorded for the assistant in the CLI lockfile; undefined when
+ * no entry matches, so the served config omits the label rather than guessing.
+ */
+function lockfileAssistantName(assistantId: string): string | undefined {
+  const result = lookupAssistantByIdentifier(assistantId);
+  return result.status === "found"
+    ? getAssistantDisplayName(result.entry)
+    : undefined;
+}
+
 /** User-facing label for the edge mode, shared by every edge status line. */
 export function formatEdgeMode(includesWebApp: boolean): string {
   return includesWebApp ? "remote web + webhooks" : "webhooks only";
@@ -876,10 +927,16 @@ export async function ensureTunnelEdge(opts: {
       )
     : false;
 
+  const assistantName =
+    includeWebApp && opts.assistantId
+      ? lockfileAssistantName(opts.assistantId)
+      : undefined;
+
   const result = await startRemoteWebIngress({
     workspaceDir: opts.workspaceDir,
     gatewayPort: opts.gatewayPort,
     includeWebApp,
+    ...(assistantName ? { assistantName } : {}),
     ...(opts.onStarting ? { onStarting: opts.onStarting } : {}),
   });
 

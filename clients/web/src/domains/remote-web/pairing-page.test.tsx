@@ -11,11 +11,13 @@ import { MemoryRouter } from "react-router";
 import type { RemoteWebPairingTokenResult } from "@/lib/auth/remote-gateway-session";
 
 let remoteGatewayMode = false;
+let injectedAssistantName: string | undefined;
 let nativePlatform = false;
 let nativePlatformName: "ios" | "android" = "ios";
 
 mock.module("@/lib/local-mode", () => ({
   isRemoteGatewayMode: () => remoteGatewayMode,
+  getRemoteGatewayAssistantName: () => injectedAssistantName,
 }));
 
 mock.module("@/runtime/native-auth", () => ({
@@ -125,6 +127,7 @@ const { RemoteWebPairingPage } =
 afterEach(() => {
   cleanup();
   remoteGatewayMode = false;
+  injectedAssistantName = undefined;
   nativePlatform = false;
   nativePlatformName = "ios";
   setUserAgent(ORIGINAL_USER_AGENT);
@@ -354,6 +357,8 @@ describe("RemoteWebPairingPage", () => {
     const query = new URLSearchParams(href.slice(href.indexOf("?") + 1));
     expect(query.get("url")).toBe(window.location.origin);
     expect(query.get("code")).toBe("device-1");
+    // The served config carries no assistant name, so the link omits it.
+    expect(query.has("name")).toBe(false);
 
     // The single-use code stays unspent while the choice is pending.
     expect(exchangeRemoteWebPairingTokenMock).not.toHaveBeenCalled();
@@ -391,6 +396,48 @@ describe("RemoteWebPairingPage", () => {
     );
     expect(androidIntentFallback(href)).toBe(window.location.href);
     expect(exchangeRemoteWebPairingTokenMock).not.toHaveBeenCalled();
+  });
+
+  test("the app handoff url carries the assistant name from the served config", async () => {
+    remoteGatewayMode = true;
+    injectedAssistantName = "My Homelab";
+    setUserAgent(IPHONE_USER_AGENT);
+
+    render(
+      <MemoryRouter
+        initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
+      >
+        <RemoteWebPairingPage />
+      </MemoryRouter>,
+    );
+
+    const link = await screen.findByRole("link", {
+      name: "Open in the Vellum app",
+    });
+    const href = link.getAttribute("href") ?? "";
+    const query = new URLSearchParams(href.slice(href.indexOf("?") + 1));
+    expect(query.get("name")).toBe("My Homelab");
+    expect(query.get("code")).toBe("device-1");
+  });
+
+  test("the Android app handoff url carries the assistant name too", async () => {
+    remoteGatewayMode = true;
+    injectedAssistantName = "My Homelab";
+    setUserAgent(ANDROID_USER_AGENT);
+
+    render(
+      <MemoryRouter
+        initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
+      >
+        <RemoteWebPairingPage />
+      </MemoryRouter>,
+    );
+
+    const link = await screen.findByRole("link", {
+      name: "Open in the Vellum app",
+    });
+    const href = link.getAttribute("href") ?? "";
+    expect(androidIntentQuery(href).get("name")).toBe("My Homelab");
   });
 
   test("the app handoff url keeps a served path prefix", async () => {

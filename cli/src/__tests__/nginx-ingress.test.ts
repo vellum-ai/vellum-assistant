@@ -80,6 +80,7 @@ afterAll(() => {
 import {
   buildIngressNginxConfig,
   buildRemoteWebIndexHtml,
+  cloudWebHubUrl,
   ensureTunnelEdge,
   startRemoteWebIngress,
   stopIngressNginx,
@@ -246,6 +247,21 @@ describe("buildIngressNginxConfig", () => {
     );
   });
 
+  test("stamps assistantName and hubUrl into the served config when provided", () => {
+    const named = buildIngressNginxConfig({
+      gatewayPort: 7830,
+      listenPort: 7840,
+      remoteWebIngress: {
+        webDistDir: "/tmp/vellum web/dist",
+        assistantName: "Homelab",
+        hubUrl: "https://www.vellum.ai/assistant",
+      },
+    });
+    expect(named).toContain(
+      'return 200 "{\\"mode\\":\\"remote-gateway\\",\\"apiBaseUrl\\":\\"/v1\\",\\"platformDisabled\\":true,\\"disablePlatform\\":true,\\"assistantName\\":\\"Homelab\\",\\"hubUrl\\":\\"https://www.vellum.ai/assistant\\"}";',
+    );
+  });
+
   test("proxies health and public API traffic to the gateway in remote web mode", () => {
     expect(remoteConf).toContain("location = /healthz {");
     expect(remoteConf).toContain("location ^~ /v1/ {");
@@ -344,6 +360,26 @@ describe("buildRemoteWebIndexHtml", () => {
 
     expect(result).not.toContain("</script><script>alert(1)</script>");
     expect(result).toContain("\\u003c/script\\u003e");
+  });
+});
+
+describe("cloudWebHubUrl", () => {
+  test("maps build environments to their cloud SPA base", () => {
+    expect(cloudWebHubUrl("production")).toBe(
+      "https://www.vellum.ai/assistant",
+    );
+    expect(cloudWebHubUrl("staging")).toBe(
+      "https://staging-assistant.vellum.ai/assistant",
+    );
+    expect(cloudWebHubUrl("dev")).toBe(
+      "https://dev-assistant.vellum.ai/assistant",
+    );
+    expect(cloudWebHubUrl("local")).toBe(
+      "https://dev-assistant.vellum.ai/assistant",
+    );
+    expect(cloudWebHubUrl(undefined)).toBe(
+      "https://dev-assistant.vellum.ai/assistant",
+    );
   });
 });
 
@@ -623,7 +659,26 @@ function mockUnkillableNginx(pid: number): void {
   installKillMock();
 }
 
+const PRODUCTION_HUB_URL = "https://www.vellum.ai/assistant";
+const originalEnvironment = process.env.VELLUM_ENVIRONMENT;
+
+/** Pin the build environment so the stamped hubUrl is deterministic. */
+function pinProductionEnvironment(): void {
+  beforeEach(() => {
+    process.env.VELLUM_ENVIRONMENT = "production";
+  });
+  afterEach(() => {
+    if (originalEnvironment === undefined) {
+      delete process.env.VELLUM_ENVIRONMENT;
+    } else {
+      process.env.VELLUM_ENVIRONMENT = originalEnvironment;
+    }
+  });
+}
+
 describe("startRemoteWebIngress", () => {
+  pinProductionEnvironment();
+
   test("webhooks-only mode starts the denylist+proxy edge without a web dist", async () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
@@ -702,22 +757,49 @@ describe("startRemoteWebIngress", () => {
         remoteWebIngress: {
           webDistDir,
           indexHtmlPath: join(ws, "data", "ingress", "assistant-index.html"),
+          hubUrl: PRODUCTION_HUB_URL,
         },
       }),
     );
     expect(conf).toContain("location ^~ /assistant/ {");
     expect(conf).toContain("location ^~ /webhooks/ {");
-    expect(
-      realFs.readFileSync(
-        join(ws, "data", "ingress", "assistant-index.html"),
-        "utf-8",
-      ),
-    ).toContain("remote-gateway");
+    const indexHtml = realFs.readFileSync(
+      join(ws, "data", "ingress", "assistant-index.html"),
+      "utf-8",
+    );
+    expect(indexHtml).toContain("remote-gateway");
+    expect(indexHtml).toContain(`"hubUrl":"${PRODUCTION_HUB_URL}"`);
+    // No assistant name was provided, so the served config omits the label.
+    expect(indexHtml).not.toContain("assistantName");
     expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
       listenPort: 7845,
       includeWebApp: true,
       gatewayPort: 7830,
     });
+  });
+
+  test("stamps the assistant label into the served config when provided", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistPresent();
+
+    const result = await startRemoteWebIngress({
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      listenPort: 7845,
+      assistantName: "My Homelab",
+    });
+
+    expect(result.status).toBe("started");
+    const indexHtml = realFs.readFileSync(
+      join(ws, "data", "ingress", "assistant-index.html"),
+      "utf-8",
+    );
+    expect(indexHtml).toContain('"assistantName":"My Homelab"');
+    expect(indexHtml).toContain(`"hubUrl":"${PRODUCTION_HUB_URL}"`);
+    const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
+    expect(conf).toContain('\\"assistantName\\":\\"My Homelab\\"');
   });
 
   test("default mode still requires the web dist", async () => {
@@ -1186,9 +1268,17 @@ describe("ensureTunnelEdge", () => {
   const ASSISTANT_ID = "assistant-1";
   const REQUESTED_PORT = 7846;
   const originalIngressPort = process.env.VELLUM_NGINX_INGRESS_PORT;
+  const originalLockfileDir = process.env.VELLUM_LOCKFILE_DIR;
+  let lockfileDir: string;
+
+  pinProductionEnvironment();
 
   beforeEach(() => {
     process.env.VELLUM_NGINX_INGRESS_PORT = String(REQUESTED_PORT);
+    // Isolated lockfile dir so the assistant-name lookup never reads a real
+    // machine lockfile.
+    lockfileDir = makeWorkspace();
+    process.env.VELLUM_LOCKFILE_DIR = lockfileDir;
   });
 
   afterEach(() => {
@@ -1197,6 +1287,68 @@ describe("ensureTunnelEdge", () => {
     } else {
       process.env.VELLUM_NGINX_INGRESS_PORT = originalIngressPort;
     }
+    if (originalLockfileDir === undefined) {
+      delete process.env.VELLUM_LOCKFILE_DIR;
+    } else {
+      process.env.VELLUM_LOCKFILE_DIR = originalLockfileDir;
+    }
+  });
+
+  test("threads the lockfile display name into the served SPA config", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistPresent();
+    writeFileSync(
+      join(lockfileDir, ".vellum.lock.json"),
+      JSON.stringify({
+        assistants: [
+          {
+            assistantId: ASSISTANT_ID,
+            name: "Homelab",
+            cloud: "local",
+            runtimeUrl: "http://127.0.0.1:7830",
+            localUrl: "http://127.0.0.1:7830",
+          },
+        ],
+        activeAssistant: ASSISTANT_ID,
+      }),
+    );
+
+    const result = await ensureTunnelEdge({
+      assistantId: ASSISTANT_ID,
+      workspaceDir: ws,
+      gatewayPort: 7830,
+    });
+
+    expect(result.includesWebApp).toBe(true);
+    const indexHtml = realFs.readFileSync(
+      join(ws, "data", "ingress", "assistant-index.html"),
+      "utf-8",
+    );
+    expect(indexHtml).toContain('"assistantName":"Homelab"');
+    expect(indexHtml).toContain(`"hubUrl":"${PRODUCTION_HUB_URL}"`);
+  });
+
+  test("omits the assistant label when the lockfile has no matching entry", async () => {
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistPresent();
+
+    const result = await ensureTunnelEdge({
+      assistantId: ASSISTANT_ID,
+      workspaceDir: ws,
+      gatewayPort: 7830,
+    });
+
+    expect(result.includesWebApp).toBe(true);
+    const indexHtml = realFs.readFileSync(
+      join(ws, "data", "ingress", "assistant-index.html"),
+      "utf-8",
+    );
+    expect(indexHtml).not.toContain("assistantName");
+    expect(indexHtml).toContain(`"hubUrl":"${PRODUCTION_HUB_URL}"`);
   });
 
   test("reuses a running edge that matches the flag-resolved mode", async () => {
