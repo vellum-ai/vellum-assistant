@@ -11,12 +11,12 @@
  * (window focus and the cross-domain bus `app.resume`), plus a coarse poll for
  * the surface that is simply left open across midnight with no interaction.
  *
- * The functional `setSampledAt` update returns the previous value when the date
- * is unchanged, so the poll notifies no one on all but the single tick a day
- * that actually crosses a boundary.
+ * The functional `setSample` update returns the previous value when the date is
+ * unchanged, so the poll notifies no one on all but the single tick a day that
+ * actually crosses a boundary.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { toTimezoneDateString } from "@/components/charts/format-date-label";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
@@ -30,20 +30,19 @@ const POLL_MS = 60_000;
 
 /** Returns `YYYY-MM-DD` for "now" in `tz`, updating when that date changes. */
 export function useTimezoneCalendarDay(tz: string): string {
-  // State holds the instant the day was last sampled, not the date itself. The
-  // date is a function of that instant and `tz`, so a zone change resolves
-  // during the same render rather than a commit later: state that stored the
-  // formatted date would hand out the previous zone's answer for one render,
-  // and anything keyed on it (a query, a fetch) would act on it.
-  const [sampledAt, setSampledAt] = useState(() => Date.now());
+  // The date and the zone it was read in are one value, never two. A date is
+  // only an answer for the zone that produced it, so storing either alone
+  // leaves the other free to drift and lets the hook report a date that was
+  // never today anywhere.
+  const [sample, setSample] = useState(() => ({
+    day: toTimezoneDateString(new Date(), tz),
+    tz,
+  }));
 
   const refresh = useCallback(() => {
-    setSampledAt((prev) => {
-      const now = Date.now();
-      return toTimezoneDateString(new Date(now), tz) ===
-        toTimezoneDateString(new Date(prev), tz)
-        ? prev
-        : now;
+    setSample((prev) => {
+      const day = toTimezoneDateString(new Date(), tz);
+      return prev.day === day && prev.tz === tz ? prev : { day, tz };
     });
   }, [tz]);
 
@@ -58,8 +57,15 @@ export function useTimezoneCalendarDay(tz: string): string {
     };
   }, [refresh]);
 
-  return useMemo(
-    () => toTimezoneDateString(new Date(sampledAt), tz),
-    [sampledAt, tz],
-  );
+  if (sample.tz !== tz) {
+    // The zone changed, which invalidates the sample outright: re-read now and
+    // return the fresh date, rather than let one render address a day the new
+    // zone is not on. That render's date reaches a query key, so being wrong
+    // for it means fetching the wrong window, not just showing one.
+    const day = toTimezoneDateString(new Date(), tz);
+    setSample({ day, tz });
+    return day;
+  }
+
+  return sample.day;
 }

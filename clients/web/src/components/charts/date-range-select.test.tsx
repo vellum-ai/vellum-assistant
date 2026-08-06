@@ -9,7 +9,13 @@
  */
 
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
-import { act, cleanup, render, renderHook, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  render,
+  renderHook,
+  screen,
+} from "@testing-library/react";
 
 import { DateRangeSelect, usePresetRange } from "./date-range-select";
 
@@ -54,9 +60,39 @@ describe("usePresetRange", () => {
     expect(result.current).toBe(first);
   });
 
-  test("a zone change lands in the first render, with no wrong value between", () => {
-    // At this instant Niue (UTC-11) is still on Aug 6 while Kiritimati (UTC+14)
-    // has reached Aug 7, so the two zones disagree about today's date.
+  test("a zone change re-reads the date instead of reusing the old zone's sample", () => {
+    // 04:00Z is the instant New York rolls into Aug 6, so the first sample is
+    // taken exactly on that zone's day boundary. Chicago is an hour behind and
+    // is still on Aug 5 at that instant.
+    setSystemTime(new Date("2026-08-06T04:00:00Z"));
+
+    const seen: string[] = [];
+    const { rerender } = renderHook(
+      ({ tz }: { tz: string }) => {
+        const range = usePresetRange(30, tz);
+        seen.push(range.to);
+        return range;
+      },
+      { initialProps: { tz: "America/New_York" } },
+    );
+    expect([...new Set(seen)]).toEqual(["2026-08-06"]);
+
+    // Hours later in the same New York day, so the stored sample is stale as an
+    // instant while still correct as a date. Both zones now agree on Aug 6.
+    setSystemTime(new Date("2026-08-06T15:00:00Z"));
+    seen.length = 0;
+    rerender({ tz: "America/Chicago" });
+
+    // No render reports Aug 5, which is what re-reading the stored sample in
+    // the new zone would give, nor Aug 5 followed by a correction, which is
+    // what deferring the re-read to an effect would give. The date reaches the
+    // billing query key, so a wrong render is a wrong fetch.
+    expect([...new Set(seen)]).toEqual(["2026-08-06"]);
+  });
+
+  test("zones that disagree about today resolve to the one being asked about", () => {
+    // Niue (UTC-11) is on Aug 6 here while Kiritimati (UTC+14) has reached
+    // Aug 7: a zone change that crosses a date boundary, not just an offset.
     setSystemTime(new Date("2026-08-06T12:00:00Z"));
 
     const seen: string[] = [];
@@ -68,15 +104,13 @@ describe("usePresetRange", () => {
       },
       { initialProps: { tz: "Pacific/Niue" } },
     );
-    expect(seen).toEqual(["2026-08-06"]);
+    expect([...new Set(seen)]).toEqual(["2026-08-06"]);
 
+    setSystemTime(new Date("2026-08-06T20:00:00Z"));
     seen.length = 0;
     rerender({ tz: "Pacific/Kiritimati" });
 
-    // Every render after the change reports the new zone's date. A date held in
-    // state and corrected by an effect would show the old zone's for one render
-    // first, and the billing query keyed on it would fetch that window.
-    expect(seen).toEqual(["2026-08-07"]);
+    expect([...new Set(seen)]).toEqual(["2026-08-07"]);
   });
 
   test("a preset's span is its own, not the default's", () => {
