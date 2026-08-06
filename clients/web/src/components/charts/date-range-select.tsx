@@ -15,8 +15,8 @@ interface DateRangeSelectProps {
   /**
    * The active preset's identity (`days`), not its bounds. Deriving bounds is
    * the consumer's job, because only the consumer knows when they need
-   * recomputing; recovering the identity from a range here would be lossy, as
-   * {@link presetDaysFromRange} shows.
+   * recomputing. Recovering the identity by measuring a range's span cannot
+   * distinguish the 30-day preset from any other span that rounds to it.
    */
   readonly value: number;
   readonly onChange: (presetDays: number) => void;
@@ -52,32 +52,6 @@ export function computeRangeInTimezone(
 ): DateRange {
   const { fromDate, toDate } = resolveLastTimezoneCalendarDays(days, tz);
   return { from: fromDate, to: toDate };
-}
-
-function daysBetween(from: string, to: string): number {
-  const msPerDay = 86_400_000;
-  const fromDate = new Date(from);
-  const toDate = new Date(to);
-  return Math.round((toDate.getTime() - fromDate.getTime()) / msPerDay) + 1;
-}
-
-/**
- * Map a range's span to the preset identity (`days`) it best corresponds to,
- * defaulting to `DEFAULT_PRESET_DAYS` for any span that isn't 7 or 90.
- *
- * Lossy, and a last resort: it cannot tell a 30-day preset from any other span
- * it rounds to 30, so a consumer that knows which preset is active should track
- * that identity rather than recover it from bounds.
- */
-export function presetDaysFromRange({ from, to }: DateRange): number {
-  const days = daysBetween(from, to);
-  if (days === 7) {
-    return 7;
-  }
-  if (days === 90) {
-    return 90;
-  }
-  return DEFAULT_PRESET_DAYS;
 }
 
 export function DateRangeSelect({ value, onChange }: DateRangeSelectProps) {

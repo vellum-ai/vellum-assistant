@@ -12,10 +12,8 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 import {
   DEFAULT_PRESET_DAYS,
-  type DateRange,
   DateRangeSelect,
   computeRangeInTimezone,
-  presetDaysFromRange,
 } from "@/components/charts/date-range-select";
 import {
   DEFAULT_LLM_USAGE_DIMENSION,
@@ -29,7 +27,6 @@ import {
 } from "@/domains/settings/components/billing-usage/billing-usage-chart";
 import {
   type BillingUsageSourceFilter,
-  getDefaultDateRange,
   useBillingUsageData,
 } from "@/domains/settings/components/billing-usage/use-billing-usage-data";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
@@ -67,25 +64,14 @@ function formatEventCount(count: number | undefined): string {
 
 export function BillingUsagePanel() {
   const tz = useEffectiveTimezone();
-  // Track the SELECTED PRESET IDENTITY (days), not its computed bounds. The
-  // active range is derived from this identity + the live tz below, so a tz
+  // Track the SELECTED PRESET IDENTITY (days), not its computed bounds, so a tz
   // change (even one that crosses a calendar-day rollover after the range was
-  // first computed) always yields the correct bounds for the active preset.
-  // `null` means a custom range that isn't a preset (defensive; billing only
-  // exposes presets today) — in that case `customRange` holds the bounds.
-  const [presetDays, setPresetDays] = useState<number | null>(
-    DEFAULT_PRESET_DAYS,
-  );
-  const [customRange, setCustomRange] = useState<DateRange>(() =>
-    getDefaultDateRange(tz),
-  );
+  // first computed) yields the correct bounds for the active preset.
+  const [presetDays, setPresetDays] = useState<number>(DEFAULT_PRESET_DAYS);
 
-  const dateRange = useMemo<DateRange>(
-    () =>
-      presetDays === null
-        ? customRange
-        : computeRangeInTimezone(presetDays, tz),
-    [presetDays, customRange, tz],
+  const dateRange = useMemo(
+    () => computeRangeInTimezone(presetDays, tz),
+    [presetDays, tz],
   );
 
   const [drilldown, setDrilldown] = useState<{
@@ -96,12 +82,6 @@ export function BillingUsagePanel() {
 
   const { series, totals, isLoading, isError } = useBillingUsageData({
     dateRange,
-    // Any imperative range set is treated as custom (not a preset). The data
-    // hook only reads `dateRange`, so this exists to satisfy UsageChartState.
-    setDateRange: (range) => {
-      setPresetDays(null);
-      setCustomRange(range);
-    },
     drilldown,
     setDrilldown,
   });
@@ -156,10 +136,7 @@ export function BillingUsagePanel() {
            *   wrapped by a 2px-padded container, so h-7 inner = 32px outer.
            */}
           <div className="flex flex-wrap items-center justify-end gap-2 [&_[role=combobox]]:h-8 [&_[role=radio]]:h-7">
-            <DateRangeSelect
-              value={presetDays ?? presetDaysFromRange(customRange)}
-              onChange={setPresetDays}
-            />
+            <DateRangeSelect value={presetDays} onChange={setPresetDays} />
             <div className="w-44">
               <SegmentControl
                 items={METRIC_ITEMS}
