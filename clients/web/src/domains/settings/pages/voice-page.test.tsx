@@ -239,9 +239,12 @@ describe("VoiceSections microphone picker", () => {
   }
 
   function micTrigger(): HTMLElement {
-    const el = Array.from(
-      document.querySelectorAll<HTMLElement>('button[role="combobox"]'),
-    ).find((t) => (t.textContent ?? "").match(/Mic|System Default|Saved/));
+    // By aria-label, not by text: the page renders several pickers, and
+    // matching on rendered text picks whichever one happens to contain the
+    // string, which silently passes assertions against the wrong control.
+    const el = document.querySelector<HTMLElement>(
+      'button[role="combobox"][aria-label="Microphone"]',
+    );
     if (!el) {
       throw new Error("expected the microphone trigger");
     }
@@ -279,6 +282,24 @@ describe("VoiceSections microphone picker", () => {
     fireEvent.click(systemDefault!);
 
     expect(localStorage.getItem("vellum:voice:inputDeviceId")).toBe(null);
+  });
+
+  test("a saved device is not called disconnected before permission is granted", async () => {
+    // Browsers redact ids and labels until mic access is granted, so the
+    // enumerated list is empty for a reason that says nothing about whether
+    // the saved device is plugged in. Claiming it is disconnected there tells
+    // the user their working microphone is missing.
+    localStorage.setItem("vellum:voice:inputDeviceId", "mic-b");
+    stubDevices([
+      { deviceId: "", kind: "audioinput", label: "" },
+      { deviceId: "", kind: "audioinput", label: "" },
+    ]);
+    renderPage();
+
+    await waitFor(() =>
+      expect(micTrigger().textContent).toContain("Saved microphone"),
+    );
+    expect(micTrigger().textContent).not.toContain("not connected");
   });
 
   test("a saved device that is unplugged stays on the trigger", async () => {
