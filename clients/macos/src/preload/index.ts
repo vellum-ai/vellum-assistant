@@ -604,6 +604,15 @@ const bridge: VellumBridge = {
         ipcRenderer.off("vellum:voiceActivity:controlEvent", handler);
       };
     },
+    beginDrag: (): void => {
+      ipcRenderer.send("vellum:voiceActivity:beginDrag");
+    },
+    endDrag: (): void => {
+      ipcRenderer.send("vellum:voiceActivity:endDrag");
+    },
+    activate: (): void => {
+      ipcRenderer.send("vellum:voiceActivity:activate");
+    },
   },
   popout: {
     open: (conversationId: string): Promise<void> =>

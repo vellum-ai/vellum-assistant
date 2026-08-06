@@ -320,6 +320,9 @@ declare global {
         ): () => void;
         control(control: VoiceActivityControl): void;
         onControl(callback: (control: VoiceActivityControl) => void): () => void;
+        beginDrag?(): void;
+        endDrag?(): void;
+        activate?(): void;
       };
     };
   }

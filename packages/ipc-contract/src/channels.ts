@@ -141,6 +141,9 @@ export const VOICE_ACTIVITY_GET_STATE = "vellum:voiceActivity:getState";
 export const VOICE_ACTIVITY_STATE_EVENT = "vellum:voiceActivity:state";
 export const VOICE_ACTIVITY_CONTROL = "vellum:voiceActivity:control";
 export const VOICE_ACTIVITY_CONTROL_EVENT = "vellum:voiceActivity:controlEvent";
+export const VOICE_ACTIVITY_BEGIN_DRAG = "vellum:voiceActivity:beginDrag";
+export const VOICE_ACTIVITY_END_DRAG = "vellum:voiceActivity:endDrag";
+export const VOICE_ACTIVITY_ACTIVATE = "vellum:voiceActivity:activate";
 
 // Popout
 export const POPOUT_OPEN = "vellum:popout:open";

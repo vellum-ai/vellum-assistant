@@ -109,3 +109,24 @@ export async function getVoiceActivityState(): Promise<VoiceActivityState | null
 export function sendVoiceActivityControl(control: VoiceActivityControl): void {
   bridge()?.control(control);
 }
+
+/**
+ * Start moving the panel with the cursor, and stop.
+ *
+ * The panel drags by hand rather than through `-webkit-app-region: drag`: a
+ * drag region swallows clicks outright, and this surface needs the same pixels
+ * to answer a press (bring the app forward) and a hold (move me). The page
+ * tells these apart and calls in; main does the following.
+ */
+export function beginVoiceActivityDrag(): void {
+  bridge()?.beginDrag?.();
+}
+
+export function endVoiceActivityDrag(): void {
+  bridge()?.endDrag?.();
+}
+
+/** Bring the app forward. What a press on the panel asks for. */
+export function activateVoiceActivityApp(): void {
+  bridge()?.activate?.();
+}
