@@ -245,21 +245,74 @@ describe("resolveNavigation", () => {
       ).toEqual({ action: "redirect", to: "/assistant" });
     });
 
-    // The platform build hosts the hub chooser: the route admits an
+    // The platform build hosts the hub chooser: the route admits a settled
     // authenticated user in every mode. The assistant-switcher flag gate for
     // platform-mode access lives in the screen, which can wait on flag
     // hydration; the resolver has no hydration signal to gate on.
-    test("allows an authenticated non-local user on select-assistant", () => {
+    test("allows a consented authenticated non-local user on select-assistant", () => {
       expect(
         guard(s({ isLocalClient: false }), "/assistant/select-assistant"),
       ).toEqual(ALLOW);
-      // The hub shows the chooser even with nothing resolved for this org.
+    });
+
+    // Opening the chooser to non-local clients does not lift the gates that run
+    // after the mode boundary: the route falls through to them like every other
+    // platform surface.
+    test("sends a stale-consent platform user off select-assistant to review-terms", () => {
+      expect(
+        guard(
+          s({ isLocalClient: false, analyticsConsentCurrent: false }),
+          "/assistant/select-assistant",
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/review-terms?returnTo=%2Fassistant%2Fselect-assistant",
+      });
+      expect(
+        guard(
+          s({ isLocalClient: false, tosAccepted: false, privacyConsent: false }),
+          "/assistant/select-assistant",
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/review-terms?returnTo=%2Fassistant%2Fselect-assistant",
+      });
+    });
+
+    test("funnels a zero-assistant platform user off select-assistant", () => {
+      const chooser = "/assistant/select-assistant";
+      const noAssistants = {
+        isLocalClient: false,
+        hasAssistants: false,
+        hasPlatformHostedAssistant: false,
+      };
+      // The platform list loads asynchronously, so an unhydrated read waits
+      // instead of funneling an established user out of the chooser.
+      expect(
+        guard(s({ ...noAssistants, assistantsHydrated: false }), chooser),
+      ).toEqual(WAIT);
+      expect(guard(s(noAssistants), chooser)).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/hatching",
+      });
+      expect(
+        guard(
+          s({ ...noAssistants, tosAccepted: false, privacyConsent: false }),
+          chooser,
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
+    });
+
+    // The local chooser is a pre-existing onboarding surface reachable before
+    // there is a session to gate on, so it keeps its short-circuit ahead of the
+    // assistant and consent gates that now bind on the platform hub.
+    test("keeps the local chooser open ahead of the consent gate", () => {
       expect(
         guard(
           s({
-            isLocalClient: false,
-            hasAssistants: false,
-            hasPlatformHostedAssistant: false,
+            isLocalClient: true,
+            platformSession: "present",
+            analyticsConsentCurrent: false,
           }),
           "/assistant/select-assistant",
         ),
@@ -276,6 +329,31 @@ describe("resolveNavigation", () => {
         action: "redirect",
         to: "/account/login?returnTo=%2Fassistant%2Fselect-assistant",
       });
+    });
+
+    test("sends an unpaired remote-gateway chooser visit to pairing", () => {
+      expect(
+        guard(
+          s({
+            isLocalClient: true,
+            isRemoteGateway: true,
+            isAuthenticated: false,
+          }),
+          "/assistant/select-assistant",
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/pair?returnTo=%2Fassistant%2Fselect-assistant",
+      });
+    });
+
+    test("allows a gateway-auth remote-gateway chooser visit", () => {
+      expect(
+        guard(
+          s({ isLocalClient: true, isRemoteGateway: true, isGatewayAuth: true }),
+          "/assistant/select-assistant",
+        ),
+      ).toEqual(ALLOW);
     });
 
     test("allows non-local user on onboarding screens regardless of assistant count", () => {

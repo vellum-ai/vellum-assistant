@@ -500,6 +500,22 @@ function requireRemoteGatewayPairing(
   };
 }
 
+/**
+ * The local-mode chooser, decided the same way for an unauthenticated visit
+ * (`requireAuth`) and an authenticated one (`enforceModeBoundary`): an empty
+ * lockfile has nothing to choose from, so the visit funnels to hosting.
+ *
+ * Deciding either way is what keeps the local chooser short-circuiting ahead of
+ * the assistant and consent gates: it is itself an onboarding surface,
+ * reachable before there is a platform session to gate on.
+ */
+function localChooserDecision(state: NavigationState): NavigationDecision {
+  if (!state.hasAssistants) {
+    return { action: "redirect", to: routes.onboarding.hosting };
+  }
+  return { action: "allow" };
+}
+
 function requireAuth(
   state: NavigationState,
   path: string,
@@ -515,8 +531,8 @@ function requireAuth(
       LOCAL_ONLY_STANDALONE_PATHS.has(path) ||
       path === routes.selectAssistant)
   ) {
-    if (path === routes.selectAssistant && !state.hasAssistants) {
-      return { action: "redirect", to: routes.onboarding.hosting };
+    if (path === routes.selectAssistant) {
+      return localChooserDecision(state);
     }
     return { action: "allow" };
   }
@@ -537,15 +553,13 @@ function enforceModeBoundary(
   path: string,
 ): NavigationDecision | null {
   // The chooser is reachable in every mode: local clients keep their
-  // lockfile-driven picker (a no-assistant local visit still funnels to
-  // hosting), and the platform build hosts the hub chooser. The screen owns
-  // the assistant-switcher flag gate for platform-mode access, because the
-  // flag hydrates asynchronously and this resolver has no hydration signal.
+  // lockfile-driven picker, and the platform build hosts the hub chooser. The
+  // non-local case falls through rather than allowing, so `requireAssistant`
+  // and `requireConsent` below still bind on this route. The screen owns the
+  // assistant-switcher flag gate for platform-mode access, because the flag
+  // hydrates asynchronously and this resolver has no hydration signal.
   if (path === routes.selectAssistant) {
-    if (state.isLocalClient && !state.hasAssistants) {
-      return { action: "redirect", to: routes.onboarding.hosting };
-    }
-    return { action: "allow" };
+    return state.isLocalClient ? localChooserDecision(state) : null;
   }
 
   if (LOCAL_ONLY_STANDALONE_PATHS.has(path)) {
