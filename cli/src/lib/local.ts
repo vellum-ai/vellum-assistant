@@ -1422,6 +1422,12 @@ export async function startLocalDaemon(
         return;
       }
 
+      // On a pod the orchestrator owns the daemon lifecycle; reaching this
+      // spawn path means the daemon is unreachable, so error instead of
+      // hatching a rival. Defense-in-depth: pods run from source under bun, so
+      // this bundled-binary branch is not reached there today.
+      assertDaemonAutostartAllowed();
+
       console.log("🔨 Starting assistant...");
 
       // Ensure bun is available for runtime features (browser, skills install)

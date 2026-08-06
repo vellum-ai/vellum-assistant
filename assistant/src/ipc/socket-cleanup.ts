@@ -81,7 +81,7 @@ async function connectProbe(socketPath: string): Promise<SocketProbeOutcome> {
  *   - Connect fails with `ECONNREFUSED`/`ENOENT` (stale leftover) → unlink
  *     the file and return.
  *   - Connect doesn't settle within {@link PROBE_CONNECT_TIMEOUT_MS} → throw
- *     `EADDRINUSE` (no fallback to blind unlink — the whole point of this
+ *     `EADDRINUSE` (no fallback to blind unlink: the whole point of this
  *     helper is to keep the silent-orphan defense).
  *   - Any other socket error → propagate.
  */
@@ -103,7 +103,7 @@ export async function ensureSocketPathFree(socketPath: string): Promise<void> {
   try {
     unlinkSync(socketPath);
   } catch {
-    // Ignore — may already be gone
+    // Ignore, may already be gone
   }
 }
 

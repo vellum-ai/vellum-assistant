@@ -480,7 +480,10 @@ export async function ensureDaemonRunning(): Promise<void> {
   }
   // On a pod the orchestrator owns the daemon lifecycle. A CLI that cannot
   // reach the daemon must surface that as an error, never hatch a rival that
-  // stomps the shared PID file and config.json.
+  // stomps the shared PID file and config.json. The getIsContainerized() term
+  // is redundant here (getDaemonStatus() already reports containerized
+  // instances as running, so we returned above) but kept so the guard reads as
+  // "never spawn on any pod".
   if (getIsContainerized() || getIsPlatform()) {
     throw new DaemonError(
       "Assistant is unreachable and cannot be auto-started in a managed environment",
