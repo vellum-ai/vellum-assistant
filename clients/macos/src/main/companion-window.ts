@@ -6,7 +6,11 @@ import type { CompanionAnchor, CompanionSurfaceState } from "@vellumai/ipc-contr
 import { getAvatarPng, onAvatarChange } from "./avatar";
 import { createFloatingWindow, getFloatingWindow } from "./floating-window";
 import { handle, on } from "./ipc";
-import { dispatchToMain } from "./main-window";
+import {
+  current as currentMainWindow,
+  dispatchToMain,
+  ensureVisible as ensureMainWindowVisible,
+} from "./main-window";
 
 /**
  * The always-present companion surface (LUM-3086): the assistant's avatar
@@ -210,12 +214,25 @@ export const installCompanionWindow = (): void => {
    * window and no other, and the press arrives while the user is working in
    * some other app entirely, so "focused" would name the wrong target.
    *
-   * The window is not raised. A user reaching for a floating avatar has chosen
-   * not to go back to Vellum, and the session gets its own on-screen readout
-   * from the voice-activity panel.
+   * **A window that exists is not raised, and one that does not is created.**
+   * A user reaching for a floating avatar has chosen not to go back to Vellum,
+   * and the session gets its own on-screen readout from the voice-activity
+   * panel, so an existing window is left exactly where it was. But closing the
+   * main window destroys it while this surface stays on screen, and a command
+   * dispatched into that gap lands nowhere: Talk would read as broken. There is
+   * no way to host a session without a renderer to host it in, so that case
+   * builds one, which necessarily shows it.
    */
   on("vellum:companion:startVoice", z.tuple([]), () => {
-    dispatchToMain({ kind: "startVoice" });
+    if (currentMainWindow() !== null) {
+      dispatchToMain({ kind: "startVoice" });
+      return;
+    }
+    // Resolves once the renderer has loaded and the window has shown, so the
+    // command arrives at a page that can receive it.
+    void ensureMainWindowVisible().then(() => {
+      dispatchToMain({ kind: "startVoice" });
+    });
   });
 
   // One avatar feeds every surface, so a change to the Dock icon is a change
