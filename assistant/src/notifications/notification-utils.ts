@@ -152,6 +152,29 @@ export function mediaEmbedAltTexts(value: string): string[] {
   return [...value.matchAll(MEDIA_EMBED_RE)].map((match) => match[1] ?? "");
 }
 
+/**
+ * Copy naming media, from whatever labels a caller could recover: attachment
+ * filenames, or the alt texts {@link mediaEmbedAltTexts} pulled back out of
+ * copy that flattened away.
+ *
+ * Labels are model- and tool-authored, so a single one is sanitized before it
+ * can reach the lock screen; one that sanitizes away leaves generic copy rather
+ * than a dangling "Sent ".
+ *
+ * Returns an empty string for no labels, leaving the caller to decide whether
+ * that means suppress the notification or fall back further.
+ */
+export function describeMedia(labels: string[]): string {
+  if (labels.length === 0) {
+    return "";
+  }
+  if (labels.length > 1) {
+    return `Sent ${labels.length} attachments`;
+  }
+  const label = sanitizeMessagePreview(labels[0].replace(/\s+/g, " ").trim());
+  return label ? `Sent ${label}` : "Sent an attachment";
+}
+
 // ── Sanitization ────────────────────────────────────────────────────────────
 
 /**

@@ -32,6 +32,7 @@ import { isDesktopAttended } from "../runtime/desktop-presence.js";
 import { safeParseRecord } from "../util/json.js";
 import { emitNotificationSignal } from "./emit-signal.js";
 import {
+  describeMedia,
   mediaEmbedAltTexts,
   sanitizeMessagePreview,
   sanitizeNotificationTitle,
@@ -50,26 +51,6 @@ const DESKTOP_PRESENCE_FLAG = "desktop-presence-suppression" as const;
  */
 function collapseWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
-}
-
-/**
- * Body naming the media a reply produced, from whatever labels the caller could
- * recover. Labels are model- and tool-authored, so a single one is sanitized
- * before it can reach the lock screen; one that sanitizes away leaves generic
- * copy rather than a dangling "Sent ".
- *
- * Returns an empty string for no labels, which is the genuinely-empty reply the
- * caller suppresses.
- */
-function describeMedia(labels: string[]): string {
-  if (labels.length === 0) {
-    return "";
-  }
-  if (labels.length > 1) {
-    return `Sent ${labels.length} attachments`;
-  }
-  const label = sanitizeMessagePreview(collapseWhitespace(labels[0]));
-  return label ? `Sent ${label}` : "Sent an attachment";
 }
 
 /**
