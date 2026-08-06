@@ -30,8 +30,7 @@ mock.module("../../../util/logger.js", () => ({
   getLogger: () => ({ debug() {}, info() {}, warn() {}, error() {} }),
 }));
 
-const { sendDiscordReply, sendDiscordAttachments, sendDiscordTypingIndicator } =
-  await import("./send.js");
+const { sendDiscordReply, sendDiscordAttachments } = await import("./send.js");
 
 const originalFetch = globalThis.fetch;
 
@@ -176,24 +175,5 @@ describe("sendDiscordAttachments", () => {
     expect(result.allFailed).toBe(true);
     // Only the failure notice, never a zero-byte upload.
     expect(calls.every((c) => typeof c.body === "string")).toBe(true);
-  });
-});
-
-describe("sendDiscordTypingIndicator", () => {
-  test("posts to the typing route and tolerates an empty 204", async () => {
-    stubFetch(204);
-    await expect(sendDiscordTypingIndicator({ channelId: "C1" })).resolves.toBe(
-      true,
-    );
-    expect(calls[0].url).toBe("https://discord.com/api/v10/channels/C1/typing");
-    expect(calls[0].method).toBe("POST");
-  });
-
-  test("never fails the turn when the indicator is refused", async () => {
-    stubFetch(403, { message: "Missing Access" });
-    // Cosmetic, so a refusal must not propagate into the reply path.
-    await expect(sendDiscordTypingIndicator({ channelId: "C1" })).resolves.toBe(
-      false,
-    );
   });
 });

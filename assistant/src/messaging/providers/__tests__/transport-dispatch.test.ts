@@ -244,13 +244,15 @@ describe("capability gating across channels", () => {
     });
   });
 
-  test("typing to Discord routes to its typing indicator", async () => {
+  test("a typing payload to Discord falls through to deliver (no sendTyping)", async () => {
+    // Only the Telegram heartbeat produces `chatAction: "typing"`, and it is
+    // gated on sourceChannel === "telegram", so Discord can never receive one.
+    // The transport implements no sendTyping, so this falls through.
     await deliverDirect(
       `${BASE}/deliver/discord`,
-      payload({ chatAction: "typing" }),
+      payload({ chatAction: "typing", text: "hi" }),
     );
-    expect(discord.sendDiscordTypingIndicator).toHaveBeenCalledTimes(1);
-    expect(discord.sendDiscordReply).not.toHaveBeenCalled();
+    expect(discord.sendDiscordReply).toHaveBeenCalledTimes(1);
   });
 
   test("a Slack-only stream payload to Discord falls through to deliver", async () => {

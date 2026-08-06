@@ -6,11 +6,7 @@ import type {
   ChannelTransport,
 } from "../channel-transport.js";
 import type { DiscordSendTarget } from "./send.js";
-import {
-  sendDiscordAttachments,
-  sendDiscordReply,
-  sendDiscordTypingIndicator,
-} from "./send.js";
+import { sendDiscordAttachments, sendDiscordReply } from "./send.js";
 
 const log = getLogger("discord-transport");
 
@@ -68,10 +64,5 @@ export const discordTransport: ChannelTransport = {
       "Discord reply delivered (direct)",
     );
     return { ok: true, ts: sentId };
-  },
-
-  async sendTyping(ctx, payload) {
-    await sendDiscordTypingIndicator(sendTarget(ctx, payload.chatId));
-    return { ok: true };
   },
 };

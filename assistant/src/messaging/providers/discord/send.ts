@@ -1,9 +1,8 @@
 /**
  * Discord outbound message orchestration.
  *
- * Splits replies into Discord-sized chunks (see ./render.ts), uploads
- * attachments, and sends typing indicators by calling the Discord REST API
- * directly via ./api.ts.
+ * Splits replies into Discord-sized chunks (see ./render.ts) and uploads
+ * attachments, by calling the Discord REST API directly via ./api.ts.
  */
 
 import { getAttachmentContent } from "../../../persistence/attachments-store.js";
@@ -210,30 +209,4 @@ export async function sendDiscordAttachments(
     failureCount: failures.length,
     totalCount: attachments.length,
   };
-}
-
-/**
- * Show the bot as typing in a channel. Discord clears the indicator after
- * about ten seconds or when the bot posts, whichever comes first.
- *
- * Returns true on success, false on failure (non-throwing): a missing typing
- * indicator is cosmetic and must never fail the turn.
- */
-export async function sendDiscordTypingIndicator(
-  target: DiscordSendTarget,
-): Promise<boolean> {
-  try {
-    await callDiscordApi(
-      "POST",
-      `/channels/${encodeURIComponent(target.channelId)}/typing`,
-      {},
-    );
-    return true;
-  } catch (err) {
-    log.debug(
-      { err, channelId: target.channelId },
-      "Failed to send Discord typing indicator",
-    );
-    return false;
-  }
 }

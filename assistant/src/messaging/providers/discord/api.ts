@@ -106,8 +106,8 @@ function retryAfterFrom(
  * Retryable: 429 (rate limited) and 5xx, plus transport failures. Everything
  * else surfaces as {@link DiscordNonRetryableError}.
  *
- * `T | undefined` because several endpoints answer 204 with no body (typing
- * indicators); callers that need a response shape assert on it themselves.
+ * `T | undefined` because an endpoint may answer 204 with no body; callers
+ * that need a response shape assert on it themselves.
  */
 async function retryableFetch<T>(
   route: string,
@@ -142,8 +142,7 @@ async function retryableFetch<T>(
 
     if (response.ok) {
       const body = await response.text().catch(() => "");
-      // Several routes answer 204 with no body (the typing indicator), so an
-      // empty body is success with nothing to decode.
+      // A 204 or any empty body is success with nothing to decode.
       if (!body) {
         return undefined;
       }
