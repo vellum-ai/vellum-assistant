@@ -42,8 +42,15 @@ Your job is Steps 1 to 5 below: open the wizard, confirm delivery, link the user
 
 Otherwise, run `assistant credentials list --search telegram` (via the bash tool). Note whether `bot_token` and `webhook_secret` are present.
 
-- If **both ✅** → already configured. Offer to show status or reconfigure. Stop here unless the user wants a reset.
-- **Otherwise** → continue to Step 2.
+- **Neither present** → continue to Step 2.
+- **Both present** → credentials existing does not mean Telegram works, so
+  check before saying so. Run Step 3's `assistant channels get telegram --json`
+  and read `webhook_delivery`.
+  - **Passing** → already set up. Offer to show status or reconfigure, and stop
+    here unless the user wants a reset.
+  - **Failing** → configured but not delivering. This is what the Channels page
+    shows as incomplete, and it is why the user may have asked. Go to Step 3 and
+    work the recovery rather than reporting it as already set up.
 
 > ✓ Checkpoint: You named which fields are present before branching. Do not skip the call and guess.
 

@@ -15,9 +15,9 @@ export interface TelegramSetupConnectStepProps {
  *
  * Saving is not the end of setup. Delivery still has to be confirmed and the
  * user's identity linked before anything reaches them, which the assistant
- * does from the chat. The success state points there rather than implying a
- * stored token is a working channel, and names what the user gets rather than
- * the machinery that gets it.
+ * does. The chat drawer closes on a successful save and hands off, so this
+ * success state is what the Channels page shows, where nothing is listening
+ * and the user picks it up next time they chat.
  */
 export function TelegramSetupConnectStep({
   botToken,
@@ -64,8 +64,8 @@ export function TelegramSetupConnectStep({
 
       {saveStatus === "success" && (
         <Notice tone="success">
-          Token saved. The rest finishes on its own. Head back to the chat and
-          your assistant will check Telegram is working and make sure it can
+          Token saved. The rest finishes on its own. Your assistant will confirm
+          Telegram is delivering the next time you chat, and make sure it can
           reach you.
         </Notice>
       )}
