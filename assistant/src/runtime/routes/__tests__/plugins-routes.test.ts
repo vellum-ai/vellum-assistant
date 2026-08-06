@@ -2178,6 +2178,90 @@ describe("POST /v1/plugins/:name/upgrade", () => {
     });
   });
 
+  test("refuses a concurrent upgrade of the same plugin with ConflictError (409)", async () => {
+    // Two upgrades of one plugin derive the same staging path in this
+    // process, so the second would delete the first's tree mid-swap. It is
+    // refused instead \u2014 the monitor's auto-update sweep and a user clicking
+    // Upgrade can now land at the same moment.
+    let releaseFirst: () => void = () => {};
+    const firstStarted = Promise.withResolvers<void>();
+    upgradeSpy.mockImplementation(async () => {
+      firstStarted.resolve();
+      await new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      return upgradeResult();
+    });
+
+    const first = invokeUpgrade({ pathParams: { name: "level-up" } });
+    await firstStarted.promise;
+
+    await expect(
+      invokeUpgrade({ pathParams: { name: "level-up" } }),
+    ).rejects.toBeInstanceOf(ConflictError);
+
+    releaseFirst();
+    await expect(first).resolves.toMatchObject({ outcome: "upgraded" });
+
+    // The guard is released once the first settles, so the next one runs.
+    upgradeSpy.mockImplementation(async () => upgradeResult());
+    await expect(
+      invokeUpgrade({ pathParams: { name: "level-up" } }),
+    ).resolves.toMatchObject({ outcome: "upgraded" });
+  });
+
+  test("a different plugin is not blocked by an in-flight upgrade", async () => {
+    let releaseFirst: () => void = () => {};
+    const firstStarted = Promise.withResolvers<void>();
+    upgradeSpy.mockImplementation(async (opts) => {
+      if (opts.name === "level-up") {
+        firstStarted.resolve();
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+      }
+      return upgradeResult({ name: opts.name });
+    });
+
+    const first = invokeUpgrade({ pathParams: { name: "level-up" } });
+    await firstStarted.promise;
+
+    await expect(
+      invokeUpgrade({ pathParams: { name: "other-plugin" } }),
+    ).resolves.toMatchObject({ name: "other-plugin" });
+
+    releaseFirst();
+    await first;
+  });
+
+  test("a dry run neither takes nor respects the in-flight guard", async () => {
+    // Dry runs return before the swap boundary, so they never stage.
+    let releaseFirst: () => void = () => {};
+    const firstStarted = Promise.withResolvers<void>();
+    upgradeSpy.mockImplementation(async (opts) => {
+      if (!opts.dryRun) {
+        firstStarted.resolve();
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+      }
+      return upgradeResult();
+    });
+
+    const first = invokeUpgrade({ pathParams: { name: "level-up" } });
+    await firstStarted.promise;
+
+    await expect(
+      invokeUpgrade({
+        pathParams: { name: "level-up" },
+        body: { dryRun: true },
+      }),
+    ).resolves.toMatchObject({ outcome: "upgraded" });
+
+    releaseFirst();
+    await first;
+  });
+
   test("PluginMergeBaselineError \u2192 ConflictError (409)", async () => {
     // A merge strategy whose install-time baseline can't be reconstructed: a
     // well-formed request that isn't actionable in the current state.

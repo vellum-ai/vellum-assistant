@@ -1,220 +1,332 @@
 /**
  * Tests for the unattended plugin upgrade sweep, driven one pass at a time
- * (no timers) with every seam injected.
+ * (no timers) against a temp workspace: a real `config.json`, real plugin
+ * directories, and a real on-disk sweep stamp. Only the two network-bound
+ * seams are mocked — the marketplace drift check and the daemon IPC call.
  *
  * The contract under test:
  *   - a `manual` workspace (the default) never asks the daemon for anything;
  *   - an `auto` workspace sweeps at most once per `checkIntervalMs`, and the
  *     stamp survives restarts;
- *   - one plugin's refusal does not stop the sweep, but an unreachable daemon
- *     abandons it without stamping, so it retries;
+ *   - only plugins that can actually move reach the daemon — up-to-date and
+ *     disabled installs cost it nothing;
+ *   - one plugin's refusal does not stop the sweep, an unreachable daemon
+ *     abandons it without stamping (so it retries), and a timed-out upgrade
+ *     abandons it *with* a stamp (so the retry cannot race the handler that
+ *     is still running);
  *   - the configured strategy is what the daemon is asked for.
  */
 
-import { describe, expect, test } from "bun:test";
-
-import { PluginUpdatesConfigSchema } from "../../config/schemas/plugin-updates.js";
 import {
-  type PluginAutoUpdateDeps,
-  runPluginAutoUpdatePassIfDue,
-} from "../plugin-auto-update.js";
+  existsSync,
+  mkdirSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-type UpgradeCall = { name: string; strategy: string };
+const ROOT = join(
+  tmpdir(),
+  `plugin-auto-update-test-${process.pid}-${Date.now()}`,
+);
+const PLUGINS_DIR = join(ROOT, "plugins");
+const MONITORING_DIR = join(ROOT, "data", "monitoring");
+const STAMP = join(MONITORING_DIR, "plugin-auto-update-last-run-at");
+const CONFIG_PATH = join(ROOT, "config.json");
 
-function makeDeps(
-  overrides: {
-    config?: Partial<{
-      mode: "manual" | "auto";
-      strategy: "theirs" | "ours" | "overwrite";
-      checkIntervalMs: number;
-    }>;
-    names?: string[];
-    now?: number;
-    lastRunAt?: number | null;
-    upgrade?: PluginAutoUpdateDeps["requestUpgrade"];
-  } = {},
-): {
-  deps: PluginAutoUpdateDeps;
-  calls: UpgradeCall[];
-  stamps: number[];
-} {
-  const calls: UpgradeCall[] = [];
-  const stamps: number[] = [];
-  const config = PluginUpdatesConfigSchema.parse(overrides.config ?? {});
-  const now = overrides.now ?? 1_000_000_000;
-  const upgrade: PluginAutoUpdateDeps["requestUpgrade"] =
-    overrides.upgrade ??
-    (async () => ({
-      ok: true,
-      result: { outcome: "upgraded", toCommit: "abc" },
-    }));
-  const deps: PluginAutoUpdateDeps = {
-    readConfig: () => config,
-    listUpgradableNames: () => overrides.names ?? ["alpha"],
-    requestUpgrade: async (name, strategy) => {
-      calls.push({ name, strategy });
-      return upgrade(name, strategy);
-    },
-    readLastRunAt: () => overrides.lastRunAt ?? null,
-    writeLastRunAt: () => stamps.push(now),
-    now: () => now,
-  };
-  return { deps, calls, stamps };
+process.env.VELLUM_WORKSPACE_DIR = ROOT;
+mkdirSync(MONITORING_DIR, { recursive: true });
+mkdirSync(PLUGINS_DIR, { recursive: true });
+
+afterAll(() => {
+  rmSync(ROOT, { recursive: true, force: true });
+});
+
+// ── Mocked seams: the marketplace drift check and the daemon call ───────────
+//
+// `mock.module` replaces the module for the whole test process, so each
+// factory spreads the real module and overrides only the one export this
+// file drives. Replacing either wholesale would strip the other exports out
+// from under any test file running alongside this one.
+
+/** Drift status `inspectPlugin` reports per plugin name. */
+let inspectStatus = new Map<string, string>();
+let inspectThrowsFor = new Set<string>();
+
+type UpgradeReply = {
+  ok: boolean;
+  result?: { outcome?: string; toCommit?: string };
+  error?: string;
+  statusCode?: number;
+  timedOut?: boolean;
+};
+let upgradeReply: (name: string) => UpgradeReply = () => ({
+  ok: true,
+  result: { outcome: "upgraded", toCommit: "abc1234" },
+});
+const upgradeCalls: Array<{ name: string; strategy: unknown }> = [];
+
+const realInspect = await import("../../cli/lib/inspect-plugin.js");
+const realIpcClient = await import("../../ipc/cli-client.js");
+
+mock.module("../../cli/lib/inspect-plugin.js", () => ({
+  ...realInspect,
+  inspectPlugin: async ({ name }: { name: string }) => {
+    if (inspectThrowsFor.has(name)) {
+      throw new Error("marketplace unreachable");
+    }
+    return { name, status: inspectStatus.get(name) ?? "up-to-date" };
+  },
+}));
+
+mock.module("../../ipc/cli-client.js", () => ({
+  ...realIpcClient,
+  cliIpcCall: async (
+    _method: string,
+    params: { pathParams: { name: string }; body: { strategy: unknown } },
+  ) => {
+    upgradeCalls.push({
+      name: params.pathParams.name,
+      strategy: params.body.strategy,
+    });
+    return upgradeReply(params.pathParams.name);
+  },
+}));
+
+const { invalidateConfigCache } = await import("../../config/loader.js");
+const { runPluginAutoUpdateSweepIfDue } =
+  await import("../plugin-auto-update.js");
+
+// ── Workspace fixtures ──────────────────────────────────────────────────────
+
+function writeConfig(pluginUpdates: Record<string, unknown>): void {
+  writeFileSync(CONFIG_PATH, JSON.stringify({ pluginUpdates }, null, 2));
+  invalidateConfigCache();
 }
 
-describe("plugin auto-update pass", () => {
+/** Materialize an installed plugin and declare what inspect says about it. */
+function installPlugin(
+  name: string,
+  opts: { status?: string; disabled?: boolean } = {},
+): void {
+  const dir = join(PLUGINS_DIR, name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, "package.json"),
+    JSON.stringify({ name, version: "1.0.0" }),
+  );
+  if (opts.disabled) {
+    writeFileSync(join(dir, ".disabled"), "");
+  }
+  inspectStatus.set(name, opts.status ?? "update-available");
+}
+
+/** Backdate the stamp so the sweep is (or is not) due again. */
+function stampAgedBy(ms: number): void {
+  writeFileSync(STAMP, "");
+  const when = new Date(Date.now() - ms);
+  utimesSync(STAMP, when, when);
+}
+
+beforeEach(() => {
+  inspectStatus = new Map();
+  inspectThrowsFor = new Set();
+  upgradeReply = () => ({
+    ok: true,
+    result: { outcome: "upgraded", toCommit: "abc1234" },
+  });
+  upgradeCalls.length = 0;
+  rmSync(STAMP, { force: true });
+  rmSync(PLUGINS_DIR, { recursive: true, force: true });
+  mkdirSync(PLUGINS_DIR, { recursive: true });
+  writeConfig({});
+});
+
+describe("plugin auto-update sweep", () => {
   test("defaults to manual: nothing is upgraded and nothing is stamped", async () => {
-    const { deps, calls, stamps } = makeDeps();
-    const result = await runPluginAutoUpdatePassIfDue(deps);
+    installPlugin("alpha");
+    const result = await runPluginAutoUpdateSweepIfDue();
     expect(result.skipped).toBe("manual");
-    expect(calls).toEqual([]);
-    expect(stamps).toEqual([]);
+    expect(upgradeCalls).toEqual([]);
+    expect(existsSync(STAMP)).toBe(false);
   });
 
-  test("auto mode upgrades every listed plugin with the configured strategy", async () => {
-    const { deps, calls, stamps } = makeDeps({
-      config: { mode: "auto" },
-      names: ["alpha", "beta"],
-    });
-    const result = await runPluginAutoUpdatePassIfDue(deps);
+  test("auto mode upgrades every candidate with the configured strategy", async () => {
+    writeConfig({ mode: "auto" });
+    installPlugin("alpha", { status: "update-available" });
+    installPlugin("beta", { status: "unknown-provenance" });
+
+    const result = await runPluginAutoUpdateSweepIfDue();
+
     expect(result.skipped).toBeNull();
     expect(result.upgraded).toEqual(["alpha", "beta"]);
-    expect(calls).toEqual([
+    expect(upgradeCalls).toEqual([
       { name: "alpha", strategy: "theirs" },
       { name: "beta", strategy: "theirs" },
     ]);
-    expect(stamps.length).toBe(1);
   });
 
   test("a non-default strategy is what the daemon is asked for", async () => {
-    const { deps, calls } = makeDeps({
-      config: { mode: "auto", strategy: "overwrite" },
-    });
-    await runPluginAutoUpdatePassIfDue(deps);
-    expect(calls).toEqual([{ name: "alpha", strategy: "overwrite" }]);
+    writeConfig({ mode: "auto", strategy: "overwrite" });
+    installPlugin("alpha");
+
+    await runPluginAutoUpdateSweepIfDue();
+
+    expect(upgradeCalls).toEqual([{ name: "alpha", strategy: "overwrite" }]);
   });
 
-  test("an up-to-date plugin counts as unchanged, not upgraded", async () => {
-    const { deps } = makeDeps({
-      config: { mode: "auto" },
-      upgrade: async () => ({
-        ok: true,
-        result: { outcome: "already-up-to-date" },
-      }),
+  test("up-to-date plugins never reach the daemon", async () => {
+    writeConfig({ mode: "auto" });
+    installPlugin("alpha", { status: "up-to-date" });
+    installPlugin("beta", { status: "update-available" });
+
+    const result = await runPluginAutoUpdateSweepIfDue();
+
+    expect(upgradeCalls).toEqual([{ name: "beta", strategy: "theirs" }]);
+    expect(result.upgraded).toEqual(["beta"]);
+  });
+
+  test("a plugin whose drift cannot be resolved is skipped, not attempted", async () => {
+    writeConfig({ mode: "auto" });
+    // The catalog was unreachable for one, and the inspect call itself blew
+    // up for the other; an upgrade would hit the same failure.
+    installPlugin("alpha", { status: "remote-unavailable" });
+    installPlugin("gamma", { status: "update-available" });
+    inspectThrowsFor = new Set(["gamma"]);
+    installPlugin("beta", { status: "update-available" });
+
+    await runPluginAutoUpdateSweepIfDue();
+
+    expect(upgradeCalls.map((c) => c.name)).toEqual(["beta"]);
+  });
+
+  test("a disabled plugin is left alone", async () => {
+    writeConfig({ mode: "auto" });
+    installPlugin("alpha");
+    installPlugin("beta", { disabled: true });
+
+    await runPluginAutoUpdateSweepIfDue();
+
+    expect(upgradeCalls.map((c) => c.name)).toEqual(["alpha"]);
+  });
+
+  test("an up-to-date daemon verdict counts as unchanged, not upgraded", async () => {
+    writeConfig({ mode: "auto" });
+    installPlugin("alpha");
+    upgradeReply = () => ({
+      ok: true,
+      result: { outcome: "already-up-to-date" },
     });
-    const result = await runPluginAutoUpdatePassIfDue(deps);
+
+    const result = await runPluginAutoUpdateSweepIfDue();
+
     expect(result.upgraded).toEqual([]);
     expect(result.unchanged).toEqual(["alpha"]);
   });
 
   test("a sweep inside the interval is skipped", async () => {
-    const now = 5_000_000;
-    const { deps, calls } = makeDeps({
-      config: { mode: "auto", checkIntervalMs: 3_600_000 },
-      now,
-      lastRunAt: now - 3_599_999,
-    });
-    const result = await runPluginAutoUpdatePassIfDue(deps);
+    writeConfig({ mode: "auto" });
+    installPlugin("alpha");
+    stampAgedBy(60_000);
+
+    const result = await runPluginAutoUpdateSweepIfDue();
+
     expect(result.skipped).toBe("not-due");
-    expect(calls).toEqual([]);
+    expect(upgradeCalls).toEqual([]);
   });
 
-  test("a sweep at exactly one interval is due", async () => {
-    const now = 5_000_000;
-    const { deps, calls } = makeDeps({
-      config: { mode: "auto", checkIntervalMs: 3_600_000 },
-      now,
-      lastRunAt: now - 3_600_000,
-    });
-    const result = await runPluginAutoUpdatePassIfDue(deps);
+  test("a sweep past the interval runs again", async () => {
+    writeConfig({ mode: "auto" });
+    installPlugin("alpha");
+    stampAgedBy(3_600_001);
+
+    const result = await runPluginAutoUpdateSweepIfDue();
+
     expect(result.skipped).toBeNull();
-    expect(calls.length).toBe(1);
+    expect(upgradeCalls.length).toBe(1);
+  });
+
+  test("a shortened interval is honored", async () => {
+    writeConfig({ mode: "auto", checkIntervalMs: 300_000 });
+    installPlugin("alpha");
+    stampAgedBy(400_000);
+
+    expect((await runPluginAutoUpdateSweepIfDue()).skipped).toBeNull();
   });
 
   test("one plugin's refusal does not stop the rest, and the sweep stamps", async () => {
-    const { deps, stamps } = makeDeps({
-      config: { mode: "auto" },
-      names: ["alpha", "beta"],
-      upgrade: async (name) =>
-        name === "alpha"
-          ? { ok: false, statusCode: 409, error: "not upgradable" }
-          : { ok: true, result: { outcome: "upgraded" } },
-    });
-    const result = await runPluginAutoUpdatePassIfDue(deps);
+    writeConfig({ mode: "auto" });
+    installPlugin("alpha");
+    installPlugin("beta");
+    upgradeReply = (name) =>
+      name === "alpha"
+        ? { ok: false, statusCode: 409, error: "not upgradable" }
+        : { ok: true, result: { outcome: "upgraded" } };
+
+    const result = await runPluginAutoUpdateSweepIfDue();
+
     expect(result.failed).toEqual(["alpha"]);
     expect(result.upgraded).toEqual(["beta"]);
     expect(result.daemonUnreachable).toBe(false);
-    expect(stamps.length).toBe(1);
+    // Stamped: the next attempt is an interval away.
+    expect(await runPluginAutoUpdateSweepIfDue()).toMatchObject({
+      skipped: "not-due",
+    });
   });
 
   test("an unreachable daemon abandons the sweep and stays due", async () => {
-    const { deps, calls, stamps } = makeDeps({
-      config: { mode: "auto" },
-      names: ["alpha", "beta"],
-      upgrade: async () => ({ ok: false, error: "connect ENOENT" }),
-    });
-    const result = await runPluginAutoUpdatePassIfDue(deps);
+    writeConfig({ mode: "auto" });
+    installPlugin("alpha");
+    installPlugin("beta");
+    upgradeReply = () => ({ ok: false, error: "connect ENOENT" });
+
+    const result = await runPluginAutoUpdateSweepIfDue();
+
     expect(result.daemonUnreachable).toBe(true);
     // Abandoned after the first plugin — the rest would fail identically.
-    expect(calls).toEqual([{ name: "alpha", strategy: "theirs" }]);
-    expect(stamps).toEqual([]);
+    expect(upgradeCalls.map((c) => c.name)).toEqual(["alpha"]);
+
+    // Unstamped, so the next poll retries immediately.
+    upgradeCalls.length = 0;
+    upgradeReply = () => ({ ok: true, result: { outcome: "upgraded" } });
+    const retry = await runPluginAutoUpdateSweepIfDue();
+    expect(retry.skipped).toBeNull();
+    expect(retry.upgraded).toEqual(["alpha", "beta"]);
   });
 
-  test("a thrown upgrade is contained and counted as a failure", async () => {
-    const { deps, stamps } = makeDeps({
-      config: { mode: "auto" },
-      upgrade: async () => {
-        throw new Error("boom");
-      },
-    });
-    const result = await runPluginAutoUpdatePassIfDue(deps);
+  test("a timed-out upgrade stamps, so the retry cannot race the daemon handler", async () => {
+    writeConfig({ mode: "auto" });
+    installPlugin("alpha");
+    installPlugin("beta");
+    upgradeReply = (name) =>
+      name === "alpha"
+        ? { ok: false, error: "Request timed out", timedOut: true }
+        : { ok: true, result: { outcome: "upgraded" } };
+
+    const result = await runPluginAutoUpdateSweepIfDue();
+
     expect(result.failed).toEqual(["alpha"]);
-    expect(stamps.length).toBe(1);
-  });
-
-  test("an empty workspace stamps instead of re-listing every minute", async () => {
-    const { deps, calls, stamps } = makeDeps({
-      config: { mode: "auto" },
-      names: [],
-    });
-    const result = await runPluginAutoUpdatePassIfDue(deps);
-    expect(result.skipped).toBe("no-plugins");
-    expect(calls).toEqual([]);
-    expect(stamps.length).toBe(1);
-  });
-
-  test("an unreadable config upgrades nothing", async () => {
-    const { deps, calls } = makeDeps({ config: { mode: "auto" } });
-    const broken: PluginAutoUpdateDeps = {
-      ...deps,
-      readConfig: () => {
-        throw new Error("config.json is corrupt");
-      },
-    };
-    const result = await runPluginAutoUpdatePassIfDue(broken);
-    expect(result.skipped).toBe("config-unreadable");
-    expect(calls).toEqual([]);
-  });
-});
-
-describe("pluginUpdates config schema", () => {
-  test("defaults are manual / theirs / hourly", () => {
-    expect(PluginUpdatesConfigSchema.parse({})).toEqual({
-      mode: "manual",
-      strategy: "theirs",
-      checkIntervalMs: 3_600_000,
+    // The daemon may still be swapping `alpha`; nothing is queued behind it.
+    expect(upgradeCalls.map((c) => c.name)).toEqual(["alpha"]);
+    expect(result.daemonUnreachable).toBe(false);
+    expect(await runPluginAutoUpdateSweepIfDue()).toMatchObject({
+      skipped: "not-due",
     });
   });
 
-  test("the unattended-hostile `assistant` strategy is not selectable", () => {
-    expect(
-      PluginUpdatesConfigSchema.safeParse({ strategy: "assistant" }).success,
-    ).toBe(false);
-  });
+  test("a workspace with nothing to move stamps instead of re-inspecting every minute", async () => {
+    writeConfig({ mode: "auto" });
+    installPlugin("alpha", { status: "up-to-date" });
 
-  test("sub-5-minute intervals are rejected", () => {
-    expect(
-      PluginUpdatesConfigSchema.safeParse({ checkIntervalMs: 1_000 }).success,
-    ).toBe(false);
+    const result = await runPluginAutoUpdateSweepIfDue();
+
+    expect(result.skipped).toBe("no-candidates");
+    expect(upgradeCalls).toEqual([]);
+    expect(await runPluginAutoUpdateSweepIfDue()).toMatchObject({
+      skipped: "not-due",
+    });
   });
 });

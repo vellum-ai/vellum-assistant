@@ -1426,6 +1426,34 @@ async function handleDiffPlugin({ pathParams = {} }: RouteHandlerArgs) {
 // Handler — upgrade
 // ---------------------------------------------------------------------------
 
+/**
+ * Install names with an upgrade past the staging boundary right now.
+ *
+ * An upgrade stages into `<plugins>/../.plugins-staging/<name>.upgrading.<pid>`
+ * and finishes with an `rm -rf` + rename over the live install. Two concurrent
+ * upgrades of the same plugin in this process derive the same staging path, so
+ * the second would delete the first's tree mid-flight and leave the install
+ * half-swapped. The upgrade is per-plugin mutable state with more than one
+ * caller (CLI, the web Upgrade button, and the monitor's auto-update sweep),
+ * so it is serialized per name: the second caller is refused rather than
+ * queued, since by the time it could run, the revision it wanted is already
+ * what the first caller installed.
+ *
+ * Dry runs never stage — they return before the swap boundary — so they
+ * neither take nor respect the guard.
+ */
+const upgradesInFlight = new Set<string>();
+
+/** An upgrade for this plugin is already running in this process. */
+class PluginUpgradeInProgressError extends Error {
+  constructor(pluginName: string) {
+    super(
+      `An upgrade for plugin "${pluginName}" is already in progress. Wait for it to finish before starting another.`,
+    );
+    this.name = "PluginUpgradeInProgressError";
+  }
+}
+
 async function handleUpgradePlugin({
   pathParams = {},
   body = {},
@@ -1453,8 +1481,18 @@ async function handleUpgradePlugin({
   // brings the on-disk version up, so the reconcile below must run even when
   // the swap itself failed (re-initializing the untouched old install).
   let deactivated = false;
+  // Name held by this request in `upgradesInFlight`, so `finally` releases
+  // exactly what it claimed (and nothing when the claim was refused).
+  let claimed: string | null = null;
   try {
     const name = sanitizePluginName(rawName);
+    if (!dryRun) {
+      if (upgradesInFlight.has(name)) {
+        throw new PluginUpgradeInProgressError(name);
+      }
+      upgradesInFlight.add(name);
+      claimed = name;
+    }
     // No `confirmStaged` consent gate here: the daemon route is unattended by
     // design (there is no interactive surface to prompt on). A schedule the
     // upgraded revision adds is surfaced to the user by the schedule
@@ -1506,6 +1544,11 @@ async function handleUpgradePlugin({
     if (err instanceof InvalidPluginNameError) {
       throw new BadRequestError(err.message);
     }
+    // A concurrent upgrade of the same plugin owns the staging path — a
+    // well-formed request that is not actionable until the first one lands.
+    if (err instanceof PluginUpgradeInProgressError) {
+      throw new ConflictError(err.message);
+    }
     if (err instanceof PluginNotInstalledError) {
       throw new NotFoundError(err.message);
     }
@@ -1544,6 +1587,13 @@ async function handleUpgradePlugin({
     // changed is a cheap no-op.)
     if (deactivated) {
       await reconcilePluginSourcesNow();
+    }
+    // Released after the reconcile, not before: until the new version's
+    // `init` has run the plugin is still mid-swap, and a second upgrade
+    // starting there would stage against a tree this request is still
+    // bringing up.
+    if (claimed !== null) {
+      upgradesInFlight.delete(claimed);
     }
   }
 }
