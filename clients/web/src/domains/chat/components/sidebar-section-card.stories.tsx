@@ -14,13 +14,18 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Folder } from "lucide-react";
 
-import { ContextMenu } from "@vellumai/design-library";
+import { cn } from "@vellumai/design-library";
 
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
+import { SIDEBAR_SECTION_TITLE_TEXT_CLASSES } from "@/components/sidebar-nav-geometry";
 import { GroupIndicatorDot } from "@/domains/chat/components/collapsed-group-icon";
 import { ConversationListProvider } from "@/domains/chat/components/conversation-list-context";
-import { ConversationRow } from "@/domains/chat/components/conversation-row";
+import {
+  GroupActionsMenu,
+  type GroupMenuItemsProps,
+} from "@/domains/chat/components/group-actions-menu";
 import { SidebarSectionCard } from "@/domains/chat/components/sidebar-section-card";
+import { SidebarViewModeSelect } from "@/domains/chat/components/sidebar-view-mode-select";
 import type { Conversation } from "@/types/conversation-types";
 
 function conversation(
@@ -69,21 +74,40 @@ const LIST_CONTEXT = {
   typeof ConversationListProvider
 >["value"];
 
-function rows(items: Conversation[]) {
-  return items.map((c) => (
-    <ConversationRow key={c.conversationId} conversation={c} />
-  ));
-}
+/**
+ * A section's own actions, as the sidebar wires them. Deliberately the real
+ * `GroupMenuItemsProps`, not a hand-written item list: `ConversationNavSection`
+ * renders these into the header's right-click menu and, on touch, its
+ * long-press sheet, and `GroupActionsMenu` renders the same set behind the
+ * hover "…". Faking the items here would document a menu the app never shows.
+ *
+ * These are section actions. A row's actions (pin, archive, move to group,
+ * inspect) live on `ConversationRow` and are a different set entirely.
+ */
+const GROUP_MENU: GroupMenuItemsProps = {
+  onMarkAllRead: () => {},
+  hasUnreadConversations: true,
+  onArchiveAll: () => {},
+  hasConversations: true,
+  onRename: () => {},
+  onDelete: () => {},
+  onCopyGroupId: () => {},
+  onMoveDown: () => {},
+};
 
-const SECTION_MENU = (
-  <>
-    <ContextMenu.Item>Mark all as read</ContextMenu.Item>
-    <ContextMenu.Item>Archive all</ContextMenu.Item>
-    <ContextMenu.Separator />
-    <ContextMenu.Label>Group by</ContextMenu.Label>
-    <ContextMenu.Item>None</ContextMenu.Item>
-    <ContextMenu.Item>Channel</ContextMenu.Item>
-  </>
+/**
+ * The Chats card additionally carries the view-mode toggle. It is a property
+ * of the section rather than a bulk action, so it rides in the menu's footer
+ * slot, which is where the deleted sidebar-wide "Conversations" header used
+ * to keep it.
+ */
+const GROUP_BY_FOOTER = (
+  <div className="px-2 pb-1">
+    <div className={cn("mt-3 mb-2", SIDEBAR_SECTION_TITLE_TEXT_CLASSES)}>
+      Group by
+    </div>
+    <SidebarViewModeSelect value="all" onChange={() => {}} />
+  </div>
 );
 
 const meta = {
@@ -127,11 +151,22 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
+/**
+ * Pinned carries the hover "…" and grows to fit its rows rather than
+ * capping and scrolling within itself, as it does in the sidebar today.
+ */
 export const Pinned: Story = {
-  args: { value: "pinned", label: "Pinned" },
+  args: {
+    value: "pinned",
+    label: "Pinned",
+    items: PINNED,
+    unbounded: true,
+    groupMenu: GROUP_MENU,
+    trailing: <GroupActionsMenu label="Pinned" {...GROUP_MENU} />,
+  },
   render: (args) => (
     <CollapsibleNavSection.Root type="multiple" defaultValue={["pinned"]}>
-      <SidebarSectionCard {...args}>{rows(PINNED)}</SidebarSectionCard>
+      <SidebarSectionCard {...args} />
     </CollapsibleNavSection.Root>
   ),
 };
@@ -142,7 +177,10 @@ export const CollapsedGroup: Story = {
     value: "car-chat",
     label: "Car Chat",
     icon: Folder,
+    items: [],
     collapsedIndicator: <GroupIndicatorDot state="unread" />,
+    groupMenu: GROUP_MENU,
+    trailing: <GroupActionsMenu label="Car Chat" {...GROUP_MENU} />,
   },
   render: (args) => (
     <CollapsibleNavSection.Root type="multiple" defaultValue={[]}>
@@ -156,53 +194,83 @@ export const Chats: Story = {
   args: {
     value: "chats",
     label: "Chats",
+    items: CHATS,
     collapsedIndicator: <GroupIndicatorDot state="unread" />,
   },
   render: (args) => (
     <CollapsibleNavSection.Root type="multiple" defaultValue={["chats"]}>
-      <SidebarSectionCard {...args}>{rows(CHATS)}</SidebarSectionCard>
+      <SidebarSectionCard {...args} />
     </CollapsibleNavSection.Root>
   ),
 };
 
 /**
- * Right-click anywhere on the header opens the section's own menu, so
- * "Archive all" reaches this section's rows and no others.
+ * The two menus, which are not the same menu.
+ *
+ * The header's actions are the section's: mark all read, archive all,
+ * rename, delete, reorder, plus the Group by toggle this card owns now that
+ * the sidebar-wide "Conversations" header is gone. They are reachable from
+ * the hover "…", from right-clicking the header, and from a long-press on
+ * touch, all rendered from one `groupMenu`.
+ *
+ * A row's actions are its own (pin, archive, move to group, inspect) and
+ * come from `ConversationRow`. Right-click a row here to see the difference.
  */
-export const WithSectionMenu: Story = {
+export const SectionMenuVersusRowMenu: Story = {
   args: {
     value: "chats",
     label: "Chats",
-    contextMenuContent: SECTION_MENU,
-    touchMenuContent: () => SECTION_MENU,
+    items: CHATS.slice(0, 4),
+    groupMenu: GROUP_MENU,
+    trailing: (
+      <GroupActionsMenu label="Chats" footer={GROUP_BY_FOOTER} {...GROUP_MENU} />
+    ),
   },
   render: (args) => (
     <CollapsibleNavSection.Root type="multiple" defaultValue={["chats"]}>
-      <SidebarSectionCard {...args}>{rows(CHATS.slice(0, 3))}</SidebarSectionCard>
+      <SidebarSectionCard {...args} />
     </CollapsibleNavSection.Root>
   ),
 };
 
 /** The sidebar's stack: curated cards above, the chat list below. */
 export const Composed: Story = {
-  args: { value: "pinned", label: "Pinned" },
+  args: { value: "pinned", label: "Pinned", items: PINNED },
   render: () => (
     <CollapsibleNavSection.Root
       type="multiple"
       defaultValue={["pinned", "chats"]}
     >
-      <SidebarSectionCard value="pinned" label="Pinned">
-        {rows(PINNED)}
-      </SidebarSectionCard>
+      <SidebarSectionCard
+        value="pinned"
+        label="Pinned"
+        items={PINNED}
+        unbounded
+        groupMenu={GROUP_MENU}
+        trailing={<GroupActionsMenu label="Pinned" {...GROUP_MENU} />}
+      />
       <SidebarSectionCard
         value="car-chat"
         label="Car Chat"
         icon={Folder}
+        items={[]}
         collapsedIndicator={<GroupIndicatorDot state="unread" />}
+        groupMenu={GROUP_MENU}
+        trailing={<GroupActionsMenu label="Car Chat" {...GROUP_MENU} />}
       />
-      <SidebarSectionCard value="chats" label="Chats">
-        {rows(CHATS)}
-      </SidebarSectionCard>
+      <SidebarSectionCard
+        value="chats"
+        label="Chats"
+        items={CHATS}
+        groupMenu={GROUP_MENU}
+        trailing={
+          <GroupActionsMenu
+            label="Chats"
+            footer={GROUP_BY_FOOTER}
+            {...GROUP_MENU}
+          />
+        }
+      />
     </CollapsibleNavSection.Root>
   ),
 };
