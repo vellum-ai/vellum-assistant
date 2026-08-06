@@ -13,9 +13,11 @@ export interface TelegramSetupConnectStepProps {
 /**
  * Step 2 of `TelegramSetupWizard`: bring the token back from BotFather.
  *
- * Saving is not the end of setup. The assistant registers the webhook and bot
- * commands afterwards, from the chat, so the success state says where to go
- * rather than implying the channel is already live.
+ * Saving is not the end of setup. Delivery still has to be confirmed and the
+ * user's identity linked before anything reaches them, which the assistant
+ * does from the chat. The success state points there rather than implying a
+ * stored token is a working channel, and names what the user gets rather than
+ * the machinery that gets it.
  */
 export function TelegramSetupConnectStep({
   botToken,
@@ -62,8 +64,9 @@ export function TelegramSetupConnectStep({
 
       {saveStatus === "success" && (
         <Notice tone="success">
-          Token saved. Return to the chat and your assistant will finish setting
-          up the webhook and bot commands.
+          Token saved. The rest finishes on its own. Head back to the chat and
+          your assistant will check Telegram is working and make sure it can
+          reach you.
         </Notice>
       )}
       {saveStatus === "error" && saveError && (

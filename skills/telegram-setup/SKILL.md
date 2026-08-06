@@ -15,124 +15,113 @@ metadata:
       - "User wants to send/receive Telegram messages (use messaging skill instead)"
 ---
 
-You are helping your user connect a Telegram bot to the Vellum Assistant gateway. Walk through each step below.
+You are helping your user connect a Telegram bot. The wizard collects the token, the daemon and gateway do the setup, and you confirm it worked.
 
-## Value Classification
+DO NOT use this skill for runtime Telegram operations (sending, replying, reading). That is the separate messaging skill.
 
-| Value          | Type       | Storage method                              | Secret? |
-| -------------- | ---------- | ------------------------------------------- | ------- |
-| Bot Token      | Credential | `assistant credentials prompt`              | **Yes** |
-| Bot Username   | Config     | `assistant config set telegram.botUsername` | No      |
-| Webhook Secret | Credential | `assistant credentials set … --generated`   | **Yes** |
+## What happens without you
 
-- **Bot Token** is a secret. Always collect via `assistant credentials prompt` - never accept it pasted in plaintext chat.
-- **Bot Username** is derived from the token via the Telegram API and stored as config.
+Saving the token in the wizard triggers all of this:
 
-# Setup Steps
+| Step | Runs where |
+| -- | -- |
+| Validate the token against `getMe` | Daemon, on save |
+| Store `telegram.botId` and `telegram.botUsername` | Daemon, on save |
+| Generate the webhook secret | Daemon, on save |
+| Register the platform callback route | Daemon, on save |
+| Tell Telegram where to send updates (`setWebhook`) | Gateway, on the credential change |
+| Install the bot commands (`setMyCommands`) | Gateway, on the credential change |
 
-## Step 1: Collect Bot Token Securely
+⚠️ CRITICAL: **Never run `setWebhook`, `setMyCommands`, or `assistant webhooks register` yourself, and never generate the webhook secret.** `reconcileTelegramWebhook` is idempotent and already runs on the credential change the save produces. Doing it by hand races it, which is how a webhook ends up pointing somewhere stale.
 
-Tell the user: **"You'll need a Telegram bot token from @BotFather. Open Telegram, message @BotFather, and use /newbot to create one."**
+Your job is Steps 1 to 5 below: open the wizard, confirm delivery, link the user's identity.
 
-Collect the token through the secure credential prompt:
+## Step 1: Check existing configuration
 
-- Run (via the bash tool):
+Run `assistant credentials list --search telegram` (via the bash tool). Note whether `bot_token` and `webhook_secret` are present.
 
-  ```bash
-  assistant credentials prompt --service telegram --field bot_token \
-    --label "Telegram Bot Token" \
-    --placeholder "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11" \
-    --description "Enter the bot token you received from @BotFather"
-  ```
+- If **both ✅** → already configured. Offer to show status or reconfigure. Stop here unless the user wants a reset.
+- **Otherwise** → continue to Step 2.
 
-## Step 2: Validate Token and Configure Bot
+> ✓ Checkpoint: You named which fields are present before branching. Do not skip the call and guess.
 
-```bash
-BOT_TOKEN=$(assistant credentials reveal --service telegram --field bot_token)
-GETME_RESPONSE=$(curl -sf "https://api.telegram.org/bot${BOT_TOKEN}/getMe")
-BOT_USERNAME=$(echo "$GETME_RESPONSE" | jq -r '.result.username')
-assistant config set telegram.botUsername "$BOT_USERNAME"
-```
+## Step 2: Open the setup wizard
 
-If the `curl` call fails, the token is invalid - ask the user to re-enter (repeat Step 1).
+Call `ui_show` with `surface_type: "channel_setup"` and `data: { channel: "telegram" }`. The wizard is non-blocking: the tool returns immediately.
 
-## Step 3: Set Up Webhook Routing
+⚠️ CRITICAL: **Tool call first, announcement second, in the same turn.** Do not write any message saying the wizard is open until `ui_show` has returned success earlier in the same turn. A message claiming the wizard is open when the tool was never called shows the user an empty side panel.
 
-Use the unified webhooks CLI to get a callback URL. This handles both platform-managed and self-hosted assistants automatically:
+After it returns success, tell the user:
 
-```bash
-CALLBACK_URL=$(assistant webhooks register telegram --source "$BOT_USERNAME")
-```
+> I've opened the Telegram setup wizard in the side panel. It walks you through creating the bot with @BotFather and brings its token back. It'll let me know when you're done, and I'll check Telegram is actually delivering.
 
-If the command fails because no public base URL is configured (self-hosted only), load the `public-ingress` skill to walk the user through setting one up, then retry the command.
+**Hand-off notification (phones and narrow windows).** On phone-sized clients setup opens on the Contacts page instead of a side drawer and cannot auto-notify. The client sends a hidden message like `[User action on channel_setup surface: moved the telegram setup to the Contacts page]`. When you receive it:
 
-### Generate Webhook Secret
+> It looks like setup opened on your Contacts page rather than a side panel, same steps in a different spot. When you've finished, come back and tell me and I'll check it's working.
 
-Check to see if one already exists:
+and rely on their confirmation to trigger Step 3.
 
-```bash
-assistant credentials inspect --service telegram --field webhook_secret
-```
+If `ui_show` fails, do NOT send that message. Tell the user the wizard could not be opened and troubleshoot (e.g. no connected client) before retrying.
 
-If not, generate and set one:
+⚠️ CRITICAL: **Do NOT collect the token in chat.** Do NOT use `assistant credentials prompt`. The wizard's secure input field is the only path for credential entry.
 
-```bash
-assistant credentials set --service telegram --field webhook_secret "$(uuidgen)" --generated
-```
+## Step 3: Confirm Telegram is delivering
 
-### Register Webhook with Telegram
+Triggered by the wizard-closed notification, `[User action on channel_setup surface: closed the telegram setup wizard]`. Closing the drawer sends it automatically, so do not wait for the user to type a confirmation. If they say they're done or ask you to check, proceed the same way.
 
-After registering the platform route (or obtaining a public ingress URL), you **must** also tell Telegram to send updates to that URL. The gateway may do this automatically on restart, but its safest to also register explicitly:
+1. Run `assistant credentials list --search telegram`. Confirm `bot_token` and `webhook_secret` are both present.
 
-```bash
-BOT_TOKEN=$(assistant credentials reveal --service telegram --field bot_token)
-WEBHOOK_SECRET=$(assistant credentials reveal --service telegram --field webhook_secret)
-curl -s "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook?url=${CALLBACK_URL}&secret_token=${WEBHOOK_SECRET}"
-```
+   If `bot_token` is missing the user closed the wizard without saving. Say so and offer to reopen it. When the notification triggered this, the panel is closed and re-running Step 2's `ui_show` is right. When the user asked manually, the wizard may still be open, so point them back to it instead: a second `ui_show` over a live wizard resets their progress.
 
-### Verify Webhook
+2. Ask Telegram where it is sending updates. Registration is asynchronous, so allow a moment before the first check:
 
-Confirm Telegram has the correct URL registered:
+   ```bash
+   BOT_TOKEN=$(assistant credentials reveal --service telegram --field bot_token)
+   curl -sf "https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo" | jq '{url: .result.url, last_error: .result.last_error_message, pending: .result.pending_update_count}'
+   ```
 
-```bash
-WEBHOOK_INFO=$(curl -sf "https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo")
-echo "$WEBHOOK_INFO" | jq .
-REGISTERED_URL=$(echo "$WEBHOOK_INFO" | jq -r '.result.url')
-```
+   - **`url` set, no `last_error`** → delivering. Continue to Step 4.
+   - **`url` empty** → registration has not landed yet or failed. Wait a few seconds and check once. If still empty, the channel is not live. Tell the user plainly and look at `assistant logs --grep "reconcile Telegram webhook"` for the cause. Do not run `setWebhook` yourself.
+   - **`last_error` present** → Telegram is rejecting delivery. Report it verbatim; it usually names the cause (unreachable host, TLS, wrong port).
 
-Compare `REGISTERED_URL` to `CALLBACK_URL`. If they don't match, the webhook was not set correctly. Retry the `setWebhook` call. **Do not report success until `getWebhookInfo` confirms the correct URL and shows no `last_error_message`.**
+⚠️ CRITICAL: **Do not report success on stored credentials alone.** The channel indicator turns green on credentials, which is not evidence that messages arrive. `getWebhookInfo` is.
 
-## Step 4: Register Bot Commands
+## Step 4: Verify identity
 
-```bash
-BOT_TOKEN=$(assistant credentials reveal --service telegram --field bot_token)
-curl -sf -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands" \
-  -H "Content-Type: application/json" \
-  -d '{"commands":[{"command":"new","description":"Start a new conversation"},{"command":"help","description":"Show available commands"}]}'
-```
-
-Non-critical - warn on failure but don't block setup.
-
-## Step 5: Test Your Connection
-
-Now let's test the connection by verifying the user can receive your messages. This confirms everything works and links the user's Telegram identity for future message delivery.
+This links the user's Telegram identity so the assistant can deliver to them. Without it the channel works but has nobody to talk to, so do not skip it silently.
 
 Load the **guardian-verify-setup** skill:
 
 - Call `skill_load` with `skill: "guardian-verify-setup"`.
 
-If the user explicitly wants to skip this step, proceed to Step 6, but let them know they can always verify later by saying "verify me on Telegram".
+If the user wants to skip, continue to Step 5 and tell them they can verify later by saying _"verify me on Telegram"_.
 
-## Step 6: Report Success
+## Step 5: Report success
+
+Read the bot username from config rather than calling Telegram again:
+
+```bash
+assistant config get telegram.botUsername
+```
 
 Summarize:
 
-- Bot verified and credentials stored
-- Webhook registered and verified with Telegram (show the confirmed URL)
-- Bot commands registered: /new, /help
+- Bot connected: @{botUsername}
+- Telegram confirmed delivering
 - Guardian identity: {verified | skipped}
 
-# Clearing Credentials
+⚠️ CRITICAL: Never post the summary with a literal `{botUsername}` placeholder. Read the config value first and substitute it.
+
+## Completion checklist
+
+- [ ] `assistant credentials list --search telegram` was called and the existing-state branch named explicitly (Step 1).
+- [ ] `ui_show` returned success before any message claiming the wizard is open (Step 2).
+- [ ] The token was never requested in chat.
+- [ ] `getWebhookInfo` showed a URL and no `last_error_message` before any success was claimed (Step 3).
+- [ ] `setWebhook`, `setMyCommands` and `assistant webhooks register` were not run by hand.
+- [ ] `guardian-verify-setup` was loaded and either completed or explicitly declined (Step 4).
+
+# Clearing credentials
 
 To disconnect Telegram:
 
