@@ -9,6 +9,7 @@ import {
   injectBridge,
   injectScript,
   injectWidgetBridge,
+  isRelayableExternalHref,
   WIDGET_CSP_META,
   jsonForScript,
   preparePreviewHtml,
@@ -231,6 +232,33 @@ describe("injectBridge", () => {
   });
 });
 
+describe("isRelayableExternalHref", () => {
+  it("accepts the schemes a link can legitimately carry", () => {
+    expect(isRelayableExternalHref("https://example.com/docs")).toBe(true);
+    expect(isRelayableExternalHref("http://example.com")).toBe(true);
+    expect(isRelayableExternalHref("mailto:user@example.com")).toBe(true);
+    expect(isRelayableExternalHref("tel:+15550100")).toBe(true);
+    expect(isRelayableExternalHref("  https://example.com  ")).toBe(true);
+    expect(isRelayableExternalHref("HTTPS://example.com")).toBe(true);
+  });
+
+  it("refuses schemes that execute or smuggle content", () => {
+    // The relaying frame controls this string outright, so the host cannot
+    // trust the in-frame scheme check that routed the message here.
+    expect(isRelayableExternalHref("javascript:alert(1)")).toBe(false);
+    expect(isRelayableExternalHref("data:text/html,<script>x</script>")).toBe(
+      false,
+    );
+    expect(isRelayableExternalHref("blob:https://example.com/abc")).toBe(false);
+    expect(isRelayableExternalHref("file:///etc/passwd")).toBe(false);
+    expect(isRelayableExternalHref("vellum://host/app")).toBe(false);
+    expect(isRelayableExternalHref("/relative/path")).toBe(false);
+    expect(isRelayableExternalHref("")).toBe(false);
+    expect(isRelayableExternalHref(undefined)).toBe(false);
+    expect(isRelayableExternalHref(42)).toBe(false);
+  });
+});
+
 describe("buildLinkInterceptorScript", () => {
   it("produces a script tag with a click handler", () => {
     const out = buildLinkInterceptorScript(FRAME_ID);
@@ -244,6 +272,13 @@ describe("buildLinkInterceptorScript", () => {
     const out = buildLinkInterceptorScript(FRAME_ID);
     expect(out).toContain("window.open");
     expect(out).toContain("noopener,noreferrer");
+  });
+
+  it("relays external links to the parent when asked", () => {
+    const out = buildLinkInterceptorScript(FRAME_ID, { relayExternal: true });
+    expect(out).not.toContain("window.open(rawHref");
+    expect(out).toContain("vellum_open_link");
+    expect(out).toContain(JSON.stringify(FRAME_ID));
   });
 
   it("only intercepts external URL schemes", () => {
@@ -473,7 +508,7 @@ describe("injectWidgetBridge", () => {
     expect(out).toContain("<style>:root{--a:1}</style>");
     expect(out).toContain("vellum_widget_height");
     expect(out).toContain("window.sendPrompt");
-    expect(out).toContain("window.open");
+    expect(out).toContain("vellum_open_link");
     expect(out).toContain("<div>widget</div>");
 
     const headOpen = out.indexOf("<head>");
@@ -495,6 +530,25 @@ describe("injectWidgetBridge", () => {
     expect(out).toContain("default-src 'none'");
     expect(cspIdx).toBeLessThan(out.indexOf("<script>"));
     expect(cspIdx).toBeLessThan(out.indexOf("<div>widget</div>"));
+  });
+
+  it("names the directives that do not fall back to default-src", () => {
+    // `base-uri` and `form-action` have no fallback: omitting them leaves a
+    // `<base href>` free to retarget every relative URL in the document and a
+    // form free to post anywhere.
+    expect(WIDGET_CSP_META).toContain("base-uri 'none'");
+    expect(WIDGET_CSP_META).toContain("form-action 'none'");
+    expect(WIDGET_CSP_META).toContain("frame-src 'none'");
+  });
+
+  it("relays external links instead of opening them in the frame", () => {
+    // The visual frame carries no popup tokens, so an in-frame `window.open`
+    // is a silent no-op. A popup is also a top-level navigation that the
+    // embedder's `frame-src` cannot constrain, which is why the host opens
+    // the link and the frame only asks.
+    const out = injectWidgetBridge("<div>widget</div>", FRAME_ID);
+    expect(out).toContain("vellum_open_link");
+    expect(out).not.toContain("window.open(rawHref");
   });
 
   it("runs the shrink-to-fit pass ahead of the height reporter", () => {

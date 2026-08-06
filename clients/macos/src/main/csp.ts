@@ -53,6 +53,13 @@ export const CSP_POLICY = [
   "base-uri 'none'",
   "frame-ancestors 'none'",
   "form-action 'self'",
+  // Stated explicitly rather than left to the `default-src` fallback. This is
+  // the only control over where a sandboxed srcdoc frame can navigate itself:
+  // no CSP directive constrains a document navigating its own browsing context
+  // from the inside, so a `visual` or app-viewer frame rendering
+  // model-authored markup would otherwise be free to carry conversation data
+  // out in a URL. Loosening `default-src` must not silently reopen that.
+  "frame-src 'self'",
 ].join("; ");
 
 export const installCsp = (): void => {

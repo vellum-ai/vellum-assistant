@@ -81,9 +81,7 @@ describe("SurfaceRouter — visual surfaces", () => {
 
     const iframe = container.querySelector("iframe");
     expect(iframe).toBeTruthy();
-    expect(iframe?.getAttribute("sandbox")).toBe(
-      "allow-scripts allow-popups allow-popups-to-escape-sandbox",
-    );
+    expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts");
     expect(iframe?.getAttribute("title")).toBe("Star schema");
     expect(iframe?.getAttribute("srcdoc")).toContain("<div>widget</div>");
     // Falls through to the generic unsupported-surface card only for unknown types.

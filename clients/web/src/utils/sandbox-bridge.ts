@@ -48,6 +48,22 @@
 /** Path pattern allowed through the fetch proxy (matches desktop ATL-83 restriction). */
 export const FETCH_PROXY_PATH_RE = /^\/v1\/x\//;
 
+/** Link schemes a sandboxed frame may ask the host to open on its behalf. */
+const RELAYABLE_LINK_SCHEME_RE = /^(https?|mailto|tel):/i;
+
+/**
+ * Whether a sandboxed frame's link may be opened by the host.
+ *
+ * The host is the authority on this: a frame that relays `vellum_open_link`
+ * controls the `href` string entirely, so the in-frame scheme check is a
+ * routing decision and this one is the security check. Anything outside the
+ * allowlist (`javascript:`, `data:`, `blob:`, `file:`, custom schemes) is
+ * refused.
+ */
+export function isRelayableExternalHref(href: unknown): href is string {
+  return typeof href === "string" && RELAYABLE_LINK_SCHEME_RE.test(href.trim());
+}
+
 // ---------------------------------------------------------------------------
 // Script serialization
 // ---------------------------------------------------------------------------
@@ -150,8 +166,23 @@ export function buildStoragePolyfill(): string {
  *
  * @param frameId The iframe identifier, included in `vellum_open_link`
  *   messages so the parent knows which surface sent the request.
+ * @param options.relayExternal Relay external links to the parent as
+ *   `vellum_open_link` instead of calling `window.open()`. Required for frames
+ *   sandboxed without `allow-popups`, where `window.open()` is a silent no-op.
  */
-export function buildLinkInterceptorScript(frameId: string): string {
+export function buildLinkInterceptorScript(
+  frameId: string,
+  options?: { relayExternal?: boolean },
+): string {
+  const externalHandler = options?.relayExternal
+    ? `window.parent.postMessage({
+              type: 'vellum_open_link',
+              frameId: ${jsonForScript(frameId)},
+              href: rawHref,
+              linkText: (el.textContent || '').trim()
+            }, '*');`
+    : `window.open(rawHref, '_blank', 'noopener,noreferrer');`;
+
   return `<script>
 (function() {
     document.addEventListener('click', function(e) {
@@ -182,7 +213,7 @@ export function buildLinkInterceptorScript(frameId: string): string {
           }
           if (/^https?:|^mailto:|^tel:/i.test(rawHref)) {
             e.preventDefault();
-            window.open(rawHref, '_blank', 'noopener,noreferrer');
+            ${externalHandler}
             return;
           }
         }
@@ -363,11 +394,22 @@ export function buildWidgetPromptScript(frameId: string): string {
  * which would let model-authored markup leak conversation-derived content to
  * arbitrary hosts. A visual is self-contained by contract: everything inline,
  * fonts and images only as `data:` URIs, no network at all.
+ *
+ * `base-uri` and `form-action` are listed explicitly because neither falls back
+ * to `default-src`: without them a `<base href>` retargets every relative URL
+ * in the document and a form posts wherever it likes.
+ *
+ * This policy governs what the document *loads*. It cannot stop the document
+ * from *navigating itself* to an external URL, which no CSP directive
+ * expresses (`navigate-to` was never shipped). That egress path is closed by
+ * the embedding page's `frame-src`, which is enforced on every navigation of a
+ * nested browsing context. See `clients/macos/src/main/csp.ts`.
  */
 export const WIDGET_CSP_META =
   `<meta http-equiv="Content-Security-Policy" content="` +
   `default-src 'none'; script-src 'unsafe-inline'; ` +
-  `style-src 'unsafe-inline'; img-src data:; font-src data:">`;
+  `style-src 'unsafe-inline'; img-src data:; font-src data:; ` +
+  `base-uri 'none'; form-action 'none'; frame-src 'none'">`;
 
 /**
  * Inject the widget bridge into an inline visual's HTML.
@@ -377,6 +419,10 @@ export const WIDGET_CSP_META =
  * a network-blocking CSP (first, so it governs every script and subresource
  * that follows), the storage polyfill, the shared link interceptor, the
  * shrink-to-fit pass, the height reporter and `sendPrompt`.
+ *
+ * The link interceptor relays external links rather than opening them: the
+ * visual frame is sandboxed without `allow-popups`, so an in-frame
+ * `window.open()` does nothing and the host opens the link instead.
  *
  * @param head Markup prepended alongside the storage polyfill — the resolved
  *   design tokens and inlined brand fonts.
@@ -392,7 +438,7 @@ export function injectWidgetBridge(
       buildWidgetWidthFitScript() +
         buildWidgetHeightReporterScript(frameId) +
         buildWidgetPromptScript(frameId) +
-        buildLinkInterceptorScript(frameId),
+        buildLinkInterceptorScript(frameId, { relayExternal: true }),
       // A visual is often a bare fragment (`<svg>…`, `<div>…`); the height
       // reporter has to sit after it so `document.body` is populated when the
       // first measurement runs.

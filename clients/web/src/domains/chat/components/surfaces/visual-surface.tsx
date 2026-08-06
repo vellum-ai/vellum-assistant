@@ -6,7 +6,11 @@ import type { Surface } from "@/domains/chat/types/types";
 import { useDocumentTheme } from "@/hooks/use-document-theme";
 import { useWidgetFontCss } from "@/hooks/use-widget-font-css";
 import { useWidgetTokenStyle } from "@/hooks/use-widget-token-style";
-import { injectWidgetBridge } from "@/utils/sandbox-bridge";
+import { openExternalUrl } from "@/runtime/browser";
+import {
+  injectWidgetBridge,
+  isRelayableExternalHref,
+} from "@/utils/sandbox-bridge";
 
 interface VisualSurfaceData {
   html?: string;
@@ -47,6 +51,12 @@ function hashString(value: string): number {
  * The parent honors it only under an active user activation and routes it
  * through the same `?prompt=` auto-send pathway the app viewer uses, so the
  * relay lands as a real user message.
+ *
+ * The frame gets no popup tokens, so every outbound link arrives here as a
+ * `vellum_open_link` relay the host opens after checking its scheme. A popup
+ * is a top-level navigation that the embedder's `frame-src` cannot constrain,
+ * which would leave model-authored markup a one-click egress channel out of an
+ * otherwise network-free document.
  */
 export function VisualSurface({ surface }: { surface: Surface }) {
   const navigate = useNavigate();
@@ -122,6 +132,19 @@ export function VisualSurface({ surface }: { surface: Surface }) {
         handleAppViewerAction({ navigate, isMobile: false }, "relay_prompt", {
           prompt,
         });
+        return;
+      }
+      if (msg.type === "vellum_open_link") {
+        // Same activation gate as the prompt relay: the widget controls both
+        // the frameId and the href, so a click is what separates a link the
+        // user asked for from markup phoning home on load.
+        if (!navigator.userActivation?.isActive) {
+          return;
+        }
+        if (!isRelayableExternalHref(msg.href)) {
+          return;
+        }
+        void openExternalUrl(msg.href.trim());
       }
     };
 
@@ -139,7 +162,7 @@ export function VisualSurface({ surface }: { surface: Surface }) {
         ref={iframeRef}
         key={iframeKey}
         srcDoc={srcDoc}
-        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+        sandbox="allow-scripts"
         referrerPolicy="no-referrer"
         title={surface.title || "Visual"}
         style={{

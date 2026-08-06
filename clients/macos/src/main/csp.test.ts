@@ -23,10 +23,20 @@ describe("CSP_POLICY", () => {
       "base-uri",
       "frame-ancestors",
       "form-action",
+      "frame-src",
     ];
     for (const dir of required) {
       expect(CSP_POLICY).toContain(dir);
     }
+  });
+
+  test("frame-src confines where a sandboxed frame can navigate", () => {
+    // The only control over a srcdoc frame navigating its own browsing
+    // context: no CSP directive constrains that from inside the frame, so a
+    // `visual` or app-viewer frame rendering model-authored markup would
+    // otherwise be free to carry conversation data out in a URL. Stated
+    // explicitly so loosening `default-src` cannot silently reopen it.
+    expect(directiveValue("frame-src")).toBe("'self'");
   });
 
   test("script-src does not allow unsafe-eval", () => {
