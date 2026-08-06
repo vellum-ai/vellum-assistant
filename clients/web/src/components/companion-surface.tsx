@@ -255,6 +255,12 @@ export function CompanionSurface({
       <div
         className="relative flex min-w-0 items-center gap-1 overflow-hidden transition-opacity duration-200"
         ref={contentRef}
+        // Faded out is not gone: the body stays mounted while collapsed so it
+        // can be measured, which would otherwise leave its controls focusable
+        // and announced while nothing is drawn. `inert` takes them out of the
+        // tab order and the accessibility tree without taking them out of the
+        // DOM, so the measurement still works.
+        inert={!expanded}
         style={{
           opacity: expanded ? 1 : 0,
           // Contents fade after the body has somewhere to put them, so nothing
