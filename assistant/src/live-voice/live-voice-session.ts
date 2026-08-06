@@ -3406,16 +3406,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const transcript = text.trim();
     if (transcript.length > 0) {
       utterance.finalTranscriptSegments.push(transcript);
-    }
-    for (const tag of languages ?? []) {
-      const normalized = normalizeLanguageTag(tag);
-      if (!normalized) {
-        continue;
+      // Tally only finals that committed transcript: empty silence frames
+      // can still carry container-level language tags describing no emitted
+      // words, and counting those would let silence outvote real speech
+      // (same choice as the adapter's boundary-final aggregation).
+      for (const tag of languages ?? []) {
+        const normalized = normalizeLanguageTag(tag);
+        if (!normalized) {
+          continue;
+        }
+        utterance.languageTally.set(
+          normalized,
+          (utterance.languageTally.get(normalized) ?? 0) + 1,
+        );
       }
-      utterance.languageTally.set(
-        normalized,
-        (utterance.languageTally.get(normalized) ?? 0) + 1,
-      );
     }
     // The final commits (and supersedes) whatever partial was trailing it.
     utterance.latestPartialText = null;

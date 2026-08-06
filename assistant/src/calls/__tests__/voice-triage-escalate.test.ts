@@ -290,6 +290,15 @@ describe("capEscalationBridge", () => {
     expect(capEscalationBridge("[END_CALL] One moment.")).toBe("One moment.");
   });
 
+  test("the Unicode ellipsis still terminates a bridge", () => {
+    // Regression pin: widening the terminator class for non-Latin enders
+    // must not drop the ellipsis the original regex recognized.
+    expect(capEscalationBridge("One moment… and some rambling")).toBe(
+      "One moment…",
+    );
+    expect(isEscalationBridgeComplete("One moment…")).toBe(true);
+  });
+
   test("cuts just after a non-Latin sentence terminator", () => {
     expect(capEscalationBridge("少し考えさせてください。その間の余談")).toBe(
       "少し考えさせてください。",

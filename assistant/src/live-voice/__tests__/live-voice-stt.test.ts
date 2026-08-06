@@ -1417,6 +1417,30 @@ describe("LiveVoiceSession STT", () => {
     expect(ttsCalls[0]?.language).toBe("es");
   });
 
+  test("empty finals carrying language tags do not vote", async () => {
+    // Silence frames can carry container-level tags describing no emitted
+    // words; they must not outvote the language of real speech.
+    const transcriber = new MockStreamingTranscriber();
+    const startVoiceTurn = speakingVoiceTurnStarter();
+    const { streamTtsAudio, ttsCalls } = recordingTtsStreamer();
+    const { context } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1]));
+    transcriber.emit({ type: "final", text: "", languages: ["es"] });
+    transcriber.emit({ type: "final", text: "", languages: ["es"] });
+    transcriber.emit({ type: "final", text: "hello there", languages: ["en"] });
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => ttsCalls.length >= 1);
+
+    expect(ttsCalls[0]?.language).toBe("en");
+  });
+
   test("a tagged final outranks an earlier tagged partial", async () => {
     const transcriber = new MockStreamingTranscriber();
     const startVoiceTurn = speakingVoiceTurnStarter();
