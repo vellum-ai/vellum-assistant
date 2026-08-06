@@ -73,7 +73,7 @@ import {
   getWatchedLockfileSnapshot,
   installLockfileWatcher,
 } from "./lockfile-watcher";
-import { installHostProxyBridge } from "./host-proxy-router";
+import { installHostProxyBridge } from "./host-proxy-adapter";
 import "./executors/host-bash-executor"; // side-effect: registers host_bash executor
 import log from "./logger";
 import {

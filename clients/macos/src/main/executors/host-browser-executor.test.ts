@@ -153,7 +153,7 @@ function capturingPoster() {
         results.push(payload);
         return true;
       },
-    } as unknown as import("../host-proxy-poster").HostProxyPoster,
+    } as unknown as import("@vellumai/host-proxy/poster").HostProxyPoster,
   };
 }
 
@@ -457,7 +457,7 @@ describe("HostBrowserExecutor", () => {
       // Cancel before the request even starts executing
       executor.handleCancel(
         { type: "host_browser_cancel", requestId: "r1" },
-        {} as import("../host-proxy-poster").HostProxyPoster,
+        {} as import("@vellumai/host-proxy/poster").HostProxyPoster,
       );
 
       const { poster, results } = capturingPoster();
