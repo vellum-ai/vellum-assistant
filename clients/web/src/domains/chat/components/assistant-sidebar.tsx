@@ -9,9 +9,9 @@
  * cannot disagree about what exists or what order it is in.
  *
  * Composition, not layout: {@link SideMenu} owns the surface and the resize
- * behavior, {@link SidebarSectionCard} owns a section, and
- * {@link SidebarNavPill} owns an entry and its two shapes. Nothing here draws
- * a control of its own.
+ * behavior, {@link SidebarSectionCard} owns a section, and {@link PanelItem}
+ * owns a nav entry at whichever shape the sidebar calls for. Nothing here
+ * draws a control of its own.
  *
  * Sections and pills both arrive as data rather than as markup, for the same
  * reason: each is drawn two ways, as a card or pill when expanded and as a
@@ -32,20 +32,19 @@ import {
 } from "@/domains/chat/components/collapsed-group-icon";
 import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
 import type { GroupMenuItemsProps } from "@/domains/chat/components/group-actions-menu";
-import { SidebarNavPillList } from "@/domains/chat/components/sidebar-nav-pill-list";
-import type { SidebarNavPillProps } from "@/domains/chat/components/sidebar-nav-pill";
+import {
+  SidebarNavPillList,
+  type SidebarNavEntry,
+} from "@/domains/chat/components/sidebar-nav-pill-list";
 import { SidebarSectionCard } from "@/domains/chat/components/sidebar-section-card";
 import type { Conversation } from "@/types/conversation-types";
 
 /**
- * One nav entry above or below the sections, as data. `SidebarNavPill` draws
- * it as a pill or a circle depending on the sidebar, so callers describe the
- * entry and never its shape.
+ * One nav entry above or below the sections, as data. The shape is decided
+ * by whether the sidebar is collapsed, so callers describe the entry and
+ * never how it looks.
  */
-export interface AssistantSidebarPill
-  extends Omit<SidebarNavPillProps, "collapsed"> {
-  key: string;
-}
+export type AssistantSidebarPill = SidebarNavEntry;
 
 export interface AssistantSidebarSection {
   /** Collapse key and React key. Stable across renders. */

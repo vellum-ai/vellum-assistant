@@ -54,9 +54,14 @@ import { MarqueeText } from "./marquee-text";
  * - `"row"` (default): a full-width 6px-radius row, for lists and nav trees.
  * - `"pill"`: a capsule that hugs its content and carries a resting
  *   `--surface-lift` surface, for navigation chips that sit inline rather
- *   than filling a column. Everything else (hover, active, badge, trailing
- *   action, link/button semantics) is unchanged, which is the point: a pill
- *   is a differently-shaped row, not a different component.
+ *   than filling a column.
+ * - `"circle"`: that pill with its label dropped, for a collapsed rail. The
+ *   label stays the accessible name, so the control is the same one, just
+ *   without room to say so.
+ *
+ * Everything else (hover, active, badge, trailing action, link/button
+ * semantics) is unchanged at every shape, which is the point: these are
+ * differently-shaped rows, not different components.
  *
  * ### `activeVariant`
  *
@@ -116,9 +121,10 @@ interface PanelItemProps {
    * Row geometry.
    * - `"row"` fills its container at a 6px radius.
    * - `"pill"` hugs its content as a capsule on `--surface-lift`.
+   * - `"circle"` is that pill with its label dropped, for a collapsed rail.
    * @default "row"
    */
-  shape?: "row" | "pill";
+  shape?: "row" | "pill" | "circle";
   /** Selected state. Sets `aria-current="page"` automatically. */
   active?: boolean;
   /**
@@ -193,6 +199,17 @@ const INTERACTIVE_CLASSES = [
  */
 const PILL_SHAPE_CLASSES = [
   "w-fit rounded-full",
+  "bg-[var(--surface-lift)]",
+].join(" ");
+
+/**
+ * {@link PanelItemProps.shape} `"circle"`: the pill with its label dropped,
+ * so a collapsed sidebar is a column of circles rather than a different set
+ * of controls. Same surface, same states; only the label goes, and it stays
+ * the row's accessible name.
+ */
+const CIRCLE_SHAPE_CLASSES = [
+  "w-8 justify-center rounded-full",
   "bg-[var(--surface-lift)]",
 ].join(" ");
 
@@ -315,11 +332,12 @@ function PanelItem({
       />
     ) : null;
 
-  const labelNode = marqueeOnHover ? (
-    <MarqueeText>{label}</MarqueeText>
-  ) : (
-    <span className={LABEL_CLASSES}>{label}</span>
-  );
+  const labelNode =
+    shape === "circle" ? null : marqueeOnHover ? (
+      <MarqueeText>{label}</MarqueeText>
+    ) : (
+      <span className={LABEL_CLASSES}>{label}</span>
+    );
 
   const expandChevronNode = ExpandChevron ? (
     <ExpandChevron size={12} aria-hidden className={EXPAND_CHEVRON_CLASSES} />
@@ -373,6 +391,7 @@ function PanelItem({
     isInteractive && INTERACTIVE_CLASSES,
     activeClasses,
     shape === "pill" && PILL_SHAPE_CLASSES,
+    shape === "circle" && CIRCLE_SHAPE_CLASSES,
     className,
   );
 
