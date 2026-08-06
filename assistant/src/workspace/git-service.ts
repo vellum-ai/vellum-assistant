@@ -41,9 +41,13 @@ const log = getLogger("workspace-git");
  * repository chose. `git switch` alone fires `post-checkout` and
  * `reference-transaction`.
  *
- * These live in `execGit` rather than at the call sites that happen to need
- * them. A per-call-site convention only protects the sites that remember, and
- * the ones that forget fail silently and look identical to the ones that do.
+ * These live in the two exec helpers, `execGit` and `execGitStreaming`,
+ * rather than at the call sites that happen to need them. A per-call-site
+ * convention only protects the sites that remember, and the ones that forget
+ * fail silently and look identical to the ones that do. Both helpers must
+ * carry this: `git status`, which runs on every auto-commit cycle, goes
+ * through the streaming one, and a repository-named `core.fsmonitor` is a
+ * program git spawns while reading the index.
  *
  * Diff-content helpers (`textconv`, external diff) cannot be disabled through
  * config alone and are handled with `--no-textconv --no-ext-diff` on the
@@ -1895,7 +1899,7 @@ export class WorkspaceGitService {
       config.workspaceGit?.interactiveGitTimeoutMs ??
       10_000;
     return new Promise((resolve, reject) => {
-      const child = spawn("git", args, {
+      const child = spawn("git", [...GIT_UNTRUSTED_REPO_CONFIG, ...args], {
         cwd: this.workspaceDir,
         env: { ...cleanGitEnv(this.workspaceDir), ...options?.env },
         signal: options?.signal,

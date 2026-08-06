@@ -2441,6 +2441,30 @@ describe("WorkspaceGitService", () => {
       expect(existsSync(join(testDir, "reftx-ran"))).toBe(false);
     });
 
+    test("a repository-named fsmonitor program never runs during a status read", async () => {
+      // `git status` goes through the streaming exec path and runs on every
+      // auto-commit cycle, so this one needs no user action to fire.
+      const service = getWorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const sentinel = join(testDir, "fsmonitor-ran");
+      const script = join(testDir, "fsmon.sh");
+      writeFileSync(
+        script,
+        `#!/bin/sh\ntouch "${sentinel}"\necho ""\n`,
+        "utf-8",
+      );
+      chmodSync(script, 0o755);
+      execFileSync("git", ["config", "core.fsmonitor", script], {
+        cwd: testDir,
+      });
+
+      writeFileSync(join(testDir, "note.md"), "hello\n", "utf-8");
+      await service.commitChanges("touches status");
+
+      expect(existsSync(sentinel)).toBe(false);
+    });
+
     test("a repository-named textconv program never runs while diffing", async () => {
       const service = getWorkspaceGitService(testDir);
       await service.ensureInitialized();
