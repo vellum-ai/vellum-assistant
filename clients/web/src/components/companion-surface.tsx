@@ -33,19 +33,18 @@ import type {
  * main process through `setIgnoreMouseEvents(true, { forward: true })`, which
  * delivers mouse-move without capturing clicks meant for whatever is behind.
  *
- * **Solid, not glass, and that is forced.** An earlier pass used
- * `backdrop-blur`, which samples what is behind it *within the page*; in an
- * Electron window that is nothing, because the desktop is not in the page. The
- * only real blur is the window's native vibrancy material, and a window's
- * material fills the window. This one is a canvas many times the size of the
- * pill, so asking for glass would frost a rectangle across the desktop instead.
- * Sizing the window to the pill would buy real glass at the cost of resizing it
- * on every expansion, which is the thing the fixed canvas exists to avoid.
+ * **Solid, not glass, and that is forced.** The only real blur available is the
+ * window's native vibrancy material, and a window's material fills the window.
+ * This one is a canvas many times the size of the pill, so asking for glass
+ * frosts a rectangle across the desktop. Sizing the window to the pill would
+ * buy real glass at the cost of resizing it on every expansion, which is the
+ * thing the fixed canvas exists to avoid. `backdrop-filter` is no help either:
+ * it samples what is behind it within the page, and the desktop is not in the
+ * page.
  *
  * So the pill paints its own near-opaque background, as the dictation overlay
- * does and as Wispr's own pill does. That also settles what used to be the open
- * contrast question: a surface that carries its own background is readable over
- * a pale desktop and a busy one alike.
+ * does. That is also what makes it readable over a pale desktop and a busy one
+ * alike.
  *
  * Open, and reproducible from the stories:
  *
@@ -288,9 +287,9 @@ export function CompanionSurface({
  * The avatar, and the only part of the surface that arms the expansion.
  *
  * The glow sits behind the image and is blurred well past it, so it falls off
- * into the desktop rather than ending on an edge. A halo the size of its source
- * has nowhere to fall off, which is what made the earlier one read as a second
- * ring around the avatar instead of light coming off it.
+ * into the desktop rather than ending on an edge. A halo sized to its own
+ * source has nowhere to fall off and reads as a ring around the avatar rather
+ * than as light coming off it.
  */
 function Avatar({
   glow,

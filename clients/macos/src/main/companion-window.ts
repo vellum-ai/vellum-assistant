@@ -222,18 +222,25 @@ export const openCompanionWindow = (): void => {
       // invisible canvas rect rather than the pill inside it. Same reason the
       // dictation overlay turns it off.
       hasShadow: false,
+      // **Focusable, unlike the dictation overlay.** `type: "panel"` already
+      // makes this non-activating, so clicking it does not bring Vellum
+      // forward. `focusable: false` would go further and stop the window taking
+      // key status at all, which is right for a surface that is only ever
+      // pressed and wrong for this one: it is going to host a text field, and a
+      // window that cannot become key cannot receive a keystroke. The honest
+      // shape is to grant key status only while that field is open, the way
+      // mouse events are already granted only while the pointer is on the pill.
       movable: true,
       minimizable: false,
       maximizable: false,
       backgroundColor: "#00000000",
       // **No `vibrancy` here, deliberately.** A window's material fills the
       // window, and this window is a canvas many times the size of the pill
-      // drawn inside it, so asking for glass would paint a frosted rectangle
-      // across the desktop rather than a glass pill. Real native glass would
-      // mean sizing the window to the pill and resizing it on every expansion,
-      // which is the thing the fixed canvas exists to avoid. So the pill paints
-      // its own background, as the dictation overlay does, and Wispr's does
-      // too: theirs is a solid dark pill, not glass.
+      // drawn inside it, so glass here paints a frosted rectangle across the
+      // desktop rather than a glass pill. Real native glass would mean sizing
+      // the window to the pill and resizing it on every expansion, which is the
+      // thing the fixed canvas exists to avoid. The pill paints its own
+      // background instead, as the dictation overlay does.
     },
   });
 
