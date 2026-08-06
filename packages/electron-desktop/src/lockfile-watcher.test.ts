@@ -339,6 +339,8 @@ describe("lockfile-watcher", () => {
 
       expect(getWatchedLockfile()).toEqual(SAMPLE_LOCKFILE);
       expect(listener).not.toHaveBeenCalled();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(listener).toHaveBeenCalledTimes(1);
 
       readSpy.mockRestore();
       teardown();

@@ -104,8 +104,6 @@ const checkForChanges = (): void => {
   if (mtimeMs === lastMtimeMs) {
     return;
   }
-  lastMtimeMs = mtimeMs;
-
   // Debounce: atomic rename can produce rapid mtime bumps.
   if (debounceTimer) {
     clearTimeout(debounceTimer);
@@ -116,6 +114,7 @@ const checkForChanges = (): void => {
     if (!next) {
       return;
     }
+    lastMtimeMs = mtimeMs;
     cachedLockfile = next;
     notifyListeners();
   }, DEBOUNCE_MS);
@@ -150,6 +149,7 @@ export const refreshLockfileNow = (): void => {
     clearTimeout(debounceTimer);
     debounceTimer = null;
   }
+  const previousMtimeMs = lastMtimeMs;
   try {
     lastMtimeMs = fs.statSync(canonicalPath).mtimeMs;
   } catch {
@@ -157,6 +157,7 @@ export const refreshLockfileNow = (): void => {
   }
   const next = readAndParse();
   if (!next) {
+    lastMtimeMs = previousMtimeMs;
     return;
   }
   cachedLockfile = next;

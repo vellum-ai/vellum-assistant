@@ -339,10 +339,6 @@ export const installLocalMode = (): void => {
   const configured = requireRuntime();
   const { handle } = configured;
   const unavailableError = configured.unavailableError;
-  const unavailableWithStatus = new Set([
-    "vellum:localMode:guardianToken",
-    "vellum:localMode:status",
-  ]);
   const ipc: IpcHandle = (channel, schema, fn) => {
     handle(channel, schema, (args, event) => {
       if (!unavailableError) {
@@ -351,7 +347,8 @@ export const installLocalMode = (): void => {
       if (channel === "vellum:localMode:readLockfile") {
         throw new Error(unavailableError);
       }
-      return unavailableWithStatus.has(channel)
+      const hasStatus = channel.endsWith("Token") || channel.endsWith("status");
+      return hasStatus
         ? { ok: false, status: 501, error: unavailableError }
         : { ok: false, error: unavailableError };
     });
