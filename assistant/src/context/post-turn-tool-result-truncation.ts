@@ -37,19 +37,42 @@ export const TRUNCATION_MARKER = "\u2014 full result:";
 export const TRUNCATION_EXEMPT_TOOLS = new Set<string>(["skill_load"]);
 
 /**
- * File-read tools that page spooled `.tool-results/` content back into context.
- * `file_read` reads inside the workspace; `host_file_read` reads anywhere on the
- * host. Both are (a) exempt from the result-time spool pass — re-stubbing a read
- * of a spooled file would hand back another stub, so the content could never be
- * paged back at all — and (b) recognized by {@link derefToolResultReReads}, so a
- * re-read of a spooled file collapses to a stub instead of duplicating content
- * already in context. Sharing one set keeps the two passes from drifting if a
- * new file-read tool is added.
+ * File-read tools that can page spooled `.tool-results/` content back into
+ * context. `file_read` reads inside the workspace; `host_file_read` reads
+ * anywhere on the host. A new file-read tool belongs here so
+ * {@link isSpooledToolResultRead} recognizes it.
  */
 export const FILE_READ_TOOL_NAMES = new Set<string>([
   "file_read",
   "host_file_read",
 ]);
+
+/**
+ * Whether a tool call is a file read aimed at a spooled `.tool-results/` file.
+ *
+ * Such a read is the model paging content back in, so both passes treat it
+ * specially: the result-time spool pass leaves it alone (re-stubbing it would
+ * write a fresh copy and hand back another stub, putting the content out of
+ * reach for good), and {@link derefToolResultReReads} collapses it at turn end
+ * (its prefix and suffix are already in context above). A file read aimed
+ * anywhere else is ordinary tool output and gets no such treatment.
+ */
+export function isSpooledToolResultRead(
+  toolName: string | undefined,
+  input: Record<string, unknown> | undefined,
+): boolean {
+  if (toolName === undefined || !FILE_READ_TOOL_NAMES.has(toolName)) {
+    return false;
+  }
+  const filePath = input?.path ?? input?.file_path;
+  if (typeof filePath !== "string") {
+    return false;
+  }
+  // The path in the stub comes from `join`, so it is backslash-separated on
+  // Windows. Compare on a normalized form: a missed match would let the spool
+  // pass stub this read and put the saved content permanently out of reach.
+  return filePath.replace(/\\/g, "/").includes(`/${TOOL_RESULT_DIR}/`);
+}
 
 /**
  * Build a map of tool_use_id -> originating tool name by walking the tool_use
@@ -329,14 +352,7 @@ export function derefToolResultReReads(messages: Message[]): {
         continue;
       }
       const tu = block as ToolUseContent;
-      if (!FILE_READ_TOOL_NAMES.has(tu.name)) {
-        continue;
-      }
-      const filePath = tu.input.path ?? tu.input.file_path;
-      if (typeof filePath !== "string") {
-        continue;
-      }
-      if (filePath.includes(`/${TOOL_RESULT_DIR}/`)) {
+      if (isSpooledToolResultRead(tu.name, tu.input)) {
         reReadToolUseIds.add(tu.id);
       }
     }

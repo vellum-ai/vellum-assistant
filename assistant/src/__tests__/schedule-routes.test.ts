@@ -58,6 +58,7 @@ import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
 import { ROUTES as HEARTBEAT_ROUTES } from "../runtime/routes/heartbeat-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "../runtime/routes/schedule-routes.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
+import { resolveDefaultScheduleInferenceProfile } from "../schedule/inference-profile.js";
 import {
   completeScheduleRun,
   createSchedule,
@@ -1230,14 +1231,50 @@ describe("POST /schedules — create", () => {
     expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
   });
 
-  test("defaults inferenceProfile to null when omitted", async () => {
+  // The endpoint validates inferenceProfile once, before branching on mode, so
+  // every mode it accepts has to honour the value it just validated.
+  test("persists a valid inferenceProfile on a workflow-mode create", async () => {
+    const result = await postCreate({
+      name: "Cheap triage",
+      description: "Workflow run on a cheap model",
+      expression: "0 * * * *",
+      message: "trigger",
+      mode: "workflow",
+      workflowName: "triage-inbox",
+      inferenceProfile: "cost-optimized",
+    });
+    expect(result.schedule.inferenceProfile).toBe("cost-optimized");
+    expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
+  });
+
+  test("persists a valid inferenceProfile on a script-mode create", async () => {
+    const result = await postCreate({
+      name: "Cheap script",
+      description: "Script run on a cheap model",
+      expression: "0 * * * *",
+      message: "trigger",
+      mode: "script",
+      script: "console.log('hi')",
+      inferenceProfile: "cost-optimized",
+    });
+    expect(result.schedule.inferenceProfile).toBe("cost-optimized");
+    expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
+  });
+
+  test("pins inferenceProfile to the resolved default when omitted", async () => {
+    const expected = resolveDefaultScheduleInferenceProfile();
+    // A schedule that followed the global default would change model whenever
+    // the user changed that default, so creation snapshots it instead.
+    expect(expected).not.toBeNull();
+
     const result = await postCreate({
       name: "Default profile",
-      description: "Runs on the main-agent selection",
+      description: "Runs on the resolved default profile",
       expression: "0 9 * * *",
       message: "hi",
     });
-    expect(result.schedule.inferenceProfile).toBeNull();
+    expect(result.schedule.inferenceProfile).toBe(expected!);
+    expect(listSchedules()[0].inferenceProfile).toBe(expected!);
   });
 
   test("rejects an unknown inferenceProfile", async () => {
@@ -1296,7 +1333,10 @@ describe("PATCH /schedules/:id — description", () => {
     expect(listSchedules()[0].description).toBe("Updated description");
   });
 
-  test("sets, validates, and clears inferenceProfile", async () => {
+  test("sets, validates, and re-snapshots inferenceProfile", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+    expect(resolvedDefault).not.toBe("cost-optimized");
+
     const schedule = await createSchedule({
       name: "Profile pin",
       description: "Pinned profile schedule",
@@ -1308,9 +1348,9 @@ describe("PATCH /schedules/:id — description", () => {
 
     await route.handler({
       pathParams: { id: schedule.id },
-      body: { inferenceProfile: "balanced" },
+      body: { inferenceProfile: "cost-optimized" },
     });
-    expect(listSchedules()[0].inferenceProfile).toBe("balanced");
+    expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
 
     await expect(
       route.handler({
@@ -1318,13 +1358,14 @@ describe("PATCH /schedules/:id — description", () => {
         body: { inferenceProfile: "does-not-exist" },
       }),
     ).rejects.toThrow('Inference profile "does-not-exist" is not defined');
-    expect(listSchedules()[0].inferenceProfile).toBe("balanced");
+    expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
 
+    // Null is a reset to the current default, not an unpin.
     await route.handler({
       pathParams: { id: schedule.id },
       body: { inferenceProfile: null },
     });
-    expect(listSchedules()[0].inferenceProfile).toBeNull();
+    expect(listSchedules()[0].inferenceProfile).toBe(resolvedDefault);
   });
 
   test("re-derives syntax when the expression switches cron to rrule", async () => {

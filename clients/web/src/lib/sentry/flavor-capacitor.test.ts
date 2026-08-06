@@ -73,7 +73,7 @@ describe("capacitorFlavor.init", () => {
 
   test("composes the caller's beforeSend instead of replacing it", () => {
     // The caller's hook carries diagnostic enrichment that every surface
-    // should get; overwriting it here silently exempted iOS.
+    // should get and must apply to every native mobile shell.
     consent = true;
     const enriched = { event_id: "enriched" } as ErrorEvent;
     capacitorFlavor.init({ ...OPTIONS, beforeSend: () => enriched });

@@ -15,12 +15,17 @@
  */
 
 import { queryOptions } from "@tanstack/react-query";
-import { conversationsGet } from "@/generated/daemon/sdk.gen";
+import {
+  conversationsGet,
+  conversationsUnreadcountGet,
+} from "@/generated/daemon/sdk.gen";
+import { conversationsUnreadcountGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { ConversationsGetData } from "@/generated/daemon/types.gen";
 import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
+  toApiError,
 } from "@/utils/api-errors";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { emitClientPerfEvent } from "@/lib/telemetry/client-perf";
@@ -85,6 +90,22 @@ export function originChannelConversationsQueryKey(
   ] as const;
 }
 
+/**
+ * Key for the server-side unread conversation count
+ * (`GET /v1/conversations/unread-count`). The cache holds `number | null`
+ * (see {@link fetchUnreadConversationCount}).
+ *
+ * Deliberately the generated key, NOT a child of
+ * {@link conversationListPrefix}: the prefix-wide helpers in
+ * `conversation-cache.ts` treat every entry under the prefix as a
+ * `Conversation[]`, and this cache holds a scalar.
+ */
+export function unreadConversationCountQueryKey(assistantId: string | null) {
+  return conversationsUnreadcountGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Shared sort comparator
 // ---------------------------------------------------------------------------
@@ -133,7 +154,11 @@ type FetchConversationListOptions = {
  * foreground drain in both rails.
  */
 type DrainListKind =
-  "foreground" | "background" | "scheduled" | "archived" | "origin_channel";
+  | "foreground"
+  | "background"
+  | "scheduled"
+  | "archived"
+  | "origin_channel";
 
 /**
  * Label a drain by the list it is fetching. Archive status is checked first
@@ -521,6 +546,40 @@ export async function listArchivedConversations(
   return fetchMergedConversationList(assistantId, "archived", "archivedAt");
 }
 
+/**
+ * Read the server-side unread conversation count, mapping a 404 to `null`.
+ *
+ * An assistant without `GET /v1/conversations/unread-count` 404s this read;
+ * resolving `null` lets consumers fall back to the client-derived count and
+ * lets a refetch clear a count from a since-rolled-back assistant instead of
+ * stranding it (see "When a gate is unnecessary" in BACKWARDS_COMPAT.md).
+ * Every other HTTP failure throws a status-carrying {@link ApiError} so the
+ * app-level no-retry-4xx policy applies; a missing response (network error)
+ * rethrows raw and retries as transient.
+ */
+export async function fetchUnreadConversationCount(
+  assistantId: string,
+  signal?: AbortSignal,
+): Promise<number | null> {
+  const { data, error, response } = await conversationsUnreadcountGet({
+    path: { assistant_id: assistantId },
+    throwOnError: false,
+    signal,
+  });
+  assertHasResponse(
+    response,
+    error,
+    "Failed to fetch unread conversation count.",
+  );
+  if (!response.ok) {
+    if (response.status === 404) {
+      return null;
+    }
+    throw toApiError(error, response);
+  }
+  return data?.count ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // First-page fetchers
 //
@@ -663,5 +722,23 @@ export function originChannelConversationListOptions(
     queryKey: originChannelConversationsQueryKey(assistantId, channel),
     queryFn: () => listOriginChannelConversations(assistantId, channel),
     staleTime: QUERY_STALE_TIME_MS,
+  });
+}
+
+/**
+ * Query options for the server-side unread conversation count. The cache
+ * holds `number | null`; `null` means the connected assistant does not
+ * serve the endpoint (see {@link fetchUnreadConversationCount}).
+ *
+ * `refetchOnWindowFocus` is disabled: count changes arrive via
+ * `sync_changed`-driven invalidation and mutation settles, and a focus
+ * refetch would re-issue the 404 against assistants without the route.
+ */
+export function unreadConversationCountOptions(assistantId: string) {
+  return queryOptions({
+    queryKey: unreadConversationCountQueryKey(assistantId),
+    queryFn: ({ signal }) => fetchUnreadConversationCount(assistantId, signal),
+    staleTime: QUERY_STALE_TIME_MS,
+    refetchOnWindowFocus: false,
   });
 }

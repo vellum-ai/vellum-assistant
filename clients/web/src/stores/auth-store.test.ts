@@ -9,6 +9,11 @@ import {
 } from "bun:test";
 import { cleanup } from "@testing-library/react";
 
+import {
+  getSelfHostedIngressUrl,
+  setSelfHostedConnection,
+} from "@/lib/self-hosted/connection";
+
 type MockSessionUser = {
   id?: string;
   username?: string;
@@ -205,7 +210,9 @@ mock.module("@/runtime/session-token", () => ({
 
 mock.module("@/lib/auth/gateway-session", () => ({
   isGatewayAuthEnabled: () => mockIsGatewayAuth,
-  isGatewayAuthMode: () => mockIsGatewayAuth && mockGatewayToken !== null,
+  isGatewayAuthMode: () =>
+    mockIsGatewayAuth &&
+    (mockGatewayToken !== null || mockSelectedAssistant?.cloud === "paired"),
   ensureGatewayToken: ensureGatewayTokenMock,
   clearGatewayToken: () => {},
   getGatewayToken: () => mockGatewayToken,
@@ -420,6 +427,7 @@ beforeEach(() => {
   mockIsBiometricEnabled = false;
   mockBiometricToken = null;
   mockGatewayToken = null;
+  setSelfHostedConnection(null);
   mockPrimeError = null;
   setSelectedAssistantMock.mockClear();
   primeLocalGatewayConnectionMock.mockClear();
@@ -1665,6 +1673,24 @@ describe("session cleanup on logout", () => {
     expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
   });
 
+  test("gateway logout clears paired proxy authorization", async () => {
+    mockIsGatewayAuth = true;
+    mockSelectedAssistant = { assistantId: "paired-1", cloud: "paired" };
+    setSelfHostedConnection({
+      url: `${window.location.origin}/assistant/__gateway-paired/paired-1`,
+      token: null,
+    });
+    setSelectedAssistantMock.mockImplementationOnce(async () => {
+      expect(getSelfHostedIngressUrl()).toBeNull();
+    });
+    useAuthStore.setState({ sessionStatus: "authenticated" });
+
+    await useAuthStore.getState().logout();
+
+    expect(getSelfHostedIngressUrl()).toBeNull();
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+  });
+
   test("non-gateway logout clears the selection slice after the lifecycle reset", async () => {
     const order: string[] = [];
     lifecycleResetForLogoutMock.mockImplementationOnce(() => {
@@ -2233,7 +2259,7 @@ describe("connectLocalAssistant", () => {
 describe("connectPairedAssistant", () => {
   const pairedEntry = { assistantId: "paired-a", cloud: "paired" };
 
-  test("primes via the host lease BEFORE selecting, then logs in and checks the assistant", async () => {
+  test("primes the host proxy before selecting, then logs in and checks the assistant", async () => {
     mockIsLocalClient = true;
     mockLockfileAssistants = [pairedEntry];
     const order: string[] = [];
@@ -2333,7 +2359,7 @@ describe("paired selection in the gateway-auth session paths", () => {
   test("refreshSession re-primes a paired selection and never fetches the SPA origin's /auth/token", async () => {
     mockIsLocalClient = true;
     mockIsGatewayAuth = true;
-    mockGatewayToken = "seeded-guardian"; // isGatewayAuthMode() === true
+    mockGatewayToken = null;
     mockSelectedAssistant = pairedSelection;
     const fetchedUrls: string[] = [];
     const realFetch = globalThis.fetch;
@@ -2353,19 +2379,18 @@ describe("paired selection in the gateway-auth session paths", () => {
     expect(primeLocalGatewayConnectionMock).toHaveBeenCalledWith(
       expect.objectContaining({ assistantId: "paired-a", cloud: "paired" }),
     );
-    // The undefined-token-URL fallback would mint at the SPA's own origin and
-    // clear the seeded paired token via the source-mismatch check.
+    // The undefined-token-URL fallback would mint at the SPA's own origin.
     expect(ensureGatewayTokenMock).not.toHaveBeenCalled();
     expect(fetchedUrls).toEqual([]);
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
   });
 
-  test("refreshSession ends the session when the paired re-lease fails", async () => {
+  test("refreshSession ends the session when paired proxy authorization fails", async () => {
     mockIsLocalClient = true;
     mockIsGatewayAuth = true;
-    mockGatewayToken = "seeded-guardian";
+    mockGatewayToken = null;
     mockSelectedAssistant = pairedSelection;
-    mockPrimeError = new Error("guardian lease failed");
+    mockPrimeError = new Error("paired proxy authorization failed");
     useAuthStore.setState({ sessionStatus: "authenticated" });
 
     await expect(useAuthStore.getState().refreshSession()).resolves.toBe(false);
@@ -2387,16 +2412,16 @@ describe("paired selection in the gateway-auth session paths", () => {
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
   });
 
-  test("boot with a paired selection whose guardian lease fails settles unauthenticated after one prime", async () => {
+  test("boot with a paired proxy authorization failure settles unauthenticated after one prime", async () => {
     // The startup ride-out only retries GatewayTokenErrors, which the paired
     // prime never throws; the budget pin for that lives in local-mode.test.ts
-    // ("a failing paired guardian lease is not ridden out"). Here: the boot
+    // ("a failing paired credential read is not ridden out"). Here: the boot
     // path routes the paired selection through the generalized prime once and
     // falls through promptly to the chooser.
     mockIsLocalClient = true;
     mockIsGatewayAuth = true;
     mockSelectedAssistant = pairedSelection;
-    mockPrimeError = new Error("guardian lease failed");
+    mockPrimeError = new Error("paired proxy authorization failed");
 
     await useAuthStore.getState().initSession();
 

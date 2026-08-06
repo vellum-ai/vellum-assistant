@@ -47,7 +47,7 @@
     },
     "schedule": {
       "docsSlug": "schedule",
-      "sha256": "629b5815eb736b46f1af5faf57a5a74788e3b43bbf08371c654eddc3f788557d"
+      "sha256": "246f8f929a31d16a91c4a0a1cbdb65bb9754c0c37ef16ae651df2b95434c4702"
     },
     "skill-management": {
       "docsSlug": "skill-management",
@@ -55,7 +55,7 @@
     },
     "subagent": {
       "docsSlug": "subagent",
-      "sha256": "85c6433b05caed4992d61adb92977706ce633ed87349584924cedfa5764f1df6"
+      "sha256": "a2e96b06c557c31c40a0adc26a61e6ea74b9c8b7c1e826d29063fd5c262757ac"
     },
     "transcribe": {
       "docsSlug": "transcribe",

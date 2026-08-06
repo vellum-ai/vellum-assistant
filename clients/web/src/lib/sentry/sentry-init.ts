@@ -175,7 +175,8 @@ const options: BrowserOptions = {
  * is available when the consent gate reads localStorage.
  *
  * Also syncs the effective (session-gated) reporting gate to the Electron main
- * process (no-op on web/iOS) so the main-process Sentry client matches.
+ * process (no-op on web and native mobile) so the main-process Sentry client
+ * matches.
  */
 export function initSentry(): void {
   // Resolve host-detected values at init time (post host-detection), not at

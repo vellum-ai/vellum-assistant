@@ -6,8 +6,10 @@ import { z } from "zod";
 import {
   connectImport,
   getGuardianAccessToken,
+  getPairedGuardianAccessToken as getStoredPairedGuardianAccessToken,
   isActiveAssistant,
   isPairedLockfileEntry,
+  PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
   getLockfileData,
   getLocalAssistantStatus,
   replacePlatformAssistants,
@@ -20,8 +22,9 @@ import {
   runUpgrade,
   runWake,
   unpairAssistant,
-  upsertLockfileAssistant,
+  upsertRendererLockfileAssistant,
   type CliInvocation,
+  type GuardianTokenOptions,
   type LockfileWriteResult,
   type TokenResult,
   type UpgradeOptions,
@@ -212,6 +215,52 @@ async function upgrade(
   }
 }
 
+async function getHostGuardianAccessToken(
+  assistantId: string,
+  configDir: string,
+  options: GuardianTokenOptions,
+): Promise<TokenResult> {
+  let invocation: CliInvocation;
+  try {
+    invocation = await resolveCliInvocation();
+  } catch (err) {
+    return { ok: false, status: 500, error: (err as Error).message };
+  }
+  return getGuardianAccessToken(
+    assistantId,
+    configDir,
+    invocation,
+    true,
+    { VELLUM_ENVIRONMENT: resolveEnvironmentName(process.env) },
+    options,
+  );
+}
+
+/** Read a paired guardian bearer for the trusted main-process proxy. */
+export async function getPairedGuardianAccessToken(
+  assistantId: string,
+  runtimeUrl: string,
+): Promise<TokenResult> {
+  let invocation: CliInvocation;
+  try {
+    invocation = await resolveCliInvocation();
+  } catch (err) {
+    return {
+      ok: false,
+      status: 500,
+      error: (err as Error).message,
+    };
+  }
+  return getStoredPairedGuardianAccessToken(
+    assistantId,
+    runtimeUrl,
+    resolveConfigDir(process.env),
+    invocation,
+    true,
+    { VELLUM_ENVIRONMENT: resolveEnvironmentName(process.env) },
+  );
+}
+
 // A persisted assistant entry as it crosses the IPC boundary. The
 // package's lockfile parser owns the real field-level contract; here we
 // only assert the renderer sent an object, so unknown/forward-compat
@@ -265,13 +314,6 @@ export const installLocalMode = (): void => {
 
   const lockfilePaths = resolveLockfilePaths(process.env);
   const configDir = resolveConfigDir(process.env);
-  // Pin the environment the guardian-token CLI subprocess (refresh/lease) sees
-  // to the same one `configDir` was resolved from, so the token is always read
-  // and written under the same env dir. Overlaid on `process.env` by the host
-  // seam, so PATH etc. are preserved.
-  const guardianTokenEnv = {
-    VELLUM_ENVIRONMENT: resolveEnvironmentName(process.env),
-  };
 
   // `species` is optional on the wire so an empty/omitted request
   // falls back to the default rather than being rejected.
@@ -297,7 +339,7 @@ export const installLocalMode = (): void => {
     "vellum:localMode:saveLockfileAssistant",
     z.tuple([assistantRecord, z.string().optional()]),
     ([assistant, activeAssistant]): LockfileWriteResult => {
-      const result = upsertLockfileAssistant(
+      const result = upsertRendererLockfileAssistant(
         lockfilePaths,
         assistant,
         activeAssistant,
@@ -396,20 +438,16 @@ export const installLocalMode = (): void => {
       if (!assistantId) {
         return { ok: false, status: 400, error: "Missing assistantId" };
       }
-      let invocation: CliInvocation;
-      try {
-        invocation = await resolveCliInvocation();
-      } catch (err) {
-        return { ok: false, status: 500, error: (err as Error).message };
+      if (isPairedLockfileEntry(lockfilePaths, assistantId)) {
+        return {
+          ok: false,
+          status: 403,
+          error: PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
+        };
       }
-      return getGuardianAccessToken(
-        assistantId,
-        configDir,
-        invocation,
-        true,
-        guardianTokenEnv,
-        { paired: isPairedLockfileEntry(lockfilePaths, assistantId) },
-      );
+      return getHostGuardianAccessToken(assistantId, configDir, {
+        paired: false,
+      });
     },
   );
 };

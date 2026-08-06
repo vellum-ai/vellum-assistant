@@ -25,6 +25,11 @@ export function formatMonthly(cents: number): string {
   return `${formatDollars(cents)}/mo`;
 }
 
+/** "$50/month" (or "$0/month") - the plans-page and plan-card price label. */
+export function priceLabelFromCents(cents: number): string {
+  return `${formatDollars(cents)}/month`;
+}
+
 /**
  * Signed monthly delta, e.g. `+$25/mo` or `−$25/mo`. Uses the U+2212 minus
  * sign (not an ASCII hyphen) so a negative delta typesets cleanly.

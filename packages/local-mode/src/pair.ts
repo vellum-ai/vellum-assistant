@@ -235,6 +235,7 @@ export function pairAssistant(
       isNew: false,
       deviceId: bundle.deviceId ?? "",
       leasedAt: new Date(now).toISOString(),
+      pairedGatewayUrl: bundle.gatewayUrl,
     });
   } catch (err) {
     return {

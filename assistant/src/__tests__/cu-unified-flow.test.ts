@@ -705,9 +705,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       });
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain(
-        "Submitting actor does not match the target client's actor",
-      );
+      expect(result.content).toContain("signed in as a different user");
       // No state mutation, no dispatch.
       expect(proxy.stepCount).toBe(0);
       expect(proxy.actionHistory).toHaveLength(0);
@@ -734,9 +732,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       });
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain(
-        "Submitting actor does not match the target client's actor",
-      );
+      expect(result.content).toContain("no authenticated actor");
       expect(sentMessages).toHaveLength(0);
     });
 

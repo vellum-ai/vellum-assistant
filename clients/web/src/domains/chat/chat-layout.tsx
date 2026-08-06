@@ -40,9 +40,10 @@ import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-s
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import {
-  DRAWER_SLIDE_MS,
-  useEdgeSwipeDrawer,
-} from "@/hooks/use-edge-swipe-drawer";
+  EDGE_SWIPE_EASING,
+  EDGE_SWIPE_SLIDE_MS,
+} from "@/hooks/edge-swipe-motion";
+import { useEdgeSwipeDrawer } from "@/hooks/use-edge-swipe-drawer";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 
@@ -229,11 +230,11 @@ export function ChatLayout({
       conversationGroups,
     });
 
-  // Mirror the unread count + signed-in flag into the Electron Dock
-  // (no-op off Electron). Uses the conversation list this layout
-  // already subscribes to, so there's no extra query — see
+  // Mirror the unread count into the Electron Dock (no-op off Electron).
+  // Prefers the server-side unread count, falling back to counting the
+  // conversation list this layout already subscribes to; see
   // `./hooks/use-electron-dock-sync.ts`.
-  useElectronDockSync(conversations);
+  useElectronDockSync(assistantId, conversations, isAssistantActive);
 
   // Header slots come from a module-level store so gated routes
   // (which see `ActiveAssistantGate`'s `<Outlet />` as their
@@ -1050,7 +1051,7 @@ export function ChatLayout({
               style={{
                 zIndex: 40,
                 transform: drawerOpen ? "translateX(0)" : "translateX(-100%)",
-                transition: `transform ${DRAWER_SLIDE_MS}ms ease-out`,
+                transition: `transform ${EDGE_SWIPE_SLIDE_MS}ms ${EDGE_SWIPE_EASING}`,
               }}
               role="dialog"
               aria-modal="true"

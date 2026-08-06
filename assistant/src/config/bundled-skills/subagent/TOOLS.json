@@ -35,7 +35,7 @@
           },
           "inference_profile": {
             "type": "string",
-            "description": "Optional llm.profiles key this subagent should run under. When omitted, the subagent normally inherits the parent turn's profile if one is active, and otherwise uses the subagentSpawn call site's default model selection. When profile isolation is enabled, the subagent always takes the subagentSpawn default instead of the parent's profile, and a profile the model catalog does not report as tool-capable is replaced by that default with a note on the result. An advisor consult applies that tool-capability fallback whether or not profile isolation is enabled, since it carries read-only tools either way. An output_contract of 'verdict' takes a cheaper profile ahead of either path unless you name a profile here, or unless the subagentSpawn call site has its own profile pinned in config, which also beats the cheaper preset."
+            "description": "Optional llm.profiles key this subagent should run under. When omitted, the subagent takes the subagentSpawn call site's default model selection, never the profile your own turn is running on: a profile pinned on this conversation is a choice about this conversation and does not follow the work you delegate. A profile you name here that the model catalog does not report as tool-capable is replaced by that same default, with a note on the result. An output_contract of 'verdict' takes a cheaper profile unless you name a profile here, or unless the subagentSpawn call site has its own profile pinned in config, which also beats the cheaper preset."
           },
           "confirm_repeat": {
             "type": "boolean",

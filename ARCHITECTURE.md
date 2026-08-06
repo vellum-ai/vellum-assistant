@@ -26,6 +26,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Workflow authoring guide                    | [`assistant/docs/workflows.md`](assistant/docs/workflows.md)                                       |
 | Workflow manual testing runbook             | [`assistant/docs/workflows-testing.md`](assistant/docs/workflows-testing.md)                       |
 | Service communication matrix                | [`docs/service-communication-matrix.md`](docs/service-communication-matrix.md)                     |
+| Vellum Doctor                               | [`assistant/docs/vellum-doctor.md`](assistant/docs/vellum-doctor.md)                                 |
 
 ## Cross-Cutting Invariants
 
@@ -89,6 +90,8 @@ The CLI routes all lockfile reads/writes through `cli/src/lib/environments/paths
 | non-production | `$XDG_CONFIG_HOME/vellum-<env>/` |
 
 Platform tokens (`platform-token`), device IDs (`device-id`), and guardian tokens (`assistants/<id>/guardian-token.json`) live under the env-scoped config dir. The CLI (`cli/src/lib/platform-client.ts`, `cli/src/lib/guardian-token.ts`), the daemon (`assistant/src/util/platform.ts:getXdgPlatformTokenPath`, `getXdgVellumConfigDirName`), and the Electron app (`clients/macos/src/main/device-id.ts`) all agree on the same env-scoped path, so `vellum login`, guardian leasing, persisted device IDs, and desktop session state never bleed between environments.
+
+Paired guardian credentials stay in the trusted host. The renderer sends paired traffic to `/assistant/__gateway-paired/<assistantId>/*` without a bearer. The Electron main process, CLI web host, or Vite development host resolves the paired entry, removes any renderer-provided `Authorization` header, reads or refreshes the guardian token, and injects it only on the remote gateway hop. Renderer-facing guardian-token endpoints reject paired assistant IDs. Packaged Electron gates the custom-protocol route through main-process `WebRequest` frame identity because Chromium omits Origin, Referer, and Fetch Metadata from the `GlobalRequest` delivered to custom protocol handlers.
 
 ### Backwards compatibility
 

@@ -116,6 +116,7 @@ function makeSetupCtx(overrides: Partial<Conversation> = {}): Conversation {
     conversationId: "conv-test",
     currentRequestId: "req-1",
     workingDir: "/tmp/test",
+    getTurnActorPrincipalId: () => undefined,
     abortController: null,
     sendToClient: mock(() => {}),
     pendingSurfaceActions: new Map(),

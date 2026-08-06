@@ -378,9 +378,10 @@ export function SkillsReferenceSubagentContent() {
             </li>
             <li>
               <strong>Model selection.</strong> A subagent can run under a
-              specific model profile. By default it inherits the one your
-              conversation is using, except when it is checking work, which runs
-              on a cheaper model.
+              specific model profile. By default it uses its own, not the one
+              your conversation is set to, so switching models mid-chat does not
+              change what your delegated work costs. Checking work runs on a
+              cheaper model.
             </li>
             <li>
               <strong>Status tracking.</strong> Pending, running, completed,

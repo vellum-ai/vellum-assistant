@@ -6,6 +6,12 @@ import { guardianTokenPath } from "./config";
 import type { CliInvocation } from "./util";
 
 const GUARDIAN_TOKEN_REFRESH_TIMEOUT_MS = 15_000;
+const guardianTokenRefreshes = new Map<string, Promise<TokenResult>>();
+
+export const PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR =
+  "Paired assistant credentials are available only through the paired gateway proxy";
+export const PAIRED_GUARDIAN_TARGET_MISMATCH_ERROR =
+  "Paired assistant target does not match the stored pairing";
 
 /** The persisted shape of an assistant's guardian token file. */
 export interface GuardianTokenData {
@@ -20,6 +26,8 @@ export interface GuardianTokenData {
   isNew: boolean;
   deviceId: string;
   leasedAt: string;
+  /** Remote gateway bound to a credential imported through the pairing flow. */
+  pairedGatewayUrl?: string;
 }
 
 /**
@@ -116,6 +124,8 @@ export interface GuardianTokenOptions {
    * re-pairing instead of `vellum hatch`/`vellum wake`.
    */
   paired?: boolean;
+  /** Gateway URL resolved for the paired proxy request. */
+  pairedGatewayUrl?: string;
 }
 
 export function getGuardianAccessToken(
@@ -146,6 +156,41 @@ export function getGuardianAccessToken(
     return Promise.resolve({ ok: false, status: 500, error: "Malformed guardian token file" });
   }
 
+  if (data.pairedGatewayUrl) {
+    if (!options?.paired) {
+      return Promise.resolve({
+        ok: false,
+        status: 403,
+        error: PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
+      });
+    }
+    if (options.pairedGatewayUrl !== data.pairedGatewayUrl) {
+      return Promise.resolve({
+        ok: false,
+        status: 403,
+        error: PAIRED_GUARDIAN_TARGET_MISMATCH_ERROR,
+      });
+    }
+  } else if (options?.paired) {
+    if (!options.pairedGatewayUrl) {
+      return Promise.resolve({
+        ok: false,
+        status: 403,
+        error: PAIRED_GUARDIAN_TARGET_MISMATCH_ERROR,
+      });
+    }
+    data = { ...data, pairedGatewayUrl: options.pairedGatewayUrl };
+    try {
+      saveGuardianToken(configDir, assistantId, data);
+    } catch {
+      return Promise.resolve({
+        ok: false,
+        status: 500,
+        error: "Failed to bind paired assistant credential",
+      });
+    }
+  }
+
   if (!isAccessTokenExpired(data)) {
     return Promise.resolve({ ok: true, accessToken: data.accessToken });
   }
@@ -160,7 +205,36 @@ export function getGuardianAccessToken(
     });
   }
 
-  return refreshToken(assistantId, invocation, env);
+  const existingRefresh = guardianTokenRefreshes.get(tokenPath);
+  if (existingRefresh) {
+    return existingRefresh;
+  }
+  const refresh = refreshToken(assistantId, invocation, env).finally(() => {
+    if (guardianTokenRefreshes.get(tokenPath) === refresh) {
+      guardianTokenRefreshes.delete(tokenPath);
+    }
+  });
+  guardianTokenRefreshes.set(tokenPath, refresh);
+  return refresh;
+}
+
+/** Resolve a paired bearer only when the proxy target matches its binding. */
+export function getPairedGuardianAccessToken(
+  assistantId: string,
+  pairedGatewayUrl: string,
+  configDir: string,
+  invocation: CliInvocation,
+  isLoopback: boolean,
+  env?: Record<string, string>,
+): Promise<TokenResult> {
+  return getGuardianAccessToken(
+    assistantId,
+    configDir,
+    invocation,
+    isLoopback,
+    env,
+    { paired: true, pairedGatewayUrl },
+  );
 }
 
 function refreshToken(

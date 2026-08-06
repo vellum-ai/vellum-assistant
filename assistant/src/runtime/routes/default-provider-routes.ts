@@ -25,22 +25,18 @@ import {
   DEFAULT_PROVIDER_CHOICES,
   DefaultProviderSchema,
 } from "../../config/schemas/llm.js";
-import { computeConnectionAvailability } from "../../providers/inference/connection-availability.js";
+import {
+  computeConnectionAvailability,
+  CONNECTION_AVAILABILITY_STATUSES,
+} from "../../providers/inference/connection-availability.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const availabilitySchema = z.object({
-  status: z.enum([
-    "ok",
-    "missing_default",
-    "missing_connection",
-    "missing_credential",
-    "provider_mismatch",
-    "unsupported_auth",
-    "vellum_unauthenticated",
-    "unknown",
-  ]),
+  // `missing_default` is this route's own verdict (no default provider is
+  // configured at all), so it extends the shared set rather than living in it.
+  status: z.enum([...CONNECTION_AVAILABILITY_STATUSES, "missing_default"]),
   /** Present on every non-`ok` status: names the broken thing and the fix. */
   message: z.string().optional(),
 });

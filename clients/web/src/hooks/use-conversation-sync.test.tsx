@@ -6,7 +6,10 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { Conversation } from "@/types/conversation-types";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
-import { conversationsQueryKey } from "@/utils/conversation-list-fetchers";
+import {
+  conversationsQueryKey,
+  unreadConversationCountQueryKey,
+} from "@/utils/conversation-list-fetchers";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
 import { __resetForTesting, publish } from "@/lib/event-bus";
 
@@ -50,8 +53,9 @@ mock.module("@/utils/fetch-conversation-detail", () => ({
 // ---------------------------------------------------------------------------
 // Module mock — `@/utils/conversation-list-fetchers`.
 // ---------------------------------------------------------------------------
-const realListFetchersModule =
-  await import("@/utils/conversation-list-fetchers");
+const realListFetchersModule = await import(
+  "@/utils/conversation-list-fetchers"
+);
 type ListFirstPage = Awaited<
   ReturnType<typeof realListFetchersModule.listConversationsFirstPage>
 >;
@@ -397,6 +401,62 @@ describe("useConversationSync", () => {
     await Promise.resolve();
     expect(spy).not.toHaveBeenCalled();
     expect(listFirstPageCalls.length).toBe(0);
+  });
+
+  test("per-conversation metadata tags invalidate the unread count", async () => {
+    // Seen-state changes and newly landed replies from another client emit a
+    // metadata tag with no `conversations:list` umbrella tag, so the count
+    // has to refetch off the metadata signal or the badge goes stale.
+    const queryClient = freshQueryClient();
+    queryClient.setQueryData(unreadConversationCountQueryKey("asst-1"), 3);
+    fetchConversationDetailImpl = async (
+      _queryClient,
+      _assistantId,
+      conversationId,
+    ) => ({ conversationId, title: "Any" });
+
+    renderHook(() => useConversationSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit(syncEvent(["conversation:conv-1:metadata"]));
+
+    await waitFor(() => {
+      expect(
+        queryClient.getQueryState(unreadConversationCountQueryKey("asst-1"))
+          ?.isInvalidated,
+      ).toBe(true);
+    });
+  });
+
+  test("a burst of metadata tags collapses into one unread-count invalidation", async () => {
+    // A bulk mark-read elsewhere emits one metadata tag per conversation;
+    // the count is a single scalar GET, so the burst must debounce.
+    const queryClient = freshQueryClient();
+    queryClient.setQueryData(unreadConversationCountQueryKey("asst-1"), 3);
+    fetchConversationDetailImpl = async (
+      _queryClient,
+      _assistantId,
+      conversationId,
+    ) => ({ conversationId, title: "Any" });
+    const invalidateSpy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = invalidateSpy as never;
+
+    renderHook(() => useConversationSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit(syncEvent(["conversation:conv-1:metadata"]));
+    emit(syncEvent(["conversation:conv-2:metadata"]));
+    emit(syncEvent(["conversation:conv-3:metadata"]));
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    const countKey = unreadConversationCountQueryKey("asst-1");
+    const countCalls = (
+      invalidateSpy.mock.calls as unknown as Array<[unknown]>
+    ).filter((call) => {
+      const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
+      return JSON.stringify(arg?.queryKey) === JSON.stringify(countKey);
+    });
+    expect(countCalls.length).toBe(1);
   });
 
   test("patches conversation title in cache on conversation_title_updated", async () => {

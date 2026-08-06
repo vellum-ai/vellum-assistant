@@ -435,10 +435,12 @@ export interface ToolContext {
   invokingCallSite?: LLMCallSite;
   /**
    * Canonical principal ID of the actor on whose behalf this tool invocation
-   * is running. Sourced from `conversation.trustContext.guardianPrincipalId`.
+   * is running — the turn's actor principal, falling back to the trust
+   * context's `guardianPrincipalId` (see `resolveTurnActorPrincipalId`).
    * Used by host proxies to bind cross-client targeted execution to the same
-   * authenticated user identity. May be undefined for legacy/internal flows
-   * with no resolved actor identity.
+   * authenticated user identity, so it must resolve to the SAME principal a
+   * desktop client registers with on its SSE stream. May be undefined for
+   * legacy/internal flows with no resolved actor identity.
    * @legacy
    */
   sourceActorPrincipalId?: string;

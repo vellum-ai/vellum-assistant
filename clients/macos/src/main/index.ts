@@ -1,10 +1,11 @@
 import "./env-seed";
-import { app, net, protocol, shell } from "electron";
+import { app, net, protocol, session, shell } from "electron";
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
 import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
+import { createAuthPopupSignInTracker } from "@vellumai/electron-utils/auth-popup-session";
 import {
   pairedGatewayTargetsFromLockfile,
   readAllowedGatewayPorts,
@@ -24,6 +25,7 @@ import { getDeviceId } from "./device-id";
 import { handleSync } from "./ipc";
 import { registerVellumAppProtocol } from "./vellumapp-protocol";
 import {
+  authorizePairedGatewayForwardPlan,
   executeGatewayForwardPlan,
   planGatewayForward,
   planPairedGatewayForward,
@@ -33,6 +35,7 @@ import {
   fetchForwardPlanWithRetry,
   planPlatformForward,
 } from "./platform-forward";
+import { installPairedGatewayRequestGuard } from "./paired-gateway-request-guard";
 import {
   extractDeepLinkFromArgv,
   handleDeepLink,
@@ -61,7 +64,11 @@ import { installImageContextMenu } from "./image-context-menu";
 import { installTextContextMenu } from "./text-context-menu";
 import { installPopoutWindows } from "./popout-window";
 import { installQuickInput } from "./quick-input-window";
-import { installLocalMode, resolveCliInvocation } from "./local-mode";
+import {
+  getPairedGuardianAccessToken,
+  installLocalMode,
+  resolveCliInvocation,
+} from "./local-mode";
 import { installLoginItem, installLoginItemIpc } from "./login-item";
 import {
   getWatchedLockfileSnapshot,
@@ -260,8 +267,8 @@ const registerAppProtocol = (): void => {
     // Paired remote gateways ride the same-origin path too, via
     // `/assistant/__gateway-paired/{assistantId}/*`: the packaged app's CSP
     // pins `connect-src` to Vellum origins, so the renderer cannot reach a
-    // paired gateway directly. The lockfile's paired entries are the
-    // allowlist.
+    // paired gateway directly. The WebRequest guard admits only trusted app
+    // frames, and the lockfile's paired entries allowlist the remote targets.
     const pairedProxied = await forwardPairedGatewayRequest(
       request,
       getPairedGatewayTargets,
@@ -335,12 +342,13 @@ const forwardGatewayRequest = async (
 const forwardPairedGatewayRequest = async (
   request: GlobalRequest,
   getTargets: () => Map<string, string>,
-): Promise<Response | null> =>
-  executeGatewayForwardPlan(
+): Promise<Response | null> => {
+  const plan = await authorizePairedGatewayForwardPlan(
     planPairedGatewayForward(request, getTargets),
-    request,
-    gatewayForwardFetcher,
+    getPairedGuardianAccessToken,
   );
+  return executeGatewayForwardPlan(plan, request, gatewayForwardFetcher);
+};
 
 const resolvedConfig = resolveLocalConfigFromEnv(process.env);
 handleSync("vellum:config:get", () => ({
@@ -429,6 +437,7 @@ app
 
     if (!isDev) {
       registerAppProtocol();
+      installPairedGatewayRequestGuard();
     }
     registerVellumAppProtocol(
       path.join(app.getPath("userData"), BUNDLES_DIR_NAME),
@@ -576,6 +585,18 @@ app.on("web-contents-created", (_event, contents) => {
     else log.info(line);
   });
 
+  // Sign-in isolation for the connect / OAuth popups below. Created per
+  // opener so the marked-window flag cannot cross windows.
+  const authPopups = createAuthPopupSignInTracker({
+    cookies: () => session.defaultSession.cookies,
+    onCleared: (hosts, removed) =>
+      log.info(
+        `[auth-popup] cleared ${removed} sign-in cookie(s) for ${hosts.join(", ")}`,
+      ),
+    onError: (err) =>
+      log.warn("[auth-popup] failed to clear sign-in cookies:", err),
+  });
+
   contents.setWindowOpenHandler(({ url, disposition }) => {
     // Programmatic popups (`window.open(url, name, features)` with size
     // hints) come through as `new-window` disposition. The web app's OAuth /
@@ -586,6 +607,11 @@ app.on("web-contents-created", (_event, contents) => {
     // handle is returned to the renderer for the subsequent postMessage
     // callback chain.
     if (disposition === "new-window" && url === "about:blank") {
+      // That deferred-navigation shape is what identifies an authorization
+      // surface: a plain link popup always opens at its real URL. Only these
+      // get their third-party sign-in cookies swept on close, so closing a
+      // Slack / GitHub / Discord link window leaves those sessions intact.
+      authPopups.markNextChildAsAuthPopup();
       return {
         action: "allow",
         overrideBrowserWindowOptions: {
@@ -623,6 +649,17 @@ app.on("web-contents-created", (_event, contents) => {
     // Plain target=_blank link clicks → system browser.
     void shell.openExternal(url);
     return { action: "deny" };
+  });
+
+  // Sweep the sign-in cookies of the popups marked above once they close. An
+  // in-app authorization window has no address bar, profile switcher, or
+  // provider sign-out page to fall back on, so without this the identity
+  // provider's SSO cookie sticks around in the app's session and every later
+  // authorization silently reuses the first account — Microsoft skips the
+  // account picker outright. Unmarked child windows (plain link opens) keep
+  // their cookies, as do Vellum's own.
+  contents.on("did-create-window", (window) => {
+    authPopups.trackCreatedChild(window);
   });
 });
 

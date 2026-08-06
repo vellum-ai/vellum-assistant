@@ -444,8 +444,8 @@ export function ChatMainPanel({
     void navigate(routes.settings.ai);
   }, [navigate]);
 
-  const pushToBillingSettings = useCallback(() => {
-    void navigate(routes.settings.usageBilling);
+  const pushToDailyLimitSettings = useCallback(() => {
+    void navigate(routes.settings.usageBillingDailyLimit);
   }, [navigate]);
 
   const checkAssistant = useCallback(
@@ -504,9 +504,13 @@ export function ChatMainPanel({
 
   // Commit counter for the chat-route subtree. Deliberately dependency-less:
   // it has to run on every commit to measure how tightly they are packed,
-  // which is what `Maximum update depth exceeded` actually reacts to. Records
-  // nothing but two integers — see `lib/commit-pressure.ts`.
-  useEffect(() => {
+  // which is what `Maximum update depth exceeded` actually reacts to. A layout
+  // effect rather than a passive one, so the commit is recorded before
+  // ResizeObserver, rAF, and timer callbacks can fire: an instrumented update
+  // landing in that window would otherwise be consumed as attribution of the
+  // commit that just finished instead of the commit it causes. Records nothing
+  // but a few integers; see `lib/commit-pressure.ts`.
+  useLayoutEffect(() => {
     recordCommit();
   });
 
@@ -1267,7 +1271,7 @@ export function ChatMainPanel({
             onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
             billingBannerSlot={
               composerBillingBanner === "daily_limit" ? (
-                <DailyLimitBanner onAdjustLimit={pushToBillingSettings} />
+                <DailyLimitBanner onAdjustLimit={pushToDailyLimitSettings} />
               ) : composerBillingBanner === "provider_billing" ? (
                 <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
               ) : composerBillingBanner === "low_balance" ? (

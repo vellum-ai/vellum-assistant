@@ -6585,6 +6585,16 @@ paths:
           description:
             Filter by origin channel. When provided, only conversations with this exact origin_channel value are
             returned. Omit to include all channels.
+        - name: groupId
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            Filter to a single group, so each sidebar section can load independently of the paginated list. Pass
+            "system:all" for conversations in no group, "system:pinned" for the Pinned section, or a custom group id. A
+            group-scoped request is ordered by the user's arrangement (display order, then recency) and never has pinned
+            rows appended to it. Omit to span every group.
       responses:
         "200":
           description: Successful response
@@ -9564,6 +9574,28 @@ paths:
                     type: boolean
                 required:
                   - ok
+                additionalProperties: false
+  /v1/conversations/unread-count:
+    get:
+      operationId: conversations_unreadcount_get
+      summary: Unread conversation count
+      description:
+        "Count of foreground conversations whose latest assistant message is unseen. Matches the sidebar's unread
+        indicators: archived rows and non-surfaced background/scheduled rows are excluded."
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: number
+                required:
+                  - count
                 additionalProperties: false
   /v1/conversations/wake:
     post:
@@ -25647,8 +25679,10 @@ paths:
                     - type: string
                     - type: "null"
                   description:
-                    Inference profile (llm.profiles key) the schedule's runs use. Omitted or null = default, i.e. the mainAgent
-                    call-site model selection.
+                    Inference profile (llm.profiles key) the schedule's runs use. Omitted or null pins the schedule to the
+                    currently resolved default profile, so its model does not move when that default changes.
+                    Workflow-mode schedules resolve a model per workflow step, so the pin is recorded but does not
+                    govern their runs.
               required:
                 - name
                 - expression
@@ -26199,8 +26233,9 @@ paths:
                     - type: string
                     - type: "null"
                   description:
-                    Inference profile (llm.profiles key) the schedule's runs use; null clears it back to the default mainAgent
-                    call-site model selection
+                    Inference profile (llm.profiles key) the schedule's runs use; null re-pins the schedule to the currently
+                    resolved default profile. Workflow-mode schedules resolve a model per workflow step, so the pin is
+                    recorded but does not govern their runs.
       responses:
         "200":
           description: Successful response
@@ -34564,13 +34599,14 @@ components:
               type: string
               enum:
                 - ok
-                - missing_default
+                - incomplete
                 - missing_connection
                 - missing_credential
                 - provider_mismatch
                 - unsupported_auth
                 - vellum_unauthenticated
                 - unknown
+                - missing_default
             message:
               type: string
           required:
@@ -34796,6 +34832,7 @@ components:
           type: string
           enum:
             - ok
+            - incomplete
             - missing_connection
             - missing_credential
             - provider_mismatch

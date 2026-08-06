@@ -501,7 +501,7 @@ describe("lifecycleService — bootstrap branches", () => {
     expect(getAssistantMock).not.toHaveBeenCalled();
     expect(setSelfHostedConnectionMock).toHaveBeenCalledWith({
       url: `${window.location.origin}/assistant/__gateway-paired/asst-paired`,
-      token: "token",
+      token: null,
     });
     expect(useResolvedAssistantsStore.getState().activeAssistantId).toBe(
       "asst-paired",
@@ -1476,10 +1476,12 @@ describe("lifecycleService — selection subscription", () => {
     expect(setSelfHostedConnectionMock).toHaveBeenCalledTimes(1);
     const arg = setSelfHostedConnectionMock.mock.calls[0]![0] as {
       url: string;
+      token: string | null;
     };
     expect(arg.url).toBe(
       `${window.location.origin}/assistant/__gateway-paired/asst-paired`,
     );
+    expect(arg.token).toBeNull();
   });
 
   test("no republish while the lifecycle is still loading", () => {

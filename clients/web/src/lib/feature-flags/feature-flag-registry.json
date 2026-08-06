@@ -364,22 +364,6 @@
       "label": "Desktop Presence Suppression",
       "description": "Gates whether a `chat.assistant_reply` push is suppressed while a Mac desktop client reports itself attended. On by default; turn it off to restore unconditional reply pushes.",
       "defaultEnabled": true
-    },
-    {
-      "id": "subagent-profile-isolation",
-      "scope": "assistant",
-      "key": "subagent-profile-isolation",
-      "label": "Subagent Profile Isolation",
-      "description": "Subagents resolve the subagentSpawn call site's own default model profile instead of inheriting the conversation's active profile, and an explicitly requested profile the model catalog does not report as tool-capable falls back to that same default. Both halves cover background spawns only: an advisor consult carries read-only tools with or without this flag, so it applies the tool-capability fallback either way. Applies to forks too: a fork otherwise stays on the parent's model and reuses its cached context, so under isolation a fork can run on a different model and re-prefill the transcript it inherits.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "subagent-loop-guard",
-      "scope": "assistant",
-      "key": "subagent-loop-guard",
-      "label": "Subagent Loop Guard",
-      "description": "Rate-limit near-identical repeat subagent spawns and require explicit confirmation to continue.",
-      "defaultEnabled": false
     }
   ]
 }

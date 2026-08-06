@@ -257,3 +257,13 @@ export function isReplyPushIneligibleUserMessage(
     (!options?.replyDeliveredInAppOnly && isReplyDeliveredOffApp(metadata))
   );
 }
+
+/**
+ * The reserved `group_id` values the sidebar's system sections use.
+ *
+ * `group_id` is nullable, and a conversation that has never been filed
+ * carries NULL rather than {@link UNGROUPED_GROUP_ID}, so predicates over the
+ * column read it through `COALESCE(group_id, 'system:all')`.
+ */
+export const UNGROUPED_GROUP_ID = "system:all";
+export const PINNED_GROUP_ID = "system:pinned";

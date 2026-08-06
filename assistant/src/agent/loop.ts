@@ -2212,13 +2212,16 @@ export class AgentLoop {
         // message between calls would invalidate the prompt-cache prefix on
         // every iteration).
         if (conversationDir) {
-          const toolNameByUseId = new Map(
-            toolUseBlocks.map((tu) => [tu.id, tu.name]),
+          const toolCallByUseId = new Map(
+            toolUseBlocks.map((tu) => [
+              tu.id,
+              { name: tu.name, input: tu.input },
+            ]),
           );
           try {
             spoolAndStubOversizedToolResults(rawResultBlocks, {
               conversationDir,
-              toolNameById: (id) => toolNameByUseId.get(id),
+              toolCallById: (id) => toolCallByUseId.get(id),
             });
           } catch (err) {
             rlog.warn(

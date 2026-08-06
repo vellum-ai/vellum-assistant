@@ -1,3 +1,5 @@
+import { AlertCircle } from "lucide-react";
+
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 
 import { useProfileOptions } from "@/domains/settings/hooks/use-profile-options";
@@ -30,6 +32,14 @@ export function ModelProfileSelect({
   className,
 }: ModelProfileSelectProps) {
   const options = useProfileOptions(assistantId, value).map((option) => ({
+    ...(option.issue === "undispatchable"
+      ? {
+          icon: (
+            <AlertCircle className="h-3.5 w-3.5 text-[var(--system-mid-strong)]" />
+          ),
+          ...(option.reason ? { tooltip: option.reason } : {}),
+        }
+      : {}),
     value: profileOptionToDropdownValue(option.value),
     label: option.label,
   }));

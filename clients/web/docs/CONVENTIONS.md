@@ -711,6 +711,62 @@ imperative write.
 Reference: `lib/commit-pressure.ts` — the probe that measures this
 traffic and attaches it to error-185 Sentry events.
 
+### Don't measure an element to give back the space you took from it
+
+If you position something absolutely and then reserve its measured height
+as padding somewhere else, the absolute positioning bought nothing: the
+element ends up occupying exactly the space normal flow would have given
+it. What you have built is flow layout, reimplemented in JavaScript, at
+the cost of a `ResizeObserver`, a piece of state, an effect, and usually
+a prop threaded through someone else's component. `ChatBody`'s nudge
+banner did this for six weeks and put the component in the error-185
+family (LUM-2927).
+
+Ask which of the two things you actually want:
+
+- **It needs space.** Make it a flow sibling and let flexbox size it. A
+  `flex-1` neighbour gives back exactly the right height at every
+  viewport, for free, with nothing to keep in sync.
+- **It floats over content.** Reserve nothing, like the scroll-to-latest
+  pill. Measure only when content must scroll _behind_ it and the
+  scrollport's own padding is what keeps the tail reachable, which is the
+  one case that genuinely needs a number
+  (`side-menu-overlay-bottom-column.tsx`).
+
+Putting both kinds in one positioned container is what forces the
+measurement, because the container can only have one layout behavior.
+
+When you do need a live box, `hooks/use-element-size.ts` already exists.
+
+### Never key an effect on a `ReactNode` prop
+
+An element is a fresh object on every render of whoever created it, so
+`useEffect(fn, [someNode])` re-runs `fn` in _every_ commit for as long as
+that node is mounted. When `fn` measures the DOM, swaps an observer, or
+calls `setState`, that is per-commit work landing in the commit stream,
+and it feeds the same counter described above (LUM-3062, LUM-2927).
+
+Key on what actually changed instead: a boolean for "is it mounted", an
+id for "which one is it". Note that re-keying alone is not a fix if the
+node can be swapped underneath you: sibling slots in one parent are
+matched by index and element type, so mounting an unkeyed sibling can
+hand your observed node to a different subtree while the effect sleeps.
+
+The same reasoning applies one level up, to any hook returning an object:
+
+```ts
+// Avoid: a fresh object every render busts every downstream useMemo,
+// which remints the elements built from it, which re-runs any effect
+// keyed on those elements.
+return { bannerShouldShow, handleDismiss };
+
+// Good
+return useMemo(
+  () => ({ bannerShouldShow, handleDismiss }),
+  [bannerShouldShow, handleDismiss],
+);
+```
+
 ---
 
 ## Framework strategy

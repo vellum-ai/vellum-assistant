@@ -129,3 +129,41 @@ describe("web STT language catalog stays in sync with the daemon roster", () => 
     expect(nonExtended).toEqual(expected);
   });
 });
+
+/**
+ * The settings skill accepts plain language names ("tamil", "hindi") and its
+ * tool description advertises that, so a roster code with no English-name
+ * alias is reachable only by someone who knows the raw BCP-47 code. Adding a
+ * language to the roster without its alias is the easy half-step, so pin the
+ * two together the same way the catalog copies are pinned.
+ */
+const SETTINGS_TOOL_SOURCE = readFileSync(
+  join(
+    REPO_ROOT,
+    "assistant/src/config/bundled-skills/settings/tools/voice-config-update.ts",
+  ),
+  "utf-8",
+);
+
+describe("settings-skill language aliases", () => {
+  test("every roster language is reachable by an English name", () => {
+    const aliasBlockStart = SETTINGS_TOOL_SOURCE.indexOf(
+      "const STT_LANGUAGE_ALIASES",
+    );
+    expect(aliasBlockStart).toBeGreaterThan(-1);
+    const aliasBlockEnd = SETTINGS_TOOL_SOURCE.indexOf("};", aliasBlockStart);
+    const aliasBlock = SETTINGS_TOOL_SOURCE.slice(
+      aliasBlockStart,
+      aliasBlockEnd,
+    );
+    // Every value in the alias map, i.e. the codes a plain name can reach.
+    const aliasedCodes = new Set(
+      [...aliasBlock.matchAll(/:\s*"([a-z-]+)"/g)].map((match) => match[1]),
+    );
+
+    const unreachable = DEEPGRAM_NOVA3_MONOLINGUAL_CODES.filter(
+      (code) => !aliasedCodes.has(code),
+    );
+    expect(unreachable).toEqual([]);
+  });
+});

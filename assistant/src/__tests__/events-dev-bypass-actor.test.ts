@@ -151,7 +151,7 @@ describe("events SSE registration — dev-bypass actor translation", () => {
     pendingAsyncResolutions.shift()!("guardian-real-id");
     await flushMicrotasks();
 
-    // Hub record patched — a host-proxy request registered now snapshots the
+    // Hub record patched: a host-proxy request registered now snapshots the
     // real principal, so the result-route same-actor check passes.
     expect(hub.getActorPrincipalIdForClient("heal-client-001")).toBe(
       "guardian-real-id",
@@ -248,7 +248,7 @@ describe("events SSE registration — dev-bypass actor translation", () => {
       { hub },
     );
 
-    // The stale heal resolves late with a different value — it is keyed to
+    // The stale heal resolves late with a different value; it is keyed to
     // the disposed connection, so the live record must be untouched.
     staleHeal("guardian-stale");
     await flushMicrotasks();

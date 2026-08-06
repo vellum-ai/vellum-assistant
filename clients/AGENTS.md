@@ -13,6 +13,9 @@ Applies to all code under `clients/`. Subordinate to root [`AGENTS.md`](../AGENT
   `bun.lock` and per-package `bun install`. Native shell directories
   (`clients/ios/`, `clients/android/`) are Capacitor shells built from
   `clients/web/` and have no package manifests of their own.
+- When adding or changing platform checks for iOS or Android, consider whether
+  the same behavior should apply to the other mobile platform and keep their
+  handling aligned when appropriate.
 - Exact version pinning is enforced repo-wide; see root `AGENTS.md` for the
   dependency, license, and tool-version rules.
 - All current client apps use bundlers (`clients/web/` via Vite,

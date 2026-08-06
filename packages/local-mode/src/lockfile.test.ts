@@ -8,6 +8,7 @@ import {
   isPairedLockfileEntry,
   replacePlatformAssistants,
   upsertLockfileAssistant,
+  upsertRendererLockfileAssistant,
 } from "./lockfile";
 
 let dir: string;
@@ -116,16 +117,18 @@ describe("getLockfileData", () => {
 // Hosts pass {paired} to getGuardianAccessToken so expired pairings get
 // re-pair guidance instead of hatch/wake; this pins the classification.
 describe("isPairedLockfileEntry", () => {
-  test("only a lockfile entry with cloud=paired classifies as paired", () => {
+  test("classifies paired cloud entries and host pairing markers as paired", () => {
     writeOnDisk({
       assistants: [
         { assistantId: "paired-1", cloud: "paired" },
+        { assistantId: "paired-marker", cloud: "local", paired: true },
         { assistantId: "local-1", cloud: "local" },
       ],
       activeAssistant: "local-1",
     });
 
     expect(isPairedLockfileEntry([lockfilePath], "paired-1")).toBe(true);
+    expect(isPairedLockfileEntry([lockfilePath], "paired-marker")).toBe(true);
     expect(isPairedLockfileEntry([lockfilePath], "local-1")).toBe(false);
     expect(isPairedLockfileEntry([lockfilePath], "missing")).toBe(false);
   });
@@ -248,7 +251,109 @@ describe("upsertLockfileAssistant", () => {
   });
 });
 
+describe("upsertRendererLockfileAssistant", () => {
+  const paired = {
+    assistantId: "paired-1",
+    cloud: "paired",
+    paired: true,
+    runtimeUrl: "https://gateway.example.com",
+    name: "Paired assistant",
+  };
+
+  test("rejects creating or reclassifying an entry as paired", () => {
+    expect(
+      upsertRendererLockfileAssistant([lockfilePath], paired, "paired-1"),
+    ).toMatchObject({ ok: false, status: 403 });
+
+    writeOnDisk({
+      assistants: [{ assistantId: "local-1", cloud: "local" }],
+      activeAssistant: "local-1",
+    });
+    expect(
+      upsertRendererLockfileAssistant(
+        [lockfilePath],
+        {
+          assistantId: "local-1",
+          cloud: "paired",
+          runtimeUrl: "https://gateway.example.com",
+        },
+        undefined,
+      ),
+    ).toMatchObject({ ok: false, status: 403 });
+  });
+
+  test("rejects retargeting or reclassifying an existing paired entry", () => {
+    writeOnDisk({ assistants: [paired], activeAssistant: "paired-1" });
+
+    expect(
+      upsertRendererLockfileAssistant(
+        [lockfilePath],
+        { assistantId: "paired-1", runtimeUrl: "https://attacker.example.com" },
+        undefined,
+      ),
+    ).toMatchObject({ ok: false, status: 403 });
+    expect(
+      upsertRendererLockfileAssistant(
+        [lockfilePath],
+        { assistantId: "paired-1", cloud: "local" },
+        undefined,
+      ),
+    ).toMatchObject({ ok: false, status: 403 });
+    expect(readOnDisk()).toEqual({
+      assistants: [paired],
+      activeAssistant: "paired-1",
+    });
+  });
+
+  test("allows non-security updates and activation of an existing pairing", () => {
+    writeOnDisk({ assistants: [paired], activeAssistant: null });
+
+    const result = upsertRendererLockfileAssistant(
+      [lockfilePath],
+      {
+        assistantId: "paired-1",
+        cloud: "paired",
+        runtimeUrl: "https://gateway.example.com",
+        name: "Renamed pairing",
+      },
+      "paired-1",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(readOnDisk()).toEqual({
+      assistants: [{ ...paired, name: "Renamed pairing" }],
+      activeAssistant: "paired-1",
+    });
+  });
+});
+
 describe("replacePlatformAssistants", () => {
+  test("rejects a renderer sync that tries to create a paired entry", () => {
+    writeOnDisk({
+      activeAssistant: "asst_local",
+      assistants: [
+        { assistantId: "asst_local", cloud: "local", runtimeUrl: "http://l" },
+      ],
+    });
+
+    expect(
+      replacePlatformAssistants([lockfilePath], [
+        {
+          assistantId: "asst_local",
+          cloud: "paired",
+          paired: true,
+          runtimeUrl: "https://attacker.example.com",
+        },
+      ]),
+    ).toMatchObject({ ok: false, status: 403 });
+    expect(readOnDisk()).toEqual({
+      activeAssistant: "asst_local",
+      assistants: [
+        { assistantId: "asst_local", cloud: "local", runtimeUrl: "http://l" },
+      ],
+    });
+  });
+
   test("replaces platform assistants while keeping local ones and unknown fields", () => {
     writeOnDisk({
       schemaVersion: 99,

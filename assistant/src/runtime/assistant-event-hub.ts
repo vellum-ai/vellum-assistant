@@ -473,7 +473,7 @@ export class AssistantEventHub {
    * route resolves it async and patches the record here. Keyed by
    * `connectionId` (not clientId) so a reconnect race cannot patch the
    * subscription that replaced the one being healed. No-op when the
-   * connection is gone or already carries a principal — this only fills a
+   * connection is gone or already carries a principal: this only fills a
    * missing value, never overwrites one. The value must come from the
    * daemon's own server-side guardian lookup, never from client input.
    */
