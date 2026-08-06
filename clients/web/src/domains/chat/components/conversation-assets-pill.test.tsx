@@ -33,15 +33,24 @@ const { appsGetOptions, documentsGetOptions } =
 const ASSISTANT_ID = "asst-1";
 const CONVERSATION_ID = "conv-1";
 const SURFACE_ID = "surface-1";
+const OTHER_CONVERSATION_ID = "conv-2";
+const OTHER_SURFACE_ID = "surface-2";
+
+const DOC_TITLE = "Roadmap";
+const OTHER_DOC_TITLE = "Backlog";
 
 const SEEN_LABEL = "Conversation assets, 1 items";
 const UNSEEN_LABEL = "Conversation assets, 1 items (unseen changes)";
 
-function makeDocument(): DocumentSummary {
+function makeDocument(
+  conversationId = CONVERSATION_ID,
+  surfaceId = SURFACE_ID,
+  title = DOC_TITLE,
+): DocumentSummary {
   return {
-    surfaceId: SURFACE_ID,
-    conversationId: CONVERSATION_ID,
-    title: "Roadmap",
+    surfaceId,
+    conversationId,
+    title,
     wordCount: 12,
     createdAt: 1_700_000_000_000,
     updatedAt: 1_700_000_000_001,
@@ -60,30 +69,51 @@ function makeQueryClient() {
   });
 }
 
-function renderPill({ withAssets = true }: { withAssets?: boolean } = {}) {
-  const client = makeQueryClient();
+function seedConversation(
+  client: QueryClient,
+  documents: DocumentSummary[],
+  conversationId: string,
+) {
   const queryArgs = {
     path: { assistant_id: ASSISTANT_ID },
-    query: { conversationId: CONVERSATION_ID },
+    query: { conversationId },
   };
   client.setQueryData(appsGetOptions(queryArgs).queryKey, { apps: [] });
-  client.setQueryData(documentsGetOptions(queryArgs).queryKey, {
-    documents: withAssets ? [makeDocument()] : [],
-  });
-  render(
+  client.setQueryData(documentsGetOptions(queryArgs).queryKey, { documents });
+}
+
+function renderPill({ withAssets = true }: { withAssets?: boolean } = {}) {
+  const client = makeQueryClient();
+  seedConversation(client, withAssets ? [makeDocument()] : [], CONVERSATION_ID);
+  seedConversation(
+    client,
+    [makeDocument(OTHER_CONVERSATION_ID, OTHER_SURFACE_ID, OTHER_DOC_TITLE)],
+    OTHER_CONVERSATION_ID,
+  );
+
+  const pill = (conversationId: string) => (
     <QueryClientProvider client={client}>
       <ConversationAssetsPill
         assistantId={ASSISTANT_ID}
-        conversationId={CONVERSATION_ID}
+        conversationId={conversationId}
       />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+
+  const view = render(pill(CONVERSATION_ID));
+
+  return {
+    /** Swap the prop on the already-mounted pill, as the chat header does. */
+    switchConversation: (conversationId: string) => {
+      view.rerender(pill(conversationId));
+    },
+  };
 }
 
-function markUnseen() {
+function markUnseen(conversationId = CONVERSATION_ID, surfaceId = SURFACE_ID) {
   useUnseenDocumentChangesStore
     .getState()
-    .markDocumentChanged(CONVERSATION_ID, SURFACE_ID);
+    .markDocumentChanged(conversationId, surfaceId);
 }
 
 function unseenConversations(): string[] {
@@ -155,6 +185,46 @@ describe("mobile trigger", () => {
 
     expect(unseenConversations()).toEqual([]);
     expect(screen.queryByTestId(ASSETS_PILL_UNSEEN_DOT_TESTID)).toBeNull();
+  });
+});
+
+describe("conversation switch while the disclosure is open", () => {
+  /**
+   * The chat header renders one unkeyed pill and swaps `conversationId` on it,
+   * so `open` survives the switch and `onOpenChange` never fires for it. The
+   * pill closes its own disclosure on that swap: the incoming conversation's
+   * assets are never put on screen unasked, and its changes stay marked unseen
+   * until the user opens the list.
+   */
+  test("closes the popover and keeps the incoming dot", () => {
+    markUnseen(OTHER_CONVERSATION_ID, OTHER_SURFACE_ID);
+    const { switchConversation } = renderPill();
+
+    fireEvent.click(screen.getByRole("button", { name: SEEN_LABEL }));
+    expect(screen.getByText(DOC_TITLE)).toBeTruthy();
+
+    switchConversation(OTHER_CONVERSATION_ID);
+
+    expect(screen.queryByText(OTHER_DOC_TITLE)).toBeNull();
+    expect(screen.getByTestId(ASSETS_PILL_UNSEEN_DOT_TESTID)).toBeTruthy();
+    expect(screen.getByRole("button", { name: UNSEEN_LABEL })).toBeTruthy();
+    expect(unseenConversations()).toEqual([OTHER_CONVERSATION_ID]);
+  });
+
+  test("closes the sheet and keeps the incoming dot on mobile", () => {
+    isMobileRef.value = true;
+    markUnseen(OTHER_CONVERSATION_ID, OTHER_SURFACE_ID);
+    const { switchConversation } = renderPill();
+
+    fireEvent.click(screen.getByRole("button", { name: SEEN_LABEL }));
+    expect(screen.getByText(DOC_TITLE)).toBeTruthy();
+
+    switchConversation(OTHER_CONVERSATION_ID);
+
+    expect(screen.queryByText(OTHER_DOC_TITLE)).toBeNull();
+    expect(screen.getByTestId(ASSETS_PILL_UNSEEN_DOT_TESTID)).toBeTruthy();
+    expect(screen.getByRole("button", { name: UNSEEN_LABEL })).toBeTruthy();
+    expect(unseenConversations()).toEqual([OTHER_CONVERSATION_ID]);
   });
 });
 

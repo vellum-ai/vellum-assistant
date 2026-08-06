@@ -1,6 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppWindow, FileText, Layers } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import {
   BottomSheet,
@@ -124,6 +130,17 @@ export function ConversationAssetsPill({
   const assets = useMemo(() => toAssets(apps, docs), [apps, docs]);
 
   const [open, setOpen] = useState(false);
+
+  // The chat header swaps `conversationId` on this same mounted pill, so an
+  // open disclosure would otherwise carry over and list the incoming
+  // conversation's assets without the user asking to see them, leaving that
+  // conversation's changes marked unseen behind a sheet that is already open.
+  // Layout effect: the outgoing conversation's disclosure must never paint
+  // over the incoming conversation, not even for one frame.
+  useLayoutEffect(() => {
+    setOpen(false);
+  }, [conversationId]);
+
   const isMobile = useIsMobile();
   const hasUnseenChanges = useHasUnseenDocumentChanges(conversationId);
   const clearConversation =
