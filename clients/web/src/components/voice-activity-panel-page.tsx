@@ -80,35 +80,36 @@ export function VoiceActivityPanelPage() {
 
   return (
     // The whole panel drags, so the user can move it from anywhere that isn't
-    // a control. A 300×116 surface has no room for a dedicated grip.
+    // a control. A 300×96 surface has no room for a dedicated grip.
     <div
       className="relative flex h-screen w-screen flex-col justify-between overflow-hidden rounded-xl border border-white/15 bg-white/[0.07] px-3 py-2.5 [-webkit-app-region:drag] before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/40 before:to-transparent"
       style={{ ["--voice-accent" as string]: accentColor(state.accentHex) }}
     >
-      <div className="flex min-w-0 items-center gap-2">
+      {/* Identity and state on one line: who is on the call and what the call
+          is doing are read together, and the name alone was a whole row spent
+          on the one fact that never changes. The name gives up its width first
+          (`shrink`), because a truncated name is still recognizable while a
+          truncated phase is not. */}
+      <div className="flex min-w-0 items-center gap-1.5">
         <Identity
           assistantName={state.assistantName}
           avatarBase64={state.avatarBase64}
         />
-        <span className="truncate text-[12px] font-medium text-[var(--content-primary)]">
+        <span className="shrink truncate text-[12px] font-medium text-[var(--content-primary)]">
           {state.assistantName}
+        </span>
+        <PhaseGlyph phase={state.phase} />
+        <span className="min-w-0 shrink-0 truncate text-[11px] text-[var(--content-secondary)]">
+          {state.label}
         </span>
         <Elapsed startedAt={state.startedAt} />
       </div>
 
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <PhaseGlyph phase={state.phase} />
-          <span className="truncate text-[11px] text-[var(--content-secondary)]">
-            {state.label}
-          </span>
-        </div>
-        {state.detail !== "" && (
-          <span className="truncate text-[10px] text-[var(--content-tertiary)]">
-            {state.detail}
-          </span>
-        )}
-      </div>
+      {state.detail !== "" && (
+        <span className="min-w-0 truncate text-[10px] text-[var(--content-tertiary)]">
+          {state.detail}
+        </span>
+      )}
 
       {pendingApproval ? (
         <ApprovalControls requestId={state.approvalRequestId} />

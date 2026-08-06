@@ -44,13 +44,14 @@ const PANEL_KIND = "voice-activity";
 const PANEL_PATH = "/floating/voice-activity";
 const WINDOW_STATE_KEY = "voice-activity";
 
-// Wide enough for the assistant's name over a phase line and a control row,
-// short enough to sit in a screen corner without covering work. The canvas is
-// the panel: unlike the dictation HUD there is no CSS shadow to leave room
+// Wide enough for the assistant's name beside its phase, short enough to sit
+// in a screen corner without covering work. The height carries three rows:
+// identity and phase, the turn's activity line, and the controls. The canvas
+// is the panel: unlike the dictation HUD there is no CSS shadow to leave room
 // for, because a window the user positions themselves is allowed the system's
 // own shadow (`hasShadow`).
 const PANEL_WIDTH = 300;
-const PANEL_HEIGHT = 116;
+const PANEL_HEIGHT = 96;
 
 /** Gap from the work area's top-right corner on the first ever launch. */
 const DEFAULT_MARGIN = 16;
@@ -253,54 +254,71 @@ const ensurePanel = (): BrowserWindow => {
 };
 
 /**
- * Whether Vellum is the frontmost app, tracked from the two macOS events that
- * mean exactly that.
+ * Whether **a window other than the panel** is frontmost, which is the real
+ * question this surface turns on.
  *
- * **Not derived from `BrowserWindow.getFocusedWindow()`.** That reports which
- * window holds *key* status, which is a different question, and for this
- * surface it answers wrongly in the one case that matters: the panel is an
- * always-on-top non-activating `NSPanel`, so it can keep key status while the
- * user brings the main window to the front. A frontmost check that excluded
- * the panel to avoid hiding on its own clicks then reported "not frontmost"
- * for the rest of the session, and the panel never went away.
+ * Three signals, because no single one answers it:
  *
- * `did-become-active` / `did-resign-active` describe the *application*, so
- * they need no such exclusion: the panel being non-activating means clicking
- * it does not activate the app, and therefore does not fire either event.
- * The behavior the exclusion was hand-rolling is what these give for free.
+ * - `did-resign-active`: the app went to the background. Definitive.
+ * - `browser-window-focus` on anything but the panel: a real window of the app
+ *   took focus, so the session has an on-screen control again.
+ * - `did-become-active`: the app came forward, but *only counts when the panel
+ *   is not the key window*. Clicking the panel activates the app despite its
+ *   non-activating window type, and treating that as "frontmost" hid the panel
+ *   the instant the user touched it, including on a drag of its own header.
  *
- * **Until the first of those events lands there is nothing to report**, and
- * the honest answer then is whatever the window server says right now. A
- * launch that macOS activated before this module was installed has already
- * missed its `did-become-active`, and nothing else will fire until the user
- * switches away and back, so a tracker that assumed "not frontmost" would open
- * the panel over a focused app for the whole first session. Asking at the
- * moment the question is put is what makes this independent of where in the
- * startup sequence the install happens to sit, and of whether a window existed
- * when it did.
+ * The app-level pair alone is not enough, and neither is window focus alone.
+ * Ignoring a panel-driven `did-become-active` leaves the app active with the
+ * panel still up, and macOS fires no second activation when focus then moves
+ * to the main window, so without the focus signal the panel would never hide
+ * again. Focus events alone were the original bug: the panel is an
+ * always-on-top `NSPanel` and keeps key status when the main window comes
+ * forward, so a focus-derived check reported "not frontmost" for the rest of
+ * the session.
+ *
+ * **Until one of those lands there is nothing to report**, and the honest
+ * answer then is whatever the window server says right now. A launch macOS
+ * activated before this module was installed has already missed its
+ * `did-become-active`, and nothing fires again until the user switches away
+ * and back, so a tracker that assumed "not frontmost" would open the panel
+ * over a focused app for the whole first session.
  *
  * Injected rather than read directly so the fallback has a seam to be tested
- * through, which the sequencing bug this replaces went unnoticed for want of.
+ * through, which the sequencing bug that needed it went unnoticed for want of.
  */
 export const createFrontmostTracker = (
-  anyWindowFocused: () => boolean,
+  anyOtherWindowFocused: () => boolean,
 ): {
   isFrontmost: () => boolean;
-  becameActive: () => void;
+  becameActive: (panelHasKey: boolean) => void;
   resignedActive: () => void;
+  windowFocused: (isPanel: boolean) => void;
 } => {
   let observed = false;
   let frontmost = false;
 
   return {
-    isFrontmost: () => (observed ? frontmost : anyWindowFocused()),
-    becameActive: () => {
+    isFrontmost: () => (observed ? frontmost : anyOtherWindowFocused()),
+    becameActive: (panelHasKey) => {
+      // A panel-driven activation says nothing about the rest of the app, so
+      // it is not allowed to answer the question either way: recording it
+      // would latch a value the next real focus change may never correct.
+      if (panelHasKey) {
+        return;
+      }
       observed = true;
       frontmost = true;
     },
     resignedActive: () => {
       observed = true;
       frontmost = false;
+    },
+    windowFocused: (isPanel) => {
+      if (isPanel) {
+        return;
+      }
+      observed = true;
+      frontmost = true;
     },
   };
 };
@@ -313,9 +331,15 @@ export const installVoiceActivityWindow = (): void => {
   }
   installed = true;
 
-  const frontmost = createFrontmostTracker(
-    () => BrowserWindow.getFocusedWindow() !== null,
-  );
+  const panelHasKey = (): boolean => {
+    const focused = BrowserWindow.getFocusedWindow();
+    return focused !== null && focused === panelWindow();
+  };
+
+  const frontmost = createFrontmostTracker(() => {
+    const focused = BrowserWindow.getFocusedWindow();
+    return focused !== null && focused !== panelWindow();
+  });
 
   const controller = createVoiceActivityController({
     showPanel: () => {
@@ -391,11 +415,15 @@ export const installVoiceActivityWindow = (): void => {
   // once per actual application activation, so there is no blur/focus gap to
   // ride out and nothing to coalesce.
   app.on("did-become-active", () => {
-    frontmost.becameActive();
+    frontmost.becameActive(panelHasKey());
     controller.focusChanged();
   });
   app.on("did-resign-active", () => {
     frontmost.resignedActive();
+    controller.focusChanged();
+  });
+  app.on("browser-window-focus", (_event, win) => {
+    frontmost.windowFocused(win === panelWindow());
     controller.focusChanged();
   });
 };

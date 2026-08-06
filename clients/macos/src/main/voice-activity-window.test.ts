@@ -217,7 +217,7 @@ describe("createVoiceActivityController", () => {
 });
 
 describe("createFrontmostTracker", () => {
-  test("falls back to the window server before any activation event", () => {
+  test("falls back to the window server before any signal lands", () => {
     const focused = createFrontmostTracker(() => true);
     const unfocused = createFrontmostTracker(() => false);
 
@@ -230,37 +230,64 @@ describe("createFrontmostTracker", () => {
     // no window to focus and the launch's `did-become-active` has already
     // fired. A tracker that latched "not frontmost" there would open the panel
     // over a focused app for the whole first session.
-    let windowExists = false;
-    const tracker = createFrontmostTracker(() => windowExists);
+    let otherWindowFocused = false;
+    const tracker = createFrontmostTracker(() => otherWindowFocused);
 
     expect(tracker.isFrontmost()).toBe(false);
 
-    windowExists = true;
+    otherWindowFocused = true;
 
     expect(tracker.isFrontmost()).toBe(true);
   });
 
-  test("activation events win over the fallback once one lands", () => {
-    // The fallback asks which window holds key status, which is the question
-    // the events exist to stop this from depending on: a non-activating panel
-    // can hold key while the app is genuinely in the background.
-    const tracker = createFrontmostTracker(() => true);
-
+  test("clicking the panel does not count as the app coming forward", () => {
+    // Clicking the panel activates the app despite its non-activating window
+    // type, so an unguarded `did-become-active` hid the panel the instant the
+    // user touched it, including on a drag of its own header.
+    const tracker = createFrontmostTracker(() => false);
     tracker.resignedActive();
+
+    tracker.becameActive(true);
 
     expect(tracker.isFrontmost()).toBe(false);
   });
 
-  test("tracks activation back and forth", () => {
+  test("focus moving to a real window after a panel click still hides it", () => {
+    // macOS fires no second activation once the panel has already made the app
+    // active, so window focus is the only signal left to catch this.
+    const tracker = createFrontmostTracker(() => false);
+    tracker.resignedActive();
+    tracker.becameActive(true);
+
+    tracker.windowFocused(false);
+
+    expect(tracker.isFrontmost()).toBe(true);
+  });
+
+  test("the panel taking focus never marks the app frontmost", () => {
+    const tracker = createFrontmostTracker(() => false);
+    tracker.resignedActive();
+
+    tracker.windowFocused(true);
+
+    expect(tracker.isFrontmost()).toBe(false);
+  });
+
+  test("an activation with the panel unfocused marks the app frontmost", () => {
     const tracker = createFrontmostTracker(() => false);
 
-    tracker.becameActive();
+    tracker.becameActive(false);
+
+    expect(tracker.isFrontmost()).toBe(true);
+  });
+
+  test("resigning active always wins", () => {
+    const tracker = createFrontmostTracker(() => true);
+    tracker.windowFocused(false);
     expect(tracker.isFrontmost()).toBe(true);
 
     tracker.resignedActive();
-    expect(tracker.isFrontmost()).toBe(false);
 
-    tracker.becameActive();
-    expect(tracker.isFrontmost()).toBe(true);
+    expect(tracker.isFrontmost()).toBe(false);
   });
 });
