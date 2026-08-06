@@ -20,6 +20,14 @@ export interface CliRuntimePaths {
 type InstallState = { currentInstallDir: string; previousInstallDir?: string };
 
 const STATE = "install-state.json";
+export const CLI_RUNTIME_EXECUTABLES = [
+  "vellum.exe",
+  "bun.exe",
+  "assistant.exe",
+  "vellum-daemon.exe",
+  "vellum-gateway.exe",
+  "credential-executor.exe",
+] as const;
 
 function readJson<T>(file: string): T | undefined {
   try {
@@ -56,8 +64,9 @@ export function isValidCliRuntime(
     manifest?.version &&
     manifest.bunVersion &&
     (!expectedVersion || manifest.version === expectedVersion) &&
-    existsSync(path.join(runtimeDir, "vellum.exe")) &&
-    existsSync(path.join(runtimeDir, "bun.exe")),
+    CLI_RUNTIME_EXECUTABLES.every((name) =>
+      existsSync(path.join(runtimeDir, name)),
+    ),
   );
 }
 

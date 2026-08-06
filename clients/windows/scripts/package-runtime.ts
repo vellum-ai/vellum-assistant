@@ -28,21 +28,56 @@ if (currentBun.status !== 0 || currentBun.stdout.trim() !== bunVersion) {
 
 rmSync(outputDir, { recursive: true, force: true });
 mkdirSync(outputDir, { recursive: true });
-const build = spawnSync(
-  process.execPath,
+const targets = [
+  ["vellum.exe", "cli/src/index.ts", ["react-devtools-core"]],
   [
-    "build",
-    "--compile",
-    "--external",
-    "react-devtools-core",
-    path.join(repoRoot, "cli", "src", "index.ts"),
-    "--outfile",
-    path.join(outputDir, "vellum.exe"),
+    "assistant.exe",
+    "assistant/src/windows-compiled-entry.ts",
+    ["chromium-bidi/*"],
   ],
-  { cwd: repoRoot, stdio: "inherit", windowsHide: true },
-);
-if (build.status !== 0) {
-  throw new Error(`Failed to compile the Windows CLI (exit ${build.status}).`);
+  [
+    "vellum-daemon.exe",
+    "assistant/src/daemon/windows-compiled-entry.ts",
+    ["chromium-bidi/*"],
+  ],
+  [
+    "vellum-gateway.exe",
+    "gateway/src/index.ts",
+    [
+      "@electric-sql/*",
+      "@aws-sdk/client-rds-data",
+      "@libsql/*",
+      "@neondatabase/*",
+      "@planetscale/*",
+      "@vercel/*",
+      "better-sqlite3",
+      "mysql2/*",
+      "mysql2",
+      "pg",
+      "postgres",
+    ],
+  ],
+  ["credential-executor.exe", "credential-executor/src/main.ts"],
+  ["cli-uninstaller.exe", "clients/windows/scripts/uninstall-cli.ts"],
+] as const;
+for (const [name, entry, externals] of targets) {
+  const args = ["build", "--compile"];
+  for (const external of externals ?? []) {
+    args.push("--external", external);
+  }
+  args.push(
+    path.join(repoRoot, entry),
+    "--outfile",
+    path.join(outputDir, name),
+  );
+  const build = spawnSync(process.execPath, args, {
+    cwd: repoRoot,
+    stdio: "inherit",
+    windowsHide: true,
+  });
+  if (build.status !== 0) {
+    throw new Error(`Failed to compile ${name} (exit ${build.status}).`);
+  }
 }
 copyFileSync(process.execPath, path.join(outputDir, "bun.exe"));
 await Bun.write(

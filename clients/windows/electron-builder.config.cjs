@@ -41,5 +41,6 @@ module.exports = {
   nsis: {
     oneClick: false,
     allowToChangeInstallationDirectory: true,
+    include: "scripts/installer.nsh",
   },
 };

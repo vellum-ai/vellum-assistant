@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -9,7 +10,12 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { provisionCliRuntime, type CliRuntimePaths } from "./cli-installer";
+import {
+  CLI_RUNTIME_EXECUTABLES,
+  isValidCliRuntime,
+  provisionCliRuntime,
+  type CliRuntimePaths,
+} from "./cli-installer";
 import {
   getCliLauncherState,
   ensureUserPath,
@@ -29,8 +35,10 @@ const makeTempDir = (): string => {
 
 const writeRuntime = (dir: string, version: string): string => {
   mkdirSync(dir, { recursive: true });
-  writeFileSync(path.join(dir, "vellum.exe"), `vellum-${version}`, "utf8");
-  writeFileSync(path.join(dir, "bun.exe"), "bun", "utf8");
+  for (const name of CLI_RUNTIME_EXECUTABLES) {
+    const contents = name === "vellum.exe" ? `vellum-${version}` : name;
+    writeFileSync(path.join(dir, name), contents, "utf8");
+  }
   writeFileSync(
     path.join(dir, "runtime.json"),
     JSON.stringify({ version, bunVersion: "1.3.11" }),
@@ -125,6 +133,36 @@ test("repairs stale ownership and updates the user PATH", () => {
   );
   expect(uninstallCliLauncher(paths, userRegistry.run)).toBeTrue();
   expect(userRegistry.value().split(";")).not.toContain(paths.binDir);
+  expect(getCliLauncherState(paths, source)).toBe("missing");
+});
+
+test("requires and removes every packaged executable", () => {
+  const root = makeTempDir();
+  const runtimeDir = path.join(root, "runtime");
+  const source = writeRuntime(runtimeDir, "1.0.0");
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const userRegistry = registry();
+
+  for (const name of CLI_RUNTIME_EXECUTABLES) {
+    const executable = path.join(runtimeDir, name);
+    const contents = readFileSync(executable);
+    rmSync(executable);
+    expect(isValidCliRuntime(runtimeDir, "1.0.0")).toBeFalse();
+    writeFileSync(executable, contents);
+  }
+
+  installCliLauncher(source, "1.0.0", paths, userRegistry.run);
+  expect(
+    CLI_RUNTIME_EXECUTABLES.every((name) =>
+      existsSync(path.join(paths.binDir, name)),
+    ),
+  ).toBeTrue();
+  expect(uninstallCliLauncher(paths, userRegistry.run)).toBeTrue();
+  expect(
+    CLI_RUNTIME_EXECUTABLES.every(
+      (name) => !existsSync(path.join(paths.binDir, name)),
+    ),
+  ).toBeTrue();
 });
 
 test("restores the last launcher when PATH registration fails", () => {
@@ -144,7 +182,9 @@ test("restores the last launcher when PATH registration fails", () => {
     installCliLauncher(second, "2.0.0", paths, failingRegistry),
   ).toThrow("registry unavailable");
   expect(readFileSync(paths.executable, "utf8")).toBe("vellum-v1");
-  expect(readFileSync(paths.bunExecutable, "utf8")).toBe("bun");
+  expect(readFileSync(path.join(paths.binDir, "bun.exe"), "utf8")).toBe(
+    "bun.exe",
+  );
   expect(getCliLauncherState(paths, first)).toBe("installed");
   const malformed: RegistryRunner = () => "Path REG_EXPAND_SZ";
   expect(() => ensureUserPath("C:\\Vellum", malformed)).toThrow(

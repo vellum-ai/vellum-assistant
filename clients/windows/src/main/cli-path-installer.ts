@@ -10,6 +10,8 @@ import {
 } from "node:fs";
 import path from "node:path";
 
+import { CLI_RUNTIME_EXECUTABLES } from "./cli-installer";
+
 export type CliLauncherState =
   "missing" | "foreign" | "installed" | "shadowed" | "stale";
 
@@ -18,7 +20,6 @@ type LauncherOwnership = { sourcePath: string; version: string };
 export interface CliLauncherPaths {
   binDir: string;
   executable: string;
-  bunExecutable: string;
   ownership: string;
 }
 
@@ -44,7 +45,6 @@ export function resolveCliLauncherPaths(
   return {
     binDir,
     executable: path.join(binDir, "vellum.exe"),
-    bunExecutable: path.join(binDir, "bun.exe"),
     ownership: path.join(binDir, ".vellum-owned.json"),
   };
 }
@@ -68,13 +68,18 @@ export function getCliLauncherState(
   sourcePath?: string,
   userPath?: string,
 ): CliLauncherState {
-  const vellumExists = existsSync(paths.executable);
-  const bunExists = existsSync(paths.bunExecutable);
+  const runtimeExists = CLI_RUNTIME_EXECUTABLES.every((name) =>
+    existsSync(path.join(paths.binDir, name)),
+  );
   const ownership = readOwnership(paths);
   if (!ownership) {
-    return vellumExists || bunExists ? "foreign" : "missing";
+    return CLI_RUNTIME_EXECUTABLES.some((name) =>
+      existsSync(path.join(paths.binDir, name)),
+    )
+      ? "foreign"
+      : "missing";
   }
-  if (!vellumExists || !bunExists) {
+  if (!runtimeExists) {
     return "stale";
   }
   if (
@@ -159,11 +164,10 @@ export function installCliLauncher(
   }
   mkdirSync(paths.binDir, { recursive: true });
   const files: Array<{ source?: string; contents?: string; target: string }> = [
-    { source: sourcePath, target: paths.executable },
-    {
-      source: path.join(path.dirname(sourcePath), "bun.exe"),
-      target: paths.bunExecutable,
-    },
+    ...CLI_RUNTIME_EXECUTABLES.map((name) => ({
+      source: path.join(path.dirname(sourcePath), name),
+      target: path.join(paths.binDir, name),
+    })),
     {
       contents: `${JSON.stringify({ sourcePath, version })}\n`,
       target: paths.ownership,
@@ -229,8 +233,9 @@ export function uninstallCliLauncher(
     .split(";")
     .filter((entry) => entry && !sameWindowsPath(entry, paths.binDir));
   writeUserPath(entries.join(";"), run);
-  rmSync(paths.executable, { force: true });
-  rmSync(paths.bunExecutable, { force: true });
+  for (const name of CLI_RUNTIME_EXECUTABLES) {
+    rmSync(path.join(paths.binDir, name), { force: true });
+  }
   rmSync(paths.ownership, { force: true });
   return true;
 }
