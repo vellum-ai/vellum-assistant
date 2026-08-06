@@ -28,6 +28,11 @@
  */
 
 import {
+  getPlatformAssistantId,
+  getPlatformOrganizationId,
+} from "../config/env.js";
+import { getIsContainerized } from "../config/env-registry.js";
+import {
   resolveCallSiteConfig,
   selectWinningProfile,
 } from "../config/llm-resolver.js";
@@ -468,7 +473,37 @@ export async function preflightResolvedConfig(
         errorOptions,
       );
     }
-    if ((await platformLoginPresence()) === "unauthenticated") {
+    const presence = await platformLoginPresence();
+    if (presence === "ok") {
+      return;
+    }
+    if (getIsContainerized()) {
+      // A managed pod cannot present a login screen or switch providers, so the
+      // login-or-switch wording never fits. An unreachable store is transient
+      // and recovers on its own, so it reads as a retry. A reachable but empty
+      // store needs platform-side reprovisioning, so it raises an alert rather
+      // than blaming the operator.
+      if (presence === "indeterminate") {
+        throw new ConnectionResolutionError(
+          connectionName,
+          "platform_unauthenticated",
+          "The assistant's platform credentials are temporarily unavailable; retrying automatically.",
+          errorOptions,
+        );
+      }
+      reportMissingManagedCredential(
+        connectionName,
+        resolved.model,
+        attribution.profileName,
+      );
+      throw new ConnectionResolutionError(
+        connectionName,
+        "platform_unauthenticated",
+        "This assistant's platform credential is missing and requires platform-side repair; support has been notified.",
+        errorOptions,
+      );
+    }
+    if (presence === "unauthenticated") {
       throw new ConnectionResolutionError(
         connectionName,
         "platform_unauthenticated",
@@ -544,6 +579,31 @@ async function platformLoginPresence(): Promise<
     return "ok";
   }
   return presence === "indeterminate" ? "indeterminate" : "unauthenticated";
+}
+
+/**
+ * Raise the operator-facing alert for a managed pod whose platform credential
+ * store is reachable but empty. The user cannot fix this because the credential
+ * is reprovisioned by platform staff rather than through any in-app screen, so
+ * an error-level log carries it into crash diagnostics as the notification. The
+ * context locates the assistant and connection, and the credential value itself
+ * is never read or logged.
+ */
+function reportMissingManagedCredential(
+  connectionName: string,
+  model: string | undefined,
+  profileName: string | undefined,
+): void {
+  log.error(
+    {
+      connectionName,
+      model,
+      profileName,
+      platformAssistantId: getPlatformAssistantId() || undefined,
+      platformOrganizationId: getPlatformOrganizationId() || undefined,
+    },
+    "Managed platform credential is missing and requires platform-side repair",
+  );
 }
 
 /**
