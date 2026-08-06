@@ -30,10 +30,7 @@ import { createPortal } from "react-dom";
 import type { ChatDebugEventsApi } from "@/domains/chat/api/debug-api";
 import type { ChatDebugApi } from "@/domains/chat/utils/debug-api";
 import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
-import type {
-  ClassificationEnum,
-  ClientEnum,
-} from "@/generated/api/types.gen";
+import type { ClassificationEnum, ClientEnum } from "@/generated/api/types.gen";
 import { logsExportPost } from "@/generated/daemon/sdk.gen";
 import type { LogsExportPostData } from "@/generated/daemon/types.gen";
 import { buildDiagnosticsSnapshot } from "@/lib/diagnostics";
@@ -43,9 +40,9 @@ import { useAuthStore } from "@/stores/auth-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
 import { Button } from "@vellumai/design-library/components/button";
 import {
-  Dropdown,
-  type DropdownOption,
-} from "@vellumai/design-library/components/dropdown";
+  Select,
+  type SelectOption,
+} from "@vellumai/design-library/components/select";
 import { Input, Textarea } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
@@ -96,12 +93,10 @@ const TIME_RANGES: {
   { value: "all_time", label: "All time", cutoffMs: null },
 ];
 
-const TIME_RANGE_OPTIONS: DropdownOption<TimeRange>[] = TIME_RANGES.map(
-  (r) => ({
-    value: r.value,
-    label: r.label,
-  }),
-);
+const TIME_RANGE_OPTIONS: SelectOption<TimeRange>[] = TIME_RANGES.map((r) => ({
+  value: r.value,
+  label: r.label,
+}));
 
 const ALLOWED_MIME_TYPES = new Set([
   "image/png",
@@ -1056,7 +1051,7 @@ export function ShareFeedbackModal({
               <span className="text-body-medium-lighter text-[var(--content-default)]">
                 Time range
               </span>
-              <Dropdown
+              <Select
                 options={TIME_RANGE_OPTIONS}
                 value={logTimeRange}
                 onChange={setLogTimeRange}
@@ -1172,7 +1167,7 @@ export function ShareFeedbackModal({
                     </Tooltip>
                   </div>
                   {includeLogs && (
-                    <Dropdown
+                    <Select
                       options={TIME_RANGE_OPTIONS}
                       value={logTimeRange}
                       onChange={setLogTimeRange}
