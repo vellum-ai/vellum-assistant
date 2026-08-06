@@ -7,7 +7,32 @@
 // `resolveConversationKind` classifier, and the pure predicates over a
 // persisted message's `metadata` record.
 
-import { parseChannelId, parseClientOs } from "../channels/types.js";
+import {
+  type ChannelId,
+  parseChannelId,
+  parseClientOs,
+} from "../channels/types.js";
+
+/**
+ * Where a conversation came from, stated by whoever creates it.
+ *
+ * `conversations.origin_channel` records this. It is the caller's job to
+ * supply it, because the caller is the only party that knows: an inbound
+ * Slack message creates a conversation *because* it is Slack, and nothing
+ * downstream can recover that fact once the moment has passed.
+ *
+ * A bare {@link ChannelId} covers the cases where the origin is known
+ * outright, including `"vellum"` for a conversation started in the app.
+ * `inheritFrom` covers the derived ones, where the conversation belongs to
+ * whatever surface its parent belongs to: forks, subagent spawns, and
+ * scheduled wakes.
+ *
+ * Deliberately closed, and deliberately not optional. An optional string
+ * would let a caller decline to answer, which is how the column came to
+ * carry a third "not yet attributed" state that different readers resolve
+ * in contradictory directions. See JARVIS-1466.
+ */
+export type ConversationOrigin = ChannelId | { readonly inheritFrom: string };
 
 /**
  * Canonical `conversations.source` string for background memory v2

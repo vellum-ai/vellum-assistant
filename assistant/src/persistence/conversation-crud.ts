@@ -74,6 +74,7 @@ import { deleteConversationRowsInBatches } from "./conversation-row-batch-delete
 import {
   BACKGROUND_CONVERSATION_TYPES,
   type ConversationCreateType,
+  type ConversationOrigin,
   isHiddenMessageMetadata,
   PINNED_GROUP_ID,
   UNGROUPED_GROUP_ID,
@@ -967,6 +968,18 @@ export function createConversation(
         source?: string;
         scheduleJobId?: string;
         groupId?: string;
+        /**
+         * Where this conversation came from. Stamped into
+         * `origin_channel` at insert, so the row is attributed from the
+         * moment it exists.
+         *
+         * Optional only while the call sites are being migrated
+         * (JARVIS-1466). Omitting it leaves the column NULL for
+         * `setConversationOriginChannelIfUnset` to fill in on the first
+         * inbound message, which is the behavior every caller had before
+         * this parameter existed. New callers should always pass it.
+         */
+        origin?: ConversationOrigin;
         forkParentConversationId?: string;
         /**
          * Id of the conversation that spawned this one (subagent spawns).
@@ -996,6 +1009,7 @@ export function createConversation(
     requestedConversationType ?? "standard";
   const source = opts.source ?? "user";
   const groupId = opts.groupId;
+  const originChannel = resolveConversationOrigin(opts.origin);
   // Time-ordered UUIDv7 for server-minted conversation ids (see message id).
   const id = opts.id ?? uuidv7();
 
@@ -1022,6 +1036,7 @@ export function createConversation(
     slackContextCompactionWatermarkAt: null as number | null,
     conversationType,
     source,
+    originChannel,
     scheduleJobId: opts.scheduleJobId ?? null,
     forkParentConversationId: opts.forkParentConversationId ?? null,
     parentConversationId: opts.parentConversationId ?? null,
@@ -1061,9 +1076,46 @@ export function createConversation(
     throw err;
   }
 
-  initConversationDir({ ...conversation, originChannel: null });
+  // The row carries its own origin now, so the disk view records the same
+  // value the database holds rather than a hardcoded null.
+  initConversationDir(conversation);
 
   return conversation;
+}
+
+/**
+ * Resolve a caller's {@link ConversationOrigin} to the string stored in
+ * `origin_channel`.
+ *
+ * `inheritFrom` reads the parent's value, which is how a fork, a subagent
+ * spawn, or a scheduled wake lands on the surface its parent belongs to. A
+ * parent that cannot be read falls back to the native channel rather than
+ * throwing: creation is on the critical path for inbound traffic, and a
+ * conversation with a slightly wrong origin is recoverable where a failed
+ * insert is not. It is logged because it means a caller named a parent that
+ * does not exist.
+ *
+ * `undefined` maps to NULL for now, preserving the pre-parameter behavior
+ * for call sites still to be migrated. See JARVIS-1466.
+ */
+function resolveConversationOrigin(
+  origin: ConversationOrigin | undefined,
+): string | null {
+  if (origin === undefined) {
+    return null;
+  }
+  if (typeof origin === "string") {
+    return origin;
+  }
+  const inherited = getConversationOriginChannel(origin.inheritFrom);
+  if (inherited === null) {
+    log.warn(
+      { parentConversationId: origin.inheritFrom },
+      "Cannot inherit conversation origin from unreadable parent, defaulting to vellum",
+    );
+    return "vellum";
+  }
+  return inherited;
 }
 
 /**
