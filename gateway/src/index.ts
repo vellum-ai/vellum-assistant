@@ -18,6 +18,7 @@ import { findGuardianForChannelActor } from "./auth/guardian-bootstrap.js";
 import { AuthFallbackReporter } from "./auth-fallback-reporter.js";
 import { loopbackFallbackCountTracker } from "./http/middleware/auth.js";
 import { ConfigFileCache } from "./config-file-cache.js";
+import { clearCheckpointReconnectHoldoff } from "./checkpoint-reconnect-holdoff.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { FeatureFlagWatcher } from "./feature-flag-watcher.js";
 import { RemoteFeatureFlagSync } from "./remote-feature-flag-sync.js";
@@ -2885,6 +2886,8 @@ async function main() {
   // that may have stale connections after the OS suspended the process.
   const sleepWakeDetector = new SleepWakeDetector(() => {
     log.info("System wake detected — reconnecting channels");
+
+    clearCheckpointReconnectHoldoff();
 
     // Force-reconnect Slack WebSocket (may be half-open after sleep)
     slackSocketClient?.forceReconnect();

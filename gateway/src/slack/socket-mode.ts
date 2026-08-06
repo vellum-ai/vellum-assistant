@@ -7,6 +7,12 @@ import { fetchImpl } from "../fetch.js";
 import type { GatewayConfig } from "../config.js";
 import { SlackStore } from "../db/slack-store.js";
 import {
+  beginCheckpointReconnectHoldoff,
+  checkpointReconnectHoldoffRemainingMs,
+  clearCheckpointReconnectHoldoff,
+  isCheckpointReconnectHoldoffActive,
+} from "../checkpoint-reconnect-holdoff.js";
+import {
   SLACK_THREAD_ALREADY_MUTED,
   SLACK_THREAD_MUTE_SUCCESS,
 } from "../webhook-copy.js";
@@ -83,7 +89,6 @@ type SlackAdmission = {
 
 const BASE_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 30_000;
-const CHECKPOINT_RECONNECT_HOLDOFF_MS = 60_000;
 const DEDUP_TTL_MS = 24 * 60 * 60 * 1_000;
 const DEDUP_CLEANUP_INTERVAL_MS = 60 * 60 * 1_000;
 const ACTIVE_THREAD_TTL_MS = 24 * 60 * 60 * 1_000;
@@ -245,7 +250,6 @@ export class SlackSocketModeClient {
     jitter: { mode: "additive", ratio: 0.5 },
   });
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private reconnectHoldoffUntil = 0;
   private dedupCleanupTimer: ReturnType<typeof setInterval> | null = null;
   private store: SlackStore;
   private emitQueues: Map<string, Promise<void>> | undefined = new Map();
@@ -507,7 +511,7 @@ export class SlackSocketModeClient {
     if (!this.running) {
       return false;
     }
-    this.reconnectHoldoffUntil = Date.now() + CHECKPOINT_RECONNECT_HOLDOFF_MS;
+    beginCheckpointReconnectHoldoff();
     this.backoff.reset();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -542,7 +546,7 @@ export class SlackSocketModeClient {
   forceReconnect(): void {
     if (!this.running) return;
 
-    this.reconnectHoldoffUntil = 0;
+    clearCheckpointReconnectHoldoff();
     log.info("Force-reconnecting Slack Socket Mode (sleep/wake recovery)");
 
     if (this.reconnectTimer) {
@@ -994,7 +998,7 @@ export class SlackSocketModeClient {
     if (this.connecting) {
       return;
     }
-    if (Date.now() < this.reconnectHoldoffUntil) {
+    if (isCheckpointReconnectHoldoffActive()) {
       this.scheduleReconnect();
       return;
     }
@@ -1010,7 +1014,7 @@ export class SlackSocketModeClient {
       return;
     }
 
-    if (Date.now() < this.reconnectHoldoffUntil) {
+    if (isCheckpointReconnectHoldoffActive()) {
       this.connecting = false;
       this.scheduleReconnect();
       return;
@@ -1922,7 +1926,7 @@ export class SlackSocketModeClient {
     if (this.reconnectTimer) return;
 
     const attempt = this.backoff.attemptCount;
-    const holdoffRemaining = this.reconnectHoldoffUntil - Date.now();
+    const holdoffRemaining = checkpointReconnectHoldoffRemainingMs();
     const delay = Math.max(this.backoff.nextDelayMs(), holdoffRemaining);
 
     log.info({ attempt, delayMs: delay }, "Scheduling Socket Mode reconnect");

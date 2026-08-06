@@ -1,5 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
+import {
+  clearCheckpointReconnectHoldoff,
+  isCheckpointReconnectHoldoffActive,
+} from "../../checkpoint-reconnect-holdoff.js";
 import { IpcTransportError } from "../../ipc/assistant-client.js";
 import { VELAY_FORWARDED_HEADER } from "../../velay/bridge-utils.js";
 import {
@@ -40,6 +44,10 @@ function makeDeps(
   };
 }
 
+afterEach(() => {
+  clearCheckpointReconnectHoldoff();
+});
+
 describe("handleCheckpointQuiesce", () => {
   test("closes gateway sockets, relays to the daemon, and returns a summary", async () => {
     const calls: Array<{ method: string; timeoutMs?: number }> = [];
@@ -55,6 +63,7 @@ describe("handleCheckpointQuiesce", () => {
       },
       getSlackSocketClient: () => ({
         prepareForCheckpoint: () => {
+          expect(isCheckpointReconnectHoldoffActive()).toBe(true);
           slackClosed = true;
           return true;
         },

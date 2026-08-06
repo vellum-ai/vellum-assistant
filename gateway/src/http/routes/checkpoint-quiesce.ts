@@ -33,6 +33,7 @@ import {
   ipcCallAssistant,
   IpcHandlerError,
 } from "../../ipc/assistant-client.js";
+import { beginCheckpointReconnectHoldoff } from "../../checkpoint-reconnect-holdoff.js";
 import { getLogger } from "../../logger.js";
 import { VELAY_FORWARDED_HEADER } from "../../velay/bridge-utils.js";
 import { requestArrivedViaEdgeProxy } from "../edge-forwarded-header.js";
@@ -98,6 +99,8 @@ export async function handleCheckpointQuiesce(
       errorResponse("FORBIDDEN", "endpoint is cluster-internal", 403),
     );
   }
+
+  beginCheckpointReconnectHoldoff();
 
   const callAssistant = deps.callAssistant ?? ipcCallAssistant;
 
