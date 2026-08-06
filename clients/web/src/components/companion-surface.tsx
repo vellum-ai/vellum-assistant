@@ -6,7 +6,7 @@ import {
   Volume2,
   X,
 } from "lucide-react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
   CSSProperties,
   MouseEvent as ReactMouseEvent,
@@ -207,6 +207,19 @@ export interface CompanionSurfaceProps {
    * wired to the surface and the controls stop the press from reaching it.
    */
   onSurfaceMouseDown?: (event: ReactMouseEvent<HTMLDivElement>) => void;
+  /**
+   * Draw a control as though the pointer were on it.
+   *
+   * Real hover is CSS and needs no help. This is for playback with no pointer
+   * in the room, where the difference between reaching for Talk and reaching
+   * for Type is the whole point of the frame.
+   */
+  spotlight?: "talk" | "type";
+  /**
+   * When the call started, for the elapsed clock. Absent leaves the clock at a
+   * fixed sample, which is what the static stories want.
+   */
+  callStartedAt?: number;
 }
 
 export function CompanionSurface({
@@ -221,6 +234,8 @@ export function CompanionSurface({
   anchor = "center",
   rootRef,
   onSurfaceMouseDown,
+  spotlight,
+  callStartedAt,
 }: CompanionSurfaceProps) {
   const expanded = phase !== "resting";
   const typing = phase === "typing";
@@ -354,7 +369,11 @@ export function CompanionSurface({
               transitionDelay: expanded ? "120ms" : "0ms",
             }}
           >
-            {phase === "call" ? <CallBody /> : <IdleBody />}
+            {phase === "call" ? (
+              <CallBody startedAt={callStartedAt} />
+            ) : (
+              <IdleBody spotlight={spotlight} />
+            )}
           </div>
         )}
       </div>
@@ -502,21 +521,27 @@ function Avatar({
  * of one choice about how to say something, and a verb pair reads as that where
  * a verb and a question word do not.
  */
-function IdleBody() {
+function IdleBody({ spotlight }: { spotlight?: "talk" | "type" }) {
   return (
     <>
-      <PillButton icon={<AudioLines className="size-4" />} label="Talk" showLabel />
+      <PillButton
+        icon={<AudioLines className="size-4" />}
+        label="Talk"
+        showLabel
+        active={spotlight === "talk"}
+      />
       <PillButton
         icon={<Keyboard className="size-4" />}
         label="Type"
         showLabel
+        active={spotlight === "type"}
       />
     </>
   );
 }
 
 /** Expanded, mid-call: the session's own controls, at pill scale. */
-function CallBody() {
+function CallBody({ startedAt }: { startedAt?: number }) {
   return (
     <>
       {/* Sized to its content, not shrunk to fit. The pill now measures this
@@ -531,7 +556,7 @@ function CallBody() {
         </span>
       </span>
       <span className="ml-1 shrink-0 font-mono text-[11px] tabular-nums text-white/60">
-        0:14
+        <Elapsed startedAt={startedAt} />
       </span>
       <PillButton icon={<Mic className="size-4" />} label="Mute microphone" />
       <PillButton icon={<Volume2 className="size-4" />} label="Mute assistant" />
@@ -541,6 +566,38 @@ function CallBody() {
         tone="negative"
       />
     </>
+  );
+}
+
+/**
+ * Elapsed call time.
+ *
+ * Ticks from a timestamp the caller owns rather than one of its own, because
+ * the session started before this component mounted and will outlive it: the
+ * panel that renders this can reload mid-call. With no timestamp it holds a
+ * fixed sample, which is what a static story wants.
+ */
+function Elapsed({ startedAt }: { startedAt?: number }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (startedAt === undefined) {
+      return;
+    }
+    const timer = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [startedAt]);
+
+  if (startedAt === undefined) {
+    return <>0:14</>;
+  }
+  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+  return (
+    <>{`${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`}</>
   );
 }
 
@@ -576,7 +633,7 @@ function PillButton({
         event.stopPropagation();
       }}
       className={`flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${
-        active ? "bg-white/10" : ""
+        active ? "bg-white/15" : ""
       } ${tone === "negative" ? "text-[#ff6b6b]" : "text-white/85"}`}
     >
       {icon}

@@ -281,16 +281,28 @@ export const DemoReel: Story = {
   render: (args) => <DemoReelPlayer {...args} />,
 };
 
-/** One app's moment: a backdrop, a state, and how long it holds. */
-const DEMO_BEATS: {
+/**
+ * The script, in order, one line per thing the viewer should notice.
+ *
+ * It reads as a single gesture rather than a tour: the companion is there, you
+ * reach for it, you could type, you could talk instead, a call runs, and it
+ * settles back to being there. It ends where it began on purpose, so the clip
+ * loops without a seam.
+ *
+ * Holds are uneven because identical intervals read as a slideshow on a timer,
+ * which is the opposite of the claim being made.
+ */
+const DEMO_STEPS: {
   phase: CompanionSurfacePhase;
+  spotlight?: "talk" | "type";
   hold: number;
-  app: string;
 }[] = [
-  { phase: "resting", hold: 2100, app: "Browser: it is just there" },
-  { phase: "hover", hold: 1900, app: "Notes: Talk or Type" },
-  { phase: "call", hold: 2200, app: "Slack: listening" },
-  { phase: "typing", hold: 2000, app: "Editor: say something" },
+  { phase: "resting", hold: 2000 },
+  { phase: "hover", spotlight: "type", hold: 1500 },
+  { phase: "typing", hold: 2400 },
+  { phase: "hover", spotlight: "talk", hold: 1500 },
+  { phase: "call", hold: 3600 },
+  { phase: "resting", hold: 2000 },
 ];
 
 /**
@@ -298,28 +310,10 @@ const DEMO_BEATS: {
  *
  * Switching both on the same frame reads as one cut, as though the surface were
  * part of the app that just appeared. Letting the backdrop land first and the
- * surface follow a beat later reads as what is actually being claimed: the
- * computer changed, and the companion carried on and responded in its own time.
- * Short in the finale, where a long lag would leave the surface a whole app
- * behind.
- *
- * The holds above are uneven for the same reason. Four identical intervals read
- * as a slideshow on a timer.
+ * surface follow a beat later reads as what is being claimed: the computer
+ * changed, and the companion carried on and responded in its own time.
  */
 const PHASE_LAG = 620;
-const FINALE_PHASE_LAG = 190;
-
-/** The payoff: the same states again, faster than the apps behind them. */
-const DEMO_FINALE: CompanionSurfacePhase[] = [
-  "resting",
-  "hover",
-  "call",
-  "typing",
-  "hover",
-  "call",
-  "resting",
-];
-const FINALE_HOLD = 480;
 
 const DEMO_TURNS = [
   {
@@ -338,26 +332,19 @@ function DemoReelPlayer(args: StoryArgs) {
   // Trails `step`. The backdrop is switched by `step` directly; the surface
   // waits out the lag before catching up, so the two never cut together.
   const [phaseStep, setPhaseStep] = useState(0);
+  const [callStartedAt, setCallStartedAt] = useState<number | undefined>();
 
   // The whole timeline up front, so playback is one timer walking an array
   // rather than two phases with their own bookkeeping. Built once: it is a
   // function of module constants, and rebuilding it every render would restart
   // the timer that depends on it.
   const timeline = useMemo(
-    () => [
-      ...DEMO_BEATS.map((beat, index) => ({
-        phase: beat.phase,
-        hold: beat.hold,
+    () =>
+      DEMO_STEPS.map((step, index) => ({
+        ...step,
         lag: PHASE_LAG,
         shot: index,
       })),
-      ...DEMO_FINALE.map((phase, index) => ({
-        phase,
-        hold: FINALE_HOLD,
-        lag: FINALE_PHASE_LAG,
-        shot: index,
-      })),
-    ],
     [],
   );
 
@@ -383,6 +370,9 @@ function DemoReelPlayer(args: StoryArgs) {
     }
     const timer = setTimeout(() => {
       setPhaseStep(step);
+      if (timeline[step].phase === "call") {
+        setCallStartedAt(Date.now());
+      }
     }, timeline[step].lag);
     return () => {
       clearTimeout(timer);
@@ -410,7 +400,8 @@ function DemoReelPlayer(args: StoryArgs) {
   const playing = step !== null && step < timeline.length;
   const current = playing ? timeline[step] : null;
   // The surface reads from the trailing index, the backdrop from the live one.
-  const phase = playing ? timeline[phaseStep].phase : "resting";
+  const active = playing ? timeline[phaseStep] : null;
+  const phase = active?.phase ?? "resting";
   // Screenshots cycle rather than run out, so three apps still carry four beats.
   const shotIndex =
     shots.length === 0 ? -1 : (current?.shot ?? 0) % shots.length;
@@ -441,6 +432,10 @@ function DemoReelPlayer(args: StoryArgs) {
         <CompanionSurface
           {...args}
           phase={phase}
+          spotlight={active?.spotlight}
+          // Restamped whenever the call step is entered, so the clock starts
+          // from zero on every run rather than from whenever the page loaded.
+          callStartedAt={phase === "call" ? callStartedAt : undefined}
           turns={DEMO_TURNS}
           assistantName={args.assistantName ?? "Ziggy"}
         />
@@ -470,8 +465,8 @@ function DemoReelPlayer(args: StoryArgs) {
             Play
           </button>
           <span className="text-white/40">
-            {shots.length} loaded, {DEMO_BEATS.map((b) => b.app).join(" / ")},
-            then the fast pass
+            {shots.length} loaded. Idle, Type, typing, Talk, a running call,
+            idle.
           </span>
         </div>
       )}
