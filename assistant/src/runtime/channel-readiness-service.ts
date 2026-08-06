@@ -212,6 +212,37 @@ const telegramProbe: ChannelProbe = {
       await checkIngress(true),
     ];
   },
+  /**
+   * Ask Telegram whether it is actually delivering. The local checks above
+   * only establish that credentials exist, which is a different claim: a
+   * registration that never landed leaves them all present and the channel
+   * dark.
+   *
+   * `skipped` and `unknown` pass. The first means the preconditions for the
+   * check are absent, the second that Telegram could not be reached, and
+   * neither is evidence of a fault. A probe that cannot see the answer must
+   * not report one.
+   */
+  async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
+    // Imported here rather than at module scope: the health module pulls in
+    // the credential and config graph, and hoisting that into every consumer
+    // of this service makes unrelated tests resolve exports they never mock.
+    const { checkTelegramWebhookHealth } =
+      await import("../telegram/webhook-health.js");
+    const health = await checkTelegramWebhookHealth();
+    const delivering =
+      health.status === "healthy" ||
+      health.status === "skipped" ||
+      health.status === "unknown";
+    return [
+      check(
+        "webhook_delivery",
+        delivering,
+        "Telegram is delivering to this assistant",
+        health.detail,
+      ),
+    ];
+  },
 };
 
 // ── Email Probe ─────────────────────────────────────────────────────────────

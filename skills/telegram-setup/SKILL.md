@@ -75,34 +75,35 @@ Triggered by the wizard-closed notification, `[User action on channel_setup surf
 
    If `bot_token` is missing the user closed the wizard without saving. Say so and offer to reopen it. When the notification triggered this, the panel is closed and re-running Step 2's `ui_show` is right. When the user asked manually, the wizard may still be open, so point them back to it instead: a second `ui_show` over a live wizard resets their progress.
 
-2. Ask Telegram where it is sending updates. Registration is asynchronous, so allow a moment before the first check:
+2. Ask whether Telegram is delivering:
 
    ```bash
-   BOT_TOKEN=$(assistant credentials reveal --service telegram --field bot_token)
-   curl -sf "https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo" | jq '{url: .result.url, last_error: .result.last_error_message, pending: .result.pending_update_count}'
+   assistant channels get telegram --json
    ```
 
-   - **`url` set, no `last_error`** → delivering. Continue to Step 4.
-   - **`url` empty** → registration has not landed yet or failed. Wait a few seconds and check once. If it is still empty, the channel is not live: follow the recovery below. Do not run `setWebhook` yourself.
-   - **`last_error` present** → Telegram is rejecting delivery. Report it verbatim; it usually names the cause (unreachable host, TLS, wrong port).
+   `get` is always live: it invalidates the cached snapshot and re-runs the
+   remote checks, so it reflects the state now rather than before the save.
 
-   **When the `url` stays empty, the recovery depends on how this assistant
-   receives webhooks.** Run `assistant credentials list --search vellum` to
-   tell the two apart.
+   Find the `webhook_delivery` check in `remoteChecks`.
 
-   - **Platform credentials present** → webhooks arrive over the platform's
-     managed callback route, and an empty `url` means that registration
-     failed, which is platform-side. ⚠️ Do NOT suggest ngrok, a tunnel, or the
-     `public-ingress` skill: they are not usable in containerized deployments.
-     Read `assistant gateway logs tail -n 100 --level warn` and tell the user
-     to contact support with what it reports.
-   - **No platform credentials** → this is self-hosted and registration has no
-     public URL to point Telegram at, so the `url` stays empty however long
-     you wait. Load the `public-ingress` skill with `skill_load` to set one
-     up. Registration re-runs by itself when the ingress URL changes, so come
-     back to this step afterwards rather than calling `setWebhook`.
+   - **`passed: true`** → delivering. Continue to Step 4.
+   - **`passed: false`** → the channel is not live. Its `message` already
+     names the cause and the fix, including whether this deployment can set
+     its own webhook URL, so relay it rather than diagnosing yourself.
 
-⚠️ CRITICAL: **Do not report success on stored credentials alone.** The channel indicator turns green on credentials, which is not evidence that messages arrive. `getWebhookInfo` is.
+   Registration is asynchronous. If the first check reports no webhook
+   registered, wait a few seconds and run the command once more before
+   treating it as failed.
+
+⚠️ CRITICAL: **Do not report success on stored credentials alone.** Credentials
+existing is what you would expect the moment the wizard closes and says nothing
+about whether messages arrive. `webhook_delivery` is the check that does, and
+it is the same signal the channel indicator uses.
+
+⚠️ CRITICAL: **Do not run `setWebhook` or suggest a tunnel yourself.** If
+`webhook_delivery` fails, the `message` says what to do. Registration re-runs
+by itself whenever credentials or the ingress URL change, so a fix applied
+elsewhere takes effect without you calling Telegram.
 
 ## Step 4: Verify identity
 
@@ -135,8 +136,8 @@ Summarize:
 - [ ] `assistant credentials list --search telegram` was called and the existing-state branch named explicitly (Step 1).
 - [ ] `ui_show` returned success before any message claiming the wizard is open (Step 2).
 - [ ] The token was never requested in chat.
-- [ ] `getWebhookInfo` showed a URL and no `last_error_message` before any success was claimed (Step 3).
-- [ ] `setWebhook`, `setMyCommands` and `assistant webhooks register` were not run by hand.
+- [ ] `assistant channels get telegram` reported `webhook_delivery` passing before any success was claimed (Step 3).
+- [ ] `setWebhook`, `setMyCommands`, `assistant webhooks register` and `getWebhookInfo` were not run by hand.
 - [ ] `guardian-verify-setup` was loaded and either completed or explicitly declined (Step 4).
 
 # Clearing credentials
