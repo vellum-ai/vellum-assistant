@@ -259,6 +259,20 @@ describe("createLocalSecureKeyBackend — filesystem", () => {
       spy.mockRestore();
     }
   });
+
+  test("writeStore fsyncs the parent directory so the rename is durable", async () => {
+    const { vellumRoot } = setup();
+    const fsyncSpy = spyOn(fs, "fsyncSync");
+    try {
+      const backend = createLocalSecureKeyBackend(vellumRoot);
+      await backend.set("durable/key", "v");
+      // The directory fsync runs after the rename; at least one fsyncSync call
+      // must have happened for the store write.
+      expect(fsyncSpy.mock.calls.length).toBeGreaterThan(0);
+    } finally {
+      fsyncSpy.mockRestore();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

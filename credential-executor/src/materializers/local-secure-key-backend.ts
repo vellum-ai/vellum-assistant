@@ -40,8 +40,11 @@ import {
 } from "node:crypto";
 import {
   chmodSync,
+  closeSync,
   existsSync,
+  fsyncSync,
   mkdirSync,
+  openSync,
   readFileSync,
   renameSync,
   writeFileSync,
@@ -265,6 +268,21 @@ function writeStore(store: StoreFile, storePath: string): void {
   });
   chmodSync(tmpPath, 0o600);
   renameSync(tmpPath, storePath);
+
+  // Fsync the parent directory so the rename itself is durable. `{flush:true}`
+  // syncs the temp file's contents, not the directory entry the rename updates,
+  // so without this a host-level crash could still expose the previous keys.enc.
+  // Best-effort: a directory-fsync failure must not fail the write.
+  try {
+    const dirFd = openSync(protectedDir, "r");
+    try {
+      fsyncSync(dirFd);
+    } finally {
+      closeSync(dirFd);
+    }
+  } catch {
+    // Directory fsync is a durability nicety, not required for correctness.
+  }
 }
 
 // ---------------------------------------------------------------------------
