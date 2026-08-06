@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { renderHook } from "@testing-library/react";
 
 import type { WorkspaceFilePreviewKind } from "@/stores/viewer-store";
 
@@ -6,11 +7,13 @@ const openWorkspaceFile = mock(async (_path: string) => {});
 mock.module("@/utils/open-workspace-file", () => ({ openWorkspaceFile }));
 
 const {
+  isDocumentOpen,
   isWorkspaceFileOpen,
   openLocalFile,
   opensInDocumentDrawer,
   previewKindFor,
   toggleLocalFile,
+  useIsDocumentOpen,
   usesDocumentDrawer,
 } = await import("@/domains/chat/components/local-file/open-local-file");
 const { useViewerStore } = await import("@/stores/viewer-store");
@@ -325,6 +328,66 @@ describe("isWorkspaceFileOpen", () => {
         "data/rows.csv",
       ),
     ).toBe(true);
+  });
+});
+
+describe("isDocumentOpen", () => {
+  const drawer = openDrawerState("drafts/notes.md");
+  const preview = openPreviewState("data/rows.csv");
+
+  /** What the reactive hook reports for the store state currently set. */
+  function renderIsDocumentOpen(surfaceId: string): boolean {
+    const { result, unmount } = renderHook(() => useIsDocumentOpen(surfaceId));
+    const answer = result.current;
+    unmount();
+    return answer;
+  }
+
+  test("matches the document the viewer is showing", () => {
+    useViewerStore.setState(drawer);
+
+    expect(
+      isDocumentOpen("document", drawer.openedDocumentState, "surf-file"),
+    ).toBe(true);
+    expect(renderIsDocumentOpen("surf-file")).toBe(true);
+  });
+
+  test("does not match a different document", () => {
+    useViewerStore.setState(drawer);
+
+    expect(
+      isDocumentOpen("document", drawer.openedDocumentState, "surf-other"),
+    ).toBe(false);
+    expect(renderIsDocumentOpen("surf-other")).toBe(false);
+  });
+
+  test("does not match while another view is on top", () => {
+    const behind = { ...drawer, mainView: "chat" as const };
+    useViewerStore.setState(behind);
+
+    expect(
+      isDocumentOpen("chat", behind.openedDocumentState, "surf-file"),
+    ).toBe(false);
+    expect(renderIsDocumentOpen("surf-file")).toBe(false);
+  });
+
+  test("does not match while nothing is loaded", () => {
+    useViewerStore.setState({
+      mainView: "document",
+      openedDocumentState: null,
+    });
+
+    expect(isDocumentOpen("document", null, "surf-file")).toBe(false);
+    expect(renderIsDocumentOpen("surf-file")).toBe(false);
+  });
+
+  test("does not match a preview, which is not a document surface", () => {
+    useViewerStore.setState(preview);
+
+    expect(
+      isDocumentOpen("document", preview.openedDocumentState, "surf-file"),
+    ).toBe(false);
+    expect(renderIsDocumentOpen("surf-file")).toBe(false);
   });
 });
 
