@@ -1,4 +1,8 @@
 import {
+  DOCUMENT_EDIT_TOOL_NAMES,
+  REOPENABLE_DOCUMENT_MUTATION_TOOL_NAMES,
+} from "@vellumai/assistant-api";
+import {
   isAcpSpawnCall,
   isBackgroundBashCall,
   isRunWorkflowCall,
@@ -424,26 +428,15 @@ export function resolveBackgroundTaskIds(
   return ids;
 }
 
-/**
- * The document tools that change a document's content.
- *
- * The daemon keeps its own copy of this list, in the documents-changed hook in
- * `assistant/src/daemon/tool-side-effects.ts`. That one also carries
- * `document_delete`, which is left out here on purpose: a deleted document has
- * nothing to reopen, so it must not anchor a changed-document chip. Add a new
- * mutating document tool to both.
- */
-const DOCUMENT_MUTATION_TOOLS: ReadonlySet<string> = new Set([
-  "document_create",
-  "document_update",
-  "document_replace_text",
-]);
+/** The mutating document tools that leave the document openable. */
+const DOCUMENT_MUTATION_TOOLS: ReadonlySet<string> = new Set(
+  REOPENABLE_DOCUMENT_MUTATION_TOOL_NAMES,
+);
 
 /** The mutating document tools that write into an already-created document. */
-const DOCUMENT_EDIT_TOOLS: ReadonlySet<string> = new Set([
-  "document_update",
-  "document_replace_text",
-]);
+const DOCUMENT_EDIT_TOOLS: ReadonlySet<string> = new Set(
+  DOCUMENT_EDIT_TOOL_NAMES,
+);
 
 /**
  * Detect a call to one of `tools`. Document tools ship in the bundled

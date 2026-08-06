@@ -5,6 +5,11 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import {
+  DOCUMENT_EDIT_TOOL_NAMES,
+  DOCUMENT_MUTATION_TOOL_NAMES,
+  REOPENABLE_DOCUMENT_MUTATION_TOOL_NAMES,
+} from "../api/constants/document-tools.js";
 import { createMockLoggerModule } from "./helpers/mock-logger.js";
 
 // ---------------------------------------------------------------------------
@@ -91,13 +96,6 @@ const dummySideEffectCtx = {
   ctx: {} as SideEffectContext["ctx"],
 } satisfies SideEffectContext;
 
-const MUTATING_TOOLS = [
-  "document_create",
-  "document_update",
-  "document_replace_text",
-  "document_delete",
-];
-
 const READ_ONLY_TOOLS = [
   "document_read",
   "document_list",
@@ -125,7 +123,7 @@ describe("document hooks: documents-changed broadcast", () => {
     mockPublishDocumentsChanged.mockReset();
   });
 
-  for (const toolName of MUTATING_TOOLS) {
+  for (const toolName of DOCUMENT_MUTATION_TOOL_NAMES) {
     test(`${toolName} publishes exactly one documents change`, async () => {
       await runTool(toolName);
       expect(mockPublishDocumentsChanged).toHaveBeenCalledTimes(1);
@@ -148,5 +146,35 @@ describe("document hooks: documents-changed broadcast", () => {
     await runTool("document_update");
     await runTool("document_replace_text");
     expect(mockPublishDocumentsChanged).toHaveBeenCalledTimes(2);
+  });
+});
+
+// The daemon hooks every mutating tool, while the web transcript anchors its
+// changed-document chips on the reopenable subset and its inline-preview
+// bookkeeping on the edit subset. Pinning all three keeps a new entry in
+// `DOCUMENT_MUTATION_TOOLS` from silently landing in the wrong subsets.
+describe("document mutation tool metadata", () => {
+  test("the daemon hooks every mutating document tool", () => {
+    expect([...DOCUMENT_MUTATION_TOOL_NAMES]).toEqual([
+      "document_create",
+      "document_update",
+      "document_replace_text",
+      "document_delete",
+    ]);
+  });
+
+  test("the reopenable subset drops document_delete and keeps the rest", () => {
+    expect([...REOPENABLE_DOCUMENT_MUTATION_TOOL_NAMES]).toEqual([
+      "document_create",
+      "document_update",
+      "document_replace_text",
+    ]);
+  });
+
+  test("the edit subset is exactly the two write-into-existing tools", () => {
+    expect([...DOCUMENT_EDIT_TOOL_NAMES]).toEqual([
+      "document_update",
+      "document_replace_text",
+    ]);
   });
 });

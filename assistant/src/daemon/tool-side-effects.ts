@@ -9,6 +9,7 @@
 
 import { isAbsolute, resolve, sep } from "node:path";
 
+import { DOCUMENT_MUTATION_TOOL_NAMES } from "../api/constants/document-tools.js";
 import type { AssistantEvent } from "../api/index.js";
 import { getApp, linkAppToConversationLineage } from "../apps/app-store.js";
 import { findActiveSession } from "../channels/gateway-verification-sessions.js";
@@ -187,24 +188,9 @@ registerAppSurfaceRefreshHook("app_update");
 // after an edit, and a deleted document lingers as a ghost row. `skill_execute`
 // calls reach the runner already unwrapped to the inner tool name, so the
 // bundled document-editor skill needs no separate registration.
-//
-// A second copy of this list lives in web's `DOCUMENT_MUTATION_TOOLS`
-// (`clients/web/src/domains/chat/transcript/transcript-message-body-shared.tsx`),
-// which anchors the changed-document chips. It deliberately omits
-// `document_delete` (a deleted document has nothing to open), so the two lists
-// differ by that one entry and nothing else. Add a new mutating document tool
-// to both.
-registerHook(
-  [
-    "document_create",
-    "document_update",
-    "document_replace_text",
-    "document_delete",
-  ],
-  () => {
-    publishDocumentsChanged();
-  },
-);
+registerHook([...DOCUMENT_MUTATION_TOOL_NAMES], () => {
+  publishDocumentsChanged();
+});
 
 registerHook("voice_config_update", (_name, input) => {
   const setting = input.setting as string | undefined;
