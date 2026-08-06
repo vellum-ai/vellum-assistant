@@ -245,7 +245,7 @@ export type DictationOverlayMessage =
  * Phases of a *running* live-voice session, as the floating surface renders
  * them.
  *
- * Mirrors the web layer's `ActiveLiveVoiceSessionState` — the phases a session
+ * Mirrors the web layer's `ActiveLiveVoiceSessionState`: the phases a session
  * has while it exists, so neither `idle` (no session) nor `failed` (which ends
  * the surface rather than rendering as a phase) appears here. The two are kept
  * in step structurally rather than by import: the mirror hands its own payload
@@ -267,13 +267,13 @@ export const VOICE_ACTIVITY_PHASES = [
 
 export type VoiceActivityPhase = (typeof VOICE_ACTIVITY_PHASES)[number];
 
-/** The mutable half of the surface — everything that can change mid-session. */
+/** The mutable half of the surface: everything that can change mid-session. */
 export interface VoiceActivityContent {
   phase: VoiceActivityPhase;
   /**
    * User-facing phase copy, passed through from the web layer verbatim
    * (`liveVoiceSurfaceLabel`), so the panel shows exactly what the voice room
-   * shows. Main and the panel own no phase wording of their own — the wording
+   * shows. Main and the panel own no phase wording of their own. The wording
    * deploys continuously with the web bundle while the shell ships on release
    * cadence, so a `switch` over `phase` on this side would fossilize.
    */
@@ -281,7 +281,7 @@ export interface VoiceActivityContent {
   /** Avatar accent as `#RRGGBB`, or `""` when the avatar has no color yet. */
   accentHex: string;
   muted: boolean;
-  /** Whether the assistant's audio is muted — what the speaker button renders against. */
+  /** Whether the assistant's audio is muted: what the speaker button renders against. */
   outputMuted: boolean;
   /** One short line describing what the turn is doing ("Reading a file"), or `""`. */
   detail: string;
@@ -312,7 +312,7 @@ export interface VoiceActivityStart extends VoiceActivityContent {
  * `startedAt`, which main stamps.
  *
  * `startedAt` is main's rather than the sender's because the panel is a
- * separate renderer that can load, reload, or be recreated mid-session — an
+ * separate renderer that can load, reload, or be recreated mid-session, and an
  * elapsed clock anchored in either renderer would restart when that happened.
  */
 export interface VoiceActivityState extends VoiceActivityStart {
@@ -323,7 +323,7 @@ export interface VoiceActivityState extends VoiceActivityStart {
 /**
  * What a panel button asks of the session.
  *
- * Each mute is **absolute — the state the button's own label promised** — not
+ * Each mute is **absolute: the state the button's own label promised**, not
  * a toggle. The panel renders content that can be a beat old, so a toggle
  * resolved against live session state is self-consistent and still wrong for
  * the user: a button reading "Mute assistant" over an already-muted session
@@ -354,7 +354,7 @@ export interface VoiceActivityControl {
    *
    * The absolute-mute principle carried one step further. A mute that arrives
    * stale is a no-op the next push corrects; an approval that arrived stale
-   * would answer a *different question* than the one the user was shown — the
+   * would answer a *different question* than the one the user was shown. The
    * request it named may since have been decided in the main window or timed
    * out. So the press names its request, and the session answers that one or
    * drops the press.

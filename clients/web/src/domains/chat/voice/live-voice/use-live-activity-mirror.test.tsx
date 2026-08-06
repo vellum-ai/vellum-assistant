@@ -1,5 +1,5 @@
 /**
- * Tests for `useLiveActivityMirror` — the out-of-app mirror of a live-voice
+ * Tests for `useLiveActivityMirror`, the out-of-app mirror of a live-voice
  * session, feeding the iOS Live Activity and the macOS floating panel from one
  * snapshot.
  *
@@ -105,7 +105,7 @@ mock.module("@/runtime/native-live-activity", () => ({
   subscribeVoiceLiveActivityPushToken,
 }));
 
-// The desktop sink — the Electron floating panel's half of the same mirror.
+// The desktop sink: the Electron floating panel's half of the same mirror.
 // Stubbed at the same boundary as the mobile bridge, and for the same reason:
 // its own off-Electron behavior is the runtime module's to pin, while what
 // matters here is that both sinks are driven from one snapshot.
@@ -854,8 +854,8 @@ describe("registering the activity for server-driven updates", () => {
 
 /**
  * The floating panel is fed by the same mirror as the island, from the same
- * computed snapshot. These pin the fan-out itself — that both sinks see one
- * payload, on one schedule — rather than re-testing the content rules above,
+ * computed snapshot. These pin the fan-out itself (that both sinks see one
+ * payload, on one schedule) rather than re-testing the content rules above,
  * which are sink-agnostic by construction.
  */
 describe("the desktop panel sink", () => {

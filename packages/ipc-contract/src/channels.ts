@@ -133,7 +133,7 @@ export const DICTATION_OVERLAY_STOP_REQUESTED =
 export const DICTATION_OVERLAY_SET_INTERACTIVE =
   "vellum:dictationOverlay:setInteractive";
 
-// Voice activity — the floating live-voice session surface
+// Voice activity: the floating live-voice session surface
 export const VOICE_ACTIVITY_START = "vellum:voiceActivity:start";
 export const VOICE_ACTIVITY_UPDATE = "vellum:voiceActivity:update";
 export const VOICE_ACTIVITY_END = "vellum:voiceActivity:end";

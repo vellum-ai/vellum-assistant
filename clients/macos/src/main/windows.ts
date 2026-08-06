@@ -78,7 +78,7 @@ export interface CreateWindowOptions {
    * a battery win.
    *
    * Lives here rather than at the call site because `webPreferences` is the
-   * seam's to own — see {@link hardenedWebPreferences}. Off by default: every
+   * seam's to own (see {@link hardenedWebPreferences}). Off by default: every
    * other window should keep the battery saving.
    */
   backgroundThrottling?: boolean;

@@ -7,7 +7,7 @@ import type {
 } from "@vellumai/ipc-contract";
 
 // The module under test reaches `window-state.ts` for the panel's remembered
-// position, which loads `electron-store` — a real module that imports the
+// position, which loads `electron-store`, a real module that imports the
 // Electron binary's default export and cannot resolve off-Electron. Only the
 // import chain needs satisfying here: these cases exercise the controller,
 // which touches no store. Same shape as `window-state.test.ts`, which mocks it
@@ -21,7 +21,7 @@ mock.module("electron-store", () => ({
   },
 }));
 
-// Dynamic, so the mock above is installed before the module graph loads —
+// Dynamic, so the mock above is installed before the module graph loads:
 // static imports hoist above it. Same pattern as `window-state.test.ts`.
 const { createVoiceActivityController } =
   await import("./voice-activity-window");
@@ -140,7 +140,7 @@ describe("createVoiceActivityController", () => {
     h.controller.start({ ...START, phase: "thinking", label: "Thinking…" });
 
     // The session controller remounts across layout-level route changes while
-    // the store persists, so a second start is expected traffic — an elapsed
+    // the store persists, so a second start is expected traffic. An elapsed
     // timer that jumped back to zero there would be a visible lie.
     expect(h.controller.currentState()).toMatchObject({
       phase: "thinking",

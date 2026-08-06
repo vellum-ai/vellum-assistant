@@ -51,7 +51,7 @@ export const showNotificationPayloadSchema = z.object({
 /**
  * Derived from the `as const` vocabularies in `./types.ts` rather than
  * restated, so a phase or action added there is validated here without a
- * second edit — and, more to the point, cannot be added there and silently
+ * second edit and, more to the point, cannot be added there and silently
  * rejected at this boundary.
  */
 export const voiceActivityPhaseSchema = z.enum(VOICE_ACTIVITY_PHASES);

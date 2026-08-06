@@ -24,7 +24,7 @@
  * **Both out-of-app surfaces feed this one path.** The iOS island's App Intent
  * presses and the macOS floating panel's button presses carry the same action
  * vocabulary and mean the same thing, so they are applied by the same function
- * rather than each growing its own handling — the drift this avoids is two
+ * rather than each growing its own handling. The drift this avoids is two
  * surfaces disagreeing about what "mute" does mid-call.
  *
  * No-ops off iOS, off Electron, and on a shell too old to send the events,
@@ -151,7 +151,7 @@ export function useLiveActivityControls(): void {
       applyLiveActivityControl(action, requestId);
     };
     // Both surfaces, one set of semantics. Each subscription no-ops off its own
-    // host, so at most one ever fires — but they are subscribed unconditionally
+    // host, so at most one ever fires, but they are subscribed unconditionally
     // rather than behind a platform branch, for the same reason the mirror
     // pushes to both sinks: the host test belongs in the runtime module, not
     // duplicated at every call site.

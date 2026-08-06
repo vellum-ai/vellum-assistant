@@ -9,7 +9,7 @@
  * handed to whichever transport the host has: `runtime/native-live-activity`
  * (Capacitor → ActivityKit) and `runtime/desktop-voice-activity` (Electron IPC
  * → BrowserWindow). Each no-ops off its own host, so this hook needs no
- * platform branch of its own — a mirror that asked "which platform am I on"
+ * platform branch of its own. A mirror that asked "which platform am I on"
  * would have to be updated for each new surface, whereas a sink that answers
  * "not mine" degrades on its own.
  *
@@ -34,7 +34,7 @@
  * **Updates are pushed only when the content actually changes.** ActivityKit
  * rate-limits updates and silently drops the overflow, so an activity that
  * spends its budget on redundant pushes stops reflecting the session at all.
- * The desktop panel has no such budget — it is local IPC — but it is fed from
+ * The desktop panel has no such budget (it is local IPC), but it is fed from
  * the same comparison anyway: two sinks diverging on *when* they update is how
  * the two surfaces would come to show different things.
  * The mirror therefore reads only what a `ContentState` is built from (phase,
@@ -186,7 +186,7 @@ async function startWithAvatar(
   };
   // Handed to both sinks unchanged. `VoiceActivityStart`'s `phase` is the same
   // vocabulary as `ActiveLiveVoiceSessionState`, restated in the IPC contract
-  // rather than imported across the package boundary — this assignment is what
+  // rather than imported across the package boundary. This assignment is what
   // holds the two in step, so a phase added to the store without a matching
   // case in `@vellumai/ipc-contract` fails to compile here.
   startVoiceActivity(payload);
@@ -364,8 +364,8 @@ export function useLiveActivityMirror(): void {
     return () => {
       unsubscribe();
       unsubscribeToken();
-      // A surface that outlives its mirror sits on the Lock Screen — or floats
-      // over the desktop — showing a phase nothing is driving.
+      // A surface that outlives its mirror sits on the Lock Screen, or floats
+      // over the desktop, showing a phase nothing is driving.
       if (pushed !== null) {
         pushed = null;
         pushToken = null;

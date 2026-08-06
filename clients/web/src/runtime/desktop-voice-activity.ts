@@ -1,5 +1,5 @@
 /**
- * Runtime wrapper for the desktop live-voice session surface — the floating
+ * Runtime wrapper for the desktop live-voice session surface: the floating
  * panel the Electron main process shows while a session runs and the app is
  * not frontmost (`clients/macos/src/main/voice-activity-window.ts`).
  *
@@ -47,7 +47,7 @@ const bridge = (): VoiceActivityBridge | undefined => {
  *
  * Safe to call when one is running: main updates it rather than opening a
  * second, and deliberately does not restart the elapsed clock. Pair every call
- * with {@link endVoiceActivity} — a panel that outlives its session floats
+ * with {@link endVoiceActivity}. A panel that outlives its session floats
  * over the desktop showing a phase nothing is driving.
  */
 export function startVoiceActivity(state: VoiceActivityStart): void {
@@ -57,7 +57,7 @@ export function startVoiceActivity(state: VoiceActivityStart): void {
 /**
  * Push new content to the running panel. A no-op when none is running.
  *
- * Unlike ActivityKit there is no update budget here — this is local IPC — but
+ * Unlike ActivityKit there is no update budget here (this is local IPC), but
  * callers still push only on an actual content change, because the two sinks
  * are driven from one comparison in the mirror.
  */
@@ -73,7 +73,7 @@ export function endVoiceActivity(): void {
 /**
  * Subscribe to panel button presses, returning an unsubscribe.
  *
- * The inbound path — the one that *acts on* the session rather than describing
+ * The inbound path, the one that *acts on* the session rather than describing
  * it. Main broadcasts each press to every renderer but the panel, so this
  * fires in whichever window has the session mounted; a press that lands with
  * no listener attached does nothing rather than queueing for the next session.
@@ -99,7 +99,7 @@ export function subscribeVoiceActivityState(
  * Read the current session snapshot.
  *
  * The panel route loads lazily, so states pushed before its subscription
- * registers are dropped — pull this once subscribed to catch up.
+ * registers are dropped. Pull this once subscribed to catch up.
  */
 export async function getVoiceActivityState(): Promise<VoiceActivityState | null> {
   return (await bridge()?.getState()) ?? null;

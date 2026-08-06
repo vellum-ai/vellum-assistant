@@ -32,8 +32,8 @@ import type {
  * same handful of facts: identity (avatar and assistant name), the phase as
  * both a glyph and passed-through wording, how long the call has been running,
  * the turn's activity line, and the session's controls. Where the island has
- * four sizes to drop facts between, this has one — a panel the user placed
- * themselves — so nothing is dropped.
+ * four sizes to drop facts between, this has one (a panel the user placed
+ * themselves), so nothing is dropped.
  *
  * Two rules carried over from `VoiceSessionIslandViews.swift`, for the same
  * reasons:
@@ -41,7 +41,7 @@ import type {
  * 1. **No phase copy of its own.** Every string describing the session is
  *    `label` or `assistantName`, passed through from the session's own store.
  *    `LIVE_VOICE_STATE_LABELS` / `liveVoiceSurfaceLabel` own the wording. This
- *    page happens to ship in the same bundle as that store today — but the
+ *    page happens to ship in the same bundle as that store today, but the
  *    payload it renders is a bridge contract shared with a native shell, and a
  *    surface that re-words its own phases is how the two come to disagree.
  * 2. **Accent is decoration, never the carrier.** `accentHex` is the user's
@@ -62,7 +62,7 @@ export function VoiceActivityPanelPage() {
     const unsubscribe = subscribeVoiceActivityState(setState);
     // This route chunk loads lazily after the window is created, so the
     // session's first states can be pushed before the subscription above
-    // registers and be dropped. Pull the latest to catch up — pushed states
+    // registers and be dropped. Pull the latest to catch up: pushed states
     // are newer, so never overwrite one.
     void getVoiceActivityState().then((initial) => {
       if (initial) {
@@ -80,7 +80,7 @@ export function VoiceActivityPanelPage() {
 
   return (
     // The whole panel drags, so the user can move it from anywhere that isn't
-    // a control — a 300×116 surface has no room for a dedicated grip.
+    // a control. A 300×116 surface has no room for a dedicated grip.
     <div
       className="relative flex h-screen w-screen flex-col justify-between overflow-hidden rounded-xl border border-white/15 bg-white/[0.07] px-3 py-2.5 [-webkit-app-region:drag] before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/40 before:to-transparent"
       style={{ ["--voice-accent" as string]: accentColor(state.accentHex) }}
@@ -125,7 +125,7 @@ export function VoiceActivityPanelPage() {
  * **A glyph is not copy, which is why this may switch on `phase` when nothing
  * else here may.** The rule above exists because wording deploys continuously
  * while a native shell ships on release cadence; a symbol has no second source
- * to drift from, and the phase vocabulary itself is the contract — a new phase
+ * to drift from, and the phase vocabulary itself is the contract: a new phase
  * makes this switch a compile error.
  *
  * It earns its place by being legible at a glance from across a desk, which
@@ -136,7 +136,7 @@ export function VoiceActivityPanelPage() {
  * corner: a `speaking` phase that has gone silent mid-turn relabels to
  * "Thinking…" via `liveVoiceSurfaceLabel` while `phase` stays `speaking`, so
  * the glyph reads as a speaker beside that word. The island has the same seam
- * and it is not fixable on one surface alone — the daemon's APNs path composes
+ * and it is not fixable on one surface alone. The daemon's APNs path composes
  * the island's content from the raw phase, so remapping here would leave the
  * two drivers disagreeing.
  */
@@ -197,7 +197,7 @@ function Identity({
  *
  * Anchored in main rather than here because this renderer can reload or be
  * recreated mid-session, and a clock anchored in it would restart when that
- * happened — the one fact on the panel a user would read as "the call dropped
+ * happened, the one fact on the panel a user would read as "the call dropped
  * and came back".
  */
 function Elapsed({ startedAt }: { startedAt: number }) {
@@ -229,7 +229,7 @@ function Elapsed({ startedAt }: { startedAt: number }) {
  * **Each mute sends the state its own label promised, not a toggle.** The
  * panel renders content that can be a beat behind the session, so a toggle
  * resolved against live state would be self-consistent and still wrong for the
- * user — a button reading "Mute assistant" over an already-muted session would
+ * user: a button reading "Mute assistant" over an already-muted session would
  * unmute it. Sending what the button said makes a stale press a no-op that the
  * next push corrects. See `VoiceActivityControl` in the IPC contract.
  */
@@ -286,7 +286,7 @@ function SessionControls({
  * of them a smaller target than the decision deserves.
  *
  * The request id travels with the press so the session answers the question
- * the user was actually shown — see `VoiceActivityControl.requestId`.
+ * the user was actually shown. See `VoiceActivityControl.requestId`.
  */
 function ApprovalControls({ requestId }: { requestId: string }) {
   return (
@@ -349,7 +349,7 @@ function ControlButton({
  * The accent to paint glyphs and focus rings with.
  *
  * `accentHex` is `""` while the avatar is still resolving, and the contract
- * makes no promise it parses — so anything that isn't an obvious `#RRGGBB`
+ * makes no promise it parses, so anything that isn't an obvious `#RRGGBB`
  * falls back to the theme's own accent rather than being handed to CSS, where
  * an invalid value would silently drop the custom property and take the
  * glyph's color with it.
