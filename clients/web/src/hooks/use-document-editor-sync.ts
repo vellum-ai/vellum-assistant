@@ -23,15 +23,23 @@
  * updates, so an edit arriving while it is open is unseen there too. That page
  * clears its own record when the user next loads it.
  *
+ * Returning to the chat route puts a still-open document back on screen with
+ * no load of its own to clear the record it collected while away, so that
+ * clearing happens here too.
+ *
  * References:
  * - EVENT_BUS.md: bus subscription contract
  * - stores/viewer-store.ts: document editor state
  * - domains/chat/unseen-document-changes-store.ts: unseen-change records
  */
 
+import { useEffect } from "react";
 import { useLocation } from "react-router";
 
-import { isDocumentOpen } from "@/domains/chat/components/local-file/open-local-file";
+import {
+  isDocumentOpen,
+  openedDocumentSurfaceId,
+} from "@/domains/chat/components/local-file/open-local-file";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -46,6 +54,23 @@ import { isConversationChatPath } from "@/utils/routes";
  */
 export function useDocumentEditorSync(): void {
   const location = useLocation();
+  const chatVisible = isConversationChatPath(location.pathname);
+
+  useEffect(() => {
+    if (!chatVisible) {
+      return;
+    }
+    const viewer = useViewerStore.getState();
+    const surfaceId = openedDocumentSurfaceId(
+      viewer.mainView,
+      viewer.openedDocumentState,
+    );
+    if (surfaceId === null) {
+      return;
+    }
+    useUnseenDocumentChangesStore.getState().clearDocumentEverywhere(surfaceId);
+  }, [chatVisible]);
+
   useBusSubscription("sse.event", (envelope) => {
     const event = envelope.message;
     if (event.type !== "document_editor_update") {
@@ -54,7 +79,7 @@ export function useDocumentEditorSync(): void {
     // An event handler, so the viewer is read rather than subscribed to.
     const viewer = useViewerStore.getState();
     const watchingLive =
-      isConversationChatPath(location.pathname) &&
+      chatVisible &&
       isDocumentOpen(
         viewer.mainView,
         viewer.openedDocumentState,

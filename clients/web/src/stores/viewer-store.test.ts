@@ -1107,6 +1107,20 @@ describe("loadDocument", () => {
     expect(unseenFor("conv-1")).toEqual(["surf-2"]);
   });
 
+  it("clears a change recorded against a conversation other than the document's", async () => {
+    // The daemon records the edit against the conversation the tool ran in,
+    // while the document row keeps the conversation that created it.
+    useUnseenDocumentChangesStore
+      .getState()
+      .markDocumentChanged("conv-2", "surf-1");
+    documentResult = () =>
+      Promise.resolve({ data: documentSurface({ conversationId: "conv-1" }) });
+
+    await getState().loadDocument("asst-1", "surf-1");
+
+    expect(unseenFor("conv-2")).toEqual([]);
+  });
+
   it("keeps the unseen change when the open fails", async () => {
     useUnseenDocumentChangesStore
       .getState()
@@ -1188,6 +1202,24 @@ describe("loadWorkspaceFileDocument", () => {
     );
 
     expect(unseenFor("conv-1")).toEqual([]);
+  });
+
+  it("clears a change recorded against a conversation other than the document's", async () => {
+    // Opening the file from another conversation still answers with the
+    // conversation that created the document.
+    useUnseenDocumentChangesStore
+      .getState()
+      .markDocumentChanged("conv-2", "surf-file");
+    fileDocumentResult = () =>
+      Promise.resolve({ data: fileDocument({ conversationId: "conv-1" }) });
+
+    await getState().loadWorkspaceFileDocument(
+      "asst-1",
+      "drafts/notes.md",
+      "conv-2",
+    );
+
+    expect(unseenFor("conv-2")).toEqual([]);
   });
 
   it("names an untitled document rather than showing an empty navbar", async () => {
