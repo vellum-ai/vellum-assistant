@@ -222,13 +222,6 @@ function CaptionsCard() {
  */
 const SYSTEM_DEFAULT_DEVICE = "";
 
-/**
- * Option value standing in for {@link SYSTEM_DEFAULT_DEVICE}. Radix reserves
- * the empty string, so an option carrying it is discarded and the row would
- * simply not render. Mapped back at the boundary so storage keeps its shape.
- */
-const SYSTEM_DEFAULT_OPTION = "__system_default__";
-
 function MicrophoneCard() {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [needsPermission, setNeedsPermission] = useState(false);
@@ -318,7 +311,7 @@ function MicrophoneCard() {
       deviceId !== SYSTEM_DEFAULT_DEVICE &&
       !live.some((option) => option.value === deviceId);
     return [
-      { value: SYSTEM_DEFAULT_OPTION, label: "System Default" },
+      { value: null, label: "System Default" },
       ...live,
       ...(savedIsAbsent
         ? [
@@ -333,9 +326,7 @@ function MicrophoneCard() {
     ];
   }, [devices, deviceId, deviceListIsKnown]);
 
-  const handleChange = useCallback((option: string) => {
-    const next =
-      option === SYSTEM_DEFAULT_OPTION ? SYSTEM_DEFAULT_DEVICE : option;
+  const handleChange = useCallback((next: string) => {
     setDeviceId(next);
     if (next === SYSTEM_DEFAULT_DEVICE) {
       removeLocalSetting(LS_VOICE_INPUT_DEVICE);
@@ -344,8 +335,7 @@ function MicrophoneCard() {
     }
   }, []);
 
-  const selectedValue =
-    deviceId === SYSTEM_DEFAULT_DEVICE ? SYSTEM_DEFAULT_OPTION : deviceId;
+  const selectedValue = deviceId === SYSTEM_DEFAULT_DEVICE ? null : deviceId;
 
   return (
     <DetailCard
@@ -358,6 +348,7 @@ function MicrophoneCard() {
             options={options}
             value={selectedValue}
             onChange={handleChange}
+            onSelectNone={() => handleChange(SYSTEM_DEFAULT_DEVICE)}
             aria-label="Microphone"
           />
         </div>

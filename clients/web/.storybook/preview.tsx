@@ -13,9 +13,15 @@ import { addons } from "storybook/preview-api";
 import { GLOBALS_UPDATED } from "storybook/internal/core-events";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import i18next from "i18next";
+import ICU from "i18next-icu";
+import { initReactI18next } from "react-i18next";
 import { useEffect, useState } from "react";
 import type { PropsWithChildren } from "react";
 import type { ReactRenderer } from "@storybook/react-vite";
+
+import { i18nextInitOptions } from "../src/i18n/config";
+import englishCatalog from "../src/i18n/locales/en/common.json";
 
 // @storybook/addon-themes@10.4.0 ships ESM code but its package.json omits
 // `"type": "module"`, so TypeScript NodeNext resolution misreads the default
@@ -32,6 +38,17 @@ import "./preview.css";
 const storybookQueryClient = new QueryClient({
   defaultOptions: { queries: { retry: false } },
 });
+
+// Components read their copy through `t()`, and an uninitialized i18next
+// returns the raw key path, so a story of any translated component would
+// render "conversationAssets.label" instead of "3 assets". Stories are visual
+// fixtures reviewed against the source copy, so this is pinned to English
+// rather than routed through `initI18n()`, whose job is to resolve whatever
+// locale the host prefers.
+void i18next
+  .use(new ICU())
+  .use(initReactI18next)
+  .init(i18nextInitOptions("en", { en: englishCatalog }));
 
 const lightTheme = create({
   base: "light",
@@ -93,10 +110,7 @@ function ThemedDocsContainer({
   }, []);
 
   return (
-    <DocsContainer
-      {...props}
-      theme={storybookThemeMap[theme] ?? themes.light}
-    >
+    <DocsContainer {...props} theme={storybookThemeMap[theme] ?? themes.light}>
       {children}
     </DocsContainer>
   );

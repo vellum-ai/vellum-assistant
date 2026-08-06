@@ -112,10 +112,7 @@ const LOCAL_ONLY_ONBOARDING_PATHS: Set<string> = new Set([
   routes.onboarding.apiKey,
 ]);
 
-const LOCAL_ONLY_STANDALONE_PATHS: Set<string> = new Set([
-  routes.welcome,
-  routes.selectAssistant,
-]);
+const LOCAL_ONLY_STANDALONE_PATHS: Set<string> = new Set([routes.welcome]);
 
 function isOnboardingPath(pathname: string): boolean {
   return (
@@ -503,6 +500,22 @@ function requireRemoteGatewayPairing(
   };
 }
 
+/**
+ * The local-mode chooser, decided the same way for an unauthenticated visit
+ * (`requireAuth`) and an authenticated one (`enforceModeBoundary`): an empty
+ * lockfile has nothing to choose from, so the visit funnels to hosting.
+ *
+ * Deciding either way is what keeps the local chooser short-circuiting ahead of
+ * the assistant and consent gates: it is itself an onboarding surface,
+ * reachable before there is a platform session to gate on.
+ */
+function localChooserDecision(state: NavigationState): NavigationDecision {
+  if (!state.hasAssistants) {
+    return { action: "redirect", to: routes.onboarding.hosting };
+  }
+  return { action: "allow" };
+}
+
 function requireAuth(
   state: NavigationState,
   path: string,
@@ -514,10 +527,12 @@ function requireAuth(
 
   if (
     state.isLocalClient &&
-    (isOnboardingPath(path) || LOCAL_ONLY_STANDALONE_PATHS.has(path))
+    (isOnboardingPath(path) ||
+      LOCAL_ONLY_STANDALONE_PATHS.has(path) ||
+      path === routes.selectAssistant)
   ) {
-    if (path === routes.selectAssistant && !state.hasAssistants) {
-      return { action: "redirect", to: routes.onboarding.hosting };
+    if (path === routes.selectAssistant) {
+      return localChooserDecision(state);
     }
     return { action: "allow" };
   }
@@ -537,12 +552,20 @@ function enforceModeBoundary(
   state: NavigationState,
   path: string,
 ): NavigationDecision | null {
+  // The chooser is reachable in every mode: local clients keep their
+  // lockfile-driven picker, and the platform build hosts the hub chooser. The
+  // non-local case falls through rather than allowing, so `requireConsent`
+  // below still binds on this route; `requireAssistant` exempts it on purpose
+  // (see NO_ASSISTANT_EXEMPT_PATHS). The screen owns the assistant-switcher
+  // flag gate for platform-mode access, because the flag hydrates
+  // asynchronously and this resolver has no hydration signal.
+  if (path === routes.selectAssistant) {
+    return state.isLocalClient ? localChooserDecision(state) : null;
+  }
+
   if (LOCAL_ONLY_STANDALONE_PATHS.has(path)) {
     if (!state.isLocalClient) {
       return { action: "redirect", to: routes.assistant };
-    }
-    if (path === routes.selectAssistant && !state.hasAssistants) {
-      return { action: "redirect", to: routes.onboarding.hosting };
     }
     return { action: "allow" };
   }
@@ -669,6 +692,26 @@ function enforceFunnelConsent(
   return { action: "allow" };
 }
 
+/**
+ * The routes a no-assistant user reaches without being funneled into
+ * provisioning first.
+ *
+ * `checkout` is where the marketing pricing CTAs deep-link a brand-new user to
+ * start Stripe checkout for a chosen package; every other billing surface still
+ * provisions first. `selectAssistant` is the hub chooser, the one screen that
+ * answers the empty state for an account whose assistants are all self-hosted:
+ * remembered origins are client-local, so they never reach `hasAssistants`, and
+ * a `?register=` handoff arriving from a self-hosted origin would be lost on the
+ * funnel bounce before the chooser could record it.
+ *
+ * Only the funnel is lifted. `requireConsent` runs after this step, so neither
+ * route can be reached on unaccepted or stale terms.
+ */
+const NO_ASSISTANT_EXEMPT_PATHS: ReadonlySet<string> = new Set([
+  routes.checkout,
+  routes.selectAssistant,
+]);
+
 function requireAssistant(
   state: NavigationState,
   path: string,
@@ -678,13 +721,7 @@ function requireAssistant(
     return null;
   }
 
-  // The marketing pricing CTAs deep-link a brand-new user (no assistant yet)
-  // straight into Stripe checkout for a chosen package. Exempt that route from
-  // the no-assistant funnel redirect only here — `requireConsent` runs after
-  // this step, so consent is still enforced before any paid checkout starts.
-  // Every other billing surface still funnels a no-assistant user into
-  // provisioning first.
-  if (path === routes.checkout) {
+  if (NO_ASSISTANT_EXEMPT_PATHS.has(path)) {
     return null;
   }
 
@@ -854,7 +891,8 @@ function resolvePostAuth(
 
 function resolvePostRetire(state: NavigationState): NavigationDecision {
   if (state.hasAssistants) {
-    // select-assistant is local-only; platform users go straight to /assistant
+    // Platform users land on /assistant post-retire; the chooser is an
+    // explicit destination there, not the retire landing.
     return {
       action: "redirect",
       to: state.isLocalClient ? routes.selectAssistant : routes.assistant,

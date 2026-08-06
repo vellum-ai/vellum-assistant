@@ -235,7 +235,20 @@ class MyViewController: CAPBridgeViewController {
         guard let destination = appliedServerURL else {
             return
         }
-        webView?.load(URLRequest(url: destination))
+        webView?.load(URLRequest(url: Self.appEntryURL(forBase: destination)))
+    }
+
+    /// The SPA entry point for a server base, `<base>/assistant`. The ingress
+    /// redirects a bare `/` to a prefix-less `/assistant/`, which would drop a
+    /// hosting prefix (base `https://host/assistant-123` → `https://host/assistant/`),
+    /// so the segment is appended here instead. Mirrors `AppDelegate`'s
+    /// pair-page URL; the baked cloud URL already carries the segment, so it is
+    /// returned unchanged. Tracking state keeps the bare base.
+    private static func appEntryURL(forBase base: URL) -> URL {
+        guard base.lastPathComponent != "assistant" else {
+            return base
+        }
+        return base.appendingPathComponent("assistant")
     }
 
     // MARK: - Quote-and-reply edit menu
@@ -462,13 +475,13 @@ extension MyViewController: WebViewNavigationFailureObserver {
             )
             alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
                 self?.appliedServerURL = origin
-                self?.webView?.load(URLRequest(url: origin))
+                self?.webView?.load(URLRequest(url: Self.appEntryURL(forBase: origin)))
             })
             alert.addAction(UIAlertAction(title: "Use Vellum Cloud", style: .default) { [weak self] _ in
                 SelfHostedServer.clear()
                 if let baked = self?.bakedServerURL {
                     self?.appliedServerURL = baked
-                    self?.webView?.load(URLRequest(url: baked))
+                    self?.webView?.load(URLRequest(url: Self.appEntryURL(forBase: baked)))
                 }
             })
             self.present(alert, animated: true)

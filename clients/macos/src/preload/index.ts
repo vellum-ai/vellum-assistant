@@ -13,6 +13,7 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
   DictationOverlayMessage,
@@ -613,6 +614,30 @@ const bridge: VellumBridge = {
     },
     setCollapsed: (collapsed: boolean): void => {
       ipcRenderer.send("vellum:voiceActivity:setCollapsed", collapsed);
+    },
+  },
+  companion: {
+    getState: (): Promise<CompanionSurfaceState | null> =>
+      ipcRenderer.invoke(
+        "vellum:companion:getState",
+      ) as Promise<CompanionSurfaceState | null>,
+    onState: (callback) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        state: CompanionSurfaceState,
+      ) => {
+        callback(state);
+      };
+      ipcRenderer.on("vellum:companion:state", handler);
+      return () => {
+        ipcRenderer.off("vellum:companion:state", handler);
+      };
+    },
+    setInteractive: (interactive: boolean): void => {
+      ipcRenderer.send("vellum:companion:setInteractive", interactive);
+    },
+    moveBy: (dx: number, dy: number): void => {
+      ipcRenderer.send("vellum:companion:moveBy", dx, dy);
     },
   },
   popout: {

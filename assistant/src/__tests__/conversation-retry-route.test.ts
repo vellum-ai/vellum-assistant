@@ -24,6 +24,7 @@ import { z } from "zod";
 import {
   isBackgroundEventMetadata,
   isEchoSuppressedUserMessage,
+  isHiddenMessageMetadata,
 } from "../persistence/conversation-types.js";
 
 mock.module("../config/env.js", () => ({
@@ -81,6 +82,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   getConversation: getConversationMock,
   isBackgroundEventMetadata,
   isEchoSuppressedUserMessage,
+  isHiddenMessageMetadata,
   provenanceFromTrustContext: () => ({ provenanceTrustClass: "unknown" }),
   setConversationSurfaced: () => null,
   unarchiveConversation: () => true,

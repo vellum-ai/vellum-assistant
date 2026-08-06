@@ -2,33 +2,21 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 let mockHotkeys: unknown = null;
 
-// Order matters: `mock.module("./settings", …)` must run before any
-// `import` of `./commands`, because `./commands` imports `./settings` at
-// the top level. The static `import` form would resolve `./settings`
-// first — before this `mock.module` line runs — and bind the real
-// `readHotkeyOverride`. Using `await import("./commands")` after the mock
-// ensures the mocked module graph is in place when `./commands` is
-// evaluated. Subsequent test files copying this template should
-// preserve the same ordering.
-// `mock.module` mutates the global module registry, so this mock leaks into
-// any other test file evaluated in the same run. Provide the full `./settings`
-// export surface (not just the one function this file exercises) so a sibling
-// module — e.g. `hotkeys.ts`, which imports `writeSetting`/`onSettingChange` —
-// still resolves its imports regardless of file order.
-mock.module("./settings", () => ({
-  readHotkeyOverride: (key: string) => {
-    if (mockHotkeys && typeof mockHotkeys === "object") {
-      const value = (mockHotkeys as Record<string, unknown>)[key];
-      return typeof value === "string" ? value : null;
-    }
-    return null;
-  },
-  readSetting: () => null,
-  writeSetting: () => {},
-  onSettingChange: () => () => {},
+mock.module("electron", () => ({
+  BrowserWindow: { getFocusedWindow: () => null, getAllWindows: () => [] },
 }));
 
-const { DEFAULT_ACCELERATORS, resolveAccelerator } = await import("./commands");
+const { configureHotkeySettings, DEFAULT_ACCELERATORS, resolveAccelerator } =
+  await import("./commands");
+
+configureHotkeySettings({
+  read: () =>
+    mockHotkeys && typeof mockHotkeys === "object"
+      ? (mockHotkeys as Record<string, string>)
+      : {},
+  write: () => undefined,
+  subscribe: () => () => undefined,
+});
 
 afterEach(() => {
   mockHotkeys = null;

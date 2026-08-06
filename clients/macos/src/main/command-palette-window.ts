@@ -8,7 +8,7 @@ import {
   dispatchToMain,
   ensureVisible as ensureMainWindowVisible,
 } from "./main-window";
-import type { VellumCommand } from "./commands";
+import type { VellumCommand } from "@vellumai/electron-desktop/commands";
 
 const COMMAND_PALETTE_KIND = "commandPalette";
 const COMMAND_PALETTE_PATH = "/floating/command-palette";
