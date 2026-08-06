@@ -16,6 +16,7 @@ import com.google.firebase.messaging.RemoteMessage;
 public class SafePushNotificationsPlugin extends PushNotificationsPlugin {
     @Override
     public void load() {
+        NativeFailureGuard.initialize(getContext());
         NativeFailureGuard.run("Unable to load Android push notifications", () -> super.load());
     }
 

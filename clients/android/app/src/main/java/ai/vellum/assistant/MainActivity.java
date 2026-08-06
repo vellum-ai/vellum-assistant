@@ -19,7 +19,6 @@ import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebViewClient;
 import com.getcapacitor.CapConfig;
-import com.getcapacitor.Logger;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginLoadException;
 import com.getcapacitor.PluginManager;
@@ -46,6 +45,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        NativeFailureGuard.initialize(this);
         NativeFailureGuard.run(
             "Unable to apply the Android launch theme",
             () -> NativeLaunchScreenPlugin.applySavedTheme(this)
@@ -110,12 +110,13 @@ public class MainActivity extends BridgeActivity {
             plugins = new PluginManager(getAssets()).loadPluginClasses();
             plugins.removeIf(PushNotificationsPlugin.class::equals);
         } catch (PluginLoadException exception) {
-            Logger.error("Unable to load Capacitor plugins", exception);
+            NativeFailureGuard.record("Unable to load Capacitor plugins", exception);
             plugins = new ArrayList<>();
         }
         bridgeBuilder.setPlugins(plugins);
         registerPlugin(NativeAuthPlugin.class);
         registerPlugin(NativeBiometricPlugin.class);
+        registerPlugin(NativeFailureReportsPlugin.class);
         registerPlugin(NativeLaunchScreenPlugin.class);
         registerPlugin(AndroidNotificationChannelsPlugin.class);
         registerPlugin(AndroidNotificationSettingsPlugin.class);
@@ -237,12 +238,18 @@ public class MainActivity extends BridgeActivity {
                 ? CapConfig.loadDefault(this)
                 : SelfHostedServer.overrideCapacitorConfig(this, selectedServer);
         } catch (IOException | JSONException | RuntimeException exception) {
-            Logger.error("Unable to apply the self-hosted server configuration", exception);
+            NativeFailureGuard.record(
+                "Unable to apply the self-hosted server configuration",
+                exception
+            );
             effectiveServer = null;
             try {
                 config = CapConfig.loadDefault(this);
             } catch (RuntimeException fallbackException) {
-                Logger.error("Unable to load the Android app configuration", fallbackException);
+                NativeFailureGuard.record(
+                    "Unable to load the Android app configuration",
+                    fallbackException
+                );
                 config = new CapConfig.Builder(this).create();
             }
         }

@@ -8,6 +8,7 @@ import com.google.firebase.messaging.RemoteMessage;
 public class SafeMessagingService extends FirebaseMessagingService {
     @Override
     public void onMessageReceived(@NonNull RemoteMessage remoteMessage) {
+        NativeFailureGuard.initialize(this);
         NativeFailureGuard.run(
             "Unable to receive the Android push notification",
             () -> {
@@ -19,6 +20,7 @@ public class SafeMessagingService extends FirebaseMessagingService {
 
     @Override
     public void onNewToken(@NonNull String token) {
+        NativeFailureGuard.initialize(this);
         NativeFailureGuard.run("Unable to receive the Android push token", () -> {
             super.onNewToken(token);
             PushNotificationsPlugin.onNewToken(token);
