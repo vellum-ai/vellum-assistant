@@ -52,6 +52,13 @@ const log = getLogger("workspace-git");
  * Diff-content helpers (`textconv`, external diff) cannot be disabled through
  * config alone and are handled with `--no-textconv --no-ext-diff` on the
  * commands that render patches.
+ *
+ * This list is defence in depth, not the boundary. Git keeps adding keys that
+ * name a program, and clean and smudge filters in particular still run during
+ * `git add` regardless of what is set here, because a filter is selected per
+ * path by `.gitattributes`. The boundary is keeping the repository's own
+ * configuration out of model reach; see the git-internals sink in the file
+ * risk classifier.
  */
 const GIT_UNTRUSTED_REPO_CONFIG = [
   // Hooks: the repository names the program, git runs it.
@@ -66,6 +73,11 @@ const GIT_UNTRUSTED_REPO_CONFIG = [
   // Pager: never a repository's choice, even when a tty makes git reach for one.
   "-c",
   "core.pager=cat",
+  // Commit signing: `gpg.program` names a program run while committing.
+  "-c",
+  "commit.gpgSign=false",
+  "-c",
+  "tag.gpgSign=false",
 ];
 
 function cleanGitEnv(workspaceDir: string): Record<string, string> {
