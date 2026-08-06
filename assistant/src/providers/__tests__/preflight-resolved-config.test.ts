@@ -1,46 +1,21 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import * as realDbConnection from "../../persistence/db-connection.js";
-import * as realLogger from "../../util/logger.js";
-import * as realConnections from "../inference/connections.js";
-import * as realPlatformProxy from "../platform-proxy/context.js";
-import * as realProviderAvailability from "../provider-availability.js";
-
 let connectionsByName: Record<string, unknown> = {};
 let secureKeys: Record<string, string | undefined> = {};
 let cesUnreachable = false;
 let platformLoggedIn = false;
 
-// The daemon reports to Sentry by logging at error level; spy on that call so
-// the managed-absent alert is assertable without a Sentry SDK in the tests.
-// The mocks spread their real modules so the dynamic import below links against
-// complete namespaces, overriding only the functions each test drives.
-const errorLogSpy = mock((..._args: unknown[]) => {});
-const testLogger = {
-  info: () => {},
-  warn: () => {},
-  error: errorLogSpy,
-  debug: () => {},
-};
-mock.module("../../util/logger.js", () => ({
-  ...realLogger,
-  getLogger: () => testLogger,
-}));
-
 mock.module("../../persistence/db-connection.js", () => ({
-  ...realDbConnection,
   getDb: () => ({}),
 }));
 
 mock.module("../inference/connections.js", () => ({
-  ...realConnections,
   getConnection: (_db: unknown, name: string) =>
     connectionsByName[name] ?? null,
   listConnections: () => [],
 }));
 
 mock.module("../provider-availability.js", () => ({
-  ...realProviderAvailability,
   checkCredentialPresence: async (account: string) =>
     cesUnreachable
       ? "indeterminate"
@@ -50,7 +25,6 @@ mock.module("../provider-availability.js", () => ({
 }));
 
 mock.module("../platform-proxy/context.js", () => ({
-  ...realPlatformProxy,
   hasManagedProxyPrereqs: async () => platformLoggedIn,
   resolveManagedProxyContext: async () => ({
     enabled: platformLoggedIn,
@@ -61,15 +35,10 @@ mock.module("../platform-proxy/context.js", () => ({
   }),
 }));
 
-import type { ConnectionResolutionError } from "../connection-resolution.js";
-
-// Imported after the mocks so the module-level logger is the spied one, letting
-// the managed-absent Sentry alert be asserted (module-level `const log` binds at
-// evaluation time, unlike the runtime-called db/context mocks).
-const {
-  ConnectionResolutionError: ConnectionResolutionErrorClass,
+import {
+  ConnectionResolutionError,
   preflightResolvedConfig,
-} = await import("../connection-resolution.js");
+} from "../connection-resolution.js";
 
 const resolved = (overrides: Partial<Record<string, string>> = {}) => ({
   provider: "anthropic",
@@ -85,7 +54,7 @@ async function preflightError(
     await preflightResolvedConfig(config, { profileName: "custom-fast" });
     return undefined;
   } catch (err) {
-    expect(err).toBeInstanceOf(ConnectionResolutionErrorClass);
+    expect(err).toBeInstanceOf(ConnectionResolutionError);
     return err as ConnectionResolutionError;
   }
 }
@@ -105,12 +74,11 @@ beforeEach(() => {
   secureKeys = { "credential/anthropic/api_key": "sk-ant" };
   cesUnreachable = false;
   platformLoggedIn = false;
-  delete process.env.IS_CONTAINERIZED;
-  errorLogSpy.mockClear();
+  delete process.env.IS_PLATFORM;
 });
 
 afterEach(() => {
-  delete process.env.IS_CONTAINERIZED;
+  delete process.env.IS_PLATFORM;
 });
 
 describe("preflightResolvedConfig", () => {
@@ -338,8 +306,8 @@ describe("preflightResolvedConfig", () => {
   });
 });
 
-describe("preflightResolvedConfig — managed-pod platform credential messaging", () => {
-  const managedPod = () => {
+describe("preflightResolvedConfig platform-managed credential messaging", () => {
+  const platformManaged = () => {
     connectionsByName = {
       vellum: {
         name: "vellum",
@@ -347,45 +315,35 @@ describe("preflightResolvedConfig — managed-pod platform credential messaging"
         auth: { type: "platform" },
       },
     };
-    process.env.IS_CONTAINERIZED = "true";
+    process.env.IS_PLATFORM = "true";
   };
   const managedRoute = () => resolved({ provider_connection: "vellum" });
 
-  test("store unreachable surfaces a retriable message, no login text, no alert", async () => {
-    managedPod();
+  test("store unreachable surfaces a retriable message with no login text", async () => {
+    platformManaged();
     cesUnreachable = true;
     const err = await preflightError(managedRoute());
     expect(err?.reason).toBe("platform_unauthenticated");
     expect(err?.message).toContain("temporarily unavailable");
     expect(err?.message).not.toContain("log in");
-    expect(errorLogSpy).not.toHaveBeenCalled();
   });
 
-  test("credential absent reports platform-side repair and emits a Sentry event", async () => {
-    managedPod();
+  test("credential absent asks for platform re-provisioning, not a login", async () => {
+    platformManaged();
     // Logged out with a reachable store means the credential is genuinely absent.
     const err = await preflightError(managedRoute());
     expect(err?.reason).toBe("platform_unauthenticated");
-    expect(err?.message).toContain("requires platform-side repair");
+    expect(err?.message).toContain("must be re-provisioned");
     expect(err?.message).not.toContain("log in");
-    expect(errorLogSpy).toHaveBeenCalledTimes(1);
-    const [context] = errorLogSpy.mock.calls[0] as [
-      Record<string, unknown>,
-      string,
-    ];
-    expect(context.connectionName).toBe("vellum");
-    // The alert carries identifiers only — never the credential value.
-    expect(JSON.stringify(context)).not.toContain("sk-");
   });
 
-  test("a healthy platform login passes silently on a pod, no alert", async () => {
-    managedPod();
+  test("a healthy platform login passes silently", async () => {
+    platformManaged();
     platformLoggedIn = true;
     expect(await preflightError(managedRoute())).toBeUndefined();
-    expect(errorLogSpy).not.toHaveBeenCalled();
   });
 
-  test("local install keeps the log-in-or-switch wording and raises no alert", async () => {
+  test("non-platform install keeps the log-in-or-switch wording", async () => {
     connectionsByName = {
       vellum: {
         name: "vellum",
@@ -393,10 +351,9 @@ describe("preflightResolvedConfig — managed-pod platform credential messaging"
         auth: { type: "platform" },
       },
     };
-    // IS_CONTAINERIZED left unset: this is a local / self-hosted install.
+    // IS_PLATFORM left unset covers both local and self-hosted Docker installs.
     const err = await preflightError(managedRoute());
     expect(err?.reason).toBe("platform_unauthenticated");
     expect(err?.message).toContain("log in or pick a different provider");
-    expect(errorLogSpy).not.toHaveBeenCalled();
   });
 });
