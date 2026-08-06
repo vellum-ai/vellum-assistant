@@ -34,10 +34,13 @@ Before starting, run the check script:
 bun skills/discord-app-setup/scripts/check-config.ts
 ```
 
-The script outputs JSON: `{ "configured": boolean, "details": string }`.
+The script outputs JSON: `{ "configured": boolean, "details": string, "error"?: string }`.
 
+- If `error` is present, **stop**. The check could not run, so the credential state is unknown, and `configured: false` here does **not** mean "not set up". Do not start the setup walkthrough. It will not fix this, and re-running setup on an app that already has a token forces a needless token reset that breaks any other deployment using it.
+  - `cli_not_found` means the `assistant` command is missing from this environment's PATH. That is an installation problem. Report it as one, quote `details`, and stop.
+  - `cli_failed` or `unparseable_output` means the CLI ran but did not answer usefully. Report `details` verbatim and stop.
 - If `configured` is `true` — Discord is already set up. Offer to verify the connection or reconfigure.
-- If `configured` is `false` — continue to Step 1.
+- If `configured` is `false` with no `error`, the check ran and found no token. Continue to Step 1.
 
 ## Step 1: Create the Discord Application
 

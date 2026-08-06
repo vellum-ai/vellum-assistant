@@ -7,8 +7,6 @@
  * Species-gated: delegates to a species-specific implementation.
  */
 
-import { resolveAssistantBin } from "./assistant-bin.ts";
-
 const species = process.env.SPECIES;
 
 async function storeVellum(): Promise<void> {
@@ -40,7 +38,7 @@ async function storeVellum(): Promise<void> {
     ]),
   ];
 
-  const proc = Bun.spawn([resolveAssistantBin(), ...args], {
+  const proc = Bun.spawn(["assistant", ...args], {
     stdout: "inherit",
     stderr: "inherit",
   });
