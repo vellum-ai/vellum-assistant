@@ -1297,7 +1297,7 @@ describe("ngrok --domain spawn args", () => {
   interface NgrokIngressConfig {
     ingress: {
       publicBaseUrl?: string;
-      ngrok?: { domain?: string; webAddrPort?: number };
+      ngrok?: { domain?: string; webAddrPort?: number; agentPid?: number };
     };
   }
 
@@ -1402,6 +1402,204 @@ describe("ngrok --domain spawn args", () => {
     const config = readWorkspaceConfig(ws);
     expect(config.ingress.publicBaseUrl).toBe("https://edge.ngrok-free.app");
     expect(config.ingress.ngrok?.webAddrPort).toBe(41234);
+  });
+
+  test("maybeStartNgrokTunnel stops a stale-target dedicated agent and spawns fresh", async () => {
+    const ws = makeWorkspace({
+      telegram: { botUsername: "example_bot" },
+      ingress: { ngrok: { webAddrPort: 41234, agentPid: 55555 } },
+    });
+    // The persisted vellum-owned agent still answers on :41234 but tunnels an
+    // old target port. It must be stopped (never coexisted with) before the
+    // replacement spawns, so the pid recorded for sleep covers every
+    // vellum-owned agent.
+    let staleAgentUp = true;
+    mockRoutedNgrokApiFetch((url) => {
+      if (url.includes(":41234")) {
+        return staleAgentUp
+          ? { tunnels: [dedicatedAgentTunnel(7830)] }
+          : "unreachable";
+      }
+      if (url.includes(":4040")) return { tunnels: [] };
+      // The freshly spawned agent's dedicated API reports the new tunnel.
+      return { tunnels: [dedicatedAgentTunnel(18080)] };
+    });
+    // mockRestore clears call history, so record kills out-of-band.
+    const kills: [number, string][] = [];
+    const killSpy = spyOn(process, "kill").mockImplementation(((
+      pid: number,
+      signal: string,
+    ) => {
+      kills.push([pid, signal]);
+      if (pid === 55555) staleAgentUp = false;
+      return true;
+    }) as never);
+
+    let child: ChildProcess | null = null;
+    try {
+      child = await realNgrok.maybeStartNgrokTunnel(18080, ws);
+    } finally {
+      killSpy.mockRestore();
+    }
+
+    expect(kills).toContainEqual([55555, "SIGTERM"]);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    // The returned child is the fresh agent, so wake records only its pid.
+    expect(child?.pid).toBe(4242);
+    const [, args] = spawnMock.mock.calls[0] as unknown as [string, string[]];
+    const webAddrArg = args.find((a) => a.startsWith("--web-addr="));
+    const newPort = Number(/:(\d+)$/.exec(webAddrArg ?? "")?.[1]);
+    expect(Number.isInteger(newPort)).toBe(true);
+    const config = readWorkspaceConfig(ws);
+    expect(config.ingress.publicBaseUrl).toBe("https://edge.ngrok-free.app");
+    // The stale record is replaced with the fresh agent's port and pid.
+    expect(config.ingress.ngrok?.webAddrPort).toBe(newPort);
+    expect(config.ingress.ngrok?.agentPid).toBe(4242);
+  });
+
+  test("runNgrokTunnel stops a stale-target dedicated agent before spawning", async () => {
+    const ws = makeWorkspace({
+      ingress: { ngrok: { webAddrPort: 41234, agentPid: 55555 } },
+    });
+    let staleAgentUp = true;
+    mockRoutedNgrokApiFetch((url) => {
+      if (url.includes(":41234")) {
+        return staleAgentUp
+          ? { tunnels: [dedicatedAgentTunnel(7830)] }
+          : "unreachable";
+      }
+      if (url.includes(":4040")) return { tunnels: [] };
+      return { tunnels: [dedicatedAgentTunnel(7831)] };
+    });
+    // mockRestore clears call history, so record kills out-of-band.
+    const kills: [number, string][] = [];
+    const killSpy = spyOn(process, "kill").mockImplementation(((
+      pid: number,
+      signal: string,
+    ) => {
+      kills.push([pid, signal]);
+      if (pid === 55555) staleAgentUp = false;
+      return true;
+    }) as never);
+
+    const run = realNgrok.runNgrokTunnel({ port: 7831, workspaceDir: ws });
+    const pump = setInterval(() => lastChild?.emit("exit", 0), 10);
+    try {
+      await run;
+    } finally {
+      clearInterval(pump);
+      killSpy.mockRestore();
+    }
+
+    expect(kills).toContainEqual([55555, "SIGTERM"]);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const config = readWorkspaceConfig(ws);
+    expect(config.ingress.publicBaseUrl).toBe("https://edge.ngrok-free.app");
+    expect(config.ingress.ngrok?.agentPid).toBe(4242);
+  });
+
+  test("maybeStartNgrokTunnel reuses the dedicated agent's domain-matching tunnel over a foreign same-port tunnel", async () => {
+    const ws = makeWorkspace({
+      telegram: { botUsername: "example_bot" },
+      ingress: {
+        ngrok: { domain: "foo.ngrok.app", webAddrPort: 41234, agentPid: 55555 },
+      },
+    });
+    // A foreign :4040 agent tunnels the same target port under another
+    // domain; the dedicated agent's entry matches the reserved domain and
+    // must win over the foreign tunnel listed first.
+    mockRoutedNgrokApiFetch((url) =>
+      url.includes(":41234")
+        ? {
+            tunnels: [
+              {
+                public_url: "https://foo.ngrok.app",
+                config: { addr: "localhost:7830" },
+              },
+            ],
+          }
+        : {
+            tunnels: [
+              {
+                public_url: "https://foreign.ngrok-free.app",
+                config: { addr: "localhost:7830" },
+              },
+            ],
+          },
+    );
+    // mockRestore clears call history, so record kills out-of-band.
+    const kills: number[] = [];
+    const killSpy = spyOn(process, "kill").mockImplementation(((
+      pid: number,
+    ) => {
+      kills.push(pid);
+      return true;
+    }) as never);
+
+    let child: unknown;
+    try {
+      child = await realNgrok.maybeStartNgrokTunnel(7830, ws);
+    } finally {
+      killSpy.mockRestore();
+    }
+
+    expect(child).toBeNull();
+    expect(spawnMock).not.toHaveBeenCalled();
+    // The dedicated agent matches the reserved domain, so it is not stopped.
+    expect(kills).toEqual([]);
+    const config = readWorkspaceConfig(ws);
+    expect(config.ingress.publicBaseUrl).toBe("https://foo.ngrok.app");
+    // The dedicated agent stays recorded for the next preflight.
+    expect(config.ingress.ngrok?.webAddrPort).toBe(41234);
+    expect(config.ingress.ngrok?.agentPid).toBe(55555);
+  });
+
+  test("runNgrokTunnel adopts the dedicated agent's domain-matching tunnel over a foreign same-port tunnel", async () => {
+    const ws = makeWorkspace({
+      ingress: {
+        ngrok: { domain: "foo.ngrok.app", webAddrPort: 41234, agentPid: 55555 },
+      },
+    });
+    mockRoutedNgrokApiFetch((url) =>
+      url.includes(":41234")
+        ? {
+            tunnels: [
+              {
+                public_url: "https://foo.ngrok.app",
+                config: { addr: "localhost:7831" },
+              },
+            ],
+          }
+        : {
+            tunnels: [
+              {
+                public_url: "https://foreign.ngrok-free.app",
+                config: { addr: "localhost:7831" },
+              },
+            ],
+          },
+    );
+
+    const run = realNgrok.runNgrokTunnel({ port: 7831, workspaceDir: ws });
+    // The adopt path blocks until SIGINT/SIGTERM; pump SIGINT until the
+    // listener is registered. Earlier tests leak SIGINT handlers that call
+    // process.exit, so no-op it while pumping.
+    const exitSpy = spyOn(process, "exit").mockImplementation(
+      (() => undefined) as never,
+    );
+    const pump = setInterval(() => process.emit("SIGINT"), 10);
+    try {
+      await run;
+    } finally {
+      clearInterval(pump);
+      exitSpy.mockRestore();
+    }
+
+    expect(spawnMock).not.toHaveBeenCalled();
+    const config = readWorkspaceConfig(ws);
+    expect(config.ingress.publicBaseUrl).toBe("https://foo.ngrok.app");
+    expect(config.ingress.ngrok?.webAddrPort).toBe(41234);
+    expect(config.ingress.ngrok?.agentPid).toBe(55555);
   });
 
   test("maybeStartNgrokTunnel treats a loopback port allocation failure as nonfatal", async () => {

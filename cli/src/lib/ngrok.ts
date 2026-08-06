@@ -7,12 +7,12 @@ import { GATEWAY_PORT } from "./constants.js";
 import {
   clearIngressUrl,
   getDefaultWorkspaceDir,
+  loadNgrokAgent,
   loadNgrokDomain,
-  loadNgrokWebAddrPort,
   loadRawConfig,
   saveIngressUrl,
+  saveNgrokAgent,
   saveNgrokDomain,
-  saveNgrokWebAddrPort,
 } from "./ingress-config.js";
 import { loopbackSafeFetch } from "./loopback-fetch.js";
 
@@ -91,26 +91,89 @@ async function queryNgrokTunnels(
 }
 
 /**
- * List tunnels visible to the spawn preflight: the default :4040 agent
- * (foreign or legacy reuse) plus our previously spawned dedicated agent at
- * its persisted web-addr port. A persisted address that no longer answers is
- * stale (the agent died or was stopped), so it is cleared and the caller
- * falls through to spawning fresh.
+ * Agents visible to the spawn preflight: the default :4040 agent (foreign or
+ * legacy reuse, never ours to stop) and our previously spawned dedicated
+ * agent at its persisted web-addr port. A persisted record whose API no
+ * longer answers is stale (the agent died or was stopped), so it is cleared
+ * and reported absent.
  */
-async function queryPreflightTunnels(
+interface PreflightAgents {
+  /** Tunnels listed by the default :4040 agent. */
+  defaultAgentTunnels: NgrokTunnel[];
+  /** The persisted vellum-owned agent, when its API still answers. */
+  dedicatedAgent: {
+    webAddrPort: number;
+    pid: number | null;
+    tunnels: NgrokTunnel[];
+  } | null;
+}
+
+async function queryPreflightAgents(
   workspaceDir: string,
-): Promise<NgrokTunnel[]> {
-  const tunnels = (await queryNgrokTunnels()) ?? [];
-  const savedWebAddrPort = loadNgrokWebAddrPort(workspaceDir);
-  if (savedWebAddrPort !== null) {
-    const dedicated = await queryNgrokTunnels(ngrokApiUrl(savedWebAddrPort));
-    if (dedicated === null) {
-      saveNgrokWebAddrPort(workspaceDir, null);
+): Promise<PreflightAgents> {
+  const defaultAgentTunnels = (await queryNgrokTunnels()) ?? [];
+  let dedicatedAgent: PreflightAgents["dedicatedAgent"] = null;
+  const saved = loadNgrokAgent(workspaceDir);
+  if (saved !== null) {
+    const tunnels = await queryNgrokTunnels(ngrokApiUrl(saved.webAddrPort));
+    if (tunnels === null) {
+      saveNgrokAgent(workspaceDir, null);
     } else {
-      tunnels.push(...dedicated);
+      dedicatedAgent = {
+        webAddrPort: saved.webAddrPort,
+        pid: saved.pid,
+        tunnels,
+      };
     }
   }
-  return tunnels;
+  return { defaultAgentTunnels, dedicatedAgent };
+}
+
+/** Whether the PID belongs to an ngrok process, guarding against pid reuse. */
+function isNgrokPid(pid: number): boolean {
+  try {
+    const output = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+      encoding: "utf-8",
+      timeout: 3_000,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return /ngrok/.test(output);
+  } catch {
+    return false;
+  }
+}
+
+/** Poll the agent's API until it stops answering, bounded by timeoutMs. */
+async function waitForAgentExit(
+  apiUrl: string,
+  timeoutMs = 5_000,
+): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if ((await queryNgrokTunnels(apiUrl)) === null) return;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+}
+
+/**
+ * Stop our persisted dedicated agent and clear its record. Called when the
+ * agent no longer serves the requested target/domain: it is vellum-owned, so
+ * it must be replaced rather than coexisted with, otherwise the recorded pid
+ * handoff would orphan its tunnel at sleep. Foreign agents are never stopped.
+ * A missing or reused pid skips the kill but still clears the record so the
+ * caller spawns fresh.
+ */
+async function stopDedicatedAgent(
+  workspaceDir: string,
+  agent: { webAddrPort: number; pid: number | null },
+): Promise<void> {
+  if (agent.pid !== null && isNgrokPid(agent.pid)) {
+    try {
+      process.kill(agent.pid, "SIGTERM");
+      await waitForAgentExit(ngrokApiUrl(agent.webAddrPort));
+    } catch {}
+  }
+  saveNgrokAgent(workspaceDir, null);
 }
 
 /** Whether a tunnel targets the given local port, under any addr spelling. */
@@ -347,21 +410,54 @@ export async function maybeStartNgrokTunnel(
 
   // Reuse an existing tunnel if one is already running, from the default
   // :4040 agent or our own previously spawned dedicated agent.
-  const runningTunnels = await queryPreflightTunnels(workspaceDir);
-  const existingUrl = pickMatchingTunnel(runningTunnels, targetPort);
+  const preflight = await queryPreflightAgents(workspaceDir);
+  let runningTunnels = [
+    ...preflight.defaultAgentTunnels,
+    ...(preflight.dedicatedAgent?.tunnels ?? []),
+  ];
+
+  // Our dedicated agent no longer serves the requested target or domain
+  // (e.g. an earlier wake tunneled a different edge port): stop it before
+  // spawning a replacement, so the pid recorded for sleep never orphans its
+  // tunnel. Foreign agents on :4040 are never stopped.
+  if (
+    preflight.dedicatedAgent !== null &&
+    pickMatchingTunnel(
+      preflight.dedicatedAgent.tunnels,
+      targetPort,
+      savedDomain,
+    ) === null
+  ) {
+    console.log(
+      `   Stopping the previously started ngrok agent; it no longer matches the requested target.`,
+    );
+    await stopDedicatedAgent(workspaceDir, preflight.dedicatedAgent);
+    runningTunnels = preflight.defaultAgentTunnels;
+  }
+
+  // Prefer a domain-matching tunnel when a domain is reserved, so a foreign
+  // tunnel on the same port cannot shadow our dedicated agent's tunnel.
+  const existingUrl = pickMatchingTunnel(
+    runningTunnels,
+    targetPort,
+    savedDomain,
+  );
   if (existingUrl) {
-    if (savedDomain && !urlMatchesDomain(existingUrl, savedDomain)) {
+    console.log(`   Found existing ngrok tunnel: ${existingUrl}`);
+    saveIngressUrl(workspaceDir, existingUrl);
+    return null;
+  }
+  if (savedDomain) {
+    const mismatchedUrl = pickMatchingTunnel(runningTunnels, targetPort);
+    if (mismatchedUrl) {
       // Spawning a second agent would collide (ERR_NGROK_334), and saving the
       // mismatched URL would clobber the reserved-domain intent. Leave the
       // tunnel running but refuse to bless it in config.
       console.warn(
-        `   ⚠ Existing ngrok tunnel ${existingUrl} does not match the reserved domain '${savedDomain}'. Ignoring it. Stop the running ngrok agent and run \`vellum tunnel --provider ngrok --domain ${savedDomain}\` to bind the reserved domain.`,
+        `   ⚠ Existing ngrok tunnel ${mismatchedUrl} does not match the reserved domain '${savedDomain}'. Ignoring it. Stop the running ngrok agent and run \`vellum tunnel --provider ngrok --domain ${savedDomain}\` to bind the reserved domain.`,
       );
       return null;
     }
-    console.log(`   Found existing ngrok tunnel: ${existingUrl}`);
-    saveIngressUrl(workspaceDir, existingUrl);
-    return null;
   }
   if (classifyExistingAgent(runningTunnels, targetPort) === "coexist") {
     // An agent is up but only tunnels other local targets (e.g. a foreign
@@ -401,9 +497,12 @@ export async function maybeStartNgrokTunnel(
       ngrokApiUrl(webAddrPort),
     );
     saveIngressUrl(workspaceDir, publicUrl);
-    // Record the agent's API address so the next run's preflight can find
-    // and reuse this agent instead of spawning a second one.
-    saveNgrokWebAddrPort(workspaceDir, webAddrPort);
+    // Record the agent's API address and pid so the next run's preflight can
+    // find and reuse this agent, or stop it when its target goes stale.
+    saveNgrokAgent(workspaceDir, {
+      webAddrPort,
+      pid: ngrokProcess.pid ?? null,
+    });
     console.log(`   Tunnel established: ${publicUrl}`);
 
     return ngrokProcess;
@@ -469,24 +568,48 @@ export async function runNgrokTunnel(
 
   // Check for an existing ngrok tunnel pointing at the local edge, from the
   // default :4040 agent or our own previously spawned dedicated agent.
-  const runningTunnels = await queryPreflightTunnels(workspaceDir);
-  const existingUrl = pickMatchingTunnel(runningTunnels, port);
+  const preflight = await queryPreflightAgents(workspaceDir);
+  let runningTunnels = [
+    ...preflight.defaultAgentTunnels,
+    ...(preflight.dedicatedAgent?.tunnels ?? []),
+  ];
+
+  // Our dedicated agent no longer serves the requested target or domain:
+  // stop it before spawning a replacement so its tunnel is not orphaned.
+  // Foreign agents on :4040 are never stopped.
+  if (
+    preflight.dedicatedAgent !== null &&
+    pickMatchingTunnel(preflight.dedicatedAgent.tunnels, port, domain) === null
+  ) {
+    console.log(
+      "Stopping the previously started ngrok agent; it no longer matches the requested target.",
+    );
+    await stopDedicatedAgent(workspaceDir, preflight.dedicatedAgent);
+    runningTunnels = preflight.defaultAgentTunnels;
+  }
+
+  // Prefer a domain-matching tunnel when a domain is set, so a foreign
+  // tunnel on the same port cannot shadow our dedicated agent's tunnel.
+  const existingUrl = pickMatchingTunnel(runningTunnels, port, domain);
   if (classifyExistingAgent(runningTunnels, port) === "coexist") {
     // An agent is up but only tunnels other local targets (e.g. a foreign
     // agent holding :4040). Spawn our own agent on a dedicated web-addr; a
     // single-agent plan limit still surfaces via ngrok's own exit error.
     console.warn(`Warning: ${coexistNotice(runningTunnels)}`);
   }
-  if (existingUrl) {
-    if (domain && !urlMatchesDomain(existingUrl, domain)) {
+  if (!existingUrl && domain) {
+    const mismatchedUrl = pickMatchingTunnel(runningTunnels, port);
+    if (mismatchedUrl) {
       console.error(
-        `Error: an ngrok tunnel is already running on port ${port} at ${existingUrl}, which does not match the ${opts.domain ? "requested" : "saved"} domain '${domain}'.`,
+        `Error: an ngrok tunnel is already running on port ${port} at ${mismatchedUrl}, which does not match the ${opts.domain ? "requested" : "saved"} domain '${domain}'.`,
       );
       console.error(
         "Stop the existing ngrok agent first, then re-run this command to bind the reserved domain.",
       );
       process.exit(1);
     }
+  }
+  if (existingUrl) {
     console.log(`Found existing ngrok tunnel: ${existingUrl}`);
     saveIngressUrl(workspaceDir, existingUrl, opts.assistantId);
     if (opts.domain) {
@@ -522,7 +645,7 @@ export async function runNgrokTunnel(
     if (publicUrl) {
       console.log("\nClearing ingress URL from config...");
       clearIngressUrl(workspaceDir, opts.assistantId);
-      saveNgrokWebAddrPort(workspaceDir, null);
+      saveNgrokAgent(workspaceDir, null);
     }
   };
 
@@ -577,9 +700,12 @@ export async function runNgrokTunnel(
   // The domain is standing intent, not tunnel state: cleanup clears the
   // ingress URL but leaves the domain saved for wake/daemon restores.
   saveIngressUrl(workspaceDir, publicUrl, opts.assistantId);
-  // Record the agent's API address so a later wake preflight can find and
-  // reuse this agent instead of spawning a second one.
-  saveNgrokWebAddrPort(workspaceDir, webAddrPort);
+  // Record the agent's API address and pid so a later wake preflight can
+  // find and reuse this agent, or stop it when its target goes stale.
+  saveNgrokAgent(workspaceDir, {
+    webAddrPort,
+    pid: ngrokProcess.pid ?? null,
+  });
   if (opts.domain) {
     saveNgrokDomain(workspaceDir, opts.domain);
   }

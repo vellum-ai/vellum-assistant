@@ -66,6 +66,19 @@ describe("pickMatchingTunnel", () => {
     );
     expect(pickMatchingTunnel(tunnels, 18080, "absent.example.app")).toBeNull();
   });
+
+  test("a later domain match beats an earlier HTTPS tunnel on the same port", () => {
+    // A foreign agent's tunnel is listed before the dedicated agent's entry;
+    // with a reserved domain the domain match must be selected, not the
+    // first HTTPS tunnel.
+    const tunnels = [
+      tunnel("https://foreign.example.app", "localhost:18080"),
+      tunnel("https://reserved.example.app", "localhost:18080"),
+    ];
+    expect(pickMatchingTunnel(tunnels, 18080, "reserved.example.app")).toBe(
+      "https://reserved.example.app",
+    );
+  });
 });
 
 describe("classifyExistingAgent", () => {
@@ -89,6 +102,16 @@ describe("classifyExistingAgent", () => {
     const tunnels = [tunnel("https://other.example.app", "localhost:18080")];
     expect(classifyExistingAgent(tunnels, 18080, "reserved.example.app")).toBe(
       "coexist",
+    );
+  });
+
+  test("returns reuse when a later tunnel matches the reserved domain", () => {
+    const tunnels = [
+      tunnel("https://foreign.example.app", "localhost:18080"),
+      tunnel("https://reserved.example.app", "localhost:18080"),
+    ];
+    expect(classifyExistingAgent(tunnels, 18080, "reserved.example.app")).toBe(
+      "reuse",
     );
   });
 });

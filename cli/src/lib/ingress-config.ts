@@ -126,34 +126,52 @@ export function loadNgrokDomain(workspaceDir: string): string | null {
   return typeof domain === "string" && domain.trim() ? domain : null;
 }
 
+/** Persisted record of the vellum-spawned dedicated ngrok agent. */
+export interface NgrokAgentRecord {
+  /** The agent's dedicated web-addr (local API) port. */
+  webAddrPort: number;
+  /** The agent's process id, when the spawning run recorded one. */
+  pid: number | null;
+}
+
 /**
- * Persist the spawned ngrok agent's dedicated web-addr port under
- * `ingress.ngrok.webAddrPort` so later runs can query that agent's local API
- * and reuse its tunnel instead of spawning a second agent; null clears a
- * stale entry.
+ * Persist the spawned ngrok agent's dedicated web-addr port and pid under
+ * `ingress.ngrok` so later runs can query that agent's local API and reuse
+ * its tunnel, or stop the agent when it no longer serves the requested
+ * target; null clears a stale record.
  */
-export function saveNgrokWebAddrPort(
+export function saveNgrokAgent(
   workspaceDir: string,
-  port: number | null,
+  agent: { webAddrPort: number; pid?: number | null } | null,
 ): void {
   updateNgrokEntry(workspaceDir, (ngrok) => {
-    if (port !== null) {
-      ngrok.webAddrPort = port;
+    if (agent !== null) {
+      ngrok.webAddrPort = agent.webAddrPort;
+      if (agent.pid !== undefined && agent.pid !== null) {
+        ngrok.agentPid = agent.pid;
+      } else {
+        delete ngrok.agentPid;
+      }
     } else {
       delete ngrok.webAddrPort;
+      delete ngrok.agentPid;
     }
   });
 }
 
-/** Read the persisted dedicated-agent web-addr port, if saved. */
-export function loadNgrokWebAddrPort(workspaceDir: string): number | null {
+/** Read the persisted dedicated-agent record, if saved. */
+export function loadNgrokAgent(workspaceDir: string): NgrokAgentRecord | null {
   const config = loadRawConfig(workspaceDir);
   const ingress = config.ingress as Record<string, unknown> | undefined;
   const ngrok = ingress?.ngrok as Record<string, unknown> | undefined;
   const port = ngrok?.webAddrPort;
-  return typeof port === "number" && Number.isInteger(port) && port > 0
-    ? port
-    : null;
+  if (typeof port !== "number" || !Number.isInteger(port) || port <= 0) {
+    return null;
+  }
+  const pid = ngrok?.agentPid;
+  const validPid =
+    typeof pid === "number" && Number.isInteger(pid) && pid > 0 ? pid : null;
+  return { webAddrPort: port, pid: validPid };
 }
 
 /** Clear the ingress public base URL from the workspace config. */

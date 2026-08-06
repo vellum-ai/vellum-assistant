@@ -9,11 +9,11 @@ process.env.VELLUM_LOCKFILE_DIR = testDir;
 
 import {
   clearIngressUrl,
+  loadNgrokAgent,
   loadNgrokDomain,
-  loadNgrokWebAddrPort,
   saveIngressUrl,
+  saveNgrokAgent,
   saveNgrokDomain,
-  saveNgrokWebAddrPort,
 } from "../lib/ingress-config.js";
 
 function writeLockfile(entry: Record<string, unknown>): void {
@@ -109,7 +109,7 @@ describe("ingress lockfile mirroring", () => {
   });
 });
 
-describe("ngrok web-addr port persistence", () => {
+describe("ngrok dedicated-agent persistence", () => {
   function readNgrokEntry(ws: string): Record<string, unknown> | undefined {
     const config = JSON.parse(
       readFileSync(join(ws, "config.json"), "utf-8"),
@@ -120,38 +120,54 @@ describe("ngrok web-addr port persistence", () => {
   test("save and load round-trip; null clears", () => {
     const ws = makeWorkspace();
 
-    saveNgrokWebAddrPort(ws, 41234);
-    expect(loadNgrokWebAddrPort(ws)).toBe(41234);
+    saveNgrokAgent(ws, { webAddrPort: 41234, pid: 55555 });
+    expect(loadNgrokAgent(ws)).toEqual({ webAddrPort: 41234, pid: 55555 });
 
-    saveNgrokWebAddrPort(ws, null);
-    expect(loadNgrokWebAddrPort(ws)).toBeNull();
+    saveNgrokAgent(ws, null);
+    expect(loadNgrokAgent(ws)).toBeNull();
     // Clearing the last ngrok field drops the entry entirely.
     expect(readNgrokEntry(ws)).toBeUndefined();
   });
 
-  test("loadNgrokWebAddrPort returns null when nothing is saved", () => {
-    expect(loadNgrokWebAddrPort(makeWorkspace())).toBeNull();
+  test("a record without a pid loads with pid null", () => {
+    const ws = makeWorkspace();
+
+    saveNgrokAgent(ws, { webAddrPort: 41234 });
+    expect(loadNgrokAgent(ws)).toEqual({ webAddrPort: 41234, pid: null });
+    expect(readNgrokEntry(ws)).toEqual({ webAddrPort: 41234 });
   });
 
-  test("saveNgrokDomain preserves the persisted web-addr port", () => {
+  test("re-saving without a pid drops a previously recorded pid", () => {
     const ws = makeWorkspace();
-    saveNgrokWebAddrPort(ws, 41234);
+    saveNgrokAgent(ws, { webAddrPort: 41234, pid: 55555 });
+
+    saveNgrokAgent(ws, { webAddrPort: 42345, pid: null });
+    expect(loadNgrokAgent(ws)).toEqual({ webAddrPort: 42345, pid: null });
+  });
+
+  test("loadNgrokAgent returns null when nothing is saved", () => {
+    expect(loadNgrokAgent(makeWorkspace())).toBeNull();
+  });
+
+  test("saveNgrokDomain preserves the persisted agent record", () => {
+    const ws = makeWorkspace();
+    saveNgrokAgent(ws, { webAddrPort: 41234, pid: 55555 });
 
     saveNgrokDomain(ws, "foo.ngrok.app");
     expect(loadNgrokDomain(ws)).toBe("foo.ngrok.app");
-    expect(loadNgrokWebAddrPort(ws)).toBe(41234);
+    expect(loadNgrokAgent(ws)).toEqual({ webAddrPort: 41234, pid: 55555 });
 
     saveNgrokDomain(ws, null);
     expect(loadNgrokDomain(ws)).toBeNull();
-    expect(loadNgrokWebAddrPort(ws)).toBe(41234);
+    expect(loadNgrokAgent(ws)).toEqual({ webAddrPort: 41234, pid: 55555 });
   });
 
-  test("saveNgrokWebAddrPort preserves the saved domain", () => {
+  test("saveNgrokAgent preserves the saved domain", () => {
     const ws = makeWorkspace();
     saveNgrokDomain(ws, "foo.ngrok.app");
 
-    saveNgrokWebAddrPort(ws, 41234);
-    saveNgrokWebAddrPort(ws, null);
+    saveNgrokAgent(ws, { webAddrPort: 41234, pid: 55555 });
+    saveNgrokAgent(ws, null);
     expect(loadNgrokDomain(ws)).toBe("foo.ngrok.app");
   });
 });
