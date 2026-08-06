@@ -16,6 +16,8 @@ import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import type { Server } from "node:net";
 import { dirname } from "node:path";
 
+import { isAbstractSocketPath } from "./abstract-socket.js";
+
 /**
  * Minimal logger surface (pino-compatible). Each method receives a context
  * object plus an optional human-readable message.
@@ -66,6 +68,9 @@ const DEFAULT_INTERVAL_MS = 5000;
  * `mkdir` only applies the mode to directories it creates.
  */
 export function ensureSocketDir(socketPath: string): void {
+  // Abstract-namespace names have no on-disk directory (and fs calls throw
+  // on the leading NUL byte).
+  if (isAbstractSocketPath(socketPath)) return;
   const socketDir = dirname(socketPath);
   if (!existsSync(socketDir)) {
     mkdirSync(socketDir, { recursive: true, mode: 0o700 });
@@ -109,6 +114,10 @@ export class SocketWatchdog {
    * watchdog is already running.
    */
   start(): void {
+    // An abstract-namespace listener has no on-disk path entry to lose, so
+    // there is nothing to watch — and `existsSync` would report it missing
+    // on every tick, causing a rebind loop.
+    if (isAbstractSocketPath(this.socketPath)) return;
     if (this.intervalMs <= 0 || this.handle !== null) return;
     this.handle = setInterval(() => {
       // The async entry path of rebindIfMissing performs filesystem work
@@ -143,6 +152,7 @@ export class SocketWatchdog {
    * is not running, or a shutdown/restart raced the rebind.
    */
   async rebindIfMissing(): Promise<boolean> {
+    if (isAbstractSocketPath(this.socketPath)) return false;
     const initialServer = this.getServer();
     if (initialServer === null) return false;
     if (existsSync(this.socketPath)) return false;

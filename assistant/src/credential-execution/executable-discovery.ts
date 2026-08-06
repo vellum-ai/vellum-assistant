@@ -18,6 +18,12 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  abstractSocketPath,
+  isAbstractIpcEnabled,
+  isAbstractSocketPath,
+} from "@vellumai/ipc-server-utils";
+
 import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
 
@@ -37,14 +43,21 @@ const BOOTSTRAP_SOCKET_NAME = "ces.sock";
  * Resolve the CES bootstrap socket path.
  *
  * Priority:
- * 1. `CES_BOOTSTRAP_SOCKET_DIR` env var (directory) — appends `ces.sock`
- * 2. `CES_BOOTSTRAP_SOCKET` env var (full file path override)
- * 3. Hardcoded default: `/run/ces-bootstrap/ces.sock`
+ * 1. `VELLUM_IPC_ABSTRACT=1` — abstract-namespace name (takes precedence so
+ *    the pod template can keep exporting the dir vars during rollout). Must
+ *    stay in sync with `ABSTRACT_BOOTSTRAP_SOCKET` in
+ *    `credential-executor/src/paths.ts`.
+ * 2. `CES_BOOTSTRAP_SOCKET_DIR` env var (directory) — appends `ces.sock`
+ * 3. `CES_BOOTSTRAP_SOCKET` env var (full file path override)
+ * 4. Hardcoded default: `/run/ces-bootstrap/ces.sock`
  *
  * The pod template exports `CES_BOOTSTRAP_SOCKET_DIR`; the full-path
  * override is kept for local testing convenience.
  */
 function getManagedBootstrapSocketPath(): string {
+  if (isAbstractIpcEnabled()) {
+    return abstractSocketPath(BOOTSTRAP_SOCKET_NAME);
+  }
   const dir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
   if (dir) {
     return join(dir, BOOTSTRAP_SOCKET_NAME);
@@ -104,6 +117,14 @@ export function discoverManagedCes():
   | ManagedDiscoverySuccess
   | DiscoveryFailure {
   const socketPath = getManagedBootstrapSocketPath();
+
+  // Abstract-namespace names have no on-disk presence to probe; liveness is
+  // established by the actual connect in `CesProcessManager.start()` (the
+  // pod's CES startup probe gates the assistant on CES health anyway).
+  if (isAbstractSocketPath(socketPath)) {
+    log.info({ socketPath }, "Managed CES via abstract-namespace socket");
+    return { mode: "managed", socketPath };
+  }
 
   if (!existsSync(socketPath)) {
     const reason = `CES bootstrap socket not found at ${socketPath}`;

@@ -11,6 +11,7 @@
  * a single contact+channel for the verifying user.
  */
 
+import { isAbstractSocketPath } from "@vellumai/ipc-server-utils";
 import { existsSync } from "node:fs";
 
 import { and, eq, sql } from "drizzle-orm";
@@ -32,6 +33,17 @@ import { resolveIpcSocketPath } from "../ipc/socket-path.js";
 import { canonicalizeInboundIdentity } from "./identity.js";
 
 const log = getLogger("verification-contacts");
+
+/**
+ * Whether the assistant IPC listener is plausibly reachable. Filesystem
+ * sockets are gated on the socket file's presence; abstract-namespace names
+ * (`VELLUM_IPC_ABSTRACT=1`) have no on-disk entry to stat, so they count as
+ * reachable and the IPC call's own error handling decides — same outcome as
+ * a present-but-dead socket file today.
+ */
+function isAssistantIpcMaybeReachable(socketPath: string): boolean {
+  return isAbstractSocketPath(socketPath) || existsSync(socketPath);
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -298,7 +310,7 @@ export async function deleteContactIfOrphaned(
   // stores keep the contact and nothing user-authored is discarded.
   let mirrorRowPresent = false;
   const { path: socketPath } = resolveIpcSocketPath("assistant");
-  const mirrorReachable = existsSync(socketPath);
+  const mirrorReachable = isAssistantIpcMaybeReachable(socketPath);
   if (mirrorReachable) {
     try {
       const probe = await probeContactMirror(contactId);
@@ -889,7 +901,7 @@ export async function upsertContactChannel(params: {
   notes?: string;
 }): Promise<void> {
   const { path: socketPath } = resolveIpcSocketPath("assistant");
-  if (!existsSync(socketPath)) return;
+  if (!isAssistantIpcMaybeReachable(socketPath)) return;
 
   const { sourceChannel, externalChatId, displayName, username } = params;
   const now = Date.now();

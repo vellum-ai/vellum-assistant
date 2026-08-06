@@ -100,6 +100,34 @@ const BOOTSTRAP_SOCKET_DIR = "/run/ces-bootstrap";
 const BOOTSTRAP_SOCKET_NAME = "ces.sock";
 
 /**
+ * Abstract-namespace bootstrap socket name (Linux only). Mirrors
+ * `abstractSocketPath("ces.sock")` in `@vellumai/ipc-server-utils` — CES
+ * deliberately keeps a minimal dependency set, so the tiny helper is inlined
+ * (same precedent as the path duplication in the assistant's
+ * `executable-discovery.ts`). Keep the `\0vellum-ipc/` prefix in sync.
+ *
+ * Enabled via `VELLUM_IPC_ABSTRACT=1`: containers in a pod share one network
+ * namespace, so the assistant can connect without the shared emptyDir volume
+ * that breaks gVisor snapshot restore (google/gvisor#13608).
+ */
+const ABSTRACT_BOOTSTRAP_SOCKET = `\0vellum-ipc/${BOOTSTRAP_SOCKET_NAME}`;
+
+/** True when the environment opts this process into abstract-namespace IPC. */
+export function isAbstractIpcEnabled(): boolean {
+  const value = process.env["VELLUM_IPC_ABSTRACT"]?.trim().toLowerCase();
+  return value === "1" || value === "true";
+}
+
+/**
+ * True when `path` is an abstract-namespace socket name rather than a
+ * filesystem path. Callers must skip all filesystem operations on such
+ * paths — `node:fs` functions throw on NUL bytes.
+ */
+export function isAbstractSocketPath(path: string): boolean {
+  return path.startsWith("\0");
+}
+
+/**
  * Return the path to the bootstrap Unix socket.
  *
  * In managed mode, CES listens on this socket for exactly one assistant
@@ -107,14 +135,19 @@ const BOOTSTRAP_SOCKET_NAME = "ces.sock";
  * visible to both containers.
  *
  * Priority:
- * 1. `CES_BOOTSTRAP_SOCKET_DIR` env var (directory) — appends `ces.sock`
- * 2. `CES_BOOTSTRAP_SOCKET` env var (full file path override)
- * 3. Hardcoded default: `/run/ces-bootstrap/ces.sock`
+ * 1. `VELLUM_IPC_ABSTRACT=1` — abstract-namespace name (takes precedence so
+ *    the pod template can keep exporting the dir vars during rollout)
+ * 2. `CES_BOOTSTRAP_SOCKET_DIR` env var (directory) — appends `ces.sock`
+ * 3. `CES_BOOTSTRAP_SOCKET` env var (full file path override)
+ * 4. Hardcoded default: `/run/ces-bootstrap/ces.sock`
  *
  * The pod template exports `CES_BOOTSTRAP_SOCKET_DIR`; the full-path
  * override is kept for local testing convenience.
  */
 export function getBootstrapSocketPath(): string {
+  if (isAbstractIpcEnabled()) {
+    return ABSTRACT_BOOTSTRAP_SOCKET;
+  }
   const dir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
   if (dir) {
     return join(dir, BOOTSTRAP_SOCKET_NAME);
