@@ -9,6 +9,10 @@
  * as an installed plugin. Disabled-state and manifest validation are caller
  * concerns: the source collector fingerprints disabled plugins too, while the
  * reconciler skips them and additionally gates on `parsePluginManifest`.
+ *
+ * The containment half of that definition is exported on its own
+ * ({@link isInsidePluginRoot}) for the plugin loader, which applies the same
+ * boundary at boot discovery and before it imports a plugin directory.
  */
 
 import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
@@ -24,22 +28,30 @@ export interface InstalledPluginDir {
 }
 
 /**
- * True when `dir` resolves to a location strictly inside `rootRealPath`.
+ * True when `dir` resolves to a location strictly inside `root`, where `root`
+ * is one of the allowed plugin roots (the workspace plugins directory, or the
+ * standalone workspace hooks directory).
  *
- * Both sides are realpaths, so a symlinked entry is judged by where it points
- * rather than by where it sits. The plugin loader applies the same boundary
- * before it dynamic-imports a plugin directory (`isAllowedPluginDir` in
- * `./mtime-cache.ts`); enumeration has to agree with it, or a caller acting on
- * this list arms and runs code from a root the loader refuses to activate.
- * A link pointing at the plugins directory itself is outside the boundary too:
- * it aliases the root, not a plugin.
+ * Both sides are resolved before the comparison. Resolving the candidate is
+ * what judges a symlinked entry by where it points rather than by where it
+ * sits; resolving the root is what keeps a root that itself sits behind a
+ * symlinked path component (macOS `/tmp` to `/private/tmp`, a workspace under
+ * a linked home) matching its own children. A resolved candidate compared
+ * against an unresolved root reports every entry as outside.
+ *
+ * This is the one containment boundary the plugin loader applies: enumeration
+ * here, boot discovery, and the pre-import check before a plugin directory is
+ * dynamic-imported (`scanPlugins` and `isAllowedPluginDir` in
+ * `./mtime-cache.ts`) all go through it, so a root the loader refuses to
+ * activate is never reported as installed either. A link pointing at the root
+ * itself is outside the boundary: it aliases the root, not a plugin.
  */
-function isInsidePluginsRoot(dir: string, rootRealPath: string): boolean {
+export function isInsidePluginRoot(dir: string, root: string): boolean {
   try {
-    return realpathSync(dir).startsWith(rootRealPath + sep);
+    return realpathSync(dir).startsWith(realpathSync(root) + sep);
   } catch {
     // Unresolvable (dangling link, races with an uninstall, unreadable): not
-    // provably contained, so it is not installed.
+    // provably contained, so it is not inside.
     return false;
   }
 }
@@ -57,14 +69,6 @@ export function listInstalledPluginDirs(): InstalledPluginDir[] {
     // No plugins directory yet, so nothing installed.
     return [];
   }
-  // Resolve the root once. The workspace can itself sit behind a symlinked
-  // path component, so containment has to compare realpath to realpath.
-  let rootRealPath: string;
-  try {
-    rootRealPath = realpathSync(pluginsDir);
-  } catch {
-    return [];
-  }
   const out: InstalledPluginDir[] = [];
   for (const entry of entries) {
     if (entry.startsWith(".")) {
@@ -78,7 +82,7 @@ export function listInstalledPluginDirs(): InstalledPluginDir[] {
     } catch {
       continue;
     }
-    if (!isInsidePluginsRoot(dir, rootRealPath)) {
+    if (!isInsidePluginRoot(dir, pluginsDir)) {
       continue;
     }
     if (!existsSync(join(dir, "package.json"))) {
