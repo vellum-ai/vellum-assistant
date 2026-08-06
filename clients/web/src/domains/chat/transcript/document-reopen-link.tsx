@@ -11,8 +11,8 @@
  * The name comes from the documents query rather than the tool result, so the
  * link reads the same title the assets list and the Library show, including
  * after a rename. The link waits for that query and stays away from a document
- * the resolved list does not carry, so it never offers to open something that
- * has been deleted.
+ * no resolved list carries, so it never offers to open something that has been
+ * deleted.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -22,41 +22,86 @@ import { Button } from "@vellumai/design-library/components/button";
 
 import { useIsDocumentOpen } from "@/domains/chat/components/local-file/open-local-file";
 import { documentsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import type { DocumentsGetResponse } from "@/generated/daemon/types.gen";
 
 /** Label for a document the documents query lists under an empty title. */
 const FALLBACK_DOCUMENT_NAME = "Untitled document";
 
 /**
- * Title of the document `surfaceId`: `undefined` until the documents query
- * resolves, `null` once a resolved list does not carry the document, and
- * otherwise its title ({@link FALLBACK_DOCUMENT_NAME} when that title is empty).
+ * Title of `surfaceId` within one documents response: `null` when the response
+ * does not carry it, otherwise its title ({@link FALLBACK_DOCUMENT_NAME} when
+ * that title is empty).
+ */
+function selectDocumentTitle(
+  response: DocumentsGetResponse,
+  surfaceId: string,
+): string | null {
+  const found = response.documents.find((doc) => doc.surfaceId === surfaceId);
+  if (!found) {
+    return null;
+  }
+  return found.title.trim() === "" ? FALLBACK_DOCUMENT_NAME : found.title;
+}
+
+/**
+ * Title of `surfaceId` in one documents list: `undefined` until that list
+ * resolves and `null` once a resolved list does not carry the document.
  *
  * With a conversation the key matches the assets pill's, so both read one cache
  * entry and one invalidation refreshes both. Without one the key drops the
  * filter and reads the assistant-wide list, which no pill shares.
  */
-function useDocumentDisplayName(
+function useDocumentTitle(
   surfaceId: string,
-  assistantId?: string | null,
-  conversationId?: string | null,
+  assistantId: string | null | undefined,
+  conversationId: string | null | undefined,
+  enabled: boolean,
 ): string | null | undefined {
   const { data: title } = useQuery({
     ...documentsGetOptions({
       path: { assistant_id: assistantId ?? "" },
       ...(conversationId ? { query: { conversationId } } : {}),
     }),
-    enabled: Boolean(assistantId),
-    select: (response) => {
-      const found = response.documents.find(
-        (doc) => doc.surfaceId === surfaceId,
-      );
-      if (!found) {
-        return null;
-      }
-      return found.title.trim() === "" ? FALLBACK_DOCUMENT_NAME : found.title;
-    },
+    enabled,
+    select: (response) => selectDocumentTitle(response, surfaceId),
   });
   return title;
+}
+
+/**
+ * Title to render for `surfaceId`: `undefined` while it is still being
+ * resolved, `null` once no list carries the document.
+ *
+ * The conversation-scoped list is asked first so the link reads the same cache
+ * entry as the assets pill. A miss there is not an absence: the assistant can
+ * edit any document it can reach, and an edit does not link the document to the
+ * conversation it was made from, so a document reached from an older
+ * conversation is missing from this one's list while still existing. The
+ * assistant-wide list settles that, and only a miss in both hides the link.
+ */
+function useDocumentDisplayName(
+  surfaceId: string,
+  assistantId?: string | null,
+  conversationId?: string | null,
+): string | null | undefined {
+  const hasAssistant = Boolean(assistantId);
+  const scopedTitle = useDocumentTitle(
+    surfaceId,
+    assistantId,
+    conversationId,
+    hasAssistant,
+  );
+  const assistantWideTitle = useDocumentTitle(
+    surfaceId,
+    assistantId,
+    null,
+    hasAssistant && Boolean(conversationId) && scopedTitle === null,
+  );
+
+  if (conversationId && scopedTitle === null) {
+    return assistantWideTitle;
+  }
+  return scopedTitle;
 }
 
 export interface DocumentReopenLinkProps {

@@ -382,8 +382,6 @@ export const ROUTES: RouteDefinition[] = [
         throw new BadRequestError("wordCount is required");
       }
 
-      const before = getDocumentById(surfaceId);
-
       const result = saveDocument({
         surfaceId,
         conversationId,
@@ -395,15 +393,12 @@ export const ROUTES: RouteDefinition[] = [
       if (!result.success) {
         throw new InternalError(result.error);
       }
-      // This is the web editor's autosave, which fires roughly once a second
-      // while the user types and always resends the title it opened with. The
-      // list surfaces render title and surface id, so a content-only save
-      // changes nothing they show, and broadcasting it would make every other
-      // client drain its document queries on each keystroke burst. A new row or
-      // a retitled one does change the list, so those still publish.
-      if (!before || before.title !== title) {
-        publishDocumentsChanged(getOriginClientId(headers));
-      }
+      // Every save moves `updated_at`, which both document lists order by and
+      // the Library renders next to the word count, so a content-only save
+      // changes what the list surfaces show. The publish coalesces, which
+      // bounds the web editor's per-keystroke autosave to one broadcast per
+      // second, and the saving client suppresses its own echo by origin id.
+      publishDocumentsChanged(getOriginClientId(headers));
       return result;
     },
   },
