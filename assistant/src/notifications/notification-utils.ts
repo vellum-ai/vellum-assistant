@@ -84,8 +84,15 @@ function nodeText(node: RootContent): string {
     case "text":
     case "inlineCode":
     case "code":
-    case "html":
       return node.value;
+    // Raw HTML, which the parser splits into tag nodes around the text between
+    // them. The in-app renderer registers no `rehype-raw`, so tags and comments
+    // display as nothing there; dropping the tag nodes keeps the preview
+    // matching what the reply actually looks like, and keeps the contents of an
+    // HTML comment off the lock screen. The visible text between a tag pair is
+    // its own `text` node and survives.
+    case "html":
+      return "";
     // Media carries no prose. A caller names it separately when the flattened
     // text comes up empty; see {@link mediaEmbedAltTexts}.
     case "image":
