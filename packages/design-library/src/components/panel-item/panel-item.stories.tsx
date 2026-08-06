@@ -36,6 +36,7 @@ const meta: Meta<typeof PanelItem> = {
     badge: { control: false },
     trailingAction: { control: false },
     onSelect: { control: false },
+    children: { control: false },
     ref: { control: false },
   },
   globals: {
