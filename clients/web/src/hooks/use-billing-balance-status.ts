@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { useSuppressCreditBannersForByok } from "@/hooks/use-byok-credit-banner-gate";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import {
   useActiveAssistantIsPlatformHosted,
@@ -64,6 +65,13 @@ export function useBillingBalanceQueryEnabled(): boolean {
  * too, because `lib/query-focus-manager` feeds TanStack Query's focusManager
  * from the event bus's `app.resume` signal, so a user coming back to an
  * already-open app sees the daily-limit banner without a reload.
+ *
+ * The balance flags additionally stay down when the default chat route is
+ * BYOK and no managed credits were burned in the last day (see
+ * {@link useSuppressCreditBannersForByok}): chat turns that dispatch on the
+ * user's own key never fail on the managed wallet, so the credit wall would
+ * be a false alarm. `dailyLimitReached` is exempt — it can only be true with
+ * managed spend today, which is exactly the burn that re-arms the others.
  */
 export function useBillingBalanceStatus(): BillingBalanceStatus {
   const enabled = useBillingBalanceQueryEnabled();
@@ -71,12 +79,17 @@ export function useBillingBalanceStatus(): BillingBalanceStatus {
     ...organizationsBillingSummaryRetrieveOptions(),
     enabled,
   });
+  const isExhausted = !!summary && Number(summary.effective_balance) <= 0;
+  const isLowBalance = !!summary && summary.low_balance_warning === true;
+  const suppressed = useSuppressCreditBannersForByok(
+    enabled && (isExhausted || isLowBalance),
+  );
   if (!enabled || !summary) {
     return { ...INERT_STATUS, enabled };
   }
   return {
-    isExhausted: Number(summary.effective_balance) <= 0,
-    isLowBalance: summary.low_balance_warning === true,
+    isExhausted: isExhausted && !suppressed,
+    isLowBalance: isLowBalance && !suppressed,
     dailyLimitReached: summary.daily_limit_reached === true,
     balance: summary.effective_balance,
     enabled,
