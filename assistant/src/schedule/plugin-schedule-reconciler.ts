@@ -179,29 +179,35 @@ async function runReconcilePass(): Promise<void> {
   // pass after the declaration parses again. An `ended` recurrence is not a
   // rewrite, so it keeps the last-good handling in both modes.
   const erroredKeys = new Set<string>();
-  const pausedKeys = new Set<string>();
   for (const error of errors) {
     const row = existingByKey.get(error.sourceKey);
-    if (error.kind === "invalid" && row?.mode === "script") {
-      pausedKeys.add(error.sourceKey);
-    } else {
+    const disarmsScriptRow = error.kind === "invalid" && row?.mode === "script";
+    if (!disarmsScriptRow) {
       erroredKeys.add(error.sourceKey);
     }
   }
 
   // Disarm rows whose declaration is absent from the desired set (plugin
   // uninstalled or disabled, or the schedule file removed), plus the script
-  // rows an invalid declaration paused above. Teardown deliberately does not
-  // ride plugin shutdown hooks: uninstalling a disabled plugin skips them
-  // entirely (`cli/lib/uninstall-plugin.ts`), so directory-absence diffing
-  // here is the only reliable reap. The row and its runs are kept so a
-  // reinstall re-links by `source_key`.
+  // rows an invalid declaration left out of `erroredKeys` above. Teardown
+  // deliberately does not ride plugin shutdown hooks: uninstalling a disabled
+  // plugin skips them entirely (`cli/lib/uninstall-plugin.ts`), so
+  // directory-absence diffing here is the only reliable reap. The row and its
+  // runs are kept so a reinstall re-links by `source_key`.
+  //
+  // `pausedKeys` collects what this pass actually turned off, which is what
+  // the notification below reports. A row the user or the engine had already
+  // disabled is left alone, and a failed write leaves the row armed, so
+  // neither claims a pause that did not happen.
+  const pausedKeys = new Set<string>();
   for (const [sourceKey, row] of existingByKey) {
     if (desired.has(sourceKey) || erroredKeys.has(sourceKey)) {
       continue;
     }
     try {
-      await disarmDeclaredSchedule(row.id);
+      if (await disarmDeclaredSchedule(row.id)) {
+        pausedKeys.add(sourceKey);
+      }
     } catch (err) {
       log.error(
         { err, sourceKey, scheduleId: row.id },
@@ -281,8 +287,9 @@ async function collectDesiredDeclarations(): Promise<CollectedDeclarations> {
     }
     const parsed = parsePluginScheduleDeclarations(dir, name);
     if ((await parsePluginManifest(dir, { quiet: true })) === undefined) {
-      const reason =
-        "the plugin's package.json could not be read or validated, so its schedules are paused";
+      // The reason states the fault only. Whether a row went off over it is
+      // the `paused` field's job, which is derived from the disarm outcome.
+      const reason = "the plugin's package.json could not be read or validated";
       for (const declared of [
         ...parsed.declarations.map((d) => ({
           scheduleName: d.name,

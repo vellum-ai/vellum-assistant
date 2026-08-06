@@ -977,8 +977,13 @@ export async function upsertDeclaredSchedule(
  * The row and its runs are kept so a reinstall re-links by `source_key` and
  * `user_enabled` survives. `nextRunAt` is left alone: a disabled row never
  * fires, and `nextRunAt = 0` is reserved for the engine's exhaust latch.
+ *
+ * Resolves `true` when this call took an armed row off, and `false` when
+ * there was nothing to do because the row is gone or already disabled. A
+ * caller reporting the pause to the user needs that distinction: a row the
+ * user or the engine already turned off is not something this call paused.
  */
-export async function disarmDeclaredSchedule(id: string): Promise<void> {
+export async function disarmDeclaredSchedule(id: string): Promise<boolean> {
   const db = getDb();
   const existing = db
     .select()
@@ -986,7 +991,7 @@ export async function disarmDeclaredSchedule(id: string): Promise<void> {
     .where(eq(scheduleJobs.id, id))
     .get();
   if (!existing) {
-    return;
+    return false;
   }
   if (existing.sourceKey == null) {
     throw new Error(
@@ -994,7 +999,7 @@ export async function disarmDeclaredSchedule(id: string): Promise<void> {
     );
   }
   if (!existing.enabled) {
-    return;
+    return false;
   }
   await withSqliteRetry(
     () =>
@@ -1006,6 +1011,7 @@ export async function disarmDeclaredSchedule(id: string): Promise<void> {
     { op: "disarmDeclaredSchedule", context: { scheduleId: id } },
   );
   notifySchedulesChanged();
+  return true;
 }
 
 /**

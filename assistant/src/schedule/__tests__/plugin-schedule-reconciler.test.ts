@@ -460,6 +460,27 @@ describe("reconcilePluginSchedules", () => {
     expect(rearmed.nextRunAt).toBeGreaterThan(0);
   });
 
+  test("a script row the user turned off reports no pause when its declaration breaks", async () => {
+    writePlugin("news", scriptSync());
+    await reconcilePluginSchedules();
+    const created = listDeclaredSchedules()[0]!;
+    await setUserEnabled(created.id, false);
+    emittedSignals.length = 0;
+
+    // The row is already off and stays off, so promising the user it resumes
+    // once the declaration loads again would be a lie.
+    writePlugin("news", brokenScriptSync());
+    await reconcilePluginSchedules();
+
+    expect(listDeclaredSchedules()[0]!.enabled).toBe(false);
+    expect(emittedSignals).toHaveLength(1);
+    const signal = emittedSignals[0]!;
+    expect(signal.sourceEventName).toBe("schedule.definition_error");
+    const payload = signal.contextPayload as Record<string, unknown>;
+    expect(payload.sourceKey).toBe("plugin:news/sync");
+    expect(payload.paused).toBe(false);
+  });
+
   test("a user's off choice survives a script row's disarm and re-arm", async () => {
     writePlugin("news", scriptSync());
     await reconcilePluginSchedules();
@@ -572,6 +593,8 @@ describe("reconcilePluginSchedules", () => {
     expect(payload.scheduleName).toBe("digest");
     expect(payload.sourceKey).toBe(DIGEST_KEY);
     expect(payload.reason).toContain("package.json");
+    // The pass took an armed row off, so the notification says so.
+    expect(payload.paused).toBe(true);
 
     // The failure surfaces once per day, not per pass.
     await reconcilePluginSchedules();
@@ -597,6 +620,12 @@ describe("reconcilePluginSchedules", () => {
     expect(emittedSignals[0]!.sourceEventName).toBe(
       "schedule.definition_error",
     );
+    // Nothing was ever armed, so nothing was paused.
+    const payload = emittedSignals[0]!.contextPayload as Record<
+      string,
+      unknown
+    >;
+    expect(payload.paused).toBe(false);
   });
 
   test("a broken manifest on a plugin without schedules stays silent", async () => {
