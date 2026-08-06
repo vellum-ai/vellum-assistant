@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
+import { usePageSurfaceStore } from "@/stores/page-surface-store";
+
 let mockIsElectron = false;
 mock.module("@/runtime/is-electron", () => ({
   isElectron: () => mockIsElectron,
@@ -30,11 +32,18 @@ mock.module("@/stores/title-bar-store", () => ({
   },
 }));
 
+let mockIsNativeMobile = false;
+mock.module("@/runtime/platform-detection", () => ({
+  isNativeMobile: () => mockIsNativeMobile,
+}));
+
 // Imported after the mocks so the header picks up the mocked modules.
 const { ChatLayoutHeader } = await import("@/domains/chat/chat-layout-header");
 
 beforeEach(() => {
   mockIsElectron = false;
+  mockIsNativeMobile = false;
+  usePageSurfaceStore.getState().setSurface(null);
   toggleCommandPaletteSpy.mockClear();
 });
 
@@ -88,5 +97,40 @@ describe("ChatLayoutHeader mobile affordances", () => {
     expect(
       screen.getByRole("button", { name: "Search (Ctrl+K)" }),
     ).toBeTruthy();
+  });
+});
+
+describe("ChatLayoutHeader page surface", () => {
+  function headerElement() {
+    return document.querySelector<HTMLElement>(
+      '[data-slot="chat-layout-header"]',
+    );
+  }
+
+  test("takes the route's published surface on the native shells", () => {
+    mockIsNativeMobile = true;
+    usePageSurfaceStore.getState().setSurface("var(--surface-overlay)");
+
+    renderHeader();
+
+    // Continuous with the safe-area strips, which resolve the same way.
+    expect(headerElement()?.style.background).toBe("var(--surface-overlay)");
+  });
+
+  test("keeps the neutral chrome off the native shells", () => {
+    mockIsNativeMobile = false;
+    usePageSurfaceStore.getState().setSurface("var(--surface-overlay)");
+
+    renderHeader();
+
+    expect(headerElement()?.style.background).toBe("var(--surface-base)");
+  });
+
+  test("keeps the neutral chrome on a route that publishes nothing", () => {
+    mockIsNativeMobile = true;
+
+    renderHeader();
+
+    expect(headerElement()?.style.background).toBe("var(--surface-base)");
   });
 });
