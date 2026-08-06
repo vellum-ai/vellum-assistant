@@ -208,6 +208,10 @@ app.on("second-instance", () => {
   ensureVisible();
 });
 
+app.on("window-all-closed", () => {
+  // Keep the notification-area tray available to reopen the window.
+});
+
 app.on("web-contents-created", (_event, contents) => {
   installWebContentsSecurity(contents, {
     cookies: () => session.defaultSession.cookies,

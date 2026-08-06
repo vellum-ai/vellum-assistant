@@ -190,7 +190,6 @@ const buildTrayMenu = (
   ];
 
   // Assistant switcher: gated by the multi-platform-assistant feature flag.
-  // Reads from the lockfile watcher's in-memory cache (no disk I/O).
   if (isMultiAssistantEnabled() && !onboarding) {
     const lockfile = trayRuntime.getLockfile();
     // Managed (platform-hosted) and paired (remote, imported) assistants

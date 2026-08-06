@@ -93,7 +93,7 @@ export const ensureVisible = (): void => {
 
 export const toggleVisibility = (): void => {
   const win = current();
-  if (win && !win.isDestroyed() && win.isVisible()) {
+  if (win && !win.isDestroyed() && win.isVisible() && win.isFocused()) {
     win.hide();
     return;
   }
