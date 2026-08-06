@@ -195,7 +195,10 @@ describe("Windows main window", () => {
   test("restores a saved maximized session", () => {
     restoredBounds = { width: 1000, height: 700, maximized: true };
     void ensureVisible();
-    expect(constructed[0]?.maximize).toHaveBeenCalledTimes(1);
+    const win = constructed[0];
+    expect(win?.maximize).not.toHaveBeenCalled();
+    win?.emit("ready-to-show");
+    expect(win?.maximize).toHaveBeenCalledTimes(1);
   });
 
   test("restores a minimized window and recreates a destroyed window", () => {

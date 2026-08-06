@@ -73,15 +73,14 @@ const createMainWindow = (): BrowserWindow => {
   win.setTitle(currentTitle);
   trackWindowState("main", win);
 
-  if (maximized) {
-    win.maximize();
-  }
-
   const ready = readiness.arm(win);
   win.webContents.once("did-finish-load", () => {
     ready.markLoaded();
   });
   win.once("ready-to-show", () => {
+    if (maximized) {
+      win.maximize();
+    }
     win.show();
     win.focus();
     ready.markShown();
