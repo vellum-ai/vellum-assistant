@@ -107,6 +107,22 @@ describe("lockfile-watcher", () => {
       teardown();
     });
 
+    test("retries an initial read after temporary access denial", async () => {
+      writeLockfile(SAMPLE_LOCKFILE);
+      const readSpy = spyOn(fs, "readFileSync").mockImplementationOnce(() => {
+        throw Object.assign(new Error("access denied"), { code: "EACCES" });
+      });
+
+      const teardown = installLockfileWatcher();
+      expect(getWatchedLockfile().assistants).toHaveLength(0);
+
+      await new Promise((resolve) => setTimeout(resolve, 750));
+
+      expect(getWatchedLockfile()).toEqual(SAMPLE_LOCKFILE);
+      readSpy.mockRestore();
+      teardown();
+    });
+
     test("teardown clears timers and listeners", () => {
       /**
        * Tests that calling the teardown function stops polling and removes

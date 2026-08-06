@@ -5,13 +5,20 @@
   "license": "MIT",
   "type": "module",
   "exports": {
+    "./about": "./src/about.ts",
+    "./accelerator": "./src/accelerator.ts",
     "./app-origin": "./src/app-origin.ts",
     "./capability-registry": "./src/capability-registry.ts",
+    "./commands": "./src/commands.ts",
     "./devtools": "./src/devtools.ts",
+    "./global-shortcuts": "./src/global-shortcuts.ts",
+    "./hotkeys": "./src/hotkeys.ts",
+    "./image-context-menu": "./src/image-context-menu.ts",
     "./ipc": "./src/ipc.ts",
     "./local-mode": "./src/local-mode.ts",
     "./local-mode-bridge": "./src/local-mode-bridge.ts",
     "./lockfile-watcher": "./src/lockfile-watcher.ts",
+    "./text-context-menu": "./src/text-context-menu.ts",
     "./windows": "./src/windows.ts"
   },
   "scripts": {

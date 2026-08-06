@@ -1,18 +1,21 @@
 /**
- * Start-voice deep link → live-voice session.
+ * "The user asked to talk" → live-voice session.
  *
- * The seam between the host-agnostic deep-link consumer
- * (`useGlobalDeepLinkConsumer`, mounted at `RootLayout`) and the live-voice
- * domain. The consumer knows only "the user asked to talk"; everything about
- * *how* a session starts lives here.
+ * The seam between the surfaces that can ask for a session from outside the
+ * chat layout and the live-voice domain. Two ask today: the host-agnostic
+ * deep-link consumer (`useGlobalDeepLinkConsumer`, mounted at `RootLayout`) and
+ * the macOS companion surface's Talk, which arrives as a `startVoice` command
+ * from the Electron host. Neither knows anything about sessions; everything
+ * about *how* one starts lives here, so the two cannot drift into two ideas of
+ * what talking means.
  *
  * Why a parked request instead of a direct call: the session `starter` is
  * registered by `useLiveVoiceSessionController`, which is mounted at
  * `ChatLayout` scope. On a cold launch (Siri, the Action Button, a Live
  * Activity tap) the deep link fires before that layout mounts, and on
  * settings / logs / account routes the controller does not exist at all. So the
- * request is parked in `usePendingDeepLinkStore` — the same one-shot inbox
- * `deeplink.send` uses for exactly this race — and the controller drains it
+ * request is parked in `usePendingDeepLinkStore` (the one-shot inbox
+ * `deeplink.send` uses for exactly this race) and the controller drains it
  * when it registers a starter. No polling, no retry timer.
  */
 
@@ -37,21 +40,21 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 export const PENDING_VOICE_START_TTL_MS = 60_000;
 
 /**
- * Ask for a live-voice session on behalf of a start-voice deep link.
+ * Ask for a live-voice session.
  *
- * Always parks first, then drains — one code path for both the warm case (a
+ * Always parks first, then drains: one code path for both the warm case (a
  * controller is already mounted, so the drain starts immediately) and the
  * cold-launch case (the drain no-ops and the controller picks the request up).
  */
-export function requestVoiceStartFromDeepLink(): void {
+export function requestVoiceStart(): void {
   usePendingDeepLinkStore.getState().setPendingVoiceStart();
-  void drainPendingVoiceStartDeepLink();
+  void drainPendingVoiceStart();
 }
 
 /**
- * Start a parked start-voice deep link, if there is one and a starter exists.
+ * Start a parked start-voice request, if there is one and a starter exists.
  * Called by {@link useLiveVoiceSessionController} right after it registers its
- * starter, and by {@link requestVoiceStartFromDeepLink} for the warm path.
+ * starter, and by {@link requestVoiceStart} for the warm path.
  * A no-op when nothing is parked, so the repeat calls are free.
  *
  * **The park is consumed last.** Everything before the consume is a *precondition
@@ -63,7 +66,7 @@ export function requestVoiceStartFromDeepLink(): void {
  * launch against a hibernating assistant, where the version resolution can hit
  * its timeout with `version` still `null`.
  */
-export async function drainPendingVoiceStartDeepLink(): Promise<void> {
+export async function drainPendingVoiceStart(): Promise<void> {
   if (usePendingDeepLinkStore.getState().pendingVoiceStartAt === null) {
     return;
   }

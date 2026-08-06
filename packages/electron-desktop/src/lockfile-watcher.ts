@@ -191,12 +191,17 @@ export const installLockfileWatcher = (): (() => void) => {
   // Initial read — synchronous so the tray menu has data from frame one.
   // readAndParse falls back to legacy candidates when the canonical file
   // doesn't exist yet, so pre-migration installs still show data.
-  try {
-    lastMtimeMs = fs.statSync(lockfileCandidates[0]!).mtimeMs;
-  } catch {
+  const initial = readAndParse();
+  cachedLockfile = initial ?? EMPTY_LOCKFILE;
+  if (initial) {
+    try {
+      lastMtimeMs = fs.statSync(lockfileCandidates[0]!).mtimeMs;
+    } catch {
+      lastMtimeMs = 0;
+    }
+  } else {
     lastMtimeMs = 0;
   }
-  cachedLockfile = readAndParse() ?? EMPTY_LOCKFILE;
 
   pollTimer = setInterval(checkForChanges, POLL_INTERVAL_MS);
 

@@ -35,7 +35,6 @@ const coreBridge: Pick<
   | "power"
   | "deepLinks"
   | "dock"
-  | "menu"
   | "mainWindow"
 > = {
   platform: "electron",
@@ -72,10 +71,6 @@ const coreBridge: Pick<
   // (`win.setOverlayIcon`), not a dock badge.
   dock: {
     setBadge: () => undefined,
-  },
-  // Stub: no application menu yet (`clients/macos/src/main/menu.ts`).
-  menu: {
-    setPlatformSession: () => Promise.resolve(),
   },
   mainWindow: {
     ensureVisible: (): Promise<void> =>

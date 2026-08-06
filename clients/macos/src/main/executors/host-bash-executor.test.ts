@@ -26,7 +26,7 @@ mock.module("electron-log/main", () => {
 });
 
 // Stub lockfile-watcher (required by host-proxy-router)
-mock.module("../lockfile-watcher", () => ({
+mock.module("../lockfile-watcher.client", () => ({
   onLockfileChange: () => () => {},
 }));
 

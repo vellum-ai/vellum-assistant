@@ -112,7 +112,9 @@ export const configureUnavailableLocalMode = (
   unavailableError: string,
 ): void => {
   configureLocalMode({
-    cli: { resolveInvocation: async () => ({ command: "unused" }) },
+    cli: {
+      resolveInvocation: async () => ({ command: "unused", baseArgs: [] }),
+    },
     handle,
     paths: { configDir: "", environment: "", lockfilePaths: [] },
     refreshLockfile: () => undefined,

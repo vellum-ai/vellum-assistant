@@ -2,7 +2,7 @@ import { BrowserWindow, app, screen } from "electron";
 import { z } from "zod";
 
 import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
-import { type VellumCommand } from "./commands";
+import { type VellumCommand } from "@vellumai/electron-desktop/commands";
 import { handle } from "./ipc";
 import { dispatchToMain, ensureVisible } from "./main-window";
 import { createWindow } from "./windows";

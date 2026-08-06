@@ -77,6 +77,19 @@ function isCollapsedRail(ctx: SideMenuContextValue): boolean {
   return ctx.variant === "rail" && ctx.contentCollapsed;
 }
 
+/**
+ * The same question against the rail's *immediate* collapsed state, with no
+ * transition delay.
+ *
+ * Only for content that has no label to linger over, and whose call site
+ * mounts it on the same immediate flag. {@link isCollapsedRail} is the default
+ * for everything else: the lag is what lets a label stay put while the rail
+ * narrows around it.
+ */
+function isCollapsingRail(ctx: SideMenuContextValue): boolean {
+  return ctx.variant === "rail" && ctx.collapsed;
+}
+
 // ---------------------------------------------------------------------------
 // Root
 // ---------------------------------------------------------------------------
@@ -464,6 +477,40 @@ export interface SideMenuItemProps {
    */
   tooltip?: string;
   badge?: ReactNode;
+  /**
+   * Collapsed-rail tile geometry, for rails whose section icons read as a
+   * column of circles. `"circle"` squares the tile to its own row height and
+   * centers it in the rail column, then rounds it fully. The squaring is part
+   * of the shape, not an extra: a collapsed row is `w-full` of a column
+   * slightly wider than it is tall, so rounding it alone draws an ellipse.
+   *
+   * Ignored when expanded, where the row spans the rail's full width and a
+   * full round would draw a pill rather than a circle.
+   *
+   * @default "default"
+   */
+  shape?: "default" | "circle";
+  /**
+   * Overlay drawn on top of a collapsed tile, such as an activity dot on the
+   * icon's corner. The row is the positioning context, so the caller places
+   * it (`absolute right-0 top-0`).
+   *
+   * Ignored when expanded: a row with its label visible carries status
+   * inline through `badge` instead of overlapping its own icon.
+   */
+  indicator?: ReactNode;
+  /**
+   * Nothing to open. Blocks activation, drops the row from the tab order,
+   * and mutes it, matching what native `disabled` would do.
+   *
+   * It is expressed as `aria-disabled` rather than the native attribute
+   * because a collapsed row is its own tooltip trigger, and a natively
+   * disabled control dispatches no pointer events: the tooltip explaining
+   * *why* the row does nothing would be the one thing a user could not
+   * reach. The native attribute is omitted from this component's props for
+   * the same reason.
+   */
+  disabled?: boolean;
   trailingIcon?: LucideIcon;
   trailingIconClassName?: string;
   indent?: boolean;
@@ -481,11 +528,13 @@ function ItemLeadingIcon({
   indent,
   active,
   collapsed,
+  disabled,
 }: {
   icon: SideMenuItemIcon | undefined;
   indent: boolean;
   active: boolean;
   collapsed: boolean;
+  disabled: boolean;
 }) {
   if (indent) {
     return (
@@ -515,9 +564,11 @@ function ItemLeadingIcon({
   const Icon = icon;
   const iconClass = cn(
     "shrink-0",
-    active
-      ? "text-[color:var(--content-default)]"
-      : "text-[color:var(--content-tertiary)]",
+    disabled
+      ? "text-[color:var(--content-disabled)]"
+      : active
+        ? "text-[color:var(--content-default)]"
+        : "text-[color:var(--content-tertiary)]",
     collapsed ? "mx-auto" : undefined,
   );
   return <Icon size={14} aria-hidden className={iconClass} />;
@@ -543,9 +594,12 @@ type SharedAnchorProps = Omit<
   ComponentProps<"a">,
   "href" | "children" | "ref"
 >;
+/* `disabled` is omitted so the component's own `aria-disabled` treatment is
+ * the only way to express the state: a native `disabled` button dispatches
+ * no pointer events, which would silence the collapsed row's tooltip. */
 type SharedButtonProps = Omit<
   ComponentProps<"button">,
-  "children" | "type" | "ref"
+  "children" | "type" | "ref" | "disabled"
 >;
 
 function SideMenuItem({
@@ -554,6 +608,9 @@ function SideMenuItem({
   showCollapsedTooltip = false,
   tooltip,
   badge,
+  shape = "default",
+  indicator,
+  disabled = false,
   trailingIcon: TrailingIcon,
   trailingIconClassName,
   indent = false,
@@ -563,32 +620,76 @@ function SideMenuItem({
   onSelect,
   href,
   className,
+  tabIndex,
   ref,
   ...rest
 }: SideMenuItemProps & SharedAnchorProps & SharedButtonProps) {
   const ctx = useSideMenuContext();
-  const collapsed = isCollapsedRail(ctx);
+  /* A circle tile is a collapsed-rail affordance by definition, and its call
+     sites mount it on the rail's immediate `collapsed` state. Following the
+     delayed flag like an ordinary row would leave it rendering as a
+     full-width labelled row inside the 48px column for the whole 150ms
+     transition, with no dot, tooltip, or accessible name. It also has no
+     label to linger over, which is the only thing the delay buys. Keying it
+     off the immediate flag flips every collapsed-only path at one instant. */
+  const collapsed =
+    shape === "circle" ? isCollapsingRail(ctx) : isCollapsedRail(ctx);
+
+  /* An item is drawn either as a row or as a tile, and the two want opposite
+     things, so they are alternatives rather than one layered over the other.
+     A row fills the rail and grows on narrow viewports, because it carries a
+     label and wants a comfortable touch target for it. A tile is a square of
+     the same row height, centered in the rail column: it holds that height at
+     every width, having no label to make room for, and `aspect-square` takes
+     its width from that height so the circle cannot drift from the row metric.
+
+     Writing this as a tile-shaped patch appended after the row classes is
+     what the first two attempts did, and each of `w-full`, `rounded-[6px]`,
+     `max-md:h-auto` and `max-md:py-3` then needed its own counter-class to
+     undo. Branching states each shape once instead. */
+  const isTile = collapsed && shape === "circle";
+  const geometryClasses = isTile
+    ? "h-[30px] aspect-square mx-auto rounded-full"
+    : // `w-full` matters for the `<button>` render path: buttons keep
+      // fit-content sizing even as flex containers, so without it a
+      // button-backed item shrink-wraps while anchor-backed items fill the rail.
+      "h-[30px] w-full max-md:h-auto rounded-[6px]";
+
+  /* Interaction state, as one exclusive choice for the same reason as the
+     geometry above. A disabled row keeps its slot and its hover target, since
+     reaching its tooltip is the whole point of the state, and drops only the
+     affordances. Expressing that by appending `cursor-default` and
+     `hover:bg-transparent` after the enabled rules renders identically but
+     leaves the muting dependent on tailwind-merge order; not emitting the
+     rules it replaces means there is nothing to be ordered against. */
+  const stateClasses = disabled
+    ? "cursor-default text-[color:var(--content-disabled)]"
+    : active
+      ? "cursor-pointer bg-[var(--surface-active)] text-[color:var(--content-emphasised)]"
+      : cn(
+          "cursor-pointer hover:bg-[var(--surface-hover)]",
+          emphasized
+            ? "text-[color:var(--content-emphasised)]"
+            : "text-[color:var(--content-secondary)]",
+        );
 
   const rowClasses = cn(
-    // `w-full` matters for the `<button>` render path: buttons keep
-    // fit-content sizing even as flex containers, so without it a
-    // button-backed item shrink-wraps while anchor-backed items fill the rail.
-    "group relative flex w-full items-center",
-    "rounded-[6px]",
+    "group relative flex items-center",
+    geometryClasses,
     "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
-    "cursor-pointer select-none",
+    "select-none",
     "transition-colors",
-    "h-[30px] max-md:h-auto gap-[6px] p-[6px]",
+    "gap-[6px] p-[6px]",
     collapsed ? "justify-center" : "justify-start",
     size === "compact"
       ? "text-body-small-default max-md:text-body-large-default"
-      : "text-body-medium-lighter max-md:py-3 max-md:text-body-large-default",
-    emphasized
-      ? "text-[color:var(--content-emphasised)]"
-      : "text-[color:var(--content-secondary)]",
-    active
-      ? "bg-[var(--surface-active)] text-[color:var(--content-emphasised)]"
-      : "hover:bg-[var(--surface-hover)]",
+      : cn(
+          "text-body-medium-lighter max-md:text-body-large-default",
+          // Vertical breathing room for a wrapped label on a narrow viewport.
+          // A tile has no label, and the fixed square is the whole point.
+          !isTile && "max-md:py-3",
+        ),
+    stateClasses,
     className,
   );
 
@@ -616,8 +717,11 @@ function SideMenuItem({
       indent={indent}
       active={active}
       collapsed={collapsed}
+      disabled={disabled}
     />
   );
+
+  const indicatorNode = collapsed ? indicator : null;
 
   // Collapsed rail shows a styled tooltip when asked (defaulting to `label`)
   // or when custom `tooltip` text is given. Drop the native `title` then so the
@@ -626,6 +730,13 @@ function SideMenuItem({
   const showStyledTooltip = collapsed && tooltipContent != null;
   const titleAttr = collapsed && !showStyledTooltip ? label : undefined;
   const ariaCurrent = active ? ("page" as const) : undefined;
+  /* Collapsed, the label is not rendered and the leading icon is aria-hidden,
+     so without this the row has no accessible name at all on the styled-
+     tooltip path (a `title` names it on the other one). Placed before the
+     prop spread below so a caller can still override it, which the rail's
+     empty sections do: their tooltip explains the empty state while the name
+     stays the section's. */
+  const collapsedAriaLabel = collapsed ? label : undefined;
 
   const withTooltip = (element: ReactNode) =>
     showStyledTooltip ? (
@@ -645,22 +756,30 @@ function SideMenuItem({
       <a
         ref={ref as Ref<HTMLAnchorElement>}
         data-slot="side-menu-item"
-        href={href}
+        href={disabled ? undefined : href}
         title={titleAttr}
         aria-current={ariaCurrent}
+        aria-label={collapsedAriaLabel}
         className={rowClasses}
         onClick={(event) => {
+          if (disabled) {
+            event.preventDefault();
+            return;
+          }
           anchorOnClick?.(event);
           if (!event.defaultPrevented) {
             onSelect?.();
           }
         }}
         {...anchorProps}
+        aria-disabled={disabled || undefined}
+        tabIndex={disabled ? -1 : tabIndex}
       >
         {leadingIconNode}
         {labelNode}
         {badgeNode}
         {trailingNode}
+        {indicatorNode}
       </a>
     );
   }
@@ -672,6 +791,10 @@ function SideMenuItem({
   } = rest as SharedButtonProps;
 
   const composedOnClick = (event: MouseEvent<HTMLButtonElement>) => {
+    if (disabled) {
+      event.preventDefault();
+      return;
+    }
     buttonOnClick?.(event);
     if (!event.defaultPrevented) {
       onSelect?.();
@@ -685,15 +808,19 @@ function SideMenuItem({
       type="button"
       title={titleAttr}
       aria-current={ariaCurrent}
+      aria-label={collapsedAriaLabel}
       className={rowClasses}
       onClick={composedOnClick}
       onKeyDown={buttonOnKeyDown}
       {...buttonProps}
+      aria-disabled={disabled || undefined}
+      tabIndex={disabled ? -1 : tabIndex}
     >
       {leadingIconNode}
       {labelNode}
       {badgeNode}
       {trailingNode}
+      {indicatorNode}
     </button>,
   );
 }

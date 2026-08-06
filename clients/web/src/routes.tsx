@@ -342,23 +342,6 @@ export const routeTree = [
     },
   },
 
-  // Voice activity panel: the floating live-voice session surface rendered
-  // inside the Electron window that shows for the length of a session (the
-  // desktop counterpart to the iOS Dynamic Island).
-  // Standalone like the dictation overlay: outside auth middleware and
-  // RootLayout so it paints as soon as the window opens.
-  {
-    path: "/assistant/floating/voice-activity",
-    ErrorBoundary: RouteErrorBoundary,
-    HydrateFallback: RootHydrateFallback,
-    lazy: {
-      Component: () =>
-        import("@/components/voice-activity-panel-page").then(
-          (m) => m.VoiceActivityPanelPage,
-        ),
-    },
-  },
-
   // Companion surface: the always-present floating avatar, rendered inside a
   // transparent Electron canvas that never resizes (LUM-3086). Standalone like
   // the dictation overlay, outside auth middleware and RootLayout, so it paints

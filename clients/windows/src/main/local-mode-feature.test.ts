@@ -1,4 +1,4 @@
-import { expect, mock, test } from "bun:test";
+import { beforeEach, expect, mock, test } from "bun:test";
 
 const once = mock(() => undefined);
 mock.module("electron", () => ({ app: { once } }));
@@ -33,6 +33,10 @@ const { DesktopCapabilityRegistry } =
   await import("@vellumai/electron-desktop/capability-registry");
 const { default: localModeFeature } = await import("./features/local-mode");
 
+beforeEach(() => {
+  mock.clearAllMocks();
+});
+
 test("installs an explicit unavailable surface without runtime providers", () => {
   const registry = new DesktopCapabilityRegistry();
   localModeFeature.install(registry);
@@ -48,7 +52,9 @@ test("installs an explicit unavailable surface without runtime providers", () =>
 test("installs the full runtime when every provider is present", () => {
   const registry = new DesktopCapabilityRegistry();
 
-  const cli = { resolveInvocation: mock(async () => ({ command: "vellum" })) };
+  const cli = {
+    resolveInvocation: mock(async () => ({ command: "vellum", baseArgs: [] })),
+  };
   const paths = {
     configDir: "/config",
     environment: "production",

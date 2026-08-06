@@ -95,7 +95,9 @@ async function printVellum(): Promise<void> {
 
   const applicationId = await discoverApplicationId(token);
 
-  const url = new URL("https://discord.com/api/oauth2/authorize");
+  // Canonical modern form. The legacy `/api/oauth2/authorize` path still
+  // resolves, but Discord documents this one.
+  const url = new URL("https://discord.com/oauth2/authorize");
   url.searchParams.set("client_id", applicationId);
   url.searchParams.set("permissions", computeDefaultPermissions());
   url.searchParams.set("scope", "bot applications.commands");

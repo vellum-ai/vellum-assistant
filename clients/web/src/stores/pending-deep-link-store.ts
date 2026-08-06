@@ -60,7 +60,7 @@ export interface PendingDeepLinkActions {
    * was parked, and when the parked one is older than `maxAgeMs` — a park that
    * was never drained (its navigation bounced off a route guard, say) must not
    * open a full-screen voice session minutes later. Either way the park is
-   * cleared. Used by `drainPendingVoiceStartDeepLink` in the live-voice domain,
+   * cleared. Used by `drainPendingVoiceStart` in the live-voice domain,
    * which owns the age bound.
    */
   consumePendingVoiceStart: (maxAgeMs: number) => boolean;

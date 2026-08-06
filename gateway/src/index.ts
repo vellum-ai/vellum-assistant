@@ -2578,8 +2578,20 @@ async function main() {
           username: event.actor.username,
         }).catch(() => {});
 
-        // Read-only slice: no replyCallbackUrl until the send path exists.
-        handleInbound(config, event).catch((err) => {
+        // Where the assistant posts its reply. The daemon owns Discord egress
+        // directly (`messaging/providers/discord`), so this callback is
+        // resolved to that transport rather than proxied back through here.
+        //
+        // `threadId` carries the thread's own snowflake when the message came
+        // from one: the event's conversation address is the *parent* channel
+        // for a threaded message, and a Discord thread is itself a channel, so
+        // without this param the reply would land outside the thread.
+        const threadId = event.source.threadId;
+        const replyCallbackUrl = threadId
+          ? `${config.gatewayInternalBaseUrl}/deliver/discord?${new URLSearchParams({ threadId })}`
+          : `${config.gatewayInternalBaseUrl}/deliver/discord`;
+
+        handleInbound(config, event, { replyCallbackUrl }).catch((err) => {
           log.error(
             {
               err,
