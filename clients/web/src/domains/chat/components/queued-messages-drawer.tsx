@@ -3,7 +3,6 @@ import { useCallback, useMemo, type ReactNode } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
-import { useSupportsQueueSteering } from "@/lib/backwards-compat/use-supports-queue-steering";
 import { Button } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
@@ -40,7 +39,6 @@ function QueuedMessageRow({
   onEdit,
 }: QueuedMessageRowProps) {
   const preview = useMemo(() => messagePlainText(message), [message]);
-  const supportsSteer = useSupportsQueueSteering();
   return (
     <div className="flex items-center gap-1.5 rounded-md py-0.5 md:gap-2 md:px-2 md:py-1.5">
       {/* Accent bar */}
@@ -58,16 +56,14 @@ function QueuedMessageRow({
 
       {/* Action icons */}
       <div className="flex shrink-0 items-center gap-0.5">
-        {supportsSteer && (
-          <Button
-            variant="ghost"
-            size="compact"
-            className="max-md:h-6 max-md:w-6 max-md:bg-transparent max-md:rounded-md"
-            iconOnly={<ArrowUp className="h-3.5 w-3.5" />}
-            onClick={onSteer}
-            aria-label="Push to agent"
-          />
-        )}
+        <Button
+          variant="ghost"
+          size="compact"
+          className="max-md:h-6 max-md:w-6 max-md:bg-transparent max-md:rounded-md"
+          iconOnly={<ArrowUp className="h-3.5 w-3.5" />}
+          onClick={onSteer}
+          aria-label="Push to agent"
+        />
         {isTail && (
           <Button
             variant="ghost"
