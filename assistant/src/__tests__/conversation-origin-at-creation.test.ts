@@ -83,15 +83,31 @@ describe("inheriting the origin from a parent", () => {
     expect(rawOriginChannel(fork.id)).toBe("vellum");
   });
 
-  test("an unreadable parent falls back to native rather than failing", () => {
-    // Creation is on the inbound critical path: a slightly wrong origin is
-    // recoverable, a thrown insert is not.
+  test("an unreadable parent fails the insert rather than defaulting", () => {
+    // Defaulting here would be a trust grant, not a cosmetic guess:
+    // `recoverRestingTrustContext` recovers INTERNAL_GUARDIAN_TRUST_CONTEXT
+    // for the native channel, so a fork of a remote conversation whose parent
+    // we failed to read would come back as the guardian's own on every later
+    // wake and boot-resume.
+    expect(() =>
+      createConversation({
+        title: "orphan",
+        origin: { inheritFrom: "no-such-conversation" },
+      }),
+    ).toThrow(/Cannot inherit conversation origin/);
+  });
+
+  test("a remote parent's fork does not become native", () => {
+    // The property that matters for trust, stated directly.
+    const parent = createConversation({ title: "parent", origin: "slack" });
+
     const fork = createConversation({
-      title: "orphan",
-      origin: { inheritFrom: "no-such-conversation" },
+      title: "fork",
+      origin: { inheritFrom: parent.id },
     });
 
-    expect(rawOriginChannel(fork.id)).toBe("vellum");
+    expect(rawOriginChannel(fork.id)).not.toBe("vellum");
+    expect(rawOriginChannel(fork.id)).toBe("slack");
   });
 });
 

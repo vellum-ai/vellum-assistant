@@ -1088,12 +1088,16 @@ export function createConversation(
  * `origin_channel`.
  *
  * `inheritFrom` reads the parent's value, which is how a fork, a subagent
- * spawn, or a scheduled wake lands on the surface its parent belongs to. A
- * parent that cannot be read falls back to the native channel rather than
- * throwing: creation is on the critical path for inbound traffic, and a
- * conversation with a slightly wrong origin is recoverable where a failed
- * insert is not. It is logged because it means a caller named a parent that
- * does not exist.
+ * spawn, or a scheduled wake lands on the surface its parent belongs to.
+ *
+ * An unreadable parent throws rather than defaulting. Defaulting here would
+ * be a trust grant, not a cosmetic guess: `recoverRestingTrustContext` reads
+ * this column, and both the native channel and an unset column recover
+ * `INTERNAL_GUARDIAN_TRUST_CONTEXT` on every later wake and boot-resume. So
+ * a fork of a remote conversation whose parent we failed to read would come
+ * back as the guardian's own. Parent ids on this path come from daemon
+ * internals rather than user input, so a missing one is a programming error,
+ * and failing the insert is the fail-closed answer.
  *
  * `undefined` maps to NULL for now, preserving the pre-parameter behavior
  * for call sites still to be migrated. See JARVIS-1466.
@@ -1109,11 +1113,10 @@ function resolveConversationOrigin(
   }
   const inherited = getConversationOriginChannel(origin.inheritFrom);
   if (inherited === null) {
-    log.warn(
-      { parentConversationId: origin.inheritFrom },
-      "Cannot inherit conversation origin from unreadable parent, defaulting to vellum",
+    throw new Error(
+      `Cannot inherit conversation origin from ${origin.inheritFrom}: ` +
+        "parent is missing or its origin is unreadable",
     );
-    return "vellum";
   }
   return inherited;
 }
