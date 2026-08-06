@@ -211,6 +211,13 @@ describe("VoiceSections listening language", () => {
 // Microphone picker
 // ---------------------------------------------------------------------------
 
+/**
+ * Driven with `fireEvent`, matching every other picker test in this repo.
+ * That reaches `Select`'s `onChange` here: neutering the callback in
+ * `select.tsx` fails "choosing System Default clears the saved device",
+ * which is the check worth repeating if these ever start passing suspiciously
+ * easily.
+ */
 describe("VoiceSections microphone picker", () => {
   const MICS: Partial<MediaDeviceInfo>[] = [
     { deviceId: "mic-a", kind: "audioinput", label: "Built-in Mic" },
