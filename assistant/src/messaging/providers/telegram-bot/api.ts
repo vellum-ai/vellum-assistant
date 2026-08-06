@@ -11,7 +11,7 @@ import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyResultAsync } from "../../../security/secure-keys.js";
 import { BackendUnavailableError, ConfigError } from "../../../util/errors.js";
 import { getLogger } from "../../../util/logger.js";
-import { computeRetryDelayMs, isRetryableStatus } from "../retry-policy.js";
+import { retryableCall } from "../retry-policy.js";
 
 const log = getLogger("telegram-api");
 
@@ -72,115 +72,58 @@ interface TelegramApiResponse<T> {
   parameters?: { retry_after?: number };
 }
 
-async function retryableFetch<T>(
+/** The Bot API envelope, or undefined when the body is not JSON. */
+function parseTelegramBody<T>(
+  body: string,
+): TelegramApiResponse<T> | undefined {
+  try {
+    return JSON.parse(body) as TelegramApiResponse<T>;
+  } catch {
+    return undefined;
+  }
+}
+
+function telegramCall<T>(
   method: string,
   doFetch: () => Promise<Response>,
 ): Promise<T> {
-  let lastError: Error | null = null;
-  let lastRetryAfter: string | null = null;
-
-  for (let attempt = 0; attempt <= TELEGRAM_DEFAULT_MAX_RETRIES; attempt++) {
-    if (attempt > 0) {
-      const delay = computeRetryDelayMs(
-        attempt,
-        TELEGRAM_DEFAULT_INITIAL_BACKOFF_MS,
-        lastRetryAfter,
-      );
-      log.debug({ attempt, delay, method }, "Retrying Telegram API call");
-      await new Promise((r) => setTimeout(r, delay));
-    }
-
-    lastRetryAfter = null;
-
-    let response: Response;
-    try {
-      response = await doFetch();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      lastError = new Error(
-        `Telegram ${method} request failed: ${redactBotTokens(message)}`,
-      );
-      log.warn(
-        { error: redactBotTokens(message), attempt, method },
-        "Telegram API fetch failed",
-      );
-      continue;
-    }
-
-    if (!isRetryableStatus(response.status) && !response.ok) {
-      const body = await response.text().catch(() => "");
-      let description: string | undefined;
-      try {
-        const data = JSON.parse(body) as TelegramApiResponse<T>;
-        description = data.description;
-      } catch {
-        // not JSON
+  return retryableCall<T>({
+    provider: "Telegram",
+    operation: method,
+    maxRetries: TELEGRAM_DEFAULT_MAX_RETRIES,
+    initialBackoffMs: TELEGRAM_DEFAULT_INITIAL_BACKOFF_MS,
+    log,
+    doFetch,
+    // Telegram errors can echo the bot token, which is in the request URL.
+    redact: redactBotTokens,
+    detailFrom: (body) => parseTelegramBody<T>(body)?.description,
+    retryAfterFrom: (_response, body) => {
+      const retryAfter = parseTelegramBody<T>(body)?.parameters?.retry_after;
+      return retryAfter != null ? String(retryAfter) : null;
+    },
+    nonRetryableError: ({ message, detail }) =>
+      new TelegramNonRetryableError(message, detail),
+    decode: (body, response) => {
+      const data = parseTelegramBody<T>(body);
+      if (!data) {
+        throw new Error(
+          body
+            ? `Telegram ${method} failed: unparseable response body: ${redactBotTokens(body)}`
+            : `Telegram ${method} failed with status ${response.status}: empty response`,
+        );
       }
-      const message = description
-        ? `Telegram ${method} failed: ${description}`
-        : body
-          ? `Telegram ${method} failed with status ${response.status}: ${redactBotTokens(body)}`
-          : `Telegram ${method} failed with status ${response.status}`;
-
-      throw new TelegramNonRetryableError(message, description);
-    }
-
-    if (isRetryableStatus(response.status)) {
-      const body = await response.text().catch(() => "");
-      let description: string | undefined;
-      let retryAfterParam: number | undefined;
-      try {
-        const data = JSON.parse(body) as TelegramApiResponse<T>;
-        description = data.description;
-        retryAfterParam = data.parameters?.retry_after;
-      } catch {
-        // not JSON
-      }
-      lastRetryAfter =
-        response.headers.get("retry-after") ??
-        (retryAfterParam != null ? String(retryAfterParam) : null);
-      lastError = new Error(
-        description
-          ? `Telegram ${method} failed: ${description}`
-          : body
-            ? `Telegram ${method} failed with status ${response.status}: ${redactBotTokens(body)}`
+      // A 200 can still carry a failure: the Bot API reports it in the
+      // envelope rather than the status.
+      if (!data.ok || data.result === undefined) {
+        throw new Error(
+          data.description
+            ? `Telegram ${method} failed: ${data.description}`
             : `Telegram ${method} failed with status ${response.status}`,
-      );
-      log.warn(
-        {
-          status: response.status,
-          attempt,
-          method,
-          retryAfter: lastRetryAfter,
-        },
-        "Telegram API returned retryable error",
-      );
-      continue;
-    }
-
-    const body = await response.text().catch(() => "");
-    let data: TelegramApiResponse<T>;
-    try {
-      data = JSON.parse(body) as TelegramApiResponse<T>;
-    } catch {
-      throw new Error(
-        body
-          ? `Telegram ${method} failed: unparseable response body: ${redactBotTokens(body)}`
-          : `Telegram ${method} failed with status ${response.status}: empty response`,
-      );
-    }
-    if (!data.ok || data.result === undefined) {
-      throw new Error(
-        data.description
-          ? `Telegram ${method} failed: ${data.description}`
-          : `Telegram ${method} failed with status ${response.status}`,
-      );
-    }
-
-    return data.result;
-  }
-
-  throw lastError ?? new Error(`Telegram ${method} failed after retries`);
+        );
+      }
+      return data.result;
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -224,7 +167,7 @@ export async function callTelegramBotApi<T>(
   body: Record<string, unknown>,
 ): Promise<T> {
   const botToken = await resolveBotToken();
-  return retryableFetch<T>(method, () =>
+  return telegramCall<T>(method, () =>
     fetch(`${TELEGRAM_API_BASE}/bot${botToken}/${method}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -242,7 +185,7 @@ export async function callTelegramBotApiMultipart<T>(
   form: FormData,
 ): Promise<T> {
   const botToken = await resolveBotToken();
-  return retryableFetch<T>(method, () =>
+  return telegramCall<T>(method, () =>
     fetch(`${TELEGRAM_API_BASE}/bot${botToken}/${method}`, {
       method: "POST",
       body: form,

@@ -17,7 +17,7 @@ import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyResultAsync } from "../../../security/secure-keys.js";
 import { BackendUnavailableError, ConfigError } from "../../../util/errors.js";
 import { getLogger } from "../../../util/logger.js";
-import { computeRetryDelayMs, isRetryableStatus } from "../retry-policy.js";
+import { retryableCall } from "../retry-policy.js";
 
 const log = getLogger("discord-api");
 
@@ -90,14 +90,48 @@ function parseErrorBody(body: string): DiscordErrorBody {
  * Discord carries it in the 429 JSON body as well as the header, in seconds
  * (fractional) either way, and the body is the more precise of the two.
  */
-function retryAfterFrom(
-  response: Response,
-  body: DiscordErrorBody,
-): string | null {
-  if (typeof body.retry_after === "number" && body.retry_after > 0) {
-    return String(body.retry_after);
-  }
-  return response.headers.get("retry-after");
+function retryAfterFrom(_response: Response, body: string): string | null {
+  const parsed = parseErrorBody(body);
+  return typeof parsed.retry_after === "number" && parsed.retry_after > 0
+    ? String(parsed.retry_after)
+    : null;
+}
+
+/**
+ * Run a Discord REST call with retries.
+ *
+ * `T | undefined` because an endpoint may answer 204 with no body; callers
+ * that need a response shape assert on it themselves.
+ */
+function discordCall<T>(
+  route: string,
+  doFetch: () => Promise<Response>,
+): Promise<T | undefined> {
+  return retryableCall<T | undefined>({
+    provider: "Discord",
+    operation: route,
+    maxRetries: DISCORD_DEFAULT_MAX_RETRIES,
+    initialBackoffMs: DISCORD_DEFAULT_INITIAL_BACKOFF_MS,
+    maxDelayMs: DISCORD_MAX_RETRY_AFTER_MS,
+    log,
+    doFetch,
+    detailFrom: (body) => parseErrorBody(body).message,
+    retryAfterFrom,
+    nonRetryableError: ({ status, message }) =>
+      new DiscordNonRetryableError(status, message),
+    decode: (body) => {
+      if (!body) {
+        return undefined;
+      }
+      try {
+        return JSON.parse(body) as T;
+      } catch {
+        throw new Error(
+          `Discord ${route} returned an unparseable response body`,
+        );
+      }
+    },
+  });
 }
 
 /**
@@ -109,86 +143,6 @@ function retryAfterFrom(
  * `T | undefined` because an endpoint may answer 204 with no body; callers
  * that need a response shape assert on it themselves.
  */
-async function retryableFetch<T>(
-  route: string,
-  doFetch: () => Promise<Response>,
-): Promise<T | undefined> {
-  let lastError: Error | null = null;
-  let retryAfter: string | null = null;
-
-  for (let attempt = 0; attempt <= DISCORD_DEFAULT_MAX_RETRIES; attempt++) {
-    if (attempt > 0) {
-      const delay = computeRetryDelayMs(
-        attempt,
-        DISCORD_DEFAULT_INITIAL_BACKOFF_MS,
-        retryAfter,
-        DISCORD_MAX_RETRY_AFTER_MS,
-      );
-      log.debug({ attempt, delay, route }, "Retrying Discord API call");
-      await new Promise((resolve) => setTimeout(resolve, delay));
-    }
-
-    retryAfter = null;
-
-    let response: Response;
-    try {
-      response = await doFetch();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      lastError = new Error(`Discord ${route} request failed: ${message}`);
-      log.warn({ error: message, attempt, route }, "Discord API fetch failed");
-      continue;
-    }
-
-    if (response.ok) {
-      const body = await response.text().catch(() => "");
-      // A 204 or any empty body is success with nothing to decode.
-      if (!body) {
-        return undefined;
-      }
-      try {
-        return JSON.parse(body) as T;
-      } catch {
-        throw new Error(
-          `Discord ${route} returned an unparseable response body`,
-        );
-      }
-    }
-
-    const body = await response.text().catch(() => "");
-    const parsed = parseErrorBody(body);
-    const detail = parsed.message ?? body;
-
-    if (isRetryableStatus(response.status)) {
-      retryAfter = retryAfterFrom(response, parsed);
-      lastError = new Error(
-        detail
-          ? `Discord ${route} failed with status ${response.status}: ${detail}`
-          : `Discord ${route} failed with status ${response.status}`,
-      );
-      log.warn(
-        {
-          status: response.status,
-          attempt,
-          route,
-          retryAfter,
-          global: parsed.global,
-        },
-        "Discord API returned retryable error",
-      );
-      continue;
-    }
-
-    throw new DiscordNonRetryableError(
-      response.status,
-      detail
-        ? `Discord ${route} failed with status ${response.status}: ${detail}`
-        : `Discord ${route} failed with status ${response.status}`,
-    );
-  }
-
-  throw lastError ?? new Error(`Discord ${route} failed after retries`);
-}
 
 // ---------------------------------------------------------------------------
 // Credential resolution
@@ -227,7 +181,7 @@ export async function callDiscordApi<T>(
   body: Record<string, unknown>,
 ): Promise<T | undefined> {
   const botToken = await resolveBotToken();
-  return retryableFetch<T>(route, () =>
+  return discordCall<T>(route, () =>
     fetch(`${DISCORD_API_BASE_URL}${route}`, {
       method,
       headers: {
@@ -252,7 +206,7 @@ export async function callDiscordApiMultipart<T>(
   form: FormData,
 ): Promise<T | undefined> {
   const botToken = await resolveBotToken();
-  return retryableFetch<T>(route, () =>
+  return discordCall<T>(route, () =>
     fetch(`${DISCORD_API_BASE_URL}${route}`, {
       method: "POST",
       headers: {
