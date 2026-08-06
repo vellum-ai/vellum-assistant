@@ -455,8 +455,15 @@ function isDocumentMutationCall(toolCall: ChatMessageToolCall): boolean {
  * Extract the `surface_id` a mutating document tool call wrote to. The
  * executors return `JSON.stringify({ ..., surface_id })` (see
  * `assistant/src/tools/document/document-tool.ts`). Returns `undefined` for a
- * non-document call, a call that failed, or a non-JSON/malformed result, so
- * callers anchor only on documents that really changed.
+ * non-document call, a call that failed, a replace that matched nothing, or a
+ * non-JSON/malformed result, so callers anchor only on documents that really
+ * changed.
+ *
+ * Only `document_replace_text` reports `content_changed`, and it succeeds with
+ * `content_changed: false` when `find` matched nothing. `document_create` and
+ * `document_update` omit the field and always write, so an absent field reads
+ * as changed and only an explicit `false` rejects the call. That matches the
+ * daemon, which emits `document_editor_update` on the same condition.
  */
 function extractDocumentSurfaceIdFromResult(
   toolCall: ChatMessageToolCall,
@@ -468,7 +475,13 @@ function extractDocumentSurfaceIdFromResult(
     return undefined;
   }
   try {
-    const parsed = JSON.parse(toolCall.result) as { surface_id?: unknown };
+    const parsed = JSON.parse(toolCall.result) as {
+      surface_id?: unknown;
+      content_changed?: unknown;
+    };
+    if (parsed.content_changed === false) {
+      return undefined;
+    }
     return typeof parsed.surface_id === "string" && parsed.surface_id !== ""
       ? parsed.surface_id
       : undefined;

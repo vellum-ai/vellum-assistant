@@ -235,4 +235,60 @@ describe("resolveChangedDocuments", () => {
     });
     expect(resolveChangedDocuments([tc], new Set())).toEqual([]);
   });
+
+  test("ignores a replace that succeeded without changing content", () => {
+    // document_replace_text succeeds with content_changed: false when `find`
+    // matched nothing, so the document is unchanged.
+    const tc = docCall("tc-a", "document_replace_text", "doc-1", {
+      result: JSON.stringify({
+        success: true,
+        surface_id: "doc-1",
+        replacements_made: 0,
+        content_changed: false,
+      }),
+    });
+    expect(resolveChangedDocuments([tc], new Set())).toEqual([]);
+  });
+
+  test("resolves a replace that reports content_changed", () => {
+    const tc = docCall("tc-a", "document_replace_text", "doc-1", {
+      result: JSON.stringify({
+        success: true,
+        surface_id: "doc-1",
+        replacements_made: 2,
+        content_changed: true,
+      }),
+    });
+    expect(resolveChangedDocuments([tc], new Set())).toEqual(["doc-1"]);
+  });
+
+  test("resolves create and update results, which omit content_changed", () => {
+    const calls = [
+      call({
+        id: "tc-a",
+        name: "document_create",
+        input: { title: "Notes" },
+        result: JSON.stringify({
+          success: true,
+          surface_id: "doc-1",
+          message: "Document created",
+        }),
+      }),
+      call({
+        id: "tc-b",
+        name: "document_update",
+        input: { surface_id: "doc-2" },
+        result: JSON.stringify({
+          success: true,
+          surface_id: "doc-2",
+          mode: "append",
+          message: "Document content updated",
+        }),
+      }),
+    ];
+    expect(resolveChangedDocuments(calls, new Set())).toEqual([
+      "doc-1",
+      "doc-2",
+    ]);
+  });
 });
