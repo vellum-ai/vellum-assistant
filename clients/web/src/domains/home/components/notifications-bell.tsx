@@ -184,13 +184,41 @@ export function NotificationsBell() {
     }
   }, []);
 
+  // Radix restores focus to the trigger when the popover closes, and Radix
+  // Tooltip opens on focus unless the focus followed a pointerdown on the
+  // trigger itself. Closing by clicking inside the panel (or outside it) puts
+  // focus back on the bell while the cursor is somewhere else entirely, so the
+  // "Notifications" tooltip springs open with no pointerleave ever coming to
+  // dismiss it, and it then rides along over whatever the click navigated to.
+  // This ref marks those pointer-driven closes so the focus restore can be
+  // skipped; Escape still restores focus, which keyboard users need to keep
+  // their place in the top bar. Same shape as the fix in the design library's
+  // `Menu.Content`.
+  //
+  // Not covered by a test: happy-dom's `fireEvent.click` never moves focus, so
+  // the FocusScope this turns on captures `<body>` rather than the trigger and
+  // no test in this file can reproduce the restore. Verified in Chromium
+  // instead. Unguarded left the tooltip open indefinitely after the close,
+  // guarded left it shut, and Escape still landed focus back on the trigger.
+  const closedByPointerRef = useRef(false);
+
   const handleOpenChange = (open: boolean) => {
     setIsOpen(open);
-    if (!open) {
+    if (open) {
+      // Reopening starts a fresh close cycle. Guards against a stale `true`
+      // left behind by a close whose focus restore never ran.
+      closedByPointerRef.current = false;
+    } else {
       // Reopening always lands on the list, at the top.
       setSelectedItemId(null);
       listScrollTopRef.current = 0;
     }
+  };
+
+  // Every in-panel close is a click, so each one needs the tooltip suppressed.
+  const closePanelFromPointer = () => {
+    closedByPointerRef.current = true;
+    handleOpenChange(false);
   };
 
   const handleSelectItem = (item: FeedItem) => {
@@ -201,12 +229,12 @@ export function NotificationsBell() {
   };
 
   const handleGoToConversation = (conversationId: string) => {
-    handleOpenChange(false);
+    closePanelFromPointer();
     navigateToConversation(navigate, conversationId);
   };
 
   const handleViewSchedule = (scheduleId: string) => {
-    handleOpenChange(false);
+    closePanelFromPointer();
     navigate(routes.schedules.detail(scheduleId));
   };
 
@@ -237,7 +265,7 @@ export function NotificationsBell() {
       { itemId: selectedItem.id, actionId },
       {
         onSuccess: (data) => {
-          handleOpenChange(false);
+          closePanelFromPointer();
           navigateToConversation(navigate, data.conversationId);
         },
         onError: () => {
@@ -436,6 +464,15 @@ export function NotificationsBell() {
           const content = event.currentTarget as HTMLElement | null;
           event.preventDefault();
           content?.focus();
+        }}
+        onPointerDownOutside={() => {
+          closedByPointerRef.current = true;
+        }}
+        onCloseAutoFocus={(event) => {
+          if (closedByPointerRef.current) {
+            closedByPointerRef.current = false;
+            event.preventDefault();
+          }
         }}
         className="w-96 max-w-[calc(100vw-2rem)] rounded-lg p-2"
       >
