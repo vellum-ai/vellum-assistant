@@ -9,6 +9,8 @@
 
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
+import { parseChannelId } from "../channels/types.js";
+import { setConversationOriginChannelIfUnset } from "./conversation-crud.js";
 import { getDb } from "./db-connection.js";
 import { externalConversationBindings } from "./schema/index.js";
 
@@ -70,6 +72,13 @@ export function upsertBinding(input: UpsertBindingInput): void {
     externalThreadId,
   );
   if (existing && existing.conversationId !== input.conversationId) {
+    const originChannel = parseChannelId(existing.sourceChannel);
+    if (originChannel) {
+      setConversationOriginChannelIfUnset(
+        existing.conversationId,
+        originChannel,
+      );
+    }
     db.delete(externalConversationBindings)
       .where(
         eq(
@@ -136,6 +145,13 @@ export function upsertOutboundBinding(input: {
     externalThreadId,
   );
   if (existing && existing.conversationId !== input.conversationId) {
+    const originChannel = parseChannelId(existing.sourceChannel);
+    if (originChannel) {
+      setConversationOriginChannelIfUnset(
+        existing.conversationId,
+        originChannel,
+      );
+    }
     db.delete(externalConversationBindings)
       .where(
         eq(

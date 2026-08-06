@@ -20,12 +20,14 @@ import {
   countRecentSendsToDestination,
   createOutboundSession,
   findActiveSession,
+  registerTelegramVerificationTopic,
   updateSessionDelivery,
   updateSessionStatus,
 } from "../channels/gateway-verification-sessions.js";
 import type { ChannelId } from "../channels/types.js";
 import { sendSlackReply } from "../messaging/providers/slack/send.js";
 import { sendTelegramReply } from "../messaging/providers/telegram-bot/send.js";
+import { resolveVerificationThreadId } from "../messaging/providers/telegram-bot/verification-topic.js";
 import { getTelegramBotUsername } from "../telegram/bot-username.js";
 import { getLogger } from "../util/logger.js";
 import { normalizePhoneNumber } from "../util/phone.js";
@@ -157,9 +159,25 @@ export function deliverVerificationTelegram(
 ): void {
   (async () => {
     try {
-      await sendTelegramReply(chatId, text);
+      const messageThreadId = await resolveVerificationThreadId(chatId);
+      if (messageThreadId) {
+        try {
+          await registerTelegramVerificationTopic(chatId, messageThreadId);
+        } catch (err) {
+          log.warn(
+            { err, chatId, messageThreadId },
+            "Failed to register Telegram verification topic for teardown",
+          );
+        }
+      }
+      await sendTelegramReply(
+        chatId,
+        text,
+        undefined,
+        messageThreadId ? { messageThreadId } : undefined,
+      );
       log.info(
-        { chatId, assistantId },
+        { chatId, assistantId, messageThreadId },
         "Verification Telegram message delivered",
       );
     } catch (err) {

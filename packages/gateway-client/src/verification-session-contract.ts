@@ -130,6 +130,7 @@ export const VERIFICATION_SESSIONS_IPC_METHODS = {
   bindIdentity: "verification_sessions_bind_identity",
   updateStatus: "verification_sessions_update_status",
   updateDelivery: "verification_sessions_update_delivery",
+  registerTelegramTopic: "verification_sessions_register_telegram_topic",
   countRecentSends: "verification_sessions_count_recent_sends",
   revokePending: "verification_sessions_revoke_pending",
   validateConsume: "verification_sessions_validate_consume",
@@ -330,6 +331,16 @@ export const UpdateSessionDeliveryIpcParamsSchema = z.object({
 
 export type UpdateSessionDeliveryIpcParams = z.infer<
   typeof UpdateSessionDeliveryIpcParamsSchema
+>;
+
+/** Request for `verification_sessions_register_telegram_topic`. */
+export const RegisterTelegramVerificationTopicIpcParamsSchema = z.object({
+  chatId: z.string().min(1),
+  threadId: z.string().min(1),
+});
+
+export type RegisterTelegramVerificationTopicIpcParams = z.infer<
+  typeof RegisterTelegramVerificationTopicIpcParamsSchema
 >;
 
 /** Request for `verification_sessions_count_recent_sends`. */

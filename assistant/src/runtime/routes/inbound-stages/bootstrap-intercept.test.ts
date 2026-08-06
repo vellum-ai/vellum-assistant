@@ -43,6 +43,16 @@ mock.module("../../verification-outbound-actions.js", () => ({
   RESEND_COOLDOWN_MS: 60_000,
 }));
 
+const resolveVerificationThreadIdMock = mock(
+  async () => undefined as string | undefined,
+);
+mock.module(
+  "../../../messaging/providers/telegram-bot/verification-topic.js",
+  () => ({
+    resolveVerificationThreadId: resolveVerificationThreadIdMock,
+  }),
+);
+
 import type { VerificationSessionWire } from "../../../channels/gateway-verification-sessions.js";
 import type { BootstrapInterceptParams } from "./bootstrap-intercept.js";
 import { handleBootstrapIntercept } from "./bootstrap-intercept.js";
@@ -70,6 +80,8 @@ beforeEach(() => {
     status: "pending_bootstrap",
   };
   telegramReplies.length = 0;
+  resolveVerificationThreadIdMock.mockClear();
+  resolveVerificationThreadIdMock.mockImplementation(async () => undefined);
 });
 
 describe("handleBootstrapIntercept", () => {
@@ -257,5 +269,22 @@ describe("handleBootstrapIntercept", () => {
     const result = await handleBootstrapIntercept(makeParams());
 
     expect(result).toMatchObject({ verificationOutcome: "bootstrap_bound" });
+  });
+
+  test("returns verificationThreadId when threaded-mode bootstrap creates a topic", async () => {
+    resolveVerificationThreadIdMock.mockImplementation(
+      async () => "thread-777",
+    );
+
+    const result = await handleBootstrapIntercept(makeParams());
+
+    expect(result).toEqual({
+      accepted: true,
+      duplicate: false,
+      eventId: "event-1",
+      verificationOutcome: "bootstrap_bound",
+      verificationThreadId: "thread-777",
+    });
+    expect(resolveVerificationThreadIdMock).toHaveBeenCalledWith("chat-123");
   });
 });

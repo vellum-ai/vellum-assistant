@@ -79,6 +79,11 @@ const TelegramFromSchema = z
   .optional()
   .catch(undefined);
 
+const TelegramForumTopicEditedSchema = z.object({
+  name: optionalString(),
+  icon_custom_emoji_id: optionalString(),
+});
+
 const TelegramMessageSchema = z.object({
   message_id: optionalNumber(),
   message_thread_id: optionalNumber(),
@@ -93,6 +98,7 @@ const TelegramMessageSchema = z.object({
   document: TelegramDocumentSchema.optional().catch(undefined),
   voice: TelegramVoiceSchema.optional().catch(undefined),
   audio: TelegramAudioSchema.optional().catch(undefined),
+  forum_topic_edited: TelegramForumTopicEditedSchema.optional().catch(undefined),
 });
 type TelegramMessage = z.infer<typeof TelegramMessageSchema>;
 
@@ -207,12 +213,14 @@ export function normalizeTelegramUpdate(
   const isEdit = !update.message && !!update.edited_message;
   const message = update.message ?? update.edited_message;
 
+  const isForumTopicEdited = !!message?.forum_topic_edited;
   const hasContent = !!(
     message?.text ||
     message?.photo ||
     message?.document ||
     message?.voice ||
-    message?.audio
+    message?.audio ||
+    isForumTopicEdited
   );
   if (!hasContent || !message?.chat?.id || updateId == null) {
     return null;
@@ -236,6 +244,37 @@ export function normalizeTelegramUpdate(
     .trim();
 
   const topicThreadId = threadIdFromMessage(message);
+
+  if (isForumTopicEdited) {
+    const editedName = message.forum_topic_edited?.name?.trim() ?? "";
+    return {
+      version: "v1",
+      sourceChannel: "telegram",
+      receivedAt: new Date().toISOString(),
+      message: {
+        content: editedName,
+        conversationExternalId: String(message.chat.id),
+        externalMessageId: String(updateId),
+      },
+      actor: {
+        actorExternalId,
+        username: message.from?.username,
+        displayName: displayName || undefined,
+        firstName: message.from?.first_name,
+        lastName: message.from?.last_name,
+        languageCode: message.from?.language_code,
+        isBot: message.from?.is_bot,
+      },
+      source: {
+        updateId: String(updateId),
+        messageId:
+          message.message_id != null ? String(message.message_id) : undefined,
+        chatType: message.chat.type,
+        ...(topicThreadId ? { threadId: topicThreadId } : {}),
+      },
+      raw: payload,
+    };
+  }
 
   const content = message.text || message.caption || "";
 
@@ -311,6 +350,15 @@ export function normalizeTelegramUpdate(
     },
     raw: payload,
   };
+}
+
+export function isTelegramForumTopicEdited(
+  event: GatewayInboundEvent,
+): boolean {
+  const rawMessage = (
+    event.raw as { message?: { forum_topic_edited?: unknown } }
+  ).message;
+  return rawMessage?.forum_topic_edited != null;
 }
 
 // ---------------------------------------------------------------------------

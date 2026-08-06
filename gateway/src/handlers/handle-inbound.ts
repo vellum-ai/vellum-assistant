@@ -30,6 +30,10 @@ export type InboundResult = {
   forwarded: boolean;
   rejected: boolean;
   verificationIntercepted?: boolean;
+  /** Outcome of the verification intercept when it fired. */
+  verificationOutcome?: "verified" | "failed";
+  /** Trust class established by a successful verification intercept. */
+  verificationTrustClass?: "guardian" | "trusted_contact";
   /** Reply text when the verification intercept couldn't deliver (no replyCallbackUrl). */
   verificationReplyText?: string;
   inviteIntercepted?: boolean;
@@ -63,6 +67,16 @@ export type HandleInboundOptions = {
    * result, and preserves the resolved verdict.
    */
   senderAuthenticated?: boolean;
+  /**
+   * When true, gateway verification/invite intercepts do NOT deliver their
+   * reply via `replyCallbackUrl` — they return the reply text in
+   * `verificationReplyText` / `inviteReplyText` so the caller sends it on the
+   * channel directly. Used by channels whose outbound delivery the gateway
+   * owns in-process (Telegram sends via the bot API; there is no working
+   * `/deliver/telegram` HTTP endpoint) while still forwarding non-intercepted
+   * messages to the runtime via `replyCallbackUrl`.
+   */
+  deliverInterceptRepliesViaCaller?: boolean;
 };
 
 function normalizeTransportHints(hints: string[] | undefined): string[] {
@@ -138,6 +152,13 @@ export async function handleInbound(
 
   const displayName = event.actor.displayName || event.actor.username;
 
+  // Channels that own outbound delivery in-process (Telegram) send intercept
+  // replies themselves, so the intercept must return the text rather than
+  // POST it to a non-existent /deliver/* endpoint.
+  const interceptReplyCallbackUrl = options?.deliverInterceptRepliesViaCaller
+    ? undefined
+    : options?.replyCallbackUrl;
+
   // ── Text verification intercept ──
   // Must run before forwardToRuntime so the assistant never sees
   // verification code messages. Both success and failure short-circuit.
@@ -148,7 +169,7 @@ export async function handleInbound(
     actorChatId: event.message.conversationExternalId,
     actorDisplayName: event.actor.displayName,
     actorUsername: event.actor.username,
-    replyCallbackUrl: options?.replyCallbackUrl,
+    replyCallbackUrl: interceptReplyCallbackUrl,
     assistantId: routing.assistantId,
   });
 
@@ -165,6 +186,8 @@ export async function handleInbound(
       forwarded: false,
       rejected: false,
       verificationIntercepted: true,
+      verificationOutcome: verificationResult.outcome,
+      verificationTrustClass: verificationResult.trustClass,
       verificationReplyText: verificationResult.pendingReplyText,
     };
   }
@@ -234,7 +257,7 @@ export async function handleInbound(
       actorChatId: event.message.conversationExternalId,
       actorDisplayName: event.actor.displayName,
       actorUsername: event.actor.username,
-      replyCallbackUrl: options?.replyCallbackUrl,
+      replyCallbackUrl: interceptReplyCallbackUrl,
       assistantId: routing.assistantId,
       trustVerdict,
     });

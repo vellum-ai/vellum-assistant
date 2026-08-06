@@ -116,7 +116,7 @@ afterEach(() => {
 });
 
 describe("route registration", () => {
-  test("registers all 11 verification_sessions_* methods, each with a schema", () => {
+  test("registers all 12 verification_sessions_* methods, each with a schema", () => {
     expect(verificationSessionRoutes.map((r) => r.method).sort()).toEqual(
       Object.values(METHODS).sort(),
     );
@@ -547,6 +547,22 @@ describe("verification_sessions_validate_consume", () => {
   });
 });
 
+describe("verification_sessions_register_telegram_topic", () => {
+  test("returns ok without touching the session store", async () => {
+    const result = await call(METHODS.registerTelegramTopic, {
+      chatId: "tg-chat-1",
+      threadId: "4242",
+    });
+    expect(result).toEqual({ ok: true });
+
+    const rows = getGatewayDb()
+      .select()
+      .from(channelVerificationSessions)
+      .all();
+    expect(rows).toHaveLength(0);
+  });
+});
+
 describe("schema rejection", () => {
   test("malformed params → 400 BAD_REQUEST without touching the store", async () => {
     const badCalls: Array<[string, Record<string, unknown>]> = [
@@ -558,6 +574,7 @@ describe("schema rejection", () => {
       [METHODS.bindIdentity, { sessionId: "s-1", externalUserId: "u" }],
       [METHODS.updateStatus, { sessionId: "s-1", status: "not-a-status" }],
       [METHODS.updateDelivery, { sessionId: "s-1", lastSentAt: 1 }],
+      [METHODS.registerTelegramTopic, { chatId: "", threadId: "1" }],
       [
         METHODS.countRecentSends,
         { channel: "phone", destinationAddress: "+15555550142", windowMs: -1 },

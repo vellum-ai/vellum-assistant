@@ -18,18 +18,58 @@ import {
 import {
   AttachmentValidationError,
   CircuitBreakerOpenError,
+  createTelegramVerificationThread,
   uploadAttachment,
 } from "../../runtime/client.js";
+import { resolveGuardianDelivery } from "../../risk/guardian-delivery-resolver.js";
 import { callTelegramApi } from "../../telegram/api.js";
 import { downloadTelegramFile } from "../../telegram/download.js";
-import { normalizeTelegramUpdate } from "../../telegram/normalize.js";
+import {
+  normalizeTelegramUpdate,
+  isTelegramForumTopicEdited,
+} from "../../telegram/normalize.js";
 import { sendTelegramReply } from "../../telegram/send.js";
+import {
+  forgetVerificationTopic,
+  isVerificationTopic,
+  rememberVerificationTopic,
+} from "../../telegram/verification-topic-registry.js";
+import {
+  handleTelegramAccessCallback,
+  handleTelegramAccessCommand,
+  handleTelegramArchiveCommand,
+  handleTelegramForkCommand,
+  handleTelegramForumTopicEdited,
+  handleTelegramHelpCommand,
+  handleTelegramProfileCallback,
+  handleTelegramProfileCommand,
+  handleTelegramRenameCommand,
+  handleTelegramStopCommand,
+  parseTelegramAccessCallback,
+  parseTelegramAccessCommand,
+  parseTelegramArchiveCommand,
+  parseTelegramForkCommand,
+  parseTelegramHelpCommand,
+  parseTelegramProfileCallback,
+  parseTelegramProfileCommand,
+  parseTelegramRenameCommand,
+  parseTelegramStopCommand,
+} from "../../telegram/topic-commands.js";
+import {
+  buildTelegramDeliverUrl,
+  telegramSendOpts,
+} from "../../telegram/topics.js";
 import { verifyWebhookSecret } from "../../telegram/verify.js";
+import { composeVerificationSuccessReply } from "../../verification/reply-delivery.js";
 import {
   ROUTING_REJECTION_NOTICE,
   SERVICE_UNAVAILABLE_ERROR,
 } from "../../webhook-copy.js";
-import { handleNewCommand, isNewCommand } from "../../webhook-pipeline.js";
+import {
+  handleNewCommand,
+  interceptedReply,
+  isNewCommand,
+} from "../../webhook-pipeline.js";
 
 const log = getLogger("telegram-webhook");
 
@@ -272,6 +312,56 @@ export function createTelegramWebhookHandler(
       return callbackData.startsWith("apr:");
     };
 
+    // Threaded mode: a verification code confirmed inside a dedicated
+    // "Verification" topic. Delete the topic (removing the now-consumed code)
+    // and re-post the success confirmation to the main chat so it survives the
+    // topic removal.
+    const closeVerificationTopic = async (
+      chatId: string,
+      threadId: string,
+      trustClass: "guardian" | "trusted_contact" | undefined,
+    ): Promise<void> => {
+      const parsedThreadId = Number(threadId);
+      if (!Number.isFinite(parsedThreadId)) return;
+      const opts = {
+        credentials: caches?.credentials,
+        configFile: caches?.configFile,
+      };
+      // Await the topic deletion before confirming in the main chat so the
+      // success reply can never land before the consumed code's topic is torn
+      // down. Running them concurrently made message ordering unpredictable —
+      // the "verified" confirmation could appear while the code was still
+      // visible in a not-yet-deleted topic. A delete failure is logged but not
+      // fatal: verification already succeeded, so the confirmation is still
+      // sent.
+      try {
+        await callTelegramApi(
+          "deleteForumTopic",
+          { chat_id: chatId, message_thread_id: parsedThreadId },
+          opts,
+        );
+      } catch (err) {
+        tlog.error(
+          { err, chatId, threadId },
+          "Failed to delete Telegram verification topic",
+        );
+      }
+      try {
+        await sendTelegramReply(
+          config,
+          chatId,
+          composeVerificationSuccessReply(trustClass),
+          undefined,
+          opts,
+        );
+      } catch (err) {
+        tlog.error(
+          { err, chatId },
+          "Failed to send verification success confirmation to main chat",
+        );
+      }
+    };
+
     // Normalize the update
     const normalized = normalizeTelegramUpdate(payload);
     if (!normalized) {
@@ -298,25 +388,149 @@ export function createTelegramWebhookHandler(
       "Webhook received",
     );
 
-    // Private-chat topic scoping: when the inbound message belongs to a topic,
-    // the reply callback URL carries the thread id (the Telegram analog of
-    // Slack's `?threadTs=`) so the runtime's transport echoes it on outbound
-    // sends, and the gateway's own direct replies target the same topic.
-    // Messages outside a topic keep the bare URL and thread-less sends.
     const topicThreadId = normalized.source.threadId;
-    const threadOpts = topicThreadId
-      ? { messageThreadId: topicThreadId }
-      : undefined;
-    // Every gateway direct reply in this handler targets the same topic (or
-    // main chat) as the inbound message — one decision, made once.
-    const replyOpts = {
-      credentials: caches?.credentials,
-      configFile: caches?.configFile,
-      ...threadOpts,
-    };
-    const replyCallbackUrl = topicThreadId
-      ? `${config.gatewayInternalBaseUrl}/deliver/telegram?${new URLSearchParams({ threadId: topicThreadId })}`
-      : `${config.gatewayInternalBaseUrl}/deliver/telegram`;
+    const sendOpts = telegramSendOpts(caches, topicThreadId);
+    const actorExternalId =
+      normalized.actor.actorExternalId ??
+      normalized.message.conversationExternalId;
+
+    if (isTelegramForumTopicEdited(normalized)) {
+      await handleTelegramForumTopicEdited({
+        config,
+        chatId: normalized.message.conversationExternalId,
+        threadId: topicThreadId,
+        title: normalized.message.content,
+        logger: tlog,
+      });
+      return respond({ ok: true });
+    }
+
+    const profileCallback = parseTelegramProfileCallback(
+      normalized.message.callbackData ?? normalized.message.content,
+    );
+    if (profileCallback && normalized.message.callbackQueryId) {
+      await handleTelegramProfileCallback({
+        config,
+        caches,
+        chatId: normalized.message.conversationExternalId,
+        threadId: topicThreadId,
+        messageId: normalized.source.messageId,
+        actorExternalId,
+        profile: profileCallback.profile,
+        logger: tlog,
+      });
+      acknowledgeCallbackQuery(
+        normalized.message.callbackQueryId,
+        "profile_callback",
+      );
+      return respond({ ok: true });
+    }
+
+    const accessCallback = parseTelegramAccessCallback(
+      normalized.message.callbackData ?? normalized.message.content,
+    );
+    if (accessCallback && normalized.message.callbackQueryId) {
+      await handleTelegramAccessCallback({
+        config,
+        caches,
+        chatId: normalized.message.conversationExternalId,
+        threadId: topicThreadId,
+        messageId: normalized.source.messageId,
+        actorExternalId,
+        threshold: accessCallback.threshold,
+        logger: tlog,
+      });
+      acknowledgeCallbackQuery(
+        normalized.message.callbackQueryId,
+        "access_callback",
+      );
+      return respond({ ok: true });
+    }
+
+    if (parseTelegramForkCommand(normalized.message.content)) {
+      await handleTelegramForkCommand({
+        config,
+        caches,
+        chatId: normalized.message.conversationExternalId,
+        threadId: topicThreadId,
+        actorExternalId,
+        logger: tlog,
+      });
+      return respond({ ok: true });
+    }
+
+    if (parseTelegramArchiveCommand(normalized.message.content)) {
+      await handleTelegramArchiveCommand({
+        config,
+        caches,
+        chatId: normalized.message.conversationExternalId,
+        threadId: topicThreadId,
+        actorExternalId,
+        logger: tlog,
+      });
+      return respond({ ok: true });
+    }
+
+    if (parseTelegramStopCommand(normalized.message.content)) {
+      await handleTelegramStopCommand({
+        config,
+        caches,
+        chatId: normalized.message.conversationExternalId,
+        threadId: topicThreadId,
+        actorExternalId,
+        logger: tlog,
+      });
+      return respond({ ok: true });
+    }
+
+    const renameCmd = parseTelegramRenameCommand(normalized.message.content);
+    if (renameCmd !== null) {
+      await handleTelegramRenameCommand({
+        config,
+        caches,
+        chatId: normalized.message.conversationExternalId,
+        threadId: topicThreadId,
+        actorExternalId,
+        name: renameCmd.name,
+        logger: tlog,
+      });
+      return respond({ ok: true });
+    }
+
+    if (parseTelegramProfileCommand(normalized.message.content)) {
+      await handleTelegramProfileCommand({
+        config,
+        caches,
+        chatId: normalized.message.conversationExternalId,
+        threadId: topicThreadId,
+        actorExternalId,
+        logger: tlog,
+      });
+      return respond({ ok: true });
+    }
+
+    if (parseTelegramAccessCommand(normalized.message.content)) {
+      await handleTelegramAccessCommand({
+        config,
+        caches,
+        chatId: normalized.message.conversationExternalId,
+        threadId: topicThreadId,
+        actorExternalId,
+        logger: tlog,
+      });
+      return respond({ ok: true });
+    }
+
+    if (parseTelegramHelpCommand(normalized.message.content)) {
+      await handleTelegramHelpCommand({
+        config,
+        caches,
+        chatId: normalized.message.conversationExternalId,
+        threadId: topicThreadId,
+        logger: tlog,
+      });
+      return respond({ ok: true });
+    }
 
     // Handle /start command — forward to runtime as a channel command intent
     const startCmd = parseTelegramStartCommand(normalized.message.content);
@@ -343,7 +557,7 @@ export function createTelegramWebhookHandler(
             normalized.message.conversationExternalId,
             "\u26a0\ufe0f This bot is not fully set up yet. Please check the gateway configuration.",
             undefined,
-            replyOpts,
+            sendOpts,
           ).catch((err) => {
             tlog.error(
               { err, chatId: normalized.message.conversationExternalId },
@@ -358,6 +572,38 @@ export function createTelegramWebhookHandler(
         return respond({ ok: true });
       }
 
+      // A bare /start from someone who is not yet a Telegram guardian
+      // bootstraps guardian verification. In threaded mode, run that whole
+      // exchange (ack + verification prompts + code entry) inside a dedicated
+      // Verification bot thread so it stays out of the main chat. Falls back to
+      // the main chat when threaded mode is off or thread creation fails.
+      let startThreadId = topicThreadId;
+      if (
+        !normalized.message.callbackQueryId &&
+        !startCmd.payload &&
+        !topicThreadId &&
+        resolveGuardianDelivery({ channelTypes: ["telegram"] }).length === 0
+      ) {
+        startThreadId =
+          (await createTelegramVerificationThread(
+            config,
+            normalized.message.conversationExternalId,
+          ).catch((err) => {
+            tlog.warn(
+              { err, chatId: normalized.message.conversationExternalId },
+              "Failed to create Telegram verification thread for /start",
+            );
+            return undefined;
+          })) ?? topicThreadId;
+        if (startThreadId) {
+          rememberVerificationTopic(
+            normalized.message.conversationExternalId,
+            startThreadId,
+          );
+        }
+      }
+      const startSendOpts = telegramSendOpts(caches, startThreadId);
+
       // Forward to runtime with command-intent metadata so the assistant
       // generates a natural greeting via the normal agent loop.
       // Skip the ACK when the /start includes a payload (e.g. invite token) —
@@ -368,7 +614,7 @@ export function createTelegramWebhookHandler(
           normalized.message.conversationExternalId,
           START_COMMAND_ACK_TEXT,
           undefined,
-          replyOpts,
+          startSendOpts,
         ).catch((err) => {
           tlog.error(
             { err, chatId: normalized.message.conversationExternalId },
@@ -380,7 +626,11 @@ export function createTelegramWebhookHandler(
       try {
         const result = await handleInbound(config, normalized, {
           transportMetadata: buildTelegramTransportMetadata(),
-          replyCallbackUrl,
+          replyCallbackUrl: buildTelegramDeliverUrl(
+            config.gatewayInternalBaseUrl,
+            startThreadId,
+          ),
+          deliverInterceptRepliesViaCaller: true,
           traceId,
           sourceMetadata: {
             commandIntent: {
@@ -409,7 +659,7 @@ export function createTelegramWebhookHandler(
               normalized.message.conversationExternalId,
               "\u26a0\ufe0f This bot is not fully set up yet. Please check the gateway configuration.",
               undefined,
-              replyOpts,
+              sendOpts,
             ).catch((err) => {
               tlog.error(
                 { err, chatId: normalized.message.conversationExternalId },
@@ -418,7 +668,23 @@ export function createTelegramWebhookHandler(
             });
           }
         } else if (result.verificationIntercepted || result.inviteIntercepted) {
-          // Verification/invite handled at the gateway — no forward needed
+          // Verification/invite handled at the gateway — send its reply
+          // directly (the gateway owns Telegram outbound delivery).
+          const reply = interceptedReply(result);
+          if (reply) {
+            sendTelegramReply(
+              config,
+              normalized.message.conversationExternalId,
+              reply.text,
+              undefined,
+              sendOpts,
+            ).catch((err) => {
+              tlog.error(
+                { err, chatId: normalized.message.conversationExternalId },
+                "Failed to send /start intercept reply",
+              );
+            });
+          }
         } else if (!result.forwarded) {
           tlog.error(
             { updateId: payload.update_id },
@@ -429,16 +695,25 @@ export function createTelegramWebhookHandler(
             normalized.message.conversationExternalId,
             "Welcome! I'm having a brief setup hiccup. Please try again in a moment.",
             undefined,
-            replyOpts,
+            sendOpts,
           ).catch((err) => {
             tlog.error({ err }, "Failed to send /start fallback reply");
           });
         } else {
           tlog.info({ status: "forwarded" }, "Forwarded /start to runtime");
 
+          const startRuntimeResp = result.runtimeResponse;
+          const bootstrapVerificationThreadId =
+            startRuntimeResp?.verificationThreadId;
+          if (bootstrapVerificationThreadId) {
+            rememberVerificationTopic(
+              normalized.message.conversationExternalId,
+              bootstrapVerificationThreadId,
+            );
+          }
+
           // Fallback: if the runtime denied the message and could not
           // deliver the rejection reply via callback, send it directly.
-          const startRuntimeResp = result.runtimeResponse;
           if (startRuntimeResp?.denied && startRuntimeResp.replyText) {
             const startSender =
               normalized.actor.actorExternalId ??
@@ -449,7 +724,7 @@ export function createTelegramWebhookHandler(
                 normalized.message.conversationExternalId,
                 startRuntimeResp.replyText,
                 undefined,
-                replyOpts,
+                sendOpts,
               ).catch((err) => {
                 tlog.error(
                   { err, chatId: normalized.message.conversationExternalId },
@@ -488,7 +763,7 @@ export function createTelegramWebhookHandler(
           normalized.message.conversationExternalId,
           "Welcome! I'm having a brief setup hiccup. Please try again in a moment.",
           undefined,
-          replyOpts,
+          sendOpts,
         ).catch((replyErr) => {
           tlog.error({ err: replyErr }, "Failed to send /start error fallback");
         });
@@ -525,7 +800,7 @@ export function createTelegramWebhookHandler(
             normalized.message.conversationExternalId,
             `\u26a0\ufe0f ${ROUTING_REJECTION_NOTICE}`,
             undefined,
-            replyOpts,
+            sendOpts,
           ).catch((err) => {
             tlog.error(
               { err, chatId: normalized.message.conversationExternalId },
@@ -544,7 +819,7 @@ export function createTelegramWebhookHandler(
               normalized.message.conversationExternalId,
               text,
               undefined,
-              replyOpts,
+              sendOpts,
             );
           },
           tlog,
@@ -630,10 +905,7 @@ export function createTelegramWebhookHandler(
                   fileName: att.fileName,
                   mimeType: att.mimeType,
                 },
-                {
-                  credentials: caches?.credentials,
-                  configFile: caches?.configFile,
-                },
+                sendOpts,
               );
               return uploadAttachment(config, downloaded);
             }),
@@ -693,7 +965,11 @@ export function createTelegramWebhookHandler(
       const result = await handleInbound(config, normalized, {
         attachmentIds,
         transportMetadata: buildTelegramTransportMetadata(),
-        replyCallbackUrl,
+        replyCallbackUrl: buildTelegramDeliverUrl(
+          config.gatewayInternalBaseUrl,
+          topicThreadId,
+        ),
+        deliverInterceptRepliesViaCaller: true,
         traceId,
       });
 
@@ -708,7 +984,7 @@ export function createTelegramWebhookHandler(
             chatId,
             `\u26a0\ufe0f ${ROUTING_REJECTION_NOTICE}`,
             undefined,
-            replyOpts,
+            sendOpts,
           ).catch((err) => {
             tlog.error(
               { err, chatId },
@@ -726,6 +1002,44 @@ export function createTelegramWebhookHandler(
       }
 
       if (result.verificationIntercepted || result.inviteIntercepted) {
+        if (
+          result.verificationIntercepted &&
+          result.verificationOutcome === "verified" &&
+          topicThreadId &&
+          isVerificationTopic(chatId, topicThreadId)
+        ) {
+          // Threaded verification: the code was confirmed inside the dedicated
+          // Verification topic this gateway created, so delete that topic and
+          // confirm in the main chat. Fire-and-forget — the helper sequences
+          // delete-then-reply and handles its own errors, so the webhook
+          // response is not blocked. A code entered in any other topic falls to
+          // the branch below (reply in place, no deletion).
+          forgetVerificationTopic(chatId);
+          void closeVerificationTopic(
+            chatId,
+            topicThreadId,
+            result.verificationTrustClass,
+          );
+        } else {
+          // Normal mode (or a failure): the gateway owns Telegram outbound —
+          // there is no /deliver/telegram endpoint — so send the intercept
+          // reply directly on the channel.
+          const reply = interceptedReply(result);
+          if (reply) {
+            sendTelegramReply(
+              config,
+              chatId,
+              reply.text,
+              undefined,
+              sendOpts,
+            ).catch((err) => {
+              tlog.error(
+                { err, chatId },
+                "Failed to send verification/invite intercept reply",
+              );
+            });
+          }
+        }
         return respond({ ok: true });
       }
 
@@ -756,7 +1070,7 @@ export function createTelegramWebhookHandler(
             chatId,
             runtimeResp.replyText,
             undefined,
-            replyOpts,
+            sendOpts,
           ).catch((err) => {
             tlog.error(
               { err, chatId },

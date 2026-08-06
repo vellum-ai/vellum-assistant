@@ -113,7 +113,7 @@ export function processInboundResult(
  * Returns true if the message text is the /new command.
  */
 export function isNewCommand(text: string): boolean {
-  return text.trim().toLowerCase() === "/new";
+  return /^\/new(?:@\w+)?(?:\s|$)/i.test(text.trim());
 }
 
 /**

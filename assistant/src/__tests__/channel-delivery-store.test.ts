@@ -203,6 +203,21 @@ describe("channel-delivery-store", () => {
     ).toBe(topic.conversationId);
   });
 
+  test("Telegram inbound reuses a pre-registered thread key (fork continues, no new conversation)", () => {
+    const seed = recordInbound("telegram", "chat-fork", "seed-msg");
+    const forkedConversationId = seed.conversationId;
+    setConversationKey(
+      "asst:self:telegram:chat-fork:thread:777",
+      forkedConversationId,
+    );
+
+    const inFork = recordInbound("telegram", "chat-fork", "fork-reply", {
+      sourceThreadId: "777",
+    });
+
+    expect(inFork.conversationId).toBe(forkedConversationId);
+  });
+
   test("thread-less Slack reset clears only the channel-level binding, keeping thread bindings", async () => {
     // Pins the channel-agnostic reset contract for Slack: a channel-root
     // /new must not unbind the channel's thread conversations.
@@ -236,7 +251,9 @@ describe("channel-delivery-store", () => {
     const res = await handleDeleteConversation(req);
     expect(res.status).toBe(200);
 
-    expect(getBindingByChannelChat("slack", "C0123ABCDEF")).toBeNull();
+    expect(
+      getBindingByChannelChat("slack", "C0123ABCDEF")?.conversationId,
+    ).toBe("conv-slack-root");
     expect(
       getBindingByChannelChatThread("slack", "C0123ABCDEF", "1710000000.000100")
         ?.conversationId,
@@ -277,10 +294,12 @@ describe("channel-delivery-store", () => {
     const res = await handleDeleteConversation(req);
     expect(res.status).toBe(200);
 
-    // The main-chat keys and binding are gone…
+    // The main-chat keys are gone; the binding stays for sidebar grouping.
     expect(getConversationByKey("asst:self:telegram:chat-9")).toBeNull();
     expect(getConversationByKey("telegram:chat-9")).toBeNull();
-    expect(getBindingByChannelChat("telegram", "chat-9")).toBeNull();
+    expect(getBindingByChannelChat("telegram", "chat-9")?.conversationId).toBe(
+      "conv-main",
+    );
     // …while the topic conversation keeps its key and binding.
     expect(
       getConversationByKey("asst:self:telegram:chat-9:thread:777")
@@ -1157,16 +1176,15 @@ describe("channel-delivery-store", () => {
     const json = (await res.json()) as { ok: boolean };
     expect(json.ok).toBe(true);
 
-    // Self delete removes both scoped key and legacy key.
+    // Self delete removes both scoped key and legacy key; bindings stay put.
     expect(getConversationByKey(scopedKey)).toBeNull();
     expect(getConversationByKey(legacyKey)).toBeNull();
-    // Self delete also removes external bindings.
     const remainingBinding = db
       .select()
       .from(externalConversationBindings)
       .where(eq(externalConversationBindings.conversationId, convId))
       .get();
-    expect(remainingBinding).toBeUndefined();
+    expect(remainingBinding?.conversationId).toBe(convId);
   });
 
   test('handleDeleteConversation defaults to "self" when no assistantId provided', async () => {
@@ -1211,12 +1229,139 @@ describe("channel-delivery-store", () => {
 
     expect(getConversationByKey(scopedKey)).toBeNull();
     expect(getConversationByKey(legacyKey)).toBeNull();
-    // Self delete should keep external bindings in sync for the canonical route.
     const remainingBinding = db
       .select()
       .from(externalConversationBindings)
       .where(eq(externalConversationBindings.conversationId, convId))
       .get();
-    expect(remainingBinding).toBeUndefined();
+    expect(remainingBinding?.conversationId).toBe(convId);
+  });
+
+  test("main-chat /new clears only main-chat keys, keeping main and topic bindings", async () => {
+    const now = Date.now();
+    const db = getDb();
+    const mainConvId = "conv-main-dm";
+    const topicConvId = "conv-topic-1";
+    const chatId = "chat-topics-del";
+    const mainScopedKey = `asst:self:telegram:${chatId}`;
+    const legacyKey = `telegram:${chatId}`;
+    const topicKey = `asst:self:telegram:${chatId}:thread:555`;
+
+    for (const id of [mainConvId, topicConvId]) {
+      db.insert(conversations)
+        .values({ id, title: "test", createdAt: now, updatedAt: now })
+        .run();
+    }
+    setConversationKey(mainScopedKey, mainConvId);
+    setConversationKey(legacyKey, mainConvId);
+    setConversationKey(topicKey, topicConvId);
+    upsertBinding({
+      conversationId: mainConvId,
+      sourceChannel: "telegram",
+      externalChatId: chatId,
+    });
+    upsertBinding({
+      conversationId: topicConvId,
+      sourceChannel: "telegram",
+      externalChatId: chatId,
+      externalThreadId: "555",
+    });
+
+    const req = new Request("http://localhost/channels/conversation", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceChannel: "telegram",
+        conversationExternalId: chatId,
+      }),
+    });
+    const res = await handleDeleteConversation(req);
+    expect(res.status).toBe(200);
+
+    // Main-chat keys are cleared; bindings stay for sidebar grouping.
+    expect(getConversationByKey(mainScopedKey)).toBeNull();
+    expect(getConversationByKey(legacyKey)).toBeNull();
+    expect(getBindingByChannelChat("telegram", chatId)?.conversationId).toBe(
+      mainConvId,
+    );
+    // ...but the open topic's key and binding survive.
+    expect(getConversationByKey(topicKey)?.conversationId).toBe(topicConvId);
+    expect(
+      getBindingByChannelChatThread("telegram", chatId, "555")?.conversationId,
+    ).toBe(topicConvId);
+  });
+
+  test("topic-scoped /new clears only that topic key, keeping all bindings", async () => {
+    const now = Date.now();
+    const db = getDb();
+    const mainConvId = "conv-main-topic-new";
+    const topicConvId = "conv-topic-reset";
+    const otherTopicConvId = "conv-topic-other";
+    const chatId = "chat-topic-new";
+    const resetThreadId = "555";
+    const otherThreadId = "666";
+    const mainScopedKey = `asst:self:telegram:${chatId}`;
+    const legacyKey = `telegram:${chatId}`;
+    const resetTopicKey = `asst:self:telegram:${chatId}:thread:${resetThreadId}`;
+    const otherTopicKey = `asst:self:telegram:${chatId}:thread:${otherThreadId}`;
+
+    for (const id of [mainConvId, topicConvId, otherTopicConvId]) {
+      db.insert(conversations)
+        .values({ id, title: "test", createdAt: now, updatedAt: now })
+        .run();
+    }
+    setConversationKey(mainScopedKey, mainConvId);
+    setConversationKey(legacyKey, mainConvId);
+    setConversationKey(resetTopicKey, topicConvId);
+    setConversationKey(otherTopicKey, otherTopicConvId);
+    upsertBinding({
+      conversationId: mainConvId,
+      sourceChannel: "telegram",
+      externalChatId: chatId,
+    });
+    upsertBinding({
+      conversationId: topicConvId,
+      sourceChannel: "telegram",
+      externalChatId: chatId,
+      externalThreadId: resetThreadId,
+    });
+    upsertBinding({
+      conversationId: otherTopicConvId,
+      sourceChannel: "telegram",
+      externalChatId: chatId,
+      externalThreadId: otherThreadId,
+    });
+
+    const req = new Request("http://localhost/channels/conversation", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceChannel: "telegram",
+        conversationExternalId: chatId,
+        sourceThreadId: resetThreadId,
+      }),
+    });
+    const res = await handleDeleteConversation(req);
+    expect(res.status).toBe(200);
+
+    expect(getConversationByKey(resetTopicKey)).toBeNull();
+    expect(
+      getBindingByChannelChatThread("telegram", chatId, resetThreadId)
+        ?.conversationId,
+    ).toBe(topicConvId);
+    expect(getConversationByKey(mainScopedKey)?.conversationId).toBe(
+      mainConvId,
+    );
+    expect(getConversationByKey(legacyKey)?.conversationId).toBe(mainConvId);
+    expect(getBindingByChannelChat("telegram", chatId)?.conversationId).toBe(
+      mainConvId,
+    );
+    expect(getConversationByKey(otherTopicKey)?.conversationId).toBe(
+      otherTopicConvId,
+    );
+    expect(
+      getBindingByChannelChatThread("telegram", chatId, otherThreadId)
+        ?.conversationId,
+    ).toBe(otherTopicConvId);
   });
 });

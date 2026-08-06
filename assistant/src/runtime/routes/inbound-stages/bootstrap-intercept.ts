@@ -23,6 +23,7 @@ import {
 } from "../../../channels/gateway-verification-sessions.js";
 import type { ChannelId } from "../../../channels/types.js";
 import { sendTelegramReply } from "../../../messaging/providers/telegram-bot/send.js";
+import { resolveVerificationThreadId } from "../../../messaging/providers/telegram-bot/verification-topic.js";
 import { getLogger } from "../../../util/logger.js";
 import { RESEND_COOLDOWN_MS } from "../../verification-outbound-actions.js";
 import {
@@ -204,11 +205,16 @@ export async function handleBootstrapIntercept(
     },
   );
 
+  const verificationThreadId = await resolveVerificationThreadId(
+    conversationExternalId,
+  );
+
   // Deliver verification Telegram message directly (fire-and-forget)
   deliverBootstrapVerificationTelegram(
     conversationExternalId,
     telegramBody,
     canonicalAssistantId,
+    verificationThreadId,
   );
 
   // Update delivery tracking (best-effort — the code is already on its way)
@@ -232,6 +238,7 @@ export async function handleBootstrapIntercept(
     duplicate: false,
     eventId,
     verificationOutcome: "bootstrap_bound",
+    ...(verificationThreadId ? { verificationThreadId } : {}),
   };
 }
 
@@ -247,10 +254,18 @@ function deliverBootstrapVerificationTelegram(
   chatId: string,
   text: string,
   assistantId: string,
+  messageThreadId: string | undefined,
 ): void {
-  const attemptDelivery = async (): Promise<boolean> => {
+  const attemptDelivery = async (
+    threadId: string | undefined,
+  ): Promise<boolean> => {
     try {
-      await sendTelegramReply(chatId, text);
+      await sendTelegramReply(
+        chatId,
+        text,
+        undefined,
+        threadId ? { messageThreadId: threadId } : undefined,
+      );
       return true;
     } catch (err) {
       log.error(
@@ -262,10 +277,10 @@ function deliverBootstrapVerificationTelegram(
   };
 
   (async () => {
-    const delivered = await attemptDelivery();
+    const delivered = await attemptDelivery(messageThreadId);
     if (delivered) {
       log.info(
-        { chatId, assistantId },
+        { chatId, assistantId, messageThreadId },
         "Bootstrap verification Telegram message delivered",
       );
       return;
@@ -276,15 +291,15 @@ function deliverBootstrapVerificationTelegram(
     // user re-clicking the deep link may never arrive. This ensures
     // delivery is re-attempted even without a gateway duplicate.
     setTimeout(async () => {
-      const retried = await attemptDelivery();
+      const retried = await attemptDelivery(messageThreadId);
       if (retried) {
         log.info(
-          { chatId, assistantId },
+          { chatId, assistantId, messageThreadId },
           "Bootstrap verification Telegram message delivered on self-retry",
         );
       } else {
         log.error(
-          { chatId, assistantId },
+          { chatId, assistantId, messageThreadId },
           "Bootstrap verification Telegram self-retry also failed",
         );
       }

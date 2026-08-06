@@ -72,6 +72,7 @@ import { safeParseRecord } from "../../util/json.js";
 import { getLogger } from "../../util/logger.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { deleteBoundChannelThread } from "../channel-thread-cleanup.js";
 import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
 import {
@@ -556,6 +557,7 @@ function handleArchiveConversation({
   if (!archived) {
     throw new NotFoundError(`Conversation ${pathParams.id} not found`);
   }
+  void deleteBoundChannelThread(resolvedId);
   publishConversationListAndMetadataChanged(
     "reordered",
     resolvedId,
@@ -599,6 +601,7 @@ function handleArchiveConversationsBulk({
       const archived = archiveConversation(conversationId);
       if (archived) {
         archivedIds.push(conversationId);
+        void deleteBoundChannelThread(conversationId);
       }
     } catch (err) {
       log.error(

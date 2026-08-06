@@ -239,6 +239,21 @@ export async function updateSessionDelivery(
 }
 
 /**
+ * Record a Telegram Verification topic created by the assistant so the
+ * gateway can delete it after a successful code entry. Best-effort: callers
+ * should catch and log — delivery must not fail when registration does.
+ */
+export async function registerTelegramVerificationTopic(
+  chatId: string,
+  threadId: string,
+): Promise<void> {
+  await callMutation(VERIFICATION_SESSIONS_IPC_METHODS.registerTelegramTopic, {
+    chatId,
+    threadId,
+  });
+}
+
+/**
  * Count sends to a destination across all sessions within a rolling window
  * (destination-level send throttle input). Throws when the gateway is
  * unreachable — the throttle must not fail open.

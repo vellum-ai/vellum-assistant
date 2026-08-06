@@ -3,12 +3,16 @@
  *
  * Channel-agnostic contract — two reset shapes, keyed on `sourceThreadId`:
  *
- * - **Thread-less reset** (no `sourceThreadId`): resets the chat's MAIN
- *   conversation only — deletes the base + legacy keys and the thread-less
- *   binding. Thread/topic conversations in the same chat (Slack threads,
- *   Telegram topics) are independent conversations and are never touched.
- * - **Threaded reset** (`sourceThreadId` set): resets exactly that
- *   thread/topic's conversation — deletes its scoped key and its binding.
+ * - **Thread-less reset** (no `sourceThreadId`): clears the chat's MAIN
+ *   conversation key (base + legacy). Thread/topic keys in the same chat
+ *   are untouched.
+ * - **Threaded reset** (`sourceThreadId` set): clears exactly that
+ *   thread/topic's conversation key.
+ *
+ * External bindings are intentionally left in place: they keep sidebar channel
+ * grouping (Telegram/Slack sections) on the conversation that already ran there.
+ * The next inbound message mints a fresh conversation for the cleared key and
+ * {@link upsertBinding} moves the active binding forward.
  *
  * Adapter-specific behavior stays inside the explicitly channel-gated
  * branches below and must not leak into the shared contract.
@@ -18,10 +22,6 @@ import {
   getOrCreateConversation,
 } from "../../persistence/conversation-key-store.js";
 import { buildScopedConversationKey } from "../../persistence/delivery-crud.js";
-import {
-  deleteBindingByChannelChatNullThread,
-  deleteBindingByChannelChatThread,
-} from "../../persistence/external-conversation-store.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteHandlerArgs } from "./types.js";
 
@@ -50,7 +50,6 @@ export function handleDeleteConversation({ body = {} }: RouteHandlerArgs) {
   const legacyKey = `${sourceChannel}:${conversationExternalId}`;
   if (!normalizedThreadId) {
     deleteConversationKey(legacyKey);
-    deleteBindingByChannelChatNullThread(sourceChannel, conversationExternalId);
   } else {
     // Slack adapter: eagerly re-mint a fresh conversation for the threaded
     // key so mid-thread turns racing the reset land in the new conversation.
@@ -59,11 +58,6 @@ export function handleDeleteConversation({ body = {} }: RouteHandlerArgs) {
     if (sourceChannel === "slack") {
       getOrCreateConversation(scopedKey);
     }
-    deleteBindingByChannelChatThread(
-      sourceChannel,
-      conversationExternalId,
-      normalizedThreadId,
-    );
   }
 
   return { ok: true };

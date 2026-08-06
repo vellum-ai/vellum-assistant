@@ -8,7 +8,7 @@
  * Raw secrets transit back in the create responses because message
  * composition and channel delivery stay daemon-owned.
  *
- * All 11 methods live here: the 10 lifecycle methods plus
+ * All 12 methods live here: the 11 lifecycle methods plus
  * `verification_sessions_validate_consume` (gateway-native validation, rate
  * limiting, and in-engine role side effects — the guardian binding / contact
  * upsert happen at consume time, in the engine, never in the daemon).
@@ -28,6 +28,7 @@ import {
   GetPendingSessionIpcParamsSchema,
   ResolveBootstrapSessionIpcParamsSchema,
   RevokePendingSessionsIpcParamsSchema,
+  RegisterTelegramVerificationTopicIpcParamsSchema,
   UpdateSessionDeliveryIpcParamsSchema,
   UpdateSessionStatusIpcParamsSchema,
   VERIFICATION_SESSIONS_IPC_METHODS,
@@ -50,6 +51,7 @@ import {
   createOutboundSessionGuarded,
   validateAndConsumeSession,
 } from "../verification/session-service.js";
+import { rememberVerificationTopic } from "../telegram/verification-topic-registry.js";
 import type { IpcRoute } from "./server.js";
 
 export const verificationSessionRoutes: IpcRoute[] = [
@@ -142,6 +144,18 @@ export const verificationSessionRoutes: IpcRoute[] = [
       const { sessionId, lastSentAt, sendCount, nextResendAt } =
         UpdateSessionDeliveryIpcParamsSchema.parse(params);
       updateSessionDelivery(sessionId, lastSentAt, sendCount, nextResendAt);
+      return { ok: true };
+    },
+  },
+  {
+    // Record a Verification topic the assistant created so a successful code
+    // entry in that thread can be torn down safely.
+    method: VERIFICATION_SESSIONS_IPC_METHODS.registerTelegramTopic,
+    schema: RegisterTelegramVerificationTopicIpcParamsSchema,
+    handler: (params?: Record<string, unknown>) => {
+      const { chatId, threadId } =
+        RegisterTelegramVerificationTopicIpcParamsSchema.parse(params);
+      rememberVerificationTopic(chatId, threadId);
       return { ok: true };
     },
   },

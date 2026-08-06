@@ -45,10 +45,10 @@ describe("hashVerificationSecret — pinned compatibility vectors", () => {
 });
 
 describe("IPC method names", () => {
-  test("exposes 11 unique methods under the verification_sessions_ prefix", () => {
+  test("exposes 12 unique methods under the verification_sessions_ prefix", () => {
     const methods = Object.values(VERIFICATION_SESSIONS_IPC_METHODS);
-    expect(methods).toHaveLength(11);
-    expect(new Set(methods).size).toBe(11);
+    expect(methods).toHaveLength(12);
+    expect(new Set(methods).size).toBe(12);
     for (const method of methods) {
       // Distinct from the daemon's client-facing
       // `channel_verification_sessions_*` operationIds.

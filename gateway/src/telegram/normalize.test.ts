@@ -77,6 +77,22 @@ describe("normalizeTelegramUpdate — private-chat topics", () => {
     expect(result!.source.threadId).toBe("777");
   });
 
+  it("accepts forum_topic_edited service messages", () => {
+    const result = normalizeTelegramUpdate({
+      update_id: 504,
+      message: {
+        message_id: 54,
+        message_thread_id: 7,
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+        forum_topic_edited: { name: "New Topic Name" },
+      },
+    });
+    expect(result).not.toBeNull();
+    expect(result!.source.threadId).toBe("7");
+    expect(result!.message.content).toBe("New Topic Name");
+  });
+
   it("still rejects group messages even when they carry message_thread_id", () => {
     const result = normalizeTelegramUpdate({
       update_id: 503,
