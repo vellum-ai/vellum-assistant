@@ -10,9 +10,12 @@
  * last released version while running unreleased code) get the tab without a
  * debug override.
  *
- * `null` and an empty `revisions` array mean different things and must stay
- * distinct: `null` is "this assistant cannot report history", while `[]` is
- * "history is available and this skill has no recorded edits".
+ * `null` (this assistant cannot report history) and `[]` (it can, and this
+ * skill has no recorded edits) stay distinct in the fetch, because the 404
+ * mapping is what makes the missing route degrade quietly. Callers are free to
+ * treat them the same: the detail page shows the History tab only when there
+ * are revisions to show, which both cases fail for the same reason from a
+ * reader's point of view.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -76,8 +79,6 @@ export function useSkillHistory(assistantId: string | null, skillId: string) {
     history: query.data ?? null,
     revisions: query.data?.revisions ?? [],
     truncatedByCompaction: query.data?.truncatedByCompaction ?? false,
-    /** The connected assistant cannot report history, so hide the surface. */
-    isUnsupported: query.isSuccess && query.data === null,
     isLoading: query.isLoading,
     isError: query.isError,
   };

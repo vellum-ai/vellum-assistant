@@ -72,19 +72,23 @@ export function SkillDetail({
     isContentLoading,
   } = useSkillDetailFiles(assistantId, skill.id);
 
-  // An assistant without the history route reports `isUnsupported`, which
-  // hides the tab strip entirely so the page renders exactly as it did before
-  // revisions existed. Shares a query key with the panel, so this is one
-  // request, not two.
-  const { isUnsupported: isHistoryUnsupported } = useSkillHistory(
+  // Shares a query key with the panel below, so this is one request, not two.
+  const { revisions, isLoading: isHistoryLoading } = useSkillHistory(
     assistantId,
     skill.id,
   );
 
+  // The tab strip appears only once there is something behind it. A skill with
+  // no recorded revisions, and an assistant too old to report any, both render
+  // the page exactly as it looked before history existed, rather than offering
+  // a tab that opens onto an empty state. Staying hidden while the query is in
+  // flight is what keeps the tabs from appearing and then vanishing.
+  const hasHistory = !isHistoryLoading && revisions.length > 0;
+
   const [selectedTab, setSelectedTab] = useState("files");
-  // Falling back to Files when history turns out to be unsupported keeps the
-  // page coherent if the query answers after a tab was already chosen.
-  const activeTab = isHistoryUnsupported ? "files" : selectedTab;
+  // Pin to Files when there is no history, so a tab chosen before the query
+  // answered cannot leave the page on a panel that is no longer rendered.
+  const activeTab = hasHistory ? selectedTab : "files";
 
   const header = (
     <div className="mb-4 flex items-start gap-3">
@@ -269,7 +273,7 @@ export function SkillDetail({
         onValueChange={setSelectedTab}
         className="flex min-h-0 flex-1 flex-col"
       >
-        {!isHistoryUnsupported && (
+        {hasHistory && (
           <Tabs.List className="mb-3">
             <Tabs.Trigger value="files">Files</Tabs.Trigger>
             <Tabs.Trigger value="history">History</Tabs.Trigger>
@@ -283,7 +287,7 @@ export function SkillDetail({
         >
           {filesCard}
         </Tabs.Panel>
-        {!isHistoryUnsupported && (
+        {hasHistory && (
           <Tabs.Panel value="history" className="flex min-h-0 flex-1 flex-col">
             <Card.Root asChild noPadding>
               <div className="min-h-0 flex-1 overflow-y-auto">

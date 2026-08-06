@@ -195,8 +195,8 @@ function withShell(client: QueryClient) {
 
 /**
  * Landing on the page: Files is selected and History sits beside it. Click
- * History to see the revision list inside the page's own card. Every story
- * below opens on Files the same way, since the tab is uncontrolled.
+ * History to see the revision list inside the page's own card. The tab is
+ * uncontrolled, so this and the story below both open on Files.
  */
 export const Default: Story = {
   decorators: [withShell(seededClient({ historySupported: true }))],
@@ -211,16 +211,21 @@ export const HistoryTruncated: Story = {
   ],
 };
 
-/** A skill that exists but has never been edited. */
-export const HistoryEmpty: Story = {
+/**
+ * No tab strip at all. A skill with no recorded revisions renders exactly as
+ * the page did before history existed, rather than offering a History tab
+ * that opens onto an empty state.
+ */
+export const NoHistoryYet: Story = {
   decorators: [
     withShell(seededClient({ historySupported: true, revisions: [] })),
   ],
 };
 
 /**
- * An assistant that predates the history route. No tab strip renders at all,
- * so the page looks exactly as it did before this feature.
+ * Also no tab strip, by the same rule: an assistant that predates the history
+ * route reports nothing, which is indistinguishable from having nothing to
+ * report as far as the page is concerned.
  */
 export const HistoryUnsupported: Story = {
   decorators: [withShell(seededClient({ historySupported: false }))],
