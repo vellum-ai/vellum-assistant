@@ -68,8 +68,9 @@ export function resolveDestinations(
 
     // After the deliverability check, `channel` is guaranteed to be a
     // NotificationChannel — TypeScript cannot infer this from the runtime
-    // guard, so we narrow with a switch over known deliverable values.
-    switch (channel as NotificationChannel) {
+    // guard, so the cast carries it into an exhaustive switch.
+    const notificationChannel = channel as NotificationChannel;
+    switch (notificationChannel) {
       case "vellum": {
         // Vellum delivery is local — no external endpoint required.
         // Include the guardianPrincipalId so the adapter can annotate
@@ -180,7 +181,15 @@ export function resolveDestinations(
         break;
       }
       default: {
-        // Future deliverable channels without a resolver — skip silently.
+        // Exhaustive over NotificationChannel. Setting `deliveryEnabled: true`
+        // without adding a case here fails to compile on this assignment,
+        // which is step 5 of "How to Add a New Channel" in the README turned
+        // into a build error rather than a message that goes nowhere.
+        const unresolved: never = notificationChannel;
+        log.error(
+          { channel: String(unresolved) },
+          "no destination resolver for notification channel",
+        );
         break;
       }
     }

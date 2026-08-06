@@ -120,7 +120,10 @@ export async function getConnectedChannels(): Promise<NotificationChannel[]> {
   // getDeliverableChannels() returns ChannelId[] but every returned channel
   // has deliveryEnabled: true, making it a valid NotificationChannel at
   // runtime. We iterate over the broad type and narrow via the switch.
-  for (const channel of getDeliverableChannels()) {
+  // Cast to the derived union so the switch below is exhaustive: the helper
+  // is typed ChannelId[], but every channel it returns has
+  // `deliveryEnabled: true` and is therefore a NotificationChannel.
+  for (const channel of getDeliverableChannels() as NotificationChannel[]) {
     switch (channel) {
       case "vellum":
         // Vellum is always considered connected (the local transport is
@@ -153,10 +156,18 @@ export async function getConnectedChannels(): Promise<NotificationChannel[]> {
         }
         break;
       }
-      default:
-        // Future deliverable channels — skip until a connectivity check
-        // is implemented for them.
+      default: {
+        // Exhaustive over NotificationChannel. Setting `deliveryEnabled: true`
+        // without adding a case here fails to compile on this assignment,
+        // which is step 4 of "How to Add a New Channel" in the README turned
+        // into a build error rather than a channel silently never connected.
+        const unchecked: never = channel;
+        log.error(
+          { channel: String(unchecked) },
+          "no connectivity check for notification channel",
+        );
         break;
+      }
     }
   }
 

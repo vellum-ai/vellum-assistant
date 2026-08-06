@@ -1903,7 +1903,7 @@ Producer → NotificationSignal → Candidate Generation → Decision Engine (LL
 
 `assistant/src/channels/config.ts` is the **single source of truth** for per-channel notification behavior. Every `ChannelId` must have an entry in the `CHANNEL_POLICIES` map (enforced at compile time via `satisfies Record<ChannelId, ChannelNotificationPolicy>`). Each policy defines:
 
-- **`deliveryEnabled`** — whether the channel can receive notification deliveries. The `NotificationChannel` type is derived from this flag: only channels with `deliveryEnabled: true` are valid notification targets.
+- **`deliveryEnabled`**: whether the assistant may **proactively** start a notification on the channel. It does not describe whether the channel can carry outbound messages at all: replying to an inbound message routes by the `replyCallbackUrl` the gateway stamped on the event, through `messaging/providers`, and consults this registry not at all. A channel can therefore reply while sitting at `deliveryEnabled: false`, which is the normal state for one that has a transport but no guardian binding to notify. The `NotificationChannel` type is derived from this flag, and the destination resolver and connectivity check are exhaustive over it, so enabling a channel without wiring both is a compile error.
 - **`conversationStrategy`** — how the notification pipeline materializes conversations for the channel:
   - `start_new_conversation` — creates a fresh conversation per delivery (e.g. vellum desktop/mobile conversations)
   - `continue_existing_conversation` — intended to append to an existing channel-scoped conversation; currently materializes a background audit conversation per delivery (e.g. Telegram)

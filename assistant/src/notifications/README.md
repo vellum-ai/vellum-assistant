@@ -83,10 +83,10 @@ The broadcaster (`broadcaster.ts`) iterates over selected channels (vellum first
 
 Each policy defines:
 
-| Field                               | Type                   | Description                                                       |
-| ----------------------------------- | ---------------------- | ----------------------------------------------------------------- |
-| `notification.deliveryEnabled`      | `boolean`              | Whether the channel can receive notification deliveries           |
-| `notification.conversationStrategy` | `ConversationStrategy` | How conversations are materialized for deliveries on this channel |
+| Field                               | Type                   | Description                                                                                                                                                                                   |
+| ----------------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `notification.deliveryEnabled`      | `boolean`              | Whether the assistant may **proactively** notify on this channel. Not "can this channel send at all": replies route via `replyCallbackUrl` through `messaging/providers` and never read this. |
+| `notification.conversationStrategy` | `ConversationStrategy` | How conversations are materialized for deliveries on this channel                                                                                                                             |
 
 ### Conversation Strategy Types
 
@@ -110,6 +110,8 @@ Each policy defines:
 3. If `deliveryEnabled: true`, add an adapter in `adapters/` and register it in `emit-signal.ts` `getBroadcaster()`.
 4. Add a connectivity check in `getConnectedChannels()` in `emit-signal.ts`.
 5. Add a destination resolver case in `destination-resolver.ts`.
+
+Steps 4 and 5 are compiler-enforced: both switches are exhaustive over `NotificationChannel`, so setting `deliveryEnabled: true` without them fails the build rather than leaving the channel silently unreachable.
 
 ## Conversation Pairing Invariant
 
