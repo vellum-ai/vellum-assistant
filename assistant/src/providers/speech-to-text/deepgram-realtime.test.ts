@@ -835,6 +835,134 @@ describe("DeepgramRealtimeTranscriber", () => {
         "second utterance",
       ]);
     });
+
+    test("aggregated final ranks language tags across all withheld frames", async () => {
+      const { events } = await startSession({ utteranceBoundaryFinals: true });
+
+      // Raw per-word tags are accumulated, so "es" (2 words) outranks
+      // "en" (1 word) even though "en" arrived in the earlier frame.
+      mockWs.simulateMessage(
+        resultsFrame("hello", {
+          is_final: true,
+          words: [{ word: "hello", language: "en" }],
+        }),
+      );
+      mockWs.simulateMessage(
+        resultsFrame("hola amigo", {
+          is_final: true,
+          speech_final: true,
+          words: [
+            { word: "hola", language: "es" },
+            { word: "amigo", language: "es" },
+          ],
+        }),
+      );
+
+      const finals = events.filter((e) => e.type === "final");
+      expect(finals).toHaveLength(1);
+      expect(finals[0]).toEqual({
+        type: "final",
+        text: "hello hola amigo",
+        language: "es",
+        languages: ["es", "en"],
+      });
+    });
+
+    test("UtteranceEnd flush carries the accumulated language metadata", async () => {
+      const { events } = await startSession({ utteranceBoundaryFinals: true });
+
+      mockWs.simulateMessage(
+        resultsFrame("bonjour", {
+          is_final: true,
+          words: [{ word: "bonjour", language: "fr" }],
+        }),
+      );
+      mockWs.simulateMessage(
+        resultsFrame("hello there", {
+          is_final: true,
+          alternativeLanguages: ["en"],
+        }),
+      );
+      mockWs.simulateMessage(utteranceEndFrame());
+
+      const finals = events.filter((e) => e.type === "final");
+      expect(finals).toHaveLength(1);
+      expect(finals[0]).toEqual({
+        type: "final",
+        text: "bonjour hello there",
+        language: "fr",
+        languages: ["fr", "en"],
+      });
+    });
+
+    test("aggregated final omits language fields when no withheld frame carried tags", async () => {
+      const { events } = await startSession({ utteranceBoundaryFinals: true });
+
+      mockWs.simulateMessage(resultsFrame("no tags", { is_final: true }));
+      mockWs.simulateMessage(
+        resultsFrame("at all", { is_final: true, speech_final: true }),
+      );
+
+      const finals = events.filter((e) => e.type === "final");
+      expect(finals).toHaveLength(1);
+      expect(finals[0]).toEqual({ type: "final", text: "no tags at all" });
+      expect("language" in finals[0]!).toBe(false);
+      expect("languages" in finals[0]!).toBe(false);
+    });
+
+    test("tags on empty-text frames do not leak into the aggregated final", async () => {
+      const { events } = await startSession({ utteranceBoundaryFinals: true });
+
+      // A silence segment may still carry container-level tags; only
+      // frames that contributed transcript text feed the metadata.
+      mockWs.simulateMessage(
+        resultsFrame("", { is_final: true, alternativeLanguages: ["fr"] }),
+      );
+      mockWs.simulateMessage(
+        resultsFrame("hello", {
+          is_final: true,
+          speech_final: true,
+          words: [{ word: "hello", language: "en" }],
+        }),
+      );
+
+      const finals = events.filter((e) => e.type === "final");
+      expect(finals).toHaveLength(1);
+      expect(finals[0]).toEqual({
+        type: "final",
+        text: "hello",
+        language: "en",
+        languages: ["en"],
+      });
+    });
+
+    test("language tags reset between aggregated utterances", async () => {
+      const { events } = await startSession({ utteranceBoundaryFinals: true });
+
+      mockWs.simulateMessage(
+        resultsFrame("hola", {
+          is_final: true,
+          speech_final: true,
+          words: [{ word: "hola", language: "es" }],
+        }),
+      );
+      mockWs.simulateMessage(
+        resultsFrame("hello", {
+          is_final: true,
+          speech_final: true,
+          words: [{ word: "hello", language: "en" }],
+        }),
+      );
+
+      const finals = events.filter((e) => e.type === "final");
+      expect(finals).toHaveLength(2);
+      expect(finals[1]).toEqual({
+        type: "final",
+        text: "hello",
+        language: "en",
+        languages: ["en"],
+      });
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────

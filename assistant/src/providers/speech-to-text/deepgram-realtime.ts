@@ -364,6 +364,15 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    */
   private pendingFinalSegments: string[] = [];
 
+  /**
+   * Raw detected-language tags for the withheld segments, accumulated
+   * alongside {@link pendingFinalSegments} and ranked into `language` /
+   * `languages` when the utterance flushes. Cleared wherever the pending
+   * segments are cleared. Only populated when
+   * {@link utteranceBoundaryFinals} is enabled.
+   */
+  private pendingLanguageTags: string[] = [];
+
   /** The live WebSocket connection, set during start(). */
   private ws: WsLike | null = null;
 
@@ -824,6 +833,16 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
         // Finalize flush is a forced boundary — flush what is pending.
         if (text.length > 0) {
           this.pendingFinalSegments.push(text);
+          // Collect language tags only from frames that contributed text
+          // so the flushed metadata stays aligned with the emitted
+          // transcript (empty frames may still carry tags, but they
+          // describe no emitted words). Raw per-word tags are preferred
+          // over the frame's ranked list so cross-frame frequency
+          // weighting survives until the flush ranks the whole utterance.
+          const wordTags = collectWordLanguageTags(alternative);
+          this.pendingLanguageTags.push(
+            ...(wordTags.length > 0 ? wordTags : languages),
+          );
         }
         if (frame.speech_final || fromFinalize) {
           this.flushPendingUtterance();
@@ -948,16 +967,27 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
 
   /**
    * Emit a single aggregated `final` for the withheld `is_final` segments
-   * of the current utterance. No-op when nothing is pending, so boundary
-   * signals over silence emit nothing.
+   * of the current utterance, carrying the dominance-ranked detected
+   * languages accumulated alongside them (fields omitted when no segment
+   * carried language metadata). No-op when nothing is pending, so
+   * boundary signals over silence emit nothing.
    */
   private flushPendingUtterance(): void {
     if (this.pendingFinalSegments.length === 0) {
+      // Tags accumulate only alongside text, but clear defensively so a
+      // future drift cannot leak one utterance's tags into the next.
+      this.pendingLanguageTags = [];
       return;
     }
     const text = this.pendingFinalSegments.join(" ");
+    const languages = rankLanguages(this.pendingLanguageTags);
     this.pendingFinalSegments = [];
-    this.emitEvent({ type: "final", text });
+    this.pendingLanguageTags = [];
+    this.emitEvent({
+      type: "final",
+      text,
+      ...(languages.length > 0 ? { language: languages[0], languages } : {}),
+    });
   }
 
   /**
@@ -1273,9 +1303,7 @@ function extractLanguages(
   channel: DeepgramStreamChannel | undefined,
   alternative: DeepgramStreamAlternative | undefined,
 ): string[] {
-  const wordTags = (alternative?.words ?? []).flatMap((word) =>
-    typeof word.language === "string" ? [word.language] : [],
-  );
+  const wordTags = collectWordLanguageTags(alternative);
   if (wordTags.length > 0) {
     return rankLanguages(wordTags);
   }
@@ -1292,6 +1320,21 @@ function extractLanguages(
       .filter((tag) => tag !== ""),
   );
   return [...deduped];
+}
+
+/**
+ * Collect the raw per-word `language` tags of a chunk, in word order and
+ * without ranking or normalization. Used both for per-frame ranking in
+ * {@link extractLanguages} and for cross-frame accumulation in
+ * utterance-boundary mode, where ranking is deferred to the flush so
+ * frequency weighting spans the whole utterance.
+ */
+function collectWordLanguageTags(
+  alternative: DeepgramStreamAlternative | undefined,
+): string[] {
+  return (alternative?.words ?? []).flatMap((word) =>
+    typeof word.language === "string" ? [word.language] : [],
+  );
 }
 
 function extractSpeakerLabel(
