@@ -53,12 +53,13 @@ const log = getLogger("workspace-git");
  * config alone and are handled with `--no-textconv --no-ext-diff` on the
  * commands that render patches.
  *
+ * Filters are handled separately, by {@link WorkspaceGitService.gitSafetyArgs}:
+ * a clean or smudge filter is selected per path by `.gitattributes` rather
+ * than by one key, so no `-c` here can reach it.
+ *
  * This list is defence in depth, not the boundary. Git keeps adding keys that
- * name a program, and clean and smudge filters in particular still run during
- * `git add` regardless of what is set here, because a filter is selected per
- * path by `.gitattributes`. The boundary is keeping the repository's own
- * configuration out of model reach; see the git-internals sink in the file
- * risk classifier.
+ * name a program. The boundary is keeping the repository's own configuration
+ * out of model reach; see the git-internals sink in the file risk classifier.
  */
 const GIT_UNTRUSTED_REPO_CONFIG = [
   // Hooks: the repository names the program, git runs it.
@@ -1846,6 +1847,69 @@ export class WorkspaceGitService {
    * Every invocation carries {@link GIT_UNTRUSTED_REPO_CONFIG}, so no caller
    * can reach git without it.
    */
+  /**
+   * Hash of the empty tree, used as an `attr.tree` source so git reads no
+   * attributes from the working tree.
+   *
+   * Computed rather than hard-coded: the value differs between SHA-1 and
+   * SHA-256 repositories, and git accepts an unresolvable `attr.tree` SILENTLY
+   * (exit 0, attributes still read from the worktree), so a wrong constant
+   * would fail open with nothing to notice.
+   */
+  private emptyTreeHash: string | null = null;
+
+  /**
+   * Untrusted-repo overrides for one invocation.
+   *
+   * `attr.tree` pointed at the empty tree makes git read no `.gitattributes`,
+   * which is the only way to stop clean and smudge filters: a filter is
+   * selected per path by an attribute, so there is no single config key to
+   * null out. It also removes attribute-selected textconv and diff drivers.
+   *
+   * Safe for this repository specifically because the service neither writes
+   * nor reads `.gitattributes`; any that exists came from a model write and is
+   * precisely the input being distrusted.
+   */
+  private gitSafetyArgs(): string[] {
+    return this.emptyTreeHash
+      ? [...GIT_UNTRUSTED_REPO_CONFIG, "-c", `attr.tree=${this.emptyTreeHash}`]
+      : GIT_UNTRUSTED_REPO_CONFIG;
+  }
+
+  /**
+   * Resolve {@link emptyTreeHash} once. `hash-object` of `/dev/null` consults
+   * no attributes, so it is safe to run before the protection is in place.
+   * A failure leaves filters covered only by the write-side gate, so it is
+   * logged rather than passed over in silence.
+   */
+  private async ensureEmptyTreeHash(): Promise<void> {
+    if (this.emptyTreeHash) {
+      return;
+    }
+    try {
+      const { stdout } = await execFileAsync(
+        "git",
+        [
+          ...GIT_UNTRUSTED_REPO_CONFIG,
+          "hash-object",
+          "-t",
+          "tree",
+          "/dev/null",
+        ],
+        { cwd: this.workspaceDir, encoding: "utf-8", timeout: 10_000 },
+      );
+      const hash = stdout.trim();
+      if (hash) {
+        this.emptyTreeHash = hash;
+      }
+    } catch (err) {
+      log.warn(
+        { err },
+        "could not resolve the empty tree hash; gitattributes-selected filters stay enabled",
+      );
+    }
+  }
+
   private async execGit(
     args: string[],
     options?: {
@@ -1860,9 +1924,10 @@ export class WorkspaceGitService {
       config.workspaceGit?.interactiveGitTimeoutMs ??
       10_000;
     try {
+      await this.ensureEmptyTreeHash();
       const { stdout, stderr } = await execFileAsync(
         "git",
-        [...GIT_UNTRUSTED_REPO_CONFIG, ...args],
+        [...this.gitSafetyArgs(), ...args],
         {
           cwd: this.workspaceDir,
           encoding: "utf-8",
@@ -1896,7 +1961,7 @@ export class WorkspaceGitService {
    * `options.input` is written to the child's stdin, which is closed either
    * way so commands reading stdin to EOF (`--pathspec-from-file=-`) terminate.
    */
-  private execGitStreaming(
+  private async execGitStreaming(
     args: string[],
     options?: {
       signal?: AbortSignal;
@@ -1910,8 +1975,10 @@ export class WorkspaceGitService {
       options?.timeoutMs ??
       config.workspaceGit?.interactiveGitTimeoutMs ??
       10_000;
+    await this.ensureEmptyTreeHash();
+    const safeArgs = this.gitSafetyArgs();
     return new Promise((resolve, reject) => {
-      const child = spawn("git", [...GIT_UNTRUSTED_REPO_CONFIG, ...args], {
+      const child = spawn("git", [...safeArgs, ...args], {
         cwd: this.workspaceDir,
         env: { ...cleanGitEnv(this.workspaceDir), ...options?.env },
         signal: options?.signal,

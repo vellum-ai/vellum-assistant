@@ -2465,6 +2465,52 @@ describe("WorkspaceGitService", () => {
       expect(existsSync(sentinel)).toBe(false);
     });
 
+    test("a repository-selected clean filter never runs while staging", async () => {
+      const service = getWorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const sentinel = join(testDir, "clean-filter-ran");
+      const script = join(testDir, "clean.sh");
+      writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\ncat\n`, "utf-8");
+      chmodSync(script, 0o755);
+      execFileSync("git", ["config", "filter.evil.clean", script], {
+        cwd: testDir,
+      });
+      writeFileSync(
+        join(testDir, ".gitattributes"),
+        "note.md filter=evil\n",
+        "utf-8",
+      );
+      writeFileSync(join(testDir, "note.md"), "staged content\n", "utf-8");
+
+      await service.commitChanges("stages note.md");
+
+      expect(existsSync(sentinel)).toBe(false);
+    });
+
+    test("a repository-named signing program never runs while committing", async () => {
+      const service = getWorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const sentinel = join(testDir, "gpg-ran");
+      const script = join(testDir, "gpg.sh");
+      writeFileSync(
+        script,
+        `#!/bin/sh\ntouch "${sentinel}"\nexit 1\n`,
+        "utf-8",
+      );
+      chmodSync(script, 0o755);
+      execFileSync("git", ["config", "commit.gpgSign", "true"], {
+        cwd: testDir,
+      });
+      execFileSync("git", ["config", "gpg.program", script], { cwd: testDir });
+
+      writeFileSync(join(testDir, "note.md"), "hello\n", "utf-8");
+      await service.commitChanges("signed?");
+
+      expect(existsSync(sentinel)).toBe(false);
+    });
+
     test("a repository-named textconv program never runs while diffing", async () => {
       const service = getWorkspaceGitService(testDir);
       await service.ensureInitialized();
