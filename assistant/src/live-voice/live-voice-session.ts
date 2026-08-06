@@ -5794,7 +5794,14 @@ async function defaultStartVoiceTurn(
   // inside `startVoiceTurn` trips `FOREIGN KEY constraint failed`. Ensure it
   // exists (idempotent) before persisting. Lives in the production wiring, not
   // the session state machine, so session unit tests stay DB-free.
-  const createdConversation = ensureConversationExists(options.conversationId);
+  // Native: this is the local live-voice session, which adopts a conversation
+  // id the app supplied. Its trust context resolves through
+  // `resolveLocalLiveVoiceTrustContext`, and a phone call reaches the assistant
+  // through the telephony path rather than here.
+  const createdConversation = ensureConversationExists(
+    options.conversationId,
+    "vellum",
+  );
   if (createdConversation) {
     // The row was created outside the normal send-message route, which is where
     // sibling clients/sidebars learn about a new conversation. Emit the same

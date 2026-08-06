@@ -19,6 +19,7 @@ import {
   ensureConversationExists,
   getConversation,
 } from "../persistence/conversation-crud.js";
+import type { ConversationOrigin } from "../persistence/conversation-types.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import {
   mainAgentResolutionError,
@@ -50,6 +51,27 @@ import { buildTransportHints } from "./transport-hints.js";
 // ── Per-conversation persistent options ────────────────────────────
 
 const conversationOptions = new Map<string, ConversationCreateOptions>();
+
+/**
+ * The channel a conversation created here belongs to.
+ *
+ * A trust context is stamped per inbound message from the gateway verdict,
+ * so `sourceChannel` names the channel the message creating this
+ * conversation actually arrived on. This is the moment that fact is known,
+ * and the caller is the only party that holds it.
+ *
+ * Its absence means no channel message is involved: a desktop, web, or CLI
+ * turn, which is native. That is the same conclusion migration 288 reaches
+ * at startup for a row nothing ever claimed, and the same one
+ * `recoverRestingTrustContext` reaches for an unset column, so recording it
+ * here changes no behavior. It states the fact when it is known instead of
+ * leaving it to be inferred twice, differently, later.
+ */
+function originFromStoredOptions(
+  storedOptions: ConversationCreateOptions | undefined,
+): ConversationOrigin {
+  return storedOptions?.trustContext?.sourceChannel ?? "vellum";
+}
 
 /**
  * Drops the transport fields that describe what the client had on screen for a
@@ -229,9 +251,13 @@ export async function getOrCreateConversation(
           createConversation({
             id: conversationId,
             conversationType: storedOptions.conversationType,
+            origin: originFromStoredOptions(storedOptions),
           });
         } else {
-          ensureConversationExists(conversationId);
+          ensureConversationExists(
+            conversationId,
+            originFromStoredOptions(storedOptions),
+          );
         }
       }
 

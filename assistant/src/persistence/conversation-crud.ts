@@ -1150,7 +1150,10 @@ export const ADOPTABLE_CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
  * is validated first — a value like `../../tmp/x` would otherwise write
  * `meta.json` outside the conversations directory.
  */
-export function ensureConversationExists(id: string): boolean {
+export function ensureConversationExists(
+  id: string,
+  origin: ConversationOrigin,
+): boolean {
   if (getConversation(id)) {
     return false;
   }
@@ -1160,7 +1163,7 @@ export function ensureConversationExists(id: string): boolean {
     );
   }
   try {
-    createConversation({ id });
+    createConversation({ id, origin });
     return true;
   } catch (err) {
     // A concurrent caller may have created the row between the check and the
