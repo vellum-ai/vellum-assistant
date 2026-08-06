@@ -120,28 +120,16 @@ export function ProfileEditorFields({
   );
 
   const keyField = (
-    <div className="space-y-1">
-      <label className="block text-body-small-default text-[var(--content-tertiary)]">
-        Key
-      </label>
-      <Input
-        type="text"
-        value={editor.key}
-        onChange={(e) => editor.handleKeyChange(e.target.value)}
-        placeholder="e.g. fast-cheap"
-        disabled={editor.isReadOnly || editor.effectiveMode === "edit"}
-        fullWidth
-      />
-      {editor.keyError && !editor.isReadOnly ? (
-        <Typography
-          variant="body-small-default"
-          as="p"
-          className="text-(--system-negative-strong)"
-        >
-          {editor.keyError}
-        </Typography>
-      ) : null}
-    </div>
+    <Input
+      label="Key"
+      type="text"
+      value={editor.key}
+      onChange={(e) => editor.handleKeyChange(e.target.value)}
+      placeholder="e.g. fast-cheap"
+      disabled={editor.isReadOnly || editor.effectiveMode === "edit"}
+      errorText={editor.isReadOnly ? undefined : editor.keyError}
+      fullWidth
+    />
   );
 
   // An active read-only (managed) profile shows no status toggle (it cannot
@@ -429,6 +417,7 @@ export function ProfileEditorFields({
         isReadOnly={editor.isReadOnly}
         availableConnectionsForProvider={editor.availableConnectionsForProvider}
         connectionNotFound={editor.connectionNotFound}
+        providerError={editor.providerError}
       />
 
       {advancedParamsNode}

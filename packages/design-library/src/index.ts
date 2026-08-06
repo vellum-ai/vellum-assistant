@@ -13,11 +13,7 @@ export {
   CardFooter,
   type CardRootProps,
 } from "./components/card";
-export {
-  Notice,
-  type NoticeProps,
-  type NoticeTone,
-} from "./components/notice";
+export { Notice, type NoticeProps, type NoticeTone } from "./components/notice";
 export { ProgressBar, type ProgressBarProps } from "./components/progress-bar";
 export {
   ResizablePanel,
@@ -40,10 +36,7 @@ export {
   type TypographyVariant,
   type TypographyAs,
 } from "./components/typography";
-export {
-  Popover,
-  type PopoverContentProps,
-} from "./components/popover";
+export { Popover, type PopoverContentProps } from "./components/popover";
 export {
   Input,
   Textarea,
@@ -243,10 +236,7 @@ export {
   type StatSquareProps,
   type StatSquareTone,
 } from "./components/stat-square";
-export {
-  ListRow,
-  type ListRowProps,
-} from "./components/list-row";
+export { ListRow, type ListRowProps } from "./components/list-row";
 export {
   ShortcutKeys,
   parseAccelerator,
