@@ -72,11 +72,13 @@
  * closing it reveals the look again. That is what lets it stay open across a
  * run of photos ("what's this?" … "and this one?"), where the system camera,
  * being modal and one-shot, would charge a full open/aim/expose cycle per
- * question. Each photo rides the NEXT turn's user message, so the picture and
- * the words spoken about it arrive as one thing. See `voice-camera.ts` for the
- * capture rules (video-only `getUserMedia`, so the call's audio is never
- * renegotiated) and `use-voice-room-camera.ts` for the send path, which is the
- * composer's own attachment upload.
+ * question. Each photo lands in the conversation as its own user message the
+ * moment it is taken and runs no turn, so shutter-then-speak and
+ * speak-then-shutter behave the same and nothing races the sentence in
+ * progress. See `voice-camera.ts` for the capture rules (video-only
+ * `getUserMedia`, so the call's audio is never renegotiated) and
+ * `use-voice-room-camera.ts` for the send path, which is the composer's own
+ * attachment upload.
  *
  * **Leaving the room and ending the call are different acts, and the room says
  * so in three places.** Minimizing is the light one — the session keeps running

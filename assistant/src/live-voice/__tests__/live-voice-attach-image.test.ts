@@ -144,7 +144,10 @@ describe("live-voice attach_image frame", () => {
 });
 
 describe("live-voice photos taken mid-call", () => {
-  test("a photo taken before speaking rides that turn's user message", async () => {
+  test("a photo does not dispatch a turn of its own", async () => {
+    // The photo becomes its own user message via `persistLiveVoicePhoto`; no
+    // assistant turn runs for it. Dispatching one would answer the picture
+    // while the user is still saying the sentence it belongs to.
     const harness = createSessionHarness();
     await harness.session.start();
 
@@ -152,111 +155,15 @@ describe("live-voice photos taken mid-call", () => {
       type: "attach_image",
       attachmentId: "att-1",
     });
-    // Parking, not dispatching: nothing runs until the user actually says
-    // something.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
     expect(harness.startVoiceTurn).not.toHaveBeenCalled();
-
-    await speakAndRelease(harness, "what's this");
-
-    expect(harness.startVoiceTurn).toHaveBeenCalledTimes(1);
-    expect(turnOptionsAt(harness.startVoiceTurn, 0)).toMatchObject({
-      content: "what's this",
-      attachmentIds: ["att-1"],
-    });
   });
 
-  test("a photo is claimed once, so the next turn does not re-attach it", async () => {
-    const harness = createSessionHarness();
-    await harness.session.start();
-
-    await harness.session.handleClientFrame({
-      type: "attach_image",
-      attachmentId: "att-1",
-    });
-    await speakAndRelease(harness, "what's this");
-    expect(turnOptionsAt(harness.startVoiceTurn, 0)?.attachmentIds).toEqual([
-      "att-1",
-    ]);
-
-    (harness.startVoiceTurn as ReturnType<typeof mock>).mockClear();
-    await speakAndRelease(harness, "and now");
-
-    // The second turn carries no attachments at all, rather than the first
-    // turn's photo a second time. Showing the model the same image twice
-    // would make it answer about a picture the user has moved on from.
-    expect(
-      turnOptionsAt(harness.startVoiceTurn, 0)?.attachmentIds,
-    ).toBeUndefined();
-  });
-
-  test("several photos taken before one sentence all ride it, in order", async () => {
-    const harness = createSessionHarness();
-    await harness.session.start();
-
-    for (const attachmentId of ["att-1", "att-2", "att-3"]) {
-      await harness.session.handleClientFrame({
-        type: "attach_image",
-        attachmentId,
-      });
-    }
-    await speakAndRelease(harness, "compare these");
-
-    expect(turnOptionsAt(harness.startVoiceTurn, 0)?.attachmentIds).toEqual([
-      "att-1",
-      "att-2",
-      "att-3",
-    ]);
-  });
-
-  test("a duplicate id is ignored", async () => {
-    const harness = createSessionHarness();
-    await harness.session.start();
-
-    await harness.session.handleClientFrame({
-      type: "attach_image",
-      attachmentId: "att-1",
-    });
-    await harness.session.handleClientFrame({
-      type: "attach_image",
-      attachmentId: "att-1",
-    });
-    await speakAndRelease(harness, "what's this");
-
-    expect(turnOptionsAt(harness.startVoiceTurn, 0)?.attachmentIds).toEqual([
-      "att-1",
-    ]);
-  });
-
-  test("a burst past the cap keeps the newest photos", async () => {
-    const harness = createSessionHarness();
-    await harness.session.start();
-
-    for (let index = 0; index < 10; index += 1) {
-      await harness.session.handleClientFrame({
-        type: "attach_image",
-        attachmentId: `att-${index}`,
-      });
-    }
-    await speakAndRelease(harness, "what are these");
-
-    // MAX_PENDING_ATTACHMENTS is 6, and the newest survive: they are the ones
-    // the sentence that follows is about.
-    expect(turnOptionsAt(harness.startVoiceTurn, 0)?.attachmentIds).toEqual([
-      "att-4",
-      "att-5",
-      "att-6",
-      "att-7",
-      "att-8",
-      "att-9",
-    ]);
-  });
-
-  test("a rolled-back speculative turn gives its photos back", async () => {
-    // The hold-verdict path: a turn dispatched before the endpoint decision
-    // is unwound when the user turns out to have been mid-thought, and the
-    // utterance is re-sent later. The photo has to travel with it, otherwise
-    // a picture taken just before a pause vanishes from the sentence it
-    // belongs to.
+  test("a spoken turn carries no attachments of its own", async () => {
+    // Photos reach the model through conversation history, not through the
+    // turn's options, which is what makes shutter-then-speak and
+    // speak-then-shutter behave identically.
     const harness = createSessionHarness();
     await harness.session.start();
 
@@ -266,41 +173,37 @@ describe("live-voice photos taken mid-call", () => {
     });
     await speakAndRelease(harness, "what's this");
 
-    const turn = (
-      harness.session as unknown as {
-        activeAssistantTurn: {
-          attachmentsClaimed: boolean;
-          claimedAttachmentIds: string[];
-        } | null;
+    const options = turnOptionsAt(harness.startVoiceTurn, 0) as
+      | (VoiceTurnOptions & { attachmentIds?: string[] })
+      | undefined;
+    expect(options?.content).toBe("what's this");
+    expect(options?.attachmentIds).toBeUndefined();
+  });
+
+  test("a photo that cannot be stored is reported to the client", async () => {
+    // `att-missing` resolves to nothing (no attachment row in this harness),
+    // so the persist fails. Silence would leave the user believing the
+    // assistant can see something it never received.
+    const harness = createSessionHarness();
+    await harness.session.start();
+    const before = harness.frames.length;
+
+    await harness.session.handleClientFrame({
+      type: "attach_image",
+      attachmentId: "att-missing",
+    });
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      if (harness.frames.length > before) {
+        break;
       }
-    ).activeAssistantTurn;
-    expect(turn?.claimedAttachmentIds).toEqual(["att-1"]);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
 
-    // The real rollback entry point, not just the restore helper: the wiring
-    // into `discardSpeculativeTurn` is the part that was missing.
-    (
-      harness.session as unknown as {
-        discardSpeculativeTurn: (t: unknown, reason: string) => void;
-      }
-    ).discardSpeculativeTurn(turn, "hold_verdict");
-
-    // Back in the queue, and the latch released so the replacement turn can
-    // claim it.
-    expect(turn?.attachmentsClaimed).toBe(false);
-    expect(
-      (harness.session as unknown as { pendingAttachmentIds: string[] })
-        .pendingAttachmentIds,
-    ).toEqual(["att-1"]);
-  });
-
-  test("a turn with no photo carries no attachmentIds", async () => {
-    const harness = createSessionHarness();
-    await harness.session.start();
-
-    await speakAndRelease(harness, "just talking");
-
-    expect(
-      turnOptionsAt(harness.startVoiceTurn, 0)?.attachmentIds,
-    ).toBeUndefined();
+    const error = harness.frames
+      .slice(before)
+      .find((frame) => frame.type === "error");
+    expect(error).toMatchObject({ type: "error", recoverable: true });
+    // The session survives it: one failed photo is not a failed call.
+    expect(harness.startVoiceTurn).not.toHaveBeenCalled();
   });
 });

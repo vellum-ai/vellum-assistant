@@ -115,9 +115,10 @@ export interface LiveVoiceClientUpdateConfigFrame {
  * uses, which already handles HEIF normalization and size caps, and this
  * socket is tuned for 50 ms audio frames.
  *
- * The daemon parks the id and attaches it to the NEXT turn's user message, so
- * the photo and the words spoken about it are one message. That is what lets a
- * bare "what's this?" resolve against the picture.
+ * The daemon persists it into the conversation as its own user message and
+ * runs no turn. That is what makes the order of shutter and speech
+ * irrelevant: whatever the user says next, before or after the snap, is
+ * answered by a model whose history already has the image.
  */
 export interface LiveVoiceClientAttachImageFrame {
   readonly type: "attach_image";

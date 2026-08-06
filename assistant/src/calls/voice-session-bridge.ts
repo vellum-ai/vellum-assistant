@@ -29,10 +29,6 @@ import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assem
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
-  getAttachmentsByIds,
-  getSourcePathsForAttachments,
-} from "../persistence/attachments-store.js";
-import {
   deleteMessageById,
   getMessageById,
   recordConversationPersistedSeq,
@@ -255,34 +251,6 @@ export interface VoiceTurnCallbacks {
   tool_result?: (event: VoiceToolResultEvent) => void;
 }
 
-/**
- * Hydrate attachment ids into the shape `persistUserMessage` stores.
- *
- * Mirrors the HTTP send path's own `resolveAttachments` (`conversation-routes`)
- * so a photo taken mid-call is persisted exactly like one attached to a typed
- * message: same store lookup, same `filePath` provenance, so everything
- * downstream (the `workspace_ref` blocks, the transcript's attachment
- * rendering, the provider-boundary media resolve) is reached by one path.
- *
- * Ids that no longer resolve (deleted, expired, never uploaded) are simply
- * absent from the result. A photo that failed to store must not take the
- * spoken turn down with it: the user still asked a question out loud, and
- * answering it without the image beats failing the turn.
- */
-function resolveTurnAttachments(attachmentIds: string[]) {
-  const resolved = getAttachmentsByIds(attachmentIds, {
-    hydrateFileData: true,
-  });
-  const sourcePaths = getSourcePathsForAttachments(attachmentIds);
-  return resolved.map((a) => ({
-    id: a.id,
-    filename: a.originalFilename,
-    mimeType: a.mimeType,
-    data: a.dataBase64,
-    ...(sourcePaths.has(a.id) ? { filePath: sourcePaths.get(a.id) } : {}),
-  }));
-}
-
 export interface VoiceTurnOptions {
   /** The conversation ID for this voice call's session. */
   conversationId: string;
@@ -318,19 +286,6 @@ export interface VoiceTurnOptions {
   voiceControlPrompt?: string | null;
   /** The transcribed caller utterance or synthetic marker. */
   content: string;
-  /**
-   * Attachments to persist onto this turn's user message, by id: photos the
-   * user took while the call was running (see the live-voice `attach_image`
-   * frame). Already uploaded through the normal attachment route, so these are
-   * ids into `attachments-store`, not bytes.
-   *
-   * They ride the SAME user message as the transcribed speech rather than a
-   * message of their own, which is what makes a bare "what's this?" resolve
-   * against the photo. It also keeps the image on the newest user message,
-   * the only one `conversation-media-retry` preserves media on when a turn
-   * overflows the context window and retries.
-   */
-  attachmentIds?: string[];
   /** Assistant scope for multi-assistant channels. */
   assistantId?: string;
   /** Guardian trust context for the caller. */
@@ -1001,11 +956,6 @@ export async function startVoiceTurn(
   const persistTurnUserMessage = async (): Promise<string> => {
     const persistResult = await conversation.persistUserMessage({
       content: persistedContent,
-      // Resolved per attempt, not once above: the busy-retry path can run this
-      // a second time, and `hydrateFileData` reads the blob each time.
-      ...(opts.attachmentIds && opts.attachmentIds.length > 0
-        ? { attachments: resolveTurnAttachments(opts.attachmentIds) }
-        : {}),
       requestId,
       metadata: {
         // Durable "this turn came from an open voice session" marker; see

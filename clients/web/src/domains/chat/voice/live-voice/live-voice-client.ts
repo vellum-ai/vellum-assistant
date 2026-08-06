@@ -94,9 +94,14 @@ export interface LiveVoiceClientClosed {
   readonly reason: string;
 }
 
-/** Why a photo the transport accepted will never reach a turn. */
+/**
+ * Why a photo the transport accepted never reached the conversation.
+ *
+ * - `unsupported`: the assistant predates the frame entirely.
+ * - `failed`: the assistant knows the frame but could not store the photo.
+ */
 export interface LiveVoiceAttachImageRejected {
-  readonly reason: "unsupported";
+  readonly reason: "unsupported" | "failed";
   readonly message: string;
 }
 
@@ -364,8 +369,8 @@ export class LiveVoiceChannelClient {
 
   /**
    * Tell the session about a photo the user just took, by the id its upload
-   * already returned. The daemon parks it and attaches it to the next turn's
-   * user message.
+   * already returned. The daemon persists it into the conversation as its own
+   * user message and runs no turn.
    *
    * Returns whether the frame actually went out. A session that is connecting
    * or reconnecting cannot take it, and the caller has to know: the photo was
@@ -499,41 +504,38 @@ export class LiveVoiceChannelClient {
       case "archived":
         this.emit("archived", frame);
         return;
-      case "error":
-        // An assistant running daemon code older than a client frame we sent
-        // rejects it with `unknown_type`. This client sends two frames that an
-        // older assistant may not know: `update_config` (the voice-room
-        // settings) and `attach_image` (a photo taken mid-call). Neither is a
-        // session failure, but they need opposite handling, so attribution
-        // matters.
+      case "error": {
+        // `frameType` names what the error is about, which is what keeps a
+        // failed photo out of the buckets it would otherwise land in.
         //
-        // `frameType` is how they are told apart. Daemons predating that field
-        // omit it, and the fallback is to assume the settings frame: it is the
-        // one this client has always sent optimistically, and `attach_image`
-        // is version-gated on `useSupportsVoiceCamera` so it should not be in
-        // flight against an assistant that old in the first place. Anything
-        // new sent from here needs either a version gate or a `frameType`
-        // branch, or its rejection lands in the wrong bucket.
+        // Two cases reach here for a photo. An assistant too old to know the
+        // frame rejects it with `unknown_type`, which is byte-identical to the
+        // `update_config` rejection this client has always sent
+        // optimistically; and a current assistant that could not store the
+        // photo answers with a `recoverable` error, which would otherwise be
+        // filed with the transient transcriber and TTS blips that share that
+        // flag. Both leave the user believing the assistant can see something
+        // it never received, so both are reported.
+        const about =
+          "frameType" in frame && typeof frame.frameType === "string"
+            ? frame.frameType
+            : null;
+        if (about === "attach_image") {
+          console.warn(`live-voice: photo not attached: ${frame.message}`);
+          this.emit("attachImageRejected", {
+            reason: frame.code === "unknown_type" ? "unsupported" : "failed",
+            message: frame.message,
+          });
+          return;
+        }
+        // Daemons predating `frameType` omit it, so an unattributed
+        // `unknown_type` falls back to the settings frame. That is the safe
+        // guess: it is the only frame this client sends without a version
+        // gate, and `attach_image` is gated on `useSupportsVoiceCamera` so it
+        // should never be in flight against an assistant that old. Anything
+        // new sent from here needs a gate or a `frameType`, or its rejection
+        // lands in the wrong bucket.
         if (frame.code === "unknown_type") {
-          const rejected =
-            "frameType" in frame && typeof frame.frameType === "string"
-              ? frame.frameType
-              : "update_config";
-          if (rejected === "attach_image") {
-            // A photo the user watched themselves take. Reporting it is the
-            // whole point: the upload succeeded and the shutter already fired,
-            // so silence here is the assistant appearing to have seen
-            // something it never received.
-            console.warn(
-              "live-voice: assistant rejected attach_image (unknown_type); " +
-                "photos cannot be sent until it is upgraded",
-            );
-            this.emit("attachImageRejected", {
-              reason: "unsupported",
-              message: frame.message,
-            });
-            return;
-          }
           this.configUpdatesUnsupported = true;
           console.warn(
             "live-voice: assistant rejected update_config (unknown_type); " +
@@ -559,6 +561,7 @@ export class LiveVoiceChannelClient {
         }
         this.fail("protocol-error", frame.message, frame.code);
         return;
+      }
       case "unknown_frame":
         // Frame types from a newer server than this client. Ignore so
         // protocol additions never kill older clients.

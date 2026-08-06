@@ -89,6 +89,7 @@ import {
   type LiveVoiceTurnSeedMarks,
   type VoiceEndpointAction,
 } from "./live-voice-metrics.js";
+import { persistLiveVoicePhoto } from "./live-voice-photo.js";
 import {
   type LiveVoiceSession as LiveVoiceSessionContract,
   type LiveVoiceSessionCloseReason,
@@ -121,11 +122,6 @@ type LiveVoiceSessionState =
 // Cap on audio buffered while a server-VAD utterance waits for its
 // transcriber (PCM16 mono seconds; oldest chunks are dropped past the cap).
 const SERVER_VAD_PENDING_AUDIO_MAX_SECONDS = 10;
-
-// Cap on photos parked for the next turn's user message (newest kept). Sized
-// for the gesture this supports (showing the assistant a thing, from a couple
-// of angles) and not for emptying a camera roll into one turn.
-const MAX_PENDING_ATTACHMENTS = 6;
 // Idle-mic chunks retained while the VAD detector is idle; flushed on speech
 // onset so the transcriber gets leading context without streaming an open
 // quiet mic.
@@ -489,18 +485,6 @@ interface ActiveAssistantTurn {
   utterance: UtteranceCycle;
   abortController: AbortController;
   handle: VoiceTurnHandle | null;
-  // Latched once this turn has taken the session's parked photos (see
-  // `claimPendingAttachments`). A turn can start more than one leg (the
-  // front-door leg and, after an escalation hand-off, a second one) and each
-  // leg persists its own user message, so without the latch the same photo
-  // would be attached twice and shown to the model twice.
-  attachmentsClaimed: boolean;
-  // What it took, so a rollback can give it back. A speculative turn is
-  // dispatched before the endpoint verdict is known and unwound if the verdict
-  // is `hold` (the user was mid-thought), and the utterance is then re-sent by
-  // a later turn, so the photos have to return to the session's queue with it,
-  // or the picture the pause was in the middle of asking about is silently gone.
-  claimedAttachmentIds: string[];
   // When the turn launched, for narration's turnElapsedMs.
   launchedAtMs: number;
   progress: TurnProgressState;
@@ -954,9 +938,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly resolveTranscriber: LiveVoiceStreamingTranscriberResolver;
   private readonly resolveCredentialReadiness: LiveVoiceCredentialReadinessResolver | null;
   private readonly startVoiceTurn: LiveVoiceTurnStarter | null;
-  // Photos taken since the last turn was dispatched, oldest first, waiting to
-  // ride the next one's user message. See `claimPendingAttachments`.
-  private pendingAttachmentIds: string[] = [];
   private readonly streamTtsAudio: LiveVoiceTtsStreamer | null;
   private readonly archiveAudio: LiveVoiceSessionAudioArchiver | null;
   private readonly spawnBackgroundContinuation: LiveVoiceBackgroundContinuationSpawner | null;
@@ -1280,87 +1261,41 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         this.applyConfigUpdate(frame);
         return;
       case "attach_image":
-        this.parkAttachment(frame);
+        this.persistPhoto(frame);
         return;
     }
   }
 
   /**
-   * Park a photo taken mid-call so it rides the next turn's user message.
+   * Persist a photo taken mid-call into the conversation, running no turn.
    *
-   * Parking rather than dispatching is what makes the feature work in the
-   * order people actually use it. A user points the camera and says "what's
-   * this?", and the shutter and the sentence arrive within a second of each
-   * other in either order, and the VAD's own trailing-silence window plus
-   * transcription means a photo taken just *after* the question still lands
-   * before the turn dispatches. Both orders therefore resolve to one turn
-   * that has both, rather than a turn about the image racing a turn about
-   * the words.
+   * Fire-and-forget on purpose: the persist waits out any in-flight turn, and
+   * the socket must keep pumping audio meanwhile. The client already showed a
+   * thumbnail from the local frame, so nothing on screen is waiting on this.
    *
-   * A photo taken while a turn is already in flight stays parked for the turn
-   * after it: the in-flight turn's user message is already persisted, and
-   * re-persisting to attach an image would fork the transcript.
+   * The photo becomes its own user message rather than riding the next spoken
+   * turn, which is what makes shutter-then-speak and speak-then-shutter
+   * behave the same: either way the model's history has the image by the time
+   * it answers. See `live-voice-photo.ts` for the full reasoning.
    */
-  private parkAttachment(frame: LiveVoiceClientAttachImageFrame): void {
-    if (this.pendingAttachmentIds.includes(frame.attachmentId)) {
-      return;
-    }
-    this.pendingAttachmentIds.push(frame.attachmentId);
-    // A user can hold the shutter down far longer than they can hold a
-    // thought; without a bound, a burst taken during one long assistant reply
-    // would arrive as a single turn carrying dozens of full-size images. The
-    // newest are kept because they are the ones the next sentence is about.
-    if (this.pendingAttachmentIds.length > MAX_PENDING_ATTACHMENTS) {
-      this.pendingAttachmentIds = this.pendingAttachmentIds.slice(
-        -MAX_PENDING_ATTACHMENTS,
-      );
-    }
-  }
-
-  /**
-   * Hand this turn the parked photos, exactly once. Later legs of the same
-   * turn get nothing (see {@link ActiveAssistantTurn.attachmentsClaimed}), and
-   * a photo taken after the claim stays parked for the next turn.
-   */
-  private claimPendingAttachments(activeTurn: ActiveAssistantTurn): string[] {
-    if (
-      activeTurn.attachmentsClaimed ||
-      this.pendingAttachmentIds.length === 0
-    ) {
-      return [];
-    }
-    activeTurn.attachmentsClaimed = true;
-    const claimed = this.pendingAttachmentIds;
-    activeTurn.claimedAttachmentIds = claimed;
-    this.pendingAttachmentIds = [];
-    return claimed;
-  }
-
-  /**
-   * Give a rolled-back turn's photos back to the session.
-   *
-   * A speculative turn dispatches before the endpoint verdict is in, so a
-   * `hold` (the user was only pausing mid-thought) unwinds it and a later turn
-   * re-sends the same utterance. The photos have to travel with it: without
-   * this, a picture taken just before the pause is claimed by the dispatch that
-   * is then thrown away, and the sentence it belonged to eventually arrives
-   * with nothing attached.
-   *
-   * Restored to the FRONT, because they were taken before anything still
-   * queued, and the order photos were taken in is the order they are about to
-   * be talked about. The cap still keeps the newest, as parking does: a
-   * rollback must not become a way to pin old photos ahead of newer ones.
-   */
-  private restoreClaimedAttachments(activeTurn: ActiveAssistantTurn): void {
-    if (activeTurn.claimedAttachmentIds.length === 0) {
-      return;
-    }
-    this.pendingAttachmentIds = [
-      ...activeTurn.claimedAttachmentIds,
-      ...this.pendingAttachmentIds,
-    ].slice(-MAX_PENDING_ATTACHMENTS);
-    activeTurn.claimedAttachmentIds = [];
-    activeTurn.attachmentsClaimed = false;
+  private persistPhoto(frame: LiveVoiceClientAttachImageFrame): void {
+    void persistLiveVoicePhoto(this.conversationId, frame.attachmentId).then(
+      (result) => {
+        if (!result.ok && !this.isClosed) {
+          void this.sendFrame({
+            type: "error",
+            code: LiveVoiceProtocolErrorCode.InvalidFrame,
+            message: "Could not attach that photo to the conversation.",
+            // Names the photo as the casualty so the client can retract the
+            // thumbnail it already showed, rather than filing this with the
+            // transient transcriber and TTS blips that share `recoverable`.
+            frameType: "attach_image",
+            // The session is fine; only this photo failed.
+            recoverable: true,
+          });
+        }
+      },
+    );
   }
 
   /**
@@ -3004,7 +2939,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // all go back to the session. The turn that would have delivered them is
     // gone, and the utterance they belong to is about to be sent by another.
     this.restorePendingTurnContext(turn);
-    this.restoreClaimedAttachments(turn);
     // Latched before the handle check: when the discard beats the bridge
     // handle's resolution (startVoiceTurn still persisting), the handle's
     // arrival in startAssistantLeg completes the rollback via discard().
@@ -3745,8 +3679,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       },
       assistantCompleted: false,
       ttsDone: false,
-      attachmentsClaimed: false,
-      claimedAttachmentIds: [],
       minimizeRequested: false,
       activityLabel: "",
       publishedApprovalRequestId: null,
@@ -3941,26 +3873,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.escalateTurn(activeTurn, capEscalationBridge(bridgeRaw));
     };
 
-    // Claimed before the await, not inside the options object: a photo landing
-    // while the bridge is still starting the turn belongs to the NEXT one, and
-    // reading the field later would silently fold it into this turn's persist.
-    //
-    // An announcement turn claims nothing. Its content is a fixed marker
-    // persisted as a hidden synthetic prompt (see `hiddenSyntheticPrompt`
-    // below), not something the user said, so attaching their photos to it
-    // would spend them on a message they never wrote and cannot see, and the
-    // real question they took the photos for would arrive with none.
-    const turnAttachmentIds =
-      activeTurn.continuationDelivery !== null
-        ? []
-        : this.claimPendingAttachments(activeTurn);
-
     try {
       const handle = await this.startVoiceTurn({
         conversationId: this.conversationId,
-        ...(turnAttachmentIds.length > 0
-          ? { attachmentIds: turnAttachmentIds }
-          : {}),
         voiceSessionId: this.context.sessionId,
         userMessageChannel: "vellum",
         assistantMessageChannel: "vellum",

@@ -590,10 +590,10 @@ export function useLiveVoice(
    * it reached the transport.
    *
    * A photo taken during the reconnect gap is dropped rather than queued. The
-   * daemon parks attachments against the session it is told about, and a
+   * daemon persists a photo against the session it is told about, and a
    * reconnect starts a fresh one, so holding the id across that gap would
-   * attach the photo to a turn arbitrarily far from the sentence it belonged
-   * to. Dropping is therefore right, but it must be VISIBLE: the upload has
+   * land the photo in the conversation long after the moment it belonged to.
+   * Dropping is therefore right, but it must be VISIBLE: the upload has
    * already succeeded and the shutter has already fired, so returning nothing
    * would leave the user believing the assistant can see something it cannot.
    * The room reports the false and asks them to take it again.
@@ -1057,14 +1057,14 @@ export function useLiveVoice(
           }
           // Persisted; nothing user-visible to do here.
         }),
-        client.on("attachImageRejected", () => {
+        client.on("attachImageRejected", (rejected) => {
           if (!live()) {
             return;
           }
           // The assistant refused a photo the transport had already sent, so
           // nothing downstream knows it is gone. Publishing it is what lets the
           // room retract the thumbnail it has already shown as sent.
-          useLiveVoiceStore.getState().notePhotoRejected();
+          useLiveVoiceStore.getState().notePhotoRejected(rejected.reason);
         }),
         client.on("busy", () => {
           if (!live()) {

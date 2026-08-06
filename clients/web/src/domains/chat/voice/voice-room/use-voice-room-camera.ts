@@ -8,13 +8,13 @@
  * {@link prepareImageAttachmentForUpload} then {@link uploadChatAttachment},
  * and lands in the same store, with the same HEIF/size handling and the same
  * transcript rendering. Only the last step is voice-specific: the returned id
- * is handed to the live-voice session, which parks it and attaches it to the
- * next turn's user message.
+ * is handed to the live-voice session, which persists it into the
+ * conversation as its own user message and runs no turn for it.
  *
- * That parking is what makes the interaction work in the order people use it.
- * Whether the user snaps and then asks, or asks and then snaps, the photo and
- * the sentence resolve to a single turn: a bare "what's this?" is answered
- * about the picture rather than about nothing.
+ * Running no turn is what makes the interaction work in the order people use
+ * it. Whether the user snaps and then asks, or asks and then snaps, the model
+ * has the image in history by the time it answers, and nothing races the
+ * sentence they are in the middle of saying.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -44,6 +44,7 @@ const CAMERA_ERROR_COPY: Record<string, string> = {
   "upload-failed": "Couldn't send that photo.",
   "not-delivered": "Reconnecting. Take that one again.",
   refused: "Your assistant can't receive photos yet.",
+  "store-failed": "Couldn't add that photo to the conversation.",
 };
 
 /**
@@ -99,6 +100,7 @@ export function useVoiceRoomCamera(
   const [photos, setPhotos] = useState<readonly VoiceRoomPhoto[]>([]);
   const nextPhotoId = useRef(0);
   const photoRejectedSeq = useLiveVoiceStore.use.photoRejectedSeq();
+  const photoRejectedReason = useLiveVoiceStore.use.photoRejectedReason();
 
   /**
    * Add a photo to the strip, dropping and revoking whatever falls off the
@@ -158,7 +160,11 @@ export function useVoiceRoomCamera(
       }
       return current;
     });
-    setSendError("refused");
+    setSendError(photoRejectedReason === "failed" ? "store-failed" : "refused");
+    // Keyed on the counter alone: the reason is read at the moment a rejection
+    // lands, and re-running when only the reason changes would re-fire for a
+    // rejection already reported.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photoRejectedSeq]);
 
   const shutter = useCallback(async () => {

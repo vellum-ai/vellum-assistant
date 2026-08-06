@@ -169,9 +169,8 @@ export interface LiveVoiceSessionControls {
   }) => void;
   /**
    * Tell the session about a photo the user took mid-call, by the id its
-   * upload already returned. The daemon parks it and attaches it to the next
-   * turn's user message, so the photo and the words spoken about it land as
-   * one message.
+   * upload already returned. The daemon persists it into the conversation
+   * straight away, running no turn, so whatever the user says next sees it.
    *
    * Returns whether it reached the session. False during a reconnect gap,
    * which the caller must surface: the photo is already uploaded and the
@@ -266,6 +265,8 @@ export interface LiveVoiceState {
    * beyond the fact of it.
    */
   photoRejectedSeq: number;
+  /** Why the last photo was refused, for the room's wording. */
+  photoRejectedReason: "unsupported" | "failed" | null;
   /** Controls registered by the owning controller, `null` when no session. */
   controls: LiveVoiceSessionControls | null;
   /**
@@ -417,7 +418,7 @@ export interface LiveVoiceActions {
    */
   setConversationId: (conversationId: string) => void;
   /** Record that the assistant refused a photo. See {@link photoRejectedSeq}. */
-  notePhotoRejected: () => void;
+  notePhotoRejected: (reason: "unsupported" | "failed") => void;
   /** Register (or clear) the owning controller's session controls. */
   setControls: (controls: LiveVoiceSessionControls | null) => void;
   /** Register (or clear) the mounted controller's session starter. */
@@ -564,6 +565,7 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   conversationId: null,
   startedConversationId: null,
   photoRejectedSeq: 0,
+  photoRejectedReason: null,
   controls: null,
   partialTranscript: "",
   finalTranscript: "",
@@ -601,8 +603,11 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
       outputMuted: false,
     }),
   setConversationId: (conversationId) => set({ conversationId }),
-  notePhotoRejected: () =>
-    set((state) => ({ photoRejectedSeq: state.photoRejectedSeq + 1 })),
+  notePhotoRejected: (reason) =>
+    set((state) => ({
+      photoRejectedSeq: state.photoRejectedSeq + 1,
+      photoRejectedReason: reason,
+    })),
   setControls: (controls) => set({ controls }),
   setStarter: (starter) => set({ starter }),
   setPartialTranscript: (partialTranscript) => set({ partialTranscript }),

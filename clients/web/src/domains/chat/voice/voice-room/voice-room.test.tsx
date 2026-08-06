@@ -1697,7 +1697,7 @@ describe("VoiceRoom: camera", () => {
       ).toBe("sent");
 
       await act(async () => {
-        useLiveVoiceStore.getState().notePhotoRejected();
+        useLiveVoiceStore.getState().notePhotoRejected("unsupported");
       });
 
       expect(
