@@ -1,15 +1,30 @@
 /**
  * `useDocumentEditorSync` applies a streamed document edit to the viewer and
  * records the change as unseen unless the user is watching that very document.
+ *
+ * "Watching" is the route as well as the viewer store, so these render the
+ * hook under a router positioned on the route being exercised.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router";
 
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
 import { __resetForTesting, publish } from "@/lib/event-bus";
 import { useViewerStore } from "@/stores/viewer-store";
+import { routes } from "@/utils/routes";
+
+/** Mount the hook on `pathname`, defaulting to the conversation chat route. */
+function renderSyncAt(pathname: string = routes.conversation("conv-1")) {
+  return renderHook(() => useDocumentEditorSync(), {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <MemoryRouter initialEntries={[pathname]}>{children}</MemoryRouter>
+    ),
+  });
+}
 
 function publishDocumentEdit(options: {
   conversationId?: string;
@@ -62,7 +77,7 @@ afterEach(() => {
 
 describe("useDocumentEditorSync", () => {
   test("records an unseen change when the document is not open", () => {
-    renderHook(() => useDocumentEditorSync());
+    renderSyncAt();
 
     publishDocumentEdit({ surfaceId: "surf-1" });
 
@@ -71,7 +86,7 @@ describe("useDocumentEditorSync", () => {
 
   test("records nothing when that document is the one on screen", () => {
     openInViewer("surf-1");
-    renderHook(() => useDocumentEditorSync());
+    renderSyncAt();
 
     publishDocumentEdit({ surfaceId: "surf-1" });
 
@@ -80,7 +95,7 @@ describe("useDocumentEditorSync", () => {
 
   test("records an unseen change when a different document is on screen", () => {
     openInViewer("surf-1");
-    renderHook(() => useDocumentEditorSync());
+    renderSyncAt();
 
     publishDocumentEdit({ surfaceId: "surf-2" });
 
@@ -88,7 +103,7 @@ describe("useDocumentEditorSync", () => {
   });
 
   test("records against the conversation the edit came from", () => {
-    renderHook(() => useDocumentEditorSync());
+    renderSyncAt();
 
     publishDocumentEdit({ conversationId: "conv-2", surfaceId: "surf-1" });
 
@@ -98,7 +113,37 @@ describe("useDocumentEditorSync", () => {
 
   test("applies the streamed content to the open document", () => {
     openInViewer("surf-1");
-    renderHook(() => useDocumentEditorSync());
+    renderSyncAt();
+
+    publishDocumentEdit({ surfaceId: "surf-1", markdown: "# Rewritten" });
+
+    expect(useViewerStore.getState().openedDocumentState).toMatchObject({
+      surfaceId: "surf-1",
+      content: "# Rewritten",
+    });
+  });
+
+  test("records an unseen change when the drawer is open but the route is not chat", () => {
+    openInViewer("surf-1");
+    renderSyncAt(routes.library.root);
+
+    publishDocumentEdit({ surfaceId: "surf-1" });
+
+    expect(unseenFor("conv-1")).toEqual(["surf-1"]);
+  });
+
+  test("records an unseen change on the standalone document route", () => {
+    openInViewer("surf-1");
+    renderSyncAt(routes.document("surf-1"));
+
+    publishDocumentEdit({ surfaceId: "surf-1" });
+
+    expect(unseenFor("conv-1")).toEqual(["surf-1"]);
+  });
+
+  test("still applies the streamed content off the chat route", () => {
+    openInViewer("surf-1");
+    renderSyncAt(routes.settings.general);
 
     publishDocumentEdit({ surfaceId: "surf-1", markdown: "# Rewritten" });
 
