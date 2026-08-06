@@ -18,7 +18,6 @@ import { startHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
-import { assertNoLiveDaemonHoldingAllTransports } from "../ipc/socket-cleanup.js";
 import { startMonitoring } from "../monitoring/control.js";
 import { recordDaemonBootTime } from "../monitoring/daemon-boot-time.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
@@ -72,7 +71,7 @@ import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
 import { startAppSourceWatcher } from "./app-source-watcher.js";
 import { startConfigWatcher } from "./config-watcher.js";
 import { startConversationEvictor } from "./conversation-evictor.js";
-import { isHttpHealthy, writePid } from "./daemon-control.js";
+import { writePid } from "./daemon-control.js";
 import {
   setDbMigrating,
   setDbMigrationFailed,
@@ -127,16 +126,6 @@ export async function runDaemon(): Promise<void> {
   // Handlers run a minimal exit path until `setStartupComplete()` below
   // switches them to the full graceful shutdown.
   installShutdownHandlers();
-
-  // Duplicate-daemon short-circuit. If a fully-live daemon already holds BOTH
-  // client-facing transports (IPC socket and HTTP port), abort BEFORE any
-  // config.json normalization or PID-file write so a process that raced in
-  // (e.g. a from-source CLI in an agent shell that could not reach the daemon)
-  // can never stomp the running daemon's state. Holding only one transport is
-  // left to proceed in degraded mode per the startup philosophy. This is a
-  // point-in-time probe; the authoritative bind-check in startCliIpcServer()
-  // below still guards the narrow race where a rival appears mid-startup.
-  await assertNoLiveDaemonHoldingAllTransports(isHttpHealthy);
 
   ensureDataDir();
 

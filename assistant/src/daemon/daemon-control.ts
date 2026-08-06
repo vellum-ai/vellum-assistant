@@ -156,7 +156,7 @@ function healthCheckHost(host: string): string {
 /** Hit the daemon's HTTP /healthz endpoint. Returns true if it responds
  *  with HTTP 200 within the timeout — false on connection refused, timeout,
  *  or any other error. */
-export async function isHttpHealthy(): Promise<boolean> {
+async function isHttpHealthy(): Promise<boolean> {
   const host = healthCheckHost(getRuntimeHttpHost());
   const port = getRuntimeHttpPort();
   try {
@@ -474,11 +474,6 @@ export type StopResult =
   | { stopped: false; reason: "not_running" | "stop_failed" };
 
 export async function ensureDaemonRunning(): Promise<void> {
-  // No explicit pod guard here: getDaemonStatus() reports containerized
-  // instances as running (the orchestrator owns their lifecycle), so this
-  // returns at the status.running check before autostart on any managed
-  // deployment. The from-source CLI path in cli/src/lib/local.ts carries the
-  // guard that refuses to hatch a rival when the daemon is unreachable.
   const status = await getDaemonStatus();
   if (status.running) {
     return;
