@@ -18,6 +18,7 @@ import { startHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
+import { assertNoLiveDaemonHoldingSocket } from "../ipc/socket-cleanup.js";
 import { startMonitoring } from "../monitoring/control.js";
 import { recordDaemonBootTime } from "../monitoring/daemon-boot-time.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
@@ -126,6 +127,14 @@ export async function runDaemon(): Promise<void> {
   // Handlers run a minimal exit path until `setStartupComplete()` below
   // switches them to the full graceful shutdown.
   installShutdownHandlers();
+
+  // Duplicate-daemon short-circuit. If a live daemon already holds the IPC
+  // socket, abort BEFORE any config.json normalization or PID-file write so a
+  // process that raced in (e.g. a from-source CLI in an agent shell that could
+  // not reach the daemon) can never stomp the running daemon's state. This is a
+  // point-in-time probe; the authoritative bind-check in startCliIpcServer()
+  // below still guards the narrow race where a rival appears mid-startup.
+  await assertNoLiveDaemonHoldingSocket();
 
   ensureDataDir();
 

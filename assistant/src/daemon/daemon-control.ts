@@ -10,7 +10,7 @@ import {
 import { resolve } from "node:path";
 
 import { getRuntimeHttpHost, getRuntimeHttpPort } from "../config/env.js";
-import { getIsContainerized } from "../config/env-registry.js";
+import { getIsContainerized, getIsPlatform } from "../config/env-registry.js";
 import { loadOrCreateSigningKey } from "../runtime/auth/token-service.js";
 import { ensureBun } from "../util/bun-runtime.js";
 import { DaemonError } from "../util/errors.js";
@@ -477,6 +477,14 @@ export async function ensureDaemonRunning(): Promise<void> {
   const status = await getDaemonStatus();
   if (status.running) {
     return;
+  }
+  // On a pod the orchestrator owns the daemon lifecycle. A CLI that cannot
+  // reach the daemon must surface that as an error, never hatch a rival that
+  // stomps the shared PID file and config.json.
+  if (getIsContainerized() || getIsPlatform()) {
+    throw new DaemonError(
+      "Assistant is unreachable and cannot be auto-started in a managed environment",
+    );
   }
   await startDaemon();
 }

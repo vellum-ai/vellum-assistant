@@ -647,6 +647,27 @@ function logAssistantAlreadyRunning(
   console.log(`   Assistant already running (pid ${pid})${suffix}\n`);
 }
 
+/**
+ * A pod (containerized or platform-managed) has its daemon lifecycle owned by
+ * the orchestrator. A from-source CLI that reaches the spawn path there could
+ * only be one that failed to reach the running daemon, so refuse to hatch a
+ * rival that would stomp PID files and config.json. Surface the unreachable
+ * daemon as an error instead.
+ */
+export function assertDaemonAutostartAllowed(
+  env: Record<string, string | undefined> = process.env,
+): void {
+  const isFlagSet = (name: string): boolean => {
+    const raw = env[name]?.trim();
+    return raw === "true" || raw === "1";
+  };
+  if (isFlagSet("IS_CONTAINERIZED") || isFlagSet("IS_PLATFORM")) {
+    throw new Error(
+      "Assistant is unreachable and cannot be auto-started in a managed environment.",
+    );
+  }
+}
+
 async function startDaemonFromSource(
   assistantIndex: string,
   resources: LocalInstanceResources,
@@ -676,6 +697,10 @@ async function startDaemonFromSource(
   }
 
   if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) return false;
+
+  // Reaching here means the daemon is unreachable and we are about to spawn
+  // one. On a pod the orchestrator owns that lifecycle, so error instead.
+  assertDaemonAutostartAllowed();
 
   const env: Record<string, string | undefined> = {
     ...process.env,
@@ -762,6 +787,10 @@ async function startDaemonWatchFromSource(
   }
 
   if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) return false;
+
+  // Reaching here means the daemon is unreachable and we are about to spawn
+  // one. On a pod the orchestrator owns that lifecycle, so error instead.
+  assertDaemonAutostartAllowed();
 
   const env: Record<string, string | undefined> = {
     ...process.env,

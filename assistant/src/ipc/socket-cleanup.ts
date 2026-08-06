@@ -10,6 +10,8 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { connect } from "node:net";
 
+import { getAssistantSocketPath } from "./socket-path.js";
+
 /**
  * Maximum time to wait for the probe `connect()` to settle before declaring
  * the path occupied. Without a bound, a hung process holding the socket would
@@ -31,6 +33,46 @@ function makeAddrInUseError(message: string): NodeJS.ErrnoException {
   return err;
 }
 
+type SocketProbeOutcome = "connected" | "timeout" | "stale";
+
+/**
+ * Probe-connect to `socketPath` once and classify the result. Never mutates the
+ * filesystem. Rejects only on an unexpected socket error (anything other than
+ * `ECONNREFUSED`/`ENOENT`). Callers must confirm the path exists first.
+ *   - "connected": a live listener accepted the connection.
+ *   - "timeout":   the connect did not settle within
+ *                  {@link PROBE_CONNECT_TIMEOUT_MS}, so the path is treated as
+ *                  occupied (a hung peer must not be blindly unlinked).
+ *   - "stale":     the path exists but nothing is listening.
+ */
+async function connectProbe(socketPath: string): Promise<SocketProbeOutcome> {
+  return await new Promise<SocketProbeOutcome>((resolve, reject) => {
+    const client = connect(socketPath);
+    let settled = false;
+    const settle = (action: () => void): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      client.removeAllListeners();
+      client.destroy();
+      action();
+    };
+    const timer = setTimeout(() => {
+      settle(() => resolve("timeout"));
+    }, PROBE_CONNECT_TIMEOUT_MS);
+    client.once("connect", () => settle(() => resolve("connected")));
+    client.once("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "ECONNREFUSED" || err.code === "ENOENT") {
+        settle(() => resolve("stale"));
+      } else {
+        settle(() => reject(err));
+      }
+    });
+  });
+}
+
 /**
  * Probe-connect to `socketPath`. Behavior:
  *   - Path doesn't exist → return.
@@ -47,50 +89,58 @@ export async function ensureSocketPathFree(socketPath: string): Promise<void> {
   if (!existsSync(socketPath)) {
     return;
   }
-  await new Promise<void>((resolve, reject) => {
-    const client = connect(socketPath);
-    let settled = false;
-    const settle = (action: () => void): void => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timer);
-      client.removeAllListeners();
-      client.destroy();
-      action();
-    };
-    const timer = setTimeout(() => {
-      settle(() =>
-        reject(
-          makeAddrInUseError(
-            `EADDRINUSE: probe-connect to ${socketPath} did not settle within ${PROBE_CONNECT_TIMEOUT_MS}ms`,
-          ),
-        ),
-      );
-    }, PROBE_CONNECT_TIMEOUT_MS);
-    client.once("connect", () => {
-      settle(() =>
-        reject(
-          makeAddrInUseError(
-            `EADDRINUSE: another daemon is listening at ${socketPath}`,
-          ),
-        ),
-      );
-    });
-    client.once("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "ECONNREFUSED" || err.code === "ENOENT") {
-        settle(() => {
-          try {
-            unlinkSync(socketPath);
-          } catch {
-            // Ignore — may already be gone
-          }
-          resolve();
-        });
-      } else {
-        settle(() => reject(err));
-      }
-    });
-  });
+  const outcome = await connectProbe(socketPath);
+  if (outcome === "connected") {
+    throw makeAddrInUseError(
+      `EADDRINUSE: another daemon is listening at ${socketPath}`,
+    );
+  }
+  if (outcome === "timeout") {
+    throw makeAddrInUseError(
+      `EADDRINUSE: probe-connect to ${socketPath} did not settle within ${PROBE_CONNECT_TIMEOUT_MS}ms`,
+    );
+  }
+  try {
+    unlinkSync(socketPath);
+  } catch {
+    // Ignore — may already be gone
+  }
+}
+
+/**
+ * Read-only liveness check: is a live daemon currently listening at
+ * `socketPath`? Unlike {@link ensureSocketPathFree}, this never unlinks a stale
+ * leftover and never throws for an occupied path. An absent or stale socket
+ * returns `false`. An unexpected socket error is inconclusive and also returns
+ * `false`, leaving the authoritative bind-check to decide.
+ */
+export async function isDaemonSocketAlive(
+  socketPath: string,
+): Promise<boolean> {
+  if (!existsSync(socketPath)) {
+    return false;
+  }
+  try {
+    const outcome = await connectProbe(socketPath);
+    return outcome === "connected" || outcome === "timeout";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Early duplicate-daemon guard for daemon startup. Throws an `EADDRINUSE`-coded
+ * error when a live daemon already holds the assistant IPC socket, so startup
+ * can abort BEFORE any config.json normalization or PID-file write. Read-only:
+ * it never unlinks. The authoritative unlink-and-bind still runs later in
+ * `AssistantIpcServer.start()`.
+ */
+export async function assertNoLiveDaemonHoldingSocket(
+  socketPath: string = getAssistantSocketPath(),
+): Promise<void> {
+  if (await isDaemonSocketAlive(socketPath)) {
+    throw makeAddrInUseError(
+      `EADDRINUSE: another assistant is already running at ${socketPath}`,
+    );
+  }
 }
