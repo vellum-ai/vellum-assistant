@@ -23,7 +23,7 @@ import { getLogger } from "../util/logger.js";
 import { normalizeTitle, stripMarkdown } from "../util/short-title.js";
 import { isConversationSeedSane } from "./conversation-seed-composer.js";
 import { deriveTitle } from "./copy-composer.js";
-import { readPayloadString, stripBlockMarkers } from "./notification-utils.js";
+import { readPayloadString } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type { NotificationDecision, RenderedChannelCopy } from "./types.js";
 
@@ -165,12 +165,23 @@ export async function writeHomeFeedItemForSignal(
  * non-empty title.
  */
 function deriveFallbackTitle(summary: string): string {
-  // Ordered markers matter most here: the seed prompt asks the model for
-  // numbered lists, and a leading `1.` also reads as a sentence terminator,
-  // which would truncate the title to the first digit. `stripBlockMarkers`
-  // owns the rule set and the ordering constraints, and documents the lockstep
-  // this shares with `flattenToPlainText` in workspace migration 138.
-  const plain = flattenWhitespace(stripMarkdown(stripBlockMarkers(summary)));
+  // Block markers are line-anchored, so they have to go before the whitespace
+  // collapse, and before `stripMarkdown` (whose inline-code rule would chew a
+  // fence into a stray backtick). Ordered markers matter most: the seed prompt
+  // asks the model for numbered lists, and a leading `1.` also reads as a
+  // sentence terminator, which would truncate the title to the first digit.
+  //
+  // Deliberately regex-based, unlike the remark-backed
+  // `stripMarkdownForPreview`. The leading-space allowance and rule set mirror
+  // `flattenToPlainText` in workspace migration 138, which must stay
+  // self-contained and so cannot share code with either: a backfilled title and
+  // a freshly written one have to match, which a parser swap would break.
+  const deblocked = summary
+    .replace(/^\s{0,3}(?:```|~~~).*$/gm, "")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s{0,3}>\s?/gm, "")
+    .replace(/^\s{0,3}(?:[-*+]|\d+[.)])\s+/gm, "");
+  const plain = flattenWhitespace(stripMarkdown(deblocked));
   return deriveTitle(plain || flattenWhitespace(summary));
 }
 
