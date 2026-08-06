@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
+import { getWorkspaceDir } from "../util/platform.js";
 import { buildFileContext } from "./checker.js";
-import { executableSinkDirs } from "./workspace-policy.js";
+import {
+  executableSinkDirs,
+  isControlPlaneWorkspaceWrite,
+} from "./workspace-policy.js";
 
 /**
  * Two lists decide whether a write is treated as code injection, and they are
@@ -45,6 +49,35 @@ describe("executable sink lists", () => {
         `${field} (${dir}) is classified as an execution sink but is missing from executableSinkDirs()`,
       ).toBe(true);
     }
+  });
+
+  test.each([
+    [".git/config"],
+    [".git/hooks/pre-commit"],
+    [".githooks/pre-commit"],
+  ])("a file_write to %s is a control-plane write", (relPath) => {
+    // Membership in the list is not the same as the decision consuming it,
+    // so this exercises the approval-floor predicate itself rather than
+    // asserting the list contents a second time.
+    const root = getWorkspaceDir();
+    expect(
+      isControlPlaneWorkspaceWrite(
+        "file_write",
+        { path: `${root}/${relPath}` },
+        root,
+      ),
+    ).toBe(true);
+  });
+
+  test("an ordinary workspace file is not a control-plane write", () => {
+    const root = getWorkspaceDir();
+    expect(
+      isControlPlaneWorkspaceWrite(
+        "file_write",
+        { path: `${root}/notes.md` },
+        root,
+      ),
+    ).toBe(false);
   });
 
   test("skill roots are covered too, via the skills directory", () => {
