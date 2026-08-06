@@ -1869,6 +1869,17 @@ export class WorkspaceGitService {
    * Safe for this repository specifically because the service neither writes
    * nor reads `.gitattributes`; any that exists came from a model write and is
    * precisely the input being distrusted.
+   *
+   * It does have a cost, and it is not limited to the dangerous attributes.
+   * Reading none of them also drops `text`/`eol` normalisation, `binary`, and
+   * merge drivers. A workspace adopted from a directory that already had a
+   * `.gitattributes` (see the "migrated existing workspace" initial commit)
+   * will therefore stage content differently from before: a CRLF file under
+   * `* text=auto` is stored verbatim rather than normalised to LF, which is a
+   * different blob. That is accepted deliberately. The workspace is
+   * daemon-managed state rather than a source tree whose normalisation anyone
+   * depends on, and the alternative is leaving `git add` able to execute a
+   * program the repository named.
    */
   private gitSafetyArgs(): string[] {
     return this.emptyTreeHash
