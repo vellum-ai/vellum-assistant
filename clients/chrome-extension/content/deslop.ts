@@ -54,6 +54,7 @@
   const PANEL_TITLE_CLASS = "vellum-deslop-panel-title";
   const PANEL_CLOSE_CLASS = "vellum-deslop-panel-close";
   const CONTEXT_CLASS = "vellum-deslop-context";
+  const QUOTE_CLASS = "vellum-deslop-quote";
   const MESSAGES_CLASS = "vellum-deslop-messages";
   const MESSAGE_CLASS = "vellum-deslop-message";
   const MESSAGE_USER_CLASS = "vellum-deslop-message-user";
@@ -76,6 +77,7 @@
   const VIEWPORT_MARGIN = 8;
   const ANCHOR_GAP = 8;
   const CONTEXT_PREVIEW_LENGTH = 120;
+  const QUOTE_PREVIEW_LENGTH = 90;
   const RELOADED_MESSAGE =
     "The extension was reloaded. Reopen the popup and press Deslop again.";
   const WAND_SVG = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 4V2M15 10V8M8 9h2M20 9h2M17.8 11.8L19 13M17.8 6.2L19 5M3 21l9-9M12.2 6.2L11 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -302,6 +304,249 @@
     }
   }
 
+  // Elements that may not contain flow content, so a rewrite placed in one
+  // stays inline instead of nesting a paragraph or list inside it.
+  const INLINE_ONLY_HOSTS =
+    /^(P|LI|H[1-6]|SPAN|A|EM|STRONG|B|I|TD|TH|DT|DD|LABEL|BUTTON|SUMMARY|FIGCAPTION)$/;
+  const CODE_FENCE_RE = /^```/;
+  const BULLET_RE = /^\s*[-*+]\s+(.*)$/;
+  const ORDERED_RE = /^\s*\d+[.)]\s+(.*)$/;
+  // Code spans are matched first so emphasis markers inside backticks stay
+  // literal, which is what a code identifier needs.
+  const INLINE_RE =
+    /`([^`]+)`|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*\n]+)\*|_([^_\n]+)_|\[([^\]]+)\]\(([^)\s]+)\)/;
+
+  /**
+   * Class names lifted from the block's own markup. Sites that style by
+   * class rather than by element (rendered markdown, syntax highlighters)
+   * need them for a generated element to look like the ones it replaces.
+   */
+  interface RewriteStyle {
+    code: string;
+    strong: string;
+    em: string;
+    link: string;
+    list: string;
+    item: string;
+    paragraph: string;
+  }
+
+  function harvestStyle(el: HTMLElement): RewriteStyle {
+    const classOf = (selector: string): string => {
+      const found = el.querySelector(selector);
+      return found instanceof HTMLElement ? found.className : "";
+    };
+    return {
+      code: classOf("code, tt"),
+      strong: classOf("strong, b"),
+      em: classOf("em, i"),
+      link: classOf("a"),
+      list: classOf("ul, ol"),
+      item: classOf("li"),
+      paragraph: classOf("p"),
+    };
+  }
+
+  function createStyled(tag: string, className: string): HTMLElement {
+    const created = document.createElement(tag);
+    if (className) {
+      created.className = className;
+    }
+    return created;
+  }
+
+  interface MarkdownBlock {
+    kind: "paragraph" | "list" | "code";
+    lines: string[];
+    ordered?: boolean;
+  }
+
+  function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
+    const blocks: MarkdownBlock[] = [];
+    const lines = markdown.split("\n");
+    let index = 0;
+
+    while (index < lines.length) {
+      const line = lines[index]!;
+      if (line.trim().length === 0) {
+        index += 1;
+        continue;
+      }
+      if (CODE_FENCE_RE.test(line.trim())) {
+        const body: string[] = [];
+        index += 1;
+        while (index < lines.length && !CODE_FENCE_RE.test(lines[index]!.trim())) {
+          body.push(lines[index]!);
+          index += 1;
+        }
+        index += 1;
+        blocks.push({ kind: "code", lines: body });
+        continue;
+      }
+      const bullet = BULLET_RE.exec(line);
+      const ordered = ORDERED_RE.exec(line);
+      if (bullet || ordered) {
+        const isOrdered = bullet === null;
+        const items: string[] = [];
+        while (index < lines.length) {
+          const current = lines[index]!;
+          const nextBullet = BULLET_RE.exec(current);
+          const nextOrdered = ORDERED_RE.exec(current);
+          if (!isOrdered && nextBullet) {
+            items.push(nextBullet[1]!);
+            index += 1;
+            continue;
+          }
+          if (isOrdered && nextOrdered) {
+            items.push(nextOrdered[1]!);
+            index += 1;
+            continue;
+          }
+          // An indented continuation belongs to the item above it.
+          if (
+            items.length > 0 &&
+            current.trim().length > 0 &&
+            /^\s+/.test(current)
+          ) {
+            items[items.length - 1] += ` ${current.trim()}`;
+            index += 1;
+            continue;
+          }
+          break;
+        }
+        blocks.push({ kind: "list", lines: items, ordered: isOrdered });
+        continue;
+      }
+      const paragraph: string[] = [];
+      while (index < lines.length) {
+        const current = lines[index]!;
+        if (
+          current.trim().length === 0 ||
+          BULLET_RE.test(current) ||
+          ORDERED_RE.test(current) ||
+          CODE_FENCE_RE.test(current.trim())
+        ) {
+          break;
+        }
+        paragraph.push(current.trim());
+        index += 1;
+      }
+      blocks.push({ kind: "paragraph", lines: paragraph });
+    }
+
+    return blocks;
+  }
+
+  /**
+   * Append `text` to `parent` as nodes, turning inline markdown into real
+   * elements. Every string reaches the DOM through `textContent`, so model
+   * output can never introduce markup of its own.
+   */
+  function appendInline(parent: Node, text: string, style: RewriteStyle): void {
+    let rest = text;
+    while (rest.length > 0) {
+      const match = INLINE_RE.exec(rest);
+      if (!match) {
+        parent.appendChild(document.createTextNode(rest));
+        return;
+      }
+      if (match.index > 0) {
+        parent.appendChild(document.createTextNode(rest.slice(0, match.index)));
+      }
+      if (match[1] !== undefined) {
+        const code = createStyled("code", style.code);
+        code.textContent = match[1];
+        parent.appendChild(code);
+      } else if (match[2] !== undefined || match[3] !== undefined) {
+        const strong = createStyled("strong", style.strong);
+        strong.textContent = match[2] ?? match[3] ?? "";
+        parent.appendChild(strong);
+      } else if (match[4] !== undefined || match[5] !== undefined) {
+        const em = createStyled("em", style.em);
+        em.textContent = match[4] ?? match[5] ?? "";
+        parent.appendChild(em);
+      } else {
+        const label = match[6] ?? "";
+        const href = match[7] ?? "";
+        if (/^(https?:\/\/|mailto:)/i.test(href)) {
+          const link = createStyled("a", style.link) as HTMLAnchorElement;
+          link.href = href;
+          link.textContent = label;
+          parent.appendChild(link);
+        } else {
+          // A scheme the extension will not follow stays literal text.
+          parent.appendChild(document.createTextNode(match[0]));
+        }
+      }
+      rest = rest.slice(match.index + match[0].length);
+    }
+  }
+
+  /**
+   * Build the rewrite as DOM nodes. The assistant answers in markdown when
+   * the block it rewrote had that structure, so rendering the markup back
+   * out is what keeps code spans, emphasis, and lists looking like the rest
+   * of the page instead of arriving as literal backticks and asterisks.
+   */
+  function renderRewrite(
+    markdown: string,
+    host: HTMLElement,
+    style: RewriteStyle,
+  ): Node[] {
+    const blocksAllowed = !INLINE_ONLY_HOSTS.test(host.tagName);
+    const out: Node[] = [];
+
+    parseMarkdownBlocks(markdown).forEach((block, blockIndex) => {
+      if (!blocksAllowed && blockIndex > 0) {
+        out.push(document.createElement("br"), document.createElement("br"));
+      }
+
+      if (block.kind === "code") {
+        const code = createStyled("code", style.code);
+        code.textContent = block.lines.join("\n");
+        if (!blocksAllowed) {
+          out.push(code);
+          return;
+        }
+        const pre = document.createElement("pre");
+        pre.appendChild(code);
+        out.push(pre);
+        return;
+      }
+
+      if (block.kind === "list") {
+        if (blocksAllowed) {
+          const list = createStyled(block.ordered ? "ol" : "ul", style.list);
+          for (const item of block.lines) {
+            const listItem = createStyled("li", style.item);
+            appendInline(listItem, item, style);
+            list.appendChild(listItem);
+          }
+          out.push(list);
+          return;
+        }
+        block.lines.forEach((item, itemIndex) => {
+          if (itemIndex > 0) {
+            out.push(document.createElement("br"));
+          }
+          const line = document.createElement("span");
+          appendInline(line, `• ${item}`, style);
+          out.push(line);
+        });
+        return;
+      }
+
+      const text = block.lines.join(" ");
+      const container = blocksAllowed
+        ? createStyled("p", style.paragraph)
+        : document.createElement("span");
+      appendInline(container, text, style);
+      out.push(container);
+    });
+
+    return out;
+  }
+
   function markRewritten(el: HTMLElement, rewritten: string): void {
     el.setAttribute(REWRITTEN_ATTR, "true");
     if (getComputedStyle(el).position === "static") {
@@ -312,25 +557,26 @@
     badge.className = BADGE_CLASS;
     badge.innerHTML = WAND_SVG;
 
+    // Styling is read while the block still holds its own markup, so the
+    // rewrite's generated elements can carry the same classes.
+    const style = harvestStyle(el);
+
     // The original content is held as live nodes rather than as text, so
     // toggling back restores its exact markup: code chips, list items,
     // links, and syntax highlighting all survive the round trip. The
     // overlay and spinner are already gone by this point, so the captured
     // set is exactly what the block displayed before the rewrite.
     const originalNodes = Array.from(el.childNodes);
+    const rewrittenNodes = renderRewrite(rewritten, el, style);
 
     let showingOriginal = false;
 
-    // Emptying the element first detaches the original nodes into their
-    // array, which keeps the innerText write on the rewrite path from
-    // destroying them. The badge is re-attached on every swap.
+    // Both sets are live nodes held by their arrays while detached, so a
+    // swap moves one set in and the other out. The badge is re-attached on
+    // every swap.
     function render(): void {
       el.replaceChildren();
-      if (showingOriginal) {
-        el.append(...originalNodes);
-      } else {
-        el.innerText = rewritten;
-      }
+      el.append(...(showingOriginal ? originalNodes : rewrittenNodes));
       el.classList.toggle(SHOWING_ORIGINAL_CLASS, showingOriginal);
       badge.title = showingOriginal
         ? "Showing the original text. Click to show the rewrite."
@@ -517,7 +763,9 @@
     sendButton.className = SEND_CLASS;
     sendButton.textContent = "Send";
     composer.append(input, sendButton);
-    panel.append(panelHeader, contextChip, messages, composer);
+    // The pending quote sits directly above the input, where it reads as
+    // part of the message about to be sent rather than as a panel header.
+    panel.append(panelHeader, messages, contextChip, composer);
 
     document.documentElement.append(menu, panel);
 
@@ -648,7 +896,11 @@
       messages.scrollTop = messages.scrollHeight;
     }
 
-    function appendBubble(kind: "user" | "assistant" | "error", text: string): HTMLElement {
+    function appendBubble(
+      kind: "user" | "assistant" | "error",
+      text: string,
+      quoted?: string,
+    ): HTMLElement {
       const bubble = document.createElement("div");
       const modifier =
         kind === "user"
@@ -657,7 +909,17 @@
             ? MESSAGE_ASSISTANT_CLASS
             : MESSAGE_ERROR_CLASS;
       bubble.className = `${MESSAGE_CLASS} ${modifier}`;
-      bubble.textContent = text;
+      // A turn that carried a highlight keeps it visible above its text, so
+      // the thread still shows what each question was asked about.
+      if (quoted) {
+        const quote = document.createElement("div");
+        quote.className = QUOTE_CLASS;
+        quote.textContent = truncate(quoted, QUOTE_PREVIEW_LENGTH);
+        bubble.appendChild(quote);
+      }
+      const body = document.createElement("div");
+      body.textContent = text;
+      bubble.appendChild(body);
       messages.appendChild(bubble);
       scrollMessagesToBottom();
       return bubble;
@@ -691,9 +953,10 @@
         return;
       }
       input.value = "";
-      appendBubble("user", message);
       const highlighted = pendingHighlight;
+      appendBubble("user", message, highlighted);
       pendingHighlight = "";
+      contextChip.style.display = "none";
       setChatBusy(true);
       const thinking = appendThinking();
 
@@ -717,8 +980,10 @@
         // The highlight goes back on the next attempt so a retry keeps the
         // context the failed turn never delivered, unless a fresh highlight
         // arrived while the request was in flight.
-        if (pendingHighlight.length === 0) {
+        if (pendingHighlight.length === 0 && highlighted.length > 0) {
           pendingHighlight = highlighted;
+          contextChip.textContent = truncate(highlighted, CONTEXT_PREVIEW_LENGTH);
+          contextChip.style.display = "block";
         }
         appendBubble(
           "error",
@@ -1093,7 +1358,7 @@
         color: #f9fafb;
       }
       .${PANEL_CLASS} .${CONTEXT_CLASS} {
-        margin: 0 12px 8px 12px;
+        margin: 8px 12px 0 12px;
         padding: 6px 10px;
         border-left: 2px solid rgba(99, 102, 241, 0.85);
         border-radius: 0 6px 6px 0;
@@ -1101,6 +1366,23 @@
         color: #9ca3af;
         font: 400 12px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         word-break: break-word;
+        max-height: 60px;
+        overflow: hidden;
+      }
+      .${PANEL_CLASS} .${QUOTE_CLASS} {
+        margin: 0 0 4px 0;
+        padding: 3px 8px;
+        border-left: 2px solid rgba(255, 255, 255, 0.45);
+        border-radius: 0 4px 4px 0;
+        background: rgba(0, 0, 0, 0.22);
+        color: rgba(255, 255, 255, 0.72);
+        font: 400 11px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        word-break: break-word;
+      }
+      .${PANEL_CLASS} .${MESSAGE_ASSISTANT_CLASS} .${QUOTE_CLASS} {
+        border-left-color: rgba(99, 102, 241, 0.85);
+        background: rgba(99, 102, 241, 0.12);
+        color: #9ca3af;
       }
       .${PANEL_CLASS} .${MESSAGES_CLASS} {
         display: flex;

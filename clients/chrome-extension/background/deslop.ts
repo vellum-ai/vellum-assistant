@@ -18,7 +18,11 @@ import type { ExtensionEnvironment } from "./extension-environment.js";
  * end up on the page.
  */
 export const DESLOP_SYSTEM_PROMPT =
-  "You rewrite text on behalf of the user. Reply with only the rewritten text. No preamble, no surrounding quotes, no commentary.";
+  "You rewrite text on behalf of the user. Reply with only the rewritten text. " +
+  "No preamble, no surrounding quotes, no commentary. " +
+  "Mirror the structure of the original: keep code identifiers in backticks, " +
+  "keep list items as lines starting with '- ', and keep bold with **. " +
+  "Do not add formatting the original did not have.";
 
 /**
  * Governs the page-side chat thread, whose transcript interleaves rewrite
