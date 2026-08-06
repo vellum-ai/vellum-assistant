@@ -6,10 +6,11 @@
  * declarations (see `./plugin-schedule-declarations.ts`), and diffs the
  * desired set against the sourced rows in the store: new declarations are
  * inserted, changed ones (by `definition_hash`) updated, and rows whose
- * declaration is gone are disarmed in place. The reconciler owns only the
- * definition columns; the engine owns the runtime columns and the user owns
- * `user_enabled` (both enforced in `./schedule-store.ts`). Rows with a null
- * `source_key` are imperative schedules and are never touched.
+ * declaration is gone (or, for a script row, no longer parses) are disarmed
+ * in place. The reconciler owns only the definition columns; the engine owns
+ * the runtime columns and the user owns `user_enabled` (both enforced in
+ * `./schedule-store.ts`). Rows with a null `source_key` are imperative
+ * schedules and are never touched.
  *
  * Triggers: daemon startup (`daemon/lifecycle.ts`), plugin-set convergence
  * (`plugins/mtime-cache.ts` after an imperative source reconcile), the plugin
@@ -167,15 +168,34 @@ async function runReconcilePass(): Promise<void> {
 
   // A key with a declaration error keeps its last-good row untouched: fail
   // closed means the broken declaration does not load, not that a previously
-  // healthy schedule is torn down by its own typo.
-  const erroredKeys = new Set(errors.map((e) => e.sourceKey));
+  // healthy schedule is torn down by its own typo. An execute row can be held
+  // that way because it fires the message stored on the row, which is the one
+  // that last validated.
+  //
+  // A script row cannot: it fires its entrypoint by absolute path, so holding
+  // it armed through an invalid declaration runs whatever `index.sh` now
+  // holds, which is exactly the content that failed to validate. Those rows
+  // disarm through the same path as an absent declaration and re-arm on the
+  // pass after the declaration parses again. An `ended` recurrence is not a
+  // rewrite, so it keeps the last-good handling in both modes.
+  const erroredKeys = new Set<string>();
+  const pausedKeys = new Set<string>();
+  for (const error of errors) {
+    const row = existingByKey.get(error.sourceKey);
+    if (error.kind === "invalid" && row?.mode === "script") {
+      pausedKeys.add(error.sourceKey);
+    } else {
+      erroredKeys.add(error.sourceKey);
+    }
+  }
 
   // Disarm rows whose declaration is absent from the desired set (plugin
-  // uninstalled or disabled, or the schedule file removed). Teardown
-  // deliberately does not ride plugin shutdown hooks: uninstalling a disabled
-  // plugin skips them entirely (`cli/lib/uninstall-plugin.ts`), so
-  // directory-absence diffing here is the only reliable reap. The row and its
-  // runs are kept so a reinstall re-links by `source_key`.
+  // uninstalled or disabled, or the schedule file removed), plus the script
+  // rows an invalid declaration paused above. Teardown deliberately does not
+  // ride plugin shutdown hooks: uninstalling a disabled plugin skips them
+  // entirely (`cli/lib/uninstall-plugin.ts`), so directory-absence diffing
+  // here is the only reliable reap. The row and its runs are kept so a
+  // reinstall re-links by `source_key`.
   for (const [sourceKey, row] of existingByKey) {
     if (desired.has(sourceKey) || erroredKeys.has(sourceKey)) {
       continue;
@@ -197,7 +217,7 @@ async function runReconcilePass(): Promise<void> {
     if (isCompletedRecurrence(error, existingByKey.get(error.sourceKey))) {
       continue;
     }
-    emitDefinitionError(error);
+    emitDefinitionError(error, pausedKeys.has(error.sourceKey));
   }
 }
 
@@ -366,27 +386,29 @@ async function emitDefinitionSignal(
 const definitionErrorEmittedDay = new Map<string, string>();
 
 /**
- * The two definition-lifecycle events whose emit is retried until a pipeline
- * verdict. Both are one-shot per definition hash: `declared` is the consent
- * surface for unattended arming (daemon-route install/upgrade), and `changed`
- * is the only notice that an armed schedule's definition was rewritten. The
- * hash that triggered each is stored before the emit, so a transient pipeline
- * failure leaves a marker the next pass acts on rather than losing the
- * notification.
+ * The definition-lifecycle events whose emit is retried until a pipeline
+ * verdict. `declared` is the consent surface for unattended arming
+ * (daemon-route install/upgrade) and `changed` is the only notice that an
+ * armed schedule's definition was rewritten; both are one-shot per definition
+ * hash. `error` is one-shot per UTC day and carries that day in place of a
+ * hash. Whatever triggered each is stored before the emit, so a transient
+ * pipeline failure leaves a marker the next pass acts on rather than losing
+ * the notification.
  */
-type TrackedEmitKind = "declared" | "changed";
+type TrackedEmitKind = "declared" | "changed" | "error";
 
 function trackedEmitKey(kind: TrackedEmitKind, sourceKey: string): string {
   return `${kind}:${sourceKey}`;
 }
 
 /**
- * Definition hash of a tracked emit that has not yet reached a pipeline
- * verdict, keyed by {@link trackedEmitKey}. Declared entries are kept across
- * disarm so a reinstall re-delivers a never-delivered consent notification;
- * the map is bounded by distinct declared schedules seen in this process.
- * In-memory only: a daemon restart inside the failure window loses the retry,
- * a residual accepted over persisting a marker.
+ * Token of a tracked emit that has not yet reached a pipeline verdict, keyed
+ * by {@link trackedEmitKey}: the definition hash the emit describes, or the
+ * UTC day for an `error`. Declared entries are kept across disarm so a
+ * reinstall re-delivers a never-delivered consent notification; the map is
+ * bounded by distinct declared schedules seen in this process. In-memory only:
+ * a daemon restart inside the failure window loses the retry, a residual
+ * accepted over persisting a marker.
  */
 const pendingEmits = new Map<string, string>();
 
@@ -412,18 +434,18 @@ function isEmitPending(
 function trackedEmit(
   kind: TrackedEmitKind,
   sourceKey: string,
-  definitionHash: string,
+  token: string,
   emit: () => Promise<boolean>,
 ): void {
   const key = trackedEmitKey(kind, sourceKey);
-  pendingEmits.set(key, definitionHash);
+  pendingEmits.set(key, token);
   if (inFlightEmits.has(key)) {
     return;
   }
   inFlightEmits.add(key);
   void emit()
     .then((verdict) => {
-      if (verdict && pendingEmits.get(key) === definitionHash) {
+      if (verdict && pendingEmits.get(key) === token) {
         pendingEmits.delete(key);
       }
     })
@@ -440,32 +462,39 @@ export function resetDefinitionErrorEmitGuardForTests(): void {
 }
 
 /**
- * Surface a malformed declaration (or a manifest failure pausing one).
- * Deduped per schedule per UTC day so a broken file doesn't spam on every
- * pass. The day guard latches only after the emit resolves with a pipeline
- * verdict; a transient pipeline failure is retried on the next pass instead
- * of being silenced for the rest of the day.
+ * Surface a malformed declaration (or a manifest failure pausing one), with
+ * `paused` set when this pass disarmed the row over it. Deduped per schedule
+ * per UTC day so a broken file doesn't spam on every pass. The day guard
+ * latches only after the emit resolves with a pipeline verdict; a transient
+ * pipeline failure is retried on the next pass instead of being silenced for
+ * the rest of the day. Attempts are serialized like the other tracked emits,
+ * so a second pass during an in-flight first one cannot latch the day on a
+ * deduped verdict while the original goes on to fail.
  */
-function emitDefinitionError(error: DeclarationError): void {
+function emitDefinitionError(error: DeclarationError, paused: boolean): void {
   const day = new Date().toISOString().slice(0, 10);
   if (definitionErrorEmittedDay.get(error.sourceKey) === day) {
     return;
   }
-  void emitDefinitionSignal(
-    "schedule.definition_error",
-    error.sourceKey,
-    `schedule-definition-error:${error.sourceKey}:${day}`,
-    {
-      pluginName: error.pluginName,
-      scheduleName: error.scheduleName,
-      sourceKey: error.sourceKey,
-      reason: error.reason,
-    },
-  ).then((completed) => {
-    if (completed) {
-      definitionErrorEmittedDay.set(error.sourceKey, day);
-    }
-  });
+  trackedEmit("error", error.sourceKey, day, () =>
+    emitDefinitionSignal(
+      "schedule.definition_error",
+      error.sourceKey,
+      `schedule-definition-error:${error.sourceKey}:${day}`,
+      {
+        pluginName: error.pluginName,
+        scheduleName: error.scheduleName,
+        sourceKey: error.sourceKey,
+        reason: error.reason,
+        paused,
+      },
+    ).then((completed) => {
+      if (completed) {
+        definitionErrorEmittedDay.set(error.sourceKey, day);
+      }
+      return completed;
+    }),
+  );
 }
 
 /**

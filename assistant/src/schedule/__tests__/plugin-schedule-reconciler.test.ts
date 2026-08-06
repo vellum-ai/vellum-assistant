@@ -149,6 +149,22 @@ function brokenDigest(): Record<string, string> {
   };
 }
 
+/** A script declaration: the engine runs its `index.sh` by path. */
+function scriptSync(body = "echo synced"): Record<string, string> {
+  return {
+    "sync/config.json": JSON.stringify({ expression: "* * * * *" }),
+    "sync/index.sh": `#!/bin/sh\n${body}\n`,
+  };
+}
+
+/** The same script declaration with a config.json the parser refuses. */
+function brokenScriptSync(body = "echo unreviewed"): Record<string, string> {
+  return {
+    "sync/config.json": "{not json",
+    "sync/index.sh": `#!/bin/sh\n${body}\n`,
+  };
+}
+
 const DIGEST_KEY = "plugin:news/digest";
 
 /** Reset the store, the fixture plugins dir, and the emit doubles. */
@@ -382,7 +398,7 @@ describe("reconcilePluginSchedules", () => {
     expect(restored.userEnabled).toBeNull();
   });
 
-  test("a parse error keeps the last-good row running and emits a deduped notification", async () => {
+  test("a parse error keeps the last-good execute row running and emits a deduped notification", async () => {
     writePlugin("news", digest());
     await reconcilePluginSchedules();
     const created = listDeclaredSchedules()[0]!;
@@ -393,6 +409,8 @@ describe("reconcilePluginSchedules", () => {
     writePlugin("news", brokenDigest());
     await reconcilePluginSchedules();
 
+    // The row fires the message it was armed with, so nothing unvalidated
+    // runs while it stays armed.
     expect(rawJob(created.id)).toEqual(before);
     expect(emittedSignals).toHaveLength(1);
     const signal = emittedSignals[0]!;
@@ -406,6 +424,81 @@ describe("reconcilePluginSchedules", () => {
     expect(payload.scheduleName).toBe("digest");
     expect(payload.sourceKey).toBe(DIGEST_KEY);
     expect(typeof payload.reason).toBe("string");
+    expect(payload.paused).toBe(false);
+  });
+
+  test("a parse error disarms a script row, which re-arms once the declaration parses", async () => {
+    writePlugin("news", scriptSync());
+    await reconcilePluginSchedules();
+    const created = listDeclaredSchedules()[0]!;
+    expect(created.mode).toBe("script");
+    expect(created.enabled).toBe(true);
+    emittedSignals.length = 0;
+
+    // A script row runs its entrypoint by path, so an upgrade the parser
+    // refuses would otherwise fire the unreviewed index.sh next to it.
+    writePlugin("news", brokenScriptSync());
+    await reconcilePluginSchedules();
+
+    const paused = listDeclaredSchedules()[0]!;
+    expect(paused.id).toBe(created.id);
+    expect(paused.enabled).toBe(false);
+    expect(emittedSignals).toHaveLength(1);
+    const signal = emittedSignals[0]!;
+    expect(signal.sourceEventName).toBe("schedule.definition_error");
+    const payload = signal.contextPayload as Record<string, unknown>;
+    expect(payload.sourceKey).toBe("plugin:news/sync");
+    expect(payload.paused).toBe(true);
+
+    // Fixing the declaration re-arms the same row on the next pass.
+    writePlugin("news", scriptSync());
+    await reconcilePluginSchedules();
+
+    const rearmed = listDeclaredSchedules()[0]!;
+    expect(rearmed.id).toBe(created.id);
+    expect(rearmed.enabled).toBe(true);
+    expect(rearmed.nextRunAt).toBeGreaterThan(0);
+  });
+
+  test("a user's off choice survives a script row's disarm and re-arm", async () => {
+    writePlugin("news", scriptSync());
+    await reconcilePluginSchedules();
+    const created = listDeclaredSchedules()[0]!;
+    await setUserEnabled(created.id, false);
+
+    writePlugin("news", brokenScriptSync());
+    await reconcilePluginSchedules();
+    writePlugin("news", scriptSync());
+    await reconcilePluginSchedules();
+
+    const row = listDeclaredSchedules()[0]!;
+    expect(row.enabled).toBe(false);
+    expect(row.userEnabled).toBe(false);
+  });
+
+  test("an ended recurrence keeps a script row on its last-good definition", async () => {
+    writePlugin("news", scriptSync());
+    await reconcilePluginSchedules();
+    const created = listDeclaredSchedules()[0]!;
+    const before = rawJob(created.id);
+    emittedSignals.length = 0;
+
+    // A recurrence running out is not a rewrite of the entrypoint, so the
+    // last-good handling every mode shares still applies.
+    writePlugin("news", {
+      "sync/config.json": JSON.stringify({
+        expression: "DTSTART:20200101T090000Z\nRRULE:FREQ=DAILY;COUNT=5",
+        expression_syntax: "rrule",
+      }),
+      "sync/index.sh": "#!/bin/sh\necho synced\n",
+    });
+    await reconcilePluginSchedules();
+
+    expect(rawJob(created.id)).toEqual(before);
+    expect(emittedSignals).toHaveLength(1);
+    expect(emittedSignals[0]!.sourceEventName).toBe(
+      "schedule.definition_error",
+    );
   });
 
   test("engine-latched rows are left untouched by definition changes", async () => {
@@ -591,6 +684,47 @@ describe("reconcilePluginSchedules", () => {
     // The completed retry latched the guard, so further passes stay quiet.
     await reconcilePluginSchedules();
     expect(emittedSignals).toHaveLength(2);
+  });
+
+  test("an error emit still in flight is not duplicated by the next pass", async () => {
+    writePlugin("news", brokenDigest());
+    let releaseGate!: () => void;
+    emitGate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    const errors = () =>
+      emittedSignals.filter(
+        (s) => s.sourceEventName === "schedule.definition_error",
+      );
+
+    // The first pass starts the emit and returns without awaiting it.
+    await reconcilePluginSchedules();
+    expect(errors()).toHaveLength(1);
+
+    // A second attempt while the first is still evaluating would hit
+    // event-store dedupe and latch the day guard on that verdict, silencing
+    // the retry the first attempt still needs if it goes on to fail.
+    await reconcilePluginSchedules();
+    expect(errors()).toHaveLength(1);
+
+    // The held attempt fails, so the day guard stays unlatched.
+    emitResultOverride = {
+      dispatched: false,
+      pipelineFailed: true,
+      reason: "Signal pipeline failed: transient outage",
+    };
+    emitGate = null;
+    releaseGate();
+    await settleEmits();
+    expect(errors()).toHaveLength(1);
+
+    emitResultOverride = null;
+    await reconcilePluginSchedules();
+    expect(errors()).toHaveLength(2);
+
+    // Verdict reached: the day guard latches and further passes stay quiet.
+    await reconcilePluginSchedules();
+    expect(errors()).toHaveLength(2);
   });
 
   test("a pipeline-failed declared emit is retried on later passes until a verdict", async () => {

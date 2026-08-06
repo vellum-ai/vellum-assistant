@@ -29,6 +29,7 @@ import { z } from "zod";
 
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { parsePluginManifest } from "../plugins/external-plugin-loader.js";
+import { isInsidePluginRoot } from "../plugins/installed-plugin-dirs.js";
 import { walkPluginTree } from "../plugins/plugin-tree-walk.js";
 import { FRONTMATTER_REGEX } from "../skills/frontmatter.js";
 import { getWorkspacePluginsDir } from "../util/platform.js";
@@ -123,13 +124,22 @@ function pluginScheduleSourceKey(
 /**
  * True when the declaration behind `sourceKey`
  * (`plugin:<pluginName>/<scheduleName>`) is available to arm a row: its
- * `schedules/<scheduleName>/` directory is present on disk, the plugin is not
- * disabled, and the plugin's manifest parses. Each of the latter two counts as
- * absent for the same reason: the reconciler disarms the schedules of a
- * disabled plugin and of one whose `package.json` the loader rejects, so
- * neither may be re-armed from a stale row while its files sit on disk.
- * Presence and sourceability only; the declaration's own validity is the
+ * `schedules/<scheduleName>/` directory is present on disk and contained, the
+ * plugin is not disabled, and the plugin's manifest parses. Each of the latter
+ * two counts as absent for the same reason: the reconciler disarms the
+ * schedules of a disabled plugin and of one whose `package.json` the loader
+ * rejects, so neither may be re-armed from a stale row while its files sit on
+ * disk. Presence and sourceability only; the declaration's own validity is the
  * reconciler's business.
+ *
+ * Containment is checked on both directories through
+ * {@link isInsidePluginRoot}, the same boundary the plugin loader applies: the
+ * plugin root must resolve inside the plugins directory and the declaration
+ * directory inside its plugin root. A row's stored script invocation names an
+ * absolute entrypoint path, so a link swapped in under either one would
+ * otherwise let this probe answer for one tree while the schedule executes
+ * code from another. A link that stays inside its root is a normal install
+ * layout and passes.
  */
 export async function declarationExistsOnDisk(
   sourceKey: string,
@@ -142,9 +152,16 @@ export async function declarationExistsOnDisk(
   if (isPluginDisabled(pluginName!)) {
     return false;
   }
-  const pluginDir = join(getWorkspacePluginsDir(), pluginName!);
+  const pluginsDir = getWorkspacePluginsDir();
+  const pluginDir = join(pluginsDir, pluginName!);
+  if (!isInsidePluginRoot(pluginDir, pluginsDir)) {
+    return false;
+  }
   const declarationDir = join(pluginDir, "schedules", scheduleName!);
   if (!statSync(declarationDir, { throwIfNoEntry: false })?.isDirectory()) {
+    return false;
+  }
+  if (!isInsidePluginRoot(declarationDir, pluginDir)) {
     return false;
   }
   return (await parsePluginManifest(pluginDir, { quiet: true })) !== undefined;

@@ -3,13 +3,25 @@ import {
   mkdtempSync,
   renameSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 
-import { parsePluginScheduleDeclarations } from "../plugin-schedule-declarations.js";
+import { getWorkspacePluginsDir } from "../../util/platform.js";
+import {
+  declarationExistsOnDisk,
+  parsePluginScheduleDeclarations,
+} from "../plugin-schedule-declarations.js";
 
 const tempDirs: string[] = [];
 
@@ -515,5 +527,88 @@ describe("parsePluginScheduleDeclarations", () => {
         declarations[1]!.definitionHash,
       );
     });
+  });
+});
+
+/**
+ * The fire-time probe, which answers whether a row may still run its
+ * declaration. It resolves against the workspace plugins directory, so these
+ * cases install their fixtures there rather than in a scratch directory.
+ */
+describe("declarationExistsOnDisk", () => {
+  const pluginsDir = getWorkspacePluginsDir();
+  const outsideRoot = mkdtempSync(join(tmpdir(), "plugin-sched-outside-"));
+
+  afterAll(() => {
+    rmSync(outsideRoot, { recursive: true, force: true });
+    rmSync(pluginsDir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    rmSync(pluginsDir, { recursive: true, force: true });
+    mkdirSync(pluginsDir, { recursive: true });
+  });
+
+  /** An installed plugin carrying a manifest and one `digest` declaration. */
+  function makeInstalledPlugin(parent: string, name: string): string {
+    const dir = join(parent, name);
+    const declarationDir = join(dir, "schedules", "digest");
+    mkdirSync(declarationDir, { recursive: true });
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ name, version: "1.0.0" }),
+    );
+    writeFileSync(
+      join(declarationDir, "config.json"),
+      JSON.stringify({ expression: "0 9 * * *" }),
+    );
+    writeFileSync(join(declarationDir, "index.sh"), "#!/bin/sh\necho hi\n");
+    return dir;
+  }
+
+  test("a declaration installed under the plugins directory is available", async () => {
+    makeInstalledPlugin(pluginsDir, "news");
+
+    expect(await declarationExistsOnDisk("plugin:news/digest")).toBe(true);
+  });
+
+  test("a plugin root symlinked outside the plugins directory is not available", async () => {
+    const escapee = makeInstalledPlugin(outsideRoot, "escapee");
+    symlinkSync(escapee, join(pluginsDir, "news"));
+
+    // The loader refuses to activate such a root, and the row's stored
+    // invocation names an absolute path inside it, so answering true here
+    // would run out-of-tree code at fire time.
+    expect(await declarationExistsOnDisk("plugin:news/digest")).toBe(false);
+  });
+
+  test("a declaration directory symlinked outside its plugin is not available", async () => {
+    const dir = makeInstalledPlugin(pluginsDir, "news");
+    const elsewhere = join(outsideRoot, "elsewhere");
+    mkdirSync(elsewhere, { recursive: true });
+    writeFileSync(
+      join(elsewhere, "config.json"),
+      JSON.stringify({ expression: "0 9 * * *" }),
+    );
+    writeFileSync(join(elsewhere, "index.sh"), "#!/bin/sh\necho hi\n");
+    rmSync(join(dir, "schedules", "digest"), { recursive: true, force: true });
+    symlinkSync(elsewhere, join(dir, "schedules", "digest"));
+
+    expect(await declarationExistsOnDisk("plugin:news/digest")).toBe(false);
+  });
+
+  test("a plugin root symlinked inside the plugins directory stays available", async () => {
+    makeInstalledPlugin(pluginsDir, "real");
+    symlinkSync(join(pluginsDir, "real"), join(pluginsDir, "alias"));
+
+    // Enumeration keeps a contained link, so the probe agrees with it.
+    expect(await declarationExistsOnDisk("plugin:alias/digest")).toBe(true);
+  });
+
+  test("a disabled plugin's declaration is not available", async () => {
+    const dir = makeInstalledPlugin(pluginsDir, "news");
+    writeFileSync(join(dir, ".disabled"), "");
+
+    expect(await declarationExistsOnDisk("plugin:news/digest")).toBe(false);
   });
 });

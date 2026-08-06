@@ -12,7 +12,9 @@
  *
  * The containment half of that definition is exported on its own
  * ({@link isInsidePluginRoot}) for the plugin loader, which applies the same
- * boundary at boot discovery and before it imports a plugin directory.
+ * boundary at boot discovery and before it imports a plugin directory, and for
+ * the schedule fire-time probe, which applies it before answering that a
+ * declaration is available to run.
  */
 
 import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
@@ -29,8 +31,10 @@ export interface InstalledPluginDir {
 
 /**
  * True when `dir` resolves to a location strictly inside `root`, where `root`
- * is one of the allowed plugin roots (the workspace plugins directory, or the
- * standalone workspace hooks directory).
+ * is the tree the caller requires `dir` to stay in: an allowed plugin root
+ * (the workspace plugins directory, or the standalone workspace hooks
+ * directory) for a plugin directory, or a plugin directory for something
+ * installed under it.
  *
  * Both sides are resolved before the comparison. Resolving the candidate is
  * what judges a symlinked entry by where it points rather than by where it
@@ -44,7 +48,10 @@ export interface InstalledPluginDir {
  * dynamic-imported (`scanPlugins` and `isAllowedPluginDir` in
  * `./mtime-cache.ts`) all go through it, so a root the loader refuses to
  * activate is never reported as installed either. A link pointing at the root
- * itself is outside the boundary: it aliases the root, not a plugin.
+ * itself is outside the boundary: it aliases the root, not a plugin. The
+ * schedule fire-time probe
+ * (`../schedule/plugin-schedule-declarations.ts`) applies the same boundary,
+ * so such a root cannot be run by a declared schedule either.
  */
 export function isInsidePluginRoot(dir: string, root: string): boolean {
   try {

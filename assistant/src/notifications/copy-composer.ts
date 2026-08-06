@@ -172,9 +172,15 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     const reason = sanitizeMessagePreview(
       str(payload.reason, "the declaration is invalid"),
     );
+    // `paused` says the schedule stopped running over this error rather than
+    // carrying on with what it last loaded, which is the part the user acts on.
+    const pausedSuffix =
+      payload.paused === true
+        ? " It is paused until the declaration loads again."
+        : "";
     return {
       title: `Plugin schedule error: ${scheduleName}`,
-      body: `Plugin "${pluginName}" has a schedule "${scheduleName}" that could not be loaded: ${reason}`,
+      body: `Plugin "${pluginName}" has a schedule "${scheduleName}" that could not be loaded: ${reason}${pausedSuffix}`,
     };
   },
 

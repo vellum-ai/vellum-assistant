@@ -888,7 +888,16 @@ Reconcile lag never lets a disabled plugin run. The disable path writes a
 the scheduler re-reads the sentinel at fire time and records a skipped run
 instead of executing a claimed row whose plugin is off. Run-now applies the
 same boundary through `declarationExistsOnDisk`, which also covers a plugin
-whose manifest no longer parses or whose declaration directory is gone.
+whose manifest no longer parses, a declaration directory that is gone, and a
+plugin root or declaration directory resolving outside the tree it belongs to
+(the same `isInsidePluginRoot` containment the loader applies before importing
+a plugin).
+
+A declaration that stops parsing keeps its execute row armed on the message
+already stored in the row, but disarms its script rows: a script row fires its
+entrypoint by absolute path, so leaving it armed would run the very `index.sh`
+the parser rejected. Those rows re-arm on the pass after the declaration parses
+again.
 
 Ownership boundaries: the reconciler owns definition columns (expression,
 timezone, message/script, retry policy, `definition_hash`); the execution

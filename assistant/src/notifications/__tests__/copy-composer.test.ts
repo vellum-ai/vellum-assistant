@@ -324,6 +324,38 @@ describe("composeFallbackCopy plugin schedule templates", () => {
     expect(copy.vellum?.body?.length).toBeGreaterThan(0);
   });
 
+  test("schedule.definition_error says so when the schedule was paused", () => {
+    const signal = makeSignal({
+      sourceEventName: "schedule.definition_error",
+      contextPayload: {
+        pluginName: "news",
+        scheduleName: "sync",
+        sourceKey: "plugin:news/sync",
+        reason: "config.json is not valid JSON",
+        paused: true,
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.body).toContain("config.json is not valid JSON");
+    expect(copy.vellum?.body).toContain("paused until the declaration loads");
+  });
+
+  test("schedule.definition_error omits the pause line when the row kept running", () => {
+    const signal = makeSignal({
+      sourceEventName: "schedule.definition_error",
+      contextPayload: {
+        pluginName: "news",
+        scheduleName: "digest",
+        reason: "invalid cron expression",
+        paused: false,
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.body).not.toContain("paused");
+  });
+
   test("schedule.definition_error still renders with an empty payload", () => {
     const signal = makeSignal({
       sourceEventName: "schedule.definition_error",
