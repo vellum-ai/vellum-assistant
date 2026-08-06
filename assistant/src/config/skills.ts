@@ -18,6 +18,8 @@ import {
 
 import { z } from "zod";
 
+import { getDefaultPluginSkillRoots } from "../plugins/defaults/main.js";
+import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { parseFrontmatterFields } from "../skills/frontmatter.js";
 import type { InlineCommandExpansion } from "../skills/inline-command-expansions.js";
 import { parseInlineCommandExpansions } from "../skills/inline-command-expansions.js";
@@ -67,9 +69,10 @@ const SkillMetadataSchema = z
  * - `workspace`: user-authored skill living in a conversation's working dir.
  * - `extra`: third-party directory roots passed via `loadSkillCatalog`'s
  *   `extraDirs` argument (primarily for tests).
- * - `plugin`: shipped on disk inside an installed plugin at
- *   `<workspaceDir>/plugins/<name>/skills/<id>/SKILL.md`, attributed back to
- *   the owning plugin via its `owner` descriptor.
+ * - `plugin`: shipped on disk inside a plugin: an installed one at
+ *   `<workspaceDir>/plugins/<name>/skills/<id>/SKILL.md`, or an in-process
+ *   default at `plugins/defaults/<dir>/skills/<id>/SKILL.md`, attributed back
+ *   to the owning plugin via its `owner` descriptor.
  */
 export type SkillSource =
   | "bundled"
@@ -95,7 +98,8 @@ export interface SkillSummary {
    * Ownership descriptor identifying the extension that ships this skill,
    * reusing the same {@link OwnerInfo} model the tool registry uses. Set only
    * for `source: "plugin"` skills — `{ kind: "plugin", id: <plugin dir name> }`
-   * — attributing them to the installed plugin under `<workspaceDir>/plugins/`.
+   * for an installed plugin under `<workspaceDir>/plugins/`, `{ kind:
+   * "plugin", id: "default-<dir>" }` for an in-process default plugin.
    */
   owner?: OwnerInfo;
   /** Parsed tool manifest metadata, if the skill has a valid TOOLS.json. */
@@ -743,13 +747,95 @@ function hasLoadablePluginManifest(pluginDir: string): boolean {
 }
 
 /**
- * Discover skills shipped on disk inside installed plugins. Each installed
- * plugin — a directory under `<workspaceDir>/plugins/` recognized by
- * {@link hasLoadablePluginManifest} — may ship skills at `skills/<id>/SKILL.md`.
- * Returned summaries are attributed to the owning plugin via their `owner`
- * descriptor (`{ kind: "plugin", id: <plugin dir name> }`).
+ * Discover skills shipped on disk by the in-process default plugins. A default
+ * plugin lives in the assistant's own source tree rather than under
+ * `<workspaceDir>/plugins/`, so its skills are enumerated from the roots
+ * {@link getDefaultPluginSkillRoots} reports (`defaults/<dir>/skills/`) instead
+ * of a workspace scan; there is no `package.json` gate because a default
+ * plugin's manifest is the one the daemon compiles in.
+ *
+ * `roots` is injectable so tests can exercise the walk against a temp tree; in
+ * production it is always the shipped defaults tree.
+ *
+ * A default plugin's disabled sentinel lives in the workspace and is keyed by
+ * its `default-<dir>` name, so the gate is {@link isPluginDisabled} at read
+ * time, the same read-time check the hook, tool, and route surfaces use, so a
+ * CLI toggle applies on the next turn without a daemon restart.
  */
-function discoverPluginResidentSkills(): SkillSummary[] {
+export function discoverDefaultPluginResidentSkills(
+  roots: readonly { pluginName: string; skillsDir: string }[],
+): SkillSummary[] {
+  const summaries: SkillSummary[] = [];
+  for (const { pluginName, skillsDir } of roots) {
+    if (isPluginDisabled(pluginName)) {
+      continue;
+    }
+    for (const directory of discoverSkillDirectories(skillsDir)) {
+      const skill = readSkillFromDirectory(directory, skillsDir, "plugin");
+      if (!skill) {
+        continue;
+      }
+      summaries.push({
+        ...skillSummaryFromDefinition(skill, "plugin"),
+        owner: { kind: "plugin", id: pluginName },
+      });
+    }
+  }
+  return summaries;
+}
+
+/**
+ * Discover skills shipped on disk inside plugins: the in-process defaults in
+ * the assistant's source tree and the installed plugins under
+ * `<workspaceDir>/plugins/` (a directory recognized by
+ * {@link hasLoadablePluginManifest}), each of which may ship skills at
+ * `skills/<id>/SKILL.md`. Returned summaries are attributed to the owning
+ * plugin via their `owner` descriptor: `{ kind: "plugin", id: <plugin dir
+ * name> }` for an installed plugin, `{ kind: "plugin", id: "default-<dir>" }`
+ * for a default one.
+ *
+ * Default-plugin skills sit BELOW installed-plugin skills: an installed plugin
+ * shipping a skill of the same id shadows the default one, so a user can
+ * replace a first-party skill by installing a plugin that redefines it, the
+ * same direction as the catalog's overall extra → bundled → plugin → managed →
+ * workspace ordering. Shadowed defaults are dropped here rather than left for
+ * the catalog's first-wins `seenIds` pass, which would otherwise let whichever
+ * group is emitted first win.
+ *
+ */
+export function discoverPluginResidentSkills(): SkillSummary[] {
+  return mergePluginResidentSkills(
+    discoverDefaultPluginResidentSkills(getDefaultPluginSkillRoots()),
+    discoverInstalledPluginResidentSkills(),
+  );
+}
+
+/**
+ * Merge the two plugin skill groups, dropping any default-plugin skill whose
+ * id an installed plugin also ships. Kept separate from the discovery walks so
+ * the shadowing rule is testable with synthetic summaries.
+ */
+export function mergePluginResidentSkills(
+  defaultSkills: readonly SkillSummary[],
+  installedSkills: readonly SkillSummary[],
+): SkillSummary[] {
+  const installedIds = new Set(installedSkills.map((skill) => skill.id));
+
+  const survivingDefaults = defaultSkills.filter((skill) => {
+    if (!installedIds.has(skill.id)) {
+      return true;
+    }
+    log.info(
+      { id: skill.id, pluginName: skill.owner?.id },
+      "Installed plugin skill overrides default plugin skill",
+    );
+    return false;
+  });
+
+  return [...survivingDefaults, ...installedSkills];
+}
+
+function discoverInstalledPluginResidentSkills(): SkillSummary[] {
   const pluginsDir = getWorkspacePluginsDir();
   if (!existsSync(pluginsDir)) {
     return [];
@@ -975,10 +1061,12 @@ export function loadSkillCatalog(
     catalog.push(skill);
   }
 
-  // Discover skills shipped on disk inside installed plugins. They sit above
-  // bundled/extra but below managed and workspace so a user-authored
-  // filesystem skill can override a plugin-provided skill by declaring the
-  // same id under `$VELLUM_WORKSPACE_DIR/skills/`.
+  // Discover skills shipped on disk inside plugins, in-process defaults and
+  // installed plugins alike. They sit above bundled/extra but below managed and
+  // workspace so a user-authored filesystem skill can override a
+  // plugin-provided skill by declaring the same id under
+  // `$VELLUM_WORKSPACE_DIR/skills/`. Precedence *within* the plugin source
+  // (installed over default) is resolved by the discovery pass.
   const pluginSkills = discoverPluginResidentSkills();
   for (const skill of pluginSkills) {
     if (seenIds.has(skill.id)) {

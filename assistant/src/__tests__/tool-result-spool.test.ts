@@ -49,7 +49,7 @@ const SHORT = "y".repeat(100);
 
 describe("spoolAndStubOversizedToolResults", () => {
   let convDir: string;
-  const noName = () => undefined;
+  const noCall = () => undefined;
 
   beforeEach(() => {
     convDir = mkdtempSync(join(tmpdir(), "tool-result-spool-"));
@@ -64,7 +64,7 @@ describe("spoolAndStubOversizedToolResults", () => {
 
     const count = spoolAndStubOversizedToolResults(blocks, {
       conversationDir: convDir,
-      toolNameById: noName,
+      toolCallById: noCall,
     });
 
     expect(count).toBe(1);
@@ -81,7 +81,7 @@ describe("spoolAndStubOversizedToolResults", () => {
     const blocks = [makeToolResult(LONG, "tu_big")];
     spoolAndStubOversizedToolResults(blocks, {
       conversationDir: convDir,
-      toolNameById: noName,
+      toolCallById: noCall,
     });
 
     const { messages: postTurn } = postTurnTruncateToolResults(
@@ -98,7 +98,7 @@ describe("spoolAndStubOversizedToolResults", () => {
     const blocks = [makeToolResult(LONG, "tu_big")];
     spoolAndStubOversizedToolResults(blocks, {
       conversationDir: convDir,
-      toolNameById: noName,
+      toolCallById: noCall,
     });
 
     const history: Message[] = [{ role: "user", content: [...blocks] }];
@@ -110,13 +110,11 @@ describe("spoolAndStubOversizedToolResults", () => {
     expect(messages).toBe(history);
   });
 
-  test("skips below-threshold, error, exempt, file_read, host_file_read, web_fetch, marked, and ax-tree results", () => {
+  test("skips below-threshold, error, exempt, web_fetch, marked, and ax-tree results", () => {
     const blocks = [
       makeToolResult(SHORT, "tu_short"),
       makeToolResult(LONG, "tu_err", true),
       makeToolResult(LONG, "tu_skill"),
-      makeToolResult(LONG, "tu_read"),
-      makeToolResult(LONG, "tu_host_read"),
       makeToolResult(LONG, "tu_web_fetch"),
       makeToolResult(`${LONG}${TRUNCATION_MARKER}`, "tu_marked"),
       makeToolResult(`<ax-tree>${LONG}</ax-tree>`, "tu_ax"),
@@ -126,18 +124,12 @@ describe("spoolAndStubOversizedToolResults", () => {
 
     const count = spoolAndStubOversizedToolResults(blocks, {
       conversationDir: convDir,
-      toolNameById: (id) => {
+      toolCallById: (id) => {
         if (id === "tu_skill") {
-          return "skill_load";
-        }
-        if (id === "tu_read") {
-          return "file_read";
-        }
-        if (id === "tu_host_read") {
-          return "host_file_read";
+          return { name: "skill_load", input: {} };
         }
         if (id === "tu_web_fetch") {
-          return "web_fetch";
+          return { name: "web_fetch", input: {} };
         }
         return undefined;
       },
@@ -146,6 +138,70 @@ describe("spoolAndStubOversizedToolResults", () => {
     expect(count).toBe(0);
     expect(blocks).toEqual(originals);
     expect(existsSync(join(convDir, TOOL_RESULT_DIR))).toBe(false);
+  });
+
+  test("spools an oversized file read of an ordinary path", () => {
+    const blocks = [
+      makeToolResult(LONG, "tu_read"),
+      makeToolResult(LONG, "tu_host_read"),
+    ];
+
+    const count = spoolAndStubOversizedToolResults(blocks, {
+      conversationDir: convDir,
+      toolCallById: (id) =>
+        id === "tu_read"
+          ? { name: "file_read", input: { path: "/workspace/src/big.ts" } }
+          : { name: "host_file_read", input: { path: "/Users/me/notes.md" } },
+    });
+
+    expect(count).toBe(2);
+    expect((blocks[0] as { content: string }).content).toContain(
+      TRUNCATION_MARKER,
+    );
+    expect((blocks[1] as { content: string }).content).toContain(
+      TRUNCATION_MARKER,
+    );
+  });
+
+  test("leaves a file read of a spooled .tool-results path inline", () => {
+    // Stubbing this read would write a fresh copy and hand back another stub,
+    // so the spooled content could never be paged back into context.
+    const spooledPath = getToolResultFilePath(convDir, "tu_earlier");
+    const blocks = [
+      makeToolResult(LONG, "tu_read"),
+      makeToolResult(LONG, "tu_host_read"),
+    ];
+    const originals = blocks.map((b) => b);
+
+    const count = spoolAndStubOversizedToolResults(blocks, {
+      conversationDir: convDir,
+      toolCallById: (id) =>
+        id === "tu_read"
+          ? { name: "file_read", input: { path: spooledPath } }
+          : { name: "host_file_read", input: { file_path: spooledPath } },
+    });
+
+    expect(count).toBe(0);
+    expect(blocks).toEqual(originals);
+  });
+
+  test("recognizes a backslash-separated spooled path", () => {
+    // `getToolResultFilePath` builds the stub path with `join`, so on Windows
+    // it is backslash-separated. Missing that match would stub the read and
+    // put the saved content out of reach.
+    const blocks = [makeToolResult(LONG, "tu_read")];
+    const originals = blocks.map((b) => b);
+
+    const count = spoolAndStubOversizedToolResults(blocks, {
+      conversationDir: convDir,
+      toolCallById: () => ({
+        name: "file_read",
+        input: { path: `C:\\conv\\${TOOL_RESULT_DIR}\\abc123.txt` },
+      }),
+    });
+
+    expect(count).toBe(0);
+    expect(blocks).toEqual(originals);
   });
 
   test("spools each eligible block in a mixed batch", () => {
@@ -157,7 +213,7 @@ describe("spoolAndStubOversizedToolResults", () => {
 
     const count = spoolAndStubOversizedToolResults(blocks, {
       conversationDir: convDir,
-      toolNameById: noName,
+      toolCallById: noCall,
     });
 
     expect(count).toBe(2);
@@ -184,7 +240,7 @@ describe("spoolAndStubOversizedToolResults", () => {
     expect(() =>
       spoolAndStubOversizedToolResults(blocks, {
         conversationDir: fileAsDir,
-        toolNameById: noName,
+        toolCallById: noCall,
       }),
     ).toThrow();
     expect((blocks[0] as { content: string }).content).toBe(LONG);
@@ -293,10 +349,11 @@ describe("AgentLoop result-time spooling", () => {
 
   test("spools the raw output even when it exceeds the post-tool-use truncation budget", async () => {
     // maxInputTokens of 10k gives the default truncate plugin a 12k-char
-    // budget (0.3 share × 4 chars/token). The spool must run before that
-    // hook, so the file holds all 20k chars of raw output rather than the
-    // hook's tail-dropped copy — otherwise the omitted tail is unrecoverable.
-    const HUGE = "z".repeat(20_000);
+    // budget (0.3 share × 4 chars/token); HUGE exceeds both that budget and
+    // the spool threshold. The spool must run before that hook, so the file
+    // holds the full raw output rather than the hook's tail-dropped copy;
+    // otherwise the omitted tail is unrecoverable.
+    const HUGE = "z".repeat(THRESHOLD_CHARS + 5_000);
     const { provider } = createMockProvider([
       toolUseResponse("tu_1", "fetch_transcript", {}),
       textResponse("Done."),

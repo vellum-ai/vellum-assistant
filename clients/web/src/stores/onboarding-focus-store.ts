@@ -44,6 +44,14 @@ interface OnboardingFocusState {
   pendingAvatarTraits: CharacterTraits | null;
   setPendingAvatarTraits: (traits: CharacterTraits | null) => void;
   /**
+   * The managed voice belonging to that avatar, staged and applied alongside
+   * it. The face and the voice are one pick, so they land together. Null when
+   * the voice catalog never loaded, leaving the assistant on the platform
+   * default.
+   */
+  pendingAvatarVoice: string | null;
+  setPendingAvatarVoice: (model: string | null) => void;
+  /**
    * A follow-up message the focused results overlay wants sent into the same
    * conversation (e.g. the "deeper dive" research request). The overlay lives
    * outside `ActiveChatView`, which owns `sendMessage`; ActiveChatView watches
@@ -91,6 +99,8 @@ const useOnboardingFocusStoreBase = create<OnboardingFocusState>((set) => ({
     }),
   pendingAvatarTraits: null,
   setPendingAvatarTraits: (traits) => set({ pendingAvatarTraits: traits }),
+  pendingAvatarVoice: null,
+  setPendingAvatarVoice: (model) => set({ pendingAvatarVoice: model }),
   pendingFollowupMessage: null,
   requestFollowup: (message) => set({ pendingFollowupMessage: message }),
   clearFollowup: () => set({ pendingFollowupMessage: null }),

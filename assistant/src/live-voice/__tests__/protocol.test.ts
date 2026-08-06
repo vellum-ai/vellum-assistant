@@ -305,6 +305,58 @@ describe("parseLiveVoiceClientTextFrame", () => {
     expect("turnDetection" in result.frame).toBe(false);
   });
 
+  test("parses the originating client from the start frame", () => {
+    const result = parseLiveVoiceClientTextFrame(
+      JSON.stringify({
+        type: "start",
+        client: "ios",
+        audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.frame).toMatchObject({ type: "start", client: "ios" });
+  });
+
+  test("omits client when absent from the start frame", () => {
+    const result = parseLiveVoiceClientTextFrame(
+      JSON.stringify({
+        type: "start",
+        audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect("client" in result.frame).toBe(false);
+  });
+
+  test("drops an unrecognized client rather than rejecting the session", () => {
+    const result = parseLiveVoiceClientTextFrame(
+      JSON.stringify({
+        type: "start",
+        client: "commodore-64",
+        audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+      }),
+    );
+
+    // The field is an analytics dimension. Failing startup over it would
+    // trade a gap in a chart for a user who cannot talk to their assistant.
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect("client" in result.frame).toBe(false);
+  });
+
   test("returns typed protocol errors for invalid turnDetection values", () => {
     const result = validateLiveVoiceClientFrame({
       type: "start",

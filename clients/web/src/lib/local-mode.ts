@@ -1,3 +1,9 @@
+import {
+  getLoopbackGatewayPort,
+  isLoopbackGatewayCloud,
+  isUsableRuntimeUrl,
+} from "@vellumai/local-mode/contract";
+
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import {
   clearSelectedAssistantId,
@@ -11,9 +17,13 @@ import {
   getLocalTokenUrl,
 } from "@/lib/auth/gateway-session";
 import { getPlatformRuntimeUrl } from "@/lib/platform-runtime-url";
-import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
+import {
+  getSelfHostedIngressUrl,
+  setSelfHostedConnection,
+} from "@/lib/self-hosted/connection";
 import { useLockfileStore } from "@/stores/lockfile-store";
 import {
+  connectImportHost,
   fetchGuardianTokenHost,
   GuardianTokenError,
   loadLockfileHost,
@@ -21,12 +31,14 @@ import {
   replacePlatformAssistantsHost,
   retireLocalAssistantHost,
   saveLockfileAssistantHost,
+  unpairAssistantHost,
   wakeLocalAssistantHost,
 } from "@/runtime/local-mode-host";
 import type {
   Lockfile,
   LockfileAssistant,
   LocalAssistantResources,
+  LocalConnectImportResult,
   LocalRetireResult,
 } from "@/runtime/local-mode-host";
 
@@ -117,7 +129,7 @@ const commitLockfile = (data: Lockfile): void => {
 
 const PLATFORM_MODE_TRUTHY = new Set(["1", "true", "yes"]);
 
-export function isLocalMode(): boolean {
+export function isLocalClient(): boolean {
   const raw = import.meta.env.VITE_PLATFORM_MODE;
   if (!raw) {
     return true;
@@ -371,6 +383,79 @@ export async function removePlatformAssistantFromLockfile(
   return { ok: true };
 }
 
+/**
+ * Drop the session state bound to the selected assistant: the raw selection
+ * key (no store import here, that would cycle; the reactive slice reconciles
+ * via `setFromLockfile` on the next lockfile commit/load), the gateway token,
+ * and the self-hosted connection.
+ */
+function clearSelectedAssistantSession(): void {
+  clearSelectedAssistantId();
+  clearGatewayToken();
+  setSelfHostedConnection(null);
+}
+
+/**
+ * Forget a paired assistant on this device: the host removes its lockfile
+ * entry and deletes its stored guardian token, never touching the remote
+ * assistant (pair again anytime with `vellum connect import`). When the
+ * removed entry is the effective selection, the session residue (selection
+ * key, gateway token, self-hosted connection) is cleared the same way a
+ * local retire clears it, so the next connect starts clean.
+ */
+export async function removePairedAssistantFromLockfile(
+  assistantId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const entry = getLockfileAssistant(assistantId);
+  if (!entry) {
+    return { ok: false, error: "This assistant isn't in the local list." };
+  }
+  if (!isPairedAssistant(entry)) {
+    return { ok: false, error: "This assistant isn't paired on this device." };
+  }
+  const wasSelected = getSelectedAssistant()?.assistantId === assistantId;
+  const result = await unpairAssistantHost(assistantId);
+  if (!result.ok) {
+    return { ok: false, error: result.error || "Failed to remove assistant." };
+  }
+  if (wasSelected) {
+    clearSelectedAssistantSession();
+  }
+  commitLockfile(result.lockfile);
+  return { ok: true };
+}
+
+/**
+ * Register a pairing bundle printed by `vellum pair` on another machine: the
+ * host persists its guardian token and creates a `cloud: "paired"` lockfile
+ * entry, then the lockfile is reloaded so subscribers (the resolved-assistants
+ * store) pick up the new entry, the write counterpart of
+ * {@link removePairedAssistantFromLockfile}. `accessOnly` is true when the
+ * bundle carried no refresh credential, so the pairing's access expires and
+ * cannot renew itself.
+ */
+export async function importPairedAssistantBundle(
+  bundle: string,
+  name?: string,
+): Promise<LocalConnectImportResult> {
+  const fallbackError = "Failed to import the pairing bundle.";
+  const result = await connectImportHost(bundle, name);
+  if (!result.ok) {
+    return { ok: false, error: result.error || fallbackError };
+  }
+  // Runtime guard: the dev-server host branch parses untyped JSON, so a
+  // malformed success degrades to a structured failure.
+  if (!result.assistantId) {
+    return { ok: false, error: fallbackError };
+  }
+  await loadLockfile();
+  return {
+    ok: true,
+    assistantId: result.assistantId,
+    accessOnly: result.accessOnly === true,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Retire
 // ---------------------------------------------------------------------------
@@ -385,11 +470,7 @@ export async function retireLocalAssistant(
 ): Promise<LocalRetireResult> {
   const result = await retireLocalAssistantHost(assistantId);
   if (result.ok) {
-    // Clear the raw key directly (no store import here — that would cycle); the
-    // reactive slice reconciles via the `loadLockfile` below → `setFromLockfile`.
-    clearSelectedAssistantId();
-    clearGatewayToken();
-    setSelfHostedConnection(null);
+    clearSelectedAssistantSession();
     await loadLockfile();
   }
   return result;
@@ -442,11 +523,22 @@ export function isLocalAssistant(a: LockfileAssistant): boolean {
  * clouds, and platform (`vellum`).
  */
 export function isLocalGatewayAssistant(a: LockfileAssistant): boolean {
-  return a.cloud === "local" || a.cloud === "docker";
+  return isLoopbackGatewayCloud(a.cloud);
 }
 
 export function isPlatformAssistant(a: LockfileAssistant): boolean {
   return a.cloud === "vellum";
+}
+
+/**
+ * A remote assistant paired from another machine via `vellum connect import`
+ * (`cloud === "paired"`): reached directly at its own `runtimeUrl` with the
+ * stored guardian access token as the bearer. Not local (no lifecycle flows,
+ * wake/retire refuse it) and not platform (no platform session involved).
+ * See the `KNOWN_CLOUDS` taxonomy in `@vellumai/local-mode/contract`.
+ */
+export function isPairedAssistant(a: { cloud?: string }): boolean {
+  return a.cloud === "paired";
 }
 
 /**
@@ -551,39 +643,10 @@ function expectsLocalGateway(
 ): assistant is LockfileAssistant {
   return (
     !!assistant &&
-    isLocalMode() &&
+    isLocalClient() &&
     !isRemoteGatewayMode() &&
     isLocalGatewayAssistant(assistant)
   );
-}
-
-/**
- * The loopback gateway port recorded for an assistant. Plain local entries
- * record it as `resources.gatewayPort`; Docker entries record the published
- * gateway address as a loopback `runtimeUrl` (`http://localhost:<port>`) with
- * no `resources` block, so the port is recovered from that URL. A non-loopback
- * `runtimeUrl` never yields a port — a remote address is not a local gateway.
- */
-function getRecordedGatewayPort(
-  assistant: LockfileAssistant,
-): number | undefined {
-  const recorded = assistant.resources?.gatewayPort;
-  if (recorded != null) {
-    return recorded;
-  }
-  if (!assistant.runtimeUrl) {
-    return undefined;
-  }
-  try {
-    const url = new URL(assistant.runtimeUrl);
-    if (url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
-      return undefined;
-    }
-    const port = Number(url.port);
-    return Number.isInteger(port) && port > 0 ? port : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 /**
@@ -597,7 +660,7 @@ export function getLocalGatewayUrl(
   if (!expectsLocalGateway(assistant)) {
     return undefined;
   }
-  const gatewayPort = getRecordedGatewayPort(assistant);
+  const gatewayPort = getLoopbackGatewayPort(assistant);
   if (gatewayPort == null) {
     return undefined;
   }
@@ -605,11 +668,80 @@ export function getLocalGatewayUrl(
 }
 
 /**
- * One-shot probe of the local gateway's `/readyz` (which reports gateway AND
- * upstream daemon readiness). True only when the gateway answers
- * `{ status: "ok" }`; false when the gateway URL is unresolvable, the request
- * fails, or the gateway is up but not yet ready.
+ * Whether this runtime should reach `assistant` at a remote paired gateway: a
+ * paired entry ({@link isPairedAssistant}), in local (non-remote-gateway) mode.
+ * Whether the entry records a usable `runtimeUrl` is a separate question
+ * answered by `getPairedGatewayUrl`. Deliberately not a type predicate: its
+ * false branch must not narrow `assistant` (a local entry also lands there).
  */
+function expectsPairedGateway(assistant: LockfileAssistant): boolean {
+  return (
+    isLocalClient() && !isRemoteGatewayMode() && isPairedAssistant(assistant)
+  );
+}
+
+/** Same-origin proxy path for a paired assistant's remote gateway. */
+function pairedGatewayProxyUrl(assistantId: string): string {
+  return `/assistant/__gateway-paired/${encodeURIComponent(assistantId)}`;
+}
+
+/**
+ * The same-origin proxy path this runtime reaches a paired assistant's remote
+ * gateway through, or `undefined` when the entry isn't paired, isn't usable in
+ * this runtime (non-local client or remote-gateway mode), or records no
+ * absolute http(s) `runtimeUrl` for the host to forward to.
+ *
+ * The renderer never fetches the remote origin directly: the packaged app's
+ * CSP pins `connect-src` to Vellum origins, and a browser-served SPA would be
+ * stopped by the remote gateway's CORS. Instead the serving host (the Electron
+ * `app://` handler, the Vite dev middleware, the CLI web server) resolves the
+ * entry's recorded `runtimeUrl` and forwards, exactly like the loopback
+ * `__gateway/{port}` data-plane proxy.
+ */
+export function getPairedGatewayUrl(
+  assistant: LockfileAssistant | undefined,
+): string | undefined {
+  if (!assistant || !expectsPairedGateway(assistant)) {
+    return undefined;
+  }
+  if (!isUsableRuntimeUrl(assistant.runtimeUrl)) {
+    return undefined;
+  }
+  return pairedGatewayProxyUrl(assistant.assistantId);
+}
+
+/**
+ * Absolute base URL this runtime reaches the given assistant's gateway at:
+ * origin + local gateway proxy for local/docker entries, origin + paired
+ * gateway proxy for paired entries, `undefined` otherwise.
+ */
+export function getAuthGatewayIngressUrl(
+  assistant: LockfileAssistant | undefined,
+): string | undefined {
+  const base = getLocalGatewayUrl(assistant) ?? getPairedGatewayUrl(assistant);
+  if (!base) {
+    return undefined;
+  }
+  return `${window.location.origin}${base}`;
+}
+
+/**
+ * One-shot probe of the local gateway's `/readyz` (which reports gateway AND
+ * upstream daemon readiness). True only when the gateway answers with an ok
+ * body that does not report `ready: false`; false when the gateway URL is
+ * unresolvable, the request fails, or the gateway is up but not yet ready.
+ */
+function isReadyzResponseReady(body: unknown): boolean {
+  if (body === null || typeof body !== "object") {
+    return false;
+  }
+  const readiness = body as { status?: unknown; ready?: unknown };
+  return (
+    readiness.status === "ok" &&
+    (readiness.ready === undefined || readiness.ready === true)
+  );
+}
+
 export async function probeLocalGatewayReady(): Promise<boolean> {
   const gatewayUrl = getLocalGatewayUrl();
   if (!gatewayUrl) {
@@ -621,12 +753,7 @@ export async function probeLocalGatewayReady(): Promise<boolean> {
       return false;
     }
     const body: unknown = await res.json();
-    return (
-      body !== null &&
-      typeof body === "object" &&
-      "status" in body &&
-      body.status === "ok"
-    );
+    return isReadyzResponseReady(body);
   } catch {
     return false;
   }
@@ -650,18 +777,61 @@ export class UnresolvedLocalGatewayError extends Error {
 }
 
 /**
- * Acquire a gateway token and prime the self-hosted connection for the given
- * local assistant (default: the selected one). The guardian token and gateway
- * exchange both ride the host's local-mode transport, so this stays
- * host-agnostic. Passing `target` lets connect flows prime the NEW assistant's
- * gateway before the selection write becomes observable, so the lifecycle's
- * selection subscription never publishes a connection with a token minted for
- * a different gateway.
+ * A paired assistant records no usable `runtimeUrl`, so there is no remote
+ * gateway to reach. Deliberately not {@link UnresolvedLocalGatewayError}: that
+ * one routes to the wake-recovery dialog in the chooser, and `wake` refuses
+ * paired entries (re-pairing from the source machine is the fix).
+ */
+export class UnresolvedPairedGatewayError extends Error {
+  constructor(assistantId: string) {
+    super(`Paired assistant ${assistantId} has no usable runtimeUrl`);
+    this.name = "UnresolvedPairedGatewayError";
+  }
+}
+
+/**
+ * Prime the self-hosted connection for the given local or paired assistant
+ * (default: the selected one). Local assistants mint a renderer actor token;
+ * paired assistants use a same-origin proxy whose trusted host injects its
+ * guardian bearer. Passing `target` lets connect flows prime the new
+ * assistant before the selection write becomes observable.
  */
 export async function primeLocalGatewayConnection(
   target?: LockfileAssistant,
 ): Promise<void> {
   const assistant = target ?? getSelectedAssistant();
+  if (assistant && expectsPairedGateway(assistant)) {
+    const pairedUrl = getPairedGatewayUrl(assistant);
+    if (!pairedUrl) {
+      throw new UnresolvedPairedGatewayError(assistant.assistantId);
+    }
+    const ingressUrl = getAuthGatewayIngressUrl(assistant)!;
+    // A request through the paired proxy forces the trusted host to resolve
+    // the credential and proves the remote gateway is reachable. The renderer
+    // sends no bearer. It also clears credentials persisted by older clients
+    // that placed paired guardian tokens in the gateway-session cache.
+    if (getSelfHostedIngressUrl() === ingressUrl) {
+      setSelfHostedConnection(null);
+    }
+    const response = await fetch(`${pairedUrl}/readyz`);
+    if (!response.ok) {
+      const message = await response.text();
+      throw new GuardianTokenError(
+        response.status,
+        message || `Paired gateway request failed: ${response.status}`,
+      );
+    }
+    const readiness: unknown = await response.json().catch(() => null);
+    if (!isReadyzResponseReady(readiness)) {
+      throw new Error("Paired assistant is not ready");
+    }
+    clearGatewayToken();
+    setSelfHostedConnection({
+      url: ingressUrl,
+      token: null,
+    });
+    return;
+  }
   const tokenUrl = getLocalTokenUrl(assistant);
   if (!tokenUrl) {
     // A local assistant we recognize but can't resolve a gateway for (no port)
@@ -676,12 +846,12 @@ export async function primeLocalGatewayConnection(
     ? await fetchGuardianTokenHost(assistant.assistantId)
     : undefined;
   await ensureGatewayToken(tokenUrl, guardianToken);
-  const localGateway = getLocalGatewayUrl(assistant);
-  if (!localGateway) {
+  const ingressUrl = getAuthGatewayIngressUrl(assistant);
+  if (!ingressUrl) {
     return;
   }
   setSelfHostedConnection({
-    url: `${window.location.origin}${localGateway}`,
+    url: ingressUrl,
     token: getGatewayToken(),
   });
 }
@@ -814,17 +984,22 @@ export async function primeLocalGatewayConnectionWithStartupRetry(
 export async function primeLocalGatewayConnectionWithRepair(
   target?: LockfileAssistant,
 ): Promise<void> {
+  const assistant = target ?? getSelectedAssistant();
   try {
-    await primeLocalGatewayConnection(target);
+    await primeLocalGatewayConnection(assistant);
     return;
   } catch (error) {
+    // Wake operates only on plain local assistants (see
+    // `isCliWakeableAssistant`): spawning it for a paired or otherwise
+    // non-local target would burn time on a refusal, so their failures
+    // propagate untouched.
+    if (!assistant || !isLocalAssistant(assistant)) {
+      throw error;
+    }
     if (!isRepairableConnectError(error)) {
       throw error;
     }
-    const assistantId = (target ?? getSelectedAssistant())?.assistantId;
-    if (!assistantId) {
-      throw error;
-    }
+    const assistantId = assistant.assistantId;
     const repair = await wakeLocalAssistantHost(assistantId);
     if (!repair.ok) {
       throw error;
@@ -840,7 +1015,7 @@ export async function primeLocalGatewayConnectionWithRepair(
     // connect dead-ends to the recovery controls. Ride out that restart window
     // instead, so a persisted local assistant reconnects on its own.
     await primeLocalGatewayWithStartupRideout(
-      refreshed ?? target,
+      refreshed ?? assistant,
       isGatewayRestartTransient,
     );
   }

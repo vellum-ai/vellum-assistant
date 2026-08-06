@@ -1,5 +1,5 @@
 import { homedir, userInfo } from "node:os";
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import { renderWorkspaceTopLevelContext } from "../workspace/top-level-renderer.js";
 import type { TopLevelSnapshot } from "../workspace/top-level-scanner.js";
@@ -213,5 +213,58 @@ describe("renderWorkspaceTopLevelContext", () => {
 
     expect(result).toContain("Host home directory: /Users/alice");
     expect(result).toContain(`Host username: ${userInfo().username}`);
+  });
+
+  describe("containerized daemon", () => {
+    // In a container the daemon's own homedir/username describe the
+    // container, not the user's machine. Reporting them as the HOST values
+    // is what leads a host_bash command to write to a path that exists
+    // nowhere on the user's machine.
+    const priorIsContainerized = process.env.IS_CONTAINERIZED;
+
+    afterEach(() => {
+      if (priorIsContainerized === undefined) {
+        delete process.env.IS_CONTAINERIZED;
+      } else {
+        process.env.IS_CONTAINERIZED = priorIsContainerized;
+      }
+    });
+
+    const snapshot: TopLevelSnapshot = {
+      rootPath: "/workspace",
+      directories: ["src"],
+      files: ["package.json"],
+      truncated: false,
+    };
+
+    test("does not pass off the container's own home dir as the host's", () => {
+      process.env.IS_CONTAINERIZED = "true";
+
+      const result = renderWorkspaceTopLevelContext(snapshot, {});
+
+      expect(result).not.toContain(`Host home directory: ${homedir()}`);
+      // Name the way to find the real value rather than leaving a dead end.
+      expect(result.split("\n")).toEqual([
+        "<workspace>",
+        "Root: /workspace",
+        "Directories: src",
+        "Files: package.json",
+        "Host home directory: unknown (ask the host shell: `host_bash` with `echo $HOME`)",
+        "Host username: unknown",
+        "</workspace>",
+      ]);
+    });
+
+    test("still reports the client-supplied host env when it is known", () => {
+      process.env.IS_CONTAINERIZED = "true";
+
+      const result = renderWorkspaceTopLevelContext(snapshot, {
+        hostHomeDir: "/Users/alice",
+        hostUsername: "alice",
+      });
+
+      expect(result).toContain("Host home directory: /Users/alice");
+      expect(result).toContain("Host username: alice");
+    });
   });
 });

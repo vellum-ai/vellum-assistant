@@ -4,7 +4,12 @@ import {
   resolveUsageAttribution,
   sanitizeUsageMetadataValue,
 } from "../usage/attribution.js";
-import { ProviderError, type ProviderErrorReason } from "../util/errors.js";
+import { resolveSubagentAttribution } from "../usage/subagent-attribution.js";
+import {
+  type ProviderCredentialSource,
+  ProviderError,
+  type ProviderErrorReason,
+} from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
   computeRetryDelay,
@@ -18,8 +23,12 @@ import {
   isAnthropicModel,
 } from "./anthropic-gateway-shared.js";
 import { resolveLogitBiasPreset } from "./inference/logit-bias.js";
-import { isAdaptiveThinkingOnlyModel } from "./model-catalog.js";
 import {
+  isAdaptiveThinkingOnlyModel,
+  isAdaptiveThinkingUnsupportedModel,
+} from "./model-catalog.js";
+import {
+  isThinkingConfigAdaptive,
   isThinkingConfigDisabled,
   normalizeThinkingConfigForWire,
 } from "./thinking-config.js";
@@ -41,6 +50,12 @@ const USAGE_ATTRIBUTION_HEADER_NAMES = {
   resolvedProvider: "X-Vellum-Resolved-Provider",
   resolvedModel: "X-Vellum-Resolved-Model",
   resolvedMixArm: "X-Vellum-Resolved-Mix-Arm",
+  // Delegated-work attribution. Every subagent variety shares
+  // `llm_call_site = "subagentSpawn"`, so on the authoritative billing path
+  // these two orthogonal dimensions are the only way to tell an advisor
+  // consult from a fork from a regular spawn.
+  subagentRole: "X-Vellum-Subagent-Role",
+  subagentSpawnMode: "X-Vellum-Subagent-Spawn-Mode",
 } as const;
 
 /** Providers whose transports consume `promptCacheKey` (OpenAI Responses
@@ -414,6 +429,10 @@ function normalizeSendMessageOptions(
     // downstream as a wire-format field.
     delete nextConfig.callSite;
     if (normalizeOptions.forwardUsageAttributionHeaders === true) {
+      // Read from the conversation row rather than the live SubagentManager:
+      // the row is durable and the lookup is a memoized primary-key read that
+      // can never throw, so billing attribution cannot destabilize dispatch.
+      const subagent = resolveSubagentAttribution(config.conversationId);
       const usageAttributionHeaders = buildUsageAttributionHeaders({
         callSite: attribution.callSite,
         appliedProfile: attribution.appliedProfile,
@@ -421,6 +440,8 @@ function normalizeSendMessageOptions(
         resolvedProvider: attribution.resolvedProvider,
         resolvedModel: attribution.resolvedModel,
         resolvedMixArm: attribution.resolvedMixArm,
+        subagentRole: subagent.subagentRole,
+        subagentSpawnMode: subagent.subagentSpawnMode,
       });
       if (Object.keys(usageAttributionHeaders).length > 0) {
         nextConfig.usageAttributionHeaders = usageAttributionHeaders;
@@ -547,6 +568,21 @@ function normalizeSendMessageOptions(
     typeof nextConfig.model === "string" &&
     isAdaptiveThinkingOnlyModel(nextConfig.model) &&
     isThinkingConfigDisabled(nextConfig.thinking)
+  ) {
+    delete nextConfig.thinking;
+  }
+
+  // Pre-adaptive Claude models (Haiku 4.5, Opus 4.5, Sonnet 4.5) reject
+  // `thinking: { type: "adaptive" }` (Anthropic 400s the request), and Vellum
+  // never sends the legacy budget_tokens form. Drop an adaptive thinking
+  // config for these models so the request goes out without thinking instead
+  // of failing. A pass-through `{ type: "enabled", budget_tokens }` config is
+  // left intact: these models do support that shape.
+  if (
+    typeof nextConfig.model === "string" &&
+    isAdaptiveThinkingUnsupportedModel(nextConfig.model) &&
+    isThinkingConfigAdaptive(nextConfig.thinking) &&
+    targetsAnthropicWire(providerName, nextConfig.model)
   ) {
     delete nextConfig.thinking;
   }
@@ -746,6 +782,8 @@ function buildUsageAttributionHeaders(input: {
   resolvedProvider: string;
   resolvedModel: string;
   resolvedMixArm: string | null;
+  subagentRole: string | null;
+  subagentSpawnMode: string | null;
 }): Record<string, string> {
   const headers: Record<string, string> = {};
   addSanitizedHeader(
@@ -780,6 +818,16 @@ function buildUsageAttributionHeaders(input: {
     USAGE_ATTRIBUTION_HEADER_NAMES.resolvedMixArm,
     input.resolvedMixArm,
   );
+  addSanitizedHeader(
+    headers,
+    USAGE_ATTRIBUTION_HEADER_NAMES.subagentRole,
+    input.subagentRole,
+  );
+  addSanitizedHeader(
+    headers,
+    USAGE_ATTRIBUTION_HEADER_NAMES.subagentSpawnMode,
+    input.subagentSpawnMode,
+  );
   return headers;
 }
 
@@ -805,6 +853,8 @@ function addSanitizedHeader(
 export class RetryProvider implements Provider {
   public readonly name: string;
 
+  private inner: Provider;
+
   get tokenEstimationProvider(): string | undefined {
     return this.inner.tokenEstimationProvider;
   }
@@ -823,24 +873,63 @@ export class RetryProvider implements Provider {
   // the wrapper chain (callers gate on its presence). Bound straight to the
   // inner provider — count_tokens is a cheap separate endpoint and its caller
   // already falls back on error, so it needs no retry wrapping.
+  // Deliberately not re-bound when a credential refresh swaps `inner`: every
+  // outer wrapper snapshots this the same way at construction, so a re-bind
+  // here would never reach callers. count_tokens on the pre-refresh credential
+  // fails soft — its caller falls back to estimation.
   public readonly countInputTokens?: NonNullable<Provider["countInputTokens"]>;
 
   constructor(
-    private readonly inner: Provider,
-    private readonly options: { forwardUsageAttributionHeaders?: boolean } = {},
+    inner: Provider,
+    private readonly options: {
+      forwardUsageAttributionHeaders?: boolean;
+      credentialSource?: ProviderCredentialSource;
+      connectionName?: string;
+      refreshCredentialProvider?: () => Promise<Provider | null>;
+    } = {},
   ) {
+    this.inner = inner;
     this.name = inner.name;
     if (inner.countInputTokens) {
       this.countInputTokens = inner.countInputTokens.bind(inner);
     }
   }
 
+  private shouldRefreshManagedCredential(error: unknown): boolean {
+    return (
+      this.options.credentialSource === "vellum-managed" &&
+      this.options.refreshCredentialProvider !== undefined &&
+      error instanceof ProviderError &&
+      (error.statusCode === 401 || error.statusCode === 403) &&
+      (error.reason === undefined ||
+        error.reason === "unknown" ||
+        error.reason === "invalid_credentials")
+    );
+  }
+
+  private attributeCredential(error: unknown): void {
+    const { credentialSource, connectionName } = this.options;
+    if (
+      !(error instanceof ProviderError) ||
+      (!credentialSource && !connectionName)
+    ) {
+      return;
+    }
+    // Merges under whatever a closer layer already stamped, so a route
+    // resolved at dispatch keeps precedence over this adapter's own view.
+    error.attachRouteAttribution({
+      ...(credentialSource ? { credentialSource } : {}),
+      ...(connectionName ? { connectionName } : {}),
+    });
+  }
+
   async sendMessage(
     messages: Message[],
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
-    let lastError: unknown;
     let didRetry = false;
+    let retryAttempt = 0;
+    let credentialRefreshAttempted = false;
     let messagesForAttempt = messages;
 
     const normalizedOptions = normalizeSendMessageOptions(this.name, options, {
@@ -848,7 +937,7 @@ export class RetryProvider implements Provider {
         this.options.forwardUsageAttributionHeaders === true,
     });
 
-    for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
+    while (true) {
       try {
         const result = await this.inner.sendMessage(
           messagesForAttempt,
@@ -856,9 +945,37 @@ export class RetryProvider implements Provider {
         );
         return result;
       } catch (error) {
-        lastError = error;
+        if (
+          !credentialRefreshAttempted &&
+          this.shouldRefreshManagedCredential(error)
+        ) {
+          credentialRefreshAttempted = true;
+          try {
+            const refreshed = await this.options.refreshCredentialProvider?.();
+            if (refreshed) {
+              this.inner = refreshed;
+              log.info(
+                {
+                  provider: this.name,
+                  connectionName: this.options.connectionName,
+                },
+                "Retrying managed inference with refreshed assistant credentials",
+              );
+              continue;
+            }
+          } catch (refreshError) {
+            log.warn(
+              {
+                provider: this.name,
+                connectionName: this.options.connectionName,
+                refreshError,
+              },
+              "Failed to reload managed assistant credentials",
+            );
+          }
+        }
 
-        if (attempt < DEFAULT_MAX_RETRIES && isRetryableError(error)) {
+        if (retryAttempt < DEFAULT_MAX_RETRIES && isRetryableError(error)) {
           // Malformed tool-argument JSON is conditioned on the request, so
           // resend with the corrective note. Built from the original
           // `messages` each time — the note appears exactly once no matter
@@ -871,7 +988,8 @@ export class RetryProvider implements Provider {
             error instanceof ProviderError ? error.retryAfterMs : undefined;
           const MAX_RETRY_DELAY_MS = 60_000; // Cap server-suggested delays at 60s
           const delay = Math.min(
-            retryAfter ?? computeRetryDelay(attempt, DEFAULT_BASE_DELAY_MS),
+            retryAfter ??
+              computeRetryDelay(retryAttempt, DEFAULT_BASE_DELAY_MS),
             MAX_RETRY_DELAY_MS,
           );
           const errorType =
@@ -890,7 +1008,7 @@ export class RetryProvider implements Provider {
                       : "network_error";
           log.warn(
             {
-              attempt: attempt + 1,
+              attempt: retryAttempt + 1,
               maxRetries: DEFAULT_MAX_RETRIES,
               delay,
               retryAfterHeader: retryAfter !== undefined,
@@ -902,6 +1020,7 @@ export class RetryProvider implements Provider {
             "Retrying after transient error",
           );
           didRetry = true;
+          retryAttempt++;
           await sleep(delay);
           continue;
         }
@@ -917,16 +1036,9 @@ export class RetryProvider implements Provider {
             true;
         }
 
+        this.attributeCredential(error);
         throw error;
       }
     }
-
-    // Unreachable in practice — the loop body always either returns or throws —
-    // but mark the last error in case execution somehow falls through.
-    if (lastError instanceof Error && isRetryableError(lastError)) {
-      (lastError as Error & { retriesExhausted?: boolean }).retriesExhausted =
-        true;
-    }
-    throw lastError;
   }
 }

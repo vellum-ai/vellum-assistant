@@ -12,7 +12,7 @@ import {
 } from "@/domains/account/login-flow";
 import { classifyCallbackFlows } from "@/domains/account/social-auth";
 import {
-  isLocalMode,
+  isLocalClient,
   syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
 import { useAuthStore } from "@/stores/auth-store";
@@ -65,7 +65,7 @@ export function ProviderCallbackPage() {
           case "authenticated": {
             await refreshSession();
 
-            if (isLocalMode()) {
+            if (isLocalClient()) {
               try {
                 const assistants = await listAssistants();
                 if (assistants.ok && assistants.data.length > 0) {

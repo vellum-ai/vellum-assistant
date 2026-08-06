@@ -133,6 +133,16 @@ export function QuoteReplyBubble({ onAddToChat }: QuoteReplyBubbleProps) {
     [handleAddToChat],
   );
 
+  const handleDialogKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeReplyBubble();
+      }
+    },
+    [closeReplyBubble],
+  );
+
   if (!replyBubble) {
     return null;
   }
@@ -198,6 +208,7 @@ export function QuoteReplyBubble({ onAddToChat }: QuoteReplyBubbleProps) {
         aria-label="Quote and reply"
         className="fixed inset-x-3 z-50"
         style={{ bottom: composerTopOffset + COMPOSER_DOCK_GAP_PX }}
+        onKeyDown={handleDialogKeyDown}
       >
         {card}
       </div>,

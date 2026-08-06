@@ -125,6 +125,7 @@ export const githubProvider: WatcherProvider = {
   id: "github",
   displayName: "GitHub",
   requiredCredentialService: "github",
+  untrustedContentSource: "webhook",
 
   async getInitialWatermark(_credentialService: string): Promise<string> {
     // Start from "now" so we don't replay all existing notifications

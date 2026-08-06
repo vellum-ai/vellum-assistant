@@ -23,7 +23,7 @@ function renderPicker(
       open
       onOpenChange={(open) => openChanges.push(open)}
       title="Listening language"
-      currentCode=""
+      currentCode="multi"
       configuredProviderId="vellum"
       selectLanguage={(code) => picks.push(code)}
       selecting={false}
@@ -56,11 +56,12 @@ describe("SttLanguagePicker (in its modal host)", () => {
     renderPicker();
     expect(screen.getByText("Featured")).toBeTruthy();
     expect(screen.getByText("All languages")).toBeTruthy();
-    // Featured for a fresh multi-capable config: the default row, then
-    // Multilingual; the extended roster sits in the A-Z remainder.
+    // Featured for a fresh multi-capable config: Multilingual (the current
+    // value) then the English row; the extended roster sits in the A-Z
+    // remainder.
     const labels = optionLabels();
-    expect(labels[0]).toContain("English (default)");
-    expect(labels[1]).toContain("Multilingual");
+    expect(labels[0]).toContain("Multilingual");
+    expect(labels[1]).toContain("English");
     expect(labels[2]).toContain("Arabic");
     expect(labels.some((label) => label.includes("Tamil"))).toBe(true);
   });
@@ -79,9 +80,14 @@ describe("SttLanguagePicker (in its modal host)", () => {
   });
 
   test("the locale suggestion joins Featured with the Suggested annotation", () => {
-    renderPicker({ suggestedCode: "multi" });
-    const multilingual = screen.getByRole("option", { name: /Multilingual/ });
-    expect(multilingual.textContent).toContain("Suggested");
+    // Suggestions now only arise for languages the multilingual default
+    // cannot follow, so Tamil is the shape a real suggestion takes.
+    renderPicker({ suggestedCode: "ta" });
+    const tamil = screen.getByRole("option", { name: /Tamil/ });
+    expect(tamil.textContent).toContain("Suggested");
+    // Pinned into Featured, ahead of the A-Z remainder it would otherwise
+    // sit in.
+    expect(optionLabels()[2]).toContain("Tamil");
   });
 
   test("typing filters to a flat list and hides the group headers", async () => {
@@ -117,11 +123,11 @@ describe("SttLanguagePicker (in its modal host)", () => {
     const activeId = searchInput().getAttribute("aria-activedescendant");
     expect(activeId).toBeTruthy();
     const active = document.getElementById(activeId!);
-    // Two steps from the top of the visible list: default row, then
-    // Multilingual.
-    expect(active?.textContent).toContain("Multilingual");
+    // Two steps from the top of the visible list: Multilingual (current),
+    // then the English row.
+    expect(active?.textContent).toContain("English");
     await user.keyboard("{Enter}");
-    expect(picks).toEqual(["multi"]);
+    expect(picks).toEqual(["en"]);
     expect(openChanges).toEqual([false]);
   });
 
@@ -168,7 +174,9 @@ describe("SttLanguagePicker (in its modal host)", () => {
   });
 
   test("an xai provider offers no Multilingual row and no extended roster", () => {
-    renderPicker({ configuredProviderId: "xai" });
+    // xai keeps its sentinel row, since unset means native detection there
+    // and no language code expresses that.
+    renderPicker({ configuredProviderId: "xai", currentCode: "" });
     const labels = optionLabels();
     expect(labels.some((label) => label.includes("Multilingual"))).toBe(false);
     expect(labels.some((label) => label.includes("Tamil"))).toBe(false);

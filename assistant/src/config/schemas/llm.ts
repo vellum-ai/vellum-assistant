@@ -10,7 +10,6 @@ import {
 import {
   DEFAULT_PROFILE_KEYS,
   DEFAULT_PROFILE_PROVIDERS,
-  INTERNAL_PROFILE_KEYS,
 } from "../default-profile-names.js";
 
 /**
@@ -50,7 +49,7 @@ export const LLMProvider = z
     "chatgpt",
   ])
   .meta({ id: "LLMProvider" });
-type LLMProvider = z.infer<typeof LLMProvider>;
+export type LLMProvider = z.infer<typeof LLMProvider>;
 
 /**
  * Providers that can back `llm.defaultProvider`: the named columns of the
@@ -79,8 +78,19 @@ export const DEFAULT_PROVIDER_CHOICES: readonly LLMProvider[] = [
   ]),
 ];
 
-export function isDefaultProviderChoice(value: string): boolean {
+export function isDefaultProviderChoice(value: string): value is LLMProvider {
   return (DEFAULT_PROVIDER_CHOICES as readonly string[]).includes(value);
+}
+
+/**
+ * Default-provider choices whose profiles materialize from the shared BYOK
+ * templates: every choice except the `vellum` routing identity, whose
+ * defaults are pinned managed models.
+ */
+export function isByokDefaultProviderChoice(
+  value: string,
+): value is LLMProvider {
+  return value !== "vellum" && isDefaultProviderChoice(value);
 }
 
 const DefaultProviderEnum = z.enum(
@@ -703,18 +713,11 @@ export const LLMSchema = z
       ...Object.keys(config.profiles ?? {}),
       ...DEFAULT_PROFILE_KEYS,
     ]);
-    // Internal profiles exist only to be named by a call site, so they are
-    // valid reference targets there and nowhere else — never for
-    // `activeProfile`/`advisorProfile`, which are user-facing selections.
-    const callSiteProfileNames = new Set([
-      ...profileNames,
-      ...INTERNAL_PROFILE_KEYS,
-    ]);
     for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
       if (siteConfig?.profile == null) {
         continue;
       }
-      if (!callSiteProfileNames.has(siteConfig.profile)) {
+      if (!profileNames.has(siteConfig.profile)) {
         ctx.addIssue({
           code: "custom",
           path: ["callSites", siteId, "profile"],

@@ -106,23 +106,32 @@ mock.module("@/lib/auth/gateway-session", () => ({
   setRemoteGatewayToken: () => {},
 }));
 
-const isLocalModeMock = mock(() => false);
+const isLocalClientMock = mock(() => false);
 const isRemoteGatewayModeMock = mock(() => false);
 const getSelectedAssistantMock = mock(
   (): { assistantId: string } | undefined => undefined,
 );
 const getLocalGatewayUrlMock = mock((): string | undefined => undefined);
+const getPairedGatewayUrlMock = mock((): string | undefined => undefined);
 mock.module("@/lib/local-mode", () => ({
   getActiveAssistant: () => undefined,
+  // Mirrors the real helper's composition so tests drive it through
+  // the two inner mocks.
+  getAuthGatewayIngressUrl: (): string | undefined => {
+    const base = getLocalGatewayUrlMock() ?? getPairedGatewayUrlMock();
+    return base ? `${window.location.origin}${base}` : undefined;
+  },
   getLocalAssistants: () => [],
   getLocalGatewayUrl: getLocalGatewayUrlMock,
+  getPairedGatewayUrl: getPairedGatewayUrlMock,
   getLockfile: () => ({ assistants: [], activeAssistant: null }),
   getPlatformAssistants: () => [],
   getPlatformRuntimeUrl: () => window.location.origin,
   getSelectedAssistant: getSelectedAssistantMock,
   hasAssistants: () => false,
   isLocalAssistant: () => false,
-  isLocalMode: isLocalModeMock,
+  isPairedAssistant: () => false,
+  isLocalClient: isLocalClientMock,
   isPlatformAssistant: () => false,
   isPlatformDisabled: () => false,
   isRemoteGatewayMode: isRemoteGatewayModeMock,
@@ -134,6 +143,13 @@ mock.module("@/lib/local-mode", () => ({
   saveLockfileAssistant: async () => {},
   setActiveLockfileAssistant: async () => {},
   syncPlatformAssistantsToLockfile: async () => {},
+}));
+
+const refreshRemoteGatewaySessionMock = mock(async () => true);
+mock.module("@/lib/auth/remote-gateway-session", () => ({
+  refreshRemoteGatewaySession: refreshRemoteGatewaySessionMock,
+  remoteGatewayPublicPathPrefix: () => "",
+  remoteGatewayApiPath: (path: string) => path,
 }));
 
 const getLocalAssistantStatusHostMock = mock(
@@ -208,10 +224,12 @@ beforeEach(() => {
   // any new mocked dep added here MUST re-set its baseline below or
   // tests will silently inherit the previous test's stub.
   isGatewayAuthModeMock.mockImplementation(() => false);
-  isLocalModeMock.mockImplementation(() => false);
+  isLocalClientMock.mockImplementation(() => false);
   isRemoteGatewayModeMock.mockImplementation(() => false);
+  refreshRemoteGatewaySessionMock.mockClear();
   getSelectedAssistantMock.mockImplementation(() => undefined);
   getLocalGatewayUrlMock.mockImplementation(() => undefined);
+  getPairedGatewayUrlMock.mockImplementation(() => undefined);
   getAssistantMock.mockImplementation(async () => ({ ok: false, status: 404 }));
   getAssistantHealthzMock.mockImplementation(async () => ({ ok: true }));
   getLocalAssistantStatusHostMock.mockClear();
@@ -462,6 +480,35 @@ describe("lifecycleService — bootstrap branches", () => {
     await waitFor(() => {
       const s = useAssistantLifecycleStore.getState().assistantState;
       return s.kind === "active" && s.health === "healthy";
+    });
+  });
+
+  test("gateway-auth short-circuit resolves a paired selection to the paired proxy URL", async () => {
+    isGatewayAuthModeMock.mockImplementation(() => true);
+    getSelectedAssistantMock.mockImplementation(() => ({
+      assistantId: "asst-paired",
+    }));
+    getPairedGatewayUrlMock.mockImplementation(
+      () => "/assistant/__gateway-paired/asst-paired",
+    );
+
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+
+    expect(getAssistantMock).not.toHaveBeenCalled();
+    expect(setSelfHostedConnectionMock).toHaveBeenCalledWith({
+      url: `${window.location.origin}/assistant/__gateway-paired/asst-paired`,
+      token: null,
+    });
+    expect(useResolvedAssistantsStore.getState().activeAssistantId).toBe(
+      "asst-paired",
+    );
+    expect(useAssistantLifecycleStore.getState().assistantState).toMatchObject({
+      kind: "active",
+      isLocal: true,
     });
   });
 
@@ -1180,6 +1227,183 @@ describe("lifecycleService — local health heartbeat", () => {
       "local-selected",
     );
   });
+
+  /** Drive to a healthy gateway-auth active state, then run one more probe. */
+  async function driveHealthyThenProbe(
+    nextHealthz: () => Promise<unknown>,
+  ): Promise<void> {
+    isGatewayAuthModeMock.mockImplementation(() => true);
+    getAssistantHealthzMock.mockImplementation(async () => ({ ok: true }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.respondToInputs();
+    await waitFor(() => {
+      const s = useAssistantLifecycleStore.getState().assistantState;
+      return s.kind === "active" && s.health === "healthy";
+    });
+    getAssistantHealthzMock.mockImplementation(
+      nextHealthz as () => Promise<{ ok: true }>,
+    );
+    const assistantId =
+      useResolvedAssistantsStore.getState().activeAssistantId;
+    if (!assistantId) {
+      throw new Error("expected an active assistant id");
+    }
+    await (
+      lifecycleService as unknown as {
+        probeReachability(id: string): Promise<void>;
+      }
+    ).probeReachability(assistantId);
+  }
+
+  test("a 401 healthz keeps the last known health (stale bearer, not a down assistant)", async () => {
+    await driveHealthyThenProbe(async () => ({ ok: false, status: 401 }));
+
+    const state = useAssistantLifecycleStore.getState().assistantState;
+    expect(state.kind).toBe("active");
+    if (state.kind === "active") {
+      expect(state.health).toBe("healthy");
+      expect(state.reachable).toBe(true);
+    }
+  });
+
+  test("a 401 healthz in remote-gateway mode nudges the session refresh", async () => {
+    isRemoteGatewayModeMock.mockImplementation(() => true);
+    await driveHealthyThenProbe(async () => ({ ok: false, status: 401 }));
+
+    expect(refreshRemoteGatewaySessionMock).toHaveBeenCalled();
+    const state = useAssistantLifecycleStore.getState().assistantState;
+    expect(state.kind).toBe("active");
+    if (state.kind === "active") {
+      expect(state.health).toBe("healthy");
+    }
+  });
+
+  test("one dropped probe keeps a healthy state; the second consecutive failure flips it", async () => {
+    await driveHealthyThenProbe(async () => {
+      throw new Error("network error");
+    });
+
+    const afterOne = useAssistantLifecycleStore.getState().assistantState;
+    expect(afterOne.kind).toBe("active");
+    if (afterOne.kind === "active") {
+      expect(afterOne.health).toBe("healthy");
+      expect(afterOne.reachable).toBe(true);
+    }
+
+    const assistantId =
+      useResolvedAssistantsStore.getState().activeAssistantId;
+    await (
+      lifecycleService as unknown as {
+        probeReachability(id: string): Promise<void>;
+      }
+    ).probeReachability(assistantId!);
+
+    const afterTwo = useAssistantLifecycleStore.getState().assistantState;
+    expect(afterTwo.kind).toBe("active");
+    if (afterTwo.kind === "active") {
+      expect(afterTwo.health).toBe("unreachable");
+      expect(afterTwo.reachable).toBe(false);
+    }
+  });
+
+  test("an auth-stale probe resets the failure streak", async () => {
+    await driveHealthyThenProbe(async () => {
+      throw new Error("network error");
+    });
+
+    const probe = (
+      lifecycleService as unknown as {
+        probeReachability(id: string): Promise<void>;
+      }
+    ).probeReachability.bind(lifecycleService);
+    const assistantId =
+      useResolvedAssistantsStore.getState().activeAssistantId;
+
+    getAssistantHealthzMock.mockImplementation(async () => ({
+      ok: false,
+      status: 401,
+    }));
+    await probe(assistantId!);
+
+    getAssistantHealthzMock.mockImplementation(async () => {
+      throw new Error("network error");
+    });
+    await probe(assistantId!);
+
+    // Drop, answered-401, drop: the 401 proved the gateway reachable, so the
+    // two drops are not consecutive and health must hold.
+    const state = useAssistantLifecycleStore.getState().assistantState;
+    expect(state.kind).toBe("active");
+    if (state.kind === "active") {
+      expect(state.health).toBe("healthy");
+      expect(state.reachable).toBe(true);
+    }
+  });
+
+  test("a probe's own 5xx does not double-count via the unreachable bus", async () => {
+    // The daemon response interceptor fires the unreachable bus synchronously
+    // while the heartbeat's own healthz request is still in flight; that must
+    // count as ONE failed probe, not two, so a single 503 blip on a healthy
+    // assistant stays debounced.
+    await driveHealthyThenProbe(async () => {
+      capturedUnreachableListener?.();
+      return { ok: false, status: 503 };
+    });
+
+    const afterOne = useAssistantLifecycleStore.getState().assistantState;
+    expect(afterOne.kind).toBe("active");
+    if (afterOne.kind === "active") {
+      expect(afterOne.health).toBe("healthy");
+    }
+
+    const assistantId =
+      useResolvedAssistantsStore.getState().activeAssistantId;
+    await (
+      lifecycleService as unknown as {
+        probeReachability(id: string): Promise<void>;
+      }
+    ).probeReachability(assistantId!);
+
+    const afterTwo = useAssistantLifecycleStore.getState().assistantState;
+    expect(afterTwo.kind).toBe("active");
+    if (afterTwo.kind === "active") {
+      expect(afterTwo.health).toBe("unreachable");
+    }
+  });
+
+  test("a successful probe resets the failure streak", async () => {
+    await driveHealthyThenProbe(async () => {
+      throw new Error("network error");
+    });
+
+    const probe = (
+      lifecycleService as unknown as {
+        probeReachability(id: string): Promise<void>;
+      }
+    ).probeReachability.bind(lifecycleService);
+    const assistantId =
+      useResolvedAssistantsStore.getState().activeAssistantId;
+
+    getAssistantHealthzMock.mockImplementation(async () => ({ ok: true }));
+    await probe(assistantId!);
+
+    getAssistantHealthzMock.mockImplementation(async () => {
+      throw new Error("network error");
+    });
+    await probe(assistantId!);
+
+    // Fail, succeed, fail: the streak restarted, so the single trailing
+    // failure must not flip a healthy state.
+    const state = useAssistantLifecycleStore.getState().assistantState;
+    expect(state.kind).toBe("active");
+    if (state.kind === "active") {
+      expect(state.health).toBe("healthy");
+      expect(state.reachable).toBe(true);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1231,6 +1455,33 @@ describe("lifecycleService — selection subscription", () => {
       url: string;
     };
     expect(arg.url).toContain("/assistant/__gateway/2222");
+  });
+
+  test("switch from a local to a paired assistant republishes the paired proxy URL", async () => {
+    await driveGatewayActive("asst-local");
+    getLocalGatewayUrlMock.mockImplementation(() => undefined);
+    getPairedGatewayUrlMock.mockImplementation(
+      () => "/assistant/__gateway-paired/asst-paired",
+    );
+    getSelectedAssistantMock.mockImplementation(() => ({
+      assistantId: "asst-paired",
+    }));
+    setSelfHostedConnectionMock.mockClear();
+
+    useResolvedAssistantsStore.getState().setSelectedAssistant("asst-paired");
+
+    expect(useResolvedAssistantsStore.getState().activeAssistantId).toBe(
+      "asst-paired",
+    );
+    expect(setSelfHostedConnectionMock).toHaveBeenCalledTimes(1);
+    const arg = setSelfHostedConnectionMock.mock.calls[0]![0] as {
+      url: string;
+      token: string | null;
+    };
+    expect(arg.url).toBe(
+      `${window.location.origin}/assistant/__gateway-paired/asst-paired`,
+    );
+    expect(arg.token).toBeNull();
   });
 
   test("no republish while the lifecycle is still loading", () => {

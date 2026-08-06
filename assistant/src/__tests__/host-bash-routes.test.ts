@@ -312,6 +312,73 @@ describe("handleHostBashResult", () => {
     });
   });
 
+  // ── Fill-if-missing: persisted target healed after registration ────
+  //
+  // A request registered while the target's SSE record had no principal
+  // persists `targetActorPrincipalId: undefined`. Once the SSE self-heal
+  // fills the hub record, the result route re-reads the live record,
+  // but ONLY when the persisted value is missing.
+
+  describe("targeted request - missing persisted target principal fills from the live hub record", () => {
+    test("accepts a matching submitter when the hub record was healed after registration", async () => {
+      const requestId = "req-healed-target";
+      // Registered pre-heal: hub had no principal, so nothing was persisted.
+      registerPending(requestId, { targetClientId: "client-abc" });
+      // SSE self-heal fills the hub record afterwards.
+      clientActorPrincipals.set("client-abc", "principal-shared");
+
+      const result = await handleHostBashResult({
+        body: bashBody(requestId),
+        headers: {
+          "x-vellum-client-id": "client-abc",
+          "x-vellum-actor-principal-id": "principal-shared",
+        },
+      });
+
+      expect(result).toEqual({ accepted: true });
+      expect(resolvedIds).toContain(requestId);
+    });
+
+    test("still throws ForbiddenError (403) for a submitter with a different principal than the healed target", () => {
+      const requestId = "req-healed-target-mismatch";
+      registerPending(requestId, { targetClientId: "client-abc" });
+      clientActorPrincipals.set("client-abc", "principal-victim");
+
+      expect(() =>
+        handleHostBashResult({
+          body: bashBody(requestId),
+          headers: {
+            "x-vellum-client-id": "client-abc",
+            "x-vellum-actor-principal-id": "principal-attacker",
+          },
+        }),
+      ).toThrow(ForbiddenError);
+      expect(pendingStore.has(requestId)).toBe(true);
+    });
+
+    test("a present persisted principal always wins over the live hub record", () => {
+      // The fill is missing-only: a persisted value captured at registration
+      // is never overridden, so a submitter matching only the (different)
+      // live record is still rejected.
+      const requestId = "req-persisted-wins";
+      registerPending(requestId, {
+        targetClientId: "client-abc",
+        targetActorPrincipalId: "principal-registration",
+      });
+      clientActorPrincipals.set("client-abc", "principal-live");
+
+      expect(() =>
+        handleHostBashResult({
+          body: bashBody(requestId),
+          headers: {
+            "x-vellum-client-id": "client-abc",
+            "x-vellum-actor-principal-id": "principal-live",
+          },
+        }),
+      ).toThrow(ForbiddenError);
+    });
+  });
+
   // ── Untargeted-request behavior (regression for new check) ─────────
 
   describe("untargeted request — actor principal check is skipped", () => {

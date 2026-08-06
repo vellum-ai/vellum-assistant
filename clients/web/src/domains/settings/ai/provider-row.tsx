@@ -77,7 +77,7 @@ export function ProviderRow({
           {isDefault ? (
             <Tag
               tone="info"
-              title="Built-in profiles (Balanced, Quality, Speed) use this provider."
+              title="Built-in profiles (Balanced, Quality, Cost, Speed) use this provider."
             >
               Default
             </Tag>

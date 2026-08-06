@@ -33,6 +33,7 @@ import {
   type LiveVoiceSpeechStartedServerFrame,
   type LiveVoiceSttFinalServerFrame,
   type LiveVoiceSttPartialServerFrame,
+  type LiveVoiceActivityServerFrame,
   type LiveVoiceThinkingServerFrame,
   type LiveVoiceTtsAudioServerFrame,
   type LiveVoiceTtsDoneServerFrame,
@@ -42,6 +43,7 @@ import {
   type LiveVoiceUtteranceEndServerFrame,
   parseServerFrame,
 } from "@/domains/chat/voice/live-voice/protocol";
+import { detectClientOs } from "@/runtime/platform-detection";
 
 /** Fail the session if no `ready` frame arrives within this window. */
 const CONNECT_TIMEOUT_MS = 10_000;
@@ -108,6 +110,8 @@ export interface LiveVoiceClientEventMap {
   sttPartial: LiveVoiceSttPartialServerFrame;
   sttFinal: LiveVoiceSttFinalServerFrame;
   thinking: LiveVoiceThinkingServerFrame;
+  /** What the turn is doing right now, or `""` when nothing nameable is. */
+  activity: LiveVoiceActivityServerFrame;
   assistantTextDelta: LiveVoiceAssistantTextDeltaServerFrame;
   ttsAudio: LiveVoiceTtsAudioServerFrame;
   ttsDone: LiveVoiceTtsDoneServerFrame;
@@ -193,6 +197,7 @@ export class LiveVoiceChannelClient {
     sttPartial: new Set(),
     sttFinal: new Set(),
     thinking: new Set(),
+    activity: new Set(),
     assistantTextDelta: new Set(),
     ttsAudio: new Set(),
     ttsDone: new Set(),
@@ -377,6 +382,7 @@ export class LiveVoiceChannelClient {
     const startFrame: LiveVoiceClientStartFrame = {
       type: "start",
       audio: LIVE_VOICE_AUDIO_FORMAT,
+      client: detectClientOs(),
       ...(this.conversationId ? { conversationId: this.conversationId } : {}),
       ...(this.turnDetection ? { turnDetection: this.turnDetection } : {}),
       ...(this.silenceThresholdMs !== undefined
@@ -431,6 +437,9 @@ export class LiveVoiceChannelClient {
         return;
       case "thinking":
         this.emit("thinking", frame);
+        return;
+      case "activity":
+        this.emit("activity", frame);
         return;
       case "assistant_text_delta":
         this.emit("assistantTextDelta", frame);

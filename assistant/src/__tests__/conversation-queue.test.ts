@@ -12,6 +12,7 @@ import type {
 import type { AssistantEvent } from "../api/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 import { stampAndBuffer } from "../runtime/assistant-stream-state.js";
+import { createAbortReason } from "../util/abort-reasons.js";
 import { setConfig } from "./helpers/set-config.js";
 
 // ---------------------------------------------------------------------------
@@ -136,6 +137,12 @@ const mockStampTurnOutcome = mock(() => {});
 
 mock.module("../telemetry/turn-outcome.js", () => ({
   stampTurnOutcome: mockStampTurnOutcome,
+}));
+
+const emitAssistantReplyNotificationMock = mock(async () => {});
+
+mock.module("../notifications/assistant-reply-producer.js", () => ({
+  emitAssistantReplyNotification: emitAssistantReplyNotificationMock,
 }));
 
 let linkAttachmentShouldThrow = false;
@@ -669,6 +676,108 @@ describe("Conversation message queue", () => {
     expect(pendingRuns.length).toBe(3);
   });
 
+  // `Conversation.clientOs` is a live field that only a transport-carrying
+  // message refreshes, so a transport-less drain (a surface action, a signal)
+  // persists the OS of an earlier send. Both rows keep that OS for telemetry;
+  // only the row that reported it claims the surface, which is what stops an
+  // attended Mac from suppressing the push for a button tapped on the phone.
+  test("[experimental] only a queued send that reported its own OS claims that surface", async () => {
+    capturedAddMessages.length = 0;
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "from-the-mac",
+      onEvent: () => {},
+      requestId: "req-mac",
+      transport: { channelId: "vellum", interfaceId: "web", clientOs: "macos" },
+    });
+    // A surface action: no transport, so the drain leaves the conversation's
+    // `clientOs` on the macOS value the send above applied.
+    conversation.enqueueMessage({
+      content: "[User action on card surface: submit]",
+      onEvent: () => {},
+      requestId: "req-surface-action",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+    await resolveRun(1);
+    await waitForPendingRun(3);
+
+    const macRow = capturedAddMessages.find(
+      (m) => m.role === "user" && m.content.includes("from-the-mac"),
+    );
+    expect(macRow).toBeDefined();
+    expect(macRow!.metadata?.client).toEqual({ os: "macos" });
+    expect(macRow!.metadata?.clientOsFromRequest).toBe(true);
+
+    const surfaceActionRow = capturedAddMessages.find(
+      (m) => m.role === "user" && m.content.includes("User action on card"),
+    );
+    expect(surfaceActionRow).toBeDefined();
+    expect(surfaceActionRow!.metadata?.client).toEqual({ os: "macos" });
+    expect(surfaceActionRow!.metadata?.clientOsFromRequest).toBeUndefined();
+
+    await resolveRun(2);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("[experimental] queued passthrough siblings viewing different apps do NOT batch", async () => {
+    // A batched turn applies only the head's `visibleAppId`, which drives the
+    // `visible_app:` context line. Coalescing messages sent while different
+    // apps were on screen would point "the app" at the head's app for both.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: () => {},
+      requestId: "req-2",
+      transport: {
+        channelId: "vellum",
+        interfaceId: "web",
+        visibleAppId: "app-a",
+      },
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: () => {},
+      requestId: "req-3",
+      transport: {
+        channelId: "vellum",
+        interfaceId: "web",
+        visibleAppId: "app-b",
+      },
+    });
+    expect(conversation.getQueueDepth()).toBe(2);
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+    await resolveRun(1);
+    await waitForPendingRun(3);
+
+    expect(pendingRuns.length).toBe(3);
+  });
+
   test("message_queued and message_dequeued events are emitted", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
@@ -837,7 +946,7 @@ describe("Conversation message queue", () => {
     expect(visibleEvents.some((e) => e.type === "message_dequeued")).toBe(true);
   });
 
-  test("abort() clears the queue and sends generation_cancelled for each queued message", async () => {
+  test("abort() clears the queue and closes out each queued message", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
@@ -884,6 +993,17 @@ describe("Conversation message queue", () => {
       conversationId: "conv-1",
     });
 
+    // Each discarded row also gets its own terminal event. `generation_cancelled`
+    // closes out the turn they were waiting on; only `message_queued_deleted`
+    // closes out the queued rows themselves, and without it clients keep the
+    // pending indicator up forever, since no `message_dequeued` is coming.
+    expect(
+      events2.find((e) => e.type === "message_queued_deleted"),
+    ).toMatchObject({ conversationId: "conv-1", requestId: "req-2" });
+    expect(
+      events3.find((e) => e.type === "message_queued_deleted"),
+    ).toMatchObject({ conversationId: "conv-1", requestId: "req-3" });
+
     // abort() must NOT emit conversation_error or generic error for queued discards.
     const err2 = events2.find((e) => e.type === "error");
     expect(err2).toBeUndefined();
@@ -905,6 +1025,122 @@ describe("Conversation message queue", () => {
     // later test and drives this stale turn into commitTurnChanges, inflating
     // the shared turnCommitCalls counter that other tests assert against.
     await resolveRun(0);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("a user interrupt keeps the queue and the stopped turn's drain sends it", async () => {
+    // GIVEN a turn in flight with a message queued behind it
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events2: AssistantEvent[] = [];
+    conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-2",
+    });
+    expect(conversation.getQueueDepth()).toBe(1);
+
+    // WHEN the user hits Stop
+    conversation.abort(
+      createAbortReason("user_cancel", "conversation-queue.test", "conv-1"),
+    );
+
+    // THEN the queued message survives the abort. Stop ends the turn the user
+    // is watching, not the message they queued behind it, and a discard here
+    // reaches no client: it emits no per-row terminal event.
+    expect(conversation.getQueueDepth()).toBe(1);
+    expect(
+      events2.find((e) => e.type === "generation_cancelled"),
+    ).toBeUndefined();
+    expect(
+      events2.find((e) => e.type === "message_queued_deleted"),
+    ).toBeUndefined();
+
+    // AND once the stopped turn unwinds, its `finally` drains the queue, so the
+    // message is sent instead of needing to be retyped.
+    await resolveRun(0);
+    await waitForPendingRun(2);
+    expect(events2.find((e) => e.type === "message_dequeued")).toMatchObject({
+      conversationId: "conv-1",
+      requestId: "req-2",
+    });
+    expect(conversation.getQueueDepth()).toBe(0);
+    expect(
+      JSON.stringify(
+        pendingRuns[1].messages[pendingRuns[1].messages.length - 1],
+      ),
+    ).toContain("msg-2");
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("a user interrupt mid-tool repairs the abandoned tool_use before the queued message runs", async () => {
+    // GIVEN a turn whose history ends with an unanswered tool_use, the shape a
+    // Stop mid-tool-call leaves behind and which providers reject outright
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events2: AssistantEvent[] = [];
+    conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-2",
+    });
+
+    // WHEN the user interrupts and the stopped turn unwinds with the tool call
+    // still unanswered, then drains the queue
+    conversation.abort(
+      createAbortReason("user_cancel", "conversation-queue.test", "conv-1"),
+    );
+    const interrupted = pendingRuns[0];
+    await interrupted.onEvent({ type: "llm_call_started" });
+    interrupted.resolve([
+      ...interrupted.messages,
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu-interrupted",
+            name: "bash",
+            input: {},
+          },
+        ],
+      },
+    ]);
+    await waitForPendingRun(2);
+
+    // THEN the drained turn opens with a synthetic result for the abandoned
+    // call rather than a dangling tool_use.
+    const repaired = pendingRuns[1].messages.find(
+      (m) =>
+        m.role === "user" &&
+        m.content.some(
+          (block) =>
+            block.type === "tool_result" &&
+            block.tool_use_id === "toolu-interrupted",
+        ),
+    );
+    expect(repaired).toBeDefined();
+    expect(conversation.pendingInterruptRepair).toBe(false);
+
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
   });
 
@@ -1855,6 +2091,80 @@ describe("Batched drain correctness fixes", () => {
     await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
   });
+
+  // The batch's shared reply answers the person's prompt; the trailing row
+  // only rode along behind it. A channel send gets its reply delivered back to
+  // Slack and a hidden marker is nobody's prompt, so pointing the producer at
+  // either would suppress a push the user is waiting on.
+  // expectEcho pins the deliberate asymmetry between the two gates: the
+  // echo broadcast uses the narrower echo-suppression predicate, so a
+  // channel send is push-ineligible yet must still echo to passive devices.
+  const TRAILING_INELIGIBLE_ROW_CASES: Array<{
+    name: string;
+    metadata: Record<string, unknown>;
+    expectEcho: boolean;
+  }> = [
+    { name: "hidden marker", metadata: { hidden: true }, expectEcho: false },
+    {
+      name: "channel send",
+      metadata: { userMessageChannel: "slack" },
+      expectEcho: true,
+    },
+  ];
+
+  for (const { name, metadata, expectEcho } of TRAILING_INELIGIBLE_ROW_CASES) {
+    test(`drainBatch notifies about the genuine prompt, not a trailing ${name}`, async () => {
+      emitAssistantReplyNotificationMock.mockClear();
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        requestId: "req-1",
+      });
+      await waitForPendingRun(1);
+
+      conversation.enqueueMessage({
+        content: "batch-prompt-genuine",
+        requestId: "req-prompt",
+      });
+      const trailingEvents: AssistantEvent[] = [];
+      conversation.enqueueMessage({
+        content: "batch-prompt-trailing",
+        requestId: "req-trailing",
+        metadata,
+        onEvent: (e) => {
+          trailingEvents.push(e);
+        },
+      });
+
+      await resolveRun(0);
+      await p1;
+      await waitForPendingRun(2);
+      await resolveRun(1);
+      // Two turns finish here: msg-1's own run, then the batch's shared run.
+      await waitForCondition(
+        () => emitAssistantReplyNotificationMock.mock.calls.length >= 2,
+      );
+
+      const genuineRow = capturedAddMessages.find((m) =>
+        m.content.includes("batch-prompt-genuine"),
+      );
+      expect(genuineRow?.id).toBeDefined();
+
+      const notifyCalls = emitAssistantReplyNotificationMock.mock
+        .calls as unknown as Array<[{ userMessageId: string | undefined }]>;
+      expect(notifyCalls.at(-1)?.[0].userMessageId).toBe(genuineRow!.id);
+
+      const trailingEchoes = trailingEvents.filter(
+        (e) => e.type === "user_message_echo",
+      );
+      expect(trailingEchoes.length).toBe(expectEcho ? 1 : 0);
+
+      await new Promise((r) => setTimeout(r, 10));
+    });
+  }
 
   // Defensive recovery path: buildPassthroughBatch is designed to make
   // the invariant throw unreachable in practice, so neither the head

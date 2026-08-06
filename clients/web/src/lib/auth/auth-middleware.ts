@@ -6,10 +6,11 @@ import {
 
 import { useAuthStore, type AuthUser } from "@/stores/auth-store";
 import { isAuthenticated, isSessionSettled } from "@/stores/session-status";
-import { isLocalMode, hasAssistants } from "@/lib/local-mode";
+import { isLocalClient, hasAssistants } from "@/lib/local-mode";
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { captureError } from "@/lib/sentry/capture-error";
+import { markBoot } from "@/lib/telemetry/boot-telemetry";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { whenStoreState } from "@/utils/when-store-state";
@@ -125,7 +126,7 @@ const resolveWithGuard = async (
     let platformProbeStillUnknown = false;
     if (
       !timedOut.platformProbe &&
-      isLocalMode() &&
+      isLocalClient() &&
       (!hasAssistants() || decision.waitFor === "platform-session")
     ) {
       await whenStoreState(
@@ -150,7 +151,7 @@ const resolveWithGuard = async (
     let consentStillPending = false;
     let assistantsStillPending = false;
     if (
-      !isLocalMode() &&
+      !isLocalClient() &&
       isAuthenticated(useAuthStore.getState().sessionStatus)
     ) {
       if (!timedOut.consentHydration) {
@@ -193,6 +194,10 @@ const resolveWithGuard = async (
     throw redirect(decision.to);
   }
 
+  // Reached only once every wait above has resolved or timed out, so this mark
+  // is the cost of the whole serialized guard (session probe, consent
+  // hydration, assistants hydration) as one number.
+  markBoot("route_guard_settled");
   context.set(authUserContext, useAuthStore.getState().user);
   return next();
 };

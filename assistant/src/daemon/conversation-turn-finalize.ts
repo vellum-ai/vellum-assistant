@@ -21,7 +21,8 @@
  * - {@link runDeferredTurnTail} runs detached, after the lock releases, chained
  *   by `chainTurnTail` so two turns' tails never overlap each other. Its steps
  *   are keyed by the message ids this turn produced and are network-bound
- *   (embeddings, vector upserts), which is the work that must not hold the lock:
+ *   (embeddings, vector upserts, the assistant-reply push notification), which
+ *   is the work that must not hold the lock:
  *   a slow index otherwise leaves the next send queued behind an idle-looking UI.
  */
 
@@ -32,8 +33,10 @@ import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
 } from "../context/post-turn-tool-result-truncation.js";
+import { emitAssistantReplyNotification } from "../notifications/assistant-reply-producer.js";
 import { projectAssistantMessage } from "../persistence/conversation-attention-store.js";
 import {
+  type ConversationRow,
   getConversation,
   getMessageById,
   parseMessageMetadata,
@@ -66,6 +69,7 @@ interface TurnContentState {
 /** Minimal per-run handler state the detached tail consumes. */
 interface TurnTailState {
   readonly deferredFinalizeEffects: ReadonlyArray<() => Promise<void>>;
+  readonly lastAssistantMessageId: string | undefined;
 }
 
 /**
@@ -158,16 +162,30 @@ export async function settleTurnContent(params: {
 }): Promise<void> {
   const { ctx, state, rlog } = params;
 
+  // Conversation row for the two filesystem steps below. Read here rather than
+  // reused from anywhere earlier in the turn: the turn is long enough for the
+  // user to delete the conversation, and a row read before that deletion stays
+  // truthy across it, so spooling or mirroring against it would rebuild a
+  // deleted conversation's directory from in-memory history. A row that is gone
+  // skips both steps exactly as an unreadable one does. Guarded like every step
+  // below, because this runs after the terminal SSE and a SQLite hiccup must not
+  // escape into the loop's outer catch.
+  let liveConversation: ConversationRow | null = null;
+  try {
+    liveConversation = getConversation(ctx.conversationId);
+  } catch (err) {
+    rlog.warn({ err }, "Failed to read conversation for end-of-turn work");
+  }
+
   // Post-turn tool-result truncation: spool oversized results to disk and
   // replace their in-context content with a stub + pointer, shrinking the next
   // turn's context. Rewrites only the in-memory history, so it has no bearing on
   // the reply already delivered to the client.
   try {
-    const conv = getConversation(ctx.conversationId);
-    if (conv) {
+    if (liveConversation) {
       const convDir = getResolvedConversationDirPath(
         ctx.conversationId,
-        conv.createdAt,
+        liveConversation.createdAt,
       );
       const { messages: derefMessages, dereferencedCount } =
         derefToolResultReReads(ctx.messages);
@@ -200,20 +218,16 @@ export async function settleTurnContent(params: {
   }
 
   // Mirror the final assistant row into the JSONL disk view. Guarded like the
-  // steps above: this runs AFTER the terminal SSE, so a throw here (e.g. a
-  // SQLite read failure in `getConversation`) must not escape into the loop's
-  // outer catch and emit a second, contradictory terminal event for a turn the
-  // client already saw complete.
+  // steps above: this runs AFTER the terminal SSE, so a throw here must not
+  // escape into the loop's outer catch and emit a second, contradictory
+  // terminal event for a turn the client already saw complete.
   try {
-    if (state.lastAssistantMessageId) {
-      const convForDisk = getConversation(ctx.conversationId);
-      if (convForDisk) {
-        syncMessageToDisk(
-          ctx.conversationId,
-          state.lastAssistantMessageId,
-          convForDisk.createdAt,
-        );
-      }
+    if (state.lastAssistantMessageId && liveConversation) {
+      syncMessageToDisk(
+        ctx.conversationId,
+        state.lastAssistantMessageId,
+        liveConversation.createdAt,
+      );
     }
   } catch (err) {
     rlog.warn({ err }, "Failed to sync assistant message to disk (non-fatal)");
@@ -235,12 +249,45 @@ export async function settleTurnContent(params: {
  * window into the part a waiting sender feels and the part it no longer does.
  */
 export async function runDeferredTurnTail(params: {
+  conversationId: string;
   state: TurnTailState;
   rlog: pino.Logger;
   criticalSectionMs: number;
+  /**
+   * True only for a `message_complete` turn that produced a genuine reply. A
+   * handed-off generation is not the end of the run, a cancelled one has no
+   * final reply, and a provider-error turn's only assistant row is the
+   * synthetic error text.
+   */
+  turnCompleted: boolean;
+  /** Id of the row that opened this turn, for the notification producer. */
+  userMessageId: string | undefined;
+  /**
+   * True when this turn's reply streams to the app and nowhere else, for the
+   * notification producer's delivery-surface gates.
+   */
+  replyDeliveredInAppOnly?: boolean;
 }): Promise<void> {
-  const { state, rlog, criticalSectionMs } = params;
+  const {
+    conversationId,
+    state,
+    rlog,
+    criticalSectionMs,
+    turnCompleted,
+    userMessageId,
+    replyDeliveredInAppOnly,
+  } = params;
   const tailStartedAt = Date.now();
+
+  // Conversation row for the notification producer below. Guarded like every
+  // step here, because this runs after the terminal SSE and a SQLite hiccup must
+  // not escape into the detached tail's caller.
+  let conversation: ConversationRow | null = null;
+  try {
+    conversation = getConversation(conversationId);
+  } catch (err) {
+    rlog.warn({ err }, "Failed to read conversation for end-of-turn work");
+  }
 
   // Per-message memory/attention finalize side-effects deferred from
   // `handleMessageComplete`: one closure per assistant row produced this turn,
@@ -251,6 +298,27 @@ export async function runDeferredTurnTail(params: {
     } catch (err) {
       rlog.warn({ err }, "Deferred finalize side-effect failed (non-fatal)");
     }
+  }
+
+  // Notify about a finished reply the user is no longer looking at. Ordered
+  // after the loop above so the producer's unseen check reads the attention
+  // cursor this turn's last row just projected; that projection is the
+  // network-bound work this whole tail exists to keep off the lock, so the
+  // check necessarily runs with the conversation already free. A follow-up
+  // send that beats it there advances the cursor and suppresses the push,
+  // which is the right answer: a user typing the next message is looking at
+  // the reply. Not awaited: the pipeline awaits the platform adapter's HTTP
+  // dispatch, which retries with backoff, and nothing below here depends on
+  // the emit. The producer never rejects.
+  if (turnCompleted && state.lastAssistantMessageId) {
+    void emitAssistantReplyNotification({
+      conversationId,
+      assistantMessageId: state.lastAssistantMessageId,
+      userMessageId,
+      ...(replyDeliveredInAppOnly ? { replyDeliveredInAppOnly: true } : {}),
+      rlog,
+      conversation,
+    });
   }
 
   rlog.info(

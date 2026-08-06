@@ -3,7 +3,7 @@ import { isSessionSettled, isAuthenticated } from "@/stores/session-status";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { remoteGatewayPublicPathPrefix } from "@/lib/auth/remote-gateway-session";
 import {
-  isLocalMode,
+  isLocalClient,
   isPlatformDisabled,
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
@@ -49,7 +49,7 @@ export function buildNavigationState(
     useResolvedAssistantsStore.getState();
   const isRemoteGateway = isRemoteGatewayMode();
   return {
-    isLocalMode: isLocalMode(),
+    isLocalClient: isLocalClient(),
     isPlatformDisabled: isPlatformDisabled(),
     isRemoteGateway,
     remoteGatewayPublicPathPrefix: isRemoteGateway

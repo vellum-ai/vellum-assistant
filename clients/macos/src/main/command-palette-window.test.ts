@@ -271,6 +271,7 @@ mock.module("./cli-path-flow", () => ({
 
 const {
   __resetForTesting,
+  commandPaletteDispatchCommandSchema,
   installCommandPaletteWindow,
   openCommandPaletteWindow,
   selectCommandPaletteCommand,
@@ -422,6 +423,35 @@ describe("selectCommandPaletteCommand", () => {
 
     expect(ensureVisibleMock).toHaveBeenCalledTimes(1);
     expect(dispatchToMainMock).toHaveBeenCalledWith({ kind: "shareFeedback" });
+  });
+});
+
+describe("commandPaletteDispatchCommandSchema", () => {
+  test("accepts palette-dispatchable commands, with and without payloads", () => {
+    expect(
+      commandPaletteDispatchCommandSchema.safeParse({ kind: "home" }).success,
+    ).toBe(true);
+    expect(
+      commandPaletteDispatchCommandSchema.safeParse({
+        kind: "selectAssistant",
+        assistantId: "ast-1",
+      }).success,
+    ).toBe(true);
+  });
+
+  test("rejects the kinds the palette never offers", () => {
+    // Pins the exclusion list in the dispatch type to the runtime schema:
+    // both reject the same kinds.
+    expect(
+      commandPaletteDispatchCommandSchema.safeParse({ kind: "commandPalette" })
+        .success,
+    ).toBe(false);
+    expect(
+      commandPaletteDispatchCommandSchema.safeParse({
+        kind: "removePairedAssistant",
+        assistantId: "paired-1",
+      }).success,
+    ).toBe(false);
   });
 });
 

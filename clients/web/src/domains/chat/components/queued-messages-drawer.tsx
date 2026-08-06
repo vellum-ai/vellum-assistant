@@ -10,6 +10,7 @@ import {
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
+import { useSupportsQueueSteering } from "@/lib/backwards-compat/use-supports-queue-steering";
 import { isPointerCoarse } from "@/utils/pointer";
 import { Button } from "@vellumai/design-library";
 import { cn } from "@vellumai/design-library/utils/cn";
@@ -23,7 +24,6 @@ export interface QueuedMessagesDrawerProps {
   onCancelMessage: (messageId: string) => void;
   onCancelAll: () => void;
   onSteer: (messageId: string) => void;
-  showSteer: boolean;
   onEditTail: () => void;
 }
 
@@ -37,7 +37,6 @@ interface QueuedMessageRowProps {
   isTail: boolean;
   onCancel: () => void;
   onSteer: () => void;
-  showSteer: boolean;
   onEdit: () => void;
   /** Coarse pointer: this row's controls stay behind a reveal tap. */
   twoStep: boolean;
@@ -51,13 +50,13 @@ function QueuedMessageRow({
   isTail,
   onCancel,
   onSteer,
-  showSteer,
   onEdit,
   twoStep,
   revealed,
   onReveal,
 }: QueuedMessageRowProps) {
   const preview = useMemo(() => messagePlainText(message), [message]);
+  const supportsSteer = useSupportsQueueSteering();
   const awaitingReveal = twoStep && !revealed;
   return (
     <div
@@ -96,7 +95,7 @@ function QueuedMessageRow({
           />
         ) : (
           <>
-            {showSteer && (
+            {supportsSteer && (
               <Button
                 variant="ghost"
                 size="compact"
@@ -153,7 +152,6 @@ export function QueuedMessagesDrawer({
   onCancelMessage,
   onCancelAll,
   onSteer,
-  showSteer,
   onEditTail,
 }: QueuedMessagesDrawerProps): ReactNode {
   // Read once per mount: the primary pointer does not change under a live
@@ -239,7 +237,6 @@ export function QueuedMessagesDrawer({
               isTail={idx === queuedMessages.length - 1}
               onCancel={() => handleCancelMessage(msg.id)}
               onSteer={() => onSteer(msg.id)}
-              showSteer={showSteer}
               onEdit={onEditTail}
               twoStep={twoStep}
               revealed={revealedMessageId === msg.id}

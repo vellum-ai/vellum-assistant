@@ -47,7 +47,7 @@ const queryClientMock = {
 const writeSelectedVersionMock = mock(() => {});
 const connectLocalAssistantMock = mock(async (_assistantId: string) => {});
 
-let isLocalModeValue = false;
+let isLocalClientValue = false;
 let localGatewayUrlValue: string | undefined = undefined;
 let platformSessionValue: PlatformSessionStatus = "absent";
 
@@ -151,7 +151,7 @@ mock.module("@/lib/navigation/navigation-resolver", () => ({
 
 mock.module("@/lib/navigation/build-state", () => ({
   buildNavigationState: (overrides: Record<string, unknown> = {}) => ({
-    isLocalMode: isLocalModeValue,
+    isLocalClient: isLocalClientValue,
     isGatewayAuth: false,
     hasAssistants: false,
     sessionSettled: true,
@@ -169,7 +169,7 @@ mock.module("@/runtime/native-auth", () => ({
 }));
 
 mock.module("@/lib/local-mode", () => ({
-  isLocalMode: () => isLocalModeValue,
+  isLocalClient: () => isLocalClientValue,
   isRemoteGatewayMode: () => false,
   isLocalAssistant: () => false,
   isPlatformAssistant: () => false,
@@ -187,6 +187,7 @@ mock.module("@/lib/local-mode", () => ({
   primeLocalGatewayConnection: async () => {},
   primeLocalGatewayConnectionWithRepair: async () => {},
   getLocalGatewayUrl: () => localGatewayUrlValue,
+  getPairedGatewayUrl: () => undefined,
   // Mirrors the real probe against the mocked gateway URL, so tests that stub
   // `globalThis.fetch` keep driving the readyz loop the same way.
   probeLocalGatewayReady: async () => {
@@ -301,7 +302,7 @@ beforeEach(() => {
   checkAssistantImpl = async () => {};
   fetchTraitsImpl = async () => null;
   getAssistantImpl = async () => assistantResult("active");
-  isLocalModeValue = false;
+  isLocalClientValue = false;
   localGatewayUrlValue = undefined;
   platformSessionValue = "absent";
   sessionStorage.clear();
@@ -354,7 +355,7 @@ describe("onboarding lifecycle sync", () => {
   // full reload. The hatch flow must drive the same `connectLocalAssistant`
   // primitive the returning-user connect path uses.
   test("local hatch establishes the authenticated session via connectLocalAssistant", async () => {
-    isLocalModeValue = true;
+    isLocalClientValue = true;
     localGatewayUrlValue = "http://127.0.0.1:7821";
     searchParams = new URLSearchParams("hosting=local");
 

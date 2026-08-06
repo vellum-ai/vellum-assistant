@@ -21,7 +21,9 @@
  * error state).
  *
  * Import this module for its side effects in the app entrypoint
- * (`main.tsx`) so interceptors are installed before any API call fires.
+ * (`main.tsx`) so interceptors are installed before any API call fires. The
+ * same import installs the post-resume request counter these interceptors feed,
+ * which needs to be subscribed to `app.resume` before React mounts.
  *
  * Reference: https://heyapi.dev/openapi-ts/clients/fetch#interceptors
  */
@@ -37,7 +39,7 @@ import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { ApiError, toApiError } from "@/utils/api-errors";
 import {
-  isLocalMode,
+  isLocalClient,
   isPlatformDisabled,
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
@@ -46,13 +48,19 @@ import {
   getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
+import {
+  installResumeRequestCounter,
+  isResumeWindowOpen,
+  noteDaemonApiRequest,
+} from "@/lib/telemetry/resume-request-counter";
 import { getDeviceId } from "@/runtime/device-id";
 import { isElectron } from "@/runtime/is-electron";
 import { getElectronSessionToken } from "@/runtime/session-token";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
-import { useAuthStore } from "@/stores/auth-store";
+import { useAuthStore, whenPlatformSessionSettled } from "@/stores/auth-store";
 import {
+  hasLivePlatformSession,
   isAuthenticated,
   isSettledSessionRejection,
 } from "@/stores/session-status";
@@ -133,6 +141,26 @@ const FLATTENED_FIRST_SEGMENTS = new Set<string>([
   "contacts",
   "contact-channels",
 ]);
+
+/**
+ * True when a path names daemon/gateway traffic, whichever client issues it.
+ * Mirrors the routing decision {@link rewriteForSelfHostedIngress} makes for
+ * the platform client, but is deliberately independent of whether an ingress
+ * is registered: the same path reaches the daemon through the platform's
+ * runtime proxy in cloud mode, so `client_resume.request_count` stays
+ * comparable across cloud and self-hosted.
+ */
+function isDaemonBoundPath(url: string): boolean {
+  const match = ASSISTANT_PATH_RE.exec(new URL(url).pathname);
+  if (!match) {
+    return false;
+  }
+  const firstSegment = match[2];
+  return (
+    RUNTIME_PROXIED_FIRST_SEGMENTS.has(firstSegment) ||
+    FLATTENED_FIRST_SEGMENTS.has(firstSegment)
+  );
+}
 
 /**
  * Rewrites a request bound for `/v1/assistants/{id}/{runtime-segment}/...`
@@ -224,7 +252,7 @@ export async function rewriteForSelfHostedIngress(
   // reference (blob handle) and read directly, with no renderer-side data
   // pipe to block on. Platform self-hosted uses TLS, so keep the streaming
   // body there to avoid buffering large uploads.
-  const body = isLocalMode()
+  const body = isLocalClient()
     ? request.body
       ? await request.blob()
       : null
@@ -240,7 +268,7 @@ export async function rewriteForSelfHostedIngress(
     redirect: request.redirect,
     signal: request.signal,
   };
-  if (!isLocalMode() && request.body) {
+  if (!isLocalClient() && request.body) {
     (init as RequestInit & { duplex: "half" }).duplex = "half";
   }
   return new Request(rewrittenUrl.toString(), init);
@@ -296,19 +324,47 @@ export function authorizeRemoteGatewayRequest(
 /**
  * Builds a request interceptor for a HeyAPI client.
  *
- * @param skipSegmentAllowlist — `true` for the daemon client (every
- *   daemon SDK endpoint is a daemon route by definition, so all
- *   assistant sub-resource paths are forwarded to the self-hosted
- *   gateway unconditionally). `false` for the platform and auth
- *   clients (only allowlisted segments are forwarded; platform-owned
- *   routes like maintenance-mode, system-events, etc. fall through
- *   to Django).
+ * @param isDaemonClient `true` for the daemon + gateway clients, where every
+ *   endpoint is a daemon route by definition. Two things follow from it: all
+ *   assistant sub-resource paths are forwarded to the self-hosted gateway
+ *   without consulting {@link RUNTIME_PROXIED_FIRST_SEGMENTS}, and every
+ *   request counts toward the post-resume burst. `false` for the platform and
+ *   auth clients, where only allowlisted segments are forwarded (platform-owned
+ *   routes like maintenance-mode, system-events, etc. fall through to Django)
+ *   and only daemon-bound paths ({@link isDaemonBoundPath}) count, the SSE
+ *   reopen among them.
+ *
+ * Counting happens once per request, after the routing decision, and this is
+ * the single choke point on each client's chain. On the platform chain it is
+ * additionally conditioned on {@link platformFeaturesGateDecision}, the gate
+ * registered downstream, so a request that gate aborts is never counted. The
+ * auth chain reaches neither test: allauth endpoints live under `/_allauth/`
+ * and are never daemon-bound.
  */
 function createInterceptor({
-  skipSegmentAllowlist = false,
+  isDaemonClient = false,
   allowRemoteGatewayDirect = false,
 } = {}) {
-  return async (request: Request): Promise<Request> => {
+  /**
+   * `outgoing` is the request the chain hands downstream; `url` is the original
+   * one, which still carries the platform-shaped path a self-hosted rewrite
+   * would have replaced.
+   */
+  function shouldCount(url: string, outgoing: Request): boolean {
+    // Cheapest test first: outside a resume window nothing here parses a URL.
+    if (!isResumeWindowOpen()) {
+      return false;
+    }
+    if (isDaemonClient) {
+      return true;
+    }
+    return (
+      isDaemonBoundPath(url) &&
+      platformFeaturesGateDecision(outgoing) === "allow"
+    );
+  }
+
+  const route = async (request: Request): Promise<Request> => {
     const newRequest = new Request(request);
 
     // Per-tab client identity — sent on *every* request (GET included)
@@ -325,7 +381,7 @@ function createInterceptor({
     // gateway directly instead of stamping the platform's session/CSRF
     // headers.
     const selfHosted = await rewriteForSelfHostedIngress(newRequest, {
-      skipSegmentAllowlist,
+      skipSegmentAllowlist: isDaemonClient,
     });
     if (selfHosted) {
       return selfHosted;
@@ -374,6 +430,18 @@ function createInterceptor({
 
     return newRequest;
   };
+
+  return async (request: Request): Promise<Request> => {
+    const outgoing = await route(request);
+    try {
+      if (shouldCount(request.url, outgoing)) {
+        noteDaemonApiRequest(request.url);
+      }
+    } catch {
+      // Telemetry must never fail a request.
+    }
+    return outgoing;
+  };
 }
 
 /** Platform + auth clients: uses the segment allowlist. */
@@ -381,7 +449,7 @@ export const requestInterceptor = createInterceptor();
 
 /** Daemon client: bypasses the segment allowlist. */
 export const daemonRequestInterceptor = createInterceptor({
-  skipSegmentAllowlist: true,
+  isDaemonClient: true,
   allowRemoteGatewayDirect: true,
 });
 
@@ -406,11 +474,32 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  * token), clears the cached gateway tokens from localStorage and
  * reloads the page so the app acquires a fresh token on startup.
  *
- * A sessionStorage cooldown prevents infinite reload loops when the
- * gateway consistently rejects tokens (e.g. after a misconfiguration).
+ * A sessionStorage cooldown spaces the attempts, and a sessionStorage
+ * attempt budget stops them. The cooldown alone only paces a gateway that
+ * rejects every token (a mismatched signing key, say): the page reloads
+ * once per cooldown for as long as the app stays open, which reaches the
+ * user as an app that restarts itself every ten minutes and never settles.
+ * Past the budget the 401 is handed back untouched, so the normal error
+ * path surfaces it and the tray's re-pair action stays available.
+ *
+ * The budget is spent permanently until the gateway demonstrates that it
+ * works: a 2xx from the ingress origin clears it. Elapsed time deliberately
+ * does not, because a gateway that is still rejecting every token would
+ * otherwise earn a fresh budget out of every quiet spell and reload forever
+ * in bursts. A reload that genuinely fixed the session produces that 2xx on
+ * its next request, so a transient rejection is not charged for recovering.
+ *
+ * Both keys live in sessionStorage, so quitting and reopening the app also
+ * grants a fresh budget.
+ *
+ * Installed on `daemonClient` only. `gatewayClient` does not carry this
+ * interceptor, so 401s raised through the generated gateway SDK are not
+ * recovered here; see the registrations at the bottom of this file.
  */
 const GW_401_RELOAD_KEY = "vellum:gw:401-reload-at";
+const GW_401_ATTEMPTS_KEY = "vellum:gw:401-reload-attempts";
 const GW_401_COOLDOWN_MS = 600_000;
+const GW_401_MAX_RELOADS = 3;
 
 // In-memory latch: once recovery fires, all subsequent 401s in the same
 // page lifecycle are no-ops. Resets naturally on reload.
@@ -424,13 +513,7 @@ export function resetGw401RecoveryFlag(): void {
 export function localGatewayAuthRecoveryInterceptor(
   response: Response,
 ): Response {
-  if (response.status !== 401) {
-    return response;
-  }
-  if (gw401RecoveryFired) {
-    return response;
-  }
-  if (!isLocalMode()) {
+  if (!isLocalClient()) {
     return response;
   }
   const ingressUrl = getSelfHostedIngressUrl();
@@ -438,22 +521,54 @@ export function localGatewayAuthRecoveryInterceptor(
     return response;
   }
 
-  // Only recover from 401s that originated from the local gateway.
-  // Daemon requests that don't match ASSISTANT_PATH_RE are not rewritten
-  // and hit the platform instead — their 401s are handled elsewhere.
+  // Only act on responses that originated from the local gateway. Daemon
+  // requests that don't match ASSISTANT_PATH_RE are not rewritten and hit
+  // the platform instead; their 401s are handled elsewhere.
   if (!response.url.startsWith(ingressUrl)) {
     return response;
   }
 
+  // The gateway answering a request is the only evidence that the token it
+  // was rejecting has been replaced by a working one, so it is the only
+  // thing that restores the budget. `/readyz` probes use a bare `fetch`
+  // rather than this client, so an unauthenticated liveness check cannot
+  // stand in for a real one.
+  if (response.ok) {
+    try {
+      sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
+      sessionStorage.removeItem(GW_401_RELOAD_KEY);
+    } catch {
+      // sessionStorage unavailable; the budget check below fails closed.
+    }
+    return response;
+  }
+
+  if (response.status !== 401) {
+    return response;
+  }
+  if (gw401RecoveryFired) {
+    return response;
+  }
+
   try {
+    const stored = Number(sessionStorage.getItem(GW_401_ATTEMPTS_KEY) ?? "0");
+    const attempts = Number.isFinite(stored) ? stored : 0;
+
+    // A spent budget means reloading has not made this gateway work, and
+    // nothing since has shown that it does; let the 401 through to the
+    // error path.
+    if (attempts >= GW_401_MAX_RELOADS) {
+      return response;
+    }
     const lastReload = sessionStorage.getItem(GW_401_RELOAD_KEY);
     if (lastReload && Date.now() - Number(lastReload) < GW_401_COOLDOWN_MS) {
       return response;
     }
     sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now()));
+    sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(attempts + 1));
   } catch {
-    // sessionStorage unavailable — cannot enforce cooldown, skip reload
-    // to avoid infinite reload loops.
+    // sessionStorage unavailable: cannot enforce cooldown or budget, skip
+    // reload to avoid infinite reload loops.
     return response;
   }
 
@@ -469,9 +584,154 @@ export function localGatewayAuthRecoveryInterceptor(
 // permission-403 that left the session live is still caught later.
 let platformAuthRecoveryFired = false;
 
+/**
+ * Caps the login redirects below. The redirect is a full page load, so the
+ * in-memory latch cannot count round trips and a destination that bounces back
+ * and rejects again would drive them without bound. Only a confirmed platform
+ * session restores the budget; sessionStorage means a relaunch grants a fresh
+ * one.
+ */
+const PLATFORM_AUTH_REDIRECT_KEY = "vellum:platform:auth-redirect-attempts";
+const PLATFORM_AUTH_MAX_REDIRECTS = 3;
+
 /** @internal Exposed for test teardown only. */
 export function resetPlatformAuthRecoveryFlag(): void {
   platformAuthRecoveryFired = false;
+  platformRecoveryOutstanding = false;
+}
+
+/**
+ * Spend one redirect. False when the budget is exhausted, or when
+ * sessionStorage is unavailable so an uncountable environment fails closed.
+ */
+function claimPlatformAuthRedirect(): boolean {
+  try {
+    const stored = Number(
+      sessionStorage.getItem(PLATFORM_AUTH_REDIRECT_KEY) ?? "0",
+    );
+    const attempts = Number.isFinite(stored) ? stored : 0;
+    if (attempts >= PLATFORM_AUTH_MAX_REDIRECTS) {
+      return false;
+    }
+    sessionStorage.setItem(PLATFORM_AUTH_REDIRECT_KEY, String(attempts + 1));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Restore the budget. Gated on a confirmed platform session by the caller: the
+ * platform serves some routes (client feature flags) to anonymous visitors, so
+ * a 2xx alone does not mean the session works.
+ */
+function clearPlatformAuthRedirectBudget(): void {
+  try {
+    sessionStorage.removeItem(PLATFORM_AUTH_REDIRECT_KEY);
+  } catch {
+    // sessionStorage unavailable; the claim above already fails closed.
+  }
+}
+
+/**
+ * Cooldown + attempt budget for the recovery re-probe, mirroring the
+ * local-gateway 401 pattern above. The cooldown spaces cycles and the budget
+ * stops them; with the refund below, the cap binds when re-probes repeatedly
+ * fail to settle (refreshSession throwing on a flaky network while the API
+ * keeps rejecting). Quitting the app grants a fresh budget (sessionStorage).
+ */
+const PLATFORM_RECOVERY_AT_KEY = "vellum:platform:recovery-attempt-at";
+const PLATFORM_RECOVERY_ATTEMPTS_KEY = "vellum:platform:recovery-attempts";
+const PLATFORM_RECOVERY_PATH_KEY = "vellum:platform:recovery-path";
+const PLATFORM_RECOVERY_COOLDOWN_MS = 600_000;
+const PLATFORM_RECOVERY_MAX_ATTEMPTS = 3;
+
+// Skips the ok-branch heal check until a claim is made. Seeded from storage:
+// a claim from this page's earlier life may still be awaiting its heal.
+let platformRecoveryOutstanding = (() => {
+  try {
+    return sessionStorage.getItem(PLATFORM_RECOVERY_PATH_KEY) !== null;
+  } catch {
+    return false;
+  }
+})();
+
+/**
+ * Spend one recovery attempt for a rejection on `pathname`; false when the
+ * budget or cooldown blocks it, or when sessionStorage is unavailable (fails
+ * closed). Only that pathname's later success restores the budget.
+ */
+function claimPlatformRecoveryAttempt(pathname: string): boolean {
+  try {
+    const stored = Number(
+      sessionStorage.getItem(PLATFORM_RECOVERY_ATTEMPTS_KEY) ?? "0",
+    );
+    const attempts = Number.isFinite(stored) ? stored : 0;
+    if (attempts >= PLATFORM_RECOVERY_MAX_ATTEMPTS) {
+      return false;
+    }
+    const lastAttempt = sessionStorage.getItem(PLATFORM_RECOVERY_AT_KEY);
+    if (
+      lastAttempt &&
+      Date.now() - Number(lastAttempt) < PLATFORM_RECOVERY_COOLDOWN_MS
+    ) {
+      return false;
+    }
+    sessionStorage.setItem(PLATFORM_RECOVERY_AT_KEY, String(Date.now()));
+    sessionStorage.setItem(
+      PLATFORM_RECOVERY_ATTEMPTS_KEY,
+      String(attempts + 1),
+    );
+    sessionStorage.setItem(PLATFORM_RECOVERY_PATH_KEY, pathname);
+    platformRecoveryOutstanding = true;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Restore the budget only when the last-rejected route succeeds: anonymously
+ * served routes (client feature flags) must not re-arm it every poll.
+ */
+function clearPlatformRecoveryBudgetIfHealed(pathname: string): void {
+  try {
+    if (sessionStorage.getItem(PLATFORM_RECOVERY_PATH_KEY) !== pathname) {
+      return;
+    }
+    sessionStorage.removeItem(PLATFORM_RECOVERY_AT_KEY);
+    sessionStorage.removeItem(PLATFORM_RECOVERY_ATTEMPTS_KEY);
+    sessionStorage.removeItem(PLATFORM_RECOVERY_PATH_KEY);
+    platformRecoveryOutstanding = false;
+  } catch {
+    // sessionStorage unavailable; the claim above already fails closed.
+  }
+}
+
+/**
+ * Refund the attempt count but keep the cooldown: a permission 403 on a live
+ * session must not eat the budget a later real expiry needs.
+ */
+function refundPlatformRecoveryAttempt(): void {
+  try {
+    sessionStorage.removeItem(PLATFORM_RECOVERY_ATTEMPTS_KEY);
+    // Drop the remembered pathname too: a leftover key would re-seed the
+    // outstanding flag after a reload, letting a heal clear the cooldown
+    // this refund deliberately keeps.
+    sessionStorage.removeItem(PLATFORM_RECOVERY_PATH_KEY);
+  } catch {
+    // sessionStorage unavailable; the claim already fails closed.
+  }
+  platformRecoveryOutstanding = false;
+}
+
+/** The response URL's pathname, or null for an unparseable URL. */
+function responsePathname(response: Response): string | null {
+  try {
+    return new URL(response.url).pathname;
+  } catch {
+    return null;
+  }
 }
 
 async function recoverFromPlatformSessionRejection(): Promise<void> {
@@ -483,7 +743,16 @@ async function recoverFromPlatformSessionRejection(): Promise<void> {
     // and keeps `sessionStatus` authenticated, so the redirect below is
     // skipped there.
     await useAuthStore.getState().refreshSession();
-    if (!isAuthenticated(useAuthStore.getState().sessionStatus)) {
+    // refreshSession may fire-and-forget the platform probe; hold the latch
+    // until it settles so the probe's own rejections cannot re-enter.
+    await whenPlatformSessionSettled();
+    if (hasLivePlatformSession(useAuthStore.getState().platformSession)) {
+      refundPlatformRecoveryAttempt();
+    }
+    if (
+      !isAuthenticated(useAuthStore.getState().sessionStatus) &&
+      claimPlatformAuthRedirect()
+    ) {
       hardNavigate(
         `${routes.account.login}?returnTo=${encodeURIComponent(
           window.location.pathname + window.location.search,
@@ -508,9 +777,36 @@ async function recoverFromPlatformSessionRejection(): Promise<void> {
  * authenticated (excludes boot probes and the already-logged-out login flow,
  * and prevents a redirect loop), and the response did not come from the
  * self-hosted / remote-gateway bearer path — those 401s are recovered by
- * {@link localGatewayAuthRecoveryInterceptor}.
+ * {@link localGatewayAuthRecoveryInterceptor}. Recovery claims only for a
+ * platform session currently believed live: the boot probe owns unsettled
+ * evidence, and a settled-absent session has nothing to recover. Each cycle
+ * spends from the cooldown-spaced attempt budget above.
+ *
+ * A success on the route whose rejection last consumed a recovery attempt
+ * restores the recovery budget; a success against a confirmed session also
+ * restores the redirect budget.
  */
 export function platformAuthRecoveryInterceptor(response: Response): Response {
+  const ingressUrl = getSelfHostedIngressUrl();
+  const fromSelfHostedGateway =
+    !!ingressUrl && response.url.startsWith(ingressUrl);
+
+  if (response.ok) {
+    // A working self-hosted gateway says nothing about the platform session.
+    if (!fromSelfHostedGateway) {
+      if (platformRecoveryOutstanding) {
+        const pathname = responsePathname(response);
+        if (pathname !== null) {
+          clearPlatformRecoveryBudgetIfHealed(pathname);
+        }
+      }
+      if (hasLivePlatformSession(useAuthStore.getState().platformSession)) {
+        clearPlatformAuthRedirectBudget();
+      }
+    }
+    return response;
+  }
+
   if (
     !isSettledSessionRejection({ ok: response.ok, status: response.status })
   ) {
@@ -519,11 +815,21 @@ export function platformAuthRecoveryInterceptor(response: Response): Response {
   if (platformAuthRecoveryFired) {
     return response;
   }
-  if (!isAuthenticated(useAuthStore.getState().sessionStatus)) {
+  const { sessionStatus, platformSession } = useAuthStore.getState();
+  if (!isAuthenticated(sessionStatus)) {
     return response;
   }
-  const ingressUrl = getSelfHostedIngressUrl();
-  if (ingressUrl && response.url.startsWith(ingressUrl)) {
+  if (fromSelfHostedGateway) {
+    return response;
+  }
+  if (!hasLivePlatformSession(platformSession)) {
+    return response;
+  }
+  const rejectedPathname = responsePathname(response);
+  if (
+    rejectedPathname === null ||
+    !claimPlatformRecoveryAttempt(rejectedPathname)
+  ) {
     return response;
   }
 
@@ -570,6 +876,14 @@ export function daemonErrorInterceptor(
   return toApiError(error, response);
 }
 
+// Register the post-resume counting window here, alongside the interceptors
+// that feed it. `main.tsx` imports this module for its side effects before
+// React renders, so the counter's `app.resume` handler lands ahead of every
+// subscriber the React tree adds and the requests they fire synchronously on
+// resume are counted. See the function's docstring for why a React effect
+// cannot give that guarantee.
+installResumeRequestCounter();
+
 daemonClient.interceptors.request.use(daemonRequestInterceptor);
 daemonClient.interceptors.response.use(daemonUnreachableInterceptor);
 daemonClient.interceptors.response.use(localGatewayAuthRecoveryInterceptor);
@@ -578,6 +892,12 @@ daemonClient.interceptors.error.use(daemonErrorInterceptor);
 
 // Gateway client uses the same routing as daemon — all gateway endpoints
 // are proxied through the same self-hosted ingress / platform gateway path.
+//
+// It deliberately does NOT carry `localGatewayAuthRecoveryInterceptor`: a
+// 401 raised through the generated gateway SDK is surfaced to the caller
+// rather than triggering a reload. Adding it here would widen the set of
+// responses that can restart the app, which is the opposite of what the
+// recovery budget is for, so it is tracked separately.
 gatewayClient.interceptors.request.use(daemonRequestInterceptor);
 gatewayClient.interceptors.response.use(daemonUnreachableInterceptor);
 gatewayClient.interceptors.response.use(platformAuthRecoveryInterceptor);
@@ -618,8 +938,68 @@ function arePlatformFeaturesEnabled(): boolean {
 }
 
 /**
+ * What {@link platformFeaturesGate} does with a request. A deny carries the
+ * reason it was denied, so the gate reports it without re-probing the mode the
+ * decision already looked at. {@link PLATFORM_GATE_DENIALS} keys off this
+ * union, so a third reason cannot be mislabelled as one of the existing two.
+ */
+type PlatformGateDecision = "allow" | "deny_remote_gateway" | "deny_local";
+
+/**
+ * How each denial is reported. Keyed by every deny decision, so a new reason
+ * added to {@link PlatformGateDecision} fails to compile until it says what it
+ * logs and what it aborts with.
+ */
+const PLATFORM_GATE_DENIALS: Record<
+  Exclude<PlatformGateDecision, "allow">,
+  { log: string; abortMessage: string }
+> = {
+  deny_remote_gateway: {
+    log: "remote-gateway mode, no-op platform request:",
+    abortMessage: "Platform routes disabled in remote-gateway mode",
+  },
+  deny_local: {
+    log: "VELLUM_DISABLE_PLATFORM is set, no-op platform request:",
+    abortMessage: "Platform features disabled in local mode",
+  },
+};
+
+/**
+ * The decision {@link platformFeaturesGate} reaches for this request.
+ *
+ * Takes the request as the gate sees it: the gate is registered after
+ * {@link requestInterceptor}, so a self-hosted rewrite (gateway origin, bearer
+ * auth) has already happened by the time it runs.
+ */
+function platformFeaturesGateDecision(request: Request): PlatformGateDecision {
+  if (isRemoteGatewayMode()) {
+    const hasBearer =
+      request.headers
+        .get("Authorization")
+        ?.toLowerCase()
+        .startsWith("bearer ") ?? false;
+    return hasBearer ? "allow" : "deny_remote_gateway";
+  }
+
+  if (!isLocalClient()) {
+    return "allow";
+  }
+  if (arePlatformFeaturesEnabled()) {
+    return "allow";
+  }
+
+  const ingressUrl = getSelfHostedIngressUrl();
+  if (!ingressUrl) {
+    return "deny_local";
+  }
+  return new URL(request.url).origin === new URL(ingressUrl).origin
+    ? "allow"
+    : "deny_local";
+}
+
+/**
  * In local mode with platform features disabled, abort platform client
- * requests that still target the platform — but let through requests
+ * requests that still target the platform, but let through requests
  * already rewritten to the self-hosted gateway by the preceding
  * {@link requestInterceptor}. Without this check, daemon endpoints
  * (skills, memories, etc.) that route through the platform client would
@@ -628,50 +1008,15 @@ function arePlatformFeaturesEnabled(): boolean {
  * Exported for direct unit testing.
  */
 export function platformFeaturesGate(request: Request): Request {
-  if (isRemoteGatewayMode()) {
-    if (
-      request.headers.get("Authorization")?.toLowerCase().startsWith("bearer ")
-    ) {
-      return request;
-    }
-    console.debug(
-      "remote-gateway mode — no-op platform request:",
-      new URL(request.url).pathname,
-    );
-    const aborted = new AbortController();
-    aborted.abort(
-      new DOMException(
-        "Platform routes disabled in remote-gateway mode",
-        "AbortError",
-      ),
-    );
-    return new Request(request.url, { signal: aborted.signal });
-  }
-
-  if (!isLocalMode()) {
-    return request;
-  }
-  if (arePlatformFeaturesEnabled()) {
+  const decision = platformFeaturesGateDecision(request);
+  if (decision === "allow") {
     return request;
   }
 
-  const ingressUrl = getSelfHostedIngressUrl();
-  if (ingressUrl) {
-    const requestOrigin = new URL(request.url).origin;
-    const gatewayOrigin = new URL(ingressUrl).origin;
-    if (requestOrigin === gatewayOrigin) {
-      return request;
-    }
-  }
-
-  console.debug(
-    "VELLUM_DISABLE_PLATFORM is set — no-op platform request:",
-    new URL(request.url).pathname,
-  );
+  const denial = PLATFORM_GATE_DENIALS[decision];
+  console.debug(denial.log, new URL(request.url).pathname);
   const aborted = new AbortController();
-  aborted.abort(
-    new DOMException("Platform features disabled in local mode", "AbortError"),
-  );
+  aborted.abort(new DOMException(denial.abortMessage, "AbortError"));
   return new Request(request.url, { signal: aborted.signal });
 }
 

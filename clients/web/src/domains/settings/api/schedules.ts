@@ -9,6 +9,7 @@ import {
   schedulesByIdRunPost,
   schedulesByIdRunsGet,
   schedulesByIdTogglePost,
+  schedulesReassignprofilePost,
   schedulesUsagesummaryGet,
   schedulesPost,
 } from "@/generated/daemon/sdk.gen";
@@ -67,6 +68,12 @@ export async function createSchedule(
 
 export interface UpdateSchedulePayload {
   timeoutMs?: number | null;
+  /**
+   * Inference profile the schedule runs on. Every schedule carries a concrete
+   * pin, so sending `null` does not unpin it: the daemon re-snapshots the
+   * currently resolved default. Send a profile key to move the schedule.
+   */
+  inferenceProfile?: string | null;
 }
 
 export async function updateSchedule(
@@ -90,6 +97,42 @@ export async function updateSchedule(
 
 export async function fetchSchedules(assistantId: string): Promise<Schedule[]> {
   return fetchSharedSchedules(assistantId);
+}
+
+const REASSIGN_PROFILE_ERROR =
+  "Failed to move schedules to the selected profile.";
+
+/**
+ * Move schedules onto `toProfile`, returning how many actually moved.
+ *
+ * `fromProfile` narrows the move to the schedules pinned to that profile,
+ * which is what the profile-delete flow needs so a deleted inference profile
+ * never leaves schedules naming it. Passing `null` selects every schedule,
+ * which is what re-pinning the whole set onto the current default needs:
+ * schedules pinned under earlier defaults name several different profiles.
+ * Schedules already on `toProfile` are skipped either way.
+ */
+export async function reassignScheduleInferenceProfile(
+  assistantId: string,
+  fromProfile: string | null,
+  toProfile: string,
+): Promise<number> {
+  const { data, error, response } = await schedulesReassignprofilePost({
+    path: { assistant_id: assistantId },
+    body: {
+      ...(fromProfile == null ? {} : { from: fromProfile }),
+      to: toProfile,
+    },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, REASSIGN_PROFILE_ERROR);
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, REASSIGN_PROFILE_ERROR),
+    );
+  }
+  return data?.reassigned ?? 0;
 }
 
 /**

@@ -1027,6 +1027,22 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("low");
   });
 
+  test("assistant platform invoices list → low", async () => {
+    const result = await classifier.classify({
+      command: "assistant platform invoices list",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("assistant platform invoices get <id> → low", async () => {
+    const result = await classifier.classify({
+      command: "assistant platform invoices get inv_123",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
   test("assistant schedules list → low", async () => {
     const result = await classifier.classify({
       command: "assistant schedules list",

@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { formatScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import { hasSetConstructs } from "../../schedule/recurrence-engine.js";
 import {
   describeCronExpression,
@@ -93,7 +94,7 @@ export async function executeScheduleList(
       `  Enabled: ${job.enabled}`,
       `  Quiet: ${job.quiet}`,
       `  Reuse conversation: ${job.reuseConversation}`,
-      `  Inference profile: ${job.inferenceProfile ?? "default (mainAgent)"}`,
+      `  Inference profile: ${formatScheduleInferenceProfile(job.inferenceProfile)}`,
       `  Message: ${job.message}`,
     );
 

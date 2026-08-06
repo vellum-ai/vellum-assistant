@@ -1,12 +1,13 @@
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { safeStatSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
@@ -316,6 +317,53 @@ function writeQuarantineNotice(
       `Failed to write config-quarantine notice; the quarantine event is ` +
         `still recorded in the assistant logs.`,
     );
+  }
+}
+
+/**
+ * Whether the newest quarantined config next to `configPath`
+ * (`config.json.corrupt-*.json`, written by {@link quarantineCorruptConfig})
+ * carried `memory.v3.live: true`. Quarantine filenames embed a
+ * filesystem-safe ISO timestamp, so a lexicographic sort is chronological.
+ *
+ * The first-launch seed asks this so a quarantine-reseed carries the memory
+ * tier forward: without it, reseeding an existing memory-v3 assistant
+ * silently demotes it to v2: the reseeded file records no `live` decision,
+ * migration 105 is already checkpointed on an existing workspace and never
+ * re-runs, and the schema default is `false`. Only `true` is ever salvaged:
+ * carrying `false` forward would re-pin a workspace to the schema default,
+ * the exact bug the seed's absent-leaf contract exists to prevent.
+ *
+ * A quarantined file usually fails `JSON.parse` (that is why it was
+ * quarantined); every config writer serializes via
+ * `JSON.stringify(config, null, 2)` and `memory.v3.live` is the only config
+ * key named `"live"`, so a literal `"live": true` match on the raw text is
+ * an unambiguous fallback for truncated files.
+ */
+function quarantinedConfigSaidMemoryV3Live(configPath: string): boolean {
+  try {
+    const dir = dirname(configPath);
+    const prefix = `${basename(configPath)}.corrupt-`;
+    const quarantines = readdirSync(dir)
+      .filter((name) => name.startsWith(prefix) && name.endsWith(".json"))
+      .sort();
+    const newest = quarantines[quarantines.length - 1];
+    if (!newest) {
+      return false;
+    }
+    const raw = readFileSync(join(dir, newest), "utf-8");
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (!isPlainObject(parsed) || !isPlainObject(parsed.memory)) {
+        return false;
+      }
+      const v3 = parsed.memory.v3;
+      return isPlainObject(v3) && v3.live === true;
+    } catch {
+      return /"live"\s*:\s*true/.test(raw);
+    }
+  } catch {
+    return false;
   }
 }
 
@@ -1119,17 +1167,45 @@ export function loadConfig(): AssistantConfig {
         // Drop the deployment-context embedding provider so it is never
         // persisted (see above); the schema default re-applies in memory.
         delete (seed.memory.embeddings as { provider?: unknown }).provider;
-        // Memory-v3 tuning knobs are globally-shipped defaults, not per-assistant
-        // config: persist only `live` (genuine per-assistant state — some
-        // workspaces predate the v3 migration and must not be flipped on) and let
-        // every tuning knob resolve from the schema on load. This way a shipped
-        // schema-default change reaches all assistants (mirrors the
-        // embedding-provider strip above); migration
-        // 119-strip-persisted-memory-v3-tuning-defaults handles already-seeded
-        // configs.
-        seed.memory.v3 = {
-          live: seed.memory.v3.live,
-        } as (typeof seed.memory)["v3"];
+        // Nothing under memory.v3 is persisted at seed time.
+        //
+        // The tuning knobs are globally-shipped defaults: freezing them to
+        // disk would stop a shipped default change from reaching this
+        // assistant (mirrors the embedding-provider strip above; migration 119
+        // strips them from configs that already carry them).
+        //
+        // `live` stays absent because an absent leaf is the only way to
+        // express "no decision recorded". This seed runs before workspace
+        // migrations, and migration 105 defers to any value already present
+        // (`if ("live" in v3Config) return`), unable to tell a deliberate
+        // choice from a schema default. Writing the leaf here would pin a
+        // brand-new workspace to the schema default; leaving it absent lets
+        // 105 decide regardless of boot ordering. The schema default still
+        // applies in memory on every load, and a hatch-time
+        // `memory.v3.live=false` override still wins by merging after
+        // migrations.
+        seed.memory.v3 = {} as (typeof seed.memory)["v3"];
+        // Exception: a quarantine-reseed carries the memory tier forward.
+        // When the missing config.json is explained by a quarantined
+        // predecessor that had `live: true`, this is an EXISTING memory-v3
+        // assistant being reseeded, not a first launch: migration 105 is
+        // already checkpointed here and never re-runs, so leaving the leaf
+        // absent would silently demote the assistant to v2. Persist the
+        // carried value and apply it to this load's effective config so the
+        // current boot already runs v3.
+        if (quarantinedConfigSaidMemoryV3Live(configPath)) {
+          seed.memory.v3 = { live: true } as (typeof seed.memory)["v3"];
+          config.memory.v3.live = true;
+          // Refresh the last-known-good safety net (mirrors the
+          // deployment-context refresh above): its snapshot was taken before
+          // the carry, so a later in-process validation recovery would
+          // otherwise restore live=false and demote the assistant in memory
+          // despite the reseeded file on disk carrying true.
+          lastKnownGoodConfig = structuredClone(config);
+          log.info(
+            "Carried memory.v3.live=true forward from the quarantined config",
+          );
+        }
         // Strip dataDir (runtime-derived) from the persisted config
         const { dataDir: _, ...persistable } = seed;
         writeFileSync(configPath, JSON.stringify(persistable, null, 2) + "\n");

@@ -72,7 +72,7 @@ import {
   startLocalDaemon,
   stopLocalProcesses,
 } from "../lib/local.js";
-import { maybeStartNgrokTunnel } from "../lib/ngrok.js";
+import { restoreTunnelEdgeAndAutoTunnel } from "../lib/tunnel-edge.js";
 import {
   leaseGuardianToken,
   resetGuardianBootstrap,
@@ -1044,7 +1044,8 @@ async function upgradeLocal(
     ".vellum",
     "workspace",
   );
-  const ngrokChild = await maybeStartNgrokTunnel(
+  const ngrokChild = await restoreTunnelEdgeAndAutoTunnel(
+    entry.assistantId,
     entry.resources.gatewayPort,
     workspaceDir,
   );

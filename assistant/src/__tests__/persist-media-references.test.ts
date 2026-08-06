@@ -49,7 +49,7 @@ describe("referenceMediaBlocksForPersist", () => {
       },
     ];
 
-    const referenced = referenceMediaBlocksForPersist(
+    const referenced = await referenceMediaBlocksForPersist(
       conv.id,
       conv.createdAt,
       msg.id,
@@ -101,7 +101,7 @@ describe("referenceMediaBlocksForPersist", () => {
       },
     ];
 
-    const referenced = referenceMediaBlocksForPersist(
+    const referenced = await referenceMediaBlocksForPersist(
       conv.id,
       conv.createdAt,
       msg.id,

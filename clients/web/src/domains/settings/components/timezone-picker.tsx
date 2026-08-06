@@ -238,6 +238,7 @@ export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
             onFocus={() => setIsOpen(true)}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
+                event.preventDefault();
                 setSearchText("");
                 setIsOpen(false);
                 inputRef.current?.blur();

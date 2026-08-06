@@ -8,7 +8,7 @@ import {
   parseRedactedSentinel,
   REDACTED_SENTINEL_CLOSE,
   REDACTED_SENTINEL_OPEN,
-} from "../redacted-credential";
+} from "../redacted-credential.js";
 
 describe("buildRedactedSentinel", () => {
   test("plain shape carries only the type", () => {

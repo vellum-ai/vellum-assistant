@@ -153,10 +153,15 @@ function makeClient(
     ) => Promise<VelayHttpResponseFrame>;
     websocketFrames?: VelayWebSocketInboundFrame[];
     reconnectDelays?: number[];
+    refresh?: { afterMs?: number; busyRetryMs?: number };
+    timerCallbacks?: Array<() => void>;
+    bridgeConnections?: { count: number };
+    bridgeIdle?: { fire: () => void };
   } = {},
 ) {
   const sockets = overrides.sockets ?? [];
   const reconnectDelays = overrides.reconnectDelays ?? [];
+  const bridgeConnections = overrides.bridgeConnections;
   return new VelayTunnelClient({
     velayBaseUrl: "http://velay.example.test",
     gatewayLoopbackBaseUrl: "http://127.0.0.1:7830",
@@ -170,18 +175,28 @@ function makeClient(
     webSocketConstructor: makeFakeWebSocketConstructor(sockets),
     httpBridge: overrides.httpBridge,
     webSocketBridgeFactory:
-      overrides.websocketFrames === undefined
+      overrides.websocketFrames === undefined && bridgeConnections === undefined
         ? undefined
-        : () =>
-            ({
+        : (_gatewayLoopbackBaseUrl, _sendFrame, onIdle) => {
+            if (overrides.bridgeIdle && onIdle) {
+              overrides.bridgeIdle.fire = onIdle;
+            }
+            return {
               handleFrame: (frame: VelayWebSocketInboundFrame) => {
                 overrides.websocketFrames?.push(frame);
               },
               closeAll: () => {},
-            }) as never,
+              getConnectionCount: () => bridgeConnections?.count ?? 0,
+            } as never;
+          },
     reconnect: { baseDelayMs: 10, maxDelayMs: 10, jitterRatio: 0 },
     heartbeat: { intervalMs: 0, readTimeoutMs: 0 },
-    timerApi: makeTimerApi(reconnectDelays),
+    // Disabled by default so the strict reconnect-delay assertions above
+    // don't see the refresh timer; the refresh suite enables it explicitly.
+    refresh: overrides.refresh ?? { afterMs: 0 },
+    timerApi: overrides.timerCallbacks
+      ? makeManualTimerApi(reconnectDelays, overrides.timerCallbacks)
+      : makeTimerApi(reconnectDelays),
   });
 }
 
@@ -538,6 +553,7 @@ describe("VelayTunnelClient", () => {
       webSocketConstructor: makeFakeWebSocketConstructor(sockets),
       reconnect: { baseDelayMs: 10, maxDelayMs: 80, jitterRatio: 0 },
       heartbeat: { intervalMs: 0, readTimeoutMs: 0 },
+      refresh: { afterMs: 0 },
       timerApi: makeManualTimerApi(reconnectDelays, reconnectCallbacks),
     });
 
@@ -591,6 +607,7 @@ describe("VelayTunnelClient", () => {
       webSocketConstructor: makeFakeWebSocketConstructor(sockets),
       reconnect: { baseDelayMs: 10, maxDelayMs: 80, jitterRatio: 0 },
       heartbeat: { intervalMs: 0, readTimeoutMs: 0 },
+      refresh: { afterMs: 0 },
       timerApi: makeManualTimerApi(reconnectDelays, reconnectCallbacks),
     });
 
@@ -1254,5 +1271,204 @@ describe("VelayTunnelClient", () => {
       { code: 1000, reason: "heartbeat read timeout" },
     ]);
     expect(delays).toEqual([100, 1000, 100, 10]);
+  });
+});
+
+describe("proactive tunnel refresh", () => {
+  async function registerTunnel(sockets: FakeWebSocket[]): Promise<void> {
+    sockets[0].readyState = WS_OPEN;
+    sockets[0].emit("open");
+    sendFrame(sockets[0], {
+      type: VELAY_FRAME_TYPES.registered,
+      assistant_id: "asst-123",
+      public_url: "https://velay-public.example.test",
+    });
+    await flushPromises();
+  }
+
+  test("refreshes an idle tunnel before the LB deadline and reconnects", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const delays: number[] = [];
+    const callbacks: Array<() => void> = [];
+    const client = makeClient({
+      sockets,
+      reconnectDelays: delays,
+      timerCallbacks: callbacks,
+      refresh: { afterMs: 5000, busyRetryMs: 500 },
+    });
+
+    client.start();
+    await flushPromises();
+    await registerTunnel(sockets);
+
+    expect(delays).toEqual([5000]);
+
+    // Idle at the deadline: close cleanly and reconnect immediately.
+    callbacks[0]();
+    await flushPromises();
+    expect(sockets[0].closes).toEqual([
+      { code: 1000, reason: "proactive tunnel refresh" },
+    ]);
+    expect(delays).toEqual([5000, 10]);
+
+    callbacks[1]();
+    await flushPromises();
+    expect(sockets).toHaveLength(2);
+    await client.stop();
+  });
+
+  test("defers refresh while connections are proxied, then refreshes once idle", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const delays: number[] = [];
+    const callbacks: Array<() => void> = [];
+    const bridgeConnections = { count: 1 };
+    const client = makeClient({
+      sockets,
+      reconnectDelays: delays,
+      timerCallbacks: callbacks,
+      bridgeConnections,
+      refresh: { afterMs: 5000, busyRetryMs: 500 },
+    });
+
+    client.start();
+    await flushPromises();
+    await registerTunnel(sockets);
+
+    expect(delays).toEqual([5000]);
+
+    // Busy (a call is proxied): no close, re-check scheduled.
+    callbacks[0]();
+    await flushPromises();
+    expect(sockets[0].closes).toEqual([]);
+    expect(delays).toEqual([5000, 500]);
+
+    // Still busy on the re-check.
+    callbacks[1]();
+    await flushPromises();
+    expect(sockets[0].closes).toEqual([]);
+    expect(delays).toEqual([5000, 500, 500]);
+
+    // Call ended: the next re-check refreshes.
+    bridgeConnections.count = 0;
+    callbacks[2]();
+    await flushPromises();
+    expect(sockets[0].closes).toEqual([
+      { code: 1000, reason: "proactive tunnel refresh" },
+    ]);
+    await client.stop();
+  });
+
+  test("refreshes the moment the tunnel drains once the deadline has passed", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const delays: number[] = [];
+    const callbacks: Array<() => void> = [];
+    const bridgeConnections = { count: 1 };
+    const bridgeIdle = { fire: () => {} };
+    const client = makeClient({
+      sockets,
+      reconnectDelays: delays,
+      timerCallbacks: callbacks,
+      bridgeConnections,
+      bridgeIdle,
+      refresh: { afterMs: 5000, busyRetryMs: 500 },
+    });
+
+    client.start();
+    await flushPromises();
+    await registerTunnel(sockets);
+
+    // Deadline passes while a call is proxied: refresh becomes due.
+    callbacks[0]();
+    await flushPromises();
+    expect(sockets[0].closes).toEqual([]);
+
+    // The call ends: the bridge idle hook refreshes immediately, without
+    // waiting for the busy-retry poll (which would leave a stale tunnel
+    // accepting new streams right before the LB chop).
+    bridgeConnections.count = 0;
+    bridgeIdle.fire();
+    await flushPromises();
+    expect(sockets[0].closes).toEqual([
+      { code: 1000, reason: "proactive tunnel refresh" },
+    ]);
+    await client.stop();
+  });
+
+  test("defers refresh while an HTTP request is in flight through the tunnel", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const delays: number[] = [];
+    const callbacks: Array<() => void> = [];
+    let releaseHttp: (() => void) | undefined;
+    const client = makeClient({
+      sockets,
+      reconnectDelays: delays,
+      timerCallbacks: callbacks,
+      httpBridge: () =>
+        new Promise((resolve) => {
+          releaseHttp = () =>
+            resolve({
+              type: VELAY_FRAME_TYPES.httpResponse,
+              request_id: "req-1",
+              status_code: 200,
+              headers: {},
+            });
+        }),
+      refresh: { afterMs: 5000, busyRetryMs: 500 },
+    });
+
+    client.start();
+    await flushPromises();
+    await registerTunnel(sockets);
+
+    sendFrame(sockets[0], {
+      type: VELAY_FRAME_TYPES.httpRequest,
+      request_id: "req-1",
+      method: "GET",
+      path: "/webhooks/twilio/voice",
+      headers: {},
+    });
+    await flushPromises();
+
+    // Busy (webhook in flight): no close, re-check scheduled.
+    callbacks[0]();
+    await flushPromises();
+    expect(sockets[0].closes).toEqual([]);
+    expect(delays).toEqual([5000, 500]);
+
+    // The request completes: the due refresh fires immediately from the
+    // in-flight counter reaching zero, without waiting for the poll.
+    releaseHttp?.();
+    await flushPromises();
+    expect(sockets[0].closes).toEqual([
+      { code: 1000, reason: "proactive tunnel refresh" },
+    ]);
+    await client.stop();
+  });
+
+  test("a stale refresh timer fires harmlessly after the tunnel already closed", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const delays: number[] = [];
+    const callbacks: Array<() => void> = [];
+    const client = makeClient({
+      sockets,
+      reconnectDelays: delays,
+      timerCallbacks: callbacks,
+      refresh: { afterMs: 5000, busyRetryMs: 500 },
+    });
+
+    client.start();
+    await flushPromises();
+    await registerTunnel(sockets);
+
+    sockets[0].readyState = WS_CLOSED;
+    sockets[0].emit("close", { code: 1006, reason: "" });
+    await flushPromises();
+
+    // The manual timer API cannot cancel, so the refresh callback still
+    // fires; the ws-identity guard must make it a no-op.
+    callbacks[0]();
+    await flushPromises();
+    expect(sockets[0].closes).toEqual([]);
+    await client.stop();
   });
 });

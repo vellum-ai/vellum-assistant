@@ -6,8 +6,9 @@ import { z } from "zod";
  * The resource monitor runs as a separate OS process (a child of the assistant)
  * that samples the container's own cgroup memory + workspace disk off the main
  * event loop, so it keeps recording during a main-thread freeze and its samples
- * survive an OOM SIGKILL. The assistant spawns it at every startup — it is
- * platform infrastructure, not an opt-in feature, and there is deliberately no
+ * survive an OOM SIGKILL. On a slower timer it also compares each process's
+ * open file-descriptor count against its limit. The assistant spawns it at every
+ * startup: it is platform infrastructure, not an opt-in feature, and there is no
  * config switch to turn it off. `assistant monitoring start`/`stop` control the
  * process at runtime only; a stopped monitor respawns on the next boot.
  */
@@ -48,6 +49,31 @@ export const MonitoringConfigSchema = z
       .default(30_000)
       .describe(
         "Minimum interval between high-memory snapshots, in milliseconds, so a sustained spike does not write a snapshot on every sample.",
+      ),
+    fdPollIntervalMs: z
+      .number({ error: "monitoring.fdPollIntervalMs must be a number" })
+      .int("monitoring.fdPollIntervalMs must be an integer")
+      .min(1_000, "monitoring.fdPollIntervalMs must be at least 1000ms")
+      .max(1_800_000, "monitoring.fdPollIntervalMs must be <= 1800000ms")
+      .default(300_000)
+      .describe(
+        "How often the monitor walks the container's processes to compare their open file-descriptor counts against their limits, in milliseconds. Far slower than the memory sampler (default 5 minutes) because the walk costs a readdir per process and descriptor counts climb over minutes, not milliseconds.",
+      ),
+    highFdThresholdRatio: z
+      .number({ error: "monitoring.highFdThresholdRatio must be a number" })
+      .min(0.1, "monitoring.highFdThresholdRatio must be >= 0.1")
+      .max(1, "monitoring.highFdThresholdRatio must be <= 1")
+      .default(0.8)
+      .describe(
+        "Fraction of a process's open-file soft limit (RLIMIT_NOFILE) at which the monitor logs a warning identifying the PIDs involved. Default 0.8, leaving headroom before open() starts failing with EMFILE.",
+      ),
+    fdWarnCooldownMs: z
+      .number({ error: "monitoring.fdWarnCooldownMs must be a number" })
+      .int("monitoring.fdWarnCooldownMs must be an integer")
+      .min(0, "monitoring.fdWarnCooldownMs must be non-negative")
+      .default(60_000)
+      .describe(
+        "Minimum interval between file-descriptor warnings while usage stays over the threshold, in milliseconds. Crossing the threshold always warns immediately; this only throttles the repeats.",
       ),
     pluginSourceScanIntervalMs: z
       .number({

@@ -111,3 +111,48 @@ describe("VellumAdapter silent flag", () => {
     expect(intent.silent).toBe(false);
   });
 });
+
+describe("VellumAdapter remotePushDispatched pass-through", () => {
+  test("broadcasts remote push acceptance fields verbatim", async () => {
+    const { adapter, sent } = captureBroadcast();
+    await adapter.send(
+      makePayload({
+        remotePushDispatched: true,
+        remotePushPlatforms: ["ios"],
+      }),
+      makeDestination(),
+    );
+
+    const intent = sent[0] as Extract<
+      AssistantEvent,
+      { type: "notification_intent" }
+    >;
+    expect(intent.remotePushDispatched).toBe(true);
+    expect(intent.remotePushPlatforms).toEqual(["ios"]);
+  });
+
+  test("broadcasts remotePushDispatched: false verbatim", async () => {
+    const { adapter, sent } = captureBroadcast();
+    await adapter.send(
+      makePayload({ remotePushDispatched: false }),
+      makeDestination(),
+    );
+
+    const intent = sent[0] as Extract<
+      AssistantEvent,
+      { type: "notification_intent" }
+    >;
+    expect(intent.remotePushDispatched).toBe(false);
+  });
+
+  test("leaves remotePushDispatched undefined when absent from the payload", async () => {
+    const { adapter, sent } = captureBroadcast();
+    await adapter.send(makePayload(), makeDestination());
+
+    const intent = sent[0] as Extract<
+      AssistantEvent,
+      { type: "notification_intent" }
+    >;
+    expect(intent.remotePushDispatched).toBeUndefined();
+  });
+});

@@ -75,6 +75,26 @@ describe("managedSpeechTranscribe", () => {
     expect(JSON.parse(init.body as string)).not.toHaveProperty("source");
   });
 
+  test("sends the spoken language when one is given", async () => {
+    // The platform forwards this to Deepgram, which otherwise decodes the
+    // audio as English rather than detecting its language.
+    await managedSpeechTranscribe({
+      audio: AUDIO,
+      mimeType: "audio/wav",
+      language: "multi",
+    });
+    const [, init] = mockClient!.fetch.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string).language).toBe("multi");
+  });
+
+  test("omits language when not provided", async () => {
+    // An absent field and an empty one are different requests upstream, and
+    // the empty one fails the platform serializer.
+    await managedSpeechTranscribe({ audio: AUDIO, mimeType: "audio/wav" });
+    const [, init] = mockClient!.fetch.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).not.toHaveProperty("language");
+  });
+
   test("returns unavailable when no platform client resolves", async () => {
     mockClient = null;
     const result = await managedSpeechTranscribe({

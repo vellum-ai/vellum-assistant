@@ -26,7 +26,7 @@ import {
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import {
   getLockfileAssistant,
-  isLocalMode,
+  isLocalClient,
   probeLocalGatewayReady,
   saveManagedLockfileAssistant,
 } from "@/lib/local-mode";
@@ -75,7 +75,7 @@ export interface UseBackgroundHatchOptions {
    * of running the managed `hatchAssistant()` here. When true we skip step 1 and
    * discover that live assistant via `getAssistant()`.
    *
-   * This must NOT be conflated with `isLocalMode()` (a build-time value): the
+   * This must NOT be conflated with `isLocalClient()` (a build-time value): the
    * desktop app runs in local mode but can still onboard a Vellum-Cloud
    * (managed) assistant, which needs the managed hatch. Derive this from the
    * chosen HOSTING, not the build (see the research route's `?hosting` read).
@@ -289,7 +289,7 @@ export function useBackgroundHatch({
       // assistant via getAssistant(). Running the managed `hatchAssistant()`
       // there would provision a SECOND (managed) assistant. Vellum-Cloud
       // onboarding (adoptExisting=false) still runs the managed hatch, even
-      // though the desktop build reports `isLocalMode()` — that's why this keys
+      // though the desktop build reports `isLocalClient()` — that's why this keys
       // on the chosen hosting, not the build.
       // When adopting, seed discovery with the id the hatching screen handed
       // off, so step 2 resolves that exact assistant (a stale id falls back to
@@ -311,7 +311,7 @@ export function useBackgroundHatch({
         // is primed. Same handoff the hatching screen performs for its managed
         // path. Both are module-level writes — idempotent under `retry()`, and
         // no auth/org store slice moves, so nothing remounts this hook.
-        if (isLocalMode()) {
+        if (isLocalClient()) {
           clearGatewayToken();
           setSelfHostedConnection(null);
         }
@@ -385,7 +385,7 @@ export function useBackgroundHatch({
             setAssistantId(activeAssistantId);
             // Desktop-only: the list and switcher read the lockfile. An adopted
             // assistant is already the hatching screen's own write.
-            if (!adoptExisting && isLocalMode()) {
+            if (!adoptExisting && isLocalClient()) {
               void saveManagedLockfileAssistant(
                 activeAssistantId,
                 result.data.name,

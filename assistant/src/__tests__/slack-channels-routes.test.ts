@@ -40,8 +40,6 @@ mock.module("../messaging/providers/slack/client.js", () => ({
     }
     throw new Error(`User not found: ${userId}`);
   },
-  // auth.ts imports SlackApiError from the client; export it from the mock.
-  SlackApiError: class SlackApiError extends Error {},
 }));
 
 // ---------------------------------------------------------------------------

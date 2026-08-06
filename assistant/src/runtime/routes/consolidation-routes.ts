@@ -22,6 +22,7 @@ import {
   getMessageRoleStatsByConversation,
   listConversationsBySource,
 } from "../../persistence/conversation-queries.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../persistence/conversation-types.js";
 import {
   enqueueMemoryJob,
   hasActiveJobOfType,
@@ -29,7 +30,6 @@ import {
 } from "../../persistence/jobs-store.js";
 import { getUsageCostForConversationWindow } from "../../persistence/llm-usage-store.js";
 import { GRAPH_MAINTENANCE_CHECKPOINTS } from "../../plugins/defaults/memory/jobs-worker.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../plugins/defaults/memory/substrate/constants.js";
 import { resolveSubstrateTuning } from "../../plugins/defaults/memory/substrate/tuning.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";

@@ -7,7 +7,10 @@ import {
 } from "@/domains/chat/transcript/rolling-snapshot";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import type { AssistantEvent } from "@/types/event-types";
-import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
+import type {
+  AnsweredQuestion,
+  AssistantEventEnvelope,
+} from "@vellumai/assistant-api";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -78,6 +81,39 @@ const toolUseStart = (
     toolUseId,
     toolName: name,
     input: {},
+  } as AssistantEvent);
+const surfacePending = (seq: number, id: string, toolUseId: string) =>
+  env(seq, {
+    type: "ui_surface_pending",
+    surfaceType: "visual",
+    messageId: id,
+    toolUseId,
+  } as AssistantEvent);
+const visualShow = (
+  seq: number,
+  id: string,
+  surfaceId: string,
+  toolCallId?: string,
+) =>
+  env(seq, {
+    type: "ui_surface_show",
+    messageId: id,
+    surfaceId,
+    surfaceType: "visual",
+    data: {},
+    ...(toolCallId ? { toolCallId } : {}),
+  } as AssistantEvent);
+const toolResult = (seq: number, toolUseId: string, isError = false) =>
+  env(seq, {
+    type: "tool_result",
+    toolUseId,
+    result: isError ? "boom" : "Surface displayed",
+    isError,
+  } as AssistantEvent);
+const idle = (seq: number) =>
+  env(seq, {
+    type: "assistant_activity_state",
+    phase: "idle",
   } as AssistantEvent);
 const surfaceShow = (seq: number, id: string, surfaceId: string) =>
   env(seq, {
@@ -307,6 +343,28 @@ describe("rolling-snapshot reducer", () => {
       expect(resolved.messages[0]?.queuePosition).toBeUndefined();
     });
 
+    test("replays a corrective requeue back onto a dequeued row", () => {
+      const snapshot = queuedSnapshot();
+      const resolved = resolveSnapshot(snapshot, [
+        env(2, {
+          type: "message_dequeued",
+          conversationId: "conv-1",
+          requestId: "req-1",
+        } as AssistantEvent),
+        env(3, {
+          type: "message_requeued",
+          conversationId: "conv-1",
+          requestId: "req-1",
+          position: 1,
+        } as AssistantEvent),
+      ]);
+
+      // The drain gave the message back to the queue, so the row it cleared
+      // has to come back rather than vanish until the next drain.
+      expect(resolved.messages[0]?.queueStatus).toBe("queued");
+      expect(resolved.messages[0]?.queuePosition).toBe(1);
+    });
+
     test("replays a queued deletion onto a queued snapshot row", () => {
       const resolved = resolveSnapshot(queuedSnapshot(), [
         env(2, {
@@ -487,5 +545,170 @@ describe("rolling-snapshot reducer", () => {
         );
       }
     });
+  });
+});
+
+describe("answered ask_question", () => {
+  const ANSWERED: AnsweredQuestion = {
+    requestId: "req-1",
+    questions: [
+      {
+        id: "q1",
+        question: "Which Alice?",
+        options: [
+          { id: "alice_work", label: "Alice (work)" },
+          { id: "alice_personal", label: "Alice (personal)" },
+        ],
+      },
+    ],
+    responses: [
+      { questionId: "q1", decision: "option", optionId: "alice_work" },
+    ],
+    overall: "completed",
+  };
+
+  const answeredResult = (seq: number, toolUseId: string) =>
+    env(seq, {
+      type: "tool_result",
+      toolUseId,
+      result: "answered",
+      isError: false,
+      answeredQuestion: ANSWERED,
+    } as AssistantEvent);
+
+  test("folds the answered record onto the ask_question tool call", () => {
+    const history = applyEventsToHistory(SEED, [
+      toolUseStart(1, "a1", "t1", "ask_question"),
+      answeredResult(2, "t1"),
+    ]);
+
+    expect(history.messages[0]?.toolCalls?.[0]?.answeredQuestion).toEqual(
+      ANSWERED,
+    );
+  });
+
+  test("a replayed result does not duplicate the answered card", () => {
+    // The card renders one per tool call, so a re-folded event must leave the
+    // tool call count and its record untouched.
+    const events = [
+      toolUseStart(1, "a1", "t1", "ask_question"),
+      answeredResult(2, "t1"),
+    ];
+    const once = applyEventsToHistory(SEED, events);
+    const twice = applyEventsToHistory(SEED, [
+      ...events,
+      answeredResult(2, "t1"),
+    ]);
+
+    expect(twice).toEqual(once);
+    expect(twice.messages[0]?.toolCalls).toHaveLength(1);
+  });
+
+  test("leaves the tool call untouched when the result carries no answer", () => {
+    const history = applyEventsToHistory(SEED, [
+      toolUseStart(1, "a1", "t1", "bash"),
+      toolResult(2, "t1"),
+    ]);
+
+    expect(
+      history.messages[0]?.toolCalls?.[0]?.answeredQuestion,
+    ).toBeUndefined();
+  });
+});
+
+describe("visual placeholder markers", () => {
+  const turnWithPending = (): AssistantEventEnvelope[] => [
+    userEcho(1, "u1", "show me how the internet works"),
+    textDelta(2, "a1", "Here is the path a request takes."),
+    surfacePending(3, "a1", "toolu_viz"),
+  ];
+
+  const pendingOn = (history: PaginatedHistoryResult) =>
+    history.messages.find((m) => m.id === "a1")?.pendingVisualToolUseIds;
+
+  test("records the announced call on the row that is streaming", () => {
+    expect(pendingOn(applyEventsToHistory(SEED, turnWithPending()))).toEqual([
+      "toolu_viz",
+    ]);
+  });
+
+  test("is structurally idempotent: a re-announced call is recorded once", () => {
+    const base = applyEventsToHistory(SEED, [
+      ...turnWithPending(),
+      surfacePending(4, "a1", "toolu_viz"),
+    ]);
+    expect(pendingOn(base)).toEqual(["toolu_viz"]);
+  });
+
+  test("never opens a row of its own when the turn has none", () => {
+    const base = applyEventsToHistory(SEED, [
+      userEcho(1, "u1", "draw it"),
+      surfacePending(2, "a1", "toolu_viz"),
+    ]);
+    expect(base.messages).toHaveLength(1);
+    expect(base.messages[0]?.role).toBe("user");
+  });
+
+  test("the arriving visual retires its own placeholder", () => {
+    const base = applyEventsToHistory(SEED, [
+      ...turnWithPending(),
+      visualShow(4, "a1", "s1", "toolu_viz"),
+    ]);
+    expect(pendingOn(base)).toBeUndefined();
+    expect(base.messages.find((m) => m.id === "a1")?.surfaces).toHaveLength(1);
+  });
+
+  test("a visual with no producing call id retires the row's placeholders", () => {
+    const base = applyEventsToHistory(SEED, [
+      ...turnWithPending(),
+      visualShow(4, "a1", "s1"),
+    ]);
+    expect(pendingOn(base)).toBeUndefined();
+  });
+
+  test("a non-visual surface leaves the placeholder standing", () => {
+    const base = applyEventsToHistory(SEED, [
+      ...turnWithPending(),
+      surfaceShow(4, "a1", "s1"),
+    ]);
+    expect(pendingOn(base)).toEqual(["toolu_viz"]);
+  });
+
+  test("the producing call resolving retires it, success or failure", () => {
+    for (const isError of [false, true]) {
+      const base = applyEventsToHistory(SEED, [
+        ...turnWithPending(),
+        toolResult(4, "toolu_viz", isError),
+      ]);
+      expect(pendingOn(base)).toBeUndefined();
+    }
+  });
+
+  test("another call resolving leaves it standing", () => {
+    const base = applyEventsToHistory(SEED, [
+      ...turnWithPending(),
+      toolResult(4, "toolu_other"),
+    ]);
+    expect(pendingOn(base)).toEqual(["toolu_viz"]);
+  });
+
+  test("the end of the turn retires whatever is left", () => {
+    for (const terminal of [complete(4, "a1"), idle(4)]) {
+      const base = applyEventsToHistory(SEED, [...turnWithPending(), terminal]);
+      expect(pendingOn(base)).toBeUndefined();
+    }
+  });
+
+  test("a replayed stream converges on the clean one", () => {
+    const clean = [
+      ...turnWithPending(),
+      visualShow(4, "a1", "s1", "toolu_viz"),
+    ];
+    const cleanHistory = applyEventsToHistory(SEED, clean);
+    for (let seed = 1; seed <= 50; seed++) {
+      expect(applyEventsToHistory(SEED, withReplays(clean, rng(seed)))).toEqual(
+        cleanHistory,
+      );
+    }
   });
 });

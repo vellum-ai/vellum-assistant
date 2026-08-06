@@ -96,6 +96,12 @@ export interface SubagentDetailPanelProps {
   onClose: () => void;
   onStop?: (subagentId: string) => void;
   onRequestDetail?: (subagentId: string) => void;
+  /**
+   * Assistant that owns the conversation this subagent was spawned from.
+   * Threaded to the step markdown (and the nested tool detail) so workspace
+   * file references resolve against the right workspace.
+   */
+  assistantId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +113,7 @@ export function SubagentDetailPanel({
   onClose,
   onStop,
   onRequestDetail,
+  assistantId,
 }: SubagentDetailPanelProps) {
   const isRunning = isActiveStatus(entry.status);
   const reduce = useReducedMotion();
@@ -270,16 +277,24 @@ export function SubagentDetailPanel({
           (deepest) level. */}
       {activeDetail && (
         <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-hover)] px-5 py-3">
-          <button
-            type="button"
+          <Button
+            variant="link"
             onClick={handleBack}
             title={entry.label}
-            className="min-w-0 shrink cursor-pointer truncate text-left text-[var(--content-default)] hover:underline"
+            // inline-flex: the `link` variant is `display: inline`, which can't
+            // constrain the label for truncation. border-0: the button base
+            // carries a 1px transparent border the raw crumb never had, which
+            // would grow the breadcrumb row by 2px.
+            className="inline-flex min-w-0 shrink border-0 text-left text-[color:var(--content-default)]"
           >
-            <Typography variant="body-small-default" as="span">
+            <Typography
+              variant="body-small-default"
+              as="span"
+              className="min-w-0 truncate"
+            >
               {entry.label}
             </Typography>
-          </button>
+          </Button>
           <ChevronRight
             className="h-2.5 w-2.5 shrink-0 text-[var(--content-tertiary)]"
             aria-hidden
@@ -372,6 +387,7 @@ export function SubagentDetailPanel({
                 <ChatMarkdownMessage
                   content={activeDetail.thinkingText ?? ""}
                   hardLineBreaks
+                  assistantId={assistantId}
                 />
               ) : activeDetail.kind === "web_search" &&
                 activeDetail.status !== "error" ? (
@@ -442,21 +458,26 @@ export function SubagentDetailPanel({
                     {entry.objective}
                   </Typography>
                   {objectiveOverflows && (
-                    <button
-                      type="button"
+                    <Button
+                      variant="link"
                       onClick={() => setObjectiveExpanded((prev) => !prev)}
-                      className="mt-1.5 flex cursor-pointer items-center gap-1 text-[var(--content-secondary)] transition-colors hover:text-[var(--content-default)]"
+                      aria-expanded={objectiveExpanded}
+                      rightIcon={
+                        <ChevronDown
+                          className={`h-3.5 w-3.5 transition-transform ${
+                            objectiveExpanded ? "rotate-180" : ""
+                          }`}
+                          aria-hidden
+                        />
+                      }
+                      // no-underline: this is a disclosure toggle, not a link.
+                      // border-0: see the breadcrumb crumb above.
+                      className="mt-1.5 inline-flex gap-1 border-0 text-[color:var(--content-secondary)] hover:text-[color:var(--content-default)] hover:no-underline"
                     >
                       <Typography variant="label-small-default">
                         {objectiveExpanded ? "Show less" : "Show more"}
                       </Typography>
-                      <ChevronDown
-                        className={`h-3.5 w-3.5 transition-transform ${
-                          objectiveExpanded ? "rotate-180" : ""
-                        }`}
-                        aria-hidden
-                      />
-                    </button>
+                    </Button>
                   )}
                   <div className="mt-5 h-px w-full bg-[var(--border-hover)]" />
                 </div>

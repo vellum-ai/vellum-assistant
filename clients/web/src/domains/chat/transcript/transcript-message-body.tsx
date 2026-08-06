@@ -3,7 +3,6 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -32,6 +31,7 @@ import { WORKFLOW_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors
 import { ACP_RUN_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/acp-run";
 import { BACKGROUND_TASK_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/background-task";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
+import { VisualPlaceholder } from "@/domains/chat/components/surfaces/visual-placeholder";
 import { SingleActivity } from "@/domains/chat/components/single-activity/single-activity";
 import { MultiActivityGroup } from "@/domains/chat/components/multi-activity-group/multi-activity-group";
 import { WEB_TOOL_NAMES } from "@/domains/chat/utils/tool-call-card-utils";
@@ -42,6 +42,9 @@ import {
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
 import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
+import { hasRenderableAnswer } from "@/domains/chat/answered-question";
+import { AnsweredQuestionCard } from "@/domains/chat/components/answered-question-card";
+import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
 import { AssistantContentDisclosure } from "@/domains/chat/transcript/assistant-content-disclosure";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
@@ -165,6 +168,11 @@ export function TranscriptMessageBody({
       : null,
   );
 
+  // Visuals announced by a still-streaming `ui_show` (`ui_surface_pending`).
+  // Each holds a shimmer at the end of the row's activity area until its
+  // widget lands, its call resolves, or the turn ends.
+  const pendingVisualToolUseIds = message.pendingVisualToolUseIds ?? [];
+
   const isTouch = isPointerCoarse();
 
   const textBubbleClass = isSlackMessage
@@ -208,8 +216,7 @@ export function TranscriptMessageBody({
       ? onRetryLatestTurn
       : undefined;
 
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const [revealed, setRevealed] = useState(false);
+  const { wrapperRef, revealed, toggleRevealed } = useCoarsePointerReveal();
   const slackMessageUrl = getExternalLinkUrl(message.slackMessage?.messageLink);
 
   const [longPressOpen, setLongPressOpen] = useState(false);
@@ -249,24 +256,6 @@ export function TranscriptMessageBody({
     }
   }, []);
 
-  useEffect(() => {
-    if (!revealed) {
-      return;
-    }
-    const onDocPointerDown = (e: PointerEvent) => {
-      const target = e.target as Node | null;
-      if (
-        target &&
-        wrapperRef.current &&
-        !wrapperRef.current.contains(target)
-      ) {
-        setRevealed(false);
-      }
-    };
-    document.addEventListener("pointerdown", onDocPointerDown);
-    return () => document.removeEventListener("pointerdown", onDocPointerDown);
-  }, [revealed]);
-
   const handleBubbleClick = useCallback(
     (e: ReactMouseEvent<HTMLDivElement>) => {
       // Suppress the click that follows a long-press activation so the
@@ -291,9 +280,9 @@ export function TranscriptMessageBody({
       if (!isPointerCoarse()) {
         return;
       }
-      setRevealed((v) => !v);
+      toggleRevealed();
     },
-    [slackMessageUrl],
+    [slackMessageUrl, toggleRevealed],
   );
 
   const linkedSubagentEntries = useSubagentStore((s) =>
@@ -399,6 +388,22 @@ export function TranscriptMessageBody({
     const id = extractBgIdFromResult(tc);
     return id !== undefined && cardBackedBackgroundTaskIds.has(id) ? id : null;
   };
+  /**
+   * Whether a dedicated inline card renders this tool call's content, which
+   * makes the raw chip a duplicate. Each clause requires the card to actually
+   * be there: a failed call (no id), a run with no store entry, and an answered
+   * question with nothing to show are all not card-backed, so they keep the
+   * chip instead of vanishing from the transcript.
+   *
+   * Read by all three places that must agree on this: the chip filter, the
+   * group's suppression set, and the collapse guard that keeps a card-backed
+   * group out of the "Earlier activity" disclosure.
+   */
+  const isCardBacked = (tc: ChatMessageToolCall): boolean =>
+    cardBackedWorkflowRunId(tc) !== null ||
+    cardBackedAcpRunId(tc) !== null ||
+    cardBackedBackgroundTaskId(tc) !== null ||
+    hasRenderableAnswer(tc.answeredQuestion);
   const handleAcpRunClick = useCallback((acpSessionId: string) => {
     useViewerStore.getState().openAcpRunDetail(acpSessionId);
   }, []);
@@ -668,6 +673,27 @@ export function TranscriptMessageBody({
       <AcpConnectAffordance assistantId={assistantId} />
     ) : null;
 
+  // An answered `ask_question` renders its questions and the user's answers as
+  // a durable transcript row. The record rides the tool call itself (live from
+  // `tool_result`, then from the daemon's persisted copy on reload), so this
+  // renders identically on both paths and cannot double up: one card per
+  // answered tool call.
+  const renderAnsweredQuestionCards = (toolCalls: ChatMessageToolCall[]) => {
+    const answered = toolCalls.filter((tc) =>
+      hasRenderableAnswer(tc.answeredQuestion),
+    );
+    if (answered.length === 0) {
+      return null;
+    }
+    return (
+      <div className="flex w-full flex-col gap-1.5">
+        {answered.map((tc) => (
+          <AnsweredQuestionCard key={tc.id} answered={tc.answeredQuestion!} />
+        ))}
+      </div>
+    );
+  };
+
   const renderInlineBackgroundTaskCards = (
     toolCalls: ChatMessageToolCall[],
   ) => {
@@ -742,16 +768,7 @@ export function TranscriptMessageBody({
       it.kind === "thinking" ? [it.text] : [],
     );
     const renderableToolCalls = groupToolCalls.filter(
-      // Suppress the raw chip only for a card-backed run_workflow / acp_spawn /
-      // background bash call (see cardBackedWorkflowRunId / cardBackedAcpRunId /
-      // cardBackedBackgroundTaskId). A failed call (no id) or a run with no
-      // store entry is not card-backed, so it renders its tool result instead
-      // of vanishing.
-      (tc) =>
-        !isSubagentSpawnCall(tc) &&
-        cardBackedWorkflowRunId(tc) === null &&
-        cardBackedAcpRunId(tc) === null &&
-        cardBackedBackgroundTaskId(tc) === null,
+      (tc) => !isSubagentSpawnCall(tc) && !isCardBacked(tc),
     );
     const loneTool =
       cardItems.length === 1 &&
@@ -770,25 +787,17 @@ export function TranscriptMessageBody({
           {renderInlineWorkflowCards(groupToolCalls)}
           {renderInlineAcpRunCards(groupToolCalls)}
           {renderInlineBackgroundTaskCards(groupToolCalls)}
+          {renderAnsweredQuestionCards(groupToolCalls)}
           {renderAcpConnectAffordance(groupToolCalls)}
         </Fragment>
       );
     }
     if (renderableToolCalls.length > 0) {
-      // A card-backed run_workflow / acp_spawn call is shown by its dedicated
-      // inline card, so drop it from the steps MultiActivityGroup renders too
-      // (the group filters subagent_spawn internally but not the others). A
-      // failed or pruned call is not card-backed and is kept, so its tool result
-      // still renders as a step; subagent spawns are left for the group to filter.
+      // A card-backed call is shown by its dedicated inline card, so drop it
+      // from the steps MultiActivityGroup renders too (the group filters
+      // subagent_spawn internally but not the others).
       const suppressedCardIds = new Set(
-        groupToolCalls
-          .filter(
-            (tc) =>
-              cardBackedWorkflowRunId(tc) !== null ||
-              cardBackedAcpRunId(tc) !== null ||
-              cardBackedBackgroundTaskId(tc) !== null,
-          )
-          .map((tc) => tc.id),
+        groupToolCalls.filter(isCardBacked).map((tc) => tc.id),
       );
       const groupCardToolCalls =
         suppressedCardIds.size === 0
@@ -822,6 +831,7 @@ export function TranscriptMessageBody({
           {renderInlineWorkflowCards(groupToolCalls)}
           {renderInlineAcpRunCards(groupToolCalls)}
           {renderInlineBackgroundTaskCards(groupToolCalls)}
+          {renderAnsweredQuestionCards(groupToolCalls)}
           {renderAcpConnectAffordance(groupToolCalls)}
         </Fragment>
       );
@@ -847,6 +857,7 @@ export function TranscriptMessageBody({
         {renderInlineWorkflowCards(groupToolCalls)}
         {renderInlineAcpRunCards(groupToolCalls)}
         {renderInlineBackgroundTaskCards(groupToolCalls)}
+        {renderAnsweredQuestionCards(groupToolCalls)}
       </Fragment>
     );
   };
@@ -855,7 +866,8 @@ export function TranscriptMessageBody({
     items: Array<{ kind: "text" | "nonText"; node: ReactNode }>,
   ): ReactNode => {
     type Slot =
-      { kind: "bubble"; nodes: ReactNode[] } | { kind: "raw"; node: ReactNode };
+      | { kind: "bubble"; nodes: ReactNode[] }
+      | { kind: "raw"; node: ReactNode };
     const slots: Slot[] = [];
     let textRun: ReactNode[] = [];
 
@@ -1056,9 +1068,7 @@ export function TranscriptMessageBody({
               isToolCallRunning(toolCall) ||
               toolCall.pendingConfirmation !== undefined ||
               isSubagentSpawnCall(toolCall) ||
-              cardBackedWorkflowRunId(toolCall) !== null ||
-              cardBackedAcpRunId(toolCall) !== null ||
-              cardBackedBackgroundTaskId(toolCall) !== null ||
+              isCardBacked(toolCall) ||
               acpConnectToolUseId === toolCall.id ||
               unknownNudgeToolCallIds?.has(toolCall.id) === true,
           );
@@ -1108,10 +1118,14 @@ export function TranscriptMessageBody({
     >
       <div className={columnClass}>
         {assistantContent}
+        {pendingVisualToolUseIds.map((toolUseId) => (
+          <VisualPlaceholder key={`visual-pending-${toolUseId}`} />
+        ))}
         {hasAttachments && (
           <MessageAttachments
             attachments={message.attachments ?? []}
             assistantId={assistantId}
+            messageId={message.id}
           />
         )}
         {trailer}

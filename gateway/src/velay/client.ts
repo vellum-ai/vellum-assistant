@@ -33,6 +33,13 @@ const RECONNECT_JITTER_RATIO = 0.5;
 const VELAY_POLICY_CLOSE_CODE = 4008;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_READ_TIMEOUT_MS = 60_000;
+// Velay's production load balancer terminates every tunnel connection at
+// exactly 3600s (BackendConfig timeoutSec), killing any proxied call
+// mid-stream. Refresh the tunnel ourselves before that deadline (but only
+// while nothing is proxied through it) so the LB's clock resets without
+// ever chopping an established call.
+const TUNNEL_REFRESH_AFTER_MS = 3_300_000;
+const TUNNEL_REFRESH_BUSY_RETRY_MS = 30_000;
 
 export type WebSocketConstructorWithOptions = {
   new (
@@ -54,6 +61,7 @@ export type VelayTunnelClientOptions = {
   webSocketBridgeFactory?: (
     gatewayLoopbackBaseUrl: string,
     sendFrame: (frame: VelayFrame) => void,
+    onIdle?: () => void,
   ) => VelayWebSocketBridge;
   reconnect?: {
     baseDelayMs?: number;
@@ -64,6 +72,10 @@ export type VelayTunnelClientOptions = {
   heartbeat?: {
     intervalMs?: number;
     readTimeoutMs?: number;
+  };
+  refresh?: {
+    afterMs?: number;
+    busyRetryMs?: number;
   };
   timerApi?: TimerApi;
 };
@@ -80,6 +92,8 @@ export class VelayTunnelClient {
   private readonly backoff: ExponentialBackoff;
   private readonly heartbeatIntervalMs: number;
   private readonly heartbeatReadTimeoutMs: number;
+  private readonly refreshAfterMs: number;
+  private readonly refreshBusyRetryMs: number;
   private readonly timerApi: TimerApi;
   private ws: WebSocket | null = null;
   private running = false;
@@ -87,6 +101,14 @@ export class VelayTunnelClient {
   private reconnectTimer: unknown = null;
   private heartbeatTimer: unknown = null;
   private readTimeoutTimer: unknown = null;
+  private refreshTimer: unknown = null;
+  // Set when the refresh deadline passed while the tunnel was busy: the
+  // refresh then fires as soon as the tunnel drains (last bridged
+  // connection or in-flight HTTP request completes) instead of waiting for
+  // the next busy-retry poll, which could leave a stale tunnel accepting
+  // new streams right before the LB chops it.
+  private refreshDue = false;
+  private inFlightHttpRequests = 0;
   private peerHeartbeatConfirmed = false;
   private publishedPublicBaseUrl: string | undefined;
   private credentialRefreshPending = false;
@@ -102,7 +124,11 @@ export class VelayTunnelClient {
     this.httpBridge = options.httpBridge ?? bridgeVelayHttpRequest;
     this.webSocketBridge = (
       options.webSocketBridgeFactory ?? defaultWebSocketBridgeFactory
-    )(options.gatewayLoopbackBaseUrl, (frame) => this.sendFrame(frame));
+    )(
+      options.gatewayLoopbackBaseUrl,
+      (frame) => this.sendFrame(frame),
+      () => this.handleTunnelIdle(),
+    );
     this.backoff = new ExponentialBackoff({
       baseDelayMs: options.reconnect?.baseDelayMs ?? BASE_RECONNECT_DELAY_MS,
       maxDelayMs: options.reconnect?.maxDelayMs ?? MAX_RECONNECT_DELAY_MS,
@@ -116,6 +142,9 @@ export class VelayTunnelClient {
       options.heartbeat?.intervalMs ?? HEARTBEAT_INTERVAL_MS;
     this.heartbeatReadTimeoutMs =
       options.heartbeat?.readTimeoutMs ?? HEARTBEAT_READ_TIMEOUT_MS;
+    this.refreshAfterMs = options.refresh?.afterMs ?? TUNNEL_REFRESH_AFTER_MS;
+    this.refreshBusyRetryMs =
+      options.refresh?.busyRetryMs ?? TUNNEL_REFRESH_BUSY_RETRY_MS;
     this.timerApi = options.timerApi ?? defaultTimerApi;
   }
 
@@ -188,6 +217,7 @@ export class VelayTunnelClient {
       this.reconnectTimer = null;
     }
     this.clearHeartbeat();
+    this.clearTunnelRefresh();
     const ws = this.ws;
     this.ws = null;
     this.webSocketBridge.closeAll();
@@ -436,18 +466,29 @@ export class VelayTunnelClient {
     this.publishedPublicBaseUrl = publicUrl;
     this.backoff.reset();
     log.info({ publicUrl }, "Velay tunnel registered");
+    this.scheduleTunnelRefresh(originWs, this.refreshAfterMs);
   }
 
   private async handleHttpRequestFrame(
     frame: VelayHttpRequestFrame,
     originWs: WebSocket,
   ): Promise<void> {
-    const response = await this.httpBridge(
-      frame,
-      this.options.gatewayLoopbackBaseUrl,
-    );
-    if (this.ws !== originWs || !this.running) return;
-    this.sendFrame(response);
+    this.inFlightHttpRequests++;
+    try {
+      const response = await this.httpBridge(
+        frame,
+        this.options.gatewayLoopbackBaseUrl,
+      );
+      if (this.ws !== originWs || !this.running) {
+        return;
+      }
+      this.sendFrame(response);
+    } finally {
+      this.inFlightHttpRequests--;
+      if (this.inFlightHttpRequests === 0) {
+        this.handleTunnelIdle();
+      }
+    }
   }
 
   private handleClose(ws: WebSocket, event: CloseEvent): void {
@@ -455,6 +496,7 @@ export class VelayTunnelClient {
     this.ws = null;
     this.connecting = false;
     this.clearHeartbeat();
+    this.clearTunnelRefresh();
     this.webSocketBridge.closeAll();
     log.info(
       { code: event.code, reason: event.reason },
@@ -472,9 +514,71 @@ export class VelayTunnelClient {
     this.ws = null;
     this.connecting = false;
     this.clearHeartbeat();
+    this.clearTunnelRefresh();
     this.webSocketBridge.closeAll();
     closeWebSocket(ws, code, reason);
     this.clearPublishedPublicBaseUrlThenReconnect();
+  }
+
+  /**
+   * Restart the tunnel before velay's load balancer terminates it (see
+   * TUNNEL_REFRESH_AFTER_MS), so proxied calls stop dying at the hourly
+   * boundary. Only fires while nothing is proxied through the tunnel; while
+   * busy it marks the refresh due, so the tunnel refreshes the moment it
+   * drains, with a busy-retry poll as backstop. If the LB chops first, the
+   * close handler clears the timer and the normal reconnect takes over.
+   */
+  private scheduleTunnelRefresh(ws: WebSocket, delayMs: number): void {
+    if (this.refreshAfterMs <= 0) {
+      return;
+    }
+    this.clearTunnelRefresh();
+    this.refreshTimer = this.timerApi.setTimeout(() => {
+      this.refreshTimer = null;
+      if (this.ws !== ws || !this.running) {
+        return;
+      }
+      if (this.isTunnelBusy()) {
+        this.scheduleTunnelRefresh(ws, this.refreshBusyRetryMs);
+        // Set after the reschedule: clearTunnelRefresh resets the flag.
+        this.refreshDue = true;
+        return;
+      }
+      this.performTunnelRefresh(ws);
+    }, delayMs);
+  }
+
+  private clearTunnelRefresh(): void {
+    this.refreshDue = false;
+    if (this.refreshTimer) {
+      this.timerApi.clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+  }
+
+  private isTunnelBusy(): boolean {
+    return (
+      this.webSocketBridge.getConnectionCount() > 0 ||
+      this.inFlightHttpRequests > 0
+    );
+  }
+
+  /** Overdue-refresh path: the tunnel just drained (see refreshDue). */
+  private handleTunnelIdle(): void {
+    if (!this.refreshDue || !this.running) {
+      return;
+    }
+    const ws = this.ws;
+    if (!ws || this.isTunnelBusy()) {
+      return;
+    }
+    this.performTunnelRefresh(ws);
+  }
+
+  private performTunnelRefresh(ws: WebSocket): void {
+    log.info("Refreshing idle Velay tunnel before the load balancer timeout");
+    this.backoff.reset();
+    this.disconnectActiveWebSocket(ws, 1000, "proactive tunnel refresh");
   }
 
   private async clearPublishedPublicBaseUrl(): Promise<void> {
@@ -662,8 +766,9 @@ const defaultTimerApi: TimerApi = {
 function defaultWebSocketBridgeFactory(
   gatewayLoopbackBaseUrl: string,
   sendFrame: (frame: VelayFrame) => void,
+  onIdle?: () => void,
 ): VelayWebSocketBridge {
-  return new VelayWebSocketBridge(gatewayLoopbackBaseUrl, sendFrame);
+  return new VelayWebSocketBridge(gatewayLoopbackBaseUrl, sendFrame, onIdle);
 }
 
 async function mutateGatewayConfigFile(

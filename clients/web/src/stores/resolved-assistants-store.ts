@@ -27,8 +27,9 @@ import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
 import {
-  isLocalMode,
+  isLocalClient,
   isLocalAssistant,
+  isPairedAssistant,
   isPlatformAssistant,
 } from "@/lib/local-mode";
 import {
@@ -52,6 +53,9 @@ export interface ResolvedAssistant {
   isActiveLockfileAssistant?: boolean;
   isLocal: boolean;
   isPlatformHosted: boolean;
+  isPaired: boolean;
+  /** Remote gateway URL for paired entries; only the lockfile carries it. */
+  runtimeUrl?: string;
   /** Owning org for platform entries; only the lockfile carries it, so
    *  API-sourced entries leave this undefined. */
   organizationId?: string;
@@ -133,6 +137,8 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
         isActiveLockfileAssistant: activeLockfileAssistantId === a.assistantId,
         isLocal: isLocalAssistant(a),
         isPlatformHosted: isPlatformAssistant(a),
+        isPaired: isPairedAssistant(a),
+        runtimeUrl: a.runtimeUrl,
         organizationId: a.organizationId,
       }));
       set({ assistants, assistantsHydrated: true });
@@ -157,11 +163,11 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
             hatchedAt: a.created,
             cloud: lockfileFields.cloud,
             runtimeVersion: lockfileFields.runtimeVersion,
+            runtimeUrl: lockfileFields.runtimeUrl,
             currentReleaseVersion: a.current_release_version,
             releaseChannel: a.release_channel,
             isActiveLockfileAssistant: lockfileFields.isActiveLockfileAssistant,
-            isLocal: a.is_local,
-            isPlatformHosted: !a.is_local,
+            ...classifyApiEntry(a.is_local, lockfileFields.isPaired),
           };
         }),
       }),
@@ -170,36 +176,40 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
 
     upsertFromApi: (assistant) =>
       set((state) => {
+        const idx = state.assistants.findIndex((a) => a.id === assistant.id);
+        const prior = idx >= 0 ? state.assistants[idx] : undefined;
+        const lockfileFields = getLockfileFields(assistant.id);
+        // The API payload omits lockfile-sourced fields; preserve them across
+        // lifecycle refreshes.
         const entry: ResolvedAssistant = {
           id: assistant.id,
           name: assistant.name,
           hatchedAt: assistant.created,
           currentReleaseVersion: assistant.current_release_version,
           releaseChannel: assistant.release_channel,
-          isLocal: assistant.is_local,
-          isPlatformHosted: !assistant.is_local,
+          ...classifyApiEntry(
+            assistant.is_local,
+            lockfileFields.isPaired,
+            prior?.isPaired,
+          ),
         };
-        const idx = state.assistants.findIndex((a) => a.id === assistant.id);
-        if (idx >= 0) {
+        if (prior) {
           const next = [...state.assistants];
-          const lockfileFields = getLockfileFields(assistant.id);
-          // The API payload omits lockfile-sourced fields; preserve them across
-          // lifecycle refreshes.
           next[idx] = {
             ...entry,
-            cloud: lockfileFields.cloud ?? next[idx]!.cloud,
-            organizationId: next[idx]!.organizationId,
+            cloud: lockfileFields.cloud ?? prior.cloud,
+            organizationId: prior.organizationId,
             runtimeVersion:
-              lockfileFields.runtimeVersion ?? next[idx]!.runtimeVersion,
+              lockfileFields.runtimeVersion ?? prior.runtimeVersion,
+            runtimeUrl: lockfileFields.runtimeUrl ?? prior.runtimeUrl,
             isActiveLockfileAssistant:
               lockfileFields.isActiveLockfileAssistant ??
-              next[idx]!.isActiveLockfileAssistant,
+              prior.isActiveLockfileAssistant,
           };
           return { assistants: next };
         }
         // New entry: the API payload omits lockfile-sourced fields, but the
         // lockfile may already know them.
-        const lockfileFields = getLockfileFields(assistant.id);
         return {
           assistants: [
             ...state.assistants,
@@ -208,6 +218,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
               cloud: lockfileFields.cloud,
               organizationId: lockfileFields.organizationId,
               runtimeVersion: lockfileFields.runtimeVersion,
+              runtimeUrl: lockfileFields.runtimeUrl,
               isActiveLockfileAssistant:
                 lockfileFields.isActiveLockfileAssistant,
             },
@@ -266,10 +277,31 @@ export const useResolvedAssistantsStore = createSelectors(
   useResolvedAssistantsStoreBase,
 );
 
+/**
+ * Classification triplet for an API-shaped entry, honoring the lockfile: a
+ * paired entry is neither local nor platform-hosted, whatever the API's
+ * `is_local` claims. `priorIsPaired` carries an already-resolved entry's
+ * classification through refreshes where the lockfile is unavailable.
+ */
+function classifyApiEntry(
+  isLocalFromApi: boolean,
+  lockfileIsPaired: boolean | undefined,
+  priorIsPaired?: boolean,
+): Pick<ResolvedAssistant, "isLocal" | "isPlatformHosted" | "isPaired"> {
+  const isPaired = lockfileIsPaired ?? priorIsPaired ?? false;
+  return {
+    isPaired,
+    isLocal: isPaired ? false : isLocalFromApi,
+    isPlatformHosted: isPaired ? false : !isLocalFromApi,
+  };
+}
+
 function getLockfileFields(assistantId: string): {
   cloud?: string;
   organizationId?: string;
   runtimeVersion?: string;
+  runtimeUrl?: string;
+  isPaired?: boolean;
   isActiveLockfileAssistant?: boolean;
 } {
   const lockfile = useLockfileStore.getState().lockfile;
@@ -281,6 +313,8 @@ function getLockfileFields(assistantId: string): {
     cloud: entry?.cloud,
     organizationId: entry?.organizationId,
     runtimeVersion: entry?.resources?.runtimeVersion,
+    runtimeUrl: entry?.runtimeUrl,
+    isPaired: entry ? isPairedAssistant(entry) : undefined,
     isActiveLockfileAssistant: lockfile
       ? activeLockfileAssistantId === assistantId
       : undefined,
@@ -311,7 +345,7 @@ function getEffectiveActiveLockfileAssistantId(
 // committed lockfiles count: the empty placeholder written when nothing has
 // loaded (e.g. a failed host read at boot) must not mark the list hydrated
 // and reconcile away a still-valid selection.
-if (isLocalMode()) {
+if (isLocalClient()) {
   useLockfileStore.subscribe((state) => {
     if (state.lockfile && state.committed) {
       useResolvedAssistantsStoreBase.getState().setFromLockfile(state.lockfile);

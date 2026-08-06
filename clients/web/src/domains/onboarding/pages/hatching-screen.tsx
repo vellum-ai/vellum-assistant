@@ -23,7 +23,11 @@ import {
   readSelectedVersion,
   writeSelectedVersion,
 } from "@/domains/onboarding/prefs";
-import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
+import {
+  applyPendingProviderKey,
+  ProviderKeyRejectedError,
+} from "@/domains/onboarding/provider-key";
+import { onboardingProvider } from "@/domains/onboarding/provider-catalog";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
 import {
   awaitPurchasedProvisioning,
@@ -31,7 +35,7 @@ import {
   POLL_INTERVAL_MS,
 } from "@/domains/onboarding/purchased-provisioning";
 import {
-  isLocalMode,
+  isLocalClient,
   loadLockfile,
   primeLocalGatewayConnection,
   probeLocalGatewayReady,
@@ -75,6 +79,12 @@ const COMPLETION_NAVIGATE_DELAY_MS = 800;
 let localHatchPromise: Promise<
   import("@/runtime/local-mode-host").LocalHatchResult
 > | null = null;
+// The hosting mode (`--remote` arg) the held localHatchPromise was created
+// with. A held promise only answers for the SAME mode: the guard can outlive
+// a trip through the hosting screen (the rejected-key hold below), where the
+// user may switch Local <-> Docker, and the abandoned mode's assistant must
+// not be adopted for the new choice.
+let localHatchRemote: string | undefined;
 let platformHatchPromise: Promise<
   import("@/assistant/api").HatchResult
 > | null = null;
@@ -82,6 +92,7 @@ let hatchTraitsCache: CharacterTraits | null = null;
 
 function releaseHatchGuards(): void {
   localHatchPromise = null;
+  localHatchRemote = undefined;
   platformHatchPromise = null;
   hatchTraitsCache = null;
 }
@@ -148,7 +159,7 @@ export function HatchingScreen() {
   const pluginParam = searchParams.get(ATTRIBUTED_PLUGIN_PARAM);
   const electron = isElectron();
   const useLocalHatch =
-    isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
+    isLocalClient() && hostingParam !== null && hostingParam !== "vellum-cloud";
   // `hosting=vellum-cloud` names a managed hatch even in a local-mode build
   // (see `adopt-existing-assistant`): the assistant is provisioned on the
   // platform, so its purchased machine and storage are waited for.
@@ -183,6 +194,11 @@ export function HatchingScreen() {
   const [phase, setPhase] = useState<HatchPhase>("initializing");
   const [error, setError] = useState<string | null>(null);
   const [platformHostedDisabled, setPlatformHostedDisabled] = useState(false);
+  // The provider rejected the entered API key (daemon-side validation). The
+  // error screen swaps its retry for an "Update API key" path back to the
+  // key screen; the hatch guards stay held so the corrected pass reuses the
+  // already-hatched assistant instead of hatching a second one.
+  const [apiKeyRejected, setApiKeyRejected] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [displayProgress, setDisplayProgress] = useState<number>(0);
   const [animationEpoch, setAnimationEpoch] = useState(0);
@@ -225,12 +241,13 @@ export function HatchingScreen() {
     // healthz probes below) rewrite to the local gateway while a self-hosted
     // connection is primed. Dropping both is the same handoff the hosting
     // screen performs for its Vellum Cloud choice.
-    if (managedHatch && isLocalMode()) {
+    if (managedHatch && isLocalClient()) {
       clearGatewayToken();
       setSelfHostedConnection(null);
     }
 
     setPlatformHostedDisabled(false);
+    setApiKeyRejected(false);
 
     let cancelled = false;
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -329,7 +346,7 @@ export function HatchingScreen() {
           const existing = await getAssistant();
           const preflightState = resolveAssistantLifecycleState(existing);
           if (!cancelled && existing.ok && preflightState.kind === "active") {
-            if (isLocalMode()) {
+            if (isLocalClient()) {
               void saveManagedLockfileAssistant(
                 existing.data.id,
                 existing.data.name,
@@ -363,8 +380,14 @@ export function HatchingScreen() {
       // 4. Navigate to pre-chat flow
       if (useLocalHatch) {
         try {
+          const remote = hostingParam === "docker" ? "docker" : undefined;
+          // A promise held across the rejected-key hold answers only for the
+          // hosting mode it was created with; a switched mode hatches fresh.
+          if (localHatchPromise && localHatchRemote !== remote) {
+            releaseHatchGuards();
+          }
           if (!localHatchPromise) {
-            const remote = hostingParam === "docker" ? "docker" : undefined;
+            localHatchRemote = remote;
             localHatchPromise = hatchLocalAssistant(undefined, remote);
           }
           // Keep `localHatchPromise` set through the rest of the flow. The
@@ -435,6 +458,25 @@ export function HatchingScreen() {
             try {
               await applyPendingProviderKey(result.assistantId);
             } catch (err) {
+              if (err instanceof ProviderKeyRejectedError) {
+                // The assistant hatched fine; only the entered key is bad.
+                // Surface a correctable error and hold here, KEEPING the
+                // module-level hatch guards: the user returns via the API-key
+                // screen and this screen re-adopts the same live assistant
+                // instead of hatching a duplicate. The pending selection
+                // (rejected key included) was re-staged by
+                // applyPendingProviderKey, so a reload here re-applies it and
+                // lands back on this screen rather than proceeding keyless.
+                if (!cancelled) {
+                  const displayName =
+                    onboardingProvider(err.provider)?.displayName ??
+                    err.provider;
+                  setApiKeyRejected(true);
+                  const action = `Update your ${displayName} API key to continue.`;
+                  setError(err.reason ? `${err.reason} ${action}` : action);
+                }
+                return;
+              }
               captureError(err, { context: "onboarding_apply_provider_key" });
             }
           }
@@ -631,7 +673,7 @@ export function HatchingScreen() {
             if (createdFreshAssistant || preflightFoundNoAssistant) {
               void persistHatchAvatar(assistantId);
             }
-            if (isLocalMode()) {
+            if (isLocalClient()) {
               void saveManagedLockfileAssistant(
                 assistantId,
                 result.data.name,
@@ -730,7 +772,7 @@ export function HatchingScreen() {
                 : "text-3xl font-semibold tracking-tight"
             }
           >
-            Something went wrong
+            {apiKeyRejected ? "Your API key didn't work" : "Something went wrong"}
           </h1>
           <p
             className={`text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-4"}`}
@@ -765,26 +807,45 @@ export function HatchingScreen() {
           <div
             className={`flex w-full flex-col ${electron ? "gap-2.5 max-w-[280px]" : "gap-2 max-w-sm"}`}
           >
-            <Button
-              variant="primary"
-              size="regular"
-              fullWidth
-              className={electron ? undefined : "h-11 text-base"}
-              onClick={() => {
-                segmentStartRef.current = 0;
-                segmentStartTimeRef.current = Date.now();
-                phaseRef.current = "initializing";
-                displayProgressRef.current = 0;
-                setPhase("initializing");
-                setDisplayProgress(0);
-                setAnimationEpoch((n) => n + 1);
-                setError(null);
-                setPlatformHostedDisabled(false);
-                setAttempt((n) => n + 1);
-              }}
-            >
-              Try again
-            </Button>
+            {apiKeyRejected ? (
+              <Button
+                variant="primary"
+                size="regular"
+                fullWidth
+                className={electron ? undefined : "h-11 text-base"}
+                onClick={() =>
+                  void navigate(
+                    hostingParam
+                      ? `${routes.onboarding.apiKey}?hosting=${hostingParam}`
+                      : routes.onboarding.apiKey,
+                    { replace: true },
+                  )
+                }
+              >
+                Update API key
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                size="regular"
+                fullWidth
+                className={electron ? undefined : "h-11 text-base"}
+                onClick={() => {
+                  segmentStartRef.current = 0;
+                  segmentStartTimeRef.current = Date.now();
+                  phaseRef.current = "initializing";
+                  displayProgressRef.current = 0;
+                  setPhase("initializing");
+                  setDisplayProgress(0);
+                  setAnimationEpoch((n) => n + 1);
+                  setError(null);
+                  setPlatformHostedDisabled(false);
+                  setAttempt((n) => n + 1);
+                }}
+              >
+                Try again
+              </Button>
+            )}
             <Button
               variant="outlined"
               size="regular"

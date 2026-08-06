@@ -8,9 +8,11 @@ and desktop wrappers that users interact with directly.
 ```
 clients/
 ├── web/               # Web app (Vite)
+├── docs/              # Public docs site: SSR Next.js app serving www.vellum.ai/docs
 ├── ios/               # iOS Capacitor shell
 ├── android/           # Android Capacitor shell
 ├── macos/             # macOS desktop wrapper (Electron / electron-vite)
+├── windows/           # Windows desktop wrapper (Electron / electron-vite)
 └── chrome-extension/  # MV3 Chrome browser extension
 ```
 
@@ -23,8 +25,8 @@ it follows the same remote web app loading model as iOS.
 
 ## What belongs here
 
-- End-user client surfaces (web app, iOS Capacitor wrapper, macOS/Electron
-  wrapper, Chrome extension).
+- End-user client surfaces (web app, Capacitor wrappers, Electron desktop
+  wrappers, Chrome extension).
 
 ## What does not belong here
 
@@ -34,9 +36,14 @@ it follows the same remote web app loading model as iOS.
 
 ## Conventions
 
-- JavaScript client packages use the root Bun workspace and root `bun.lock`.
-  Native shells such as `ios/` and `android/` consume Capacitor dependencies
-  from `web/` and do not have separate package manifests.
+- `web/`, `macos/`, `windows/`, and `docs/` are members of the root bun
+  workspace: the single root `bun.lock` covers them, and `bun install` anywhere in the tree
+  resolves to the workspace root. Each keeps its own `package.json`,
+  `tsconfig.json`, and lint config.
+- `chrome-extension/` is the one standalone package, with its own `bun.lock`
+  and per-package `bun install`. Native shells (`ios/`, `android/`) are
+  Capacitor shells built from `web/` and have no package manifests of their
+  own.
 - Exact version pinning applies repo-wide (see root [`AGENTS.md`](../AGENTS.md)).
 - When a new client is added under `clients/`, add corresponding `paths:` globs
   to any relevant PR/CI workflows in `.github/workflows/`.
@@ -46,6 +53,8 @@ it follows the same remote web app loading model as iOS.
 - **macOS workflow filenames** — `clients/macos/` is the canonical
   platform-named directory, and its CI workflow files are `pr-macos.yaml` /
   `ci-main-macos.yaml`.
+- **Windows workflow filenames** - `clients/windows/` uses `pr-windows.yaml` /
+  `ci-main-windows.yaml`.
 
 ## Chrome Extension
 

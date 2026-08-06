@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import {
   profilePickerLabel,
   visibleProfilesForPicker,
@@ -33,6 +34,7 @@ import {
   setGlobalThresholds,
 } from "@/lib/threshold-api";
 import { useConversationStore } from "@/stores/conversation-store";
+import { badRequestMessage } from "@/utils/api-errors";
 import { findConversation } from "@/utils/conversation-cache";
 import {
   THRESHOLD_PRESETS,
@@ -406,13 +408,19 @@ export function ComposerSettingsMenu({
             );
           });
         return true;
-      } catch {
+      } catch (error) {
         if (conversationIdRef.current === capturedConversationId) {
           // Roll back to the last server-confirmed value, not a stale closure
           // capture — avoids clobbering a later successful selection when two
           // requests race (select A → select B → A fails → should stay at B).
           setOptimisticActiveProfile(lastConfirmedProfileRef.current);
-          toast.error("Failed to switch profile. Please try again.");
+          // A 400 means the profile can't dispatch (no connection or key for
+          // its provider). The server names what's missing; generic retry copy
+          // would send the user round the same failing loop.
+          toast.error(
+            badRequestMessage(error) ??
+              "Failed to switch profile. Please try again.",
+          );
         }
         return false;
       }
@@ -434,9 +442,15 @@ export function ComposerSettingsMenu({
     return [...ordered, ...extras];
   }, [profiles, profileOrder]);
 
+  // Older assistants live-inherit blank profile fields at resolution time,
+  // so a sparse profile dispatches there and must not be hidden.
+  const requireOwnProviderAndModel = useSupportsCompleteProfileSnapshots();
   const visibleProfileEntries = useMemo(
-    () => visibleProfilesForPicker(orderedProfileEntries, [profileActiveKey]),
-    [orderedProfileEntries, profileActiveKey],
+    () =>
+      visibleProfilesForPicker(orderedProfileEntries, [profileActiveKey], {
+        requireOwnProviderAndModel,
+      }),
+    [orderedProfileEntries, profileActiveKey, requireOwnProviderAndModel],
   );
 
   // Label for the currently-active profile, shown inline on the composer
@@ -680,7 +694,7 @@ export function ComposerSettingsMenu({
         <Menu.Root open={accessOpen} onOpenChange={setAccessOpen}>
           <Menu.Trigger asChild>{accessTrigger}</Menu.Trigger>
           <Menu.Content side="top" align="start">
-            <Menu.Label className="text-label-small-default normal-case tracking-normal">
+            <Menu.Label className="mb-1 text-label-small-default normal-case tracking-normal">
               Assistant Access
             </Menu.Label>
             {accessItems.map(({ preset, isActive, isDefault }) => {
@@ -718,9 +732,14 @@ export function ComposerSettingsMenu({
         <Menu.Root open={profileOpen} onOpenChange={setProfileOpen}>
           <Menu.Trigger asChild>{profileTrigger}</Menu.Trigger>
           <Menu.Content side="top" align="start">
-            <Menu.Label className="flex items-center justify-between gap-2 text-label-small-default normal-case tracking-normal">
+            <Menu.Label className="mb-1 flex items-center justify-between gap-2 text-label-small-default normal-case tracking-normal">
               <span>Model Profile</span>
-              {quickAddButton}
+              {/* The compact quick-add button (h-6/24px) is taller than the
+                  label text's own line box (10px); items-center would
+                  otherwise stretch the row to fit it and nudge the text down
+                  relative to the icon-less Assistant Access label. Cancel
+                  that out so both labels sit at the same offset. */}
+              <span className="-my-[7px]">{quickAddButton}</span>
             </Menu.Label>
             {visibleProfileEntries.map((entry) => {
               const isActive = entry.name === profileActiveKey;

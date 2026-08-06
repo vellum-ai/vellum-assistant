@@ -28,6 +28,7 @@ import { initializeDb } from "../persistence/db-init.js";
 import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-backend.js";
 import { maybeEnqueueLexicalBackfillOnUpgrade } from "../persistence/job-handlers/message-lexical-backfill.js";
 import { clearLifecycleQuiesce } from "../persistence/lifecycle-quiesce.js";
+import { isPlatformClientConfigured } from "../platform/client.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
@@ -81,7 +82,7 @@ import { startDiskPressureGuardForLifecycle } from "./disk-pressure-guard-lifecy
 import { startEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
-import { installAssistantSymlink } from "./install-symlink.js";
+import { installAssistantCommand } from "./install-assistant-command.js";
 import {
   type InterruptedResumeTarget,
   MAX_RESUME_ATTEMPTS,
@@ -197,6 +198,14 @@ export async function runDaemon(): Promise<void> {
   // Start the runtime HTTP server early so /healthz answers ASAP. A bind
   // failure is non-fatal — the daemon falls back to IPC-only operation.
   await startRuntimeHttpServer();
+
+  // Warms the configured-probe cache (credential reads only, no DB). Fired
+  // immediately after the transport binds, ahead of DB init and readiness,
+  // so an urgent signal arriving the moment requests are admitted is not
+  // decided on an empty cache.
+  void isPlatformClientConfigured().catch((err) =>
+    log.warn({ err }, "Platform configured-probe warmup failed"),
+  );
 
   // Pre-populate feature flag overrides so subsequent sync
   // isAssistantFeatureFlagEnabled() calls have data. Fired non-blocking
@@ -765,10 +774,10 @@ export async function runDaemon(): Promise<void> {
 
   writePid(process.pid);
 
-  // Install the `assistant` CLI symlink idempotently on every daemon start.
+  // Install the `assistant` CLI command idempotently on every daemon start.
   // Best-effort and self-contained: every step swallows its own errors, so a
   // failure never affects startup.
-  installAssistantSymlink();
+  installAssistantCommand();
 
   void startEmbeddingRuntimeManager();
 

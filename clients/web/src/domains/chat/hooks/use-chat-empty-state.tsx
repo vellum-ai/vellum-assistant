@@ -13,6 +13,7 @@ import { type ReactNode, useMemo } from "react";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
 import { ComposerPeek } from "@/domains/chat/components/composer-peek";
+import { CreditsUpsellCard } from "@/domains/chat/components/credits-upsell-card";
 import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid";
 import {
   SuggestionFeaturedRow,
@@ -21,6 +22,10 @@ import {
 import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters";
 import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting";
 import { useThreadSuggestions } from "@/domains/chat/hooks/use-thread-suggestions";
+import {
+  isLiveVoiceSessionActive,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
 import {
   buildEditAppGreeting,
   buildEditAppStarters,
@@ -46,6 +51,15 @@ export interface UseChatEmptyStateParams {
   /** Opened app state from viewer-store (non-null when editing an app). */
   openedAppState: { name: string; dirName?: string } | null;
   isAssistantBusy: boolean;
+  /**
+   * Whether the org's credit balance is exhausted (from the shared
+   * `useBillingBalanceStatus()` read in `chat-route-content`). While true,
+   * the plain empty state mounts the credits upsell card above the starters
+   * so a fresh conversation shows the credit wall before the first send.
+   * Inert while the billing query is loading or gated off (self-hosted, no
+   * platform session), so the card never flashes.
+   */
+  showCreditsUpsell: boolean;
   onSelectStarter: (starter: ConversationStarter) => void;
   /**
    * Behind the new-thread-suggestions flag, clicking a library card invokes
@@ -93,6 +107,7 @@ export function useChatEmptyState({
   mainView,
   openedAppState,
   isAssistantBusy,
+  showCreditsUpsell,
   onSelectStarter,
   onSelectSuggestion,
 }: UseChatEmptyStateParams): ChatEmptyStateResult {
@@ -121,11 +136,26 @@ export function useChatEmptyState({
       ? { name: openedAppState.name, dirName: openedAppState.dirName }
       : null;
 
+  // The plain chat empty state: a fresh conversation outside the app-editing
+  // side panel. Gates the suggestions library, the starters dock, and the
+  // proactive credits upsell card.
+  const isPlainEmptyState = isEmptyConversation && !editingApp;
+
   // The avatar's presence on the empty state lives entirely in
-  // `ComposerPeek` (hanging from the top of the screen while idle,
-  // peeking behind the input while it's focused) — the greeting headline
-  // renders alone.
-  const actsEnabled = isEmptyConversation && !editingApp;
+  // `ComposerPeek` (hanging from the top of the screen while idle in the
+  // browser, saying hello from under the input on iOS, peeking behind the
+  // input while it's focused on both). The greeting headline renders
+  // alone.
+  // Not during a live-voice session. The peek is anchored to the composer's
+  // input rect, and a session replaces that input with the voice surface, so
+  // the avatar it hangs has nothing left to peek out from. On mobile it is
+  // worse than pointless: the peek is a `fixed` full-viewport portal, so its
+  // top-of-screen avatar dangles into the band above the voice sheet, which is
+  // the one part of the screen the sheet deliberately leaves to the thread
+  // header.
+  const liveVoiceState = useLiveVoiceStore.use.state();
+  const actsEnabled =
+    isPlainEmptyState && !isLiveVoiceSessionActive(liveVoiceState);
 
   // Behind the flag, the new suggestions library replaces the starter chips
   // on a fresh thread. The app-editing override keeps its bespoke chips
@@ -134,8 +164,7 @@ export function useChatEmptyState({
   // back to the chip grid.
   const showSuggestionLibrary =
     newThreadSuggestionsEnabled &&
-    isEmptyConversation &&
-    !editingApp &&
+    isPlainEmptyState &&
     onSelectSuggestion != null;
 
   // Gate the daemon fetch by `isEmptyConversation` so non-empty chats stop
@@ -191,9 +220,9 @@ export function useChatEmptyState({
       // padding so the panel sits flush against the viewport's bottom
       // edge.
       startersSlot = (
-        <div className="-mb-3 rounded-t-2xl bg-[var(--surface-active)] px-6 pt-5 pb-6">
+        <div className="-mb-3 rounded-t-2xl px-6 pt-5 pb-6">
           <p className="mb-4 text-center text-body-medium-default text-[var(--content-tertiary)]">
-            Suggestions
+            Try some suggestions:
           </p>
           <ConversationStarterGrid
             starters={emptyStateStarters}
@@ -202,6 +231,23 @@ export function useChatEmptyState({
         </div>
       );
     }
+  }
+
+  // Proactive credit wall for a fresh conversation: the card rides the
+  // starters slot, ahead of whatever occupies it (or alone when there are no
+  // starters yet), so it lands above the starters dock. The empty state
+  // suppresses `bannerSlot` (see `chat-body.tsx`), which is why the card
+  // mounts here rather than as a banner. The app-editing side panel is
+  // excluded; a send there still fails into the in-transcript card.
+  if (showCreditsUpsell && isPlainEmptyState) {
+    startersSlot = (
+      <>
+        <div className="mb-3">
+          <CreditsUpsellCard />
+        </div>
+        {startersSlot}
+      </>
+    );
   }
 
   // Stable callback so the latest-turn avatar slot isn't rebuilt on every
@@ -228,9 +274,10 @@ export function useChatEmptyState({
     [avatarComponents, avatarImageUrl, avatarTraits, isAssistantBusy],
   );
 
-  // Portal component — mounting location doesn't matter, but it only runs
+  // Portal component: mounting location doesn't matter, but it only runs
   // on the plain empty state (never over the app-editing side panel, whose
-  // composer shares the same DOM anchor).
+  // composer shares the same DOM anchor) and never during a live-voice
+  // session (see `actsEnabled` above).
   const composerPeekSlot = actsEnabled ? (
     <ComposerPeek
       components={avatarComponents}
@@ -248,7 +295,7 @@ export function useChatEmptyState({
     // side panel keeps them inline under the composer.
     dockStartersToBottom:
       showSuggestionLibrary ||
-      (isEmptyConversation && !editingApp && emptyStateStarters.length > 0),
+      (isPlainEmptyState && emptyStateStarters.length > 0),
     renderAvatar,
     emptyStatePlaceholder,
     composerPeekSlot,

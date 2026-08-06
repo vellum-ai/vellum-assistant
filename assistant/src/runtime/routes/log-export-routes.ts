@@ -465,7 +465,7 @@ async function handleExport({
     );
 
     // --- Create tar.gz archive ---
-    const archiveBuffer = createTarGz(staging);
+    const archiveBuffer = await createTarGz(staging);
     if (!archiveBuffer) {
       throw new InternalError("Failed to create archive");
     }

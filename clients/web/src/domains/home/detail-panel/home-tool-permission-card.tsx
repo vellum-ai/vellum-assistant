@@ -40,12 +40,14 @@ export function HomeToolPermissionCard({ item }: HomeToolPermissionCardProps) {
   const provider = metadata?.provider as string | undefined;
 
   if (!provider) {
+    // The panel header above this card already renders the title, so this
+    // fallback shows the body. Matches HomeGenericDetail.
     return (
       <Typography
         variant="body-medium-default"
         className="text-[var(--content-secondary)]"
       >
-        {item.title ?? item.summary}
+        {item.summary}
       </Typography>
     );
   }

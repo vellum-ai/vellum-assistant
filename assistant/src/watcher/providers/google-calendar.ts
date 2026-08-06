@@ -8,7 +8,6 @@
 
 import type { OAuthConnection } from "../../oauth/connection.js";
 import { resolveOAuthConnection } from "../../oauth/connection-resolver.js";
-import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { getLogger } from "../../util/logger.js";
 import type {
   FetchResult,
@@ -175,12 +174,14 @@ function eventToItem(event: CalendarEvent, eventType: string): WatcherItem {
       start,
       end,
       location: event.location ?? "",
-      description: event.description
-        ? wrapUntrustedContent(event.description, {
-            source: "calendar",
-            maxChars: 5000,
-          })
-        : "",
+      // Neither capped nor fenced here. The engine bounds every string in this
+      // payload before storing it (`capPayloadForStorage`) and fences the whole
+      // rendered event block in one `<external_content>` envelope before the
+      // model sees it, so both jobs are done once for every provider rather
+      // than per field here. Google's events.list reference documents no
+      // ceiling on `description`, and `location` has none either, so the
+      // engine's pass is the only bound on both.
+      description: event.description ?? "",
       status: event.status ?? "confirmed",
       organizer: event.organizer?.email ?? "",
       attendees:
@@ -338,6 +339,7 @@ export const googleCalendarProvider: WatcherProvider = {
   id: "google-calendar",
   displayName: "Google Calendar",
   requiredCredentialService: CREDENTIAL_SERVICE,
+  untrustedContentSource: "calendar",
 
   async getInitialWatermark(credentialService: string): Promise<string> {
     const connection = await resolveOAuthConnection(credentialService);

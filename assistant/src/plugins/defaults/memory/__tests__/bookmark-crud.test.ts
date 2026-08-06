@@ -261,4 +261,38 @@ describe("bookmark-crud", () => {
       /Message ghost not found/,
     );
   });
+
+  test("listBookmarks drives the join from message_bookmarks even with planner stats that predate the table", () => {
+    const sqlite = new Database(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON");
+    const captured: string[] = [];
+    const db = drizzle(sqlite, {
+      schema,
+      logger: { logQuery: (query: string) => captured.push(query) },
+    });
+    const raw = getSqliteFrom(db);
+    bootstrapMessageTables(raw);
+    migrateMessageBookmarks(db);
+    for (let i = 0; i < 30; i++) {
+      seedConversationAndMessage(raw, {
+        conversationId: `conv-${i}`,
+        messageId: `msg-${i}`,
+      });
+    }
+    // ANALYZE writes no sqlite_stat1 rows for an empty table, leaving
+    // message_bookmarks without statistics while messages gets them. This is
+    // the production state that made the planner scan messages.
+    raw.exec("ANALYZE");
+
+    listBookmarks(db);
+    const sql = captured.at(-1);
+    expect(sql).toBeDefined();
+    const plan = raw.query(`EXPLAIN QUERY PLAN ${sql}`).all() as Array<{
+      detail: string;
+    }>;
+    expect(plan[0]?.detail ?? "").toMatch(/^SCAN message_bookmarks/);
+    expect(plan.some((row) => row.detail.includes("SCAN messages"))).toBe(
+      false,
+    );
+  });
 });

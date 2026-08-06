@@ -13,6 +13,10 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+
+/** The steer button is version-gated, so hydrate an assistant that has it. */
+const STEER_CAPABLE_VERSION = "0.8.4";
 
 const originalMatchMedia = window.matchMedia;
 
@@ -55,7 +59,6 @@ function renderDrawer(overrides: Partial<Parameters<typeof QueuedMessagesDrawer>
       onCancelMessage={onCancelMessage}
       onCancelAll={() => {}}
       onSteer={onSteer}
-      showSteer
       onEditTail={onEditTail}
       {...overrides}
     />,
@@ -73,8 +76,15 @@ function rowFor(text: string): HTMLElement {
   return row;
 }
 
+beforeEach(() => {
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("test-asst", STEER_CAPABLE_VERSION);
+});
+
 afterEach(() => {
   cleanup();
+  useAssistantIdentityStore.getState().clearIdentity();
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     writable: true,

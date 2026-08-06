@@ -29,6 +29,7 @@ import {
 import type { AdmissionPolicy, TrustVerdict } from "@vellumai/gateway-client";
 
 import type { TrustClass } from "../../runtime/actor-trust-resolver.js";
+import type { SetupOutcome } from "../call-setup-router.js";
 import type { CallSession } from "../types.js";
 
 // `resolveActorTrust` must never be consulted by the router — the gateway
@@ -376,47 +377,75 @@ describe("routeSetup — verdict session stamp gates getPendingSession", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Floor table: trustClass × policy → admit/deny
+// Floor table: trustClass × policy → setup action
+//
+// A caller at or above the floor connects directly (`normal_call`). A caller
+// BELOW a floor that a guardian approval could clear is routed into the
+// guardian access-request flow instead of hung up on: `name_capture` for an
+// unrecognized number, `unverified_caller` for a known contact who still owes
+// verification. `guardian_only` / `no_one` sit above the trusted
+// contact rank an approval grants, so they stay a hard `deny`.
 // ---------------------------------------------------------------------------
 
 describe("routeSetup — admission floor table", () => {
   const cases: Array<{
     policy: AdmissionPolicy;
-    admits: TrustClass[];
-    denies: TrustClass[];
+    expected: Record<TrustClass, SetupOutcome["action"]>;
   }> = [
     {
       policy: "strangers",
-      admits: ["unknown", "unverified_contact", "trusted_contact", "guardian"],
-      denies: [],
+      expected: {
+        unknown: "normal_call",
+        unverified_contact: "normal_call",
+        trusted_contact: "normal_call",
+        guardian: "normal_call",
+      },
     },
     {
       policy: "any_contact",
-      admits: ["unverified_contact", "trusted_contact", "guardian"],
-      denies: ["unknown"],
+      expected: {
+        unknown: "name_capture",
+        unverified_contact: "normal_call",
+        trusted_contact: "normal_call",
+        guardian: "normal_call",
+      },
     },
     {
       policy: "trusted_contacts",
-      admits: ["trusted_contact", "guardian"],
-      denies: ["unknown", "unverified_contact"],
+      expected: {
+        unknown: "name_capture",
+        unverified_contact: "unverified_caller",
+        trusted_contact: "normal_call",
+        guardian: "normal_call",
+      },
     },
     {
       policy: "guardian_only",
-      admits: ["guardian"],
-      denies: ["unknown", "unverified_contact", "trusted_contact"],
+      expected: {
+        unknown: "deny",
+        unverified_contact: "deny",
+        trusted_contact: "deny",
+        guardian: "normal_call",
+      },
     },
     {
       policy: "no_one",
-      admits: [],
-      denies: ["unknown", "unverified_contact", "trusted_contact", "guardian"],
+      expected: {
+        unknown: "deny",
+        unverified_contact: "deny",
+        trusted_contact: "deny",
+        guardian: "deny",
+      },
     },
   ];
 
-  for (const { policy, admits, denies } of cases) {
-    for (const trustClass of denies) {
-      test(`${policy} denies ${trustClass}`, async () => {
+  for (const { policy, expected } of cases) {
+    for (const [trustClass, action] of Object.entries(expected) as Array<
+      [TrustClass, SetupOutcome["action"]]
+    >) {
+      test(`${policy} routes ${trustClass} to ${action}`, async () => {
         const { outcome } = await route(policy, verdictFor(trustClass));
-        expect(outcome.action).toBe("deny");
+        expect(outcome.action).toBe(action);
         if (outcome.action === "deny") {
           expect(outcome.logReason).toBe(
             `Inbound voice admission floor: ${policy}`,
@@ -424,13 +453,114 @@ describe("routeSetup — admission floor table", () => {
         }
       });
     }
-    for (const trustClass of admits) {
-      test(`${policy} admits ${trustClass}`, async () => {
-        const { outcome } = await route(policy, verdictFor(trustClass));
-        expect(outcome.action).not.toBe("deny");
-      });
-    }
   }
+});
+
+// ---------------------------------------------------------------------------
+// An unrecognized caller below a clearable floor reaches the guardian
+// access-request flow instead of being hung up on. The default channel policy
+// is `trusted_contacts`, so this is the out-of-the-box path for every inbound
+// call from an unknown number.
+// ---------------------------------------------------------------------------
+
+describe("routeSetup: below-floor unknown caller reaches guardian approval", () => {
+  test("default trusted_contacts floor routes an unknown caller to name_capture", async () => {
+    const { outcome, resolved } = await route(
+      "trusted_contacts",
+      verdictFor("unknown"),
+    );
+    expect(outcome.action).toBe("name_capture");
+    if (outcome.action === "name_capture") {
+      expect(outcome.fromNumber).toBe("+12025550142");
+    }
+    expect(resolved.actorTrust.trustClass).toBe("unknown");
+  });
+
+  test("an active voice invite still takes precedence over the approval flow", async () => {
+    activeVoiceInvite = {
+      inviteId: "inv_1",
+      inviteeName: "Alice Example",
+      guardianName: "Sam",
+      codeDigits: 6,
+    };
+    const { outcome } = await route("trusted_contacts", verdictFor("unknown"));
+    expect(outcome.action).toBe("invite_redemption");
+  });
+
+  test("guardian_only keeps the hard deny (approval could not admit them)", async () => {
+    const { outcome } = await route("guardian_only", verdictFor("unknown"));
+    expect(outcome.action).toBe("deny");
+  });
+
+  test("a blocked caller below a clearable floor is still denied", async () => {
+    const { outcome } = await route(
+      "trusted_contacts",
+      makeMemberVerdict("unknown", { status: "blocked" }),
+    );
+    expect(outcome.action).toBe("deny");
+  });
+
+  test("a revoked caller below a clearable floor is still denied", async () => {
+    const { outcome } = await route(
+      "trusted_contacts",
+      makeMemberVerdict("unknown", { status: "revoked" }),
+    );
+    expect(outcome.action).toBe("deny");
+  });
+
+  // Status and policy are independent governance signals: the gateway derives
+  // trust class from status alone, so a channel the guardian set to
+  // `policy: "deny"` still resolves to `unverified_contact` while status is
+  // `unverified`/`pending`. The deny gate is trust-class independent and runs
+  // ahead of the floor, so it holds whether the floor admits or denies, and it
+  // outranks an active voice invite.
+  describe("member policy deny outranks every inbound flow", () => {
+    const denyVerdict = () =>
+      makeMemberVerdict("unverified_contact", {
+        status: "unverified",
+        policy: "deny",
+      });
+
+    test("denied below a clearable floor (not sent to verification guidance)", async () => {
+      const { outcome } = await route("trusted_contacts", denyVerdict());
+      expect(outcome.action).toBe("deny");
+      if (outcome.action === "deny") {
+        expect(outcome.logReason).toBe("Inbound voice ACL: member policy deny");
+      }
+    });
+
+    test("denied even when the floor would admit them", async () => {
+      const { outcome } = await route("strangers", denyVerdict());
+      expect(outcome.action).toBe("deny");
+    });
+
+    test("denied with no floor configured", async () => {
+      const { outcome } = await route(null, denyVerdict());
+      expect(outcome.action).toBe("deny");
+    });
+
+    test("denied even with an active voice invite", async () => {
+      activeVoiceInvite = {
+        inviteId: "inv_1",
+        inviteeName: "Alice Example",
+        guardianName: "Sam",
+        codeDigits: 6,
+      };
+      const { outcome } = await route("trusted_contacts", denyVerdict());
+      expect(outcome.action).toBe("deny");
+    });
+
+    test("an active-status member with policy deny is denied", async () => {
+      const { outcome } = await route(
+        "trusted_contacts",
+        makeMemberVerdict("trusted_contact", {
+          status: "active",
+          policy: "deny",
+        }),
+      );
+      expect(outcome.action).toBe("deny");
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -542,14 +672,14 @@ describe("routeSetup — permissive floor admits to normal_call", () => {
     ).toBe("unverified_caller");
   });
 
-  test("trusted_contacts (default) still denies unknown and unverified", async () => {
+  test("trusted_contacts (default) keeps below-floor callers out of normal_call", async () => {
     expect(
       (await route("trusted_contacts", verdictFor("unknown"))).outcome.action,
-    ).toBe("deny");
+    ).toBe("name_capture");
     expect(
       (await route("trusted_contacts", verdictFor("unverified_contact")))
         .outcome.action,
-    ).toBe("deny");
+    ).toBe("unverified_caller");
   });
 });
 

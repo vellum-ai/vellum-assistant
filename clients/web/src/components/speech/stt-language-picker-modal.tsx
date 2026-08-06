@@ -1,11 +1,10 @@
 /**
  * A small modal hosting {@link SttLanguagePicker} for surfaces that open the
- * picker as a dialog: the Speech-to-Text settings form and the voice room
- * (where it lives outside the settings popover so closing the popover can't
- * unmount it and no transformed ancestor interferes with its positioning).
- * The voice first-run card hosts the picker as an in-modal sub-view instead,
- * per its one-dialog pattern. A pick hot-applies from the next spoken turn
- * (there is nothing to save), so it also closes the picker.
+ * picker as a dialog: the Speech-to-Text provider form on Models & Services
+ * and the Listening language card on Settings → Voice. The voice first-run
+ * card hosts the picker as an in-modal sub-view instead, per its one-dialog
+ * pattern. A pick hot-applies from the next spoken turn (there is nothing to
+ * save), so it also closes the picker.
  *
  * Selection state is threaded through from the host, which owns the single
  * `useSttLanguageSelection` call (see the picker component for why the hook
@@ -48,8 +47,8 @@ export function SttLanguagePickerModal({
         // filters. This must happen in the autofocus hook rather than only a
         // mount effect in the content: the hook fires after the dialog's
         // focus trap is already listening, so the trap records the field as
-        // the focus to restore when a closing ancestor (the voice room's
-        // settings popover) pulls focus back to its trigger a tick later.
+        // the focus to restore when a closing ancestor pulls focus back to
+        // its own trigger a tick later.
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           const container = event.target as HTMLElement | null;

@@ -31,9 +31,17 @@ interface ProfilesSectionProps {
 }
 
 /**
+ * `useProfileActions` toasts (and, where warranted, reports) every failure
+ * before rethrowing so the delete flow can react. The fire-and-forget kebab
+ * actions have nothing left to do with the rejection, so they settle it here
+ * instead of leaving an unhandled one on the microtask queue.
+ */
+function alreadyReported(): void {}
+
+/**
  * The inline Profiles list of the V2 Language Model card (Figma
  * 7412:133358). Rows open the profile sidepanel; the kebab menu carries
- * Make Active / Make Advisor / Enable / Disable / Delete.
+ * Make Default / Enable / Disable / Delete.
  */
 export function ProfilesSection({
   assistantId,
@@ -51,7 +59,6 @@ export function ProfilesSection({
   });
 
   const activeProfile = config?.llm?.activeProfile ?? null;
-  const advisorProfile = config?.llm?.advisorProfile ?? null;
 
   return (
     <>
@@ -98,15 +105,17 @@ export function ProfilesSection({
               key={profile.name}
               profile={profile}
               isActiveProfile={profile.name === activeProfile}
-              isAdvisorProfile={profile.name === advisorProfile}
               selected={profile.name === selectedProfileName}
               connections={connections}
+              deletePending={deleteFlow.pendingDeleteName === profile.name}
               onOpen={() => onOpenProfile(profile.name)}
-              onMakeActive={() => void actions.makeActive(profile.name)}
-              onMakeAdvisor={() => void actions.makeAdvisor(profile.name)}
-              onClearAdvisor={() => void actions.clearAdvisor()}
+              onMakeActive={() =>
+                void actions.makeActive(profile.name).catch(alreadyReported)
+              }
               onSetStatus={(active) =>
-                void actions.setStatus(profile.name, active)
+                void actions
+                  .setStatus(profile.name, active)
+                  .catch(alreadyReported)
               }
               onDelete={() => deleteFlow.requestDelete(profile.name)}
             />

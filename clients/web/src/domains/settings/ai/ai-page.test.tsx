@@ -15,7 +15,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 
@@ -38,6 +38,13 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 // form renders and the entitlement logic is reachable.
 mock.module("@/hooks/use-platform-gate", () => ({
   usePlatformGate: () => "full",
+}));
+
+let nativeAndroid = false;
+
+mock.module("@/runtime/platform-detection", () => ({
+  isNativeAndroid: () => nativeAndroid,
+  useIsNativeAndroid: () => nativeAndroid,
 }));
 
 const ASSISTANT_ID = "asst-1";
@@ -63,6 +70,10 @@ const { EmailServiceCard } =
   await import("@/domains/settings/ai/email-service-card");
 
 const ASSISTANT_HANDLE = "my-assistant";
+
+beforeEach(() => {
+  nativeAndroid = false;
+});
 
 function makeSubscription(
   managedEmail: boolean,
@@ -118,6 +129,15 @@ describe("EmailServiceCard managed-email gate", () => {
     // The domain registration form renders for entitled orgs.
     expect(html).toContain("Subdomain");
     expect(html).toContain("Register");
+  });
+
+  test("native Android shows website guidance without an upgrade action", () => {
+    nativeAndroid = true;
+    const html = renderCard(makeSubscription(false, "base"));
+
+    expect(html).toContain("Manage your subscription on our website.");
+    expect(html).not.toContain(">Upgrade<");
+    expect(html).not.toContain("/assistant/plans");
   });
 
   test("Successful payload WITHOUT entitlements is treated as unknown and fails open", () => {

@@ -9,7 +9,7 @@
 export {
   buildRemoteWebPairingUrl,
   isLoopbackPublicUrl as isLoopbackUrl,
-  normalizePublicBaseUrl,
+  normalizePairingBaseUrl,
   resolvePublicBaseUrl,
   type PublicBaseUrlRejection,
   type PublicBaseUrlResult,

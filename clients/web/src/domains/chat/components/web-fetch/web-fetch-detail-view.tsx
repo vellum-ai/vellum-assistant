@@ -201,6 +201,13 @@ export function WebFetchDetailView({ detail }: { detail: ToolDetailPayload }) {
         {showRaw ? (
           <CodeBlock text={detail.result ?? ""} />
         ) : parsed.content ? (
+          // Deliberately NO `assistantId`: this is text extracted from a
+          // remote page, the least-trusted content in the app. Passing one
+          // would let a fetched page's `![](vellum://workspace/…)` reference
+          // pull local workspace bytes into the panel and render them as if
+          // the page had supplied them. Local-file references keep degrading
+          // to an inert card here; a remote page has no business naming a
+          // file in the user's workspace.
           <ChatMarkdownMessage content={parsed.content} />
         ) : (
           <Typography

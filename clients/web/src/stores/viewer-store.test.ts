@@ -1,11 +1,50 @@
-import { beforeEach, describe, it, expect } from "bun:test";
+import { beforeEach, describe, it, expect, mock } from "bun:test";
 
-import {
-  isAppNotFoundError,
-  useViewerStore,
-  type ActivityStepsPayload,
-  type ToolDetailPayload,
+import type {
+  ActivityStepsPayload,
+  MessageFilesPayload,
+  ToolDetailPayload,
 } from "@/stores/viewer-store";
+import type { DocumentsForworkspacefilePostResponse } from "@/generated/daemon/types.gen";
+import { ApiError } from "@/utils/api-errors";
+import { makeDisplayAttachment } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
+
+// The store opens file-backed documents through the daemon SDK. Spread the
+// real module so the actions this file does not exercise keep their real
+// bindings.
+const daemonSdk = await import("@/generated/daemon/sdk.gen");
+
+type FileDocumentResult = {
+  data: DocumentsForworkspacefilePostResponse | null;
+};
+
+let fileDocumentResult: () => Promise<FileDocumentResult> = () =>
+  Promise.reject(new Error("not stubbed"));
+const fileDocumentCalls: unknown[] = [];
+
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  ...daemonSdk,
+  documentsForworkspacefilePost: (options: unknown) => {
+    fileDocumentCalls.push(options);
+    return fileDocumentResult();
+  },
+}));
+
+// The route-missing fallback navigates to the workspace browser, which pulls
+// the whole route tree in at call time.
+const openWorkspaceFile = mock(async (_path: string) => {});
+mock.module("@/utils/open-workspace-file", () => ({ openWorkspaceFile }));
+
+const toastError = mock((_message: string) => {});
+const toastModule = await import("@vellumai/design-library/components/toast");
+mock.module("@vellumai/design-library/components/toast", () => ({
+  ...toastModule,
+  toast: { ...toastModule.toast, error: toastError },
+}));
+
+const { isAppNotFoundError, useViewerStore } = await import(
+  "@/stores/viewer-store"
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -17,6 +56,9 @@ function getState() {
 
 beforeEach(() => {
   getState().reset();
+  fileDocumentCalls.length = 0;
+  toastError.mockClear();
+  openWorkspaceFile.mockClear();
 });
 
 const SAMPLE_APP = {
@@ -26,11 +68,26 @@ const SAMPLE_APP = {
   html: "<h1>App</h1>",
 };
 const SAMPLE_DOC = {
+  source: "document",
   surfaceId: "surf-1",
   conversationId: "conv-1",
   documentName: "README.md",
   content: "# Hello",
-};
+} as const;
+const SAMPLE_FILE_DOC = {
+  source: "document",
+  surfaceId: "surf-file",
+  conversationId: "conv-1",
+  workspacePath: "drafts/notes.md",
+  documentName: "notes.md",
+  content: "# Notes",
+} as const;
+const SAMPLE_FILE_PREVIEW = {
+  source: "workspace-file-preview",
+  workspacePath: "data/rows.csv",
+  documentName: "rows.csv",
+  previewKind: "csv",
+} as const;
 const SAMPLE_TOOL: ToolDetailPayload = {
   toolCallId: "tc-1",
   toolName: "spawn_subagent",
@@ -545,54 +602,37 @@ describe("openProcessDetail", () => {
   });
 });
 
-describe("closeActiveDetail", () => {
-  it("closes an open subagent-detail and restores the prior view", () => {
-    useViewerStore.setState({ mainView: "app" });
-    getState().openProcessDetail({ kind: "subagent", id: "sa-1" });
-    getState().closeActiveDetail();
-    const state = getState();
-    expect(state.mainView).toBe("app");
-    expect(state.activeSubagentId).toBeNull();
-  });
-
-  it("closes an open workflow-detail and restores the prior view", () => {
-    getState().openProcessDetail({ kind: "workflow", id: "run-1" });
-    getState().closeActiveDetail();
-    const state = getState();
-    expect(state.mainView).toBe("chat");
-    expect(state.activeWorkflowRunId).toBeNull();
-  });
-
-  it("closes an open acp-run-detail and restores the prior view", () => {
-    getState().openProcessDetail({ kind: "acp-run", id: "acp-1" });
-    getState().closeActiveDetail();
-    const state = getState();
-    expect(state.mainView).toBe("chat");
-    expect(state.activeAcpRunId).toBeNull();
-  });
-
-  it("closes an open background-task-detail and restores the prior view", () => {
-    getState().openProcessDetail({ kind: "background-task", id: "bg-1" });
-    getState().closeActiveDetail();
-    const state = getState();
-    expect(state.mainView).toBe("chat");
-    expect(state.activeBackgroundTaskId).toBeNull();
-  });
-
-  it("is a no-op when no process-detail view is open", () => {
-    useViewerStore.setState({ mainView: "app", activeAppId: "app-1" });
-    getState().closeActiveDetail();
-    const state = getState();
-    expect(state.mainView).toBe("app");
-    expect(state.activeAppId).toBe("app-1");
-  });
-
-  it("does not close tool-detail (out of scope for the process facade)", () => {
+describe("closeActiveOverlay", () => {
+  it("closes a tool detail overlay and restores its prior view", () => {
     getState().openToolDetail(SAMPLE_TOOL);
-    getState().closeActiveDetail();
-    const state = getState();
-    expect(state.mainView).toBe("tool-detail");
-    expect(state.activeToolDetail).toBe(SAMPLE_TOOL);
+
+    expect(getState().closeActiveOverlay()).toBe(true);
+    expect(getState().mainView).toBe("chat");
+    expect(getState().activeToolDetail).toBeNull();
+  });
+
+  it("closes a process detail overlay through its specific action", () => {
+    getState().openProcessDetail({ kind: "workflow", id: "run-1" });
+
+    expect(getState().closeActiveOverlay()).toBe(true);
+    expect(getState().mainView).toBe("chat");
+    expect(getState().activeWorkflowRunId).toBeNull();
+  });
+
+  it("closes the message-files overlay and restores its prior view", () => {
+    getState().openMessageFiles({ messageId: "m1", attachments: [] });
+
+    expect(getState().closeActiveOverlay()).toBe(true);
+    expect(getState().mainView).toBe("chat");
+    expect(getState().activeMessageFiles).toBeNull();
+  });
+
+  it("returns false without changing a non-overlay view", () => {
+    useViewerStore.setState({ mainView: "app", activeAppId: "app-1" });
+
+    expect(getState().closeActiveOverlay()).toBe(false);
+    expect(getState().mainView).toBe("app");
+    expect(getState().activeAppId).toBe("app-1");
   });
 });
 
@@ -787,6 +827,66 @@ describe("openActivitySteps / toggleActivitySteps / closeActivitySteps", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Message files panel
+// ---------------------------------------------------------------------------
+
+const SAMPLE_FILES: MessageFilesPayload = {
+  messageId: "m1",
+  attachments: [
+    makeDisplayAttachment({ id: "a1" }),
+    makeDisplayAttachment({ id: "a2" }),
+  ],
+  assistantId: "asst-1",
+};
+
+describe("openMessageFiles / toggleMessageFiles / closeMessageFiles", () => {
+  it("opens the panel with the payload and records the prior view", () => {
+    getState().openMessageFiles(SAMPLE_FILES);
+    const state = getState();
+    expect(state.mainView).toBe("message-files");
+    expect(state.activeMessageFiles).toBe(SAMPLE_FILES);
+    expect(state.viewBeforeMessageFiles).toBe("chat");
+  });
+
+  it("close restores the prior view and clears the payload", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openMessageFiles(SAMPLE_FILES);
+    expect(getState().viewBeforeMessageFiles).toBe("app");
+    getState().closeMessageFiles();
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeMessageFiles).toBeNull();
+  });
+
+  it("toggle closes the panel when targeting the SAME message", () => {
+    getState().openMessageFiles(SAMPLE_FILES);
+    getState().toggleMessageFiles({ ...SAMPLE_FILES });
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeMessageFiles).toBeNull();
+  });
+
+  it("toggle switches to a DIFFERENT message instead of closing", () => {
+    getState().openMessageFiles(SAMPLE_FILES);
+    getState().toggleMessageFiles({ ...SAMPLE_FILES, messageId: "m2" });
+    const state = getState();
+    expect(state.mainView).toBe("message-files");
+    expect(state.activeMessageFiles?.messageId).toBe("m2");
+  });
+
+  it("clears the transcript panel payloads without touching mainView", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openMessageFiles(SAMPLE_FILES);
+    getState().clearTranscriptPanelPayloads();
+    const state = getState();
+    expect(state.activeMessageFiles).toBeNull();
+    expect(state.activeActivitySteps).toBeNull();
+    expect(state.activeToolDetail).toBeNull();
+    expect(state.mainView).toBe("message-files");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Document viewer
 // ---------------------------------------------------------------------------
 
@@ -842,6 +942,302 @@ describe("closeDocument", () => {
     const state = getState();
     expect(state.mainView).toBe("app");
     expect(state.openedDocumentState).toBeNull();
+    expect(state.activeDocumentTarget).toBeNull();
+  });
+});
+
+describe("updateDocumentContent", () => {
+  it("applies a streamed replace to the matching document surface", () => {
+    useViewerStore.setState({ openedDocumentState: SAMPLE_DOC });
+    getState().updateDocumentContent("surf-1", "# Replaced", "replace");
+    expect(getState().openedDocumentState).toMatchObject({
+      content: "# Replaced",
+    });
+  });
+
+  it("leaves a document with a different surface id alone", () => {
+    useViewerStore.setState({ openedDocumentState: SAMPLE_FILE_DOC });
+    getState().updateDocumentContent("surf-1", "# Replaced", "replace");
+    expect(getState().openedDocumentState).toBe(SAMPLE_FILE_DOC);
+  });
+
+  it("leaves a read-only preview alone", () => {
+    useViewerStore.setState({ openedDocumentState: SAMPLE_FILE_PREVIEW });
+    getState().updateDocumentContent("surf-1", "# Replaced", "replace");
+    expect(getState().openedDocumentState).toBe(SAMPLE_FILE_PREVIEW);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Document viewer: read-only file previews
+// ---------------------------------------------------------------------------
+
+describe("openWorkspaceFilePreview", () => {
+  it("shows the file read-only, named by its basename", () => {
+    getState().openWorkspaceFilePreview("data/reports/rows.csv", "csv");
+
+    const state = getState();
+    expect(state.mainView).toBe("document");
+    expect(state.openedDocumentState).toEqual({
+      source: "workspace-file-preview",
+      workspacePath: "data/reports/rows.csv",
+      documentName: "rows.csv",
+      previewKind: "csv",
+    });
+    expect(state.activeDocumentTarget).toEqual({
+      source: "workspace-file-preview",
+      workspacePath: "data/reports/rows.csv",
+    });
+  });
+
+  it("saves the prior view so closing restores it", () => {
+    useViewerStore.setState({ mainView: "app" });
+
+    getState().openWorkspaceFilePreview("rows.csv", "csv");
+    expect(getState().viewBeforeDocument).toBe("app");
+
+    getState().closeDocument();
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.openedDocumentState).toBeNull();
+    expect(state.activeDocumentTarget).toBeNull();
+  });
+
+  it("keeps the prior view when swapping one preview for another", () => {
+    useViewerStore.setState({ mainView: "app" });
+
+    getState().openWorkspaceFilePreview("rows.csv", "csv");
+    getState().openWorkspaceFilePreview("run.log", "text");
+
+    const state = getState();
+    expect(state.viewBeforeDocument).toBe("app");
+    expect(state.openedDocumentState).toMatchObject({
+      workspacePath: "run.log",
+      previewKind: "text",
+    });
+  });
+
+  it("makes an in-flight file load for the same path stale", async () => {
+    let resolveLoad: (value: FileDocumentResult) => void = () => {};
+    fileDocumentResult = () =>
+      new Promise<FileDocumentResult>((resolve) => {
+        resolveLoad = resolve;
+      });
+
+    const load = getState().loadWorkspaceFileDocument(
+      "asst-1",
+      "rows.csv",
+      "conv-1",
+    );
+    // The same path, but opened as a preview: a different target.
+    getState().openWorkspaceFilePreview("rows.csv", "csv");
+
+    resolveLoad({ data: fileDocument({ workspacePath: "rows.csv" }) });
+    await load;
+
+    expect(getState().openedDocumentState).toMatchObject({
+      source: "workspace-file-preview",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Document viewer: workspace files
+// ---------------------------------------------------------------------------
+
+/** The daemon's answer for the document bound to a workspace markdown file. */
+function fileDocument(
+  overrides: Partial<DocumentsForworkspacefilePostResponse> = {},
+): DocumentsForworkspacefilePostResponse {
+  return {
+    success: true,
+    surfaceId: "surf-file",
+    conversationId: "conv-1",
+    title: "notes.md",
+    content: "# Notes",
+    wordCount: 2,
+    createdAt: 1,
+    updatedAt: 2,
+    workspacePath: "drafts/notes.md",
+    ...overrides,
+  };
+}
+
+describe("loadWorkspaceFileDocument", () => {
+  it("opens the file's document as a full document surface", async () => {
+    fileDocumentResult = () => Promise.resolve({ data: fileDocument() });
+
+    await getState().loadWorkspaceFileDocument(
+      "asst-1",
+      "drafts/notes.md",
+      "conv-1",
+    );
+
+    const state = getState();
+    expect(state.mainView).toBe("document");
+    expect(state.openedDocumentState).toEqual({
+      source: "document",
+      surfaceId: "surf-file",
+      conversationId: "conv-1",
+      documentName: "notes.md",
+      content: "# Notes",
+      workspacePath: "drafts/notes.md",
+    });
+    // The surface id exists once the daemon has answered, so the in-flight
+    // path target gives way to the document target.
+    expect(state.activeDocumentTarget).toEqual({
+      source: "document",
+      surfaceId: "surf-file",
+    });
+    expect(fileDocumentCalls.length).toBe(1);
+    expect(fileDocumentCalls[0]).toMatchObject({
+      path: { assistant_id: "asst-1" },
+      body: { path: "drafts/notes.md", conversationId: "conv-1" },
+    });
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("names an untitled document rather than showing an empty navbar", async () => {
+    fileDocumentResult = () =>
+      Promise.resolve({ data: fileDocument({ title: "" }) });
+
+    await getState().loadWorkspaceFileDocument(
+      "asst-1",
+      "drafts/notes.md",
+      "conv-1",
+    );
+
+    expect(getState().openedDocumentState).toMatchObject({
+      documentName: "Untitled",
+    });
+  });
+
+  it("saves the prior view so closing restores it", async () => {
+    useViewerStore.setState({ mainView: "app" });
+    fileDocumentResult = () => Promise.resolve({ data: fileDocument() });
+
+    await getState().loadWorkspaceFileDocument("asst-1", "notes.md", "conv-1");
+    expect(getState().viewBeforeDocument).toBe("app");
+
+    getState().closeDocument();
+    expect(getState().mainView).toBe("app");
+  });
+
+  it("repeats the daemon's own message when it refuses the open", async () => {
+    useViewerStore.setState({ mainView: "app" });
+    fileDocumentResult = () =>
+      Promise.reject(
+        new ApiError(
+          404,
+          "The file backing this document no longer exists: gone.md",
+        ),
+      );
+
+    await getState().loadWorkspaceFileDocument("asst-1", "gone.md", "conv-1");
+
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.openedDocumentState).toBeNull();
+    expect(state.activeDocumentTarget).toBeNull();
+    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(toastError.mock.calls[0]![0]).toBe(
+      "The file backing this document no longer exists: gone.md",
+    );
+    expect(openWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  it("keeps the toast for the route's own 404 about a missing file", async () => {
+    fileDocumentResult = () =>
+      Promise.reject(new ApiError(404, "File not found"));
+
+    await getState().loadWorkspaceFileDocument("asst-1", "gone.md", "conv-1");
+
+    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the workspace browser when the daemon has no such route", async () => {
+    useViewerStore.setState({ mainView: "app" });
+    // The catch-all an older assistant answers an unknown endpoint with.
+    fileDocumentResult = () => Promise.reject(new ApiError(404, "Not found"));
+
+    await getState().loadWorkspaceFileDocument(
+      "asst-1",
+      "drafts/notes.md",
+      "conv-1",
+    );
+
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.openedDocumentState).toBeNull();
+    expect(state.activeDocumentTarget).toBeNull();
+    expect(toastError).not.toHaveBeenCalled();
+    expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFile.mock.calls[0]![0]).toBe("drafts/notes.md");
+  });
+
+  it("repeats a rejected file type the same way", async () => {
+    fileDocumentResult = () =>
+      Promise.reject(new ApiError(422, "Only markdown files open here."));
+
+    await getState().loadWorkspaceFileDocument("asst-1", "rows.csv", "conv-1");
+
+    expect(getState().openedDocumentState).toBeNull();
+    expect(toastError.mock.calls[0]![0]).toBe("Only markdown files open here.");
+  });
+
+  it("keeps plumbing out of the toast when the request never landed", async () => {
+    fileDocumentResult = () => Promise.reject(new TypeError("Failed to fetch"));
+
+    await getState().loadWorkspaceFileDocument("asst-1", "notes.md", "conv-1");
+
+    expect(getState().openedDocumentState).toBeNull();
+    expect(toastError.mock.calls[0]![0]).toBe("Couldn't open this file");
+  });
+
+  it("does the same for a server fault, which has no message to repeat", async () => {
+    fileDocumentResult = () => Promise.reject(new ApiError(500, "HTTP 500"));
+
+    await getState().loadWorkspaceFileDocument("asst-1", "notes.md", "conv-1");
+
+    expect(toastError.mock.calls[0]![0]).toBe("Couldn't open this file");
+  });
+
+  it("treats an empty response as a failed open", async () => {
+    useViewerStore.setState({ mainView: "app" });
+    fileDocumentResult = () => Promise.resolve({ data: null });
+
+    await getState().loadWorkspaceFileDocument("asst-1", "notes.md", "conv-1");
+
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.openedDocumentState).toBeNull();
+    expect(toastError).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a response for a file the user already navigated away from", async () => {
+    let resolveFirst: (value: FileDocumentResult) => void = () => {};
+    fileDocumentResult = () =>
+      new Promise<FileDocumentResult>((resolve) => {
+        resolveFirst = resolve;
+      });
+
+    const first = getState().loadWorkspaceFileDocument(
+      "asst-1",
+      "slow.md",
+      "conv-1",
+    );
+    // The user opened a document surface while the file was still loading.
+    useViewerStore.setState({
+      openedDocumentState: SAMPLE_DOC,
+      activeDocumentTarget: { source: "document", surfaceId: "surf-1" },
+    });
+
+    resolveFirst({ data: fileDocument({ workspacePath: "slow.md" }) });
+    await first;
+
+    expect(getState().openedDocumentState).toBe(SAMPLE_DOC);
+    expect(toastError).not.toHaveBeenCalled();
   });
 });
 

@@ -63,7 +63,7 @@ mock.module("@/runtime/is-electron", () => ({ isElectron: () => true }));
 // Mutable platform/flag state so individual tests can flip them.
 let nativePlatform = false;
 let localMode = false;
-mock.module("@/lib/local-mode", () => ({ isLocalMode: () => localMode }));
+mock.module("@/lib/local-mode", () => ({ isLocalClient: () => localMode }));
 mock.module("@/runtime/native-auth", () => ({
   useIsNativePlatform: () => nativePlatform,
 }));
@@ -570,7 +570,7 @@ describe("PrivacyScreen — Back navigation", () => {
 
   test("native platform shell: Back stays in-SPA (no marketing-host escape)", () => {
     // The environment-preservation case Codex flagged: on Capacitor
-    // staging/dev, isLocalMode() is false, so platform-mode Back applies. It
+    // staging/dev, isLocalClient() is false, so platform-mode Back applies. It
     // must remain an in-SPA navigation, never a full-document nav to `/`.
     localMode = false;
     nativePlatform = true;

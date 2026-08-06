@@ -1,3 +1,4 @@
+import { Button, Typography } from "@vellumai/design-library";
 import type { LucideIcon } from "lucide-react";
 import { Loader2, Search, X } from "lucide-react";
 import {
@@ -19,11 +20,9 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { useIsMobile } from "@/hooks/use-is-mobile";
-import { useIsNativeIOS } from "@/runtime/platform-detection";
-import { Button, Typography } from "@vellumai/design-library";
-
 import { CommandPaletteItem } from "@/components/command-palette/command-palette-item";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useIsNativeMobile } from "@/runtime/platform-detection";
 
 // z-50 keeps the full-screen palette above the navigation drawer (fixed z-40
 // in chat-layout), which stays mounted underneath so dismissing search returns
@@ -55,6 +54,8 @@ export interface CommandPaletteItemData {
   icon?: LucideIcon;
   title: string;
   subtitle?: string;
+  /** Longer match excerpt rendered as a second line under the title. */
+  snippet?: string;
   shortcutHint?: ReactNode;
 }
 
@@ -73,6 +74,11 @@ export interface CommandPaletteProps {
   query: string;
   /** Update the search query. */
   onQueryChange: (value: string) => void;
+  /**
+   * Lexical tokens of the term the server matched on, used to highlight
+   * matches inside result snippets.
+   */
+  highlightTokens?: string[];
   /** Currently selected index (flat across all sections). */
   selectedIndex: number;
   /** Sections of results to display. */
@@ -94,7 +100,7 @@ interface MobileSheetProps {
 }
 
 /**
- * Full-screen sheet used by the iOS shell, sliding up on open and out on
+ * Full-screen sheet used by native mobile shells, sliding up on open and out on
  * close. It outlives `isOpen` for the length of the exit, and AnimatePresence
  * renders the exiting element with the props it was frozen at, so everything
  * that has to change the moment the exit starts reads `useIsPresent()`
@@ -106,7 +112,7 @@ const MobileSheet: FC<MobileSheetProps> = ({ onKeyDown, children }) => {
   const reduceMotion = useReducedMotion();
   const sheetRef = useRef<HTMLDivElement>(null);
 
-  // Blurring the search input starts the iOS keyboard dismissal in parallel
+  // Blurring the search input starts native keyboard dismissal in parallel
   // with the slide-out. Scoped to the sheet so focus that a close handler
   // moved elsewhere (the composer, after "New Conversation") survives.
   useLayoutEffect(() => {
@@ -163,6 +169,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
   onClose,
   query,
   onQueryChange,
+  highlightTokens,
   selectedIndex,
   sections,
   isSearching = false,
@@ -171,7 +178,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
   surface = "overlay",
 }) => {
   const isMobile = useIsMobile();
-  const isNativeIOSShell = useIsNativeIOS();
+  const isNativeMobileShell = useIsNativeMobile();
   const overlayRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -209,9 +216,9 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
 
   const isWindowSurface = surface === "window";
   const useMobileLayout = isMobile && !isWindowSurface;
-  // iOS shell only: the sheet stays mounted while closed so AnimatePresence
-  // can play the slide-out exit.
-  const animateMobileSheet = isNativeIOSShell && useMobileLayout;
+  // Native mobile shells keep the sheet mounted while AnimatePresence plays
+  // the slide-out exit.
+  const animateMobileSheet = isNativeMobileShell && useMobileLayout;
 
   if (!isOpen && !animateMobileSheet) {
     return null;
@@ -345,6 +352,8 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
                   icon={item.icon}
                   title={item.title}
                   subtitle={item.subtitle}
+                  snippet={item.snippet}
+                  highlightTokens={highlightTokens}
                   shortcutHint={useMobileLayout ? undefined : item.shortcutHint}
                   isSelected={currentIndex === selectedIndex}
                   onClick={() => onItemSelect?.(item, currentIndex)}

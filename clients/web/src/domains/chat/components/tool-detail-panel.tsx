@@ -159,9 +159,11 @@ export function SectionLabel({
 function ThinkingDetailBody({
   detail,
   onClose,
+  assistantId,
 }: {
   detail: ToolDetailPayload;
   onClose: () => void;
+  assistantId?: string | null;
 }) {
   const live = useLiveThinkingText(
     detail.messageId,
@@ -178,6 +180,7 @@ function ThinkingDetailBody({
       <ChatMarkdownMessage
         content={live ?? detail.thinkingText ?? ""}
         hardLineBreaks
+        assistantId={assistantId}
       />
     </DetailShell>
   );
@@ -285,14 +288,27 @@ export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
 export function ToolDetailPanel({
   detail,
   onClose,
+  assistantId,
 }: {
   detail: ToolDetailPayload;
   onClose: () => void;
+  /**
+   * Assistant that owns the conversation the step belongs to. Threaded to the
+   * reasoning markdown so a workspace file the model named resolves against
+   * the right workspace.
+   */
+  assistantId?: string | null;
 }) {
   // Thinking variant — reuse the same shell/header but render the full
   // reasoning markdown with no input/output sections and no risk badge.
   if (detail.kind === "thinking") {
-    return <ThinkingDetailBody detail={detail} onClose={onClose} />;
+    return (
+      <ThinkingDetailBody
+        detail={detail}
+        onClose={onClose}
+        assistantId={assistantId}
+      />
+    );
   }
 
   const { iconName } = deriveStepLabelFromName(detail.toolName, detail.input);

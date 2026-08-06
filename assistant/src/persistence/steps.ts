@@ -467,6 +467,10 @@ import { migrateAddSubagentParentToolUseId } from "./migrations/356-add-subagent
 import { migrateMoveMemorySegmentsToMemoryDb } from "./migrations/357-move-memory-segments-to-memory-db.js";
 import { migrateMoveMemoryEmbeddingsToMemoryDb } from "./migrations/358-move-memory-embeddings-to-memory-db.js";
 import { migrateMoveMemorySummariesToMemoryDb } from "./migrations/359-move-memory-summaries-to-memory-db.js";
+import { migrateAddDocumentWorkspacePath } from "./migrations/360-add-document-workspace-path.js";
+import { migrateNormalizeManagedConnectionRows } from "./migrations/361-normalize-managed-connection-rows.js";
+import { migrateAddConversationSubagentKind } from "./migrations/362-add-conversation-subagent-kind.js";
+import { migrateBackfillScheduleInferenceProfile } from "./migrations/363-backfill-schedule-inference-profile.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1540,5 +1544,29 @@ export const migrationSteps: MigrationStep[] = [
       "migrateDeletePrivateConversations",
       "migrateMemorySummariesScopeUpdatedIndex",
     ],
+  },
+  migrateAddDocumentWorkspacePath,
+  {
+    name: "migrateNormalizeManagedConnectionRows",
+    run: migrateNormalizeManagedConnectionRows,
+    // The table-exists guard treats a missing table as nothing-to-do, so
+    // without this dependency a failed table creation followed by repair
+    // would permanently checkpoint the normalization as a no-op.
+    dependsOn: ["migrateCreateProviderConnections"],
+  },
+  {
+    name: "migrateAddConversationSubagentKind",
+    run: migrateAddConversationSubagentKind,
+    // The backfill reads the `subagents` table (migration 311), so that table
+    // must exist and be checkpointed first.
+    dependsOn: ["migrateCreateSubagentsTable"],
+  },
+  {
+    name: "migrateBackfillScheduleInferenceProfile",
+    run: migrateBackfillScheduleInferenceProfile,
+    // The column-exists guard treats a missing column as nothing-to-do, so
+    // without this dependency a failed column add followed by repair would
+    // permanently checkpoint the backfill as a no-op.
+    dependsOn: ["migrateScheduleInferenceProfile"],
   },
 ];

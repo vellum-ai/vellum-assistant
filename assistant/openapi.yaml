@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.11.0
+  version: 0.11.2
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -698,6 +698,52 @@ paths:
                     type: boolean
                 required:
                   - ok
+                additionalProperties: false
+  /v1/admin/workspace-compact-history:
+    post:
+      operationId: admin_workspacecompacthistory_post
+      summary: Compact workspace git history
+      description:
+        Squash workspace git history older than the retention window into a single base commit and prune reclaimed
+        objects. By default acts only when an oversized blob is reclaimable; with force, the squash runs
+        unconditionally.
+      tags:
+        - admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                force:
+                  description: Squash aged history even when no oversized blob is reclaimable
+                  type: boolean
+                retentionDays:
+                  description: Retention window override in days (default 7)
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rewrote:
+                    type: boolean
+                  squashedCommits:
+                    type: number
+                  keptCommits:
+                    type: number
+                  retryAfterMs:
+                    type: number
+                required:
+                  - rewrote
+                  - squashedCommits
+                  - keptCommits
                 additionalProperties: false
   /v1/apps:
     get:
@@ -4569,6 +4615,43 @@ paths:
                 required:
                   - disconnected
                 additionalProperties: false
+  /v1/clients/presence:
+    post:
+      operationId: clients_presence_post
+      summary: Report desktop presence
+      description: Record the desktop presence state reported by the client identified by the X-Vellum-Client-Id header.
+      tags:
+        - clients
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                state:
+                  type: string
+                  enum:
+                    - active
+                    - idle
+                    - away
+                  description: Reported desktop presence state.
+              required:
+                - state
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recorded:
+                    type: boolean
+                    description: Whether a connected client matched the reporting clientId.
+                required:
+                  - recorded
+                additionalProperties: false
   /v1/config:
     get:
       operationId: config_get
@@ -4690,6 +4773,8 @@ paths:
                         domain:
                           type: string
                         defaultProfile:
+                          type: string
+                        shippedDefaultProfile:
                           type: string
                       required:
                         - id
@@ -6500,6 +6585,16 @@ paths:
           description:
             Filter by origin channel. When provided, only conversations with this exact origin_channel value are
             returned. Omit to include all channels.
+        - name: groupId
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            Filter to a single group, so each sidebar section can load independently of the paginated list. Pass
+            "system:all" for conversations in no group, "system:pinned" for the Pinned section, or a custom group id. A
+            group-scoped request is ordered by the user's arrangement (display order, then recency) and never has pinned
+            rows appended to it. Omit to span every group.
       responses:
         "200":
           description: Successful response
@@ -6750,9 +6845,15 @@ paths:
                     `id`.
                   type: string
                 conversationType:
-                  description: Only standard conversations are created by this endpoint
+                  description:
+                    Conversation type for the new row. "background" keeps it out of the foreground list and the sidebar's
+                    Recents grouping, used by internal side-channel flows (onboarding research, persona/identity
+                    rewrites) that mint a throwaway thread the user should never see. "scheduled" is not accepted here;
+                    scheduled rows are owned by the schedule pipeline.
                   type: string
-                  const: standard
+                  enum:
+                    - standard
+                    - background
                 title:
                   description:
                     Explicit title for the conversation. When provided on creation, it is persisted as a user-set title (never
@@ -8374,7 +8475,8 @@ paths:
       summary: Open an inference-profile session
       description:
         Open (or replace) a session-backed inference-profile override for a conversation. Supports an optional TTL
-        — omit for a sticky (non-expiring) override.
+        — omit for a sticky (non-expiring) override. A profile that provably cannot dispatch is rejected rather than
+        pinned.
       tags:
         - conversations
       requestBody:
@@ -9473,6 +9575,28 @@ paths:
                 required:
                   - ok
                 additionalProperties: false
+  /v1/conversations/unread-count:
+    get:
+      operationId: conversations_unreadcount_get
+      summary: Unread conversation count
+      description:
+        "Count of foreground conversations whose latest assistant message is unseen. Matches the sidebar's unread
+        indicators: archived rows and non-surfaced background/scheduled rows are excluded."
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: number
+                required:
+                  - count
+                additionalProperties: false
   /v1/conversations/wake:
     post:
       operationId: conversations_wake_post
@@ -9497,6 +9621,9 @@ paths:
                   default: cli
                   type: string
                 cronRunId:
+                  type: string
+                  minLength: 1
+                scheduleId:
                   type: string
                   minLength: 1
                 persist:
@@ -10665,6 +10792,11 @@ paths:
                     type: number
                   updatedAt:
                     type: number
+                  workspacePath:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Workspace-relative file this document is bound to, or null
                 required:
                   - success
                   - surfaceId
@@ -10674,6 +10806,7 @@ paths:
                   - wordCount
                   - createdAt
                   - updatedAt
+                  - workspacePath
                 additionalProperties: false
   /v1/documents/{id}/comments:
     get:
@@ -11091,6 +11224,74 @@ paths:
               schema:
                 type: string
                 format: binary
+  /v1/documents/for-workspace-file:
+    post:
+      operationId: documents_forworkspacefile_post
+      summary: Get or create the document for a workspace markdown file
+      description:
+        "Return the document bound to a workspace markdown file, creating it on first open. The file is the source
+        of truth at open time: stored content that has drifted from the file is refreshed from disk before the document
+        is returned."
+      tags:
+        - documents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  description: Workspace-relative path to a .md/.markdown file
+                conversationId:
+                  type: string
+                  description: Conversation the document is opened from
+              required:
+                - path
+                - conversationId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  surfaceId:
+                    type: string
+                  conversationId:
+                    type: string
+                  title:
+                    type: string
+                  content:
+                    type: string
+                  wordCount:
+                    type: number
+                  createdAt:
+                    type: number
+                  updatedAt:
+                    type: number
+                  workspacePath:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Workspace-relative file this document is bound to, or null
+                required:
+                  - success
+                  - surfaceId
+                  - conversationId
+                  - title
+                  - content
+                  - wordCount
+                  - createdAt
+                  - updatedAt
+                  - workspacePath
+                additionalProperties: false
+        "422":
+          description: Path is not a markdown file
   /v1/domain/register:
     post:
       operationId: domain_register_post
@@ -14220,7 +14421,8 @@ paths:
       description:
         Set llm.activeProfile after validating the name against the effective profile catalog (provider-aware
         default expansion included). Unknown or disabled profiles are rejected so the chat-model selection cannot be
-        silently stripped on the next config load.
+        silently stripped on the next config load. A profile that provably cannot dispatch is also rejected — there is
+        no escape hatch, because an unusable active profile locks the user out of chat.
       tags:
         - inference
       requestBody:
@@ -14253,7 +14455,7 @@ paths:
                   - activeProfile
                 additionalProperties: false
         "400":
-          description: Unknown or disabled profile name
+          description: Unknown or disabled profile name, or a profile that cannot serve requests
   /v1/inference/callsites:
     get:
       operationId: inference_callsites_get
@@ -14428,7 +14630,9 @@ paths:
       summary: Create an inference profile
       description:
         Create a validated custom profile. The provider must be a known LLM provider, the model must be in the
-        catalog (unless allowUnlisted), and a referenced connection must exist. Managed default names cannot be created.
+        catalog (unless allowUnlisted), a referenced connection must exist, and the profile must be able to dispatch — a
+        valid provider id with no credentialed connection behind it is rejected unless allowUnavailable is set, in which
+        case it is created with a warning.
       tags:
         - inference
       requestBody:
@@ -14467,6 +14671,8 @@ paths:
                   type: string
                 allowUnlisted:
                   type: boolean
+                allowUnavailable:
+                  type: boolean
               required:
                 - name
                 - provider
@@ -14479,7 +14685,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InferenceProfileWriteResult"
         "400":
-          description: Invalid provider, uncataloged model, or missing connection
+          description: Invalid provider, uncataloged model, missing connection, or a profile that cannot serve requests
         "409":
           description: A profile with this name already exists
   /v1/inference/profiles/{name}:
@@ -14517,7 +14723,9 @@ paths:
         "404":
           description: Profile not found
         "409":
-          description: Profile is still referenced by activeProfile, advisorProfile, a call site, or a mix arm
+          description:
+            Profile is still referenced by activeProfile, advisorProfile, a call site, a default-tier override, or a
+            mix arm
     get:
       operationId: inference_profiles_by_name_get
       summary: Get an effective inference profile
@@ -14543,8 +14751,9 @@ paths:
       operationId: inference_profiles_by_name_patch
       summary: Update an inference profile
       description:
-        Partial update of a custom profile with the same write-time validation as create. Managed default profiles
-        are read-only.
+        Partial update of a custom profile with the same write-time validation as create. The dispatch-availability
+        guard (and its allowUnavailable escape hatch) applies when the update changes provider, model, or connection;
+        metadata-only edits skip it. Managed default profiles are read-only.
       tags:
         - inference
       parameters:
@@ -14586,6 +14795,8 @@ paths:
                   type: string
                 allowUnlisted:
                   type: boolean
+                allowUnavailable:
+                  type: boolean
       responses:
         "200":
           description: Successful response
@@ -14594,7 +14805,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InferenceProfileWriteResult"
         "400":
-          description: Invalid fields, or attempt to edit a managed profile
+          description: Invalid fields, a profile that cannot serve requests, or attempt to edit a managed profile
         "404":
           description: Profile not found
   /v1/inference/provider-connections:
@@ -14633,8 +14844,9 @@ paths:
       summary: Create a provider connection
       description:
         Create a new named provider connection. When auth is omitted it is derived from the provider (keyless
-        providers get none, vellum gets platform, everything else needs credential for api_key auth). Fails with 409 if
-        a connection with this name already exists.
+        providers get none, vellum gets platform, everything else needs credential for api_key auth). An explicit auth
+        object must agree with the provider; platform auth belongs to vellum and only to vellum. Fails with 409 if a
+        connection with this name already exists.
       tags:
         - inference
       requestBody:
@@ -14743,8 +14955,9 @@ paths:
       summary: Update a provider connection
       description:
         Update an existing connection. Cannot rename or change the provider. Omitting auth keeps the stored auth;
-        passing credential alone rotates the key via provider-derived api_key auth. For the Vellum-managed connection
-        (vellum) the auth is locked to platform; label remains editable.
+        passing credential alone rotates the key via provider-derived api_key auth. An explicit auth object must agree
+        with the connection's provider; platform auth belongs to vellum and only to vellum. For the Vellum-managed
+        connection (vellum) the auth is locked to platform; label remains editable.
       tags:
         - inference
       parameters:
@@ -18930,6 +19143,76 @@ paths:
                                   - requestId
                                   - entries
                                 additionalProperties: false
+                              answeredQuestion:
+                                type: object
+                                properties:
+                                  requestId:
+                                    type: string
+                                  questions:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        id:
+                                          type: string
+                                        question:
+                                          type: string
+                                        description:
+                                          type: string
+                                        options:
+                                          type: array
+                                          items:
+                                            type: object
+                                            properties:
+                                              id:
+                                                type: string
+                                              label:
+                                                type: string
+                                              description:
+                                                type: string
+                                            required:
+                                              - id
+                                              - label
+                                            additionalProperties: false
+                                        freeTextPlaceholder:
+                                          type: string
+                                      required:
+                                        - id
+                                        - question
+                                        - options
+                                      additionalProperties: false
+                                  responses:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        questionId:
+                                          type: string
+                                        decision:
+                                          type: string
+                                          enum:
+                                            - option
+                                            - free_text
+                                            - skipped
+                                        optionId:
+                                          type: string
+                                        text:
+                                          type: string
+                                      required:
+                                        - questionId
+                                        - decision
+                                      additionalProperties: false
+                                  overall:
+                                    type: string
+                                    enum:
+                                      - completed
+                                      - closed
+                                required:
+                                  - requestId
+                                  - questions
+                                  - responses
+                                  - overall
+                                additionalProperties: false
                             required:
                               - name
                               - input
@@ -19369,6 +19652,76 @@ paths:
                                           - requestId
                                           - entries
                                         additionalProperties: false
+                                      answeredQuestion:
+                                        type: object
+                                        properties:
+                                          requestId:
+                                            type: string
+                                          questions:
+                                            type: array
+                                            items:
+                                              type: object
+                                              properties:
+                                                id:
+                                                  type: string
+                                                question:
+                                                  type: string
+                                                description:
+                                                  type: string
+                                                options:
+                                                  type: array
+                                                  items:
+                                                    type: object
+                                                    properties:
+                                                      id:
+                                                        type: string
+                                                      label:
+                                                        type: string
+                                                      description:
+                                                        type: string
+                                                    required:
+                                                      - id
+                                                      - label
+                                                    additionalProperties: false
+                                                freeTextPlaceholder:
+                                                  type: string
+                                              required:
+                                                - id
+                                                - question
+                                                - options
+                                              additionalProperties: false
+                                          responses:
+                                            type: array
+                                            items:
+                                              type: object
+                                              properties:
+                                                questionId:
+                                                  type: string
+                                                decision:
+                                                  type: string
+                                                  enum:
+                                                    - option
+                                                    - free_text
+                                                    - skipped
+                                                optionId:
+                                                  type: string
+                                                text:
+                                                  type: string
+                                              required:
+                                                - questionId
+                                                - decision
+                                              additionalProperties: false
+                                          overall:
+                                            type: string
+                                            enum:
+                                              - completed
+                                              - closed
+                                        required:
+                                          - requestId
+                                          - questions
+                                          - responses
+                                          - overall
+                                        additionalProperties: false
                                     required:
                                       - name
                                       - input
@@ -19543,6 +19896,14 @@ paths:
                           additionalProperties: false
                         systemCard:
                           type: boolean
+                        providerError:
+                          type: object
+                          properties:
+                            code:
+                              type: string
+                            category:
+                              type: string
+                          additionalProperties: false
                         slackMessage:
                           type: object
                           properties:
@@ -19709,6 +20070,13 @@ paths:
                     Client OS surface ("web" | "ios" | "macos" | "android"), reported separately from `interface`. Drives the
                     per-turn `client_os` context only; does not affect transport/host-proxy capabilities.
                   type: string
+                visibleAppId:
+                  description:
+                    'Id of the app the client currently has open on screen (app viewer or the app-editing split). Drives the
+                    per-turn `visible_app:` context line so the assistant can resolve "the app" to what the user is
+                    looking at. View state only: it never affects transport, routing, or tool gating, and is omitted
+                    whenever no app is in view.'
+                  type: string
                 clientMessageId:
                   type: string
                   description:
@@ -19751,6 +20119,16 @@ paths:
                     lands mid-turn returns { queued: true, requestId } but never appears in list-messages queued
                     snapshots, emits no echo, and does not supersede pending interactions. Honored on the standard send
                     path only — slash-command content bypasses it."
+                  type: boolean
+                scripted:
+                  description:
+                    "When true, this turn was auto-sent on the user's behalf rather than typed by them: onboarding research
+                    prompts, the personality rewrite message, research corrections, hidden kickoff greetings, the legacy
+                    pre-chat bootstrap. Stamped onto the persisted message and forwarded to turn telemetry, where
+                    activation metrics exclude it. Send false for a genuine typed message; OMIT the field only if the
+                    client genuinely cannot tell, since absent means UNKNOWN and a wrong false is trusted downstream.
+                    Independent of `hidden`: a turn can be visible and scripted (the research prompt) or hidden and
+                    scripted (the kickoff greeting)."
                   type: boolean
                 onboarding:
                   type: object
@@ -20459,7 +20837,9 @@ paths:
     delete:
       operationId: messages_queued_by_id_delete
       summary: Delete a queued message
-      description: Remove a pending message from the conversation queue before it is processed.
+      description:
+        Remove a pending message from the conversation queue before it is processed. Broadcasts
+        `message_queued_deleted` so every client can close out the pending row.
       tags:
         - messages
       parameters:
@@ -20477,6 +20857,10 @@ paths:
       responses:
         "200":
           description: Successful response
+        "403":
+          description: The queued message was enqueued by a different actor principal.
+        "404":
+          description: Conversation or queued message not found.
   /v1/messages/queued/{id}/steer:
     post:
       operationId: messages_queued_by_id_steer_post
@@ -20499,6 +20883,10 @@ paths:
       responses:
         "200":
           description: Successful response
+        "403":
+          description: The queued message was enqueued by a different actor principal.
+        "404":
+          description: Conversation or queued message not found.
   /v1/migrations/export:
     post:
       operationId: migrations_export_post
@@ -21366,6 +21754,7 @@ paths:
                   minLength: 1
                   description: Feed item id (notif:<uuid>) or bare uuid
                 title:
+                  description: New title. An empty value is ignored, never cleared.
                   type: string
                 body:
                   type: string
@@ -21613,8 +22002,6 @@ paths:
                   type: string
                 throwOnError:
                   type: boolean
-                originatingConversationId:
-                  type: string
               required:
                 - sourceEventName
                 - sourceChannel
@@ -22758,6 +23145,145 @@ paths:
                 required:
                   - disconnected
                   - previousBaseUrl
+                additionalProperties: false
+  /v1/platform/invoices:
+    get:
+      operationId: platform_invoices_get
+      summary: List one page of the organization's Stripe invoices
+      description:
+        Fetches one page of the org's Stripe invoice history (newest first) from the platform billing invoices
+        endpoint. Amounts are in the currency's minor units. When has_more is true, pass the last invoice's id as
+        starting_after to fetch the next page.
+      tags:
+        - platform
+      parameters:
+        - name: starting_after
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Cursor: return invoices older than the invoice with this id (from the previous page's last entry)."
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoices:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        number:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        status:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        currency:
+                          type: string
+                        amount_due:
+                          type: number
+                        amount_paid:
+                          type: number
+                        amount_remaining:
+                          type: number
+                        created:
+                          type: number
+                        hosted_invoice_url:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        invoice_pdf:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - id
+                        - number
+                        - status
+                        - currency
+                        - amount_due
+                        - amount_paid
+                        - amount_remaining
+                        - created
+                        - hosted_invoice_url
+                        - invoice_pdf
+                      additionalProperties: false
+                  has_more:
+                    type: boolean
+                required:
+                  - invoices
+                  - has_more
+                additionalProperties: false
+  /v1/platform/invoices/{id}:
+    get:
+      operationId: platform_invoices_by_id_get
+      summary: Get a single Stripe invoice by ID
+      description:
+        Pages through the org's invoice list from the platform and returns the invoice matching the given Stripe
+        invoice ID (e.g. in_xxx). 404 if no such invoice.
+      tags:
+        - platform
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  number:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  status:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  currency:
+                    type: string
+                  amount_due:
+                    type: number
+                  amount_paid:
+                    type: number
+                  amount_remaining:
+                    type: number
+                  created:
+                    type: number
+                  hosted_invoice_url:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  invoice_pdf:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - id
+                  - number
+                  - status
+                  - currency
+                  - amount_due
+                  - amount_paid
+                  - amount_remaining
+                  - created
+                  - hosted_invoice_url
+                  - invoice_pdf
                 additionalProperties: false
   /v1/platform/plans:
     get:
@@ -24951,6 +25477,12 @@ paths:
           schema:
             type: string
           description: When 'true', include deferred schedules that are normally hidden.
+        - name: inference_profile
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Return only schedules pinned to this inference profile (llm.profiles key).
       responses:
         "200":
           description: Successful response
@@ -25068,6 +25600,8 @@ paths:
                             - type: "null"
                         isOneShot:
                           type: boolean
+                        isDeferred:
+                          type: boolean
                       required:
                         - id
                         - name
@@ -25099,6 +25633,7 @@ paths:
                         - wakeConversationId
                         - workflowName
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Schedule objects
                 required:
@@ -25160,8 +25695,10 @@ paths:
                     - type: string
                     - type: "null"
                   description:
-                    Inference profile (llm.profiles key) the schedule's runs use. Omitted or null = default, i.e. the mainAgent
-                    call-site model selection.
+                    Inference profile (llm.profiles key) the schedule's runs use. Omitted or null pins the schedule to the
+                    currently resolved default profile, so its model does not move when that default changes.
+                    Workflow-mode schedules resolve a model per workflow step, so the pin is recorded but does not
+                    govern their runs.
               required:
                 - name
                 - expression
@@ -25280,6 +25817,8 @@ paths:
                           - type: "null"
                       isOneShot:
                         type: boolean
+                      isDeferred:
+                        type: boolean
                     required:
                       - id
                       - name
@@ -25311,6 +25850,7 @@ paths:
                       - wakeConversationId
                       - workflowName
                       - isOneShot
+                      - isDeferred
                     additionalProperties: false
                     description: The created schedule
                 required:
@@ -25446,6 +25986,8 @@ paths:
                             - type: "null"
                         isOneShot:
                           type: boolean
+                        isDeferred:
+                          type: boolean
                       required:
                         - id
                         - name
@@ -25477,6 +26019,7 @@ paths:
                         - wakeConversationId
                         - workflowName
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Updated schedule list
                 required:
@@ -25609,6 +26152,8 @@ paths:
                           - type: "null"
                       isOneShot:
                         type: boolean
+                      isDeferred:
+                        type: boolean
                     required:
                       - id
                       - name
@@ -25640,6 +26185,7 @@ paths:
                       - wakeConversationId
                       - workflowName
                       - isOneShot
+                      - isDeferred
                     additionalProperties: false
                     description: Schedule object
                 required:
@@ -25712,8 +26258,9 @@ paths:
                     - type: string
                     - type: "null"
                   description:
-                    Inference profile (llm.profiles key) the schedule's runs use; null clears it back to the default mainAgent
-                    call-site model selection
+                    Inference profile (llm.profiles key) the schedule's runs use; null re-pins the schedule to the currently
+                    resolved default profile. Workflow-mode schedules resolve a model per workflow step, so the pin is
+                    recorded but does not govern their runs.
       responses:
         "200":
           description: Successful response
@@ -25831,6 +26378,8 @@ paths:
                             - type: "null"
                         isOneShot:
                           type: boolean
+                        isDeferred:
+                          type: boolean
                       required:
                         - id
                         - name
@@ -25862,6 +26411,7 @@ paths:
                         - wakeConversationId
                         - workflowName
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Updated schedule list
                 required:
@@ -25997,6 +26547,8 @@ paths:
                             - type: "null"
                         isOneShot:
                           type: boolean
+                        isDeferred:
+                          type: boolean
                       required:
                         - id
                         - name
@@ -26028,6 +26580,7 @@ paths:
                         - wakeConversationId
                         - workflowName
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Updated schedule list
                 required:
@@ -26163,6 +26716,8 @@ paths:
                             - type: "null"
                         isOneShot:
                           type: boolean
+                        isDeferred:
+                          type: boolean
                       required:
                         - id
                         - name
@@ -26194,6 +26749,7 @@ paths:
                         - wakeConversationId
                         - workflowName
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Updated schedule list
                 required:
@@ -26466,6 +27022,8 @@ paths:
                             - type: "null"
                         isOneShot:
                           type: boolean
+                        isDeferred:
+                          type: boolean
                       required:
                         - id
                         - name
@@ -26497,10 +27055,51 @@ paths:
                         - wakeConversationId
                         - workflowName
                         - isOneShot
+                        - isDeferred
                       additionalProperties: false
                     description: Updated schedule list
                 required:
                   - schedules
+                additionalProperties: false
+  /v1/schedules/reassign-profile:
+    post:
+      operationId: schedules_reassignprofile_post
+      summary: Reassign schedules to another inference profile
+      description:
+        Move schedules onto one inference profile. Pass 'from' to move only the schedules pinned to that profile,
+        so deleting a profile does not leave its schedules pointing at a name that no longer exists. Omit 'from' to move
+        every schedule, which re-pins the whole set onto one profile. Schedules already pinned to the target are
+        skipped.
+      tags:
+        - schedules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from:
+                  description: Inference profile key the schedules are pinned to now; omit to select every schedule
+                  type: string
+                to:
+                  type: string
+                  description: Inference profile key to move them to; must be configured
+              required:
+                - to
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reassigned:
+                    type: number
+                    description: Number of schedules moved
+                required:
+                  - reassigned
                 additionalProperties: false
   /v1/schedules/usage-summary:
     get:
@@ -26692,6 +27291,10 @@ paths:
                 properties:
                   query:
                     type: string
+                  queryTokens:
+                    type: array
+                    items:
+                      type: string
                   results:
                     type: object
                     properties:
@@ -26814,6 +27417,7 @@ paths:
                     additionalProperties: false
                 required:
                   - query
+                  - queryTokens
                   - results
                 additionalProperties: false
   /v1/secret:
@@ -26988,10 +27592,13 @@ paths:
                     type: string
                   name:
                     type: string
+                  error:
+                    description:
+                      Why the secret was not stored (e.g. provider-side API key validation failed). Present only when success is
+                      false.
+                    type: string
                 required:
                   - success
-                  - type
-                  - name
                 additionalProperties: false
   /v1/secrets/read:
     post:
@@ -34069,13 +34676,14 @@ components:
               type: string
               enum:
                 - ok
-                - missing_default
+                - incomplete
                 - missing_connection
                 - missing_credential
                 - provider_mismatch
                 - unsupported_auth
                 - vellum_unauthenticated
                 - unknown
+                - missing_default
             message:
               type: string
           required:
@@ -34301,6 +34909,7 @@ components:
           type: string
           enum:
             - ok
+            - incomplete
             - missing_connection
             - missing_credential
             - provider_mismatch
@@ -34329,11 +34938,14 @@ components:
           type: array
           items:
             type: string
+        verify:
+          type: string
       required:
         - ok
         - name
         - entry
         - warnings
+        - verify
       additionalProperties: false
     InferenceProfileDetail:
       type: object

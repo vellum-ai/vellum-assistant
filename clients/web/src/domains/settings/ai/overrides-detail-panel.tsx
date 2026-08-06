@@ -1,22 +1,25 @@
-import { Loader2, Search } from "lucide-react";
+import { AlertCircle, Loader2, Search } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  profilePickerIssue,
   profilePickerLabel,
   selectSeedProfileForOverride,
+  undispatchableProfileReason,
   visibleProfilesForPicker,
 } from "@/assistant/profile-pickers";
 import { getDefaultModelForProvider } from "@/assistant/llm-model-catalog";
-import {
-  CUSTOM_SENTINEL,
-  draftsEqual,
-  isDraftActive,
-} from "@/domains/settings/ai/call-site-helpers";
-import { CallSiteOverrideRow } from "@/domains/settings/ai/call-site-overrides-row";
+import { AdvisorProfileRow } from "@/domains/settings/ai/advisor-profile-row";
+import { CUSTOM_SENTINEL } from "@/domains/settings/ai/call-site-helpers";
 import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/constants";
+import {
+  type CallSiteGroup,
+  OverridesCallSiteList,
+} from "@/domains/settings/ai/overrides-call-site-list";
 import { useSelectableInferenceProviders } from "@/domains/settings/ai/provider-availability";
+import { useOverrideDrafts } from "@/domains/settings/ai/use-override-drafts";
 import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
 import {
   configGetOptions,
@@ -24,25 +27,13 @@ import {
   configLlmCallsitesGetOptions,
   useConfigPatchMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
-import type {
-  CallSiteOverrideDraft,
-  ConfigLlmCallsitesGetResponse,
-} from "@/generated/daemon/types.gen";
+import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import { captureError } from "@/lib/sentry/capture-error";
 import { DetailShell } from "@/components/detail-shell";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-type CallSiteCatalog = ConfigLlmCallsitesGetResponse;
-type CallSiteEntry = CallSiteCatalog["callSites"][number];
-type CallSiteDomain = CallSiteCatalog["domains"][number];
 
 export interface OverridesDetailPanelProps {
   assistantId: string;
@@ -51,8 +42,8 @@ export interface OverridesDetailPanelProps {
 
 /**
  * Sidepanel host for the Action Overrides editor (the Overrides section's
- * Manage action): search, apply-to-all, and per-call-site rows grouped by
- * domain in the scrollable body, with Save / Reset pinned in the
+ * Manage action): search, the Advisor row, and per-call-site rows grouped
+ * by domain in the scrollable body, with Save / Reset pinned in the
  * DetailShell footer so a long catalog never hides the actions. Hosts
  * remount the panel per open so draft state resets.
  */
@@ -84,6 +75,13 @@ export function OverridesDetailPanel({
     [profiles, profileOrder],
   );
   const selectableInferenceProviders = useSelectableInferenceProviders();
+  // Older assistants live-inherit blank profile fields at resolution time,
+  // so a sparse profile dispatches there and must not be judged incomplete.
+  const requireOwnProviderAndModel = useSupportsCompleteProfileSnapshots();
+  const dispatchOptions = useMemo(
+    () => ({ requireOwnProviderAndModel }),
+    [requireOwnProviderAndModel],
+  );
 
   const configMutation = useConfigPatchMutation({
     onSuccess: (data) => {
@@ -96,10 +94,6 @@ export function OverridesDetailPanel({
   });
 
   const [search, setSearch] = useState("");
-  const [applyAllProfile, setApplyAllProfile] = useState("");
-  const [draftEdits, setDraftEdits] = useState<
-    Record<string, CallSiteOverrideDraft | null>
-  >({});
   const [saving, setSaving] = useState(false);
   const [showResetConfirmation, setShowResetConfirmation] = useState(false);
 
@@ -131,24 +125,28 @@ export function OverridesDetailPanel({
     [gatedCallSites],
   );
 
-  // Derive the full draft map: persisted server values merged with any
-  // user edits made this session. When the user hasn't touched a row,
-  // it falls through to the persisted override (or empty).
-  const drafts = useMemo((): Record<string, CallSiteOverrideDraft | null> => {
-    if (!isSeeded) {
-      return {};
-    }
-    const merged: Record<string, CallSiteOverrideDraft | null> = {};
-    for (const id of catalogCallSiteIds) {
-      if (id in draftEdits) {
-        merged[id] = draftEdits[id];
-      } else {
-        const persisted = persistedOverrides[id];
-        merged[id] = persisted ? { ...persisted } : {};
-      }
-    }
-    return merged;
-  }, [isSeeded, catalogCallSiteIds, persistedOverrides, draftEdits]);
+  // The advisor is a top-level `llm.advisorProfile` selection, not a call-site
+  // override. It rides this panel's draft/Save cycle but never enters the
+  // `llm.callSites` patch or the Overrides count.
+  const persistedAdvisor = daemonConfig?.llm?.advisorProfile ?? "";
+
+  const {
+    drafts,
+    advisorProfile,
+    advisorDirty,
+    callSiteDraftsDirty,
+    hasUnsavedDrafts,
+    hasValidationError,
+    setDraft,
+    setAdvisor,
+    buildSavePatch,
+    buildResetPatch,
+  } = useOverrideDrafts({
+    catalogCallSiteIds,
+    persistedOverrides,
+    persistedAdvisor,
+    isSeeded,
+  });
 
   // ---------------------------------------------------------------------------
   // Derived state
@@ -158,6 +156,49 @@ export function OverridesDetailPanel({
     () => new Set(catalogCallSiteIds),
     [catalogCallSiteIds],
   );
+
+  const profileLabelFor = useCallback(
+    (name: string) =>
+      orderedProfiles.find((p) => p.name === name)?.label ?? name,
+    [orderedProfiles],
+  );
+
+  // An entry only reaches a picker while undispatchable when it is the
+  // current selection. It carries the same warning affordance the Profiles
+  // row uses, rather than a word appended to its name.
+  const toProfileOption = useCallback(
+    (p: (typeof orderedProfiles)[number]) => ({
+      value: p.name,
+      label: profilePickerLabel(p),
+      ...(profilePickerIssue(p, orderedProfiles, dispatchOptions) ===
+      "undispatchable"
+        ? {
+            icon: (
+              <AlertCircle className="h-3.5 w-3.5 text-[var(--system-mid-strong)]" />
+            ),
+            tooltip: undispatchableProfileReason(p),
+          }
+        : {}),
+    }),
+    [orderedProfiles, dispatchOptions],
+  );
+
+  const advisorOptions = useMemo(
+    () =>
+      visibleProfilesForPicker(
+        orderedProfiles,
+        [persistedAdvisor],
+        dispatchOptions,
+      ).map(toProfileOption),
+    [orderedProfiles, persistedAdvisor, toProfileOption, dispatchOptions],
+  );
+
+  // "advisor" isn't in the call-site catalog, so its row filters on its own
+  // copy rather than falling out of `filteredCallSites`.
+  const advisorMatchesSearch = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return q === "" || "advisor".includes(q) || "second opinion".includes(q);
+  }, [search]);
 
   const hasAnyPersistedOverride = useMemo(
     () =>
@@ -169,60 +210,19 @@ export function OverridesDetailPanel({
     [persistedOverrides, gatedCallSiteIdSet],
   );
 
-  const hasUnsavedDrafts = useMemo(() => {
-    if (!isSeeded) {
-      return false;
-    }
-    for (const id of Object.keys(drafts)) {
-      if (!draftsEqual(drafts[id], persistedOverrides[id])) {
-        return true;
-      }
-    }
-    return false;
-  }, [isSeeded, drafts, persistedOverrides]);
-
-  const hasValidationError = useMemo(
-    () =>
-      Object.values(drafts).some(
-        (d) => isDraftActive(d) && !!d?.provider && !d?.model,
-      ),
-    [drafts],
-  );
-
-  const applyAllOptions = useMemo(
-    () =>
-      visibleProfilesForPicker(orderedProfiles, []).map((p) => ({
-        value: p.name,
-        label: profilePickerLabel(p),
-      })),
-    [orderedProfiles],
-  );
-
-  const handleApplyAll = useCallback(() => {
-    if (!applyAllProfile) {
-      return;
-    }
-    const next: Record<string, CallSiteOverrideDraft | null> = {};
-    for (const id of catalogCallSiteIds) {
-      next[id] = { profile: applyAllProfile };
-    }
-    setDraftEdits(next);
-  }, [applyAllProfile, catalogCallSiteIds]);
-
   const buildProfileOptionsForRow = useCallback(
     (selectedProfile: string | null) => {
-      const visible = visibleProfilesForPicker(orderedProfiles, [
-        selectedProfile,
-      ]);
+      const visible = visibleProfilesForPicker(
+        orderedProfiles,
+        [selectedProfile],
+        dispatchOptions,
+      );
       return [
-        ...visible.map((p) => ({
-          value: p.name,
-          label: profilePickerLabel(p),
-        })),
+        ...visible.map(toProfileOption),
         { value: CUSTOM_SENTINEL, label: "Custom" },
       ];
     },
-    [orderedProfiles],
+    [orderedProfiles, toProfileOption, dispatchOptions],
   );
 
   const filteredCallSites = useMemo(() => {
@@ -244,7 +244,7 @@ export function OverridesDetailPanel({
     }
     const domainOrder = catalog.domains.map((d) => d.id);
     const domainMap = new Map(catalog.domains.map((d) => [d.id, d]));
-    const groups: { domain: CallSiteDomain; sites: CallSiteEntry[] }[] = [];
+    const groups: CallSiteGroup[] = [];
     for (const domainId of domainOrder) {
       const sites = filteredCallSites.filter((cs) => cs.domain === domainId);
       if (sites.length > 0) {
@@ -268,37 +268,34 @@ export function OverridesDetailPanel({
   // Row callbacks
   // ---------------------------------------------------------------------------
 
-  const handleDraftChange = useCallback(
-    (id: string, draft: CallSiteOverrideDraft | null) => {
-      setDraftEdits((prev) => ({ ...prev, [id]: draft }));
-    },
-    [],
-  );
-
   const handleToggle = useCallback(
     (id: string, on: boolean) => {
       if (!on) {
-        setDraftEdits((prev) => ({ ...prev, [id]: null }));
+        setDraft(id, null);
         return;
       }
       const cs = gatedCallSites.find((c) => c.id === id);
       const seedProfile = selectSeedProfileForOverride(
         orderedProfiles,
         cs?.defaultProfile,
+        dispatchOptions,
       );
       if (seedProfile) {
-        setDraftEdits((prev) => ({ ...prev, [id]: { profile: seedProfile } }));
+        setDraft(id, { profile: seedProfile });
       } else {
         const defaultProvider =
           selectableInferenceProviders[0] ?? INFERENCE_PROVIDERS[0];
         const defaultModel = getDefaultModelForProvider(defaultProvider) ?? "";
-        setDraftEdits((prev) => ({
-          ...prev,
-          [id]: { provider: defaultProvider, model: defaultModel },
-        }));
+        setDraft(id, { provider: defaultProvider, model: defaultModel });
       }
     },
-    [gatedCallSites, orderedProfiles, selectableInferenceProviders],
+    [
+      gatedCallSites,
+      orderedProfiles,
+      selectableInferenceProviders,
+      setDraft,
+      dispatchOptions,
+    ],
   );
 
   // ---------------------------------------------------------------------------
@@ -308,20 +305,20 @@ export function OverridesDetailPanel({
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      const patch: Record<string, CallSiteOverrideDraft | null> = {};
-      for (const id of Object.keys(drafts)) {
-        const d = drafts[id] ?? null;
-        patch[id] = isDraftActive(d)
-          ? {
-              profile: d?.profile ?? null,
-              provider: d?.provider ?? null,
-              model: d?.model ?? null,
-            }
-          : null;
-      }
+      const patch = buildSavePatch();
       await configMutation.mutateAsync({
         path: { assistant_id: assistantId },
-        body: { llm: { callSites: patch } },
+        body: {
+          llm: {
+            // Each key is rewritten from the picker's three fields, which
+            // drops any tuning field (effort, thinking, maxTokens) a
+            // persisted entry carries. Send the map only when a call-site
+            // row actually moved, so an Advisor-only Save cannot reach it.
+            ...(callSiteDraftsDirty ? { callSites: patch } : {}),
+            // Likewise: a no-op key would still rewrite the config file.
+            ...(advisorDirty ? { advisorProfile } : {}),
+          },
+        },
       });
       onClose();
       toast.success("Overrides saved.");
@@ -331,15 +328,20 @@ export function OverridesDetailPanel({
     } finally {
       setSaving(false);
     }
-  }, [drafts, onClose, configMutation, assistantId]);
+  }, [
+    buildSavePatch,
+    callSiteDraftsDirty,
+    advisorDirty,
+    advisorProfile,
+    onClose,
+    configMutation,
+    assistantId,
+  ]);
 
   const handleReset = useCallback(async () => {
     setSaving(true);
     try {
-      const resetPatch: Record<string, null> = {};
-      for (const id of Object.keys(drafts)) {
-        resetPatch[id] = null;
-      }
+      const resetPatch = buildResetPatch();
       await configMutation.mutateAsync({
         path: { assistant_id: assistantId },
         body: { llm: { callSites: resetPatch } },
@@ -352,7 +354,7 @@ export function OverridesDetailPanel({
     } finally {
       setSaving(false);
     }
-  }, [drafts, onClose, configMutation, assistantId]);
+  }, [buildResetPatch, onClose, configMutation, assistantId]);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -408,29 +410,21 @@ export function OverridesDetailPanel({
           />
         </div>
 
-        {/* Apply one profile to every action */}
-        {applyAllOptions.length > 0 && (
-          <div className="mb-4 flex items-center gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] p-3">
-            <p className="min-w-0 flex-1 text-body-medium-default text-[var(--content-default)]">
-              Use one profile for all actions
+        {/* Advisor: a top-level selection, not a catalog call site, so it
+            renders off `daemonConfig` alone and stays put if the call-site
+            catalog fails to load. */}
+        {daemonConfigLoaded && advisorMatchesSearch && (
+          <div className="mb-4">
+            {/* typography: off-scale. Matches the domain section label below */}
+            <p className="mb-2 text-body-small-default font-semibold uppercase tracking-wider text-[var(--content-tertiary)]">
+              Advisor
             </p>
-            <Dropdown
-              value={applyAllProfile}
-              onChange={setApplyAllProfile}
-              options={applyAllOptions}
-              placeholder="Choose profile…"
-              className="w-44"
-              menuMinWidth={280}
-              menuAlign="end"
+            <AdvisorProfileRow
+              value={advisorProfile}
+              profileOptions={advisorOptions}
+              disabled={saving}
+              onChange={setAdvisor}
             />
-            <Button
-              variant="outlined"
-              size="compact"
-              onClick={handleApplyAll}
-              disabled={!applyAllProfile || !isSeeded || saving}
-            >
-              Apply to all
-            </Button>
           </div>
         )}
 
@@ -462,67 +456,22 @@ export function OverridesDetailPanel({
 
         {/* Call site list grouped by domain */}
         {!isLoading && !isError && catalog && (
-          <div className="space-y-4">
-            {groupedCallSites.length === 0 ? (
-              <p className="py-8 text-center text-body-medium-lighter text-[var(--content-tertiary)]">
-                No actions match your search.
-              </p>
-            ) : (
-              groupedCallSites.map(({ domain, sites }) => (
-                <div key={domain.id}>
-                  {/* typography: off-scale — domain section label uses semibold+tracking for visual grouping */}
-                  <p className="mb-2 text-body-small-default font-semibold uppercase tracking-wider text-[var(--content-tertiary)]">
-                    {domain.displayName}
-                  </p>
-                  <div className="space-y-1">
-                    {sites.map((cs) => {
-                      const profileVal = (() => {
-                        const d = drafts[cs.id] ?? null;
-                        if (!d || !isDraftActive(d)) {
-                          return "";
-                        }
-                        if (d.provider || d.model) {
-                          return CUSTOM_SENTINEL;
-                        }
-                        return d.profile ?? "";
-                      })();
-                      const defaultProfileLabel = cs.defaultProfile
-                        ? (orderedProfiles.find(
-                            (op) => op.name === cs.defaultProfile,
-                          )?.label ?? cs.defaultProfile)
-                        : null;
-
-                      return (
-                        <CallSiteOverrideRow
-                          key={cs.id}
-                          id={cs.id}
-                          displayName={cs.displayName}
-                          description={cs.description}
-                          defaultProfileLabel={defaultProfileLabel}
-                          draft={drafts[cs.id] ?? null}
-                          profileOptions={buildProfileOptionsForRow(
-                            profileVal === "" || profileVal === CUSTOM_SENTINEL
-                              ? null
-                              : profileVal,
-                          )}
-                          onDraftChange={handleDraftChange}
-                          onToggle={handleToggle}
-                        />
-                      );
-                    })}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+          <OverridesCallSiteList
+            groups={groupedCallSites}
+            drafts={drafts}
+            buildProfileOptionsForRow={buildProfileOptionsForRow}
+            profileLabelFor={profileLabelFor}
+            advisorMatchesSearch={advisorMatchesSearch}
+            onDraftChange={setDraft}
+            onToggle={handleToggle}
+          />
         )}
       </div>
-
 
       <ConfirmDialog
         open={showResetConfirmation}
         title="Reset to Defaults"
-        message="Every task override will be reset and will follow your active profile. This cannot be undone."
+        message="Every action override will be reset and will follow its default. This cannot be undone."
         confirmLabel="Reset to Defaults"
         destructive
         onConfirm={() => {

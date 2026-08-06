@@ -104,6 +104,31 @@ export function providersServedByConnections(
   return ordered;
 }
 
+/**
+ * Selectable providers a set of connections cannot dispatch through yet, in
+ * canonical picker order. These are offered as "connect me" entries: picking
+ * one leads to the provider-create flow rather than binding a profile to a
+ * route the daemon can't serve.
+ *
+ * `openai-compatible` is excluded — a custom endpoint has no identity until
+ * the user names it and supplies a base URL, so it is reached through the
+ * picker's dedicated create entry instead.
+ */
+export function unconnectedSelectableProviders(
+  connections: ProviderConnection[],
+  activeAssistantIsSelfHosted: boolean,
+): ConnectionProvider[] {
+  const served = new Set<ConnectionProvider>(
+    connections.map((connection) => connection.provider),
+  );
+  return selectableConnectionProvidersForAssistant(
+    activeAssistantIsSelfHosted,
+  ).filter(
+    (provider) =>
+      provider !== OPENAI_COMPATIBLE_PROVIDER && !served.has(provider),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Per-endpoint picker entries
 // ---------------------------------------------------------------------------

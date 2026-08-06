@@ -841,6 +841,7 @@ type DebugWindow = Window & {
     events?: { getClients: unknown; getEvents: unknown };
     flags?: {
       impersonateVersion?: (v?: string | null) => string | null;
+      toggleAppsSandboxDisabled?: (v?: boolean) => boolean;
     };
     other?: unknown;
   };
@@ -848,6 +849,7 @@ type DebugWindow = Window & {
 
 const makeFlagsApi = () => ({
   impersonateVersion: (_value?: string | null): string | null => null,
+  toggleAppsSandboxDisabled: (_value?: boolean): boolean => false,
 });
 
 describe("installVellumDebugApi", () => {
@@ -861,6 +863,7 @@ describe("installVellumDebugApi", () => {
     expect(typeof root?.events?.getClients).toBe("function");
     expect(typeof root?.events?.getEvents).toBe("function");
     expect(typeof root?.flags?.impersonateVersion).toBe("function");
+    expect(typeof root?.flags?.toggleAppsSandboxDisabled).toBe("function");
     uninstall();
   });
 

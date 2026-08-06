@@ -129,6 +129,8 @@ mock.module("@qdrant/js-client-rest", () => ({
 const skillState = {
   /** id → SkillEntry consulted by `getSkillCapability`. */
   entries: new Map<string, SkillEntry>(),
+  /** Skill ids the store reports as `always-candidate`. */
+  alwaysCandidateIds: new Set<string>(),
 };
 
 mock.module("../../substrate/skill-store.js", () => ({
@@ -146,6 +148,11 @@ mock.module("../../substrate/skill-store.js", () => ({
   // time. Tests stage skill content via `skillState.entries`; expose them
   // here so the page-index loader sees a consistent view.
   listSkillEntries: () => Array.from(skillState.entries.values()),
+  listAlwaysCandidateSkillSlugs: () =>
+    [...skillState.alwaysCandidateIds]
+      .filter((id) => skillState.entries.has(id))
+      .sort()
+      .map((id) => `skills/${id}`),
 }));
 
 // ---------------------------------------------------------------------------
@@ -527,6 +534,7 @@ function resetState(): void {
   state.queryResponses.dense.length = 0;
   state.queryResponses.sparse.length = 0;
   skillState.entries.clear();
+  skillState.alwaysCandidateIds.clear();
   cliCommandState.entries.clear();
   telemetryState.recordCalls.length = 0;
   telemetryState.recordShouldThrow = false;
@@ -544,6 +552,13 @@ function resetState(): void {
 function stageSkills(entries: SkillEntry[]): void {
   for (const entry of entries) {
     skillState.entries.set(entry.id, entry);
+  }
+}
+
+/** Mark staged skill ids as `always-candidate` in the mocked store. */
+function stageAlwaysCandidates(ids: string[]): void {
+  for (const id of ids) {
+    skillState.alwaysCandidateIds.add(id);
   }
 }
 
@@ -978,6 +993,122 @@ describe("injectMemoryV2Block", () => {
     );
     expect(headerIdx).toBeGreaterThan(-1);
     expect(skillIdx).toBeGreaterThan(headerIdx);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Always-candidate skills
+  // ---------------------------------------------------------------------------
+
+  test("pins an always-candidate skill card that retrieval never surfaced", async () => {
+    stageTurn([]);
+    stageSkills([
+      {
+        id: "visualize",
+        content:
+          'The "Visualize" skill (visualize) is available. Render a polished visual inline.',
+      },
+    ]);
+    stageAlwaysCandidates(["visualize"]);
+
+    const result = await injectMemoryV2Block({
+      conversationId: "conv-pin-1",
+      currentTurn: 1,
+      recentTurnPairs: [
+        { assistantMessage: "", userMessage: "How does DNS work?" },
+      ],
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    expect(result.toInject).toEqual(["skills/visualize"]);
+    expect(result.block).toContain("### Skills You Can Use");
+    expect(result.block).toContain(
+      'The "Visualize" skill (visualize) is available. Render a polished visual inline. → use skill_load to activate',
+    );
+  });
+
+  test("does not double-list a pinned skill retrieval also picked", async () => {
+    stageTurn([{ slug: "skills/visualize", denseScore: 0.9 }]);
+    stageSkills([
+      {
+        id: "visualize",
+        content:
+          'The "Visualize" skill (visualize) is available. Render a polished visual inline.',
+      },
+    ]);
+    stageAlwaysCandidates(["visualize"]);
+
+    const result = await injectMemoryV2Block({
+      conversationId: "conv-pin-2",
+      currentTurn: 1,
+      recentTurnPairs: [
+        { assistantMessage: "", userMessage: "Draw me a diagram" },
+      ],
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    expect(result.toInject).toEqual(["skills/visualize"]);
+    const first = result.block!.indexOf('The "Visualize" skill');
+    expect(first).toBeGreaterThan(-1);
+    expect(result.block!.indexOf('The "Visualize" skill', first + 1)).toBe(-1);
+  });
+
+  test("re-attaches a pinned skill only once across turns", async () => {
+    stageTurn([]);
+    stageSkills([
+      {
+        id: "visualize",
+        content:
+          'The "Visualize" skill (visualize) is available. Render a polished visual inline.',
+      },
+    ]);
+    stageAlwaysCandidates(["visualize"]);
+
+    const params = {
+      conversationId: "conv-pin-3",
+      recentTurnPairs: [
+        { assistantMessage: "", userMessage: "How does DNS work?" },
+      ],
+      nowText: "Now",
+      config: makeConfig(),
+    };
+    const first = await injectMemoryV2Block({
+      ...params,
+      currentTurn: 1,
+      messageId: "msg-1",
+    });
+    expect(first.toInject).toEqual(["skills/visualize"]);
+
+    stageTurn([]);
+    const second = await injectMemoryV2Block({
+      ...params,
+      currentTurn: 2,
+      messageId: "msg-2",
+    });
+    expect(second.toInject).toEqual([]);
+    expect(second.block).toBeNull();
+  });
+
+  test("does not pin an always-candidate skill missing from the store cache", async () => {
+    stageTurn([]);
+    stageAlwaysCandidates(["visualize"]);
+
+    const result = await injectMemoryV2Block({
+      conversationId: "conv-pin-4",
+      currentTurn: 1,
+      recentTurnPairs: [
+        { assistantMessage: "", userMessage: "How does DNS work?" },
+      ],
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    expect(result.toInject).toEqual([]);
+    expect(result.block).toBeNull();
   });
 
   test("renders concept-page sections before the skills subsection in mixed blocks", async () => {

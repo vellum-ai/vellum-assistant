@@ -238,16 +238,19 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
     expect(breakpointedItemIndexes()).toEqual([0, 2]);
   });
 
-  test("volatile single-message first turn: no markers (nothing stable to anchor)", async () => {
+  test("volatile single-message first turn: the sole item is still marked", async () => {
     const provider = makeProvider("gpt-5.6-sol");
     await provider.sendMessage([userMsg("hi")], {
       config: { mutableLatestUserMessage: true, promptCacheKey: "conv-1" },
     });
 
+    // A volatile message is fixed within its own turn, so marking it prepays
+    // one write that the turn's tool-loop iterations read back, covering the
+    // instructions and tools that precede it in the cached prefix.
     expect(lastStreamParams?.prompt_cache_options).toEqual({
       mode: "explicit",
     });
-    expect(breakpointedItemIndexes()).toEqual([]);
+    expect(breakpointedItemIndexes()).toEqual([0]);
   });
 
   test("tool loop: single fixed anchor on the turn-start user item, none on function_call_output", async () => {

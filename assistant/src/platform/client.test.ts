@@ -11,13 +11,17 @@ let mockManagedProxyCtx = {
 };
 let mockAssistantId = "";
 let mockSecureKeys: Record<string, string | null | undefined> = {};
+// Re-pointable so the probe-deadline tests can hang context resolution.
+let mockResolveManagedProxyContext: () => Promise<
+  typeof mockManagedProxyCtx
+> = async () => mockManagedProxyCtx;
 
 // ---------------------------------------------------------------------------
 // Module mocks
 // ---------------------------------------------------------------------------
 
 mock.module("../providers/platform-proxy/context.js", () => ({
-  resolveManagedProxyContext: async () => mockManagedProxyCtx,
+  resolveManagedProxyContext: () => mockResolveManagedProxyContext(),
 }));
 
 mock.module("../config/env.js", () => ({
@@ -38,7 +42,11 @@ mock.module("../security/credential-key.js", () => ({
 // Import under test (after mocks)
 // ---------------------------------------------------------------------------
 
-import { VellumPlatformClient } from "./client.js";
+import {
+  _resetConfiguredProbeCacheForTests,
+  isPlatformClientConfigured,
+  VellumPlatformClient,
+} from "./client.js";
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -56,6 +64,8 @@ describe("VellumPlatformClient", () => {
     };
     mockAssistantId = "asst-123";
     mockSecureKeys = {};
+    mockResolveManagedProxyContext = async () => mockManagedProxyCtx;
+    _resetConfiguredProbeCacheForTests();
   });
 
   afterEach(() => {
@@ -116,6 +126,166 @@ describe("VellumPlatformClient", () => {
       expect(client!.baseUrl).toBe("https://stored-platform.example.com");
       expect(client!.assistantApiKey).toBe("stored-api-key");
       expect(client!.platformAssistantId).toBe("stored-assistant-id");
+    });
+  });
+
+  describe("isPlatformClientConfigured()", () => {
+    test("true when base url, api key, and assistant id are all present", async () => {
+      expect(await isPlatformClientConfigured()).toBe(true);
+    });
+
+    test("false when the platform assistant id is missing", async () => {
+      mockAssistantId = "";
+
+      expect(await isPlatformClientConfigured()).toBe(false);
+    });
+
+    test("false when auth prerequisites are missing", async () => {
+      mockManagedProxyCtx = {
+        enabled: false,
+        platformBaseUrl: "",
+        assistantApiKey: "",
+      };
+
+      expect(await isPlatformClientConfigured()).toBe(false);
+    });
+
+    test("hung resolution answers false at the deadline, then serves the late result from cache", async () => {
+      let releaseHang = () => {};
+      const hang = new Promise<void>((resolve) => {
+        releaseHang = resolve;
+      });
+      mockResolveManagedProxyContext = async () => {
+        await hang;
+        return mockManagedProxyCtx;
+      };
+
+      // Resolution is hung and no result has ever settled -- the deadline
+      // must answer false instead of stalling the caller.
+      expect(await isPlatformClientConfigured()).toBe(false);
+
+      // Release the abandoned resolution; it settles true in the background
+      // and refreshes the cache.
+      releaseHang();
+      await Bun.sleep(10);
+
+      // Resolution hangs forever this time, but the cache answers true.
+      mockResolveManagedProxyContext = () => new Promise(() => {});
+      expect(await isPlatformClientConfigured()).toBe(true);
+    });
+
+    test("concurrent calls share a single in-flight resolution", async () => {
+      let resolutionCount = 0;
+      mockResolveManagedProxyContext = async () => {
+        resolutionCount += 1;
+        await Bun.sleep(5);
+        return mockManagedProxyCtx;
+      };
+
+      const [first, second] = await Promise.all([
+        isPlatformClientConfigured(),
+        isPlatformClientConfigured(),
+      ]);
+
+      expect(first).toBe(true);
+      expect(second).toBe(true);
+      expect(resolutionCount).toBe(1);
+    });
+
+    test("a settled flight clears, so the next call starts a fresh resolution", async () => {
+      let resolutionCount = 0;
+      mockResolveManagedProxyContext = async () => {
+        resolutionCount += 1;
+        return mockManagedProxyCtx;
+      };
+
+      expect(await isPlatformClientConfigured()).toBe(true);
+      expect(await isPlatformClientConfigured()).toBe(true);
+      expect(resolutionCount).toBe(2);
+    });
+
+    test("a caller that finds an abandoned flight rotates in a fresh resolution", async () => {
+      let resolutionCount = 0;
+      // The first resolution hangs forever; only the rotated-in second one
+      // settles.
+      const pendingHangs = [new Promise<void>(() => {})];
+      mockResolveManagedProxyContext = async () => {
+        resolutionCount += 1;
+        const hang = pendingHangs.shift();
+        if (hang) {
+          await hang;
+        }
+        return mockManagedProxyCtx;
+      };
+
+      // The first caller abandons the hung flight at the deadline.
+      expect(await isPlatformClientConfigured()).toBe(false);
+
+      // The hung flight is marked abandoned, so the next caller rotates in a
+      // fresh resolution instead of joining it; the fresh flight settles
+      // immediately and answers live.
+      expect(await isPlatformClientConfigured()).toBe(true);
+      expect(resolutionCount).toBe(2);
+    });
+
+    test("a later caller joins a flight nobody has abandoned", async () => {
+      let resolutionCount = 0;
+      let release = () => {};
+      // Gating the resolution keeps it in flight until the second caller has
+      // joined, so the assertion does not race a settle.
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      mockResolveManagedProxyContext = async () => {
+        resolutionCount += 1;
+        await gate;
+        return mockManagedProxyCtx;
+      };
+
+      const first = isPlatformClientConfigured();
+      await Bun.sleep(1);
+      const second = isPlatformClientConfigured();
+      release();
+
+      expect(await first).toBe(true);
+      expect(await second).toBe(true);
+      expect(resolutionCount).toBe(1);
+    });
+
+    test("a rotated-out flight's late settle cannot overwrite the newer flight's cached result", async () => {
+      let releaseFirstHang = () => {};
+      const firstHang = new Promise<void>((resolve) => {
+        releaseFirstHang = resolve;
+      });
+      const pendingHangs = [firstHang];
+      mockResolveManagedProxyContext = async () => {
+        const hang = pendingHangs.shift();
+        if (hang) {
+          await hang;
+        }
+        return mockManagedProxyCtx;
+      };
+
+      // First caller abandons the hung flight; second caller rotates in a
+      // fresh flight that settles true and writes the cache.
+      expect(await isPlatformClientConfigured()).toBe(false);
+      expect(await isPlatformClientConfigured()).toBe(true);
+
+      // The rotated-out flight now settles resolving an unconfigured
+      // context. Generation fencing must keep it from clobbering the newer
+      // flight's cached `true`.
+      mockManagedProxyCtx = {
+        enabled: false,
+        platformBaseUrl: "",
+        assistantApiKey: "",
+      };
+      releaseFirstHang();
+      await Bun.sleep(10);
+
+      // Resolution hangs forever, so this answer can only come from the
+      // cache, which must still hold the newer flight's `true`.
+      mockResolveManagedProxyContext = () => new Promise(() => {});
+      expect(await isPlatformClientConfigured()).toBe(true);
     });
   });
 

@@ -96,7 +96,7 @@ describe("live voice audio archive", () => {
     const { message } = await createMessage("user");
     const audio = Buffer.from("user audio bytes");
 
-    const result = archiveLiveVoiceUserUtteranceAudio({
+    const result = await archiveLiveVoiceUserUtteranceAudio({
       messageId: message.id,
       sessionId: "session-123",
       turnId: "turn-abc",
@@ -148,7 +148,7 @@ describe("live voice audio archive", () => {
     const audio = Buffer.from("assistant audio bytes");
     writeFileSync(sourcePath, audio);
 
-    const result = archiveLiveVoiceAssistantResponseAudio({
+    const result = await archiveLiveVoiceAssistantResponseAudio({
       messageId: message.id,
       sessionId: "session-456",
       turnId: "turn-def",
@@ -202,7 +202,7 @@ describe("live voice audio archive", () => {
   test("links user utterance audio to a persisted user message id", async () => {
     const { message } = await createMessage("user");
 
-    const result = linkLiveVoiceUserUtteranceAudioToMessage({
+    const result = await linkLiveVoiceUserUtteranceAudioToMessage({
       messageId: message.id,
       sessionId: "session-user-link",
       turnId: "turn-user-link",
@@ -228,7 +228,7 @@ describe("live voice audio archive", () => {
   test("links assistant response audio when the assistant message id is available", async () => {
     const { message } = await createMessage("assistant");
 
-    const result = linkLiveVoiceAssistantResponseAudioToMessage({
+    const result = await linkLiveVoiceAssistantResponseAudioToMessage({
       messageId: message.id,
       sessionId: "session-assistant-link",
       turnId: "turn-assistant-link",
@@ -254,8 +254,8 @@ describe("live voice audio archive", () => {
     expect(getLiveVoiceArtifacts(message.id)).toEqual([result.artifact]);
   });
 
-  test("returns an unlinked result when the assistant message id is unavailable", () => {
-    const result = linkLiveVoiceAssistantResponseAudioToMessage({
+  test("returns an unlinked result when the assistant message id is unavailable", async () => {
+    const result = await linkLiveVoiceAssistantResponseAudioToMessage({
       messageId: undefined,
       sessionId: "session-assistant-unlinked",
       turnId: "turn-assistant-unlinked",
@@ -283,7 +283,7 @@ describe("live voice audio archive", () => {
   test("is idempotent for the session turn role key", async () => {
     const { message } = await createMessage("user");
 
-    const first = archiveLiveVoiceAudioArtifact({
+    const first = await archiveLiveVoiceAudioArtifact({
       messageId: message.id,
       sessionId: "session-repeat",
       turnId: "turn-repeat",
@@ -295,7 +295,7 @@ describe("live voice audio archive", () => {
         dataBase64: Buffer.from("first audio").toString("base64"),
       },
     });
-    const second = archiveLiveVoiceAudioArtifact({
+    const second = await archiveLiveVoiceAudioArtifact({
       messageId: message.id,
       sessionId: "session-repeat",
       turnId: "turn-repeat",
@@ -320,7 +320,7 @@ describe("live voice audio archive", () => {
       "first audio",
     );
 
-    const assistantResult = archiveLiveVoiceAudioArtifact({
+    const assistantResult = await archiveLiveVoiceAudioArtifact({
       messageId: message.id,
       sessionId: "session-repeat",
       turnId: "turn-repeat",
@@ -337,7 +337,7 @@ describe("live voice audio archive", () => {
 
   test("restores metadata idempotency from the deterministic attachment filename", async () => {
     const { message } = await createMessage("assistant");
-    const first = archiveLiveVoiceAssistantResponseAudio({
+    const first = await archiveLiveVoiceAssistantResponseAudio({
       messageId: message.id,
       sessionId: "session-crash",
       turnId: "turn-crash",
@@ -360,7 +360,7 @@ describe("live voice audio archive", () => {
       message.id,
     );
 
-    const second = archiveLiveVoiceAssistantResponseAudio({
+    const second = await archiveLiveVoiceAssistantResponseAudio({
       messageId: message.id,
       sessionId: "session-crash",
       turnId: "turn-crash",
@@ -408,7 +408,7 @@ describe("live voice audio archive", () => {
       },
     );
 
-    const archived = archiveLiveVoiceUserUtteranceAudio({
+    const archived = await archiveLiveVoiceUserUtteranceAudio({
       messageId: sourceMessage.id,
       sessionId: "session-artifact-link",
       turnId: "turn-artifact-link",
@@ -452,7 +452,7 @@ describe("live voice audio archive", () => {
   test("returns typed warnings for non-fatal archive failures", async () => {
     const { message } = await createMessage("user");
 
-    const missingFile = archiveLiveVoiceUserUtteranceAudio({
+    const missingFile = await archiveLiveVoiceUserUtteranceAudio({
       messageId: message.id,
       sessionId: "session-warning",
       turnId: "turn-warning",
@@ -470,7 +470,7 @@ describe("live voice audio archive", () => {
       },
     });
 
-    const unsupportedMime = archiveLiveVoiceUserUtteranceAudio({
+    const unsupportedMime = await archiveLiveVoiceUserUtteranceAudio({
       messageId: message.id,
       sessionId: "session-warning",
       turnId: "turn-warning-2",
@@ -488,7 +488,7 @@ describe("live voice audio archive", () => {
       },
     });
 
-    const missingMessage = archiveLiveVoiceUserUtteranceAudio({
+    const missingMessage = await archiveLiveVoiceUserUtteranceAudio({
       messageId: "missing-message",
       sessionId: "session-warning",
       turnId: "turn-warning-3",
@@ -509,7 +509,7 @@ describe("live voice audio archive", () => {
   test("keeps archive metadata scoped to allowed live voice fields", async () => {
     const { message } = await createMessage("assistant");
 
-    const result = archiveLiveVoiceAssistantResponseAudio({
+    const result = await archiveLiveVoiceAssistantResponseAudio({
       messageId: message.id,
       sessionId: "session-metadata",
       turnId: "turn-metadata",

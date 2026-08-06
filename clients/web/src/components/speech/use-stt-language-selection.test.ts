@@ -5,12 +5,13 @@
  *      `languageSelection` (old daemon) or reports the configured provider
  *      as `"auto"`; available for a `"manual"` provider.
  *   2. Writes: a pick issues exactly one `services.stt.language` PATCH;
- *      rapid picks serialize in call order; the default pick writes the
- *      explicit `"en"` fallback (config_patch cannot delete the key) and
- *      `"en"` reads back as the default code.
- *   3. Provider scoping of that read equivalence: under xai, whose unset
- *      state means native auto-detection, a persisted `"en"` is a real pin
- *      and reads back as itself.
+ *      rapid picks serialize in call order; the default pick writes the code
+ *      the daemon resolves an unset language to (config_patch cannot delete
+ *      the key), and that code reads back as the default row.
+ *   3. Provider scoping of that read equivalence: the default code is
+ *      `"multi"` on code-switching providers, so a persisted `"en"` is a
+ *      deliberate pin there and under xai, whose unset state means native
+ *      auto-detection.
  *
  * Generated daemon bindings are mocked with controllable data, mirroring
  * `speech-to-text-card.test.tsx`; the QueryClientProvider is real.
@@ -140,7 +141,9 @@ describe("useSttLanguageSelection", () => {
 
     const { result } = renderSelection();
     expect(result.current.available).toBe(true);
-    expect(result.current.currentCode).toBe("");
+    // An absent language can only come from a daemon predating the schema
+    // default, and there it meant English.
+    expect(result.current.currentCode).toBe("en");
   });
 
   test("exposes the configured provider id, mapping legacy managed mode", () => {
@@ -229,9 +232,11 @@ describe("useSttLanguageSelection", () => {
     await waitFor(() => expect(result.current.selecting).toBe(false));
   });
 
-  test("the default pick writes explicit en, and en reads as the default code", async () => {
+  test("picking Multilingual writes multi, and it reads back as itself", async () => {
+    // Multilingual is a row you select, not a default you fall back to, so
+    // the code round-trips rather than collapsing into a sentinel.
     daemonConfigData = {
-      services: { stt: { provider: "vellum", language: "multi" } },
+      services: { stt: { provider: "vellum", language: "en" } },
     };
     providerCatalogData = {
       providers: [
@@ -240,22 +245,40 @@ describe("useSttLanguageSelection", () => {
     };
 
     const { result } = renderSelection();
-    expect(result.current.currentCode).toBe("multi");
+    expect(result.current.currentCode).toBe("en");
 
-    // config_patch cannot delete the key (a null leaf breaks schema
-    // validation on the next load), so the default pick writes "en".
     daemonConfigData = {
-      services: { stt: { provider: "vellum", language: "en" } },
+      services: { stt: { provider: "vellum", language: "multi" } },
     };
-    act(() => result.current.selectLanguage(""));
+    act(() => result.current.selectLanguage("multi"));
 
     await waitFor(() => expect(result.current.selecting).toBe(false));
     expect(configPatchCalls).toHaveLength(1);
     expect(configPatchCalls[0]!.body).toEqual({
-      services: { stt: { language: "en" } },
+      services: { stt: { language: "multi" } },
     });
-    // The refetched config holds "en"; the hook reads it as the default code.
-    await waitFor(() => expect(result.current.currentCode).toBe(""));
+    await waitFor(() => expect(result.current.currentCode).toBe("multi"));
+  });
+
+  test("en reads as a deliberate pin under a code-switching provider", async () => {
+    // The default row means multilingual now, so collapsing a persisted "en"
+    // into it would report a user who deliberately pinned English as being
+    // on code-switching.
+    daemonConfigData = {
+      services: { stt: { provider: "deepgram", language: "en" } },
+    };
+    providerCatalogData = {
+      providers: [
+        {
+          id: "deepgram",
+          displayName: "Deepgram",
+          languageSelection: "manual",
+        },
+      ],
+    };
+
+    const { result } = renderSelection();
+    await waitFor(() => expect(result.current.currentCode).toBe("en"));
   });
 
   test("en reads as itself under xai, whose unset state means auto-detect", () => {

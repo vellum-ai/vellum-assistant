@@ -3,8 +3,12 @@ import { isElectron } from "@/runtime/is-electron";
 /**
  * Per-capability wrapper for the Electron host's native Share Sheet. Matches
  * the pattern in `dock.ts` / `native-biometric.ts`: the renderer never touches
- * `window.vellum.*` directly — the cross-platform `saveFile` (native-file.ts)
+ * `window.vellum.*` directly. The cross-platform `shareFile` (native-file.ts)
  * calls this, and the platform branch lives here.
+ *
+ * Only the *share* intent routes here. A "Download" action goes through
+ * `saveFile`, which never presents this sheet. See the intent split documented
+ * in `native-file.ts`.
  *
  * On macOS this presents `NSSharingServicePicker` (Messages, Mail, AirDrop,
  * Slack, Save to Files, …) for the file, matching the native "export from the

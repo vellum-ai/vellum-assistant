@@ -1,9 +1,8 @@
 /**
  * Queue-cancellation and steer-recovery contracts on the shared handlers.
  *
- * `deleteQueuedMessage` broadcasts the cancellation so every client watching
- * the conversation retires the queued row, not just the tab that issued the
- * DELETE, and pairs that event with the same visibility predicate the enqueue
+ * `deleteQueuedMessage` closes out the queued row on the sender's event sink,
+ * pairing that terminal event with the same visibility predicate the enqueue
  * ack used.
  *
  * `steerToMessage` promotes a queued message and then aborts the in-flight
@@ -36,15 +35,28 @@ import {
 
 const CONV = "queued-cancel-conv";
 
+/**
+ * Register a conversation holding one queued message, and hand back the events
+ * the handler delivered to that message's sender sink.
+ */
 function registerWithQueuedMessage(
-  removed: Partial<QueuedMessage> | undefined,
-): void {
+  queued: Partial<QueuedMessage> | undefined,
+): AssistantEvent[] {
+  const sent: AssistantEvent[] = [];
+  const item = queued
+    ? { ...queued, onEvent: (msg: AssistantEvent) => sent.push(msg) }
+    : undefined;
   const fake = {
     conversationId: CONV,
     isProcessing: () => false,
-    removeQueuedMessage: () => removed,
+    queue: {
+      findByRequestId: (requestId: string) =>
+        item?.requestId === requestId ? item : undefined,
+    },
+    removeQueuedMessage: () => item,
   };
   setConversation(CONV, fake as unknown as Conversation);
+  return sent;
 }
 
 interface LatchedTurn {
@@ -69,6 +81,7 @@ function registerLatchedTurn(): LatchedTurn {
     },
     abortController: null,
     queue: {
+      findByRequestId: (requestId: string) => ({ requestId }),
       promoteToHead: (requestId: string) => ({ requestId }),
     },
     pendingSteerRepair: false,
@@ -92,15 +105,15 @@ describe("deleteQueuedMessage", () => {
     deleteConversation(CONV);
   });
 
-  test("broadcasts the cancellation so other clients drop the queued row", () => {
-    registerWithQueuedMessage({
+  test("closes out the queued row so clients retire the pending indicator", () => {
+    const sent = registerWithQueuedMessage({
       requestId: "req-1",
       clientMessageId: "client-1",
       metadata: {},
     });
 
     expect(deleteQueuedMessage(CONV, "req-1")).toEqual({ removed: true });
-    expect(broadcasts).toEqual([
+    expect(sent).toEqual([
       {
         type: "message_queued_deleted",
         conversationId: CONV,
@@ -111,10 +124,13 @@ describe("deleteQueuedMessage", () => {
   });
 
   test("omits clientMessageId when the sender minted none", () => {
-    registerWithQueuedMessage({ requestId: "req-2", metadata: {} });
+    const sent = registerWithQueuedMessage({
+      requestId: "req-2",
+      metadata: {},
+    });
 
     expect(deleteQueuedMessage(CONV, "req-2")).toEqual({ removed: true });
-    expect(broadcasts).toEqual([
+    expect(sent).toEqual([
       {
         type: "message_queued_deleted",
         conversationId: CONV,
@@ -126,22 +142,25 @@ describe("deleteQueuedMessage", () => {
   test("stays silent for an echo-suppressed entry", () => {
     // A daemon-injected notification never produced a `message_queued` ack, so
     // a delete event would be an unpaired retire for a row no client renders.
-    registerWithQueuedMessage({
+    const sent = registerWithQueuedMessage({
       requestId: "req-3",
-      metadata: { subagentNotification: { childId: "child-1" } },
+      metadata: {
+        subagentNotification: { subagentId: "child-1", label: "research" },
+      },
     });
 
     expect(deleteQueuedMessage(CONV, "req-3")).toEqual({ removed: true });
-    expect(broadcasts).toEqual([]);
+    expect(sent).toEqual([]);
   });
 
   test("stays silent when nothing matched the request id", () => {
-    registerWithQueuedMessage(undefined);
+    const sent = registerWithQueuedMessage(undefined);
 
     expect(deleteQueuedMessage(CONV, "req-missing")).toEqual({
       removed: false,
       reason: "message_not_found",
     });
+    expect(sent).toEqual([]);
     expect(broadcasts).toEqual([]);
   });
 });

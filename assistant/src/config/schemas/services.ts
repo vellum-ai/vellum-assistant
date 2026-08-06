@@ -139,10 +139,14 @@ export const ServicesSchema = z.object({
     WebSearchServiceSchema.parse({}),
   ),
   "web-fetch": WebFetchServiceSchema.default(WebFetchServiceSchema.parse({})),
-  stt: SttServiceSchema.default({
-    provider: "deepgram" as const,
-    providers: {},
-  }),
+  // Parsed rather than handed a literal, like every sibling here: a literal
+  // default short-circuits the inner parse, so field-level defaults inside
+  // the block (the multilingual `language`) would never materialize for a
+  // config that omits `services.stt` entirely, which is every fresh
+  // workspace.
+  stt: SttServiceSchema.default(
+    SttServiceSchema.parse({ provider: "deepgram", providers: {} }),
+  ),
   tts: TtsServiceSchema.default(TtsServiceSchema.parse({})),
   "google-oauth": GoogleOAuthServiceSchema.default(
     GoogleOAuthServiceSchema.parse({}),

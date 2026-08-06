@@ -26,8 +26,11 @@ export function WelcomeScreen() {
       <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center px-6 pb-40 text-[var(--content-default)]">
         <div className="flex flex-1 flex-col items-center justify-center">
           <h1
-            className="text-3xl font-semibold tracking-tight"
-            style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
+            className="text-5xl font-normal tracking-tight"
+            style={{
+              fontFamily: "var(--font-serif)",
+              animation: "fadeInUp 0.5s ease-out 0.1s both",
+            }}
           >
             Welcome to Vellum
           </h1>
@@ -45,7 +48,7 @@ export function WelcomeScreen() {
           )}
 
           <div
-            className="mt-10 flex w-full max-w-sm flex-col gap-3"
+            className="mt-15 flex w-full max-w-sm flex-col gap-3"
             style={{ animation: "fadeInUp 0.5s ease-out 0.5s both" }}
           >
             <Button

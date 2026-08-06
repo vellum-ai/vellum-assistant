@@ -15,6 +15,7 @@ import { ApiError, GoogleGenAI } from "@google/genai";
 import { computeRetryDelay, sleep } from "../../../../util/retry.js";
 import { CostTracker } from "./cost-tracker.js";
 import type { MapOutput, SegmentMapResult } from "./gemini-map.js";
+import { resolveMediaAnalysisModel } from "./media-analysis-model.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -76,7 +77,7 @@ export async function analyzeVideoDirectly(
   mimeType: string,
   onProgress?: (msg: string) => void,
 ): Promise<MapOutput> {
-  const model = options.model ?? "gemini-2.5-flash";
+  const model = resolveMediaAnalysisModel(options.model);
   const maxRetries = options.maxRetries ?? 3;
 
   // Check file size before uploading

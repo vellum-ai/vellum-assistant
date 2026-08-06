@@ -16,6 +16,11 @@ import { getConfig } from "../../../config/loader.js";
 import { isMemoryEnabled } from "../../../config/memory-v3-gate.js";
 import { rehydratePlatformCredentials } from "../../../config/platform-rehydration.js";
 import { resetDb } from "../../../persistence/db-connection.js";
+import {
+  EMBEDDING_SHUTDOWN_BUDGET_MS,
+  shutdownEmbeddingBackends,
+  terminateEmbeddingWorkersNow,
+} from "../../../persistence/embeddings/embedding-backend.js";
 import { disableStreamSeqStamping } from "../../../runtime/assistant-stream-state.js";
 import { initializeTools } from "../../../tools/registry.js";
 import {
@@ -79,7 +84,18 @@ async function main(): Promise<void> {
   let worker: ReturnType<typeof startMemoryJobsWorkerLoop> | null = null;
   let keepAlive: ReturnType<typeof setInterval> | null = null;
   let disposePidGuard: (() => void) | null = null;
-  const shutdown = (signal: string) => {
+  // Set synchronously by shutdown() so startup below can tell it has been
+  // superseded. Eviction exits immediately, but a signal arriving mid-startup
+  // defers its exit to reap the backend, and without this flag that worker
+  // would fall through to the jobs worker loop, whose
+  // resetRunningJobsToPending() resets the LIVE successor's in-progress jobs
+  // and fires the startup orphan sweeps against its data.
+  let shuttingDown = false;
+  const shutdown = (signal: string, opts: { immediate?: boolean } = {}) => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
     log.info({ signal }, "Memory worker process shutting down");
     worker?.stop();
     if (keepAlive != null) {
@@ -87,24 +103,52 @@ async function main(): Promise<void> {
     }
     disposePidGuard?.();
     cleanupWorkerPidFile(pidPath);
-    process.exit(0);
+
+    // Eviction means a successor is already live and about to reset every
+    // `running` job to `pending`. `worker.stop()` does not cancel the tick
+    // already in flight, so staying alive to reap would let this process keep
+    // executing a job the successor has just reclaimed.
+    //
+    // Exit now, but kill the owned embed worker first. Waiting for the
+    // successor's reclaim sweep to adopt it does not work: eviction is detected
+    // on a 15s poll, by which point that sweep has already run and classified
+    // the child as another live process's, leaving two workers alive.
+    if (opts.immediate) {
+      terminateEmbeddingWorkersNow();
+      process.exit(0);
+    }
+
+    // Signal shutdown: no successor exists, so take the time to reap the ONNX
+    // worker subprocess this process owns rather than leaving an orphan
+    // (JARVIS-1125). `shutdownEmbeddingBackends` enforces its own ceiling, so
+    // this outer race only has to sit above it to stay a backstop rather than
+    // the thing that cuts the reap short.
+    void Promise.race([
+      shutdownEmbeddingBackends().catch((err: unknown) => {
+        log.warn({ err }, "Embedding backend shutdown failed (non-fatal)");
+      }),
+      Bun.sleep(EMBEDDING_SHUTDOWN_BUDGET_MS + 1_000),
+    ]).finally(() => process.exit(0));
   };
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
 
-  // Arm the identity guard before the worker loop starts. Its on-arm check
-  // runs synchronously, so a worker superseded during startup runs shutdown()
-  // — which calls process.exit — here, before it dispatches any jobs.
+  // Arm the identity guard before the worker loop starts. Its on-arm check runs
+  // synchronously, so a worker superseded during startup calls shutdown() here,
+  // before it dispatches any jobs.
   disposePidGuard = startWorkerPidFileGuard(pidPath, {
     onEvicted: (reason) => {
-      log.warn(
-        { reason },
-        "Evicted — the PID file no longer names this worker",
-      );
-      shutdown("pid-file-eviction");
+      log.warn({ reason }, "Evicted: the PID file no longer names this worker");
+      shutdown("pid-file-eviction", { immediate: true });
     },
   });
+
+  // shutdown() defers the exit to reap the embedding backend, so startup must
+  // stop itself rather than relying on process.exit having already fired.
+  if (shuttingDown) {
+    return;
+  }
 
   worker = startMemoryJobsWorkerLoop();
 

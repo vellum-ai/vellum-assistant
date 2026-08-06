@@ -159,10 +159,10 @@ describe("GET config/llm/default-provider", () => {
     expect(availability(result).status).toBe("missing_connection");
   });
 
-  test("user-owned connection claiming the vellum name → provider_mismatch, not ok", async () => {
+  test("user-owned connection claiming the vellum name → the platform's own status", async () => {
     // seedCanonicalConnections skips reseeding when a user row claims the
-    // name; dispatch then uses the user row, so signed-in Vellum must not
-    // read as ok.
+    // name. Dispatch ignores that row and routes through platform auth, so a
+    // signed-in platform is genuinely usable and reads as ok.
     seedConnection({
       name: "vellum",
       provider: "anthropic",
@@ -176,7 +176,7 @@ describe("GET config/llm/default-provider", () => {
     setConfig("llm", { defaultProvider: { provider: "vellum" } });
 
     const result = await get();
-    expect(availability(result).status).toBe("provider_mismatch");
+    expect(availability(result).status).toBe("ok");
   });
 
   test("platform-auth connection for a non-managed provider → unsupported_auth even when signed in", async () => {

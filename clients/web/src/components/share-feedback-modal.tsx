@@ -30,7 +30,10 @@ import { createPortal } from "react-dom";
 import type { ChatDebugEventsApi } from "@/domains/chat/api/debug-api";
 import type { ChatDebugApi } from "@/domains/chat/utils/debug-api";
 import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
-import type { ClassificationEnum } from "@/generated/api/types.gen";
+import type {
+  ClassificationEnum,
+  ClientEnum,
+} from "@/generated/api/types.gen";
 import { logsExportPost } from "@/generated/daemon/sdk.gen";
 import type { LogsExportPostData } from "@/generated/daemon/types.gen";
 import { buildDiagnosticsSnapshot } from "@/lib/diagnostics";
@@ -128,12 +131,26 @@ const CLASSIFICATION_MAP: Record<FeedbackReason, ClassificationEnum> = {
   other: "other",
 };
 
-function getFeedbackClient(): "electron" | "ios" | "android" | "web" {
+/**
+ * Which client this feedback is being sent from.
+ *
+ * Typed as the API's own `ClientEnum` rather than a restated union, so a value
+ * the platform stops accepting is a compile error here instead of a rejected
+ * submission at runtime.
+ */
+function getFeedbackClient(): ClientEnum {
   if (isElectron()) {
     return "electron";
   }
   const platform = Capacitor.getPlatform();
-  return platform === "ios" || platform === "android" ? platform : "web";
+  if (platform === "ios" || platform === "android") {
+    return platform;
+  }
+  return "web";
+}
+
+function isFeedbackClientValidationError(error: unknown): boolean {
+  return error !== null && typeof error === "object" && "client" in error;
 }
 
 type FeedbackDiagnosticsProvider = () => Record<string, unknown> | null;
@@ -160,6 +177,126 @@ function isAllowedFile(file: File): boolean {
     return ext ? ALLOWED_EXTENSIONS.has(ext) : false;
   }
   return false;
+}
+
+/** Strings at or past this length are candidates for base64 stripping. */
+const BULK_BASE64_MIN_CHARS = 8192;
+
+const DATA_URI_RE = /^data:([^;,]+);base64,/i;
+const PURE_BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/**
+ * Marker (or transformed leaf) to emit in place of `value`, or `null` to
+ * leave primitives as-is and descend into objects/arrays.
+ */
+type CaptureVisitor = (value: unknown) => { replacement: unknown } | null;
+
+/**
+ * Depth-first structural map over a diagnostics snapshot.
+ *
+ * The `path` set holds only the current recursion ancestry, so a true cycle
+ * is replaced with `"[cyclic]"` while shared (sibling) references are
+ * traversed in full. The capture leans on shared references by construction:
+ * transcript items embed the same message objects `clientMessages` lists.
+ * JSON.stringify duplicates shared references the same way.
+ *
+ * Every capture pass (base64 stripping, message deduplication) is a visitor
+ * over this one walker, so traversal and cycle handling have a single home.
+ */
+function deepMapCapture(
+  value: unknown,
+  visit: CaptureVisitor,
+  path = new WeakSet<object>(),
+): unknown {
+  const hit = visit(value);
+  if (hit) {
+    return hit.replacement;
+  }
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  if (path.has(value)) {
+    return "[cyclic]";
+  }
+  path.add(value);
+  let out: unknown;
+  if (Array.isArray(value)) {
+    out = value.map((v) => deepMapCapture(v, visit, path));
+  } else {
+    const obj: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      obj[k] = deepMapCapture(v, visit, path);
+    }
+    out = obj;
+  }
+  path.delete(value);
+  return out;
+}
+
+/**
+ * Replace bulk binary payloads in a diagnostics snapshot with size markers.
+ *
+ * Message state carries image bytes in two shapes: `data:` URIs (derived
+ * preview URLs) and long raw base64 fields (inline attachment data). Neither
+ * is diagnostic signal, and a handful of photos otherwise dominates the
+ * bundle the platform accepts. Matching is content-based, not field-name
+ * based, so any future field that carries a data URI or a long pure-base64
+ * string is stripped too. Prose is never touched: text with spaces or
+ * punctuation fails the base64 test, and short strings (ids, hashes,
+ * tokens) are below the length floor. The marker keeps the mime type and
+ * length, which is the diagnostically useful part.
+ */
+export function stripBulkBase64(value: unknown): unknown {
+  return deepMapCapture(value, (v) => {
+    if (typeof v !== "string") {
+      return null;
+    }
+    const dataUri = DATA_URI_RE.exec(v);
+    if (dataUri) {
+      return {
+        replacement: `[stripped data URI ${dataUri[1]}, ${v.length} chars]`,
+      };
+    }
+    if (v.length >= BULK_BASE64_MIN_CHARS && PURE_BASE64_RE.test(v)) {
+      return { replacement: `[stripped base64, ${v.length} chars]` };
+    }
+    return null;
+  });
+}
+
+/**
+ * Replace transcript-item message objects that are identical (by reference)
+ * to a `clientMessages` entry with a pointer marker, so the capture carries
+ * each message once. Matching is object identity, which is exactly how the
+ * duplication arises: transcript items embed the same `DisplayMessage`
+ * instances `clientMessages` lists. A structurally-equal copy is not
+ * identity-matched and is captured in full, so any divergence between the
+ * two surfaces survives; only true duplicates collapse.
+ */
+export function dedupeAgainstClientMessages(
+  transcriptItems: unknown,
+  clientMessages: unknown,
+): unknown {
+  if (!Array.isArray(clientMessages)) {
+    return transcriptItems;
+  }
+  const refs = new Map<object, string>();
+  clientMessages.forEach((m, i) => {
+    if (m && typeof m === "object") {
+      const id = (m as { id?: unknown }).id;
+      refs.set(m, typeof id === "string" ? id : `index ${i}`);
+    }
+  });
+
+  return deepMapCapture(transcriptItems, (v) => {
+    if (v === null || typeof v !== "object") {
+      return null;
+    }
+    const ref = refs.get(v);
+    return ref !== undefined
+      ? { replacement: `[deduplicated: see clientMessages ${ref}]` }
+      : null;
+  });
 }
 
 function buildTarEntry(filename: string, data: Uint8Array): Uint8Array {
@@ -239,6 +376,31 @@ async function fetchPlatformLogs(
   }
 }
 
+/**
+ * Native shell identity, or `null` off a Capacitor shell.
+ *
+ * Pins which store/TestFlight build hosted this report. It also settles native
+ * shell versus home-screen PWA, which the user agent cannot: `WKWebView` drops
+ * the `Version/` and `Safari/` tokens in both cases, so the two are
+ * indistinguishable from the UA string alone.
+ *
+ * `@capacitor/app` is a plugin Proxy, so it is destructured inline per
+ * `docs/CAPACITOR.md` § "Capacitor plugins must be destructured inline".
+ */
+async function collectNativeAppInfo(): Promise<Record<string, unknown> | null> {
+  if (!Capacitor.isNativePlatform()) {
+    return null;
+  }
+  try {
+    const { App } = await import("@capacitor/app");
+    const { id, name, version, build } = await App.getInfo();
+    return { id, name, version, build };
+  } catch {
+    // Diagnostics are best-effort and must never block a support submission.
+    return null;
+  }
+}
+
 async function buildClientLogsFile(
   timeRange: TimeRange,
   assistantId: string | null,
@@ -276,6 +438,14 @@ async function buildClientLogsFile(
     assistant_id: assistantId,
     active_conversation_id: activeConversationId,
     doctor_session_id: doctorSessionId ?? null,
+    // Which web bundle produced this report. The archive already carries the
+    // assistant's version, but the two ship on entirely separate cadences: the
+    // native shells load this bundle over the network at runtime, so a report
+    // can pair an arbitrarily new assistant with an arbitrarily old (or cached)
+    // client, and without this there is no way to tell which client fix was
+    // actually present.
+    client_version: import.meta.env.VITE_APP_VERSION ?? null,
+    native_app: await collectNativeAppInfo(),
     user_agent: typeof navigator !== "undefined" ? navigator.userAgent : "",
     language: typeof navigator !== "undefined" ? navigator.language : "",
     platform: typeof navigator !== "undefined" ? navigator.platform : "",
@@ -340,9 +510,17 @@ async function buildClientLogsFile(
             ._vellumDebug?.chat
         : null;
     if (debugApi) {
+      const clientMessages = debugApi.getClientMessages?.() ?? null;
+      const transcriptItems = debugApi.getTranscriptItems?.() ?? null;
       const triagePayload = {
-        clientMessages: debugApi.getClientMessages?.() ?? null,
-        transcriptItems: debugApi.getTranscriptItems?.() ?? null,
+        clientMessages,
+        // Transcript items embed the same message objects `clientMessages`
+        // lists; carry the item-layer structure (kinds, keys, ordering) with
+        // pointers instead of a second full copy of every message.
+        transcriptItems: dedupeAgainstClientMessages(
+          transcriptItems,
+          clientMessages,
+        ),
         // Ephemeral interaction prompts (secret / confirmation /
         // contact-request / question) render as transcript trailer rows
         // outside any message's `contentBlocks`, so they're invisible in
@@ -355,8 +533,11 @@ async function buildClientLogsFile(
         reconciliationDiagnostics:
           debugApi.getReconciliationDiagnostics?.() ?? null,
       };
+      // Message state embeds attachment previews as data URIs and inline
+      // base64; strip them to size markers so the capture scales with the
+      // conversation's text, not its images.
       const triageBytes = new TextEncoder().encode(
-        JSON.stringify(triagePayload, null, 2),
+        JSON.stringify(stripBulkBase64(triagePayload), null, 2),
       );
       tarParts.push(
         buildTarEntry("web-chat-debug-api-triage.json", triageBytes),
@@ -403,8 +584,10 @@ async function buildClientLogsFile(
         })),
         events: eventsApi.getEvents(),
       };
+      // SSE event payloads can quote message deltas that embed inline
+      // base64; the same strip keeps this member text-sized.
       const triageBytes = new TextEncoder().encode(
-        JSON.stringify(triagePayload, null, 2),
+        JSON.stringify(stripBulkBase64(triagePayload), null, 2),
       );
       tarParts.push(buildTarEntry("web-sse-liveness-triage.json", triageBytes));
     }
@@ -591,7 +774,8 @@ export function ShareFeedbackModal({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !isSubmitting) {
+      if (e.key === "Escape" && !e.defaultPrevented && !isSubmitting) {
+        e.preventDefault();
         onClose();
       }
     },
@@ -687,43 +871,58 @@ export function ShareFeedbackModal({
               },
             )
           : null;
-      await mutation.mutateAsync({
-        headers: { "Content-Type": null },
-        body: {
-          message: message.trim(),
-          classification: CLASSIFICATION_MAP[selectedReason],
-          email: email.trim(),
-          client: getFeedbackClient(),
-          client_version: import.meta.env.VITE_APP_VERSION ?? undefined,
-          ...(assistantId ? { assistant_id: assistantId } : {}),
-          ...(assistantVersion ? { assistant_version: assistantVersion } : {}),
-          ...(doctorSessionId ? { doctor_session_id: doctorSessionId } : {}),
-          ...(logsFile ? { logs_file: logsFile } : {}),
-          ...(attachments.length ? { attachments } : {}),
-        },
-        bodySerializer: (body) => {
-          const form = new FormData();
-          for (const [key, value] of Object.entries(
-            body as Record<string, unknown>,
-          )) {
-            if (value == null) {
-              continue;
-            }
-            if (key === "attachments" && Array.isArray(value)) {
-              for (const file of value) {
-                form.append("attachments", file as Blob);
+      const feedbackClient = getFeedbackClient();
+      const submitFeedback = (client: ClientEnum) =>
+        mutation.mutateAsync({
+          headers: { "Content-Type": null },
+          body: {
+            message: message.trim(),
+            classification: CLASSIFICATION_MAP[selectedReason],
+            email: email.trim(),
+            client,
+            client_version: import.meta.env.VITE_APP_VERSION ?? undefined,
+            ...(assistantId ? { assistant_id: assistantId } : {}),
+            ...(assistantVersion
+              ? { assistant_version: assistantVersion }
+              : {}),
+            ...(doctorSessionId ? { doctor_session_id: doctorSessionId } : {}),
+            ...(logsFile ? { logs_file: logsFile } : {}),
+            ...(attachments.length ? { attachments } : {}),
+          },
+          bodySerializer: (body) => {
+            const form = new FormData();
+            for (const [key, value] of Object.entries(
+              body as Record<string, unknown>,
+            )) {
+              if (value == null) {
+                continue;
               }
-              continue;
+              if (key === "attachments" && Array.isArray(value)) {
+                for (const file of value) {
+                  form.append("attachments", file as Blob);
+                }
+                continue;
+              }
+              if (value instanceof Blob) {
+                form.append(key, value);
+              } else {
+                form.append(key, String(value));
+              }
             }
-            if (value instanceof Blob) {
-              form.append(key, value);
-            } else {
-              form.append(key, String(value));
-            }
-          }
-          return form;
-        },
-      });
+            return form;
+          },
+        });
+      try {
+        await submitFeedback(feedbackClient);
+      } catch (err) {
+        if (
+          feedbackClient !== "android" ||
+          !isFeedbackClientValidationError(err)
+        ) {
+          throw err;
+        }
+        await submitFeedback("web");
+      }
       onSubmitted?.();
       onClose();
     } catch (err) {

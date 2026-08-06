@@ -126,20 +126,3 @@ export function admitDiscordMessage(
 
   return ADMITTED;
 }
-
-/**
- * Parse an allow-list from its stored form — a comma-separated list of channel
- * snowflakes. Blank entries are dropped, so a trailing comma or an empty
- * setting yields an empty set, which admits nothing.
- */
-export function parseAllowedChannelIds(raw: string | undefined): Set<string> {
-  if (!raw) {
-    return new Set();
-  }
-  return new Set(
-    raw
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0),
-  );
-}

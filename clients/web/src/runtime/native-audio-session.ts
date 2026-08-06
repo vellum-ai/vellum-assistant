@@ -1,23 +1,13 @@
 /**
- * JS ↔ native bridge for the `VoiceAudioSession` Capacitor plugin registered by
- * `clients/ios/App/App/MyViewController.swift` +
- * `clients/ios/App/App/VoiceAudioSessionPlugin.swift`.
+ * JS to native bridge for the optional `VoiceAudioSession` Capacitor plugin.
  *
- * The plugin owns the app's `AVAudioSession` for the duration of a live-voice
- * session: `.playAndRecord` / `.voiceChat` (hardware echo cancellation, AGC,
- * correct AirPods/Bluetooth-HFP routing) plus the `audio` background mode, so
- * TTS keeps playing and the mic keeps its route while the app is backgrounded
- * or the screen is locked. Deactivating passes `.notifyOthersOnDeactivation`
- * so whatever the user was listening to before resumes.
+ * Android uses it to hold interactive voice audio focus while the foreground
+ * WebView owns capture and playback. The shipped iOS methods and payloads stay
+ * unchanged, but iOS activation remains disabled at its production caller due
+ * to the handset regression documented in `docs/CAPACITOR.md`.
  *
- * **Skew contract.** The iOS shell ships through App Store review while this
- * bundle deploys continuously (`clients/ios/README.md` § "Web content
- * delivery"), so an arbitrarily old shell may host this bundle with no such
- * plugin compiled in. Every call therefore goes through
- * {@link callNativeVoice}, which returns the fallback off-iOS and on any bridge
- * failure: without the plugin a voice session behaves exactly as it does today,
- * losing only the background/route niceties. Nothing here may throw, and
- * nothing here may block a session.
+ * Every call goes through {@link callNativeVoice}. Browsers and older native
+ * shells keep the existing no-op behavior.
  *
  * There is no separate `isAvailable` probe: {@link activateVoiceAudioSession}
  * resolving `false` *is* the probe, and it is the only answer a caller can act
@@ -29,23 +19,19 @@
  */
 
 import { registerPlugin } from "@capacitor/core";
-import type { PluginListenerHandle } from "@capacitor/core";
 
-import { callNativeVoice } from "@/runtime/native-voice";
-import { isNativeIOS } from "@/runtime/platform-detection";
+import {
+  callNativeVoice,
+  subscribeNativeVoiceListener,
+} from "@/runtime/native-voice";
 
 /**
- * An `AVAudioSession` interruption — something else took the audio hardware.
- *
- * - `began` — a phone call, a Siri invocation, or another app grabbed the mic.
- * - `ended` — the interrupting activity finished.
- *
- * Apple's `.shouldResume` option is deliberately not carried: the session is
- * over by the time `ended` arrives and the user restarts explicitly, so there
- * is nothing to resume (see {@link subscribeVoiceAudioInterruptions}).
+ * Shared audio event payload. `reason` is optional so existing iOS shells that
+ * emit only `{ type }` remain compatible.
  */
 export interface VoiceAudioInterruptionEvent {
   type: "began" | "ended";
+  reason?: "interruption" | "focus-loss" | "route-change" | "resume";
 }
 
 interface VoiceAudioSessionPlugin {
@@ -54,7 +40,7 @@ interface VoiceAudioSessionPlugin {
   addListener(
     eventName: "voiceAudioInterruption",
     handler: (event: VoiceAudioInterruptionEvent) => void,
-  ): Promise<PluginListenerHandle>;
+  ): Promise<{ remove(): Promise<void> }>;
 }
 
 const VoiceAudioSession =
@@ -62,8 +48,8 @@ const VoiceAudioSession =
 
 /**
  * Configure and activate the audio session for a live-voice session. Resolves
- * `true` when the native side took over, `false` on every other platform and
- * on any bridge failure (an older shell without the plugin).
+ * `true` when the native side took over, `false` outside a supported native
+ * shell or on any bridge failure.
  *
  * Call it when a session becomes active, and pair every call with
  * {@link deactivateVoiceAudioSession} — an audio session that outlives its
@@ -83,8 +69,7 @@ export async function activateVoiceAudioSession(): Promise<boolean> {
 }
 
 /**
- * Release the audio session at the end of a live-voice session. No-op off-iOS
- * and on an older shell. Never throws.
+ * Release native audio ownership. No-op in browsers and older shells.
  */
 export async function deactivateVoiceAudioSession(): Promise<void> {
   return callNativeVoice(async () => {
@@ -93,53 +78,20 @@ export async function deactivateVoiceAudioSession(): Promise<void> {
 }
 
 /**
- * Subscribe to `AVAudioSession` interruptions, returning an unsubscribe.
+ * Subscribe to native interruption, focus, and resume events.
  *
- * Consumers should end the voice session on `type: "began"` — the mic is gone,
- * and a session that silently keeps "listening" into a dead input is worse than
- * one that ends. Do NOT auto-resume on `ended`: the user restarts explicitly.
- *
- * `addListener` is one of the few property names the Capacitor plugin Proxy
- * does *not* trap into a fabricated native method, so calling it on a plugin
- * the shell never registered is safe — it simply never fires. The
- * `isNativeIOS()` guard still short-circuits everywhere else for the same
- * reason as {@link callNativeVoice}: off the iOS shell there is no native side
- * to listen to.
+ * Consumers should end the voice session on `type: "began"` unless the reason
+ * is `route-change`. Route changes preserve the live media tracks. Do not
+ * auto-resume on `ended`; the user restarts explicitly.
  *
  * Registration is asynchronous, so an unsubscribe that beats it removes the
- * handle on arrival rather than leaking it. This deliberately does not reuse
- * `subscribeCapacitorListener`: that scaffold reports failures through
- * `captureError`, and a missing plugin on a skewed shell is an expected state
- * on every web deploy, not a fault worth a Sentry event.
+ * handle on arrival rather than leaking it.
  */
 export function subscribeVoiceAudioInterruptions(
   handler: (event: VoiceAudioInterruptionEvent) => void,
 ): () => void {
-  if (!isNativeIOS()) {
-    return () => undefined;
-  }
-
-  let handle: PluginListenerHandle | null = null;
-  let cancelled = false;
-
-  VoiceAudioSession.addListener("voiceAudioInterruption", handler)
-    .then((registered) => {
-      if (cancelled) {
-        void registered.remove();
-        return;
-      }
-      handle = registered;
-    })
-    .catch((err: unknown) => {
-      console.debug(
-        "[native-audio-session] interruption listener failed:",
-        err,
-      );
-    });
-
-  return () => {
-    cancelled = true;
-    void handle?.remove();
-    handle = null;
-  };
+  return subscribeNativeVoiceListener(
+    () => VoiceAudioSession.addListener("voiceAudioInterruption", handler),
+    "native-audio-session",
+  );
 }
