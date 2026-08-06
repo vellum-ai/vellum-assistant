@@ -359,6 +359,22 @@ export const routeTree = [
     },
   },
 
+  // Companion surface design workbench (LUM-3086). Standalone and
+  // unauthenticated for the same reason its neighbours are: it is opened
+  // directly in a browser to compare candidates, with no app around it.
+  // Delete this route with the exploration it serves.
+  {
+    path: "/assistant/floating/companion-design",
+    ErrorBoundary: RouteErrorBoundary,
+    HydrateFallback: RootHydrateFallback,
+    lazy: {
+      Component: () =>
+        import("@/components/companion-surface-design-page").then(
+          (m) => m.CompanionSurfaceDesignPage,
+        ),
+    },
+  },
+
   // Dictation overlay — live transcription pill rendered inside the
   // Electron dictation overlay BrowserWindow (a floating panel pinned
   // top-center of the screen while push-to-talk dictation is active).
