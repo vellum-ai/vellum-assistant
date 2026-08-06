@@ -315,17 +315,6 @@ const DEMO_STEPS: {
  */
 const PHASE_LAG = 620;
 
-const DEMO_TURNS = [
-  {
-    role: "user" as const,
-    text: "can you pull the deploy logs from this morning",
-  },
-  {
-    role: "assistant" as const,
-    text: "Found them. The 09:14 deploy rolled back on its own after the health check failed twice, and the second attempt at 09:31 went through clean.",
-  },
-];
-
 function DemoReelPlayer(args: StoryArgs) {
   const [shots, setShots] = useState<string[]>([]);
   const [step, setStep] = useState<number | null>(null);
@@ -436,7 +425,12 @@ function DemoReelPlayer(args: StoryArgs) {
           // Restamped whenever the call step is entered, so the clock starts
           // from zero on every run rather than from whenever the page loaded.
           callStartedAt={phase === "call" ? callStartedAt : undefined}
-          turns={DEMO_TURNS}
+          // No turns: Type opens on the empty composer, which is the same
+          // elongated single line as the states either side of it. Opening onto
+          // a card of history would make this the one step that changes the
+          // surface's shape, and the beat is about where you would type, not
+          // about what was said earlier.
+          turns={[]}
           assistantName={args.assistantName ?? "Ziggy"}
         />
       </div>
