@@ -76,6 +76,7 @@ import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { CALL_OPENING_MARKER } from "../voice-control-protocol.js";
 import {
   cutFrontDoorContentAtVerdict,
+  preSpeechLanguageRuleFragment,
   startVoiceTurn,
   TOOL_RESULT_PREVIEW_MAX_CHARS,
   type VoiceTurnOptions,
@@ -585,6 +586,24 @@ describe("default call protocol numbered rules", () => {
     expect(prompt).toContain(
       "use the language the Task context implies, if any; otherwise default to English",
     );
+  });
+
+  test("a monolingual listening language becomes the pre-speech fallback", () => {
+    // An assistant pinned to services.stt.language = "es" is already
+    // transcribing Spanish, so the opener must not default to English. The
+    // default test config runs the auto-detect branch ("multi"), so the
+    // pinned branch is covered at the fragment level.
+    expect(preSpeechLanguageRuleFragment("es")).toContain(
+      'configured listening language ("es")',
+    );
+    expect(preSpeechLanguageRuleFragment("es")).toContain(
+      "default to English only when neither gives a language",
+    );
+    for (const autoDetect of ["multi", "", "  ", undefined]) {
+      expect(preSpeechLanguageRuleFragment(autoDetect)).toBe(
+        "use the language the Task context implies, if any; otherwise default to English",
+      );
+    }
   });
 
   test("rule numbers stay sequential from 0, including the routing rule", async () => {
