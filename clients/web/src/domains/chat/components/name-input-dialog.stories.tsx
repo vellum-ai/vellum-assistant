@@ -27,6 +27,11 @@ const meta: Meta<typeof NameInputDialog> = {
     title: "Rename group",
     submitLabel: "Save",
     initialValue: "Research",
+    // Both handlers are required props the dialog calls unconditionally, and
+    // Storybook has no actions addon here to spy them in, so the defaults have
+    // to be real no-ops: without `onSubmit` the confirm button throws as soon
+    // as the name is non-empty and changed.
+    onSubmit: () => {},
     onCancel: () => {},
   },
   argTypes: {

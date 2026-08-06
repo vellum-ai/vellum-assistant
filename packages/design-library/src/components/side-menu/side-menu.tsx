@@ -77,6 +77,19 @@ function isCollapsedRail(ctx: SideMenuContextValue): boolean {
   return ctx.variant === "rail" && ctx.contentCollapsed;
 }
 
+/**
+ * The same question against the rail's *immediate* collapsed state, with no
+ * transition delay.
+ *
+ * Only for content that has no label to linger over, and whose call site
+ * mounts it on the same immediate flag. {@link isCollapsedRail} is the default
+ * for everything else: the lag is what lets a label stay put while the rail
+ * narrows around it.
+ */
+function isCollapsingRail(ctx: SideMenuContextValue): boolean {
+  return ctx.variant === "rail" && ctx.collapsed;
+}
+
 // ---------------------------------------------------------------------------
 // Root
 // ---------------------------------------------------------------------------
@@ -612,24 +625,22 @@ function SideMenuItem({
   ...rest
 }: SideMenuItemProps & SharedAnchorProps & SharedButtonProps) {
   const ctx = useSideMenuContext();
-  const collapsed = isCollapsedRail(ctx);
+  /* A circle tile is a collapsed-rail affordance by definition, and its call
+     sites mount it on the rail's immediate `collapsed` state. Following the
+     delayed flag like an ordinary row would leave it rendering as a
+     full-width labelled row inside the 48px column for the whole 150ms
+     transition, with no dot, tooltip, or accessible name. It also has no
+     label to linger over, which is the only thing the delay buys. Keying it
+     off the immediate flag flips every collapsed-only path at one instant. */
+  const collapsed =
+    shape === "circle" ? isCollapsingRail(ctx) : isCollapsedRail(ctx);
 
   const rowClasses = cn(
     // `w-full` matters for the `<button>` render path: buttons keep
     // fit-content sizing even as flex containers, so without it a
     // button-backed item shrink-wraps while anchor-backed items fill the rail.
     "group relative flex w-full items-center",
-    // A circle has to be square. The collapsed row is `w-full` of a rail
-    // column a little wider than the row is tall, so a full radius on it
-    // draws a slightly wide ellipse. `aspect-square` takes the width from
-    // the row's own height rather than restating it, so the circle tracks
-    // the row metric instead of pinning a second copy of it here.
-    //
-    // Expanded, the row spans the whole rail and this would be a pill, so
-    // the switch is collapsed-only.
-    collapsed && shape === "circle"
-      ? "w-auto aspect-square mx-auto rounded-full"
-      : "rounded-[6px]",
+    "rounded-[6px]",
     "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
     "cursor-pointer select-none",
     "transition-colors",
@@ -638,6 +649,23 @@ function SideMenuItem({
     size === "compact"
       ? "text-body-small-default max-md:text-body-large-default"
       : "text-body-medium-lighter max-md:py-3 max-md:text-body-large-default",
+    // A circle has to be square, so this takes the width from the row's own
+    // height rather than restating it: a full radius on a `w-full` row draws
+    // an ellipse, because the rail column is a little wider than the row is
+    // tall. Deriving it also means the circle can't drift from `h-[30px]`.
+    //
+    // The height has to be pinned first, though. Narrow viewports grow the
+    // row (`max-md:h-auto` + `max-md:py-3`) to give a *labelled* row a bigger
+    // touch target, and `aspect-square` would faithfully widen the circle to
+    // match, overflowing the rail's 30px content box. A circle tile has no
+    // label to make room for, so it keeps the desktop metric throughout.
+    //
+    // Last in the list so it wins every one of those conflicts through
+    // tailwind-merge, and collapsed-only because an expanded row spans the
+    // full rail, where a full radius would be a pill rather than a circle.
+    collapsed &&
+      shape === "circle" &&
+      "w-auto aspect-square mx-auto rounded-full max-md:h-[30px] max-md:py-[6px]",
     emphasized
       ? "text-[color:var(--content-emphasised)]"
       : "text-[color:var(--content-secondary)]",

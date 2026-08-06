@@ -501,6 +501,18 @@ describe("SideMenu.Item collapsed shape", () => {
     expect(html).not.toContain("w-full");
   });
 
+  test('shape="circle" holds the row height on narrow viewports', () => {
+    const html = renderCollapsedItem({ label: "Pinned", shape: "circle" });
+    /* Regression: narrow viewports grow a row (`max-md:h-auto` +
+       `max-md:py-3`) to give a labelled row a bigger touch target, and
+       `aspect-square` faithfully widened the circle to match, producing a
+       38x38 tile inside the rail's 30px content box. A circle has no label to
+       make room for, so it keeps the desktop metric and these have to lose. */
+    expect(html).toContain("max-md:h-[30px]");
+    expect(html).not.toContain("max-md:h-auto");
+    expect(html).not.toContain("max-md:py-3");
+  });
+
   test("default shape keeps the 6px row radius", () => {
     const html = renderCollapsedItem({ label: "Pinned" });
     expect(html).toContain("rounded-[6px]");
