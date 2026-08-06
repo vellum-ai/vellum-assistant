@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 
 import {
   CompanionSurface,
@@ -65,16 +65,25 @@ const meta: Meta<StoryArgs> = {
     avatarSrc: EXAMPLE_AVATAR,
   },
   decorators: [
-    (Story, context) => (
-      <div
-        className="relative h-[340px] w-[560px] overflow-hidden rounded-xl"
-        style={{
-          background: BACKDROPS[(context.args as StoryArgs).backdrop ?? "dark"],
-        }}
-      >
-        <Story />
-      </div>
-    ),
+    (Story, context) => {
+      // The stand-in desktop is for the design stories. A story that brings its
+      // own full-bleed backdrop (the demo reel) opts out, since decorators
+      // compose rather than replace and it would otherwise render inside a
+      // 560pt box with its own screen-sized content overflowing it.
+      if (context.parameters.layout === "fullscreen") {
+        return <Story />;
+      }
+      return (
+        <div
+          className="relative h-[340px] w-[560px] overflow-hidden rounded-xl"
+          style={{
+            background: BACKDROPS[(context.args as StoryArgs).backdrop ?? "dark"],
+          }}
+        >
+          <Story />
+        </div>
+      );
+    },
   ],
 };
 
@@ -243,5 +252,189 @@ function HoverDrivenSurface(args: StoryArgs) {
         </button>
       )}
     </>
+  );
+}
+
+/**
+ * A recording rig, not a design story.
+ *
+ * Drop in screenshots of a few apps and press play: each one holds for a couple
+ * of seconds carrying exactly one beat of the surface, then the finale flips
+ * them rapidly while the surface cycles. The point being made is that the
+ * companion persists while the rest of the computer changes, so the apps have
+ * to move faster than it does.
+ *
+ * One beat per app on purpose. Showing every state over every backdrop reads as
+ * a feature tour; showing one state each reads as a thing that is simply there
+ * while you work.
+ *
+ * The controls hide themselves while it plays, so a screen recording of this
+ * window is the finished clip.
+ */
+export const DemoReel: Story = {
+  args: {
+    phase: "call",
+  },
+
+  parameters: { layout: "fullscreen" },
+  render: (args) => <DemoReelPlayer {...args} />,
+};
+
+/** One app's moment: a backdrop, a state, and how long it holds. */
+const DEMO_BEATS: {
+  phase: CompanionSurfacePhase;
+  hold: number;
+  app: string;
+}[] = [
+  { phase: "resting", hold: 2000, app: "Browser: it is just there" },
+  { phase: "hover", hold: 2000, app: "Notes: Talk or Type" },
+  { phase: "call", hold: 2000, app: "Slack: listening" },
+  { phase: "typing", hold: 2200, app: "Editor: say something" },
+];
+
+/** The payoff: the same states again, faster than the apps behind them. */
+const DEMO_FINALE: CompanionSurfacePhase[] = [
+  "resting",
+  "hover",
+  "call",
+  "typing",
+  "hover",
+  "call",
+  "resting",
+];
+const FINALE_HOLD = 480;
+
+const DEMO_TURNS = [
+  {
+    role: "user" as const,
+    text: "can you pull the deploy logs from this morning",
+  },
+  {
+    role: "assistant" as const,
+    text: "Found them. The 09:14 deploy rolled back on its own after the health check failed twice, and the second attempt at 09:31 went through clean.",
+  },
+];
+
+function DemoReelPlayer(args: StoryArgs) {
+  const [shots, setShots] = useState<string[]>([]);
+  const [step, setStep] = useState<number | null>(null);
+
+  // The whole timeline up front, so playback is one timer walking an array
+  // rather than two phases with their own bookkeeping. Built once: it is a
+  // function of module constants, and rebuilding it every render would restart
+  // the timer that depends on it.
+  const timeline = useMemo(
+    () => [
+      ...DEMO_BEATS.map((beat, index) => ({
+        phase: beat.phase,
+        hold: beat.hold,
+        shot: index,
+      })),
+      ...DEMO_FINALE.map((phase, index) => ({
+        phase,
+        hold: FINALE_HOLD,
+        shot: index,
+      })),
+    ],
+    [],
+  );
+
+  useEffect(() => {
+    if (step === null) {
+      return;
+    }
+    if (step >= timeline.length) {
+      setStep(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setStep(step + 1);
+    }, timeline[step].hold);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [step, timeline]);
+
+  const onFiles = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    Promise.all(
+      files.map(
+        (file) =>
+          new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              resolve(typeof reader.result === "string" ? reader.result : "");
+            };
+            reader.readAsDataURL(file);
+          }),
+      ),
+    ).then((urls) => {
+      setShots(urls.filter(Boolean));
+    });
+  };
+
+  const playing = step !== null && step < timeline.length;
+  const current = playing ? timeline[step] : null;
+  const phase = current?.phase ?? "resting";
+  // Screenshots cycle rather than run out, so three apps still carry four beats.
+  const shotIndex =
+    shots.length === 0 ? -1 : (current?.shot ?? 0) % shots.length;
+
+  return (
+    <div className="relative h-screen w-screen overflow-hidden bg-[#0f1113]">
+      {shots.map((shot, index) => (
+        <img
+          key={index}
+          src={shot}
+          alt=""
+          className="absolute inset-0 size-full object-cover transition-opacity duration-300"
+          style={{ opacity: index === shotIndex ? 1 : 0 }}
+        />
+      ))}
+      {shots.length === 0 && (
+        <div className="absolute inset-0 grid place-items-center text-[13px] text-white/40">
+          Add screenshots below, then play.
+        </div>
+      )}
+
+      {/* Parked where the real one parks: near the Dock, bottom right. */}
+      <div className="absolute right-[12%] bottom-[14%] size-11">
+        <CompanionSurface
+          {...args}
+          phase={phase}
+          turns={DEMO_TURNS}
+          assistantName={args.assistantName ?? "Ziggy"}
+        />
+      </div>
+
+      {!playing && (
+        <div className="absolute inset-x-0 bottom-0 flex items-center gap-3 bg-black/60 px-4 py-3 text-[12px] text-white/80">
+          <label className="cursor-pointer rounded-md bg-white/10 px-2 py-1">
+            Add screenshots
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={onFiles}
+            />
+          </label>
+          <button
+            type="button"
+            className="rounded-md bg-white/10 px-2 py-1 disabled:opacity-40"
+            disabled={shots.length === 0}
+            onClick={() => {
+              setStep(0);
+            }}
+          >
+            Play
+          </button>
+          <span className="text-white/40">
+            {shots.length} loaded, {DEMO_BEATS.map((b) => b.app).join(" / ")},
+            then the fast pass
+          </span>
+        </div>
+      )}
+    </div>
   );
 }
