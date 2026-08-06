@@ -65,6 +65,13 @@ export function parseUnifiedDiff(diff: string, skillId: string): ParsedDiff {
   let current: DiffFile | null = null;
   let oldNo = 0;
   let newNo = 0;
+  // File metadata only ever appears BEFORE the first hunk header. Inside a
+  // hunk every line is content prefixed with a marker, so a deleted line whose
+  // own text begins with `--` arrives as `--- ...` and a added one beginning
+  // with `++` as `+++ ...`. Matching those against the header prefixes would
+  // drop real content rows and, because a dropped row never advances its side's
+  // counter, desynchronise every line number after it.
+  let inHunk = false;
 
   for (const line of diff.split("\n")) {
     if (line.startsWith("diff --git ")) {
@@ -81,6 +88,7 @@ export function parseUnifiedDiff(diff: string, skillId: string): ParsedDiff {
       files.push(current);
       oldNo = 0;
       newNo = 0;
+      inHunk = false;
       continue;
     }
 
@@ -92,6 +100,7 @@ export function parseUnifiedDiff(diff: string, skillId: string): ParsedDiff {
     if (hunk) {
       oldNo = Number(hunk[1]);
       newNo = Number(hunk[2]);
+      inHunk = true;
       // Hunk boundaries matter visually once a file has more than one; the
       // gap between them is not contiguous text.
       if (current.rows.length > 0) {
@@ -100,20 +109,26 @@ export function parseUnifiedDiff(diff: string, skillId: string): ParsedDiff {
       continue;
     }
 
+    // A "no newline at end of file" marker can appear inside a hunk, but it is
+    // notation rather than content, so it is dropped wherever it occurs.
+    if (line.startsWith("\\ No newline")) {
+      continue;
+    }
+
     // Everything between the `diff --git` line and the first hunk is file
     // metadata (index, mode, ---/+++ headers) that the header already conveys.
     if (
-      line.startsWith("index ") ||
-      line.startsWith("--- ") ||
-      line.startsWith("+++ ") ||
-      line.startsWith("new file mode ") ||
-      line.startsWith("deleted file mode ") ||
-      line.startsWith("similarity index ") ||
-      line.startsWith("rename ") ||
-      line.startsWith("old mode ") ||
-      line.startsWith("new mode ") ||
-      line.startsWith("Binary files ") ||
-      line.startsWith("\\ No newline")
+      !inHunk &&
+      (line.startsWith("index ") ||
+        line.startsWith("--- ") ||
+        line.startsWith("+++ ") ||
+        line.startsWith("new file mode ") ||
+        line.startsWith("deleted file mode ") ||
+        line.startsWith("similarity index ") ||
+        line.startsWith("rename ") ||
+        line.startsWith("old mode ") ||
+        line.startsWith("new mode ") ||
+        line.startsWith("Binary files "))
     ) {
       continue;
     }

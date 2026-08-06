@@ -11,7 +11,14 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -214,13 +221,20 @@ describe("getSkillHistory", () => {
     );
   });
 
-  test("a workspace that is not a repository yields empty history, not a throw", async () => {
+  test("a workspace that is not a repository yields empty history, and stays not a repository", async () => {
     const bare = mkdtempSync(join(tmpdir(), "skill-history-norepo-"));
     const previous = repoDir;
     repoDir = bare;
     try {
       const history = await getSkillHistory("alpha");
+
       expect(history.revisions).toEqual([]);
+      // The empty result is not enough on its own: reading through
+      // `runReadOnlyGit` would ALSO return empty here, having quietly created
+      // the repository first. This route is a GET, so the absence of the
+      // write is the actual invariant.
+      expect(existsSync(join(bare, ".git"))).toBe(false);
+      expect(readdirSync(bare)).toEqual([]);
     } finally {
       repoDir = previous;
       rmSync(bare, { recursive: true, force: true });

@@ -81,6 +81,12 @@ export function SkillDetail({
     skill.id,
   );
 
+  const [selectedTab, setSelectedTab] = useState("files");
+  // Falling back to Files when history turns out to be unsupported keeps the
+  // page coherent if the query answers after a tab was already chosen.
+  const activeTab = isHistoryUnsupported ? "files" : selectedTab;
+  const setActiveTab = setSelectedTab;
+
   const header = (
     <div className="mb-4 flex items-start gap-3">
       <Button
@@ -252,20 +258,37 @@ export function SkillDetail({
   return (
     <div className="flex h-[calc(100vh-14rem)] flex-col">
       {header}
-      {isHistoryUnsupported ? (
-        filesCard
-      ) : (
-        <Tabs.Root
-          defaultValue="files"
-          className="flex min-h-0 flex-1 flex-col"
-        >
+      {/*
+        The files panel stays mounted across tab switches and across the
+        history query resolving. Radix unmounts an inactive panel by default,
+        and `SkillFileContent` holds the in-progress edit in local state, so a
+        remount would silently discard unsaved text. `forceMount` keeps it
+        alive and an inline `display` drives visibility, which beats fighting
+        class precedence between `hidden` and `flex`. The files panel is also
+        never moved between branches: only the tab strip and the history panel
+        appear once the query answers, so `isHistoryUnsupported` flipping
+        cannot remount the editor either.
+      */}
+      <Tabs.Root
+        value={activeTab}
+        onValueChange={setActiveTab}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        {!isHistoryUnsupported && (
           <Tabs.List className="mb-3">
             <Tabs.Trigger value="files">Files</Tabs.Trigger>
             <Tabs.Trigger value="history">History</Tabs.Trigger>
           </Tabs.List>
-          <Tabs.Panel value="files" className="flex min-h-0 flex-1 flex-col">
-            {filesCard}
-          </Tabs.Panel>
+        )}
+        <Tabs.Panel
+          value="files"
+          forceMount
+          className="min-h-0 flex-1 flex-col"
+          style={{ display: activeTab === "files" ? "flex" : "none" }}
+        >
+          {filesCard}
+        </Tabs.Panel>
+        {!isHistoryUnsupported && (
           <Tabs.Panel value="history" className="flex min-h-0 flex-1 flex-col">
             <Card.Root asChild noPadding>
               <div className="min-h-0 flex-1 overflow-y-auto">
@@ -276,8 +299,8 @@ export function SkillDetail({
               </div>
             </Card.Root>
           </Tabs.Panel>
-        </Tabs.Root>
-      )}
+        )}
+      </Tabs.Root>
     </div>
   );
 }

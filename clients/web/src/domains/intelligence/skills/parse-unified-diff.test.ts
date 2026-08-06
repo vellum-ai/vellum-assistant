@@ -121,6 +121,48 @@ describe("parseUnifiedDiff", () => {
     );
   });
 
+  test("keeps content lines that look like file headers", () => {
+    // A skill script holding SQL or Lua comments: removing `-- old note`
+    // emits `-` + `-- old note` = `--- old note`, which is indistinguishable
+    // from a `--- a/path` header by prefix alone. Dropping it would both hide
+    // the change and, since a dropped row never advances its side's counter,
+    // shift every line number after it.
+    const looksLikeHeaders = `diff --git a/skills/triage/scripts/q.sql b/skills/triage/scripts/q.sql
+index ccc3333..ddd4444 100644
+--- a/skills/triage/scripts/q.sql
++++ b/skills/triage/scripts/q.sql
+@@ -1,4 +1,4 @@
+ SELECT 1;
+--- old note
++++ new note
+ SELECT 2;
+`;
+
+    const parsed = parseUnifiedDiff(looksLikeHeaders, "triage");
+    const rows = parsed.files[0]!.rows;
+
+    expect(parsed.added).toBe(1);
+    expect(parsed.removed).toBe(1);
+    expect(rows.map((r) => r.type)).toEqual(["ctx", "del", "add", "ctx"]);
+    expect(rows[1]!.text).toBe("-- old note");
+    expect(rows[2]!.text).toBe("++ new note");
+    // The trailing context keeps its true position on both sides.
+    expect(rows[3]).toMatchObject({ type: "ctx", oldNo: 3, newNo: 3 });
+  });
+
+  test("drops the no-newline marker wherever it appears", () => {
+    const noNewline = `diff --git a/skills/triage/SKILL.md b/skills/triage/SKILL.md
+@@ -1,2 +1,2 @@
+-first
+\\ No newline at end of file
++FIRST
+`;
+
+    const rows = parseUnifiedDiff(noNewline, "triage").files[0]!.rows;
+
+    expect(rows.map((r) => r.type)).toEqual(["del", "add"]);
+  });
+
   test("returns no files for an empty diff instead of throwing", () => {
     expect(parseUnifiedDiff("", "triage")).toEqual({
       files: [],

@@ -31,6 +31,14 @@
 // Commit subjects are deliberately not surfaced: they read
 // `auto-commit: heartbeat safety net (164 files, changes older than 900s)`,
 // which describes the batch rather than the skill and would actively mislead.
+//
+// Every git call goes through `runReadOnlyGitWithoutInit`, NOT
+// `runReadOnlyGit`. The latter awaits `ensureInitialized()`, which creates the
+// repository, writes `.gitignore` and the hooks directory, makes an initial
+// commit, and schedules a history compaction when the workspace is not yet a
+// repo. This module is reached from an HTTP GET, which `src/runtime/AGENTS.md`
+// requires to be side-effect-free, so observing history must never be the
+// thing that brings a repository into existence.
 
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -119,7 +127,7 @@ export async function getSkillHistory(
 
   let shas: Array<{ sha: string; changedAt: string }>;
   try {
-    const { stdout } = await git.runReadOnlyGit([
+    const { stdout } = await git.runReadOnlyGitWithoutInit([
       "log",
       `--format=%h${FIELD}%aI`,
       // Ask for more than `limit`: commits whose only in-skill change is
@@ -152,8 +160,14 @@ export async function getSkillHistory(
     let files: string[];
     try {
       const [diffResult, nameResult] = await Promise.all([
-        git.runReadOnlyGit(["show", "--format=", sha, "--", ...pathspec]),
-        git.runReadOnlyGit([
+        git.runReadOnlyGitWithoutInit([
+          "show",
+          "--format=",
+          sha,
+          "--",
+          ...pathspec,
+        ]),
+        git.runReadOnlyGitWithoutInit([
           "show",
           "--format=",
           "--name-only",
@@ -197,7 +211,7 @@ async function hasCompactedHistory(
   git: ReturnType<typeof getWorkspaceGitService>,
 ): Promise<boolean> {
   try {
-    const { stdout } = await git.runReadOnlyGit([
+    const { stdout } = await git.runReadOnlyGitWithoutInit([
       "log",
       "--format=%s",
       "--max-count=1",
