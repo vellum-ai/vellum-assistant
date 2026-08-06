@@ -90,7 +90,7 @@ export function LibraryAppCard({
   // The library renders one card per app, so the deployment status is fetched
   // lazily rather than N-at-a-time on mount: the first hover (or menu open)
   // arms it, and it stays armed so the answer is already in hand when the
-  // menu is reopened — including right after a deploy.
+  // menu is reopened, including right after a deploy.
   const [deployStatusArmed, setDeployStatusArmed] = useState(false);
   const armDeployStatus = useCallback(() => setDeployStatusArmed(true), []);
   const { deployedUrl } = useAppDeployment(assistantId, app.id, {
@@ -238,8 +238,8 @@ export function LibraryAppCardActionsMenu({
   onCopyDeployedLink,
   isMobile,
 }: LibraryAppCardActionsMenuProps) {
-  // Only treated as deployed when the caller can also hand the link back —
-  // otherwise the entry would report a deployment it can't reach.
+  // Only treated as deployed when the caller can also hand the link back.
+  // Otherwise the entry would report a deployment it can't reach.
   const isDeployed =
     deployedUrl != null && deployedUrl !== "" && onCopyDeployedLink != null;
   if (isMobile) {

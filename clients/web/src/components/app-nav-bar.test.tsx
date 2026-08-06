@@ -121,7 +121,7 @@ const TypographyMock = ({ children, ...rest }: Record<string, unknown>) =>
   createElement("span", rest, children as ReactNode);
 
 // `mock.module` replaces the module process-wide, so the stub also carries
-// the `toast` export other modules pull from this entry point — without it,
+// the `toast` export other modules pull from this entry point. Without it,
 // any test file loaded after this one fails to resolve it.
 mock.module("@vellumai/design-library", () => ({
   Menu: MenuMock,

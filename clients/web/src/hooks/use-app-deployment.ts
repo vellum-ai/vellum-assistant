@@ -5,7 +5,7 @@
  * The deploy *write* path lives in {@link useDeployStore} (it owns the
  * in-flight dialogs and the publish request). The published URL is server
  * state, so it is read straight from its query cache rather than mirrored
- * into the store — see `docs/STATE_MANAGEMENT.md`.
+ * into the store. See `docs/STATE_MANAGEMENT.md`.
  *
  * Surfaces that offer a deploy affordance (the app viewer's nav bar, the
  * library card's actions menu) call this so they can say "Deployed to
@@ -54,7 +54,7 @@ export function useAppDeployment(
 
   // A publish rewrites the record this query reads, so refresh once the
   // deploy settles. `isDeploying` is a single global flag (the store admits
-  // one deploy at a time), which is why the transition — not the value — is
+  // one deploy at a time), which is why the transition (not the value) is
   // the signal: every mounted status query refetches when any deploy ends.
   const isDeploying = useDeployStore.use.isDeploying();
   const wasDeploying = useRef(isDeploying);
@@ -79,14 +79,14 @@ export function useAppDeployment(
 /**
  * Put a deployed app's URL on the clipboard and show it to the user.
  *
- * The toast carries the URL itself (the link is the point — the user asked
- * for it) plus an Open action. The failure toast repeats the URL for the
+ * The toast carries the URL itself (the link is the point, and what the user
+ * asked for) plus an Open action. The failure toast repeats the URL for the
  * same reason: a clipboard the browser refused shouldn't cost the user the
  * link they clicked for.
  */
 export function copyDeployedAppLink(url: string): void {
   copyToClipboard(url, {
-    errorMessage: `Couldn't copy the link — ${url}`,
+    errorMessage: `Couldn't copy the link. Open it at ${url}`,
     onCopied: () => {
       toast.success("Link copied", {
         description: url,

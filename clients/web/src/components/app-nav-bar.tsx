@@ -76,7 +76,7 @@ export function AppNavBar({
   const showShareDeployMenu = onShare != null && onDeploy != null;
 
   // An app is only treated as deployed when the caller can also hand the link
-  // back — otherwise the affordance would report a deployment it can't reach.
+  // back. Otherwise the affordance would report a deployment it can't reach.
   const isDeployed =
     deployedUrl != null && deployedUrl !== "" && onCopyDeployedLink != null;
 
@@ -128,7 +128,7 @@ export function AppNavBar({
                   variant="outlined"
                   iconOnly={<Link2 />}
                   onClick={onCopyDeployedLink}
-                  tooltip="Deployed — copy link"
+                  tooltip="Deployed: copy link"
                   aria-label="Deployed to Vercel, copy link"
                 />
               ) : (

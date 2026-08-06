@@ -114,7 +114,7 @@ export function AppViewerContainer({
     onAction,
   });
 
-  // Only asked for when the viewer actually offers a deploy — read-only
+  // Only asked for when the viewer actually offers a deploy: read-only
   // (plugin-bundled) apps get no deploy handler and so need no status read.
   const { deployedUrl } = useAppDeployment(assistantId, appId, {
     enabled: onDeploy != null,

@@ -5,7 +5,7 @@
  *   1. Reporting an app's active deployment (and the absent case), so the
  *      deploy surfaces can say "already deployed" instead of offering a
  *      first-time deploy.
- *   2. Refreshing that answer when a deploy settles — the regression this
+ *   2. Refreshing that answer when a deploy settles, the regression this
  *      hook exists for: right after publishing, the menu must stop saying
  *      "Deploy to Vercel".
  *   3. `enabled: false` issuing no request, which is what keeps the library
@@ -56,6 +56,9 @@ mock.module("@/lib/copy-to-clipboard", () => ({
 }));
 
 const successToasts: { title: string; description?: string }[] = [];
+// The stub stands in for the whole toast module, so it carries every export
+// the design-library index re-exports from it. A partial stub breaks any
+// module that pulls `Toaster` / `ToastContent` through that index.
 mock.module("@vellumai/design-library/components/toast", () => ({
   toast: {
     success: (title: string, options?: { description?: string }) => {
@@ -63,6 +66,8 @@ mock.module("@vellumai/design-library/components/toast", () => ({
     },
     error: () => {},
   },
+  Toaster: () => null,
+  ToastContent: () => null,
 }));
 
 const { copyDeployedAppLink, useAppDeployment } = await import(
