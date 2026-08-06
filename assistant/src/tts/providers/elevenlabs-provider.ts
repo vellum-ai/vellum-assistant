@@ -169,6 +169,17 @@ function resolveVoiceId(
   return voiceId;
 }
 
+/**
+ * Models that accept the `language_code` request parameter for language
+ * enforcement (per the ElevenLabs text-to-speech API docs). Other models
+ * (e.g. `eleven_multilingual_v2`) reject the field, so it is omitted for
+ * anything not listed here.
+ */
+const LANGUAGE_ENFORCEMENT_MODEL_IDS = new Set([
+  "eleven_flash_v2_5",
+  "eleven_turbo_v2_5",
+]);
+
 /** ElevenLabs `pcm_*` rates available on every subscription tier. */
 const UNRESTRICTED_PCM_SAMPLE_RATES_HZ = [16_000, 22_050, 24_000] as const;
 
@@ -251,16 +262,20 @@ async function performTtsRequest(
   const defaultModelId = stream
     ? "eleven_flash_v2_5"
     : "eleven_multilingual_v2";
+  const modelId = config.voiceModelId?.trim() || defaultModelId;
 
   const body: Record<string, unknown> = {
     text: request.text,
-    model_id: config.voiceModelId?.trim() || defaultModelId,
+    model_id: modelId,
     voice_settings: {
       stability: config.stability,
       similarity_boost: config.similarityBoost,
       speed: config.speed,
     },
   };
+  if (request.language && LANGUAGE_ENFORCEMENT_MODEL_IDS.has(modelId)) {
+    body.language_code = request.language;
+  }
 
   log.info(
     { voiceId, outputFormat, stream, textLength: request.text.length },

@@ -30,6 +30,7 @@ export interface LiveVoiceTtsOptions {
   useCase?: TtsUseCase;
   outputFormat?: TtsSynthesisRequest["outputFormat"];
   sampleRate?: number;
+  language?: string;
   config?: LiveVoiceTtsConfig;
   onAudioChunk: (chunk: LiveVoiceTtsAudioChunk) => void;
 }
@@ -92,6 +93,7 @@ export async function streamLiveVoiceTtsAudio(
     voiceId: options.voiceId,
     outputFormat: options.outputFormat,
     sampleRateHz: requestedSampleRate,
+    language: options.language,
     signal: options.signal,
   });
   const sampleRate = providerSampleRate ?? requestedSampleRate;
@@ -141,6 +143,7 @@ export async function streamLiveVoiceTtsAudio(
       voiceId: options.voiceId,
       outputFormat: options.outputFormat,
       sampleRateHz: requestedSampleRate,
+      language: options.language,
       signal: options.signal,
       onChunk: (chunk) => {
         if (canStreamChunks) {

@@ -149,6 +149,14 @@ function resolveVoiceId(
   return request.voiceId?.trim() || config.voiceId || "eve";
 }
 
+/** Resolve the synthesis language: request override > configured default. */
+function resolveLanguage(
+  request: TtsSynthesisRequest,
+  config: TtsXaiProviderConfig,
+): string {
+  return request.language ?? config.language;
+}
+
 /** Resolve the xAI API key, throwing `XAI_TTS_NO_API_KEY` when unset. */
 async function requireApiKey(): Promise<string> {
   const apiKey = await getSecureKeyAsync(credentialKey("xai", "api_key"));
@@ -173,7 +181,7 @@ function buildStreamUrl(
   outputParams: XaiOutputParams,
 ): string {
   const params = new URLSearchParams({
-    language: config.language,
+    language: resolveLanguage(request, config),
     voice: resolveVoiceId(request, config),
     codec: outputParams.codec,
     sample_rate: String(outputParams.sample_rate),
@@ -209,7 +217,7 @@ export function createXaiProvider(
       const body = {
         text: request.text,
         voice_id: voiceId,
-        language: config.language,
+        language: resolveLanguage(request, config),
         output_format: {
           codec: output.codec,
           sample_rate: output.sample_rate,
