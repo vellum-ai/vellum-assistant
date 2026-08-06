@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 // Real assistant-config reads the lockfile from VELLUM_LOCKFILE_DIR.
 const testDir = mkdtempSync(join(tmpdir(), "ingress-config-test-"));
@@ -9,6 +16,7 @@ process.env.VELLUM_LOCKFILE_DIR = testDir;
 
 import {
   clearIngressUrl,
+  getNgrokAgentStatePath,
   loadNgrokAgent,
   loadNgrokDomain,
   saveIngressUrl,
@@ -33,9 +41,13 @@ function readLockfileEntry(): Record<string, unknown> {
 const tempDirs: string[] = [];
 
 function makeWorkspace(): string {
-  const dir = mkdtempSync(join(tmpdir(), "ingress-config-ws-"));
-  tempDirs.push(dir);
-  return dir;
+  // Mirror the real layout (`<parent>/workspace`) so host-local agent state
+  // lands in an isolated parent dir, not the shared tmpdir.
+  const base = mkdtempSync(join(tmpdir(), "ingress-config-ws-"));
+  tempDirs.push(base);
+  const ws = join(base, "workspace");
+  mkdirSync(ws, { recursive: true });
+  return ws;
 }
 
 afterEach(() => {
@@ -111,11 +123,27 @@ describe("ingress lockfile mirroring", () => {
 
 describe("ngrok dedicated-agent persistence", () => {
   function readNgrokEntry(ws: string): Record<string, unknown> | undefined {
-    const config = JSON.parse(
-      readFileSync(join(ws, "config.json"), "utf-8"),
-    ) as { ingress?: { ngrok?: Record<string, unknown> } };
+    const configPath = join(ws, "config.json");
+    if (!existsSync(configPath)) return undefined;
+    const config = JSON.parse(readFileSync(configPath, "utf-8")) as {
+      ingress?: { ngrok?: Record<string, unknown> };
+    };
     return config.ingress?.ngrok;
   }
+
+  test("the record lives beside the workspace, never inside it", () => {
+    const ws = makeWorkspace();
+
+    saveNgrokAgent(ws, { webAddrPort: 41234, pid: 55555 });
+
+    // Host-local state: a sibling of the workspace dir, beside the pid files.
+    expect(getNgrokAgentStatePath(ws)).toBe(
+      join(dirname(ws), "ngrok-agent.json"),
+    );
+    expect(existsSync(getNgrokAgentStatePath(ws))).toBe(true);
+    // The workspace config, which travels with moves/restores, is untouched.
+    expect(existsSync(join(ws, "config.json"))).toBe(false);
+  });
 
   test("save and load round-trip; null clears", () => {
     const ws = makeWorkspace();
@@ -125,8 +153,7 @@ describe("ngrok dedicated-agent persistence", () => {
 
     saveNgrokAgent(ws, null);
     expect(loadNgrokAgent(ws)).toBeNull();
-    // Clearing the last ngrok field drops the entry entirely.
-    expect(readNgrokEntry(ws)).toBeUndefined();
+    expect(existsSync(getNgrokAgentStatePath(ws))).toBe(false);
   });
 
   test("a record without a pid loads with pid null", () => {
@@ -134,7 +161,9 @@ describe("ngrok dedicated-agent persistence", () => {
 
     saveNgrokAgent(ws, { webAddrPort: 41234 });
     expect(loadNgrokAgent(ws)).toEqual({ webAddrPort: 41234, pid: null });
-    expect(readNgrokEntry(ws)).toEqual({ webAddrPort: 41234 });
+    expect(
+      JSON.parse(readFileSync(getNgrokAgentStatePath(ws), "utf-8")),
+    ).toEqual({ webAddrPort: 41234 });
   });
 
   test("re-saving without a pid drops a previously recorded pid", () => {
@@ -147,6 +176,51 @@ describe("ngrok dedicated-agent persistence", () => {
 
   test("loadNgrokAgent returns null when nothing is saved", () => {
     expect(loadNgrokAgent(makeWorkspace())).toBeNull();
+  });
+
+  test("loadNgrokAgent returns null for a corrupt or malformed record", () => {
+    const ws = makeWorkspace();
+
+    writeFileSync(getNgrokAgentStatePath(ws), "not json");
+    expect(loadNgrokAgent(ws)).toBeNull();
+
+    writeFileSync(
+      getNgrokAgentStatePath(ws),
+      JSON.stringify({ webAddrPort: "41234" }),
+    );
+    expect(loadNgrokAgent(ws)).toBeNull();
+  });
+
+  test("loadNgrokAgent ignores legacy agent keys in the workspace config", () => {
+    const ws = makeWorkspace();
+    writeFileSync(
+      join(ws, "config.json"),
+      JSON.stringify({
+        ingress: { ngrok: { webAddrPort: 41234, agentPid: 55555 } },
+      }),
+    );
+
+    // A record written by an older CLI is meaningless on another host.
+    expect(loadNgrokAgent(ws)).toBeNull();
+  });
+
+  test("saveNgrokDomain scrubs legacy agent keys from the workspace config", () => {
+    const ws = makeWorkspace();
+    writeFileSync(
+      join(ws, "config.json"),
+      JSON.stringify({
+        ingress: {
+          ngrok: { domain: "foo.ngrok.app", webAddrPort: 41234, agentPid: 5 },
+        },
+      }),
+    );
+
+    saveNgrokDomain(ws, "bar.ngrok.app");
+    expect(readNgrokEntry(ws)).toEqual({ domain: "bar.ngrok.app" });
+
+    saveNgrokDomain(ws, null);
+    // Scrubbing the legacy keys and the domain drops the entry entirely.
+    expect(readNgrokEntry(ws)).toBeUndefined();
   });
 
   test("saveNgrokDomain preserves the persisted agent record", () => {

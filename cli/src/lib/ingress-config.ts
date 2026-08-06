@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -16,6 +22,10 @@ import {
  * mirrored onto the lockfile entry (`ingressUrl`) — the CLI-owned contract
  * that CLI features (e.g. remote-web pairing defaults) read, per the
  * no-`.vellum/`-reads boundary in cli/AGENTS.md.
+ *
+ * The dedicated ngrok agent record is the exception: it is host-local
+ * process state, kept in a file beside the CLI's pid files rather than in
+ * the workspace config (see getNgrokAgentStatePath).
  */
 
 /** Default workspace dir: `$VELLUM_WORKSPACE_DIR` or `~/.vellum/workspace`. */
@@ -93,6 +103,11 @@ function updateNgrokEntry(
   const config = loadRawConfig(workspaceDir);
   const ingress = (config.ingress ?? {}) as Record<string, unknown>;
   const ngrok = (ingress.ngrok ?? {}) as Record<string, unknown>;
+  // Stray agent state written by older CLIs is host-local process state that
+  // is meaningless after a workspace move; drop it whenever the entry is
+  // rewritten. The live record is in the host-local file, never here.
+  delete ngrok.webAddrPort;
+  delete ngrok.agentPid;
   mutate(ngrok);
   if (Object.keys(ngrok).length > 0) {
     ingress.ngrok = ngrok;
@@ -135,40 +150,58 @@ export interface NgrokAgentRecord {
 }
 
 /**
- * Persist the spawned ngrok agent's dedicated web-addr port and pid under
- * `ingress.ngrok` so later runs can query that agent's local API and reuse
- * its tunnel, or stop the agent when it no longer serves the requested
+ * Host-local path for the dedicated-agent record: beside the `ngrok.pid`
+ * file wake/sleep keep in the directory containing the workspace
+ * (`<instanceDir>/.vellum` or `~/.vellum`). The record is process state for
+ * this host, so it must never live in the workspace `config.json`, which
+ * travels with workspace moves and restores and would point another host at
+ * an unrelated process.
+ */
+export function getNgrokAgentStatePath(workspaceDir: string): string {
+  return join(dirname(workspaceDir), "ngrok-agent.json");
+}
+
+/**
+ * Persist the spawned ngrok agent's dedicated web-addr port and pid to the
+ * host-local state file so later runs can query that agent's local API and
+ * reuse its tunnel, or stop the agent when it no longer serves the requested
  * target; null clears a stale record.
  */
 export function saveNgrokAgent(
   workspaceDir: string,
   agent: { webAddrPort: number; pid?: number | null } | null,
 ): void {
-  updateNgrokEntry(workspaceDir, (ngrok) => {
-    if (agent !== null) {
-      ngrok.webAddrPort = agent.webAddrPort;
-      if (agent.pid !== undefined && agent.pid !== null) {
-        ngrok.agentPid = agent.pid;
-      } else {
-        delete ngrok.agentPid;
-      }
-    } else {
-      delete ngrok.webAddrPort;
-      delete ngrok.agentPid;
-    }
-  });
+  const statePath = getNgrokAgentStatePath(workspaceDir);
+  if (agent === null) {
+    rmSync(statePath, { force: true });
+    return;
+  }
+  const record: Record<string, number> = { webAddrPort: agent.webAddrPort };
+  if (agent.pid !== undefined && agent.pid !== null) {
+    record.pid = agent.pid;
+  }
+  mkdirSync(dirname(statePath), { recursive: true });
+  writeFileSync(statePath, JSON.stringify(record, null, 2) + "\n");
 }
 
-/** Read the persisted dedicated-agent record, if saved. */
+/** Read the persisted dedicated-agent record, if saved and well-formed. */
 export function loadNgrokAgent(workspaceDir: string): NgrokAgentRecord | null {
-  const config = loadRawConfig(workspaceDir);
-  const ingress = config.ingress as Record<string, unknown> | undefined;
-  const ngrok = ingress?.ngrok as Record<string, unknown> | undefined;
-  const port = ngrok?.webAddrPort;
+  const statePath = getNgrokAgentStatePath(workspaceDir);
+  if (!existsSync(statePath)) return null;
+  let record: Record<string, unknown>;
+  try {
+    record = JSON.parse(readFileSync(statePath, "utf-8")) as Record<
+      string,
+      unknown
+    >;
+  } catch {
+    return null;
+  }
+  const port = record.webAddrPort;
   if (typeof port !== "number" || !Number.isInteger(port) || port <= 0) {
     return null;
   }
-  const pid = ngrok?.agentPid;
+  const pid = record.pid;
   const validPid =
     typeof pid === "number" && Number.isInteger(pid) && pid > 0 ? pid : null;
   return { webAddrPort: port, pid: validPid };

@@ -368,7 +368,9 @@ async function preflightNgrok(
  * on our own agent's API, and persist the ingress URL plus the agent record
  * so the next preflight can reuse or stop this agent. `configure` runs right
  * after the spawn, before the tunnel wait (unref, event handlers). On any
- * failure the spawned process is killed and the error rethrown; warn-vs-exit
+ * failure the spawned process is stopped via the stopProcess escalation
+ * (SIGTERM, wait, SIGKILL) before the error is rethrown, so a failed spawn
+ * cannot orphan a live tunnel that is invisible to later runs; warn-vs-exit
  * policy stays with the caller.
  */
 async function spawnDedicatedAgent(opts: {
@@ -401,8 +403,12 @@ async function spawnDedicatedAgent(opts: {
     });
     return { ngrokProcess, publicUrl };
   } catch (err) {
-    if (!ngrokProcess.killed) {
-      ngrokProcess.kill("SIGTERM");
+    // This agent is invisible on :4040 and its record is only written on
+    // success, so a child that survives a bare SIGTERM would be
+    // undiscoverable. Escalate and wait for it to exit before rethrowing.
+    const pid = ngrokProcess.pid;
+    if (pid !== undefined && isNgrokProcess(pid)) {
+      await stopProcess(pid, "ngrok agent");
     }
     throw err;
   }
