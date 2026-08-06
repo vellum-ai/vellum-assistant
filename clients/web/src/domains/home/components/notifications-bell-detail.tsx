@@ -44,6 +44,13 @@ export interface NotificationsBellDetailProps {
    */
   contentHeight: string;
   /**
+   * Ceiling on that frame, expressed against the viewport rather than the
+   * content, so a viewport too short to seat the budget shrinks the frame
+   * instead of overflowing. Together with `contentHeight` this is the minimum
+   * of the two. Omitted where an ancestor already scrolls.
+   */
+  contentMaxHeight?: string;
+  /**
    * Ids of the conversations that still exist, merged from the foreground,
    * background, and scheduled lists exactly as the Activity page merges them.
    */
@@ -72,6 +79,7 @@ export interface NotificationsBellDetailProps {
 export function NotificationsBellDetail({
   item,
   contentHeight,
+  contentMaxHeight,
   validConversationIds,
   areConversationListsPending,
   validScheduleIds,
@@ -177,11 +185,14 @@ export function NotificationsBellDetail({
       {/*
         A fixed frame rather than a cap: a short notification leaves empty
         space below it and a long one scrolls inside, so the panel is the same
-        size whichever notification is open.
+        size whichever notification is open. The `max-height` is measured
+        against the viewport, never the content, so it clamps the frame on a
+        screen too short to seat it without ever letting the notification's
+        own length move it.
       */}
       <div
         data-testid="notifications-bell-detail-content"
-        style={{ height: contentHeight }}
+        style={{ height: contentHeight, maxHeight: contentMaxHeight }}
         className="overflow-y-auto px-[var(--app-spacing-md)]"
       >
         {item.detailPanel?.kind === "toolPermission" ? (

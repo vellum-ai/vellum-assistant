@@ -763,9 +763,30 @@ describe("NotificationsBell detail", () => {
 
     await openDetail("Watcher job failed");
 
+    // A `height` in bare pixels, so the frame is drawn at the budget whatever
+    // the notification is. The `max-height` riding alongside it is the
+    // viewport clamp below, which carries no content term either.
+    expect(detailContent().style.height).toMatch(/^\d+px$/);
+  });
+
+  test("the frame is clamped to the available viewport height", async () => {
+    feedRef.items = [FIRST];
+
+    await openDetail("Watcher job failed");
+
+    // A phone in landscape is roughly 844x390: wide enough to take the
+    // popover path (the mobile query is on width alone) but far too short for
+    // the budget, which a fixed height on its own would overflow. `dvh` over
+    // `vh` so the term stays honest under mobile browser chrome.
     const content = detailContent();
-    expect(content.style.height).not.toBe("");
-    expect(content.style.maxHeight).toBe("");
+    const clamp = /^calc\(100dvh - (\d+)px\)$/.exec(content.style.maxHeight);
+    expect(clamp).not.toBeNull();
+
+    // The clamp may only engage on a viewport shorter than any ordinary
+    // desktop window, so the frame there is still exactly the budget.
+    const budget = Number.parseInt(content.style.height, 10);
+    const chromeAllowance = Number.parseInt(clamp?.[1] ?? "", 10);
+    expect(budget + chromeAllowance).toBeLessThan(600);
   });
 
   test("a long body and a short body render in the same frame", async () => {
@@ -824,10 +845,11 @@ describe("NotificationsBell detail", () => {
     expect(
       screen.getByText("The watcher job could not reach the upstream service."),
     ).toBeTruthy();
-    // The sheet gets the same treatment as the popover: a content region with
-    // no cap on it, closed by a footer carrying the timestamp. The sheet's
-    // budget is a `dvh` length, which happy-dom drops from the CSSOM, so the
-    // height value itself is only observable on the popover path above.
+    // No viewport clamp on this path: the sheet is capped at 85dvh and its
+    // body scrolls, so an oversized frame scrolls inside the sheet rather
+    // than escaping the viewport the way the popover would. The sheet's own
+    // budget is a bare `dvh` length, which happy-dom drops from the CSSOM, so
+    // the height value itself is only observable on the popover path above.
     expect(detailContent().style.maxHeight).toBe("");
     expect(detailFooter().textContent).toContain("3h ago");
   });

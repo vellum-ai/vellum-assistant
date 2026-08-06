@@ -56,8 +56,32 @@ export interface ActivityLocationState {
 // takes it as a fixed height, so every notification renders in the same frame.
 const PANEL_CONTENT_HEIGHT = "397px";
 
+// Ceiling on that budget, so a viewport too short to seat it shrinks the
+// content region instead of running the popover off the bottom edge. The
+// popover path is taken on width alone (`useIsMobile` is a 767px width query),
+// and a phone in landscape is around 844x390: wide enough for the popover,
+// 390px tall.
+//
+// The subtracted allowance is the chrome the content region shares the
+// viewport with, on the 8px spacing grid: 48px of top bar (16px of padding
+// over a 32px icon button) plus the popover's 8px sideOffset, 16px of popover
+// padding, a 40px header row (a 32px control row plus its 8px margin), a 49px
+// footer strip (8px margin, a 1px rule, 8px padding, a 32px button row), and
+// 8px of clearance at the bottom edge. 48 + 8 + 16 + 40 + 49 + 8 = 169,
+// rounded up to 176. The clamp therefore only engages below a 573px viewport,
+// leaving every ordinary desktop window on the budget exactly.
+const PANEL_VIEWPORT_MAX_HEIGHT = "calc(100dvh - 176px)";
+
+// The list caps rather than fixes, so its one `max-height` has to carry both
+// terms; the detail splits them across `height` and `max-height`, which is the
+// same minimum.
+const PANEL_LIST_MAX_HEIGHT = `min(${PANEL_CONTENT_HEIGHT}, ${PANEL_VIEWPORT_MAX_HEIGHT})`;
+
 // The same budget on a bottom sheet, where the content region is measured
-// against the viewport rather than the popover.
+// against the viewport rather than the popover. No viewport ceiling of its
+// own: the sheet is capped at 85dvh and its body scrolls, so an oversized
+// frame scrolls inside the sheet rather than escaping the viewport. The
+// popover has no such scrolling ancestor, which is why only it needs one.
 const MOBILE_PANEL_CONTENT_HEIGHT = "60dvh";
 
 /**
@@ -267,6 +291,10 @@ export function NotificationsBell() {
   const contentHeight = isMobile
     ? MOBILE_PANEL_CONTENT_HEIGHT
     : PANEL_CONTENT_HEIGHT;
+  const contentMaxHeight = isMobile ? undefined : PANEL_VIEWPORT_MAX_HEIGHT;
+  const listMaxHeight = isMobile
+    ? MOBILE_PANEL_CONTENT_HEIGHT
+    : PANEL_LIST_MAX_HEIGHT;
 
   const list =
     visibleItems.length === 0 ? (
@@ -284,7 +312,7 @@ export function NotificationsBell() {
         onScroll={(event) => {
           listScrollTopRef.current = event.currentTarget.scrollTop;
         }}
-        style={{ maxHeight: contentHeight }}
+        style={{ maxHeight: listMaxHeight }}
         className="flex flex-col gap-[var(--app-spacing-sm)] overflow-y-auto"
       >
         {visibleItems.map((item) => (
@@ -318,6 +346,7 @@ export function NotificationsBell() {
         <NotificationsBellDetail
           item={selectedItem}
           contentHeight={contentHeight}
+          contentMaxHeight={contentMaxHeight}
           validConversationIds={validConversationIds}
           areConversationListsPending={areConversationListsPending}
           validScheduleIds={validScheduleIds}
