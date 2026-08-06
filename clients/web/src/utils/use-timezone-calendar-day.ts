@@ -11,12 +11,12 @@
  * (window focus and the cross-domain bus `app.resume`), plus a coarse poll for
  * the surface that is simply left open across midnight with no interaction.
  *
- * The functional `setDay` update returns the previous value when the date is
- * unchanged, so the poll notifies no one on all but the single tick a day that
- * actually crosses a boundary.
+ * The functional `setSampledAt` update returns the previous value when the date
+ * is unchanged, so the poll notifies no one on all but the single tick a day
+ * that actually crosses a boundary.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { toTimezoneDateString } from "@/components/charts/format-date-label";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
@@ -30,21 +30,26 @@ const POLL_MS = 60_000;
 
 /** Returns `YYYY-MM-DD` for "now" in `tz`, updating when that date changes. */
 export function useTimezoneCalendarDay(tz: string): string {
-  const [day, setDay] = useState(() => toTimezoneDateString(new Date(), tz));
+  // State holds the instant the day was last sampled, not the date itself. The
+  // date is a function of that instant and `tz`, so a zone change resolves
+  // during the same render rather than a commit later: state that stored the
+  // formatted date would hand out the previous zone's answer for one render,
+  // and anything keyed on it (a query, a fetch) would act on it.
+  const [sampledAt, setSampledAt] = useState(() => Date.now());
 
   const refresh = useCallback(() => {
-    setDay((prev) => {
-      const next = toTimezoneDateString(new Date(), tz);
-      return next === prev ? prev : next;
+    setSampledAt((prev) => {
+      const now = Date.now();
+      return toTimezoneDateString(new Date(now), tz) ===
+        toTimezoneDateString(new Date(prev), tz)
+        ? prev
+        : now;
     });
   }, [tz]);
 
   useBusSubscription("app.resume", refresh);
 
   useEffect(() => {
-    // Re-read on mount and whenever `tz` changes: the initial state was
-    // sampled in the zone that was live at first render.
-    refresh();
     window.addEventListener("focus", refresh);
     const poll = window.setInterval(refresh, POLL_MS);
     return () => {
@@ -53,5 +58,8 @@ export function useTimezoneCalendarDay(tz: string): string {
     };
   }, [refresh]);
 
-  return day;
+  return useMemo(
+    () => toTimezoneDateString(new Date(sampledAt), tz),
+    [sampledAt, tz],
+  );
 }
