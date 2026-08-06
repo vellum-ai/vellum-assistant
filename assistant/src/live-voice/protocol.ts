@@ -161,7 +161,7 @@ export interface LiveVoiceClientUpdateConfigFrame {
 
 /**
  * A photo the user took mid-call, already uploaded over the normal attachment
- * route (`POST /v1/assistants/{id}/attachments`) — only the resulting id
+ * route (`POST /v1/assistants/{id}/attachments`). Only the resulting id
  * travels here.
  *
  * The bytes deliberately do not: the upload endpoint already normalizes HEIF,
@@ -170,7 +170,7 @@ export interface LiveVoiceClientUpdateConfigFrame {
  *
  * The id is *parked*, not dispatched. It rides the next turn's own user
  * message (see {@link LiveVoiceSession}'s pending-attachment handling), so the
- * photo and the words spoken about it are one message rather than two — which
+ * photo and the words spoken about it are one message rather than two, which
  * is what lets "what's this?" resolve, and what keeps the image attached to the
  * newest user message, the only one a context-overflow retry preserves media on
  * (`conversation-media-retry.ts`).

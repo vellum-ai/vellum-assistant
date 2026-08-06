@@ -586,17 +586,20 @@ export function useLiveVoice(
   );
 
   /**
-   * Hand the running session a photo the user took mid-call. Delegates to the
-   * transport, which no-ops unless the socket is active.
+   * Hand the running session a photo the user took mid-call. Returns whether
+   * it reached the transport.
    *
    * A photo taken during the reconnect gap is dropped rather than queued. The
    * daemon parks attachments against the session it is told about, and a
-   * reconnect starts a fresh one — holding the id across that gap would attach
-   * the photo to a turn arbitrarily far from the sentence it belonged to. The
-   * room surfaces the failure so the user can simply take it again.
+   * reconnect starts a fresh one, so holding the id across that gap would
+   * attach the photo to a turn arbitrarily far from the sentence it belonged
+   * to. Dropping is therefore right, but it must be VISIBLE: the upload has
+   * already succeeded and the shutter has already fired, so returning nothing
+   * would leave the user believing the assistant can see something it cannot.
+   * The room reports the false and asks them to take it again.
    */
-  const attachImage = useCallback((attachmentId: string) => {
-    sessionRef.current?.client.attachImage(attachmentId);
+  const attachImage = useCallback((attachmentId: string): boolean => {
+    return sessionRef.current?.client.attachImage(attachmentId) ?? false;
   }, []);
 
   const createPlayer = useCallback(

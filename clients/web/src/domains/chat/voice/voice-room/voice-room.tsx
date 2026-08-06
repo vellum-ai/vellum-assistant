@@ -70,7 +70,7 @@
  * swaps the look for a live viewfinder and adds a shutter above the control
  * row; the transcript, the controls and the call are all untouched, and
  * closing it reveals the look again. That is what lets it stay open across a
- * run of photos — "what's this?" … "and this one?" — where the system camera,
+ * run of photos ("what's this?" … "and this one?"), where the system camera,
  * being modal and one-shot, would charge a full open/aim/expose cycle per
  * question. Each photo rides the NEXT turn's user message, so the picture and
  * the words spoken about it arrive as one thing. See `voice-camera.ts` for the
@@ -492,7 +492,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const connectSurface = useActiveConnectSurface(!voiceTurnsAreNoninteractive);
 
   // The camera. Offered only when the device has one AND the session's
-  // assistant understands the `attach_image` frame — see
+  // assistant understands the `attach_image` frame. See
   // `use-supports-voice-camera.ts` for why a photo that silently never
   // arrives is worse than no camera control at all.
   //
@@ -705,15 +705,15 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           closing the camera reveals it already in the right state rather than
           replaying its entrance.
 
-          `z-[2]` puts it above every layer of both looks — the color field and
+          `z-[2]` puts it above every layer of both looks (the color field and
           the void avatar sit at `z-0`, the giant eyes and the state caption at
-          `z-[1]` — while staying under the room's chrome at `z-10`, so the
+          `z-[1]`) while staying under the room's chrome at `z-10`, so the
           transcript and the controls keep reading over the feed. Ordering it
           by DOM position alone is not enough: the void look's centred avatar
           renders after this and would paint straight over the viewfinder.
 
           `object-cover` because the video track's aspect ratio is the camera's,
-          not the room's — letterboxing a viewfinder makes it read as a photo
+          not the room's, and letterboxing a viewfinder makes it read as a photo
           already taken. The front camera is mirrored, matching every other
           selfie viewfinder on the platform; the rear one is not, because it
           shows the world and a mirrored world is unusable for aiming.
@@ -910,14 +910,14 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
 
           The row also carries the camera's failures, and so it renders when
           there is a failure to report even though the viewfinder never came
-          up — a denied permission is precisely the case where it did not, and
+          up. A denied permission is precisely the case where it did not, and
           nesting the message inside the open state left the camera button
           appearing to do nothing at all.
 
           The shutter does not close the camera. Taking a photo is a step in a
           conversation ("what's this?" … "and this one?"), not the end of one,
           and a viewfinder that dismissed itself per photo would make every
-          follow-up cost another open/aim/expose cycle — which is exactly the
+          follow-up cost another open/aim/expose cycle, which is exactly the
           system-camera behavior this surface exists to avoid. */}
       {cameraOpen || errorMessage ? (
         <div
@@ -936,7 +936,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             </p>
           ) : null}
           {/* The shutter is centred on the room, with flip parked off to the
-              side rather than sharing a row with it — a two-item row would put
+              side rather than sharing a row with it: a two-item row would put
               the shutter off-centre, and the shutter is the target the user
               reaches for without looking. */}
           {cameraOpen ? (
@@ -951,7 +951,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                   className={cn(
                     "flex size-16 items-center justify-center rounded-full border-4 transition",
                     "border-[var(--room-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]",
-                    // The inner disc shrinks while the photo uploads — the
+                    // The inner disc shrinks while the photo uploads: the
                     // shutter's own press animation doubling as the progress
                     // signal, so nothing else has to appear over the viewfinder.
                     sending ? "opacity-60" : "hover:bg-[var(--room-wash)]",
@@ -1033,11 +1033,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         {/* Show the assistant what you're looking at.
 
             Sits with the mutes rather than in the corner because it is the
-            same kind of act — a thing you do TO the running call, reversible,
+            same kind of act: a thing you do TO the running call, reversible,
             and not the one that ends it.
 
             Neutral in both states, and the icon names the ACTION rather than
-            the state — the one place this row departs from the mutes beside
+            the state. That is the one place this row departs from the mutes beside
             it. The mutes have to display state because muted-ness is
             invisible; an open camera is the single most visible thing on the
             screen, so a second indicator would be telling the user something
@@ -1046,7 +1046,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
 
             No pre-permission sheet stands between this tap and
             `getUserMedia`, per docs/CAPACITOR.md § OS permission requests on
-            iOS — the button IS the pre-prompt, and pressing it raises the
+            iOS: the button IS the pre-prompt, and pressing it raises the
             system alert directly. Any explanatory step added here would have
             to be undismissable to stay compliant, which for a control this
             self-evident would be worse than nothing. */}

@@ -171,12 +171,16 @@ export interface LiveVoiceSessionControls {
    * Tell the session about a photo the user took mid-call, by the id its
    * upload already returned. The daemon parks it and attaches it to the next
    * turn's user message, so the photo and the words spoken about it land as
-   * one message. No-op unless the transport is active.
+   * one message.
    *
-   * Callers must gate on `useSupportsVoiceCamera` — see that hook for why an
+   * Returns whether it reached the session. False during a reconnect gap,
+   * which the caller must surface: the photo is already uploaded and the
+   * shutter has already fired, so silence would read as success.
+   *
+   * Callers must gate on `useSupportsVoiceCamera`. See that hook for why an
    * older assistant's rejection cannot be told apart from `update_config`'s.
    */
-  attachImage: (attachmentId: string) => void;
+  attachImage: (attachmentId: string) => boolean;
 }
 
 /**
@@ -792,11 +796,13 @@ export function updateLiveVoiceSessionConfig(config: {
 
 /**
  * Hand the active session a photo the user took mid-call, by attachment id.
- * No-op when no session exists or the transport isn't active. Module-level for
- * the same stable-identity reasons as {@link endLiveVoiceSession}.
+ * Returns whether it reached the session: false when no session exists or the
+ * transport is mid-reconnect, which the caller must surface rather than treat
+ * as sent. Module-level for the same stable-identity reasons as
+ * {@link endLiveVoiceSession}.
  */
-export function attachLiveVoiceImage(attachmentId: string): void {
-  useLiveVoiceStore.getState().controls?.attachImage(attachmentId);
+export function attachLiveVoiceImage(attachmentId: string): boolean {
+  return useLiveVoiceStore.getState().controls?.attachImage(attachmentId) ?? false;
 }
 
 /**

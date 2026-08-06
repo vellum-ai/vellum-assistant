@@ -4,8 +4,8 @@
  *
  * ## Why this is not the system camera
  *
- * On iOS the obvious move — `<input type="file" capture="environment">`, which
- * raises Apple's own camera — is wrong for this feature in three ways: it is
+ * On iOS the obvious move (`<input type="file" capture="environment">`, which
+ * raises Apple's own camera) is wrong for this feature in three ways: it is
  * modal and one-shot, so every photo costs a full open/aim/expose cycle; it
  * covers the room, so the call it belongs to disappears while you use it; and
  * it puts the OS in charge of an audio session that a call is currently
@@ -19,7 +19,7 @@
  * hardware echo cancellation attached to it. This module therefore requests
  * `{ video: … }` and NOTHING else. Asking for `{ audio: true, video: true }`
  * would hand back a second, differently-configured audio track and tear down
- * the capture graph the call is running on — the failure mode being a call
+ * the capture graph the call is running on. The failure mode is a call
  * that goes deaf, or an echo bug of the kind this codebase has already fixed
  * once (see `clients/ios/docs/NATIVE_VOICE.md`).
  *
@@ -42,6 +42,9 @@ export type VoiceCameraError =
   | "permission-denied"
   | "no-device"
   | "device-in-use"
+  // The request was superseded or the camera was released while it was in
+  // flight. Never shown: whatever superseded it owns the resulting state.
+  | "aborted"
   | "unknown";
 
 /**
@@ -56,7 +59,7 @@ const CAPTURE_JPEG_QUALITY = 0.85;
 /**
  * Whether a viewfinder can run in this environment.
  *
- * Pure feature detection per docs/CAPACITOR.md § Platform short-circuits —
+ * Pure feature detection per docs/CAPACITOR.md § Platform short-circuits.
  * Capacitor iOS is a WKWebView that ships `getUserMedia` for video, so there
  * is no platform branch here.
  */
@@ -87,7 +90,7 @@ function classifyError(cause: unknown): VoiceCameraError {
 /**
  * Draw the video's current frame to a canvas and encode it as a JPEG `File`.
  *
- * Exported for tests. Returns null when the element has no frame yet — a
+ * Exported for tests. Returns null when the element has no frame yet: a
  * `<video>` reports `videoWidth === 0` until the first frame decodes, and
  * encoding that would upload a blank image.
  */
@@ -156,7 +159,7 @@ export interface VoiceCamera {
  * one back. Handing a ref out through a returned object makes React's
  * `react-hooks/refs` rule treat that whole object as a ref, so the consumer
  * cannot read plain state like `open` or `facing` during render without being
- * flagged — the caller keeping its own ref and wiring `ref={videoRef}` in JSX
+ * flagged. The caller keeping its own ref and wiring `ref={videoRef}` in JSX
  * is the shape the rule is written for.
  */
 export function useVoiceCamera(
@@ -164,11 +167,17 @@ export function useVoiceCamera(
 ): VoiceCamera {
   const streamRef = useRef<MediaStream | null>(null);
   const captureCountRef = useRef(0);
+  // Bumped by every acquire and every release, so a `getUserMedia` that
+  // resolves after it was superseded can tell and stop its own stream.
+  const acquireEpochRef = useRef(0);
   const [open, setOpen] = useState(false);
   const [facing, setFacing] = useState<VoiceCameraFacing>("environment");
   const [error, setError] = useState<VoiceCameraError | null>(null);
 
   const stopStream = useCallback(() => {
+    // Cancels any acquire still in flight, so its stream is stopped on arrival
+    // rather than installed behind this release.
+    acquireEpochRef.current++;
     const stream = streamRef.current;
     streamRef.current = null;
     if (stream) {
@@ -189,13 +198,21 @@ export function useVoiceCamera(
    * Releases the current capture BEFORE requesting the replacement. Phones
    * routinely cannot hold the front and rear cameras open at once, so
    * requesting the second while the first is live fails with
-   * `NotReadableError` — and unwinding from there is what would strand a live
+   * `NotReadableError`, and unwinding from there is what would strand a live
    * stream behind a closed viewfinder, leaving the camera indicator lit with
    * nothing on screen.
    */
   const acquire = useCallback(
     async (nextFacing: VoiceCameraFacing): Promise<VoiceCameraError | null> => {
       stopStream();
+      // Snapshot the epoch across the await. Anything that releases the camera
+      // while this request is in flight (unmount, close, a second tap, a flip)
+      // bumps it, and the stream that eventually arrives belongs to nobody:
+      // the cleanup it should have been caught by has already run against an
+      // empty `streamRef`. Assigning it there would leave the hardware live
+      // with no owner, which is the camera staying on after the room closes.
+      // Same guard, and the same reason, as `pcm-capture.ts`'s cancel epoch.
+      const epoch = ++acquireEpochRef.current;
 
       let stream: MediaStream;
       try {
@@ -203,13 +220,20 @@ export function useVoiceCamera(
         // renegotiate the microphone the call is already streaming from.
         //
         // `facingMode` is a plain (non-`exact`) constraint so a device with
-        // one camera — most laptops — still opens it instead of failing with
+        // one camera (most laptops) still opens it instead of failing with
         // OverconstrainedError.
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: nextFacing },
         });
       } catch (cause) {
         return classifyError(cause);
+      }
+
+      if (epoch !== acquireEpochRef.current) {
+        for (const track of stream.getTracks()) {
+          track.stop();
+        }
+        return "aborted";
       }
 
       streamRef.current = stream;
@@ -231,6 +255,13 @@ export function useVoiceCamera(
       }
 
       const failure = await acquire(nextFacing);
+      // A superseded acquire touches no state: the close or the later tap that
+      // cancelled it already set the state it wanted, and reporting a failure
+      // here would overwrite that with an error for something the user did on
+      // purpose.
+      if (failure === "aborted") {
+        return;
+      }
       if (failure) {
         setError(failure);
         setOpen(false);
@@ -256,7 +287,7 @@ export function useVoiceCamera(
    * Switch cameras, keeping the viewfinder up.
    *
    * A failed flip reopens the camera the user already had. Flipping is a
-   * convenience — a device that turns out to have only one usable camera
+   * convenience: a device that turns out to have only one usable camera
    * should leave the user aiming the one that works, not close the viewfinder
    * mid-conversation and make them find the button again.
    */
@@ -267,13 +298,14 @@ export function useVoiceCamera(
     const previous = facing;
     const next = previous === "environment" ? "user" : "environment";
 
-    if (!(await acquire(next))) {
+    const failure = await acquire(next);
+    if (!failure || failure === "aborted") {
       return;
     }
     // The replacement failed and the old capture is already released, so the
     // fallback is a fresh acquire of what was running a moment ago.
     const fallbackFailure = await acquire(previous);
-    if (fallbackFailure) {
+    if (fallbackFailure && fallbackFailure !== "aborted") {
       setError(fallbackFailure);
       setOpen(false);
     }

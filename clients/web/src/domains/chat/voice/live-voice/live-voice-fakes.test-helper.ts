@@ -289,7 +289,9 @@ export function makeControlsSpies() {
         bargeInMinSpeechMs?: number;
       }) => {},
     ),
-    attachImage: mock((_attachmentId: string) => {}),
+    // Defaults to delivered. The reconnect-gap case (false) is asserted by the
+    // tests that care, so the common path stays uncluttered.
+    attachImage: mock((_attachmentId: string) => true),
   } satisfies LiveVoiceSessionControls;
 }
 

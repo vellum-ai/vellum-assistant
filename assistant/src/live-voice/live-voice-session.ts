@@ -123,8 +123,8 @@ type LiveVoiceSessionState =
 const SERVER_VAD_PENDING_AUDIO_MAX_SECONDS = 10;
 
 // Cap on photos parked for the next turn's user message (newest kept). Sized
-// for the gesture this supports — showing the assistant a thing, from a couple
-// of angles — not for emptying a camera roll into one turn.
+// for the gesture this supports (showing the assistant a thing, from a couple
+// of angles) and not for emptying a camera roll into one turn.
 const MAX_PENDING_ATTACHMENTS = 6;
 // Idle-mic chunks retained while the VAD detector is idle; flushed on speech
 // onset so the transcriber gets leading context without streaming an open
@@ -490,15 +490,15 @@ interface ActiveAssistantTurn {
   abortController: AbortController;
   handle: VoiceTurnHandle | null;
   // Latched once this turn has taken the session's parked photos (see
-  // `claimPendingAttachments`). A turn can start more than one leg — the
-  // front-door leg and, after an escalation hand-off, a second one — and each
+  // `claimPendingAttachments`). A turn can start more than one leg (the
+  // front-door leg and, after an escalation hand-off, a second one) and each
   // leg persists its own user message, so without the latch the same photo
   // would be attached twice and shown to the model twice.
   attachmentsClaimed: boolean;
   // What it took, so a rollback can give it back. A speculative turn is
   // dispatched before the endpoint verdict is known and unwound if the verdict
   // is `hold` (the user was mid-thought), and the utterance is then re-sent by
-  // a later turn — so the photos have to return to the session's queue with it,
+  // a later turn, so the photos have to return to the session's queue with it,
   // or the picture the pause was in the middle of asking about is silently gone.
   claimedAttachmentIds: string[];
   // When the turn launched, for narration's turnElapsedMs.
@@ -1290,7 +1290,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    *
    * Parking rather than dispatching is what makes the feature work in the
    * order people actually use it. A user points the camera and says "what's
-   * this?" — the shutter and the sentence arrive within a second of each
+   * this?", and the shutter and the sentence arrive within a second of each
    * other in either order, and the VAD's own trailing-silence window plus
    * transcription means a photo taken just *after* the question still lands
    * before the turn dispatches. Both orders therefore resolve to one turn
@@ -1348,7 +1348,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    *
    * Restored to the FRONT, because they were taken before anything still
    * queued, and the order photos were taken in is the order they are about to
-   * be talked about. The cap still keeps the newest, as parking does — a
+   * be talked about. The cap still keeps the newest, as parking does: a
    * rollback must not become a way to pin old photos ahead of newer ones.
    */
   private restoreClaimedAttachments(activeTurn: ActiveAssistantTurn): void {
@@ -3001,7 +3001,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     turn.speculativePending = false;
     // The dispatch is being unwound, so the barge-in merge note, the finished
     // continuation's answer, its queued announcement, and any photos it claimed
-    // all go back to the session — the turn that would have delivered them is
+    // all go back to the session. The turn that would have delivered them is
     // gone, and the utterance they belong to is about to be sent by another.
     this.restorePendingTurnContext(turn);
     this.restoreClaimedAttachments(turn);
@@ -3944,7 +3944,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // Claimed before the await, not inside the options object: a photo landing
     // while the bridge is still starting the turn belongs to the NEXT one, and
     // reading the field later would silently fold it into this turn's persist.
-    const turnAttachmentIds = this.claimPendingAttachments(activeTurn);
+    //
+    // An announcement turn claims nothing. Its content is a fixed marker
+    // persisted as a hidden synthetic prompt (see `hiddenSyntheticPrompt`
+    // below), not something the user said, so attaching their photos to it
+    // would spend them on a message they never wrote and cannot see, and the
+    // real question they took the photos for would arrive with none.
+    const turnAttachmentIds =
+      activeTurn.continuationDelivery !== null
+        ? []
+        : this.claimPendingAttachments(activeTurn);
 
     try {
       const handle = await this.startVoiceTurn({

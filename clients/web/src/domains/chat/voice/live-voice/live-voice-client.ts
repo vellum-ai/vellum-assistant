@@ -353,17 +353,24 @@ export class LiveVoiceChannelClient {
    * already returned. The daemon parks it and attaches it to the next turn's
    * user message.
    *
-   * Callers MUST gate this on `useSupportsVoiceCamera` — an assistant that
+   * Returns whether the frame actually went out. A session that is connecting
+   * or reconnecting cannot take it, and the caller has to know: the photo was
+   * uploaded and the shutter has already animated, so a silent false start
+   * would leave the user believing the assistant can see something it cannot.
+   *
+   * Callers MUST gate this on `useSupportsVoiceCamera`. An assistant that
    * predates the frame rejects it with `unknown_type`, which is
    * indistinguishable on the wire from the `update_config` rejection handled
    * below and would latch config updates off for the session. The gate hides
    * the camera entirely on those assistants, so this is never reached.
    */
-  attachImage(attachmentId: string): void {
+  attachImage(attachmentId: string): boolean {
     if (this.state !== "active") {
-      return;
+      return false;
     }
-    this.trySend(JSON.stringify({ type: "attach_image", attachmentId }));
+    return this.trySend(
+      JSON.stringify({ type: "attach_image", attachmentId }),
+    );
   }
 
   /**
@@ -571,11 +578,13 @@ export class LiveVoiceChannelClient {
    * `InvalidStateError` in browsers, so guarding on `readyState` keeps a
    * quick-cancel during connect (and any late send) from throwing.
    */
-  private trySend(data: string | ArrayBuffer): void {
+  private trySend(data: string | ArrayBuffer): boolean {
     const ws = this.ws;
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(data);
+      return true;
     }
+    return false;
   }
 
   private fail(

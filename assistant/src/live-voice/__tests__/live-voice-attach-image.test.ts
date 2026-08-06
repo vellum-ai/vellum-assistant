@@ -182,7 +182,7 @@ describe("live-voice photos taken mid-call", () => {
     await speakAndRelease(harness, "and now");
 
     // The second turn carries no attachments at all, rather than the first
-    // turn's photo a second time — showing the model the same image twice
+    // turn's photo a second time. Showing the model the same image twice
     // would make it answer about a picture the user has moved on from.
     expect(
       turnOptionsAt(harness.startVoiceTurn, 0)?.attachmentIds,
@@ -254,7 +254,7 @@ describe("live-voice photos taken mid-call", () => {
   test("a rolled-back speculative turn gives its photos back", async () => {
     // The hold-verdict path: a turn dispatched before the endpoint decision
     // is unwound when the user turns out to have been mid-thought, and the
-    // utterance is re-sent later. The photo has to travel with it — otherwise
+    // utterance is re-sent later. The photo has to travel with it, otherwise
     // a picture taken just before a pause vanishes from the sentence it
     // belongs to.
     const harness = createSessionHarness();
@@ -276,7 +276,7 @@ describe("live-voice photos taken mid-call", () => {
     ).activeAssistantTurn;
     expect(turn?.claimedAttachmentIds).toEqual(["att-1"]);
 
-    // The real rollback entry point, not just the restore helper — the wiring
+    // The real rollback entry point, not just the restore helper: the wiring
     // into `discardSpeculativeTurn` is the part that was missing.
     (
       harness.session as unknown as {

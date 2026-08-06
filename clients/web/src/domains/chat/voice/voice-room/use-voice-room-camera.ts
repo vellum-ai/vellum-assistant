@@ -4,8 +4,8 @@
  *
  * Deliberately made of parts that already exist. A captured frame is a `File`,
  * which is exactly what a typed message's attachment is, so it goes through the
- * same two steps the composer's paperclip uses —
- * {@link prepareImageAttachmentForUpload} then {@link uploadChatAttachment} —
+ * same two steps the composer's paperclip uses,
+ * {@link prepareImageAttachmentForUpload} then {@link uploadChatAttachment},
  * and lands in the same store, with the same HEIF/size handling and the same
  * transcript rendering. Only the last step is voice-specific: the returned id
  * is handed to the live-voice session, which parks it and attaches it to the
@@ -13,7 +13,7 @@
  *
  * That parking is what makes the interaction work in the order people use it.
  * Whether the user snaps and then asks, or asks and then snaps, the photo and
- * the sentence resolve to a single turn — a bare "what's this?" is answered
+ * the sentence resolve to a single turn: a bare "what's this?" is answered
  * about the picture rather than about nothing.
  */
 
@@ -39,6 +39,7 @@ const CAMERA_ERROR_COPY: Record<string, string> = {
   unknown: "Couldn't open the camera.",
   "capture-failed": "Couldn't take that photo.",
   "upload-failed": "Couldn't send that photo.",
+  "not-delivered": "Reconnecting. Take that one again.",
 };
 
 export interface VoiceRoomCamera {
@@ -79,7 +80,7 @@ export function useVoiceRoomCamera(
 
       // The same preparation a pasted or dragged image gets. A viewfinder
       // frame is normally already under the auto-resize threshold, so this is
-      // usually a pass-through — it is here so the one path that isn't (a
+      // usually a pass-through. It is here so the one path that isn't (a
       // high-resolution track on a recent phone) behaves like every other
       // attachment rather than like a special case.
       const prepared = await prepareImageAttachmentForUpload(frame);
@@ -91,7 +92,14 @@ export function useVoiceRoomCamera(
         return;
       }
 
-      attachLiveVoiceImage(uploaded.id);
+      // The upload succeeding is not the photo arriving. A session that is
+      // mid-reconnect cannot take the id, and it is deliberately not queued
+      // across the gap (see `attachImage`), so the one thing that must not
+      // happen is this returning quietly: the shutter has already fired and
+      // the user would carry on talking to an assistant that cannot see it.
+      if (!attachLiveVoiceImage(uploaded.id)) {
+        setSendError("not-delivered");
+      }
     } catch (error) {
       captureError(error, {
         context: "voice-room camera: capture/upload photo",

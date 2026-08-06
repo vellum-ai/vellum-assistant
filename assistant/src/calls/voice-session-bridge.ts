@@ -261,8 +261,8 @@ export interface VoiceTurnCallbacks {
  * Mirrors the HTTP send path's own `resolveAttachments` (`conversation-routes`)
  * so a photo taken mid-call is persisted exactly like one attached to a typed
  * message: same store lookup, same `filePath` provenance, so everything
- * downstream — the `workspace_ref` blocks, the transcript's attachment
- * rendering, the provider-boundary media resolve — is reached by one path.
+ * downstream (the `workspace_ref` blocks, the transcript's attachment
+ * rendering, the provider-boundary media resolve) is reached by one path.
  *
  * Ids that no longer resolve (deleted, expired, never uploaded) are simply
  * absent from the result. A photo that failed to store must not take the
@@ -319,14 +319,14 @@ export interface VoiceTurnOptions {
   /** The transcribed caller utterance or synthetic marker. */
   content: string;
   /**
-   * Attachments to persist onto this turn's user message, by id — photos the
+   * Attachments to persist onto this turn's user message, by id: photos the
    * user took while the call was running (see the live-voice `attach_image`
    * frame). Already uploaded through the normal attachment route, so these are
    * ids into `attachments-store`, not bytes.
    *
    * They ride the SAME user message as the transcribed speech rather than a
    * message of their own, which is what makes a bare "what's this?" resolve
-   * against the photo. It also keeps the image on the newest user message —
+   * against the photo. It also keeps the image on the newest user message,
    * the only one `conversation-media-retry` preserves media on when a turn
    * overflows the context window and retries.
    */
