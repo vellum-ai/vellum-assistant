@@ -21,6 +21,7 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
+import { watchSetting } from "@/utils/local-settings";
 import { createStorageAccessor } from "@/utils/typed-storage";
 
 export interface RememberedOrigin {
@@ -66,6 +67,12 @@ export function normalizeOriginUrl(raw: string): string | null {
 export interface RememberedOriginsProvider {
   load: () => Promise<RememberedOrigin[]>;
   save: (entries: RememberedOrigin[]) => Promise<void>;
+  /**
+   * Optional: report changes to the persisted value made outside this
+   * handle (another tab, the native shell) so hydrated store state can
+   * refresh. Returns an unsubscribe function.
+   */
+  watch?: (onChange: () => void) => () => void;
 }
 
 /**
@@ -118,6 +125,7 @@ export const localStorageProvider: RememberedOriginsProvider = {
   save: async (entries) => {
     storage.save(entries);
   },
+  watch: (onChange) => watchSetting(REMEMBERED_ORIGINS_STORAGE_KEY, onChange),
 };
 
 let activeProvider: RememberedOriginsProvider = localStorageProvider;
@@ -155,6 +163,33 @@ function enqueueMutation<T>(mutation: () => Promise<T>): Promise<T> {
   return run;
 }
 
+let unwatchProvider: (() => void) | null = null;
+
+/**
+ * Re-load the provider's current value into already-hydrated state, e.g.
+ * after another tab or the native shell changed the persisted list.
+ */
+async function refreshFromProvider(epoch: number): Promise<void> {
+  try {
+    const origins = await activeProvider.load();
+    if (
+      epoch === hydrationEpoch &&
+      useRememberedOriginsStoreBase.getState().hydrated
+    ) {
+      useRememberedOriginsStoreBase.setState({ origins });
+    }
+  } catch {
+    // Keep current state; the next mutation or hydrate retries.
+  }
+}
+
+function watchActiveProvider(): void {
+  unwatchProvider?.();
+  const epoch = hydrationEpoch;
+  unwatchProvider =
+    activeProvider.watch?.(() => void refreshFromProvider(epoch)) ?? null;
+}
+
 /**
  * Swap the persistence provider (e.g. for a native Capacitor-backed store)
  * and re-hydrate from it.
@@ -166,6 +201,7 @@ export function setRememberedOriginsProvider(
   hydrationEpoch += 1;
   hydrationPromise = null;
   useRememberedOriginsStoreBase.setState({ hydrated: false });
+  watchActiveProvider();
   void useRememberedOriginsStoreBase.getState().hydrate();
 }
 
@@ -262,8 +298,16 @@ const useRememberedOriginsStoreBase = create<RememberedOriginsStore>()(
         const origins = existing
           ? current.map((o) => (o.url === normalized ? origin : o))
           : [...current, origin];
-        set({ origins });
-        await provider.save(origins);
+        // Publish state only after persistence succeeds so the chooser never
+        // shows an entry the provider does not actually hold.
+        try {
+          await provider.save(origins);
+        } catch {
+          return { ok: false };
+        }
+        if (epoch === hydrationEpoch) {
+          set({ origins });
+        }
         return { ok: true, origin };
       });
     },
@@ -290,14 +334,24 @@ const useRememberedOriginsStoreBase = create<RememberedOriginsStore>()(
           return;
         }
         const remaining = current.filter((o) => o.url !== normalized);
-        set({ origins: remaining });
         if (remaining.length !== current.length) {
-          await provider.save(remaining);
+          try {
+            await provider.save(remaining);
+          } catch {
+            return;
+          }
+        }
+        if (epoch === hydrationEpoch) {
+          set({ origins: remaining });
         }
       });
     },
   }),
 );
+
+// Watch the default provider from the start so a hydrated tab picks up
+// changes other tabs persist.
+watchActiveProvider();
 
 export const useRememberedOriginsStore = createSelectors(
   useRememberedOriginsStoreBase,

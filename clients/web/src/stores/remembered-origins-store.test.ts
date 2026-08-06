@@ -433,6 +433,59 @@ describe("providers and hydration", () => {
     ]);
   });
 
+  it("does not publish state when the provider's save fails", async () => {
+    const seeded = [
+      { url: "https://example.com/kept", addedAt: "2026-01-01T00:00:00Z" },
+    ];
+    let failSaves = false;
+    let entries = seeded;
+    const provider: RememberedOriginsProvider = {
+      load: async () => entries,
+      save: async (next) => {
+        if (failSaves) {
+          throw new Error("save failed");
+        }
+        entries = next;
+      },
+    };
+    setRememberedOriginsProvider(provider);
+    await store().hydrate();
+
+    failSaves = true;
+    const result = await store().addOrigin({ url: "https://example.com/new" });
+    expect(result).toEqual({ ok: false });
+    expect(store().origins.map((o) => o.url)).toEqual([
+      "https://example.com/kept",
+    ]);
+    expect(store().hydrated).toBe(true);
+
+    await store().removeOrigin("https://example.com/kept");
+    expect(store().origins.map((o) => o.url)).toEqual([
+      "https://example.com/kept",
+    ]);
+    expect(entries).toEqual(seeded);
+  });
+
+  it("refreshes hydrated state when another tab changes localStorage", async () => {
+    // beforeEach hydrated the default localStorage provider with an empty
+    // list. Simulate another tab writing an entry, which the browser
+    // announces via a storage event.
+    window.localStorage.setItem(
+      REMEMBERED_ORIGINS_STORAGE_KEY,
+      JSON.stringify([
+        { url: "https://other-tab.example.com", addedAt: "2026-01-01T00:00:00Z" },
+      ]),
+    );
+    window.dispatchEvent(
+      new StorageEvent("storage", { key: REMEMBERED_ORIGINS_STORAGE_KEY }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(store().origins.map((o) => o.url)).toEqual([
+      "https://other-tab.example.com",
+    ]);
+  });
+
   it("runs mutations inside a Web Lock when navigator.locks exists", async () => {
     const requested: string[] = [];
     const fakeLocks = {
