@@ -552,20 +552,24 @@ export type LocalAssistantStatusResult =
 // ---------------------------------------------------------------------------
 
 /**
- * Which way the companion pill may grow, against the avatar's resting spot.
+ * Which way the companion pill grows out of the avatar, which holds its place.
  *
- * `center` blooms both ways and is the shape the surface is designed around.
- * The other two are what it degrades to when a screen edge is closer than the
- * clearance bloom needs. Main decides: it owns the window position and is the
- * only side that knows which display the surface is on.
+ * `right` is the shape the surface is designed around; `left` is what it
+ * degrades to when the right edge of the display is closer than the pill's
+ * widest state needs. Main decides: it owns the window position and is the only
+ * side that knows which display the surface is on.
+ *
+ * The avatar does not move either way. That is the whole point of naming a
+ * *direction* rather than an anchor: the mascot is the fixed thing the user
+ * aims at, and the pill is what changes shape around it.
  */
-export const COMPANION_ANCHORS = ["center", "left", "right"] as const;
+export const COMPANION_GROWTHS = ["right", "left"] as const;
 
-export type CompanionAnchor = (typeof COMPANION_ANCHORS)[number];
+export type CompanionGrowth = (typeof COMPANION_GROWTHS)[number];
 
 /** What main tells the companion renderer. */
 export interface CompanionSurfaceState {
-  anchor: CompanionAnchor;
+  growth: CompanionGrowth;
   /**
    * The live-voice session the surface is showing, or `null` when none is
    * running.

@@ -71,9 +71,9 @@ const meta: Meta<StoryArgs> = {
       control: "inline-radio",
       options: ["dark", "light", "busy"],
     },
-    anchor: {
+    growth: {
       control: "inline-radio",
-      options: ["center", "left", "right"],
+      options: ["right", "left"],
     },
     accentHex: { control: "color" },
     glow: { control: "boolean" },
@@ -203,18 +203,14 @@ export const TypingEmpty: Story = {
 };
 
 /**
- * The circle parked hard against a screen edge, where bloom cannot bloom.
+ * The circle parked hard against the left edge, which changes nothing.
  *
- * It wants 72px of clearance either side expanded and 126px in a call, and
- * there is none to the left, so `anchor: "left"` pins that edge and grows the
- * body rightward instead. The avatar stays exactly where the user put it.
- *
- * **Set `anchor` to `center` to see why this exists.** Unclamped, the pill
- * grows straight past the edge and takes the avatar with it, so the surface
- * disappears off the side of the screen at the moment it is reached for.
+ * Growth runs rightward, away from the edge, so this is simply the default
+ * shape in a tight spot. It is here as the counterpart to the right edge, where
+ * the direction does have to flip.
  */
 export const AgainstTheLeftEdge: Story = {
-  args: { phase: "hover", anchor: "left" },
+  args: { phase: "hover", growth: "right" },
   decorators: [
     (Story) => (
       // A 44px column at the stage's left edge: the avatar's own footprint,
@@ -226,9 +222,17 @@ export const AgainstTheLeftEdge: Story = {
   ],
 };
 
-/** The mirror case, where the body has to grow leftward instead. */
+/**
+ * The case that needs the flip: the circle parked against the right edge, where
+ * the body has nowhere to run.
+ *
+ * **Set `growth` to `right` to see why this exists.** Unclamped, the body runs
+ * straight off the display and takes the controls the user was reaching for
+ * with it. The avatar itself stays exactly where it is either way, which is the
+ * property the flip protects.
+ */
 export const AgainstTheRightEdge: Story = {
-  args: { phase: "call", anchor: "right" },
+  args: { phase: "call", growth: "left" },
   decorators: [
     (Story) => (
       <div className="absolute top-0 right-0 h-full w-11">

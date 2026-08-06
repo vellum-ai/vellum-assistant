@@ -14,7 +14,7 @@ import {
 } from "@/runtime/companion-surface";
 import { sendVoiceActivityControl } from "@/runtime/desktop-voice-activity";
 import type {
-  CompanionAnchor,
+  CompanionGrowth,
   CompanionSurfaceState,
   VoiceActivityState,
 } from "@vellumai/ipc-contract";
@@ -50,7 +50,7 @@ const DRAG_SLOP = 3;
  * That is what lets this window reload mid-call without the call noticing.
  */
 export function CompanionSurfacePage() {
-  const [anchor, setAnchor] = useState<CompanionAnchor>("center");
+  const [growth, setGrowth] = useState<CompanionGrowth>("right");
   const [avatarSrc, setAvatarSrc] = useState<string | undefined>();
   const [call, setCall] = useState<VoiceActivityState | null>(null);
   const [hovered, setHovered] = useState(false);
@@ -71,7 +71,7 @@ export function CompanionSurfacePage() {
 
   useEffect(() => {
     const apply = (state: CompanionSurfaceState) => {
-      setAnchor(state.anchor);
+      setGrowth(state.growth);
       setAvatarSrc(
         state.avatarBase64 === undefined
           ? undefined
@@ -185,7 +185,7 @@ export function CompanionSurfacePage() {
     >
       <CompanionSurface
         phase={phase}
-        anchor={anchor}
+        growth={growth}
         avatarSrc={avatarSrc}
         accentHex={accentHex}
         call={call ?? undefined}

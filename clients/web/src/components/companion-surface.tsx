@@ -32,20 +32,18 @@ import type {
  * app launch, expanding into a pill that carries the voice and type-chat
  * options, and expanding the same way while a call runs.
  *
- * **Bloom.** The body grows both ways from an avatar that holds its place,
- * which reads as the surface breathing rather than sliding. Anchoring is
- * therefore a position (`left: 50%` plus a negative margin) rather than a
- * transform, so the avatar stays put while the body widens around it.
+ * **The mascot is the fixed point.** The body unfurls out of an avatar that
+ * holds one x-position in every state, so the surface reads as one object
+ * changing shape rather than a series of different objects, and the eye and the
+ * cursor always have the same target to aim at. Placement is therefore a
+ * position (`left: 50%` plus the avatar's own half-width) rather than a
+ * transform, and only `width` animates.
  *
- * **Bloom needs clearance on both sides**, `(width - 44) / 2` of it: 72px
- * expanded and 126px in a call. A circle parked against a screen edge does not
- * have it, and unclamped the pill grows straight past the edge, taking the
- * avatar with it rather than merely the far control. So the surface flips
- * instead of clipping, the way a menu does, through {@link anchor}.
- *
- * Pleasingly, the flips are the three expansions that lost to bloom: anchoring
- * left is unfurl-right, anchoring right is slide-left. They were not wasted,
- * they are what bloom degrades into when the screen runs out.
+ * **Growth needs clearance on the side it runs into**, `width - 44` of it: 144px
+ * expanded and 316px in a call. A circle parked against the right edge does not
+ * have it, and unclamped the body would run straight off the display with the
+ * controls the user was reaching for. So the surface flips and grows the other
+ * way instead, the way a menu does, through {@link growth}.
  *
  * **Presentational only.** Phase comes from the caller, so this renders
  * identically in Storybook and in the Electron panel. Hover is a phase rather
@@ -88,15 +86,14 @@ export type CompanionSurfacePhase =
   | "typing";
 
 /**
- * Which way the pill is allowed to grow, positioned against the avatar's
- * resting footprint.
+ * Which way the pill grows out of the avatar, which holds its place.
  *
- * `center` blooms both ways and is the shape this is designed around. The other
- * two are what it degrades to when a screen edge is too close for the 126px a
- * call needs, and the main process is what decides: it owns the window's
- * position and is the only side that knows which display it is on.
+ * `right` is the shape this is designed around; `left` is what it degrades to
+ * when the right edge of the display is too close for the pill's widest state.
+ * The main process decides: it owns the window's position and is the only side
+ * that knows which display it is on.
  */
-export type CompanionSurfaceAnchor = "center" | "left" | "right";
+export type CompanionSurfaceGrowth = "right" | "left";
 
 /** Fallback accent, used until the assistant's own avatar colour is known. */
 const DEFAULT_ACCENT = "#5eead4";
@@ -203,8 +200,8 @@ export interface CompanionSurfaceProps {
    * the two agree exactly when it matters.
    */
   onHoverEnd?: () => void;
-  /** Which way the pill may grow. See {@link CompanionSurfaceAnchor}. */
-  anchor?: CompanionSurfaceAnchor;
+  /** Which way the pill grows. See {@link CompanionSurfaceGrowth}. */
+  growth?: CompanionSurfaceGrowth;
   /**
    * The pill's own element.
    *
@@ -274,7 +271,7 @@ export function CompanionSurface({
   avatarSrc,
   onHoverStart,
   onHoverEnd,
-  anchor = "center",
+  growth = "right",
   rootRef,
   onSurfaceMouseDown,
   spotlight,
@@ -317,22 +314,20 @@ export function CompanionSurface({
         ? 0
         : (contentWidth ?? FALLBACK_WIDTHS[phase] - AVATAR_BOX) + INNER_GAP);
 
-  // **Every anchor keeps the avatar on the same spot.** The host positions this
-  // window around the avatar, not around the pill, so the avatar's resting box
-  // is always the centre of the canvas and only the direction the body grows in
-  // may change. Pinning the pill to a canvas edge instead throws the avatar
-  // half a canvas away from where the host put it, which at the default
-  // bottom-right launch position is off the screen entirely.
+  // **The avatar never moves.** It is pinned to the centre of the canvas, which
+  // is the spot the host positions this window around, and the body runs off
+  // one side of it. Growing from the pill's centre instead would slide the
+  // mascot to a different x-position in every state, so the surface would read
+  // as a series of different objects rather than one object changing shape, and
+  // the user's eye and cursor would have no fixed target to aim at.
   //
-  // So each anchor fixes the avatar's own edge to the centre and lets the body
-  // run the other way: right-anchored also reverses the row, because the body
-  // has to end up on the avatar's left.
+  // Each direction therefore fixes the avatar's own edge to the centre and lets
+  // the body run the other way. Growing left also reverses the row, because the
+  // body has to end up on the avatar's left.
   const placement: CSSProperties =
-    anchor === "left"
-      ? { left: "50%", marginLeft: -(AVATAR_BOX / 2) }
-      : anchor === "right"
-        ? { right: "50%", marginRight: -(AVATAR_BOX / 2) }
-        : { left: "50%", marginLeft: -(width / 2) };
+    growth === "left"
+      ? { right: "50%", marginRight: -(AVATAR_BOX / 2) }
+      : { left: "50%", marginLeft: -(AVATAR_BOX / 2) };
 
   const style: CSSProperties = {
     width,
@@ -356,7 +351,7 @@ export function CompanionSurface({
     // press, so everything that is not a button can be grabbed, which at rest
     // means the avatar and when expanded means the pill around the controls.
     <div
-      className={`absolute top-1/2 cursor-grab transition-[width,margin-left,margin-right] duration-300 will-change-[width,margin-left,margin-right] active:cursor-grabbing ${
+      className={`absolute top-1/2 cursor-grab transition-[width] duration-300 will-change-[width] active:cursor-grabbing ${
         typing
           ? "flex flex-col rounded-[22px]"
           : "flex h-11 items-center rounded-full"
@@ -364,7 +359,7 @@ export function CompanionSurface({
         // The avatar is the row's first child, so growing leftward means
         // reversing the row rather than repositioning it. The card is a column
         // and grows upward instead, so it never wants this.
-        anchor === "right" && !typing ? "flex-row-reverse" : ""
+        growth === "left" && !typing ? "flex-row-reverse" : ""
       }`}
       style={style}
       onMouseLeave={onHoverEnd}

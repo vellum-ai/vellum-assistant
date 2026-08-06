@@ -5,7 +5,7 @@ import {
   voiceActivityContentSchema,
   voiceActivityControlSchema,
   voiceActivityStartSchema,
-  type CompanionAnchor,
+  type CompanionGrowth,
   type CompanionSurfaceState,
   type VoiceActivityState,
 } from "@vellumai/ipc-contract";
@@ -67,13 +67,11 @@ const AVATAR_BOX = 44;
 const MAX_PILL_WIDTH = 360;
 
 /**
- * How far the pill can reach from the avatar's centre.
+ * How far the pill reaches from the avatar's centre.
  *
- * Worst case is not bloom. Bloom splits its growth and reaches
- * `MAX_PILL_WIDTH / 2` either side, but an edge-anchored pill puts the avatar
- * at one end and reaches almost the pill's whole width the other way. The
- * canvas has to hold whichever anchor main later picks, so it is sized for the
- * larger.
+ * The avatar holds its place and the body runs off one side of it, so the reach
+ * is almost the pill's whole width. The canvas has to hold it in whichever
+ * direction main later picks, so it is sized for that reach on both sides.
  */
 const MAX_REACH = MAX_PILL_WIDTH - AVATAR_BOX / 2;
 
@@ -86,7 +84,7 @@ const CANVAS_HEIGHT = AVATAR_BOX + CANVAS_PAD * 2;
 /** Gap from the work area's bottom-right on the first ever launch. */
 const DEFAULT_MARGIN = 24;
 
-let anchor: CompanionAnchor = "center";
+let growth: CompanionGrowth = "right";
 
 /**
  * The running live-voice session, or `null` when none is.
@@ -108,7 +106,7 @@ let call: VoiceActivityState | null = null;
 const currentState = (): CompanionSurfaceState => {
   const png = getAvatarPng();
   return {
-    anchor,
+    growth,
     avatarBase64: png === null ? undefined : png.toString("base64"),
     call,
   };
@@ -149,27 +147,28 @@ export const callOnUpdate = (
   current === null ? null : { ...current, ...content };
 
 /**
- * Which way the pill may grow, from where the avatar actually sits.
+ * Which way the pill grows, from where the avatar actually sits.
  *
- * Bloom needs `(width - AVATAR_BOX) / 2` of clearance either side at the
- * widest state. When a side does not have it the surface flips rather than
- * clips, so the avatar stays where the user put it instead of sliding off the
- * display with the controls the user was reaching for.
+ * The body needs `MAX_PILL_WIDTH - AVATAR_BOX` of clearance on the side it
+ * grows into. Rightward is the default and leftward is what it flips to when
+ * the right edge is too close, so the avatar stays exactly where the user put
+ * it instead of the controls running off the display.
+ *
+ * A display too narrow for either direction still grows right, because the
+ * clipping is then unavoidable and the user can drag the surface somewhere it
+ * fits.
  */
-export const anchorFor = (
+export const growthFor = (
   avatarCentreX: number,
   workArea: { x: number; width: number },
-): CompanionAnchor => {
-  const needed = (MAX_PILL_WIDTH - AVATAR_BOX) / 2;
-  const roomLeft = avatarCentreX - workArea.x;
+): CompanionGrowth => {
+  const needed = MAX_PILL_WIDTH - AVATAR_BOX;
   const roomRight = workArea.x + workArea.width - avatarCentreX;
-  if (roomLeft < needed) {
+  const roomLeft = avatarCentreX - workArea.x;
+  if (roomRight < needed && roomLeft >= needed) {
     return "left";
   }
-  if (roomRight < needed) {
-    return "right";
-  }
-  return "center";
+  return "right";
 };
 
 /**
@@ -201,8 +200,8 @@ const pushState = (): void => {
   }
 };
 
-/** Recompute the anchor from where the window currently is. */
-const refreshAnchor = (): void => {
+/** Recompute the growth direction from where the window currently is. */
+const refreshGrowth = (): void => {
   const win = getFloatingWindow(COMPANION_KIND);
   if (!win) {
     return;
@@ -213,11 +212,11 @@ const refreshAnchor = (): void => {
     x: Math.round(avatarCentreX),
     y: Math.round(y + CANVAS_HEIGHT / 2),
   });
-  const next = anchorFor(avatarCentreX, workArea);
-  if (next === anchor) {
+  const next = growthFor(avatarCentreX, workArea);
+  if (next === growth) {
     return;
   }
-  anchor = next;
+  growth = next;
   pushState();
 };
 
@@ -258,7 +257,7 @@ export const installCompanionWindow = (): void => {
   // Dragging the surface. The renderer sends deltas rather than absolute
   // positions because it is the side holding the pointer, and main is the side
   // that knows where the window currently is. Moving fires `move`, which
-  // recomputes the anchor, so dragging toward a screen edge flips the growth
+  // recomputes the direction, so dragging toward a screen edge flips the growth
   // before the user gets there.
   on(
     "vellum:companion:moveBy",
@@ -436,11 +435,11 @@ export const openCompanionWindow = (): void => {
     },
   });
 
-  refreshAnchor();
-  win.on("move", refreshAnchor);
-  // A display added, removed or rearranged moves the edges the anchor is
+  refreshGrowth();
+  win.on("move", refreshGrowth);
+  // A display added, removed or rearranged moves the edges the direction is
   // measured against without the window itself moving at all.
-  screen.on("display-metrics-changed", refreshAnchor);
-  screen.on("display-added", refreshAnchor);
-  screen.on("display-removed", refreshAnchor);
+  screen.on("display-metrics-changed", refreshGrowth);
+  screen.on("display-added", refreshGrowth);
+  screen.on("display-removed", refreshGrowth);
 };
