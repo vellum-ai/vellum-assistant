@@ -212,12 +212,18 @@ export function AssistantUpgrades({
   const handleUpgrade = async () => {
     setShowConfirmation(false);
     setSuccessMessage(null);
-    // The displayed version, not just an explicit pick. The trigger falls
-    // back to the latest release when nothing is chosen, and a selection
-    // matching the displayed value is not reported, so reading the raw
-    // selection here would upgrade to whatever is latest at click time
-    // rather than to the version on screen.
-    const targetVersion = effectiveSelectedVersion ?? undefined;
+    // With the picker rendered, the trigger shows `effectiveSelectedVersion`
+    // even when nothing was chosen, and a selection matching the displayed
+    // value is not reported. Reading the raw selection would install
+    // something other than the version on screen.
+    //
+    // With no picker there is nothing on screen to honour, so the server
+    // resolves latest. That is deliberately not the same as this component's
+    // `latestRelease`, which does not filter `local` pre-release builds the
+    // way `getLatestRuntimeRelease` does.
+    const targetVersion = rollbackEnabled
+      ? (effectiveSelectedVersion ?? undefined)
+      : undefined;
     try {
       if (isRollback) {
         const result = await rollbackCreate.mutateAsync({

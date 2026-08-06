@@ -519,7 +519,13 @@ function OptOutModal({
               <label className="flex flex-col gap-1 text-body-medium-default text-[var(--content-secondary)]">
                 Safety backup
                 <Select
-                  value={selectedSnapshotName}
+                  // Restoring falls back to the first ready backup when
+                  // nothing is picked, so show that one. Rendering the raw
+                  // empty state left the trigger blank while a concrete
+                  // backup was armed.
+                  value={
+                    selectedSnapshotName || (backups[0]?.snapshot_name ?? "")
+                  }
                   onChange={onSnapshotChange}
                   disabled={isPending}
                   options={backups.map((backup) => ({
