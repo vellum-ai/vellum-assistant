@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { stripMarkdownForPreview } from "../notification-utils.js";
+import {
+  mediaEmbedAltTexts,
+  stripMarkdownForPreview,
+} from "../notification-utils.js";
 
 /**
  * The producer collapses whitespace after flattening, so most assertions read
@@ -43,13 +46,31 @@ describe("stripMarkdownForPreview", () => {
     });
   });
 
-  describe("block markers", () => {
+  // Fenced content is code, not prose. Flattening it would rewrite the very
+  // thing being previewed.
+  describe("fenced code", () => {
     test("drops fence lines and keeps the fenced code", () => {
       expect(preview("Fixed it:\n```ts\nconst a = 1;\n```")).toBe(
         "Fixed it: const a = 1;",
       );
     });
 
+    test("leaves a comment inside a fence with its hash", () => {
+      expect(preview("Run:\n```sh\n# build first\nmake\n```")).toBe(
+        "Run: # build first make",
+      );
+    });
+
+    test("leaves a rule and a piped expression inside a fence alone", () => {
+      expect(preview("```sh\n---\n| a | b |\n```")).toBe("--- | a | b |");
+    });
+
+    test("still flattens prose after the closing fence", () => {
+      expect(preview("```\ncode\n```\n## After")).toBe("code After");
+    });
+  });
+
+  describe("block markers", () => {
     test("drops heading markers", () => {
       expect(preview("## Summary\nAll green.")).toBe("Summary All green.");
     });
@@ -92,5 +113,31 @@ describe("stripMarkdownForPreview", () => {
     test("returns empty for empty input", () => {
       expect(stripMarkdownForPreview("")).toBe("");
     });
+  });
+});
+
+describe("mediaEmbedAltTexts", () => {
+  test("recovers the alts a flattened reply dropped", () => {
+    expect(
+      mediaEmbedAltTexts(
+        "![the Q3 chart](https://cdn.example.com/q3.png) ![scene](vellum://workspace/a.mp4)",
+      ),
+    ).toEqual(["the Q3 chart", "scene"]);
+  });
+
+  test("keeps an empty alt as a placeholder rather than dropping it", () => {
+    expect(mediaEmbedAltTexts("![](https://cdn.example.com/a.png)")).toEqual([
+      "",
+    ]);
+  });
+
+  test("ignores plain links", () => {
+    expect(
+      mediaEmbedAltTexts("[report.pdf](vellum://workspace/r.pdf)"),
+    ).toEqual([]);
+  });
+
+  test("returns nothing for prose", () => {
+    expect(mediaEmbedAltTexts("Done, all green.")).toEqual([]);
   });
 });

@@ -63,20 +63,11 @@ export function truncate(text: string, maxLength: number): string {
 
 // ── Markdown flattening ─────────────────────────────────────────────────────
 
-/** Media embeds: `![alt](url)`, in any of the schemes a reply can carry. */
-const MEDIA_EMBED_RE = /!\[[^\]]*\]\([^)]*\)/g;
+/** Media embeds: `![alt](url)`, remote or `vellum://`, capturing the alt. */
+const MEDIA_EMBED_RE = /!\[([^\]]*)\]\([^)]*\)/g;
 
-/** Fence openers and closers, keeping the fenced content itself. */
+/** Fence openers and closers. Splitting on these isolates the fenced content. */
 const CODE_FENCE_LINE_RE = /^[ \t]{0,3}(?:```|~~~).*$/gm;
-
-/** Leading `#` through `######`. */
-const HEADING_MARKER_RE = /^[ \t]{0,3}#{1,6}[ \t]+/gm;
-
-/** Leading `>`, one level per pass of the marker itself. */
-const BLOCKQUOTE_MARKER_RE = /^[ \t]{0,3}>[ \t]?/gm;
-
-/** Leading `-`, `*`, `+`, `1.`, `1)`. */
-const LIST_MARKER_RE = /^[ \t]{0,3}(?:[-*+]|\d+[.)])[ \t]+/gm;
 
 /** Table delimiter rows and horizontal rules: punctuation, never words. */
 const RULE_ROW_RE = /^[ \t]*\|?[ \t:|-]*-[ \t:|-]*$/gm;
@@ -85,28 +76,30 @@ const RULE_ROW_RE = /^[ \t]*\|?[ \t:|-]*-[ \t:|-]*$/gm;
 const TABLE_ROW_RE = /^[ \t]*\|(.*)\|[ \t]*$/gm;
 
 /**
- * Flatten markdown syntax out of untrusted copy bound for a plain-text
- * notification surface, where the markers render as literal punctuation rather
- * than formatting.
+ * Remove the line-anchored block markers markdown puts at the start of a line:
+ * fences, `#` headings, `>` quotes, and `-`/`1.` list bullets.
  *
- * Media embeds are dropped whole, alt text included. The alt describes the
- * attachment rather than adding prose, so keeping it previews a video as its
- * own caption. Dropping it is also what lets an embed-only reply flatten to
- * empty and reach its attachment fallback.
+ * Shared with `deriveFallbackTitle` in `home-feed-side-effect.ts`, which needs
+ * the identical rule set: its output has to keep matching `flattenToPlainText`
+ * in workspace migration 138, so that a backfilled feed title and a freshly
+ * written one agree. Change these rules and that migration has to move with
+ * them.
  *
- * Line structure survives, so callers needing multi-line copy keep it; collapse
- * whitespace separately for a single line. The block markers below are
- * line-anchored and so must be removed here, ahead of any such collapse, and
- * ahead of `stripMarkdown`, whose inline-code rule would otherwise chew a fence
- * into a stray backtick.
+ * Line-anchored, so this must run before any whitespace collapse, and before
+ * `stripMarkdown`, whose inline-code rule would chew a fence into a stray
+ * backtick.
  */
-export function stripMarkdownForPreview(value: string): string {
-  const deblocked = value
-    .replace(MEDIA_EMBED_RE, "")
-    .replace(CODE_FENCE_LINE_RE, "")
-    .replace(HEADING_MARKER_RE, "")
-    .replace(BLOCKQUOTE_MARKER_RE, "")
-    .replace(LIST_MARKER_RE, "")
+export function stripBlockMarkers(value: string): string {
+  return value
+    .replace(/^\s{0,3}(?:```|~~~).*$/gm, "")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s{0,3}>\s?/gm, "")
+    .replace(/^\s{0,3}(?:[-*+]|\d+[.)])\s+/gm, "");
+}
+
+/** Flatten one run of prose, i.e. everything outside a code fence. */
+function flattenProse(segment: string): string {
+  const deblocked = stripBlockMarkers(segment.replace(MEDIA_EMBED_RE, ""))
     .replace(RULE_ROW_RE, "")
     .replace(TABLE_ROW_RE, (_match, cells: string) =>
       cells
@@ -116,6 +109,47 @@ export function stripMarkdownForPreview(value: string): string {
         .join(" "),
     );
   return stripMarkdown(deblocked);
+}
+
+/**
+ * Flatten markdown syntax out of untrusted copy bound for a plain-text
+ * notification surface, where the markers render as literal punctuation rather
+ * than formatting.
+ *
+ * Media embeds are dropped whole, alt text included. The alt describes the
+ * attachment rather than adding prose, so keeping it previews a video as its
+ * own caption. A reply that is nothing but embeds therefore flattens to empty,
+ * which is the signal for a caller to describe the media instead; see
+ * {@link mediaEmbedAltTexts}.
+ *
+ * Fenced content is passed through verbatim. Flattening it would rewrite the
+ * code being previewed: a `# comment` would lose its `#`, a `---` would vanish,
+ * and a piped shell expression would be mistaken for a table row.
+ *
+ * Line structure survives, so callers needing multi-line copy keep it; collapse
+ * whitespace separately for a single line.
+ */
+export function stripMarkdownForPreview(value: string): string {
+  // Splitting on the fence lines drops them and leaves alternating segments,
+  // the odd ones being the fenced bodies.
+  return value
+    .split(CODE_FENCE_LINE_RE)
+    .map((segment, index) =>
+      index % 2 === 0 ? flattenProse(segment) : segment,
+    )
+    .join("\n");
+}
+
+/**
+ * Alt texts of the media embeds in `value`, in order, empty alts included.
+ *
+ * Lets a caller describe a reply whose entire content was embeds. Remote
+ * `https://` embeds are as valid as `vellum://` ones and register nothing in
+ * the attachment store, so without this a reply of one remote image would go
+ * out with no copy at all rather than merely an unhelpful one.
+ */
+export function mediaEmbedAltTexts(value: string): string[] {
+  return [...value.matchAll(MEDIA_EMBED_RE)].map((match) => match[1] ?? "");
 }
 
 // ── Sanitization ────────────────────────────────────────────────────────────
