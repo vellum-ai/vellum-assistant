@@ -404,7 +404,6 @@ describe("vellum wake", () => {
   });
 });
 
-
 describe("vellum wake — tunnel edge restore", () => {
   const webhookConfig = { telegram: { botUsername: "bot" } };
   const enabledConfig = {
@@ -430,6 +429,7 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7840,
       workspaceDirOf(tempDir),
+      "local-assistant",
     );
     expect(logSpy).toHaveBeenCalledWith("Wake complete.");
   });
@@ -448,6 +448,7 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7840,
       workspaceDirOf(tempDir),
+      "local-assistant",
     );
     expect(logSpy).toHaveBeenCalledWith("Wake complete.");
   });
@@ -460,6 +461,7 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7830,
       workspaceDirOf(tempDir),
+      "local-assistant",
     );
   });
 
@@ -472,6 +474,7 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7830,
       workspaceDirOf(tempDir),
+      "local-assistant",
     );
   });
 
@@ -502,6 +505,7 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7845,
       workspaceDirOf(tempDir),
+      "local-assistant",
     );
   });
 
@@ -522,6 +526,7 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7840,
       workspaceDirOf(tempDir),
+      "local-assistant",
     );
   });
 
@@ -559,6 +564,7 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7830,
       workspaceDirOf(tempDir),
+      "local-assistant",
     );
     expect(logSpy).toHaveBeenCalledWith("Wake complete.");
   });
@@ -582,6 +588,7 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7840,
       workspaceDirOf(tempDir),
+      "local-assistant",
     );
   });
 
@@ -598,6 +605,7 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7841,
       workspaceDirOf(tempDir),
+      "local-assistant",
     );
   });
 
@@ -620,6 +628,7 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7830,
       workspaceDirOf(tempDir),
+      "local-assistant",
     );
     expect(logSpy).toHaveBeenCalledWith("Wake complete.");
   });

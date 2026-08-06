@@ -1,10 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -23,9 +17,11 @@ import {
  * that CLI features (e.g. remote-web pairing defaults) read, per the
  * no-`.vellum/`-reads boundary in cli/AGENTS.md.
  *
- * The dedicated ngrok agent record is the exception: it is host-local
- * process state, kept in a file beside the CLI's pid files rather than in
- * the workspace config (see getNgrokAgentStatePath).
+ * The dedicated ngrok agent record is host-local process state, so it lives
+ * on the lockfile entry (`ngrokAgent`, like `watcherPid` and
+ * `resources.signingKey`), never in the workspace config, which travels with
+ * workspace moves and restores, and never under the daemon/gateway-owned
+ * `.vellum/` tree (cli/AGENTS.md "No `.vellum/` directory access").
  */
 
 /** Default workspace dir: `$VELLUM_WORKSPACE_DIR` or `~/.vellum/workspace`. */
@@ -103,11 +99,6 @@ function updateNgrokEntry(
   const config = loadRawConfig(workspaceDir);
   const ingress = (config.ingress ?? {}) as Record<string, unknown>;
   const ngrok = (ingress.ngrok ?? {}) as Record<string, unknown>;
-  // Stray agent state written by older CLIs is host-local process state that
-  // is meaningless after a workspace move; drop it whenever the entry is
-  // rewritten. The live record is in the host-local file, never here.
-  delete ngrok.webAddrPort;
-  delete ngrok.agentPid;
   mutate(ngrok);
   if (Object.keys(ngrok).length > 0) {
     ingress.ngrok = ngrok;
@@ -150,53 +141,50 @@ export interface NgrokAgentRecord {
 }
 
 /**
- * Host-local path for the dedicated-agent record: beside the `ngrok.pid`
- * file wake/sleep keep in the directory containing the workspace
- * (`<instanceDir>/.vellum` or `~/.vellum`). The record is process state for
- * this host, so it must never live in the workspace `config.json`, which
- * travels with workspace moves and restores and would point another host at
- * an unrelated process.
- */
-export function getNgrokAgentStatePath(workspaceDir: string): string {
-  return join(dirname(workspaceDir), "ngrok-agent.json");
-}
-
-/**
- * Persist the spawned ngrok agent's dedicated web-addr port and pid to the
- * host-local state file so later runs can query that agent's local API and
- * reuse its tunnel, or stop the agent when it no longer serves the requested
- * target; null clears a stale record.
+ * Persist the spawned ngrok agent's dedicated web-addr port and pid on the
+ * assistant's lockfile entry (`ngrokAgent`) so later runs can query that
+ * agent's local API and reuse its tunnel, or stop the agent when it no
+ * longer serves the requested target; null clears a stale record. The record
+ * is process state for this host, so it lives in the CLI-owned lockfile and
+ * must never touch the workspace `config.json`, which travels with workspace
+ * moves and restores and would point another host at an unrelated process.
+ *
+ * Saving a record for an unknown assistant throws: an unrecordable agent
+ * must be rolled back by the caller, not left running undiscoverable.
+ * Clearing (null) for an unknown assistant is a no-op.
  */
 export function saveNgrokAgent(
-  workspaceDir: string,
+  assistantId: string,
   agent: { webAddrPort: number; pid?: number | null } | null,
 ): void {
-  const statePath = getNgrokAgentStatePath(workspaceDir);
+  const result = lookupAssistantByIdentifier(assistantId);
+  if (result.status !== "found") {
+    if (agent === null) return;
+    throw new Error(
+      `cannot record the ngrok agent: no assistant entry found for '${assistantId}'`,
+    );
+  }
+  const entry = result.entry;
   if (agent === null) {
-    rmSync(statePath, { force: true });
-    return;
+    delete entry.ngrokAgent;
+  } else {
+    const record: { webAddrPort: number; pid?: number } = {
+      webAddrPort: agent.webAddrPort,
+    };
+    if (agent.pid !== undefined && agent.pid !== null) {
+      record.pid = agent.pid;
+    }
+    entry.ngrokAgent = record;
   }
-  const record: Record<string, number> = { webAddrPort: agent.webAddrPort };
-  if (agent.pid !== undefined && agent.pid !== null) {
-    record.pid = agent.pid;
-  }
-  mkdirSync(dirname(statePath), { recursive: true });
-  writeFileSync(statePath, JSON.stringify(record, null, 2) + "\n");
+  saveAssistantEntry(entry);
 }
 
 /** Read the persisted dedicated-agent record, if saved and well-formed. */
-export function loadNgrokAgent(workspaceDir: string): NgrokAgentRecord | null {
-  const statePath = getNgrokAgentStatePath(workspaceDir);
-  if (!existsSync(statePath)) return null;
-  let record: Record<string, unknown>;
-  try {
-    record = JSON.parse(readFileSync(statePath, "utf-8")) as Record<
-      string,
-      unknown
-    >;
-  } catch {
-    return null;
-  }
+export function loadNgrokAgent(assistantId: string): NgrokAgentRecord | null {
+  const result = lookupAssistantByIdentifier(assistantId);
+  if (result.status !== "found") return null;
+  const record = result.entry.ngrokAgent as Record<string, unknown> | undefined;
+  if (typeof record !== "object" || record === null) return null;
   const port = record.webAddrPort;
   if (typeof port !== "number" || !Number.isInteger(port) || port <= 0) {
     return null;

@@ -126,6 +126,12 @@ export type AssistantEntry = Omit<
   zone?: string;
   /** PID of the file watcher process for docker instances hatched with --watch. */
   watcherPid?: number;
+  /** The vellum-spawned dedicated ngrok agent's web-addr (local API) port and
+   *  pid. Host-local process state like `watcherPid`: kept on the lockfile
+   *  entry (the CLI-owned contract, per the no-`.vellum/`-access boundary in
+   *  cli/AGENTS.md), never in the workspace config, which travels with
+   *  workspace moves and restores. */
+  ngrokAgent?: { webAddrPort: number; pid?: number };
   /** Local bootstrap secret used to lease guardian tokens for Docker assistants after detached hatch. */
   guardianBootstrapSecret?: string;
   /** Docker image metadata for rollback. Only present for docker topology entries. */

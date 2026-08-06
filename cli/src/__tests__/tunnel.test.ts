@@ -21,7 +21,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import * as cloudflareTunnel from "../lib/cloudflare-tunnel.js";
 import * as ngrok from "../lib/ngrok.js";
@@ -876,11 +876,15 @@ describe("ngrok --domain spawn args", () => {
     mock.module("node:child_process", () => realChildProcess);
   });
 
+  const NGROK_ASSISTANT_ID = "ngrok-agent-test";
+
   beforeEach(() => {
     spawnMock.mockClear();
     lastChild = null;
     delete process.env.IS_CONTAINERIZED;
     mockNgrokApiFetch([{ tunnels: [] }]);
+    // Every direct ngrok call persists its agent record on this entry.
+    seedNgrokLockfile();
   });
 
   afterEach(() => {
@@ -890,14 +894,19 @@ describe("ngrok --domain spawn args", () => {
     } else {
       process.env.IS_CONTAINERIZED = originalContainerized;
     }
+    if (originalLockfileDir === undefined) {
+      delete process.env.VELLUM_LOCKFILE_DIR;
+    } else {
+      process.env.VELLUM_LOCKFILE_DIR = originalLockfileDir;
+    }
     for (const dir of tempDirs.splice(0)) {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
   function makeWorkspace(config: Record<string, unknown>): string {
-    // Mirror the real layout (`<parent>/workspace`) so host-local agent
-    // state lands in an isolated parent dir, not the shared tmpdir.
+    // Mirror the real layout (`<parent>/workspace`) so any stray host-local
+    // state would land in an isolated parent dir, not the shared tmpdir.
     const base = mkdtempSync(join(tmpdir(), "vellum-ngrok-domain-test-"));
     tempDirs.push(base);
     const ws = join(base, "workspace");
@@ -906,26 +915,34 @@ describe("ngrok --domain spawn args", () => {
     return ws;
   }
 
-  /** Seed the host-local dedicated-agent record beside the workspace. */
-  function writeAgentRecord(
-    ws: string,
-    record: { webAddrPort: number; pid?: number },
-  ): void {
-    writeFileSync(
-      join(dirname(ws), "ngrok-agent.json"),
-      JSON.stringify(record),
-    );
+  /** Seed a fresh lockfile whose entry optionally carries an agent record. */
+  function seedNgrokLockfile(record?: {
+    webAddrPort: number;
+    pid?: number;
+  }): void {
+    const entry = makeLocalEntry(NGROK_ASSISTANT_ID);
+    if (record) {
+      entry.ngrokAgent = record;
+    }
+    writeLockfile(entry);
   }
 
-  function readAgentRecord(
-    ws: string,
-  ): { webAddrPort?: number; pid?: number } | null {
-    const statePath = join(dirname(ws), "ngrok-agent.json");
-    if (!existsSync(statePath)) return null;
-    return JSON.parse(readFileSync(statePath, "utf-8")) as {
-      webAddrPort?: number;
-      pid?: number;
+  function readAgentRecord(): { webAddrPort?: number; pid?: number } | null {
+    const lockfilePath = join(
+      process.env.VELLUM_LOCKFILE_DIR ?? "",
+      ".vellum.lock.json",
+    );
+    if (!existsSync(lockfilePath)) return null;
+    const data = JSON.parse(readFileSync(lockfilePath, "utf-8")) as {
+      assistants: Record<string, unknown>[];
     };
+    const entry = data.assistants.find(
+      (e) => e.assistantId === NGROK_ASSISTANT_ID,
+    );
+    return (
+      (entry?.ngrokAgent as { webAddrPort?: number; pid?: number } | null) ??
+      null
+    );
   }
 
   interface StubTunnel {
@@ -972,6 +989,7 @@ describe("ngrok --domain spawn args", () => {
     const run = realNgrok.runNgrokTunnel({
       port: 7831,
       workspaceDir: ws,
+      assistantId: NGROK_ASSISTANT_ID,
       domain: "foo.ngrok.app",
     });
     // runNgrokTunnel blocks until the ngrok process exits; pump exit events
@@ -1049,6 +1067,7 @@ describe("ngrok --domain spawn args", () => {
     const run = realNgrok.runNgrokTunnel({
       port: 7831,
       workspaceDir: ws,
+      assistantId: NGROK_ASSISTANT_ID,
       domain: "foo.ngrok.app",
     });
     const pump = setInterval(() => lastChild?.emit("exit", 0), 10);
@@ -1084,6 +1103,7 @@ describe("ngrok --domain spawn args", () => {
     const run = realNgrok.runNgrokTunnel({
       port: 7831,
       workspaceDir: ws,
+      assistantId: NGROK_ASSISTANT_ID,
       domain: "foo.ngrok.app",
     });
     // The adopt path blocks until SIGINT/SIGTERM; pump SIGINT until the
@@ -1144,7 +1164,11 @@ describe("ngrok --domain spawn args", () => {
 
     let child: unknown;
     try {
-      child = await realNgrok.maybeStartNgrokTunnel(7830, ws);
+      child = await realNgrok.maybeStartNgrokTunnel(
+        7830,
+        ws,
+        NGROK_ASSISTANT_ID,
+      );
     } finally {
       warnSpy.mockRestore();
     }
@@ -1201,7 +1225,11 @@ describe("ngrok --domain spawn args", () => {
 
     let child: unknown;
     try {
-      child = await realNgrok.maybeStartNgrokTunnel(18080, ws);
+      child = await realNgrok.maybeStartNgrokTunnel(
+        18080,
+        ws,
+        NGROK_ASSISTANT_ID,
+      );
     } finally {
       warnSpy.mockRestore();
     }
@@ -1247,7 +1275,11 @@ describe("ngrok --domain spawn args", () => {
       },
     );
 
-    const run = realNgrok.runNgrokTunnel({ port: 18080, workspaceDir: ws });
+    const run = realNgrok.runNgrokTunnel({
+      port: 18080,
+      workspaceDir: ws,
+      assistantId: NGROK_ASSISTANT_ID,
+    });
     const pump = setInterval(() => lastChild?.emit("exit", 0), 10);
     try {
       await run;
@@ -1292,7 +1324,11 @@ describe("ngrok --domain spawn args", () => {
       },
     ]);
 
-    const child = await realNgrok.maybeStartNgrokTunnel(7830, ws);
+    const child = await realNgrok.maybeStartNgrokTunnel(
+      7830,
+      ws,
+      NGROK_ASSISTANT_ID,
+    );
 
     expect(child).not.toBeNull();
     expect(spawnMock).toHaveBeenCalledTimes(1);
@@ -1332,7 +1368,11 @@ describe("ngrok --domain spawn args", () => {
       },
     ]);
 
-    const run = realNgrok.runNgrokTunnel({ port: 7831, workspaceDir: ws });
+    const run = realNgrok.runNgrokTunnel({
+      port: 7831,
+      workspaceDir: ws,
+      assistantId: NGROK_ASSISTANT_ID,
+    });
     const pump = setInterval(() => lastChild?.emit("exit", 0), 10);
     try {
       await run;
@@ -1392,7 +1432,7 @@ describe("ngrok --domain spawn args", () => {
 
   test("maybeStartNgrokTunnel reuses the dedicated agent at the persisted web-addr without spawning", async () => {
     const ws = makeWorkspace({ telegram: { botUsername: "example_bot" } });
-    writeAgentRecord(ws, { webAddrPort: 41234 });
+    seedNgrokLockfile({ webAddrPort: 41234 });
     // The default :4040 API sees nothing; the persisted dedicated agent's
     // API reports the tunnel for the target port.
     mockRoutedNgrokApiFetch((url) =>
@@ -1401,19 +1441,23 @@ describe("ngrok --domain spawn args", () => {
         : { tunnels: [] },
     );
 
-    const child = await realNgrok.maybeStartNgrokTunnel(7830, ws);
+    const child = await realNgrok.maybeStartNgrokTunnel(
+      7830,
+      ws,
+      NGROK_ASSISTANT_ID,
+    );
 
     expect(child).toBeNull();
     expect(spawnMock).not.toHaveBeenCalled();
     const config = readWorkspaceConfig(ws);
     expect(config.ingress.publicBaseUrl).toBe("https://edge.ngrok-free.app");
     // The persisted address stays recorded for the next preflight.
-    expect(readAgentRecord(ws)?.webAddrPort).toBe(41234);
+    expect(readAgentRecord()?.webAddrPort).toBe(41234);
   });
 
   test("maybeStartNgrokTunnel clears a stale persisted web-addr and spawns fresh", async () => {
     const ws = makeWorkspace({ telegram: { botUsername: "example_bot" } });
-    writeAgentRecord(ws, { webAddrPort: 41234 });
+    seedNgrokLockfile({ webAddrPort: 41234 });
     mockRoutedNgrokApiFetch((url) => {
       if (url.includes(":41234")) return "unreachable";
       if (url.includes(":4040")) return { tunnels: [] };
@@ -1421,7 +1465,11 @@ describe("ngrok --domain spawn args", () => {
       return { tunnels: [dedicatedAgentTunnel(7830)] };
     });
 
-    const child = await realNgrok.maybeStartNgrokTunnel(7830, ws);
+    const child = await realNgrok.maybeStartNgrokTunnel(
+      7830,
+      ws,
+      NGROK_ASSISTANT_ID,
+    );
 
     expect(child).not.toBeNull();
     expect(spawnMock).toHaveBeenCalledTimes(1);
@@ -1433,20 +1481,24 @@ describe("ngrok --domain spawn args", () => {
     expect(config.ingress.publicBaseUrl).toBe("https://edge.ngrok-free.app");
     // The stale record is overwritten with the fresh agent's port, and the
     // workspace config never receives host-local agent state.
-    expect(readAgentRecord(ws)?.webAddrPort).toBe(newPort);
+    expect(readAgentRecord()?.webAddrPort).toBe(newPort);
     expect(config.ingress.ngrok).toBeUndefined();
   });
 
   test("runNgrokTunnel adopts the dedicated agent's tunnel via the persisted web-addr", async () => {
     const ws = makeWorkspace({});
-    writeAgentRecord(ws, { webAddrPort: 41234 });
+    seedNgrokLockfile({ webAddrPort: 41234 });
     mockRoutedNgrokApiFetch((url) =>
       url.includes(":41234")
         ? { tunnels: [dedicatedAgentTunnel(7831)] }
         : { tunnels: [] },
     );
 
-    const run = realNgrok.runNgrokTunnel({ port: 7831, workspaceDir: ws });
+    const run = realNgrok.runNgrokTunnel({
+      port: 7831,
+      workspaceDir: ws,
+      assistantId: NGROK_ASSISTANT_ID,
+    });
     // The adopt path blocks until SIGINT/SIGTERM; pump SIGINT until the
     // listener is registered. Earlier tests leak SIGINT handlers that call
     // process.exit, so no-op it while pumping.
@@ -1464,12 +1516,12 @@ describe("ngrok --domain spawn args", () => {
     expect(spawnMock).not.toHaveBeenCalled();
     const config = readWorkspaceConfig(ws);
     expect(config.ingress.publicBaseUrl).toBe("https://edge.ngrok-free.app");
-    expect(readAgentRecord(ws)?.webAddrPort).toBe(41234);
+    expect(readAgentRecord()?.webAddrPort).toBe(41234);
   });
 
   test("maybeStartNgrokTunnel stops a stale-target dedicated agent and spawns fresh", async () => {
     const ws = makeWorkspace({ telegram: { botUsername: "example_bot" } });
-    writeAgentRecord(ws, { webAddrPort: 41234, pid: 55555 });
+    seedNgrokLockfile({ webAddrPort: 41234, pid: 55555 });
     // The persisted vellum-owned agent still answers on :41234 but tunnels an
     // old target port. It must be stopped (never coexisted with) before the
     // replacement spawns, so the pid recorded for sleep covers every
@@ -1503,7 +1555,11 @@ describe("ngrok --domain spawn args", () => {
 
     let child: ChildProcess | null = null;
     try {
-      child = await realNgrok.maybeStartNgrokTunnel(18080, ws);
+      child = await realNgrok.maybeStartNgrokTunnel(
+        18080,
+        ws,
+        NGROK_ASSISTANT_ID,
+      );
     } finally {
       killSpy.mockRestore();
     }
@@ -1519,12 +1575,12 @@ describe("ngrok --domain spawn args", () => {
     const config = readWorkspaceConfig(ws);
     expect(config.ingress.publicBaseUrl).toBe("https://edge.ngrok-free.app");
     // The stale record is replaced with the fresh agent's port and pid.
-    expect(readAgentRecord(ws)).toEqual({ webAddrPort: newPort, pid: 4242 });
+    expect(readAgentRecord()).toEqual({ webAddrPort: newPort, pid: 4242 });
   });
 
   test("runNgrokTunnel stops a stale-target dedicated agent before spawning", async () => {
     const ws = makeWorkspace({});
-    writeAgentRecord(ws, { webAddrPort: 41234, pid: 55555 });
+    seedNgrokLockfile({ webAddrPort: 41234, pid: 55555 });
     let staleAgentUp = true;
     mockRoutedNgrokApiFetch((url) => {
       if (url.includes(":41234")) {
@@ -1551,7 +1607,11 @@ describe("ngrok --domain spawn args", () => {
       return true;
     }) as never);
 
-    const run = realNgrok.runNgrokTunnel({ port: 7831, workspaceDir: ws });
+    const run = realNgrok.runNgrokTunnel({
+      port: 7831,
+      workspaceDir: ws,
+      assistantId: NGROK_ASSISTANT_ID,
+    });
     const pump = setInterval(() => lastChild?.emit("exit", 0), 10);
     try {
       await run;
@@ -1564,12 +1624,12 @@ describe("ngrok --domain spawn args", () => {
     expect(spawnMock).toHaveBeenCalledTimes(1);
     const config = readWorkspaceConfig(ws);
     expect(config.ingress.publicBaseUrl).toBe("https://edge.ngrok-free.app");
-    expect(readAgentRecord(ws)?.pid).toBe(4242);
+    expect(readAgentRecord()?.pid).toBe(4242);
   });
 
   test("maybeStartNgrokTunnel SIGKILLs a stale agent that ignores SIGTERM before replacing it", async () => {
     const ws = makeWorkspace({ telegram: { botUsername: "example_bot" } });
-    writeAgentRecord(ws, { webAddrPort: 41234, pid: 55555 });
+    seedNgrokLockfile({ webAddrPort: 41234, pid: 55555 });
     // The stale vellum-owned agent ignores SIGTERM. The stop must escalate
     // to SIGKILL rather than silently fall through, so the replacement never
     // coexists with a live orphan holding the old public tunnel.
@@ -1603,7 +1663,11 @@ describe("ngrok --domain spawn args", () => {
 
     let child: ChildProcess | null = null;
     try {
-      child = await realNgrok.maybeStartNgrokTunnel(18080, ws);
+      child = await realNgrok.maybeStartNgrokTunnel(
+        18080,
+        ws,
+        NGROK_ASSISTANT_ID,
+      );
     } finally {
       killSpy.mockRestore();
     }
@@ -1615,7 +1679,7 @@ describe("ngrok --domain spawn args", () => {
     expect(child?.pid).toBe(4242);
     const config = readWorkspaceConfig(ws);
     expect(config.ingress.publicBaseUrl).toBe("https://edge.ngrok-free.app");
-    expect(readAgentRecord(ws)?.pid).toBe(4242);
+    expect(readAgentRecord()?.pid).toBe(4242);
   }, 15_000);
 
   test("maybeStartNgrokTunnel reuses the dedicated agent's domain-matching tunnel over a foreign same-port tunnel", async () => {
@@ -1623,7 +1687,7 @@ describe("ngrok --domain spawn args", () => {
       telegram: { botUsername: "example_bot" },
       ingress: { ngrok: { domain: "foo.ngrok.app" } },
     });
-    writeAgentRecord(ws, { webAddrPort: 41234, pid: 55555 });
+    seedNgrokLockfile({ webAddrPort: 41234, pid: 55555 });
     // A foreign :4040 agent tunnels the same target port under another
     // domain; the dedicated agent's entry matches the reserved domain and
     // must win over the foreign tunnel listed first.
@@ -1657,7 +1721,11 @@ describe("ngrok --domain spawn args", () => {
 
     let child: unknown;
     try {
-      child = await realNgrok.maybeStartNgrokTunnel(7830, ws);
+      child = await realNgrok.maybeStartNgrokTunnel(
+        7830,
+        ws,
+        NGROK_ASSISTANT_ID,
+      );
     } finally {
       killSpy.mockRestore();
     }
@@ -1669,14 +1737,14 @@ describe("ngrok --domain spawn args", () => {
     const config = readWorkspaceConfig(ws);
     expect(config.ingress.publicBaseUrl).toBe("https://foo.ngrok.app");
     // The dedicated agent stays recorded for the next preflight.
-    expect(readAgentRecord(ws)).toEqual({ webAddrPort: 41234, pid: 55555 });
+    expect(readAgentRecord()).toEqual({ webAddrPort: 41234, pid: 55555 });
   });
 
   test("runNgrokTunnel adopts the dedicated agent's domain-matching tunnel over a foreign same-port tunnel", async () => {
     const ws = makeWorkspace({
       ingress: { ngrok: { domain: "foo.ngrok.app" } },
     });
-    writeAgentRecord(ws, { webAddrPort: 41234, pid: 55555 });
+    seedNgrokLockfile({ webAddrPort: 41234, pid: 55555 });
     mockRoutedNgrokApiFetch((url) =>
       url.includes(":41234")
         ? {
@@ -1697,7 +1765,11 @@ describe("ngrok --domain spawn args", () => {
           },
     );
 
-    const run = realNgrok.runNgrokTunnel({ port: 7831, workspaceDir: ws });
+    const run = realNgrok.runNgrokTunnel({
+      port: 7831,
+      workspaceDir: ws,
+      assistantId: NGROK_ASSISTANT_ID,
+    });
     // The adopt path blocks until SIGINT/SIGTERM; pump SIGINT until the
     // listener is registered. Earlier tests leak SIGINT handlers that call
     // process.exit, so no-op it while pumping.
@@ -1715,21 +1787,23 @@ describe("ngrok --domain spawn args", () => {
     expect(spawnMock).not.toHaveBeenCalled();
     const config = readWorkspaceConfig(ws);
     expect(config.ingress.publicBaseUrl).toBe("https://foo.ngrok.app");
-    expect(readAgentRecord(ws)).toEqual({ webAddrPort: 41234, pid: 55555 });
+    expect(readAgentRecord()).toEqual({ webAddrPort: 41234, pid: 55555 });
   });
 
-  test("maybeStartNgrokTunnel escalates to SIGKILL when a failed spawn ignores SIGTERM", async () => {
+  test("maybeStartNgrokTunnel escalates to SIGKILL when a failed spawn ignores SIGTERM and commits no ingress URL", async () => {
     const ws = makeWorkspace({ telegram: { botUsername: "example_bot" } });
     // No agents are running, so a fresh dedicated agent spawns and its API
-    // reports the tunnel; persisting the record then fails because a
-    // directory squats on the state path. The failure path must escalate
-    // through stopProcess so the child cannot outlive its discoverability.
+    // reports the tunnel; persisting the record then fails because the
+    // lockfile has no entry for the assistant. The failure path must
+    // escalate through stopProcess so the child cannot outlive its
+    // discoverability, and the ingress URL must never be committed for a
+    // tunnel that was rolled back.
     mockRoutedNgrokApiFetch((url) =>
       url.includes(":4040")
         ? { tunnels: [] }
         : { tunnels: [dedicatedAgentTunnel(7830)] },
     );
-    mkdirSync(join(dirname(ws), "ngrok-agent.json"));
+    writeLockfile(makeLocalEntry("some-other-assistant"));
     // mockRestore clears call history, so record kills out-of-band. Signal 0
     // is stopProcess's liveness probe: the child survives SIGTERM and only
     // dies to SIGKILL.
@@ -1751,7 +1825,11 @@ describe("ngrok --domain spawn args", () => {
     let child: ChildProcess | null = null;
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
     try {
-      child = await realNgrok.maybeStartNgrokTunnel(7830, ws);
+      child = await realNgrok.maybeStartNgrokTunnel(
+        7830,
+        ws,
+        NGROK_ASSISTANT_ID,
+      );
     } finally {
       killSpy.mockRestore();
       warnSpy.mockRestore();
@@ -1762,6 +1840,82 @@ describe("ngrok --domain spawn args", () => {
     expect(child).toBeNull();
     expect(kills).toContainEqual([4242, "SIGTERM"]);
     expect(kills).toContainEqual([4242, "SIGKILL"]);
+    // The record persists before the URL commits, so a persistence failure
+    // leaves no dangling public URL in the workspace config.
+    const config = readWorkspaceConfig(ws);
+    expect(config.ingress?.publicBaseUrl).toBeUndefined();
+  }, 15_000);
+
+  test("runNgrokTunnel Ctrl+C escalates the agent stop and clears the record only once the agent is gone", async () => {
+    const ws = makeWorkspace({});
+    mockNgrokApiFetch([
+      { tunnels: [] },
+      { tunnels: [dedicatedAgentTunnel(7831)] },
+    ]);
+    // The spawned agent ignores SIGTERM and dies only to SIGKILL. Signal 0
+    // is stopProcess's liveness probe; capture the persisted record at
+    // SIGKILL time to prove it outlives the agent, not the other way round.
+    let childUp = true;
+    const recordsAtSigkill: ({ webAddrPort?: number; pid?: number } | null)[] =
+      [];
+    const kills: [number, string | number][] = [];
+    const killSpy = spyOn(process, "kill").mockImplementation(((
+      pid: number,
+      signal: string | number,
+    ) => {
+      if (pid === 4242 && signal === 0) {
+        if (!childUp) throw new Error("ESRCH");
+        return true;
+      }
+      if (signal !== 0) kills.push([pid, signal]);
+      if (pid === 4242 && signal === "SIGKILL") {
+        recordsAtSigkill.push(readAgentRecord());
+        childUp = false;
+      }
+      return true;
+    }) as never);
+    const exitSpy = spyOn(process, "exit").mockImplementation(
+      (() => undefined) as never,
+    );
+
+    async function until(cond: () => boolean): Promise<void> {
+      const start = Date.now();
+      while (!cond()) {
+        if (Date.now() - start > 10_000) throw new Error("condition timeout");
+        await new Promise((r) => setTimeout(r, 20));
+      }
+    }
+
+    const run = realNgrok.runNgrokTunnel({
+      port: 7831,
+      workspaceDir: ws,
+      assistantId: NGROK_ASSISTANT_ID,
+    });
+    try {
+      // Wait for the spawn to persist the record, then deliver one Ctrl+C.
+      await until(() => readAgentRecord() !== null);
+      process.emit("SIGINT");
+      // The shutdown escalates SIGTERM -> wait -> SIGKILL before the record
+      // and the ingress URL are cleared.
+      await until(() => readAgentRecord() === null);
+    } finally {
+      // Let the blocking wait settle so the run promise resolves.
+      lastChild?.emit("exit", 0);
+      await run;
+      killSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
+
+    expect(kills).toContainEqual([4242, "SIGTERM"]);
+    expect(kills).toContainEqual([4242, "SIGKILL"]);
+    // At SIGKILL time the record was still persisted: it is only cleared
+    // after the stop confirms the agent is gone.
+    expect(recordsAtSigkill).toEqual([
+      { webAddrPort: expect.any(Number) as number, pid: 4242 },
+    ]);
+    expect(readAgentRecord()).toBeNull();
+    const config = readWorkspaceConfig(ws);
+    expect(config.ingress?.publicBaseUrl).toBeUndefined();
   }, 15_000);
 
   test("maybeStartNgrokTunnel treats a loopback port allocation failure as nonfatal", async () => {
@@ -1784,7 +1938,11 @@ describe("ngrok --domain spawn args", () => {
 
     let child: unknown;
     try {
-      child = await realNgrok.maybeStartNgrokTunnel(7830, ws);
+      child = await realNgrok.maybeStartNgrokTunnel(
+        7830,
+        ws,
+        NGROK_ASSISTANT_ID,
+      );
     } finally {
       warnSpy.mockRestore();
       mock.module("node:net", () => realNet);

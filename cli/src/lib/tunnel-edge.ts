@@ -27,7 +27,8 @@ export const WEB_INGRESS_FLAG_RETRY = {
  */
 function wantsWebIngress(config: Record<string, unknown>): boolean {
   const ingress = config.ingress as
-    { enabled?: unknown; publicBaseUrl?: unknown } | undefined;
+    | { enabled?: unknown; publicBaseUrl?: unknown }
+    | undefined;
   return (
     ingress?.enabled === true &&
     typeof ingress.publicBaseUrl === "string" &&
@@ -108,5 +109,5 @@ export async function restoreTunnelEdgeAndAutoTunnel(
       );
     }
   }
-  return maybeStartNgrokTunnel(tunnelTargetPort, workspaceDir);
+  return maybeStartNgrokTunnel(tunnelTargetPort, workspaceDir, assistantId);
 }

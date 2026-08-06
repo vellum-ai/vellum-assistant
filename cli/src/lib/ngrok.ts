@@ -110,15 +110,15 @@ interface PreflightAgents {
 }
 
 async function queryPreflightAgents(
-  workspaceDir: string,
+  assistantId: string,
 ): Promise<PreflightAgents> {
   const defaultAgentTunnels = (await queryNgrokTunnels()) ?? [];
   let dedicatedAgent: PreflightAgents["dedicatedAgent"] = null;
-  const saved = loadNgrokAgent(workspaceDir);
+  const saved = loadNgrokAgent(assistantId);
   if (saved !== null) {
     const tunnels = await queryNgrokTunnels(ngrokApiUrl(saved.webAddrPort));
     if (tunnels === null) {
-      saveNgrokAgent(workspaceDir, null);
+      saveNgrokAgent(assistantId, null);
     } else {
       dedicatedAgent = {
         webAddrPort: saved.webAddrPort,
@@ -141,13 +141,13 @@ async function queryPreflightAgents(
  * replacement spawns.
  */
 async function stopDedicatedAgent(
-  workspaceDir: string,
+  assistantId: string,
   agent: { webAddrPort: number; pid: number | null },
 ): Promise<void> {
   if (agent.pid !== null && isNgrokProcess(agent.pid)) {
     await stopProcess(agent.pid, "ngrok agent");
   }
-  saveNgrokAgent(workspaceDir, null);
+  saveNgrokAgent(assistantId, null);
 }
 
 /** Whether a tunnel targets the given local port, under any addr spelling. */
@@ -333,12 +333,12 @@ interface NgrokPreflight {
  * each caller keep its own messaging for the stop.
  */
 async function preflightNgrok(
-  workspaceDir: string,
+  assistantId: string,
   targetPort: number,
   domain: string | undefined,
   onStopStaleAgent: () => void,
 ): Promise<NgrokPreflight> {
-  const agents = await queryPreflightAgents(workspaceDir);
+  const agents = await queryPreflightAgents(assistantId);
   let runningTunnels = [
     ...agents.defaultAgentTunnels,
     ...(agents.dedicatedAgent?.tunnels ?? []),
@@ -350,7 +350,7 @@ async function preflightNgrok(
       null
   ) {
     onStopStaleAgent();
-    await stopDedicatedAgent(workspaceDir, agents.dedicatedAgent);
+    await stopDedicatedAgent(assistantId, agents.dedicatedAgent);
     runningTunnels = agents.defaultAgentTunnels;
   }
 
@@ -365,20 +365,25 @@ async function preflightNgrok(
 /**
  * Spawn our dedicated agent: pick a free web-addr port so its local API
  * stays separate from any other agent's, start ngrok, wait for the tunnel
- * on our own agent's API, and persist the ingress URL plus the agent record
+ * on our own agent's API, and persist the agent record plus the ingress URL
  * so the next preflight can reuse or stop this agent. `configure` runs right
- * after the spawn, before the tunnel wait (unref, event handlers). On any
- * failure the spawned process is stopped via the stopProcess escalation
- * (SIGTERM, wait, SIGKILL) before the error is rethrown, so a failed spawn
+ * after the spawn, before the tunnel wait (unref, event handlers).
+ *
+ * The agent record is persisted before the ingress URL is committed: if the
+ * record cannot be written, the failure path rolls the spawn back with no
+ * URL committed anywhere, so clients are never left pointing at a public
+ * URL whose agent the CLI cannot rediscover. On any failure the spawned
+ * process is stopped via the stopProcess escalation (SIGTERM, wait,
+ * SIGKILL) and the record is cleared only after the stop, so a failed spawn
  * cannot orphan a live tunnel that is invisible to later runs; warn-vs-exit
  * policy stays with the caller.
  */
 async function spawnDedicatedAgent(opts: {
   targetPort: number;
   workspaceDir: string;
+  assistantId: string;
   domain?: string;
   logFilePath?: string;
-  assistantId?: string;
   configure?: (child: ChildProcess) => void;
 }): Promise<{ ngrokProcess: ChildProcess; publicUrl: string }> {
   const webAddrPort = await pickFreeLoopbackPort();
@@ -396,19 +401,25 @@ async function spawnDedicatedAgent(opts: {
       opts.domain,
       ngrokApiUrl(webAddrPort),
     );
-    saveIngressUrl(opts.workspaceDir, publicUrl, opts.assistantId);
-    saveNgrokAgent(opts.workspaceDir, {
+    saveNgrokAgent(opts.assistantId, {
       webAddrPort,
       pid: ngrokProcess.pid ?? null,
     });
+    saveIngressUrl(opts.workspaceDir, publicUrl, opts.assistantId);
     return { ngrokProcess, publicUrl };
   } catch (err) {
-    // This agent is invisible on :4040 and its record is only written on
-    // success, so a child that survives a bare SIGTERM would be
-    // undiscoverable. Escalate and wait for it to exit before rethrowing.
+    // This agent is invisible on :4040, so a child that survives a bare
+    // SIGTERM would be undiscoverable. Escalate and wait for it to exit,
+    // then drop any record written above; the original error is the one
+    // worth surfacing if the best-effort clear fails too.
     const pid = ngrokProcess.pid;
     if (pid !== undefined && isNgrokProcess(pid)) {
       await stopProcess(pid, "ngrok agent");
+    }
+    try {
+      saveNgrokAgent(opts.assistantId, null);
+    } catch {
+      // Keep the original error.
     }
     throw err;
   }
@@ -460,12 +471,15 @@ function hasNonNgrokIngressUrl(workspaceDir: string): boolean {
  * Auto-start an ngrok tunnel if webhook integrations are configured and no
  * non-ngrok ingress URL is present. Designed to be called during daemon/gateway
  * startup. Non-fatal: if ngrok is unavailable or fails, startup continues.
+ * `assistantId` names the lockfile entry the dedicated-agent record (and the
+ * ingress URL mirror) are persisted on.
  *
  * Returns the spawned ngrok child process (for PID tracking) or null.
  */
 export async function maybeStartNgrokTunnel(
   targetPort: number,
   workspaceDir: string,
+  assistantId: string,
 ): Promise<ChildProcess | null> {
   // Managed/containerized deployments route webhooks through the platform's
   // callback proxy. ngrok is not needed and would not be reachable from the
@@ -486,7 +500,7 @@ export async function maybeStartNgrokTunnel(
   // :4040 agent or our own previously spawned dedicated agent; a stale
   // dedicated agent is stopped before it can be replaced.
   const { runningTunnels, existingUrl, coexist } = await preflightNgrok(
-    workspaceDir,
+    assistantId,
     targetPort,
     savedDomain,
     () =>
@@ -496,7 +510,7 @@ export async function maybeStartNgrokTunnel(
   );
   if (existingUrl) {
     console.log(`   Found existing ngrok tunnel: ${existingUrl}`);
-    saveIngressUrl(workspaceDir, existingUrl);
+    saveIngressUrl(workspaceDir, existingUrl, assistantId);
     return null;
   }
   if (coexist) {
@@ -523,6 +537,7 @@ export async function maybeStartNgrokTunnel(
     const { ngrokProcess, publicUrl } = await spawnDedicatedAgent({
       targetPort,
       workspaceDir,
+      assistantId,
       domain: savedDomain,
       logFilePath: ngrokLogPath,
       configure: (child) => child.unref(),
@@ -546,8 +561,9 @@ export interface RunNgrokTunnelOptions {
   port?: number;
   /** Workspace directory for config read/write. Defaults to ~/.vellum/workspace. */
   workspaceDir?: string;
-  /** Lockfile entry to mirror the ingress URL onto (`ingressUrl`). */
-  assistantId?: string;
+  /** Lockfile entry the dedicated-agent record (`ngrokAgent`) and the ingress
+   *  URL mirror (`ingressUrl`) are persisted on. */
+  assistantId: string;
   /**
    * Reserved ngrok domain to bind. Persisted so wake restores reuse it.
    * When omitted, a previously saved domain is reused without being rewritten.
@@ -560,7 +576,7 @@ export interface RunNgrokTunnelOptions {
  * save the public URL to config, and block until exit or signal.
  */
 export async function runNgrokTunnel(
-  opts: RunNgrokTunnelOptions = {},
+  opts: RunNgrokTunnelOptions,
 ): Promise<void> {
   const version = getNgrokVersion();
   if (!version) {
@@ -593,7 +609,7 @@ export async function runNgrokTunnel(
   // default :4040 agent or our own previously spawned dedicated agent; a
   // stale dedicated agent is stopped before it can be replaced.
   const { runningTunnels, existingUrl, coexist } = await preflightNgrok(
-    workspaceDir,
+    opts.assistantId,
     port,
     domain,
     () =>
@@ -632,26 +648,34 @@ export async function runNgrokTunnel(
 
   let publicUrl: string | undefined;
   let ngrokProcess: ChildProcess | undefined;
+  let cleanedUp = false;
 
-  const cleanup = () => {
-    if (ngrokProcess && !ngrokProcess.killed) {
-      ngrokProcess.kill("SIGTERM");
+  // Shutdown teardown (Ctrl+C or a failed spawn): stop the agent through the
+  // stopProcess escalation (SIGTERM, wait, SIGKILL, guarded by
+  // isNgrokProcess against pid reuse) and only then clear the persisted
+  // state, so a slow or SIGTERM-ignoring agent never outlives the only
+  // record of its dedicated API port.
+  const cleanup = async () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    const pid = ngrokProcess?.pid;
+    if (pid !== undefined && isNgrokProcess(pid)) {
+      await stopProcess(pid, "ngrok agent");
     }
     if (publicUrl) {
       console.log("\nClearing ingress URL from config...");
       clearIngressUrl(workspaceDir, opts.assistantId);
-      saveNgrokAgent(workspaceDir, null);
+      saveNgrokAgent(opts.assistantId, null);
     }
   };
 
-  process.on("SIGINT", () => {
-    cleanup();
-    process.exit(0);
-  });
-  process.on("SIGTERM", () => {
-    cleanup();
-    process.exit(0);
-  });
+  const onShutdownSignal = () => {
+    cleanup()
+      .catch(() => {})
+      .finally(() => process.exit(0));
+  };
+  process.on("SIGINT", onShutdownSignal);
+  process.on("SIGTERM", onShutdownSignal);
 
   const configure = (child: ChildProcess) => {
     ngrokProcess = child;
@@ -683,37 +707,42 @@ export async function runNgrokTunnel(
   };
 
   try {
-    // The domain is standing intent, not tunnel state: cleanup clears the
-    // ingress URL and the agent record but leaves the domain saved for
-    // wake/daemon restores.
-    ({ ngrokProcess, publicUrl } = await spawnDedicatedAgent({
-      targetPort: port,
-      workspaceDir,
-      domain,
-      assistantId: opts.assistantId,
-      configure,
-    }));
-  } catch (err) {
-    cleanup();
-    if (domain && !opts.domain) {
-      console.error(savedDomainRecoveryHint(domain));
+    try {
+      // The domain is standing intent, not tunnel state: cleanup clears the
+      // ingress URL and the agent record but leaves the domain saved for
+      // wake/daemon restores.
+      ({ ngrokProcess, publicUrl } = await spawnDedicatedAgent({
+        targetPort: port,
+        workspaceDir,
+        assistantId: opts.assistantId,
+        domain,
+        configure,
+      }));
+    } catch (err) {
+      await cleanup();
+      if (domain && !opts.domain) {
+        console.error(savedDomainRecoveryHint(domain));
+      }
+      throw err;
     }
-    throw err;
+
+    console.log("");
+    console.log(`Tunnel established: ${publicUrl}`);
+    console.log(`Forwarding to:     localhost:${port}`);
+
+    if (opts.domain) {
+      saveNgrokDomain(workspaceDir, opts.domain);
+    }
+    console.log("Ingress URL saved to config.");
+    console.log("");
+    console.log("Press Ctrl+C to stop the tunnel and clear the ingress URL.");
+
+    // Keep running until the ngrok process exits or we receive a signal
+    await new Promise<void>((resolve) => {
+      ngrokProcess?.on("exit", () => resolve());
+    });
+  } finally {
+    process.off("SIGINT", onShutdownSignal);
+    process.off("SIGTERM", onShutdownSignal);
   }
-
-  console.log("");
-  console.log(`Tunnel established: ${publicUrl}`);
-  console.log(`Forwarding to:     localhost:${port}`);
-
-  if (opts.domain) {
-    saveNgrokDomain(workspaceDir, opts.domain);
-  }
-  console.log("Ingress URL saved to config.");
-  console.log("");
-  console.log("Press Ctrl+C to stop the tunnel and clear the ingress URL.");
-
-  // Keep running until the ngrok process exits or we receive a signal
-  await new Promise<void>((resolve) => {
-    ngrokProcess?.on("exit", () => resolve());
-  });
 }
