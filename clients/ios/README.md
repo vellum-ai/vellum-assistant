@@ -43,9 +43,10 @@ which URL is baked into the build.
   process. With `server.url`, only native shell changes (Swift code,
   entitlements, Capacitor plugin updates) require a store submission.
 - **Thin native surface** — the IPC bridge between the WKWebView and
-  native code is minimal (five plugins: `NativeAuthPlugin`,
+  native code is minimal (six plugins: `NativeAuthPlugin`,
   `NativeBiometricPlugin`, `VoiceAudioSessionPlugin`,
-  `VoiceLiveActivityPlugin`, and `ApnsEnvironmentPlugin`), so version
+  `VoiceLiveActivityPlugin`, `ApnsEnvironmentPlugin`, and
+  `SelfHostedServersPlugin`), so version
   skew risk between the web app and native shell is low. Every plugin
   call from the web side must still be capability-probed, because a new
   web bundle always ships ahead of the shell that hosts it. Contrast
@@ -150,7 +151,7 @@ Apple's reference for the toolbar controls:
 
 The app has two layers — the **WKWebView contents** (the React app loaded
 from the configured server URL) and the **native Swift shell** (Capacitor
-bridge, `MyViewController`, the five native plugins). Each has its own
+bridge, `MyViewController`, the six native plugins). Each has its own
 debugger.
 
 ### Safari Web Inspector — for the web side (JS / CSS / network / `console.log`)
@@ -198,8 +199,9 @@ For a **physical iPhone**:
 ⌘R runs with `lldb` already attached. Click in the gutter next to any
 line in `AppDelegate.swift`, `MyViewController.swift`,
 `NativeAuthPlugin.swift`, `NativeBiometricPlugin.swift`,
-`VoiceAudioSessionPlugin.swift`, `VoiceLiveActivityPlugin.swift`, or
-`ApnsEnvironmentPlugin.swift` to set a breakpoint.
+`VoiceAudioSessionPlugin.swift`, `VoiceLiveActivityPlugin.swift`,
+`ApnsEnvironmentPlugin.swift`, or `SelfHostedServersPlugin.swift` to set
+a breakpoint.
 
 - **Console / log output**: View → Debug Area → Activate Console (⇧⌘Y),
   or click the bottom-right console toggle. `print()` and `NSLog()` from
@@ -218,7 +220,8 @@ line in `AppDelegate.swift`, `MyViewController.swift`,
 ### Common debugging recipes
 
 - **A native plugin call (`NativeAuth`, `NativeBiometric`,
-  `VoiceAudioSession`, `VoiceLiveActivity`, `ApnsEnvironment`) seems broken**:
+  `VoiceAudioSession`, `VoiceLiveActivity`, `ApnsEnvironment`,
+  `SelfHostedServers`) seems broken**:
   set a Swift breakpoint in the relevant `@objc func` inside the plugin
   file and trigger the action from the web app. If the breakpoint never
   hits, the JS-side `Capacitor.Plugins.NativeAuth` lookup is wrong (check
@@ -699,6 +702,8 @@ clients/
     │   │   ├── VoiceAudioSessionPlugin.swift # AVAudioSession for live voice
     │   │   ├── VoiceLiveActivityPlugin.swift # Dynamic Island for live voice
     │   │   ├── ApnsEnvironmentPlugin.swift # APNs entitlement environment
+    │   │   ├── SelfHostedServer.swift      # Active + remembered self-hosted origins
+    │   │   ├── SelfHostedServersPlugin.swift # Server list / origin switching bridge
     │   │   ├── Intents/              # App Intents + AppShortcutsProvider
     │   │   ├── Shared/               # Compiled into app + widget extension
     │   │   └── Info.plist
