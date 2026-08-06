@@ -2,11 +2,56 @@ import { BrowserWindow } from "electron";
 
 import type { VellumCommand } from "@vellumai/ipc-contract";
 
-import { readHotkeyOverride } from "./settings";
+import { capabilityToken } from "./capability-registry";
 
 export type { VellumCommand };
 
 export type VellumCommandKind = VellumCommand["kind"];
+
+export interface HotkeySettingsProvider {
+  read: () => Record<string, string>;
+  write: (hotkeys: Record<string, string>) => void;
+  subscribe: (listener: () => void) => () => void;
+}
+
+export const HOTKEY_SETTINGS = capabilityToken<HotkeySettingsProvider>(
+  "desktop.hotkey-settings",
+);
+
+const unavailableHotkeySettings: HotkeySettingsProvider = {
+  read: () => ({}),
+  write: () => {
+    throw new Error("Hotkey settings are unavailable");
+  },
+  subscribe: () => () => undefined,
+};
+
+let hotkeySettings: HotkeySettingsProvider = unavailableHotkeySettings;
+
+export const configureHotkeySettings = (
+  provider?: HotkeySettingsProvider,
+): void => {
+  hotkeySettings = provider ?? unavailableHotkeySettings;
+};
+
+export const readHotkeyOverride = (key: string): string | null => {
+  const value = hotkeySettings.read()[key];
+  return typeof value === "string" ? value : null;
+};
+
+export const readHotkeyOverrides = (): Record<string, string> => ({
+  ...hotkeySettings.read(),
+});
+
+export const writeHotkeyOverrides = (
+  hotkeys: Record<string, string>,
+): void => {
+  hotkeySettings.write(hotkeys);
+};
+
+export const onHotkeyOverridesChange = (
+  listener: () => void,
+): (() => void) => hotkeySettings.subscribe(listener);
 
 /**
  * Default accelerators per command.

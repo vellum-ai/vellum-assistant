@@ -15,7 +15,7 @@ import {
   MENU_ICON_SETTINGS,
 } from "./assets/menu-icons";
 import { onAvatarChange } from "./avatar";
-import { acceleratorOption } from "./commands";
+import { acceleratorOption } from "./commands.client";
 import { getName, onNameChange } from "./identity";
 import { getWatchedLockfile } from "./lockfile-watcher";
 import { dispatchToMain } from "./main-window";

@@ -5,18 +5,26 @@
   "license": "MIT",
   "type": "module",
   "exports": {
+    "./about": "./src/about.ts",
+    "./accelerator": "./src/accelerator.ts",
     "./app-origin": "./src/app-origin.ts",
     "./capability-registry": "./src/capability-registry.ts",
+    "./commands": "./src/commands.ts",
     "./devtools": "./src/devtools.ts",
+    "./global-shortcuts": "./src/global-shortcuts.ts",
+    "./hotkeys": "./src/hotkeys.ts",
+    "./image-context-menu": "./src/image-context-menu.ts",
     "./ipc": "./src/ipc.ts",
+    "./text-context-menu": "./src/text-context-menu.ts",
     "./windows": "./src/windows.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit",
-    "test": "bun test src/capability-registry.test.ts"
+    "test": "bun scripts/run-tests.ts"
   },
   "dependencies": {
-    "@vellumai/electron-utils": "workspace:*"
+    "@vellumai/electron-utils": "workspace:*",
+    "@vellumai/ipc-contract": "workspace:*"
   },
   "peerDependencies": {
     "electron": ">=42.2.0",

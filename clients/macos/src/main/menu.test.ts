@@ -39,7 +39,7 @@ mock.module("electron", () => ({
   },
 }));
 
-mock.module("./about", () => ({
+mock.module("./about.client", () => ({
   openAboutWindow: () => undefined,
 }));
 
@@ -47,7 +47,7 @@ mock.module("./auto-update", () => ({
   checkForUpdates: () => undefined,
 }));
 
-mock.module("./commands", () => ({
+mock.module("./commands.client", () => ({
   acceleratorOption: () => ({}),
   dispatchToFocused: () => undefined,
 }));

@@ -234,7 +234,7 @@ mock.module("./settings", () => ({
   onSettingChange: () => () => {},
 }));
 
-mock.module("./about", () => ({
+mock.module("./about.client", () => ({
   openAboutWindow: mock(() => undefined),
 }));
 
