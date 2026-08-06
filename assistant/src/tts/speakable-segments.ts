@@ -52,6 +52,11 @@ const NON_LATIN_TRAILING_SENTENCE_PUNCTUATION = new Set([
   "〕",
   "〙",
   "〗",
+  "〛",
+  "》",
+  "〉",
+  "］",
+  "｝",
   "”",
   "’",
   "»",
@@ -164,9 +169,16 @@ function findSpeakableBoundary(
       const isNonLatinEnder = NON_LATIN_SENTENCE_ENDING_PUNCTUATION.has(char);
       // The fullwidth full stop doubles as a decimal point in fullwidth
       // numbers (３．１４です), so a following digit suppresses the boundary.
-      const isDecimalPoint =
-        char === FULLWIDTH_FULL_STOP && isDecimalDigit(text[index + 1]);
-      if (isNonLatinEnder && !isDecimalPoint) {
+      // A buffer-final ． is equally ambiguous while streaming: the digits
+      // may arrive in the next delta (e.g. `３．` then `１４です`), so wait
+      // for another character. The `force` flush path still emits a genuine
+      // sentence-final ．at end of turn. The ideographic 。 never marks
+      // decimals and stays unconditional.
+      const charAfterStop = text[index + 1];
+      const isAmbiguousDecimalPoint =
+        char === FULLWIDTH_FULL_STOP &&
+        (charAfterStop === undefined || isDecimalDigit(charAfterStop));
+      if (isNonLatinEnder && !isAmbiguousDecimalPoint) {
         // Non-Latin enders are valid boundaries regardless of what follows;
         // consume locale closers so they stay with their sentence.
         let boundary = index + 1;

@@ -290,6 +290,30 @@ describe("extractSpeakableSegments", () => {
       expect(remainder).toBe("３．１４です");
     });
 
+    test("a buffer ending exactly at a fullwidth full stop keeps buffering", () => {
+      // Streaming deltas can split a fullwidth decimal: `３．` arrives
+      // first and `１４です` in the next delta. The trailing ．must not be
+      // classified as a sentence boundary until the next character shows
+      // whether it is a decimal point.
+      const firstDelta = extractSpeakableSegments("３．", false);
+      expect(firstDelta.segments).toEqual([]);
+      expect(firstDelta.remainder).toBe("３．");
+
+      const afterNextDelta = extractSpeakableSegments(
+        `${firstDelta.remainder}１４です。`,
+        false,
+      );
+      expect(afterNextDelta.segments).toEqual(["３．１４です。"]);
+      expect(afterNextDelta.remainder).toBe("");
+    });
+
+    test("force still flushes a buffer ending at a fullwidth full stop", () => {
+      const { segments, remainder } = extractSpeakableSegments("３．", true);
+
+      expect(segments).toEqual(["３．"]);
+      expect(remainder).toBe("");
+    });
+
     test("the fullwidth full stop still ends a genuine sentence", () => {
       const { segments, remainder } = extractSpeakableSegments(
         "終わりです．次です",
@@ -307,6 +331,16 @@ describe("extractSpeakableSegments", () => {
       );
 
       expect(segments).toEqual(["「こんにちは。」", "次です。"]);
+      expect(remainder).toBe("");
+    });
+
+    test("keeps a CJK double angle bracket with its sentence", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "《こんにちは。》次です。",
+        false,
+      );
+
+      expect(segments).toEqual(["《こんにちは。》", "次です。"]);
       expect(remainder).toBe("");
     });
 
