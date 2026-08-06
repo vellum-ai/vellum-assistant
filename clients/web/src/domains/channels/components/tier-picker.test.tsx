@@ -103,10 +103,10 @@ describe("TierPicker with a resolved default", () => {
       "default",
     );
 
-    // Re-picking the level already shown reports nothing, so this writes
-    // neither call. The cell is already absent here, so the reset it used to
-    // fire was a no-op; Default remains available for the case where it is
-    // not.
+    // A selection matching the displayed level is not reported, so neither
+    // callback runs. Nothing is lost here: the cell is already absent, so a
+    // reset would clear nothing. "Default" covers the case where a cell does
+    // exist.
     fireEvent.click(optionLabeled(options, CONSERVATIVE));
     expect(onReset).not.toHaveBeenCalled();
     expect(onTierChange).not.toHaveBeenCalled();
@@ -146,11 +146,11 @@ describe("TierPicker with an unresolved default (defaultTier null)", () => {
   });
 
   test("re-selecting the current level writes nothing", () => {
-    // It used to re-pin the same value, which changed nothing. Radix reports
-    // no selection when the value already matches, so neither callback runs.
-    // Clearing still goes through the explicit Default entry, which is the
-    // only choice that can mean "follow the default" without guessing at
-    // whether the unresolved default matches this level.
+    // A selection matching the displayed level is not reported, so neither
+    // callback runs. Re-pinning the same value would change nothing anyway.
+    // Clearing goes through the "Default" entry, which is the only choice
+    // that means "follow the default" without guessing at whether the
+    // unresolved default matches this level.
     const { onTierChange, onReset } = renderPicker({ tier: "low" });
     fireEvent.click(optionLabeled(openMenu(), CONSERVATIVE));
     expect(onTierChange).not.toHaveBeenCalled();
