@@ -18,7 +18,6 @@ import {
   clearQueueStatus,
   markMessageQueued,
 } from "@/domains/chat/utils/stream-updaters/shared";
-import { useTurnStore } from "@/domains/chat/turn-store";
 import { steerToMessage } from "@/domains/chat/api/messages";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
@@ -103,18 +102,11 @@ export function useMessageQueue({
           requestId: targetRequestId,
           messageId,
           setOptimisticSends,
-          // The daemon broadcasts `message_queued_deleted` before answering
-          // the DELETE, so the stream handler can pop the mapping ahead of
-          // this callback. Whichever path pops it spends the queue slot, which
-          // keeps a cancel to exactly one decrement on this tab.
+          // Mapping cleanup only. `pendingQueuedCount` moves on the daemon's
+          // `message_queued_deleted` broadcast, which lands on this tab too,
+          // so decrementing here as well would double-count the cancel.
           onDeleted: () => {
-            if (
-              useChatSessionStore
-                .getState()
-                .popRequestIdMapping(targetRequestId)
-            ) {
-              useTurnStore.getState().deleteQueuedMessage();
-            }
+            useChatSessionStore.getState().popRequestIdMapping(targetRequestId);
           },
         });
       } else {

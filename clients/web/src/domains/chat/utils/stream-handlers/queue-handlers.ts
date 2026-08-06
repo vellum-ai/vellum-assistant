@@ -16,10 +16,18 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { confirmQueuedMessageDeletion } from "@/domains/chat/queue-cancellation";
 
+/**
+ * Counts every `message_queued` broadcast, then binds the ack to a local row
+ * when this client owns one. The increment is unconditional because the
+ * counter tracks the conversation's whole queue rather than this client's
+ * share of it: a passive tab has to show the queued indicator for a send it
+ * did not originate, and its decrement arrives on the matching broadcast.
+ */
 export function handleMessageQueued(
   event: MessageQueuedEvent,
   ctx: StreamHandlerContext,
 ): void {
+  ctx.turnActions.enqueueMessage();
   const { requestId, position, clientMessageId } = event;
   // When the ack names its send, bind by identity: consume that exact
   // pending entry, and ignore acks for sends this client did not originate
@@ -30,13 +38,11 @@ export function handleMessageQueued(
     ? ctx.takePendingQueuedMessageId(clientMessageId)
     : ctx.shiftPendingQueuedMessageId();
   if (!messageId) {
-    // No local row owns this ack, so there is nothing for the queued counter
-    // to describe. Counting it would leave the turn store reporting a pending
-    // queued send the drawer can never show.
+    // Counted but unbound: no local pending send owns this ack, so there is no
+    // row to position and no mapping to record.
     return;
   }
 
-  ctx.turnActions.enqueueMessage();
   ctx.setRequestIdMapping(requestId, messageId);
 
   if (ctx.consumePendingLocalDeletion(messageId)) {
@@ -48,13 +54,11 @@ export function handleMessageQueued(
         requestId,
         messageId,
         setOptimisticSends: ctx.setOptimisticSends,
-        // The daemon broadcasts the cancel before answering the DELETE, so
-        // `handleMessageQueuedDeleted` can pop the mapping first. Whichever
-        // path pops it spends the slot, so the pair never double-decrements.
+        // Mapping cleanup only. The counter moves on the daemon's
+        // `message_queued_deleted` broadcast, which every client sees,
+        // including this one, so decrementing here would double-count.
         onDeleted: () => {
-          if (ctx.popRequestIdMapping(requestId)) {
-            ctx.turnActions.deleteQueuedMessage();
-          }
+          ctx.popRequestIdMapping(requestId);
         },
       });
     }
@@ -67,25 +71,25 @@ export function handleMessageQueued(
   }
 }
 
+/**
+ * Symmetric counterpart to `handleMessageQueued`: the queue entry left the
+ * queue to be processed, so the decrement is unconditional on every client
+ * that counted the broadcast. Only the row bookkeeping is gated, on whether
+ * this client holds a local row for the request.
+ */
 export function handleMessageDequeued(
   event: MessageDequeuedEvent,
   ctx: StreamHandlerContext,
 ): void {
+  ctx.turnActions.dequeueMessage();
   const dequeuedMessageId = ctx.popRequestIdMapping(event.requestId);
-  // The requestId mapping is the record of a queued send this client counted:
-  // `handleMessageQueued` writes it in the same breath as `enqueueMessage()`,
-  // and writes neither for an ack it could not bind to a local row. Decrement
-  // only against that record, so a dequeue for another tab's send or a
-  // daemon-internal enqueue cannot spend a slot this client never took.
   if (dequeuedMessageId) {
-    ctx.turnActions.dequeueMessage();
     ctx.setOptimisticSends((prev) =>
       applyQueuedMessageDequeue(prev, dequeuedMessageId),
     );
   }
-  // Row removal is unconditional: a queued row seeded from a `/messages`
-  // reseed is keyed by requestId and never went through the counter, but it is
-  // rendered and must stop reading as queued.
+  // A queued row seeded from a `/messages` reseed is keyed by requestId and
+  // has no mapping, but it is rendered and must stop reading as queued.
   patchTranscriptMessages((prev) =>
     applyQueuedMessageDequeue(prev, dequeuedMessageId ?? event.requestId),
   );
@@ -118,35 +122,27 @@ export function handleMessageRequeued(
 }
 
 /**
- * The single decrement for a cancelled queued message, on every device that
- * counted the enqueue, including the one that issued the DELETE. The requestId
- * mapping is what pairs the two halves: `handleMessageQueued` writes it in the
- * same breath as its increment and writes neither when it cannot bind the ack
- * to a local row, so the decrement follows the same record rather than firing
- * for a queue entry this client never counted.
+ * The single decrement for a cancelled queued message, on every device
+ * including the one that issued the DELETE. It is unconditional to mirror
+ * `handleMessageQueued`, which increments for every `message_queued` before it
+ * knows whether this client originated the send: the count tracks the
+ * conversation's queue, not this client's share of it, so gating either side
+ * on a local mapping would desync passive devices. The cancelling tab must
+ * therefore not decrement again in its own DELETE callback.
  */
 export function handleMessageQueuedDeleted(
   event: MessageQueuedDeletedEvent,
   ctx: StreamHandlerContext,
 ): void {
+  ctx.turnActions.deleteQueuedMessage();
   const deletedMessageId = ctx.popRequestIdMapping(event.requestId);
-  // Same pairing rule as `handleMessageDequeued`: the requestId mapping is the
-  // record of a queued send this client counted, and popping it is what spends
-  // the slot. The daemon broadcasts the cancel to every subscriber, so this
-  // also lands on the tab that issued it, where the local cancel path pops the
-  // same mapping. Tying the decrement to the pop keeps that to exactly one
-  // decrement per cancel whichever path observes it first, and none at all on
-  // a tab that never counted the enqueue. Without the gate, a second decrement
-  // retires the turn while a real message is still queued.
   if (deletedMessageId) {
-    ctx.turnActions.deleteQueuedMessage();
     ctx.setOptimisticSends((prev) =>
       removeQueuedMessage(prev, deletedMessageId),
     );
   }
-  // Row removal is unconditional: a queued row seeded from a `/messages`
-  // reseed is keyed by requestId and never went through the counter, but it is
-  // rendered and must stop reading as queued.
+  // A queued row seeded from a `/messages` reseed is keyed by requestId and
+  // has no mapping, but it is rendered and must stop reading as queued.
   patchTranscriptMessages((prev) =>
     removeQueuedMessage(prev, deletedMessageId ?? event.requestId),
   );

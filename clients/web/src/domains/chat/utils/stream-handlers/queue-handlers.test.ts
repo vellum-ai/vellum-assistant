@@ -45,7 +45,7 @@ describe("handleMessageQueued", () => {
     expect(updated[0]?.queuePosition).toBe(2);
   });
 
-  it("returns early without counting the enqueue when no pending messageId", () => {
+  it("counts the enqueue but binds no row when no pending messageId", () => {
     const ctx = makeCtx({
       pendingQueuedMessageIds: [],
     });
@@ -59,9 +59,10 @@ describe("handleMessageQueued", () => {
       ctx,
     );
     expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
-    // No local row owns the ack, so the turn store must not report a pending
-    // queued send the drawer can never show.
-    expect(ctx.turnActions.enqueueMessage).not.toHaveBeenCalled();
+    // The counter tracks the conversation's whole queue, so a send this client
+    // did not originate still counts here and is decremented by the matching
+    // dequeue or cancel broadcast.
+    expect(ctx.turnActions.enqueueMessage).toHaveBeenCalledTimes(1);
   });
 
   it("binds by clientMessageId even when the nonce is not at the FIFO head", () => {
@@ -102,7 +103,9 @@ describe("handleMessageQueued", () => {
     );
     expect(ctx.setRequestIdMapping).not.toHaveBeenCalled();
     expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
-    expect(ctx.turnActions.enqueueMessage).not.toHaveBeenCalled();
+    // Row binding is refused, but the foreign send is still part of the
+    // conversation's queue, so the counter tracks it.
+    expect(ctx.turnActions.enqueueMessage).toHaveBeenCalledTimes(1);
     // The local pending entry is untouched and still awaits its own ack.
     expect(pending).toEqual(["stable-1"]);
   });
@@ -144,11 +147,10 @@ describe("handleMessageDequeued", () => {
     expect(ctx.setOptimisticSends).toHaveBeenCalled();
   });
 
-  it("does not spend a queue slot for a dequeue this client never counted", () => {
-    // Only `handleMessageQueued` increments the counter, and only when it
-    // could bind the ack to a local row, in which case it also writes the
-    // requestId mapping. An unpaired dequeue (another tab's send, a
-    // daemon-internal enqueue) has no mapping and must leave the count alone.
+  it("spends the queue slot even when no messageId mapping exists", () => {
+    // `handleMessageQueued` counted this entry's ack whether or not it bound
+    // to a local row, so the decrement has to be symmetric. Only the
+    // optimistic-row update is gated on the mapping.
     const ctx = makeCtx();
     handleMessageDequeued(
       {
@@ -158,7 +160,7 @@ describe("handleMessageDequeued", () => {
       },
       ctx,
     );
-    expect(ctx.turnActions.dequeueMessage).not.toHaveBeenCalled();
+    expect(ctx.turnActions.dequeueMessage).toHaveBeenCalledTimes(1);
     expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
   });
 
@@ -195,10 +197,10 @@ describe("handleMessageDequeued", () => {
     expect(message?.queuePosition).toBeUndefined();
   });
 
-  it("clears a snapshot-seeded queued row without touching the counter", () => {
-    // A row rendered from a `/messages` reseed is keyed by requestId and never
-    // ran through `handleMessageQueued`, so it owns no queue slot, but it is
-    // on screen and must stop reading as queued.
+  it("clears a snapshot-seeded queued row and still spends the queue slot", () => {
+    // A row rendered from a `/messages` reseed is keyed by requestId and has
+    // no requestId mapping, so removal falls back to the event's own key. The
+    // decrement stays unconditional either way.
     useChatSessionStore.setState({
       snapshot: {
         messages: [
@@ -226,7 +228,7 @@ describe("handleMessageDequeued", () => {
       ctx,
     );
 
-    expect(ctx.turnActions.dequeueMessage).not.toHaveBeenCalled();
+    expect(ctx.turnActions.dequeueMessage).toHaveBeenCalledTimes(1);
     expect(
       useChatSessionStore.getState().snapshot?.messages[0]?.queueStatus,
     ).toBeUndefined();
@@ -308,10 +310,9 @@ describe("handleMessageRequeued", () => {
 });
 
 describe("handleMessageQueuedDeleted", () => {
-  it("spends the queue slot on a tab that counted the enqueue but did not cancel", () => {
-    // A second tab watching the same conversation counted the enqueue, so its
-    // mapping is still present when the broadcast lands. That tab owes the
-    // decrement and the row removal.
+  it("spends the queue slot and removes the row when a mapping exists", () => {
+    // A tab that never issued the cancel still holds the mapping when the
+    // broadcast lands, so it owes both the decrement and the row removal.
     const ctx = makeCtx({
       requestIdToMessageId: new Map([["req-1", "stable-1"]]),
     });
@@ -328,10 +329,11 @@ describe("handleMessageQueuedDeleted", () => {
     expect(ctx.setOptimisticSends).toHaveBeenCalled();
   });
 
-  it("does not decrement twice on the tab that issued the cancel", () => {
-    // The cancelling tab pops the mapping in its own `onDeleted`, so the
-    // broadcast echo finds nothing to pair with. A second decrement would
-    // retire the turn at count 0 while a real message is still queued.
+  it("still decrements on the cancelling tab, whose DELETE already popped the mapping", () => {
+    // The cancelling tab's `onDeleted` only cleans up the mapping; it must not
+    // decrement, because this broadcast echoes back to it and carries the one
+    // decrement the cancel is owed. Losing that decrement would strand the
+    // queued indicator after the last queued message was cancelled.
     const ctx = makeCtx({
       requestIdToMessageId: new Map([["req-1", "stable-1"]]),
     });
@@ -345,14 +347,14 @@ describe("handleMessageQueuedDeleted", () => {
       },
       ctx,
     );
-    expect(ctx.turnActions.deleteQueuedMessage).not.toHaveBeenCalled();
+    expect(ctx.turnActions.deleteQueuedMessage).toHaveBeenCalledTimes(1);
     expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
   });
 
-  it("does not spend a queue slot for a cancel this client never counted", () => {
-    // The daemon broadcasts to every subscriber, so a tab that never saw the
-    // enqueue (opened mid-turn, or another tab's send) receives this too and
-    // must leave its own count alone.
+  it("spends the queue slot for a cancel with no local mapping", () => {
+    // The daemon broadcasts to every subscriber, and every subscriber counted
+    // the matching `message_queued`, so the decrement is symmetric even where
+    // no local row was ever bound.
     const ctx = makeCtx();
     handleMessageQueuedDeleted(
       {
@@ -362,7 +364,7 @@ describe("handleMessageQueuedDeleted", () => {
       },
       ctx,
     );
-    expect(ctx.turnActions.deleteQueuedMessage).not.toHaveBeenCalled();
+    expect(ctx.turnActions.deleteQueuedMessage).toHaveBeenCalledTimes(1);
     expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
   });
 
