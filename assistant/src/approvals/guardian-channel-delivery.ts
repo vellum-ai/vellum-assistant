@@ -37,6 +37,38 @@ export function resolveDeliverCallbackUrlForChannel(
 }
 
 /**
+ * Whether a message posted back in-band on this channel can be kept to one
+ * reader.
+ *
+ * Slack can, with `chat.postEphemeral`. Discord cannot: it has no ephemeral
+ * message outside an interaction response, so anything posted into the room a
+ * guardian replied in, or the room a request came from, is readable by every
+ * member of the server. That applies to a decision notice and to a
+ * verification code alike, which is why the callers treat an in-band reply
+ * context as unusable for Discord and fall through to the DM route instead.
+ *
+ * Telegram and WhatsApp are trivially true: their conversation already has one
+ * reader.
+ */
+export function channelCanAddressOneReaderInBand(channel: string): boolean {
+  return channel !== "discord";
+}
+
+/**
+ * Whether the channel can reach a requester privately by addressing their user
+ * id, so a verification code can go straight to them instead of the guardian
+ * relaying it out of band.
+ *
+ * Slack opens a 1:1 DM when a `U…` id is posted as the channel. Discord
+ * resolves a user snowflake to a DM channel on its `dm`-marked route. No other
+ * channel has a guaranteed private path to a user id, so elsewhere the code
+ * stays with the guardian and the requester gets a courier notice.
+ */
+export function channelHasPrivateRequesterRoute(channel: string): boolean {
+  return channel === "slack" || channel === "discord";
+}
+
+/**
  * Resolve who a requester notice is addressed to on the callback-less route.
  *
  * A request's `requesterChatId` is wherever the request came from, and on
