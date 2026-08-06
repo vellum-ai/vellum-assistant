@@ -433,5 +433,4 @@ export const installVoiceActivityWindow = (): void => {
   handle("vellum:voiceActivity:getState", z.tuple([]), () =>
     controller.currentState(),
   );
-
 };

@@ -92,7 +92,11 @@ import { installIdentityIpc } from "./identity";
 import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTextInsertionIpc } from "./textInsertion";
 import { installTray } from "./tray";
-import { installVoiceActivityWindow } from "./voice-activity-window";
+import {
+  installVoiceActivityWindow,
+  isVoiceActivityRunning,
+  reopenVoiceActivityPanel,
+} from "./voice-activity-window";
 import { hardenedWebPreferences } from "./windows";
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
@@ -504,6 +508,8 @@ app
       toggleMainWindow: toggleMainWindowVisibility,
       ensureMainWindow: ensureMainWindowVisible,
       openAbout: openAboutWindow,
+      isVoicePanelAvailable: isVoiceActivityRunning,
+      showVoicePanel: reopenVoiceActivityPanel,
     });
     installNativeAuth();
     installMainWindow();

@@ -135,7 +135,10 @@ export function VoiceActivityPanelPage() {
         >
           <Minus className="size-3" aria-hidden />
         </WindowButton>
-        <WindowButton label="Close voice panel" onClick={dismissVoiceActivityPanel}>
+        <WindowButton
+          label="Close voice panel"
+          onClick={dismissVoiceActivityPanel}
+        >
           <X className="size-3" aria-hidden />
         </WindowButton>
       </div>

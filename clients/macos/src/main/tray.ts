@@ -18,10 +18,6 @@ import { onAvatarChange } from "./avatar";
 import { acceleratorOption } from "./commands";
 import { getName, onNameChange } from "./identity";
 import { getWatchedLockfile } from "./lockfile-watcher";
-import {
-  isVoiceActivityRunning,
-  reopenVoiceActivityPanel,
-} from "./voice-activity-window";
 import { dispatchToMain } from "./main-window";
 import { menuIcon } from "./menu-icon";
 import { readSetting } from "./settings";
@@ -69,6 +65,20 @@ import { readOnboardingActive } from "./window-state";
  */
 
 export interface TrayHandlers {
+  /**
+   * Whether a live-voice session is running, which is the only time reopening
+   * the floating panel means anything.
+   *
+   * Injected like every other handler rather than imported: the tray is built
+   * on every menu open, and reaching into the panel module directly would pull
+   * its window and store dependencies into the tray's own graph.
+   */
+  isVoicePanelAvailable(): boolean;
+  /**
+   * Show the floating voice panel again. The way back from its close button,
+   * which hides the window without ending the call.
+   */
+  showVoicePanel(): void;
   /**
    * Bound to the tray's left click and the "Show / Hide Main Window"
    * menu item: if the main window is visible and focused, hide it;
@@ -134,7 +144,10 @@ const isDeveloperMenuEnabled = (): boolean => {
   return flags?.["developer-menu-items"] === true;
 };
 
-const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu => {
+const buildTrayMenu = (
+  handlers: TrayHandlers,
+  status: AssistantStatus,
+): Menu => {
   const onboarding = readOnboardingActive();
 
   const items: Electron.MenuItemConstructorOptions[] = [
@@ -312,11 +325,11 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
     // otherwise. This is the way back from the panel's close button: closing
     // it never ends the session, so without this a closed panel would leave a
     // live microphone with no floating control until the call ended.
-    ...(isVoiceActivityRunning()
+    ...(handlers.isVoicePanelAvailable()
       ? [
           {
             label: "Show Voice Panel",
-            click: reopenVoiceActivityPanel,
+            click: handlers.showVoicePanel,
           },
         ]
       : []),
