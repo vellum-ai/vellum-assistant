@@ -37,7 +37,7 @@ import {
   type DeterministicCheckContext,
   runDeterministicChecks,
 } from "./deterministic-checks.js";
-import { createEvent, updateEventDedupeKey } from "./events-store.js";
+import { createEvent, setEventDedupeKey } from "./events-store.js";
 import { writeHomeFeedItemForSignal } from "./home-feed-side-effect.js";
 import { dispatchDecision } from "./runtime-dispatch.js";
 import type {
@@ -227,6 +227,25 @@ export interface EmitSignalResult {
   dispatched: boolean;
   reason: string;
   deliveryResults: NotificationDeliveryResult[];
+  /**
+   * True when the pipeline threw before reaching a verdict. Dispatch, dedupe,
+   * suppression, and a blocked deterministic check are all verdicts. Callers
+   * that latch their own guard on a completed emit branch on this flag;
+   * `reason` is a human-facing log string and never a control signal.
+   */
+  pipelineFailed: boolean;
+}
+
+/**
+ * True when at least one channel adapter has already been handed the signal.
+ * `sent` is a completed delivery; `pending` is the platform push that passed
+ * its outcome deadline and is still in flight. Both mean a retry would
+ * re-deliver.
+ */
+function hasChannelSideEffect(
+  results: readonly NotificationDeliveryResult[],
+): boolean {
+  return results.some((r) => r.status === "sent" || r.status === "pending");
 }
 
 /**
@@ -245,6 +264,15 @@ export async function emitNotificationSignal<TEventName extends string>(
   params: EmitSignalParams<TEventName>,
 ): Promise<EmitSignalResult> {
   const signalId = uuid();
+
+  // The event row claims `params.dedupeKey` when it lands, and the failure
+  // path below releases that claim.
+  let eventPersisted = false;
+
+  // Every channel result the broadcast produces, appended as each channel
+  // settles. A throw discards the dispatch return value, so this is how the
+  // failure path learns which channels already ran.
+  const channelResults: NotificationDeliveryResult[] = [];
 
   const signal: NotificationSignal<TEventName> = {
     signalId,
@@ -297,8 +325,10 @@ export async function emitNotificationSignal<TEventName extends string>(
         dispatched: false,
         reason: "Signal deduplicated at event store level",
         deliveryResults: [],
+        pipelineFailed: false,
       };
     }
+    eventPersisted = true;
 
     // Step 1.5: Source-active pre-gate. visibleInSourceNow is a hard invariant
     // the decision engine cannot override, and it depends only on the signal —
@@ -319,6 +349,7 @@ export async function emitNotificationSignal<TEventName extends string>(
         dispatched: false,
         reason: `Signal suppressed: ${sourceActiveCheck.reason}`,
         deliveryResults: [],
+        pipelineFailed: false,
       };
     }
 
@@ -439,7 +470,7 @@ export async function emitNotificationSignal<TEventName extends string>(
     // only the producer's dedupeKey, which may be null).
     if (decision.dedupeKey && !params.dedupeKey) {
       try {
-        updateEventDedupeKey(signalId, decision.dedupeKey);
+        setEventDedupeKey(signalId, decision.dedupeKey);
       } catch (err) {
         log.warn(
           { err, signalId },
@@ -470,6 +501,7 @@ export async function emitNotificationSignal<TEventName extends string>(
           dispatched: false,
           reason: `Signal blocked by deterministic checks: ${checkResult.reason}`,
           deliveryResults: [],
+          pipelineFailed: false,
         };
       }
     }
@@ -484,9 +516,10 @@ export async function emitNotificationSignal<TEventName extends string>(
       signal,
       decision,
       broadcaster,
-      params.onConversationCreated
-        ? { onConversationCreated: params.onConversationCreated }
-        : undefined,
+      {
+        onConversationCreated: params.onConversationCreated,
+        resultsSink: channelResults,
+      },
     );
 
     // Step 5: Mirror background-origin signals into the home activity feed.
@@ -523,6 +556,7 @@ export async function emitNotificationSignal<TEventName extends string>(
       dispatched: dispatchResult.dispatched,
       reason: dispatchResult.reason,
       deliveryResults: dispatchResult.deliveryResults,
+      pipelineFailed: false,
     };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
@@ -530,6 +564,26 @@ export async function emitNotificationSignal<TEventName extends string>(
       { err: errMsg, signalId, sourceEventName: params.sourceEventName },
       "Signal pipeline failed",
     );
+    // The persisted event claimed this signal's dedupe key before the
+    // pipeline threw. Leaving the claim in place makes every retry
+    // short-circuit as a duplicate of an emit that never reached a verdict,
+    // so release it. The row itself stays as the audit trail of the attempt.
+    //
+    // A partially dispatched broadcast is the exception. Its retry gets a
+    // fresh decision id, and delivery dedupe is keyed to the decision, so
+    // the channels that already went out would go out again. Keeping the
+    // claim costs the channels that did not get the signal; releasing it
+    // double-sends to the ones that did.
+    if (eventPersisted && !hasChannelSideEffect(channelResults)) {
+      try {
+        setEventDedupeKey(signalId, null);
+      } catch (releaseErr) {
+        log.warn(
+          { err: releaseErr, signalId },
+          "Failed to release the dedupe key of a failed signal",
+        );
+      }
+    }
     if (params.throwOnError) {
       throw err instanceof Error ? err : new Error(errMsg);
     }
@@ -539,6 +593,7 @@ export async function emitNotificationSignal<TEventName extends string>(
       dispatched: false,
       reason: `Signal pipeline failed: ${errMsg}`,
       deliveryResults: [],
+      pipelineFailed: true,
     };
   }
 }

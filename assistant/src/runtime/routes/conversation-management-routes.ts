@@ -66,7 +66,7 @@ import {
 import type { NonScheduledConversationType } from "../../persistence/conversation-types.js";
 import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
 import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
-import { deleteSchedule } from "../../schedule/schedule-store.js";
+import { deleteSchedule, getSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
 import { safeParseRecord } from "../../util/json.js";
 import { getLogger } from "../../util/logger.js";
@@ -118,11 +118,17 @@ function resolveOrThrow(rawId: string): string {
 async function cancelScheduleIfLast(conversationId: string): Promise<void> {
   const conv = getConversation(conversationId);
   if (
-    conv?.scheduleJobId &&
-    countConversationsByScheduleJobId(conv.scheduleJobId) <= 1
+    !conv?.scheduleJobId ||
+    countConversationsByScheduleJobId(conv.scheduleJobId) > 1
   ) {
-    await deleteSchedule(conv.scheduleJobId);
+    return;
   }
+  // A plugin-declared schedule outlives its run conversations: its lifecycle
+  // belongs to the reconciler, and `deleteSchedule` refuses sourced rows.
+  if (getSchedule(conv.scheduleJobId)?.sourceKey != null) {
+    return;
+  }
+  await deleteSchedule(conv.scheduleJobId);
 }
 
 // ---------------------------------------------------------------------------

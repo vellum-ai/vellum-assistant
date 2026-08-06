@@ -11,7 +11,7 @@ import {
 import { Link, Navigate, useSearchParams } from "react-router";
 
 import { Button } from "@vellumai/design-library/components/button";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import { Slider } from "@vellumai/design-library/components/slider";
 import { Toggle } from "@vellumai/design-library/components/toggle";
@@ -215,11 +215,28 @@ function CaptionsCard() {
   );
 }
 
+/**
+ * Stored value meaning "use whatever the OS picks". Shared with
+ * `voice-input-device.ts`, which reads the same key, so the storage shape
+ * cannot change.
+ */
 const SYSTEM_DEFAULT_DEVICE = "";
+
+/**
+ * Option value standing in for {@link SYSTEM_DEFAULT_DEVICE}. Radix reserves
+ * the empty string, so an option carrying it is discarded and the row would
+ * simply not render. Mapped back at the boundary so storage keeps its shape.
+ */
+const SYSTEM_DEFAULT_OPTION = "__system_default__";
 
 function MicrophoneCard() {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [needsPermission, setNeedsPermission] = useState(false);
+  // Whether the browser has given us a list we can draw conclusions from.
+  // Before the first enumeration resolves, and while permission is withheld
+  // (ids come back redacted and are filtered out), an absent device says
+  // nothing about whether it is plugged in.
+  const [deviceListIsKnown, setDeviceListIsKnown] = useState(false);
   const [deviceId, setDeviceId] = useState<string>(() =>
     getPreferredInputDeviceId(),
   );
@@ -248,9 +265,13 @@ function MicrophoneCard() {
             device.deviceId !== "communications",
         ),
       );
+      setDeviceListIsKnown(
+        inputs.length === 0 || inputs.some((d) => !!d.label),
+      );
     } catch {
       setDevices([]);
       setNeedsPermission(false);
+      setDeviceListIsKnown(false);
     }
   }, []);
 
@@ -280,18 +301,41 @@ function MicrophoneCard() {
       mediaDevices.removeEventListener("devicechange", onDeviceChange);
   }, [refreshDevices]);
 
-  const options = useMemo(
-    () => [
-      { value: SYSTEM_DEFAULT_DEVICE, label: "System Default" },
-      ...devices.map((device, index) => ({
-        value: device.deviceId,
-        label: device.label || `Microphone ${index + 1}`,
-      })),
-    ],
-    [devices],
-  );
+  const options = useMemo(() => {
+    const live = devices.map((device, index) => ({
+      value: device.deviceId,
+      label: device.label || `Microphone ${index + 1}`,
+    }));
+    // A saved device absent from the list keeps its own row rather than being
+    // displayed as System Default: capture already falls back, so the
+    // preference survives for when the device returns, and showing it is what
+    // makes System Default a real change that can clear it.
+    //
+    // Only claim it is disconnected once the list is worth trusting. An
+    // unresolved or permission-redacted list is empty for reasons that have
+    // nothing to do with the device.
+    const savedIsAbsent =
+      deviceId !== SYSTEM_DEFAULT_DEVICE &&
+      !live.some((option) => option.value === deviceId);
+    return [
+      { value: SYSTEM_DEFAULT_OPTION, label: "System Default" },
+      ...live,
+      ...(savedIsAbsent
+        ? [
+            {
+              value: deviceId,
+              label: deviceListIsKnown
+                ? "Saved microphone (not connected)"
+                : "Saved microphone",
+            },
+          ]
+        : []),
+    ];
+  }, [devices, deviceId, deviceListIsKnown]);
 
-  const handleChange = useCallback((next: string) => {
+  const handleChange = useCallback((option: string) => {
+    const next =
+      option === SYSTEM_DEFAULT_OPTION ? SYSTEM_DEFAULT_DEVICE : option;
     setDeviceId(next);
     if (next === SYSTEM_DEFAULT_DEVICE) {
       removeLocalSetting(LS_VOICE_INPUT_DEVICE);
@@ -300,12 +344,8 @@ function MicrophoneCard() {
     }
   }, []);
 
-  // A saved device that's currently unplugged won't be in the list; show
-  // System Default (capture falls back to it) without clearing the saved
-  // preference, so reconnecting the device picks it back up.
-  const selectedValue = options.some((option) => option.value === deviceId)
-    ? deviceId
-    : SYSTEM_DEFAULT_DEVICE;
+  const selectedValue =
+    deviceId === SYSTEM_DEFAULT_DEVICE ? SYSTEM_DEFAULT_OPTION : deviceId;
 
   return (
     <DetailCard
@@ -314,7 +354,7 @@ function MicrophoneCard() {
     >
       <div className="flex flex-col gap-3">
         <div className="max-w-xs">
-          <Dropdown<string>
+          <Select<string>
             options={options}
             value={selectedValue}
             onChange={handleChange}

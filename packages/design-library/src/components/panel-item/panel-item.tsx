@@ -49,6 +49,15 @@ import { MarqueeText } from "./marquee-text";
  * provides the interactive state layer (hover, active, focus-ring,
  * aria-current, `group` modifier).
  *
+ * ### `shape`
+ *
+ * - `"row"` (default): a full-width 6px-radius row, for lists and nav trees.
+ * - `"pill"`: a capsule that hugs its content and carries a resting
+ *   `--surface-lift` surface, for navigation chips that sit inline rather
+ *   than filling a column. Everything else (hover, active, badge, trailing
+ *   action, link/button semantics) is unchanged, which is the point: a pill
+ *   is a differently-shaped row, not a different component.
+ *
  * ### `activeVariant`
  *
  * Controls how the active (`aria-current="page"`) state is styled:
@@ -103,6 +112,13 @@ interface PanelItemProps {
    * layout space next to `badge`, which reads as broken.
    */
   trailingAction?: ReactNode;
+  /**
+   * Row geometry.
+   * - `"row"` fills its container at a 6px radius.
+   * - `"pill"` hugs its content as a capsule on `--surface-lift`.
+   * @default "row"
+   */
+  shape?: "row" | "pill";
   /** Selected state. Sets `aria-current="page"` automatically. */
   active?: boolean;
   /**
@@ -164,6 +180,22 @@ const INTERACTIVE_CLASSES = [
   "cursor-pointer select-none",
 ].join(" ");
 
+/**
+ * {@link PanelItemProps.shape} `"pill"`: a capsule that sizes to its content
+ * and carries a resting surface, so it reads as a chip sitting in a column
+ * rather than a row filling one. Radius, width, and surface only, so hover,
+ * active, and every slot behave exactly as they do on a row.
+ *
+ * `w-fit` rather than `w-auto`: the root is a block-level flex container, and
+ * `width: auto` on one fills its containing block, so a pill would stretch to
+ * row width in every ordinary layout. `width: fit-content` shrink-wraps while
+ * leaving `display: flex` alone, which the row's internal layout depends on.
+ */
+const PILL_SHAPE_CLASSES = [
+  "w-fit rounded-full",
+  "bg-[var(--surface-lift)]",
+].join(" ");
+
 const ACTIVE_DEFAULT_CLASSES = [
   "aria-[current=page]:bg-[var(--surface-active)]",
   "aria-[current=page]:text-[var(--content-emphasised)]",
@@ -191,8 +223,7 @@ const ICON_ACTIVE_BRANDED =
 
 const LABEL_CLASSES = "min-w-0 flex-1 truncate";
 
-const EXPAND_CHEVRON_CLASSES =
-  "shrink-0 text-[var(--content-tertiary)]";
+const EXPAND_CHEVRON_CLASSES = "shrink-0 text-[var(--content-tertiary)]";
 
 const RIGHT_CLUSTER_CLASSES = "flex items-center gap-2 shrink-0";
 
@@ -248,6 +279,7 @@ function PanelItem({
   badge,
   badgeBare = false,
   trailingAction,
+  shape = "row",
   active = false,
   activeVariant = "default",
   disabled = false,
@@ -269,11 +301,19 @@ function PanelItem({
     activeVariant === "branded" ? ICON_ACTIVE_BRANDED : ICON_ACTIVE_DEFAULT;
 
   const leadingIcon =
-    leadingSlot !== undefined
-      ? leadingSlot
-      : Icon
-        ? <Icon size={14} aria-hidden className={cn("max-md:size-4", LEADING_ICON_BASE_CLASSES, iconActiveClass)} />
-        : null;
+    leadingSlot !== undefined ? (
+      leadingSlot
+    ) : Icon ? (
+      <Icon
+        size={14}
+        aria-hidden
+        className={cn(
+          "max-md:size-4",
+          LEADING_ICON_BASE_CLASSES,
+          iconActiveClass,
+        )}
+      />
+    ) : null;
 
   const labelNode = marqueeOnHover ? (
     <MarqueeText>{label}</MarqueeText>
@@ -282,11 +322,7 @@ function PanelItem({
   );
 
   const expandChevronNode = ExpandChevron ? (
-    <ExpandChevron
-      size={12}
-      aria-hidden
-      className={EXPAND_CHEVRON_CLASSES}
-    />
+    <ExpandChevron size={12} aria-hidden className={EXPAND_CHEVRON_CLASSES} />
   ) : null;
 
   const badgeNode =
@@ -328,12 +364,15 @@ function PanelItem({
   );
 
   const activeClasses =
-    activeVariant === "branded" ? ACTIVE_BRANDED_CLASSES : ACTIVE_DEFAULT_CLASSES;
+    activeVariant === "branded"
+      ? ACTIVE_BRANDED_CLASSES
+      : ACTIVE_DEFAULT_CLASSES;
   const isInteractive = asChild || !!href || !!onSelect;
   const rowClasses = cn(
     ROW_BASE_CLASSES,
     isInteractive && INTERACTIVE_CLASSES,
     activeClasses,
+    shape === "pill" && PILL_SHAPE_CLASSES,
     className,
   );
 
@@ -465,4 +504,3 @@ export {
   ACTIVE_DEFAULT_CLASSES,
   ACTIVE_BRANDED_CLASSES,
 };
-

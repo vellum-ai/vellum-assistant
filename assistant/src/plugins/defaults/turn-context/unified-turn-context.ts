@@ -29,7 +29,6 @@ export interface UnifiedTurnContextOptions {
     name: string;
     /** Directory stem: the handle a human would recognize the app by. */
     slug: string;
-    sourceDir: string;
     /** Set when the app is bundled by an installed plugin rather than built here. */
     pluginName?: string;
   } | null;
@@ -127,7 +126,7 @@ export function buildUnifiedTurnContextBlock(
       ? ` It is bundled by the "${sanitizeInlineContextValue(app.pluginName)}" plugin, not built in the sandbox.`
       : "";
     lines.push(
-      `visible_app: "${sanitizeInlineContextValue(app.name)}" (app_id: "${sanitizeInlineContextValue(app.appId)}", slug: "${sanitizeInlineContextValue(app.slug)}", source: "${sanitizeInlineContextValue(app.sourceDir)}"). The user has this app open on screen; unqualified references to "the app" mean this one. The app tools take the app_id.${provenance}`,
+      `visible_app: "${sanitizeInlineContextValue(app.name)}" (app_id: "${sanitizeInlineContextValue(app.appId)}", slug: "${sanitizeInlineContextValue(app.slug)}"). The user has this app open on screen; unqualified references to "the app" mean this one.${provenance}`,
     );
   }
 

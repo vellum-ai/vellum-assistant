@@ -96,13 +96,26 @@ export type ComposerBillingBanner =
   "daily_limit" | "provider_billing" | "low_balance";
 
 /**
- * Which banner the composer's billing slot renders. Error-driven banners take
- * precedence over the proactive low-balance warning. `managed_credits` maps
- * to no banner: the in-transcript credits upsell card owns that state, while
- * the classified error keeps the generic notice suppressed.
+ * Which banner the composer's billing slot renders, from three inputs in
+ * descending precedence: the error-driven classification, the billing
+ * summary's daily-limit state, and the proactive low-balance warning.
  *
- * The low-balance warning renders only when no error-driven decision is
- * active, the server reports `low_balance_warning` (`isLowBalance`), and the
+ * An error-driven decision always wins, because it describes the send the user
+ * just watched fail. `managed_credits` maps to no banner and short-circuits
+ * the state-driven legs below: the in-transcript credits upsell card owns an
+ * exhausted balance, while the classified error keeps the generic notice
+ * suppressed.
+ *
+ * With no error-driven decision, `dailyLimitReached` (the summary's
+ * server-computed `daily_limit_reached`) renders the daily-limit banner. That
+ * is what makes the banner state-driven rather than error-driven: background
+ * turns from other channels or clients can exhaust the cap while the user is
+ * away, and the banner appears on their return instead of waiting for a failed
+ * send. Like the error-driven daily-limit banner it is not dismissible, since
+ * the cap blocks every send until it is raised or the UTC day rolls over.
+ *
+ * The low-balance warning is last, and renders only when neither leg above
+ * applies, the server reports `low_balance_warning` (`isLowBalance`), and the
  * user has not dismissed the banner this session. The exhausted-credits
  * surfaces never overlap with it: the server keeps `low_balance_warning`
  * false while the balance is exhausted, and it is false for auto-top-up orgs
@@ -112,6 +125,11 @@ export function resolveComposerBillingBanner(args: {
   billingBannerDecision: ChatBillingBannerDecision | null;
   isLowBalance: boolean;
   dismissed: boolean;
+  /**
+   * The billing summary's `daily_limit_reached`. Absent wherever the summary
+   * is not read (gated-off queries, callers that only classify an error).
+   */
+  dailyLimitReached?: boolean;
 }): ComposerBillingBanner | null {
   if (args.billingBannerDecision === "daily_limit") {
     return "daily_limit";
@@ -121,6 +139,9 @@ export function resolveComposerBillingBanner(args: {
   }
   if (args.billingBannerDecision === "managed_credits") {
     return null;
+  }
+  if (args.dailyLimitReached === true) {
+    return "daily_limit";
   }
   return args.isLowBalance && !args.dismissed ? "low_balance" : null;
 }

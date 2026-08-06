@@ -1,3 +1,5 @@
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../heartbeat/heartbeat-service.js", () => ({
@@ -58,12 +60,17 @@ import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
 import { ROUTES as HEARTBEAT_ROUTES } from "../runtime/routes/heartbeat-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "../runtime/routes/schedule-routes.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
+import { resolveDefaultScheduleInferenceProfile } from "../schedule/inference-profile.js";
 import {
   completeScheduleRun,
   createSchedule,
   createScheduleRun,
+  type DeclaredScheduleDefinition,
   listSchedules,
+  upsertDeclaredSchedule,
 } from "../schedule/schedule-store.js";
+import { getWorkspacePluginsDir } from "../util/platform.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 await initializeDb();
 
@@ -1230,14 +1237,50 @@ describe("POST /schedules — create", () => {
     expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
   });
 
-  test("defaults inferenceProfile to null when omitted", async () => {
+  // The endpoint validates inferenceProfile once, before branching on mode, so
+  // every mode it accepts has to honour the value it just validated.
+  test("persists a valid inferenceProfile on a workflow-mode create", async () => {
+    const result = await postCreate({
+      name: "Cheap triage",
+      description: "Workflow run on a cheap model",
+      expression: "0 * * * *",
+      message: "trigger",
+      mode: "workflow",
+      workflowName: "triage-inbox",
+      inferenceProfile: "cost-optimized",
+    });
+    expect(result.schedule.inferenceProfile).toBe("cost-optimized");
+    expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
+  });
+
+  test("persists a valid inferenceProfile on a script-mode create", async () => {
+    const result = await postCreate({
+      name: "Cheap script",
+      description: "Script run on a cheap model",
+      expression: "0 * * * *",
+      message: "trigger",
+      mode: "script",
+      script: "console.log('hi')",
+      inferenceProfile: "cost-optimized",
+    });
+    expect(result.schedule.inferenceProfile).toBe("cost-optimized");
+    expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
+  });
+
+  test("pins inferenceProfile to the resolved default when omitted", async () => {
+    const expected = resolveDefaultScheduleInferenceProfile();
+    // A schedule that followed the global default would change model whenever
+    // the user changed that default, so creation snapshots it instead.
+    expect(expected).not.toBeNull();
+
     const result = await postCreate({
       name: "Default profile",
-      description: "Runs on the main-agent selection",
+      description: "Runs on the resolved default profile",
       expression: "0 9 * * *",
       message: "hi",
     });
-    expect(result.schedule.inferenceProfile).toBeNull();
+    expect(result.schedule.inferenceProfile).toBe(expected!);
+    expect(listSchedules()[0].inferenceProfile).toBe(expected!);
   });
 
   test("rejects an unknown inferenceProfile", async () => {
@@ -1296,7 +1339,10 @@ describe("PATCH /schedules/:id — description", () => {
     expect(listSchedules()[0].description).toBe("Updated description");
   });
 
-  test("sets, validates, and clears inferenceProfile", async () => {
+  test("sets, validates, and re-snapshots inferenceProfile", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+    expect(resolvedDefault).not.toBe("cost-optimized");
+
     const schedule = await createSchedule({
       name: "Profile pin",
       description: "Pinned profile schedule",
@@ -1308,9 +1354,9 @@ describe("PATCH /schedules/:id — description", () => {
 
     await route.handler({
       pathParams: { id: schedule.id },
-      body: { inferenceProfile: "balanced" },
+      body: { inferenceProfile: "cost-optimized" },
     });
-    expect(listSchedules()[0].inferenceProfile).toBe("balanced");
+    expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
 
     await expect(
       route.handler({
@@ -1318,13 +1364,14 @@ describe("PATCH /schedules/:id — description", () => {
         body: { inferenceProfile: "does-not-exist" },
       }),
     ).rejects.toThrow('Inference profile "does-not-exist" is not defined');
-    expect(listSchedules()[0].inferenceProfile).toBe("balanced");
+    expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
 
+    // Null is a reset to the current default, not an unpin.
     await route.handler({
       pathParams: { id: schedule.id },
       body: { inferenceProfile: null },
     });
-    expect(listSchedules()[0].inferenceProfile).toBeNull();
+    expect(listSchedules()[0].inferenceProfile).toBe(resolvedDefault);
   });
 
   test("re-derives syntax when the expression switches cron to rrule", async () => {
@@ -1364,6 +1411,242 @@ describe("PATCH /schedules/:id — description", () => {
         body: { expression: "not a schedule" },
       }),
     ).rejects.toThrow(BadRequestError);
+  });
+});
+
+// ── Plugin-sourced schedules ──────────────────────────────────────────────
+
+describe("plugin-sourced schedules over routes", () => {
+  const SOURCE_KEY = "plugin:example-plugin/daily-digest";
+
+  // The store's enable path probes the declaration's on-disk presence and its
+  // plugin's manifest before re-arming, so the suite keeps a declaration
+  // directory and a valid package.json in place.
+  beforeEach(() => {
+    clearTables();
+    const pluginDir = join(getWorkspacePluginsDir(), "example-plugin");
+    rmSync(pluginDir, { recursive: true, force: true });
+    const declarationDir = join(pluginDir, "schedules", "daily-digest");
+    mkdirSync(declarationDir, { recursive: true });
+    writeFileSync(
+      join(declarationDir, "config.json"),
+      JSON.stringify({ expression: "0 9 * * *" }),
+    );
+    writeFileSync(join(declarationDir, "index.md"), "produce the digest\n");
+    writeFileSync(
+      join(pluginDir, "package.json"),
+      JSON.stringify({ name: "example-plugin", version: "1.0.0" }),
+    );
+    // The feature ships off, so the cases below run under an explicit flag.
+    setOverridesForTesting({ "plugin-schedules": true });
+  });
+
+  function seedSourcedSchedule(
+    overrides: Partial<DeclaredScheduleDefinition> = {},
+  ) {
+    return upsertDeclaredSchedule(SOURCE_KEY, {
+      name: "Daily digest",
+      description: "Summarize the day",
+      syntax: "cron",
+      expression: "0 9 * * *",
+      message: "produce the digest",
+      mode: "execute",
+      enabled: true,
+      definitionHash: "hash-1",
+      ...overrides,
+    });
+  }
+
+  type SerializedEntry = {
+    id: string;
+    enabled: boolean;
+    sourceKey: string | null;
+    userEnabled: boolean | null;
+  };
+
+  test("list serializes sourceKey and userEnabled for sourced and imperative rows", async () => {
+    const sourced = await seedSourcedSchedule();
+    const imperative = await createSchedule({
+      name: "Imperative schedule",
+      cronExpression: "* * * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+
+    const route = findRoute("schedules", "GET");
+    const result = (await route.handler({})) as {
+      schedules: SerializedEntry[];
+    };
+    const byId = new Map(result.schedules.map((s) => [s.id, s]));
+
+    expect(byId.get(sourced.id)).toMatchObject({
+      sourceKey: SOURCE_KEY,
+      userEnabled: null,
+    });
+    expect(byId.get(imperative.id)).toMatchObject({
+      sourceKey: null,
+      userEnabled: null,
+    });
+  });
+
+  test("toggle on a sourced row records and round-trips the user override", async () => {
+    const sourced = await seedSourcedSchedule();
+    const route = findRoute("schedules/:id/toggle", "POST");
+
+    const disabled = (await route.handler({
+      pathParams: { id: sourced.id },
+      body: { enabled: false },
+    })) as { schedules: SerializedEntry[] };
+    expect(disabled.schedules.find((s) => s.id === sourced.id)).toMatchObject({
+      enabled: false,
+      userEnabled: false,
+    });
+
+    const enabled = (await route.handler({
+      pathParams: { id: sourced.id },
+      body: { enabled: true },
+    })) as { schedules: SerializedEntry[] };
+    expect(enabled.schedules.find((s) => s.id === sourced.id)).toMatchObject({
+      enabled: true,
+      userEnabled: true,
+    });
+  });
+
+  test("toggle on an imperative row keeps userEnabled null", async () => {
+    const imperative = await createSchedule({
+      name: "Imperative toggle",
+      cronExpression: "* * * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+
+    const route = findRoute("schedules/:id/toggle", "POST");
+    const result = (await route.handler({
+      pathParams: { id: imperative.id },
+      body: { enabled: false },
+    })) as { schedules: SerializedEntry[] };
+
+    expect(result.schedules.find((s) => s.id === imperative.id)).toMatchObject({
+      enabled: false,
+      userEnabled: null,
+    });
+  });
+
+  test("PATCH on a sourced row surfaces the store refusal as a 400", async () => {
+    const sourced = await seedSourcedSchedule();
+    const route = findRoute("schedules/:id", "PATCH");
+    const patch = () =>
+      route.handler({
+        pathParams: { id: sourced.id },
+        body: { name: "Renamed" },
+      });
+
+    await expect(patch()).rejects.toThrow(BadRequestError);
+    await expect(patch()).rejects.toThrow(
+      "This schedule is managed by a plugin. Edit the plugin's schedule file instead.",
+    );
+  });
+
+  test("DELETE on a sourced row surfaces the store refusal as a 400", async () => {
+    const sourced = await seedSourcedSchedule();
+    const route = findRoute("schedules/:id", "DELETE");
+    const remove = () => route.handler({ pathParams: { id: sourced.id } });
+
+    await expect(remove()).rejects.toThrow(BadRequestError);
+    await expect(remove()).rejects.toThrow(
+      "This schedule is managed by a plugin and cannot be deleted. Disable it instead, or remove the plugin's schedule file.",
+    );
+  });
+
+  test("cancel on a sourced row surfaces the store refusal as a 400", async () => {
+    const sourced = await seedSourcedSchedule();
+    const route = findRoute("schedules/:id/cancel", "POST");
+    const cancel = () => route.handler({ pathParams: { id: sourced.id } });
+
+    await expect(cancel()).rejects.toThrow(BadRequestError);
+    await expect(cancel()).rejects.toThrow(
+      "This schedule is managed by a plugin and cannot be cancelled. Disable it instead via the enabled toggle.",
+    );
+  });
+
+  describe("run now", () => {
+    const RUN_MARKER = join(getWorkspacePluginsDir(), "run-now-marker.txt");
+
+    beforeEach(() => {
+      rmSync(RUN_MARKER, { force: true });
+    });
+
+    function seedSourcedScript() {
+      return seedSourcedSchedule({
+        mode: "script",
+        script: `touch ${RUN_MARKER}`,
+        message: "",
+      });
+    }
+
+    async function runNow(id: string) {
+      return findRoute("schedules/:id/run", "POST").handler({
+        pathParams: { id },
+      });
+    }
+
+    test("refuses a sourced row whose plugin is disabled", async () => {
+      const sourced = await seedSourcedScript();
+      writeFileSync(
+        join(getWorkspacePluginsDir(), "example-plugin", ".disabled"),
+        "",
+      );
+
+      await expect(runNow(sourced.id)).rejects.toThrow(BadRequestError);
+      // Refused before execution: the plugin's script never ran.
+      expect(existsSync(RUN_MARKER)).toBe(false);
+    });
+
+    test("refuses a sourced row while the feature flag is off", async () => {
+      const sourced = await seedSourcedScript();
+      setOverridesForTesting({ "plugin-schedules": false });
+
+      await expect(runNow(sourced.id)).rejects.toThrow(BadRequestError);
+      expect(existsSync(RUN_MARKER)).toBe(false);
+    });
+
+    test("refuses a sourced row whose declaration is gone", async () => {
+      const sourced = await seedSourcedScript();
+      rmSync(
+        join(
+          getWorkspacePluginsDir(),
+          "example-plugin",
+          "schedules",
+          "daily-digest",
+        ),
+        { recursive: true, force: true },
+      );
+
+      await expect(runNow(sourced.id)).rejects.toThrow(BadRequestError);
+      expect(existsSync(RUN_MARKER)).toBe(false);
+    });
+
+    test("runs a sourced row whose plugin is healthy", async () => {
+      const sourced = await seedSourcedScript();
+
+      await runNow(sourced.id);
+
+      expect(existsSync(RUN_MARKER)).toBe(true);
+    });
+
+    test("runs an imperative row", async () => {
+      const imperative = await createSchedule({
+        name: "Imperative script",
+        cronExpression: "* * * * *",
+        message: "",
+        mode: "script",
+        script: `touch ${RUN_MARKER}`,
+      });
+
+      await runNow(imperative.id);
+
+      expect(existsSync(RUN_MARKER)).toBe(true);
+    });
   });
 });
 
@@ -1490,5 +1773,444 @@ describe("PATCH /schedules/:id — timeout override", () => {
       }),
     ).rejects.toThrow("timeout_ms must be between");
     expect(listOne().timeoutMs).toBeNull();
+  });
+});
+
+// ── GET /schedules with the inference_profile filter ────────────────────────────
+
+describe("GET /schedules - inference_profile filter", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test("narrows the list to schedules pinned to that profile", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+    expect(resolvedDefault).not.toBe("cost-optimized");
+
+    await createSchedule({
+      name: "Cheap digest",
+      description: "Cheap digest",
+      cronExpression: "0 * * * *",
+      message: "digest",
+      syntax: "cron",
+      inferenceProfile: "cost-optimized",
+    });
+    await createSchedule({
+      name: "Default schedule",
+      description: "Default schedule",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+
+    const route = findRoute("schedules", "GET");
+    const filtered = (await route.handler({
+      queryParams: { inference_profile: "cost-optimized" },
+    })) as { schedules: Array<{ name: string; inferenceProfile: string }> };
+    expect(filtered.schedules.map((s) => s.name)).toEqual(["Cheap digest"]);
+
+    const unfiltered = (await route.handler({})) as {
+      schedules: Array<{ name: string }>;
+    };
+    expect(unfiltered.schedules).toHaveLength(2);
+  });
+
+  test("flags deferred rows so a caller can count them without naming them", async () => {
+    await createSchedule({
+      name: "Cheap digest",
+      description: "Cheap digest",
+      cronExpression: "0 * * * *",
+      message: "digest",
+      syntax: "cron",
+      inferenceProfile: "cost-optimized",
+    });
+    await createSchedule({
+      name: "Deferred wake",
+      description: "Deferred wake",
+      message: "wake up",
+      nextRunAt: Date.now() + 60_000,
+      mode: "wake",
+      wakeConversationId: "conv-abc",
+      createdBy: "defer",
+      inferenceProfile: "cost-optimized",
+    });
+
+    const route = findRoute("schedules", "GET");
+    const result = (await route.handler({
+      queryParams: { inference_profile: "cost-optimized", include_all: "true" },
+    })) as { schedules: Array<{ name: string; isDeferred: boolean }> };
+
+    // The count a delete warning shows must match what the reassign moves, so
+    // the deferred row has to be visible AND separable from the named ones.
+    expect(result.schedules).toHaveLength(2);
+    expect(
+      result.schedules.filter((s) => !s.isDeferred).map((s) => s.name),
+    ).toEqual(["Cheap digest"]);
+    expect(result.schedules.filter((s) => s.isDeferred)).toHaveLength(1);
+
+    const reassign = findRoute("schedules/reassign-profile", "POST");
+    const moved = (await reassign.handler({
+      body: {
+        from: "cost-optimized",
+        to: resolveDefaultScheduleInferenceProfile()!,
+      },
+      headers: { "x-vellum-principal-type": "local" },
+    })) as { reassigned: number };
+    expect(moved.reassigned).toBe(result.schedules.length);
+  });
+
+  test("returns nothing for a profile no schedule is pinned to", async () => {
+    await createSchedule({
+      name: "Default schedule",
+      description: "Default schedule",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+
+    const route = findRoute("schedules", "GET");
+    const result = (await route.handler({
+      queryParams: { inference_profile: "cost-optimized" },
+    })) as { schedules: unknown[] };
+    expect(result.schedules).toEqual([]);
+  });
+});
+
+// ── POST /schedules/reassign-profile ─────────────────────────────────────
+
+describe("POST /schedules/reassign-profile", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  function reassignRoute(): RouteDefinition {
+    return findRoute("schedules/reassign-profile", "POST");
+  }
+
+  test("moves every schedule pinned to the source profile and leaves the rest alone", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+    expect(resolvedDefault).not.toBe("cost-optimized");
+
+    await createSchedule({
+      name: "Cheap digest",
+      description: "Cheap digest",
+      cronExpression: "0 * * * *",
+      message: "digest",
+      syntax: "cron",
+      inferenceProfile: "cost-optimized",
+    });
+    await createSchedule({
+      name: "Cheap sweep",
+      description: "Cheap sweep",
+      cronExpression: "30 * * * *",
+      message: "sweep",
+      syntax: "cron",
+      inferenceProfile: "cost-optimized",
+    });
+    await createSchedule({
+      name: "Untouched",
+      description: "Untouched",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+
+    const result = (await reassignRoute().handler({
+      body: { from: "cost-optimized", to: resolvedDefault! },
+    })) as { reassigned: number };
+
+    expect(result.reassigned).toBe(2);
+    expect(listSchedules({ inferenceProfile: "cost-optimized" })).toEqual([]);
+    expect(
+      listSchedules()
+        .map((j) => j.inferenceProfile)
+        .every((p) => p === resolvedDefault),
+    ).toBe(true);
+  });
+
+  test("moves deferred wake rows too when the caller holds owner authority", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+
+    await createSchedule({
+      name: "Deferred wake",
+      description: "Deferred wake",
+      message: "wake up",
+      nextRunAt: Date.now() + 60_000,
+      mode: "wake",
+      wakeConversationId: "conv-abc",
+      createdBy: "defer",
+      inferenceProfile: "cost-optimized",
+    });
+
+    const result = (await reassignRoute().handler({
+      body: { from: "cost-optimized", to: resolvedDefault! },
+      headers: { "x-vellum-principal-type": "local" },
+    })) as { reassigned: number };
+
+    expect(result.reassigned).toBe(1);
+    expect(listSchedules()[0].inferenceProfile).toBe(resolvedDefault!);
+  });
+
+  test("refuses the whole move when a wake row is in scope and the caller is not the owner", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+    await createSchedule({
+      name: "Cheap digest",
+      description: "Cheap digest",
+      cronExpression: "0 * * * *",
+      message: "digest",
+      syntax: "cron",
+      inferenceProfile: "cost-optimized",
+    });
+    await createSchedule({
+      name: "Deferred wake",
+      description: "Deferred wake",
+      message: "wake up",
+      nextRunAt: Date.now() + 60_000,
+      mode: "wake",
+      wakeConversationId: "conv-abc",
+      createdBy: "defer",
+      inferenceProfile: "cost-optimized",
+    });
+
+    await expect(
+      reassignRoute().handler({
+        body: { from: "cost-optimized", to: resolvedDefault! },
+        headers: { "x-vellum-principal-type": "actor" },
+      }),
+    ).rejects.toThrow(
+      "Deferred wake schedules can only be changed by the assistant's owner",
+    );
+    // All-or-nothing: the ordinary schedule sharing the profile does not move
+    // either.
+    expect(
+      listSchedules().every((j) => j.inferenceProfile === "cost-optimized"),
+    ).toBe(true);
+  });
+
+  test("rejects an unknown target profile without touching any schedule", async () => {
+    await createSchedule({
+      name: "Cheap digest",
+      description: "Cheap digest",
+      cronExpression: "0 * * * *",
+      message: "digest",
+      syntax: "cron",
+      inferenceProfile: "cost-optimized",
+    });
+
+    await expect(
+      reassignRoute().handler({
+        body: { from: "cost-optimized", to: "does-not-exist" },
+      }),
+    ).rejects.toThrow('Inference profile "does-not-exist" is not defined');
+    expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
+  });
+
+  test("requires to, and rejects an empty from", async () => {
+    await expect(
+      reassignRoute().handler({ body: { from: "cost-optimized" } }),
+    ).rejects.toThrow("to is required");
+    await expect(
+      reassignRoute().handler({ body: { from: "  ", to: "balanced" } }),
+    ).rejects.toThrow("from must name an inference profile when provided");
+  });
+
+  test("is a no-op when nothing is pinned to the source profile", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+    const schedule = await createSchedule({
+      name: "Default schedule",
+      description: "Default schedule",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    const updatedAtBefore = listSchedules()[0].updatedAt;
+
+    const result = (await reassignRoute().handler({
+      body: { from: "cost-optimized", to: resolvedDefault! },
+    })) as { reassigned: number };
+
+    expect(result.reassigned).toBe(0);
+    expect(listSchedules()[0].id).toBe(schedule.id);
+    expect(listSchedules()[0].updatedAt).toBe(updatedAtBefore);
+  });
+
+  test("sweeps up pins left behind by an already-deleted profile", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+    const schedule = await createSchedule({
+      name: "Dangling pin",
+      description: "Dangling pin",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    // A profile deleted out from under its schedules leaves rows naming a key
+    // that no longer resolves; the sweep must still be able to move them.
+    rawRun(
+      "test:setDanglingInferenceProfile",
+      "UPDATE cron_jobs SET inference_profile = ? WHERE id = ?",
+      "deleted-profile",
+      schedule.id,
+    );
+
+    const result = (await reassignRoute().handler({
+      body: { from: "deleted-profile", to: resolvedDefault! },
+    })) as { reassigned: number };
+
+    expect(result.reassigned).toBe(1);
+    expect(listSchedules()[0].inferenceProfile).toBe(resolvedDefault!);
+  });
+
+  test("omitting from moves every schedule and skips the ones already there", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+    expect(resolvedDefault).not.toBe("cost-optimized");
+
+    await createSchedule({
+      name: "Cheap digest",
+      description: "Cheap digest",
+      cronExpression: "0 * * * *",
+      message: "digest",
+      syntax: "cron",
+      inferenceProfile: "cost-optimized",
+    });
+    const dangling = await createSchedule({
+      name: "Dangling pin",
+      description: "Dangling pin",
+      cronExpression: "15 * * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    rawRun(
+      "test:setDanglingInferenceProfile",
+      "UPDATE cron_jobs SET inference_profile = ? WHERE id = ?",
+      "deleted-profile",
+      dangling.id,
+    );
+    // Already on the target: counted as untouched, and its updatedAt proves it.
+    await createSchedule({
+      name: "Already default",
+      description: "Already default",
+      cronExpression: "30 * * * *",
+      message: "hi",
+      syntax: "cron",
+      inferenceProfile: resolvedDefault!,
+    });
+    const untouchedBefore = listSchedules().find(
+      (job) => job.name === "Already default",
+    )!.updatedAt;
+
+    const result = (await reassignRoute().handler({
+      body: { to: resolvedDefault! },
+    })) as { reassigned: number };
+
+    // Two moved (the cheap one and the dangling one); the third was already
+    // on the target, so it is neither counted nor rewritten.
+    expect(result.reassigned).toBe(2);
+    expect(
+      listSchedules().every((job) => job.inferenceProfile === resolvedDefault),
+    ).toBe(true);
+    expect(
+      listSchedules().find((job) => job.name === "Already default")!.updatedAt,
+    ).toBe(untouchedBefore);
+  });
+
+  test("omitting from leaves fired and cancelled one-shots alone", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+    expect(resolvedDefault).not.toBe("cost-optimized");
+
+    const fired = await createSchedule({
+      name: "Already fired",
+      description: "Already fired",
+      message: "hi",
+      nextRunAt: Date.now() - 60_000,
+      inferenceProfile: "cost-optimized",
+    });
+    const cancelled = await createSchedule({
+      name: "Cancelled",
+      description: "Cancelled",
+      message: "hi",
+      nextRunAt: Date.now() + 60_000,
+      inferenceProfile: "cost-optimized",
+    });
+    rawRun(
+      "test:setTerminalScheduleStatuses",
+      "UPDATE cron_jobs SET status = CASE id WHEN ? THEN 'fired' ELSE 'cancelled' END WHERE id IN (?, ?)",
+      fired.id,
+      fired.id,
+      cancelled.id,
+    );
+    const live = await createSchedule({
+      name: "Still running",
+      description: "Still running",
+      cronExpression: "0 * * * *",
+      message: "digest",
+      syntax: "cron",
+      inferenceProfile: "cost-optimized",
+    });
+    const byId = new Map(listSchedules().map((job) => [job.id, job]));
+    const firedBefore = byId.get(fired.id)!.updatedAt;
+    const cancelledBefore = byId.get(cancelled.id)!.updatedAt;
+
+    const result = (await reassignRoute().handler({
+      body: { to: resolvedDefault! },
+    })) as { reassigned: number };
+
+    // Their profile is history, so counting them would report a bigger move
+    // than the user was shown.
+    expect(result.reassigned).toBe(1);
+    const after = new Map(listSchedules().map((job) => [job.id, job]));
+    expect(after.get(live.id)!.inferenceProfile).toBe(resolvedDefault!);
+    expect(after.get(fired.id)!.inferenceProfile).toBe("cost-optimized");
+    expect(after.get(cancelled.id)!.inferenceProfile).toBe("cost-optimized");
+    expect(after.get(fired.id)!.updatedAt).toBe(firedBefore);
+    expect(after.get(cancelled.id)!.updatedAt).toBe(cancelledBefore);
+  });
+
+  test("an explicit from still sweeps a fired one-shot's dangling pin", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+    const fired = await createSchedule({
+      name: "Already fired",
+      description: "Already fired",
+      message: "hi",
+      nextRunAt: Date.now() - 60_000,
+      inferenceProfile: "cost-optimized",
+    });
+    rawRun(
+      "test:setFiredScheduleStatus",
+      "UPDATE cron_jobs SET status = 'fired' WHERE id = ?",
+      fired.id,
+    );
+
+    // Deleting a profile has to clear every row naming it, including rows that
+    // will never fire again: the pin is what the delete is removing.
+    const result = (await reassignRoute().handler({
+      body: { from: "cost-optimized", to: resolvedDefault! },
+    })) as { reassigned: number };
+
+    expect(result.reassigned).toBe(1);
+    expect(listSchedules()[0].inferenceProfile).toBe(resolvedDefault!);
+  });
+
+  test("omitting from still refuses a non-owner caller when a wake row would move", async () => {
+    const resolvedDefault = resolveDefaultScheduleInferenceProfile();
+    await createSchedule({
+      name: "Deferred wake",
+      description: "Deferred wake",
+      message: "wake up",
+      nextRunAt: Date.now() + 60_000,
+      mode: "wake",
+      wakeConversationId: "conv-abc",
+      createdBy: "defer",
+      inferenceProfile: "cost-optimized",
+    });
+
+    await expect(
+      reassignRoute().handler({
+        body: { to: resolvedDefault! },
+        headers: { "x-vellum-principal-type": "actor" },
+      }),
+    ).rejects.toThrow(
+      "Deferred wake schedules can only be changed by the assistant's owner",
+    );
+    expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
   });
 });

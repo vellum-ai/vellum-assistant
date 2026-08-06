@@ -35,6 +35,26 @@ export function isDeniedBasename(path: string): boolean {
   return DENIED_BASENAMES.has(basename(path));
 }
 
+/**
+ * `/proc/<pid>/environ` for any pid, including the `self` and `thread-self`
+ * aliases. Reading one yields the target process's full environment.
+ */
+const PROC_ENVIRON_PATTERN = /^\/proc\/(?:\d+|self|thread-self)\/environ$/;
+
+/**
+ * Whether a path exposes a process environment block.
+ *
+ * The daemon's own environment carries credential material the file tools
+ * must never hand back: the actor token signing key, the CES service token,
+ * the guardian bootstrap secret, and any provider API keys forwarded in at
+ * launch. The bash tool strips those from the child processes it spawns via
+ * the `SAFE_ENV_VARS` allowlist, so denying them here keeps the file tools
+ * from becoming the looser path to the same secrets.
+ */
+export function isProcessEnvironPath(path: string): boolean {
+  return PROC_ENVIRON_PATTERN.test(path);
+}
+
 export type PathResult =
   | { ok: true; resolved: string }
   | { ok: false; reason: PathFailureReason; error: string };
@@ -184,6 +204,16 @@ function deniedFailure(target: SandboxTarget): PathResult | null {
       ok: false,
       reason: "denied",
       error: `Access to "${basename(target.resolved)}" is denied`,
+    };
+  }
+  if (
+    isProcessEnvironPath(target.resolved) ||
+    isProcessEnvironPath(target.realResolved)
+  ) {
+    return {
+      ok: false,
+      reason: "denied",
+      error: "Access to process environment blocks is denied",
     };
   }
   return null;
@@ -336,8 +366,8 @@ export function sandboxPolicy(
 }
 
 /**
- * Sandbox policy that permits out-of-workspace targets on non-containerized
- * installs.
+ * Write-side sandbox policy: permits out-of-workspace targets on
+ * non-containerized installs.
  *
  * Identical to {@link sandboxPolicy} for in-bounds targets. A target that
  * escapes the boundary is allowed with host-style validation: the basename
@@ -348,9 +378,9 @@ export function sandboxPolicy(
  * FileRiskClassifier), so an escape reaching this policy has already been
  * threshold-approved or user-approved.
  *
- * In containerized mode the boundary stays hard: the container filesystem is
- * not the host, and the host_file_* proxy tools are the escape hatch for the
- * guardian's device.
+ * In containerized mode the boundary stays hard for writes: the container
+ * filesystem is the install tree the assistant runs from, and the
+ * host_file_* proxy tools are the escape hatch for the guardian's device.
  */
 export function sandboxPolicyWithHostFallback(
   rawPath: string,
@@ -362,6 +392,41 @@ export function sandboxPolicyWithHostFallback(
     boundaryDir,
     options,
     !getIsContainerized() && securityDirConfigMirrorable(),
+  );
+}
+
+/**
+ * Read-side sandbox policy: the working directory bounds where the assistant
+ * *writes*, not what it may look at.
+ *
+ * Everything the process can open, it may read. A containerized install owns
+ * its whole filesystem (the workspace, the install tree it runs from, `/tmp`),
+ * and `bash cat` already reads all of it at Low risk, so denying the file
+ * tools the same reach only pushes reads through a shell. A bare-metal install
+ * reaches the host filesystem, which the permission lane classifies as
+ * elevated risk before execution (see the gateway FileRiskClassifier). Either
+ * way the boundary is not what protects secrets.
+ *
+ * The denials are what protect secrets, and they apply to every read: the
+ * service security directories (gateway trust material, CES credential keys,
+ * the daemon dotenv), the basename denylist, and process environment blocks
+ * (see {@link isProcessEnvironPath}), each checked on both the logical and
+ * the symlink-resolved path. When that deny set cannot be mirrored faithfully
+ * (see {@link securityDirConfigMirrorable}), reads fail closed to the hard
+ * boundary rather than escape it unprotected.
+ *
+ * Write-side policies do not take this allowance.
+ */
+export function sandboxReadPolicy(
+  rawPath: string,
+  boundaryDir: string,
+  options?: { mustExist?: boolean },
+): PathResult {
+  return evaluateSandboxPolicy(
+    rawPath,
+    boundaryDir,
+    options,
+    securityDirConfigMirrorable(),
   );
 }
 

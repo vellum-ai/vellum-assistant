@@ -42,6 +42,7 @@ import {
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
 import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
+import { DocumentReopenLink } from "@/domains/chat/transcript/document-reopen-link";
 import { hasRenderableAnswer } from "@/domains/chat/answered-question";
 import { AnsweredQuestionCard } from "@/domains/chat/components/answered-question-card";
 import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
@@ -138,6 +139,7 @@ export function TranscriptMessageBody({
   onStopSubagent,
   onWorkflowClick,
   onStopWorkflow,
+  changedDocumentIds,
   isStreaming = false,
   isLatestMessage = false,
 }: TranscriptMessageBodyProps) {
@@ -738,19 +740,21 @@ export function TranscriptMessageBody({
   const renderSurfaceNode = (
     surface: ConversationMessageSurface,
     key: string,
-  ): ReactNode => (
-    <div key={key} className="w-full">
-      <SurfaceRouter
-        surface={wireSurfaceToDisplay(surface)}
-        onAction={onSurfaceAction}
-        onOpenApp={onOpenApp}
-        onOpenDocument={onOpenDocument}
-        assistantId={assistantId}
-        toolCalls={message.toolCalls}
-        onVellumLinkClick={handleVellumLinkClick}
-      />
-    </div>
-  );
+  ): ReactNode => {
+    return (
+      <div key={key} className="w-full">
+        <SurfaceRouter
+          surface={wireSurfaceToDisplay(surface)}
+          onAction={onSurfaceAction}
+          onOpenApp={onOpenApp}
+          onOpenDocument={onOpenDocument}
+          assistantId={assistantId}
+          toolCalls={message.toolCalls}
+          onVellumLinkClick={handleVellumLinkClick}
+        />
+      </div>
+    );
+  };
 
   // Render one `activity` group (a contiguous thinking + tool run) into its
   // combined `MultiActivityGroup`, a lone inline link, or a bare thinking
@@ -1102,6 +1106,22 @@ export function TranscriptMessageBody({
         })
       : renderedGroups;
 
+  // Resolved across the whole response by `Transcript` and handed only to the
+  // message that ends it. Without a handler the link opens nothing, so it does
+  // not render.
+  const documentReopenLinks =
+    isAssistant && onOpenDocument
+      ? changedDocumentIds?.map((surfaceId) => (
+          <DocumentReopenLink
+            key={`document-reopen-${surfaceId}`}
+            surfaceId={surfaceId}
+            assistantId={assistantId}
+            conversationId={conversationId}
+            onOpenDocument={onOpenDocument}
+          />
+        ))
+      : null;
+
   return (
     <div
       ref={wrapperRef}
@@ -1128,6 +1148,9 @@ export function TranscriptMessageBody({
             messageId={message.id}
           />
         )}
+        {/* Outside the `AssistantContentDisclosure` collapse, so a turn whose
+            document edit lands in "Earlier activity" still ends with the link. */}
+        {documentReopenLinks}
         {trailer}
       </div>
       {vellumFileModal}

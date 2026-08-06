@@ -3,10 +3,7 @@ import { Loader2, Play, Settings, X } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import { SCHEDULE_RUNS_PAGE_SIZE } from "@/domains/settings/api/schedules";
-import {
-  ModelProfileRow,
-  type ScheduleModelProfileCallSite,
-} from "@/domains/settings/components/model-profile-row";
+import { ModelProfileRow } from "@/domains/settings/components/model-profile-row";
 import { RecentRunsCard } from "@/domains/settings/components/recent-runs-card";
 import {
   consolidationSubtitle,
@@ -29,11 +26,12 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import type { SystemTaskKind } from "@/domains/settings/types/schedules";
+import type { ResolvableCallSite } from "@/hooks/use-call-site-default-profile";
 
 // Each system task resolves its model from a dedicated LLM call site.
 const SYSTEM_TASK_PROFILE_CALL_SITES: Record<
   SystemTaskKind,
-  ScheduleModelProfileCallSite
+  ResolvableCallSite
 > = {
   heartbeat: "heartbeatAgent",
   consolidation: "memoryV2Consolidation",
@@ -120,9 +118,12 @@ export function SystemTaskDetailPanel({
     onRunNow = undefined;
   }
 
-  // Consolidation and retrospective are owned by Memory: no toggle of their
-  // own, paused when Memory is off. Retrospective additionally has no global
-  // schedule, so it hides Next run.
+  // Consolidation and retrospective are owned by Memory: no toggle in this
+  // panel, paused when Memory is off. Retrospective additionally has no global
+  // schedule (so it hides Next run) and its own persisted switch
+  // (`memory.retrospective.enabled`), which pauses it while Memory stays on.
+  // `available` is what tells the two pauses apart, and each pause sends the
+  // user to the control that actually unpauses it.
   const isMemoryManaged = kind !== "heartbeat";
   const isRetrospective = kind === "retrospective";
   const isMemoryPaused = isMemoryManaged && !enabled;
@@ -134,9 +135,13 @@ export function SystemTaskDetailPanel({
     : enabled
       ? "Enabled"
       : "Disabled";
-  const pausedNotice = isRetrospective
-    ? "Memory is off, so retrospectives are paused. Turn Memory back on to resume them."
-    : "Memory is off, so consolidation is paused. Turn Memory back on to resume consolidation.";
+  const isRetrospectiveSwitchedOff =
+    isRetrospective && retrospectiveConfig?.available === true;
+  const pausedNotice = isRetrospectiveSwitchedOff
+    ? "Retrospectives are turned off. Turn them back on under Memory in settings."
+    : isRetrospective
+      ? "Memory is off, so retrospectives are paused. Turn Memory back on to resume them."
+      : "Memory is off, so consolidation is paused. Turn Memory back on to resume consolidation.";
   const showMemorySettings =
     isMemoryManaged && enabled && canOpenMemorySettings;
 
@@ -274,7 +279,9 @@ export function SystemTaskDetailPanel({
                       navigate(`${routes.settings.developer}?tab=memory`)
                     }
                   >
-                    Turn on Memory
+                    {isRetrospectiveSwitchedOff
+                      ? "Open Memory settings"
+                      : "Turn on Memory"}
                   </Button>
                 ) : undefined
               }

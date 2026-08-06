@@ -461,9 +461,14 @@ export async function loadExternalPlugin(
  * Exported so the mtime cache can discover plugin identity without going
  * through the full `buildExternalPlugin` path. The identity mirrors
  * {@link buildPluginFromDir}: the directory name, not `package.json` `name`.
+ *
+ * `quiet` suppresses the failure logs, for callers that poll on a timer and
+ * surface the failure through their own channel (e.g. the schedule
+ * reconciler's per-day deduped notification).
  */
 export async function parsePluginManifest(
   pluginDir: string,
+  opts: { quiet?: boolean } = {},
 ): Promise<
   Pick<PluginManifest, "name" | "version" | "credentialKeyPatterns"> | undefined
 > {
@@ -473,18 +478,22 @@ export async function parsePluginManifest(
     rawPkg = JSON.parse(await readFile(pkgPath, "utf8"));
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    log.error(
-      { err, pluginDir },
-      `package.json at ${pluginDir} could not be read or parsed: ${reason}`,
-    );
+    if (!opts.quiet) {
+      log.error(
+        { err, pluginDir },
+        `package.json at ${pluginDir} could not be read or parsed: ${reason}`,
+      );
+    }
     return undefined;
   }
   const parsed = PluginPackageJsonSchema.safeParse(rawPkg);
   if (!parsed.success) {
-    log.error(
-      { err: parsed.error, pluginDir },
-      `package.json at ${pluginDir} failed schema validation: ${parsed.error.message}`,
-    );
+    if (!opts.quiet) {
+      log.error(
+        { err: parsed.error, pluginDir },
+        `package.json at ${pluginDir} failed schema validation: ${parsed.error.message}`,
+      );
+    }
     return undefined;
   }
   const pkg: PluginPackageJson = parsed.data;

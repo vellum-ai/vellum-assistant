@@ -28,6 +28,7 @@ import { type InfiniteData, useQueryClient } from "@tanstack/react-query";
 import { organizationsBillingSummaryRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import { useBillingBalanceQueryEnabled } from "@/hooks/use-billing-balance-status";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { useResumeGrace } from "@/hooks/use-resume-grace";
 import {
   extractWirePendingAcpConnect,
   extractWirePendingConfirmation,
@@ -576,7 +577,13 @@ export function useConversationHistory({
 
   // -------------------------------------------------------------------------
   // Surface TanStack Query errors.
+  //
+  // An initial-page failure inside the resume grace window is held back: the
+  // refetch that fires when the client returns from the background often
+  // fails transiently against a still-waking pod. It is still reported, and
+  // the blocking error surfaces once the window expires.
   // -------------------------------------------------------------------------
+  const isResumeGraceActive = useResumeGrace();
   useEffect(() => {
     if (!pagination.isError || !pagination.error) {
       return;
@@ -591,14 +598,17 @@ export function useConversationHistory({
 
     if (!isOlderPageError) {
       setIsLoadingHistory(false);
-      setError({
-        message: "Failed to load conversation history. Please try again.",
-      });
+      if (!isResumeGraceActive) {
+        setError({
+          message: "Failed to load conversation history. Please try again.",
+        });
+      }
     }
   }, [
     pagination.isError,
     pagination.isSuccess,
     pagination.error,
+    isResumeGraceActive,
     setIsLoadingHistory,
     setError,
   ]);

@@ -15,7 +15,10 @@ import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { FetchLike } from "../fetch-like.js";
-import { readInstallMeta } from "../install-from-github.js";
+import {
+  PluginInstallDeclinedError,
+  readInstallMeta,
+} from "../install-from-github.js";
 import {
   extractPluginTarball,
   installPluginFromPlatform,
@@ -303,6 +306,49 @@ describe("installPluginFromPlatform — integrity", () => {
     ).rejects.toBeInstanceOf(PluginIntegrityError);
 
     expect(existsSync(join(pluginsDir, "reading-pal"))).toBe(false);
+  });
+});
+
+// ─── Staged-install consent ──────────────────────────────────────────────────
+
+describe("installPluginFromPlatform - staged-install consent", () => {
+  test("confirmStaged runs over the staged tree; declining leaves nothing behind", async () => {
+    const fetchFn = makeInstallFetch({
+      entries: [
+        { name: "plugin.json", content: '{"name":"reading-pal"}' },
+        {
+          name: "schedules/daily/config.json",
+          content: '{"expression": "0 9 * * *"}',
+        },
+        { name: "schedules/daily/index.md", content: "Do it.\n" },
+      ],
+    });
+    const stagingDirs: string[] = [];
+
+    await expect(
+      installPluginFromPlatform(
+        { name: "reading-pal" },
+        {
+          fetch: fetchFn,
+          platformBaseUrl: PLATFORM,
+          workspacePluginsDir: pluginsDir,
+          confirmStaged: async (staged) => {
+            stagingDirs.push(staged.stagingDir);
+            expect(
+              existsSync(
+                join(staged.stagingDir, "schedules", "daily", "index.md"),
+              ),
+            ).toBe(true);
+            expect(existsSync(join(pluginsDir, "reading-pal"))).toBe(false);
+            return false;
+          },
+        },
+      ),
+    ).rejects.toBeInstanceOf(PluginInstallDeclinedError);
+
+    expect(existsSync(join(pluginsDir, "reading-pal"))).toBe(false);
+    expect(stagingDirs.length).toBe(1);
+    expect(existsSync(stagingDirs[0]!)).toBe(false);
   });
 });
 

@@ -245,11 +245,23 @@ export interface GroupedSchedules {
   pastOneTime: Schedule[];
 }
 
+/**
+ * Whether a schedule still has a firing ahead of it. `fired` and `cancelled`
+ * are the two terminal states a one-shot lands in; everything else (including
+ * a disabled row, which fires again once re-enabled) can still run.
+ *
+ * This mirrors the rule the daemon applies when re-pinning every schedule onto
+ * one profile, so the count offered here is the count that comes back.
+ */
+export function canScheduleStillRun(schedule: Schedule): boolean {
+  return schedule.status !== "fired" && schedule.status !== "cancelled";
+}
+
 // Keyed on the lifecycle status, not lastRunAt/nextRunAt alone: a failed
 // attempt awaiting retry keeps lastRunAt set, and an in-flight run is
 // `firing` with nextRunAt already due — both are still live, not past.
 function isPastOneTime(schedule: Schedule, now: number): boolean {
-  if (schedule.status === "fired" || schedule.status === "cancelled") {
+  if (!canScheduleStillRun(schedule)) {
     return true;
   }
   if (schedule.status === "firing") {

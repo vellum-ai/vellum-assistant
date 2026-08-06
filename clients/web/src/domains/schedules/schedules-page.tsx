@@ -1,9 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailDrawer, MobileDetailOverlay } from "@/components/detail-drawer";
 import { CreateScheduleModal } from "@/domains/settings/components/create-schedule-modal";
+import {
+  ScheduleProfileRebaseDialog,
+  useScheduleProfileRebase,
+} from "@/domains/settings/components/schedule-profile-rebase";
 import { SystemTasksSection } from "@/domains/settings/components/system-tasks-section";
 import { useSystemTasks } from "@/domains/settings/hooks/use-system-tasks";
 import { useAssistantCapability } from "@/hooks/use-assistant-capability";
@@ -141,11 +145,28 @@ export function SchedulesPage() {
     navigateToNewConversation(navigate);
   }, [navigate]);
 
+  const listedSchedules = useMemo(
+    () => [
+      ...schedules.recurring,
+      ...schedules.oneTime,
+      ...schedules.pastOneTime,
+    ],
+    [schedules.recurring, schedules.oneTime, schedules.pastOneTime],
+  );
+  const profileRebase = useScheduleProfileRebase(
+    assistantId,
+    listedSchedules,
+    schedules.refetch,
+  );
+
   const scheduleDetail = selectedSchedule ? (
     <ScheduleDetailPanel
       schedule={selectedSchedule}
       assistantId={assistantId}
       usage={schedules.usageForSchedule(selectedSchedule.id)}
+      isPast={schedules.pastOneTime.some(
+        (schedule) => schedule.id === selectedSchedule.id,
+      )}
       isMobile={isMobile}
       onClose={() => handleSelectScheduleId(null)}
       onDeleted={() => {
@@ -185,6 +206,10 @@ export function SchedulesPage() {
       onCreateSchedule={() => setCreateScheduleOpen(true)}
       pastOpen={pastSchedulesOpen}
       onPastOpenChange={setPastSchedulesOpen}
+      onRebaseProfiles={
+        profileRebase.canRebase ? profileRebase.requestRebase : undefined
+      }
+      defaultProfileLabel={profileRebase.defaultProfileLabel ?? undefined}
       systemTasksSlot={
         <SystemTasksSection
           heartbeatConfig={systemTasks.heartbeatConfig}
@@ -204,10 +229,19 @@ export function SchedulesPage() {
     />
   );
 
+  const rebaseDialog = (
+    <ScheduleProfileRebaseDialog {...profileRebase.dialogProps} />
+  );
+
   // On mobile the detail takes over the whole screen; on desktop it opens as
   // a drawer beside the list, under the layout's fixed heading.
   if (detail && isMobile) {
-    return <MobileDetailOverlay>{detail}</MobileDetailOverlay>;
+    return (
+      <>
+        <MobileDetailOverlay>{detail}</MobileDetailOverlay>
+        {rebaseDialog}
+      </>
+    );
   }
 
   return (
@@ -231,6 +265,7 @@ export function SchedulesPage() {
           schedules.refetch();
         }}
       />
+      {rebaseDialog}
     </>
   );
 }

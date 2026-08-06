@@ -51,16 +51,28 @@ mock.module(
   }),
 );
 
+// The reopen link names its own document from the documents query; that is
+// covered by `document-reopen-link.test`. Stub it to a bare marker so these
+// tests assert what the transcript owns: how many links a response ends with
+// and which message carries them.
+mock.module("@/domains/chat/transcript/document-reopen-link", () => ({
+  DocumentReopenLink: ({ surfaceId }: { surfaceId: string }) => (
+    <span data-testid="document-reopen-link" data-surface-id={surfaceId} />
+  ),
+}));
+
 // ---------------------------------------------------------------------------
 // Subjects under test — imported AFTER mocks are registered.
 // ---------------------------------------------------------------------------
 
 import { renderToStaticMarkup } from "react-dom/server";
 
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
 import { Transcript } from "@/domains/chat/transcript/transcript";
+import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
 
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
 function userMessage(id: string, content: string): TranscriptItem {
@@ -456,5 +468,162 @@ describe("Transcript no-anchor → anchor transition preserves avatar DOM identi
     });
     expect(avatarMountCount).toBe(1);
     expect(avatarUnmountCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A response is many messages (thinking, tool runs, document edits, more
+// text), and several of them commonly write the same document. The reopen link
+// belongs to the response, not to each message that wrote: one link per
+// document, on the message that ends the response, once the turn has settled.
+// ---------------------------------------------------------------------------
+describe("Transcript changed-document reopen links", () => {
+  afterEach(() => {
+    cleanup();
+    useTurnStore.setState(INITIAL_TURN_STATE);
+  });
+
+  /** A settled `document_update` whose result carries the surface it wrote. */
+  function updateCall(id: string, surfaceId: string): ChatMessageToolCall {
+    return {
+      id,
+      name: "document_update",
+      input: { surface_id: surfaceId, content: "notes" },
+      result: JSON.stringify({ success: true, surface_id: surfaceId }),
+      completedAt: 1,
+    };
+  }
+
+  function editingMessage(
+    id: string,
+    toolCalls: ChatMessageToolCall[],
+  ): TranscriptItem {
+    const msg: DisplayMessage = {
+      id,
+      role: "assistant",
+      toolCalls,
+      contentBlocks: toolCalls.map((toolCall) => ({
+        type: "tool_use",
+        toolCall,
+      })),
+    };
+    return { kind: "message", key: id, message: msg };
+  }
+
+  function renderTranscript(items: TranscriptItem[]) {
+    return render(
+      <Transcript
+        items={items}
+        conversationId="conv-doc"
+        assistantId="asst-doc"
+        onSurfaceAction={noop}
+        onOpenDocument={noop}
+      />,
+    );
+  }
+
+  function reopenSurfaceIds(container: HTMLElement): (string | null)[] {
+    return Array.from(
+      container.querySelectorAll<HTMLElement>(
+        "[data-testid='document-reopen-link']",
+      ),
+    ).map((link) => link.getAttribute("data-surface-id"));
+  }
+
+  /** The response's three messages, all writing the same document. */
+  const threeEditsOfOneDocument: TranscriptItem[] = [
+    userMessage("u1", "update my notes"),
+    editingMessage("a1", [updateCall("tc-1", "surf-notes")]),
+    editingMessage("a2", [updateCall("tc-2", "surf-notes")]),
+    editingMessage("a3", [updateCall("tc-3", "surf-notes")]),
+  ];
+
+  test("renders exactly one link for a document three messages of the response changed", () => {
+    const { container } = renderTranscript(threeEditsOfOneDocument);
+
+    expect(reopenSurfaceIds(container)).toEqual(["surf-notes"]);
+  });
+
+  test("renders one link per distinct document the response changed", () => {
+    const { container } = renderTranscript([
+      userMessage("u1", "update both"),
+      editingMessage("a1", [updateCall("tc-1", "surf-notes")]),
+      editingMessage("a2", [updateCall("tc-2", "surf-plan")]),
+    ]);
+
+    expect(reopenSurfaceIds(container)).toEqual(["surf-notes", "surf-plan"]);
+  });
+
+  test("puts the link on the final message of the response, not the earlier ones", () => {
+    const { container } = renderTranscript(threeEditsOfOneDocument);
+
+    const link = container.querySelector<HTMLElement>(
+      "[data-testid='document-reopen-link']",
+    )!;
+    expect(
+      link.closest("[data-message-id]")!.getAttribute("data-message-id"),
+    ).toBe("a3");
+  });
+
+  test("renders no link while the response is still streaming", () => {
+    useTurnStore.setState({ phase: "streaming" });
+
+    const { container } = renderTranscript(threeEditsOfOneDocument);
+
+    expect(reopenSurfaceIds(container)).toEqual([]);
+  });
+
+  test("renders no link while the response waits on the user", () => {
+    useTurnStore.setState({ phase: "awaiting_user_input" });
+
+    const { container } = renderTranscript(threeEditsOfOneDocument);
+
+    expect(reopenSurfaceIds(container)).toEqual([]);
+  });
+
+  test("renders the link once the streaming response settles", async () => {
+    useTurnStore.setState({ phase: "streaming" });
+    const { container } = renderTranscript(threeEditsOfOneDocument);
+    expect(reopenSurfaceIds(container)).toEqual([]);
+
+    await act(async () => {
+      useTurnStore.setState({ phase: "idle" });
+    });
+
+    expect(reopenSurfaceIds(container)).toEqual(["surf-notes"]);
+  });
+
+  test("keeps the link on a completed response reseeded from history", () => {
+    const { container, rerender } = renderTranscript(threeEditsOfOneDocument);
+    expect(reopenSurfaceIds(container)).toEqual(["surf-notes"]);
+
+    // A reseed from `/messages` rebuilds every row out of the persisted wire
+    // payload: fresh object identities, none of the live stream state.
+    const reseeded = JSON.parse(
+      JSON.stringify(threeEditsOfOneDocument),
+    ) as TranscriptItem[];
+    rerender(
+      <Transcript
+        items={reseeded}
+        conversationId="conv-doc"
+        assistantId="asst-doc"
+        onSurfaceAction={noop}
+        onOpenDocument={noop}
+      />,
+    );
+
+    expect(reopenSurfaceIds(container)).toEqual(["surf-notes"]);
+  });
+
+  test("ends each earlier response with its own link", () => {
+    const { container } = renderTranscript([
+      userMessage("u1", "update my notes"),
+      editingMessage("a1", [updateCall("tc-1", "surf-notes")]),
+      editingMessage("a2", [updateCall("tc-2", "surf-notes")]),
+      userMessage("u2", "now the plan"),
+      editingMessage("a3", [updateCall("tc-3", "surf-plan")]),
+    ]);
+
+    expect(reopenSurfaceIds(container)).toEqual(["surf-notes", "surf-plan"]);
   });
 });

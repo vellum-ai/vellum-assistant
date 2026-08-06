@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64"><Configuration>Release</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Tests|x64"><Configuration>Tests</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Tests|ARM64"><Configuration>Tests</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{587E696E-4AD6-45E7-B6D4-221F5925348E}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>VellumPreviewHandler</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <VcpkgEnableManifest>true</VcpkgEnableManifest>
+    <VcpkgManifestRoot>$(MSBuildThisFileDirectory)</VcpkgManifestRoot>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType Condition="'$(Configuration)'=='Release'">DynamicLibrary</ConfigurationType>
+    <ConfigurationType Condition="'$(Configuration)'=='Tests'">Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <OutDir>$(MSBuildThisFileDirectory)build\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(OutDir)obj\</IntDir>
+    <TargetName Condition="'$(Configuration)'=='Release'">Vellum.PreviewHandler</TargetName>
+    <TargetName Condition="'$(Configuration)'=='Tests'">BundleReaderTests</TargetName>
+    <VcpkgTriplet Condition="'$(Platform)'=='x64'">x64-windows-static-md</VcpkgTriplet>
+    <VcpkgTriplet Condition="'$(Platform)'=='ARM64'">arm64-windows-static-md</VcpkgTriplet>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <SDLCheck>true</SDLCheck>
+      <ControlFlowGuard>Guard</ControlFlowGuard>
+      <PreprocessorDefinitions>WIN32_LEAN_AND_MEAN;NOMINMAX;UNICODE;_UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link Condition="'$(Configuration)'=='Release'">
+      <AdditionalDependencies>windowscodecs.lib;shlwapi.lib;ole32.lib;gdi32.lib;user32.lib;zlib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <DataExecutionPrevention>true</DataExecutionPrevention>
+      <RandomizedBaseAddress>true</RandomizedBaseAddress>
+      <ControlFlowGuard>Guard</ControlFlowGuard>
+      <AdditionalOptions>/CETCOMPAT /DEPENDENTLOADFLAG:0x800 %(AdditionalOptions)</AdditionalOptions>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="BundleReader.cpp" />
+    <ClCompile Include="PreviewHandler.cpp" Condition="'$(Configuration)'=='Release'" />
+    <ClCompile Include="ThumbnailProvider.cpp" Condition="'$(Configuration)'=='Release'" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\Vellum.PreviewHandler.Tests\BundleReaderTests.cpp" Condition="'$(Configuration)'=='Tests'" />
+    <ClInclude Include="BundleReader.h" />
+    <ClInclude Include="ComServer.h" />
+  </ItemGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Tests'">
+    <Link><AdditionalDependencies>zlib.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+  </ItemDefinitionGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

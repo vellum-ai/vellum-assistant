@@ -14,6 +14,7 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -507,17 +508,17 @@ describe("workspace hooks (<workspace>/hooks/)", () => {
     writePackageJson(dir, { ...SIMPLE_PKG, name: "ordering-plugin" });
     writeHook(
       dir,
-      "pre-model-call",
+      "conversation-deleted",
       `export default () => ({ tag: "plugin" });`,
     );
     writeWorkspaceHook(
-      "pre-model-call",
+      "conversation-deleted",
       `export default () => ({ tag: "workspace" });`,
     );
 
     await populateCacheAtBoot();
 
-    const hooks = await getUserHooksFor("pre-model-call");
+    const hooks = await getUserHooksFor("conversation-deleted");
     expect(hooks).toHaveLength(2);
     const results = hooks.map((fn) =>
       (fn as unknown as () => { tag: string })(),
@@ -1003,5 +1004,66 @@ describe("plugin root validation (ATL-983)", () => {
 
     // The evil plugin's init hook must NOT have run.
     expect(existsSync(evilMarker)).toBe(false);
+  });
+
+  test("a symlinked plugin root escaping the plugins dir is not activated at boot", async () => {
+    // A real plugin outside the plugins directory, linked in under a name the
+    // boot scan reads. Hook resolution follows the link, so discovery is the
+    // only thing between boot and code from anywhere on disk.
+    const escapee = join(ROOT, "outside", "escapee");
+    mkdirSync(escapee, { recursive: true });
+    writePackageJson(escapee, { ...SIMPLE_PKG, name: "escapee" });
+    const escapeeMarker = join(ROOT, "escapee-init.log");
+    rmSync(escapeeMarker, { force: true });
+    writeMarkerHook(escapee, "init", escapeeMarker, "init");
+    writeHook(
+      escapee,
+      "user-prompt-submit",
+      `export default () => ({ tag: "escapee" });`,
+    );
+    symlinkSync(escapee, join(PLUGINS_DIR, "escapee"));
+
+    // A contained plugin in the same scan, so a boot that discovered nothing
+    // at all cannot pass this test.
+    const keeper = freshPluginDir("keeper");
+    writePackageJson(keeper, { ...SIMPLE_PKG, name: "keeper" });
+    writeHook(
+      keeper,
+      "user-prompt-submit",
+      `export default () => ({ tag: "keeper" });`,
+    );
+
+    await populateCacheAtBoot();
+
+    expect(
+      (await getUserHooksFor("user-prompt-submit")).map(
+        (fn) => (fn as unknown as () => { tag: string })().tag,
+      ),
+    ).toEqual(["keeper"]);
+    expect(existsSync(escapeeMarker)).toBe(false);
+  });
+
+  test("a symlinked plugin root staying inside the plugins dir is activated at boot", async () => {
+    // A symlinked plugin root is supported (see `plugins/source-fingerprint.ts`)
+    // as long as it resolves inside the plugins directory. The link target sits
+    // in a dot-prefixed store directory, which carries no package.json and is
+    // therefore not an install of its own.
+    const target = join(PLUGINS_DIR, ".store", "alias");
+    mkdirSync(target, { recursive: true });
+    writePackageJson(target, { ...SIMPLE_PKG, name: "alias" });
+    writeHook(
+      target,
+      "user-prompt-submit",
+      `export default () => ({ tag: "alias" });`,
+    );
+    symlinkSync(target, join(PLUGINS_DIR, "alias"));
+
+    await populateCacheAtBoot();
+
+    expect(
+      (await getUserHooksFor("user-prompt-submit")).map(
+        (fn) => (fn as unknown as () => { tag: string })().tag,
+      ),
+    ).toEqual(["alias"]);
   });
 });

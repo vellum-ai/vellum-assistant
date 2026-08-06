@@ -1180,7 +1180,10 @@ export class AnthropicProvider implements Provider {
         }
         return -1;
       };
-      const applyCacheControlToLastBlock = (msgIdx: number): void => {
+      const applyCacheControlToLastBlock = (
+        msgIdx: number,
+        control: typeof cacheControl | typeof tailCacheControl = cacheControl,
+      ): void => {
         const content = msgs[msgIdx].content;
         if (!Array.isArray(content) || content.length === 0) {
           return;
@@ -1188,27 +1191,30 @@ export class AnthropicProvider implements Provider {
         const lastBlock = content[content.length - 1];
         if (typeof lastBlock !== "string") {
           (lastBlock as unknown as Record<string, unknown>).cache_control =
-            cacheControl;
+            control;
         }
       };
       const turnStartIdx = findUserTextMsgIdx(msgs.length - 1);
-      // When the latest user message is volatile (`mutableLatestUserMessage`)
-      // and it is itself the turn-start (first-of-turn, no tool-use loop yet),
-      // skip the long-TTL anchor here — it would land on per-turn-varying
-      // content and never hit again. The previous-turn anchor below becomes the
-      // primary stable breakpoint. During tool-use loops (`turnStartIdx <
-      // msgs.length - 1`) the turn-start block is fixed within the turn, so
-      // behavior is unchanged. Independent from `disableTurnStartCache`, which
-      // expresses a different intent (one-shot callers with no future hit).
-      const skipVolatileTurnStartAnchor =
-        mutableLatestUserMessage && turnStartIdx === msgs.length - 1;
-      if (
-        turnStartIdx >= 0 &&
-        !disableCache &&
-        !disableTurnStartCache &&
-        !skipVolatileTurnStartAnchor
-      ) {
-        applyCacheControlToLastBlock(turnStartIdx);
+      // Turn-start anchor. A volatile turn start (`mutableLatestUserMessage`:
+      // the message carries a per-turn block that will not recur next turn)
+      // takes the SHORT TTL instead of the long one. The long TTL would buy
+      // nothing: the bytes change next turn, so that entry can never be read
+      // across turns, and the only reads it can serve are this turn's tool-loop
+      // iterations, which the short TTL already serves, refreshing on each
+      // hit. Marking the same boundary at two different TTLs across a turn
+      // bills two writes for one reusable prefix, the long one at the higher
+      // write multiplier.
+      //
+      // The signal is turn-scoped, not request-scoped: it describes the
+      // turn-starting user message, so it holds for every request in the turn
+      // and the TTL chosen here stays consistent as the tool loop advances.
+      // `disableTurnStartCache` is independent: it expresses a different
+      // intent (one-shot callers with no future hit).
+      if (turnStartIdx >= 0 && !disableCache && !disableTurnStartCache) {
+        applyCacheControlToLastBlock(
+          turnStartIdx,
+          mutableLatestUserMessage ? tailCacheControl : cacheControl,
+        );
       }
 
       // Previous-turn anchor: when this request is the first of a new turn
@@ -1234,26 +1240,19 @@ export class AnthropicProvider implements Provider {
 
       // Advancing tail: place a short-lived 5m cache breakpoint on the last
       // block of the last message. This caches the growing tail cheaply
-      // without conflicting with the 1h breakpoints above. It fires during
-      // tool-use loops (the tail falls after the turn-starting user message)
-      // and also on a first-of-turn request whose volatile turn-start anchor
-      // was skipped while a previous-turn anchor exists: there the latest
-      // message would otherwise carry no breakpoint, so the next request's
-      // anchor can land far ahead of the previous-turn anchor and Anthropic's
-      // ~20-block cache lookback can't bridge the gap — forcing a full
-      // re-creation of the prefix. The 5m breakpoint gives the next call an
-      // exact, reachable boundary; cross-turn it expires harmlessly. The
-      // first-of-turn bridge lands on the turn-start block, so it honors
-      // `disableTurnStartCache` like the long-TTL anchor above. Skip
+      // without conflicting with the long-TTL breakpoints above. It fires
+      // during tool-use loops, where the tail falls after the turn-starting
+      // user message: without it the next iteration's anchor can land far
+      // ahead of the last written boundary and Anthropic's ~20-block cache
+      // lookback can't bridge the gap, forcing a full re-creation of the
+      // prefix. On a first-of-turn request the tail IS the turn-start message,
+      // which the anchor above already marks, so no bridge is needed. Skip
       // thinking/redacted_thinking blocks — Anthropic doesn't allow
       // cache_control on those types.
       if (
         !disableCache &&
         turnStartIdx >= 0 &&
-        (turnStartIdx < sentMessages.length - 1 ||
-          (skipVolatileTurnStartAnchor &&
-            turnStartIdx > 0 &&
-            !disableTurnStartCache))
+        turnStartIdx < sentMessages.length - 1
       ) {
         const lastMsg = sentMessages[sentMessages.length - 1];
         if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
@@ -1283,10 +1282,11 @@ export class AnthropicProvider implements Provider {
       // system is a single block or absent) + at most two message anchors
       // ≤ 4 — Anthropic's per-request cap. The two message anchors are
       // turn-start + prev-turn-anchor (first-of-turn), turn-start + tail
-      // (tool-use loop), or prev-turn-anchor + tail (first-of-turn with the
+      // (tool-use loop), prev-turn-anchor + tail (first-of-turn with the
       // volatile turn-start anchor skipped — the freed turn-start slot covers
-      // the tail). At most two message-level breakpoints are placed, so the
-      // total can't drift past 4.
+      // the tail), or the tail alone (volatile first turn, where no
+      // previous turn exists to anchor). At most two message-level
+      // breakpoints are placed, so the total can't drift past 4.
 
       // Strip orphaned UTF-16 surrogates so the Anthropic JSON parser never
       // sees invalid strings produced by upstream surrogate-splitting `.slice()` calls.

@@ -6,7 +6,7 @@
  * cascade, conversation count).
  */
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 import { useNudgeStore } from "@/stores/nudge-store";
 import {
@@ -158,11 +158,23 @@ export function useDiscordNudgeState(
     useNudgeStore.getState().dismissDiscordBanner();
   }, []);
 
-  return {
-    bannerShouldShow: prerequisitesMet && !joined && !bannerDismissed,
-    handleJoin,
-    handleBannerDismiss,
-  };
+  // Stable identity: consumers feed this into `useMemo` deps that build
+  // banner elements. See docs/CONVENTIONS.md, "Never key an effect on a
+  // ReactNode prop".
+  return useMemo(
+    () => ({
+      bannerShouldShow: prerequisitesMet && !joined && !bannerDismissed,
+      handleJoin,
+      handleBannerDismiss,
+    }),
+    [
+      prerequisitesMet,
+      joined,
+      bannerDismissed,
+      handleJoin,
+      handleBannerDismiss,
+    ],
+  );
 }
 
 // ---------------------------------------------------------------------------

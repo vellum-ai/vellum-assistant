@@ -27,6 +27,7 @@
  *      a conversation offline.
  */
 
+import { getIsPlatform } from "../config/env-registry.js";
 import {
   resolveCallSiteConfig,
   selectWinningProfile,
@@ -468,7 +469,40 @@ export async function preflightResolvedConfig(
         errorOptions,
       );
     }
-    if ((await platformLoginPresence()) === "unauthenticated") {
+    const presence = await platformLoginPresence();
+    if (presence === "ok") {
+      return;
+    }
+    if (getIsPlatform()) {
+      // A platform-managed assistant cannot present a login screen or switch
+      // providers, so the login-or-switch wording never fits. An unreachable
+      // store is transient and recovers on its own, so it reads as a retry. A
+      // reachable but empty store can only be fixed by re-provisioning the
+      // credential platform-side.
+      if (presence === "indeterminate") {
+        throw new ConnectionResolutionError(
+          connectionName,
+          "platform_unauthenticated",
+          "The assistant's platform credentials are temporarily unavailable; retrying automatically.",
+          errorOptions,
+        );
+      }
+      log.error(
+        {
+          connectionName,
+          model: resolved.model,
+          profileName: attribution.profileName,
+        },
+        "Managed platform credential is missing and must be re-provisioned",
+      );
+      throw new ConnectionResolutionError(
+        connectionName,
+        "platform_unauthenticated",
+        "This assistant's platform credential is missing and must be re-provisioned on the Vellum platform.",
+        errorOptions,
+      );
+    }
+    if (presence === "unauthenticated") {
       throw new ConnectionResolutionError(
         connectionName,
         "platform_unauthenticated",

@@ -136,6 +136,30 @@ describe("approved routes", () => {
 
     expect(calls[0]!.url).toContain("?token=abc");
   });
+
+  it("serves a trailing-slash request under the declared path", async () => {
+    // Providers store the URL we hand them and may call it back with a
+    // slash appended. The plugin serves what it declared, so the forward
+    // uses the declared spelling rather than the requested one.
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => approvedWith([ROUTE]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/realtime/", '{"event":"joined"}'),
+      "meeting-bot",
+      "realtime/",
+    );
+
+    expect(res.status).toBe(200);
+    expect(calls[0]!.url).toBe(
+      "http://runtime.test:7821/v1/x/plugins/meeting-bot/realtime",
+    );
+  });
 });
 
 describe("the gate", () => {
@@ -295,7 +319,6 @@ describe("the gate", () => {
       "realtime/../../secret",
       "realtime%2fextra",
       "REALTIME",
-      "realtime/",
     ]) {
       const res = await handle(
         post(`/webhooks/plugins/meeting-bot/${path}`),

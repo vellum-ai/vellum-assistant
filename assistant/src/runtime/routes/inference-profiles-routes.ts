@@ -38,6 +38,7 @@ import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
 import type { ConnectionAvailability } from "../../providers/inference/connection-availability.js";
 import {
   computeProfileAvailability,
+  CONNECTION_AVAILABILITY_STATUSES,
   isUnavailable,
 } from "../../providers/inference/connection-availability.js";
 import { getConnection } from "../../providers/inference/connections.js";
@@ -73,15 +74,7 @@ const RESERVED_PROFILE_NAMES = new Set([
 
 const availabilitySchema = z
   .object({
-    status: z.enum([
-      "ok",
-      "missing_connection",
-      "missing_credential",
-      "provider_mismatch",
-      "unsupported_auth",
-      "vellum_unauthenticated",
-      "unknown",
-    ]),
+    status: z.enum(CONNECTION_AVAILABILITY_STATUSES),
     message: z.string().optional(),
   })
   .meta({ id: "ProfileConnectionAvailability" });

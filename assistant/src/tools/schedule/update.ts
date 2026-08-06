@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import { resolveCapabilities } from "../../runtime/capabilities.js";
-import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
+import {
+  formatScheduleInferenceProfile,
+  validateScheduleInferenceProfile,
+} from "../../schedule/inference-profile.js";
 import { validateRruleSetLines } from "../../schedule/recurrence-engine.js";
 import {
   detectScheduleSyntax,
@@ -17,6 +20,7 @@ import {
   describeCronExpression,
   formatLocalDate,
   getSchedule,
+  setUserEnabled,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { resolveGroupReference } from "../conversation-groups/group_shared.js";
@@ -45,8 +49,9 @@ const VALID_ROUTING_INTENTS: RoutingIntent[] = [
  *   preprocessing that would silently turn an explicit update into a no-op.
  * - `timezone` and `script` are nullable at runtime though advertised as
  *   plain strings: `updateSchedule` persists null as "clear this field".
- * - `timeout_ms` / `inference_profile` / `group` advertise null (it reverts
- *   to the default); the executor's bespoke handling stays.
+ * - `timeout_ms` / `group` advertise null (it reverts to the default), and
+ *   `inference_profile` advertises null (it re-pins to the current default);
+ *   the executor's bespoke handling stays.
  * - `mode`, `routing_intent`, `workflow_name`, and `workflow_args` are
  *   deliberately UNDECLARED (loose passthrough): the first two keep bespoke
  *   `VALID_*` errors; `workflow_name` has bespoke coercion semantics in the
@@ -94,10 +99,11 @@ export async function executeScheduleUpdate(
     return { content: "Error: job_id is required", isError: true };
   }
 
+  const existing = getSchedule(jobId);
+
   // Prevent changing a one-shot to recurring or vice versa. (`fire_at` is
   // not an advertised update field, so it stays a raw-input read.)
   if (parsed.expression !== undefined || input.fire_at !== undefined) {
-    const existing = getSchedule(jobId);
     if (!existing) {
       return { content: `Error: Schedule not found: ${jobId}`, isError: true };
     }
@@ -203,8 +209,8 @@ export async function executeScheduleUpdate(
     updates.retryBackoffMs = parsed.retry_backoff_ms;
   }
 
-  // Inference profile override (null clears it, reverting to the default
-  // main-agent model selection)
+  // Inference profile (null re-pins the schedule to the currently resolved
+  // default rather than leaving it to follow whatever the default becomes)
   if (parsed.inference_profile !== undefined) {
     if (parsed.inference_profile === null) {
       updates.inferenceProfile = null;
@@ -278,6 +284,22 @@ export async function executeScheduleUpdate(
     };
   }
 
+  // A plugin-sourced schedule accepts only the enabled toggle, recorded as
+  // the user_enabled override exactly like the HTTP toggle route. Every other
+  // field is owned by the plugin's schedule file, and the reconciler would
+  // overwrite a direct edit on its next pass.
+  const isPluginSourced = existing?.sourceKey != null;
+  if (
+    isPluginSourced &&
+    Object.keys(updates).some((field) => field !== "enabled")
+  ) {
+    return {
+      content:
+        "Error: This schedule is managed by a plugin, so only enabled can be changed here. To change anything else, edit the plugin's schedule file.",
+      isError: true,
+    };
+  }
+
   // Mirror the HTTP route: a schedule whose RESULTING mode is `workflow` must
   // carry a non-empty workflowName. Compute the post-update
   // state (the update's value if present, else the persisted one) so both
@@ -285,7 +307,6 @@ export async function executeScheduleUpdate(
   // schedule" are rejected — otherwise the scheduler hits the `!job.workflowName`
   // skip branch and a one-shot firing job wedges.
   if (updates.mode !== undefined || updates.workflowName !== undefined) {
-    const existing = getSchedule(jobId);
     if (existing) {
       const resultingMode =
         updates.mode !== undefined ? (updates.mode as string) : existing.mode;
@@ -325,31 +346,33 @@ export async function executeScheduleUpdate(
   }
 
   try {
-    const job = await updateSchedule(
-      jobId,
-      updates as {
-        name?: string;
-        description?: string;
-        cronExpression?: string;
-        timezone?: string | null;
-        message?: string;
-        script?: string | null;
-        enabled?: boolean;
-        syntax?: ScheduleSyntax;
-        expression?: string;
-        mode?: ScheduleMode;
-        routingIntent?: RoutingIntent;
-        routingHints?: Record<string, unknown>;
-        quiet?: boolean;
-        reuseConversation?: boolean;
-        maxRetries?: number;
-        retryBackoffMs?: number;
-        timeoutMs?: number | null;
-        workflowName?: string | null;
-        workflowArgs?: unknown;
-        inferenceProfile?: string | null;
-      },
-    );
+    const job = isPluginSourced
+      ? await setUserEnabled(jobId, updates.enabled as boolean)
+      : await updateSchedule(
+          jobId,
+          updates as {
+            name?: string;
+            description?: string;
+            cronExpression?: string;
+            timezone?: string | null;
+            message?: string;
+            script?: string | null;
+            enabled?: boolean;
+            syntax?: ScheduleSyntax;
+            expression?: string;
+            mode?: ScheduleMode;
+            routingIntent?: RoutingIntent;
+            routingHints?: Record<string, unknown>;
+            quiet?: boolean;
+            reuseConversation?: boolean;
+            maxRetries?: number;
+            retryBackoffMs?: number;
+            timeoutMs?: number | null;
+            workflowName?: string | null;
+            workflowArgs?: unknown;
+            inferenceProfile?: string | null;
+          },
+        );
 
     if (!job) {
       return { content: `Error: Schedule not found: ${jobId}`, isError: true };
@@ -369,7 +392,7 @@ export async function executeScheduleUpdate(
         `  Description: ${job.description}`,
         `  Syntax: ${job.syntax}`,
         `  Mode: ${job.mode}`,
-        `  Inference profile: ${job.inferenceProfile ?? "default (mainAgent)"}`,
+        `  Inference profile: ${formatScheduleInferenceProfile(job.inferenceProfile)}`,
         `  Schedule: ${scheduleDescription}${job.timezone ? ` (${job.timezone})` : ""}`,
         `  Enabled: ${job.enabled}`,
         `  Next run: ${job.enabled ? formatLocalDate(job.nextRunAt) : "n/a (disabled)"}`,

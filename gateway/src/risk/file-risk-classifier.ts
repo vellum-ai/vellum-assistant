@@ -223,8 +223,12 @@ export function isPathWithinRoot(filePath: string, root: string): boolean {
  * `sandboxPolicy`: the boundary check is on the real (symlink-resolved)
  * target, so an in-workspace symlink pointing out escalates, while an
  * outside path whose real target lands in the workspace does not.
- * Containerized installs never escalate — execution keeps the hard
- * workspace boundary there.
+ *
+ * Containerized installs never escalate. The paths outside the workspace are
+ * the assistant's own container (the install tree it runs from, `/tmp`), not
+ * the guardian's machine. Writes there are held at the boundary by execution
+ * (`sandboxPolicyWithHostFallback`), and reads there are unremarkable: `bash
+ * cat` reads the same files at Low.
  */
 function isOutsideSandboxBoundary(input: FileClassifierInput): boolean {
   if (input.isContainerized || !input.filePath) {
@@ -639,7 +643,9 @@ export class FileRiskClassifier implements RiskClassifier<
         if (isOutsideSandboxBoundary(input)) {
           assessment = {
             riskLevel: "medium",
-            reason: `File ${toolName === "file_write" ? "write" : "edit"} outside the workspace`,
+            reason: `File ${
+              toolName === "file_write" ? "write" : "edit"
+            } outside the workspace`,
             scopeOptions: [],
             matchType: "registry",
             allowlistOptions,
@@ -648,7 +654,9 @@ export class FileRiskClassifier implements RiskClassifier<
         }
         assessment = {
           riskLevel: "low",
-          reason: `File ${toolName === "file_write" ? "write" : "edit"} (default)`,
+          reason: `File ${
+            toolName === "file_write" ? "write" : "edit"
+          } (default)`,
           scopeOptions: [],
           matchType: "registry",
           allowlistOptions,

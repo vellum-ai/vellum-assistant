@@ -63,6 +63,8 @@ export interface CreateWindowOptions {
   /** Window construction options except `webPreferences`, which this seam owns. */
   browserWindow: Omit<BrowserWindowConstructorOptions, "webPreferences">;
   navigation: WindowNavigation;
+  /** Disable Chromium timer throttling for windows that host live sessions. */
+  backgroundThrottling?: boolean;
 }
 
 const applyDenyAllNavigation = (win: BrowserWindow): void => {
@@ -81,6 +83,9 @@ export const createWindow = (opts: CreateWindowOptions): BrowserWindow => {
     webPreferences: {
       preload: preloadPath(),
       ...hardenedWebPreferences(),
+      ...(opts.backgroundThrottling === undefined
+        ? {}
+        : { backgroundThrottling: opts.backgroundThrottling }),
     },
   });
 

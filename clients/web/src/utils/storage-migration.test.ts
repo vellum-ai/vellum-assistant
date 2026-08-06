@@ -458,4 +458,26 @@ describe("runStorageMigrations", () => {
     runStorageMigrations();
     expect(localStorage.getItem("vellum:ai:imageGenProvider")).toBe("gemini");
   });
+
+  test("continues when image provider storage is unavailable", () => {
+    const originalGetItem = localStorage.getItem;
+    Object.defineProperty(localStorage, "getItem", {
+      value(key: string) {
+        if (key === "vellum:ai:imageGenProvider") {
+          throw new DOMException("Storage unavailable", "SecurityError");
+        }
+        return originalGetItem.call(localStorage, key);
+      },
+      configurable: true,
+    });
+
+    try {
+      expect(() => runStorageMigrations()).not.toThrow();
+    } finally {
+      Object.defineProperty(localStorage, "getItem", {
+        value: originalGetItem,
+        configurable: true,
+      });
+    }
+  });
 });

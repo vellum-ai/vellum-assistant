@@ -50,6 +50,12 @@ import type {
   UpdateState,
   UpdateStatus,
   VellumCommand,
+  VoiceActivityContent,
+  VoiceActivityControl,
+  VoiceActivityControlAction,
+  VoiceActivityPhase,
+  VoiceActivityStart,
+  VoiceActivityState,
 } from "@vellumai/ipc-contract";
 
 export type {
@@ -79,6 +85,12 @@ export type {
   UpdateState,
   UpdateStatus,
   VellumCommand,
+  VoiceActivityContent,
+  VoiceActivityControl,
+  VoiceActivityControlAction,
+  VoiceActivityPhase,
+  VoiceActivityStart,
+  VoiceActivityState,
 };
 
 // Legacy aliases — existing consumers import these `Electron`-prefixed names.
@@ -297,6 +309,20 @@ declare global {
         check(): Promise<void>;
         install(): Promise<void>;
         onState(callback: (state: UpdateState) => void): () => void;
+      };
+      voiceActivity?: {
+        start(state: VoiceActivityStart): void;
+        update(content: VoiceActivityContent): void;
+        end(): void;
+        getState(): Promise<VoiceActivityState | null>;
+        onState(
+          callback: (state: VoiceActivityState | null) => void,
+        ): () => void;
+        control(control: VoiceActivityControl): void;
+        onControl(callback: (control: VoiceActivityControl) => void): () => void;
+        activate?(): void;
+        dismiss?(): void;
+        setCollapsed?(collapsed: boolean): void;
       };
     };
   }

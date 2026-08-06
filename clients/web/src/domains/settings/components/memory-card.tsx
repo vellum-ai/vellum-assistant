@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailCard } from "@/components/detail-card";
 import { useAssistantWithHealthz } from "@/domains/settings/components/assistant-status-panel";
+import { MemoryRetrospectiveToggle } from "@/domains/settings/components/memory-retrospective-toggle";
 import { MemoryWorkerToggle } from "@/domains/settings/components/memory-worker-toggle";
 import {
   configGetOptions,
@@ -35,6 +36,12 @@ export function MemoryCard() {
     },
   });
   const memoryEnabled = config?.memory?.enabled !== false;
+  // The generated config type stops at `memory.retrospective` (the daemon's
+  // config response schema does not enumerate the block's fields), so the read
+  // is narrowed here. Absent means the schema default, which is on.
+  const retrospectiveEnabled =
+    (config?.memory?.retrospective as { enabled?: boolean } | undefined)
+      ?.enabled !== false;
 
   const handleMemoryToggle = async (enabled: boolean) => {
     try {
@@ -67,6 +74,10 @@ export function MemoryCard() {
       }
       compactAccessory
     >
+      <MemoryRetrospectiveToggle
+        memoryEnabled={memoryEnabled}
+        retrospectiveEnabled={retrospectiveEnabled}
+      />
       <MemoryWorkerToggle memoryEnabled={memoryEnabled} />
     </DetailCard>
   );

@@ -7,6 +7,7 @@ import {
   EDGE_SWIPE_SLIDE_MS,
 } from "@/hooks/edge-swipe-motion";
 import { computeVisualOffset, useEdgeSwipe } from "@/hooks/use-edge-swipe";
+import { prefetchRoute } from "@/lib/prefetch-route";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 
 // ---------------------------------------------------------------------------
@@ -43,6 +44,14 @@ export interface UseEdgeSwipeBackArgs {
    * briefly show the outgoing page.
    */
   navKey: string;
+  /**
+   * Where `onBack()` will navigate. Its lazy chunks are requested the moment
+   * the gesture is recognised as horizontal, which is a few hundred
+   * milliseconds of head start on the drag: a chunk still in flight when the
+   * finger lifts holds the navigation open, and the transition shows an empty
+   * screen for the whole wait. Optional, and purely an optimisation.
+   */
+  prefetchHref?: string;
 }
 
 /**
@@ -72,11 +81,17 @@ export function useEdgeSwipeBack({
   onBack,
   enabled,
   navKey,
+  prefetchHref,
 }: UseEdgeSwipeBackArgs): void {
   const onBackRef = useRef(onBack);
   useLayoutEffect(() => {
     onBackRef.current = onBack;
   }, [onBack]);
+
+  const prefetchHrefRef = useRef(prefetchHref);
+  useLayoutEffect(() => {
+    prefetchHrefRef.current = prefetchHref;
+  }, [prefetchHref]);
 
   // Set true the instant a swipe commits; the entrance layout effect consumes
   // it on the next `navKey` change so the reveal is synced to the route swap.
@@ -185,6 +200,10 @@ export function useEdgeSwipeBack({
   useEdgeSwipe({
     enabled,
     onConfirm: () => {
+      // Ahead of the element check: a detail page still on its loading branch
+      // has no container to drag, but its committed swipe still navigates
+      // (see the null-container path in `onCommit`).
+      prefetchRoute(prefetchHrefRef.current);
       const el = containerRef.current;
       if (!el) {
         return;

@@ -94,3 +94,60 @@ describe("PanelItem badge", () => {
   });
 });
 
+describe("PanelItem shape", () => {
+  function renderShaped(
+    shape?: "row" | "pill",
+    className?: string,
+  ): string {
+    return renderToStaticMarkup(
+      createElement(PanelItem, {
+        label: "Row",
+        onSelect: () => {},
+        shape,
+        className,
+      }),
+    );
+  }
+
+  test("defaults to a full-width row", () => {
+    const html = renderShaped();
+    expect(html).toContain("rounded-[6px]");
+    expect(html).toContain("w-full");
+    expect(html).not.toContain("rounded-full");
+  });
+
+  /* Two failure modes in one assertion.
+
+     The row's radius and width must be *replaced*, not merely joined by the
+     pill's: emitting both leaves the winner to stylesheet order, which is how
+     a capsule silently renders as a 6px row.
+
+     And the replacement must be an intrinsic width. The root is a block-level
+     flex container, so `width: auto` resolves to the containing block and the
+     pill stretches to row width in any ordinary layout. A story cannot stand
+     in for this check: a parent that shrink-wraps its children supplies the
+     behavior externally and hides the defect. */
+  test("pill replaces the row's radius and width with an intrinsic width", () => {
+    const html = renderShaped("pill");
+    expect(html).toContain("rounded-full");
+    expect(html).toContain("w-fit");
+    expect(html).not.toContain("rounded-[6px]");
+    expect(html).not.toContain("w-full");
+    expect(html).not.toContain("w-auto");
+  });
+
+  test("pill keeps the row's interaction treatment", () => {
+    const html = renderShaped("pill");
+    expect(html).toContain("[@media(hover:hover)]:hover:bg-[var(--surface-hover)]");
+    expect(html).toContain("aria-[current=page]:bg-[var(--surface-active)]");
+  });
+
+  /* Consumers override the shape's surface (e.g. the assistant pill's tint),
+     so their className has to win over PILL_SHAPE_CLASSES. */
+  test("a consumer className overrides the pill surface", () => {
+    const html = renderShaped("pill", "bg-[var(--surface-active)]");
+    expect(html).toContain("bg-[var(--surface-active)]");
+    expect(html).not.toContain("bg-[var(--surface-lift)]");
+  });
+});
+

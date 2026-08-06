@@ -198,6 +198,9 @@ const createMainWindow = (): BrowserWindow => {
     // renderer content extends up to the top edge behind them.
     browserWindow: { ...sizing, titleBarStyle: "hidden", show: false },
     navigation: { installGuard: installSameOriginNavigationGuard },
+    // This window owns the live-voice session, which keeps running (and keeps
+    // a floating panel on screen) while the user works in another app.
+    backgroundThrottling: false,
   });
 
   // Main owns the window title (the active assistant's name). Block the

@@ -405,6 +405,7 @@ describe("inspectPlugin", () => {
       skills: ["first-skill", "second-skill"],
       hooks: ["init", "post-model-call"],
       tools: [],
+      schedules: [],
     });
   });
 

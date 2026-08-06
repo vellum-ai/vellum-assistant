@@ -6,23 +6,38 @@
  * tests in `local-materializers.test.ts`.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, rmSync } from "node:fs";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+  rmSync,
+} from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+
+import { CesRpcMethod } from "@vellumai/service-contracts/credential-rpc";
+import type { SecureKeyBackend } from "@vellumai/credential-storage";
 
 import {
   createLocalSecureKeyBackend,
   StoreUnavailableError,
 } from "../materializers/local-secure-key-backend.js";
+import { buildCrudHandlers } from "../main.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function makeTmpDir(): string {
-  const dir = join(tmpdir(), `ces-backend-test-${randomBytes(8).toString("hex")}`);
+  const dir = join(
+    tmpdir(),
+    `ces-backend-test-${randomBytes(8).toString("hex")}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -100,7 +115,9 @@ describe("createLocalSecureKeyBackend — filesystem", () => {
     expect(Buffer.compare(keyAfterFirst, keyAfterSecond)).toBe(0);
 
     // keys.enc has exactly 2 entries
-    const store = JSON.parse(readFileSync(join(securityDir, "keys.enc"), "utf-8"));
+    const store = JSON.parse(
+      readFileSync(join(securityDir, "keys.enc"), "utf-8"),
+    );
     expect(Object.keys(store.entries).length).toBe(2);
 
     // Both values round-trip
@@ -114,16 +131,22 @@ describe("createLocalSecureKeyBackend — filesystem", () => {
     // Manually write a v1 store
     const salt = randomBytes(32).toString("hex");
     const v1Store = { version: 1, salt, entries: {} };
-    writeFileSync(join(securityDir, "keys.enc"), JSON.stringify(v1Store, null, 2), {
-      mode: 0o600,
-    });
+    writeFileSync(
+      join(securityDir, "keys.enc"),
+      JSON.stringify(v1Store, null, 2),
+      {
+        mode: 0o600,
+      },
+    );
 
     const backend = createLocalSecureKeyBackend(vellumRoot);
     const result = await backend.set("v1-key", "v1-value");
     expect(result).toBe(true);
 
     // Read back and verify format preserved
-    const storeAfter = JSON.parse(readFileSync(join(securityDir, "keys.enc"), "utf-8"));
+    const storeAfter = JSON.parse(
+      readFileSync(join(securityDir, "keys.enc"), "utf-8"),
+    );
     expect(storeAfter.version).toBe(1);
     expect(storeAfter.salt).toBe(salt);
     expect(Object.keys(storeAfter.entries)).toContain("v1-key");
@@ -173,7 +196,9 @@ describe("createLocalSecureKeyBackend — filesystem", () => {
       mode: 0o600,
     });
     const backend = createLocalSecureKeyBackend(vellumRoot);
-    await expect(backend.get("anything")).rejects.toThrow(StoreUnavailableError);
+    await expect(backend.get("anything")).rejects.toThrow(
+      StoreUnavailableError,
+    );
   });
 
   test("get() returns undefined when the store reads cleanly but the key is absent", async () => {
@@ -200,5 +225,120 @@ describe("createLocalSecureKeyBackend — filesystem", () => {
     writeFileSync(join(securityDir, "keys.enc"), "{ corrupt", { mode: 0o600 });
     const backend = createLocalSecureKeyBackend(vellumRoot);
     await expect(backend.list()).rejects.toThrow(StoreUnavailableError);
+  });
+
+  // -------------------------------------------------------------------------
+  // Store-write durability: the store is written to a temp file with
+  // `flush: true` so the ack the assistant receives follows an fsync.
+  // -------------------------------------------------------------------------
+
+  test("writeStore fsyncs the temp file (flush: true) so the ack follows a durable write", async () => {
+    const { securityDir, vellumRoot } = setup();
+    const spy = spyOn(fs, "writeFileSync");
+    try {
+      const backend = createLocalSecureKeyBackend(vellumRoot);
+      await backend.set("durable/key", "v");
+
+      const keysEncTmpPrefix = join(securityDir, "keys.enc") + ".tmp.";
+      const flushedStoreWrite = spy.mock.calls.some((call) => {
+        const [path, , opts] = call as [
+          unknown,
+          unknown,
+          { flush?: boolean } | undefined,
+        ];
+        return (
+          typeof path === "string" &&
+          path.startsWith(keysEncTmpPrefix) &&
+          !!opts &&
+          typeof opts === "object" &&
+          opts.flush === true
+        );
+      });
+      expect(flushedStoreWrite).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("writeStore fsyncs the parent directory so the rename is durable", async () => {
+    const { vellumRoot } = setup();
+    const fsyncSpy = spyOn(fs, "fsyncSync");
+    try {
+      const backend = createLocalSecureKeyBackend(vellumRoot);
+      await backend.set("durable/key", "v");
+      // The directory fsync runs after the rename; at least one fsyncSync call
+      // must have happened for the store write.
+      expect(fsyncSpy.mock.calls.length).toBeGreaterThan(0);
+    } finally {
+      fsyncSpy.mockRestore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CES CRUD audit logging (buildCrudHandlers)
+// ---------------------------------------------------------------------------
+
+describe("buildCrudHandlers audit logging", () => {
+  function fakeBackend(over: Partial<SecureKeyBackend> = {}): SecureKeyBackend {
+    return {
+      get: async () => undefined,
+      set: async () => true,
+      delete: async () => "deleted",
+      list: async () => [],
+      ...over,
+    };
+  }
+
+  const ctx = { sessionId: "test-session" };
+
+  test("SetCredential emits an audit line with account + outcome, never the value", async () => {
+    const calls: Array<{ obj: unknown; msg: string }> = [];
+    const audit = {
+      info: (obj: unknown, msg: string) => {
+        calls.push({ obj, msg });
+      },
+    };
+    const handlers = buildCrudHandlers(
+      fakeBackend(),
+      audit as unknown as Parameters<typeof buildCrudHandlers>[1],
+    );
+
+    const res = await handlers[CesRpcMethod.SetCredential]!(
+      { account: "vellum:assistant_api_key", value: "super-secret-value" },
+      ctx,
+    );
+
+    expect(res).toEqual({ ok: true });
+    expect(calls).toContainEqual({
+      obj: { account: "vellum:assistant_api_key", ok: true },
+      msg: "CES credential set",
+    });
+    // The audit line must never carry the credential value.
+    expect(JSON.stringify(calls)).not.toContain("super-secret-value");
+  });
+
+  test("DeleteCredential emits an audit line with account + result", async () => {
+    const calls: Array<{ obj: unknown; msg: string }> = [];
+    const audit = {
+      info: (obj: unknown, msg: string) => {
+        calls.push({ obj, msg });
+      },
+    };
+    const handlers = buildCrudHandlers(
+      fakeBackend({ delete: async () => "deleted" }),
+      audit as unknown as Parameters<typeof buildCrudHandlers>[1],
+    );
+
+    const res = await handlers[CesRpcMethod.DeleteCredential]!(
+      { account: "github:api_token" },
+      ctx,
+    );
+
+    expect(res).toEqual({ result: "deleted" });
+    expect(calls).toContainEqual({
+      obj: { account: "github:api_token", result: "deleted" },
+      msg: "CES credential delete",
+    });
   });
 });
