@@ -390,4 +390,75 @@ describe("providers and hydration", () => {
       "https://example.com/b",
     ]);
   });
+
+  it("aborts a mutation when the provider is swapped mid-mutation", async () => {
+    let loads = 0;
+    let releaseMutationLoad = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseMutationLoad = resolve;
+    });
+    let oldProviderSaved = false;
+    const oldProvider: RememberedOriginsProvider = {
+      load: async () => {
+        loads += 1;
+        if (loads > 1) {
+          await gate;
+        }
+        return [
+          { url: "https://old.example.com/a", addedAt: "2026-01-01T00:00:00Z" },
+        ];
+      },
+      save: async () => {
+        oldProviderSaved = true;
+      },
+    };
+    setRememberedOriginsProvider(oldProvider);
+    await store().hydrate();
+
+    const pending = store().addOrigin({ url: "https://example.com/new" });
+    // Wait until the mutation is awaiting the old provider's load, then swap.
+    while (loads < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    const fresh = makeFakeProvider([
+      { url: "https://fresh.example.com/x", addedAt: "2026-01-01T00:00:00Z" },
+    ]);
+    setRememberedOriginsProvider(fresh.provider);
+    releaseMutationLoad();
+
+    expect(await pending).toEqual({ ok: false });
+    expect(oldProviderSaved).toBe(false);
+    expect(fresh.getEntries().map((o) => o.url)).toEqual([
+      "https://fresh.example.com/x",
+    ]);
+  });
+
+  it("runs mutations inside a Web Lock when navigator.locks exists", async () => {
+    const requested: string[] = [];
+    const fakeLocks = {
+      request: (name: string, callback: () => Promise<unknown>) => {
+        requested.push(name);
+        return callback();
+      },
+    } as unknown as LockManager;
+    const original = Object.getOwnPropertyDescriptor(navigator, "locks");
+    Object.defineProperty(navigator, "locks", {
+      value: fakeLocks,
+      configurable: true,
+    });
+    try {
+      await store().addOrigin({ url: "https://example.com/locked" });
+      await store().removeOrigin("https://example.com/locked");
+    } finally {
+      if (original) {
+        Object.defineProperty(navigator, "locks", original);
+      } else {
+        delete (navigator as { locks?: unknown }).locks;
+      }
+    }
+    expect(requested).toEqual([
+      "vellum:remembered-origins:mutate",
+      "vellum:remembered-origins:mutate",
+    ]);
+  });
 });

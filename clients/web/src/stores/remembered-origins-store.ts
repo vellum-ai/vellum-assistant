@@ -128,11 +128,29 @@ let hydrationEpoch = 0;
 /**
  * Mutations run one at a time through this chain so a slow async save can
  * never land after a later mutation's save and roll persisted state back.
+ * The chain serializes this tab only; {@link withCrossTabLock} extends the
+ * guarantee across tabs sharing the localStorage-backed provider.
  */
 let mutationQueue: Promise<unknown> = Promise.resolve();
 
+const MUTATION_LOCK_NAME = "vellum:remembered-origins:mutate";
+
+/**
+ * Make the read-modify-write mutation atomic across tabs via the Web Locks
+ * API. Without it (non-browser test envs, very old engines) the in-tab
+ * queue still applies and concurrent-tab writes fall back to last-writer.
+ */
+function withCrossTabLock<T>(mutation: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
+  if (!locks) {
+    return mutation();
+  }
+  return locks.request(MUTATION_LOCK_NAME, mutation);
+}
+
 function enqueueMutation<T>(mutation: () => Promise<T>): Promise<T> {
-  const run = mutationQueue.then(mutation, mutation);
+  const locked = () => withCrossTabLock(mutation);
+  const run = mutationQueue.then(locked, locked);
   mutationQueue = run.catch(() => undefined);
   return run;
 }
@@ -218,12 +236,20 @@ const useRememberedOriginsStoreBase = create<RememberedOriginsStore>()(
         if (!get().hydrated) {
           return { ok: false };
         }
+        // Pin the provider and epoch for the whole mutation: a provider swap
+        // while we await its load must abort rather than save a list derived
+        // from the old provider into the new one.
+        const provider = activeProvider;
+        const epoch = hydrationEpoch;
         // Re-load so the working list includes entries another tab (or
         // provider client) persisted after this tab hydrated.
         let current: RememberedOrigin[];
         try {
-          current = await activeProvider.load();
+          current = await provider.load();
         } catch {
+          return { ok: false };
+        }
+        if (epoch !== hydrationEpoch) {
           return { ok: false };
         }
         const trimmedName = name?.trim();
@@ -237,7 +263,7 @@ const useRememberedOriginsStoreBase = create<RememberedOriginsStore>()(
           ? current.map((o) => (o.url === normalized ? origin : o))
           : [...current, origin];
         set({ origins });
-        await activeProvider.save(origins);
+        await provider.save(origins);
         return { ok: true, origin };
       });
     },
@@ -252,16 +278,21 @@ const useRememberedOriginsStoreBase = create<RememberedOriginsStore>()(
         if (!get().hydrated) {
           return;
         }
+        const provider = activeProvider;
+        const epoch = hydrationEpoch;
         let current: RememberedOrigin[];
         try {
-          current = await activeProvider.load();
+          current = await provider.load();
         } catch {
+          return;
+        }
+        if (epoch !== hydrationEpoch) {
           return;
         }
         const remaining = current.filter((o) => o.url !== normalized);
         set({ origins: remaining });
         if (remaining.length !== current.length) {
-          await activeProvider.save(remaining);
+          await provider.save(remaining);
         }
       });
     },
