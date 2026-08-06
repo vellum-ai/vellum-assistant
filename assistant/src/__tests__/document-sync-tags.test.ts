@@ -160,6 +160,19 @@ describe("document write routes publish documents:list", () => {
     expectDocumentsChanged(events);
   });
 
+  test("a content-only save publishes", async () => {
+    // The save moves `updated_at` and the word count, which order and fill the
+    // Library and the assets list on every other client. The saving client
+    // suppresses its own echo, and the publish coalesces, so an autosave run
+    // costs the others at most one broadcast per second.
+    await saveViaRoute();
+
+    const events = await captureSyncEvents(() =>
+      saveViaRoute({ content: "hello world again", wordCount: 3 }),
+    );
+    expectDocumentsChanged(events);
+  });
+
   test("the save carries the caller's client id so it can suppress its own echo", async () => {
     const events = await captureSyncEvents(() =>
       invoke("saveDocument", {
@@ -258,18 +271,6 @@ describe("document write routes publish documents:list", () => {
 });
 
 describe("document routes that change nothing the list shows stay silent", () => {
-  test("a content-only autosave publishes nothing", async () => {
-    // The web editor autosaves about once a second while the user types and
-    // always resends the same title, so a content-only save must not make every
-    // other client drain its document queries.
-    await saveViaRoute();
-
-    const events = await captureSyncEvents(() =>
-      saveViaRoute({ content: "hello world again", wordCount: 3 }),
-    );
-    expect(events).toEqual([]);
-  });
-
   test("reopening an unchanged, already-linked file publishes nothing", async () => {
     writeFileSync(join(notesDir, "plan.md"), "# Plan");
     await openWorkspaceFile("sync-notes/plan.md");

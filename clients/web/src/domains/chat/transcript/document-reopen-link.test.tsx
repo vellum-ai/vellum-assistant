@@ -2,9 +2,9 @@
  * Tests for the end-of-turn link back to a document the assistant changed.
  *
  * Covers the two things the link owes its caller: it names the document from
- * the documents query, rendering only once that query resolves with the
- * document in it, and it is present exactly when its own document is not the
- * one open in the viewer.
+ * the documents query, rendering only once a resolved list carries the
+ * document, and it is present exactly when its own document is not the one
+ * open in the viewer.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -18,17 +18,22 @@ import { useViewerStore } from "@/stores/viewer-store";
 
 const ASSISTANT_ID = "asst-1";
 const CONVERSATION_ID = "conv-1";
+const OTHER_CONVERSATION_ID = "conv-2";
 const SURFACE_ID = "surf-notes";
 
 const onOpenDocument = mock((_surfaceId: string) => {});
 
-type SeededDocument = { surfaceId: string; title: string };
+type SeededDocument = {
+  surfaceId: string;
+  title: string;
+  conversationId?: string;
+};
 
 function seededPayload(documents: SeededDocument[]) {
   return {
     documents: documents.map((doc) => ({
       surfaceId: doc.surfaceId,
-      conversationId: CONVERSATION_ID,
+      conversationId: doc.conversationId ?? CONVERSATION_ID,
       title: doc.title,
       wordCount: 0,
       createdAt: 0,
@@ -59,8 +64,14 @@ function renderWithClient(
   render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
 
-/** Render the link with the conversation-scoped documents query answered. */
-function renderLink(documents: SeededDocument[]): void {
+/**
+ * Render the link with the conversation-scoped documents query answered, and
+ * the assistant-wide fallback answered too when `assistantWide` is given.
+ */
+function renderLink(
+  documents: SeededDocument[],
+  assistantWide?: SeededDocument[],
+): void {
   const queryClient = makeQueryClient();
   queryClient.setQueryData(
     documentsGetQueryKey({
@@ -69,6 +80,12 @@ function renderLink(documents: SeededDocument[]): void {
     }),
     seededPayload(documents),
   );
+  if (assistantWide) {
+    queryClient.setQueryData(
+      documentsGetQueryKey({ path: { assistant_id: ASSISTANT_ID } }),
+      seededPayload(assistantWide),
+    );
+  }
   renderWithClient(queryClient, CONVERSATION_ID);
 }
 
@@ -118,7 +135,35 @@ describe("DocumentReopenLink", () => {
     expect(screen.queryByText("Untitled document")).toBeNull();
   });
 
-  test("renders nothing for a document the resolved list does not carry", () => {
+  test("names a document edited from another conversation", () => {
+    // The assistant can edit any document it reaches, and the edit does not
+    // link that document to the conversation it was made from, so this
+    // conversation's list misses it while the assistant-wide list carries it.
+    renderLink(
+      [{ surfaceId: "surf-other", title: "Some other doc" }],
+      [
+        {
+          surfaceId: SURFACE_ID,
+          title: "Quarterly notes",
+          conversationId: OTHER_CONVERSATION_ID,
+        },
+      ],
+    );
+
+    expect(screen.getByText("Quarterly notes")).toBeTruthy();
+    expect(screen.getByTestId("document-reopen-link")).toBeTruthy();
+  });
+
+  test("renders nothing for a document neither resolved list carries", () => {
+    renderLink(
+      [{ surfaceId: "surf-other", title: "Some other doc" }],
+      [{ surfaceId: "surf-other", title: "Some other doc" }],
+    );
+
+    expect(screen.queryByTestId("document-reopen-link")).toBeNull();
+  });
+
+  test("renders nothing while the assistant-wide fallback is unresolved", () => {
     renderLink([{ surfaceId: "surf-other", title: "Some other doc" }]);
 
     expect(screen.queryByTestId("document-reopen-link")).toBeNull();
