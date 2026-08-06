@@ -2,7 +2,7 @@
  * Host file executor — handles read/write/edit operations on the local
  * filesystem via the host proxy bridge.
  *
- * Plugs into the host-proxy-router via setExecutor("host_file", ...).
+ * The macOS adapter injects it into the shared host-proxy router.
  * Results are posted back to the daemon through HostProxyPoster.postFileResult.
  */
 

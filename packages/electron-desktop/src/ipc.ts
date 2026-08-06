@@ -6,6 +6,12 @@ import { isAllowedOrigin, type AllowedOrigin } from "./app-origin";
 export type AllowedOriginResolver = () => AllowedOrigin;
 export type OriginValidator = typeof isAllowedOrigin;
 
+export type IpcHandle = <Args extends unknown[], Result>(
+  channel: string,
+  schema: z.ZodType<Args>,
+  handler: (args: Args, event: IpcMainInvokeEvent) => Result,
+) => void;
+
 /**
  * Registration helpers for the renderer-to-main IPC surface.
  *
@@ -21,12 +27,8 @@ export const createIpcRegistrar = (
     validateOrigin(event.senderFrame?.origin, resolveAllowedOrigin());
 
   /** Register an invocable handler with sender and argument validation. */
-  const handle = <Args extends unknown[], R>(
-    channel: string,
-    schema: z.ZodType<Args>,
-    fn: (args: Args, event: IpcMainInvokeEvent) => R,
-  ): void => {
-    ipcMain.handle(channel, (event, ...args: unknown[]): R => {
+  const handle: IpcHandle = (channel, schema, fn): void => {
+    ipcMain.handle(channel, (event, ...args: unknown[]) => {
       if (!isAllowedSender(event)) {
         throw new Error(`Rejected ${channel}: sender is not the app renderer`);
       }
