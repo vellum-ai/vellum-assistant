@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { ArrowLeft, Coins, Loader2, Target } from "lucide-react";
 
@@ -14,7 +14,8 @@ import {
   DEFAULT_PRESET_DAYS,
   type DateRange,
   DateRangeSelect,
-  computeRangeInTimezone,
+  presetDaysFromRange,
+  usePresetRange,
 } from "@/components/charts/date-range-select";
 import {
   DEFAULT_LLM_USAGE_DIMENSION,
@@ -67,11 +68,11 @@ function formatEventCount(count: number | undefined): string {
 export function BillingUsagePanel() {
   const tz = useEffectiveTimezone();
   // Track the SELECTED PRESET IDENTITY (days), not its computed bounds. The
-  // active range is derived from this identity + the live tz below, so a tz
-  // change (even one that crosses a calendar-day rollover after the range was
-  // first computed) always yields the correct bounds for the active preset.
+  // active range is derived from this identity plus the live tz and calendar
+  // day below, so a zone change or an overnight rollover always yields the
+  // correct bounds for the active preset.
   // `null` means a custom range that isn't a preset (defensive; billing only
-  // exposes presets today) — in that case `customRange` holds the bounds.
+  // exposes presets today): in that case `customRange` holds the bounds.
   const [presetDays, setPresetDays] = useState<number | null>(
     DEFAULT_PRESET_DAYS,
   );
@@ -79,18 +80,11 @@ export function BillingUsagePanel() {
     getDefaultDateRange(tz),
   );
 
-  const dateRange = useMemo<DateRange>(
-    () =>
-      presetDays === null
-        ? customRange
-        : computeRangeInTimezone(presetDays, tz),
-    [presetDays, customRange, tz],
-  );
-
-  const handleRangeChange = (range: DateRange, nextPresetDays: number) => {
-    setPresetDays(nextPresetDays);
-    setCustomRange(range);
-  };
+  // Derived rather than stored, so the active preset's bounds follow both a tz
+  // change and a calendar-day rollover without anyone having to touch the
+  // control.
+  const presetRange = usePresetRange(presetDays ?? DEFAULT_PRESET_DAYS, tz);
+  const dateRange = presetDays === null ? customRange : presetRange;
 
   const [drilldown, setDrilldown] = useState<{
     usageSource: BillingUsageSourceFilter;
@@ -150,16 +144,20 @@ export function BillingUsagePanel() {
             </Typography>
           </div>
           {/*
-           * Compact 32px controls per Figma. The shared `Dropdown` and
-           * `SegmentControl` primitives don't expose a size prop, so we
-           * override the inner button heights with arbitrary descendant
-           * variants here rather than mutating the shared primitives.
-           * - Dropdown's trigger is `<button role="combobox">` (h-9 → h-8).
+           * Compact 32px controls per Figma. `SegmentControl` exposes no size
+           * prop, and neither of `Select`'s presets is 32px (regular is 36,
+           * compact 28), so we override the inner button heights with
+           * arbitrary descendant variants here rather than mutating the
+           * shared primitives.
+           * - Select's trigger is `<button role="combobox">` (h-9 → h-8).
            * - SegmentControl's inner items are `<button role="radio">`
            *   wrapped by a 2px-padded container, so h-7 inner = 32px outer.
            */}
           <div className="flex flex-wrap items-center justify-end gap-2 [&_[role=combobox]]:h-8 [&_[role=radio]]:h-7">
-            <DateRangeSelect value={dateRange} onChange={handleRangeChange} />
+            <DateRangeSelect
+              value={presetDays ?? presetDaysFromRange(customRange)}
+              onChange={setPresetDays}
+            />
             <div className="w-44">
               <SegmentControl
                 items={METRIC_ITEMS}
