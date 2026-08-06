@@ -18,6 +18,10 @@ import { onAvatarChange } from "./avatar";
 import { acceleratorOption } from "./commands";
 import { getName, onNameChange } from "./identity";
 import { getWatchedLockfile } from "./lockfile-watcher";
+import {
+  isVoiceActivityRunning,
+  reopenVoiceActivityPanel,
+} from "./voice-activity-window";
 import { dispatchToMain } from "./main-window";
 import { menuIcon } from "./menu-icon";
 import { readSetting } from "./settings";
@@ -304,6 +308,18 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
       label: "Show / Hide Main Window",
       click: handlers.toggleMainWindow,
     },
+    // Only while a call is running, because reopening is meaningless
+    // otherwise. This is the way back from the panel's close button: closing
+    // it never ends the session, so without this a closed panel would leave a
+    // live microphone with no floating control until the call ended.
+    ...(isVoiceActivityRunning()
+      ? [
+          {
+            label: "Show Voice Panel",
+            click: reopenVoiceActivityPanel,
+          },
+        ]
+      : []),
     { type: "separator" },
     {
       label: "Settings\u2026",

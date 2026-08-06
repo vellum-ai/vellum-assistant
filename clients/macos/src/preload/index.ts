@@ -604,14 +604,14 @@ const bridge: VellumBridge = {
         ipcRenderer.off("vellum:voiceActivity:controlEvent", handler);
       };
     },
-    beginDrag: (): void => {
-      ipcRenderer.send("vellum:voiceActivity:beginDrag");
-    },
-    endDrag: (): void => {
-      ipcRenderer.send("vellum:voiceActivity:endDrag");
-    },
     activate: (): void => {
       ipcRenderer.send("vellum:voiceActivity:activate");
+    },
+    dismiss: (): void => {
+      ipcRenderer.send("vellum:voiceActivity:dismiss");
+    },
+    setCollapsed: (collapsed: boolean): void => {
+      ipcRenderer.send("vellum:voiceActivity:setCollapsed", collapsed);
     },
   },
   popout: {

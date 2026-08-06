@@ -318,6 +318,12 @@ export interface VoiceActivityStart extends VoiceActivityContent {
 export interface VoiceActivityState extends VoiceActivityStart {
   /** Epoch ms when main opened this surface. */
   startedAt: number;
+  /**
+   * Whether the window is shrunk to its chip. Main owns it because the window
+   * has to be resized around it, and the page must never draw a chip into a
+   * window still the size of the expanded panel.
+   */
+  collapsed: boolean;
 }
 
 /**

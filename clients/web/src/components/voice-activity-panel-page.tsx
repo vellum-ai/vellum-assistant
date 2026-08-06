@@ -1,6 +1,8 @@
 import {
   Brain,
   Check,
+  CornerUpLeft,
+  Minus,
   Mic,
   MicOff,
   MessageSquareText,
@@ -10,19 +12,14 @@ import {
   VolumeX,
   X,
 } from "lucide-react";
-import {
-  useEffect,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import {
   activateVoiceActivityApp,
-  beginVoiceActivityDrag,
-  endVoiceActivityDrag,
+  dismissVoiceActivityPanel,
   getVoiceActivityState,
   sendVoiceActivityControl,
+  setVoiceActivityCollapsed,
   subscribeVoiceActivityState,
 } from "@/runtime/desktop-voice-activity";
 import type {
@@ -63,89 +60,6 @@ import type {
  * and a specular highlight along the top edge. Off-Electron the subscription
  * no-ops and the page stays blank.
  */
-/**
- * How long a press may rest before it becomes a drag rather than a click.
- *
- * Long enough that an ordinary click never arms it, short enough that "grab
- * and move" feels immediate to a hand that paused first.
- */
-const HOLD_TO_DRAG_MS = 180;
-
-/**
- * How far a press may travel before it becomes a drag regardless of time.
- *
- * A quick flick to reposition the panel should not have to wait out
- * {@link HOLD_TO_DRAG_MS}, and a hand that has already moved four pixels is
- * plainly not clicking. It also keeps a click from being lost to the tremor of
- * pressing the button.
- */
-const DRAG_SLOP_PX = 4;
-
-/**
- * The panel's two gestures on one surface: press to bring the app forward,
- * hold or drag to move the panel.
- *
- * They cannot be split by `-webkit-app-region: drag`, which swallows clicks in
- * whatever region it covers, so the gestures are told apart here and the
- * window is moved by main following the cursor.
- *
- * The pointer is captured for the whole press so the release is always
- * delivered: a drag pulls the window along under the cursor, and without
- * capture a pointer that outruns it lands the `pointerup` somewhere else and
- * leaves main following the cursor forever.
- */
-function handlePanelPointerDown(
-  event: ReactPointerEvent<HTMLDivElement>,
-): void {
-  // Secondary buttons open context menus and mean neither gesture.
-  if (event.button !== 0) {
-    return;
-  }
-
-  const target = event.currentTarget;
-  const startX = event.screenX;
-  const startY = event.screenY;
-  let dragging = false;
-
-  const startDragging = (): void => {
-    if (dragging) {
-      return;
-    }
-    dragging = true;
-    beginVoiceActivityDrag();
-  };
-
-  const holdTimer = setTimeout(startDragging, HOLD_TO_DRAG_MS);
-
-  const onMove = (moved: PointerEvent): void => {
-    if (
-      Math.abs(moved.screenX - startX) > DRAG_SLOP_PX ||
-      Math.abs(moved.screenY - startY) > DRAG_SLOP_PX
-    ) {
-      startDragging();
-    }
-  };
-
-  const onEnd = (): void => {
-    clearTimeout(holdTimer);
-    target.removeEventListener("pointermove", onMove);
-    target.removeEventListener("pointerup", onEnd);
-    target.removeEventListener("pointercancel", onEnd);
-    if (dragging) {
-      endVoiceActivityDrag();
-      return;
-    }
-    activateVoiceActivityApp();
-  };
-
-  target.setPointerCapture(event.pointerId);
-  target.addEventListener("pointermove", onMove);
-  target.addEventListener("pointerup", onEnd);
-  // A cancelled pointer (the window server taking over, a display change) must
-  // still stop main following the cursor, and must not be read as a click.
-  target.addEventListener("pointercancel", onEnd);
-}
-
 export function VoiceActivityPanelPage() {
   const [state, setState] = useState<VoiceActivityState | null>(null);
 
@@ -168,21 +82,68 @@ export function VoiceActivityPanelPage() {
   }
 
   const pendingApproval = state.approvalRequestId !== "";
+  const surfaceStyle = {
+    ["--voice-accent" as string]: accentColor(state.accentHex),
+  };
+
+  // Shrunk out of the way: identity, phase and elapsed time, which is what is
+  // still worth knowing at a glance. The avatar restores it, so the chip needs
+  // no chrome of its own.
+  if (state.collapsed) {
+    return (
+      <div
+        className="relative flex h-screen w-screen items-center gap-2 overflow-hidden rounded-full border border-white/15 bg-white/[0.07] px-2 [-webkit-app-region:drag] before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/40 before:to-transparent"
+        style={surfaceStyle}
+      >
+        <button
+          type="button"
+          aria-label="Expand voice panel"
+          title="Expand"
+          className="shrink-0 rounded-full [-webkit-app-region:no-drag] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--voice-accent)]"
+          onClick={() => {
+            setVoiceActivityCollapsed(false);
+          }}
+        >
+          <Identity
+            assistantName={state.assistantName}
+            avatarBase64={state.avatarBase64}
+          />
+        </button>
+        <PhaseGlyph phase={state.phase} />
+        <Elapsed startedAt={state.startedAt} />
+      </div>
+    );
+  }
 
   return (
-    // One surface, two gestures: press to go back to the app, hold or drag to
-    // move the panel. A 300×96 surface has no room to spend on a dedicated
-    // grip, and `-webkit-app-region: drag` cannot share pixels with a click.
+    // The surface drags; every control opts out. With the window carrying its
+    // own close and minimize, and a button back to the conversation, dragging
+    // is the only thing left for the background to mean.
     <div
-      className="relative flex h-screen w-screen cursor-pointer flex-col justify-between overflow-hidden rounded-xl border border-white/15 bg-white/[0.07] px-3 py-2.5 before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/40 before:to-transparent"
-      style={{ ["--voice-accent" as string]: accentColor(state.accentHex) }}
-      onPointerDown={handlePanelPointerDown}
+      className="relative flex h-screen w-screen flex-col gap-1 overflow-hidden rounded-xl border border-white/15 bg-white/[0.07] px-3 pb-2.5 pt-1.5 [-webkit-app-region:drag] before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/40 before:to-transparent"
+      style={surfaceStyle}
     >
+      {/* Window chrome. Minimize shrinks to the chip and close hides the
+          window; neither touches the call, because the button a user reaches
+          for when a panel is in the way must never hang up on them. */}
+      <div className="flex items-center gap-1">
+        <WindowButton
+          label="Minimize voice panel"
+          onClick={() => {
+            setVoiceActivityCollapsed(true);
+          }}
+        >
+          <Minus className="size-3" aria-hidden />
+        </WindowButton>
+        <WindowButton label="Close voice panel" onClick={dismissVoiceActivityPanel}>
+          <X className="size-3" aria-hidden />
+        </WindowButton>
+      </div>
+
       {/* Identity and state on one line: who is on the call and what the call
-          is doing are read together, and the name alone was a whole row spent
-          on the one fact that never changes. The name gives up its width first
-          (`shrink`), because a truncated name is still recognizable while a
-          truncated phase is not. */}
+          is doing are read together. The name gives up its width first, since
+          a truncated name is still recognizable while a truncated phase is
+          not. */}
       <div className="flex min-w-0 items-center gap-1.5">
         <Identity
           assistantName={state.assistantName}
@@ -210,6 +171,35 @@ export function VoiceActivityPanelPage() {
         <SessionControls muted={state.muted} outputMuted={state.outputMuted} />
       )}
     </div>
+  );
+}
+
+/**
+ * Minimize and close.
+ *
+ * Quieter than the session controls and set apart from them, because they act
+ * on the window while everything below acts on the call. Confusing the two is
+ * the one mistake this surface can make that a user cannot undo.
+ */
+function WindowButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      className="flex size-4 items-center justify-center rounded-full text-[var(--content-tertiary)] transition-colors [-webkit-app-region:no-drag] hover:bg-white/15 hover:text-[var(--content-secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--voice-accent)]"
+      onClick={onClick}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -356,6 +346,20 @@ function SessionControls({
           <Volume2 className="size-3.5" aria-hidden />
         )}
       </ControlButton>
+      {/* Back to the conversation, the desktop reading of the island's
+          tap-through and of the pill's tappable middle. A button rather than
+          the surface itself: the background is the drag handle, and a region
+          cannot both drag and be clicked. */}
+      <button
+        type="button"
+        aria-label="Return to conversation"
+        title="Return to conversation"
+        className="ml-auto flex h-6 items-center justify-center rounded-md px-2 text-[var(--content-secondary)] transition-colors [-webkit-app-region:no-drag] hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--voice-accent)]"
+        onClick={activateVoiceActivityApp}
+      >
+        <CornerUpLeft className="size-3.5" aria-hidden />
+      </button>
+
       {/* The room's own end control, at panel scale: the same ✕ at the same
           weight, in the same destructive tone, under the same label. Ending a
           call is the one irreversible thing on this surface, so it should look
@@ -363,7 +367,7 @@ function SessionControls({
       <ControlButton
         action="endSession"
         label="End voice session"
-        className="ml-auto text-[var(--system-negative-strong)]"
+        className="text-[var(--system-negative-strong)]"
       >
         <X className="size-3.5" strokeWidth={2.5} aria-hidden />
       </ControlButton>
@@ -425,13 +429,8 @@ function ControlButton({
       type="button"
       aria-label={label}
       title={label}
-      className={`flex h-6 items-center justify-center gap-1 rounded-md px-2 text-[var(--content-secondary)] transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--voice-accent)] ${className}`}
-      // A control is neither of the panel's two gestures, so the press stops
-      // here rather than reaching the surface and being read as "go back" or
-      // as the start of a drag.
-      onPointerDown={(event) => {
-        event.stopPropagation();
-      }}
+      className={`flex h-6 items-center justify-center gap-1 rounded-md px-2 text-[var(--content-secondary)] transition-colors [-webkit-app-region:no-drag] hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--voice-accent)] ${className}`}
+
       onClick={() => {
         sendVoiceActivityControl(
           requestId === undefined ? { action } : { action, requestId },

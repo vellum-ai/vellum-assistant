@@ -301,16 +301,12 @@ export interface VellumBridge {
     onState(callback: (state: VoiceActivityState | null) => void): () => void;
     control(control: VoiceActivityControl): void;
     onControl(callback: (control: VoiceActivityControl) => void): () => void;
-    /**
-     * Start moving the panel with the cursor. Main follows the pointer until
-     * `endDrag`, because the panel drags by hand rather than through
-     * `-webkit-app-region`: a drag region swallows clicks outright, and this
-     * surface needs the same pixels to answer both a press and a hold.
-     */
-    beginDrag(): void;
-    endDrag(): void;
-    /** Bring the app forward. What a click on the panel means. */
+    /** Bring the app forward, the panel's way back to the conversation. */
     activate(): void;
+    /** Hide the window. The session keeps running. */
+    dismiss(): void;
+    /** Shrink to the chip, or restore. */
+    setCollapsed(collapsed: boolean): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;

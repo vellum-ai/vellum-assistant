@@ -51,14 +51,17 @@ const WINDOW_STATE_KEY = "voice-activity";
 // is the panel: unlike the dictation HUD there is no CSS shadow to leave room
 // for, because a window the user positions themselves is allowed the system's
 // own shadow (`hasShadow`).
-const PANEL_WIDTH = 300;
-const PANEL_HEIGHT = 96;
+const PANEL_WIDTH = 320;
+const PANEL_HEIGHT = 124;
+
+// The collapsed chip: identity, phase and elapsed time, which is what survives
+// when the panel is shrunk out of the way. Roughly the island's minimal
+// presentation, and the reason minimize is not just a second close.
+const CHIP_WIDTH = 168;
+const CHIP_HEIGHT = 36;
 
 /** Gap from the work area's top-right corner on the first ever launch. */
 const DEFAULT_MARGIN = 16;
-
-/** Roughly one frame at 60Hz, the rate a hand-driven drag is repositioned at. */
-const DRAG_FRAME_MS = 16;
 
 // ---------------------------------------------------------------------------
 // Session state machine
@@ -67,13 +70,9 @@ const DRAG_FRAME_MS = 16;
 export type VoiceActivityDeps = {
   showPanel: () => void;
   hidePanel: () => void;
+  /** Resize the window between its expanded and collapsed shapes. */
+  setCollapsed: (collapsed: boolean) => void;
   sendState: (state: VoiceActivityState | null) => void;
-  /**
-   * Whether Vellum is the frontmost app: the gate the whole surface turns on.
-   * Injected rather than read here so the visibility rules are testable
-   * without a window server.
-   */
-  isAppFrontmost: () => boolean;
   now: () => number;
 };
 
@@ -81,29 +80,40 @@ export type VoiceActivityController = {
   start: (start: VoiceActivityStart) => void;
   update: (content: VoiceActivityContent) => void;
   end: () => void;
-  /** Re-evaluate visibility after the app's frontmost-ness may have changed. */
-  focusChanged: () => void;
+  /** Hide the window. The session keeps running. */
+  dismiss: () => void;
+  /** Show it again for the session already running. */
+  reopen: () => void;
+  setCollapsed: (collapsed: boolean) => void;
   /** The snapshot the panel renders, or `null` when no session is running. */
   currentState: () => VoiceActivityState | null;
 };
 
 /**
- * Session lifecycle and visibility, separated from the window plumbing so the
- * rules are unit-testable, the same deps-injection shape as
+ * Session lifecycle and window state, separated from the window plumbing so
+ * the rules are unit-testable, the same deps-injection shape as
  * `createDictationOverlayController`.
  *
- * Two pieces of state, deliberately independent: whether a session exists at
- * all, and whether the app is frontmost. The panel is on screen only when the
- * first is true and the second is false, and every entry point routes through
- * one reconcile so the two can never disagree about what is showing.
+ * **The window is the user's, and the session is the app's.** Closing the
+ * window hides a readout; it never ends a call, because the thing a user
+ * reaches for when a panel is in their way is the close button, and a close
+ * button that hung up would be a trap. The two pieces of state are therefore
+ * independent: whether a session exists, and whether the user wants to see it.
+ *
+ * Dismissal lasts only as long as the session it was aimed at. A closed panel
+ * means a live microphone with no floating control, which is the state this
+ * surface exists to prevent, so `start` clears it and the next call opens a
+ * fresh window rather than silently inheriting a preference the user set once
+ * and forgot.
  */
 export const createVoiceActivityController = (
   deps: VoiceActivityDeps,
 ): VoiceActivityController => {
   let session: VoiceActivityState | null = null;
+  let dismissed = false;
 
   const reconcile = (): void => {
-    if (session === null || deps.isAppFrontmost()) {
+    if (session === null || dismissed) {
       deps.hidePanel();
       return;
     }
@@ -111,6 +121,7 @@ export const createVoiceActivityController = (
   };
 
   const start = (start: VoiceActivityStart): void => {
+    const fresh = session === null;
     // A redundant start updates the running session rather than restarting its
     // clock. The mirror re-syncs on mount and the session controller remounts
     // across layout-level route changes while the store persists, so a second
@@ -119,8 +130,13 @@ export const createVoiceActivityController = (
     // would be a visible lie about a session that never stopped.
     session =
       session === null
-        ? { ...start, startedAt: deps.now() }
+        ? { ...start, startedAt: deps.now(), collapsed: false }
         : { ...session, ...start };
+    // Only a genuinely new call reopens a closed panel. A remount is not the
+    // user changing their mind.
+    if (fresh) {
+      dismissed = false;
+    }
     reconcile();
     deps.sendState(session);
   };
@@ -145,11 +161,30 @@ export const createVoiceActivityController = (
     reconcile();
   };
 
+  const setCollapsed = (collapsed: boolean): void => {
+    if (session === null || session.collapsed === collapsed) {
+      return;
+    }
+    session = { ...session, collapsed };
+    // The window resizes before the page is told, so the chip is never drawn
+    // into a window still the size of the expanded panel.
+    deps.setCollapsed(collapsed);
+    deps.sendState(session);
+  };
+
   return {
     start,
     update,
     end,
-    focusChanged: reconcile,
+    dismiss: () => {
+      dismissed = true;
+      reconcile();
+    },
+    reopen: () => {
+      dismissed = false;
+      reconcile();
+    },
+    setCollapsed,
     currentState: () => session,
   };
 };
@@ -197,54 +232,6 @@ export const openingPosition = (): { x: number; y: number } => {
   return { x: saved.x, y: saved.y };
 };
 
-/**
- * Cursor-follow drag.
- *
- * The panel is moved by hand rather than by `-webkit-app-region: drag`,
- * because a drag region swallows clicks outright and this surface needs the
- * same pixels to answer two gestures: a press means "bring the app forward",
- * a hold means "move me". The page decides which one happened and calls in.
- *
- * Main follows the cursor rather than applying deltas the page sends, so the
- * window keeps up with a fast drag: per-move IPC would put a round trip in
- * front of every frame, and the panel would lag behind the pointer.
- */
-let dragTimer: NodeJS.Timeout | null = null;
-
-const endDrag = (): void => {
-  if (dragTimer !== null) {
-    clearInterval(dragTimer);
-    dragTimer = null;
-  }
-};
-
-const beginDrag = (): void => {
-  const win = panelWindow();
-  if (win === null) {
-    return;
-  }
-  const cursor = screen.getCursorScreenPoint();
-  const [windowX, windowY] = win.getPosition();
-  // Where in the panel the pointer grabbed it, so the window travels with the
-  // cursor instead of snapping its corner to it.
-  const offsetX = cursor.x - windowX;
-  const offsetY = cursor.y - windowY;
-
-  endDrag();
-  dragTimer = setInterval(() => {
-    const dragging = panelWindow();
-    // The pointer can leave the panel mid-drag, and a page that is torn down
-    // between press and release never sends its `endDrag`. Both would leave
-    // this running, so the window's own absence ends it.
-    if (dragging === null || !dragging.isVisible()) {
-      endDrag();
-      return;
-    }
-    const point = screen.getCursorScreenPoint();
-    dragging.setPosition(point.x - offsetX, point.y - offsetY);
-  }, DRAG_FRAME_MS);
-};
-
 /** Whether the geometry tracker has been bound to the current panel window. */
 let tracked = false;
 
@@ -265,7 +252,7 @@ const ensurePanel = (): BrowserWindow => {
     alwaysOnTopLevel: "floating",
     browserWindow: {
       // Repositionable, which is the whole reason geometry is persisted. The
-      // drag itself is driven by hand from the route (see `beginDrag`); this
+      // drag itself comes from the route's `-webkit-app-region: drag`; this
       // only permits the window to move.
       movable: true,
       minimizable: false,
@@ -315,73 +302,26 @@ const ensurePanel = (): BrowserWindow => {
 };
 
 /**
- * Whether **a window other than the panel** is frontmost, which is the real
- * question this surface turns on.
+ * The live controller, for callers outside the IPC surface.
  *
- * Three signals, because no single one answers it:
- *
- * - `did-resign-active`: the app went to the background. Definitive.
- * - `browser-window-focus` on anything but the panel: a real window of the app
- *   took focus, so the session has an on-screen control again.
- * - `did-become-active`: the app came forward, but *only counts when the panel
- *   is not the key window*. Clicking the panel activates the app despite its
- *   non-activating window type, and treating that as "frontmost" hid the panel
- *   the instant the user touched it, including on a drag of its own header.
- *
- * The app-level pair alone is not enough, and neither is window focus alone.
- * Ignoring a panel-driven `did-become-active` leaves the app active with the
- * panel still up, and macOS fires no second activation when focus then moves
- * to the main window, so without the focus signal the panel would never hide
- * again. Focus events alone were the original bug: the panel is an
- * always-on-top `NSPanel` and keeps key status when the main window comes
- * forward, so a focus-derived check reported "not frontmost" for the rest of
- * the session.
- *
- * **Until one of those lands there is nothing to report**, and the honest
- * answer then is whatever the window server says right now. A launch macOS
- * activated before this module was installed has already missed its
- * `did-become-active`, and nothing fires again until the user switches away
- * and back, so a tracker that assumed "not frontmost" would open the panel
- * over a focused app for the whole first session.
- *
- * Injected rather than read directly so the fallback has a seam to be tested
- * through, which the sequencing bug that needed it went unnoticed for want of.
+ * The tray needs to reopen a panel the user closed, and the tray is built long
+ * before any session exists, so it reaches the controller through this rather
+ * than being handed one at install.
  */
-export const createFrontmostTracker = (
-  anyOtherWindowFocused: () => boolean,
-): {
-  isFrontmost: () => boolean;
-  becameActive: (panelHasKey: boolean) => void;
-  resignedActive: () => void;
-  windowFocused: (isPanel: boolean) => void;
-} => {
-  let observed = false;
-  let frontmost = false;
+let voiceActivityController: VoiceActivityController | null = null;
 
-  return {
-    isFrontmost: () => (observed ? frontmost : anyOtherWindowFocused()),
-    becameActive: (panelHasKey) => {
-      // A panel-driven activation says nothing about the rest of the app, so
-      // it is not allowed to answer the question either way: recording it
-      // would latch a value the next real focus change may never correct.
-      if (panelHasKey) {
-        return;
-      }
-      observed = true;
-      frontmost = true;
-    },
-    resignedActive: () => {
-      observed = true;
-      frontmost = false;
-    },
-    windowFocused: (isPanel) => {
-      if (isPanel) {
-        return;
-      }
-      observed = true;
-      frontmost = true;
-    },
-  };
+/** Whether a session is running, which is when reopening means anything. */
+export const isVoiceActivityRunning = (): boolean =>
+  voiceActivityController?.currentState() != null;
+
+/**
+ * Show the panel again for a session already running.
+ *
+ * The way back from the close button. Without one, closing the panel would
+ * leave a live microphone with no floating control until the call ended.
+ */
+export const reopenVoiceActivityPanel = (): void => {
+  voiceActivityController?.reopen();
 };
 
 let installed = false;
@@ -391,16 +331,6 @@ export const installVoiceActivityWindow = (): void => {
     return;
   }
   installed = true;
-
-  const panelHasKey = (): boolean => {
-    const focused = BrowserWindow.getFocusedWindow();
-    return focused !== null && focused === panelWindow();
-  };
-
-  const frontmost = createFrontmostTracker(() => {
-    const focused = BrowserWindow.getFocusedWindow();
-    return focused !== null && focused !== panelWindow();
-  });
 
   const controller = createVoiceActivityController({
     showPanel: () => {
@@ -412,12 +342,28 @@ export const installVoiceActivityWindow = (): void => {
         win.hide();
       }
     },
+    setCollapsed: (collapsed) => {
+      const win = panelWindow();
+      if (win === null) {
+        return;
+      }
+      // Anchored top-left, so a panel the user parked against the right edge
+      // of a display does not walk left every time it is collapsed.
+      const [x, y] = win.getPosition();
+      win.setBounds({
+        x,
+        y,
+        width: collapsed ? CHIP_WIDTH : PANEL_WIDTH,
+        height: collapsed ? CHIP_HEIGHT : PANEL_HEIGHT,
+      });
+    },
     sendState: (state) => {
       panelWindow()?.webContents.send("vellum:voiceActivity:state", state);
     },
-    isAppFrontmost: frontmost.isFrontmost,
     now: () => Date.now(),
   });
+
+  voiceActivityController = controller;
 
   on(
     "vellum:voiceActivity:start",
@@ -466,12 +412,12 @@ export const installVoiceActivityWindow = (): void => {
     },
   );
 
-  on("vellum:voiceActivity:beginDrag", z.tuple([]), () => {
-    beginDrag();
+  on("vellum:voiceActivity:dismiss", z.tuple([]), () => {
+    controller.dismiss();
   });
 
-  on("vellum:voiceActivity:endDrag", z.tuple([]), () => {
-    endDrag();
+  on("vellum:voiceActivity:setCollapsed", z.tuple([z.boolean()]), ([next]) => {
+    controller.setCollapsed(next);
   });
 
   on("vellum:voiceActivity:activate", z.tuple([]), () => {
@@ -488,19 +434,4 @@ export const installVoiceActivityWindow = (): void => {
     controller.currentState(),
   );
 
-  // No debounce and no deferral: unlike per-window focus events, these fire
-  // once per actual application activation, so there is no blur/focus gap to
-  // ride out and nothing to coalesce.
-  app.on("did-become-active", () => {
-    frontmost.becameActive(panelHasKey());
-    controller.focusChanged();
-  });
-  app.on("did-resign-active", () => {
-    frontmost.resignedActive();
-    controller.focusChanged();
-  });
-  app.on("browser-window-focus", (_event, win) => {
-    frontmost.windowFocused(win === panelWindow());
-    controller.focusChanged();
-  });
 };

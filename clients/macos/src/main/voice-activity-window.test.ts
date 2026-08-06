@@ -23,7 +23,7 @@ mock.module("electron-store", () => ({
 
 // Dynamic, so the mock above is installed before the module graph loads:
 // static imports hoist above it. Same pattern as `window-state.test.ts`.
-const { createVoiceActivityController, createFrontmostTracker } =
+const { createVoiceActivityController } =
   await import("./voice-activity-window");
 
 const CONTENT: VoiceActivityContent = {
@@ -46,27 +46,25 @@ type Harness = {
   controller: ReturnType<typeof createVoiceActivityController>;
   showPanel: ReturnType<typeof mock>;
   hidePanel: ReturnType<typeof mock>;
+  setCollapsed: ReturnType<typeof mock>;
   sent: (VoiceActivityState | null)[];
-  setFrontmost: (frontmost: boolean) => void;
   setNow: (now: number) => void;
 };
 
-const createHarness = (
-  options: { frontmost?: boolean; now?: number } = {},
-): Harness => {
-  let frontmost = options.frontmost ?? false;
+const createHarness = (options: { now?: number } = {}): Harness => {
   let now = options.now ?? 1_000;
   const showPanel = mock(() => undefined);
   const hidePanel = mock(() => undefined);
+  const setCollapsed = mock((_collapsed: boolean) => undefined);
   const sent: (VoiceActivityState | null)[] = [];
 
   const controller = createVoiceActivityController({
     showPanel,
     hidePanel,
+    setCollapsed,
     sendState: (state) => {
       sent.push(state);
     },
-    isAppFrontmost: () => frontmost,
     now: () => now,
   });
 
@@ -74,10 +72,8 @@ const createHarness = (
     controller,
     showPanel,
     hidePanel,
+    setCollapsed,
     sent,
-    setFrontmost: (next) => {
-      frontmost = next;
-    },
     setNow: (next) => {
       now = next;
     },
@@ -85,51 +81,18 @@ const createHarness = (
 };
 
 describe("createVoiceActivityController", () => {
-  test("shows the panel for a session started while the app is in the background", () => {
-    const h = createHarness({ frontmost: false });
+  test("shows the panel when a session starts", () => {
+    const h = createHarness();
 
     h.controller.start(START);
 
     expect(h.showPanel).toHaveBeenCalledTimes(1);
-    expect(h.hidePanel).not.toHaveBeenCalled();
     expect(h.sent.at(-1)).toMatchObject({
       assistantName: "Aria",
       phase: "listening",
       startedAt: 1_000,
+      collapsed: false,
     });
-  });
-
-  test("keeps the panel hidden while Vellum is frontmost", () => {
-    const h = createHarness({ frontmost: true });
-
-    h.controller.start(START);
-
-    expect(h.showPanel).not.toHaveBeenCalled();
-    expect(h.hidePanel).toHaveBeenCalledTimes(1);
-    // State is still published: the app being frontmost decides visibility,
-    // not whether the session is tracked.
-    expect(h.controller.currentState()).not.toBeNull();
-  });
-
-  test("shows and hides as the app loses and regains focus mid-session", () => {
-    const h = createHarness({ frontmost: true });
-    h.controller.start(START);
-
-    h.setFrontmost(false);
-    h.controller.focusChanged();
-    expect(h.showPanel).toHaveBeenCalledTimes(1);
-
-    h.setFrontmost(true);
-    h.controller.focusChanged();
-    expect(h.hidePanel).toHaveBeenCalledTimes(2);
-  });
-
-  test("a focus change with no session never shows the panel", () => {
-    const h = createHarness({ frontmost: false });
-
-    h.controller.focusChanged();
-
-    expect(h.showPanel).not.toHaveBeenCalled();
   });
 
   test("a redundant start updates the session without restarting the clock", () => {
@@ -190,18 +153,6 @@ describe("createVoiceActivityController", () => {
     expect(h.controller.currentState()).toBeNull();
   });
 
-  test("a focus change after the session ended keeps the panel hidden", () => {
-    const h = createHarness();
-    h.controller.start(START);
-    h.controller.end();
-    h.showPanel.mockClear();
-
-    h.setFrontmost(false);
-    h.controller.focusChanged();
-
-    expect(h.showPanel).not.toHaveBeenCalled();
-  });
-
   test("carries the pending approval through to the panel", () => {
     const h = createHarness();
     h.controller.start(START);
@@ -216,78 +167,112 @@ describe("createVoiceActivityController", () => {
   });
 });
 
-describe("createFrontmostTracker", () => {
-  test("falls back to the window server before any signal lands", () => {
-    const focused = createFrontmostTracker(() => true);
-    const unfocused = createFrontmostTracker(() => false);
+describe("closing the window", () => {
+  test("dismiss hides the window and leaves the session running", () => {
+    const h = createHarness();
+    h.controller.start(START);
+    h.hidePanel.mockClear();
 
-    expect(focused.isFrontmost()).toBe(true);
-    expect(unfocused.isFrontmost()).toBe(false);
+    h.controller.dismiss();
+
+    // The button a user reaches for when a panel is in the way must never hang
+    // up on them.
+    expect(h.hidePanel).toHaveBeenCalledTimes(1);
+    expect(h.controller.currentState()).not.toBeNull();
   });
 
-  test("a launch that activated before install still reads as frontmost", () => {
-    // The install runs before `installMainWindow`, so at install time there is
-    // no window to focus and the launch's `did-become-active` has already
-    // fired. A tracker that latched "not frontmost" there would open the panel
-    // over a focused app for the whole first session.
-    let otherWindowFocused = false;
-    const tracker = createFrontmostTracker(() => otherWindowFocused);
+  test("updates keep flowing to a dismissed panel without reopening it", () => {
+    const h = createHarness();
+    h.controller.start(START);
+    h.controller.dismiss();
+    h.showPanel.mockClear();
 
-    expect(tracker.isFrontmost()).toBe(false);
+    h.controller.update({ ...CONTENT, phase: "thinking", label: "Thinking…" });
 
-    otherWindowFocused = true;
-
-    expect(tracker.isFrontmost()).toBe(true);
+    expect(h.showPanel).not.toHaveBeenCalled();
+    expect(h.controller.currentState()).toMatchObject({ phase: "thinking" });
   });
 
-  test("clicking the panel does not count as the app coming forward", () => {
-    // Clicking the panel activates the app despite its non-activating window
-    // type, so an unguarded `did-become-active` hid the panel the instant the
-    // user touched it, including on a drag of its own header.
-    const tracker = createFrontmostTracker(() => false);
-    tracker.resignedActive();
+  test("reopen brings it back for the session already running", () => {
+    const h = createHarness();
+    h.controller.start(START);
+    h.controller.dismiss();
+    h.showPanel.mockClear();
 
-    tracker.becameActive(true);
+    h.controller.reopen();
 
-    expect(tracker.isFrontmost()).toBe(false);
+    expect(h.showPanel).toHaveBeenCalledTimes(1);
   });
 
-  test("focus moving to a real window after a panel click still hides it", () => {
-    // macOS fires no second activation once the panel has already made the app
-    // active, so window focus is the only signal left to catch this.
-    const tracker = createFrontmostTracker(() => false);
-    tracker.resignedActive();
-    tracker.becameActive(true);
+  test("a new session reopens a panel closed during the last one", () => {
+    const h = createHarness();
+    h.controller.start(START);
+    h.controller.dismiss();
+    h.controller.end();
+    h.showPanel.mockClear();
 
-    tracker.windowFocused(false);
+    h.controller.start(START);
 
-    expect(tracker.isFrontmost()).toBe(true);
+    // A closed panel means a live microphone with no floating control, so a
+    // dismissal lasts only as long as the call it was aimed at.
+    expect(h.showPanel).toHaveBeenCalledTimes(1);
   });
 
-  test("the panel taking focus never marks the app frontmost", () => {
-    const tracker = createFrontmostTracker(() => false);
-    tracker.resignedActive();
+  test("a remount during a dismissed session does not reopen it", () => {
+    const h = createHarness();
+    h.controller.start(START);
+    h.controller.dismiss();
+    h.showPanel.mockClear();
 
-    tracker.windowFocused(true);
+    h.controller.start({ ...START, phase: "thinking", label: "Thinking…" });
 
-    expect(tracker.isFrontmost()).toBe(false);
+    // A redundant start is the mirror re-syncing, not the user changing their
+    // mind about a panel they closed.
+    expect(h.showPanel).not.toHaveBeenCalled();
+  });
+});
+
+describe("collapsing to the chip", () => {
+  test("resizes the window before telling the page", () => {
+    const h = createHarness();
+    h.controller.start(START);
+
+    h.controller.setCollapsed(true);
+
+    // The page must never draw a chip into a window still the size of the
+    // expanded panel.
+    expect(h.setCollapsed).toHaveBeenCalledWith(true);
+    expect(h.sent.at(-1)).toMatchObject({ collapsed: true });
   });
 
-  test("an activation with the panel unfocused marks the app frontmost", () => {
-    const tracker = createFrontmostTracker(() => false);
+  test("restoring expands it again", () => {
+    const h = createHarness();
+    h.controller.start(START);
+    h.controller.setCollapsed(true);
 
-    tracker.becameActive(false);
+    h.controller.setCollapsed(false);
 
-    expect(tracker.isFrontmost()).toBe(true);
+    expect(h.setCollapsed).toHaveBeenLastCalledWith(false);
+    expect(h.controller.currentState()).toMatchObject({ collapsed: false });
   });
 
-  test("resigning active always wins", () => {
-    const tracker = createFrontmostTracker(() => true);
-    tracker.windowFocused(false);
-    expect(tracker.isFrontmost()).toBe(true);
+  test("a redundant collapse does not resize the window again", () => {
+    const h = createHarness();
+    h.controller.start(START);
+    h.controller.setCollapsed(true);
+    h.setCollapsed.mockClear();
 
-    tracker.resignedActive();
+    h.controller.setCollapsed(true);
 
-    expect(tracker.isFrontmost()).toBe(false);
+    expect(h.setCollapsed).not.toHaveBeenCalled();
+  });
+
+  test("collapsing with no session does nothing", () => {
+    const h = createHarness();
+
+    h.controller.setCollapsed(true);
+
+    expect(h.setCollapsed).not.toHaveBeenCalled();
+    expect(h.sent).toHaveLength(0);
   });
 });
