@@ -6,11 +6,14 @@
  * For chat-style markdown rendering, see `MarkdownMessage` instead.
  */
 
+import { ExternalLink } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+
+import { ExternalAnchor, isWebUrl } from "@/components/external-anchor";
 
 /**
  * True if the file looks like markdown by name or mime type.
@@ -107,15 +110,20 @@ export const fileMarkdownComponents: Components = {
   ),
   li: ({ children }) => <li className="mb-0.5">{children}</li>,
   a: ({ href, children }) => (
-    <a
+    <ExternalAnchor
       href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="underline"
-      style={{ color: "var(--primary-base, #60a5fa)" }}
+      className="text-[var(--system-positive-strong)] underline hover:opacity-80"
     >
       {children}
-    </a>
+      {isWebUrl(href) ? (
+        // Inline (not inline-flex) so long link text still wraps; the icon
+        // aligns via a small baseline shift instead.
+        <ExternalLink
+          aria-hidden
+          className="ml-0.5 inline h-3.5 w-3.5 shrink-0 align-[-0.125em]"
+        />
+      ) : null}
+    </ExternalAnchor>
   ),
   strong: ({ children }) => (
     <strong style={{ color: "var(--content-default)" }}>{children}</strong>

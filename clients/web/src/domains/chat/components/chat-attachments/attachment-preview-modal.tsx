@@ -395,9 +395,16 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       {/* Top chrome: file size (left), filename (center), download + close
           (right). Absolute children anchor to the overlay's padding box, so the
           parent's safe-area paddingTop does not offset them — the bar carries
-          the top inset itself to clear the notch/status bar. */}
+          the top inset itself to clear the notch/status bar.
+
+          The bar spans the full width above the preview, so it stays
+          click-through except for its own controls: on a short viewport the
+          preview's top edge reaches under it, and an opaque bar would eat
+          clicks on whatever the preview renders there (a link in a scrolled
+          text preview, for instance). Same treatment as the gallery chevrons
+          below. */}
       <div
-        className="absolute inset-x-0 top-0 z-10 flex items-center gap-3 px-4"
+        className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center gap-3 px-4"
         style={{
           paddingTop:
             "calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 1rem)",
@@ -416,7 +423,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
         >
           {attachment.filename}
         </Typography>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="pointer-events-auto flex shrink-0 items-center gap-2">
           <Button
             variant="ghost"
             iconOnly={<Download />}
