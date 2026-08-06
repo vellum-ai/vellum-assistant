@@ -28,7 +28,7 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { compareParsed, parseSemver } from "@/utils/semver";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { toast } from "@vellumai/design-library/components/toast";
 
 function releaseLabel(
@@ -212,7 +212,12 @@ export function AssistantUpgrades({
   const handleUpgrade = async () => {
     setShowConfirmation(false);
     setSuccessMessage(null);
-    const targetVersion = selectedVersion ?? undefined;
+    // The displayed version, not just an explicit pick. The trigger falls
+    // back to the latest release when nothing is chosen, and a selection
+    // matching the displayed value is not reported, so reading the raw
+    // selection here would upgrade to whatever is latest at click time
+    // rather than to the version on screen.
+    const targetVersion = effectiveSelectedVersion ?? undefined;
     try {
       if (isRollback) {
         const result = await rollbackCreate.mutateAsync({
@@ -286,7 +291,7 @@ export function AssistantUpgrades({
               </span>
             ) : releases && releases.length > 0 ? (
               rollbackEnabled ? (
-                <Dropdown
+                <Select
                   value={effectiveSelectedVersion ?? ""}
                   onChange={(value) =>
                     setSelectedVersion(

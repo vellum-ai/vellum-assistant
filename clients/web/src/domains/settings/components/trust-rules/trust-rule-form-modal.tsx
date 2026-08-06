@@ -11,7 +11,7 @@ import { createPortal } from "react-dom";
 
 import { updateTrustRule } from "@/lib/trust-rules-api";
 import type { TrustRuleItem, TrustRuleRisk } from "@/types/trust-rules";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
 
@@ -161,7 +161,7 @@ export function TrustRuleFormModal({
               Tool
             </label>
             <div className="mt-1">
-              <Dropdown
+              <Select
                 value={tool}
                 onChange={setTool}
                 disabled

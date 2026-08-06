@@ -11,7 +11,7 @@ import {
 import { Link, Navigate, useSearchParams } from "react-router";
 
 import { Button } from "@vellumai/design-library/components/button";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import { Slider } from "@vellumai/design-library/components/slider";
 import { Toggle } from "@vellumai/design-library/components/toggle";
@@ -314,7 +314,7 @@ function MicrophoneCard() {
     >
       <div className="flex flex-col gap-3">
         <div className="max-w-xs">
-          <Dropdown<string>
+          <Select<string>
             options={options}
             value={selectedValue}
             onChange={handleChange}

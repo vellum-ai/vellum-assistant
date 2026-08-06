@@ -1,16 +1,16 @@
 import { AlertCircle } from "lucide-react";
 
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 
 import { useProfileOptions } from "@/domains/settings/hooks/use-profile-options";
 
 const DEFAULT_PROFILE_OPTION_VALUE = "__default_profile__";
 
-export function profileOptionToDropdownValue(value: string | null): string {
+export function profileOptionToSelectValue(value: string | null): string {
   return value ?? DEFAULT_PROFILE_OPTION_VALUE;
 }
 
-export function dropdownValueToProfileOption(value: string): string | null {
+export function selectValueToProfileOption(value: string): string | null {
   return value === DEFAULT_PROFILE_OPTION_VALUE ? null : value;
 }
 
@@ -59,14 +59,14 @@ export function ModelProfileSelect({
             ...(option.reason ? { tooltip: option.reason } : {}),
           }
         : {}),
-      value: profileOptionToDropdownValue(option.value),
+      value: profileOptionToSelectValue(option.value),
       label: option.label,
     }));
 
   return (
-    <Dropdown
-      value={profileOptionToDropdownValue(value)}
-      onChange={(selected) => onChange(dropdownValueToProfileOption(selected))}
+    <Select
+      value={profileOptionToSelectValue(value)}
+      onChange={(selected) => onChange(selectValueToProfileOption(selected))}
       options={options}
       disabled={disabled || isSaving}
       placeholder={placeholder}
