@@ -26,6 +26,7 @@ import {
 } from "../calls/media-stream-audio-transcode.js";
 import { MediaStreamOutput } from "../calls/media-stream-output.js";
 import { resolveCallTtsProvider } from "../calls/resolve-call-tts-provider.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const mockResolveCallTtsProvider = resolveCallTtsProvider as ReturnType<
   typeof jest.fn
@@ -1210,6 +1211,76 @@ describe("MediaStreamOutput", () => {
         "Let me take a look at that,",
         "Here is the second answer,",
       ]);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Synthesis language hint
+  // ---------------------------------------------------------------------------
+
+  describe("synthesis language hint", () => {
+    /** Synthesize one turn and return the provider request it produced. */
+    async function synthesizeOneTurn(
+      output: MediaStreamOutput,
+    ): Promise<{ language?: string }> {
+      mockSynthesize.mockResolvedValue({
+        audio: makeWavBuffer([1000, 2000, 3000, 4000]),
+        contentType: "audio/wav",
+      });
+      output.sendTextToken("Hello caller.", true);
+      await drain(() => mockSynthesize.mock.calls.length > 0);
+      return mockSynthesize.mock.calls[0][0] as { language?: string };
+    }
+
+    test("the resolver's language rides the provider request", async () => {
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "stream-lang");
+      output.setSynthesisLanguageResolver(() => "es");
+
+      const request = await synthesizeOneTurn(output);
+
+      expect(request.language).toBe("es");
+    });
+
+    test("no language when nothing resolves (default multilingual pin)", async () => {
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "stream-lang");
+
+      const request = await synthesizeOneTurn(output);
+
+      expect(request.language).toBeUndefined();
+    });
+
+    test("a monolingual pin on a manual-selection provider resolves as the hint", async () => {
+      setConfig("services", {
+        stt: { provider: "deepgram", language: "es-ES" },
+      });
+      try {
+        const { ws } = createMockWs();
+        const output = makeOutput(ws, "stream-lang");
+
+        const request = await synthesizeOneTurn(output);
+
+        expect(request.language).toBe("es");
+      } finally {
+        setConfig("services", {});
+      }
+    });
+
+    test("the pin is ignored for auto-detecting providers", async () => {
+      setConfig("services", {
+        stt: { provider: "openai-whisper", language: "es" },
+      });
+      try {
+        const { ws } = createMockWs();
+        const output = makeOutput(ws, "stream-lang");
+
+        const request = await synthesizeOneTurn(output);
+
+        expect(request.language).toBeUndefined();
+      } finally {
+        setConfig("services", {});
+      }
     });
   });
 

@@ -897,6 +897,49 @@ describe("MediaStreamSttSession", () => {
       session.dispose();
     });
 
+    // ── Detected-language tally ─────────────────────────────────────
+
+    test("tallies committed finals' dominant language and reports the session dominant", async () => {
+      const { session, fake } = await startStreamingSession();
+
+      expect(session.dominantLanguage()).toBeUndefined();
+
+      fake.emit({ type: "final", text: "hola", languages: ["es", "en"] });
+      fake.emit({ type: "final", text: "hello", languages: ["en"] });
+      fake.emit({ type: "final", text: "buenos dias", languages: ["es"] });
+
+      // Two dominant-tag votes for "es" beat one for "en"; the secondary
+      // "en" tag on the first final casts no vote.
+      expect(session.dominantLanguage()).toBe("es");
+
+      session.dispose();
+    });
+
+    test("regional variants tally toward their base subtag", async () => {
+      const { session, fake } = await startStreamingSession();
+
+      fake.emit({ type: "final", text: "tudo bem", languages: ["pt-BR"] });
+
+      expect(session.dominantLanguage()).toBe("pt");
+
+      session.dispose();
+    });
+
+    test("empty and untagged finals never vote", async () => {
+      const { session, fake } = await startStreamingSession();
+
+      // A silence final can carry container-level tags describing no
+      // emitted words; it must not vote.
+      fake.emit({ type: "final", text: "   ", languages: ["fr"] });
+      expect(session.dominantLanguage()).toBeUndefined();
+
+      // A committed final without tags casts no vote either.
+      fake.emit({ type: "final", text: "hello" });
+      expect(session.dominantLanguage()).toBeUndefined();
+
+      session.dispose();
+    });
+
     test("local VAD turn end never triggers batch transcription in streaming mode", async () => {
       const onTranscriptFinal = jest.fn();
       const { session } = await startStreamingSession(

@@ -30,6 +30,7 @@ import {
   resolveCallTtsProvider,
   resolveSynthesisFormats,
 } from "./resolve-call-tts-provider.js";
+import { resolveTelephonySynthesisLanguage } from "./telephony-synthesis-language.js";
 
 const log = getLogger("call-speech-output");
 
@@ -128,11 +129,15 @@ async function synthesizeAndPlay(
       },
     });
 
+    // No STT session is reachable from the deterministic prompt path, so
+    // only the pin-based language resolves here.
+    const language = resolveTelephonySynthesisLanguage();
     const result = await synthesizeAndEmit({
       provider,
       text,
       useCase: "phone-call",
       outputFormat,
+      ...(language !== undefined ? { language } : {}),
       signal,
       onChunk: sink.onChunk,
       onFirstAudio: sink.onFirstAudio,

@@ -65,6 +65,7 @@ import {
   resolveSynthesisFormats,
 } from "./resolve-call-tts-provider.js";
 import type { PromptSpeakerContext } from "./speaker-identification.js";
+import { resolveTelephonySynthesisLanguage } from "./telephony-synthesis-language.js";
 import { sanitizeForTts } from "./tts-text-sanitizer.js";
 import {
   ASK_GUARDIAN_CAPTURE_REGEX,
@@ -189,6 +190,13 @@ export class CallController {
   private guardianUnavailableForCall = false;
   /** Active synthesized-TTS session — tracked so interrupt handling can close it. */
   private activeSynthesisAbort: AbortController | null = null;
+  /**
+   * Resolves the language hint for synthesized speech. The media-stream
+   * server supplies a resolver backed by the STT session's detected
+   * dominant language; the default falls back to the pin-based
+   * resolution only.
+   */
+  private resolveSynthesisLanguage: () => string | undefined;
 
   constructor(
     callSessionId: string,
@@ -198,6 +206,7 @@ export class CallController {
       broadcast?: (msg: AssistantEvent) => void;
       assistantId?: string;
       trustContext?: TrustContext;
+      resolveSynthesisLanguage?: () => string | undefined;
     },
   ) {
     this.callSessionId = callSessionId;
@@ -207,6 +216,9 @@ export class CallController {
     this.broadcast = opts?.broadcast;
     this.assistantId = opts?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
     this.trustContext = opts?.trustContext ?? null;
+    this.resolveSynthesisLanguage =
+      opts?.resolveSynthesisLanguage ??
+      (() => resolveTelephonySynthesisLanguage());
 
     // Resolve the conversation ID and skipDisclosure from the call session
     const session = getCallSession(callSessionId);
@@ -1080,11 +1092,13 @@ export class CallController {
 
       this.activeSynthesisAbort = abortController;
 
+      const language = this.resolveSynthesisLanguage();
       await synthesizeAndEmit({
         provider,
         text,
         useCase: "phone-call",
         outputFormat,
+        ...(language !== undefined ? { language } : {}),
         signal: abortController.signal,
         isCurrent: () => this.isCurrentRun(runVersion),
         onChunk: sink.onChunk,

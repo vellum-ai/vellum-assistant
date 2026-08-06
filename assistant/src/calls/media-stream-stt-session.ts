@@ -42,6 +42,10 @@ import {
   type TelephonySttCapability,
 } from "../providers/speech-to-text/resolve.js";
 import { normalizeSttError } from "../stt/daemon-batch-transcriber.js";
+import {
+  dominantLanguageTag,
+  voteDominantLanguage,
+} from "../stt/language-metadata.js";
 import { DEFAULT_SPEECH_ENERGY_THRESHOLD } from "../stt/speech-energy.js";
 import type {
   StreamingTranscriber,
@@ -220,6 +224,16 @@ export class MediaStreamSttSession {
   /** Speech-bearing audio milliseconds since the last streaming final. */
   private utteranceAudioMs = 0;
 
+  /**
+   * Count per normalized detected-language tag across the session's
+   * committed streaming finals. Only finals that carry transcript text
+   * vote, mirroring live voice's utterance tally: silence finals can
+   * carry container-level tags describing no emitted words, and counting
+   * those would let silence outvote real speech. Batch transcription
+   * reports no language tags, so the tally stays empty there.
+   */
+  private languageTally = new Map<string, number>();
+
   constructor(
     config: MediaStreamSttSessionConfig = {},
     callbacks: MediaStreamSttSessionCallbacks = {},
@@ -302,6 +316,16 @@ export class MediaStreamSttSession {
   /** Frames dropped from the bounded streaming startup buffer. */
   get streamingStartupFramesDropped(): number {
     return this.startupFramesDroppedCount;
+  }
+
+  /**
+   * The caller's dominant detected language across this session's
+   * committed streaming finals, as a lowercase base subtag. Undefined
+   * when no tagged final has committed (batch mode, non-tagging
+   * providers, silence).
+   */
+  dominantLanguage(): string | undefined {
+    return dominantLanguageTag(this.languageTally);
   }
 
   // ── Event handlers ─────────────────────────────────────────────────
@@ -515,6 +539,7 @@ export class MediaStreamSttSession {
         this.utteranceAudioMs = 0;
         const text = event.text.trim();
         if (text.length > 0) {
+          voteDominantLanguage(this.languageTally, event.languages);
           this.callbacks.onTranscriptFinal?.(text, durationMs);
         }
         return;
