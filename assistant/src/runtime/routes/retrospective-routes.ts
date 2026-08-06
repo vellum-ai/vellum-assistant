@@ -13,7 +13,7 @@
  * `available` gates on `memory.enabled` alone (matching `isMemoryEnabled` in
  * the enqueue path). Retrospectives do NOT depend on `memory.v2.enabled`.
  * `enabled` narrows `available` by `memory.retrospective.enabled`, the
- * per-pass kill switch — so a memory-on assistant with retrospectives turned
+ * per-pass kill switch, so a memory-on assistant with retrospectives turned
  * off reports `available: true, enabled: false` and the Settings row reads
  * "Paused" rather than implying memory itself is off.
  */
@@ -115,7 +115,7 @@ export const ROUTES: RouteDefinition[] = [
       "`createdAt` of the most recent retrospective conversation across " +
       "both legacy and fork sources, `available` gates on `memory.enabled` " +
       "(not `memory.v2.enabled`), and `enabled` narrows that by " +
-      "`memory.retrospective.enabled` — the per-pass kill switch that stops " +
+      "`memory.retrospective.enabled`, the per-pass kill switch that stops " +
       "retrospectives without disabling the rest of memory.",
     tags: ["retrospective"],
     responseBody: z.object({

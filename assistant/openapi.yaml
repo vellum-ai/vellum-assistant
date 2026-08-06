@@ -25220,7 +25220,7 @@ paths:
         `nextRunAt` is always null and no run-now endpoint exists. `intervalMs` is the per-conversation time threshold
         (`memory.retrospective.timeThresholdMs`), `lastRunAt` is the `createdAt` of the most recent retrospective
         conversation across both legacy and fork sources, `available` gates on `memory.enabled` (not
-        `memory.v2.enabled`), and `enabled` narrows that by `memory.retrospective.enabled` — the per-pass kill switch
+        `memory.v2.enabled`), and `enabled` narrows that by `memory.retrospective.enabled`, the per-pass kill switch
         that stops retrospectives without disabling the rest of memory.
       tags:
         - retrospective

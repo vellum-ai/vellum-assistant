@@ -157,7 +157,7 @@ export async function memoryRetrospectiveJob(
   // Execution-time twin of the enqueue funnel's `memory.retrospective.enabled`
   // gate: rows queued before the flag was turned off drain as no-ops instead
   // of forking. The CLI's manual `memory retrospective run` calls
-  // `runForkBasedRetrospective` directly and so is unaffected — an operator's
+  // `runForkBasedRetrospective` directly and so is unaffected: an operator's
   // explicit request overrides the flag, matching the lookback and
   // user-activity gates.
   if (!config.memory.retrospective.enabled) {
@@ -413,6 +413,7 @@ export async function runForkBasedRetrospective(
       title: `${sourceConversation.title ?? "Untitled"} (Retrospective)`,
       conversationType: "background",
       groupId: MEMORY_RETROSPECTIVE_GROUP_ID,
+      forkStrategy: config.memory.retrospective.forkStrategy,
     });
   } catch (err) {
     await bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());

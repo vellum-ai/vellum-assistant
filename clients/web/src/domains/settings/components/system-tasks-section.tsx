@@ -211,8 +211,8 @@ export function SystemTasksSection({
               ? undefined
               : // The row only renders when `available` is true (memory is on),
                 // so a false `enabled` here means the retrospective's own
-                // switch — `memory.retrospective.enabled` — is off.
-                "Retrospectives are turned off in this assistant's memory settings."
+                // switch is off, not memory itself.
+                "Retrospectives are turned off in Memory settings."
           }
           // Always null — retrospectives are event-driven, not scheduled;
           // the row simply omits the "Next:" timestamp.

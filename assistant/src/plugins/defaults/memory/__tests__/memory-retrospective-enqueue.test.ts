@@ -115,7 +115,7 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     expect(call.runAfter).toBeLessThanOrEqual(after);
   });
 
-  test("enabled=false — every trigger is declined before any other gate", () => {
+  test("enabled=false declines every trigger before any other gate", () => {
     cfgRetrospectiveEnabled = false;
 
     for (const trigger of [
@@ -135,7 +135,7 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     expect(gateProbeCalls).toHaveLength(0);
   });
 
-  test("unreadable config — the kill switch fails closed", () => {
+  test("unreadable config: the kill switch fails closed", () => {
     cfgThrows = true;
     const result = enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c1",
