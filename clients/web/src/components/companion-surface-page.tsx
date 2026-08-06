@@ -137,7 +137,7 @@ export function CompanionSurfacePage() {
         anchor={anchor}
         avatarSrc={avatarSrc}
         rootRef={pillRef}
-        onAvatarMouseDown={(event) => {
+        onSurfaceMouseDown={(event) => {
           dragRef.current = { x: event.screenX, y: event.screenY };
         }}
       />

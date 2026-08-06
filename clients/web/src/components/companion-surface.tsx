@@ -100,9 +100,9 @@ export interface CompanionSurfaceProps {
    */
   avatarSrc?: string;
   /**
-   * Expand. Wired to the avatar alone, never to the surface: the circle is the
-   * only part of this on screen at rest, so anything larger would arm from
-   * empty space the user cannot see.
+   * Expand. Wired to the avatar alone, never to the surface: at rest the two
+   * are the same box, but arming from anything larger than what is drawn would
+   * expand the surface from empty space the user cannot see.
    */
   onHoverStart?: () => void;
   /**
@@ -125,8 +125,11 @@ export interface CompanionSurfaceProps {
    * restating the geometry at the call site.
    */
   rootRef?: Ref<HTMLDivElement>;
-  /** Begin a drag. The avatar is the handle; the controls are not. */
-  onAvatarMouseDown?: (event: ReactMouseEvent<HTMLDivElement>) => void;
+  /**
+   * Begin a drag. Everything that is not a control is a handle, so this is
+   * wired to the surface and the controls stop the press from reaching it.
+   */
+  onSurfaceMouseDown?: (event: ReactMouseEvent<HTMLDivElement>) => void;
 }
 
 export function CompanionSurface({
@@ -138,7 +141,7 @@ export function CompanionSurface({
   onHoverEnd,
   anchor = "center",
   rootRef,
-  onAvatarMouseDown,
+  onSurfaceMouseDown,
 }: CompanionSurfaceProps) {
   const expanded = phase !== "resting";
   const width = WIDTHS[phase];
@@ -165,21 +168,35 @@ export function CompanionSurface({
   };
 
   return (
+    // The whole surface is the drag handle. Controls opt out by stopping the
+    // press, so everything that is not a button can be grabbed, which at rest
+    // means the avatar and when expanded means the pill around the controls.
     <div
-      className="absolute top-1/2 flex h-11 items-center rounded-full border border-white/10 bg-[#17181b]/95 shadow-lg shadow-black/40 transition-[width,margin-left] duration-300 will-change-[width,margin-left]"
+      className="absolute top-1/2 flex h-11 cursor-grab items-center rounded-full transition-[width,margin-left] duration-300 will-change-[width,margin-left] active:cursor-grabbing"
       style={style}
       onMouseLeave={onHoverEnd}
+      onMouseDown={onSurfaceMouseDown}
       ref={rootRef}
     >
+      {/* The pill's body, which exists only once there is a pill. At rest the
+          surface is the avatar and nothing else: a dark disc with a border
+          drawn around a round avatar reads as a hard ring the avatar happens to
+          sit inside, and stacked under the glow it is two rings. Fading the
+          body in with the expansion also gives the avatar something to grow
+          out of. */}
+      <span
+        className="absolute inset-0 rounded-full border border-white/10 bg-[#17181b]/95 shadow-lg shadow-black/40 transition-opacity duration-200"
+        style={{ opacity: expanded ? 1 : 0 }}
+        aria-hidden
+      />
       <Avatar
         glow={glow && !expanded}
         accentHex={accentHex}
         avatarSrc={avatarSrc}
         onMouseEnter={onHoverStart}
-        onMouseDown={onAvatarMouseDown}
       />
       <div
-        className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden transition-opacity duration-200"
+        className="relative flex min-w-0 flex-1 items-center gap-1 overflow-hidden transition-opacity duration-200"
         style={{
           opacity: expanded ? 1 : 0,
           // Contents fade after the body has somewhere to put them, so nothing
@@ -196,34 +213,31 @@ export function CompanionSurface({
 /**
  * The avatar, and the only part of the surface that arms the expansion.
  *
- * The glow sits behind the image rather than around the 44px box, so it reads
- * as the avatar being lit rather than as a ring drawn near it. It is also the
- * one thing here sized to the box instead of the image: a halo the size of its
- * source has nowhere to fall off.
+ * The glow sits behind the image and is blurred well past it, so it falls off
+ * into the desktop rather than ending on an edge. A halo the size of its source
+ * has nowhere to fall off, which is what made the earlier one read as a second
+ * ring around the avatar instead of light coming off it.
  */
 function Avatar({
   glow,
   accentHex,
   avatarSrc,
   onMouseEnter,
-  onMouseDown,
 }: {
   glow: boolean;
   accentHex: string;
   avatarSrc?: string;
   onMouseEnter?: () => void;
-  onMouseDown?: (event: ReactMouseEvent<HTMLDivElement>) => void;
 }) {
   return (
     <div
-      className="relative grid size-11 shrink-0 cursor-grab place-items-center active:cursor-grabbing"
+      className="relative grid size-11 shrink-0 place-items-center"
       onMouseEnter={onMouseEnter}
-      onMouseDown={onMouseDown}
     >
       {glow && (
         <span
-          className="absolute size-9 animate-pulse rounded-full blur-md"
-          style={{ background: accentHex, opacity: 0.45 }}
+          className="absolute size-10 animate-pulse rounded-full blur-lg"
+          style={{ background: accentHex, opacity: 0.4 }}
           aria-hidden
         />
       )}
@@ -231,7 +245,7 @@ function Avatar({
         // Until the avatar resolves, a disc in its colour. Same 28px, so
         // nothing about the geometry moves when the image lands.
         <span
-          className="relative size-7 rounded-full"
+          className="relative size-7 rounded-full drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]"
           style={{ background: accentHex }}
           aria-hidden
         />
@@ -239,7 +253,7 @@ function Avatar({
         <img
           src={avatarSrc}
           alt=""
-          className="relative size-7 rounded-full object-contain"
+          className="relative size-7 rounded-full object-contain drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]"
         />
       )}
     </div>
@@ -305,6 +319,11 @@ function PillButton({
       type="button"
       aria-label={label}
       title={label}
+      // A press on a control is not the start of a drag. Without this the
+      // surface would move under a click meant to activate something on it.
+      onMouseDown={(event) => {
+        event.stopPropagation();
+      }}
       className={`flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${
         tone === "negative" ? "text-[#ff6b6b]" : "text-white/85"
       }`}
