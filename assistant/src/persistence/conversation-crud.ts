@@ -973,11 +973,10 @@ export function createConversation(
          * `origin_channel` at insert, so the row is attributed from the
          * moment it exists.
          *
-         * Optional only while the call sites are being migrated
-         * (JARVIS-1466). Omitting it leaves the column NULL for
-         * `setConversationOriginChannelIfUnset` to fill in on the first
-         * inbound message, which is the behavior every caller had before
-         * this parameter existed. New callers should always pass it.
+         * Pass it whenever the origin is known. Omitting it leaves the
+         * column unset, and the conversation is instead attributed by
+         * `setConversationOriginChannelIfUnset` when its first inbound
+         * message arrives.
          */
         origin?: ConversationOrigin;
         forkParentConversationId?: string;
@@ -1104,8 +1103,7 @@ export function createConversation(
  * would come back as the guardian's own. Parent ids here come from daemon
  * internals rather than user input, so a missing one is a programming error.
  *
- * `undefined` maps to NULL, for the callers that cannot yet state an origin.
- * See JARVIS-1466.
+ * `undefined` maps to NULL, leaving the row for first-message attribution.
  */
 function resolveConversationOrigin(
   origin: ConversationOrigin | undefined,
