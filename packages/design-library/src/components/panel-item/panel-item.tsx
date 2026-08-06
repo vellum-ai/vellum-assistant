@@ -194,7 +194,6 @@ const INTERACTIVE_CLASSES = [
 const PILL_SHAPE_CLASSES = [
   "w-fit rounded-full",
   "bg-[var(--surface-lift)]",
-  "pr-3",
 ].join(" ");
 
 const ACTIVE_DEFAULT_CLASSES = [
@@ -224,8 +223,7 @@ const ICON_ACTIVE_BRANDED =
 
 const LABEL_CLASSES = "min-w-0 flex-1 truncate";
 
-const EXPAND_CHEVRON_CLASSES =
-  "shrink-0 text-[var(--content-tertiary)]";
+const EXPAND_CHEVRON_CLASSES = "shrink-0 text-[var(--content-tertiary)]";
 
 const RIGHT_CLUSTER_CLASSES = "flex items-center gap-2 shrink-0";
 
@@ -303,11 +301,19 @@ function PanelItem({
     activeVariant === "branded" ? ICON_ACTIVE_BRANDED : ICON_ACTIVE_DEFAULT;
 
   const leadingIcon =
-    leadingSlot !== undefined
-      ? leadingSlot
-      : Icon
-        ? <Icon size={14} aria-hidden className={cn("max-md:size-4", LEADING_ICON_BASE_CLASSES, iconActiveClass)} />
-        : null;
+    leadingSlot !== undefined ? (
+      leadingSlot
+    ) : Icon ? (
+      <Icon
+        size={14}
+        aria-hidden
+        className={cn(
+          "max-md:size-4",
+          LEADING_ICON_BASE_CLASSES,
+          iconActiveClass,
+        )}
+      />
+    ) : null;
 
   const labelNode = marqueeOnHover ? (
     <MarqueeText>{label}</MarqueeText>
@@ -316,11 +322,7 @@ function PanelItem({
   );
 
   const expandChevronNode = ExpandChevron ? (
-    <ExpandChevron
-      size={12}
-      aria-hidden
-      className={EXPAND_CHEVRON_CLASSES}
-    />
+    <ExpandChevron size={12} aria-hidden className={EXPAND_CHEVRON_CLASSES} />
   ) : null;
 
   const badgeNode =
@@ -362,7 +364,9 @@ function PanelItem({
   );
 
   const activeClasses =
-    activeVariant === "branded" ? ACTIVE_BRANDED_CLASSES : ACTIVE_DEFAULT_CLASSES;
+    activeVariant === "branded"
+      ? ACTIVE_BRANDED_CLASSES
+      : ACTIVE_DEFAULT_CLASSES;
   const isInteractive = asChild || !!href || !!onSelect;
   const rowClasses = cn(
     ROW_BASE_CLASSES,
@@ -500,4 +504,3 @@ export {
   ACTIVE_DEFAULT_CLASSES,
   ACTIVE_BRANDED_CLASSES,
 };
-

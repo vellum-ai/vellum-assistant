@@ -116,26 +116,23 @@ describe("PanelItem shape", () => {
     expect(html).not.toContain("rounded-full");
   });
 
-  /* The row's own radius and width must be *replaced*, not merely joined by
-     the pill's. Emitting both leaves the winner to stylesheet order, which is
-     how a capsule silently renders as a 6px row. */
-  test("pill replaces the row's radius and width rather than stacking on them", () => {
+  /* Two failure modes in one assertion.
+
+     The row's radius and width must be *replaced*, not merely joined by the
+     pill's: emitting both leaves the winner to stylesheet order, which is how
+     a capsule silently renders as a 6px row.
+
+     And the replacement must be an intrinsic width. The root is a block-level
+     flex container, so `width: auto` resolves to the containing block and the
+     pill stretches to row width in any ordinary layout. A story cannot stand
+     in for this check: a parent that shrink-wraps its children supplies the
+     behavior externally and hides the defect. */
+  test("pill replaces the row's radius and width with an intrinsic width", () => {
     const html = renderShaped("pill");
     expect(html).toContain("rounded-full");
     expect(html).toContain("w-fit");
     expect(html).not.toContain("rounded-[6px]");
     expect(html).not.toContain("w-full");
-  });
-
-  /* The root is a block-level flex container, so `width: auto` fills the
-     containing block and the pill silently renders at row width in any
-     ordinary layout. Only an intrinsic width shrink-wraps it. A story cannot
-     stand in for this: a parent that shrink-wraps its children (a flex column
-     with `align-items: flex-start`) supplies the behavior externally and hides
-     the defect. */
-  test("pill is intrinsically sized, not auto-width", () => {
-    const html = renderShaped("pill");
-    expect(html).toContain("w-fit");
     expect(html).not.toContain("w-auto");
   });
 
