@@ -424,7 +424,15 @@ export function resolveBackgroundTaskIds(
   return ids;
 }
 
-/** The document tools that change a document's content. */
+/**
+ * The document tools that change a document's content.
+ *
+ * The daemon keeps its own copy of this list, in the documents-changed hook in
+ * `assistant/src/daemon/tool-side-effects.ts`. That one also carries
+ * `document_delete`, which is left out here on purpose: a deleted document has
+ * nothing to reopen, so it must not anchor a changed-document chip. Add a new
+ * mutating document tool to both.
+ */
 const DOCUMENT_MUTATION_TOOLS: ReadonlySet<string> = new Set([
   "document_create",
   "document_update",

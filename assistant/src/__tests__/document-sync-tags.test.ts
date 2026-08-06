@@ -15,6 +15,11 @@ import { initializeDb } from "../persistence/db-init.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ROUTES as DOCUMENT_ROUTES } from "../runtime/routes/documents-routes.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
+import {
+  DOCUMENTS_CHANGED_COALESCE_MS,
+  DOCUMENTS_CHANGED_MAX_DEFER_MS,
+  publishDocumentsChanged,
+} from "../runtime/sync/resource-sync-events.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
 await initializeDb();
@@ -35,15 +40,27 @@ function getRoute(operationId: string): RouteDefinition {
 }
 
 /**
+ * Wait past the documents coalescing window plus a few ticks of async hub
+ * dispatch, so a publish scheduled before the wait has certainly landed.
+ */
+async function settlePublishes(): Promise<void> {
+  await new Promise((resolve) =>
+    setTimeout(resolve, DOCUMENTS_CHANGED_COALESCE_MS + 50),
+  );
+}
+
+/**
  * Run `action` and return every `sync_changed` event it produced.
  *
- * The hub dispatches asynchronously, so the capture window stays open for a
- * few ticks past the action. That window is what lets a "publishes nothing"
+ * Publishes coalesce and the hub dispatches asynchronously, so the window is
+ * drained before the capture starts (setup writes must not leak into it) and
+ * held open past the action. That window is what lets a "publishes nothing"
  * assertion be meaningful and what catches a stray second publish.
  */
 async function captureSyncEvents(
   action: () => unknown | Promise<unknown>,
 ): Promise<AssistantEventEnvelope[]> {
+  await settlePublishes();
   const received: AssistantEventEnvelope[] = [];
   const subscription = assistantEventHub.subscribe({
     type: "process",
@@ -55,7 +72,7 @@ async function captureSyncEvents(
   });
   try {
     await action();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settlePublishes();
     return received;
   } finally {
     subscription.dispose();
@@ -134,11 +151,11 @@ describe("document write routes publish documents:list", () => {
     expectDocumentsChanged(events);
   });
 
-  test("an upsert over an existing document publishes again", async () => {
+  test("retitling an existing document publishes", async () => {
     await saveViaRoute();
 
     const events = await captureSyncEvents(() =>
-      saveViaRoute({ content: "hello world again", wordCount: 3 }),
+      saveViaRoute({ title: "Renamed notes" }),
     );
     expectDocumentsChanged(events);
   });
@@ -174,6 +191,40 @@ describe("document write routes publish documents:list", () => {
     expectDocumentsChanged(events);
   });
 
+  test("the link publishes without an origin so the caller is not suppressed", async () => {
+    // `document-viewer-page` links, then navigates to the conversation whose
+    // assets pill must now list the document, and invalidates nothing itself.
+    await saveViaRoute();
+
+    const events = await captureSyncEvents(() =>
+      invoke("linkDocumentConversation", {
+        pathParams: { id: "doc-sync" },
+        body: { conversationId: OTHER_CONVERSATION_ID },
+        headers: { "x-vellum-client-id": "client-abc" },
+      }),
+    );
+
+    expect(events).toHaveLength(1);
+    expect("originClientId" in events[0].message).toBe(false);
+  });
+
+  test("binding a workspace file publishes without an origin so the caller is not suppressed", async () => {
+    // `viewer-store.loadWorkspaceFileDocument` creates the row and invalidates
+    // nothing, so the client that opened the file is the one that most needs
+    // the invalidation.
+    writeFileSync(join(notesDir, "plan.md"), "# Plan");
+
+    const events = await captureSyncEvents(() =>
+      invoke("documentForWorkspaceFile", {
+        body: { path: "sync-notes/plan.md", conversationId: CONVERSATION_ID },
+        headers: { "x-vellum-client-id": "client-abc" },
+      }),
+    );
+
+    expect(events).toHaveLength(1);
+    expect("originClientId" in events[0].message).toBe(false);
+  });
+
   test("binding a workspace file to a new document publishes", async () => {
     writeFileSync(join(notesDir, "plan.md"), "# Plan");
 
@@ -206,7 +257,19 @@ describe("document write routes publish documents:list", () => {
   });
 });
 
-describe("document routes that write nothing stay silent", () => {
+describe("document routes that change nothing the list shows stay silent", () => {
+  test("a content-only autosave publishes nothing", async () => {
+    // The web editor autosaves about once a second while the user types and
+    // always resends the same title, so a content-only save must not make every
+    // other client drain its document queries.
+    await saveViaRoute();
+
+    const events = await captureSyncEvents(() =>
+      saveViaRoute({ content: "hello world again", wordCount: 3 }),
+    );
+    expect(events).toEqual([]);
+  });
+
   test("reopening an unchanged, already-linked file publishes nothing", async () => {
     writeFileSync(join(notesDir, "plan.md"), "# Plan");
     await openWorkspaceFile("sync-notes/plan.md");
@@ -260,5 +323,56 @@ describe("document routes that write nothing stay silent", () => {
       invoke("getDocument", { pathParams: { id: "doc-sync" } }),
     );
     expect(events).toEqual([]);
+  });
+});
+
+describe("documents-changed publishes coalesce", () => {
+  test("a burst of writes collapses into a single broadcast", async () => {
+    // The document-editor skill streams a document as many `document_update`
+    // calls, each of which publishes. Without coalescing each one drains three
+    // documentsGet queries on every connected client.
+    const events = await captureSyncEvents(() => {
+      for (let i = 0; i < 10; i++) {
+        publishDocumentsChanged();
+      }
+    });
+
+    expectDocumentsChanged(events);
+  });
+
+  test("a burst spanning two clients drops the origin so neither suppresses it", async () => {
+    const events = await captureSyncEvents(() => {
+      publishDocumentsChanged("client-a");
+      publishDocumentsChanged("client-b");
+    });
+
+    expect(events).toHaveLength(1);
+    expect("originClientId" in events[0].message).toBe(false);
+  });
+
+  test("a burst from one client keeps that client's origin", async () => {
+    const events = await captureSyncEvents(() => {
+      publishDocumentsChanged("client-a");
+      publishDocumentsChanged("client-a");
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0].message).toMatchObject({ originClientId: "client-a" });
+  });
+
+  test("an unbroken run of writes still publishes before the turn ends", async () => {
+    // A document streamed in sub-window chunks would otherwise keep pushing the
+    // timer out and never refresh the list while it is being written.
+    const events = await captureSyncEvents(async () => {
+      const deadline = Date.now() + DOCUMENTS_CHANGED_MAX_DEFER_MS + 100;
+      while (Date.now() < deadline) {
+        publishDocumentsChanged();
+        await new Promise((resolve) =>
+          setTimeout(resolve, DOCUMENTS_CHANGED_COALESCE_MS / 3),
+        );
+      }
+    });
+
+    expect(events.length).toBeGreaterThanOrEqual(1);
   });
 });
