@@ -14,6 +14,7 @@ import {
 } from "@/runtime/companion-surface";
 import { sendVoiceActivityControl } from "@/runtime/desktop-voice-activity";
 import type {
+  CompanionCharacter,
   CompanionGrowth,
   CompanionSurfaceState,
   VoiceActivityState,
@@ -52,6 +53,7 @@ const DRAG_SLOP = 3;
 export function CompanionSurfacePage() {
   const [growth, setGrowth] = useState<CompanionGrowth>("right");
   const [avatarSrc, setAvatarSrc] = useState<string | undefined>();
+  const [character, setCharacter] = useState<CompanionCharacter | undefined>();
   const [call, setCall] = useState<VoiceActivityState | null>(null);
   const [hovered, setHovered] = useState(false);
   // Mirrors what main was last told, so a pointer crossing the pill does not
@@ -77,6 +79,7 @@ export function CompanionSurfacePage() {
           ? undefined
           : `data:image/png;base64,${state.avatarBase64}`,
       );
+      setCharacter(state.character);
       setCall(state.call);
     };
     const unsubscribe = subscribeCompanionState(apply);
@@ -187,6 +190,9 @@ export function CompanionSurfacePage() {
         phase={phase}
         growth={growth}
         avatarSrc={avatarSrc}
+        character={character}
+        // The creature notices the hand, in every state including mid-call.
+        hovered={hovered}
         accentHex={accentHex}
         call={call ?? undefined}
         rootRef={pillRef}

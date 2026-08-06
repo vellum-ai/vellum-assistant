@@ -39,6 +39,20 @@ const EXAMPLE_AVATAR = `data:image/svg+xml;utf8,${encodeURIComponent(
 )}`;
 
 /**
+ * The same creature as traits rather than pixels, which is how the real
+ * surface receives it: composed live so it blinks, twitches and breathes, and
+ * holds a focused pose while the turn is the assistant's.
+ *
+ * Clear `character` in the controls to see the custom-image fallback, which is
+ * a still and does none of that.
+ */
+const EXAMPLE_CHARACTER = {
+  bodyShape: "burst",
+  eyeStyle: "curious",
+  color: "teal",
+};
+
+/**
  * The surface floats over other applications, so every story sits on a
  * stand-in desktop rather than the Storybook canvas. What is behind it is the
  * variable that decides whether the pill is readable, which is why it is a
@@ -83,6 +97,7 @@ const meta: Meta<StoryArgs> = {
     glow: true,
     backdrop: "dark",
     avatarSrc: EXAMPLE_AVATAR,
+    character: EXAMPLE_CHARACTER,
   },
   decorators: [
     (Story, context) => {
@@ -117,9 +132,16 @@ export const Resting: Story = {
   args: { phase: "resting" },
 };
 
-/** Expanded with the app idle: the two ways in. */
+/**
+ * Expanded with the app idle: the two ways in.
+ *
+ * `hovered` is what the creature answers: the eyes widen while the hand is
+ * over the surface. It is a separate arg from `phase` because a call holds the
+ * pill open regardless of the pointer, and the mascot should still notice a
+ * hand arriving mid-call.
+ */
 export const Hover: Story = {
-  args: { phase: "hover" },
+  args: { phase: "hover", hovered: true },
 };
 
 /** Expanded mid-call: the session's own controls, at pill scale. */
@@ -149,6 +171,25 @@ export const PendingApproval: Story = {
       detail: "Read package.json",
       approvalRequestId: "req-1",
       startedAt: Date.now() - 14_000,
+    },
+  },
+};
+
+/**
+ * The assistant's turn, which is what the mascot expresses.
+ *
+ * Compare with `InCall` above: same row, but the creature stops blinking and
+ * holds the focused, morphing pose it uses in chat while a reply streams. The
+ * words name the finer phase; the mascot says whose turn it is.
+ */
+export const InCallAssistantTurn: Story = {
+  args: {
+    phase: "call",
+    call: {
+      ...DEMO_CALL,
+      phase: "thinking",
+      label: "Thinking\u2026",
+      startedAt: Date.now() - 9_000,
     },
   },
 };
@@ -287,6 +328,7 @@ function HoverDrivenSurface(args: StoryArgs) {
       <CompanionSurface
         {...args}
         phase={phase}
+        hovered={hovered}
         avatarSrc={uploaded ?? args.avatarSrc}
         onHoverStart={() => {
           setHovered(true);

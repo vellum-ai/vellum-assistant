@@ -1,14 +1,10 @@
 import {
   ArrowUp,
   AudioLines,
-  Brain,
   Check,
   Keyboard,
-  MessageSquareText,
   Mic,
   MicOff,
-  PhoneOff,
-  RadioTower,
   Volume2,
   VolumeX,
   X,
@@ -22,10 +18,13 @@ import type {
 } from "react";
 
 import type {
+  CompanionCharacter,
   VoiceActivityControlAction,
-  VoiceActivityPhase,
   VoiceActivityState,
 } from "@vellumai/ipc-contract";
+
+import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
 /**
  * The macOS companion surface (LUM-3086): the assistant's avatar floating from
@@ -66,10 +65,7 @@ import type {
  *
  * Open, and reproducible from the stories:
  *
- * 1. **The microphone glyph means two things in a call**, "listening" and
- *    "mute", forty pixels apart. The shipped voice panel has the same
- *    collision, so it is worth solving once rather than twice.
- * 2. **Nothing marks a live call while resting.** The circle looks identical
+ * 1. **Nothing marks a live call while resting.** The circle looks identical
  *    whether or not the microphone is open, which is the state this surface
  *    exists to make visible.
  */
@@ -98,11 +94,30 @@ export type CompanionSurfaceGrowth = "right" | "left";
 /** Fallback accent, used until the assistant's own avatar colour is known. */
 const DEFAULT_ACCENT = "#5eead4";
 
+/**
+ * The phases that are the assistant's turn rather than the user's.
+ *
+ * What the mascot expresses is whose turn it is, which is the distinction a
+ * glance actually needs: the creature is either waiting on you or working. The
+ * finer phase is in the words beside it, where the reading is deliberate.
+ *
+ * `connecting` and `ending` are neither turn, and read better as the ordinary
+ * idle creature than as one straining.
+ */
+const ASSISTANT_TURN_PHASES = new Set(["transcribing", "thinking", "speaking"]);
+
 // The avatar is a fixed 44px disc in every state; only the body around it
 // changes. That is what makes this one surface expanding rather than three
 // surfaces that happen to share a colour, and it is the property to protect as
 // the states gain content.
 const AVATAR_BOX = 44;
+
+/**
+ * The avatar artwork inside that box, which is inset by {@link INNER_GAP} on
+ * every side. Both the still and the composed creature draw at this size, so
+ * nothing moves when one replaces the other.
+ */
+const AVATAR_IMAGE = 28;
 
 /**
  * The clearance every round thing inside the pill keeps from its edge.
@@ -184,8 +199,33 @@ export interface CompanionSurfaceProps {
    * The assistant's avatar. Any image source: the Electron payload carries it
    * as base64, which the caller turns into a data URL. Falls back to a disc in
    * the accent colour while it is still resolving.
+   *
+   * Only used when there is no {@link character} to compose, since a still
+   * cannot blink.
    */
   avatarSrc?: string;
+  /**
+   * The traits to compose the live creature from.
+   *
+   * **This is the surface's status channel.** The mascot is the one thing on
+   * the pill present in every state, so it is what carries how the assistant
+   * *is*: it blinks and breathes at rest, and holds a focused, morphing pose
+   * while the turn is the assistant's. That is also what frees the mic and
+   * speaker glyphs to mean nothing but their controls.
+   *
+   * Absent for an assistant whose avatar is a custom uploaded image, which
+   * falls back to {@link avatarSrc} and does not animate.
+   */
+  character?: CompanionCharacter;
+  /**
+   * Whether the pointer is on the surface, which the creature answers by
+   * widening its eyes.
+   *
+   * Passed rather than derived from `phase`, because a call holds the pill open
+   * regardless of the pointer and the mascot should still notice a hand
+   * arriving over it mid-call.
+   */
+  hovered?: boolean;
   /**
    * Expand. Wired to the avatar alone, never to the surface: at rest the two
    * are the same box, but arming from anything larger than what is drawn would
@@ -269,6 +309,8 @@ export function CompanionSurface({
   glow = true,
   accentHex = DEFAULT_ACCENT,
   avatarSrc,
+  character,
+  hovered = false,
   onHoverStart,
   onHoverEnd,
   growth = "right",
@@ -389,6 +431,13 @@ export function CompanionSurface({
           glow={glow && !expanded}
           accentHex={accentHex}
           avatarSrc={avatarSrc}
+          character={character}
+          attentive={hovered}
+          // The assistant's own turn. The creature stops blinking and holds a
+          // focused, morphing pose, which is the same treatment the chat avatar
+          // uses while a reply is streaming: one vocabulary for "it is working"
+          // wherever the user meets it.
+          busy={call !== undefined && ASSISTANT_TURN_PHASES.has(call.phase)}
           onMouseEnter={onHoverStart}
           onClick={onAvatarClick}
         />
@@ -518,12 +567,18 @@ function Avatar({
   glow,
   accentHex,
   avatarSrc,
+  character,
+  busy = false,
+  attentive = false,
   onMouseEnter,
   onClick,
 }: {
   glow: boolean;
   accentHex: string;
   avatarSrc?: string;
+  character?: CompanionCharacter;
+  busy?: boolean;
+  attentive?: boolean;
   onMouseEnter?: () => void;
   onClick?: () => void;
 }) {
@@ -543,8 +598,21 @@ function Avatar({
           aria-hidden
         />
       )}
-      {avatarSrc === undefined ? (
-        // Until the avatar resolves, a disc in its colour. Same 28px, so
+      {character !== undefined ? (
+        // The live creature, composed here rather than shipped as pixels. It
+        // blinks, twitches and breathes on its own, which is the whole reason
+        // the traits cross the bridge instead of a still.
+        <div className="relative drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]">
+          <AnimatedAvatar
+            components={BUNDLED_COMPONENTS}
+            traits={character}
+            size={AVATAR_IMAGE}
+            isAssistantBusy={busy}
+            attentive={attentive}
+          />
+        </div>
+      ) : avatarSrc === undefined ? (
+        // Until the avatar resolves, a disc in its colour. Same size, so
         // nothing about the geometry moves when the image lands.
         <span
           className="relative size-7 rounded-full drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]"
@@ -552,6 +620,8 @@ function Avatar({
           aria-hidden
         />
       ) : (
+        // A custom uploaded image, which has no traits to compose and so no
+        // eyes to animate.
         <img
           src={avatarSrc}
           alt=""
@@ -608,8 +678,14 @@ function IdleBody({
  * through from the session's store, because the phase wording deploys
  * continuously with the web bundle while this surface's shell ships on release
  * cadence. A surface that re-words its own phases is how the two come to
- * disagree. The glyph is the exception, and is not copy: the phase vocabulary
- * is the contract, so a new phase makes its switch a compile error.
+ * disagree.
+ *
+ * **And no phase glyph.** One belonged here until it collided: a microphone
+ * meaning "listening" sat forty pixels from a microphone meaning "mute", and a
+ * speaker meaning "speaking" from a speaker meaning "mute the assistant".
+ * Adjacent identical glyphs meaning different things is a coin flip, so status
+ * moved to the mascot, which is the one element on the pill that is not a
+ * control and cannot be mistaken for one.
  */
 function CallBody({
   call,
@@ -632,11 +708,10 @@ function CallBody({
     );
   }
 
-  const phase = call?.phase ?? "listening";
   // The activity line when the turn has one, the phase otherwise. `detail` is
   // the more specific of the two ("Reading a file" against "Thinking…") and is
   // empty for most of a call, so this reads as the surface saying more exactly
-  // when there is more to say. The glyph carries the phase either way.
+  // when there is more to say. The mascot carries the state either way.
   const line = call === undefined ? "Listening" : call.detail || call.label;
   const muted = call?.muted ?? false;
   const outputMuted = call?.outputMuted ?? false;
@@ -648,11 +723,8 @@ function CallBody({
           measure its own collapsed self: the width and the truncation would
           chase each other down. The cap is what keeps a pathological label from
           growing the pill without bound. */}
-      <span className="ml-1 flex shrink-0 items-center gap-1.5">
-        <PhaseGlyph phase={phase} />
-        <span className="max-w-[120px] truncate text-[12px] text-white/85">
-          {line}
-        </span>
+      <span className="ml-1 max-w-[120px] shrink-0 truncate text-[12px] text-white/85">
+        {line}
       </span>
       <span className="ml-1 shrink-0 font-mono text-[11px] tabular-nums text-white/60">
         <Elapsed startedAt={call?.startedAt} />
@@ -745,45 +817,11 @@ function ApprovalBody({
 }
 
 /**
- * The phase as a glyph, matching `phaseSymbol` in
- * `VoiceSessionIslandViews.swift` one-for-one.
- *
- * It earns its place by being legible at a glance from across a desk, which a
- * 12px caption is not: someone whose assistant sits in a screen corner reads
- * its state peripherally, and the glyph is what survives that. It is also what
- * keeps the phase visible on the frames where the line above shows the turn's
- * activity instead.
- *
- * Known corner, shared with the island: a `speaking` phase gone silent
- * mid-turn relabels to "Thinking…" through `liveVoiceSurfaceLabel` while
- * `phase` stays `speaking`, so the glyph reads as a speaker beside that word.
- * It is not fixable on one surface alone, because the daemon's push path
- * composes the island's content from the raw phase.
- */
-function PhaseGlyph({ phase }: { phase: VoiceActivityPhase }) {
-  const className = "size-3.5 shrink-0 text-[var(--accent)]";
-  switch (phase) {
-    case "connecting":
-      return <RadioTower className={className} aria-hidden />;
-    case "listening":
-      return <Mic className={className} aria-hidden />;
-    case "transcribing":
-      return <MessageSquareText className={className} aria-hidden />;
-    case "thinking":
-      return <Brain className={className} aria-hidden />;
-    case "speaking":
-      return <Volume2 className={className} aria-hidden />;
-    case "ending":
-      return <PhoneOff className={className} aria-hidden />;
-  }
-}
-
-/**
  * Elapsed call time.
  *
  * Ticks from a timestamp the caller owns rather than one of its own, because
  * the session started before this component mounted and will outlive it: the
- * panel that renders this can reload mid-call. With no timestamp it holds a
+ * surface that renders this can reload mid-call. With no timestamp it holds a
  * fixed sample, which is what a static story wants.
  */
 function Elapsed({ startedAt }: { startedAt?: number }) {

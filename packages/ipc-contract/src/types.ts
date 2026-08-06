@@ -567,9 +567,33 @@ export const COMPANION_GROWTHS = ["right", "left"] as const;
 
 export type CompanionGrowth = (typeof COMPANION_GROWTHS)[number];
 
+/**
+ * The assistant's character, as the three trait ids it is composed from.
+ *
+ * Structurally the fields of the web layer's `CharacterTraits` that
+ * `composeSvg` actually consumes, restated here rather than imported: that type
+ * is generated from the daemon's OpenAPI schema, and the contract package must
+ * not depend on it.
+ *
+ * Traits rather than pixels, because the surface renders the *live* character
+ * from them: an avatar that blinks and breathes cannot be shipped as a still.
+ * Absent for an assistant whose avatar is a custom uploaded image, which has no
+ * traits to compose from and stays a still.
+ */
+export interface CompanionCharacter {
+  bodyShape: string;
+  eyeStyle: string;
+  color: string;
+}
+
 /** What main tells the companion renderer. */
 export interface CompanionSurfaceState {
   growth: CompanionGrowth;
+  /**
+   * The character to render live, or `undefined` when there is none to
+   * compose. See {@link CompanionCharacter}; `avatarBase64` is the fallback.
+   */
+  character?: CompanionCharacter;
   /**
    * The live-voice session the surface is showing, or `null` when none is
    * running.

@@ -20,6 +20,7 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionCharacter,
   CompanionGrowth,
   CompanionSurfaceState,
   ConnectivityState,
@@ -190,6 +191,7 @@ declare global {
       };
       icon?: {
         setAvatar(png: Uint8Array | null): void;
+        setCharacter?(character: CompanionCharacter | null): void;
       };
       dock: {
         setBadge(count: number): void;

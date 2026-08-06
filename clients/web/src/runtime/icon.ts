@@ -1,4 +1,5 @@
 import { isElectron } from "@/runtime/is-electron";
+import type { CompanionCharacter } from "@vellumai/ipc-contract";
 
 /**
  * Per-capability wrapper for the Electron host's app-icon surfaces (the macOS
@@ -19,4 +20,26 @@ export function setAssistantIcon(png: Uint8Array | null): void {
     return;
   }
   window.vellum?.icon?.setAvatar(png);
+}
+
+/**
+ * Publish the traits the assistant's character is composed from, for surfaces
+ * that render it live rather than showing the still {@link setAssistantIcon}
+ * ships.
+ *
+ * The Dock and the Tray cannot animate, so pixels are all they can use. The
+ * companion surface is a web renderer and can, so it composes the character
+ * itself and the creature blinks and breathes there. Pass `null` for a custom
+ * uploaded image or no avatar, which have no traits to compose from.
+ *
+ * Safe to call from any host: no-op off Electron and on a shell that predates
+ * the channel.
+ */
+export function setAssistantCharacter(
+  character: CompanionCharacter | null,
+): void {
+  if (!isElectron()) {
+    return;
+  }
+  window.vellum?.icon?.setCharacter?.(character);
 }

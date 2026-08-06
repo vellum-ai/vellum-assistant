@@ -10,7 +10,7 @@ import {
   type VoiceActivityState,
 } from "@vellumai/ipc-contract";
 
-import { getAvatarPng, onAvatarChange } from "./avatar";
+import { getAvatarPng, getCharacter, onAvatarChange } from "./avatar";
 import { createFloatingWindow, getFloatingWindow } from "./floating-window";
 import { handle, on } from "./ipc";
 import {
@@ -105,8 +105,10 @@ let call: VoiceActivityState | null = null;
  */
 const currentState = (): CompanionSurfaceState => {
   const png = getAvatarPng();
+  const character = getCharacter();
   return {
     growth,
+    character: character === null ? undefined : character,
     avatarBase64: png === null ? undefined : png.toString("base64"),
     call,
   };
