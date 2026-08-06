@@ -1,8 +1,8 @@
 /**
  * Tests for the pure BYOK credit-route derivation. Pure-data module (its
  * generated-type imports are type-only), so fixtures are plain objects and no
- * module mocking is involved — deliberately, because the sibling hook module
- * IS `mock.module`-replaced by the billing-status suite and these functions
+ * module mocking is involved. That is deliberate: the sibling hook module IS
+ * `mock.module`-replaced by the billing-status suite and these functions
  * must stay importable un-mocked.
  */
 import { describe, expect, test } from "bun:test";
@@ -162,12 +162,67 @@ describe("profileBurnsManagedCredits", () => {
 });
 
 describe("defaultChatRouteBurnsManagedCredits", () => {
-  test("resolves through the active profile when set", () => {
+  test("resolves through a usable active profile", () => {
     const llm: LlmConfig = {
       activeProfile: "p",
-      profiles: { p: { provider: "vellum" } },
+      profiles: { p: { provider: "vellum", model: "claude" } },
     };
     expect(defaultChatRouteBurnsManagedCredits(llm, [])).toBe(true);
+  });
+
+  test("a disabled active profile falls through to the mainAgent call-site pin", () => {
+    const llm: LlmConfig = {
+      activeProfile: "off",
+      callSites: { mainAgent: { profile: "pinned" } },
+      profiles: {
+        off: {
+          provider: "anthropic",
+          model: "claude",
+          provider_connection: "my-anthropic",
+          status: "disabled",
+        },
+        pinned: { provider: "vellum", model: "claude" },
+      },
+    };
+    expect(defaultChatRouteBurnsManagedCredits(llm, [BYOK_ANTHROPIC])).toBe(
+      true,
+    );
+  });
+
+  test("the mainAgent call-site pin wins when no active profile is set", () => {
+    const llm: LlmConfig = {
+      callSites: { mainAgent: { profile: "pinned" } },
+      profiles: {
+        pinned: {
+          provider: "anthropic",
+          model: "claude",
+          provider_connection: "my-anthropic",
+        },
+      },
+      defaultProvider: { provider: "vellum" },
+    };
+    expect(defaultChatRouteBurnsManagedCredits(llm, [BYOK_ANTHROPIC])).toBe(
+      false,
+    );
+  });
+
+  test("an incomplete active profile (no model) falls through to the anchor", () => {
+    // Mirrors the daemon's usability rule: a winner must carry its own
+    // provider AND model, so a provider-only profile is skipped, not
+    // classified.
+    const llm: LlmConfig = {
+      activeProfile: "incomplete",
+      profiles: {
+        incomplete: {
+          provider: "anthropic",
+          provider_connection: "my-anthropic",
+        },
+      },
+      defaultProvider: { provider: "vellum" },
+    };
+    expect(defaultChatRouteBurnsManagedCredits(llm, [BYOK_ANTHROPIC])).toBe(
+      true,
+    );
   });
 
   test("falls back to the legacy top-level default entry", () => {

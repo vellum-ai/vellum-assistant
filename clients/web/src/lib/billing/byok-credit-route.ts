@@ -6,8 +6,8 @@ import type {
 type LlmConfig = ConfigGetResponse["llm"];
 
 /**
- * The slice of a profile (or the legacy top-level default entry) that decides
- * which billing route its turns dispatch on.
+ * The slice of a profile (or the default-provider anchor) that decides which
+ * billing route its turns dispatch on.
  */
 interface CreditRouteEntry {
   provider?: string;
@@ -84,33 +84,72 @@ export function profileBurnsManagedCredits(
 }
 
 /**
- * Whether the assistant's default chat route — the global active profile, or
- * the legacy top-level default entries when no profile is active — spends
- * managed Vellum credits. `null` when the loaded config can't settle the
+ * The name, or null, of a profile the daemon's single-winner selection would
+ * accept for a rung: present, enabled, and carrying its own provider and
+ * model (a mix stands on its arms instead). Mirrors the usability rule of
+ * `selectWinningProfile` in assistant/src/config/llm-resolver.ts, so a rung
+ * naming a disabled or incomplete profile falls through here exactly as the
+ * daemon would skip it.
+ */
+function usableProfileName(
+  llm: LlmConfig,
+  name: string | null | undefined,
+): string | null {
+  if (!name) {
+    return null;
+  }
+  const entry = llm?.profiles?.[name];
+  if (!entry || entry.status === "disabled") {
+    return null;
+  }
+  if (entry.mix && entry.mix.length > 0) {
+    return name;
+  }
+  return entry.provider && entry.model ? name : null;
+}
+
+/**
+ * Whether the assistant's default chat route spends managed Vellum credits.
+ * Follows the daemon's `mainAgent` selection chain (`selectWinningProfile` in
+ * assistant/src/config/llm-resolver.ts) minus the per-turn override, which no
+ * app-level banner can know: `llm.activeProfile`, then the
+ * `llm.callSites.mainAgent.profile` pin, then the default-provider anchor
+ * that the shipped intent rungs resolve through (plus the legacy top-level
+ * `llm.default` entry). `null` when the loaded config can't settle the
  * question.
+ *
+ * Depends on the config GET wire view materializing effective profile bodies
+ * (`overlayEffectiveProfilesForWire` daemon-side): code-owned default
+ * profiles such as `balanced` have no stored body, and only the overlay puts
+ * their resolved `provider`/`provider_connection` on the wire for
+ * {@link profileBurnsManagedCredits} to read. If that overlay thinned out,
+ * every rung would go `null` here and callers would fail open to showing the
+ * banners.
  */
 export function defaultChatRouteBurnsManagedCredits(
   llm: LlmConfig,
   connections: readonly ProviderConnection[],
 ): boolean | null {
-  const active = llm?.activeProfile;
-  if (active) {
-    return profileBurnsManagedCredits(llm, active, connections);
+  const winner =
+    usableProfileName(llm, llm?.activeProfile) ??
+    usableProfileName(llm, llm?.callSites?.mainAgent?.profile);
+  if (winner) {
+    return profileBurnsManagedCredits(llm, winner, connections);
   }
-  const legacyEntries: CreditRouteEntry[] = [];
+  const anchorEntries: CreditRouteEntry[] = [];
   if (llm?.default) {
-    legacyEntries.push(llm.default);
+    anchorEntries.push(llm.default);
   }
   if (llm?.defaultProvider) {
-    legacyEntries.push({
+    anchorEntries.push({
       provider: llm.defaultProvider.provider,
       provider_connection: llm.defaultProvider.connectionName,
     });
   }
-  if (legacyEntries.length === 0) {
+  if (anchorEntries.length === 0) {
     return null;
   }
   return anyBurns(
-    legacyEntries.map((entry) => entryBurnsManagedCredits(entry, connections)),
+    anchorEntries.map((entry) => entryBurnsManagedCredits(entry, connections)),
   );
 }

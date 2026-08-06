@@ -53,8 +53,8 @@ mock.module("@/hooks/use-is-org-ready", () => ({
 
 // Verdict of the BYOK gate; the real hook (own queries, own suite) is
 // replaced so each side of the suppression can be driven directly. The
-// candidate flags are recorded so the lazy-gating contract — the gate only
-// engages when a balance banner would actually show — can be asserted.
+// candidate flags are recorded so the lazy-gating contract (the gate only
+// engages when a balance banner would actually show) can be asserted.
 let byokSuppression = false;
 let byokGateCandidates: boolean[] = [];
 

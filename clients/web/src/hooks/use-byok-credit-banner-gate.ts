@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { organizationsBillingUsageTotalsRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import {
@@ -9,9 +9,35 @@ import {
 import { defaultChatRouteBurnsManagedCredits } from "@/lib/billing/byok-credit-route";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /** UTC calendar date (YYYY-MM-DD) for an epoch-ms instant. */
 function utcDateString(epochMs: number): string {
   return new Date(epochMs).toISOString().slice(0, 10);
+}
+
+/**
+ * The current UTC calendar date, re-rendered when it rolls over: render-phase
+ * purity forbids reading the clock inline, so the value lives in state and an
+ * effect timer re-reads the clock just past each UTC midnight. Keeps the
+ * spend-probe window below from freezing at its mount date in a long-lived
+ * chat tab.
+ */
+function useUtcDay(): string {
+  const [day, setDay] = useState(() => utcDateString(Date.now()));
+  useEffect(() => {
+    const now = Date.now();
+    // The epoch is UTC-midnight-aligned, so the next rollover is the next
+    // whole DAY_MS boundary; the extra second keeps a fast timer from firing
+    // a hair before midnight and reading the same day again.
+    const untilRollover = DAY_MS - (now % DAY_MS) + 1000;
+    const timer = setTimeout(
+      () => setDay(utcDateString(Date.now())),
+      untilRollover,
+    );
+    return () => clearTimeout(timer);
+  }, [day]);
+  return day;
 }
 
 /**
@@ -22,28 +48,31 @@ function utcDateString(epochMs: number): string {
  * A BYOK default profile makes an exhausted managed balance irrelevant to
  * chat: turns dispatch on the user's own key and never fail on the platform's
  * wallet, so the credit wall would nag about credits the user isn't using.
- * Recent managed spend re-arms the banners — other surfaces (a managed
- * profile on another conversation, managed speech/search, background
- * call-sites) still burn credits, and a burn inside the last 24 hours means
- * the balance is load-bearing again. The spend probe is day-granular
- * (usage-totals `from`/`to` are inclusive UTC dates), so "last 24 hours" is
- * yesterday-plus-today — it errs toward showing the banners.
+ * Recent managed spend re-arms the banners: other surfaces (a managed profile
+ * on another conversation, managed speech/search, background call-sites)
+ * still burn credits, and a burn inside the last 24 hours means the balance
+ * is load-bearing again. The spend probe is day-granular (usage-totals
+ * `from`/`to` are inclusive UTC dates), so "last 24 hours" is
+ * yesterday-plus-today, which errs toward showing the banners.
  *
- * Suppresses while the answer is unresolved, matching the billing-status
- * philosophy that unknown state must never flash a billing surface; a managed
- * default route re-raises the banners as soon as the config and connections
- * resolve. All queries stay idle until `candidate` is true (a banner would
- * actually show), so the common healthy-balance path costs nothing.
+ * Fails open: suppression needs a positively derived BYOK route, so a
+ * managed route, an underivable one (unknown binding, no resolved assistant),
+ * or a failed config/connections read all leave the banners up. The only
+ * unresolved state that suppresses is the queries' initial in-flight load,
+ * which keeps the banner from flashing at a BYOK user and merely delays it
+ * for a managed one. All queries stay idle until `candidate` is true (a
+ * banner would actually show), so the common healthy-balance path costs
+ * nothing.
  */
 export function useSuppressCreditBannersForByok(candidate: boolean): boolean {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const routeQueriesEnabled = candidate && assistantId != null;
-  const { data: config } = useQuery({
+  const configQuery = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId ?? "" } }),
     enabled: routeQueriesEnabled,
     staleTime: 30_000,
   });
-  const { data: connectionsData } = useQuery({
+  const connectionsQuery = useQuery({
     ...inferenceProviderconnectionsGetOptions({
       path: { assistant_id: assistantId ?? "" },
     }),
@@ -52,24 +81,22 @@ export function useSuppressCreditBannersForByok(candidate: boolean): boolean {
   });
 
   const burnsManaged =
-    config && connectionsData
+    configQuery.data && connectionsQuery.data
       ? defaultChatRouteBurnsManagedCredits(
-          config.llm,
-          connectionsData.connections,
+          configQuery.data.llm,
+          connectionsQuery.data.connections,
         )
       : null;
 
-  // Frozen per mount (render must stay pure, so no Date.now() here). A mount
-  // that survives a UTC midnight keeps querying the at-mount window, so burns
-  // after midnight go unseen until a remount — at day granularity that only
-  // delays re-arming the banners, never falsely raises them.
-  const [usageWindow] = useState(() => {
-    const now = Date.now();
-    return {
-      from: utcDateString(now - 24 * 60 * 60 * 1000),
-      to: utcDateString(now),
-    };
-  });
+  const utcDay = useUtcDay();
+  const usageWindow = useMemo(
+    () => ({
+      // YYYY-MM-DD parses as UTC midnight, so `from` is simply the prior day.
+      from: utcDateString(Date.parse(utcDay) - DAY_MS),
+      to: utcDay,
+    }),
+    [utcDay],
+  );
   const { data: totals } = useQuery({
     ...organizationsBillingUsageTotalsRetrieveOptions({
       query: usageWindow,
@@ -80,9 +107,18 @@ export function useSuppressCreditBannersForByok(candidate: boolean): boolean {
   if (!candidate) {
     return false;
   }
-  if (burnsManaged === true) {
+  // `isLoading` (pending AND fetching) distinguishes the initial in-flight
+  // load, which suppresses to avoid a flash, from a disabled or errored
+  // query, which must fail open below.
+  if (configQuery.isLoading || connectionsQuery.isLoading) {
+    return true;
+  }
+  if (burnsManaged !== false) {
     return false;
   }
+  // Route proven BYOK: stay down unless a recent burn is proven. An
+  // unresolved or failed spend probe keeps suppressing, since the probe only
+  // exists to re-arm banners that are presumptively irrelevant here.
   const burnedRecently = totals ? Number(totals.total_usd) > 0 : null;
   return burnedRecently !== true;
 }
