@@ -7,12 +7,15 @@
  *
  * Class strings are deliberately not asserted (happy-dom makes those brittle);
  * the dot is located by its `data-testid` and the state it communicates is
- * asserted through the trigger's accessible name.
+ * asserted through the trigger's accessible name. The one exception is the
+ * appearance pulse, which has no accessible surface at all: those tests check
+ * for the single animation class token on the dot and nothing else.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import * as motionReact from "motion/react";
 
 import type { DocumentSummary } from "@/types/document-types";
 
@@ -23,8 +26,20 @@ mock.module("@/hooks/use-is-mobile", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
-const { ConversationAssetsPill, ASSETS_PILL_UNSEEN_DOT_TESTID } =
-  await import("@/domains/chat/components/conversation-assets-pill");
+// `useReducedMotion` reads a cached media-query singleton, so a per-test
+// `matchMedia` stub can't flip it. Override just that export and drive it
+// through this toggle instead.
+let reducedMotion = false;
+mock.module("motion/react", () => ({
+  ...motionReact,
+  useReducedMotion: () => reducedMotion,
+}));
+
+const {
+  ConversationAssetsPill,
+  ASSETS_PILL_UNSEEN_DOT_TESTID,
+  ASSETS_PILL_UNSEEN_DOT_PULSE_CLASS,
+} = await import("@/domains/chat/components/conversation-assets-pill");
 const { useUnseenDocumentChangesStore } =
   await import("@/domains/chat/unseen-document-changes-store");
 const { appsGetOptions, documentsGetOptions } =
@@ -127,8 +142,15 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   isMobileRef.value = false;
+  reducedMotion = false;
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
 });
+
+function dotHasPulse(): boolean {
+  return screen
+    .getByTestId(ASSETS_PILL_UNSEEN_DOT_TESTID)
+    .classList.contains(ASSETS_PILL_UNSEEN_DOT_PULSE_CLASS);
+}
 
 describe("desktop pill", () => {
   test("shows the dot and names the state when a change is unseen", () => {
@@ -225,6 +247,26 @@ describe("conversation switch while the disclosure is open", () => {
     expect(screen.getByTestId(ASSETS_PILL_UNSEEN_DOT_TESTID)).toBeTruthy();
     expect(screen.getByRole("button", { name: UNSEEN_LABEL })).toBeTruthy();
     expect(unseenConversations()).toEqual([OTHER_CONVERSATION_ID]);
+  });
+});
+
+describe("appearance pulse", () => {
+  // One `layersIcon` node feeds both the mobile trigger and the desktop pill,
+  // so the pulse has a single render site and needs no per-platform case.
+  test("pulses the dot when a change lands", () => {
+    markUnseen();
+    renderPill();
+
+    expect(dotHasPulse()).toBe(true);
+  });
+
+  test("appears without animating when reduced motion is preferred", () => {
+    reducedMotion = true;
+    markUnseen();
+    renderPill();
+
+    expect(screen.getByTestId(ASSETS_PILL_UNSEEN_DOT_TESTID)).toBeTruthy();
+    expect(dotHasPulse()).toBe(false);
   });
 });
 
