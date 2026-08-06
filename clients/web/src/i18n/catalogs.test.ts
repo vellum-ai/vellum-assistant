@@ -1,7 +1,7 @@
 /**
  * Structural guards on the translation catalogs.
  *
- * These do not check translation *quality* — they check the things a
+ * These do not check translation *quality*. They check the things a
  * translator or a rebase can silently break and that no reviewer reliably
  * catches by eye: a message that no longer parses as ICU, a key that outlived
  * the code that read it, and a placeholder dropped in translation (which

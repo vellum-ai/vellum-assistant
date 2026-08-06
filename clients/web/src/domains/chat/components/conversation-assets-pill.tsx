@@ -141,8 +141,8 @@ export function ConversationAssetsPill({
   }
 
   // ICU `plural` picks the category through `Intl.PluralRules` for the active
-  // locale, so this reads correctly in languages with more than two forms —
-  // and the aria-label no longer says "1 items".
+  // locale, so both strings agree with `count` in languages with more than the
+  // two forms English has.
   const label = t("conversationAssets.label", { count: assets.length });
   const ariaLabel = t("conversationAssets.ariaLabel", {
     count: assets.length,

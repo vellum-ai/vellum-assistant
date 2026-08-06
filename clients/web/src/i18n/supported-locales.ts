@@ -19,7 +19,7 @@ export const DEFAULT_LOCALE = "en";
  * Locales with a translation catalog under `src/i18n/locales/`.
  *
  * Adding a locale means: add the tag here, add the catalog directory, and add
- * the loader entry in `catalogs.ts`. All three are checked at compile time —
+ * the loader entry in `catalogs.ts`. All three are checked at compile time:
  * `catalogs.ts` types its registry as `Record<SupportedLocale, …>`, so a
  * missing loader is a type error rather than a runtime 404.
  */
@@ -28,7 +28,7 @@ export const SUPPORTED_LOCALES = ["en", "es"] as const;
 export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
 
 /**
- * Endonyms — each locale's name in its own language, which is what a language
+ * Endonyms: each locale's name in its own language, which is what a language
  * picker should show. A user who has the UI in a language they can't read
  * needs to find their own language by sight, not in translation.
  */
@@ -48,7 +48,7 @@ export function isSupportedLocale(value: unknown): value is SupportedLocale {
  * Pick the best supported locale for an ordered list of preferred tags.
  *
  * Each tag is tried at full length and then truncated to its primary subtag
- * before moving to the next preference — a user who prefers `es-MX` over `en`
+ * before moving to the next preference. A user who prefers `es-MX` over `en`
  * gets `es`, not `en`. Returns {@link DEFAULT_LOCALE} when nothing matches.
  */
 export function negotiateLocale(preferred: readonly string[]): SupportedLocale {

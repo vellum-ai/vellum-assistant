@@ -1,6 +1,6 @@
 /**
  * Public surface for app translation. Import from `@/i18n`, not from the
- * modules behind it or from `i18next` / `react-i18next` directly — that keeps
+ * modules behind it or from `i18next` / `react-i18next` directly. That keeps
  * the library choice replaceable and gives call sites one place to look.
  *
  * In components:
@@ -45,7 +45,7 @@ export { systemLocales } from "@/i18n/system-locale";
  * Namespace-bound `t` for non-React call sites.
  *
  * This is `i18next.t` re-exported, so it reads the same active locale the
- * hook does and picks up `changeLocale()` — but it is *not* reactive. A
+ * hook does and picks up `changeLocale()`, but it is *not* reactive. A
  * component that renders its result must use `useTranslation()` instead, or
  * it will keep showing the previous language after a switch.
  */

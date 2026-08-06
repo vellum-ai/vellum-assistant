@@ -5,27 +5,27 @@
  * `navigator.languages`. What differs is how faithfully each host mirrors the
  * OS preference into the web view, and each has a known gap:
  *
- * - **Browser** — `navigator.languages` is the browser's own language list,
+ * - **Browser**: `navigator.languages` is the browser's own language list,
  *   which is what we want. No gap.
  *
- * - **Electron (macOS / Windows)** — the renderer is Chromium, and Chromium
+ * - **Electron (macOS / Windows)**: the renderer is Chromium, and Chromium
  *   seeds its language list from the OS UI language at process start. The gap
  *   is that it reflects the *UI language*, not a regional-format-only override
  *   (macOS "Region" set to Spain while the UI stays English), and it is
  *   sampled once at launch, so a locale change mid-session is not observed.
  *   Closing that means reading `app.getPreferredSystemLanguages()` in the main
- *   process and exposing it over the `window.vellum` bridge — see
+ *   process and exposing it over the `window.vellum` bridge. See
  *   `docs/ELECTRON.md` for the three-file bridge pattern. Deferred: it needs
  *   preload + main + contract changes, and the launch-time value is correct
  *   for the overwhelming majority of users.
  *
- * - **Capacitor (iOS / Android)** — the WKWebView / Android WebView reports
+ * - **Capacitor (iOS / Android)**: the WKWebView / Android WebView reports
  *   the *system* language. The gap is iOS's per-app language setting
  *   (Settings → Vellum → Preferred Language, iOS 13+): a user who sets only
  *   this app to Spanish while the phone stays English still gets `en` here.
  *   Closing that means `Device.getLanguageTag()` from `@capacitor/device`,
  *   which reads `Locale.preferredLanguages` and so sees the per-app choice.
- *   Deferred: adding an iOS Capacitor plugin is not runtime-neutral — its
+ *   Deferred: adding an iOS Capacitor plugin is not runtime-neutral. Its
  *   native `load()` runs at bridge init whether or not JS imports it, and
  *   `docs/CAPACITOR.md` requires auditing that before taking the dependency.
  *

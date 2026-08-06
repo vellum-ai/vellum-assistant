@@ -15,6 +15,7 @@ import { isChunkLoadError } from "@/lib/chunk-errors";
 import { setupClientFlagScopeSync } from "@/lib/feature-flags/client-flag-scope";
 import { installConsentRefreshListeners } from "@/lib/consent/consent-refresh";
 import { isLocalClient, loadLockfile } from "@/lib/local-mode";
+import { captureError } from "@/lib/sentry/capture-error";
 import { initSentry } from "@/lib/sentry/sentry-init";
 import { markBoot } from "@/lib/telemetry/boot-telemetry";
 import { installTranslateDomGuard } from "@/lib/translate-dom-guard";
@@ -40,16 +41,23 @@ async function boot() {
 
   initInputModality();
   initNativePlatformAttributes();
-  // Awaited before the first render so no component observes an
-  // uninitialized i18next and no untranslated key is ever painted. Resolves
-  // one bundled JSON chunk; it does not touch the network.
-  await initI18n();
   await initSafeAreaBridge();
   // First render waits on this bridge, so it is the first boot gate worth a
   // number. See `lib/telemetry/boot-telemetry.ts` for the mark family.
   markBoot("safe_area_ready");
   void initNativeKeyboard();
   initSentry();
+  // Awaited before the first render so no component observes an uninitialized
+  // i18next and no raw key path is ever painted. English is bundled in this
+  // entry chunk, so the floor is reachable with no network; `initI18n` reports
+  // and degrades to it when another locale's chunk cannot be fetched. The
+  // guard here covers the rest: no i18n failure is worth a blank screen, and
+  // rendering English beats rendering nothing.
+  try {
+    await initI18n();
+  } catch (error) {
+    captureError(error, { context: "init_i18n" });
+  }
   try {
     await restorePendingNativeLogin();
   } catch (error) {

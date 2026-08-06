@@ -47,7 +47,7 @@ process.env.VITE_PLATFORM_MODE = "true";
 window.location.href = "http://localhost:3000";
 
 // Components read their copy through `t()`, so i18next must be initialized
-// before any test mounts one — an uninitialized instance returns the raw key
+// before any test mounts one. An uninitialized instance returns the raw key
 // path ("notFound.title"), and every assertion on user-visible text fails.
 //
 // Pinned to English rather than routed through `initI18n()`: tests assert

@@ -9,18 +9,18 @@
  * read. Authoring in ICU means the catalogs outlive this library choice and
  * can be handed to any TMS as-is. `i18next-icu` swaps i18next's formatter for
  * `intl-messageformat`, which resolves plural categories through the platform
- * `Intl.PluralRules` — so a locale with six plural forms gets six, without the
+ * `Intl.PluralRules`, so a locale with six plural forms gets six without the
  * call site knowing anything about it.
  *
  * **Initialization is awaited before first render.** `initI18n()` runs in
  * `main.tsx` ahead of `createRoot`, so components never observe an
- * uninitialized i18next and there is no flash of untranslated keys. The cost
- * is one dynamic import of a small JSON chunk.
+ * uninitialized i18next and no raw key path is painted. English costs nothing
+ * to reach; any other locale costs one dynamic import of a small JSON chunk.
  *
  * **Locale resolution has a fixed precedence**, applied by
  * {@link resolveInitialLocale}:
  *   1. the explicit in-app preference (`device:locale`), if it is still a
- *      supported locale — a user's stated choice outranks any host signal;
+ *      supported locale (a user's stated choice outranks any host signal);
  *   2. the host's preferred languages (see `system-locale.ts`);
  *   3. `DEFAULT_LOCALE`.
  *
@@ -33,7 +33,12 @@ import i18next from "i18next";
 import ICU from "i18next-icu";
 import { initReactI18next } from "react-i18next";
 
-import { DEFAULT_NAMESPACE, loadCatalog } from "@/i18n/catalogs";
+import {
+  DEFAULT_NAMESPACE,
+  FALLBACK_CATALOG,
+  loadCatalog,
+  type Catalog,
+} from "@/i18n/catalogs";
 import { i18nextInitOptions } from "@/i18n/config";
 import { systemLocales } from "@/i18n/system-locale";
 import {
@@ -42,11 +47,12 @@ import {
   negotiateLocale,
   type SupportedLocale,
 } from "@/i18n/supported-locales";
+import { captureError } from "@/lib/sentry/capture-error";
 import { getDeviceSetting, setDeviceSetting } from "@/utils/device-settings";
 
 /**
  * The locale to boot with, resolved from the stored preference, then the
- * host, then the default. Pure apart from the storage read — exported so
+ * host, then the default. Pure apart from the storage read, and exported so
  * tests and a future language picker can ask without initializing i18next.
  */
 export function resolveInitialLocale(): SupportedLocale {
@@ -60,7 +66,7 @@ export function resolveInitialLocale(): SupportedLocale {
 /**
  * Reflect the active locale onto the document element.
  *
- * `lang` drives the UA's own locale-sensitive behavior — hyphenation, spell
+ * `lang` drives the UA's own locale-sensitive behavior: hyphenation, spell
  * check, the voice a screen reader picks, and font fallback for scripts the
  * primary family doesn't cover. It is not decorative: an unset or wrong `lang`
  * makes a screen reader read Spanish copy with English phonemes.
@@ -108,37 +114,65 @@ async function ensureCatalog(locale: SupportedLocale): Promise<void> {
 }
 
 /**
- * Initialize i18next for the resolved locale. Safe to call more than once —
- * repeat calls resolve immediately against the already-initialized instance.
+ * Report a catalog that could not be loaded.
  *
- * Returns the locale actually activated.
+ * A chunk fetch fails when the device is offline, or when a still-cached entry
+ * bundle asks for an asset a later deploy removed. Neither is actionable at
+ * the call site beyond staying on the locale already rendering, so it is a
+ * warning rather than an error.
+ */
+function reportCatalogFailure(error: unknown, locale: SupportedLocale): void {
+  captureError(error, {
+    context: "i18n_catalog_load",
+    level: "warning",
+    tags: { locale },
+  });
+}
+
+/**
+ * Initialize i18next for the resolved locale. Safe to call more than once:
+ * a repeat call re-resolves the locale against the existing instance.
+ *
+ * Never rejects. This runs on the boot path ahead of `createRoot()`, where an
+ * escaping rejection costs the whole app a render, and English is always
+ * reachable. Returns the locale actually activated, which is English when the
+ * preferred locale's catalog could not be loaded.
  */
 export async function initI18n(): Promise<SupportedLocale> {
-  const locale = resolveInitialLocale();
+  const requested = resolveInitialLocale();
 
   if (i18next.isInitialized) {
-    await changeLocale(locale);
-    return locale;
+    try {
+      await changeLocale(requested);
+      return requested;
+    } catch (error) {
+      reportCatalogFailure(error, requested);
+      return currentLocale();
+    }
   }
 
-  // The fallback catalog is always loaded: a key missing from a translated
-  // catalog must render English copy, not the raw key path.
-  const [catalog, fallbackCatalog] = await Promise.all([
-    loadCatalog(locale),
-    locale === DEFAULT_LOCALE
-      ? Promise.resolve(null)
-      : loadCatalog(DEFAULT_LOCALE),
-  ]);
+  // English is seeded first, from the entry chunk rather than a fetch. It is
+  // both the fallback for a key a translated catalog is missing and the floor
+  // this function degrades to, so it must be in place before anything that can
+  // fail is attempted.
+  const resources: Record<string, Catalog> = {
+    [DEFAULT_LOCALE]: FALLBACK_CATALOG,
+  };
+  let locale: SupportedLocale = DEFAULT_LOCALE;
+
+  if (requested !== DEFAULT_LOCALE) {
+    try {
+      resources[requested] = await loadCatalog(requested);
+      locale = requested;
+    } catch (error) {
+      reportCatalogFailure(error, requested);
+    }
+  }
 
   await i18next
     .use(new ICU())
     .use(initReactI18next)
-    .init(
-      i18nextInitOptions(locale, {
-        [locale]: catalog,
-        ...(fallbackCatalog ? { [DEFAULT_LOCALE]: fallbackCatalog } : {}),
-      }),
-    );
+    .init(i18nextInitOptions(locale, resources));
 
   applyDocumentLocale(locale);
   return locale;
@@ -149,8 +183,12 @@ export async function initI18n(): Promise<SupportedLocale> {
  * the choice as a device setting, and update the document element.
  *
  * Persisted with `device:` scope because a language choice describes the
- * device, not the account — it must survive logout so the login screen stays
- * in the language the user picked.
+ * device, not the account. It must survive logout so the login screen stays in
+ * the language the user picked.
+ *
+ * Rejects when the catalog cannot be fetched, leaving the previous locale
+ * active. Unlike {@link initI18n} this is user-initiated, so the caller is the
+ * one that can say something useful about the failure.
  */
 export async function changeLocale(locale: SupportedLocale): Promise<void> {
   await ensureCatalog(locale);

@@ -2,7 +2,7 @@
  * The i18next `init()` options, in one place.
  *
  * Both the app (`i18n.ts`) and the test preload (`test-setup.ts`) initialize
- * the same i18next singleton, and they must configure it identically — a test
+ * the same i18next singleton, and they must configure it identically: a test
  * that formats messages under different options is testing something the app
  * never runs. Sharing the factory makes that structural instead of a comment
  * asking two files to stay in sync.
