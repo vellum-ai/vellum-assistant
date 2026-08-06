@@ -279,7 +279,9 @@ let appFrontmost = false;
 let installed = false;
 
 export const installVoiceActivityWindow = (): void => {
-  if (installed) return;
+  if (installed) {
+    return;
+  }
   installed = true;
 
   // Install runs after `app.whenReady()`, so a focused window here means the
