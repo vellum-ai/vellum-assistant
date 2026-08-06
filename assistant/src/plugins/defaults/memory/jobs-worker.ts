@@ -923,6 +923,12 @@ export const RETROSPECTIVE_SWEEP_CHECKPOINT = "retro_sweep:last_run";
  * Deduped against an in-flight sweep so a slow scan can't stack copies; the
  * checkpoint still advances in that case to hold the cadence steady.
  *
+ * `memory.retrospective.enabled` is checked here as well as inside the
+ * enqueue funnel, so a disabled retrospective costs no scan at all rather
+ * than a full conversation scan whose every enqueue is then declined. The
+ * checkpoint is left untouched while disabled — re-enabling then fires the
+ * first sweep on the next tick, which is the desired catch-up.
+ *
  * Exported for tests; the worker calls it on every idle/drain tick. Returns
  * true if a sweep job was enqueued this call.
  */
@@ -931,6 +937,10 @@ export function maybeEnqueueRetrospectiveSweepJob(
   nowMs = Date.now(),
 ): boolean {
   if (!isMemoryEnabled(config)) {
+    return false;
+  }
+
+  if (!config.memory.retrospective.enabled) {
     return false;
   }
 

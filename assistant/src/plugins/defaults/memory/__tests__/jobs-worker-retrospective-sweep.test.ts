@@ -39,11 +39,14 @@ getMemoryDb();
 const SWEEP_INTERVAL_MS = 8 * 60 * 60 * 1000; // 8h default
 
 function buildConfig(
-  overrides: { memoryEnabled?: boolean } = {},
+  overrides: { memoryEnabled?: boolean; retrospectiveEnabled?: boolean } = {},
 ): AssistantConfig {
   const config = applyNestedDefaults({}) as unknown as AssistantConfig;
   if (overrides.memoryEnabled !== undefined) {
     config.memory.enabled = overrides.memoryEnabled;
+  }
+  if (overrides.retrospectiveEnabled !== undefined) {
+    config.memory.retrospective.enabled = overrides.retrospectiveEnabled;
   }
   return config;
 }
@@ -116,6 +119,26 @@ describe("maybeEnqueueRetrospectiveSweepJob", () => {
 
     expect(enqueued).toBe(false);
     expect(countSweepJobs()).toBe(0);
+  });
+
+  test("does not enqueue when retrospectives are disabled, and leaves the checkpoint alone", () => {
+    const now = Date.now();
+    const stale = staleCheckpoint(now);
+    setMemoryCheckpoint(RETROSPECTIVE_SWEEP_CHECKPOINT, stale);
+
+    const enqueued = maybeEnqueueRetrospectiveSweepJob(
+      buildConfig({ retrospectiveEnabled: false }),
+      now,
+    );
+
+    expect(enqueued).toBe(false);
+    expect(countSweepJobs()).toBe(0);
+    // Checkpoint untouched, so re-enabling sweeps on the next tick rather
+    // than waiting out another full interval.
+    expect(getMemoryCheckpoint(RETROSPECTIVE_SWEEP_CHECKPOINT)).toBe(stale);
+
+    expect(maybeEnqueueRetrospectiveSweepJob(buildConfig(), now)).toBe(true);
+    expect(countSweepJobs()).toBe(1);
   });
 
   test("does not stack a second sweep while one is still in flight, but advances the checkpoint", () => {

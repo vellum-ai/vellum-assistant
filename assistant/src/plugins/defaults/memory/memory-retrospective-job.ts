@@ -154,6 +154,20 @@ export async function memoryRetrospectiveJob(
     return { kind: "no_new_messages" };
   }
 
+  // Execution-time twin of the enqueue funnel's `memory.retrospective.enabled`
+  // gate: rows queued before the flag was turned off drain as no-ops instead
+  // of forking. The CLI's manual `memory retrospective run` calls
+  // `runForkBasedRetrospective` directly and so is unaffected — an operator's
+  // explicit request overrides the flag, matching the lookback and
+  // user-activity gates.
+  if (!config.memory.retrospective.enabled) {
+    log.info(
+      { jobId: job.id, sourceConversationId },
+      "Skipping job: memory.retrospective.enabled is false",
+    );
+    return { kind: "disabled" };
+  }
+
   // Central health counter (admin analytics groups on the watchdog
   // check_name): one event per run with its outcome kind. A run that
   // throws records outcome "error" before the exception continues to the

@@ -2,6 +2,28 @@ import { z } from "zod";
 
 export const MemoryRetrospectiveConfigSchema = z
   .object({
+    // This kill switch exists only because conversation forking is expensive:
+    // a fork full-copies the source conversation (messages + attachments), so
+    // on a large conversation the retrospective's write burst can lock the
+    // SQLite table against other writers. Until forking is referential, an
+    // operator needs a way to stop retrospectives without turning off memory.
+    enabled: z
+      .boolean({ error: "memory.retrospective.enabled must be a boolean" })
+      .default(true)
+      .describe(
+        "Whether the memory-retrospective background pass runs. When false, no retrospective is enqueued by any trigger (interval, message count, pre-compaction, scheduled sweep), the scheduled sweep job stops being queued, and any row already queued completes as a no-op. The rest of the memory system (extraction, retrieval, embeddings, `<memory>` injection) is unaffected — use `memory.enabled` to disable memory as a whole.",
+      ),
+
+    forkStrategy: z
+      .enum(["cloning", "reference"], {
+        error:
+          "memory.retrospective.forkStrategy must be 'cloning' or 'reference'",
+      })
+      .default("cloning")
+      .describe(
+        "How a retrospective's fork of the source conversation is materialized. `cloning` (default) full-copies the source conversation's messages and attachments into the fork. `reference` is reserved for the referential fork — the fork holds only its own messages and reads the source's through `fork_parent_message_id` — and is NOT yet implemented; it currently behaves as `cloning`.",
+      ),
+
     timeThresholdMs: z
       .number({
         error: "memory.retrospective.timeThresholdMs must be a number",

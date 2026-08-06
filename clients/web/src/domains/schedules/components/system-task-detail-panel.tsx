@@ -118,9 +118,11 @@ export function SystemTaskDetailPanel({
     onRunNow = undefined;
   }
 
-  // Consolidation and retrospective are owned by Memory: no toggle of their
-  // own, paused when Memory is off. Retrospective additionally has no global
-  // schedule, so it hides Next run.
+  // Consolidation and retrospective are owned by Memory: no toggle in this
+  // panel, paused when Memory is off. Retrospective additionally has no global
+  // schedule (so it hides Next run) and its own config switch
+  // (`memory.retrospective.enabled`), which pauses it while Memory stays on —
+  // `available` is what tells the two pauses apart.
   const isMemoryManaged = kind !== "heartbeat";
   const isRetrospective = kind === "retrospective";
   const isMemoryPaused = isMemoryManaged && !enabled;
@@ -133,7 +135,9 @@ export function SystemTaskDetailPanel({
       ? "Enabled"
       : "Disabled";
   const pausedNotice = isRetrospective
-    ? "Memory is off, so retrospectives are paused. Turn Memory back on to resume them."
+    ? retrospectiveConfig?.available === true
+      ? "Retrospectives are turned off in this assistant's memory settings. Turn them back on to resume them."
+      : "Memory is off, so retrospectives are paused. Turn Memory back on to resume them."
     : "Memory is off, so consolidation is paused. Turn Memory back on to resume consolidation.";
   const showMemorySettings =
     isMemoryManaged && enabled && canOpenMemorySettings;
