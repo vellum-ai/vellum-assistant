@@ -11,7 +11,6 @@ import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { getConversation } from "../persistence/conversation-crud.js";
 import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { invalidateAssistantInferredItemsForConversation } from "../plugins/defaults/memory/task-memory-cleanup.js";
-import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
@@ -28,6 +27,7 @@ import {
 import { runWatchersOnce } from "../watcher/engine.js";
 import { normalizeCapabilityManifest } from "../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
+import { declarationExistsOnDisk } from "./plugin-schedule-declarations.js";
 import { isPluginSchedulesEnabled } from "./plugin-schedules-gate.js";
 import { hasSetConstructs } from "./recurrence-engine.js";
 import { applyRetryDecision, decideRetry } from "./retry-policy.js";
@@ -40,6 +40,7 @@ import {
   deferClaimedSchedule,
   failOneShotPermanently,
   getLastScheduleConversationId,
+  recordAdministrativeSkipRun,
   resetRetryCount,
   resolveScheduleConversationGroupId,
   retryOneShot,
@@ -526,31 +527,36 @@ export async function runDueSchedulesOnce(
       continue;
     }
 
-    // Fire-time gate for plugin-sourced rows, covering both ways the source
-    // can go away under an armed row. Disabling a plugin writes a `.disabled`
-    // sentinel and turning the feature flag off retires the whole surface; the
-    // reconciler is what disarms the rows either one owns, and it runs on its
-    // own schedule. Re-reading both here is what makes the change take effect
-    // immediately, so a row still armed (or already claimed) at the moment of
-    // the toggle cannot run the plugin's code.
-    const sourcePlugin = describeScheduleSource(job.sourceKey);
+    // Fire-time gate for plugin-sourced rows, covering every way the source
+    // can go away under an armed row. `declarationExistsOnDisk` is the probe
+    // the run-now route and the enable path use, and it answers for all of
+    // them: a `.disabled` sentinel, a plugin directory a local uninstall
+    // removed, a manifest that no longer parses, and a declaration that is
+    // simply gone. Turning the feature flag off retires the whole surface.
+    // The reconciler is what disarms the rows any of these own, and it runs
+    // on its own schedule, so re-reading here is what makes the change take
+    // effect immediately: a row still armed (or already claimed) at that
+    // moment cannot run the plugin's code. The probe costs a stat and a
+    // manifest read, paid only when a sourced row fires.
+    const sourceKey = job.sourceKey;
     if (
-      sourcePlugin !== null &&
-      (!isPluginSchedulesEnabled() || isPluginDisabled(sourcePlugin))
+      sourceKey !== null &&
+      (!isPluginSchedulesEnabled() ||
+        !(await declarationExistsOnDisk(sourceKey)))
     ) {
+      const sourcePlugin = describeScheduleSource(sourceKey) ?? sourceKey;
       log.info(
         { jobId: job.id, name: job.name, plugin: sourcePlugin },
-        "Schedule not run: its plugin is disabled",
+        "Schedule not run: its plugin schedule source is unavailable",
       );
       // cron_runs has no skip status, so the skip is recorded as an error run
-      // to stay visible in the schedule's history. No retry is scheduled: the
-      // schedule did not fail, and re-running it is exactly what the disable
-      // forbids.
-      const skippedRunId = await createScheduleRun(job.id, null);
-      await completeScheduleRun(skippedRunId, {
-        status: "error",
-        error: `Plugin "${sourcePlugin}" is disabled, so this schedule did not run.`,
-      });
+      // to stay visible in the schedule's history. It is an administrative
+      // skip, not an attempt: the retry budget is left alone and no retry is
+      // scheduled, so the row stays on its normal cadence.
+      await recordAdministrativeSkipRun(
+        job.id,
+        `Schedule not run: plugin "${sourcePlugin}" is disabled, uninstalled, or no longer declares this schedule.`,
+      );
       mark("skipped");
       continue;
     }

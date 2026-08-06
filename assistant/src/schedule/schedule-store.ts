@@ -1440,10 +1440,15 @@ export async function setScheduleRunConversationId(
   );
 }
 
-export async function completeScheduleRun(
+/**
+ * Close out a run row, leaving the parent job alone. Returns the job the run
+ * belongs to and the timestamp the row was finished at, or null when the run
+ * no longer exists.
+ */
+async function finishScheduleRunRow(
   runId: string,
   result: { status: "ok" | "error"; output?: string; error?: string },
-): Promise<void> {
+): Promise<{ jobId: string; now: number } | null> {
   const db = getDb();
   const now = Date.now();
 
@@ -1453,7 +1458,7 @@ export async function completeScheduleRun(
     .where(eq(scheduleRuns.id, runId))
     .get();
   if (!run) {
-    return;
+    return null;
   }
 
   const durationMs = now - run.startedAt;
@@ -1471,8 +1476,65 @@ export async function completeScheduleRun(
         })
         .where(eq(scheduleRuns.id, runId))
         .run(),
-    { op: "completeScheduleRun.run", context: { runId } },
+    { op: "finishScheduleRunRow", context: { runId } },
   );
+
+  return { jobId: run.jobId, now };
+}
+
+/**
+ * Record a run the scheduler declined to start, without charging it to the
+ * schedule's retry budget.
+ *
+ * An administrative skip (the plugin behind a sourced row is disabled,
+ * uninstalled, or broken) is not a failed attempt: nothing ran, so there is
+ * nothing to retry. `retryCount` is therefore left where it is, and no retry
+ * is scheduled, which leaves a recurring row on the next occurrence its claim
+ * advanced it to rather than on retry-backoff cadence. `lastStatus` still
+ * moves to `error` and the run row is still written, so the skip is visible
+ * in the schedule's history.
+ */
+export async function recordAdministrativeSkipRun(
+  jobId: string,
+  reason: string,
+): Promise<void> {
+  const db = getDb();
+  const runId = await createScheduleRun(jobId, null);
+  const finished = await finishScheduleRunRow(runId, {
+    status: "error",
+    error: reason,
+  });
+  if (!finished) {
+    return;
+  }
+  const changed = await withSqliteRetry(
+    () => {
+      db.update(scheduleJobs)
+        .set({ lastStatus: "error", updatedAt: finished.now })
+        .where(eq(scheduleJobs.id, jobId))
+        .run();
+      return rawChanges() > 0;
+    },
+    {
+      op: "recordAdministrativeSkipRun.job",
+      context: { scheduleId: jobId },
+    },
+  );
+  if (changed) {
+    notifySchedulesChanged();
+  }
+}
+
+export async function completeScheduleRun(
+  runId: string,
+  result: { status: "ok" | "error"; output?: string; error?: string },
+): Promise<void> {
+  const db = getDb();
+  const finished = await finishScheduleRunRow(runId, result);
+  if (!finished) {
+    return;
+  }
+  const { jobId, now } = finished;
 
   // Update the parent job's lastStatus and retryCount
   if (result.status === "error") {
@@ -1480,7 +1542,7 @@ export async function completeScheduleRun(
     const job = db
       .select()
       .from(scheduleJobs)
-      .where(eq(scheduleJobs.id, run.jobId))
+      .where(eq(scheduleJobs.id, jobId))
       .get();
     if (job) {
       const changed = await withSqliteRetry(
@@ -1491,13 +1553,13 @@ export async function completeScheduleRun(
               retryCount: job.retryCount + 1,
               updatedAt: now,
             })
-            .where(eq(scheduleJobs.id, run.jobId))
+            .where(eq(scheduleJobs.id, jobId))
             .run();
           return rawChanges() > 0;
         },
         {
           op: "completeScheduleRun.jobError",
-          context: { scheduleId: run.jobId },
+          context: { scheduleId: jobId },
         },
       );
       if (changed) {
@@ -1509,11 +1571,11 @@ export async function completeScheduleRun(
       () => {
         db.update(scheduleJobs)
           .set({ lastStatus: "ok", retryCount: 0, updatedAt: now })
-          .where(eq(scheduleJobs.id, run.jobId))
+          .where(eq(scheduleJobs.id, jobId))
           .run();
         return rawChanges() > 0;
       },
-      { op: "completeScheduleRun.jobOk", context: { scheduleId: run.jobId } },
+      { op: "completeScheduleRun.jobOk", context: { scheduleId: jobId } },
     );
     if (changed) {
       notifySchedulesChanged();

@@ -223,18 +223,46 @@ describe("runDueSchedulesOnce (the schedule worker's tick)", () => {
   });
 });
 
-describe("fire-time disabled-plugin gate", () => {
+describe("fire-time source-availability gate", () => {
   const PLUGIN_NAME = "example-plugin";
-  const SOURCE_KEY = `plugin:${PLUGIN_NAME}/daily-digest`;
+  const SCHEDULE_NAME = "daily-digest";
+  const SOURCE_KEY = `plugin:${PLUGIN_NAME}/${SCHEDULE_NAME}`;
   const pluginDir = join(getWorkspacePluginsDir(), PLUGIN_NAME);
-  const marker = join(pluginDir, "ran.txt");
+  const declarationDir = join(pluginDir, "schedules", SCHEDULE_NAME);
+  const manifest = join(pluginDir, "package.json");
+  // The marker lives outside the plugin directory so the uninstall case still
+  // proves the script never ran: a `touch` into a deleted tree would fail on
+  // its own and hide a guard that let the row through.
+  const marker = join(getWorkspacePluginsDir(), "ran.txt");
 
+  // The gate probes the declaration's on-disk presence and its plugin's
+  // manifest, so the healthy fixture is a full plugin: a valid package.json
+  // and a schedules/<name>/ declaration directory.
   beforeEach(() => {
     rmSync(pluginDir, { recursive: true, force: true });
-    mkdirSync(pluginDir, { recursive: true });
+    rmSync(marker, { force: true });
+    mkdirSync(declarationDir, { recursive: true });
+    writeFileSync(
+      join(declarationDir, "config.json"),
+      JSON.stringify({ expression: "* * * * *" }),
+    );
+    writeFileSync(join(declarationDir, "index.sh"), "#!/bin/sh\ntrue\n");
+    writeFileSync(
+      manifest,
+      JSON.stringify({ name: PLUGIN_NAME, version: "1.0.0" }),
+    );
     // The feature ships off, so the healthy-plugin cases below need it on.
     setOverridesForTesting({ "plugin-schedules": true });
   });
+
+  function skipRunsFor(jobId: string): Array<{
+    status: string;
+    error: string | null;
+  }> {
+    return rawDb()
+      .query("SELECT status, error FROM cron_runs WHERE job_id = ?")
+      .all(jobId) as Array<{ status: string; error: string | null }>;
+  }
 
   /** A due plugin-sourced script row whose script leaves a marker when it runs. */
   async function seedDueSourcedScript() {
@@ -268,15 +296,50 @@ describe("fire-time disabled-plugin gate", () => {
     expect(result.skipped).toBe(1);
     expect(result.completed).toBe(0);
     expect(existsSync(marker)).toBe(false);
-    // The skip is recorded so it stays visible in the schedule's run history,
-    // and no retry is scheduled: `next_run_at` is just the next occurrence the
-    // claim advanced it to.
-    const runs = rawDb()
-      .query("SELECT status, error FROM cron_runs WHERE job_id = ?")
-      .all(job.id) as Array<{ status: string; error: string | null }>;
+    // The skip is recorded so it stays visible in the schedule's run history.
+    const runs = skipRunsFor(job.id);
     expect(runs).toHaveLength(1);
     expect(runs[0].status).toBe("error");
-    expect(runs[0].error).toContain("is disabled");
+    expect(runs[0].error).toContain("no longer declares this schedule");
+  });
+
+  test("does not execute a due sourced row whose plugin directory is gone", async () => {
+    const job = await seedDueSourcedScript();
+    // A local CLI uninstall removes the directory outright, with no daemon
+    // call to disarm the row first.
+    rmSync(pluginDir, { recursive: true, force: true });
+
+    const result = await runDueSchedulesOnce();
+
+    expect(result.claimed).toBe(1);
+    expect(result.skipped).toBe(1);
+    expect(result.completed).toBe(0);
+    expect(existsSync(marker)).toBe(false);
+    expect(skipRunsFor(job.id)).toHaveLength(1);
+  });
+
+  test("does not execute a due sourced row whose manifest no longer parses", async () => {
+    const job = await seedDueSourcedScript();
+    writeFileSync(manifest, "{ broken");
+
+    const result = await runDueSchedulesOnce();
+
+    expect(result.claimed).toBe(1);
+    expect(result.skipped).toBe(1);
+    expect(result.completed).toBe(0);
+    expect(existsSync(marker)).toBe(false);
+    expect(skipRunsFor(job.id)).toHaveLength(1);
+  });
+
+  test("does not execute a due sourced row whose declaration is gone", async () => {
+    const job = await seedDueSourcedScript();
+    rmSync(declarationDir, { recursive: true, force: true });
+
+    const result = await runDueSchedulesOnce();
+
+    expect(result.skipped).toBe(1);
+    expect(existsSync(marker)).toBe(false);
+    expect(skipRunsFor(job.id)).toHaveLength(1);
   });
 
   test("does not execute a due sourced row while the feature flag is off", async () => {
@@ -289,12 +352,29 @@ describe("fire-time disabled-plugin gate", () => {
     expect(result.skipped).toBe(1);
     expect(result.completed).toBe(0);
     expect(existsSync(marker)).toBe(false);
-    const runs = rawDb()
-      .query("SELECT status, error FROM cron_runs WHERE job_id = ?")
-      .all(job.id) as Array<{ status: string; error: string | null }>;
+    const runs = skipRunsFor(job.id);
     expect(runs).toHaveLength(1);
     expect(runs[0].status).toBe("error");
-    expect(runs[0].error).toContain("is disabled");
+    expect(runs[0].error).toContain("no longer declares this schedule");
+  });
+
+  test("a skip spends no retry budget and keeps the row on its normal cadence", async () => {
+    const job = await seedDueSourcedScript();
+    // A non-zero starting budget proves the counter is left alone rather than
+    // merely still reading zero.
+    rawDb().run("UPDATE cron_jobs SET retry_count = 2 WHERE id = ?", [job.id]);
+    writeFileSync(join(pluginDir, ".disabled"), "");
+
+    await runDueSchedulesOnce();
+
+    const row = rawDb()
+      .query("SELECT retry_count, next_run_at FROM cron_jobs WHERE id = ?")
+      .get(job.id) as { retry_count: number; next_run_at: number };
+    expect(row.retry_count).toBe(2);
+    // The next occurrence of `* * * * *` is at most a minute out. A retry at
+    // this budget would have pushed it minutes further on backoff.
+    expect(row.next_run_at).toBeGreaterThan(Date.now());
+    expect(row.next_run_at).toBeLessThanOrEqual(Date.now() + 61_000);
   });
 
   test("executes a due sourced row whose plugin is enabled", async () => {
