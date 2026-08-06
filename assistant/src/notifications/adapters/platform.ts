@@ -18,6 +18,7 @@ import {
   isRetryableStatus,
   sleep,
 } from "../../util/retry.js";
+import { stripMarkdownForPreview } from "../notification-utils.js";
 import type {
   ChannelAdapter,
   ChannelDeliveryObserver,
@@ -105,11 +106,16 @@ export class PlatformPushAdapter implements ChannelAdapter {
         ? guardianPrincipalId
         : undefined;
 
+    // An APNs/FCM alert is plain text, so markdown markers reach the lock
+    // screen as literal punctuation. Flattening here covers every event routed
+    // to this channel without altering what the other channels receive, some of
+    // which render markdown deliberately. Newlines are kept: iOS renders them,
+    // and some copy carries a deliberate paragraph break.
     const body: DispatchBody = {
       delivery_id: payload.correlationId ?? payload.deliveryId,
       source_event_name: payload.sourceEventName,
-      title: payload.copy.title,
-      body: payload.copy.body,
+      title: stripMarkdownForPreview(payload.copy.title),
+      body: stripMarkdownForPreview(payload.copy.body),
       deep_link_metadata: payload.deepLinkTarget,
       context_payload: payload.contextPayload,
       target_guardian_principal_id: targetGuardianPrincipalId,

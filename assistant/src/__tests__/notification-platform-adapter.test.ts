@@ -340,6 +340,69 @@ describe("PlatformPushAdapter", () => {
     expect(result.remotePushAccepted).toBeUndefined();
   });
 
+  // A lock screen renders no markdown, so any marker that survives to the
+  // dispatch body reads as literal punctuation. See `stripMarkdownForPreview`.
+  describe("markdown flattening", () => {
+    test("flattens markdown out of the dispatched title and body", async () => {
+      const adapter = new PlatformPushAdapter();
+      const payload = makePayload({
+        copy: {
+          title: "**Build** finished",
+          body: [
+            "Here is the clip: ![vellum scene](vellum://workspace/a.mp4)",
+            "```ts",
+            "const a = 1;",
+            "```",
+            "| name | value |",
+            "| --- | --- |",
+            "| a | 1 |",
+          ].join("\n"),
+        },
+      });
+
+      const result = await adapter.send(payload, makeDestination());
+
+      expect(result.success).toBe(true);
+      const dispatched = fetchCalls[0]!.body;
+      expect(dispatched.title).toBe("Build finished");
+      const dispatchedBody = dispatched.body as string;
+      expect(dispatchedBody).not.toContain("![");
+      expect(dispatchedBody).not.toContain("```");
+      expect(dispatchedBody).not.toContain("|");
+      expect(dispatchedBody).toContain("Here is the clip:");
+      expect(dispatchedBody).toContain("const a = 1;");
+      expect(dispatchedBody).toContain("name value");
+    });
+
+    // Guardian question copy joins its question and instruction with a blank
+    // line, and iOS renders the break, so flattening must not collapse it.
+    test("preserves newlines in the dispatched body", async () => {
+      const adapter = new PlatformPushAdapter();
+      const payload = makePayload({
+        copy: {
+          title: "Question",
+          body: "Should I book the flight?\n\nReply here to answer.",
+        },
+      });
+
+      const result = await adapter.send(payload, makeDestination());
+
+      expect(result.success).toBe(true);
+      expect(fetchCalls[0]!.body.body).toBe(
+        "Should I book the flight?\n\nReply here to answer.",
+      );
+    });
+
+    test("leaves plain prose untouched", async () => {
+      const adapter = new PlatformPushAdapter();
+      const result = await adapter.send(makePayload(), makeDestination());
+
+      expect(result.success).toBe(true);
+      expect(fetchCalls[0]!.body.title).toBe("Reminder");
+      expect(fetchCalls[0]!.body.body).toBe("Check the oven!");
+    });
+  });
+
   test("omits optional fields when absent from payload", async () => {
     const adapter = new PlatformPushAdapter();
     const payload: ChannelDeliveryPayload = {
