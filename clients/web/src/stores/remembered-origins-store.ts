@@ -167,20 +167,24 @@ let unwatchProvider: (() => void) | null = null;
 
 /**
  * Re-load the provider's current value into already-hydrated state, e.g.
- * after another tab or the native shell changed the persisted list.
+ * after another tab or the native shell changed the persisted list. Runs
+ * through the mutation queue so a slow refresh load can never publish
+ * state that a later mutation's save has already superseded.
  */
-async function refreshFromProvider(epoch: number): Promise<void> {
-  try {
-    const origins = await activeProvider.load();
-    if (
-      epoch === hydrationEpoch &&
-      useRememberedOriginsStoreBase.getState().hydrated
-    ) {
-      useRememberedOriginsStoreBase.setState({ origins });
+function refreshFromProvider(epoch: number): Promise<void> {
+  return enqueueMutation(async () => {
+    try {
+      const origins = await activeProvider.load();
+      if (
+        epoch === hydrationEpoch &&
+        useRememberedOriginsStoreBase.getState().hydrated
+      ) {
+        useRememberedOriginsStoreBase.setState({ origins });
+      }
+    } catch {
+      // Keep current state; the next mutation or hydrate retries.
     }
-  } catch {
-    // Keep current state; the next mutation or hydrate retries.
-  }
+  });
 }
 
 function watchActiveProvider(): void {

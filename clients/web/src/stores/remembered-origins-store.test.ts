@@ -486,6 +486,49 @@ describe("providers and hydration", () => {
     ]);
   });
 
+  it("serializes watch refreshes with mutations so a slow refresh cannot publish stale state", async () => {
+    let entries: RememberedOrigin[] = [
+      { url: "https://example.com/a", addedAt: "2026-01-01T00:00:00Z" },
+    ];
+    let watchCallback: (() => void) | null = null;
+    let gate: Promise<void> | null = null;
+    let releaseGate = () => {};
+    const provider: RememberedOriginsProvider = {
+      load: async () => {
+        if (gate) {
+          const pending = gate;
+          gate = null;
+          await pending;
+        }
+        return entries;
+      },
+      save: async (next) => {
+        entries = next;
+      },
+      watch: (onChange) => {
+        watchCallback = onChange;
+        return () => {};
+      },
+    };
+    setRememberedOriginsProvider(provider);
+    await store().hydrate();
+
+    // A watch-triggered refresh starts a slow load, then a mutation runs.
+    gate = new Promise((resolve) => {
+      releaseGate = resolve;
+    });
+    watchCallback?.();
+    const add = store().addOrigin({ url: "https://example.com/b" });
+    releaseGate();
+    await add;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    expect(store().origins.map((o) => o.url)).toEqual([
+      "https://example.com/a",
+      "https://example.com/b",
+    ]);
+  });
+
   it("runs mutations inside a Web Lock when navigator.locks exists", async () => {
     const requested: string[] = [];
     const fakeLocks = {
