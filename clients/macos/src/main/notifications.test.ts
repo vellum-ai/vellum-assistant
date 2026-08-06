@@ -154,6 +154,8 @@ const {
   NOTIFICATION_CATEGORIES,
   __resetForTesting,
   __setDeliveryTimeoutForTesting,
+  __liveNotificationCountForTesting,
+  __pruneForTesting,
 } = await import("./notifications");
 
 // --- Helpers ---------------------------------------------------------------
@@ -416,6 +418,99 @@ describe("interaction broadcast", () => {
   });
 });
 
+// --- Notification liveness -------------------------------------------------
+//
+// `new Notification(...)` is function-local, so once the delivery promise
+// settles nothing references it and V8 may collect it — while the macOS
+// banner lives on in Notification Center for hours. A collected
+// notification still activates the app on click (macOS does that itself)
+// but fires no `click` in main, so the tap vanishes and the renderer lands
+// on its bootstrap default. These assert the object stays reachable for as
+// long as the banner is clickable, and is released once it isn't.
+
+describe("keeping shown notifications reachable", () => {
+  const payload = {
+    category: "notificationIntent",
+    title: "Review request",
+    body: "An item needs your attention",
+    deliveryId: "del-live",
+    conversationId: "conv-live",
+  };
+
+  test("a shown notification is retained", async () => {
+    await show(payload);
+    expect(__liveNotificationCountForTesting()).toBe(1);
+  });
+
+  // The regression itself: a click long after `show` must still deep-link.
+  test("a click well after delivery still broadcasts", async () => {
+    await show(payload);
+
+    at(6 * 60 * 60 * 1000); // six hours later
+    constructed[0]!.emit("click");
+
+    const actions = sentMessages.filter((m) => m.channel === ACTION_CHANNEL);
+    expect(actions).toHaveLength(1);
+    expect(actions[0]!.payload).toMatchObject({
+      kind: "click",
+      conversationId: "conv-live",
+    });
+  });
+
+  test("a clicked notification is released", async () => {
+    await show(payload);
+    constructed[0]!.emit("click");
+    expect(__liveNotificationCountForTesting()).toBe(0);
+  });
+
+  test("a dismissed notification is released", async () => {
+    await show(payload);
+    constructed[0]!.emit("close");
+    expect(__liveNotificationCountForTesting()).toBe(0);
+  });
+
+  test("an action press releases the notification", async () => {
+    await show({ ...payload, category: "toolConfirmation" });
+    constructed[0]!.emit("action", {}, 0);
+    expect(__liveNotificationCountForTesting()).toBe(0);
+  });
+
+  test("a failed delivery is released", async () => {
+    deliveryOutcome = "failed";
+    await show(payload);
+    expect(__liveNotificationCountForTesting()).toBe(0);
+  });
+
+  // macOS does not guarantee `close` for a banner that ages out of
+  // Notification Center, so the TTL sweep is the backstop that keeps an
+  // always-on app from holding every notification it ever showed.
+  test("the prune sweep drops notifications past the TTL", async () => {
+    await show(payload);
+    expect(__liveNotificationCountForTesting()).toBe(1);
+
+    at(25 * 60 * 60 * 1000); // past the 24h TTL
+    __pruneForTesting();
+
+    expect(__liveNotificationCountForTesting()).toBe(0);
+  });
+
+  test("the sweep keeps notifications inside the TTL", async () => {
+    await show(payload);
+
+    at(60 * 60 * 1000); // one hour later
+    __pruneForTesting();
+
+    expect(__liveNotificationCountForTesting()).toBe(1);
+  });
+
+  test("a burst is capped so retention cannot grow without bound", async () => {
+    for (let i = 0; i < 300; i++) {
+      await show({ ...payload, deliveryId: `del-${i}`, body: `b-${i}` });
+    }
+    expect(__liveNotificationCountForTesting()).toBe(256);
+  });
+});
+
 // --- Tap buffering ---------------------------------------------------------
 //
 // Clicking a banner while the app is closed (or still booting) is exactly
@@ -462,8 +557,8 @@ describe("tap buffering for taps that beat the renderer", () => {
 
   const clickPayload = {
     category: "notificationIntent",
-    title: "Zoom assets",
-    body: "Needs your review",
+    title: "Review request",
+    body: "An item needs your attention",
     deliveryId: "del-1",
     conversationId: "conv-1",
   };

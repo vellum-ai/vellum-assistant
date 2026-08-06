@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import * as Sentry from "@sentry/react";
 
+import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
 import { publish } from "@/lib/event-bus";
 import { setNotificationTapHandler } from "@/runtime/notifications";
 
@@ -26,6 +27,16 @@ export function useNotificationTapNavigation(): void {
       return;
     }
     setNotificationTapHandler((payload) => {
+      // Recorded on the lifecycle ring, not only as a Sentry breadcrumb: a
+      // breadcrumb surfaces only when some later event is captured, so it
+      // cannot answer "did my tap navigate?" from a feedback bundle. The
+      // whole class of tap bugs here was invisible for exactly that reason.
+      recordLifecycleDiagnostic("notification_tap", {
+        sourceEventName: payload.sourceEventName,
+        deliveryId: payload.deliveryId,
+        conversationId: payload.conversationId,
+        navigated: payload.conversationId != null,
+      });
       if (payload.conversationId) {
         publish("deeplink.openThread", { threadId: payload.conversationId });
         return;

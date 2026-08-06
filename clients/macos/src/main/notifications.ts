@@ -142,6 +142,77 @@ const pruneStaleEntries = (): void => {
       recentNotifications.delete(key);
     }
   }
+  pruneStaleLiveNotifications();
+};
+
+// ---------------------------------------------------------------------------
+// Liveness — keeping `Notification` objects reachable
+// ---------------------------------------------------------------------------
+
+/**
+ * Notifications still on screen, held so their `click` handler survives.
+ *
+ * `new Notification(...)` is function-local: once the delivery promise
+ * settles (on `show`, milliseconds later) nothing in the process references
+ * it, and V8 is free to collect it. The macOS banner long outlives that --
+ * it sits in Notification Center for hours. Clicking a collected one still
+ * activates the app, because macOS does that itself, but fires no `click`
+ * in the main process: no `broadcastAction`, no deep link, and the renderer
+ * lands on its bootstrap default -- the user's most recent conversation.
+ * The tap is gone with no error anywhere.
+ *
+ * That is the shape of the bug this map exists to prevent: not a crash, a
+ * notification that quietly stops being clickable some seconds after it
+ * appears. Keeping a reference until the OS is done with the banner is the
+ * documented requirement for `electron.Notification`, the same one `Tray`
+ * carries.
+ *
+ * Entries are released on `click` / `close` / `failed`, and swept by TTL as
+ * a backstop -- macOS does not guarantee `close` for a banner that ages out
+ * of Notification Center, so without the sweep a long-running app would
+ * accumulate them.
+ */
+interface LiveNotification {
+  notif: Electron.Notification;
+  shownAt: number;
+}
+const liveNotifications = new Map<number, LiveNotification>();
+let liveNotificationSeq = 0;
+
+/**
+ * How long a banner stays clickable. Generous because that is the whole
+ * point -- a notification the user gets to after lunch must still deep-link
+ * -- but bounded so an always-on desktop app does not hold every
+ * notification it has ever shown.
+ */
+const LIVE_NOTIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
+/** Hard ceiling, in case a burst outpaces the TTL sweep. */
+const MAX_LIVE_NOTIFICATIONS = 256;
+
+const retainNotification = (notif: Electron.Notification): number => {
+  const id = ++liveNotificationSeq;
+  liveNotifications.set(id, { notif, shownAt: Date.now() });
+  while (liveNotifications.size > MAX_LIVE_NOTIFICATIONS) {
+    const oldest = liveNotifications.keys().next().value;
+    if (oldest === undefined) {
+      break;
+    }
+    liveNotifications.delete(oldest);
+  }
+  return id;
+};
+
+const releaseNotification = (id: number): void => {
+  liveNotifications.delete(id);
+};
+
+const pruneStaleLiveNotifications = (): void => {
+  const cutoff = Date.now() - LIVE_NOTIFICATION_TTL_MS;
+  for (const [id, entry] of liveNotifications) {
+    if (entry.shownAt < cutoff) {
+      liveNotifications.delete(id);
+    }
+  }
 };
 
 // ---------------------------------------------------------------------------
@@ -203,6 +274,16 @@ const pendingActions: NotificationActionEvent[] = [];
 const actionSubscribers = new Set<WebContents>();
 
 const broadcastAction = (event: NotificationActionEvent): void => {
+  // Logged unconditionally: every previous way a tap could go missing did so
+  // in silence, which is why diagnosing one needed the source rather than a
+  // feedback bundle. A tap reaching main is now always on the record.
+  log.info("[notifications] tap received", {
+    kind: event.kind,
+    category: event.category,
+    hasConversationId: event.conversationId != null,
+    subscribers: actionSubscribers.size,
+    buffered: actionSubscribers.size === 0,
+  });
   if (actionSubscribers.size === 0) {
     pendingActions.push(event);
     if (pendingActions.length > MAX_PENDING_ACTIONS) {
@@ -256,12 +337,19 @@ const showNotification = (payload: ShowNotificationPayload): Promise<ShowResult>
     deepLinkMetadata: payload.deepLinkMetadata,
   };
 
+  // Hold the object reachable for as long as the banner is clickable.
+  // Registered before the handlers so nothing can observe an unretained
+  // notification. See `liveNotifications` for why this is load-bearing.
+  const liveId = retainNotification(notif);
+
   notif.on("click", () => {
+    releaseNotification(liveId);
     void ensureVisible();
     broadcastAction({ kind: "click", ...baseMeta });
   });
 
   notif.on("action", (_event: Electron.Event, index: number) => {
+    releaseNotification(liveId);
     void ensureVisible();
     const actionDef = actions[index];
     broadcastAction({
@@ -270,6 +358,11 @@ const showNotification = (payload: ShowNotificationPayload): Promise<ShowResult>
       actionText: actionDef?.text,
       ...baseMeta,
     });
+  });
+
+  // The user dismissed the banner (or the OS retired it) without acting.
+  notif.on("close", () => {
+    releaseNotification(liveId);
   });
 
   // Resolve the IPC result from the real delivery outcome so the renderer
@@ -303,6 +396,7 @@ const showNotification = (payload: ShowNotificationPayload): Promise<ShowResult>
     });
 
     notif.on("failed", (_event, error) => {
+      releaseNotification(liveId);
       // Electron delivers the `failed` error as a string description.
       log.warn("[notifications] Notification failed:", error);
       settle({ success: false, errorMessage: error });
@@ -355,6 +449,8 @@ export const installNotifications = (): void => {
 // Test seam
 export const __resetForTesting = (): void => {
   recentNotifications.clear();
+  liveNotifications.clear();
+  liveNotificationSeq = 0;
   actionSubscribers.clear();
   pendingActions.length = 0;
   deliveryTimeoutMs = DELIVERY_TIMEOUT_MS;
@@ -368,4 +464,12 @@ export const __resetForTesting = (): void => {
 // can be exercised without waiting the full production duration.
 export const __setDeliveryTimeoutForTesting = (ms: number): void => {
   deliveryTimeoutMs = ms;
+};
+
+// Test seams — assert that shown notifications stay reachable (and are
+// released) without reaching into module internals from the test.
+export const __liveNotificationCountForTesting = (): number =>
+  liveNotifications.size;
+export const __pruneForTesting = (): void => {
+  pruneStaleEntries();
 };
