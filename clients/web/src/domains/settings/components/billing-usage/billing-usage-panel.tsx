@@ -125,17 +125,7 @@ export function BillingUsagePanel() {
               Overview of your spending habits.
             </Typography>
           </div>
-          {/*
-           * Compact 32px controls per Figma. `SegmentControl` exposes no size
-           * prop, and neither of `Select`'s presets is 32px (regular is 36,
-           * compact 28), so we override the inner button heights with
-           * arbitrary descendant variants here rather than mutating the
-           * shared primitives.
-           * - Select's trigger is `<button role="combobox">` (h-9 → h-8).
-           * - SegmentControl's inner items are `<button role="radio">`
-           *   wrapped by a 2px-padded container, so h-7 inner = 32px outer.
-           */}
-          <div className="flex flex-wrap items-center justify-end gap-2 [&_[role=combobox]]:h-8 [&_[role=radio]]:h-7">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <DateRangeSelect value={presetDays} onChange={setPresetDays} />
             <div className="w-44">
               <SegmentControl
