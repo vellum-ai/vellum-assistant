@@ -1,7 +1,7 @@
 import {
-  Dropdown,
-  type DropdownOption,
-} from "@vellumai/design-library/components/dropdown";
+  Select,
+  type SelectOption,
+} from "@vellumai/design-library/components/select";
 
 import {
   CAPABILITY_TIER_META,
@@ -78,7 +78,7 @@ export function TierPicker({
 }: TierPickerProps) {
   const effectiveTier = channelTierBehavesAs(tier ?? defaultTier ?? undefined);
   const shownDefault = channelTierBehavesAs(defaultTier ?? undefined) ?? null;
-  const options: DropdownOption<TierOptionValue>[] = CHANNEL_TIER_VALUES.map(
+  const options: SelectOption<TierOptionValue>[] = CHANNEL_TIER_VALUES.map(
     (value) => ({
       value,
       label: CAPABILITY_TIER_META[value].label,
@@ -90,21 +90,31 @@ export function TierPicker({
       tooltip: CAPABILITY_TIER_META[value].sublabel,
     }),
   );
-  if (shownDefault === null) {
-    options.unshift({
-      value: DEFAULT_ENTRY,
-      label: "Default",
-      // Invisible dot so the label aligns with the level rows.
-      icon: <TierDot color="transparent" />,
-      tooltip: "follows the default level",
-    });
-  }
+  // Always offered, not just when the default is unresolved. Radix reports
+  // no selection when the chosen value already matches the one shown, so a
+  // cell pinned to the level the default resolves to cannot be cleared by
+  // re-picking that level: without this row there is no way out of that
+  // state at all.
+  options.unshift({
+    value: DEFAULT_ENTRY,
+    label: "Default",
+    // Invisible dot so the label aligns with the level rows.
+    icon: <TierDot color="transparent" />,
+    tooltip: "follows the default level",
+  });
 
   const handleChange = (next: TierOptionValue) => {
     // Picking the level the default resolves to means "follow the default",
     // which is the absence of a cell: clear it rather than pinning an equal
     // one. The explicit "Default" entry is that same choice for when the
     // default is unresolved and no level carries the marker.
+    //
+    // Radix does not report a selection that matches the value already shown,
+    // so re-picking the displayed level is inert. Every case that reaches is
+    // a no-op anyway except one: a cell pinned to the level the default
+    // already resolves to no longer clears itself. Both states render
+    // identically, so nothing the user can see changes; the cell just stays
+    // pinned if the default later moves.
     if (next === DEFAULT_ENTRY || next === shownDefault) {
       onReset();
     } else {
@@ -113,7 +123,7 @@ export function TierPicker({
   };
 
   return (
-    <Dropdown<TierOptionValue>
+    <Select<TierOptionValue>
       value={effectiveTier ?? ""}
       onChange={handleChange}
       options={options}
