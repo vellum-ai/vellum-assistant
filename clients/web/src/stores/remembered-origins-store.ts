@@ -188,6 +188,11 @@ function refreshFromProvider(epoch: number): Promise<void> {
       }
       if (useRememberedOriginsStoreBase.getState().hydrated) {
         useRememberedOriginsStoreBase.setState({ origins });
+      } else if (hydrationPromise === null) {
+        // A failed hydration already settled, so nothing would consume the
+        // skip flag; this event signals the provider recovered, so retry
+        // hydration now (its load is at least as fresh as this one).
+        void useRememberedOriginsStoreBase.getState().hydrate();
       } else {
         refreshSkippedWhileUnhydrated = true;
       }

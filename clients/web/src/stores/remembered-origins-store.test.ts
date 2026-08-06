@@ -515,6 +515,43 @@ describe("providers and hydration", () => {
     ]);
   });
 
+  it("a watch event after a failed hydration retries hydration", async () => {
+    let failLoads = true;
+    let watchCallback: (() => void) | null = null;
+    const provider: RememberedOriginsProvider = {
+      load: async () => {
+        if (failLoads) {
+          throw new Error("provider unavailable");
+        }
+        return [
+          {
+            url: "https://example.com/recovered",
+            addedAt: "2026-01-01T00:00:00Z",
+          },
+        ];
+      },
+      save: async () => {},
+      watch: (onChange) => {
+        watchCallback = onChange;
+        return () => {};
+      },
+    };
+    setRememberedOriginsProvider(provider);
+    await store().hydrate();
+    expect(store().hydrated).toBe(false);
+
+    // The provider recovers and announces a change; no caller invokes
+    // hydrate() manually.
+    failLoads = false;
+    watchCallback?.();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    expect(store().hydrated).toBe(true);
+    expect(store().origins.map((o) => o.url)).toEqual([
+      "https://example.com/recovered",
+    ]);
+  });
+
   it("re-refreshes after hydration when a watch event fired mid-hydration", async () => {
     let entries: RememberedOrigin[] = [
       { url: "https://example.com/new", addedAt: "2026-01-02T00:00:00Z" },
