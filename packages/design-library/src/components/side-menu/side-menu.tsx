@@ -509,6 +509,9 @@ export interface SideMenuItemProps {
    * *why* the row does nothing would be the one thing a user could not
    * reach. The native attribute is omitted from this component's props for
    * the same reason.
+   *
+   * Wins over `active`: a row that cannot be activated does not draw the
+   * active fill. No caller passes both today.
    */
   disabled?: boolean;
   trailingIcon?: LucideIcon;
@@ -643,13 +646,21 @@ function SideMenuItem({
      every width, having no label to make room for, and `aspect-square` takes
      its width from that height so the circle cannot drift from the row metric.
 
-     Writing this as a tile-shaped patch appended after the row classes is
-     what the first two attempts did, and each of `w-full`, `rounded-[6px]`,
-     `max-md:h-auto` and `max-md:py-3` then needed its own counter-class to
-     undo. Branching states each shape once instead. */
+     Appending a tile-shaped patch after the row classes renders the same,
+     but each of `w-full`, `rounded-[6px]`, `max-md:h-auto` and `max-md:py-3`
+     then needs its own counter-class, which leaves the geometry resting on
+     tailwind-merge order rather than on intent. Branching states each shape
+     once, so there is nothing to counter. */
   const isTile = collapsed && shape === "circle";
   const geometryClasses = isTile
-    ? "h-[30px] aspect-square mx-auto rounded-full"
+    ? /* `mx-auto` is load-bearing, not centering trim. With no `w-full` the
+         tile's width is auto and comes from `aspect-square`, and a flex child
+         with an auto cross size stretches to the container in the default
+         `align-items: stretch`, which makes the ratio inert (measured: 200px
+         wide in a 200px column). An auto cross-axis margin suppresses that
+         stretch, so it is what keeps the height authoritative anywhere the
+         parent is not already `items-center`. */
+      "h-[30px] aspect-square mx-auto rounded-full"
     : // `w-full` matters for the `<button>` render path: buttons keep
       // fit-content sizing even as flex containers, so without it a
       // button-backed item shrink-wraps while anchor-backed items fill the rail.
