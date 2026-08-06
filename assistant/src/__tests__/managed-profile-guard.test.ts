@@ -11,9 +11,8 @@
  *   profile. A user-owned (`source: "user"`) entry sharing a managed name is
  *   not locked.
  *
- * Plus the wire-only profile keys (`invariant`, `supportsVision`,
- * `usesVellumCredits`) stamped on config reads: PATCH/SET strip them so a
- * GET → write round-trip succeeds.
+ * Plus the wire-only profile keys (`invariant`, `supportsVision`) stamped on
+ * config reads: PATCH/SET strip them so a GET → write round-trip succeeds.
  */
 
 import { readFileSync, utimesSync, writeFileSync } from "node:fs";
@@ -927,8 +926,7 @@ describe("default-profile invariant guard — allowed writes", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Wire-only profile keys (`invariant`, `supportsVision`, `usesVellumCredits`)
-// are stamped onto
+// Wire-only profile keys (`invariant`, `supportsVision`) are stamped onto
 // config GET/PATCH responses but never persisted. Writes carrying them —
 // e.g. a `config get` → `config set` round-trip — must succeed with the
 // wire keys stripped, not 400 on phantom fields.
@@ -947,7 +945,6 @@ describe("wire-only profile keys are stripped from writes", () => {
               status: "active",
               invariant: true,
               supportsVision: true,
-              usesVellumCredits: true,
             },
           },
         },
@@ -959,7 +956,6 @@ describe("wire-only profile keys are stripped from writes", () => {
     expect(profile.status).toBe("active");
     expect("invariant" in profile).toBe(false);
     expect("supportsVision" in profile).toBe(false);
-    expect("usesVellumCredits" in profile).toBe(false);
   });
 
   test("SET llm.profiles.balanced with a wire-shaped entry (GET round-trip) succeeds", async () => {
@@ -968,7 +964,6 @@ describe("wire-only profile keys are stripped from writes", () => {
     ) as Record<string, unknown>;
     entry.invariant = true;
     entry.supportsVision = true;
-    entry.usesVellumCredits = true;
     const result = await setRoute.handler({
       body: { path: "llm.profiles.balanced", value: entry },
     });
@@ -977,7 +972,6 @@ describe("wire-only profile keys are stripped from writes", () => {
     const profile = savedProfile("balanced");
     expect("invariant" in profile).toBe(false);
     expect("supportsVision" in profile).toBe(false);
-    expect("usesVellumCredits" in profile).toBe(false);
     expect(profile.provider).toBe("anthropic");
     expect(profile.model).toBe("claude-sonnet");
   });
@@ -1050,7 +1044,6 @@ describe("wire-only profile keys are stripped from writes", () => {
               status: "active",
               invariant: true,
               supportsVision: true,
-              usesVellumCredits: true,
             },
           },
         },

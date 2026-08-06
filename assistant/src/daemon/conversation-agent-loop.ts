@@ -61,10 +61,11 @@ import { HOOKS } from "../plugin-api/constants.js";
 import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../plugins/defaults/memory/memory-retrospective-enqueue.js";
 import { runHook } from "../plugins/pipeline.js";
+import { isManagedConnectionRoute } from "../providers/connection-resolution.js";
 import {
-  isManagedRouteForResolvedConfig,
-  resolvedDispatchConnectionName,
-} from "../providers/connection-resolution.js";
+  ConnectionResolutionError,
+  resolveRoutingIdentity,
+} from "../providers/routing-identity.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
@@ -474,8 +475,24 @@ export async function runAgentLoopImpl(
       };
       const { config: resolved, profileName } =
         resolveCallSiteConfigWithProfile(turnCallSite, config.llm, resolveOpts);
-      const connectionName = resolvedDispatchConnectionName(resolved);
-      const isManagedRoute = isManagedRouteForResolvedConfig(resolved);
+      let connectionName = resolved.provider_connection;
+      try {
+        connectionName =
+          resolveRoutingIdentity(resolved.provider, resolved.model)
+            ?.connectionName ?? connectionName;
+      } catch (error) {
+        if (!(error instanceof ConnectionResolutionError)) {
+          throw error;
+        }
+        connectionName = error.connectionName;
+      }
+      // Managed-ness comes from the connection row, matching what dispatch
+      // decides. The profile's own provider can't stand in: a concrete
+      // provider tweak over a managed winner keeps the managed connection
+      // while replacing the provider (`llm-resolver.ts`).
+      const isManagedRoute = connectionName
+        ? isManagedConnectionRoute(connectionName)
+        : undefined;
       return {
         ...(connectionName ? { connectionName } : {}),
         ...(profileName ? { profileName } : {}),

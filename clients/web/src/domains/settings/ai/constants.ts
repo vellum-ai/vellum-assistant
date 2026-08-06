@@ -1,4 +1,5 @@
 import { VELLUM_SERVED_PROVIDERS } from "@/assistant/llm-model-catalog";
+import { VELLUM_MANAGED_ROUTE } from "@/lib/billing/vellum-managed-route";
 
 export const OPENAI_COMPATIBLE_PROVIDER = "openai-compatible";
 
@@ -28,9 +29,11 @@ export const INFERENCE_PROVIDERS = [
 /**
  * `provider` value stored on the single Vellum-managed connection. It is a
  * routing sentinel, not a real LLM provider, so it never appears in the profile
- * provider picker.
+ * provider picker. Re-exported from `lib/billing` rather than redeclared: the
+ * chat surfaces read the same sentinel to tell a platform-billed route from a
+ * bring-your-own one, and two copies would drift.
  */
-export const VELLUM_CONNECTION_PROVIDER = "vellum";
+export const VELLUM_CONNECTION_PROVIDER = VELLUM_MANAGED_ROUTE;
 
 /**
  * Providers the single Vellum-managed (`vellum`) connection can serve. Mirrors
