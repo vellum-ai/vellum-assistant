@@ -215,11 +215,37 @@ describe("extractSpeakableSegments", () => {
 
     test("splits Japanese at the ideographic full stop with no whitespace", () => {
       const { segments, remainder } = extractSpeakableSegments(
-        "こんにちは。今日はいい天気ですね。",
+        "こんにちは。今日はいい天気ですね。続き",
         false,
       );
 
       expect(segments).toEqual(["こんにちは。", "今日はいい天気ですね。"]);
+      expect(remainder).toBe("続き");
+    });
+
+    test("a buffer ending at a non-Latin ender keeps buffering for closers", () => {
+      // Streaming deltas can split a quoted sentence: `「こんにちは。`
+      // arrives first and `」次です。` in the next delta. A boundary at the
+      // buffer-final 。 would orphan the 」 into the next segment.
+      const firstDelta = extractSpeakableSegments("「こんにちは。", false);
+      expect(firstDelta.segments).toEqual([]);
+      expect(firstDelta.remainder).toBe("「こんにちは。");
+
+      const afterNextDelta = extractSpeakableSegments(
+        `${firstDelta.remainder}」次です。`,
+        false,
+      );
+      expect(afterNextDelta.segments).toEqual(["「こんにちは。」"]);
+      expect(afterNextDelta.remainder).toBe("次です。");
+    });
+
+    test("force still flushes a buffer ending at an ideographic full stop", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "終わりです。",
+        true,
+      );
+
+      expect(segments).toEqual(["終わりです。"]);
       expect(remainder).toBe("");
     });
 
@@ -241,6 +267,42 @@ describe("extractSpeakableSegments", () => {
       });
 
       expect(segments).toEqual([`${"あ".repeat(30)}、`]);
+      expect(remainder).toBe("まだ続く");
+    });
+
+    test("eager mode keeps a fullwidth grouping comma inside a number", () => {
+      const text =
+        "これは長い導入文で二十四文字を確実に超えています１，０００円です";
+
+      const { segments, remainder } = extractSpeakableSegments(text, false, {
+        eager: true,
+      });
+
+      expect(segments).toEqual([]);
+      expect(remainder).toBe(text);
+    });
+
+    test("eager mode defers a digit-final fullwidth comma at the buffer edge", () => {
+      // The grouped digits may arrive in the next delta (`１，` then
+      // `０００円`), so a buffer-final comma after a digit keeps buffering.
+      const text = "これは長い導入文で二十四文字を確実に超えています１，";
+
+      const { segments, remainder } = extractSpeakableSegments(text, false, {
+        eager: true,
+      });
+
+      expect(segments).toEqual([]);
+      expect(remainder).toBe(text);
+    });
+
+    test("eager mode still splits at a fullwidth comma between non-digits", () => {
+      const text = `${"あ".repeat(30)}，まだ続く`;
+
+      const { segments, remainder } = extractSpeakableSegments(text, false, {
+        eager: true,
+      });
+
+      expect(segments).toEqual([`${"あ".repeat(30)}，`]);
       expect(remainder).toBe("まだ続く");
     });
 
@@ -300,11 +362,11 @@ describe("extractSpeakableSegments", () => {
       expect(firstDelta.remainder).toBe("３．");
 
       const afterNextDelta = extractSpeakableSegments(
-        `${firstDelta.remainder}１４です。`,
+        `${firstDelta.remainder}１４です。次`,
         false,
       );
       expect(afterNextDelta.segments).toEqual(["３．１４です。"]);
-      expect(afterNextDelta.remainder).toBe("");
+      expect(afterNextDelta.remainder).toBe("次");
     });
 
     test("force still flushes a buffer ending at a fullwidth full stop", () => {
@@ -330,8 +392,10 @@ describe("extractSpeakableSegments", () => {
         false,
       );
 
-      expect(segments).toEqual(["「こんにちは。」", "次です。"]);
-      expect(remainder).toBe("");
+      expect(segments).toEqual(["「こんにちは。」"]);
+      // The trailing sentence ends at the buffer edge, so it keeps
+      // buffering in case the next delta opens with a closer.
+      expect(remainder).toBe("次です。");
     });
 
     test("keeps a CJK double angle bracket with its sentence", () => {
@@ -340,8 +404,8 @@ describe("extractSpeakableSegments", () => {
         false,
       );
 
-      expect(segments).toEqual(["《こんにちは。》", "次です。"]);
-      expect(remainder).toBe("");
+      expect(segments).toEqual(["《こんにちは。》"]);
+      expect(remainder).toBe("次です。");
     });
 
     test("keeps a closing curly quote with its sentence", () => {

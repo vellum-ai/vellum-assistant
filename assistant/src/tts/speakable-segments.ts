@@ -75,6 +75,10 @@ const EAGER_CLAUSE_PUNCTUATION = new Set([
   ":",
   ...NON_LATIN_EAGER_CLAUSE_PUNCTUATION,
 ]);
+// The fullwidth comma also serves as a thousands separator in fullwidth
+// numbers (１，０００円), so it is not a clause boundary inside a number. The
+// ideographic comma 、 never appears in numbers and needs no guard.
+const FULLWIDTH_COMMA = "，";
 // A clause boundary only counts in eager mode once this much text precedes
 // it — "Sure, " alone would be a one-word blip.
 const EAGER_MIN_CLAUSE_PREFIX_CHARS = 24;
@@ -160,7 +164,8 @@ function findSpeakableBoundary(
       EAGER_CLAUSE_PUNCTUATION.has(char) &&
       index >= EAGER_MIN_CLAUSE_PREFIX_CHARS &&
       (NON_LATIN_EAGER_CLAUSE_PUNCTUATION.has(char) ||
-        isWhitespace(text[index + 1] ?? ""))
+        isWhitespace(text[index + 1] ?? "")) &&
+      !isFullwidthGroupingComma(text, index)
     ) {
       return index + 1;
     }
@@ -169,15 +174,8 @@ function findSpeakableBoundary(
       const isNonLatinEnder = NON_LATIN_SENTENCE_ENDING_PUNCTUATION.has(char);
       // The fullwidth full stop doubles as a decimal point in fullwidth
       // numbers (３．１４です), so a following digit suppresses the boundary.
-      // A buffer-final ． is equally ambiguous while streaming: the digits
-      // may arrive in the next delta (e.g. `３．` then `１４です`), so wait
-      // for another character. The `force` flush path still emits a genuine
-      // sentence-final ．at end of turn. The ideographic 。 never marks
-      // decimals and stays unconditional.
-      const charAfterStop = text[index + 1];
       const isAmbiguousDecimalPoint =
-        char === FULLWIDTH_FULL_STOP &&
-        (charAfterStop === undefined || isDecimalDigit(charAfterStop));
+        char === FULLWIDTH_FULL_STOP && isDecimalDigit(text[index + 1]);
       if (isNonLatinEnder && !isAmbiguousDecimalPoint) {
         // Non-Latin enders are valid boundaries regardless of what follows;
         // consume locale closers so they stay with their sentence.
@@ -188,7 +186,16 @@ function findSpeakableBoundary(
         ) {
           boundary += 1;
         }
-        return boundary;
+        // A buffer-final ender is ambiguous while streaming: the next delta
+        // may open with closers that belong to this sentence (`「こんにちは。`
+        // then `」`) or, for ．, with decimal digits (`３．` then `１４です`).
+        // Keep buffering; the `force` flush path still emits a buffer-final
+        // sentence at end of turn, and the length cap below still bounds the
+        // buffer. ASCII enders keep their end-of-text boundary: whitespace
+        // scripts do not attach closers across deltas the same way.
+        if (boundary < text.length) {
+          return boundary;
+        }
       }
       if (!isNonLatinEnder) {
         // ASCII enders require following whitespace so decimals (3.14) and
@@ -278,6 +285,19 @@ function isWordChar(value: string | undefined): boolean {
 
 function isDecimalDigit(value: string | undefined): boolean {
   return value !== undefined && /[0-9０-９]/.test(value);
+}
+
+/**
+ * A fullwidth comma acting as a thousands separator (１，０００円): a digit
+ * precedes it and a digit follows, or the buffer ends right after it while
+ * streaming (the digits may arrive in the next delta, so keep buffering).
+ */
+function isFullwidthGroupingComma(text: string, index: number): boolean {
+  if (text[index] !== FULLWIDTH_COMMA || !isDecimalDigit(text[index - 1])) {
+    return false;
+  }
+  const next = text[index + 1];
+  return next === undefined || isDecimalDigit(next);
 }
 
 /**
