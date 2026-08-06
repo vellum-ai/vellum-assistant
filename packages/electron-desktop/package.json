@@ -5,6 +5,8 @@
   "license": "MIT",
   "type": "module",
   "exports": {
+    "./about": "./src/about.ts",
+    "./accelerator": "./src/accelerator.ts",
     "./app-origin": "./src/app-origin.ts",
     "./bundle-confirmation": "./src/bundle-confirmation.ts",
     "./bundle-flow": "./src/bundle-flow.ts",
@@ -12,15 +14,19 @@
     "./bundle-platform": "./src/bundle-platform.ts",
     "./bundle-window": "./src/bundle-window.ts",
     "./capability-registry": "./src/capability-registry.ts",
+    "./commands": "./src/commands.ts",
     "./devtools": "./src/devtools.ts",
+    "./global-shortcuts": "./src/global-shortcuts.ts",
+    "./hotkeys": "./src/hotkeys.ts",
+    "./image-context-menu": "./src/image-context-menu.ts",
     "./ipc": "./src/ipc.ts",
     "./vellumapp-protocol": "./src/vellumapp-protocol.ts",
+    "./text-context-menu": "./src/text-context-menu.ts",
     "./windows": "./src/windows.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit",
-    "test": "bun test src/capability-registry.test.ts",
-    "test:bundles": "bun test src/bundle-confirmation.test.ts && bun test src/bundle-flow.test.ts && bun test src/bundle-manager.test.ts && bun test src/bundle-window.test.ts && bun test src/vellumapp-protocol.test.ts"
+    "test": "bun scripts/run-tests.ts"
   },
   "dependencies": {
     "@vellumai/electron-utils": "workspace:*",

@@ -7,13 +7,12 @@ import path from "node:path";
 
 import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
 import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
-import { z } from "zod";
 
 import { VELLUMAPP_PROTOCOL } from "@vellumai/electron-desktop/bundle-platform";
 
 import { APP_PROTOCOL } from "./app-config";
 import { installMainFeatures } from "./features";
-import { handle, handleSync } from "./ipc.client";
+import { handleSync } from "./ipc.client";
 import log from "./logger";
 import { ensureVisible, installMainWindow } from "./main-window";
 import { installWebContentsSecurity } from "./windows.client";
@@ -31,7 +30,7 @@ import { installWebContentsSecurity } from "./windows.client";
  * Not ported from the macOS client yet (see `clients/macos/src/main/` for the
  * reference implementations): gateway/platform request forwarding for
  * packaged builds, native auth, deep links, tray, auto-update, CSP,
- * notifications, hotkeys, local-mode IPC, window-state persistence.
+ * notifications, local-mode IPC, window-state persistence.
  */
 
 // Dev-only: override the package `name` (`@vellumai/windows`) so
@@ -170,31 +169,6 @@ handleSync("vellum:config:get", () => ({
   deviceId: null,
 }));
 
-const WEBSITE = "https://vellum.ai";
-
-// Injected by `electron.vite.config.ts` at build time.
-declare const __VELLUM_BUILD_SHA__: string;
-
-const installAppInfoIpc = (): void => {
-  handle("vellum:app:versionInfo", z.tuple([]), () => ({
-    appName: app.getName(),
-    version: app.getVersion(),
-    commitSha:
-      typeof __VELLUM_BUILD_SHA__ === "string"
-        ? __VELLUM_BUILD_SHA__
-        : "unknown",
-    copyright: `© ${new Date().getFullYear()} Vellum AI`,
-    website: WEBSITE,
-  }));
-
-  // The renderer is sandboxed - `shell.openExternal` only works from main.
-  // The target is a fixed constant, never a renderer-supplied URL, so there's
-  // no open-redirect surface here.
-  handle("vellum:app:openWebsite", z.tuple([]), () =>
-    shell.openExternal(WEBSITE),
-  );
-};
-
 // ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------
@@ -205,7 +179,6 @@ app
     if (!isDev) {
       registerAppProtocol();
     }
-    installAppInfoIpc();
     installMainFeatures();
     installMainWindow();
   })

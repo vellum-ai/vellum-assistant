@@ -16,7 +16,7 @@ import {
 import { isElectron } from "@/runtime/is-electron";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
 
 import { MOBILE_INPUT_NO_ZOOM } from "@/domains/onboarding/onboarding-step-layout";
@@ -117,7 +117,7 @@ export function ApiKeyScreen() {
             <label className="text-body-small-default text-[var(--content-tertiary)]">
               Provider
             </label>
-            <Dropdown
+            <Select
               aria-label="Provider"
               value={provider}
               onChange={(v) => {
@@ -140,7 +140,7 @@ export function ApiKeyScreen() {
               <label className="text-body-small-default text-[var(--content-tertiary)]">
                 Model
               </label>
-              <Dropdown
+              <Select
                 aria-label="Model"
                 value={model}
                 onChange={setModel}

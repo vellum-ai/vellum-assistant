@@ -2,9 +2,8 @@ import { useCallback, useState, type ReactNode } from "react";
 
 import type { LucideIcon } from "lucide-react";
 
-import { IconTile } from "@/domains/chat/components/icon-tile";
 import type { Conversation } from "@/types/conversation-types";
-import { Popover } from "@vellumai/design-library";
+import { Popover, SideMenu } from "@vellumai/design-library";
 import { cn } from "@vellumai/design-library/utils/cn";
 
 // ---------------------------------------------------------------------------
@@ -138,35 +137,40 @@ export function CollapsedGroupIcon({
   if (disabled) {
     // Empty group: the same tile, minus the popover it would open. Its
     // tooltip explains why it does nothing rather than repeating the group
-    // name the icon already conveys.
+    // name the icon already conveys, so `tooltip` diverges from `label`
+    // (which still names the tile for assistive tech).
     return (
-      <IconTile
-        label="No conversations"
-        side="right"
-        shape="round"
+      <SideMenu.Item
+        icon={Icon}
+        label={label}
+        tooltip="No conversations"
+        shape="circle"
         disabled
-        aria-label={label}
-      >
-        <Icon size={14} />
-      </IconTile>
+      />
     );
   }
 
   return (
     <Popover.Root open={open} onOpenChange={handleOpenChange}>
       <Popover.Trigger asChild>
-        <IconTile
+        <SideMenu.Item
+          icon={Icon}
           label={label}
-          side="right"
-          shape="round"
+          showCollapsedTooltip
+          shape="circle"
+          active={open}
+          // `active` is the open-flyout surface here, not a location. This
+          // tile opens a popover over the rail rather than navigating, so it
+          // drops the `aria-current="page"` that a real destination row sets.
+          aria-current={undefined}
           aria-haspopup="dialog"
-        >
-          <Icon size={14} />
-          <GroupIndicatorDot
-            state={indicatorState}
-            className="absolute right-0 top-0 border-2 border-[var(--surface-overlay)]"
-          />
-        </IconTile>
+          indicator={
+            <GroupIndicatorDot
+              state={indicatorState}
+              className="absolute right-0 top-0 border-2 border-[var(--surface-overlay)]"
+            />
+          }
+        />
       </Popover.Trigger>
       <Popover.Content
         ref={setContentEl}

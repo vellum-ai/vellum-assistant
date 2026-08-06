@@ -228,13 +228,12 @@ mock.module("./main-window", () => ({
 }));
 
 mock.module("./settings", () => ({
-  readHotkeyOverride: () => null,
   readSetting: () => null,
   writeSetting: () => {},
   onSettingChange: () => () => {},
 }));
 
-mock.module("./about", () => ({
+mock.module("./about.client", () => ({
   openAboutWindow: mock(() => undefined),
 }));
 

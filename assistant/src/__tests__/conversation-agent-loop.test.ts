@@ -675,6 +675,7 @@ import {
   applyCompactionResult,
   runAgentLoopImpl,
 } from "../daemon/conversation-agent-loop.js";
+import { settleTurnTail } from "../daemon/turn-tail-chain.js";
 import {
   createMockProvider,
   type ScriptedResponse,
@@ -2742,6 +2743,128 @@ describe("session-agent-loop", () => {
     });
   });
 
+  describe("detached deferred turn tail", () => {
+    const reservedAssistantRow = {
+      id: "msg-reserve",
+      conversationId: "test-conv",
+      createdAt: 1_700_000_000_001,
+      role: "assistant" as const,
+      content: "[]",
+      metadata: null,
+    };
+
+    test("frees the conversation before the deferred tail finishes, and serializes tails", async () => {
+      mockMessageById = reservedAssistantRow;
+      // A tail effect that never settles on its own stands in for the
+      // production case this guards: memory indexing that takes tens of
+      // seconds against a slow embedding provider.
+      let releaseFirstIndex: (() => void) | undefined;
+      const firstIndexHangs = new Promise<void>((resolve) => {
+        releaseFirstIndex = resolve;
+      });
+      indexMessageNowMock.mockImplementationOnce(async () => {
+        await firstIndexHangs;
+        return { indexedSegments: 0, enqueuedJobs: 0 };
+      });
+
+      const drainReasons: string[] = [];
+      const ctx = makeCtx({
+        providerResponses: [textResponse("first"), textResponse("second")],
+        drainQueue: async (reason?: string) => {
+          drainReasons.push(reason ?? "loop_complete");
+        },
+      });
+
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      // The tail is still parked inside the indexer…
+      expect(indexMessageNowMock).toHaveBeenCalledTimes(1);
+      // …yet the conversation is already released and the queue already
+      // kicked, so a send arriving now runs instead of being queued.
+      expect(ctx.isProcessing()).toBe(false);
+      expect(drainReasons).toEqual(["loop_complete"]);
+
+      // A follow-up turn runs to completion against the still-hung tail.
+      ctx.abortController = new AbortController();
+      ctx.setProcessing(true);
+      await runAgentLoopImpl(ctx, "again", "msg-2", () => {});
+      expect(ctx.isProcessing()).toBe(false);
+      expect(drainReasons).toEqual(["loop_complete", "loop_complete"]);
+
+      // The second turn's tail is chained behind the first, so it has not run
+      // its own indexing yet.
+      expect(indexMessageNowMock).toHaveBeenCalledTimes(1);
+
+      releaseFirstIndex?.();
+      await settleTurnTail(ctx.conversationId);
+      expect(indexMessageNowMock).toHaveBeenCalledTimes(2);
+    });
+
+    test("a throwing tail effect neither latches the lock nor skips the drain", async () => {
+      mockMessageById = reservedAssistantRow;
+      indexMessageNowMock.mockImplementationOnce(async () => {
+        throw new Error("indexer exploded");
+      });
+
+      const drainReasons: string[] = [];
+      const ctx = makeCtx({
+        providerResponses: [textResponse("first")],
+        drainQueue: async (reason?: string) => {
+          drainReasons.push(reason ?? "loop_complete");
+        },
+      });
+
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+      // The chain settles rather than rejecting, so the throw can neither
+      // surface as an unhandled rejection nor poison a later turn's tail.
+      await settleTurnTail(ctx.conversationId);
+
+      expect(ctx.isProcessing()).toBe(false);
+      expect(drainReasons).toEqual(["loop_complete"]);
+      // The tail continued past the failure: attention projection still ran.
+      expect(projectAssistantMessageMock).toHaveBeenCalledTimes(1);
+    });
+
+    test("the queue drain waits for the turn-boundary commit", async () => {
+      // `commitTurnChanges` attributes the working tree's changes to the turn
+      // that just finished, so a queued turn must not start writing files
+      // while it runs. The lock release above frees direct sends immediately;
+      // the drain is what has to wait.
+      let commitReached: (() => void) | undefined;
+      const commitStarted = new Promise<void>((resolve) => {
+        commitReached = resolve;
+      });
+      let releaseCommit: (() => void) | undefined;
+      const commitHangs = new Promise<void>((resolve) => {
+        releaseCommit = resolve;
+      });
+
+      const drainReasons: string[] = [];
+      const ctx = makeCtx({
+        providerResponses: [textResponse("first")],
+        commitTurnChanges: async () => {
+          commitReached?.();
+          await commitHangs;
+        },
+        drainQueue: async (reason?: string) => {
+          drainReasons.push(reason ?? "loop_complete");
+        },
+      });
+
+      const loop = runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+      await commitStarted;
+
+      // Released for direct sends…
+      expect(ctx.isProcessing()).toBe(false);
+      // …but the queue is untouched until the commit settles.
+      expect(drainReasons).toEqual([]);
+
+      releaseCommit?.();
+      await loop;
+      expect(drainReasons).toEqual(["loop_complete"]);
+    });
+  });
+
   describe("B3 pre-allocation: indexing + cleanup", () => {
     test("handleMessageComplete indexes and projects the finalized assistant row", async () => {
       // The pre-B3 path inserted assistant rows via `addMessage`, which ran
@@ -2768,6 +2891,9 @@ describe("session-agent-loop", () => {
         providerResponses: [textResponse("indexed reply")],
       });
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+      // The finalize effects run on the detached tail, so wait for the chain
+      // rather than on the loop's own resolution.
+      await settleTurnTail(ctx.conversationId);
 
       // Indexer fired with the reserved row's id + the finalized content.
       expect(indexMessageNowMock).toHaveBeenCalledTimes(1);
@@ -2844,8 +2970,9 @@ describe("session-agent-loop", () => {
         providerResponses: [textResponse("indexed reply")],
       });
       await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
+      await settleTurnTail(ctx.conversationId);
 
-      // The deferred indexer runs exactly once, within the turn…
+      // The deferred indexer runs exactly once…
       expect(indexMessageNowMock).toHaveBeenCalledTimes(1);
       // …and only after the terminal SSE that re-enables the composer.
       expect(messageCompleteSeenWhenIndexed).toBe(true);
@@ -2868,6 +2995,7 @@ describe("session-agent-loop", () => {
       // GIVEN a real loop that answers with a single finalized assistant turn
       const ctx = makeCtx({ providerResponses: [textResponse("quiet")] });
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+      await settleTurnTail(ctx.conversationId);
 
       expect(projectAssistantMessageMock).toHaveBeenCalledTimes(1);
       // The mock will still receive a `:messages` invalidation from the
@@ -3257,6 +3385,7 @@ describe("session-agent-loop", () => {
 
       // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+      await settleTurnTail(ctx.conversationId);
 
       expect(snapshot).toBeDefined();
       // Indexer + projector were both ZERO during the mid-turn partial

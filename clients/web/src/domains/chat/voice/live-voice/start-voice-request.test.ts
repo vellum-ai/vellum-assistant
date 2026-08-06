@@ -28,9 +28,9 @@ mock.module("@/lib/backwards-compat/utils", () => ({
 
 const {
   PENDING_VOICE_START_TTL_MS,
-  drainPendingVoiceStartDeepLink,
-  requestVoiceStartFromDeepLink,
-} = await import("@/domains/chat/voice/live-voice/start-voice-deep-link");
+  drainPendingVoiceStart,
+  requestVoiceStart,
+} = await import("@/domains/chat/voice/live-voice/start-voice-request");
 const { useLiveVoiceStore } = await import(
   "@/domains/chat/voice/live-voice/live-voice-store"
 );
@@ -100,7 +100,7 @@ describe("starting a session", () => {
     identityHydrated();
     registerStarter();
 
-    requestVoiceStartFromDeepLink();
+    requestVoiceStart();
     await Promise.resolve();
     await Promise.resolve();
 
@@ -114,14 +114,14 @@ describe("starting a session", () => {
     identityHydrated();
 
     // No `ChatLayout` yet: the drain no-ops and the request stays parked.
-    requestVoiceStartFromDeepLink();
+    requestVoiceStart();
     await Promise.resolve();
     expect(starter).not.toHaveBeenCalled();
     expect(isParked()).toBe(true);
 
     // The controller mounts and drains, exactly as it does on registration.
     registerStarter();
-    await drainPendingVoiceStartDeepLink();
+    await drainPendingVoiceStart();
 
     expect(starter).toHaveBeenCalledWith("assistant-1", null);
     expect(isParked()).toBe(false);
@@ -131,7 +131,7 @@ describe("starting a session", () => {
     identityHydrated();
     registerStarter();
 
-    await drainPendingVoiceStartDeepLink();
+    await drainPendingVoiceStart();
 
     expect(whenAssistantVersionKnown).not.toHaveBeenCalled();
     expect(starter).not.toHaveBeenCalled();
@@ -151,15 +151,15 @@ describe("a request that cannot be served yet stays parked", () => {
     useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
     registerStarter();
 
-    requestVoiceStartFromDeepLink();
-    await drainPendingVoiceStartDeepLink();
+    requestVoiceStart();
+    await drainPendingVoiceStart();
 
     expect(starter).not.toHaveBeenCalled();
     expect(isParked()).toBe(true);
 
     // The identity lands and the next drain runs it.
     identityHydrated();
-    await drainPendingVoiceStartDeepLink();
+    await drainPendingVoiceStart();
     expect(starter).toHaveBeenCalledWith("assistant-1", null);
   });
 
@@ -173,7 +173,7 @@ describe("a request that cannot be served yet stays parked", () => {
     });
 
     usePendingDeepLinkStore.getState().setPendingVoiceStart();
-    const drained = drainPendingVoiceStartDeepLink();
+    const drained = drainPendingVoiceStart();
     // Navigating off the chat layout mid-await: there is no starter left to
     // hand this to.
     useLiveVoiceStore.getState().setStarter(null);
@@ -186,7 +186,7 @@ describe("a request that cannot be served yet stays parked", () => {
     // The next `ChatLayout` mount picks it up.
     versionResolution = Promise.resolve();
     registerStarter();
-    await drainPendingVoiceStartDeepLink();
+    await drainPendingVoiceStart();
     expect(starter).toHaveBeenCalledWith("assistant-1", null);
   });
 });
@@ -203,8 +203,8 @@ describe("a request that will never be served is discarded", () => {
     identityHydrated("0.10.11");
     registerStarter();
 
-    requestVoiceStartFromDeepLink();
-    await drainPendingVoiceStartDeepLink();
+    requestVoiceStart();
+    await drainPendingVoiceStart();
 
     expect(starter).not.toHaveBeenCalled();
     expect(isParked()).toBe(false);
@@ -220,7 +220,7 @@ describe("a request that will never be served is discarded", () => {
     usePendingDeepLinkStore.setState({
       pendingVoiceStartAt: Date.now() - PENDING_VOICE_START_TTL_MS - 1,
     });
-    await drainPendingVoiceStartDeepLink();
+    await drainPendingVoiceStart();
 
     expect(starter).not.toHaveBeenCalled();
     expect(isParked()).toBe(false);
@@ -233,7 +233,7 @@ describe("a request that will never be served is discarded", () => {
     usePendingDeepLinkStore.setState({
       pendingVoiceStartAt: Date.now() - PENDING_VOICE_START_TTL_MS + 5_000,
     });
-    await drainPendingVoiceStartDeepLink();
+    await drainPendingVoiceStart();
 
     expect(starter).toHaveBeenCalledWith("assistant-1", null);
   });
@@ -248,10 +248,10 @@ describe("one-shot delivery", () => {
     identityHydrated();
     registerStarter();
 
-    requestVoiceStartFromDeepLink();
-    await drainPendingVoiceStartDeepLink();
-    await drainPendingVoiceStartDeepLink();
-    await drainPendingVoiceStartDeepLink();
+    requestVoiceStart();
+    await drainPendingVoiceStart();
+    await drainPendingVoiceStart();
+    await drainPendingVoiceStart();
 
     expect(starter).toHaveBeenCalledTimes(1);
   });
@@ -259,12 +259,12 @@ describe("one-shot delivery", () => {
   test("two links before a drain are one request", async () => {
     identityHydrated();
 
-    requestVoiceStartFromDeepLink();
-    requestVoiceStartFromDeepLink();
+    requestVoiceStart();
+    requestVoiceStart();
     await Promise.resolve();
 
     registerStarter();
-    await drainPendingVoiceStartDeepLink();
+    await drainPendingVoiceStart();
 
     expect(starter).toHaveBeenCalledTimes(1);
   });

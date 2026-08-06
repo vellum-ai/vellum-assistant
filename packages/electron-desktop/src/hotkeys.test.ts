@@ -1,26 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { z } from "zod";
+import type { HotkeysIpc } from "./hotkeys";
 
-// In-memory settings store shared by the mock below. `readHotkeyOverride`
-// mirrors the real module's semantics (an explicit "" is a real value; only an
-// absent key is `null`) so the catalog/merge logic is exercised faithfully.
-let store: Record<string, unknown> = {};
-mock.module("./settings", () => ({
-  readSetting: (key: string) => (key in store ? store[key] : null),
-  writeSetting: (key: string, value: unknown) => {
-    store[key] = value;
-  },
-  readHotkeyOverride: (key: string) => {
-    const hotkeys = store["hotkeys"];
-    if (hotkeys && typeof hotkeys === "object") {
-      const value = (hotkeys as Record<string, unknown>)[key];
-      return typeof value === "string" ? value : null;
-    }
-    return null;
-  },
-  onSettingChange: () => () => undefined,
-}));
+let hotkeys: Record<string, string> = {};
+let listener: (() => void) | null = null;
 
 // Capture the `handle` registrations so the IPC handlers can be invoked
 // directly. The sender-origin guard and schema parsing inside the real
@@ -34,17 +17,6 @@ const handleRegistrations: Registration[] = [];
 // this mock leaks into co-run test files via the global module registry, so
 // the full `./ipc` surface keeps siblings that import `on` (e.g.
 // `feature-flags.ts`) resolvable regardless of file order.
-mock.module("./ipc", () => ({
-  handle: (
-    channel: string,
-    _schema: z.ZodType<unknown[]>,
-    fn: (args: unknown[]) => unknown,
-  ) => {
-    handleRegistrations.push({ channel, fn });
-  },
-  on: () => {},
-}));
-
 // `./hotkeys` (via `./commands`) imports `BrowserWindow` from electron; stub
 // the surface the broadcast path touches.
 mock.module("electron", () => ({
@@ -53,6 +25,16 @@ mock.module("electron", () => ({
 
 const { resolveHotkeyCatalog, installHotkeysIpc, __resetForTesting } =
   await import("./hotkeys");
+const { configureHotkeySettings } = await import("./commands");
+
+const ipc: HotkeysIpc = {
+  handle: (channel, _schema, fn) => {
+    handleRegistrations.push({
+      channel,
+      fn: (args) => fn(args as never, undefined as never),
+    });
+  },
+};
 
 const invoke = (channel: string, args: unknown[]): unknown => {
   const registration = handleRegistrations.find((r) => r.channel === channel);
@@ -61,7 +43,21 @@ const invoke = (channel: string, args: unknown[]): unknown => {
 };
 
 beforeEach(() => {
-  store = {};
+  hotkeys = {};
+  listener = null;
+  configureHotkeySettings({
+    read: () => hotkeys,
+    write: (next) => {
+      hotkeys = next;
+      listener?.();
+    },
+    subscribe: (next) => {
+      listener = next;
+      return () => {
+        listener = null;
+      };
+    },
+  });
   handleRegistrations.length = 0;
   __resetForTesting();
 });
@@ -96,20 +92,20 @@ describe("resolveHotkeyCatalog", () => {
   });
 
   test("drops a reserved command whose accelerator the user disabled", () => {
-    store["hotkeys"] = { find: "" };
+    hotkeys = { find: "" };
     const catalog = resolveHotkeyCatalog();
     expect(catalog.some((c) => c.key === "find")).toBe(false);
   });
 
   test("reflects a custom override in the effective accelerator", () => {
-    store["hotkeys"] = { newConversation: "CmdOrCtrl+Alt+T" };
+    hotkeys = { newConversation: "CmdOrCtrl+Alt+T" };
     const entry = resolveHotkeyCatalog().find((c) => c.key === "newConversation");
     expect(entry?.override).toBe("CmdOrCtrl+Alt+T");
     expect(entry?.accelerator).toBe("CmdOrCtrl+Alt+T");
   });
 
   test("treats an empty-string override as a disabled binding", () => {
-    store["hotkeys"] = { globalHotkey: "" };
+    hotkeys = { globalHotkey: "" };
     const entry = resolveHotkeyCatalog().find((c) => c.key === "globalHotkey");
     expect(entry?.override).toBe("");
     expect(entry?.accelerator).toBe("");
@@ -119,13 +115,13 @@ describe("resolveHotkeyCatalog", () => {
 
 describe("vellum:hotkeys:set", () => {
   beforeEach(() => {
-    installHotkeysIpc();
+    installHotkeysIpc(ipc);
   });
 
   test("persists a valid accelerator, merging into existing overrides", () => {
-    store["hotkeys"] = { home: "CmdOrCtrl+Shift+H" };
+    hotkeys = { home: "CmdOrCtrl+Shift+H" };
     invoke("vellum:hotkeys:set", ["newConversation", "CmdOrCtrl+Alt+T"]);
-    expect(store["hotkeys"]).toEqual({
+    expect(hotkeys).toEqual({
       home: "CmdOrCtrl+Shift+H",
       newConversation: "CmdOrCtrl+Alt+T",
     });
@@ -133,26 +129,26 @@ describe("vellum:hotkeys:set", () => {
 
   test("stores an empty string to disable a binding", () => {
     invoke("vellum:hotkeys:set", ["globalHotkey", ""]);
-    expect(store["hotkeys"]).toEqual({ globalHotkey: "" });
+    expect(hotkeys).toEqual({ globalHotkey: "" });
   });
 
   test("clears an override when passed null", () => {
-    store["hotkeys"] = { newConversation: "CmdOrCtrl+Alt+T", home: "CmdOrCtrl+Shift+H" };
+    hotkeys = { newConversation: "CmdOrCtrl+Alt+T", home: "CmdOrCtrl+Shift+H" };
     invoke("vellum:hotkeys:set", ["newConversation", null]);
-    expect(store["hotkeys"]).toEqual({ home: "CmdOrCtrl+Shift+H" });
+    expect(hotkeys).toEqual({ home: "CmdOrCtrl+Shift+H" });
   });
 
   test("rejects an invalid accelerator without writing", () => {
     expect(() =>
       invoke("vellum:hotkeys:set", ["newConversation", "NotAModifier+Q+Z"]),
     ).toThrow(/invalid accelerator/i);
-    expect(store["hotkeys"]).toBeUndefined();
+    expect(hotkeys).toEqual({});
   });
 
   test("rejects an unknown command key without writing", () => {
     expect(() =>
       invoke("vellum:hotkeys:set", ["openSettings", "CmdOrCtrl+,"]),
     ).toThrow(/unknown hotkey command/i);
-    expect(store["hotkeys"]).toBeUndefined();
+    expect(hotkeys).toEqual({});
   });
 });
