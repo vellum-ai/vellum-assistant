@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BarChart3,
   ChevronRight,
@@ -17,7 +17,10 @@ import {
   deleteSchedule,
   fetchScheduleRuns,
   runScheduleNow,
+  updateSchedule,
 } from "@/domains/settings/api/schedules";
+import { ModelProfileRow } from "@/domains/settings/components/model-profile-row";
+import { ModelProfileSelect } from "@/domains/settings/components/model-profile-select";
 import { StatusDot } from "@/domains/settings/components/schedule-shared-ui";
 import {
   formatDuration,
@@ -29,7 +32,10 @@ import {
   type ScheduleRowUsage,
 } from "@/domains/settings/utils/schedule-formatters";
 import { captureError } from "@/lib/sentry/capture-error";
-import { schedulesByIdRunsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import {
+  schedulesByIdRunsGetQueryKey,
+  schedulesGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { Button, Skeleton, Typography, cn } from "@vellumai/design-library";
@@ -59,6 +65,117 @@ function InfoRow({ label, value }: { label: string; value: ReactNode }) {
         {value}
       </span>
     </div>
+  );
+}
+
+/**
+ * The schedule's pinned inference profile, and the control that changes it.
+ *
+ * Two modes get something other than a picker:
+ *
+ * - **Workflow schedules.** They carry a pin like every other schedule, but
+ *   nothing reads it: a workflow's LLM calls resolve under their own per-leaf
+ *   call sites. A picker here would claim a setting governs the run when it
+ *   does not, so the row states the situation instead.
+ * - **One-shots that have already fired.** Their model is history; there is no
+ *   future run for a change to reach, so the pin is shown read-only.
+ */
+function ScheduleModelProfileField({
+  schedule,
+  assistantId,
+  isPast,
+}: {
+  schedule: Schedule;
+  assistantId: string;
+  isPast: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const schedulesQueryKey = schedulesGetQueryKey({
+    path: { assistant_id: assistantId },
+  });
+
+  const profileMutation = useMutation({
+    mutationFn: (inferenceProfile: string) =>
+      updateSchedule(assistantId, schedule.id, { inferenceProfile }),
+    onMutate: async (inferenceProfile) => {
+      await queryClient.cancelQueries({ queryKey: schedulesQueryKey });
+      const previousProfile = queryClient
+        .getQueryData<Schedule[]>(schedulesQueryKey)
+        ?.find((row) => row.id === schedule.id)?.inferenceProfile;
+      queryClient.setQueryData<Schedule[]>(schedulesQueryKey, (rows) =>
+        rows?.map((row) =>
+          row.id === schedule.id ? { ...row, inferenceProfile } : row,
+        ),
+      );
+      return { previousProfile };
+    },
+    onError: (error, _inferenceProfile, context) => {
+      // Restore the profile alone. A snapshot of the whole list would undo a
+      // toggle or another schedule's edit that landed while this was in flight.
+      const previousProfile = context?.previousProfile;
+      if (previousProfile !== undefined) {
+        queryClient.setQueryData<Schedule[]>(schedulesQueryKey, (rows) =>
+          rows?.map((row) =>
+            row.id === schedule.id
+              ? { ...row, inferenceProfile: previousProfile }
+              : row,
+          ),
+        );
+      }
+      captureError(error, { context: "schedule_update_inference_profile" });
+      toast.error("Failed to change the model.");
+    },
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: schedulesQueryKey }),
+  });
+
+  if (schedule.mode === "workflow") {
+    return (
+      <>
+        <InfoRow label="Model profile" value="Not used for workflow runs" />
+        <p className="pb-1 text-body-small-default text-[var(--content-tertiary)]">
+          Each step of a workflow picks its own model, so this schedule has no
+          model setting to change.
+        </p>
+      </>
+    );
+  }
+
+  if (isPast) {
+    return (
+      <div className="py-1 text-body-medium-lighter text-[var(--content-default)]">
+        <ModelProfileRow
+          assistantId={assistantId}
+          pinnedProfile={schedule.inferenceProfile}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <InfoRow
+      label="Model profile"
+      value={
+        <ModelProfileSelect
+          assistantId={assistantId}
+          value={schedule.inferenceProfile}
+          onChange={(profileKey) => {
+            if (profileKey && profileKey !== schedule.inferenceProfile) {
+              profileMutation.mutate(profileKey);
+            }
+          }}
+          // A schedule always carries a concrete profile, and writing null
+          // re-snapshots the current default rather than unpinning, so there
+          // is no "follow my default" state to offer.
+          includeDefaultOption={false}
+          // A pin naming a deleted profile matches no option, so the trigger
+          // asks for a choice instead of rendering blank.
+          placeholder="Choose a model"
+          isSaving={profileMutation.isPending}
+          className="min-w-[11rem]"
+        />
+      }
+    />
   );
 }
 
@@ -337,6 +454,8 @@ export interface ScheduleDetailPanelProps {
   schedule: Schedule;
   assistantId: string;
   usage: ScheduleRowUsage;
+  /** True for a one-shot that has already fired, which is read-only. */
+  isPast?: boolean;
   isMobile?: boolean;
   onClose: () => void;
   onDeleted: () => void;
@@ -351,6 +470,7 @@ export function ScheduleDetailPanel({
   schedule,
   assistantId,
   usage,
+  isPast = false,
   isMobile,
   onClose,
   onDeleted,
@@ -436,6 +556,11 @@ export function ScheduleDetailPanel({
               <InfoRow label="Cadence" value={schedule.cadenceDescription} />
             ) : null}
             <InfoRow label="Mode" value={schedule.mode} />
+            <ScheduleModelProfileField
+              schedule={schedule}
+              assistantId={assistantId}
+              isPast={isPast}
+            />
             <InfoRow
               label="Status"
               value={schedule.enabled ? "Enabled" : "Disabled"}

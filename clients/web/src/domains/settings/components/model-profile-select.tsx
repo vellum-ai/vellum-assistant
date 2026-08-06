@@ -21,6 +21,21 @@ export interface ModelProfileSelectProps {
   disabled?: boolean;
   isSaving?: boolean;
   className?: string;
+  /**
+   * Whether to offer the "Default" (null) option.
+   *
+   * Set false wherever null is not a state the subject can rest in. A schedule
+   * is the case that matters: it always carries a concrete profile, and writing
+   * null re-snapshots the current default rather than unpinning, so offering
+   * "Default" there would promise a schedule can float with the user's default
+   * when it cannot.
+   */
+  includeDefaultOption?: boolean;
+  /**
+   * Trigger text when `value` matches no offered option, which happens when a
+   * pin names a profile that has since been deleted.
+   */
+  placeholder?: string;
 }
 
 export function ModelProfileSelect({
@@ -30,19 +45,23 @@ export function ModelProfileSelect({
   disabled = false,
   isSaving = false,
   className,
+  includeDefaultOption = true,
+  placeholder,
 }: ModelProfileSelectProps) {
-  const options = useProfileOptions(assistantId, value).map((option) => ({
-    ...(option.issue === "undispatchable"
-      ? {
-          icon: (
-            <AlertCircle className="h-3.5 w-3.5 text-[var(--system-mid-strong)]" />
-          ),
-          ...(option.reason ? { tooltip: option.reason } : {}),
-        }
-      : {}),
-    value: profileOptionToDropdownValue(option.value),
-    label: option.label,
-  }));
+  const options = useProfileOptions(assistantId, value)
+    .filter((option) => includeDefaultOption || option.value != null)
+    .map((option) => ({
+      ...(option.issue === "undispatchable"
+        ? {
+            icon: (
+              <AlertCircle className="h-3.5 w-3.5 text-[var(--system-mid-strong)]" />
+            ),
+            ...(option.reason ? { tooltip: option.reason } : {}),
+          }
+        : {}),
+      value: profileOptionToDropdownValue(option.value),
+      label: option.label,
+    }));
 
   return (
     <Dropdown
@@ -50,6 +69,7 @@ export function ModelProfileSelect({
       onChange={(selected) => onChange(dropdownValueToProfileOption(selected))}
       options={options}
       disabled={disabled || isSaving}
+      placeholder={placeholder}
       className={className}
       aria-label="Model profile"
     />

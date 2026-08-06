@@ -155,8 +155,21 @@ export const FromSchedule: Story = {
   },
 };
 
-/** The mobile layout, which the panel branches to before its desktop shell. */
+/**
+ * The mobile layout, which the panel branches to before its desktop shell.
+ *
+ * Framed at a fixed height because that branch is `h-full`: inside a
+ * height-less wrapper its scroll region has nothing to overflow against, so
+ * the treatment under test would not render.
+ */
 export const Mobile: Story = {
+  decorators: [
+    (Story) => (
+      <div className="h-[32rem]">
+        <Story />
+      </div>
+    ),
+  ],
   args: {
     isMobile: true,
     item: feedItem({

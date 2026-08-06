@@ -118,7 +118,6 @@ import type {
   DisplayAttachment,
   DisplayMessage,
 } from "@/domains/chat/types/types";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
 import type { UIContext } from "@/domains/chat/turn-selectors";
@@ -547,11 +546,6 @@ export function ChatMainPanel({
     () => void sendMessage("/clean"),
     [sendMessage],
   );
-
-  // -------------------------------------------------------------------------
-  // Feature flags
-  // -------------------------------------------------------------------------
-  const queueSteering = useAssistantFeatureFlagStore.use.queueSteering();
 
   // -------------------------------------------------------------------------
   // Draft secret detection: owns the composer warning's matches/dismissal
@@ -1118,7 +1112,6 @@ export function ChatMainPanel({
     onCancelAllQueued: handleCancelAllQueued,
     onSteerMessage: handleSteerMessage,
     onEditQueueTail: handleEditQueueTail,
-    queueSteering,
   });
 
   // -------------------------------------------------------------------------

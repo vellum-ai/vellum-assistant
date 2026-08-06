@@ -3255,6 +3255,50 @@ export function getConversationOverrideProfile(
   return resolveOverrideProfile(getConversation(conversationId));
 }
 
+/**
+ * The conversation fields needed to tell a durable inference-profile pin from
+ * a session-backed one. Extends {@link OverrideProfileFields} with the session
+ * marker, so callers can decide from a {@link ConversationRow} or a live
+ * in-memory `Conversation` without a redundant row fetch.
+ */
+export interface DurableProfileFields extends OverrideProfileFields {
+  inferenceProfileSessionId?: string | null;
+}
+
+/**
+ * Resolve a conversation's inference-profile pin only when the user set it to
+ * stick, ignoring a TTL-limited profile session.
+ *
+ * {@link resolveOverrideProfile} is read at use time, so a lapsed session
+ * simply reads as absent on the next turn. Anything that copies a pin into a
+ * record outliving that read (a schedule row that fires days later) needs the
+ * stricter question: a copied session would keep billing the model the user
+ * picked for ten minutes long after the session ended.
+ *
+ * A session-backed pin carries a non-null `inferenceProfileSessionId`;
+ * {@link setConversationInferenceProfile}, the sticky setter, clears those
+ * columns. So a null session id is exactly the durable case.
+ */
+export function resolveDurableProfile(
+  fields: DurableProfileFields | null,
+): string | undefined {
+  if (fields?.inferenceProfileSessionId != null) {
+    return undefined;
+  }
+  return resolveOverrideProfile(fields);
+}
+
+/**
+ * Resolve a conversation's durable inference-profile pin by id. Convenience
+ * wrapper over {@link resolveDurableProfile} for callers that don't already
+ * hold the row.
+ */
+export function getConversationDurableProfile(
+  conversationId: string,
+): string | undefined {
+  return resolveDurableProfile(getConversation(conversationId));
+}
+
 export function setLastNotifiedInferenceProfile(
   conversationId: string,
   profileKey: string | null,

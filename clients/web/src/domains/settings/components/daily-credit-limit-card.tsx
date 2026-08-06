@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ChangeEvent } from "react";
 
+import { extractDrfFieldErrors } from "@/domains/settings/utils/drf-errors";
 import {
+  organizationsBillingAutoTopUpRetrieveOptions,
   organizationsBillingDailyCreditLimitRetrieveOptions,
   organizationsBillingDailyCreditLimitRetrieveQueryKey,
   organizationsBillingDailyCreditLimitRetrieveSetQueryData,
@@ -58,7 +60,9 @@ export function validateDailyLimit(raw: string): string | undefined {
  * Credit Balance card by `BillingPanel.tsx`, under its own enable toggle. When
  * on, an always-visible input caps how much Vellum credit the org can spend per
  * UTC day; the spend counter resets at midnight UTC. Turning the toggle off
- * clears the limit (`null`).
+ * clears the limit (`null`), except when a saved limit is holding up enabled
+ * automatic top-ups: the backend requires one in that state, so the toggle
+ * stays locked on.
  *
  * The editable limit comes from the daily-credit-limit endpoint; today's spend
  * for the progress readout comes from the billing summary. Saving invalidates
@@ -70,6 +74,9 @@ export function DailyCreditLimitCard() {
     organizationsBillingDailyCreditLimitRetrieveOptions(),
   );
   const summaryQuery = useQuery(organizationsBillingSummaryRetrieveOptions());
+  const autoTopUpQuery = useQuery(
+    organizationsBillingAutoTopUpRetrieveOptions(),
+  );
   const updateMutation = useMutation(
     organizationsBillingDailyCreditLimitUpdateMutation(),
   );
@@ -122,6 +129,15 @@ export function DailyCreditLimitCard() {
   const limitReached = summary?.daily_limit_reached === true;
   const resetPhrase = dailyResetTimePhrase();
 
+  // The backend requires a daily limit while automatic top-ups are on, so the
+  // clearing PUT is blocked here too. Fail open whenever that state is not
+  // known to be current: while the config is loading, and on any query error
+  // (an errored refetch keeps serving the previous value, which may describe
+  // an auto top-up the user has since disabled elsewhere). The server enforces
+  // the invariant on its own, so the cost of failing open is a rejected PUT.
+  const requiredByAutoTopUp =
+    autoTopUpQuery.data?.enabled === true && !autoTopUpQuery.isError;
+
   const onChange = (e: ChangeEvent<HTMLInputElement>) => {
     setDraft(e.target.value);
   };
@@ -160,6 +176,12 @@ export function DailyCreditLimitCard() {
       setPendingEnable(true);
       return;
     }
+    // Only a saved limit is protected by the auto top-up dependency. An
+    // unsaved `pendingEnable` has nothing for the backend to keep, so the user
+    // can still take it back.
+    if (hasLimit && requiredByAutoTopUp) {
+      return;
+    }
     // Turning off: clear a saved limit; if it was only pending (never saved),
     // just drop the intent without hitting the API.
     setPendingEnable(false);
@@ -178,7 +200,15 @@ export function DailyCreditLimitCard() {
     persist(parseFloat(value.trim()).toFixed(2));
   };
 
-  const showGenericError = updateMutation.isError;
+  // A rejected clear comes back as a DRF field error explaining the auto
+  // top-up dependency; show it verbatim instead of the generic copy.
+  const serverLimitError =
+    extractDrfFieldErrors(updateMutation.error).daily_credit_limit_usd;
+  const saveError =
+    serverLimitError ??
+    (updateMutation.isError
+      ? "Failed to save daily credit limit. Please try again."
+      : undefined);
   const visibleError = touched ? clientError : undefined;
 
   return (
@@ -189,10 +219,24 @@ export function DailyCreditLimitCard() {
           onChange={handleToggleChange}
           // Locked while a save is in flight: toggling off during a pending
           // enable would skip the clearing PUT, then the save's onSuccess
-          // would re-enable the limit against the user's last action.
-          disabled={updateMutation.isPending}
+          // would re-enable the limit against the user's last action. Also
+          // locked once a saved limit is what automatic top-ups depend on,
+          // where the only available move is the one the backend rejects.
+          disabled={
+            updateMutation.isPending || (hasLimit && requiredByAutoTopUp)
+          }
           label="Set a daily credit limit"
         />
+
+        {requiredByAutoTopUp && (
+          <p
+            className="text-body-small-default text-[var(--content-tertiary)]"
+            data-testid="daily-credit-limit-required-note"
+          >
+            A daily credit limit is required while automatic top-ups are
+            enabled.
+          </p>
+        )}
 
         {enabled && (
           <>
@@ -255,13 +299,13 @@ export function DailyCreditLimitCard() {
         API keys isn&apos;t limited. Resets daily at {resetPhrase}.
       </p>
 
-      {showGenericError && (
+      {saveError != null && (
         <Notice
           tone="error"
           className="mt-4"
           data-testid="daily-credit-limit-update-error"
         >
-          Failed to save daily credit limit. Please try again.
+          {saveError}
         </Notice>
       )}
     </div>

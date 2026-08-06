@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { getConversation } from "../../persistence/conversation-crud.js";
+import { getSchedule } from "../../schedule/schedule-store.js";
 import { wakeAgentForOpportunity } from "../agent-wake.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
@@ -20,6 +21,10 @@ const WakeConversationBody = z.object({
   // Honored only for a `local` caller (see handler) — a remote `actor` could
   // otherwise attribute its wake's cost to an arbitrary firing.
   cronRunId: z.string().min(1).optional(),
+  // Runs the turn on this schedule's pinned inference profile. Honored only for
+  // a `local` caller (see handler): a remote `actor` could otherwise run turns
+  // under an arbitrary schedule's profile and spend the owner's money.
+  scheduleId: z.string().min(1).optional(),
   // Persist the trigger as a background event rather than an ephemeral hint, so
   // repeated wakes stay prompt-cache-friendly.
   persist: z.boolean().optional(),
@@ -53,6 +58,7 @@ export const ROUTES: RouteDefinition[] = [
         hint,
         source,
         cronRunId,
+        scheduleId,
         persist,
         externalContent,
       } = WakeConversationBody.parse(body);
@@ -72,6 +78,22 @@ export const ROUTES: RouteDefinition[] = [
       // local caller.
       const isLocal = headers?.["x-vellum-principal-type"] === "local";
 
+      // A script-mode schedule hands off to the agent loop through this route,
+      // so the schedule's pinned profile has to be applied here for the woken
+      // turn to run on the model the schedule was created under.
+      //
+      // The pin applies per turn rather than as a durable conversation pin,
+      // and it wins over the target conversation's own pin for turns the
+      // schedule triggers. That matters because a script may wake any
+      // conversation it names, not only the `scheduled` one it created:
+      // waking an interactive chat runs that one turn on the schedule's
+      // profile, while the user's own replies keep using their selection.
+      // A schedule with no pin resolves as any other turn does.
+      const scheduleProfile =
+        isLocal && scheduleId
+          ? (getSchedule(scheduleId)?.inferenceProfile ?? null)
+          : null;
+
       return wakeAgentForOpportunity({
         conversationId,
         hint,
@@ -80,6 +102,7 @@ export const ROUTES: RouteDefinition[] = [
           ? { trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT, clientless: true }
           : {}),
         ...(isLocal && cronRunId ? { cronRunId } : {}),
+        ...(scheduleProfile ? { forceOverrideProfile: scheduleProfile } : {}),
         ...(persist ? { persistTriggerAsEvent: true } : {}),
         ...(externalContent !== undefined
           ? { untrustedOutput: { content: externalContent, source: "webhook" } }

@@ -782,6 +782,7 @@ function makeCtx(
     channelCapabilities: undefined,
     commandIntent: undefined,
     trustContext: undefined,
+    toolsDisabledDepth: 0,
 
     allowedToolNames: undefined,
     preactivatedSkillIds: undefined,
@@ -1186,6 +1187,92 @@ describe("session-agent-loop", () => {
       await expect(
         runAgentLoopImpl(ctx, "hello", "msg-1", () => {}),
       ).rejects.toThrow("runAgentLoop called without prior persistUserMessage");
+    });
+
+    test("defers workspace Git work when tools are disabled", async () => {
+      const ensureInitialized = mock(async () => {});
+      const commitTurnChanges = mock(async () => {});
+      const ctx = makeCtx({
+        toolsDisabledDepth: 1,
+        getWorkspaceGitService: () => ({ ensureInitialized }),
+        commitTurnChanges,
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(ensureInitialized).not.toHaveBeenCalled();
+      expect(commitTurnChanges).not.toHaveBeenCalled();
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(commitTurnChanges).toHaveBeenCalledTimes(1);
+    });
+
+    test("leaves a deferred commit to an immediate follow-up turn", async () => {
+      const commitTurnChanges = mock(async () => {});
+      const ctx = makeCtx({
+        toolsDisabledDepth: 1,
+        commitTurnChanges,
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+      ctx.setProcessing(true);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(commitTurnChanges).not.toHaveBeenCalled();
+      ctx.setProcessing(false);
+    });
+
+    test("initializes workspace Git before hooks when tools can run", async () => {
+      let initialized = false;
+      const ensureInitialized = mock(async () => {
+        initialized = true;
+      });
+      const commitTurnChanges = mock(async () => {});
+      const initializedDuringHook: boolean[] = [];
+      registerPlugin({
+        manifest: {
+          name: "test-workspace-git-ready-before-hook",
+          version: "1.0.0",
+        },
+        hooks: {
+          "user-prompt-submit": async () => {
+            initializedDuringHook.push(initialized);
+          },
+        },
+      });
+      const ctx = makeCtx({
+        getWorkspaceGitService: () => ({ ensureInitialized }),
+        commitTurnChanges,
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(ensureInitialized).toHaveBeenCalledTimes(1);
+      expect(commitTurnChanges).toHaveBeenCalledTimes(1);
+      expect(initializedDuringHook).toEqual([true]);
+    });
+
+    test("continues a tool-capable turn when workspace Git initialization fails", async () => {
+      const ensureInitialized = mock(async () => {
+        throw new Error("simulated Git initialization failure");
+      });
+      const events: AssistantEvent[] = [];
+      const ctx = makeCtx({
+        getWorkspaceGitService: () => ({ ensureInitialized }),
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (event) =>
+        events.push(event),
+      );
+
+      expect(ensureInitialized).toHaveBeenCalledTimes(1);
+      expect(events.some((event) => event.type === "message_complete")).toBe(
+        true,
+      );
+      expect(events.some((event) => event.type === "conversation_error")).toBe(
+        false,
+      );
     });
   });
 

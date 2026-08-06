@@ -1,6 +1,7 @@
 import { Search, X } from "lucide-react";
 import {
   useCallback,
+  useMemo,
   useState,
   type CSSProperties,
   type ReactNode,
@@ -404,13 +405,38 @@ export function AssistantSideMenu({
     />
   );
 
+  // Everything the persistent "Conversations" header contains, which is
+  // whatever its body renders: the flat list in `all`, and the sections below
+  // the curated tier in `grouped`.
+  //
+  // Both branches describe the same set of conversations, just partitioned
+  // differently, so the header's bulk actions reach the same rows either way.
+  // Reading `flatList` in both views would not: it is the `all` view's list,
+  // so in `grouped` it holds only what is left once the channel sections take
+  // their conversations, and the actions would silently skip every Slack and
+  // Telegram row the header visibly contains.
+  const governedConversations = useMemo(
+    () =>
+      sidebar.viewMode === "all"
+        ? sidebar.flatList
+        : sidebar.sections
+            .slice(sidebar.curatedSectionCount)
+            .flatMap((section) => section.all),
+    [
+      sidebar.viewMode,
+      sidebar.flatList,
+      sidebar.sections,
+      sidebar.curatedSectionCount,
+    ],
+  );
+
   // The persistent "Conversations" header: same bulk-action menu shape as a
   // section's, minus move-up/down since it isn't a member of
-  // `sidebar.sections`. Scoped to `flatList` regardless of view mode:
-  // that's every conversation neither pinned nor in a custom group, the same
-  // set whether it's currently rendered as one list (grouped by None) or
-  // split into Chats + channel sub-sections (grouped by Channel).
-  const conversationsMenu = buildGroupMenu("Conversations", sidebar.flatList);
+  // `sidebar.sections`.
+  const conversationsMenu = buildGroupMenu(
+    "Conversations",
+    governedConversations,
+  );
 
   // Rendered in the rail's non-scrolling header, or at the top of the
   // overlay's body so the whole menu scrolls as one surface; the block's
@@ -524,7 +550,7 @@ export function AssistantSideMenu({
                whole scrollport rather than any one section. */
             <>
               <SidebarListContextMenu onCreateGroup={onCreateGroup}>
-              {/* Every section - Pinned, Chats, channels, custom groups -
+                {/* Every section - Pinned, Chats, channels, custom groups -
                   shares one accordion root, so its gap is the only thing
                   between any two of them and the spacing is uniform by
                   construction. Their open state lives in three storage buckets
@@ -532,20 +558,20 @@ export function AssistantSideMenu({
                   `use-sidebar-state` merges and re-splits it. New Chat lives in
                   the assistant cluster above, not as a section-header
                   action. */}
-              <CollapsibleNavSection.Root
-                type="multiple"
-                className="gap-3"
-                value={sidebar.effectiveOpenSections}
-                onValueChange={sidebar.onOpenSectionsChange}
-              >
-                {/* Pinned and the custom groups: the user's own curation,
+                <CollapsibleNavSection.Root
+                  type="multiple"
+                  className="gap-3"
+                  value={sidebar.effectiveOpenSections}
+                  onValueChange={sidebar.onOpenSectionsChange}
+                >
+                  {/* Pinned and the custom groups: the user's own curation,
                     identical in both views. Nothing between them - they flow
                     together as one curated block, and only the block's own
                     rule below marks the boundary to Conversations. */}
-                {sidebar.sections
-                  .slice(0, sidebar.curatedSectionCount)
-                  .map(renderSection)}
-                {/* The list's one rule, marking where curation ends and the
+                  {sidebar.sections
+                    .slice(0, sidebar.curatedSectionCount)
+                    .map(renderSection)}
+                  {/* The list's one rule, marking where curation ends and the
                     conversations begin. Absent when nothing is curated yet, so
                     a fresh sidebar never opens on a stray line. Sits on the
                     root's own gap, pulled up 2px so the curated block's last
@@ -553,16 +579,16 @@ export function AssistantSideMenu({
                     Static: Pinned no longer caps/scrolls (it's `unbounded`
                     now, see `ConversationRowList`), so there's nothing left
                     to resize here. */}
-                {sidebar.curatedSectionCount > 0 ? (
-                  <div
-                    data-slot="sidebar-section-rule"
-                    role="separator"
-                    aria-orientation="horizontal"
-                    style={{ marginTop: -2 }}
-                    className="h-px w-full bg-[var(--border-base)]"
-                  />
-                ) : null}
-                {/* "Conversations" is the persistent header for everything
+                  {sidebar.curatedSectionCount > 0 ? (
+                    <div
+                      data-slot="sidebar-section-rule"
+                      role="separator"
+                      aria-orientation="horizontal"
+                      style={{ marginTop: -2 }}
+                      className="h-px w-full bg-[var(--border-base)]"
+                    />
+                  ) : null}
+                  {/* "Conversations" is the persistent header for everything
                     that isn't Pinned or a custom group: it never swaps out
                     for "Chats". Grouped by All, its content is the flat
                     list; grouped by Channels, Chats and each channel
@@ -571,36 +597,36 @@ export function AssistantSideMenu({
                     behavior. Same bulk-action menu machinery as a
                     section's, minus move-up/down since it isn't a member
                     of `sidebar.sections`. */}
-                <ConversationNavSection
-                  value="conversations"
-                  label="Conversations"
-                  collapsible={false}
-                  trailing={
-                    <GroupActionsMenu
-                      label="Conversations"
-                      footer={groupByFooter}
-                      {...conversationsMenu}
-                    />
-                  }
-                  groupMenu={conversationsMenu}
-                  items={sidebar.flatList}
-                >
-                  {sidebar.viewMode === "all" ? (
-                    bodyElement ? (
-                      <ConversationRowList
-                        items={sidebar.flatList}
-                        scrollParent={bodyElement}
+                  <ConversationNavSection
+                    value="conversations"
+                    label="Conversations"
+                    collapsible={false}
+                    trailing={
+                      <GroupActionsMenu
+                        label="Conversations"
+                        footer={groupByFooter}
+                        {...conversationsMenu}
                       />
-                    ) : null
-                  ) : (
-                    <div className="flex flex-col gap-3">
-                      {sidebar.sections
-                        .slice(sidebar.curatedSectionCount)
-                        .map(renderSection)}
-                    </div>
-                  )}
-                </ConversationNavSection>
-              </CollapsibleNavSection.Root>
+                    }
+                    groupMenu={conversationsMenu}
+                    items={sidebar.flatList}
+                  >
+                    {sidebar.viewMode === "all" ? (
+                      bodyElement ? (
+                        <ConversationRowList
+                          items={sidebar.flatList}
+                          scrollParent={bodyElement}
+                        />
+                      ) : null
+                    ) : (
+                      <div className="flex flex-col gap-3">
+                        {sidebar.sections
+                          .slice(sidebar.curatedSectionCount)
+                          .map(renderSection)}
+                      </div>
+                    )}
+                  </ConversationNavSection>
+                </CollapsibleNavSection.Root>
               </SidebarListContextMenu>
               <SidebarBackToTop
                 visible={scrolledPast}

@@ -198,14 +198,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "queue-steering",
-      "scope": "assistant",
-      "key": "queue-steering",
-      "label": "Queue Steering",
-      "description": "Enable the 'Push to agent' button on queued messages, allowing users to steer the assistant to a specific queued message by aborting the current generation and promoting the message to the head of the queue.",
-      "defaultEnabled": false
-    },
-    {
       "id": "chat-pull-to-refresh-enabled",
       "scope": "client",
       "key": "chat-pull-to-refresh-enabled",

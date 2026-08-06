@@ -13,24 +13,23 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 
 import { HomeRecapRow, type HomeRecapRowProps } from "./home-recap-row";
+import { feedItem } from "./feed-test-fixtures";
 
 const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
 
 function makeItem(overrides: Partial<FeedItem> = {}): FeedItem {
+  // Relative so the row's date formatting renders a real "3d ago".
   const timestamp = new Date(Date.now() - THREE_DAYS_MS).toISOString();
-  return {
+  return feedItem({
     id: "feed-1",
-    type: "notification",
-    priority: 50,
     category: "background",
-    status: "new",
     title: "Watcher job failed",
     summary: "The watcher job could not reach the upstream service.",
     timestamp,
     createdAt: timestamp,
     conversationId: "conversation-1",
     ...overrides,
-  };
+  });
 }
 
 function renderRow(props: Partial<HomeRecapRowProps> = {}) {
