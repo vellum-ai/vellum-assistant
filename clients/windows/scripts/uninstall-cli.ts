@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import {
   resolveCliLauncherPaths,
   uninstallCliLauncher,
@@ -5,5 +7,9 @@ import {
 
 const localAppData = process.env.LOCALAPPDATA;
 if (localAppData) {
-  uninstallCliLauncher(resolveCliLauncherPaths(localAppData));
+  uninstallCliLauncher(
+    resolveCliLauncherPaths(localAppData),
+    undefined,
+    path.dirname(path.dirname(process.execPath)),
+  );
 }

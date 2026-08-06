@@ -11,6 +11,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import {
+  CLI_RUNTIME_ASSETS,
+  CLI_RUNTIME_ENTRIES,
   CLI_RUNTIME_EXECUTABLES,
   isValidCliRuntime,
   provisionCliRuntime,
@@ -38,6 +40,15 @@ const writeRuntime = (dir: string, version: string): string => {
   for (const name of CLI_RUNTIME_EXECUTABLES) {
     const contents = name === "vellum.exe" ? `vellum-${version}` : name;
     writeFileSync(path.join(dir, name), contents, "utf8");
+  }
+  for (const name of CLI_RUNTIME_ASSETS) {
+    const target = path.join(dir, name);
+    if (name.endsWith(".wasm")) {
+      writeFileSync(target, name, "utf8");
+    } else {
+      mkdirSync(target, { recursive: true });
+      writeFileSync(path.join(target, "fixture.txt"), name, "utf8");
+    }
   }
   writeFileSync(
     path.join(dir, "runtime.json"),
@@ -136,32 +147,56 @@ test("repairs stale ownership and updates the user PATH", () => {
   expect(getCliLauncherState(paths, source)).toBe("missing");
 });
 
-test("requires and removes every packaged executable", () => {
+test("requires and removes every packaged runtime entry", () => {
   const root = makeTempDir();
   const runtimeDir = path.join(root, "runtime");
   const source = writeRuntime(runtimeDir, "1.0.0");
   const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
   const userRegistry = registry();
 
-  for (const name of CLI_RUNTIME_EXECUTABLES) {
-    const executable = path.join(runtimeDir, name);
-    const contents = readFileSync(executable);
-    rmSync(executable);
+  for (const name of CLI_RUNTIME_ENTRIES) {
+    rmSync(path.join(runtimeDir, name), { recursive: true });
     expect(isValidCliRuntime(runtimeDir, "1.0.0")).toBeFalse();
-    writeFileSync(executable, contents);
+    writeRuntime(runtimeDir, "1.0.0");
   }
 
   installCliLauncher(source, "1.0.0", paths, userRegistry.run);
   expect(
-    CLI_RUNTIME_EXECUTABLES.every((name) =>
+    CLI_RUNTIME_ENTRIES.every((name) =>
       existsSync(path.join(paths.binDir, name)),
     ),
   ).toBeTrue();
   expect(uninstallCliLauncher(paths, userRegistry.run)).toBeTrue();
   expect(
-    CLI_RUNTIME_EXECUTABLES.every(
+    CLI_RUNTIME_ENTRIES.every(
       (name) => !existsSync(path.join(paths.binDir, name)),
     ),
+  ).toBeTrue();
+});
+
+test("preserves a launcher owned by another installed environment", () => {
+  const root = makeTempDir();
+  const paths = resolveCliLauncherPaths(path.join(root, "Local App Data"));
+  const source = writeRuntime(path.join(root, "runtime"), "1.0.0");
+  const userRegistry = registry();
+  const productionResources = path.join(root, "Vellum", "resources");
+  const stagingResources = path.join(root, "Vellum Staging", "resources");
+
+  installCliLauncher(
+    source,
+    "1.0.0",
+    paths,
+    userRegistry.run,
+    stagingResources,
+  );
+  expect(
+    uninstallCliLauncher(paths, userRegistry.run, productionResources),
+  ).toBeFalse();
+  expect(getCliLauncherState(paths, source, userRegistry.value())).toBe(
+    "installed",
+  );
+  expect(
+    uninstallCliLauncher(paths, userRegistry.run, stagingResources),
   ).toBeTrue();
 });
 

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
-  copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -10,12 +10,16 @@ import {
 } from "node:fs";
 import path from "node:path";
 
-import { CLI_RUNTIME_EXECUTABLES } from "./cli-installer";
+import { CLI_RUNTIME_ENTRIES } from "./cli-installer";
 
 export type CliLauncherState =
   "missing" | "foreign" | "installed" | "shadowed" | "stale";
 
-type LauncherOwnership = { sourcePath: string; version: string };
+type LauncherOwnership = {
+  ownerId?: string;
+  sourcePath: string;
+  version: string;
+};
 
 export interface CliLauncherPaths {
   binDir: string;
@@ -55,7 +59,8 @@ function readOwnership(paths: CliLauncherPaths): LauncherOwnership | undefined {
       readFileSync(paths.ownership, "utf8"),
     ) as LauncherOwnership;
     return typeof ownership.sourcePath === "string" &&
-      typeof ownership.version === "string"
+      typeof ownership.version === "string" &&
+      (ownership.ownerId === undefined || typeof ownership.ownerId === "string")
       ? ownership
       : undefined;
   } catch {
@@ -68,12 +73,12 @@ export function getCliLauncherState(
   sourcePath?: string,
   userPath?: string,
 ): CliLauncherState {
-  const runtimeExists = CLI_RUNTIME_EXECUTABLES.every((name) =>
+  const runtimeExists = CLI_RUNTIME_ENTRIES.every((name) =>
     existsSync(path.join(paths.binDir, name)),
   );
   const ownership = readOwnership(paths);
   if (!ownership) {
-    return CLI_RUNTIME_EXECUTABLES.some((name) =>
+    return CLI_RUNTIME_ENTRIES.some((name) =>
       existsSync(path.join(paths.binDir, name)),
     )
       ? "foreign"
@@ -157,6 +162,7 @@ export function installCliLauncher(
   version: string,
   paths: CliLauncherPaths,
   run: RegistryRunner = systemRegistryRunner,
+  ownerId?: string,
 ): CliLauncherState {
   const initialState = getCliLauncherState(paths, sourcePath);
   if (initialState === "foreign") {
@@ -164,12 +170,12 @@ export function installCliLauncher(
   }
   mkdirSync(paths.binDir, { recursive: true });
   const files: Array<{ source?: string; contents?: string; target: string }> = [
-    ...CLI_RUNTIME_EXECUTABLES.map((name) => ({
+    ...CLI_RUNTIME_ENTRIES.map((name) => ({
       source: path.join(path.dirname(sourcePath), name),
       target: path.join(paths.binDir, name),
     })),
     {
-      contents: `${JSON.stringify({ sourcePath, version })}\n`,
+      contents: `${JSON.stringify({ ownerId, sourcePath, version })}\n`,
       target: paths.ownership,
     },
   ];
@@ -179,15 +185,15 @@ export function installCliLauncher(
     backup: `${file.target}.${process.pid}.backup`,
   }));
   for (const file of pending) {
-    rmSync(file.staging, { force: true });
-    rmSync(file.backup, { force: true });
+    rmSync(file.staging, { recursive: true, force: true });
+    rmSync(file.backup, { recursive: true, force: true });
   }
   if (pending.some((file) => file.source && !existsSync(file.source))) {
     throw new Error("The provisioned Windows CLI runtime is incomplete.");
   }
   for (const file of pending) {
     if (file.source) {
-      copyFileSync(file.source, file.staging);
+      cpSync(file.source, file.staging, { recursive: true });
     } else {
       writeFileSync(file.staging, file.contents ?? "", "utf8");
     }
@@ -203,13 +209,13 @@ export function installCliLauncher(
     }
     ensureUserPath(paths.binDir, run);
     for (const file of pending) {
-      rmSync(file.backup, { force: true });
+      rmSync(file.backup, { recursive: true, force: true });
     }
     return getCliLauncherState(paths, sourcePath, readUserPath(run));
   } catch (error) {
     for (const file of replaced.reverse()) {
-      rmSync(file.staging, { force: true });
-      rmSync(file.target, { force: true });
+      rmSync(file.staging, { recursive: true, force: true });
+      rmSync(file.target, { recursive: true, force: true });
       if (existsSync(file.backup)) {
         renameSync(file.backup, file.target);
       }
@@ -221,21 +227,37 @@ export function installCliLauncher(
 export function uninstallCliLauncher(
   paths: CliLauncherPaths,
   run: RegistryRunner = systemRegistryRunner,
+  expectedOwnerId?: string,
 ): boolean {
-  if (!readOwnership(paths)) {
+  const ownership = readOwnership(paths);
+  if (
+    !ownership ||
+    (expectedOwnerId &&
+      (!ownership.ownerId ||
+        !sameWindowsPath(ownership.ownerId, expectedOwnerId)))
+  ) {
     return false;
   }
   const userPath = readUserPath(run);
   if (userPath === undefined) {
     throw new Error("Unable to read the Windows user PATH.");
   }
+  for (const name of CLI_RUNTIME_ENTRIES) {
+    try {
+      rmSync(path.join(paths.binDir, name), { recursive: true, force: true });
+    } catch {}
+  }
+  if (
+    CLI_RUNTIME_ENTRIES.some((name) =>
+      existsSync(path.join(paths.binDir, name)),
+    )
+  ) {
+    return false;
+  }
   const entries = userPath
     .split(";")
     .filter((entry) => entry && !sameWindowsPath(entry, paths.binDir));
   writeUserPath(entries.join(";"), run);
-  for (const name of CLI_RUNTIME_EXECUTABLES) {
-    rmSync(path.join(paths.binDir, name), { force: true });
-  }
   rmSync(paths.ownership, { force: true });
   return true;
 }

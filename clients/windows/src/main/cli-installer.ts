@@ -28,6 +28,17 @@ export const CLI_RUNTIME_EXECUTABLES = [
   "vellum-gateway.exe",
   "credential-executor.exe",
 ] as const;
+export const CLI_RUNTIME_ASSETS = [
+  "templates",
+  "bundled-skills",
+  "brain-graph",
+  "web-tree-sitter.wasm",
+  "tree-sitter-bash.wasm",
+] as const;
+export const CLI_RUNTIME_ENTRIES = [
+  ...CLI_RUNTIME_EXECUTABLES,
+  ...CLI_RUNTIME_ASSETS,
+] as const;
 
 function readJson<T>(file: string): T | undefined {
   try {
@@ -64,7 +75,7 @@ export function isValidCliRuntime(
     manifest?.version &&
     manifest.bunVersion &&
     (!expectedVersion || manifest.version === expectedVersion) &&
-    CLI_RUNTIME_EXECUTABLES.every((name) =>
+    CLI_RUNTIME_ENTRIES.every((name) =>
       existsSync(path.join(runtimeDir, name)),
     ),
   );

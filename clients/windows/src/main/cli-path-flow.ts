@@ -27,6 +27,7 @@ export function provisionCliForCurrentUser(options: CliPathFlowOptions) {
     version,
     resolveCliLauncherPaths(localAppData),
     registryRunner,
+    resourcesDir,
   );
   return {
     installDir: runtime.installDir,

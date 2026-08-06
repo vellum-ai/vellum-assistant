@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync, rmSync } from "node:fs";
+import { copyFileSync, cpSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -78,6 +78,24 @@ for (const [name, entry, externals] of targets) {
   if (build.status !== 0) {
     throw new Error(`Failed to compile ${name} (exit ${build.status}).`);
   }
+}
+for (const [source, name] of [
+  ["assistant/src/prompts/templates", "templates"],
+  ["assistant/src/config/bundled-skills", "bundled-skills"],
+  ["assistant/src/runtime/routes/brain-graph", "brain-graph"],
+] as const) {
+  cpSync(path.join(repoRoot, source), path.join(outputDir, name), {
+    recursive: true,
+  });
+}
+for (const [specifier, name] of [
+  ["web-tree-sitter/web-tree-sitter.wasm", "web-tree-sitter.wasm"],
+  ["tree-sitter-bash/tree-sitter-bash.wasm", "tree-sitter-bash.wasm"],
+] as const) {
+  copyFileSync(
+    Bun.resolveSync(specifier, path.join(repoRoot, "gateway")),
+    path.join(outputDir, name),
+  );
 }
 copyFileSync(process.execPath, path.join(outputDir, "bun.exe"));
 await Bun.write(
