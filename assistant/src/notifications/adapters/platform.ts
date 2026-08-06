@@ -20,7 +20,7 @@ import {
 } from "../../util/retry.js";
 import {
   describeMedia,
-  mediaEmbedAltTexts,
+  mediaEmbeds,
   stripMarkdownForPreview,
 } from "../notification-utils.js";
 import type {
@@ -64,7 +64,7 @@ function flattenAlertField(value: string): string {
   if (flattened.trim().length > 0) {
     return flattened;
   }
-  return describeMedia(mediaEmbedAltTexts(value)) || value;
+  return describeMedia(mediaEmbeds(value).map((embed) => embed.alt)) || value;
 }
 
 /** Whether a fetch error is the per-attempt abort timeout firing. */
