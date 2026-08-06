@@ -334,9 +334,9 @@ describe("resolveNavigation", () => {
       ).toEqual(WAIT);
     });
 
-    // The local chooser is a pre-existing onboarding surface reachable before
-    // there is a session to gate on, so it keeps its short-circuit ahead of the
-    // assistant and consent gates that now bind on the platform hub.
+    // The local chooser is an onboarding surface reachable before there is a
+    // session to gate on, so it short-circuits ahead of the assistant and
+    // consent gates that bind on the platform hub.
     test("keeps the local chooser open ahead of the consent gate", () => {
       expect(
         guard(
