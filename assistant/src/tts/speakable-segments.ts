@@ -7,20 +7,55 @@
  * as soon as it is complete, so speech starts before the full response lands.
  */
 
+import { isHighSurrogate } from "../util/unicode.js";
+
 const DEFAULT_CHAR_THRESHOLD = 180;
 const EAGER_CHAR_THRESHOLD = 60;
 
-const SENTENCE_ENDING_PUNCTUATION = new Set([".", "!", "?"]);
+// Sentence enders in scripts without inter-word whitespace (CJK, Thai) or
+// with their own terminators (Devanagari danda, Arabic-script marks). Unlike
+// ASCII `. ! ?`, these are unambiguous: a boundary after one is valid even
+// with no following whitespace.
+const NON_LATIN_SENTENCE_ENDING_PUNCTUATION = new Set([
+  "。", // ideographic full stop
+  "！", // fullwidth exclamation mark
+  "？", // fullwidth question mark
+  "．", // fullwidth full stop
+  "।", // Devanagari danda
+  "॥", // Devanagari double danda
+  "؟", // Arabic question mark
+  "۔", // Arabic full stop
+]);
+const SENTENCE_ENDING_PUNCTUATION = new Set([
+  ".",
+  "!",
+  "?",
+  ...NON_LATIN_SENTENCE_ENDING_PUNCTUATION,
+]);
 const TRAILING_SENTENCE_PUNCTUATION = new Set(['"', "'", ")", "]"]);
-const EAGER_CLAUSE_PUNCTUATION = new Set([",", ";", ":"]);
+// Clause punctuation in whitespace-free scripts is likewise a valid eager
+// boundary regardless of what follows.
+const NON_LATIN_EAGER_CLAUSE_PUNCTUATION = new Set([
+  "、", // ideographic comma
+  "，", // fullwidth comma
+  "；", // fullwidth semicolon
+  "،", // Arabic comma
+]);
+const EAGER_CLAUSE_PUNCTUATION = new Set([
+  ",",
+  ";",
+  ":",
+  ...NON_LATIN_EAGER_CLAUSE_PUNCTUATION,
+]);
 // A clause boundary only counts in eager mode once this much text precedes
 // it — "Sure, " alone would be a one-word blip.
 const EAGER_MIN_CLAUSE_PREFIX_CHARS = 24;
 
 export interface ExtractSpeakableSegmentsOptions {
   /**
-   * Trade segment quality for onset latency: clause punctuation (`,` `;` `:`)
-   * followed by whitespace also ends a segment once at least
+   * Trade segment quality for onset latency: clause punctuation (`,` `;` `:`
+   * followed by whitespace, or a non-Latin clause mark like `、` `，` `،`
+   * regardless of what follows) also ends a segment once at least
    * ~24 chars precede it, and the max buffered length before a forced split
    * drops from 180 to 60 chars. Applies only until the
    * first segment of the call is found — later segments keep full-sentence
@@ -96,7 +131,8 @@ function findSpeakableBoundary(
       eager &&
       EAGER_CLAUSE_PUNCTUATION.has(char) &&
       index >= EAGER_MIN_CLAUSE_PREFIX_CHARS &&
-      isWhitespace(text[index + 1] ?? "")
+      (NON_LATIN_EAGER_CLAUSE_PUNCTUATION.has(char) ||
+        isWhitespace(text[index + 1] ?? ""))
     ) {
       return index + 1;
     }
@@ -109,7 +145,14 @@ function findSpeakableBoundary(
       ) {
         boundary += 1;
       }
-      if (boundary === text.length || isWhitespace(text[boundary] ?? "")) {
+      // ASCII enders require following whitespace so decimals (3.14) and
+      // file names don't split; the non-Latin enders are valid boundaries
+      // regardless of what follows.
+      if (
+        NON_LATIN_SENTENCE_ENDING_PUNCTUATION.has(char) ||
+        boundary === text.length ||
+        isWhitespace(text[boundary] ?? "")
+      ) {
         return boundary;
       }
     }
@@ -162,13 +205,21 @@ function findSpeakableBoundary(
   }
 
   // Length-threshold splits are a hard cap and must flush even inside an
-  // open span — unbalanced markers there are an accepted edge.
+  // open span: unbalanced markers there are an accepted edge.
   const preferredBoundary = findLastWhitespaceBoundary(text, charThreshold);
-  return preferredBoundary ?? charThreshold;
+  if (preferredBoundary !== null) {
+    return preferredBoundary;
+  }
+  // Never split a UTF-16 surrogate pair: if the cap lands mid-pair, step
+  // back one unit so both halves stay in the same segment.
+  if (isHighSurrogate(text.charCodeAt(charThreshold - 1))) {
+    return charThreshold - 1;
+  }
+  return charThreshold;
 }
 
 function isWordChar(value: string | undefined): boolean {
-  return value !== undefined && /\w/.test(value);
+  return value !== undefined && /[\p{L}\p{N}_]/u.test(value);
 }
 
 function findLastWhitespaceBoundary(

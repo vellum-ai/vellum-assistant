@@ -36,6 +36,16 @@ describe("extractSpeakableSegments", () => {
     expect(remainder).toBe("Version 3.5 is out");
   });
 
+  test("does not split inside a decimal number", () => {
+    const { segments, remainder } = extractSpeakableSegments(
+      "3.14 is pi.",
+      false,
+    );
+
+    expect(segments).toEqual(["3.14 is pi."]);
+    expect(remainder).toBe("");
+  });
+
   test("treats a newline as a segment boundary", () => {
     const { segments, remainder } = extractSpeakableSegments(
       "First line\nsecond line still going",
@@ -177,6 +187,96 @@ describe("extractSpeakableSegments", () => {
 
     test("non-eager extraction ignores clause punctuation", () => {
       const text = "Sure, I can help with that, and here is more";
+
+      const { segments, remainder } = extractSpeakableSegments(text, false);
+
+      expect(segments).toEqual([]);
+      expect(remainder).toBe(text);
+    });
+  });
+
+  describe("non-Latin scripts", () => {
+    test("splits Hindi at the danda", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "नमस्ते। आप कैसे हैं?",
+        false,
+      );
+
+      expect(segments).toEqual(["नमस्ते।", "आप कैसे हैं?"]);
+      expect(remainder).toBe("");
+    });
+
+    test("splits Japanese at the ideographic full stop with no whitespace", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "こんにちは。今日はいい天気ですね。",
+        false,
+      );
+
+      expect(segments).toEqual(["こんにちは。", "今日はいい天気ですね。"]);
+      expect(remainder).toBe("");
+    });
+
+    test("the Arabic question mark terminates a segment", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "كيف حالك؟ الطقس جميل",
+        false,
+      );
+
+      expect(segments).toEqual(["كيف حالك؟"]);
+      expect(remainder).toBe(" الطقس جميل");
+    });
+
+    test("eager mode splits at an ideographic comma with no whitespace", () => {
+      const text = `${"あ".repeat(30)}、まだ続く`;
+
+      const { segments, remainder } = extractSpeakableSegments(text, false, {
+        eager: true,
+      });
+
+      expect(segments).toEqual([`${"あ".repeat(30)}、`]);
+      expect(remainder).toBe("まだ続く");
+    });
+
+    test("hard-cap splits never break a surrogate pair", () => {
+      // "犬" shifts every non-BMP pair to an odd offset so the 180-unit cap
+      // lands mid-pair without the step-back.
+      const text = `犬${"𠮟".repeat(120)}`;
+
+      const { segments, remainder } = extractSpeakableSegments(text, false);
+
+      expect(segments).toHaveLength(1);
+      for (const segment of segments) {
+        expect(segment.isWellFormed()).toBe(true);
+      }
+      expect(remainder.isWellFormed()).toBe(true);
+      // No text is lost or reordered across the split.
+      expect(segments.join("") + remainder).toBe(text);
+    });
+
+    test("accented italic spans toggle like ASCII ones", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "*café. crème* done. And more",
+        false,
+      );
+
+      expect(segments).toEqual(["*café. crème* done."]);
+      expect(remainder).toBe(" And more");
+    });
+
+    test("CJK underscore spans toggle like ASCII ones", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "_変数_ です。まだ続きます",
+        false,
+      );
+
+      expect(segments).toEqual(["_変数_ です。"]);
+      expect(remainder).toBe("まだ続きます");
+    });
+
+    test("a span closer touching a CJK word char keeps the span open", () => {
+      // Mirrors the sanitizer's Unicode lookarounds: it leaves *強調*です
+      // unstripped, so splitting after the 。 would leak the markers.
+      const text = "*強調*です。まだ続く";
 
       const { segments, remainder } = extractSpeakableSegments(text, false);
 

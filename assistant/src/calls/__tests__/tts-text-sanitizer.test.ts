@@ -98,6 +98,19 @@ describe("sanitizeForTts", () => {
         "use some_function_name here",
       );
     });
+
+    test("strips italic with accented content", () => {
+      expect(sanitizeForTts("Hello *café* there")).toBe("Hello café there");
+    });
+
+    test("strips underscore italic with CJK content", () => {
+      expect(sanitizeForTts("値は _変数_ です")).toBe("値は 変数 です");
+    });
+
+    test("does not strip a span whose marker touches a non-ASCII word char", () => {
+      expect(sanitizeForTts("*強調*です")).toBe("*強調*です");
+      expect(sanitizeForTts("café*note* x")).toBe("café*note* x");
+    });
   });
 
   describe("headers", () => {
