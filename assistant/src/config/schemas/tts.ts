@@ -14,6 +14,35 @@ import {
  * legacy top-level schemas (`elevenlabs.*`, `fishAudio.*`) so that
  * migration can copy values 1:1.
  */
+
+/**
+ * Optional per-language voice override map for a TTS provider block.
+ * Keys are lowercase base language subtags (e.g. "hi", "ja"); values are
+ * provider voice identifiers. Live voice consults the map when a turn's
+ * spoken language is known and no explicit voice was requested.
+ */
+function languageVoicesSchema(providerId: string, valuesDescription: string) {
+  return z
+    .record(
+      z.string({
+        error: `services.tts.providers.${providerId}.languageVoices keys must be strings`,
+      }),
+      z.string({
+        error: `services.tts.providers.${providerId}.languageVoices values must be strings`,
+      }),
+      {
+        error: `services.tts.providers.${providerId}.languageVoices must be an object mapping language subtags to voice identifiers`,
+      },
+    )
+    .optional()
+    .describe(
+      "Per-language voice overrides for live voice. Keys are lowercase base " +
+        `language subtags (e.g. "hi", "ja"); ${valuesDescription} ` +
+        "Applied when the turn's spoken language matches an entry and no " +
+        "explicit voice is requested.",
+    );
+}
+
 export const TtsElevenLabsProviderConfigSchema = z
   .object({
     voiceId: z
@@ -79,6 +108,10 @@ export const TtsElevenLabsProviderConfigSchema = z
       )
       .default(30)
       .describe("Seconds of silence before voice conversation auto-ends"),
+    languageVoices: languageVoicesSchema(
+      "elevenlabs",
+      "values are ElevenLabs voice IDs.",
+    ),
   })
   .describe("ElevenLabs provider configuration under services.tts");
 
@@ -150,6 +183,10 @@ export const TtsDeepgramProviderConfigSchema = z
       })
       .default("mp3")
       .describe("Output audio format for call/runtime playback"),
+    languageVoices: languageVoicesSchema(
+      "deepgram",
+      "values are Deepgram TTS model identifiers (e.g. an aura-2 voice).",
+    ),
   })
   .describe("Deepgram provider configuration under services.tts");
 
@@ -221,6 +258,13 @@ const TtsVellumProviderConfigSchema = z
       .describe(
         "Managed TTS voice model (e.g. aura-2-thalia-en). Unset means the platform's default voice. The platform rejects voices it does not offer.",
       ),
+    languageVoices: languageVoicesSchema(
+      "vellum",
+      "values are managed TTS voice models (e.g. aura-2-thalia-en) and must " +
+        "be voices offered by the platform rate card: an unpriced model is " +
+        "rejected by the relay (missing_price), the same contract as " +
+        "services.tts.providers.vellum.model.",
+    ),
   })
   .describe("Vellum managed provider configuration under services.tts");
 

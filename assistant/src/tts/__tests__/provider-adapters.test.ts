@@ -1218,6 +1218,22 @@ describe("Deepgram TTS provider adapter", () => {
     expect(body.text).toBe("Hello world");
   });
 
+  test("request voiceId overrides the configured Deepgram model", async () => {
+    let capturedUrl = "";
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(new Uint8Array([0x49, 0x44, 0x33]), { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const provider = createDeepgramProvider();
+    await provider.synthesize(makeRequest({ voiceId: "aura-2-thalia-en" }));
+    expect(capturedUrl).toContain("model=aura-2-thalia-en");
+
+    // A blank request voiceId falls back to the configured model.
+    await provider.synthesize(makeRequest({ voiceId: "  " }));
+    expect(capturedUrl).toContain("model=aura-asteria-en");
+  });
+
   test("uses linear16 encoding with container=none and sample_rate=16000 when outputFormat is pcm", async () => {
     const audioPayload = new Uint8Array([0x00, 0x01, 0x02]);
     let capturedUrl = "";

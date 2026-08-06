@@ -8,6 +8,7 @@ import type {
   TtsSynthesisRequest,
   TtsUseCase,
 } from "../tts/types.js";
+import { baseLanguageSubtag } from "../util/language-subtag.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("live-voice-tts");
@@ -73,11 +74,46 @@ interface ResolvedStreamingTtsProvider {
   providerConfig: Record<string, unknown>;
 }
 
+/**
+ * Look up a per-language voice override in a provider config's
+ * `languageVoices` map. Returns the voice for the language's lowercase
+ * base subtag, or undefined when the language is unset, the map is not a
+ * record, or its entry for the language is not a non-empty string.
+ */
+export function resolveLanguageVoiceOverride(
+  languageVoices: unknown,
+  language: string | undefined,
+): string | undefined {
+  const base = baseLanguageSubtag(language);
+  if (
+    !base ||
+    typeof languageVoices !== "object" ||
+    languageVoices === null ||
+    Array.isArray(languageVoices) ||
+    !Object.hasOwn(languageVoices, base)
+  ) {
+    return undefined;
+  }
+  const voice = (languageVoices as Record<string, unknown>)[base];
+  if (typeof voice !== "string") {
+    return undefined;
+  }
+  return voice.trim() || undefined;
+}
+
 export async function streamLiveVoiceTtsAudio(
   options: LiveVoiceTtsOptions,
 ): Promise<LiveVoiceTtsResult> {
   const { provider, providerId, providerConfig } =
     await resolveLiveVoiceStreamingTtsProvider(options.config);
+  // An explicit request voice wins outright; otherwise a language-known
+  // turn may select the provider's configured per-language voice.
+  const voiceId =
+    options.voiceId ??
+    resolveLanguageVoiceOverride(
+      providerConfig.languageVoices,
+      options.language,
+    );
   const useCase = options.useCase ?? "phone-call";
   const requestedSampleRate = resolveSampleRate(
     options.sampleRate,
@@ -90,7 +126,7 @@ export async function streamLiveVoiceTtsAudio(
   const providerSampleRate = provider.resolveOutputSampleRateHz?.({
     text: options.text,
     useCase,
-    voiceId: options.voiceId,
+    voiceId,
     outputFormat: options.outputFormat,
     sampleRateHz: requestedSampleRate,
     language: options.language,
@@ -140,7 +176,7 @@ export async function streamLiveVoiceTtsAudio(
       provider,
       text: options.text,
       useCase,
-      voiceId: options.voiceId,
+      voiceId,
       outputFormat: options.outputFormat,
       sampleRateHz: requestedSampleRate,
       language: options.language,
