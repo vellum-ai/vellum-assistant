@@ -25,19 +25,6 @@ export function classifyProcess(command: string): string {
     return "openclaw-adapter";
   if (/vellum-daemon/.test(command)) return "assistant";
   if (/daemon\s+(start|restart)/.test(command)) return "assistant";
-  // Spare deliberate long-running interactive CLI sessions (e.g. a live
-  // `vellum tunnel` in someone's terminal): they have no PID-file
-  // registration, so `vellum clean` would otherwise kill them mid-session.
-  // The command line may be "bun /path/to/bin/vellum tunnel ...", so match
-  // the first argument after the vellum binary/script path — later argv
-  // tokens (e.g. "vellum hatch --name logs") must not trigger the exemption.
-  if (
-    /(?:^|\/)vellum(?:-cli)?\s+(?:tunnel|events|logs|client|terminal|ssh|exec|message|workflows)\b/.test(
-      command,
-    )
-  ) {
-    return "unknown";
-  }
   if (/vellum-cli/.test(command)) return "vellum";
   // Exclude macOS desktop app processes — their path contains .app/Contents/MacOS/
   // but they are not background service processes.
@@ -48,6 +35,26 @@ export function classifyProcess(command: string): string {
   // We require a word boundary before "vellum" to avoid matching repo paths.
   if (/(?:^|\/)vellum(?:\s|$)/.test(command)) return "vellum";
   return "unknown";
+}
+
+/**
+ * True when the command line is a deliberate long-running interactive CLI
+ * session (e.g. a live `vellum tunnel` in someone's terminal). Such sessions
+ * have no PID-file registration, so `vellum clean` would otherwise kill them
+ * mid-session. The command line may be "bun /path/to/bin/vellum tunnel ...",
+ * so match the subcommand right after the vellum binary/script path (allowing
+ * only the known global flags in between; see GLOBAL_FLAGS in cli/src/index.ts).
+ * Later argv tokens (e.g. "vellum hatch --name logs") must not match.
+ *
+ * `detectOrphanedProcesses` consults this before classification so that
+ * service-like substrings in later argv (e.g. `vellum exec -it --service
+ * vellum-gateway -- /bin/sh`) cannot re-flag a live session, while
+ * `classifyProcess` stays a pure display label for `vellum ps`.
+ */
+export function isInteractiveCliSession(command: string): boolean {
+  return /(?:^|\/)vellum(?:-cli)?(?:\s+--(?:no-color|plain))*\s+(?:tunnel|events|logs|client|terminal|ssh|exec|message|workflows)\b/.test(
+    command,
+  );
 }
 
 export function parseRemotePs(output: string): RemoteProcess[] {
@@ -165,6 +172,11 @@ export async function detectOrphanedProcesses(
     for (const p of procs) {
       if (p.pid === ownPid || seenPids.has(p.pid)) continue;
       if (knownPids.has(p.pid)) continue;
+      // Live interactive sessions are spared before classification so that
+      // service substrings in their argv cannot mark them as orphans.
+      if (isInteractiveCliSession(p.command)) {
+        continue;
+      }
       const type = classifyProcess(p.command);
       if (type === "unknown") continue;
       results.push({ name: type, pid: p.pid, source: "process table" });
