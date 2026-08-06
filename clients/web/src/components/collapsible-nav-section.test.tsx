@@ -224,17 +224,15 @@ describe("CollapsibleNavSection", () => {
 
 /**
  * `sectionIcon` is the single answer to "what does this section look like",
- * and the collapsed rail renders it. A header that silently drops it puts the
- * two surfaces in disagreement, which is the state a polish pass left the
- * component in once already: the `icon` prop kept being passed and stopped
- * being drawn, so every call site read as correct while nothing appeared.
+ * and the collapsed rail renders it, so a header must render the same glyph.
+ * A header that drops it puts the two surfaces in disagreement while every
+ * call site still reads as correct, since the `icon` prop is passed either
+ * way.
  */
 describe("CollapsibleNavSection icon", () => {
-  /* The collapsed case is covered above, by the test that counts both glyphs
-     and names the lucide classes. This one exists because "shows when
-     collapsed" and "shows when expanded" are genuinely different states, and
-     a collapsed-only reading of the design is the mistake that has to stay
-     ruled out. */
+  /* Collapsed is covered above, by the test that counts both glyphs. The icon
+     is a property of the section, not of its open state, so expanded is a
+     distinct assertion rather than a restatement. */
   test("renders the icon while expanded, not only while collapsed", () => {
     const html = renderSingleSection({
       value: "s",
