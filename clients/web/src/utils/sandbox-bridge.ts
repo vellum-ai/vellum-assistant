@@ -48,7 +48,15 @@
 /** Path pattern allowed through the fetch proxy (matches desktop ATL-83 restriction). */
 export const FETCH_PROXY_PATH_RE = /^\/v1\/x\//;
 
-/** Link schemes a sandboxed frame may ask the host to open on its behalf. */
+/**
+ * Link schemes a sandboxed frame may ask the host to open on its behalf.
+ *
+ * One definition for both sides of the relay: the in-frame interceptor
+ * interpolates it to decide what to hand over (routing) and
+ * {@link isRelayableExternalHref} applies it to what arrives (the security
+ * check). Two copies would drift into links the frame relays and the host
+ * refuses, or the reverse.
+ */
 const RELAYABLE_LINK_SCHEME_RE = /^(https?|mailto|tel):/i;
 
 /**
@@ -191,7 +199,11 @@ export function buildLinkInterceptorScript(
       if (e.defaultPrevented) return;
       var el = e.target;
       while (el && el !== document.body) {
-        if (el.tagName === 'A' && el.getAttribute('href')) {
+        // Compared case-insensitively: \`tagName\` is upper-cased for HTML
+        // elements but preserves case for SVG, where an anchor reports 'a'.
+        // Visuals are frequently SVG diagrams, so an exact 'A' test leaves
+        // every link drawn inside the artwork dead.
+        if (el.tagName && String(el.tagName).toUpperCase() === 'A' && el.getAttribute('href')) {
           // Use the raw href attribute for scheme detection. In srcdoc
           // documents el.href resolves fragment/relative links against the
           // embedding page URL, producing absolute http(s) URLs that would
@@ -211,7 +223,7 @@ export function buildLinkInterceptorScript(
             }, '*');
             return;
           }
-          if (/^https?:|^mailto:|^tel:/i.test(rawHref)) {
+          if (${RELAYABLE_LINK_SCHEME_RE.toString()}.test(rawHref)) {
             e.preventDefault();
             ${externalHandler}
             return;

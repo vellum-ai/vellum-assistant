@@ -283,14 +283,22 @@ describe("buildLinkInterceptorScript", () => {
 
   it("only intercepts external URL schemes", () => {
     const out = buildLinkInterceptorScript(FRAME_ID);
-    expect(out).toContain("https?:");
-    expect(out).toContain("mailto:");
-    expect(out).toContain("tel:");
+    expect(out).toContain("https?");
+    expect(out).toContain("mailto");
+    expect(out).toContain("tel");
+  });
+
+  it("matches anchors in both the HTML and SVG namespaces", () => {
+    // `tagName` is upper-cased for HTML but case-preserving for SVG, where an
+    // anchor reports 'a'. Visuals are frequently SVG diagrams, so an exact
+    // 'A' comparison leaves every link drawn inside the artwork dead.
+    const out = buildLinkInterceptorScript(FRAME_ID);
+    expect(out).toContain("toUpperCase() === 'A'");
+    expect(out).not.toContain("el.tagName === 'A'");
   });
 
   it("uses event delegation via bubble phase with defaultPrevented guard", () => {
     const out = buildLinkInterceptorScript(FRAME_ID);
-    expect(out).toContain("tagName === 'A'");
     expect(out).toContain("parentElement");
     // Bubble phase — false as third arg to addEventListener (not capture)
     expect(out).toMatch(/},\s*false\)/);
@@ -328,7 +336,7 @@ describe("buildLinkInterceptorScript", () => {
   it("checks vellum:// scheme before external http(s) schemes", () => {
     const out = buildLinkInterceptorScript(FRAME_ID);
     const vellumIdx = out.indexOf("vellum:");
-    const httpIdx = out.indexOf("https?:");
+    const httpIdx = out.indexOf("https?");
     expect(vellumIdx).toBeGreaterThan(0);
     expect(httpIdx).toBeGreaterThan(0);
     // vellum:// must be checked before the external scheme regex

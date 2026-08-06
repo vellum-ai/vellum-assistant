@@ -20,8 +20,15 @@
     The embedding page is the only place that navigation can be refused, and
     `frame-src` is enforced on every navigation of a nested browsing context,
     not just its first load. srcdoc frames resolve as 'self', so the surfaces
-    keep working; Stripe Elements mounts its own frames and is listed
-    explicitly.
+    keep working.
+
+    The Stripe entries are the frame-src set from Stripe's own CSP guidance
+    (https://docs.stripe.com/security/guide#content-security-policy), which
+    the billing modal needs to mount Elements: `*.js.stripe.com` because
+    Stripe.js starts frames on varying subdomains, `hooks.stripe.com` for
+    redirect-based methods such as 3D Secure, and the Link domains for the
+    Link option inside the payment element. Omitting any of them breaks the
+    payment flow on web with no build-time signal.
 
     This is deliberately a single directive rather than a whole policy. A full
     CSP for the SPA is worth having, but it is a much larger change with real
@@ -31,7 +38,7 @@
     makes no claim about.
   -->
   <meta http-equiv="Content-Security-Policy"
-        content="frame-src 'self' https://js.stripe.com https://hooks.stripe.com" />
+        content="frame-src 'self' https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://link.com https://*.link.com" />
 
   <link rel="icon" href="/favicon.svg" />
   <link rel="apple-touch-icon" href="/favicon.svg" />
