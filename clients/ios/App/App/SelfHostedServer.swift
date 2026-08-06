@@ -71,8 +71,10 @@ enum SelfHostedServer {
         components.password = nil
         components.query = nil
         components.fragment = nil
-        while components.path.hasSuffix("/") {
-            components.path = String(components.path.dropLast())
+        // Trim through the percent-encoded path so escaped separators
+        // (e.g. %2F) survive the round-trip instead of being decoded.
+        while components.percentEncodedPath.hasSuffix("/") {
+            components.percentEncodedPath = String(components.percentEncodedPath.dropLast())
         }
         return components.url ?? url
     }
