@@ -23,14 +23,14 @@ DO NOT use this skill for runtime Telegram operations (sending, replying, readin
 
 Saving the token in the wizard triggers all of this:
 
-| Step | Runs where |
-| -- | -- |
-| Validate the token against `getMe` | Daemon, on save |
-| Store `telegram.botId` and `telegram.botUsername` | Daemon, on save |
-| Generate the webhook secret | Daemon, on save |
-| Register the platform callback route | Daemon, on save |
+| Step                                               | Runs where                        |
+| -------------------------------------------------- | --------------------------------- |
+| Validate the token against `getMe`                 | Daemon, on save                   |
+| Store `telegram.botId` and `telegram.botUsername`  | Daemon, on save                   |
+| Generate the webhook secret                        | Daemon, on save                   |
+| Register the platform callback route               | Daemon, on save                   |
 | Tell Telegram where to send updates (`setWebhook`) | Gateway, on the credential change |
-| Install the bot commands (`setMyCommands`) | Gateway, on the credential change |
+| Install the bot commands (`setMyCommands`)         | Gateway, on the credential change |
 
 ⚠️ CRITICAL: **Never run `setWebhook`, `setMyCommands`, or `assistant webhooks register` yourself, and never generate the webhook secret.** `reconcileTelegramWebhook` is idempotent and already runs on the credential change the save produces. Doing it by hand races it, which is how a webhook ends up pointing somewhere stale.
 
