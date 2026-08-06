@@ -83,7 +83,7 @@ export interface AssistantChannelsListProps {
     channelKey: ChannelKey,
     policy: AdmissionPolicy,
   ) => void;
-  onSetup?: (channelKey: ChannelKey) => void;
+  onSetup?: (channelKey: ChannelKey, incomplete?: boolean) => void;
   onDisconnect?: (channelKey: ChannelKey) => void;
   onSaveTelegramToken?: (botToken: string) => void;
   telegramSaveStatus?: MutationStatus;
@@ -209,7 +209,11 @@ export function AssistantChannelsList({
       assistantDisplayName={displayName}
       pending={pendingChannelKey === selected.key}
       initialManualEntry={setupChannel === selected.key}
-      onSetup={onSetup ? () => onSetup(selected.key) : undefined}
+      onSetup={
+        onSetup
+          ? () => onSetup(selected.key, selected.status === "incomplete")
+          : undefined
+      }
       onDisconnect={
         onDisconnect ? () => setPendingDisconnect(selected.key) : undefined
       }
