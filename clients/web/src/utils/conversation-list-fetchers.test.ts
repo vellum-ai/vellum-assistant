@@ -34,7 +34,7 @@ const {
   listBackgroundConversationsFirstPage,
   listConversations,
   listConversationsFirstPage,
-  listOriginChannelConversations,
+  listSectionConversations,
   listScheduledConversations,
   listScheduledConversationsFirstPage,
 } = await import("@/utils/conversation-list-fetchers");
@@ -301,7 +301,7 @@ describe("conversation list drain diagnostics", () => {
 
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
     const channel = await diagnosticsDuring(() =>
-      listOriginChannelConversations(ASSISTANT_ID, "slack"),
+      listSectionConversations(ASSISTANT_ID, { originChannel: "slack" }),
     );
 
     expect(channel.events[0]?.details).toMatchObject({
@@ -519,7 +519,7 @@ describe("conversation list drain telemetry", () => {
   test("an origin-channel drain is labeled origin_channel, not foreground", async () => {
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
 
-    await listOriginChannelConversations(ASSISTANT_ID, "slack");
+    await listSectionConversations(ASSISTANT_ID, { originChannel: "slack" });
 
     const emits = drainEmits();
     expect(emits).toHaveLength(1);

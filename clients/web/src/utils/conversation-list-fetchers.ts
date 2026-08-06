@@ -68,28 +68,6 @@ export function scheduledConversationsQueryKey(assistantId: string | null) {
   return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "scheduled"] as const;
 }
 
-/** Prefix key matching all origin-channel conversation caches. */
-export function originChannelListPrefix(assistantId: string | null) {
-  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "channel"] as const;
-}
-
-/**
- * Key for a specific origin channel's conversation cache. A child of
- * {@link originChannelListPrefix}, so prefix-match invalidation of the
- * `"channel"` segment reaches every per-channel cache automatically.
- */
-export function originChannelConversationsQueryKey(
-  assistantId: string | null,
-  channel: string,
-) {
-  return [
-    CONVERSATION_LIST_PREFIX,
-    assistantId ?? "",
-    "channel",
-    channel,
-  ] as const;
-}
-
 /** Prefix key matching every per-section conversation cache. */
 export function sectionListPrefix(assistantId: string | null) {
   return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "section"] as const;
@@ -607,25 +585,6 @@ export async function listSectionConversations(
 }
 
 /**
- * Fetch all active (non-archived) conversations for a given origin channel
- * (e.g. `"slack"`, `"telegram"`), sorted newest-first.
- *
- * Each external channel's sidebar section calls this with its own channel ID.
- * Channel sections are naturally bounded (~5-30 items per user), so a flat
- * fetch (all pages) is appropriate. Cached separately per channel under
- * `originChannelConversationsQueryKey`.
- */
-export async function listOriginChannelConversations(
-  assistantId: string,
-  originChannel: NonNullable<OriginChannel>,
-): Promise<Conversation[]> {
-  const conversations = await fetchConversationList(assistantId, {
-    originChannel,
-  });
-  return [...conversations].sort(byTimestampDesc("lastMessageAt"));
-}
-
-/**
  * Fetch all archived conversations for the archive page.
  * Sorted by `archivedAt` descending (most recently archived first).
  */
@@ -792,24 +751,6 @@ export function archivedConversationListOptions(assistantId: string) {
   return queryOptions({
     queryKey: archivedConversationsQueryKey(assistantId),
     queryFn: () => listArchivedConversations(assistantId),
-    staleTime: QUERY_STALE_TIME_MS,
-  });
-}
-
-/**
- * Query options for a specific origin channel's conversation list.
- *
- * Generic factory parameterized by channel ID — each sidebar channel section
- * (Slack, Telegram, Email, etc.) uses this with its own channel value. Cached
- * independently per `(assistantId, channel)` tuple.
- */
-export function originChannelConversationListOptions(
-  assistantId: string,
-  channel: NonNullable<OriginChannel>,
-) {
-  return queryOptions({
-    queryKey: originChannelConversationsQueryKey(assistantId, channel),
-    queryFn: () => listOriginChannelConversations(assistantId, channel),
     staleTime: QUERY_STALE_TIME_MS,
   });
 }
