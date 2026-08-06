@@ -1293,4 +1293,145 @@ describe("ngrok --domain spawn args", () => {
     expect(config.ingress.publicBaseUrl).toBe("https://foo.ngrok.app");
     expect(config.ingress.ngrok?.domain).toBe("foo.ngrok.app");
   });
+
+  interface NgrokIngressConfig {
+    ingress: {
+      publicBaseUrl?: string;
+      ngrok?: { domain?: string; webAddrPort?: number };
+    };
+  }
+
+  function readWorkspaceConfig(ws: string): NgrokIngressConfig {
+    return JSON.parse(
+      readFileSync(join(ws, "config.json"), "utf-8"),
+    ) as NgrokIngressConfig;
+  }
+
+  /** ngrok local API stub routing responses by the fetched URL. */
+  function mockRoutedNgrokApiFetch(
+    route: (url: string) => { tunnels: StubTunnel[] } | "unreachable",
+  ): void {
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const result = route(String(input));
+      if (result === "unreachable") throw new Error("connect ECONNREFUSED");
+      return new Response(JSON.stringify(result), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof globalThis.fetch;
+  }
+
+  const dedicatedAgentTunnel = (port: number): StubTunnel => ({
+    public_url: "https://edge.ngrok-free.app",
+    config: { addr: `localhost:${port}` },
+  });
+
+  test("maybeStartNgrokTunnel reuses the dedicated agent at the persisted web-addr without spawning", async () => {
+    const ws = makeWorkspace({
+      telegram: { botUsername: "example_bot" },
+      ingress: { ngrok: { webAddrPort: 41234 } },
+    });
+    // The default :4040 API sees nothing; the persisted dedicated agent's
+    // API reports the tunnel for the target port.
+    mockRoutedNgrokApiFetch((url) =>
+      url.includes(":41234")
+        ? { tunnels: [dedicatedAgentTunnel(7830)] }
+        : { tunnels: [] },
+    );
+
+    const child = await realNgrok.maybeStartNgrokTunnel(7830, ws);
+
+    expect(child).toBeNull();
+    expect(spawnMock).not.toHaveBeenCalled();
+    const config = readWorkspaceConfig(ws);
+    expect(config.ingress.publicBaseUrl).toBe("https://edge.ngrok-free.app");
+    // The persisted address stays recorded for the next preflight.
+    expect(config.ingress.ngrok?.webAddrPort).toBe(41234);
+  });
+
+  test("maybeStartNgrokTunnel clears a stale persisted web-addr and spawns fresh", async () => {
+    const ws = makeWorkspace({
+      telegram: { botUsername: "example_bot" },
+      ingress: { ngrok: { webAddrPort: 41234 } },
+    });
+    mockRoutedNgrokApiFetch((url) => {
+      if (url.includes(":41234")) return "unreachable";
+      if (url.includes(":4040")) return { tunnels: [] };
+      // The freshly spawned agent's dedicated API reports the tunnel.
+      return { tunnels: [dedicatedAgentTunnel(7830)] };
+    });
+
+    const child = await realNgrok.maybeStartNgrokTunnel(7830, ws);
+
+    expect(child).not.toBeNull();
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const [, args] = spawnMock.mock.calls[0] as unknown as [string, string[]];
+    const webAddrArg = args.find((a) => a.startsWith("--web-addr="));
+    const newPort = Number(/:(\d+)$/.exec(webAddrArg ?? "")?.[1]);
+    expect(Number.isInteger(newPort)).toBe(true);
+    const config = readWorkspaceConfig(ws);
+    expect(config.ingress.publicBaseUrl).toBe("https://edge.ngrok-free.app");
+    // The stale address is overwritten with the fresh agent's port.
+    expect(config.ingress.ngrok?.webAddrPort).toBe(newPort);
+  });
+
+  test("runNgrokTunnel adopts the dedicated agent's tunnel via the persisted web-addr", async () => {
+    const ws = makeWorkspace({ ingress: { ngrok: { webAddrPort: 41234 } } });
+    mockRoutedNgrokApiFetch((url) =>
+      url.includes(":41234")
+        ? { tunnels: [dedicatedAgentTunnel(7831)] }
+        : { tunnels: [] },
+    );
+
+    const run = realNgrok.runNgrokTunnel({ port: 7831, workspaceDir: ws });
+    // The adopt path blocks until SIGINT/SIGTERM; pump SIGINT until the
+    // listener is registered. Earlier tests leak SIGINT handlers that call
+    // process.exit, so no-op it while pumping.
+    const exitSpy = spyOn(process, "exit").mockImplementation(
+      (() => undefined) as never,
+    );
+    const pump = setInterval(() => process.emit("SIGINT"), 10);
+    try {
+      await run;
+    } finally {
+      clearInterval(pump);
+      exitSpy.mockRestore();
+    }
+
+    expect(spawnMock).not.toHaveBeenCalled();
+    const config = readWorkspaceConfig(ws);
+    expect(config.ingress.publicBaseUrl).toBe("https://edge.ngrok-free.app");
+    expect(config.ingress.ngrok?.webAddrPort).toBe(41234);
+  });
+
+  test("maybeStartNgrokTunnel treats a loopback port allocation failure as nonfatal", async () => {
+    const ws = makeWorkspace({ telegram: { botUsername: "example_bot" } });
+    mockNgrokApiFetch([{ tunnels: [] }]);
+    const realNet = { ...(await import("node:net")) };
+    mock.module("node:net", () => ({
+      ...realNet,
+      createServer: () => {
+        throw new Error("EMFILE: too many open files");
+      },
+    }));
+
+    const warnings: string[] = [];
+    const warnSpy = spyOn(console, "warn").mockImplementation(
+      (...a: unknown[]) => {
+        warnings.push(a.join(" "));
+      },
+    );
+
+    let child: unknown;
+    try {
+      child = await realNgrok.maybeStartNgrokTunnel(7830, ws);
+    } finally {
+      warnSpy.mockRestore();
+      mock.module("node:net", () => realNet);
+    }
+
+    expect(child).toBeNull();
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(warnings.join("\n")).toContain("Could not start ngrok tunnel");
+  });
 });

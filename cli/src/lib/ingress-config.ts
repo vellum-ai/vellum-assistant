@@ -85,20 +85,36 @@ export function saveIngressUrl(
   }
 }
 
-/** Persist a reserved ngrok domain under `ingress.ngrok.domain`; null clears it. */
-export function saveNgrokDomain(
+/** Update the `ingress.ngrok` entry in place, dropping it when it empties. */
+function updateNgrokEntry(
   workspaceDir: string,
-  domain: string | null,
+  mutate: (ngrok: Record<string, unknown>) => void,
 ): void {
   const config = loadRawConfig(workspaceDir);
   const ingress = (config.ingress ?? {}) as Record<string, unknown>;
-  if (domain) {
-    ingress.ngrok = { domain };
+  const ngrok = (ingress.ngrok ?? {}) as Record<string, unknown>;
+  mutate(ngrok);
+  if (Object.keys(ngrok).length > 0) {
+    ingress.ngrok = ngrok;
   } else {
     delete ingress.ngrok;
   }
   config.ingress = ingress;
   saveRawConfig(workspaceDir, config);
+}
+
+/** Persist a reserved ngrok domain under `ingress.ngrok.domain`; null clears it. */
+export function saveNgrokDomain(
+  workspaceDir: string,
+  domain: string | null,
+): void {
+  updateNgrokEntry(workspaceDir, (ngrok) => {
+    if (domain) {
+      ngrok.domain = domain;
+    } else {
+      delete ngrok.domain;
+    }
+  });
 }
 
 /** Read the reserved ngrok domain from the workspace config, if saved. */
@@ -108,6 +124,36 @@ export function loadNgrokDomain(workspaceDir: string): string | null {
   const ngrok = ingress?.ngrok as Record<string, unknown> | undefined;
   const domain = ngrok?.domain;
   return typeof domain === "string" && domain.trim() ? domain : null;
+}
+
+/**
+ * Persist the spawned ngrok agent's dedicated web-addr port under
+ * `ingress.ngrok.webAddrPort` so later runs can query that agent's local API
+ * and reuse its tunnel instead of spawning a second agent; null clears a
+ * stale entry.
+ */
+export function saveNgrokWebAddrPort(
+  workspaceDir: string,
+  port: number | null,
+): void {
+  updateNgrokEntry(workspaceDir, (ngrok) => {
+    if (port !== null) {
+      ngrok.webAddrPort = port;
+    } else {
+      delete ngrok.webAddrPort;
+    }
+  });
+}
+
+/** Read the persisted dedicated-agent web-addr port, if saved. */
+export function loadNgrokWebAddrPort(workspaceDir: string): number | null {
+  const config = loadRawConfig(workspaceDir);
+  const ingress = config.ingress as Record<string, unknown> | undefined;
+  const ngrok = ingress?.ngrok as Record<string, unknown> | undefined;
+  const port = ngrok?.webAddrPort;
+  return typeof port === "number" && Number.isInteger(port) && port > 0
+    ? port
+    : null;
 }
 
 /** Clear the ingress public base URL from the workspace config. */

@@ -7,7 +7,14 @@ import { join } from "node:path";
 const testDir = mkdtempSync(join(tmpdir(), "ingress-config-test-"));
 process.env.VELLUM_LOCKFILE_DIR = testDir;
 
-import { clearIngressUrl, saveIngressUrl } from "../lib/ingress-config.js";
+import {
+  clearIngressUrl,
+  loadNgrokDomain,
+  loadNgrokWebAddrPort,
+  saveIngressUrl,
+  saveNgrokDomain,
+  saveNgrokWebAddrPort,
+} from "../lib/ingress-config.js";
 
 function writeLockfile(entry: Record<string, unknown>): void {
   writeFileSync(
@@ -99,5 +106,52 @@ describe("ingress lockfile mirroring", () => {
       saveIngressUrl(ws, "https://tunnel.example.ts.net", "no-such-assistant");
     }).not.toThrow();
     expect(readLockfileEntry().ingressUrl).toBeUndefined();
+  });
+});
+
+describe("ngrok web-addr port persistence", () => {
+  function readNgrokEntry(ws: string): Record<string, unknown> | undefined {
+    const config = JSON.parse(
+      readFileSync(join(ws, "config.json"), "utf-8"),
+    ) as { ingress?: { ngrok?: Record<string, unknown> } };
+    return config.ingress?.ngrok;
+  }
+
+  test("save and load round-trip; null clears", () => {
+    const ws = makeWorkspace();
+
+    saveNgrokWebAddrPort(ws, 41234);
+    expect(loadNgrokWebAddrPort(ws)).toBe(41234);
+
+    saveNgrokWebAddrPort(ws, null);
+    expect(loadNgrokWebAddrPort(ws)).toBeNull();
+    // Clearing the last ngrok field drops the entry entirely.
+    expect(readNgrokEntry(ws)).toBeUndefined();
+  });
+
+  test("loadNgrokWebAddrPort returns null when nothing is saved", () => {
+    expect(loadNgrokWebAddrPort(makeWorkspace())).toBeNull();
+  });
+
+  test("saveNgrokDomain preserves the persisted web-addr port", () => {
+    const ws = makeWorkspace();
+    saveNgrokWebAddrPort(ws, 41234);
+
+    saveNgrokDomain(ws, "foo.ngrok.app");
+    expect(loadNgrokDomain(ws)).toBe("foo.ngrok.app");
+    expect(loadNgrokWebAddrPort(ws)).toBe(41234);
+
+    saveNgrokDomain(ws, null);
+    expect(loadNgrokDomain(ws)).toBeNull();
+    expect(loadNgrokWebAddrPort(ws)).toBe(41234);
+  });
+
+  test("saveNgrokWebAddrPort preserves the saved domain", () => {
+    const ws = makeWorkspace();
+    saveNgrokDomain(ws, "foo.ngrok.app");
+
+    saveNgrokWebAddrPort(ws, 41234);
+    saveNgrokWebAddrPort(ws, null);
+    expect(loadNgrokDomain(ws)).toBe("foo.ngrok.app");
   });
 });
