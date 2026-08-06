@@ -97,6 +97,7 @@ export const llmUsageTelemetryEventSchema = z.object({
   parent_turn_index: z.number().int().min(0).nullable().optional(),
   subagent_role: z.string().trim().min(1).max(64).nullable().optional(),
   subagent_spawn_mode: z.string().trim().min(1).max(64).nullable().optional(),
+  cron_run_id: z.string().trim().min(1).max(64).nullable().optional(),
 });
 export type LlmUsageTelemetryEvent = z.infer<
   typeof llmUsageTelemetryEventSchema
