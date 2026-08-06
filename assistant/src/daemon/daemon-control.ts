@@ -10,7 +10,7 @@ import {
 import { resolve } from "node:path";
 
 import { getRuntimeHttpHost, getRuntimeHttpPort } from "../config/env.js";
-import { getIsContainerized, getIsPlatform } from "../config/env-registry.js";
+import { getIsContainerized } from "../config/env-registry.js";
 import { loadOrCreateSigningKey } from "../runtime/auth/token-service.js";
 import { ensureBun } from "../util/bun-runtime.js";
 import { DaemonError } from "../util/errors.js";
@@ -474,20 +474,14 @@ export type StopResult =
   | { stopped: false; reason: "not_running" | "stop_failed" };
 
 export async function ensureDaemonRunning(): Promise<void> {
+  // No explicit pod guard here: getDaemonStatus() reports containerized
+  // instances as running (the orchestrator owns their lifecycle), so this
+  // returns at the status.running check before autostart on any managed
+  // deployment. The from-source CLI path in cli/src/lib/local.ts carries the
+  // guard that refuses to hatch a rival when the daemon is unreachable.
   const status = await getDaemonStatus();
   if (status.running) {
     return;
-  }
-  // On a pod the orchestrator owns the daemon lifecycle. A CLI that cannot
-  // reach the daemon must surface that as an error, never hatch a rival that
-  // stomps the shared PID file and config.json. The getIsContainerized() term
-  // is redundant here (getDaemonStatus() already reports containerized
-  // instances as running, so we returned above) but kept so the guard reads as
-  // "never spawn on any pod".
-  if (getIsContainerized() || getIsPlatform()) {
-    throw new DaemonError(
-      "Assistant is unreachable and cannot be auto-started in a managed environment",
-    );
   }
   await startDaemon();
 }

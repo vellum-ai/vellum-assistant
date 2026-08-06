@@ -648,20 +648,17 @@ function logAssistantAlreadyRunning(
 }
 
 /**
- * A pod (containerized or platform-managed) has its daemon lifecycle owned by
- * the orchestrator. A from-source CLI that reaches the spawn path there could
- * only be one that failed to reach the running daemon, so refuse to hatch a
- * rival that would stomp PID files and config.json. Surface the unreachable
- * daemon as an error instead.
+ * A container has its daemon lifecycle owned by the orchestrator. A from-source
+ * CLI that reaches the spawn path there could only be one that failed to reach
+ * the running daemon, so refuse to hatch a rival that would stomp PID files and
+ * config.json. Surface the unreachable daemon as an error instead. Platform
+ * pods are always containerized, so IS_CONTAINERIZED is the sufficient flag.
  */
 export function assertDaemonAutostartAllowed(
   env: Record<string, string | undefined> = process.env,
 ): void {
-  const isFlagSet = (name: string): boolean => {
-    const raw = env[name]?.trim();
-    return raw === "true" || raw === "1";
-  };
-  if (isFlagSet("IS_CONTAINERIZED") || isFlagSet("IS_PLATFORM")) {
+  const raw = env.IS_CONTAINERIZED?.trim();
+  if (raw === "true" || raw === "1") {
     throw new Error(
       "Assistant is unreachable and cannot be auto-started in a managed environment.",
     );
