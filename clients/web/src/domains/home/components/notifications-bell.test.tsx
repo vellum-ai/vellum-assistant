@@ -400,7 +400,7 @@ describe("NotificationsBell panel", () => {
   });
 
   test("offers no route out to the Activity page", async () => {
-    feedRef.items = [feedItem({ status: "new" })];
+    feedRef.items = [bellItem({ status: "new" })];
 
     await openBell();
 
@@ -409,7 +409,9 @@ describe("NotificationsBell panel", () => {
 });
 
 describe("NotificationsBell detail", () => {
-  const FIRST = feedItem({
+  // bellItem, not the shared fixture: this block asserts the rendered
+  // relative timestamp, which needs a time relative to now.
+  const FIRST = bellItem({
     id: "first",
     title: "Watcher job failed",
     summary: "The watcher job could not reach the upstream service.",
