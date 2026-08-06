@@ -119,7 +119,7 @@ export class JsonRpcHelperError extends Error {
 }
 
 const DEFAULT_RESPONSE_TIMEOUT_MS = 2_000;
-const DEFAULT_MAX_FRAME_BYTES = 1_048_576;
+const DEFAULT_MAX_FRAME_BYTES = Number.POSITIVE_INFINITY;
 
 export class NativeSidecarClient {
   private readonly name: string;
