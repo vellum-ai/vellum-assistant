@@ -17,6 +17,13 @@
  * for a human at a terminal, not for an hourly background sweep, so untrusted
  * installs are filtered out here and left for `assistant plugins upgrade`.
  *
+ * The filter is applied twice, in both processes. Inspecting here keeps the
+ * daemon from being asked about plugins the sweep would never accept, but the
+ * daemon re-inspects before it moves anything, so this side's verdict cannot be
+ * the one that matters: a catalog entry that disappears in between would flip
+ * the daemon to the direct path. Every request therefore carries
+ * `marketplaceOnly`, which the daemon enforces against its own inspection.
+ *
  * The monitor drives it — not the daemon — for the same reason it drives the
  * plugin source watch and crash recovery: the work is periodic, network-bound,
  * and must not compete with the daemon's turn loop. Drift detection happens
@@ -210,7 +217,16 @@ async function listUpgradableNames(): Promise<UpgradeCandidates> {
   return { candidates, untrusted };
 }
 
-/** Ask the daemon to upgrade one plugin. */
+/**
+ * Ask the daemon to upgrade one plugin.
+ *
+ * `marketplaceOnly` restates this sweep's boundary as something the daemon
+ * enforces rather than something it trusts the caller to have checked. The
+ * daemon re-inspects before it moves anything, so a catalog entry that
+ * disappears between the inspection above and the daemon's own would otherwise
+ * turn a curated upgrade into a direct one against the install's mutable ref.
+ * With the flag set the daemon refuses instead.
+ */
 function requestUpgrade(
   name: string,
   strategy: PluginUpdatesConfig["strategy"],
@@ -219,7 +235,7 @@ function requestUpgrade(
     UPGRADE_IPC_METHOD,
     // The target revision is never caller-supplied — the daemon resolves it
     // from the plugin's own source, exactly as an interactive upgrade does.
-    { pathParams: { name }, body: { strategy } },
+    { pathParams: { name }, body: { strategy, marketplaceOnly: true } },
     { timeoutMs: UPGRADE_TIMEOUT_MS },
   );
 }

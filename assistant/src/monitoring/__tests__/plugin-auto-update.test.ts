@@ -12,7 +12,9 @@
  *     disabled installs cost it nothing;
  *   - only curated marketplace installs are swept: a plugin installed straight
  *     from a GitHub URL, or one whose recorded source disagrees with the
- *     catalog entry claiming its name, is left for a human to upgrade;
+ *     catalog entry claiming its name, is left for a human to upgrade, and
+ *     every request the daemon does get carries `marketplaceOnly` so it
+ *     enforces that boundary against its own inspection;
  *   - one plugin's refusal does not stop the sweep, an unreachable daemon
  *     abandons it without stamping (so it retries), and a timed-out upgrade
  *     abandons it *with* a stamp (so the retry cannot race the handler that
@@ -90,6 +92,8 @@ let upgradeReply: (name: string) => UpgradeReply = () => ({
   result: { outcome: "upgraded", toCommit: "abc1234" },
 });
 const upgradeCalls: Array<{ name: string; strategy: unknown }> = [];
+/** Full request bodies, for the assertions that care about more than strategy. */
+const upgradeBodies: Array<Record<string, unknown>> = [];
 
 const realInspect = await import("../../cli/lib/inspect-plugin.js");
 const realIpcClient = await import("../../ipc/cli-client.js");
@@ -121,12 +125,16 @@ mock.module("../../ipc/cli-client.js", () => ({
   ...realIpcClient,
   cliIpcCall: async (
     _method: string,
-    params: { pathParams: { name: string }; body: { strategy: unknown } },
+    params: {
+      pathParams: { name: string };
+      body: Record<string, unknown>;
+    },
   ) => {
     upgradeCalls.push({
       name: params.pathParams.name,
       strategy: params.body.strategy,
     });
+    upgradeBodies.push(params.body);
     return upgradeReply(params.pathParams.name);
   },
 }));
@@ -188,6 +196,7 @@ beforeEach(() => {
     result: { outcome: "upgraded", toCommit: "abc1234" },
   });
   upgradeCalls.length = 0;
+  upgradeBodies.length = 0;
   rmSync(STAMP, { force: true });
   rmSync(PLUGINS_DIR, { recursive: true, force: true });
   mkdirSync(PLUGINS_DIR, { recursive: true });
@@ -264,6 +273,23 @@ describe("plugin auto-update sweep", () => {
     expect(upgradeCalls.map((c) => c.name)).toEqual(["beta"]);
     expect(result.skippedUntrusted).toEqual(["alpha"]);
     expect(result.failed).toEqual([]);
+  });
+
+  test("every request asks the daemon to enforce the curated boundary itself", async () => {
+    writeConfig({ mode: "auto" });
+    installPlugin("alpha", { status: "update-available" });
+    installPlugin("beta", { status: "unknown-provenance" });
+
+    await runPluginAutoUpdateSweepIfDue();
+
+    // The daemon re-inspects before it moves anything, so a catalog entry that
+    // disappears after the inspection above would flip it to the direct path.
+    // `marketplaceOnly` makes the daemon refuse instead of following the
+    // install's mutable ref.
+    expect(upgradeBodies).toEqual([
+      { strategy: "theirs", marketplaceOnly: true },
+      { strategy: "theirs", marketplaceOnly: true },
+    ]);
   });
 
   test("a whole workspace of untrusted installs stamps instead of retrying every minute", async () => {

@@ -206,6 +206,8 @@ Upgrades are manual by default. A workspace can opt into unattended upgrades thr
 
 **Only curated marketplace installs are swept.** The catalog pins every entry to a commit a curator reviewed, so an unattended upgrade can only land reviewed code. A plugin installed straight from a GitHub URL has no such gate: it tracks a mutable ref (a branch, a tag, or the repo's default branch), so upgrading it means fetching and running whatever upstream pushed since. The sweep skips those, and so it skips any install whose recorded `install-meta.json` source names a different repository (or plugin root) than the catalog entry claiming its name. Upgrade them deliberately with `assistant plugins upgrade <name>`.
 
+The boundary is enforced where the upgrade happens, not only where it is decided. Every sweep request carries `marketplaceOnly`, and the upgrade refuses (409) if its own catalog read finds no entry, so a catalog entry that disappears mid-sweep cannot reroute a curated upgrade onto an install's mutable ref.
+
 Disabled plugins are skipped too. The sweep runs in the resource monitor process but asks the daemon to perform each upgrade, so the plugin's `shutdown`/`init` hooks run in the process that loaded it, exactly as they do for a manual upgrade. A plugin that cannot be upgraded (source unreachable, no upstream to advance to) is logged and skipped; the rest of the sweep continues.
 
 ### Drift and local edits

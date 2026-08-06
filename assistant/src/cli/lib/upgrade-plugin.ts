@@ -17,6 +17,11 @@
  * verbatim, with no curated adapter overlay, exactly as the original untrusted
  * install was (see {@link directUpgrade}).
  *
+ * Because that target is a mutable ref, taking it means running whatever
+ * upstream pushed since, which is a choice only a human should make. A caller
+ * with nobody in the loop passes `marketplaceOnly` to rule it out: the direct
+ * path then throws {@link PluginNotCuratedError} instead of advancing.
+ *
  * This is deliberately a distinct operation from install: `install` is
  * first-time materialization (and errors on an existing install unless
  * `--force` is passed), whereas `upgrade` moves an existing install forward.
@@ -114,6 +119,20 @@ export interface UpgradePluginOptions {
    * {@link DEFAULT_PLUGIN_UPGRADE_STRATEGY}.
    */
   readonly strategy?: PluginUpgradeStrategy;
+  /**
+   * Refuse to advance an install the marketplace does not claim, instead of
+   * falling back to {@link directUpgrade}.
+   *
+   * A direct install's upgrade target is a mutable upstream ref, so taking it
+   * means fetching and executing whatever was pushed since. Callers with
+   * nobody in the loop (the unattended auto-update sweep) set this so that
+   * outcome is impossible for them, and it is enforced here rather than by the
+   * caller's own pre-check: the catalog is fetched again inside this call, so
+   * an entry that disappears in between would otherwise silently reroute a
+   * curated upgrade into a direct one. Defaults to false, which is what an
+   * interactive `assistant plugins upgrade` wants.
+   */
+  readonly marketplaceOnly?: boolean;
 }
 
 /** Dependencies injected by the caller. */
@@ -209,6 +228,23 @@ export class PluginNotUpgradableError extends Error {
 }
 
 /**
+ * A `marketplaceOnly` upgrade was requested for an install the marketplace does
+ * not claim, so the only revision available is a mutable upstream ref the
+ * caller refuses to take.
+ *
+ * Distinct from {@link PluginNotUpgradableError}: the install *can* be
+ * upgraded, just not without a human choosing to accept unreviewed code.
+ */
+export class PluginNotCuratedError extends Error {
+  constructor(readonly pluginName: string) {
+    super(
+      `Plugin "${pluginName}" cannot be upgraded automatically: it has no marketplace entry, so its only upgrade target is a mutable upstream ref. Run 'assistant plugins upgrade ${pluginName}' to move it deliberately.`,
+    );
+    this.name = "PluginNotCuratedError";
+  }
+}
+
+/**
  * A merge strategy (`ours`/`theirs`) was requested but the install-time
  * baseline needed for a three-way merge cannot be reconstructed.
  */
@@ -244,6 +280,8 @@ function pluginTarget(name: string, deps: UpgradePluginDeps): string {
  * Throws {@link PluginNotInstalledError} when no copy is installed,
  * {@link PluginNotUpgradableError} when the install is neither in the
  * marketplace nor carries a recorded GitHub source to advance,
+ * {@link PluginNotCuratedError} when `marketplaceOnly` was requested for an
+ * install the marketplace does not claim,
  * {@link PluginMergeBaselineError} when a merge strategy is requested but the
  * install-time baseline cannot be reconstructed,
  * {@link PluginSourceUnavailableError} when the marketplace catalog or the
@@ -301,6 +339,10 @@ export async function upgradePlugin(
           name,
           "it has no marketplace entry and no installed copy to upgrade",
         );
+      }
+      if (opts.marketplaceOnly) {
+        // The caller only accepts a curated pin, and this install has none.
+        throw new PluginNotCuratedError(name);
       }
       return directUpgrade({ name, local, dryRun, strategy }, deps);
     }
