@@ -192,8 +192,11 @@ async function gatewayPostOrExit(
   body: unknown,
   headers?: Record<string, string>,
 ): Promise<Response> {
-  const response = await gatewayPost(gatewayUrl, path, body, headers);
+  return exitOnHttpError(await gatewayPost(gatewayUrl, path, body, headers));
+}
 
+/** Exit with a generic HTTP-error message on non-2xx; pass 2xx through. */
+async function exitOnHttpError(response: Response): Promise<Response> {
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "");
     console.error(
@@ -201,7 +204,6 @@ async function gatewayPostOrExit(
     );
     process.exit(1);
   }
-
   return response;
 }
 
@@ -223,19 +225,31 @@ async function createRemoteWebPairingChallenge(
 
 /**
  * Approve a pending pairing challenge by its user code, the local-presence
- * proof for the device-code flow. Used by `--qr`, which approves the
- * challenge it just minted so one scan completes pairing. `--web-approve`
- * approves user-supplied codes instead and prints mismatch diagnostics on
- * rejection (see {@link formatWebApproveFailure}).
+ * proof for the device-code flow. Single owner of the pairing-verification
+ * route and request body: `--qr` approves via {@link approveRemoteWebPairing}
+ * (generic exit on non-2xx), while `--web-approve` calls this directly to
+ * inspect rejections and print mismatch diagnostics (see
+ * {@link formatWebApproveFailure}).
+ */
+async function postPairingVerification(
+  gatewayUrl: string,
+  userCode: string,
+): Promise<Response> {
+  return gatewayPost(gatewayUrl, "/v1/remote-web/pairing-verification", {
+    userCode,
+  } satisfies RemoteWebPairingVerificationRequest);
+}
+
+/**
+ * Approve the challenge `--qr` just minted so one scan completes pairing,
+ * exiting with a generic message on non-2xx.
  */
 async function approveRemoteWebPairing(
   gatewayUrl: string,
   userCode: string,
 ): Promise<RemoteWebPairingVerificationResponse> {
-  const response = await gatewayPostOrExit(
-    gatewayUrl,
-    "/v1/remote-web/pairing-verification",
-    { userCode } satisfies RemoteWebPairingVerificationRequest,
+  const response = await exitOnHttpError(
+    await postPairingVerification(gatewayUrl, userCode),
   );
   return (await response.json()) as RemoteWebPairingVerificationResponse;
 }
@@ -417,16 +431,10 @@ export async function pair(): Promise<void> {
   if (webApproveCode) {
     await assertWebRemoteIngressEnabled(entry.assistantId, mintUrl);
 
-    // Rejections are diagnosed here rather than by gatewayPostOrExit: a
+    // Rejections are diagnosed here rather than by exitOnHttpError: a
     // rejected code must name the gateway that was asked, or an
     // assistant/environment mismatch is indistinguishable from a typo.
-    const response = await gatewayPost(
-      mintUrl,
-      "/v1/remote-web/pairing-verification",
-      {
-        userCode: webApproveCode,
-      } satisfies RemoteWebPairingVerificationRequest,
-    );
+    const response = await postPairingVerification(mintUrl, webApproveCode);
     if (!response.ok) {
       const errorBody = await response.text().catch(() => "");
       const diagnostic = formatWebApproveFailure(
