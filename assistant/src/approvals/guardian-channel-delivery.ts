@@ -15,6 +15,11 @@
  * guardian decided off-channel (desktop), or the expiry sweep fired on a timer
  * with no originating request in hand. Returns null for channels that have no
  * deliverable route (e.g. email, the in-app vellum surface).
+ *
+ * Discord carries `dm=1`, which tells its transport that the `chatId` it is
+ * handed names a person to open a DM with rather than a channel to post in.
+ * Pair it with {@link resolveRequesterDeliveryTarget}, which supplies that
+ * person.
  */
 export function resolveDeliverCallbackUrlForChannel(
   channel: string,
@@ -24,7 +29,36 @@ export function resolveDeliverCallbackUrlForChannel(
     case "whatsapp":
     case "slack":
       return `/deliver/${channel}`;
+    case "discord":
+      return "/deliver/discord?dm=1";
     default:
       return null;
   }
+}
+
+/**
+ * Resolve who a requester notice is addressed to on the callback-less route.
+ *
+ * A request's `requesterChatId` is wherever the request came from, and on
+ * Slack and Discord that is a room other people can read. "Your request was
+ * denied" posted into a community channel is worse than not sending it, so
+ * both address the requester's own user id instead and let their transport
+ * turn it into a DM.
+ *
+ * Telegram and WhatsApp fall through to the chat id because theirs already is
+ * the private one-to-one conversation.
+ */
+export function resolveRequesterDeliveryTarget(params: {
+  channel: string;
+  requesterChatId: string;
+  requesterExternalUserId: string;
+}): string {
+  const { channel, requesterChatId, requesterExternalUserId } = params;
+  if (
+    (channel === "slack" || channel === "discord") &&
+    requesterExternalUserId
+  ) {
+    return requesterExternalUserId;
+  }
+  return requesterChatId;
 }

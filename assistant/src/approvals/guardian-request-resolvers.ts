@@ -56,7 +56,10 @@ import {
 } from "../runtime/question-resolution.js";
 import { TC_GRANT_WAIT_MAX_MS } from "../tools/tool-approval-handler.js";
 import { getLogger } from "../util/logger.js";
-import { resolveDeliverCallbackUrlForChannel } from "./guardian-channel-delivery.js";
+import {
+  resolveDeliverCallbackUrlForChannel,
+  resolveRequesterDeliveryTarget,
+} from "./guardian-channel-delivery.js";
 
 const log = getLogger("guardian-request-resolvers");
 
@@ -695,9 +698,16 @@ function deriveAccessRequestDecision(
  * Deliver a requester-facing decision notice. On-channel decisions reply via
  * the channel delivery context (ephemeral on Slack shared channels);
  * off-channel (desktop) decisions post via the channel's deliver URL — on
- * Slack routed to the requester's user ID so the notice opens a DM instead
- * of posting into a shared channel. Delivery failures are logged, never
+ * Slack and Discord routed to the requester's user ID so the notice opens a DM
+ * instead of posting into a shared channel. Delivery failures are logged, never
  * thrown: the notice is best-effort and must not fail the decision.
+ *
+ * Discord takes the deliver-URL route in both cases. The in-band route is only
+ * private where the channel can address one reader inside a room, which Slack
+ * does with `chat.postEphemeral` and Discord has no equivalent of outside an
+ * interaction response. Posting a decision back in-band there would announce
+ * "your access request was declined" to a whole community channel, so Discord
+ * has one route to a requester and it is a DM.
  */
 async function deliverRequesterNotice(params: {
   channel: NotificationSourceChannel;
@@ -713,10 +723,12 @@ async function deliverRequesterNotice(params: {
     requesterChatId,
     requesterExternalUserId,
     assistantId,
-    channelDeliveryContext,
     desktopDeliverUrl,
     text,
   } = params;
+
+  const channelDeliveryContext =
+    channel === "discord" ? undefined : params.channelDeliveryContext;
 
   if (channelDeliveryContext) {
     try {
@@ -740,10 +752,11 @@ async function deliverRequesterNotice(params: {
   }
 
   if (desktopDeliverUrl && requesterChatId) {
-    const targetChatId =
-      channel === "slack" && requesterExternalUserId
-        ? requesterExternalUserId
-        : requesterChatId;
+    const targetChatId = resolveRequesterDeliveryTarget({
+      channel,
+      requesterChatId,
+      requesterExternalUserId,
+    });
     try {
       await deliverChannelReply(desktopDeliverUrl, {
         chatId: targetChatId,

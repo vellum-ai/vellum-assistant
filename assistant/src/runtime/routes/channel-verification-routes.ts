@@ -35,6 +35,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   cancelOutbound,
+  deliverVerificationDiscord,
   deliverVerificationEmail,
   deliverVerificationSlack,
   normalizeTelegramDestination,
@@ -157,6 +158,10 @@ export async function handleCreateVerificationSession({
       const { userId, text, assistantId: aid } = result._pendingSlackDm;
       deliverVerificationSlack(userId, text, aid);
     }
+    if (result._pendingDiscordDm) {
+      const { userId, text, assistantId: aid } = result._pendingDiscordDm;
+      deliverVerificationDiscord(userId, text, aid);
+    }
     if (result._pendingEmail) {
       const { to, text, subject, assistantId: aid } = result._pendingEmail;
       deliverVerificationEmail(to, text, subject, aid);
@@ -175,7 +180,12 @@ export async function handleCreateVerificationSession({
     }
 
     // Strip internal fields from the response
-    const { _pendingSlackDm: _, _pendingEmail: __, ...publicResult } = result;
+    const {
+      _pendingSlackDm: _,
+      _pendingDiscordDm: __,
+      _pendingEmail: ___,
+      ...publicResult
+    } = result;
     return publicResult;
   }
 
@@ -227,6 +237,10 @@ export async function handleResendVerificationSession({
     const { userId, text, assistantId: aid } = result._pendingSlackDm;
     deliverVerificationSlack(userId, text, aid);
   }
+  if (result._pendingDiscordDm) {
+    const { userId, text, assistantId: aid } = result._pendingDiscordDm;
+    deliverVerificationDiscord(userId, text, aid);
+  }
   if (result._pendingEmail) {
     const { to, text, subject, assistantId: aid } = result._pendingEmail;
     deliverVerificationEmail(to, text, subject, aid);
@@ -243,7 +257,12 @@ export async function handleResendVerificationSession({
     );
   }
 
-  const { _pendingSlackDm: _, _pendingEmail: __, ...publicResult } = result;
+  const {
+    _pendingSlackDm: _,
+    _pendingDiscordDm: __,
+    _pendingEmail: ___,
+    ...publicResult
+  } = result;
   return publicResult;
 }
 
