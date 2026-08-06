@@ -92,7 +92,7 @@ const FIELD = "\u001f";
  * EXECUTES while rendering the patch. Workspace files and git metadata are
  * writable by model and tool paths, so without these flags merely viewing a
  * skill's history would run whatever the workspace asked for, inside the
- * daemon, on behalf of any caller holding `settings.read` (ATL-1238).
+ * daemon, on behalf of any caller holding `settings.read`.
  *
  * Applied through `readGit` rather than at each call site, so a future reader
  * cannot add a git invocation that quietly omits them.

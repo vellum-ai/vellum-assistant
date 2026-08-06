@@ -31,6 +31,39 @@ const log = getLogger("workspace-git");
  * a minimal PATH. Without this, the macOS /usr/bin/git shim triggers an
  * "Install Command Line Developer Tools" popup on every git invocation.
  */
+/**
+ * Config overrides applied to EVERY git invocation in the workspace.
+ *
+ * The workspace repository is not trusted input. Its working tree, its
+ * `.git/config`, and the `.githooks/` directory that `core.hooksPath` points
+ * at are all writable through ordinary file tools, so any git command that
+ * consults repository configuration can be made to execute a program the
+ * repository chose. `git switch` alone fires `post-checkout` and
+ * `reference-transaction`.
+ *
+ * These live in `execGit` rather than at the call sites that happen to need
+ * them. A per-call-site convention only protects the sites that remember, and
+ * the ones that forget fail silently and look identical to the ones that do.
+ *
+ * Diff-content helpers (`textconv`, external diff) cannot be disabled through
+ * config alone and are handled with `--no-textconv --no-ext-diff` on the
+ * commands that render patches.
+ */
+const GIT_UNTRUSTED_REPO_CONFIG = [
+  // Hooks: the repository names the program, git runs it.
+  "-c",
+  "core.hooksPath=/dev/null",
+  // External diff program named by repository config.
+  "-c",
+  "diff.external=",
+  // Filesystem monitor: a repository-named program git may spawn.
+  "-c",
+  "core.fsmonitor=",
+  // Pager: never a repository's choice, even when a tty makes git reach for one.
+  "-c",
+  "core.pager=cat",
+];
+
 function cleanGitEnv(workspaceDir: string): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -812,7 +845,13 @@ export class WorkspaceGitService {
         // (or external process) could have committed between our status
         // check and the add, leaving the index clean.
         try {
-          await this.execGit(["diff", "--cached", "--quiet"]);
+          await this.execGit([
+            "diff",
+            "--no-textconv",
+            "--no-ext-diff",
+            "--cached",
+            "--quiet",
+          ]);
           // Exit code 0 means nothing staged — nothing to commit
           return { committed: false, status, didRunGit: true as const };
         } catch (err) {
@@ -1120,21 +1159,12 @@ export class WorkspaceGitService {
    */
   private async expireReflogsAndPruneLocked(): Promise<void> {
     await this.execGit(
-      [
-        "-c",
-        "core.hooksPath=/dev/null",
-        "reflog",
-        "expire",
-        "--expire=now",
-        "--expire-unreachable=now",
-        "--all",
-      ],
+      ["reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all"],
       { timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS },
     );
-    await this.execGit(
-      ["-c", "core.hooksPath=/dev/null", "gc", "--prune=now", "--quiet"],
-      { timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS },
-    );
+    await this.execGit(["gc", "--prune=now", "--quiet"], {
+      timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS,
+    });
   }
 
   /**
@@ -1390,14 +1420,7 @@ export class WorkspaceGitService {
     // Compare-and-swap against the tip we read, in case an external git
     // process moved main while we rewrote.
     const oldHead = commits[commits.length - 1]?.sha ?? "";
-    await this.execGit([
-      "-c",
-      "core.hooksPath=/dev/null",
-      "update-ref",
-      "refs/heads/main",
-      newHead,
-      oldHead,
-    ]);
+    await this.execGit(["update-ref", "refs/heads/main", newHead, oldHead]);
     await this.expireReflogsAndPruneLocked();
 
     // Blobs referenced by a replayed kept commit survive the prune (the
@@ -1803,6 +1826,9 @@ export class WorkspaceGitService {
    * prevent hung operations (e.g. stale git lock files). The timeout is
    * intentionally short for interactive workspace operations — background
    * enrichment jobs use their own dedicated timeout.
+   *
+   * Every invocation carries {@link GIT_UNTRUSTED_REPO_CONFIG}, so no caller
+   * can reach git without it.
    */
   private async execGit(
     args: string[],
@@ -1818,13 +1844,17 @@ export class WorkspaceGitService {
       config.workspaceGit?.interactiveGitTimeoutMs ??
       10_000;
     try {
-      const { stdout, stderr } = await execFileAsync("git", args, {
-        cwd: this.workspaceDir,
-        encoding: "utf-8",
-        timeout: timeoutMs,
-        env: { ...cleanGitEnv(this.workspaceDir), ...options?.env },
-        signal: options?.signal,
-      });
+      const { stdout, stderr } = await execFileAsync(
+        "git",
+        [...GIT_UNTRUSTED_REPO_CONFIG, ...args],
+        {
+          cwd: this.workspaceDir,
+          encoding: "utf-8",
+          timeout: timeoutMs,
+          env: { ...cleanGitEnv(this.workspaceDir), ...options?.env },
+          signal: options?.signal,
+        },
+      );
       return { stdout, stderr };
     } catch (err) {
       const gitErr = err as ExecError & { stdout?: string; stderr?: string };
@@ -1972,11 +2002,13 @@ export class WorkspaceGitService {
   /**
    * Build commit args that disable all git hook execution.
    *
-   * Workspace contents are model-writable, so hooks in `.git/hooks` (or via
-   * `core.hooksPath`) are untrusted. Auto-commit paths must not execute them.
+   * Workspace contents are model-writable, so hooks are untrusted.
+   * `execGit` already points `core.hooksPath` at nowhere; `--no-verify` is the
+   * second belt, keeping the commit-message hooks out even if that ever
+   * regressed.
    */
   private buildSafeCommitArgs(args: string[]): string[] {
-    return ["-c", "core.hooksPath=/dev/null", "commit", "--no-verify", ...args];
+    return ["commit", "--no-verify", ...args];
   }
 
   /**

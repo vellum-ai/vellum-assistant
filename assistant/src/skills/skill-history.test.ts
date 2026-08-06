@@ -215,7 +215,7 @@ describe("getSkillHistory", () => {
   test("a repository-controlled textconv driver is never executed", async () => {
     // `.gitattributes` selects a diff driver and git config names the program
     // for it. Both are writable through ordinary workspace paths, so rendering
-    // a patch must not hand control to them (ATL-1238).
+    // a patch must not hand control to them.
     write("skills/alpha/SKILL.md", "# Alpha\n");
     write(".gitattributes", "*.md diff=evil\n");
     commit("initial");

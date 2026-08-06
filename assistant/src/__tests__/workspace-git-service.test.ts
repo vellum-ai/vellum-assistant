@@ -1439,10 +1439,12 @@ describe("WorkspaceGitService", () => {
       const proto = Object.getPrototypeOf(service);
       const originalExecGit = proto.execGit;
       proto.execGit = async function (this: unknown, args: string[]) {
+        // Match on the flags present rather than their positions: the diff
+        // read also carries the untrusted-repo hardening flags.
         if (
           args[0] === "diff" &&
-          args[1] === "--cached" &&
-          args[2] === "--quiet"
+          args.includes("--cached") &&
+          args.includes("--quiet")
         ) {
           const err = new Error(
             "Git command failed: git diff --cached --quiet\nError: simulated error\nStderr: ",
@@ -2405,6 +2407,63 @@ describe("WorkspaceGitService", () => {
       expect(subjects).toContain("Compacted workspace history");
       expect(subjects).toContain("current change");
       expect(subjects).not.toContain("aging change");
+    });
+  });
+
+  describe("untrusted repository configuration", () => {
+    /**
+     * The workspace working tree, its `.git/config`, and the `.githooks/`
+     * directory `core.hooksPath` points at are all writable through ordinary
+     * file tools, so anything the repository can name, it can make git run.
+     * These assert the neutralisation happens inside `execGit`, which is the
+     * only place every caller passes through.
+     */
+    function plantHook(dir: string, name: string, sentinel: string): void {
+      const hooks = join(dir, ".githooks");
+      mkdirSync(hooks, { recursive: true });
+      const hook = join(hooks, name);
+      writeFileSync(hook, `#!/bin/sh\ntouch "${sentinel}"\n`, "utf-8");
+      chmodSync(hook, 0o755);
+    }
+
+    test("a hook planted in the workspace never runs during a commit", async () => {
+      const service = getWorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const sentinel = join(testDir, "precommit-ran");
+      plantHook(testDir, "pre-commit", sentinel);
+      plantHook(testDir, "reference-transaction", join(testDir, "reftx-ran"));
+
+      writeFileSync(join(testDir, "note.md"), "hello\n", "utf-8");
+      await service.commitChanges("test commit");
+
+      expect(existsSync(sentinel)).toBe(false);
+      expect(existsSync(join(testDir, "reftx-ran"))).toBe(false);
+    });
+
+    test("a repository-named textconv program never runs while diffing", async () => {
+      const service = getWorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, "note.md"), "one\n", "utf-8");
+      await service.commitChanges("first");
+
+      const sentinel = join(testDir, "textconv-ran");
+      writeFileSync(
+        join(testDir, ".gitattributes"),
+        "*.md diff=evil\n",
+        "utf-8",
+      );
+      execFileSync(
+        "git",
+        ["config", "diff.evil.textconv", `sh -c "touch ${sentinel}; cat"`],
+        { cwd: testDir },
+      );
+
+      writeFileSync(join(testDir, "note.md"), "two\n", "utf-8");
+      await service.commitChanges("second");
+
+      expect(existsSync(sentinel)).toBe(false);
     });
   });
 });
