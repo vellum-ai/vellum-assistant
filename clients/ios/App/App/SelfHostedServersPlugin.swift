@@ -66,13 +66,14 @@ public class SelfHostedServersPlugin: CAPPlugin, CAPBridgedPlugin {
             removedActive = SelfHostedServer.isActive(url)
             SelfHostedServer.remove(url: url)
         }
+        // Resolve before scheduling the reload: it tears the web context down,
+        // so a caller awaiting this call would otherwise never settle.
+        call.resolve(["ok": true])
         guard removedActive else {
-            call.resolve(["ok": true])
             return
         }
         DispatchQueue.main.async { [weak self] in
             (self?.bridge?.viewController as? MyViewController)?.applyConfiguredOrigin()
-            call.resolve(["ok": true])
         }
     }
 
