@@ -45,7 +45,7 @@ const meta: Meta<StoryArgs> = {
   argTypes: {
     phase: {
       control: "inline-radio",
-      options: ["resting", "hover", "call"],
+      options: ["resting", "hover", "call", "typing"],
     },
     backdrop: {
       control: "inline-radio",
@@ -67,7 +67,7 @@ const meta: Meta<StoryArgs> = {
   decorators: [
     (Story, context) => (
       <div
-        className="relative h-[180px] w-[520px] overflow-hidden rounded-xl"
+        className="relative h-[340px] w-[560px] overflow-hidden rounded-xl"
         style={{
           background: BACKDROPS[(context.args as StoryArgs).backdrop ?? "dark"],
         }}
@@ -104,6 +104,33 @@ export const InCall: Story = {
  */
 export const OnALightDesktop: Story = {
   args: { phase: "call", backdrop: "light" },
+};
+
+/**
+ * Typing: the pill becomes a card with the tail of the conversation and
+ * somewhere to answer it.
+ *
+ * Two turns at most, clamped to a few lines each, because this is a glance at
+ * where the conversation got to rather than the conversation. The second turn
+ * here overruns its clamp on purpose, so the cut is visible.
+ */
+export const Typing: Story = {
+  args: {
+    phase: "typing",
+    assistantName: "Ziggy",
+    turns: [
+      { role: "user", text: "can you pull the deploy logs from this morning" },
+      {
+        role: "assistant",
+        text: "Found them. The 09:14 deploy rolled back on its own after the health check failed twice, and the second attempt at 09:31 went through clean. The failing check was the one that talks to the queue, which was still draining from the migration you ran the night before, so nothing was actually wrong with the build itself. Want me to pull the queue depth over that window?",
+      },
+    ],
+  },
+};
+
+/** The card before anything has been said. */
+export const TypingEmpty: Story = {
+  args: { phase: "typing", assistantName: "Ziggy", turns: [] },
 };
 
 /**
