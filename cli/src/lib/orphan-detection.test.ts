@@ -53,8 +53,25 @@ describe("isInteractiveCliSession", () => {
 
   test("does not match non-interactive CLI wrappers", () => {
     expect(isInteractiveCliSession("vellum hatch")).toBe(false);
-    expect(isInteractiveCliSession("vellum")).toBe(false);
     expect(isInteractiveCliSession("/usr/bin/vellum sleep")).toBe(false);
+    expect(isInteractiveCliSession("vellum wake")).toBe(false);
+    expect(isInteractiveCliSession("vellum wake --watch")).toBe(false);
+  });
+
+  test("matches the implicit TUI client (bare vellum)", () => {
+    expect(isInteractiveCliSession("vellum")).toBe(true);
+    expect(isInteractiveCliSession("bun /Users/x/.nvm/bin/vellum")).toBe(true);
+    expect(isInteractiveCliSession("vellum --plain")).toBe(true);
+  });
+
+  test("matches a foreground wake session", () => {
+    expect(isInteractiveCliSession("vellum wake --foreground")).toBe(true);
+    expect(isInteractiveCliSession("vellum wake --watch --foreground")).toBe(
+      true,
+    );
+    expect(
+      isInteractiveCliSession("bun /Users/x/bin/vellum wake --foreground"),
+    ).toBe(true);
   });
 
   test("interactive names in later argv tokens do not match", () => {

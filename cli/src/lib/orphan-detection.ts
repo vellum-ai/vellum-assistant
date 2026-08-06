@@ -50,10 +50,25 @@ export function classifyProcess(command: string): string {
  * service-like substrings in later argv (e.g. `vellum exec -it --service
  * vellum-gateway -- /bin/sh`) cannot re-flag a live session, while
  * `classifyProcess` stays a pure display label for `vellum ps`.
+ *
+ * Also spared: bare `vellum` (no subcommand launches the implicit TUI client
+ * via tryLaunchClient) and `vellum wake --foreground` (stays attached with
+ * logs in the terminal).
  */
 export function isInteractiveCliSession(command: string): boolean {
-  return /(?:^|\/)vellum(?:-cli)?(?:\s+--(?:no-color|plain))*\s+(?:tunnel|events|logs|client|terminal|ssh|exec|message|workflows)\b/.test(
-    command,
+  const vellumToken = /(?:^|\/)vellum(?:-cli)?(?:\s+--(?:no-color|plain))*/;
+  const interactiveSubcommand = new RegExp(
+    vellumToken.source +
+      String.raw`\s+(?:tunnel|events|logs|client|terminal|ssh|exec|message|workflows)\b`,
+  );
+  const implicitTuiClient = new RegExp(vellumToken.source + String.raw`\s*$`);
+  const foregroundWake = new RegExp(
+    vellumToken.source + String.raw`\s+wake\b(?:\s+\S+)*\s--foreground\b`,
+  );
+  return (
+    interactiveSubcommand.test(command) ||
+    implicitTuiClient.test(command) ||
+    foregroundWake.test(command)
   );
 }
 
