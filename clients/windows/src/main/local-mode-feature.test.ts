@@ -7,9 +7,11 @@ const cliToken = { id: "desktop.local-mode-cli" };
 const pathsToken = { id: "desktop.local-mode-paths" };
 const sessionToken = { id: "desktop.local-mode-session" };
 const configureLocalMode = mock(() => undefined);
+const configureUnavailableLocalMode = mock(() => undefined);
 const installLocalMode = mock(() => undefined);
 mock.module("@vellumai/electron-desktop/local-mode", () => ({
   configureLocalMode,
+  configureUnavailableLocalMode,
   installLocalMode,
   LOCAL_MODE_CLI: cliToken,
   LOCAL_MODE_PATHS: pathsToken,
@@ -31,12 +33,20 @@ const { DesktopCapabilityRegistry } =
   await import("@vellumai/electron-desktop/capability-registry");
 const { default: localModeFeature } = await import("./features/local-mode");
 
-test("installs only when every runtime provider is present", () => {
+test("installs an explicit unavailable surface without runtime providers", () => {
   const registry = new DesktopCapabilityRegistry();
   localModeFeature.install(registry);
 
-  expect(installLocalMode).not.toHaveBeenCalled();
+  expect(configureUnavailableLocalMode).toHaveBeenCalledWith(
+    expect.any(Function),
+    "Local mode is unavailable until its Windows providers are installed.",
+  );
+  expect(installLocalMode).toHaveBeenCalledTimes(1);
   expect(installLockfileWatcher).not.toHaveBeenCalled();
+});
+
+test("installs the full runtime when every provider is present", () => {
+  const registry = new DesktopCapabilityRegistry();
 
   const cli = { resolveInvocation: mock(async () => ({ command: "vellum" })) };
   const paths = {

@@ -98,12 +98,27 @@ export interface LocalModeRuntime {
   paths: LocalModePlatformPaths;
   refreshLockfile: () => void;
   session: LocalModeSessionProvider;
+  unavailableError?: string;
 }
 
 let runtime: LocalModeRuntime | null = null;
 
 export const configureLocalMode = (next: LocalModeRuntime): void => {
   runtime = next;
+};
+
+export const configureUnavailableLocalMode = (
+  handle: IpcHandle,
+  unavailableError: string,
+): void => {
+  configureLocalMode({
+    cli: { resolveInvocation: async () => ({ command: "unused" }) },
+    handle,
+    paths: { configDir: "", environment: "", lockfilePaths: [] },
+    refreshLockfile: () => undefined,
+    session: { getToken: () => null },
+    unavailableError,
+  });
 };
 
 const requireRuntime = (): LocalModeRuntime => {
@@ -321,12 +336,33 @@ export const installLocalMode = (): void => {
   }
   installed = true;
 
-  const { configDir, lockfilePaths } = requireRuntime().paths;
-  const { handle, refreshLockfile } = requireRuntime();
+  const configured = requireRuntime();
+  const { handle } = configured;
+  const unavailableError = configured.unavailableError;
+  const unavailableWithStatus = new Set([
+    "vellum:localMode:guardianToken",
+    "vellum:localMode:status",
+  ]);
+  const ipc: IpcHandle = (channel, schema, fn) => {
+    handle(channel, schema, (args, event) => {
+      if (!unavailableError) {
+        return fn(args, event);
+      }
+      if (channel === "vellum:localMode:readLockfile") {
+        throw new Error(unavailableError);
+      }
+      return unavailableWithStatus.has(channel)
+        ? { ok: false, status: 501, error: unavailableError }
+        : { ok: false, error: unavailableError };
+    });
+  };
+
+  const { configDir, lockfilePaths } = configured.paths;
+  const { refreshLockfile } = configured;
 
   // `species` is optional on the wire so an empty/omitted request
   // falls back to the default rather than being rejected.
-  handle(
+  ipc(
     "vellum:localMode:hatch",
     z.tuple([z.string().optional(), z.string().optional()]),
     ([species, remote]) =>
@@ -336,7 +372,7 @@ export const installLocalMode = (): void => {
       ),
   );
 
-  handle("vellum:localMode:readLockfile", z.tuple([]), () => {
+  ipc("vellum:localMode:readLockfile", z.tuple([]), () => {
     const result = getLockfileData(lockfilePaths);
     if (result.ok) {
       return result.data;
@@ -346,7 +382,7 @@ export const installLocalMode = (): void => {
     );
   });
 
-  handle(
+  ipc(
     "vellum:localMode:saveLockfileAssistant",
     z.tuple([assistantRecord, z.string().optional()]),
     ([assistant, activeAssistant]): LockfileWriteResult => {
@@ -361,7 +397,7 @@ export const installLocalMode = (): void => {
     },
   );
 
-  handle(
+  ipc(
     "vellum:localMode:replacePlatformAssistants",
     z.tuple([z.array(assistantRecord), z.string().optional()]),
     ([list, organizationId]): LockfileWriteResult => {
@@ -376,14 +412,14 @@ export const installLocalMode = (): void => {
     },
   );
 
-  handle("vellum:localMode:retire", assistantIdArgs, ([assistantId]) => {
+  ipc("vellum:localMode:retire", assistantIdArgs, ([assistantId]) => {
     if (!assistantId) {
       return { ok: false, error: "Missing assistantId" };
     }
     return retire(assistantId);
   });
 
-  handle(
+  ipc(
     "vellum:localMode:unpair",
     assistantIdArgs,
     ([assistantId]): LockfileWriteResult => {
@@ -402,7 +438,7 @@ export const installLocalMode = (): void => {
     },
   );
 
-  handle(
+  ipc(
     "vellum:localMode:connectImport",
     connectImportArgs,
     ([bundle, name]): LocalConnectImportResult => {
@@ -419,28 +455,28 @@ export const installLocalMode = (): void => {
     },
   );
 
-  handle("vellum:localMode:sleep", assistantIdArgs, ([assistantId]) => {
+  ipc("vellum:localMode:sleep", assistantIdArgs, ([assistantId]) => {
     if (!assistantId) {
       return { ok: false, error: "Missing assistantId" };
     }
     return sleep(assistantId);
   });
 
-  handle("vellum:localMode:wake", wakeArgs, ([assistantId, options]) => {
+  ipc("vellum:localMode:wake", wakeArgs, ([assistantId, options]) => {
     if (!assistantId) {
       return { ok: false, error: "Missing assistantId" };
     }
     return wake(assistantId, options);
   });
 
-  handle("vellum:localMode:upgrade", upgradeArgs, ([assistantId, options]) => {
+  ipc("vellum:localMode:upgrade", upgradeArgs, ([assistantId, options]) => {
     if (!assistantId) {
       return { ok: false, error: "Missing assistantId" };
     }
     return upgrade(lockfilePaths, assistantId, options);
   });
 
-  handle("vellum:localMode:status", assistantIdArgs, ([assistantId]) => {
+  ipc("vellum:localMode:status", assistantIdArgs, ([assistantId]) => {
     if (!assistantId) {
       return { ok: false, status: 400, error: "Missing assistantId" };
     }
@@ -450,7 +486,7 @@ export const installLocalMode = (): void => {
     return getLocalAssistantStatus(lockfilePaths, assistantId);
   });
 
-  handle(
+  ipc(
     "vellum:localMode:guardianToken",
     assistantIdArgs,
     async ([assistantId]): Promise<TokenResult> => {
