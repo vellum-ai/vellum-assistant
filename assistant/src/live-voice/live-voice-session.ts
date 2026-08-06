@@ -52,7 +52,11 @@ import {
 import type { ResolveStreamingTranscriberOptions } from "../providers/speech-to-text/resolve.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { publishConversationListAndMetadataChanged } from "../runtime/sync/resource-sync-events.js";
-import { normalizeLanguageTag } from "../stt/language-metadata.js";
+import {
+  dominantLanguageTag,
+  normalizeLanguageTag,
+  voteDominantLanguage,
+} from "../stt/language-metadata.js";
 import { detectPcm16SpeechActivity } from "../stt/speech-energy.js";
 import type {
   StreamingTranscriber,
@@ -3420,17 +3424,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // Tally only finals that committed transcript: empty silence frames
       // can still carry container-level language tags describing no emitted
       // words, and counting those would let silence outvote real speech
-      // (same choice as the adapter's boundary-final aggregation). Each
-      // final casts one vote, for its dominant language only: `languages`
-      // is dominance-ranked, so giving secondary tags full votes would let
-      // a minority language outvote the utterance's dominant one.
-      const dominant = normalizeLanguageTag(languages?.[0] ?? "");
-      if (dominant) {
-        utterance.languageTally.set(
-          dominant,
-          (utterance.languageTally.get(dominant) ?? 0) + 1,
-        );
-      }
+      // (same choice as the adapter's boundary-final aggregation).
+      voteDominantLanguage(utterance.languageTally, languages);
     }
     // The final commits (and supersedes) whatever partial was trailing it.
     utterance.latestPartialText = null;
@@ -3500,14 +3495,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * non-tagging providers, silence).
    */
   private turnLanguageFor(utterance: UtteranceCycle): string | undefined {
-    let dominant: string | undefined;
-    let dominantCount = 0;
-    for (const [tag, count] of utterance.languageTally) {
-      if (count > dominantCount) {
-        dominant = tag;
-        dominantCount = count;
-      }
-    }
+    const dominant = dominantLanguageTag(utterance.languageTally);
     if (dominant !== undefined) {
       return dominant;
     }

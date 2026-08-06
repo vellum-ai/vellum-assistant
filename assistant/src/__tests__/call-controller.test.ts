@@ -377,6 +377,8 @@ function setupController(
     requiresPcmAudio?: boolean;
     /** Simulate a transport that gates teardown on playback drain. */
     awaitPlaybackDrained?: () => Promise<void>;
+    /** Synthesis-language resolver, as the media-stream server wires it. */
+    resolveSynthesisLanguage?: () => string | undefined;
   },
 ) {
   ensureConversation("conv-ctrl-test");
@@ -400,6 +402,7 @@ function setupController(
   const controller = new CallController(session.id, transport, task ?? null, {
     assistantId: opts?.assistantId,
     trustContext: opts?.trustContext,
+    resolveSynthesisLanguage: opts?.resolveSynthesisLanguage,
   });
   return { session, relay: transport, controller };
 }
@@ -3466,6 +3469,47 @@ describe("call-controller", () => {
     // End-of-turn signal fires only after the synthesis chain drains.
     const lastToken = relay.sentTokens[relay.sentTokens.length - 1];
     expect(lastToken).toEqual({ token: "", last: true });
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: the resolved language rides every segment's synthesis request", async () => {
+    const requestLanguages: Array<string | undefined> = [];
+    registerFishAudioSegmentRecorder({
+      onSynthesizeStream: async (_text, request) => {
+        requestLanguages.push(request.language);
+      },
+    });
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Hola desde aqui. ", "Segunda frase."]),
+    );
+    const { controller } = setupController(undefined, {
+      resolveSynthesisLanguage: () => "es",
+    });
+
+    await controller.handleCallerUtterance("Hola");
+
+    expect(requestLanguages).toEqual(["es", "es"]);
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: no language on the request when nothing resolves", async () => {
+    const requestLanguages: Array<string | undefined> = [];
+    registerFishAudioSegmentRecorder({
+      onSynthesizeStream: async (_text, request) => {
+        requestLanguages.push(request.language);
+      },
+    });
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Hello from here."]),
+    );
+    // Default resolver + default config (multilingual STT pin): no hint.
+    const { controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    expect(requestLanguages).toEqual([undefined]);
 
     controller.destroy();
   });

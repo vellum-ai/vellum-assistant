@@ -54,6 +54,7 @@ import type {
   MediaStreamSendMediaCommand,
 } from "./media-stream-protocol.js";
 import { resolveCallTtsProvider } from "./resolve-call-tts-provider.js";
+import { resolveTelephonySynthesisLanguage } from "./telephony-synthesis-language.js";
 
 const log = getLogger("media-stream-output");
 
@@ -338,6 +339,15 @@ export class MediaStreamOutput implements CallTransport {
    */
   private audioStartCallback: (() => void) | null = null;
 
+  /**
+   * Resolves the language hint passed on synthesis requests. Defaults to
+   * the pin-based resolution; the media-stream server overrides it with
+   * a resolver that consults the STT session's detected dominant
+   * language.
+   */
+  private resolveSynthesisLanguage: () => string | undefined = () =>
+    resolveTelephonySynthesisLanguage();
+
   /** Incremented per end-of-turn mark enqueued. */
   private enqueuedEndOfTurnSeq = 0;
 
@@ -425,6 +435,14 @@ export class MediaStreamOutput implements CallTransport {
    */
   setAudioStartCallback(cb: (() => void) | null): void {
     this.audioStartCallback = cb;
+  }
+
+  /**
+   * Override the synthesis-language resolver (see
+   * {@link resolveSynthesisLanguage}).
+   */
+  setSynthesisLanguageResolver(resolver: () => string | undefined): void {
+    this.resolveSynthesisLanguage = resolver;
   }
 
   /**
@@ -876,12 +894,14 @@ export class MediaStreamOutput implements CallTransport {
       // Providers that support it (e.g. ElevenLabs pcm_16000) will
       // return raw PCM; others fall back to their default format and
       // the content-type sniffing below handles the mismatch.
+      const language = this.resolveSynthesisLanguage();
       const result = await synthesizeAndEmit({
         provider,
         text,
         useCase: "phone-call",
         outputFormat: "pcm",
         sampleRateHz: STREAMING_PCM_SAMPLE_RATE_HZ,
+        ...(language !== undefined ? { language } : {}),
         signal: abortController.signal,
         isCurrent,
         onChunk: (chunk) => {
