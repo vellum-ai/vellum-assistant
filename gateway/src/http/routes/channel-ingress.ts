@@ -20,7 +20,13 @@ import {
   type PluginIngressResolution,
 } from "../../channels/plugin-ingress-approvals.js";
 import {
+  pluginWebhookPath,
+  type IngressRoute,
+} from "../../channels/plugin-ingress.js";
+import { credentialKey } from "../../credential-key.js";
+import {
   approvePluginIngress,
+  listPluginIngressApprovals,
   revokePluginIngressApproval,
 } from "../../db/plugin-ingress-approval-store.js";
 import { getLogger } from "../../logger.js";
@@ -34,6 +40,98 @@ const log = getLogger("channel-ingress");
 
 // Wire schema shared with the published OpenAPI spec (single source).
 const ApproveBodySchema = ApproveChannelIngressRequestSchema;
+
+// ---------------------------------------------------------------------------
+// GET /v1/channel-ingress — what has been declared, and what is being served
+// ---------------------------------------------------------------------------
+
+/**
+ * One route, as the guardian needs to read it.
+ *
+ * `publicPath` is what would open on the public surface, which is the reach
+ * being granted and is not otherwise derivable without knowing how the gateway
+ * composes it. `credential` names the secret the route verifies against, so a
+ * declaration approved but 409ing on a missing secret is diagnosable from the
+ * same view. The verification descriptor is summarised rather than echoed
+ * whole: the algorithm, the header a signature arrives in, and which credential
+ * keys it are what a decision turns on.
+ */
+function routeView(plugin: string, route: IngressRoute) {
+  return {
+    path: route.path,
+    publicPath: pluginWebhookPath(plugin, route.path),
+    kind: route.kind,
+    signer: route.signer,
+    handshake: route.handshake,
+    description: route.description,
+    credential: route.verification
+      ? credentialKey(plugin, route.verification.secret.field)
+      : credentialKey(
+          route.signer === "vellum" ? "vellum" : plugin,
+          "webhook_secret",
+        ),
+    verification: route.verification
+      ? {
+          algorithm: route.verification.algorithm,
+          signatureHeader: route.verification.signature.header,
+        }
+      : undefined,
+  };
+}
+
+/**
+ * Every declaration the gateway can see, with its state.
+ *
+ * Without this a guardian has no way to learn that something is waiting, nor
+ * the digest they would have to approve — the pending state is otherwise
+ * visible only in a gateway log line, and a route held back by it 404s exactly
+ * like one nobody declared. That is right for the public surface, where the
+ * caller is anyone on the internet, and wrong here.
+ *
+ * `pending` covers two situations worth telling apart, so a source that holds a
+ * grant for some earlier manifest reports the digest it was granted for under
+ * `approvedDigest`: an edited declaration reads as "approve the new one", not
+ * as "this was never approved".
+ *
+ * Declarations that failed validation are reported too. They are unservable
+ * regardless of approval, and a guardian looking for a route that is missing
+ * needs to see the reason rather than an absence.
+ */
+export function createChannelIngressListHandler(
+  resolve: () => PluginIngressResolution = resolvePluginIngress,
+) {
+  return async (): Promise<Response> => {
+    try {
+      const { approved, pending, problems } = resolve();
+      const approvals = new Map(
+        listPluginIngressApprovals().map((a) => [a.plugin, a]),
+      );
+
+      return Response.json({
+        sources: [
+          ...approved.map((d) => ({
+            source: d.plugin,
+            state: "approved" as const,
+            digest: d.digest,
+            approvedAt: approvals.get(d.plugin)?.approvedAt,
+            routes: d.routes.map((r) => routeView(d.plugin, r)),
+          })),
+          ...pending.map((d) => ({
+            source: d.plugin,
+            state: "pending" as const,
+            digest: d.digest,
+            approvedDigest: approvals.get(d.plugin)?.digest,
+            routes: d.routes.map((r) => routeView(d.plugin, r)),
+          })),
+        ],
+        problems: problems.map((p) => ({ source: p.plugin, reason: p.reason })),
+      });
+    } catch (err) {
+      log.error({ err }, "Failed to resolve channel ingress");
+      return Response.json({ error: "Internal server error" }, { status: 500 });
+    }
+  };
+}
 
 // ---------------------------------------------------------------------------
 // POST /v1/channel-ingress/:source/approve — record a decision
