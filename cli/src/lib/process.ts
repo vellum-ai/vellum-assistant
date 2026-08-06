@@ -1,5 +1,5 @@
-import { execFileSync } from "child_process";
-import { existsSync, readFileSync, unlinkSync } from "fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 
 import {
   httpHealthCheck,
@@ -23,6 +23,24 @@ export function isVellumProcess(pid: number): boolean {
     return /vellum-daemon|vellum-cli|vellum-gateway|credential-executor|@vellumai|\/\.?vellum\/|\/daemon\/main|\/\.vellum\/.*qdrant\/bin\/qdrant/.test(
       output,
     );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Verify that a PID belongs to an ngrok process by inspecting its command
+ * line via `ps`. Prevents killing unrelated processes when a recorded ngrok
+ * PID is stale and the OS has reused it.
+ */
+export function isNgrokProcess(pid: number): boolean {
+  try {
+    const output = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+      encoding: "utf-8",
+      timeout: 3000,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return /ngrok/.test(output);
   } catch {
     return false;
   }

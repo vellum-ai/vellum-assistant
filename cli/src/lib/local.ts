@@ -32,6 +32,7 @@ import {
 } from "./http-client.js";
 import { stopIngressNginx } from "./nginx-ingress.js";
 import {
+  isNgrokProcess,
   type ProcessState,
   resolveProcessState,
   stopProcess,
@@ -1721,20 +1722,6 @@ export async function startGateway(
 
   console.log("✅ Gateway started\n");
   return gatewayUrl;
-}
-
-/** Check whether a PID belongs to an ngrok process via its command line. */
-function isNgrokProcess(pid: number): boolean {
-  try {
-    const output = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
-      encoding: "utf-8",
-      timeout: 3000,
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-    return /ngrok/.test(output);
-  } catch {
-    return false;
-  }
 }
 
 /**
