@@ -1,12 +1,23 @@
-import type { CSSProperties, ReactNode } from "react";
+import { useEffect, type CSSProperties, type ReactNode } from "react";
 
 import { cn } from "@vellumai/design-library";
+
+import { usePageSurfaceStore } from "@/stores/page-surface-store";
+
+/** The surface every shell paints unless a caller overrides it. */
+const DEFAULT_SURFACE = "var(--surface-overlay)";
 
 /**
  * Shared rounded-overlay container for the assistant's main content pages
  * (Intelligence "About Assistant" tabs, Library). Keeps the surface,
  * border, padding, and min-h-0 flex behavior consistent across pages so
  * children only own their per-page header/body layout.
+ *
+ * Also publishes its own background as the page surface, so on the native
+ * mobile shells the color reaches the safe areas instead of stopping at the
+ * shell's edge — see `page-surface-store`. Overrides are read from
+ * `style.backgroundColor` (how `IdentityOverview` applies its avatar tint); a
+ * background applied through `className` instead would not be seen here.
  */
 export function PageShell({
   children,
@@ -17,6 +28,15 @@ export function PageShell({
   className?: string;
   style?: CSSProperties;
 }) {
+  const setPageSurface = usePageSurfaceStore.use.setSurface();
+  const surface = style?.backgroundColor ?? DEFAULT_SURFACE;
+  useEffect(() => {
+    setPageSurface(typeof surface === "string" ? surface : DEFAULT_SURFACE);
+    return () => {
+      setPageSurface(null);
+    };
+  }, [surface, setPageSurface]);
+
   return (
     <div
       className={cn(

@@ -12,10 +12,11 @@
  * height at the bottom.
  */
 
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { cn } from "@vellumai/design-library";
 
 import { useElementSize, type StageSize } from "@/hooks/use-element-size";
+import { usePageSurfaceStore } from "@/stores/page-surface-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { toneForBg, type AvatarTone } from "@/utils/avatar-tone";
 
@@ -93,6 +94,18 @@ export function AssistantStage({
 
   const bg = resolveAvatarHex(components, traits) ?? DEFAULT_STAGE_BG;
   const tone = toneForBg(bg);
+
+  // The stage is the page's canvas on the full-bleed routes (overview,
+  // personality), so hand its color to the app shell and let it run into the
+  // safe areas rather than stopping at the stage's edge. Native mobile only —
+  // see `page-surface-store`.
+  const setPageSurface = usePageSurfaceStore.use.setSurface();
+  useEffect(() => {
+    setPageSurface(bg);
+    return () => {
+      setPageSurface(null);
+    };
+  }, [bg, setPageSurface]);
 
   const showEyes = Boolean(components && traits);
   const showImage = !showEyes && Boolean(customImageUrl);
