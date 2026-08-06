@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { TTS_PROVIDER_IDS } from "../../tts/types.js";
+import { baseLanguageSubtag } from "../../util/language-subtag.js";
 import {
   DEFAULT_ELEVENLABS_VOICE_ID,
   VALID_CONVERSATION_TIMEOUTS,
@@ -17,9 +18,15 @@ import {
 
 /**
  * Optional per-language voice override map for a TTS provider block.
- * Keys are lowercase base language subtags (e.g. "hi", "ja"); values are
- * provider voice identifiers. Live voice consults the map when a turn's
+ * Keys parse to lowercase base language subtags (e.g. "hi", "ja"); values
+ * are provider voice identifiers. Live voice consults the map when a turn's
  * spoken language is known and no explicit voice was requested.
+ *
+ * Key normalization happens at parse time so runtime lookups are a single
+ * exact match: each key is lowercased, cut at the first `-`/`_`, and
+ * trimmed ("hi-IN" and "HI" both store as "hi"). Keys that normalize to
+ * the empty string are dropped; when two keys normalize to the same
+ * subtag, the first entry wins.
  */
 function languageVoicesSchema(providerId: string, valuesDescription: string) {
   return z
@@ -34,10 +41,22 @@ function languageVoicesSchema(providerId: string, valuesDescription: string) {
         error: `services.tts.providers.${providerId}.languageVoices must be an object mapping language subtags to voice identifiers`,
       },
     )
+    .transform((map) => {
+      const normalized = new Map<string, string>();
+      for (const [key, voice] of Object.entries(map)) {
+        const subtag = baseLanguageSubtag(key)?.trim();
+        if (!subtag || normalized.has(subtag)) {
+          continue;
+        }
+        normalized.set(subtag, voice);
+      }
+      return Object.fromEntries(normalized);
+    })
     .optional()
     .describe(
-      "Per-language voice overrides for live voice. Keys are lowercase base " +
-        `language subtags (e.g. "hi", "ja"); ${valuesDescription} ` +
+      "Per-language voice overrides for live voice. Keys are normalized on " +
+        'save to lowercase base language subtags ("hi-IN" and "HI" both ' +
+        `store as "hi"); ${valuesDescription} ` +
         "Applied when the turn's spoken language matches an entry and no " +
         "explicit voice is requested.",
     );

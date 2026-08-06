@@ -589,26 +589,6 @@ describe("resolveLanguageVoiceOverride", () => {
     expect(resolveLanguageVoiceOverride(map, "HI")).toBe("voice-hindi");
   });
 
-  test("normalizes user-entered regional or uppercase MAP KEYS too", () => {
-    // The schema accepts any string key, so "hi-IN" or "HI" in config must
-    // still match a spoken "hi" instead of silently never applying.
-    expect(resolveLanguageVoiceOverride({ "hi-IN": "voice-hindi" }, "hi")).toBe(
-      "voice-hindi",
-    );
-    expect(resolveLanguageVoiceOverride({ HI: "voice-hindi" }, "hi-IN")).toBe(
-      "voice-hindi",
-    );
-  });
-
-  test("an exact base-subtag key outranks a normalized regional key", () => {
-    expect(
-      resolveLanguageVoiceOverride(
-        { "hi-IN": "voice-regional", hi: "voice-base" },
-        "hi",
-      ),
-    ).toBe("voice-base");
-  });
-
   test("returns undefined without a language", () => {
     expect(
       resolveLanguageVoiceOverride({ hi: "voice-hindi" }, undefined),
@@ -618,12 +598,11 @@ describe("resolveLanguageVoiceOverride", () => {
     ).toBeUndefined();
   });
 
-  test("rejects malformed maps and non-string or empty entries", () => {
+  test("returns undefined for a missing map, a missing entry, or a blank voice", () => {
     expect(resolveLanguageVoiceOverride(undefined, "hi")).toBeUndefined();
-    expect(resolveLanguageVoiceOverride(null, "hi")).toBeUndefined();
-    expect(resolveLanguageVoiceOverride("voice-hindi", "hi")).toBeUndefined();
-    expect(resolveLanguageVoiceOverride(["voice-hindi"], "hi")).toBeUndefined();
-    expect(resolveLanguageVoiceOverride({ hi: 42 }, "hi")).toBeUndefined();
+    expect(
+      resolveLanguageVoiceOverride({ ja: "voice-japanese" }, "hi"),
+    ).toBeUndefined();
     expect(resolveLanguageVoiceOverride({ hi: "  " }, "hi")).toBeUndefined();
     expect(resolveLanguageVoiceOverride({}, "constructor")).toBeUndefined();
   });
