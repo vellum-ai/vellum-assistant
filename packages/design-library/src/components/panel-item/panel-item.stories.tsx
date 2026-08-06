@@ -26,6 +26,17 @@ const meta: Meta<typeof PanelItem> = {
     activeVariant: { control: "inline-radio", options: ["default", "branded"] },
     label: { control: "text" },
     active: { control: "boolean" },
+    marqueeOnHover: { control: "boolean" },
+    disabled: { control: "boolean" },
+    // Slots and handlers: a component, a node, or a function, none of which a
+    // Controls field can produce. Autodocs surfaces them otherwise.
+    icon: { control: false },
+    leadingSlot: { control: false },
+    expandChevron: { control: false },
+    badge: { control: false },
+    trailingAction: { control: false },
+    onSelect: { control: false },
+    ref: { control: false },
   },
   globals: {
     viewport: { value: "sbDesktop", isRotated: false },
