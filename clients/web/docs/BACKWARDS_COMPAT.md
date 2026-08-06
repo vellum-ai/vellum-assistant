@@ -125,9 +125,59 @@ awaits `resolveSupportsAvatarStateManifest()` before branching).
 4. For a write path, expose an async `resolveSupportsX()` that awaits
    `whenAssistantVersionKnown()` first.
 5. Add a colocated `<feature>.test.ts`.
+6. Add a row to [the registry table](#the-gates).
 
 Keep the old code path until the gate is removed — the gate _is_ the
 contract that says it still has callers.
+
+### Choosing `MIN_VERSION`
+
+The comparison is `>=`, so `MIN_VERSION` must name the **first version that
+carries the feature**. Both directions of error cost something, and they are
+not symmetric:
+
+- **Too low** and an assistant without the feature reads as supported. Loud
+  if the missing route 404s; silent and worse if the assistant ignores an
+  unknown field or parameter and answers `200` with the wrong shape.
+- **Too high** and the feature stays dark for people who do have it, with
+  nothing to notice. This is the more common mistake, because the number
+  is usually guessed before the release it names exists.
+
+**Prefer a dev floor to a predicted release number.** Set `MIN_VERSION` to
+the dev version of the commit that landed the assistant-side change:
+
+```
+<base>-dev.<YYYYMMDDHHMM UTC of that commit>.<short sha>
+```
+
+That is the exact string `dev-release.yaml` stamps
+(`${BASE_VERSION}-dev.$(date -u +%Y%m%d%H%M).${SHORT_SHA}`), and it buys two
+things a release number cannot:
+
+- **Nothing has to be predicted.** `versionSupports` compares base versions
+  first, so every later release satisfies the floor no matter what it is
+  numbered. Guessing "the next scheduled cut" is what
+  [`c7e2823`](https://github.com/vellum-ai/vellum-assistant/commit/c7e2823)
+  had to fix for the group-icons gate, and a hotfix branching off the latest
+  release tag can claim the guessed number without carrying the feature.
+- **Dev builds light up.** Dev pre-releases compare AHEAD of the stable
+  release with the same base, so anyone running a build cut from `main` after
+  that commit gets the new path. Naming an unreleased number instead leaves
+  dogfooders on the old path until the cut lands, which is exactly when you
+  most want the new one exercised.
+
+Use the commit's timestamp, not `dev.0`. If the assistant-side change landed
+after the current version was tagged, dev builds from earlier in the same
+window do **not** carry it, and `dev.0` would wrongly light up for them.
+
+A plain release number is still right when the assistant-side change shipped
+in a release that already exists. Then it is a fact, not a prediction, and
+naming it reads better than a dev string.
+
+Note the self-hosted caveat from [When a gate is
+unnecessary](#when-a-gate-is-unnecessary): a same-source setup that runs
+unreleased code while reporting the last released `package.json` version
+reads as unsupported under any future-versioned floor, dev or not.
 
 ## When a gate is unnecessary
 
@@ -183,7 +233,7 @@ Each module owns one feature's old/new split. Current registry:
 | `use-supports-image-gen-vellum-provider.ts`  | `0.11.0`                          | Vellum image-gen selection persists as legacy `{ mode: "managed" }` with no provider field                                                                                                                                                                                                         | Save path writes `provider: "vellum"`, which the config enum accepts                                                                                                                                                                                    |
 | `use-supports-new-chat-plugins.ts`           | `0.12.0`                          | New-chat plugin picker hidden; the send path omits the per-chat plugin set (older daemons ignore it)                                                                                                                                                                                               | Picker renders and the send path includes the per-chat plugin set the daemon applies                                                                                                                                                                    |
 | `use-supports-inchat-plugin-edit.ts`         | `0.12.0`                          | In-chat plugin pill hidden; the conversation GET omits `enabledPlugins` so per-chat scope is unreadable                                                                                                                                                                                            | Pill renders the conversation's plugin scope and edits it via `PUT /conversations/:id/enabledplugins`                                                                                                                                                   |
-| `use-supports-group-filter.ts`               | `0.11.3`                          | `GET /v1/conversations` does not know the `groupId` parameter. Being unrecognized it is ignored, not rejected, so the request answers 200 with the entire unfiltered list. Sidebar sections derive their rows from the foreground page they are handed instead of querying for their own members   | The filter is honored, so a section fetches exactly its own rows (including members that sort many pages deep). Scoped to the owning assistant, so a version held for the outgoing assistant cannot authorize a filtered fetch against the incoming one |
+| `use-supports-group-filter.ts`               | `0.11.2-dev.202608052136.dce970c` | `GET /v1/conversations` does not know the `groupId` parameter. Being unrecognized it is ignored, not rejected, so the request answers 200 with the entire unfiltered list. Sidebar sections derive their rows from the foreground page they are handed instead of querying for their own members   | The filter is honored, so a section fetches exactly its own rows (including members that sort many pages deep). Scoped to the owning assistant, so a version held for the outgoing assistant cannot authorize a filtered fetch against the incoming one |
 | `use-supports-schedule-profile-moves.ts`     | `0.12.0`                          | No `POST /schedules/reassign-profile`, no `inference_profile` filter on the schedules list, no `isDeferred` on a schedule. Deleting an inference profile skips the schedule scan and the move, leaving pins that name the deleted profile (harmless at run time: the resolver drops a missing pin) | The delete flow scans for pinned schedules, names them in the confirmation, and moves them onto the replacement before deleting                                                                                                                         |
 
 When you delete a row here, also delete its module, its test, and the now-dead

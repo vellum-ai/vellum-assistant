@@ -28,13 +28,14 @@ afterEach(() => {
 });
 
 // Exhaustive semver + owner-scoping truth-table lives in `utils.test.ts`
-// (`useAssistantSupports` / `useAssistantScopedSupports`). Here we verify each
-// side of the 0.11.3 boundary (the next scheduled cut, the first release
-// carrying the `groupId` filter on `GET /v1/conversations`), the
-// conservative-on-unknown policy, and that a version fetched for a DIFFERENT
-// assistant cannot authorize this one. `false` means the section query stays
-// idle and the section falls back to the conversations it is handed, rather
-// than rendering an older assistant's unfiltered 200 as one section.
+// (`useAssistantSupports` / `useAssistantScopedSupports`). Here we verify the
+// two properties the dev floor exists for: every later release satisfies it
+// without naming one, and dev builds cut after the server filter landed get
+// the feature. Plus the conservative-on-unknown policy and that a version
+// fetched for a DIFFERENT assistant cannot authorize this one. `false` means
+// the section query stays idle and the section falls back to the
+// conversations it is handed, rather than rendering an older assistant's
+// unfiltered 200 as one section.
 describe("useSupportsGroupFilter", () => {
   test("false when version is unknown", () => {
     expect(readGate(null)).toBe(false);
@@ -42,17 +43,32 @@ describe("useSupportsGroupFilter", () => {
 
   test("false for assistants that ignore the groupId parameter", () => {
     expect(readGate("0.11.2")).toBe(false);
+    expect(readGate("0.11.1")).toBe(false);
     expect(readGate("0.10.12")).toBe(false);
   });
 
-  test("true for assistants on 0.11.3+", () => {
+  // The point of the dev floor: no release number is predicted, so whichever
+  // number the next cut takes, it satisfies the gate.
+  test("true for every release after 0.11.2", () => {
     expect(readGate("0.11.3")).toBe(true);
     expect(readGate("0.12.0")).toBe(true);
     expect(readGate("1.0.0")).toBe(true);
   });
 
-  test("true for RC builds of the cutover patch", () => {
+  test("true for RC builds of the next cut", () => {
     expect(readGate("0.11.3-rc.1")).toBe(true);
+  });
+
+  test("true for dev builds cut after the server filter landed", () => {
+    expect(readGate("0.11.2-dev.202608052200.abc1234")).toBe(true);
+    expect(readGate("0.11.2-dev.202609011200.def5678")).toBe(true);
+  });
+
+  test("false for dev builds that predate the server filter", () => {
+    // v0.11.2 was tagged 2026-08-04; the filter landed 2026-08-05T21:36Z, so
+    // dev builds in between must stay on the old path.
+    expect(readGate("0.11.2-dev.202608050900.aaa1111")).toBe(false);
+    expect(readGate("0.11.2-dev.202608041600.bbb2222")).toBe(false);
   });
 
   test("false for unparseable versions", () => {

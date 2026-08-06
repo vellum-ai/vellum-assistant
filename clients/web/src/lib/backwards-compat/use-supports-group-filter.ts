@@ -30,15 +30,29 @@
  * the failure this gate exists to prevent, and one React Query would keep
  * serving as last-successful data until something invalidated it.
  *
- * MIN_VERSION names the next scheduled cut from main (the assistant is on
- * 0.11.2 as this lands). A hotfix release branches from the latest release
- * tag instead, so a hotfix that claims this version number would NOT carry
- * the feature; if that happens, retarget this gate to the next scheduled
- * cut's number.
+ * MIN_VERSION is a dev floor rather than the next scheduled cut, because the
+ * server filter (dce970c, 2026-08-05T21:36:10Z) landed after v0.11.2 was
+ * tagged, so it sits mid dev window. Two things follow:
+ *
+ * 1. No release number has to be predicted. `versionSupports` compares base
+ *    versions first, so every later release satisfies this floor whether the
+ *    next cut is 0.11.3, 0.12.0, or something else. Naming a specific next
+ *    version is the failure c7e2823 had to fix for the group-icons gate, and
+ *    it fails in the quiet direction: too high a floor leaves the feature
+ *    dark for people who do have it.
+ * 2. Dev builds get the feature. `dev-release.yaml` stamps
+ *    `${BASE}-dev.$(date -u +%Y%m%d%H%M).${SHORT_SHA}`, and dev pre-releases
+ *    compare AHEAD of the stable release with the same base, so a build cut
+ *    from main after that timestamp reads as supported.
+ *
+ * The floor is the merge timestamp, not `dev.0`: v0.11.2 was tagged
+ * 2026-08-04, so 0.11.2 dev builds from the day before the merge do NOT carry
+ * the filter and must stay on the old path. Plain 0.11.2 stable is likewise
+ * unsupported, which is correct.
  */
 import { useAssistantScopedSupports } from "./utils";
 
-export const MIN_VERSION = "0.11.3";
+export const MIN_VERSION = "0.11.2-dev.202608052136.dce970c";
 
 /**
  * Returns `true` when the assistant that owns the sidebar
