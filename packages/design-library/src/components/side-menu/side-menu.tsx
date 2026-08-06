@@ -509,9 +509,6 @@ export interface SideMenuItemProps {
    * *why* the row does nothing would be the one thing a user could not
    * reach. The native attribute is omitted from this component's props for
    * the same reason.
-   *
-   * Wins over `active`: a row that cannot be activated does not draw the
-   * active fill. No caller passes both today.
    */
   disabled?: boolean;
   trailingIcon?: LucideIcon;
