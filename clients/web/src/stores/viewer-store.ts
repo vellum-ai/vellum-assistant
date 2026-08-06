@@ -12,7 +12,6 @@
  *   read-only preview of a workspace file the editor cannot round-trip
  * - `isAppMinimized` — mobile-only: app viewer minimized
  * - `intelligenceTab` — sub-tab inside the intelligence panel
- * - `assetsRefreshKey` — counter bumped to force asset re-fetches
  * - `viewBeforeDocument` / `viewBeforeSubagentDetail` / `viewBeforeToolDetail` / `viewBeforeWorkflowDetail` / `viewBeforeAcpRunDetail` — previous view for restoration
  * - `activeSubagentId` — subagent detail panel
  * - `activeToolDetail` — tool-call detail drawer payload
@@ -491,7 +490,6 @@ export interface ViewerState {
   openedDocumentState: OpenedDocumentState | null;
   isAppMinimized: boolean;
   intelligenceTab: IntelligenceTab;
-  assetsRefreshKey: number;
   viewBeforeDocument: Exclude<MainView, OverlayView>;
   activeSubagentId: string | null;
   viewBeforeSubagentDetail: Exclude<MainView, OverlayView>;
@@ -664,9 +662,6 @@ export interface ViewerActions {
   handleDocumentLoadFailed: () => void;
   closeDocument: () => void;
 
-  // --- Assets ---
-  refreshAssets: () => void;
-
   // --- Reset ---
   reset: () => void;
 }
@@ -685,7 +680,6 @@ const INITIAL_STATE: ViewerState = {
   openedDocumentState: null,
   isAppMinimized: false,
   intelligenceTab: "identity",
-  assetsRefreshKey: 0,
   viewBeforeDocument: "chat",
   activeSubagentId: null,
   viewBeforeSubagentDetail: "chat",
@@ -1298,12 +1292,6 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       activeDocumentTarget: null,
       openedDocumentState: null,
     });
-  },
-
-  // --- Assets ---
-
-  refreshAssets: () => {
-    set({ assetsRefreshKey: get().assetsRefreshKey + 1 });
   },
 
   // --- Reset ---

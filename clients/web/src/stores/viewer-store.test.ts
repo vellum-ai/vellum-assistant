@@ -1242,18 +1242,6 @@ describe("loadWorkspaceFileDocument", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Assets
-// ---------------------------------------------------------------------------
-
-describe("refreshAssets", () => {
-  it("increments the refresh key", () => {
-    useViewerStore.setState({ assetsRefreshKey: 5 });
-    getState().refreshAssets();
-    expect(getState().assetsRefreshKey).toBe(6);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Reset
 // ---------------------------------------------------------------------------
 
