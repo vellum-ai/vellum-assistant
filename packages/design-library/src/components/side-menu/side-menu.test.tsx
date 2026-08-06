@@ -493,12 +493,12 @@ describe("SideMenu.Item collapsed shape", () => {
     const html = renderCollapsedItem({ label: "Pinned", shape: "circle" });
     /* A full radius on a `w-full` row is an ellipse, not a circle: the rail
        column is a little wider than the row is tall. The radius alone is not
-       the shape, so assert the squaring too, and assert it as `aspect-square`
-       over the row height, since a hard-coded width is a second copy of the
-       row metric and free to drift from `h-[30px]`. */
-    expect(html).toContain("h-[30px]");
-    expect(html).toContain("aspect-square");
-    expect(html).toContain("mx-auto");
+       the shape, so assert the square too. A definite `size-*` is what makes
+       it one: a height plus `aspect-square` derives the width instead, and a
+       derived width is `auto`, which `align-items: stretch` then overrides
+       back to the container's. */
+    expect(html).toContain("size-[30px]");
+    expect(html).not.toContain("aspect-square");
   });
 
   test("a tile is built as its own shape, not as a row with patches", () => {
@@ -525,7 +525,7 @@ describe("SideMenu.Item collapsed shape", () => {
     expect(html).toContain("w-full");
     expect(html).toContain("max-md:h-auto");
     expect(html).toContain("max-md:py-3");
-    expect(html).not.toContain("aspect-square");
+    expect(html).not.toContain("size-[30px]");
   });
 
   test("default shape keeps the 6px row radius", () => {

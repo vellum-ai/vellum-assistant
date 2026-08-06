@@ -638,10 +638,8 @@ function SideMenuItem({
   /* An item is drawn either as a row or as a tile, and the two want opposite
      things, so they are alternatives rather than one layered over the other.
      A row fills the rail and grows on narrow viewports, because it carries a
-     label and wants a comfortable touch target for it. A tile is a square of
-     the same row height, centered in the rail column: it holds that height at
-     every width, having no label to make room for, and `aspect-square` takes
-     its width from that height so the circle cannot drift from the row metric.
+     label and wants a comfortable touch target for it. A tile is a fixed
+     square at the row height, with no label to make room for.
 
      Appending a tile-shaped patch after the row classes renders the same,
      but each of `w-full`, `rounded-[6px]`, `max-md:h-auto` and `max-md:py-3`
@@ -650,14 +648,7 @@ function SideMenuItem({
      once, so there is nothing to counter. */
   const isTile = collapsed && shape === "circle";
   const geometryClasses = isTile
-    ? /* `mx-auto` is load-bearing, not centering trim. With no `w-full` the
-         tile's width is auto and comes from `aspect-square`, and a flex child
-         with an auto cross size stretches to the container in the default
-         `align-items: stretch`, which makes the ratio inert (measured: 200px
-         wide in a 200px column). An auto cross-axis margin suppresses that
-         stretch, so it is what keeps the height authoritative anywhere the
-         parent is not already `items-center`. */
-      "h-[30px] aspect-square mx-auto rounded-full"
+    ? "size-[30px] mx-auto rounded-full"
     : // `w-full` matters for the `<button>` render path: buttons keep
       // fit-content sizing even as flex containers, so without it a
       // button-backed item shrink-wraps while anchor-backed items fill the rail.
