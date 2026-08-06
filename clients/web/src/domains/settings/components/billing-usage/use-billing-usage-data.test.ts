@@ -8,7 +8,6 @@ import {
 import {
   buildBillingUsageSeriesQuery,
   buildBillingUsageTotalsQuery,
-  getDefaultDateRange,
   isBillingUsageDataEnabled,
   type UsageChartState,
 } from "./use-billing-usage-data";
@@ -23,7 +22,6 @@ function daysApart(from: string, to: string): number {
 function makeState(): UsageChartState {
   return {
     dateRange: { from: "2026-01-01", to: "2026-01-31" },
-    setDateRange: () => {},
     drilldown: null,
     setDrilldown: () => {},
   };
@@ -81,9 +79,9 @@ describe("isBillingUsageDataEnabled", () => {
   });
 });
 
-describe("getDefaultDateRange", () => {
+describe("computeRangeInTimezone", () => {
   test("computes a 30-day range as YYYY-MM-DD bounds in the given tz", () => {
-    const { from, to } = getDefaultDateRange("America/New_York");
+    const { from, to } = computeRangeInTimezone(30, "America/New_York");
     expect(from).toMatch(DATE_RE);
     expect(to).toMatch(DATE_RE);
     expect(daysApart(from, to)).toBe(30);
@@ -94,8 +92,8 @@ describe("getDefaultDateRange", () => {
     // each zone yields a self-consistent, well-formed 30-day range; at the
     // right instant Kiritimati (UTC+14) and Niue (UTC-11) sit on different
     // calendar days, so the computed bounds are independent per zone.
-    const east = getDefaultDateRange("Pacific/Kiritimati");
-    const west = getDefaultDateRange("Pacific/Niue");
+    const east = computeRangeInTimezone(30, "Pacific/Kiritimati");
+    const west = computeRangeInTimezone(30, "Pacific/Niue");
     for (const r of [east, west]) {
       expect(r.from).toMatch(DATE_RE);
       expect(r.to).toMatch(DATE_RE);
