@@ -646,6 +646,16 @@ function findSkillById(
   return { item, summary: r.summary };
 }
 
+/**
+ * Whether a skill currently resolves locally (bundled, managed, workspace, or
+ * extra). Callers that serve data ABOUT a skill use this to keep to the same
+ * current-resource boundary as the file routes, so a deleted skill stops
+ * answering even when durable artifacts about it survive elsewhere.
+ */
+export function skillExistsLocally(skillId: string): boolean {
+  return findSkillById(skillId) !== undefined;
+}
+
 export async function getSkill(
   skillId: string,
 ): Promise<{ skill: SkillDetailResponse } | { error: string; status: number }> {

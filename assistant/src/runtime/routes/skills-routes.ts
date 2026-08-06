@@ -23,6 +23,7 @@ import {
   listSkills,
   listSkillsFiltered,
   searchSkills,
+  skillExistsLocally,
   uninstallSkill,
   updateSkill,
 } from "../../daemon/handlers/skills.js";
@@ -402,14 +403,22 @@ export const ROUTES: RouteDefinition[] = [
           ? Number.parseInt(rawLimit, 10)
           : undefined;
       try {
-        // An id with no recorded revisions resolves to an empty list rather
-        // than a 404. Revisions are a workspace-git concept, and a bundled or
-        // catalog skill legitimately has none, so "nothing recorded" is the
-        // honest answer for every id the workspace has never tracked.
+        // Same current-resource boundary as the file routes. Git retains a
+        // deleted skill's commits, so without this a removed skill keeps
+        // answering with history for something the rest of the API reports as
+        // gone. An existing skill with nothing recorded still gets an empty
+        // list, which is the honest answer for a bundled skill or one the
+        // workspace has not committed yet.
+        if (!skillExistsLocally(pathParams!.id)) {
+          throw new NotFoundError(`Skill "${pathParams!.id}" not found`);
+        }
         return await getSkillHistory(pathParams!.id, {
           ...(limit !== undefined && Number.isFinite(limit) ? { limit } : {}),
         });
       } catch (err) {
+        if (err instanceof NotFoundError) {
+          throw err;
+        }
         const message = err instanceof Error ? err.message : String(err);
         // The id reaches a git pathspec, so a malformed one is the caller's
         // error. Anything else escaping the service is a server fault: the

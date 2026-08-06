@@ -41,6 +41,14 @@ export interface ParsedDiff {
 const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
 
 /**
+ * `diff --git a/<path> b/<path>` for the common case where both sides name the
+ * same file. The backreference is what makes a path containing spaces
+ * recoverable: splitting on whitespace cannot tell `a/my file.md b/my file.md`
+ * apart from four separate tokens.
+ */
+const DIFF_GIT_SAME_PATH = /^diff --git a\/(.+) b\/\1$/;
+
+/**
  * Strip the `a/`/`b/` diff prefix and the `skills/<id>/` directory so a file
  * reads the way the revision's `files` list spells it. A path that doesn't sit
  * under the expected directory is left alone rather than mangled.
@@ -51,6 +59,16 @@ function toSkillRelativePath(rawPath: string, skillId: string): string {
   return withoutDiffPrefix.startsWith(skillPrefix)
     ? withoutDiffPrefix.slice(skillPrefix.length)
     : withoutDiffPrefix;
+}
+
+/**
+ * Path from a `--- a/<path>` or `+++ b/<path>` header, which runs to the end of
+ * the line and so survives spaces. Git appends a tab to these when the path
+ * contains one. Returns null for the `/dev/null` side of an add or delete.
+ */
+function pathFromFileHeader(line: string): string | null {
+  const raw = line.slice(4).replace(/\t$/, "");
+  return raw === "/dev/null" ? null : raw;
 }
 
 /**
@@ -72,13 +90,18 @@ export function parseUnifiedDiff(diff: string, skillId: string): ParsedDiff {
   // drop real content rows and, because a dropped row never advances its side's
   // counter, desynchronise every line number after it.
   let inHunk = false;
+  // Whether the b-side path has been taken for the current file, so a later
+  // a-side header cannot overwrite it.
+  let seenNewPath = false;
 
   for (const line of diff.split("\n")) {
     if (line.startsWith("diff --git ")) {
-      // `diff --git a/x b/x`; take the b-side, which names the file after the
-      // change (and is the only side present for an addition).
-      const parts = line.split(" ");
-      const rawPath = parts[3] ?? parts[2] ?? "";
+      // Provisional: a rename has two different paths and no backreference
+      // match, so fall back to the last whitespace token. The `+++`/`---`
+      // headers below correct both cases before any row is rendered.
+      const samePath = DIFF_GIT_SAME_PATH.exec(line);
+      const rawPath =
+        samePath?.[1] ?? (line.split(" ").slice(3).join(" ") || "");
       current = {
         path: toSkillRelativePath(rawPath, skillId),
         rows: [],
@@ -89,6 +112,7 @@ export function parseUnifiedDiff(diff: string, skillId: string): ParsedDiff {
       oldNo = 0;
       newNo = 0;
       inHunk = false;
+      seenNewPath = false;
       continue;
     }
 
@@ -115,13 +139,24 @@ export function parseUnifiedDiff(diff: string, skillId: string): ParsedDiff {
       continue;
     }
 
+    // The `---`/`+++` headers carry the authoritative path: it runs to the end
+    // of the line, so unlike the `diff --git` line it is unambiguous when the
+    // path contains spaces. Prefer the b-side, falling back to the a-side for
+    // a deletion, where the b-side is `/dev/null`.
+    if (!inHunk && (line.startsWith("+++ ") || line.startsWith("--- "))) {
+      const headerPath = pathFromFileHeader(line);
+      if (headerPath !== null && (line.startsWith("+++ ") || !seenNewPath)) {
+        current.path = toSkillRelativePath(headerPath, skillId);
+        seenNewPath = line.startsWith("+++ ");
+      }
+      continue;
+    }
+
     // Everything between the `diff --git` line and the first hunk is file
-    // metadata (index, mode, ---/+++ headers) that the header already conveys.
+    // metadata (index, mode) that the header already conveys.
     if (
       !inHunk &&
       (line.startsWith("index ") ||
-        line.startsWith("--- ") ||
-        line.startsWith("+++ ") ||
         line.startsWith("new file mode ") ||
         line.startsWith("deleted file mode ") ||
         line.startsWith("similarity index ") ||

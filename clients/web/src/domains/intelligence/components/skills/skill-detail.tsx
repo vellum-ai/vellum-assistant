@@ -334,6 +334,15 @@ function SkillFileContent({
       void queryClient.invalidateQueries({
         queryKey: [{ _id: "skillsByIdFilesGet" }],
       });
+      // History has no push channel and its query disables focus refetches, so
+      // without this a History tab opened after a save keeps showing the
+      // pre-save list for the rest of the session. The new revision appears
+      // once the workspace heartbeat commits, not at save time, so this
+      // refetch is what eventually surfaces it rather than an immediate
+      // guarantee.
+      void queryClient.invalidateQueries({
+        queryKey: [{ _id: "skillsByIdHistoryGet" }],
+      });
       if (filePath === "SKILL.md") {
         invalidateSkillsList(queryClient, assistantId);
       }

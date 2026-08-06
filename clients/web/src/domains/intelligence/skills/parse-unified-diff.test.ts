@@ -163,6 +163,42 @@ index ccc3333..ddd4444 100644
     expect(rows.map((r) => r.type)).toEqual(["del", "add"]);
   });
 
+  test("recovers a path containing spaces", () => {
+    // Verbatim `git show` output for a tracked file named `my file.md`. Git
+    // does not quote a space, and appends a tab to the ---/+++ headers, so
+    // splitting the `diff --git` line on whitespace yields `file.md`.
+    const spaced = `diff --git a/skills/triage/my file.md b/skills/triage/my file.md
+index 7898192..6178079 100644
+--- a/skills/triage/my file.md\t
++++ b/skills/triage/my file.md\t
+@@ -1 +1 @@
+-a
++b
+`;
+
+    const parsed = parseUnifiedDiff(spaced, "triage");
+
+    expect(parsed.files[0]!.path).toBe("my file.md");
+    expect(parsed.files[0]!.rows).toHaveLength(2);
+  });
+
+  test("uses the surviving side's path when a file is deleted", () => {
+    const deleted = `diff --git a/skills/triage/gone.md b/skills/triage/gone.md
+deleted file mode 100644
+index 7898192..0000000
+--- a/skills/triage/gone.md
++++ /dev/null
+@@ -1 +0,0 @@
+-a
+`;
+
+    const parsed = parseUnifiedDiff(deleted, "triage");
+
+    // `/dev/null` must never become the displayed name.
+    expect(parsed.files[0]!.path).toBe("gone.md");
+    expect(parsed.removed).toBe(1);
+  });
+
   test("returns no files for an empty diff instead of throwing", () => {
     expect(parseUnifiedDiff("", "triage")).toEqual({
       files: [],

@@ -129,7 +129,10 @@ export async function getSkillHistory(
   try {
     const { stdout } = await git.runReadOnlyGitWithoutInit([
       "log",
-      `--format=%h${FIELD}%aI`,
+      // Committer date, not author date. `git log` orders by commit date, so
+      // reporting the author date could label the list newest-first while its
+      // displayed dates disagree with that order.
+      `--format=%h${FIELD}%cI`,
       // Ask for more than `limit`: commits whose only in-skill change is
       // excluded by the pathspec still appear here, so the list is filtered
       // down afterwards and would otherwise come up short.
