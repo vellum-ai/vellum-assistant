@@ -26,7 +26,10 @@ import { cn } from "@vellumai/design-library/utils/cn";
  */
 const SHAPE_CLASSES = {
   square: "rounded-[6px]",
-  round: "rounded-full",
+  /* The resting surface matches `PanelItem`'s pill and circle, so every
+     collapsed thing in the sidebar reads as the same kind of object whether
+     it came from a section or a nav entry. */
+  round: "rounded-full bg-[var(--surface-lift)]",
 } as const;
 
 export interface IconTileProps

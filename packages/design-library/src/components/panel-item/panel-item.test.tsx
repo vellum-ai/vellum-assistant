@@ -11,9 +11,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { PanelItem } from "./panel-item";
 
-function renderRow(
-  trailingAction = createElement("button", {}, "⋯"),
-): string {
+function renderRow(trailingAction = createElement("button", {}, "⋯")): string {
   return renderToStaticMarkup(
     createElement(PanelItem, {
       label: "Row",
@@ -95,10 +93,7 @@ describe("PanelItem badge", () => {
 });
 
 describe("PanelItem shape", () => {
-  function renderShaped(
-    shape?: "row" | "pill",
-    className?: string,
-  ): string {
+  function renderShaped(shape?: "row" | "pill", className?: string): string {
     return renderToStaticMarkup(
       createElement(PanelItem, {
         label: "Row",
@@ -138,7 +133,9 @@ describe("PanelItem shape", () => {
 
   test("pill keeps the row's interaction treatment", () => {
     const html = renderShaped("pill");
-    expect(html).toContain("[@media(hover:hover)]:hover:bg-[var(--surface-hover)]");
+    expect(html).toContain(
+      "[@media(hover:hover)]:hover:bg-[var(--surface-hover)]",
+    );
     expect(html).toContain("aria-[current=page]:bg-[var(--surface-active)]");
   });
 
@@ -150,4 +147,3 @@ describe("PanelItem shape", () => {
     expect(html).not.toContain("bg-[var(--surface-lift)]");
   });
 });
-
