@@ -16,10 +16,10 @@
  */
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Clock, MessageSquare, Pin, Star } from "lucide-react";
+import { Clock, MessageSquare, MoreHorizontal, Pin, Star } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { SideMenu } from "@vellumai/design-library";
+import { Button, SideMenu } from "@vellumai/design-library";
 
 import { CollapsibleNavSection } from "./collapsible-nav-section";
 
@@ -85,12 +85,19 @@ function SideMenuFrame({ children }: { children: ReactNode }) {
   );
 }
 
-/** A count chip, the one trailing affordance these sections use. */
-function CountBadge({ children }: { children: ReactNode }) {
+/**
+ * The trailing affordance a section actually carries: an ellipsis that opens
+ * the section's actions. `GroupActionsMenu` supplies it in the app; this is
+ * the same shipped `Button` without the menu wired up, since a shared
+ * component's story should not reach into a domain for one.
+ */
+function SectionActions() {
   return (
-    <span className="text-body-small-default text-[var(--content-tertiary)]">
-      {children}
-    </span>
+    <Button
+      variant="ghost"
+      iconOnly={<MoreHorizontal />}
+      aria-label="Section actions"
+    />
   );
 }
 
@@ -112,7 +119,7 @@ export const Default: Story = {
           value="section"
           icon={showIcon ? Clock : undefined}
           label={label}
-          trailing={showTrailing ? <CountBadge>12</CountBadge> : undefined}
+          trailing={showTrailing ? <SectionActions /> : undefined}
         >
           <SideMenu.SubList>
             <SideMenu.Item label="New conversation" />
@@ -147,7 +154,7 @@ export const MultipleSections: Story = {
           value="pinned"
           icon={Pin}
           label="Pinned"
-          trailing={<CountBadge>3</CountBadge>}
+          trailing={<SectionActions />}
         >
           <SideMenu.SubList>
             <SideMenu.Item label="Daily standup" />
@@ -196,7 +203,7 @@ export const NoIcon: Story = {
         <CollapsibleNavSection.Section
           value={label}
           label={label}
-          trailing={showTrailing ? <CountBadge>5</CountBadge> : undefined}
+          trailing={showTrailing ? <SectionActions /> : undefined}
         >
           <SideMenu.SubList>
             {/* `icon` and `indent` are the shipped way to align rows with and
