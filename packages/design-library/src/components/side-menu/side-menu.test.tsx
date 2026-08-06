@@ -496,21 +496,37 @@ describe("SideMenu.Item collapsed shape", () => {
        radius alone is not the shape, so assert the squaring too, and assert
        it as `aspect-square` over the row height: a hard-coded width would be
        a second copy of the row metric, free to drift from `h-[30px]`. */
+    expect(html).toContain("h-[30px]");
     expect(html).toContain("aspect-square");
     expect(html).toContain("mx-auto");
-    expect(html).not.toContain("w-full");
   });
 
-  test('shape="circle" holds the row height on narrow viewports', () => {
+  test("a tile is built as its own shape, not as a row with patches", () => {
     const html = renderCollapsedItem({ label: "Pinned", shape: "circle" });
-    /* Regression: narrow viewports grow a row (`max-md:h-auto` +
-       `max-md:py-3`) to give a labelled row a bigger touch target, and
-       `aspect-square` faithfully widened the circle to match, producing a
-       38x38 tile inside the rail's 30px content box. A circle has no label to
-       make room for, so it keeps the desktop metric and these have to lose. */
-    expect(html).toContain("max-md:h-[30px]");
+    /* The row classes a tile does not want are absent, rather than present
+       and countered. Asserting absence is what keeps this honest: an earlier
+       attempt appended `w-auto` / `max-md:h-[30px]` / `max-md:py-[6px]` to
+       out-specify them, which renders the same but leaves the geometry
+       dependent on tailwind-merge order, one class list away from a 32x30
+       ellipse or a 38x38 tile overflowing the rail. */
+    expect(html).not.toContain("w-full");
+    expect(html).not.toContain("rounded-[6px]");
     expect(html).not.toContain("max-md:h-auto");
     expect(html).not.toContain("max-md:py-3");
+    // ...and no counter-classes, because there is nothing to counter.
+    expect(html).not.toContain("w-auto");
+    expect(html).not.toContain("max-md:h-[30px]");
+    expect(html).not.toContain("max-md:py-[6px]");
+  });
+
+  test("an ordinary row keeps the label geometry a tile drops", () => {
+    const html = renderCollapsedItem({ label: "Pinned" });
+    // The other half of the branch: rows still fill the rail and still grow
+    // on narrow viewports, so the tile shape stayed scoped to tiles.
+    expect(html).toContain("w-full");
+    expect(html).toContain("max-md:h-auto");
+    expect(html).toContain("max-md:py-3");
+    expect(html).not.toContain("aspect-square");
   });
 
   test("default shape keeps the 6px row radius", () => {
@@ -601,9 +617,13 @@ describe("SideMenu.Item disabled", () => {
     // Still a 30px row in the column, so an empty section doesn't collapse
     // the rail's rhythm; just no hover fill and no pointer affordance.
     expect(html).toContain("h-[30px]");
-    expect(html).toContain("hover:bg-transparent");
-    expect(html).not.toContain("hover:bg-[var(--surface-hover)]");
     expect(html).toContain("cursor-default");
+    /* The enabled rules are absent rather than countered, same as the tile
+       geometry: no `hover:bg-transparent` out-specifying a hover fill that
+       was emitted anyway, and no `cursor-default` racing a `cursor-pointer`. */
+    expect(html).not.toContain("hover:bg-[var(--surface-hover)]");
+    expect(html).not.toContain("hover:bg-transparent");
+    expect(html).not.toContain("cursor-pointer");
   });
 
   test("an enabled row keeps its hover surface", () => {

@@ -635,48 +635,61 @@ function SideMenuItem({
   const collapsed =
     shape === "circle" ? isCollapsingRail(ctx) : isCollapsedRail(ctx);
 
+  /* An item is drawn either as a row or as a tile, and the two want opposite
+     things, so they are alternatives rather than one layered over the other.
+     A row fills the rail and grows on narrow viewports, because it carries a
+     label and wants a comfortable touch target for it. A tile is a square of
+     the same row height, centered in the rail column: it holds that height at
+     every width, having no label to make room for, and `aspect-square` takes
+     its width from that height so the circle cannot drift from the row metric.
+
+     Writing this as a tile-shaped patch appended after the row classes is
+     what the first two attempts did, and each of `w-full`, `rounded-[6px]`,
+     `max-md:h-auto` and `max-md:py-3` then needed its own counter-class to
+     undo. Branching states each shape once instead. */
+  const isTile = collapsed && shape === "circle";
+  const geometryClasses = isTile
+    ? "h-[30px] aspect-square mx-auto rounded-full"
+    : // `w-full` matters for the `<button>` render path: buttons keep
+      // fit-content sizing even as flex containers, so without it a
+      // button-backed item shrink-wraps while anchor-backed items fill the rail.
+      "h-[30px] w-full max-md:h-auto rounded-[6px]";
+
+  /* Interaction state, as one exclusive choice for the same reason as the
+     geometry above. A disabled row keeps its slot and its hover target, since
+     reaching its tooltip is the whole point of the state, and drops only the
+     affordances. Expressing that by appending `cursor-default` and
+     `hover:bg-transparent` after the enabled rules renders identically but
+     leaves the muting dependent on tailwind-merge order; not emitting the
+     rules it replaces means there is nothing to be ordered against. */
+  const stateClasses = disabled
+    ? "cursor-default text-[color:var(--content-disabled)]"
+    : active
+      ? "cursor-pointer bg-[var(--surface-active)] text-[color:var(--content-emphasised)]"
+      : cn(
+          "cursor-pointer hover:bg-[var(--surface-hover)]",
+          emphasized
+            ? "text-[color:var(--content-emphasised)]"
+            : "text-[color:var(--content-secondary)]",
+        );
+
   const rowClasses = cn(
-    // `w-full` matters for the `<button>` render path: buttons keep
-    // fit-content sizing even as flex containers, so without it a
-    // button-backed item shrink-wraps while anchor-backed items fill the rail.
-    "group relative flex w-full items-center",
-    "rounded-[6px]",
+    "group relative flex items-center",
+    geometryClasses,
     "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
-    "cursor-pointer select-none",
+    "select-none",
     "transition-colors",
-    "h-[30px] max-md:h-auto gap-[6px] p-[6px]",
+    "gap-[6px] p-[6px]",
     collapsed ? "justify-center" : "justify-start",
     size === "compact"
       ? "text-body-small-default max-md:text-body-large-default"
-      : "text-body-medium-lighter max-md:py-3 max-md:text-body-large-default",
-    // A circle has to be square, so this takes the width from the row's own
-    // height rather than restating it: a full radius on a `w-full` row draws
-    // an ellipse, because the rail column is a little wider than the row is
-    // tall. Deriving it also means the circle can't drift from `h-[30px]`.
-    //
-    // The height has to be pinned first, though. Narrow viewports grow the
-    // row (`max-md:h-auto` + `max-md:py-3`) to give a *labelled* row a bigger
-    // touch target, and `aspect-square` would faithfully widen the circle to
-    // match, overflowing the rail's 30px content box. A circle tile has no
-    // label to make room for, so it keeps the desktop metric throughout.
-    //
-    // Last in the list so it wins every one of those conflicts through
-    // tailwind-merge, and collapsed-only because an expanded row spans the
-    // full rail, where a full radius would be a pill rather than a circle.
-    collapsed &&
-      shape === "circle" &&
-      "w-auto aspect-square mx-auto rounded-full max-md:h-[30px] max-md:py-[6px]",
-    emphasized
-      ? "text-[color:var(--content-emphasised)]"
-      : "text-[color:var(--content-secondary)]",
-    active
-      ? "bg-[var(--surface-active)] text-[color:var(--content-emphasised)]"
-      : "hover:bg-[var(--surface-hover)]",
-    // Keeps its slot and its hover target (the tooltip is the whole point of
-    // the state), and drops only the affordances. Ordered after the hover rule
-    // above so tailwind-merge resolves the conflict in this rule's favor.
-    disabled &&
-      "cursor-default text-[color:var(--content-disabled)] hover:bg-transparent",
+      : cn(
+          "text-body-medium-lighter max-md:text-body-large-default",
+          // Vertical breathing room for a wrapped label on a narrow viewport.
+          // A tile has no label, and the fixed square is the whole point.
+          !isTile && "max-md:py-3",
+        ),
+    stateClasses,
     className,
   );
 
