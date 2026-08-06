@@ -581,9 +581,13 @@ export const SYSTEM_ALL_GROUP_ID = "system:all";
  * unread indicator and bulk actions describe only the prefix. Lifting that
  * needs a windowed section list, not a bigger cap.
  *
- * Deliberately unsorted: a group-scoped response already arrives in the
- * user's own arrangement (display order, then recency), so re-sorting by
- * recency here would discard the ordering they set.
+ * Returned in the server's order, which is NOT the final order for every
+ * section. A user-ordered group (pinned, any custom group) is sorted by
+ * `COALESCE(display_order, 999999) ASC` and then by recency, and pinning
+ * writes no `displayOrder`, so rows the user never dragged all tie at the
+ * sentinel and fall through to activity order. Those sections re-apply
+ * `compareByDisplayOrder` so a pinned row holds its place instead of jumping
+ * on every new message. Recency-ordered sections need no client sort.
  */
 export async function listSectionConversations(
   assistantId: string,
