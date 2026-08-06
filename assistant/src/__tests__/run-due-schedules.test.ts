@@ -64,6 +64,7 @@ import {
 } from "../schedule/schedule-store.js";
 import { runDueSchedulesOnce } from "../schedule/scheduler.js";
 import { getWorkspacePluginsDir } from "../util/platform.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 await initializeDb();
 
@@ -231,6 +232,8 @@ describe("fire-time disabled-plugin gate", () => {
   beforeEach(() => {
     rmSync(pluginDir, { recursive: true, force: true });
     mkdirSync(pluginDir, { recursive: true });
+    // The feature ships off, so the healthy-plugin cases below need it on.
+    setOverridesForTesting({ "plugin-schedules": true });
   });
 
   /** A due plugin-sourced script row whose script leaves a marker when it runs. */
@@ -268,6 +271,24 @@ describe("fire-time disabled-plugin gate", () => {
     // The skip is recorded so it stays visible in the schedule's run history,
     // and no retry is scheduled: `next_run_at` is just the next occurrence the
     // claim advanced it to.
+    const runs = rawDb()
+      .query("SELECT status, error FROM cron_runs WHERE job_id = ?")
+      .all(job.id) as Array<{ status: string; error: string | null }>;
+    expect(runs).toHaveLength(1);
+    expect(runs[0].status).toBe("error");
+    expect(runs[0].error).toContain("is disabled");
+  });
+
+  test("does not execute a due sourced row while the feature flag is off", async () => {
+    const job = await seedDueSourcedScript();
+    setOverridesForTesting({ "plugin-schedules": false });
+
+    const result = await runDueSchedulesOnce();
+
+    expect(result.claimed).toBe(1);
+    expect(result.skipped).toBe(1);
+    expect(result.completed).toBe(0);
+    expect(existsSync(marker)).toBe(false);
     const runs = rawDb()
       .query("SELECT status, error FROM cron_runs WHERE job_id = ?")
       .all(job.id) as Array<{ status: string; error: string | null }>;

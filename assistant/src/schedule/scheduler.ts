@@ -28,6 +28,7 @@ import {
 import { runWatchersOnce } from "../watcher/engine.js";
 import { normalizeCapabilityManifest } from "../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
+import { isPluginSchedulesEnabled } from "./plugin-schedules-gate.js";
 import { hasSetConstructs } from "./recurrence-engine.js";
 import { applyRetryDecision, decideRetry } from "./retry-policy.js";
 import { runScript, type ScriptResult } from "./run-script.js";
@@ -525,14 +526,18 @@ export async function runDueSchedulesOnce(
       continue;
     }
 
-    // Fire-time disabled-plugin gate for plugin-sourced rows. Disabling a
-    // plugin writes a `.disabled` sentinel; the reconciler is what disarms the
-    // rows that sentinel owns, and it runs on its own schedule. Re-reading the
-    // sentinel here is what makes the disable take effect immediately, so a
-    // row still armed (or already claimed) at the moment of the toggle cannot
-    // run the plugin's code.
+    // Fire-time gate for plugin-sourced rows, covering both ways the source
+    // can go away under an armed row. Disabling a plugin writes a `.disabled`
+    // sentinel and turning the feature flag off retires the whole surface; the
+    // reconciler is what disarms the rows either one owns, and it runs on its
+    // own schedule. Re-reading both here is what makes the change take effect
+    // immediately, so a row still armed (or already claimed) at the moment of
+    // the toggle cannot run the plugin's code.
     const sourcePlugin = describeScheduleSource(job.sourceKey);
-    if (sourcePlugin !== null && isPluginDisabled(sourcePlugin)) {
+    if (
+      sourcePlugin !== null &&
+      (!isPluginSchedulesEnabled() || isPluginDisabled(sourcePlugin))
+    ) {
       log.info(
         { jobId: job.id, name: job.name, plugin: sourcePlugin },
         "Schedule not run: its plugin is disabled",

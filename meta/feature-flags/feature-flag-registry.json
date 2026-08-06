@@ -356,6 +356,14 @@
       "label": "Desktop Presence Suppression",
       "description": "Gates whether a `chat.assistant_reply` push is suppressed while a Mac desktop client reports itself attended. On by default; turn it off to restore unconditional reply pushes.",
       "defaultEnabled": true
+    },
+    {
+      "id": "plugin-schedules",
+      "scope": "assistant",
+      "key": "plugin-schedules",
+      "label": "Plugin Schedules",
+      "description": "Plugins declare recurring schedules as files that register and run automatically",
+      "defaultEnabled": false
     }
   ]
 }

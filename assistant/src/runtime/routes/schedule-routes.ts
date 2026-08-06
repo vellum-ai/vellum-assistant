@@ -18,6 +18,7 @@ import {
 import { isDeferSchedule } from "../../schedule/defer-provenance.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import { declarationExistsOnDisk } from "../../schedule/plugin-schedule-declarations.js";
+import { isPluginSchedulesEnabled } from "../../schedule/plugin-schedules-gate.js";
 import {
   describeRRuleExpression,
   isSingleFireRRule,
@@ -1241,11 +1242,13 @@ async function handleRunScheduleNow(
   // only offered while that plugin is something the runtime would activate.
   // `declarationExistsOnDisk` is the same probe the enable path uses: it covers
   // a disabled plugin, an unreadable or invalid manifest, and a declaration
-  // that is simply gone. The row can still be armed at this point, because the
-  // reconciler that disarms it runs on its own schedule.
+  // that is simply gone. Turning the feature flag off retires the surface
+  // wholesale and takes the same path. The row can still be armed at this
+  // point, because the reconciler that disarms it runs on its own schedule.
   if (
     schedule.sourceKey !== null &&
-    !(await declarationExistsOnDisk(schedule.sourceKey))
+    (!isPluginSchedulesEnabled() ||
+      !(await declarationExistsOnDisk(schedule.sourceKey)))
   ) {
     throw new BadRequestError(
       "This schedule's plugin is disabled or no longer declares it, so it cannot be run.",

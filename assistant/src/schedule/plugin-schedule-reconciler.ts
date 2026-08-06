@@ -38,6 +38,7 @@ import {
   parsePluginScheduleDeclarations,
   type ScheduleDeclaration,
 } from "./plugin-schedule-declarations.js";
+import { isPluginSchedulesEnabled } from "./plugin-schedules-gate.js";
 import {
   type DeclaredScheduleDefinition,
   disarmDeclaredSchedule,
@@ -80,6 +81,12 @@ interface DesiredEntry {
   declaration: ScheduleDeclaration;
 }
 
+interface CollectedDeclarations {
+  desired: Map<string, DesiredEntry>;
+  errors: DeclarationError[];
+  manifestFailures: DeclarationError[];
+}
+
 async function runReconcilePass(): Promise<void> {
   // The pass is pure DB reads/writes over cron_jobs; refuse to touch a
   // partially-migrated schema (see assistant/CLAUDE.md, DB migration
@@ -88,8 +95,14 @@ async function runReconcilePass(): Promise<void> {
     return;
   }
 
-  const { desired, errors, manifestFailures } =
-    await collectDesiredDeclarations();
+  // The feature flag is a kill switch, not just a launch gate. While it is
+  // off nothing is parsed and nothing is emitted, and the desired set is
+  // empty, so the disarm branch below turns every declared row off on the next
+  // pass. Turning the flag back on re-arms them from their declarations.
+  const { desired, errors, manifestFailures }: CollectedDeclarations =
+    isPluginSchedulesEnabled()
+      ? await collectDesiredDeclarations()
+      : { desired: new Map(), errors: [], manifestFailures: [] };
 
   const existingByKey = new Map<string, ScheduleJob>();
   for (const row of listDeclaredSchedules()) {
@@ -234,11 +247,7 @@ function isCompletedRecurrence(
  * of its declared schedules comes back in `manifestFailures` so the pause is
  * surfaced with the same visibility as a bad declaration.
  */
-async function collectDesiredDeclarations(): Promise<{
-  desired: Map<string, DesiredEntry>;
-  errors: DeclarationError[];
-  manifestFailures: DeclarationError[];
-}> {
+async function collectDesiredDeclarations(): Promise<CollectedDeclarations> {
   const desired = new Map<string, DesiredEntry>();
   const errors: DeclarationError[] = [];
   const manifestFailures: DeclarationError[] = [];

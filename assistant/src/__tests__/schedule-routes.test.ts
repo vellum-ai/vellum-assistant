@@ -70,6 +70,7 @@ import {
   upsertDeclaredSchedule,
 } from "../schedule/schedule-store.js";
 import { getWorkspacePluginsDir } from "../util/platform.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 await initializeDb();
 
@@ -1432,6 +1433,8 @@ describe("plugin-sourced schedules over routes", () => {
       join(pluginDir, "package.json"),
       JSON.stringify({ name: "example-plugin", version: "1.0.0" }),
     );
+    // The feature ships off, so the cases below run under an explicit flag.
+    setOverridesForTesting({ "plugin-schedules": true });
   });
 
   function seedSourcedSchedule(
@@ -1592,6 +1595,14 @@ describe("plugin-sourced schedules over routes", () => {
 
       await expect(runNow(sourced.id)).rejects.toThrow(BadRequestError);
       // Refused before execution: the plugin's script never ran.
+      expect(existsSync(RUN_MARKER)).toBe(false);
+    });
+
+    test("refuses a sourced row while the feature flag is off", async () => {
+      const sourced = await seedSourcedScript();
+      setOverridesForTesting({ "plugin-schedules": false });
+
+      await expect(runNow(sourced.id)).rejects.toThrow(BadRequestError);
       expect(existsSync(RUN_MARKER)).toBe(false);
     });
 
