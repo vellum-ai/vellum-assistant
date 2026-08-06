@@ -134,4 +134,11 @@ describe("startCes", () => {
     const cesPidFile = join(vellumDir, "ces.pid");
     expect(existsSync(cesPidFile)).toBe(true);
   }, 15_000);
+
+  afterAll(() => {
+    mock.module("node:child_process", () => realChildProcess);
+    mock.module("../xdg-log.js", () => realXdgLog);
+    mock.module("../process.js", () => realProcess);
+    mock.restore();
+  });
 });
