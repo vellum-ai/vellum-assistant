@@ -46,6 +46,7 @@ import { ApiError } from "@/utils/api-errors";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
 import { workspaceBasenameOf } from "@/domains/chat/utils/workspace-path-links";
+import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";
 import { createSelectors } from "@/utils/create-selectors";
@@ -1170,6 +1171,9 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
           workspacePath: result.workspacePath,
         },
       });
+      useUnseenDocumentChangesStore
+        .getState()
+        .clearDocument(result.conversationId, result.surfaceId);
     } catch {
       if (!sameDocumentTarget(get().activeDocumentTarget, target)) {
         return;
@@ -1244,6 +1248,9 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
           workspacePath: result.workspacePath,
         },
       });
+      useUnseenDocumentChangesStore
+        .getState()
+        .clearDocument(result.conversationId, result.surfaceId);
     } catch (err) {
       giveUp(err);
     }
