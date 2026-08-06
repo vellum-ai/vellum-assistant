@@ -2,7 +2,12 @@ import { useRef, useState } from "react";
 import { useLocation } from "react-router";
 
 import { PROVIDER_ID } from "@/domains/account/login-flow";
+import {
+  nativeAuthErrorDetail,
+  nativeAuthErrorMessage,
+} from "@/domains/account/native-auth-error";
 import { buildNavigationState } from "@/lib/navigation/build-state";
+import { captureError } from "@/lib/sentry/capture-error";
 import { resolveLoginReturnTo } from "@/lib/navigation/navigation-resolver";
 import { isElectron } from "@/runtime/is-electron";
 import { startAuthFlow } from "@/runtime/native-auth";
@@ -28,11 +33,15 @@ export function useOnboardingLogin(returnToOverride?: string) {
     try {
       const callbackUrl = `${routes.account.providerCallback}?returnTo=${encodeURIComponent(returnTo)}`;
       await startAuthFlow(PROVIDER_ID, callbackUrl, { returnTo });
-    } catch {
+    } catch (err) {
       if (flowId !== flowIdRef.current) {
         return;
       }
-      setError("Something went wrong. Please try again.");
+      captureError(err, {
+        context: "onboarding_login",
+        tags: { authError: nativeAuthErrorDetail(err) ?? "unclassified" },
+      });
+      setError(nativeAuthErrorMessage(err));
       setLoading(false);
     }
   };
