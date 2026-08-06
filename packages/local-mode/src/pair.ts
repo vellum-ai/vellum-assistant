@@ -48,7 +48,9 @@ export const MAX_PAIR_LABEL_LENGTH = 64;
  * than {@link MAX_PAIR_LABEL_LENGTH}.
  */
 export function normalizePairLabel(raw: unknown): string | undefined {
-  if (typeof raw !== "string") return undefined;
+  if (typeof raw !== "string") {
+    return undefined;
+  }
   const label = raw.trim();
   return label && label.length <= MAX_PAIR_LABEL_LENGTH ? label : undefined;
 }
