@@ -1378,6 +1378,18 @@ describe("FileRiskClassifier", () => {
       expect(result?.riskLevel).toBe("high");
     });
 
+    test("READING git internals is not escalated", async () => {
+      const result = await makeClassifier().classify(
+        {
+          toolName: "file_read",
+          filePath: `${MOCK_GIT_DIR}/config`,
+          workingDir: WORKING_DIR,
+        },
+        makeContext(),
+      );
+      expect(result?.riskLevel).not.toBe("high");
+    });
+
     test("a sibling path that merely starts with .git is not escalated", async () => {
       const result = await makeClassifier().classify(
         {
