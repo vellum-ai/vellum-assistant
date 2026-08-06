@@ -423,7 +423,7 @@ import type {
   SkillMetadata,
 } from "./ipc-risk-types.js";
 
-function buildFileContext(): FileContext {
+export function buildFileContext(): FileContext {
   const config = getConfig();
   // Canonicalize the protected directories via realpath so that a symlinked
   // component anywhere in their path still prefix-matches the canonicalized

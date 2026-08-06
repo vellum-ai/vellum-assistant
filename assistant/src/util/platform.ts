@@ -383,7 +383,7 @@ export function getWorkspaceHooksDir(): string {
 }
 
 /**
- * Returns `<workspaceDir>/.git` — git's own metadata for the workspace repo.
+ * Returns `<workspaceDir>/.git`, git's own metadata for the workspace repo.
  *
  * Distinct from {@link getWorkspaceHooksDir}, which is the assistant's hook
  * loader. `.git/config` decides which programs git runs on the daemon's
@@ -396,7 +396,7 @@ export function getWorkspaceGitDir(): string {
 }
 
 /**
- * Returns `<workspaceDir>/.githooks` — the directory the workspace repo's
+ * Returns `<workspaceDir>/.githooks`, the directory the workspace repo's
  * `core.hooksPath` points at. Scripts here are executed by git during
  * ordinary repository operations, including the auto-commit heartbeat.
  */

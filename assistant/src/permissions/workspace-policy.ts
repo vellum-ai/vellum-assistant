@@ -5,6 +5,8 @@ import { getIsContainerized } from "../config/env-registry.js";
 import { resolveTrailingLinkTarget } from "../util/fs-symlinks.js";
 import {
   getMonitoringDataDir,
+  getWorkspaceGitDir,
+  getWorkspaceGitHooksDir,
   getWorkspaceHooksDir,
   getWorkspacePluginsDir,
   getWorkspaceRoutesDir,
@@ -197,16 +199,24 @@ export function isOutOfWorkspaceFileInvocation(
 }
 
 /**
- * The workspace directories the daemon imports and executes — hooks,
- * plugins, skills, tools, routes, workflows — plus the monitoring data
- * directory, whose source-versions sentinel steers which plugin code the
- * daemon imports. A write to any of them is code that runs later with the
- * daemon's own reach. The list mirrors the file risk classifier's
- * code-injection sinks.
+ * The workspace directories the daemon imports and executes: hooks, plugins,
+ * skills, tools, routes, workflows, the git metadata and git hooks
+ * directories, plus the monitoring data directory, whose source-versions
+ * sentinel steers which plugin code the daemon imports. A write to any of
+ * them is code that runs later with the daemon's own reach. The list mirrors
+ * the file risk classifier's code-injection sinks, and the two must be
+ * changed together.
+ *
+ * The git entries are separate from `getWorkspaceHooksDir()`: that one is the
+ * assistant's own hook loader at `<workspace>/hooks`, while git runs the
+ * scripts under `<workspace>/.githooks` and takes the programs it invokes
+ * from `.git/config`.
  */
-function executableSinkDirs(): string[] {
+export function executableSinkDirs(): string[] {
   return [
     getWorkspaceHooksDir(),
+    getWorkspaceGitDir(),
+    getWorkspaceGitHooksDir(),
     getWorkspacePluginsDir(),
     getWorkspaceSkillsDir(),
     getWorkspaceToolsDir(),
