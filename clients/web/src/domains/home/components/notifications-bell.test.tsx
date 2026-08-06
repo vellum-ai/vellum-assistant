@@ -22,6 +22,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { Conversation } from "@/types/conversation-types";
+import { formatCompactLocalDate } from "@/utils/format-date";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 
 import { feedItem } from "../feed-test-fixtures";
@@ -268,6 +269,16 @@ function footerLinkLabels(footer: HTMLElement): (string | null)[] {
   );
 }
 
+/** The detail's fixed-height content region. */
+function detailContent(): HTMLElement {
+  return screen.getByTestId("notifications-bell-detail-content");
+}
+
+/** The detail's pinned footer strip. */
+function detailFooter(): HTMLElement {
+  return screen.getByTestId("notifications-bell-detail-footer");
+}
+
 beforeEach(() => {
   isMobileRef.value = false;
   feedRef.items = [];
@@ -418,6 +429,19 @@ describe("NotificationsBell detail", () => {
   });
   const SECOND = feedItem({ id: "second", title: "Backup finished" });
 
+  /**
+   * Opens the detail on a body of the given length and reports the height its
+   * content region resolved to, tearing the tree down so the next call starts
+   * from one bell.
+   */
+  async function detailFrameHeight(summary: string): Promise<string> {
+    feedRef.items = [{ ...FIRST, summary }];
+    await openDetail("Watcher job failed");
+    const height = detailContent().style.height;
+    cleanup();
+    return height;
+  }
+
   test("selecting a row opens that item's detail in place", async () => {
     feedRef.items = [FIRST, SECOND];
 
@@ -429,7 +453,7 @@ describe("NotificationsBell detail", () => {
     expect(
       screen.getByText("The watcher job could not reach the upstream service."),
     ).toBeTruthy();
-    expect(screen.getByText("3h ago")).toBeTruthy();
+    expect(detailFooter().textContent).toContain("3h ago");
     // The list is gone, so its other row went with it.
     expect(screen.queryByText("Backup finished")).toBeNull();
     expect(screen.queryByRole("heading", { name: "Notifications" })).toBeNull();
@@ -687,7 +711,7 @@ describe("NotificationsBell detail", () => {
     ).toBeTruthy();
   });
 
-  test("drops the footer once the lists resolve without either target", async () => {
+  test("keeps the footer once the lists resolve without either target", async () => {
     feedRef.items = [
       {
         ...FIRST,
@@ -700,12 +724,58 @@ describe("NotificationsBell detail", () => {
 
     await openDetail("Watcher job failed");
 
-    // No links survived validation, so the reserved strip goes with them.
-    expect(screen.queryByTestId("notifications-bell-detail-footer")).toBeNull();
+    // No links survived validation, but the strip carries the timestamp, so
+    // it stays and only the links go.
+    const footer = detailFooter();
+    expect(footerLinkLabels(footer)).toEqual([]);
+    expect(footer.textContent).toContain("3h ago");
     expect(
       screen.queryByRole("button", { name: "Go to Conversation" }),
     ).toBeNull();
     expect(screen.queryByRole("button", { name: "View schedule" })).toBeNull();
+  });
+
+  test("keeps the footer for an item with neither a conversation nor a schedule", async () => {
+    feedRef.items = [FIRST];
+
+    await openDetail("Watcher job failed");
+
+    const footer = detailFooter();
+    expect(footerLinkLabels(footer)).toEqual([]);
+    expect(footer.textContent).toContain("3h ago");
+  });
+
+  test("the timestamp rides in the footer rather than the body", async () => {
+    feedRef.items = [FIRST];
+
+    await openDetail("Watcher job failed");
+
+    const footer = detailFooter();
+    expect(footer.textContent).toContain("3h ago");
+    expect(footer.textContent).toContain(
+      formatCompactLocalDate(FIRST.timestamp),
+    );
+    expect(detailContent().textContent).not.toContain("3h ago");
+  });
+
+  test("the content region is a fixed frame rather than a cap", async () => {
+    feedRef.items = [FIRST];
+
+    await openDetail("Watcher job failed");
+
+    const content = detailContent();
+    expect(content.style.height).not.toBe("");
+    expect(content.style.maxHeight).toBe("");
+  });
+
+  test("a long body and a short body render in the same frame", async () => {
+    const shortHeight = await detailFrameHeight("Done.");
+    const longHeight = await detailFrameHeight(
+      "The watcher job could not reach the upstream service. ".repeat(80),
+    );
+
+    expect(shortHeight).not.toBe("");
+    expect(shortHeight).toBe(longHeight);
   });
 
   test("loads the conversation and schedule lists only once a detail is open", async () => {
@@ -754,6 +824,12 @@ describe("NotificationsBell detail", () => {
     expect(
       screen.getByText("The watcher job could not reach the upstream service."),
     ).toBeTruthy();
+    // The sheet gets the same treatment as the popover: a content region with
+    // no cap on it, closed by a footer carrying the timestamp. The sheet's
+    // budget is a `dvh` length, which happy-dom drops from the CSSOM, so the
+    // height value itself is only observable on the popover path above.
+    expect(detailContent().style.maxHeight).toBe("");
+    expect(detailFooter().textContent).toContain("3h ago");
   });
 });
 

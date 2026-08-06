@@ -7,9 +7,13 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { formatFullLocalDate, formatRelativeDate } from "@/utils/format-date";
+import {
+  formatCompactLocalDate,
+  formatFullLocalDate,
+  formatRelativeDate,
+} from "@/utils/format-date";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
-import { Button, Tag, Typography } from "@vellumai/design-library";
+import { Button, Typography } from "@vellumai/design-library";
 
 import { HomeGenericDetail } from "../detail-panel/home-generic-detail";
 import { HomeToolPermissionCard } from "../detail-panel/home-tool-permission-card";
@@ -23,13 +27,22 @@ import { getFeedItemScheduleId, resolveFeedItemTitle } from "../utils";
 export const NOTIFICATIONS_PANEL_HEADER_CLASS =
   "mb-[var(--app-spacing-sm)] flex min-h-8 items-center gap-[var(--app-spacing-xs)]";
 
+/**
+ * Notification bodies read as prose here, so paragraphs and list items take a
+ * 1.5 ratio in place of the 18px line height the body token pairs with its
+ * 14px text. Scoped to this panel, leaving the Activity page's detail on the
+ * token default.
+ */
+const BODY_LEADING_CLASS = "[&_p]:leading-normal [&_li]:leading-normal";
+
 export interface NotificationsBellDetailProps {
   item: FeedItem;
   /**
-   * Max-height class for the scrollable body. The bell passes the cap it uses
-   * for the list, so the panel never jumps height between the two views.
+   * Height of the scrollable content region. The bell passes the budget the
+   * list is capped at, and the detail takes it as a fixed height so every
+   * notification renders in an identically sized frame.
    */
-  bodyMaxHeightClass: string;
+  contentHeight: string;
   /**
    * Ids of the conversations that still exist, merged from the foreground,
    * background, and scheduled lists exactly as the Activity page merges them.
@@ -58,7 +71,7 @@ export interface NotificationsBellDetailProps {
  */
 export function NotificationsBellDetail({
   item,
-  bodyMaxHeightClass,
+  contentHeight,
   validConversationIds,
   areConversationListsPending,
   validScheduleIds,
@@ -86,10 +99,9 @@ export function NotificationsBellDetail({
     (conversationId !== null && areConversationListsPending) ||
     (scheduleId !== null && isScheduleListPending);
 
-  // A link the lists have yet to vouch for still renders, holding the row it
-  // will occupy so the panel keeps its height once validation resolves. One
-  // whose target turns out to be gone drops out, and a footer left with none
-  // of them collapses away rather than holding empty space.
+  // A link the lists have yet to vouch for still renders, holding the box it
+  // will occupy so the footer keeps its shape once validation resolves. One
+  // whose target turns out to be gone drops out.
   const linkedConversationId =
     conversationId !== null &&
     (isValidationPending || validConversationIds.has(conversationId))
@@ -162,19 +174,21 @@ export function NotificationsBellDetail({
         </div>
       </div>
 
+      {/*
+        A fixed frame rather than a cap: a short notification leaves empty
+        space below it and a long one scrolls inside, so the panel is the same
+        size whichever notification is open.
+      */}
       <div
-        className={`overflow-y-auto px-[var(--app-spacing-md)] ${bodyMaxHeightClass}`}
+        data-testid="notifications-bell-detail-content"
+        style={{ height: contentHeight }}
+        className="overflow-y-auto px-[var(--app-spacing-md)]"
       >
         {item.detailPanel?.kind === "toolPermission" ? (
           <HomeToolPermissionCard item={item} />
         ) : (
-          <HomeGenericDetail item={item} />
+          <HomeGenericDetail item={item} className={BODY_LEADING_CLASS} />
         )}
-        <div className="mt-[var(--app-spacing-md)]">
-          <Tag tone="neutral" title={formatFullLocalDate(item.timestamp)}>
-            {formatRelativeDate(item.timestamp)}
-          </Tag>
-        </div>
 
         {/*
           The assistant's own offers on this notification, so they sit with the
@@ -208,14 +222,29 @@ export function NotificationsBellDetail({
         ) : null}
       </div>
 
-      {linkedScheduleId || linkedConversationId ? (
-        // Both links can be offered at once. They sit on one right-aligned row
-        // at the popover's width and wrap onto a second one below it in the
-        // narrowest bottom sheets, so neither ever overflows the panel.
-        <div
-          data-testid="notifications-bell-detail-footer"
-          className="mt-[var(--app-spacing-sm)] flex flex-wrap items-center justify-end gap-[var(--app-spacing-sm)] border-t border-[var(--border-base)] pt-[var(--app-spacing-sm)]"
+      {/*
+        A pinned strip closing the frame: the timestamp on the left, the links
+        out on the right. Every notification has a timestamp, so the strip is
+        always there. Both links can be offered at once, and they wrap under
+        the timestamp in the narrowest bottom sheets rather than overflowing.
+      */}
+      <div
+        data-testid="notifications-bell-detail-footer"
+        className="mt-[var(--app-spacing-sm)] flex flex-wrap items-center justify-between gap-[var(--app-spacing-sm)] border-t border-[var(--border-base)] pt-[var(--app-spacing-sm)]"
+      >
+        <Typography
+          variant="body-small-lighter"
+          className="min-w-0 truncate text-[var(--content-tertiary)]"
+          title={formatFullLocalDate(item.timestamp)}
         >
+          {`${formatRelativeDate(item.timestamp)} · ${formatCompactLocalDate(
+            item.timestamp,
+          )}`}
+        </Typography>
+
+        {/* `ml-auto` keeps the links against the right edge on the second row
+            too, once a narrow sheet has wrapped them off the timestamp's. */}
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-[var(--app-spacing-sm)]">
           {linkedScheduleId ? (
             <Button
               variant="outlined"
@@ -244,7 +273,7 @@ export function NotificationsBellDetail({
             </Button>
           ) : null}
         </div>
-      ) : null}
+      </div>
     </>
   );
 }

@@ -47,13 +47,18 @@ export interface ActivityLocationState {
   feedItemId?: string;
 }
 
-// Caps the visible list at five compact cards plus the four 8px gaps between
-// them. A compact card is 73px tall: 2px borders, 16px padding, a 32px title
-// line (sized by the h-8 hover actions that share it with the timestamp), a 2px
-// gap, and a 21px preview line. 5 * 73 + 4 * 8 = 397. Older notifications stay
-// reachable by scrolling. The detail view's body takes the same cap, so the
-// panel keeps its height across the swap.
-const SCROLL_MAX_HEIGHT_CLASS = "max-h-[397px]";
+// The height budget the panel's content region is drawn against: five compact
+// cards plus the four 8px gaps between them. A compact card is 73px tall: 2px
+// borders, 16px padding, a 32px title line (sized by the h-8 hover actions that
+// share it with the timestamp), a 2px gap, and a 21px preview line.
+// 5 * 73 + 4 * 8 = 397. The list takes it as a cap, so a short feed draws a
+// short panel and older notifications stay reachable by scrolling. The detail
+// takes it as a fixed height, so every notification renders in the same frame.
+const PANEL_CONTENT_HEIGHT = "397px";
+
+// The same budget on a bottom sheet, where the content region is measured
+// against the viewport rather than the popover.
+const MOBILE_PANEL_CONTENT_HEIGHT = "60dvh";
 
 /**
  * Notification bell for the top nav: a ghost icon button with an unread dot
@@ -259,9 +264,9 @@ export function NotificationsBell() {
     />
   );
 
-  const scrollMaxHeightClass = isMobile
-    ? "max-h-[60dvh]"
-    : SCROLL_MAX_HEIGHT_CLASS;
+  const contentHeight = isMobile
+    ? MOBILE_PANEL_CONTENT_HEIGHT
+    : PANEL_CONTENT_HEIGHT;
 
   const list =
     visibleItems.length === 0 ? (
@@ -279,7 +284,8 @@ export function NotificationsBell() {
         onScroll={(event) => {
           listScrollTopRef.current = event.currentTarget.scrollTop;
         }}
-        className={`flex flex-col gap-[var(--app-spacing-sm)] overflow-y-auto ${scrollMaxHeightClass}`}
+        style={{ maxHeight: contentHeight }}
+        className="flex flex-col gap-[var(--app-spacing-sm)] overflow-y-auto"
       >
         {visibleItems.map((item) => (
           <HomeRecapRow
@@ -311,7 +317,7 @@ export function NotificationsBell() {
       {selectedItem ? (
         <NotificationsBellDetail
           item={selectedItem}
-          bodyMaxHeightClass={scrollMaxHeightClass}
+          contentHeight={contentHeight}
           validConversationIds={validConversationIds}
           areConversationListsPending={areConversationListsPending}
           validScheduleIds={validScheduleIds}

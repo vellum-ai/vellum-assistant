@@ -69,6 +69,25 @@ export function formatRelativeDate(dateStr: string | null | undefined): string {
 }
 
 /**
+ * Compact absolute timestamp for inline metadata, e.g. "Aug 5, 11:42 AM".
+ * Pairs the friendly date (short month, year only outside the current one)
+ * with the local time, short enough to sit beside a relative label.
+ */
+export function formatCompactLocalDate(
+  dateStr: string | null | undefined,
+): string {
+  if (!dateStr) {
+    return "";
+  }
+  const date = new Date(dateStr);
+  const time = date.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${formatFriendlyDate(date)}, ${time}`;
+}
+
+/**
  * Full local timestamp with timezone abbreviation for tooltip display.
  * e.g. "May 29, 2026, 10:36 AM EDT"
  */
