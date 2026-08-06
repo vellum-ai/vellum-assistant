@@ -8,8 +8,7 @@ import { z } from "zod";
 import type { ServiceGroupUpdateCompleteEvent } from "../../api/events/service-group-update-complete.js";
 import type { ServiceGroupUpdateProgressEvent } from "../../api/events/service-group-update-progress.js";
 import type { ServiceGroupUpdateStartingEvent } from "../../api/events/service-group-update-starting.js";
-import { buildAssistantEvent } from "../assistant-event.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
+import { broadcastMessage } from "../assistant-event-hub.js";
 import { GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -48,7 +47,7 @@ async function handleUpgradeBroadcast({ body }: RouteHandlerArgs) {
       expectedDowntimeSeconds: downtime,
     };
 
-    await assistantEventHub.publish(buildAssistantEvent(message));
+    broadcastMessage(message);
 
     return { ok: true };
   }
@@ -67,7 +66,7 @@ async function handleUpgradeBroadcast({ body }: RouteHandlerArgs) {
       statusMessage,
     };
 
-    await assistantEventHub.publish(buildAssistantEvent(message));
+    broadcastMessage(message);
 
     return { ok: true };
   }
@@ -108,7 +107,7 @@ async function handleUpgradeBroadcast({ body }: RouteHandlerArgs) {
         : {}),
     };
 
-    await assistantEventHub.publish(buildAssistantEvent(message));
+    broadcastMessage(message);
 
     return { ok: true };
   }

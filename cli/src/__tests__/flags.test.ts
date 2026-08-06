@@ -83,7 +83,7 @@ describe("vellum flags --assistant routing", () => {
       fetchCalls.push({ url, method });
       if (method === "PATCH") {
         return jsonResponse({
-          key: "voice-mode",
+          key: "browser",
           enabled: true,
           defaultEnabled: false,
           label: "Voice Mode",
@@ -133,7 +133,7 @@ describe("vellum flags --assistant routing", () => {
       "vellum",
       "flags",
       "set",
-      "voice-mode",
+      "browser",
       "true",
       "--assistant",
       "Bob",
@@ -146,7 +146,7 @@ describe("vellum flags --assistant routing", () => {
     // bob-2 has assistantId.length === 5, so port = 7800 + 5 = 7805.
     expect(fetchCalls[0].url).toContain("http://127.0.0.1:7805");
     expect(fetchCalls[0].url).toContain(
-      "/v1/assistants/bob-2/feature-flags/voice-mode",
+      "/v1/assistants/bob-2/feature-flags/browser",
     );
   });
 
@@ -166,7 +166,7 @@ describe("vellum flags --assistant routing", () => {
       "--assistant",
       "Bob",
       "set",
-      "voice-mode",
+      "browser",
       "true",
     ];
 
@@ -174,7 +174,7 @@ describe("vellum flags --assistant routing", () => {
 
     expect(fetchCalls.length).toBe(1);
     expect(fetchCalls[0].url).toContain(
-      "/v1/assistants/bob-2/feature-flags/voice-mode",
+      "/v1/assistants/bob-2/feature-flags/browser",
     );
   });
 
@@ -188,7 +188,7 @@ describe("vellum flags --assistant routing", () => {
       ],
       "alice-1",
     );
-    process.argv = ["bun", "vellum", "flags", "set", "voice-mode", "true"];
+    process.argv = ["bun", "vellum", "flags", "set", "browser", "true"];
 
     await flags();
 
@@ -196,7 +196,7 @@ describe("vellum flags --assistant routing", () => {
     // alice-1 has assistantId.length === 7, so port = 7800 + 7 = 7807.
     expect(fetchCalls[0].url).toContain("http://127.0.0.1:7807");
     expect(fetchCalls[0].url).toContain(
-      "/v1/assistants/alice-1/feature-flags/voice-mode",
+      "/v1/assistants/alice-1/feature-flags/browser",
     );
   });
 
@@ -207,7 +207,7 @@ describe("vellum flags --assistant routing", () => {
       "vellum",
       "flags",
       "set",
-      "voice-mode",
+      "browser",
       "true",
       "--assistant",
       "Ghost",
@@ -227,7 +227,7 @@ describe("vellum flags --assistant routing", () => {
       "vellum",
       "flags",
       "set",
-      "voice-mode",
+      "browser",
       "true",
       "--assistant",
     ];
@@ -298,14 +298,14 @@ describe("vellum flags cross-environment hint", () => {
   test("gateway-unreachable error gains the hint when another env has assistants", async () => {
     writeLockfile([makeEntry("alice-1", { name: "Alice" })], "alice-1");
     seedDevAssistant();
-    process.argv = ["bun", "vellum", "flags", "set", "voice-mode", "true"];
+    process.argv = ["bun", "vellum", "flags", "set", "browser", "true"];
     await expect(flags()).rejects.toThrow(/Install vellum Command/);
   });
 
   test("gateway-unreachable error stays bare when no other env has assistants", async () => {
     writeLockfile([makeEntry("alice-1", { name: "Alice" })], "alice-1");
     // xdgDataHome is empty — detection finds nothing, so the message is intact.
-    process.argv = ["bun", "vellum", "flags", "set", "voice-mode", "true"];
+    process.argv = ["bun", "vellum", "flags", "set", "browser", "true"];
     let error: Error | undefined;
     try {
       await flags();

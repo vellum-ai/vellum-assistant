@@ -1,10 +1,7 @@
 import type { DiskPressureStatus } from "@vellumai/assistant-api";
 
 export type DiskPressureMonitorMode =
-  | "inactive"
-  | "warning"
-  | "acknowledgement-required"
-  | "cleanup";
+  "inactive" | "warning" | "acknowledgement-required" | "cleanup";
 
 export const DISK_PRESSURE_POLL_INTERVAL_MS = 60_000;
 
@@ -29,9 +26,9 @@ export function requiresDiskPressureAcknowledgement(
 ): boolean {
   return Boolean(
     status &&
-      isDiskPressureLockActive(status) &&
-      !status.acknowledged &&
-      !status.overrideActive,
+    isDiskPressureLockActive(status) &&
+    !status.acknowledged &&
+    !status.overrideActive,
   );
 }
 
@@ -78,11 +75,13 @@ export function isChatInputDisabledByDiskPressure({
   hasResolvedStatus: boolean;
   status: DiskPressureStatus | null;
 }): boolean {
-  return getDiskPressureChatBlockReason({
-    monitorEnabled,
-    hasResolvedStatus,
-    status,
-  }) !== null;
+  return (
+    getDiskPressureChatBlockReason({
+      monitorEnabled,
+      hasResolvedStatus,
+      status,
+    }) !== null
+  );
 }
 
 export type DiskPressureChatBlockReason = "acknowledgement-required";

@@ -28,6 +28,17 @@ export function diagnosticsConsentGranted(): boolean {
     return false;
   }
   const stored = getDeviceSetting("diagnosticsReporting", "");
-  if (stored !== "") return stored === "true";
+  if (stored !== "") {
+    return stored === "true";
+  }
   return readConsentHydrated();
+}
+
+/** Whether native diagnostics can be destructively disabled. */
+export function diagnosticsReportingResolvedOff(): boolean {
+  const { platformSession } = useAuthStore.getState();
+  return (
+    platformSession === "absent" ||
+    getDeviceSetting("diagnosticsReporting", "") === "false"
+  );
 }

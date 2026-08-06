@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-
-import type { Conversation, ConversationGroup } from "@/types/conversation-types";
+import type {
+  Conversation,
+  ConversationGroup,
+} from "@/types/conversation-types";
 import {
   buildMoveToGroupTargets,
   groupConversations,
@@ -42,11 +44,7 @@ describe("groupConversations · bucket routing", () => {
       makeConversation({ conversationId: "b", isPinned: true }),
       makeConversation({ conversationId: "c", isPinned: true }),
     ]);
-    expect(result.pinned.map((c) => c.conversationId)).toEqual([
-      "a",
-      "b",
-      "c",
-    ]);
+    expect(result.pinned.map((c) => c.conversationId)).toEqual(["a", "b", "c"]);
     expect(result.recents).toEqual([]);
     expect(result.scheduled).toEqual([]);
     expect(result.background).toEqual([]);
@@ -156,9 +154,9 @@ describe("groupConversations · bucket routing", () => {
       "pinned-slack",
     ]);
     expect(
-      result.customGroups.find((g) => g.id === "grp-work")?.conversations.map(
-        (c) => c.conversationId,
-      ),
+      result.customGroups
+        .find((g) => g.id === "grp-work")
+        ?.conversations.map((c) => c.conversationId),
     ).toEqual(["custom-slack"]);
   });
 
@@ -362,14 +360,14 @@ describe("groupConversations · custom group routing", () => {
 
     expect(result.customGroups).toHaveLength(2);
     expect(
-      result.customGroups.find((g) => g.id === "grp-work")?.conversations.map(
-        (c) => c.conversationId,
-      ),
+      result.customGroups
+        .find((g) => g.id === "grp-work")
+        ?.conversations.map((c) => c.conversationId),
     ).toEqual(["w1"]);
     expect(
-      result.customGroups.find((g) => g.id === "grp-fun")?.conversations.map(
-        (c) => c.conversationId,
-      ),
+      result.customGroups
+        .find((g) => g.id === "grp-fun")
+        ?.conversations.map((c) => c.conversationId),
     ).toEqual(["f1"]);
     expect(result.recents.map((c) => c.conversationId)).toEqual(["r1"]);
   });
@@ -469,11 +467,7 @@ describe("groupConversations · displayOrder for pinned and custom groups", () =
         lastMessageAt: 1704067200000,
       }),
     ]);
-    expect(result.pinned.map((c) => c.conversationId)).toEqual([
-      "a",
-      "b",
-      "c",
-    ]);
+    expect(result.pinned.map((c) => c.conversationId)).toEqual(["a", "b", "c"]);
   });
 
   test("pinned conversations without displayOrder fall back to createdAt desc, ignoring activity", () => {
@@ -769,6 +763,88 @@ describe("groupConversations · surfaced promotion to recents", () => {
       "pinned-1",
     ]);
     expect(result.recents.map((c) => c.conversationId)).toEqual(["regular"]);
+  });
+});
+
+describe("groupConversations · groupByChannel: false", () => {
+  test("channel conversations join recents instead of forming sections", () => {
+    const result = groupConversations(
+      [
+        makeConversation({
+          conversationId: "s1",
+          originChannel: "slack",
+          groupId: "system:all",
+          lastMessageAt: 10,
+        }),
+        makeConversation({
+          conversationId: "r1",
+          groupId: "system:all",
+          lastMessageAt: 20,
+        }),
+      ],
+      { groupByChannel: false },
+    );
+
+    expect(result.channelSections).toEqual([]);
+    expect(result.recents.map((c) => c.conversationId)).toEqual(["r1", "s1"]);
+  });
+
+  // Channel precedence sits above the scheduled/background routing in both
+  // modes. Without that, a channel conversation carrying one of those types
+  // would fall into a system bucket the sidebar never renders, and would be
+  // visible in the grouped view but not the flat one.
+  test("a channel conversation typed background still reaches recents", () => {
+    const conversations = [
+      makeConversation({
+        conversationId: "s1",
+        originChannel: "slack",
+        groupId: "system:all",
+        conversationType: "background",
+      }),
+    ];
+
+    const flat = groupConversations(conversations, { groupByChannel: false });
+    const grouped = groupConversations(conversations);
+
+    expect(flat.recents.map((c) => c.conversationId)).toEqual(["s1"]);
+    expect(flat.background).toEqual([]);
+    // Same membership in the grouped view, just a different bucket.
+    expect(channelSectionIds(grouped, "slack")).toEqual(["s1"]);
+    expect(grouped.background).toEqual([]);
+  });
+
+  test("pinned and custom-group precedence is unchanged", () => {
+    const result = groupConversations(
+      [
+        makeConversation({
+          conversationId: "p1",
+          originChannel: "slack",
+          isPinned: true,
+        }),
+        makeConversation({
+          conversationId: "g1",
+          originChannel: "telegram",
+          groupId: "grp-a",
+        }),
+      ],
+      {
+        groupByChannel: false,
+        groups: [
+          {
+            id: "grp-a",
+            name: "Alpha",
+            sortPosition: 0,
+            isSystemGroup: false,
+          },
+        ] satisfies ConversationGroup[],
+      },
+    );
+
+    expect(result.pinned.map((c) => c.conversationId)).toEqual(["p1"]);
+    expect(
+      result.customGroups[0]?.conversations.map((c) => c.conversationId),
+    ).toEqual(["g1"]);
+    expect(result.recents).toEqual([]);
   });
 });
 

@@ -206,6 +206,7 @@ async function handleHostUiSnapshotResult({ body, headers }: RouteHandlerArgs) {
       targetActorPrincipalId: peeked.targetActorPrincipalId,
       targetClientId: peeked.targetClientId,
       op: "host_ui_snapshot",
+      hubForMissingTarget: assistantEventHub,
     });
   }
 

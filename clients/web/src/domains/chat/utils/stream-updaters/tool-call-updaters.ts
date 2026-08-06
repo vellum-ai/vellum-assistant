@@ -9,7 +9,10 @@
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
-import type { ConversationContentBlock } from "@vellumai/assistant-api";
+import type {
+  AnsweredQuestion,
+  ConversationContentBlock,
+} from "@vellumai/assistant-api";
 import type {
   AllowlistOption,
   DirectoryScopeOption,
@@ -112,7 +115,9 @@ export function upsertToolCall(
 ): DisplayMessage[] {
   if (messageId) {
     const idx = findAssistantRowIndexByMessageId(prev, messageId);
-    if (idx >= 0) return upsertToolCallIntoRow(prev, idx, toolCall, messageId);
+    if (idx >= 0) {
+      return upsertToolCallIntoRow(prev, idx, toolCall, messageId);
+    }
     if (tailIsAssistant(prev)) {
       return upsertToolCallIntoRow(prev, prev.length - 1, toolCall, messageId);
     }
@@ -163,6 +168,13 @@ export function applyToolResult(
      */
     activityMetadata?: ToolActivityMetadata;
     /**
+     * The answered `ask_question` record from the tool_result event. Persisted
+     * on the tool call so the answered card renders the moment the prompt
+     * resolves, matching what a later history reopen restores from the
+     * daemon's persisted copy.
+     */
+    answeredQuestion?: AnsweredQuestion;
+    /**
      * Stable machine-readable error classification from the tool_result event
      * (only set when `isError`). Persisted on the tool call so surfaces can
      * branch on a known failure (e.g. `acp_claude_oauth_missing`) after the
@@ -183,7 +195,9 @@ export function applyToolResult(
   if (opts.toolUseId) {
     for (let i = prev.length - 1; i >= 0; i--) {
       const m = prev[i];
-      if (m?.role !== "assistant" || !m.toolCalls?.length) continue;
+      if (m?.role !== "assistant" || !m.toolCalls?.length) {
+        continue;
+      }
       const j = m.toolCalls.findIndex((tc) => tc.id === opts.toolUseId);
       if (j !== -1) {
         msgIdx = i;
@@ -197,17 +211,25 @@ export function applyToolResult(
     msgIdx = prev.findLastIndex(
       (m) => m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0,
     );
-    if (msgIdx === -1) return prev;
+    if (msgIdx === -1) {
+      return prev;
+    }
     const msg = prev[msgIdx];
-    if (!msg?.toolCalls) return prev;
+    if (!msg?.toolCalls) {
+      return prev;
+    }
     tcIdx = msg.toolCalls.findLastIndex((tc) => isToolCallRunning(tc));
   }
 
-  if (tcIdx === -1) return prev;
+  if (tcIdx === -1) {
+    return prev;
+  }
 
   const msg = prev[msgIdx]!;
   const existingTc = msg.toolCalls![tcIdx];
-  if (!existingTc) return prev;
+  if (!existingTc) {
+    return prev;
+  }
 
   const imageDataList =
     opts.imageDataList !== undefined
@@ -235,6 +257,9 @@ export function applyToolResult(
     ...(imageDataList !== undefined ? { imageDataList } : {}),
     ...(opts.activityMetadata !== undefined
       ? { activityMetadata: opts.activityMetadata }
+      : {}),
+    ...(opts.answeredQuestion !== undefined
+      ? { answeredQuestion: opts.answeredQuestion }
       : {}),
     ...(opts.errorCode !== undefined ? { errorCode: opts.errorCode } : {}),
     completedAt: opts.completedAt ?? Date.now(),
@@ -282,7 +307,9 @@ export function appendToolOutputChunk(
   prev: DisplayMessage[],
   opts: { chunk: string; toolUseId?: string; messageId?: string },
 ): DisplayMessage[] {
-  if (!opts.chunk) return prev;
+  if (!opts.chunk) {
+    return prev;
+  }
 
   let msgIdx = -1;
   let tcIdx = -1;
@@ -298,8 +325,9 @@ export function appendToolOutputChunk(
       const rowIdx = findAssistantRowIndexByMessageId(prev, opts.messageId);
       if (rowIdx >= 0) {
         const j =
-          prev[rowIdx]!.toolCalls?.findIndex((tc) => tc.id === opts.toolUseId) ??
-          -1;
+          prev[rowIdx]!.toolCalls?.findIndex(
+            (tc) => tc.id === opts.toolUseId,
+          ) ?? -1;
         if (j !== -1) {
           msgIdx = rowIdx;
           tcIdx = j;
@@ -309,7 +337,9 @@ export function appendToolOutputChunk(
     if (msgIdx === -1) {
       for (let i = prev.length - 1; i >= 0; i--) {
         const m = prev[i];
-        if (m?.role !== "assistant" || !m.toolCalls?.length) continue;
+        if (m?.role !== "assistant" || !m.toolCalls?.length) {
+          continue;
+        }
         const j = m.toolCalls.findIndex((tc) => tc.id === opts.toolUseId);
         if (j !== -1) {
           msgIdx = i;
@@ -324,17 +354,25 @@ export function appendToolOutputChunk(
     msgIdx = prev.findLastIndex(
       (m) => m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0,
     );
-    if (msgIdx === -1) return prev;
+    if (msgIdx === -1) {
+      return prev;
+    }
     const msg = prev[msgIdx];
-    if (!msg?.toolCalls) return prev;
+    if (!msg?.toolCalls) {
+      return prev;
+    }
     tcIdx = msg.toolCalls.findLastIndex((tc) => isToolCallRunning(tc));
   }
 
-  if (msgIdx === -1 || tcIdx === -1) return prev;
+  if (msgIdx === -1 || tcIdx === -1) {
+    return prev;
+  }
 
   const msg = prev[msgIdx]!;
   const existingTc = msg.toolCalls![tcIdx];
-  if (!existingTc) return prev;
+  if (!existingTc) {
+    return prev;
+  }
 
   const updatedTc = {
     ...existingTc,

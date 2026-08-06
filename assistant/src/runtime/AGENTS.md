@@ -12,6 +12,8 @@ The single HTTP send endpoint is `POST /v1/messages`. Key behaviors:
 
 Do NOT add new send endpoints. All message ingress should go through `POST /v1/messages` (HTTP).
 
+**A user interrupt ends the turn, not the queue.** `POST /v1/conversations/:id/cancel` (Stop / Esc, and the CLI's cancel signal file) aborts the turn in flight; anything the same user queued behind it survives and runs on that turn's drain, because the aborted loop reaches its `finally`, which calls `kickDrainQueue` like any other turn end. `abortConversation` discards the queue only for abort kinds where the conversation itself is going away (dispose, eviction, voice supersession, subagent teardown), and every discarded row gets `message_queued_deleted` alongside `generation_cancelled`. Two invariants to keep: an unconditional `queue.clear()` emits no per-row terminal event, so clients keep rendering a queued row whose cancel/steer buttons are dead (DELETE 404s, steer reports `not_processing`) and whose message is silently lost on the next reload; and a teardown must discard even when the processing flag already reads idle, since a turn that cleared the flag can still be unwinding through its awaited turn-boundary commit with a `kickDrainQueue` ahead of it.
+
 ### Channel inbound honors "queue if busy" via defer-until-idle
 
 Channel inbound turns (Slack/Telegram/etc. — `processChannelMessageInBackground`) obey the same "process when the current turn completes" contract, but they do **not** route through the conversation's queue. A channel turn delivers its reply back through the provider callback URL (streaming session + `finalizeEventDelivery` + processed/delivery bookkeeping); the queue drain fans replies onto the SSE hub only and performs none of that. So a channel turn that arrives while the conversation is mid-turn is **deferred until the processing lock frees** (`withChannelTurnAdmission` in `routes/inbound-stages/channel-turn-admission.ts`: per-conversation single-flight for FIFO ordering + event-driven `waitForIdle`), then run with its delivery orchestration intact.
@@ -157,13 +159,15 @@ All CDP-backed browser tools (`browser_navigate`, `browser_snapshot`, `browser_s
 
 **Test coverage:** Regression tests for `browser_mode` wiring live in `__tests__/headless-browser-mode.test.ts`. E2E regression tests for backend precedence live in `__tests__/host-browser-e2e-cloud.test.ts` (extension path and macOS SSE bridge path) and `__tests__/conversation-routes-disk-view.test.ts` (macOS fallback path). Unit tests for pinned candidate construction and failover live in `tools/browser/cdp-client/__tests__/factory.test.ts`. Browser status tests covering macOS host-browser diagnostics live in `tools/browser/__tests__/browser-status.test.ts`.
 
-### Channel approvals (Telegram, Slack)
+### Interactive requests on channels (approvals, questions)
 
-Channel approval flows use `requestId` (not `runId`) as the primary identifier:
+**The guardian-request pipeline is the canonical rail for anything interactive on a channel** — cards with buttons, request-code replies, emoji reactions, typed answers. The end-to-end map (promotion → gateway `guardian_requests` row → notification broadcaster → per-channel adapters → reply router → decision primitive → per-kind resolver) lives in [docs/guardian-request-flow.md](../../docs/guardian-request-flow.md). New interactive features extend that pipeline's seams; do NOT add per-feature watchers, callback schemes, or inbound intercepts.
 
-- Telegram callback buttons encode `apr:<requestId>:<action>` in `callback_data`.
-- Guardian approval records in the gateway-owned `guardian_requests` table (and their `guardian_request_deliveries`) link via `requestId`; the daemon reads/writes them through the `channels/gateway-guardian-requests.ts` client.
-- The conversational approval engine classifies user intent and resolves via `conversation.handleConfirmationResponse(requestId, decision)`.
+Identifiers and plumbing notes:
+
+- Channel flows use `requestId` (not `runId`) as the primary identifier. Callback buttons encode `apr:<requestId>:<action>` in `callback_data`; answer-option buttons on question cards use action tokens `answer_<idx>` / `answer_skip` under the same prefix.
+- Guardian request records live in the gateway-owned `guardian_requests` table (and their `guardian_request_deliveries`); the daemon reads/writes them through the `channels/gateway-guardian-requests.ts` client.
+- Legacy in-turn interception (`routes/guardian-approval-interception.ts` + the approval prompt watcher) still serves a guardian's own tool-approval prompts mid-turn, resolving via `conversation.handleConfirmationResponse(requestId, decision)`. It is a legacy rail — the reply router runs first; converge new work on the pipeline.
 
 ### Channel verification: gateway-owned
 

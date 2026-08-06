@@ -12,8 +12,8 @@
  * Client-oriented queries (list, find-by-capability) are methods on the hub.
  */
 
+import type { AssistantEvent } from "../api/index.js";
 import type { HostProxyCapability, InterfaceId } from "../channels/types.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 
 // ---------------------------------------------------------------------------
 // Message type → capability inference
@@ -40,11 +40,14 @@ export function capabilityForMessageType(
   const stem = type.replace(/_(request|cancel)$/, "");
   return HOST_PREFIX_TO_CAPABILITY[stem];
 }
+import type { AssistantEventEnvelope } from "../api/index.js";
+import { forwardEventPublishToDaemon } from "../ipc/events-publish-client.js";
 import { appendEventToStream } from "../signals/event-stream.js";
 import { getLogger } from "../util/logger.js";
-import type { AssistantEventEnvelope } from "./assistant-event.js";
 import { buildAssistantEvent } from "./assistant-event.js";
+import type { AssistantEventPublishOptions } from "./assistant-event-publish-options.js";
 import { stampAndBuffer } from "./assistant-stream-state.js";
+import { isMainDaemonProcess } from "./process-role.js";
 
 const log = getLogger("assistant-event-hub");
 
@@ -92,6 +95,20 @@ interface BaseSubscriberEntry {
   connectionId: string;
 }
 
+/**
+ * The presence states a desktop client may report. Single runtime source: the
+ * stored type and the route's wire enum both derive from this tuple.
+ */
+export const DESKTOP_PRESENCE_STATES = ["active", "idle", "away"] as const;
+
+export type DesktopPresenceState = (typeof DESKTOP_PRESENCE_STATES)[number];
+
+export interface ClientPresence {
+  state: DesktopPresenceState;
+  /** When the daemon last heard from the client. Drives staleness. */
+  reportedAt: Date;
+}
+
 interface ClientEntry extends BaseSubscriberEntry {
   type: "client";
   clientId: string;
@@ -108,6 +125,11 @@ interface ClientEntry extends BaseSubscriberEntry {
    * service-token connections that have no principal.
    */
   actorPrincipalId?: string;
+  /**
+   * Last desktop presence reported by this client, for clients that report it.
+   * In-memory only, so consumers must fail open when it is absent.
+   */
+  presence?: ClientPresence;
 }
 
 interface ProcessEntry extends BaseSubscriberEntry {
@@ -302,20 +324,16 @@ export class AssistantEventHub {
    */
   async publish(
     event: AssistantEventEnvelope,
-    options?: {
-      targetCapability?: HostProxyCapability;
-      targetClientId?: string;
-      targetInterfaceId?: InterfaceId;
-      /**
-       * Skip the subscriber with this `clientId`. Used for self-echo
-       * suppression on `sync_changed`: the route handler echoes the
-       * originating tab's `X-Vellum-Client-Id` back on the event, and the
-       * hub uses it here to avoid re-delivering the invalidation to the
-       * tab that already mutated its own optimistic state.
-       */
-      excludeClientId?: string;
-    },
+    options?: AssistantEventPublishOptions,
   ): Promise<void> {
+    // Only the main daemon owns the subscribers real clients connect to. In any
+    // other process (a sidecar worker, the route host) this hub has no SSE
+    // subscriber, so hand the event to the daemon — it republishes on the hub
+    // clients actually observe. Best-effort: a transport failure is logged, not
+    // thrown, and never blocks the caller.
+    if (!isMainDaemonProcess()) {
+      return forwardEventPublishToDaemon(event, options);
+    }
     if (event.conversationId) {
       try {
         appendEventToStream(event.conversationId, event);
@@ -332,7 +350,9 @@ export class AssistantEventHub {
     const errors: unknown[] = [];
 
     for (const entry of snapshot) {
-      if (!entry.active) {continue;}
+      if (!entry.active) {
+        continue;
+      }
 
       // Self-echo suppression: the originating client never receives the
       // event back. Checked before every other rule so it composes with
@@ -349,27 +369,34 @@ export class AssistantEventHub {
       // the requested interface. Composes with `targetClientId` and
       // `targetCapability` below.
       if (targetInterfaceId != null) {
-        if (entry.type !== "client" || entry.interfaceId !== targetInterfaceId)
-          {continue;}
+        if (
+          entry.type !== "client" ||
+          entry.interfaceId !== targetInterfaceId
+        ) {
+          continue;
+        }
       }
 
       if (targetClientId != null) {
         // Targeted: bypass conversation filter, deliver only to the named client.
-        if (entry.type !== "client" || entry.clientId !== targetClientId)
-          {continue;}
+        if (entry.type !== "client" || entry.clientId !== targetClientId) {
+          continue;
+        }
         if (
           targetCapability != null &&
           !entry.capabilities.includes(targetCapability)
-        )
-          {continue;}
+        ) {
+          continue;
+        }
       } else {
         // Untargeted: existing conversation-scoped + capability logic.
         if (
           event.conversationId != null &&
           entry.filter.conversationId != null &&
           entry.filter.conversationId !== event.conversationId
-        )
-          {continue;}
+        ) {
+          continue;
+        }
 
         // Capability targeting: targeted events only go to subscribers that
         // declare the required capability.
@@ -377,8 +404,9 @@ export class AssistantEventHub {
           if (
             entry.type !== "client" ||
             !entry.capabilities.includes(targetCapability)
-          )
-            {continue;}
+          ) {
+            continue;
+          }
         }
       }
 
@@ -398,17 +426,29 @@ export class AssistantEventHub {
   }
 
   /**
-   * Return the active client subscriber with the given clientId, or
-   * `undefined` if no such subscriber exists.
+   * Yield every active client entry with the given clientId. `subscribe`
+   * disposes any prior entries for the same clientId, so at most one entry
+   * matches.
    */
-  getClientById(clientId: string): ClientEntry | undefined {
+  private *activeClientEntries(clientId: string): Generator<ClientEntry> {
     for (const entry of this.subscribers) {
       if (
         entry.active &&
         entry.type === "client" &&
         entry.clientId === clientId
-      )
-        {return entry;}
+      ) {
+        yield entry;
+      }
+    }
+  }
+
+  /**
+   * Return the active client subscriber with the given clientId, or
+   * `undefined` if no such subscriber exists.
+   */
+  getClientById(clientId: string): ClientEntry | undefined {
+    for (const entry of this.activeClientEntries(clientId)) {
+      return entry;
     }
     return undefined;
   }
@@ -426,6 +466,42 @@ export class AssistantEventHub {
   }
 
   /**
+   * Fill a missing `actorPrincipalId` on a live client subscription.
+   *
+   * Used by the SSE dev-bypass self-heal: when the guardian-delivery cache is
+   * cold at subscribe time, the registration lands without a principal; the
+   * route resolves it async and patches the record here. Keyed by
+   * `connectionId` (not clientId) so a reconnect race cannot patch the
+   * subscription that replaced the one being healed. No-op when the
+   * connection is gone or already carries a principal: this only fills a
+   * missing value, never overwrites one. The value must come from the
+   * daemon's own server-side guardian lookup, never from client input.
+   */
+  fillClientActorPrincipalId(
+    connectionId: string,
+    actorPrincipalId: string,
+  ): void {
+    for (const entry of this.subscribers) {
+      if (entry.connectionId !== connectionId) {
+        continue;
+      }
+      if (
+        !entry.active ||
+        entry.type !== "client" ||
+        entry.actorPrincipalId != null
+      ) {
+        return;
+      }
+      entry.actorPrincipalId = actorPrincipalId;
+      log.info(
+        { clientId: entry.clientId, connectionId },
+        "filled missing actorPrincipalId for client subscription",
+      );
+      return;
+    }
+  }
+
+  /**
    * Returns true when at least one active subscriber would receive the given
    * event based on the same conversation matching rules as publish().
    */
@@ -433,7 +509,9 @@ export class AssistantEventHub {
     event: Pick<AssistantEventEnvelope, "conversationId">,
   ): boolean {
     for (const entry of this.subscribers) {
-      if (!entry.active) {continue;}
+      if (!entry.active) {
+        continue;
+      }
       if (
         event.conversationId != null &&
         entry.filter.conversationId != null &&
@@ -500,15 +578,24 @@ export class AssistantEventHub {
    */
   touchClient(clientId: string): void {
     const now = new Date();
-    for (const entry of this.subscribers) {
-      if (
-        entry.active &&
-        entry.type === "client" &&
-        entry.clientId === clientId
-      ) {
-        entry.lastActiveAt = now;
-      }
+    for (const entry of this.activeClientEntries(clientId)) {
+      entry.lastActiveAt = now;
     }
+  }
+
+  /**
+   * Record the desktop presence state reported by a client. `reportedAt`
+   * always advances. Returns true when at least one active client entry
+   * matched.
+   */
+  setClientPresence(clientId: string, state: DesktopPresenceState): boolean {
+    const now = new Date();
+    let matched = false;
+    for (const entry of this.activeClientEntries(clientId)) {
+      entry.presence = { state, reportedAt: now };
+      matched = true;
+    }
+    return matched;
   }
 
   /**

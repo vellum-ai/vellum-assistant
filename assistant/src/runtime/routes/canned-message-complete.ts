@@ -1,5 +1,5 @@
 import { createAssistantMessage } from "../../agent/message-types.js";
-import type { AssistantEvent } from "../../daemon/message-protocol.js";
+import type { AssistantEvent } from "../../api/index.js";
 import {
   addMessage,
   recordConversationPersistedSeq,

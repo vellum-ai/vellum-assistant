@@ -39,13 +39,19 @@ export interface DebugFlagSnapshot {
 
 function scanDebugOverrides(): Record<string, string> {
   const overrides: Record<string, string> = {};
-  if (typeof window === "undefined") return overrides;
+  if (typeof window === "undefined") {
+    return overrides;
+  }
   try {
     for (let i = 0; i < window.localStorage.length; i++) {
       const key = window.localStorage.key(i);
-      if (key === null || !key.startsWith(DEBUG_PREFIX)) continue;
+      if (key === null || !key.startsWith(DEBUG_PREFIX)) {
+        continue;
+      }
       const value = window.localStorage.getItem(key);
-      if (value !== null) overrides[key] = value;
+      if (value !== null) {
+        overrides[key] = value;
+      }
     }
   } catch {
     // localStorage can throw in private browsing, sandboxed iframes, or when

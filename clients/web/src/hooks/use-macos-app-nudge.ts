@@ -6,7 +6,7 @@
  * banner behind a minimum age (it surfaces ~24h after first observation).
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   getLocalBool,
@@ -68,7 +68,9 @@ export function readMacOsAssistantTurnsSeen(): number {
 }
 
 export function incrementMacOsAssistantTurnsSeen(delta = 1): void {
-  if (delta <= 0) return;
+  if (delta <= 0) {
+    return;
+  }
   const nextValue = readMacOsAssistantTurnsSeen() + delta;
   setLocalNumber(KEY_MAC_APP_ASSISTANT_TURNS_SEEN, nextValue);
 }
@@ -114,7 +116,9 @@ export function useMacOsNudgeState(): {
   // gate this rarely fires in-session; the mount effect above recomputes it
   // on the user's next visit, which is the real trigger.
   useEffect(() => {
-    if (firstSeenAt === 0 || ageEligible) return;
+    if (firstSeenAt === 0 || ageEligible) {
+      return;
+    }
     const remaining = MAC_APP_BANNER_MIN_AGE_MS - (Date.now() - firstSeenAt);
     if (remaining <= 0) {
       setAgeEligible(true);
@@ -135,15 +139,27 @@ export function useMacOsNudgeState(): {
     setBannerDismissed(true);
   }, []);
 
-  return {
-    // Drives the iOS/macOS → GitHub → Discord cascade: true until the user
-    // downloads or dismisses.
-    bannerShouldShow: !downloaded && !bannerDismissed,
-    // True once the banner has waited the minimum age (24h) to render.
-    ageEligible,
-    handleDownload,
-    handleBannerDismiss,
-  };
+  // Stable identity: consumers feed this into `useMemo` deps that build
+  // banner elements. See docs/CONVENTIONS.md, "Never key an effect on a
+  // ReactNode prop".
+  return useMemo(
+    () => ({
+      // Drives the iOS/macOS → GitHub → Discord cascade: true until the user
+      // downloads or dismisses.
+      bannerShouldShow: !downloaded && !bannerDismissed,
+      // True once the banner has waited the minimum age (24h) to render.
+      ageEligible,
+      handleDownload,
+      handleBannerDismiss,
+    }),
+    [
+      downloaded,
+      bannerDismissed,
+      ageEligible,
+      handleDownload,
+      handleBannerDismiss,
+    ],
+  );
 }
 
 // ---------------------------------------------------------------------------

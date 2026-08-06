@@ -57,7 +57,9 @@ export function OnboardingTopBar({
           aria-label="Forward"
           className="flex cursor-pointer h-10 w-10 items-center justify-center rounded-full transition-colors duration-150"
           style={{ color: fg, backgroundColor: restBg }}
-          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = hoverBg)}
+          onMouseEnter={(e) =>
+            (e.currentTarget.style.backgroundColor = hoverBg)
+          }
           onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = restBg)}
         >
           <ArrowRight className="h-4 w-4" />

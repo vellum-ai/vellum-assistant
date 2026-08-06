@@ -1,10 +1,10 @@
 import type { QueryClient } from "@tanstack/react-query";
 
 import {
-    pluginsByNameGetQueryKey,
-    pluginsByNameInspectGetQueryKey,
-    pluginsGetQueryKey,
-    pluginsSearchGetQueryKey,
+  pluginsByNameGetQueryKey,
+  pluginsByNameInspectGetQueryKey,
+  pluginsGetQueryKey,
+  pluginsSearchGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 
 /**
@@ -45,7 +45,9 @@ export function invalidatePluginQueries(
   // via partial-key match (the generated keys are `[{ _id, baseUrl, path }]`;
   // omitting `name`/`baseUrl` matches all names — mirrors the schedules sync).
   void queryClient.invalidateQueries({
-    queryKey: [{ _id: "pluginsByNameGet", path: { assistant_id: assistantId } }],
+    queryKey: [
+      { _id: "pluginsByNameGet", path: { assistant_id: assistantId } },
+    ],
   });
   void queryClient.invalidateQueries({
     queryKey: [

@@ -235,7 +235,9 @@ export function truncateRecallEvidenceToBudget(
   let remaining = Math.floor(maxTextChars);
 
   for (const item of evidence) {
-    if (remaining <= 0) break;
+    if (remaining <= 0) {
+      break;
+    }
 
     const excerpt = truncate(item.excerpt, remaining);
     if (excerpt.length === 0) {

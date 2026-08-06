@@ -51,8 +51,12 @@ export function serializeProvider(
   row: OAuthProviderRow | null | undefined,
   options?: { redirectUri?: string | null },
 ): ReturnType<typeof _serializeProvider> | null | undefined {
-  if (row === undefined) return undefined;
-  if (row === null) return null;
+  if (row === undefined) {
+    return undefined;
+  }
+  if (row === null) {
+    return null;
+  }
   return _serializeProvider(row, options);
 }
 
@@ -134,7 +138,9 @@ function _serializeProvider(
 export function serializeProviderSummary(
   row: OAuthProviderRow | null | undefined,
 ): SerializedProviderSummary | null {
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
   return {
     provider_key: row.provider,
     display_name: row.displayLabel ?? null,

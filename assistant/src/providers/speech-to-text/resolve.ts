@@ -17,6 +17,64 @@ import {
 const log = getLogger("stt-resolver");
 
 // ---------------------------------------------------------------------------
+// Default spoken language
+// ---------------------------------------------------------------------------
+
+/**
+ * Providers that decode language-less audio as English rather than detecting
+ * the spoken language: Deepgram directly, and the managed relay, which dials
+ * Deepgram server-side. For these, an unset `services.stt.language` is not a
+ * neutral state: it is a silent English pin that returns non-English speech
+ * as English-sounding nonsense.
+ *
+ * Providers absent from this set need no default: xAI, Gemini and Whisper all
+ * detect natively from the audio when no language is sent.
+ */
+const MULTILINGUAL_DEFAULT_PROVIDERS: ReadonlySet<SttProviderId> = new Set([
+  "deepgram",
+  "vellum",
+] as SttProviderId[]);
+
+/**
+ * The language an unset config resolves to on the providers above: nova-3's
+ * code-switching mode, which follows a speaker between the ten languages of
+ * Deepgram's multi roster (`DEEPGRAM_MULTI_LANGUAGE_CODES` in `deepgram.ts`)
+ * without being told which one they are speaking. Chosen over an English pin
+ * because the failure it replaces is
+ * silent: a Hindi speaker under the English default gets fluent-looking
+ * garbage rather than an error, and has no way to tell recognition is
+ * misconfigured from the transcript alone.
+ *
+ * It is a default, not a ceiling. Speakers of the other 39 languages on the
+ * monolingual roster still pick theirs explicitly, and that pick continues to
+ * win here. This only decides what happens when nobody has chosen.
+ */
+const DEFAULT_MULTILINGUAL_CODE = "multi";
+
+/**
+ * The spoken language to transcribe with, given what config holds and which
+ * provider will receive it. Configured values always win; the default only
+ * fills the unset case, and only where unset would otherwise mean English.
+ *
+ * Applied inside the resolvers rather than at the config layer so config keeps
+ * recording what the user chose (or that they chose nothing). The settings
+ * surfaces read that distinction to show which rows are defaults, and the live
+ * session compares raw config values to decide whether a language change needs
+ * a re-dial.
+ */
+export function effectiveSttLanguage(
+  providerId: SttProviderId,
+  configured: string | undefined,
+): string | undefined {
+  if (configured) {
+    return configured;
+  }
+  return MULTILINGUAL_DEFAULT_PROVIDERS.has(providerId)
+    ? DEFAULT_MULTILINGUAL_CODE
+    : undefined;
+}
+
+// ---------------------------------------------------------------------------
 // Batch transcriber resolver (existing public API — unchanged contract)
 // ---------------------------------------------------------------------------
 
@@ -34,8 +92,14 @@ const log = getLogger("stt-resolver");
  * - No credentials are configured for the resolved provider.
  */
 export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null> {
-  const config = getConfig();
-  const provider = config.services.stt.provider;
+  // Snapshot the stt config once, before any await, so a concurrent config
+  // change cannot pair one setting's old value with another's new value.
+  const stt = getConfig().services.stt;
+  const provider = stt.provider;
+  const language = effectiveSttLanguage(
+    provider as SttProviderId,
+    stt.language,
+  );
 
   // Look up credential provider via the catalog.
   const credentialProviderName = getCredentialProvider(
@@ -51,13 +115,21 @@ export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null
   }
 
   if (provider === "vellum") {
+    // Managed batch rides the platform's speech proxy, which forwards the
+    // language to Deepgram server-side. A platform build predating that
+    // field ignores it rather than failing, so the daemon can send one
+    // before the platform side deploys.
     return (await sttProviderKeyResolves("vellum"))
-      ? createDaemonBatchTranscriber(null, "vellum")
+      ? createDaemonBatchTranscriber(null, "vellum", language)
       : null;
   }
 
   const apiKey = await getProviderKeyAsync(credentialProviderName);
-  return createDaemonBatchTranscriber(apiKey, provider as SttProviderId);
+  return createDaemonBatchTranscriber(
+    apiKey,
+    provider as SttProviderId,
+    language,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -289,6 +361,18 @@ export interface ResolveStreamingTranscriberOptions {
    * Ignored without `utteranceBoundaryFinals`. Default: 1000.
    */
   utteranceEndMs?: number;
+  /**
+   * Spoken language to transcribe, forwarded to adapters that accept one.
+   * Defaults to `services.stt.language`; pass explicitly to override the
+   * config for a single session.
+   *
+   * Leaving both unset does not reach the adapters as "no language": on
+   * Deepgram and the managed relay, where that would mean English rather
+   * than detection, {@link effectiveSttLanguage} fills in code-switching
+   * first. See {@link CreateStreamingTranscriberOptions.language} for how
+   * each adapter treats what it finally receives.
+   */
+  language?: string;
 }
 
 /**
@@ -312,8 +396,21 @@ export interface ResolveStreamingTranscriberOptions {
 export async function resolveStreamingTranscriber(
   options: ResolveStreamingTranscriberOptions = {},
 ): Promise<StreamingTranscriber | null> {
-  const provider =
-    options.providerId ?? (getConfig().services.stt.provider as SttProviderId);
+  // Snapshot the stt config once, before any await, so a concurrent config
+  // change cannot pair one setting's old value with another's new value
+  // (e.g. the old provider with the new language).
+  const stt = getConfig().services.stt;
+  const provider = options.providerId ?? (stt.provider as SttProviderId);
+  // Config-level language applies to every streaming caller (live voice,
+  // dictation, telephony) unless one overrides it for a single session, so
+  // the setting lands in one place rather than at each call site. An unset
+  // config falls to the provider's default (see `effectiveSttLanguage`),
+  // which is where a caller passing no language gets multilingual rather
+  // than a silent English pin.
+  const language = effectiveSttLanguage(
+    provider,
+    options.language ?? stt.language,
+  );
   const diarizePreference: DiarizePreference = options.diarize ?? "off";
 
   // Look up credential provider via the catalog.
@@ -377,6 +474,7 @@ export async function resolveStreamingTranscriber(
     diarize: enableDiarization,
     utteranceBoundaryFinals: options.utteranceBoundaryFinals ?? false,
     utteranceEndMs: options.utteranceEndMs,
+    ...(language ? { language } : {}),
   });
 }
 
@@ -415,6 +513,22 @@ interface CreateStreamingTranscriberOptions {
    * is set. Defaults to {@link UTTERANCE_BOUNDARY_END_MS}.
    */
   utteranceEndMs?: number;
+  /**
+   * Spoken language, forwarded to the adapters that accept one: Deepgram,
+   * xAI, and the managed relay (which passes it to Deepgram server-side).
+   *
+   * Gemini and Whisper take no language option (both auto-detect natively
+   * from the audio), so this is silently ignored for them, matching how
+   * `diarize` is ignored by adapters without diarization.
+   *
+   * Unset is NOT auto-detect on Deepgram: omitting the param makes Deepgram
+   * decode as English, so non-English speech comes back as English-sounding
+   * nonsense rather than failing loudly. Any configured language pins
+   * nova-3 on BYOK Deepgram (see `deepgramLanguageOptions`); `"multi"`
+   * selects nova-3's code-switching mode (the managed relay pins nova-3
+   * server-side).
+   */
+  language?: string;
 }
 
 /**
@@ -435,8 +549,13 @@ async function createStreamingTranscriber(
     case "deepgram": {
       const { DeepgramRealtimeTranscriber } =
         await import("./deepgram-realtime.js");
+      // Lazy like the xai case's xaiLanguageOptions import: pulling the
+      // batch adapter module in at top level would defeat the lazy module
+      // graph this factory documents.
+      const { deepgramLanguageOptions } = await import("./deepgram.js");
       return new DeepgramRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,
+        ...deepgramLanguageOptions(options.language),
         ...(options.diarize ? { diarize: true } : {}),
         ...(options.utteranceBoundaryFinals
           ? {
@@ -467,8 +586,12 @@ async function createStreamingTranscriber(
     }
     case "xai": {
       const { XAIRealtimeTranscriber } = await import("./xai-realtime.js");
+      const { xaiLanguageOptions } = await import("./xai.js");
       return new XAIRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,
+        // Drops "multi" (a Deepgram-specific mode, not a language code); see
+        // xaiLanguageOptions.
+        ...xaiLanguageOptions(options.language),
         ...(options.diarize ? { diarize: true } : {}),
       });
     }
@@ -498,6 +621,12 @@ async function createStreamingTranscriber(
         await import("./vellum-managed-realtime.js");
       return new VellumManagedRealtimeTranscriber(connection, {
         sampleRate: options.sampleRate,
+        // `language` IS in the relay's param allowlist, and the relay pins
+        // the STT model to nova-3 server-side, so "multi" code-switching
+        // needs nothing from the platform, only this forward. Source:
+        // vellum-assistant-platform: velay/internal/velay/deepgram.go
+        // (deepgramSTTParams allowlist; deepgramSTTModel pin).
+        ...(options.language ? { language: options.language } : {}),
         ...(options.utteranceBoundaryFinals
           ? { utteranceBoundaryFinals: true }
           : {}),

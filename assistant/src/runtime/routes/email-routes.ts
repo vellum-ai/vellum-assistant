@@ -294,12 +294,24 @@ async function handleEmailSend({ body = {} }: RouteHandlerArgs) {
     from_address: fromAddress,
     text: normalizedText,
   };
-  if (subject) payload.subject = subject;
-  if (resolvedHtml) payload.html = resolvedHtml;
-  if (cc && cc.length > 0) payload.cc = cc;
-  if (bcc && bcc.length > 0) payload.bcc = bcc;
-  if (attachments && attachments.length > 0) payload.attachments = attachments;
-  if (reply_to) payload.reply_to = reply_to;
+  if (subject) {
+    payload.subject = subject;
+  }
+  if (resolvedHtml) {
+    payload.html = resolvedHtml;
+  }
+  if (cc && cc.length > 0) {
+    payload.cc = cc;
+  }
+  if (bcc && bcc.length > 0) {
+    payload.bcc = bcc;
+  }
+  if (attachments && attachments.length > 0) {
+    payload.attachments = attachments;
+  }
+  if (reply_to) {
+    payload.reply_to = reply_to;
+  }
 
   const response = await client.fetch("/v1/runtime-proxy/email/send/", {
     method: "POST",

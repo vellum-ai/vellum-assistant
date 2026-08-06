@@ -645,8 +645,12 @@ describe("web_fetch tool", () => {
       { url: "https://example.com/start" },
       {
         resolveHostAddresses: async (hostname) => {
-          if (hostname === "example.com") return ["93.184.216.34"];
-          if (hostname === "evil-redirect.example") return ["192.168.1.100"];
+          if (hostname === "example.com") {
+            return ["93.184.216.34"];
+          }
+          if (hostname === "evil-redirect.example") {
+            return ["192.168.1.100"];
+          }
           return ["93.184.216.34"];
         },
         requestExecutor: async (_url, _requestOptions) => {
@@ -1289,8 +1293,12 @@ describe("web_fetch tool", () => {
       { url: "https://example.com/start" },
       {
         resolveHostAddresses: async (hostname) => {
-          if (hostname === "example.com") return ["93.184.216.34"];
-          if (hostname === "redirect.example") return ["203.0.113.8"];
+          if (hostname === "example.com") {
+            return ["93.184.216.34"];
+          }
+          if (hostname === "redirect.example") {
+            return ["203.0.113.8"];
+          }
           return ["93.184.216.34"];
         },
         requestExecutor: async (_url, requestOptions) => {
@@ -1360,8 +1368,12 @@ describe("web_fetch tool", () => {
       { url: "https://example.com/start" },
       {
         resolveHostAddresses: async (hostname) => {
-          if (hostname === "example.com") return ["93.184.216.34"];
-          if (hostname === "internal.example") return ["10.0.0.8"];
+          if (hostname === "example.com") {
+            return ["93.184.216.34"];
+          }
+          if (hostname === "internal.example") {
+            return ["10.0.0.8"];
+          }
           return ["93.184.216.34"];
         },
       },
@@ -1379,7 +1391,9 @@ describe("web_fetch tool", () => {
       { url: "https://example.com/start", timeout_seconds: 1 },
       {
         resolveHostAddresses: async (hostname) => {
-          if (hostname === "example.com") return ["93.184.216.34"];
+          if (hostname === "example.com") {
+            return ["93.184.216.34"];
+          }
           return await new Promise<string[]>(() => {});
         },
         requestExecutor: async () => {

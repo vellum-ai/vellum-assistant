@@ -72,7 +72,9 @@ function handleSequenceGet({ body = {} }: RouteHandlerArgs) {
   const { id } = parseBody(SequenceIdParams, body);
   getDb();
   const seq = getSequence(id);
-  if (!seq) throw new NotFoundError(`Sequence not found: ${id}`);
+  if (!seq) {
+    throw new NotFoundError(`Sequence not found: ${id}`);
+  }
 
   const enrollments = listEnrollments({ sequenceId: id });
   const statusCounts = enrollments.reduce(
@@ -94,7 +96,9 @@ function handleSequencePause({ body = {} }: RouteHandlerArgs) {
   const { id } = parseBody(SequenceIdParams, body);
   getDb();
   const seq = getSequence(id);
-  if (!seq) throw new NotFoundError(`Sequence not found: ${id}`);
+  if (!seq) {
+    throw new NotFoundError(`Sequence not found: ${id}`);
+  }
   if (seq.status === "paused") {
     return { ok: true, message: "Sequence is already paused." };
   }
@@ -106,7 +110,9 @@ function handleSequenceResume({ body = {} }: RouteHandlerArgs) {
   const { id } = parseBody(SequenceIdParams, body);
   getDb();
   const seq = getSequence(id);
-  if (!seq) throw new NotFoundError(`Sequence not found: ${id}`);
+  if (!seq) {
+    throw new NotFoundError(`Sequence not found: ${id}`);
+  }
   if (seq.status === "active") {
     return { ok: true, message: "Sequence is already active." };
   }
@@ -154,42 +160,49 @@ function handleGuardrailsSet({ body = {} }: RouteHandlerArgs) {
   switch (key) {
     case "dailySendCap":
     case "daily_send_cap":
-      if (!Number.isFinite(numVal))
+      if (!Number.isFinite(numVal)) {
         throw new BadRequestError(`Invalid numeric value for ${key}: ${value}`);
+      }
       patch.dailySendCap = numVal;
       break;
     case "perSequenceHourlyRate":
     case "hourly_rate":
-      if (!Number.isFinite(numVal))
+      if (!Number.isFinite(numVal)) {
         throw new BadRequestError(`Invalid numeric value for ${key}: ${value}`);
+      }
       patch.perSequenceHourlyRate = numVal;
       break;
     case "minimumStepDelaySec":
     case "min_delay":
-      if (!Number.isFinite(numVal))
+      if (!Number.isFinite(numVal)) {
         throw new BadRequestError(`Invalid numeric value for ${key}: ${value}`);
+      }
       patch.minimumStepDelaySec = numVal;
       break;
     case "maxActiveEnrollments":
     case "max_enrollments":
-      if (!Number.isFinite(numVal))
+      if (!Number.isFinite(numVal)) {
         throw new BadRequestError(`Invalid numeric value for ${key}: ${value}`);
+      }
       patch.maxActiveEnrollments = numVal;
       break;
     case "duplicateEnrollmentCheck":
     case "duplicate_check":
-      if (boolVal === undefined)
+      if (boolVal === undefined) {
         throw new BadRequestError("Value must be true or false");
+      }
       patch.duplicateEnrollmentCheck = boolVal;
       break;
     case "cooldownPeriodMs":
-      if (!Number.isFinite(numVal))
+      if (!Number.isFinite(numVal)) {
         throw new BadRequestError(`Invalid numeric value for ${key}: ${value}`);
+      }
       patch.cooldownPeriodMs = numVal;
       break;
     case "cooldown_days": {
-      if (!Number.isFinite(numVal))
+      if (!Number.isFinite(numVal)) {
         throw new BadRequestError(`Invalid numeric value for ${key}: ${value}`);
+      }
       patch.cooldownPeriodMs = numVal * 24 * 60 * 60 * 1000;
       break;
     }

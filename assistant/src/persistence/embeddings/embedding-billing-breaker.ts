@@ -47,8 +47,12 @@ export function recordBillingBlock(): void {
  * breaker.
  */
 export function recordBillingSuccess(): void {
-  if (breakerState !== "open") return;
-  if (Date.now() - openedAt < COOLDOWN_MS) return;
+  if (breakerState !== "open") {
+    return;
+  }
+  if (Date.now() - openedAt < COOLDOWN_MS) {
+    return;
+  }
   log.info("Embedding billing breaker closed — billing probe succeeded");
   breakerState = "closed";
   openedAt = 0;
@@ -56,8 +60,12 @@ export function recordBillingSuccess(): void {
 
 /** True when the breaker is open and the cooldown has NOT yet elapsed. */
 export function isEmbeddingBillingBreakerOpen(): boolean {
-  if (breakerState === "closed") return false;
-  if (Date.now() - openedAt >= COOLDOWN_MS) return false;
+  if (breakerState === "closed") {
+    return false;
+  }
+  if (Date.now() - openedAt >= COOLDOWN_MS) {
+    return false;
+  }
   return true;
 }
 
@@ -72,18 +80,24 @@ export function shouldAllowBillingProbe(): boolean {
 
 /** Extract an HTTP status code from an error, if present. */
 export function extractHttpStatus(err: unknown): number | undefined {
-  if (err == null || typeof err !== "object") return undefined;
+  if (err == null || typeof err !== "object") {
+    return undefined;
+  }
 
   // SDK-style errors (OpenAI, Anthropic) carry `.status` directly.
   if ("status" in err) {
     const s = (err as { status?: unknown }).status;
-    if (typeof s === "number") return s;
+    if (typeof s === "number") {
+      return s;
+    }
   }
 
   // Gemini/Ollama backends embed the status in the message: "... (402): ..."
   if (err instanceof Error) {
     const match = err.message.match(/\((\d{3})\)/);
-    if (match) return parseInt(match[1], 10);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
   }
 
   return undefined;

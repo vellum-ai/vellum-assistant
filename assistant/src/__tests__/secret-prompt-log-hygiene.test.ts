@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SecretRequestEvent } from "../api/events/secret-request.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import { setConfig } from "./helpers/set-config.js";
 
 // Capture all logger calls so we can verify secret values never appear

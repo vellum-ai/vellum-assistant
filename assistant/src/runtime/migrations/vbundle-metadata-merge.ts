@@ -44,7 +44,9 @@ interface MetadataFile {
 }
 
 function isRecord(value: unknown): value is MetadataRecord {
-  if (typeof value !== "object" || value == null) return false;
+  if (typeof value !== "object" || value == null) {
+    return false;
+  }
   const r = value as Record<string, unknown>;
   return (
     typeof r.credentialId === "string" &&
@@ -54,7 +56,9 @@ function isRecord(value: unknown): value is MetadataRecord {
 }
 
 function parseMetadata(json: string | null | undefined): MetadataFile | null {
-  if (!json) return null;
+  if (!json) {
+    return null;
+  }
   try {
     const parsed: unknown = JSON.parse(json);
     if (typeof parsed !== "object" || parsed == null || Array.isArray(parsed)) {
@@ -67,7 +71,9 @@ function parseMetadata(json: string | null | undefined): MetadataFile | null {
 }
 
 function extractVellumRecords(file: MetadataFile | null): MetadataRecord[] {
-  if (!file || !Array.isArray(file.credentials)) return [];
+  if (!file || !Array.isArray(file.credentials)) {
+    return [];
+  }
   return file.credentials
     .filter(isRecord)
     .filter((r) => r.service === VELLUM_SERVICE);
@@ -90,7 +96,9 @@ export function mergeMetadataPreservingVellum(
   liveJson: string | null,
 ): string {
   const bundle = parseMetadata(bundleJson);
-  if (!bundle) return bundleJson;
+  if (!bundle) {
+    return bundleJson;
+  }
 
   const preservedVellum = extractVellumRecords(parseMetadata(liveJson));
 

@@ -2,25 +2,24 @@
  * Unit tests for use-draft-persistence — keeps the composer draft alive across
  * reloads via debounced autosave, an unload flush, and cold-load restore.
  */
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
 // Observe draft persistence through a local map instead of the real
 // localStorage (happy-dom doesn't persist across tests). Matches the approach
 // in composer-store.test.ts.
 const localSettingsStore = new Map<string, string>();
+// Spread the real module rather than enumerating its exports: `mock.module`
+// replaces the whole module, so a hand-listed set breaks every importer the
+// moment local-settings grows an export it does not name.
+const actualLocalSettings = await import("@/utils/local-settings");
 mock.module("@/utils/local-settings", () => ({
+  ...actualLocalSettings,
   getLocalSetting: (key: string, fallback: string) =>
     localSettingsStore.get(key) ?? fallback,
   setLocalSetting: (key: string, value: string) => {
     localSettingsStore.set(key, value);
+    return true;
   },
   removeLocalSetting: (key: string) => {
     localSettingsStore.delete(key);

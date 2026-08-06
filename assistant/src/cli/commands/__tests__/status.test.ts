@@ -21,7 +21,12 @@ const DAEMON_UNREACHABLE_ERROR =
   "Run `assistant status` to check, or `assistant gateway start` to start it.";
 
 let ipcCalls: Array<{ method: string }> = [];
-let mockResponse: { ok: boolean; result?: unknown; error?: string; statusCode?: number } = {
+let mockResponse: {
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+  statusCode?: number;
+} = {
   ok: false,
   error: DAEMON_UNREACHABLE_ERROR,
 };
@@ -201,7 +206,11 @@ describe("status command — daemon unreachable (ENOENT/ECONNREFUSED)", () => {
 
 describe("status command — non-connection IPC failures", () => {
   test("exits non-zero when daemon returns an internal error", async () => {
-    mockResponse = { ok: false, error: "Internal server error", statusCode: 500 };
+    mockResponse = {
+      ok: false,
+      error: "Internal server error",
+      statusCode: 500,
+    };
 
     const { exitCode } = await runStatusCommand();
 
@@ -217,7 +226,11 @@ describe("status command — non-connection IPC failures", () => {
   });
 
   test("prints the error message to stderr for non-connection failures", async () => {
-    mockResponse = { ok: false, error: "Internal server error", statusCode: 500 };
+    mockResponse = {
+      ok: false,
+      error: "Internal server error",
+      statusCode: 500,
+    };
 
     const { stderr } = await runStatusCommand();
 

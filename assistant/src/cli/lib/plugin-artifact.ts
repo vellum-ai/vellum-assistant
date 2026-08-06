@@ -91,7 +91,9 @@ export function parsePluginArtifact(
   }
   const artifact = (vellum as Record<string, unknown>).artifact;
   const parsed = PluginArtifactSchema.safeParse(artifact);
-  if (!parsed.success) return null;
+  if (!parsed.success) {
+    return null;
+  }
   // A blank or whitespace-only label is treated as absent so it never
   // invalidates an otherwise well-formed `url` + `sha256` descriptor.
   const label = parsed.data.label?.trim();
@@ -125,9 +127,13 @@ export function parsePluginIcon(packageJson: unknown): string | undefined {
     return undefined;
   }
   const icon = (vellum as Record<string, unknown>).icon;
-  if (typeof icon !== "string") return undefined;
+  if (typeof icon !== "string") {
+    return undefined;
+  }
   const trimmed = icon.trim();
   const codePoints = [...trimmed].length;
-  if (codePoints < 1 || codePoints > MAX_ICON_CODE_POINTS) return undefined;
+  if (codePoints < 1 || codePoints > MAX_ICON_CODE_POINTS) {
+    return undefined;
+  }
   return trimmed;
 }

@@ -6,6 +6,8 @@ import {
   bucketDefaultFromCells,
   CAPABILITY_TIER_META,
   CAPABILITY_TIER_VALUES,
+  CHANNEL_TIER_VALUES,
+  channelTierBehavesAs,
   tierOverridesFromCells,
   type ChannelTierCell,
 } from "./slack-channel-overrides";
@@ -15,6 +17,16 @@ describe("tier ↔ preset parity", () => {
     expect(CAPABILITY_TIER_VALUES).toEqual(
       THRESHOLD_PRESETS.map((preset) => preset.riskThreshold),
     );
+  });
+
+  // Everything a channel cell can delegate classifies low-risk, so the higher
+  // levels would advertise a gradient the runtime does not make. The full list
+  // stays available for the global picker and for when that set grows.
+  test("a channel offers Strict and Conservative, in preset order", () => {
+    expect(CHANNEL_TIER_VALUES).toEqual(["none", "low"]);
+    expect(
+      CHANNEL_TIER_VALUES.every((t) => CAPABILITY_TIER_VALUES.includes(t)),
+    ).toBe(true);
   });
 
   test("labels come from the matching global preset — no redefined names", () => {
@@ -34,15 +46,31 @@ describe("CAPABILITY_TIER_META", () => {
     expect(CAPABILITY_TIER_META.high.tone).toBe("positive");
   });
 
-  // The tier only gates non-sensitive lookup tools — every side-effect tool
-  // (file writes, bash) and every host tool (MCP, messaging, phone) escalates
-  // to the owner at any tier via the capability floor. So the sublabels stay on
-  // one axis, lookup depth, and none of them may imply free action.
+  // A channel cell delegates only non-executing work in the assistant's own
+  // workspace: lookups, public web pages, and ordinary in-workspace writes.
+  // Running code, planting code the daemon executes, the guardian's machine
+  // and accounts, and unvetted skills stay on the capability floor at every
+  // level, so no sublabel may imply free action.
   test("sublabels all sit on the lookup-depth axis", () => {
     expect(CAPABILITY_TIER_META.none.sublabel).toBe("asks every time");
     expect(CAPABILITY_TIER_META.low.sublabel).toBe("safe lookups");
     expect(CAPABILITY_TIER_META.medium.sublabel).toBe("broader lookups");
     expect(CAPABILITY_TIER_META.high.sublabel).toBe("any lookup");
+  });
+});
+
+describe("channelTierBehavesAs", () => {
+  // Stored values are left intact; the picker shows resolved behavior. A
+  // higher tier regains its own meaning if the delegable set ever grows.
+  test("a stored medium or high cell delegates exactly what low delegates", () => {
+    expect(channelTierBehavesAs("medium")).toBe("low");
+    expect(channelTierBehavesAs("high")).toBe("low");
+  });
+
+  test("strict and conservative are themselves; absent stays absent", () => {
+    expect(channelTierBehavesAs("none")).toBe("none");
+    expect(channelTierBehavesAs("low")).toBe("low");
+    expect(channelTierBehavesAs(undefined)).toBeUndefined();
   });
 });
 
@@ -142,7 +170,11 @@ describe("bucketDefaultFromCells", () => {
     const cells: ChannelTierCell[] = [
       adapterCell("telegram", "high"),
       {
-        selector: { scope: "channel_type", adapter: "slack", channelType: "private" },
+        selector: {
+          scope: "channel_type",
+          adapter: "slack",
+          channelType: "private",
+        },
         contactType: "trusted_contact",
         threshold: "high",
       },

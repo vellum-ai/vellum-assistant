@@ -238,7 +238,7 @@ async function handleMultipartUpload(
 
   const bytes = new Uint8Array(await file.arrayBuffer());
 
-  const attachment = uploadAttachmentFromBytes(filename, mimeType, bytes);
+  const attachment = await uploadAttachmentFromBytes(filename, mimeType, bytes);
   return attachmentPayload(attachment);
 }
 
@@ -248,7 +248,7 @@ async function handleMultipartUpload(
  *
  * See `handleMultipartUpload` for `gatewayTrustedSource` semantics.
  */
-function handleOctetStreamUpload(
+async function handleOctetStreamUpload(
   rawBody: Uint8Array,
   headers: Record<string, string>,
   queryParams: Record<string, string>,
@@ -287,7 +287,11 @@ function handleOctetStreamUpload(
     throw new UnsupportedMediaTypeError(validation.error);
   }
 
-  const attachment = uploadAttachmentFromBytes(filename, mimeType, rawBody);
+  const attachment = await uploadAttachmentFromBytes(
+    filename,
+    mimeType,
+    rawBody,
+  );
   return attachmentPayload(attachment);
 }
 
@@ -296,7 +300,7 @@ function handleOctetStreamUpload(
  *
  * See `handleMultipartUpload` for `gatewayTrustedSource` semantics.
  */
-function handleJsonUpload(
+async function handleJsonUpload(
   body: Record<string, unknown>,
   rawBody: Uint8Array | undefined,
   gatewayTrustedSource: boolean,
@@ -369,7 +373,10 @@ function handleJsonUpload(
       // non-HEIF files (e.g. large videos) from being read into memory.
       try {
         if (isHeifImage(readFileHead(destPath, 12))) {
-          const norm = normalizeImageBytes(mimeType, readFileSync(destPath));
+          const norm = await normalizeImageBytes(
+            mimeType,
+            readFileSync(destPath),
+          );
           if (
             norm.converted &&
             norm.bytes.length <= MAX_FILE_BACKED_UPLOAD_BYTES
@@ -407,7 +414,7 @@ function handleJsonUpload(
     }
 
     try {
-      attachment = uploadAttachment(
+      attachment = await uploadAttachment(
         filename,
         mimeType,
         data,
@@ -633,7 +640,9 @@ function assertWithinWorkspace(filePath: string): string {
       }
       return resolved;
     } catch (err) {
-      if (err instanceof BadRequestError) throw err;
+      if (err instanceof BadRequestError) {
+        throw err;
+      }
       trailing.unshift(join(current).split(sep).pop()!);
       current = join(current, "..");
     }
@@ -670,7 +679,9 @@ function handleAttachmentRegister({ body = {} }: RouteHandlerArgs) {
     }
     sizeBytes = stat.size;
   } catch (err) {
-    if (err instanceof BadRequestError) throw err;
+    if (err instanceof BadRequestError) {
+      throw err;
+    }
     throw new NotFoundError(`File not found: ${path}`);
   }
 

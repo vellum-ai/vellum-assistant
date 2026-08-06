@@ -139,7 +139,9 @@ export function useSwipeEngine({
 
   const onTouchStart = useCallback(
     (e: ReactTouchEvent) => {
-      if (!enabled || (touchOnly && !isTouch)) return;
+      if (!enabled || (touchOnly && !isTouch)) {
+        return;
+      }
       // A second finger landing while a gesture is armed cancels the swipe —
       // otherwise a release with no intervening touchmove would let touchend
       // commit from the stale gesture. Full reset, not an early return.
@@ -163,7 +165,9 @@ export function useSwipeEngine({
   const onTouchMove = useCallback(
     (e: ReactTouchEvent) => {
       const g = gesture.current;
-      if (!g) return;
+      if (!g) {
+        return;
+      }
       // A second finger landing mid-gesture (e.g. a pinch) cancels the swipe
       // outright — otherwise the stale dragOffset could still commit on the
       // following touchend. Full reset, not an early return.
@@ -173,7 +177,9 @@ export function useSwipeEngine({
       }
       const t = e.touches[0]!;
       // Ignore moves from a different finger than the one that armed the gesture.
-      if (t.identifier !== g.touchId) return;
+      if (t.identifier !== g.touchId) {
+        return;
+      }
       const dx = t.clientX - g.startX;
       const dy = t.clientY - g.startY;
       const primary = axis === "horizontal" ? dx : dy;
@@ -194,7 +200,9 @@ export function useSwipeEngine({
         setIsDragging(true);
       }
 
-      if (g.resolved !== "primary") return;
+      if (g.resolved !== "primary") {
+        return;
+      }
 
       // Re-check escape after arming: a gesture locked to the primary axis at
       // the deadzone can later turn mostly escape-axis (e.g. scrolling list

@@ -352,7 +352,9 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
   }
 
   private async selectByMessageIds(ids: string[]): Promise<LogRow[]> {
-    if (ids.length === 0) return [];
+    if (ids.length === 0) {
+      return [];
+    }
     const aid = await this.assistantId();
     // Bind each id as its own {id_N:String} placeholder. The IDs ultimately
     // come from a caller-supplied path parameter — `getAssistantMessageIdsInTurn`
@@ -442,12 +444,16 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
     }
 
     const text = await res.text();
-    if (text.trim().length === 0) return [];
+    if (text.trim().length === 0) {
+      return [];
+    }
 
     const rows: Row[] = [];
     for (const line of text.split("\n")) {
       const trimmed = line.trim();
-      if (trimmed.length === 0) continue;
+      if (trimmed.length === 0) {
+        continue;
+      }
       try {
         rows.push(JSON.parse(trimmed) as Row);
       } catch (err) {
@@ -488,7 +494,9 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
   }
 
   private async assistantId(): Promise<string> {
-    if (this.cachedAssistantId) return this.cachedAssistantId;
+    if (this.cachedAssistantId) {
+      return this.cachedAssistantId;
+    }
     const val = await this.resolveAssistantId();
     if (!val) {
       throw new Error(
@@ -500,7 +508,9 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
   }
 
   private async url(): Promise<string> {
-    if (this.cachedUrl) return this.cachedUrl;
+    if (this.cachedUrl) {
+      return this.cachedUrl;
+    }
     const val = await this.resolveUrl();
     if (!val) {
       throw new Error(
@@ -512,7 +522,9 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
   }
 
   private async password(): Promise<string> {
-    if (this.cachedPassword) return this.cachedPassword;
+    if (this.cachedPassword) {
+      return this.cachedPassword;
+    }
     const val = await this.resolvePassword();
     if (!val) {
       throw new Error(

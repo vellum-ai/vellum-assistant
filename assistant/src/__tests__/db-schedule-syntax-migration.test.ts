@@ -54,10 +54,14 @@ describe("schedule_syntax column migration", () => {
         workflow_args_json TEXT,
         timeout_ms INTEGER,
         inference_profile TEXT,
+        group_id TEXT,
         capabilities_json TEXT,
         description TEXT NOT NULL DEFAULT '',
         created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        updated_at INTEGER NOT NULL,
+        source_key TEXT,
+        definition_hash TEXT,
+        user_enabled INTEGER
       )
     `);
 

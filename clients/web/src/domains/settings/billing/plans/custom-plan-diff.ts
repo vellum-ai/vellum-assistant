@@ -5,17 +5,21 @@
  */
 
 import {
-  formatDollars,
+  creditRowLabel,
   formatMonthly,
+  storageRowLabel,
 } from "@/domains/settings/components/tier-pricing";
 import type {
-  CreditTier,
   CreditTierEnum,
   MachineTierEnum,
   ProPlan,
-  StorageTier,
   StorageTierEnum,
 } from "@/generated/api/types.gen";
+import {
+  MACHINE_FLOOR_SIZE,
+  SIZE_DESCRIPTION,
+  SIZE_LABEL,
+} from "@/lib/billing/machine-sizes";
 
 /** Sentinel for the "No extra credits" dropdown entry (Dropdown is generic over string, cannot carry real null). */
 export const NO_EXTRA_CREDITS = "__none__";
@@ -25,10 +29,24 @@ export type CreditChoice = CreditTierEnum | typeof NO_EXTRA_CREDITS;
 export const NO_CREDITS_LABEL = "No extra credits";
 
 /**
- * The current Pro tiers used to pre-fill the modal. Unlike a submitted
- * selection, `machineTier` may be `null` — a package with no paid machine tier
- * (baseline "Small" computer) has no `MachineTierEnum` to seed, so its machine
- * dropdown starts empty and the user picks a paid tier to continue.
+ * Sentinel for the baseline machine. `MachineTierEnum` names only the paid
+ * tiers, so the small machine a package with no tier runs on has no value to
+ * carry: it is `null` on the wire, which the Dropdown cannot hold either.
+ */
+export const BASELINE_MACHINE = "__baseline__";
+export type MachineChoice = MachineTierEnum | typeof BASELINE_MACHINE;
+
+/**
+ * Matches the shape of the catalog's own machine descriptions ("Medium machine
+ * (2.5 vCPU, 5 GiB)"), built from the shared size constants because the
+ * baseline has no catalog entry to read one from.
+ */
+export const BASELINE_MACHINE_LABEL = `${SIZE_LABEL[MACHINE_FLOOR_SIZE]} machine (${SIZE_DESCRIPTION[MACHINE_FLOOR_SIZE]})`;
+
+/**
+ * The current Pro tiers used to pre-fill the modal. `machineTier` is `null` for
+ * a package with no paid machine tier, which seeds the dropdown to the baseline
+ * sentinel rather than leaving it empty.
  */
 export interface CustomPlanSeed {
   machineTier: MachineTierEnum | null;
@@ -52,18 +70,10 @@ export interface CustomPlanDiff {
   rows: CustomPlanDiffRow[];
 }
 
-function storageLabel(tier: StorageTier): string {
-  return `${tier.storage_gib} GB storage`;
-}
-
-function creditLabel(tier: CreditTier): string {
-  return `${formatDollars(tier.credits_usd * 100)} of bundled credits`;
-}
-
 export function computeCustomPlanDiff(input: {
   proPlan: ProPlan;
   seed: CustomPlanSeed | null;
-  machineTier: MachineTierEnum | "";
+  machineTier: MachineChoice | "";
   storageTier: StorageTierEnum | "";
   creditChoice: CreditChoice | "";
 }): CustomPlanDiff {
@@ -76,8 +86,15 @@ export function computeCustomPlanDiff(input: {
   const storageTiers = proPlan.storage_tiers;
   const creditTiers = proPlan.credit_tiers ?? [];
 
-  const selectedMachine =
-    machineTiers.find((t) => t.tier === machineTier) ?? null;
+  // The baseline names no catalog tier, so it resolves to a label with no
+  // priced entry behind it rather than to a `machineTiers` row.
+  const machineIsBaseline = machineTier === BASELINE_MACHINE;
+  const selectedMachine = machineIsBaseline
+    ? null
+    : (machineTiers.find((t) => t.tier === machineTier) ?? null);
+  const selectedMachineLabel = machineIsBaseline
+    ? BASELINE_MACHINE_LABEL
+    : (selectedMachine?.description ?? null);
   const selectedStorage =
     storageTiers.find((t) => t.tier === storageTier) ?? null;
   const selectedCredit =
@@ -86,9 +103,19 @@ export function computeCustomPlanDiff(input: {
       : null;
 
   const seedMachine =
-    seed != null
+    seed != null && seed.machineTier != null
       ? (machineTiers.find((t) => t.tier === seed.machineTier) ?? null)
       : null;
+  // Normalized so a baseline seed compares against the sentinel the picker
+  // holds rather than against the null it arrives as.
+  const seedMachineChoice: MachineChoice | null =
+    seed != null ? (seed.machineTier ?? BASELINE_MACHINE) : null;
+  const seedMachineLabel =
+    seed == null
+      ? undefined
+      : seed.machineTier == null
+        ? BASELINE_MACHINE_LABEL
+        : seedMachine?.description;
   const seedStorage =
     seed != null
       ? (storageTiers.find((t) => t.tier === seed.storageTier) ?? null)
@@ -107,21 +134,20 @@ export function computeCustomPlanDiff(input: {
   const rows: CustomPlanDiffRow[] = [
     {
       key: "base",
-      label: `Pro base plan — ${formatMonthly(proPlan.base_price_cents)}`,
+      label: `Platform fee: ${formatMonthly(proPlan.base_price_cents)}`,
       changed: false,
     },
   ];
 
-  if (selectedMachine != null) {
+  if (selectedMachineLabel != null) {
     const changed =
       seed != null &&
       !seedMachineUnresolved &&
-      seedMachine?.tier !== selectedMachine.tier;
+      seedMachineChoice !== machineTier;
     rows.push({
       key: "machine",
-      label: selectedMachine.description,
-      previousLabel:
-        changed && seedMachine != null ? seedMachine.description : undefined,
+      label: selectedMachineLabel,
+      previousLabel: changed ? seedMachineLabel : undefined,
       changed,
     });
   }
@@ -133,9 +159,11 @@ export function computeCustomPlanDiff(input: {
       seedStorage?.tier !== selectedStorage.tier;
     rows.push({
       key: "storage",
-      label: storageLabel(selectedStorage),
+      label: storageRowLabel(selectedStorage.storage_gib),
       previousLabel:
-        changed && seedStorage != null ? storageLabel(seedStorage) : undefined,
+        changed && seedStorage != null
+          ? storageRowLabel(seedStorage.storage_gib)
+          : undefined,
       changed,
     });
   }
@@ -146,7 +174,7 @@ export function computeCustomPlanDiff(input: {
     creditChoice === NO_EXTRA_CREDITS
       ? NO_CREDITS_LABEL
       : selectedCredit != null
-        ? creditLabel(selectedCredit)
+        ? creditRowLabel(selectedCredit.credits_usd)
         : null;
 
   if (selectedCreditLabel != null) {
@@ -158,7 +186,7 @@ export function computeCustomPlanDiff(input: {
       seed?.creditTier == null
         ? NO_CREDITS_LABEL
         : seedCredit != null
-          ? creditLabel(seedCredit)
+          ? creditRowLabel(seedCredit.credits_usd)
           : undefined;
     rows.push({
       key: "credit",

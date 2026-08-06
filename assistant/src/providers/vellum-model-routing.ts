@@ -55,16 +55,15 @@ export const VELLUM_MANAGED_CONNECTION_NAME = "vellum";
 
 /**
  * Whether a connection is the provider-agnostic Vellum-managed connection.
+ * The provider column alone identifies the managed route: platform auth
+ * always accompanies it (auth derivation pairs them, the connection routes
+ * reject writes that split them, and DB migration 361 reconciles stored
+ * rows).
  * Structurally typed so this stays a pure module with no connection-schema
  * import.
  */
-export function isVellumManagedConnection(conn: {
-  provider: string;
-  auth: { type: string };
-}): boolean {
-  return (
-    conn.provider === VELLUM_MANAGED_PROVIDER && conn.auth.type === "platform"
-  );
+export function isVellumManagedConnection(conn: { provider: string }): boolean {
+  return conn.provider === VELLUM_MANAGED_PROVIDER;
 }
 
 export interface VellumModelRoute {

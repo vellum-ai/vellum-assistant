@@ -2,21 +2,18 @@
 // Memory v2 — Backfill job handlers
 // ---------------------------------------------------------------------------
 //
-// Three operator-triggered backfills, all wired through the same job queue so
+// Two operator-triggered v2 backfills, wired through the same job queue so
 // they can be enqueued from the IPC route, the CLI, or recovery paths:
 //
 //   - `memory_v2_migrate`              — one-shot v1→v2 synthesis (PR 16).
-//   - `memory_v2_reembed`              — fan out an `embed_concept_page` job
-//     per concept-page slug.
 //   - `memory_v2_activation_recompute` — recompute persisted activation
 //     state for every conversation, no rendering. Used after consolidation
 //     replaces or deletes pages that other conversations still reference.
 //
 // Each handler is intentionally small — heavy lifting lives in the modules
-// they delegate to (`migration.ts`, `page-store.ts`, `embed-concept-page.ts`,
-// `activation.ts`, `activation-store.ts`). Keeping the wrappers thin means
-// the same code paths exercised by tests of those modules run unchanged when
-// a backfill kicks them off.
+// they delegate to (`migration.ts`, `activation.ts`, `activation-store.ts`).
+// Keeping the wrappers thin means the same code paths exercised by tests of
+// those modules run unchanged when a backfill kicks them off.
 
 import {
   getMessages,
@@ -27,16 +24,11 @@ import {
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getMemoryDb } from "../../../../persistence/db-connection.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
-import { enqueueEmbedConceptPageJob } from "../jobs/embed-concept-page.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
-import { getEdgeIndex } from "../v3/substrate/edge-index.js";
-import { listPages } from "../v3/substrate/page-store.js";
-import {
-  computeOwnActivation,
-  selectCandidates,
-  spreadActivation,
-} from "./activation.js";
+import { getEdgeIndex } from "../substrate/edge-index.js";
+import { spreadActivation } from "../substrate/spread.js";
+import { computeOwnActivation, selectCandidates } from "./activation.js";
 import { hydrate, save } from "./activation-store.js";
 import {
   MigrationAlreadyAppliedError,
@@ -99,45 +91,6 @@ export async function memoryV2MigrateJob(
     }
     throw err;
   }
-}
-
-// ---------------------------------------------------------------------------
-// memory_v2_reembed — fan out embed jobs for every concept page
-// ---------------------------------------------------------------------------
-
-/**
- * Job handler: enqueue an `embed_concept_page` job per concept-page slug.
- * Each enqueue coalesces with an already-pending job for the same slug, so
- * stacked reembed runs converge on at most one pending embed per page.
- *
- * Returns the number of pages fanned out (enqueue attempts, not necessarily
- * fresh rows). Callers (and tests) use the return value to assert progress
- * without inspecting the job table directly.
- *
- * Note on meta files: `essentials.md` / `threads.md` / `recent.md` /
- * `buffer.md` are direct-injected into the system prompt every turn via
- * `_autoinject.md`. They are NOT enqueued for embedding here — their slugs
- * (`__essentials__` etc.) contain underscores that the concept-page slug
- * validator rejects (`[a-z0-9][a-z0-9-]*`), and they live at `memory/<name>.md`
- * rather than `memory/concepts/<name>.md`, so path resolution would also miss.
- * Embedding them would be redundant with the direct injection regardless.
- */
-export async function memoryV2ReembedJob(
-  _job: MemoryJob,
-  _config: AssistantConfig,
-): Promise<number> {
-  const workspaceDir = getWorkspaceDir();
-  const slugs = await listPages(workspaceDir);
-
-  for (const slug of slugs) {
-    enqueueEmbedConceptPageJob({ slug });
-  }
-
-  log.info(
-    { conceptPages: slugs.length, total: slugs.length },
-    "Memory v2 reembed enqueued",
-  );
-  return slugs.length;
 }
 
 // ---------------------------------------------------------------------------

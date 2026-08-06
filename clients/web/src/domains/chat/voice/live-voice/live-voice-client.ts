@@ -28,10 +28,12 @@ import {
   type LiveVoiceClientStartFrame,
   LIVE_VOICE_AUDIO_FORMAT,
   type LiveVoiceMetricsServerFrame,
+  type LiveVoiceMinimizeRoomServerFrame,
   type LiveVoiceReadyServerFrame,
   type LiveVoiceSpeechStartedServerFrame,
   type LiveVoiceSttFinalServerFrame,
   type LiveVoiceSttPartialServerFrame,
+  type LiveVoiceActivityServerFrame,
   type LiveVoiceThinkingServerFrame,
   type LiveVoiceTtsAudioServerFrame,
   type LiveVoiceTtsDoneServerFrame,
@@ -41,6 +43,7 @@ import {
   type LiveVoiceUtteranceEndServerFrame,
   parseServerFrame,
 } from "@/domains/chat/voice/live-voice/protocol";
+import { detectClientOs } from "@/runtime/platform-detection";
 
 /** Fail the session if no `ready` frame arrives within this window. */
 const CONNECT_TIMEOUT_MS = 10_000;
@@ -92,6 +95,17 @@ export interface LiveVoiceClientClosed {
 }
 
 /**
+ * Why a photo the transport accepted never reached the conversation.
+ *
+ * - `unsupported`: the assistant predates the frame entirely.
+ * - `failed`: the assistant knows the frame but could not store the photo.
+ */
+export interface LiveVoiceAttachImageRejected {
+  readonly reason: "unsupported" | "failed";
+  readonly message: string;
+}
+
+/**
  * Typed event payloads. Names map 1:1 to the server frame types (camelCased),
  * plus `closed` for transport teardown. Frame `seq` is preserved so consumers
  * can order or dedupe.
@@ -107,13 +121,24 @@ export interface LiveVoiceClientEventMap {
   sttPartial: LiveVoiceSttPartialServerFrame;
   sttFinal: LiveVoiceSttFinalServerFrame;
   thinking: LiveVoiceThinkingServerFrame;
+  /** What the turn is doing right now, or `""` when nothing nameable is. */
+  activity: LiveVoiceActivityServerFrame;
   assistantTextDelta: LiveVoiceAssistantTextDeltaServerFrame;
   ttsAudio: LiveVoiceTtsAudioServerFrame;
   ttsDone: LiveVoiceTtsDoneServerFrame;
   /** Barge-in aborted the turn — drop buffered tts_audio; no tts_done follows. */
   turnCancelled: LiveVoiceTurnCancelledServerFrame;
+  /** The completed turn asked the client to dismiss the full-screen room. */
+  minimizeRoom: LiveVoiceMinimizeRoomServerFrame;
   metrics: LiveVoiceMetricsServerFrame;
   archived: LiveVoiceArchivedServerFrame;
+  /**
+   * A photo was accepted by the transport but refused by the assistant, so it
+   * will never reach a turn. Distinct from `attachImage` returning false,
+   * which is the socket declining to send at all: this one fails after the
+   * client believed it had succeeded, and is the only signal the room gets.
+   */
+  attachImageRejected: LiveVoiceAttachImageRejected;
   busy: LiveVoiceBusyServerFrame;
   error: LiveVoiceClientError;
   /** Fired exactly once when the transport closes (clean or otherwise). */
@@ -190,12 +215,15 @@ export class LiveVoiceChannelClient {
     sttPartial: new Set(),
     sttFinal: new Set(),
     thinking: new Set(),
+    activity: new Set(),
     assistantTextDelta: new Set(),
     ttsAudio: new Set(),
     ttsDone: new Set(),
     turnCancelled: new Set(),
+    minimizeRoom: new Set(),
     metrics: new Set(),
     archived: new Set(),
+    attachImageRejected: new Set(),
     busy: new Set(),
     error: new Set(),
     closed: new Set(),
@@ -242,7 +270,9 @@ export class LiveVoiceChannelClient {
     silenceThresholdMs,
     bargeInMinSpeechMs,
   }: LiveVoiceConnectArgs): Promise<void> {
-    if (this.state !== "idle") return;
+    if (this.state !== "idle") {
+      return;
+    }
     this.state = "connecting";
     this.conversationId = conversationId;
     this.turnDetection = turnDetection;
@@ -260,7 +290,9 @@ export class LiveVoiceChannelClient {
       return;
     }
     // A late close()/end() during the await must abort the connect.
-    if (this.state !== "connecting") return;
+    if (this.state !== "connecting") {
+      return;
+    }
 
     let ws: WebSocket;
     try {
@@ -293,7 +325,9 @@ export class LiveVoiceChannelClient {
 
   /** Send a binary PCM audio frame. No-op unless the session is active. */
   sendAudio(pcm: ArrayBuffer): void {
-    if (this.state !== "active") return;
+    if (this.state !== "active") {
+      return;
+    }
     this.trySend(pcm);
   }
 
@@ -317,7 +351,9 @@ export class LiveVoiceChannelClient {
     silenceThresholdMs?: number;
     bargeInMinSpeechMs?: number;
   }): void {
-    if (this.state !== "active" || this.configUpdatesUnsupported) return;
+    if (this.state !== "active" || this.configUpdatesUnsupported) {
+      return;
+    }
     this.trySend(
       JSON.stringify({
         type: "update_config",
@@ -332,12 +368,37 @@ export class LiveVoiceChannelClient {
   }
 
   /**
+   * Tell the session about a photo the user just took, by the id its upload
+   * already returned. The daemon persists it into the conversation as its own
+   * user message and runs no turn.
+   *
+   * Returns whether the frame actually went out. A session that is connecting
+   * or reconnecting cannot take it, and the caller has to know: the photo was
+   * uploaded and the shutter has already animated, so a silent false start
+   * would leave the user believing the assistant can see something it cannot.
+   *
+   * Callers MUST gate this on `useSupportsVoiceCamera`. An assistant that
+   * predates the frame rejects it with `unknown_type`, which is
+   * indistinguishable on the wire from the `update_config` rejection handled
+   * below and would latch config updates off for the session. The gate hides
+   * the camera entirely on those assistants, so this is never reached.
+   */
+  attachImage(attachmentId: string): boolean {
+    if (this.state !== "active") {
+      return false;
+    }
+    return this.trySend(JSON.stringify({ type: "attach_image", attachmentId }));
+  }
+
+  /**
    * End the session gracefully: best-effort send `end`, then always close the
    * socket. A quick-cancel while still CONNECTING simply skips the (impossible)
    * `end` send and resolves as a clean close rather than a timeout failure.
    */
   end(): void {
-    if (this.state !== "connecting" && this.state !== "active") return;
+    if (this.state !== "connecting" && this.state !== "active") {
+      return;
+    }
     // Only the `end` frame is meaningful here, and it's strictly best-effort:
     // trySend() no-ops unless the socket is OPEN, so this never throws while the
     // socket is still CONNECTING. close() is reached unconditionally below.
@@ -347,7 +408,9 @@ export class LiveVoiceChannelClient {
 
   /** Close the WebSocket immediately. Idempotent. */
   close(): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
     this.teardown();
     // Locally initiated: `code: null` tells the controller this was a
     // deliberate close (never a reconnect trigger).
@@ -355,10 +418,13 @@ export class LiveVoiceChannelClient {
   }
 
   private handleOpen(): void {
-    if (this.state !== "connecting" || !this.ws) return;
+    if (this.state !== "connecting" || !this.ws) {
+      return;
+    }
     const startFrame: LiveVoiceClientStartFrame = {
       type: "start",
       audio: LIVE_VOICE_AUDIO_FORMAT,
+      client: detectClientOs(),
       ...(this.conversationId ? { conversationId: this.conversationId } : {}),
       ...(this.turnDetection ? { turnDetection: this.turnDetection } : {}),
       ...(this.silenceThresholdMs !== undefined
@@ -372,16 +438,22 @@ export class LiveVoiceChannelClient {
   }
 
   private handleMessage(event: MessageEvent): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
     // Inbound audio (if any) arrives as binary; the wire protocol carries all
     // server payloads as JSON text, so binary frames are not expected. Ignore
     // them rather than mis-parsing bytes as JSON.
-    if (typeof event.data !== "string") return;
+    if (typeof event.data !== "string") {
+      return;
+    }
 
     const frame = parseServerFrame(event.data);
     switch (frame.type) {
       case "ready":
-        if (this.state !== "connecting") return;
+        if (this.state !== "connecting") {
+          return;
+        }
         this.clearConnectTimeout();
         this.state = "active";
         this.emit("ready", frame);
@@ -408,6 +480,9 @@ export class LiveVoiceChannelClient {
       case "thinking":
         this.emit("thinking", frame);
         return;
+      case "activity":
+        this.emit("activity", frame);
+        return;
       case "assistant_text_delta":
         this.emit("assistantTextDelta", frame);
         return;
@@ -420,19 +495,46 @@ export class LiveVoiceChannelClient {
       case "turn_cancelled":
         this.emit("turnCancelled", frame);
         return;
+      case "minimize_room":
+        this.emit("minimizeRoom", frame);
+        return;
       case "metrics":
         this.emit("metrics", frame);
         return;
       case "archived":
         this.emit("archived", frame);
         return;
-      case "error":
-        // An assistant running daemon code older than a client frame we sent
-        // rejects it with `unknown_type`. The only frame we send optimistically
-        // is `update_config` (the voice-room settings), so this is a
-        // forward-compat no-op, not a session failure: latch it off and keep
-        // the session alive. Mirrors the `unknown_frame` handling below for the
-        // reverse (newer-server) direction.
+      case "error": {
+        // `frameType` names what the error is about, which is what keeps a
+        // failed photo out of the buckets it would otherwise land in.
+        //
+        // Two cases reach here for a photo. An assistant too old to know the
+        // frame rejects it with `unknown_type`, which is byte-identical to the
+        // `update_config` rejection this client has always sent
+        // optimistically; and a current assistant that could not store the
+        // photo answers with a `recoverable` error, which would otherwise be
+        // filed with the transient transcriber and TTS blips that share that
+        // flag. Both leave the user believing the assistant can see something
+        // it never received, so both are reported.
+        const about =
+          "frameType" in frame && typeof frame.frameType === "string"
+            ? frame.frameType
+            : null;
+        if (about === "attach_image") {
+          console.warn(`live-voice: photo not attached: ${frame.message}`);
+          this.emit("attachImageRejected", {
+            reason: frame.code === "unknown_type" ? "unsupported" : "failed",
+            message: frame.message,
+          });
+          return;
+        }
+        // Daemons predating `frameType` omit it, so an unattributed
+        // `unknown_type` falls back to the settings frame. That is the safe
+        // guess: it is the only frame this client sends without a version
+        // gate, and `attach_image` is gated on `useSupportsVoiceCamera` so it
+        // should never be in flight against an assistant that old. Anything
+        // new sent from here needs a gate or a `frameType`, or its rejection
+        // lands in the wrong bucket.
         if (frame.code === "unknown_type") {
           this.configUpdatesUnsupported = true;
           console.warn(
@@ -459,6 +561,7 @@ export class LiveVoiceChannelClient {
         }
         this.fail("protocol-error", frame.message, frame.code);
         return;
+      }
       case "unknown_frame":
         // Frame types from a newer server than this client. Ignore so
         // protocol additions never kill older clients.
@@ -470,7 +573,9 @@ export class LiveVoiceChannelClient {
   }
 
   private handleClose(event: CloseEvent): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
     // An unexpected close before `ready` is normally a connection failure — but
     // a *retryable* close (velay's 1012/1013) can land pre-`ready` when a
     // reconnect races the tunnel's re-registration. Forward those as a normal
@@ -494,7 +599,9 @@ export class LiveVoiceChannelClient {
   }
 
   private sendControlFrame(type: "ptt_release" | "interrupt"): void {
-    if (this.state !== "active") return;
+    if (this.state !== "active") {
+      return;
+    }
     this.trySend(JSON.stringify({ type }));
   }
 
@@ -504,11 +611,13 @@ export class LiveVoiceChannelClient {
    * `InvalidStateError` in browsers, so guarding on `readyState` keeps a
    * quick-cancel during connect (and any late send) from throwing.
    */
-  private trySend(data: string | ArrayBuffer): void {
+  private trySend(data: string | ArrayBuffer): boolean {
     const ws = this.ws;
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(data);
+      return true;
     }
+    return false;
   }
 
   private fail(
@@ -516,7 +625,9 @@ export class LiveVoiceChannelClient {
     message: string,
     code?: string,
   ): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
     this.teardown();
     this.emit("error", { reason, message, ...(code ? { code } : {}) });
     // Locally initiated after surfacing the failure; never a reconnect trigger.

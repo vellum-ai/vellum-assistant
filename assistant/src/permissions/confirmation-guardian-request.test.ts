@@ -50,7 +50,7 @@ mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
   },
 }));
 
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import { createGuardianRequestForConfirmation } from "./confirmation-guardian-request.js";
 
 const MSG = {

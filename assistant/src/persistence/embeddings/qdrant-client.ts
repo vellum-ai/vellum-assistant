@@ -29,9 +29,13 @@ const log = getLogger("qdrant-client");
  */
 export function resolveQdrantUrl(config: AssistantConfig): string {
   const port = getQdrantHttpPortEnv();
-  if (port) return `http://127.0.0.1:${port}`;
+  if (port) {
+    return `http://127.0.0.1:${port}`;
+  }
   const url = getQdrantUrlEnv();
-  if (url) return url;
+  if (url) {
+    return url;
+  }
   return config.memory.qdrant.url;
 }
 
@@ -56,7 +60,10 @@ export interface QdrantPointPayload {
     | "summary"
     | "media"
     | "graph_node"
-    | "pkb_file";
+    | "pkb_file"
+    // Plugin-owned semantic index. Never queried by any recall lane; scoped to
+    // the owning plugin via the `plugin` field.
+    | "plugin_index";
   target_id: string;
   text: string;
   kind?: string;
@@ -69,6 +76,25 @@ export interface QdrantPointPayload {
   conversation_id?: string;
   message_id?: string;
   modality?: "text" | "image" | "audio" | "video";
+  /**
+   * Manifest name of the plugin that owns this point. Set on `plugin_index`
+   * points so every read/delete can be scoped to the calling plugin and an
+   * uninstall can purge the plugin's entire namespace. Absent on host points.
+   */
+  plugin?: string;
+  /**
+   * The plugin-facing document id for a `plugin_index` point. The Qdrant
+   * `target_id` is namespace-qualified (`<plugin>:<documentId>`) to keep point
+   * identity unique across plugins; this field carries the bare id back to the
+   * owning plugin on query/get. Absent on host points.
+   */
+  document_id?: string;
+  /**
+   * Opaque, plugin-supplied metadata carried alongside a `plugin_index` point
+   * (provenance such as a row id, file id, or source tool). Round-tripped
+   * verbatim on query/get; never interpreted by the host.
+   */
+  meta?: Record<string, unknown>;
 }
 
 export interface QdrantSearchResult {
@@ -182,7 +208,9 @@ export class VellumQdrantClient {
   }
 
   async ensureCollection(): Promise<{ migrated: boolean }> {
-    if (this.collectionReady) return { migrated: false };
+    if (this.collectionReady) {
+      return { migrated: false };
+    }
 
     // A leftover sentinel means a prior boot deleted the collection but never
     // got to enqueue the rebuild (createCollection threw, or the process died
@@ -407,10 +435,14 @@ export class VellumQdrantClient {
     )?.sparse_vectors;
     // No sparse config in the probe — nothing to move. (A collection without
     // the `sparse` named vector cannot accept an index update for it.)
-    if (!sparseParams || !("sparse" in sparseParams)) return;
+    if (!sparseParams || !("sparse" in sparseParams)) {
+      return;
+    }
 
     const current = sparseParams.sparse?.index?.on_disk ?? false;
-    if (current === this.onDisk) return;
+    if (current === this.onDisk) {
+      return;
+    }
 
     try {
       await this.client.updateCollection(this.collection, {
@@ -716,6 +748,128 @@ export class VellumQdrantClient {
     }
   }
 
+  /**
+   * Fetch a single point by (target_type, target_id) with its payload,
+   * optionally requiring a matching `plugin` scope. Returns null when no such
+   * point exists (or it belongs to a different plugin). Used by the plugin
+   * index facade to implement `getPluginDocument` without exposing raw scroll.
+   */
+  async getByTarget(
+    targetType: string,
+    targetId: string,
+    opts?: { plugin?: string },
+  ): Promise<{ id: string; payload: QdrantPointPayload } | null> {
+    await this.ensureCollection();
+
+    const must: Array<Record<string, unknown>> = [
+      { key: "target_type", match: { value: targetType } },
+      { key: "target_id", match: { value: targetId } },
+    ];
+    if (opts?.plugin !== undefined) {
+      must.push({ key: "plugin", match: { value: opts.plugin } });
+    }
+    const filter = {
+      must,
+      must_not: [{ key: "_meta", match: { value: true } }],
+    };
+
+    const doScroll = () =>
+      this.client.scroll(this.collection, {
+        filter,
+        limit: 1,
+        with_payload: true,
+        with_vector: false,
+      });
+
+    let result;
+    try {
+      result = await doScroll();
+    } catch (err) {
+      if (this.isCollectionMissing(err)) {
+        this.collectionReady = false;
+        await this.ensureCollection();
+        result = await doScroll();
+      } else {
+        throw err;
+      }
+    }
+
+    const point = result.points[0];
+    if (!point) {
+      return null;
+    }
+    return {
+      id: typeof point.id === "string" ? point.id : String(point.id),
+      payload: point.payload as unknown as QdrantPointPayload,
+    };
+  }
+
+  /**
+   * Delete a single plugin-owned point, scoped to (target_type, target_id,
+   * plugin). The `plugin` predicate guarantees one plugin can never remove
+   * another plugin's point even if it guesses the target id.
+   */
+  async deleteByTargetAndPlugin(
+    targetType: string,
+    targetId: string,
+    plugin: string,
+  ): Promise<void> {
+    await this.ensureCollection();
+
+    const doDelete = () =>
+      this.client.delete(this.collection, {
+        wait: true,
+        filter: {
+          must: [
+            { key: "target_type", match: { value: targetType } },
+            { key: "target_id", match: { value: targetId } },
+            { key: "plugin", match: { value: plugin } },
+          ],
+        },
+      });
+
+    try {
+      await doDelete();
+    } catch (err) {
+      if (this.isCollectionMissing(err)) {
+        this.collectionReady = false;
+        await this.ensureCollection();
+        await doDelete();
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  /**
+   * Delete every point owned by a plugin (all `plugin` matches, any
+   * target_type). Backs `purgePluginEmbeddings` on plugin uninstall so no
+   * orphaned vectors survive removal of the plugin directory.
+   */
+  async deleteByPlugin(plugin: string): Promise<void> {
+    await this.ensureCollection();
+
+    const doDelete = () =>
+      this.client.delete(this.collection, {
+        wait: true,
+        filter: {
+          must: [{ key: "plugin", match: { value: plugin } }],
+        },
+      });
+
+    try {
+      await doDelete();
+    } catch (err) {
+      if (this.isCollectionMissing(err)) {
+        this.collectionReady = false;
+        await this.ensureCollection();
+        await doDelete();
+      } else {
+        throw err;
+      }
+    }
+  }
+
   async count(): Promise<number> {
     await this.ensureCollection();
 
@@ -738,7 +892,9 @@ export class VellumQdrantClient {
   async deleteCollection(): Promise<boolean> {
     try {
       const exists = await this.client.collectionExists(this.collection);
-      if (!exists.exists) return false;
+      if (!exists.exists) {
+        return false;
+      }
       await this.client.deleteCollection(this.collection);
       this.collectionReady = false;
       return true;
@@ -825,6 +981,10 @@ export class VellumQdrantClient {
         field_name: "path",
         field_schema: "keyword",
       }),
+      this.client.createPayloadIndex(this.collection, {
+        field_name: "plugin",
+        field_schema: "keyword",
+      }),
     ]);
   }
 
@@ -835,7 +995,9 @@ export class VellumQdrantClient {
         with_payload: true,
         with_vector: false,
       });
-      if (points.length === 0) return null;
+      if (points.length === 0) {
+        return null;
+      }
       return (
         ((points[0].payload as Record<string, unknown>)
           ?.embedding_model as string) ?? null
@@ -907,7 +1069,9 @@ export class VellumQdrantClient {
           out.push({ id, payload });
         }
         const next = result.next_page_offset;
-        if (next == null) break;
+        if (next == null) {
+          break;
+        }
         offset = typeof next === "string" ? next : (next as number);
       }
       return out;

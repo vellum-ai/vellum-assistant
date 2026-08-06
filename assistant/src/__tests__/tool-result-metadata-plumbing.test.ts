@@ -26,6 +26,7 @@ mock.module("../persistence/llm-request-log-store.js", () => ({
 }));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
+import type { AssistantEvent } from "../api/index.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -34,7 +35,6 @@ import {
   createEventHandlerState,
   handleToolResult,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 
 type ToolResultEvent = Extract<AssistantEvent, { type: "tool_result" }>;

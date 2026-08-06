@@ -44,14 +44,20 @@ function McpPageInner() {
   const flagsHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
 
   const [addModalOpen, setAddModalOpen] = useState(false);
-  const [configureServerId, setConfigureServerId] = useState<string | null>(null);
+  const [configureServerId, setConfigureServerId] = useState<string | null>(
+    null,
+  );
   const [removeServerId, setRemoveServerId] = useState<string | null>(null);
-  const [pendingMutations, setPendingMutations] = useState<Set<string>>(new Set());
+  const [pendingMutations, setPendingMutations] = useState<Set<string>>(
+    new Set(),
+  );
   const [isAdding, setIsAdding] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isReloading, setIsReloading] = useState(false);
-  const [authenticatingServerId, setAuthenticatingServerId] = useState<string | null>(null);
+  const [authenticatingServerId, setAuthenticatingServerId] = useState<
+    string | null
+  >(null);
   const [revokingServerId, setRevokingServerId] = useState<string | null>(null);
 
   const {
@@ -69,8 +75,12 @@ function McpPageInner() {
   });
 
   const invalidateAll = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: [MCP_SERVERS_KEY, assistantId] });
-    void queryClient.invalidateQueries({ queryKey: [MCP_TOOLS_KEY, assistantId] });
+    void queryClient.invalidateQueries({
+      queryKey: [MCP_SERVERS_KEY, assistantId],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: [MCP_TOOLS_KEY, assistantId],
+    });
   }, [queryClient, assistantId]);
 
   const toolsByServer = useMemo(() => {
@@ -154,7 +164,9 @@ function McpPageInner() {
             return;
           }
           if (status.status === "error") {
-            toast.error(status.error ?? `Authentication failed for ${serverId}`);
+            toast.error(
+              status.error ?? `Authentication failed for ${serverId}`,
+            );
             return;
           }
         }
@@ -240,7 +252,9 @@ function McpPageInner() {
               return;
             }
             if (status.status === "error") {
-              toast.error(status.error ?? `Authentication failed for ${config.name}`);
+              toast.error(
+                status.error ?? `Authentication failed for ${config.name}`,
+              );
               return;
             }
           }
@@ -258,12 +272,15 @@ function McpPageInner() {
   );
 
   const handleSave = useCallback(
-    async (serverId: string, updates: {
-      name: string;
-      defaultRiskLevel?: string;
-      maxTools?: number;
-      headers?: Record<string, string> | null;
-    }) => {
+    async (
+      serverId: string,
+      updates: {
+        name: string;
+        defaultRiskLevel?: string;
+        maxTools?: number;
+        headers?: Record<string, string> | null;
+      },
+    ) => {
       setIsSaving(true);
       try {
         await updateMcpServer(assistantId, updates);
@@ -306,16 +323,21 @@ function McpPageInner() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-title-small text-[var(--content-default)]">MCP Servers</h2>
+          <h2 className="text-title-small text-[var(--content-default)]">
+            MCP Servers
+          </h2>
           <p className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
-            Manage Model Context Protocol server connections and their registered tools.
+            Manage Model Context Protocol server connections and their
+            registered tools.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button
             variant="ghost"
             size="compact"
-            iconOnly={<RefreshCw className={isReloading ? "animate-spin" : ""} />}
+            iconOnly={
+              <RefreshCw className={isReloading ? "animate-spin" : ""} />
+            }
             onClick={handleReload}
             disabled={isReloading}
             tooltip="Reload all servers"
@@ -336,8 +358,13 @@ function McpPageInner() {
 
       {toolsData ? (
         <div className="flex gap-4 text-body-small-default text-[var(--content-tertiary)]">
-          <span>{toolsData.totalToolCount} total {toolsData.totalToolCount === 1 ? "tool" : "tools"}</span>
-          <span>~{toolsData.totalEstimatedTokens.toLocaleString()} total tokens</span>
+          <span>
+            {toolsData.totalToolCount} total{" "}
+            {toolsData.totalToolCount === 1 ? "tool" : "tools"}
+          </span>
+          <span>
+            ~{toolsData.totalEstimatedTokens.toLocaleString()} total tokens
+          </span>
         </div>
       ) : null}
 
@@ -358,7 +385,9 @@ function McpPageInner() {
           className="flex w-full flex-col items-center gap-2 rounded-lg border border-dashed border-[var(--border-element)] px-4 py-12 text-center transition-colors hover:border-[var(--border-active)] hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] disabled:pointer-events-none"
         >
           <Cable className="h-6 w-6 text-[var(--content-disabled)]" />
-          <p className="text-body-medium-default text-[var(--content-default)]">No MCP Servers</p>
+          <p className="text-body-medium-default text-[var(--content-default)]">
+            No MCP Servers
+          </p>
           <p className="text-body-small-default text-[var(--content-tertiary)]">
             {mcpAddServerEnabled
               ? "Add an MCP server to extend your assistant with external tools."
@@ -396,7 +425,9 @@ function McpPageInner() {
 
       <McpServerDetailModal
         server={configureServer}
-        toolsSummary={configureServerId ? toolsByServer.get(configureServerId) : undefined}
+        toolsSummary={
+          configureServerId ? toolsByServer.get(configureServerId) : undefined
+        }
         onClose={() => setConfigureServerId(null)}
         onSave={handleSave}
         isPending={isSaving}

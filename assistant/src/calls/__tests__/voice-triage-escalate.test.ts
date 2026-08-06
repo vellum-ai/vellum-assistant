@@ -316,10 +316,9 @@ describe("escalation continuation content", () => {
 
 // This module is the surface-agnostic escalation *policy* (profiles, prompt
 // rules, the verdict classifier, the bridge cap/fallback decision). The
-// two-leg *routing* runs on the in-app Voice Mode surface (LiveVoiceSession),
-// gated behind the single voice-mode flag — see
-// live-voice/__tests__/live-voice-triage-escalate.test.ts for the orchestration
-// coverage (flag gating, verdict-first hand-off, token suppression, fallback
+// two-leg *routing* runs on the in-app Voice Mode surface (LiveVoiceSession)
+// — see live-voice/__tests__/live-voice-triage-escalate.test.ts for the
+// orchestration coverage (verdict-first hand-off, token suppression, fallback
 // bridge, barge-in). What remains for the manual cli-testing flow is true
 // end-to-end audio: real TTS timing across the bridge, and the residual
 // broadcast raw-token leak (issue #37850, shared by both voice surfaces) once

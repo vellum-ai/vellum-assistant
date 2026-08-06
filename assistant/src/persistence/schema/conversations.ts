@@ -38,6 +38,16 @@ export const conversations = sqliteTable(
     forkParentConversationId: text("fork_parent_conversation_id"),
     forkParentMessageId: text("fork_parent_message_id"),
     /**
+     * How this conversation's fork was materialized: `reference` means the
+     * rows at-or-before `forkParentMessageId` live on the parent and are read
+     * through it, `cloning` (and NULL, the value every pre-existing fork
+     * carries) means they were physically copied onto this row. Read through
+     * `isReferentialFork` in `conversation-lineage.ts`, never directly: the
+     * NULL-is-cloning default is what keeps existing forks from being read
+     * twice, once from their copies and once through their parent.
+     */
+    forkStrategy: text("fork_strategy"),
+    /**
      * Id of the conversation that spawned this one (subagent spawns stamp
      * their parent's conversation id). Distinct from
      * `forkParentConversationId`, which records message-history inheritance;
@@ -45,6 +55,28 @@ export const conversations = sqliteTable(
      * conversations not spawned by another conversation.
      */
     parentConversationId: text("parent_conversation_id"),
+    /**
+     * Role the subagent that owns this conversation was spawned with, from
+     * `SUBAGENT_ROLE_REGISTRY` (`researcher`, `builder`, `advisor`); a spawn
+     * that named no role records the default, `builder`. NULL for every
+     * conversation that is not a subagent.
+     *
+     * Denormalized here rather than read from the `subagents` table at
+     * telemetry-flush time on purpose: `subagents` rows are deleted on
+     * dispose (TTL sweep ~30 minutes after the run goes terminal), while
+     * usage telemetry flushes on a watermark that can trail arbitrarily far
+     * behind after an ingest outage. Stamping the conversation row, the same
+     * rationale that put `parent_conversation_id` here, makes the
+     * attribution durable for the life of the usage row.
+     */
+    subagentRole: text("subagent_role"),
+    /**
+     * How the subagent that owns this conversation was spawned: context
+     * inheritance and lifecycle, orthogonal to {@link subagentRole}. One of
+     * the modes described on `SubagentSpawnMode` in `subagent/types.ts`. NULL
+     * for every conversation that is not a subagent.
+     */
+    subagentSpawnMode: text("subagent_spawn_mode"),
     isAutoTitle: integer("is_auto_title").notNull().default(1),
     scheduleJobId: text("schedule_job_id"),
     lastMessageAt: integer("last_message_at"),

@@ -62,13 +62,13 @@ import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migra
 import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import { unwrapMemoryBlock, wrapMemoryBlock } from "../../memory-marker.js";
+import type { PageIndexEntry } from "../../substrate/page-index.js";
 import { cardBytes, renderCard } from "../card.js";
 import { loadCoreSet } from "../core-set.js";
 import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";
 import { buildSectionNeedle } from "../section-needle.js";
 import { buildSectionIndex } from "../sections.js";
-import type { PageIndexEntry } from "../substrate/page-index.js";
 import {
   MEMORY_V3_COMMIT_META_KEY,
   type SectionIndex,
@@ -442,6 +442,7 @@ async function buildFixtureLanes(): Promise<FixtureLanes> {
     edges: [],
     leaves: [],
     modifiedAt: 0,
+    freshAt: null,
   }));
   const edgeGraph = await buildEdgeGraph(entries, async (slug) => RAW[slug]!);
 
@@ -490,7 +491,9 @@ function candidateSlugs(messages: Message[]): Slug[] {
   const entries: Array<{ id: number; slug: string }> = [];
   for (const msg of messages) {
     for (const block of msg.content) {
-      if (block.type !== "text") continue;
+      if (block.type !== "text") {
+        continue;
+      }
       const cards = /<candidate_cards>\n([\s\S]*?)\n<\/candidate_cards>/.exec(
         block.text,
       );
@@ -507,7 +510,9 @@ function candidateSlugs(messages: Message[]): Slug[] {
       if (finder) {
         for (const line of finder[1].split("\n")) {
           const m = /^\[(\d+)\] (?:\([^)]*\) )?(\S+)(?: — |$)/.exec(line);
-          if (m) entries.push({ id: Number(m[1]), slug: m[2]! });
+          if (m) {
+            entries.push({ id: Number(m[1]), slug: m[2]! });
+          }
         }
       }
     }
@@ -530,7 +535,9 @@ function makeProviderStub(): Provider {
       );
       const ids: number[] = [];
       candidateSlugs(messages).forEach((slug, i) => {
-        if (keep.includes(slug)) ids.push(i + 1);
+        if (keep.includes(slug)) {
+          ids.push(i + 1);
+        }
       });
       return toolUseResponse({ ids });
     },
@@ -614,13 +621,16 @@ async function runTurn(
 
   const activeBefore = getActiveSlugs(convId);
   const cards = await memoryV3Injector.produce(ctx);
-  if (!cards)
+  if (!cards) {
     throw new Error(`turn ${turnIndex}: cards injector returned null`);
+  }
   // Runtime assembly invokes the block's attachment-commit callback at its
   // user-tail commit point — this is where the everInjected store records
   // the turn's cards (and the prune valve is scheduled).
   const commit = cards.meta?.[MEMORY_V3_COMMIT_META_KEY];
-  if (typeof commit === "function") (commit as () => void)();
+  if (typeof commit === "function") {
+    (commit as () => void)();
+  }
   const netNewSlugs = [...getActiveSlugs(convId)].filter(
     (slug) => !activeBefore.has(slug),
   );
@@ -883,7 +893,9 @@ beforeAll(async () => {
 afterAll(async () => {
   await flushPruneValveForTests();
   carryMockActive = false;
-  if (workspaceDir) rmSync(workspaceDir, { recursive: true, force: true });
+  if (workspaceDir) {
+    rmSync(workspaceDir, { recursive: true, force: true });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -993,7 +1005,9 @@ describe("memory-v3 carry integration — cache contract", () => {
     let expected = 0;
     for (const record of records) {
       expected += record.netNewBytes;
-      if (record.turn === 7) expected -= pruneWindow.bytesFreedExpected;
+      if (record.turn === 7) {
+        expected -= pruneWindow.bytesFreedExpected;
+      }
       expect(record.residentBytes).toBe(expected);
     }
   });

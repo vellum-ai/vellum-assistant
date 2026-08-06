@@ -2,6 +2,10 @@ import type { DrizzleDb } from "../../../persistence/db-connection.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
 import {
+  extractInjectedConceptSlugs,
+  readInjectedBlock,
+} from "./substrate/injected-block-slugs.js";
+import {
   forkActivationState,
   seedForkActivationState,
 } from "./v2/activation-store.js";
@@ -10,10 +14,6 @@ import {
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   seedEverInjectedFromSlugs,
 } from "./v3/ever-injected-store.js";
-import {
-  extractInjectedConceptSlugs,
-  readInjectedBlock,
-} from "./v3/substrate/injected-block-slugs.js";
 
 /** Inputs to {@link forkConversationMemory}. */
 export interface ForkConversationMemoryInput {

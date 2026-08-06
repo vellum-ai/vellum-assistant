@@ -21,6 +21,12 @@
  * `Date#toISOString()`.
  */
 
+/**
+ * Pairing-challenge TTL in milliseconds (10 minutes): the gateway's challenge
+ * store enforces it and the `vellum pair` CLI renders it in user-facing copy.
+ */
+export const REMOTE_WEB_PAIRING_CODE_TTL_MS = 10 * 60 * 1000;
+
 /** `POST /v1/remote-web/pairing-challenge` request body. */
 export interface RemoteWebPairingChallengeRequest {
   /** Public https base URL the scanning device can reach the assistant at. */
@@ -204,7 +210,7 @@ export function isLoopbackPublicUrl(url: string): boolean {
  * removed so a pasted pair-page URL collapses to its base, and trailing
  * slashes trimmed. Throws if the value is not a parseable URL.
  */
-export function normalizePublicBaseUrl(value: string): string {
+export function normalizePairingBaseUrl(value: string): string {
   const url = new URL(value);
   url.search = "";
   url.hash = "";
@@ -225,7 +231,7 @@ export function normalizePublicBaseUrl(value: string): string {
 export function resolvePublicBaseUrl(raw: string): PublicBaseUrlResult {
   let normalized: string;
   try {
-    normalized = normalizePublicBaseUrl(raw);
+    normalized = normalizePairingBaseUrl(raw);
   } catch {
     return { ok: false, reason: "unparseable" };
   }

@@ -13,6 +13,8 @@ const {
   saveLockfileAssistantHost,
   replacePlatformAssistantsHost,
   retireLocalAssistantHost,
+  unpairAssistantHost,
+  connectImportHost,
   upgradeLocalAssistantHost,
   wakeLocalAssistantHost,
   getLocalAssistantStatusHost,
@@ -60,7 +62,7 @@ describe("hatchLocalAssistant", () => {
     expect(JSON.parse(init.body as string)).toEqual({ species: "openclaw" });
   });
 
-  test("defaults the species to \"vellum\" when the caller passes none", async () => {
+  test('defaults the species to "vellum" when the caller passes none', async () => {
     const fetchMock = mock(async () => ({ json: async () => ({ ok: true }) }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
@@ -85,7 +87,10 @@ describe("hatchLocalAssistant", () => {
       string,
       RequestInit,
     ];
-    expect(JSON.parse(init.body as string)).toEqual({ species: "vellum", remote: "docker" });
+    expect(JSON.parse(init.body as string)).toEqual({
+      species: "vellum",
+      remote: "docker",
+    });
   });
 
   test("Electron host routes to the main-process bridge and never touches fetch", async () => {
@@ -95,8 +100,9 @@ describe("hatchLocalAssistant", () => {
       throw new Error("fetch must not run on the Electron branch");
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
-    (window as unknown as { vellum: { localMode: { hatch: typeof hatch } } }).vellum =
-      { localMode: { hatch } };
+    (
+      window as unknown as { vellum: { localMode: { hatch: typeof hatch } } }
+    ).vellum = { localMode: { hatch } };
 
     const result = await hatchLocalAssistant("vellum");
 
@@ -107,13 +113,17 @@ describe("hatchLocalAssistant", () => {
 
   test("Electron host forwards remote to the bridge", async () => {
     runningInElectron = true;
-    const hatch = mock(async () => ({ ok: true, assistantId: "electron-docker-1" }));
+    const hatch = mock(async () => ({
+      ok: true,
+      assistantId: "electron-docker-1",
+    }));
     const fetchMock = mock(async () => {
       throw new Error("fetch must not run on the Electron branch");
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
-    (window as unknown as { vellum: { localMode: { hatch: typeof hatch } } }).vellum =
-      { localMode: { hatch } };
+    (
+      window as unknown as { vellum: { localMode: { hatch: typeof hatch } } }
+    ).vellum = { localMode: { hatch } };
 
     const result = await hatchLocalAssistant("vellum", "docker");
 
@@ -125,14 +135,18 @@ describe("hatchLocalAssistant", () => {
 
 const setElectronBridge = (localMode: Record<string, unknown>): void => {
   runningInElectron = true;
-  (window as unknown as { vellum: { localMode: Record<string, unknown> } }).vellum =
-    { localMode };
+  (
+    window as unknown as { vellum: { localMode: Record<string, unknown> } }
+  ).vellum = { localMode };
 };
 
 describe("loadLockfileHost", () => {
   test("web/dev host GETs the lockfile middleware and returns its JSON", async () => {
     const lockfile = { assistants: [], activeAssistant: null };
-    const fetchMock = mock(async () => ({ ok: true, json: async () => lockfile }));
+    const fetchMock = mock(async () => ({
+      ok: true,
+      json: async () => lockfile,
+    }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     expect(await loadLockfileHost()).toEqual(lockfile);
@@ -173,7 +187,10 @@ describe("saveLockfileAssistantHost", () => {
 
     await saveLockfileAssistantHost({ assistantId: "a-1" }, "a-1");
 
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
     expect(url).toBe("/assistant/__local/lockfile");
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body as string)).toEqual({
@@ -183,7 +200,10 @@ describe("saveLockfileAssistantHost", () => {
   });
 
   test("Electron host writes through the bridge and never touches fetch", async () => {
-    const saveLockfileAssistant = mock(async () => ({ ok: true, lockfile: {} }));
+    const saveLockfileAssistant = mock(async () => ({
+      ok: true,
+      lockfile: {},
+    }));
     const fetchMock = mock(async () => {
       throw new Error("fetch must not run on the Electron branch");
     });
@@ -192,7 +212,10 @@ describe("saveLockfileAssistantHost", () => {
 
     await saveLockfileAssistantHost({ assistantId: "a-1" }, "a-1");
 
-    expect(saveLockfileAssistant).toHaveBeenCalledWith({ assistantId: "a-1" }, "a-1");
+    expect(saveLockfileAssistant).toHaveBeenCalledWith(
+      { assistantId: "a-1" },
+      "a-1",
+    );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
@@ -206,7 +229,10 @@ describe("replacePlatformAssistantsHost", () => {
 
     await replacePlatformAssistantsHost([{ assistantId: "p-1" }], "org-1");
 
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
     expect(url).toBe("/assistant/__local/lockfile");
     expect(JSON.parse(init.body as string)).toEqual({
       syncPlatform: true,
@@ -216,7 +242,10 @@ describe("replacePlatformAssistantsHost", () => {
   });
 
   test("Electron host replaces through the bridge with the active org and never touches fetch", async () => {
-    const replacePlatformAssistants = mock(async () => ({ ok: true, lockfile: {} }));
+    const replacePlatformAssistants = mock(async () => ({
+      ok: true,
+      lockfile: {},
+    }));
     const fetchMock = mock(async () => {
       throw new Error("fetch must not run on the Electron branch");
     });
@@ -240,7 +269,10 @@ describe("retireLocalAssistantHost", () => {
 
     await retireLocalAssistantHost("a-1");
 
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
     expect(url).toBe("/assistant/__local/retire");
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body as string)).toEqual({ assistantId: "a-1" });
@@ -260,13 +292,145 @@ describe("retireLocalAssistantHost", () => {
   });
 });
 
+describe("unpairAssistantHost", () => {
+  const emptyLockfile = { assistants: [], activeAssistant: null };
+
+  test("web/dev host POSTs the assistant id to the unpair middleware", async () => {
+    const fetchMock = mock(async () => ({
+      json: async () => ({ ok: true, lockfile: emptyLockfile }),
+    }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    expect(await unpairAssistantHost("a-1")).toEqual({
+      ok: true,
+      lockfile: emptyLockfile,
+    });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe("/assistant/__local/unpair");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ assistantId: "a-1" });
+  });
+
+  test("web/dev host surfaces the host's structured refusal", async () => {
+    globalThis.fetch = mock(async () => ({
+      json: async () => ({ ok: false, error: "No such assistant" }),
+    })) as unknown as typeof fetch;
+
+    expect(await unpairAssistantHost("a-1")).toEqual({
+      ok: false,
+      error: "No such assistant",
+    });
+  });
+
+  test("Electron host unpairs through the bridge and never touches fetch", async () => {
+    const unpair = mock(async () => ({ ok: true, lockfile: emptyLockfile }));
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the Electron branch");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    setElectronBridge({ unpair });
+
+    expect(await unpairAssistantHost("a-1")).toEqual({
+      ok: true,
+      lockfile: emptyLockfile,
+    });
+    expect(unpair).toHaveBeenCalledWith("a-1");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("older Electron shell without the unpair channel reports an unsupported failure", async () => {
+    setElectronBridge({});
+
+    expect(await unpairAssistantHost("a-1")).toEqual({
+      ok: false,
+      error: "Unpair is not supported by this app version",
+    });
+  });
+});
+
+describe("connectImportHost", () => {
+  test("web/dev host POSTs the bundle and name to the connect-import middleware", async () => {
+    const fetchMock = mock(async () => ({
+      json: async () => ({ ok: true, assistantId: "desk", accessOnly: false }),
+    }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    expect(await connectImportHost("eyJnYXRld2F5", "desk")).toEqual({
+      ok: true,
+      assistantId: "desk",
+      accessOnly: false,
+    });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe("/assistant/__local/connect-import");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({
+      bundle: "eyJnYXRld2F5",
+      name: "desk",
+    });
+  });
+
+  test("web/dev host surfaces the host's structured refusal", async () => {
+    globalThis.fetch = mock(async () => ({
+      json: async () => ({
+        ok: false,
+        error: "An assistant named 'desk' already exists",
+      }),
+    })) as unknown as typeof fetch;
+
+    expect(await connectImportHost("eyJnYXRld2F5", "desk")).toEqual({
+      ok: false,
+      error: "An assistant named 'desk' already exists",
+    });
+  });
+
+  test("Electron host imports through the bridge and never touches fetch", async () => {
+    const connectImport = mock(async () => ({
+      ok: true,
+      assistantId: "paired-dev-1",
+      accessOnly: true,
+    }));
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the Electron branch");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    setElectronBridge({ connectImport });
+
+    expect(await connectImportHost("eyJnYXRld2F5")).toEqual({
+      ok: true,
+      assistantId: "paired-dev-1",
+      accessOnly: true,
+    });
+    expect(connectImport).toHaveBeenCalledWith("eyJnYXRld2F5", undefined);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("older Electron shell without the connectImport channel reports an unsupported failure", async () => {
+    setElectronBridge({});
+
+    expect(await connectImportHost("eyJnYXRld2F5")).toEqual({
+      ok: false,
+      error:
+        "Connecting a paired assistant is not supported by this app version",
+    });
+  });
+});
+
 describe("wakeLocalAssistantHost", () => {
   test("web/dev host POSTs the assistant id to the wake middleware", async () => {
     const fetchMock = mock(async () => ({ json: async () => ({ ok: true }) }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     expect(await wakeLocalAssistantHost("a-1")).toEqual({ ok: true });
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
     expect(url).toBe("/assistant/__local/wake");
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body as string)).toEqual({ assistantId: "a-1" });
@@ -278,7 +442,10 @@ describe("wakeLocalAssistantHost", () => {
 
     await wakeLocalAssistantHost("a-1", { repairGuardian: true });
 
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
     expect(JSON.parse(init.body as string)).toEqual({
       assistantId: "a-1",
       repairGuardian: true,
@@ -330,9 +497,10 @@ describe("upgradeLocalAssistantHost", () => {
     }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    expect(
-      await upgradeLocalAssistantHost("a-1", { latest: true }),
-    ).toEqual({ ok: true, version: "v1.2.3" });
+    expect(await upgradeLocalAssistantHost("a-1", { latest: true })).toEqual({
+      ok: true,
+      version: "v1.2.3",
+    });
     const [url, init] = fetchMock.mock.calls[0] as unknown as [
       string,
       RequestInit,

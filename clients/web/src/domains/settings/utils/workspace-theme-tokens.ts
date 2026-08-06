@@ -44,33 +44,31 @@ export interface WorkspaceTheme {
  * control. Grouped so no base-theme color in the same visual role leaks
  * through a partial override.
  */
-const TOKEN_TO_CSS_VARS: Record<
-  keyof WorkspaceThemeTokens,
-  readonly string[]
-> = {
-  accent: ["--primary-base", "--primary-hover", "--primary-active"],
-  background: ["--background", "--surface-base", "--surface-sunken"],
-  surface: ["--surface-overlay", "--surface-active"],
-  surfaceRaised: ["--surface-lift"],
-  border: ["--border-base", "--border-element", "--border-subtle"],
-  text: [
-    "--foreground",
-    "--content-default",
-    "--content-emphasised",
-    "--content-strong",
-  ],
-  textMuted: [
-    "--content-secondary",
-    "--content-tertiary",
-    "--content-quiet",
-    "--content-faint",
-  ],
-  userBubbleBackground: ["--user-bubble-bg"],
-  userBubbleText: ["--user-bubble-text"],
-  // Deferred until assistant messages have a themeable surface (see docstring).
-  assistantBubbleBackground: [],
-  assistantBubbleText: [],
-};
+const TOKEN_TO_CSS_VARS: Record<keyof WorkspaceThemeTokens, readonly string[]> =
+  {
+    accent: ["--primary-base", "--primary-hover", "--primary-active"],
+    background: ["--background", "--surface-base", "--surface-sunken"],
+    surface: ["--surface-overlay", "--surface-active"],
+    surfaceRaised: ["--surface-lift"],
+    border: ["--border-base", "--border-element", "--border-subtle"],
+    text: [
+      "--foreground",
+      "--content-default",
+      "--content-emphasised",
+      "--content-strong",
+    ],
+    textMuted: [
+      "--content-secondary",
+      "--content-tertiary",
+      "--content-quiet",
+      "--content-faint",
+    ],
+    userBubbleBackground: ["--user-bubble-bg"],
+    userBubbleText: ["--user-bubble-text"],
+    // Deferred until assistant messages have a themeable surface (see docstring).
+    assistantBubbleBackground: [],
+    assistantBubbleText: [],
+  };
 
 /**
  * The design-library text color that renders on top of `--primary-base`

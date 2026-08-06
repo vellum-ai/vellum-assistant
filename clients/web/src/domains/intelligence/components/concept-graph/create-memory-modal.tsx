@@ -39,7 +39,9 @@ export function CreateMemoryModal({
 
   const handleCreate = useCallback(async () => {
     const trimmed = content.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      return;
+    }
 
     setIsSaving(true);
     try {
@@ -56,8 +58,8 @@ export function CreateMemoryModal({
       // the toast just confirms; otherwise it sets the "look for it" tone.
       toast.success(
         result.pendingNodeId
-          ? "Got it — taking you to it."
-          : "Got it — it's on your map while I file it away.",
+          ? "Got it. Taking you to it."
+          : "Got it. It's on your map while I file it away.",
       );
       setContent("");
       onOpenChange(false);
@@ -122,7 +124,9 @@ export function CreateMemoryModal({
             variant="primary"
             onClick={handleCreate}
             disabled={isSaving || !content.trim()}
-            leftIcon={isSaving ? <Loader2 className="animate-spin" /> : undefined}
+            leftIcon={
+              isSaving ? <Loader2 className="animate-spin" /> : undefined
+            }
           >
             {isSaving ? "Creating…" : "Create memory"}
           </Button>

@@ -250,7 +250,8 @@ function messageParts(
   const chunks = messageChunks(message.content);
   return chunks.map((chunk) => ({
     region: "messages",
-    title: chunks.length > 1 ? `${label} · block ${chunk.lastBlockNumber}` : label,
+    title:
+      chunks.length > 1 ? `${label} · block ${chunk.lastBlockNumber}` : label,
     summary: null,
     estimatedTokens: chunk.estimatedTokens,
     hasBreakpoint: chunk.hasBreakpoint,
@@ -258,7 +259,9 @@ function messageParts(
   }));
 }
 
-function buildPrefixParts(request: Record<string, unknown>): PrefixPart[] | null {
+function buildPrefixParts(
+  request: Record<string, unknown>,
+): PrefixPart[] | null {
   const messages = asArray(request.messages);
   if (!messages) {
     return null;

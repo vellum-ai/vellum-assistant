@@ -50,7 +50,10 @@ describe("TakeoverBackdrop", () => {
 
   test("omits the reveal when animateIn is false", () => {
     const { getByTestId } = render(
-      <TakeoverBackdrop imageUrl="https://cdn.test/avatar.png" animateIn={false} />,
+      <TakeoverBackdrop
+        imageUrl="https://cdn.test/avatar.png"
+        animateIn={false}
+      />,
     );
     expect(getByTestId("takeover-backdrop").className).not.toContain(
       "provision-avatar-reveal",

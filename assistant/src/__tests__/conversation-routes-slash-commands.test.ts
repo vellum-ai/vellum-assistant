@@ -252,7 +252,16 @@ function makeConversation() {
     runAgentLoop,
     forceCompact,
     setPreactivatedSkillIds,
-    drainQueue: async () => {},
+    drainQueue: async (_reason?: string) => {},
+    // Forwards to drainQueue so tests that replace the drain observe the
+    // route's queue kick through the guarded entry point.
+    kickDrainQueue(
+      this: { drainQueue: (reason?: string) => unknown },
+      reason: string = "loop_complete",
+      _origin?: string,
+    ) {
+      return this.drainQueue(reason);
+    },
     warmPromptCache: () => {},
     getMessages: () => messages,
     assistantId: "self",

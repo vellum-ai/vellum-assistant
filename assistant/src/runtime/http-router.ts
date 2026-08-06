@@ -61,10 +61,16 @@ export class HttpRouter {
       ? endpoint.slice(0, -1)
       : endpoint;
     for (const compiled of this.compiledRoutes) {
-      if (compiled.def.method !== method) continue;
-      if (!compiled.regex.test(normalized)) continue;
+      if (compiled.def.method !== method) {
+        continue;
+      }
+      if (!compiled.regex.test(normalized)) {
+        continue;
+      }
       const config = compiled.def.logging;
-      if (!config) return null;
+      if (!config) {
+        return null;
+      }
       const counterKey =
         compiled.def.operationId ?? `${method} ${compiled.def.endpoint}`;
       return { counterKey, config };
@@ -91,10 +97,14 @@ export class HttpRouter {
       : endpoint;
 
     for (const compiled of this.compiledRoutes) {
-      if (compiled.def.method !== req.method) continue;
+      if (compiled.def.method !== req.method) {
+        continue;
+      }
 
       const match = normalized.match(compiled.regex);
-      if (!match) continue;
+      if (!match) {
+        continue;
+      }
 
       // Extract named params
       const params: RouteParams = {};
@@ -118,7 +128,9 @@ export class HttpRouter {
         compiled.def.policy,
         authContext,
       );
-      if (policyDenied) return policyDenied;
+      if (policyDenied) {
+        return policyDenied;
+      }
 
       return withErrorHandling(endpoint, () =>
         Promise.resolve(

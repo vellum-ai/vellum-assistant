@@ -2,7 +2,7 @@
  * Shared ToolContext accessors for the ACP tools.
  */
 
-import type { AssistantEvent } from "../../daemon/message-protocol.js";
+import type { AssistantEvent } from "../../api/index.js";
 import type { ToolContext } from "../types.js";
 
 /**

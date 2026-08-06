@@ -7,7 +7,8 @@ import {
   estimatePromptTokens,
   estimateTextTokens,
 } from "../context/token-estimator.js";
-import type { Message } from "../providers/types.js";
+import { estimateOpenAICompatAudioTokens } from "../providers/openai/input-audio.js";
+import type { ContentBlock, Message } from "../providers/types.js";
 
 /** Build a minimal valid PNG header with the given dimensions, returned as base64. */
 function makePngBase64(width: number, height: number): string {
@@ -822,5 +823,57 @@ describe("tool_result estimation mirrors Anthropic wire format", () => {
       content,
     });
     expect(inflated).toBe(wireShape);
+  });
+});
+
+describe("audio-capable OpenAI-compatible models bill inline audio by duration", () => {
+  // 120 KB decoded → ~7.5 s at the compressed-audio byte-rate assumption.
+  const audioBase64 = "A".repeat(160_000);
+  const audioBytes = Math.floor((160_000 * 3) / 4);
+
+  const audioBlock = (mediaType: string): ContentBlock => ({
+    type: "file",
+    source: {
+      type: "base64",
+      media_type: mediaType,
+      data: audioBase64,
+      filename: "clip.wav",
+    },
+  });
+
+  test("catalog `supportsAudioInput` model adds the duration-based cost", () => {
+    const withModel = estimateContentBlockTokens(audioBlock("audio/wav"), {
+      providerName: "baseten",
+      model: "thinkingmachines/inkling",
+    });
+    const withoutModel = estimateContentBlockTokens(audioBlock("audio/wav"), {
+      providerName: "baseten",
+    });
+    expect(withModel - withoutModel).toBe(
+      estimateOpenAICompatAudioTokens(audioBytes),
+    );
+    expect(withModel - withoutModel).toBeGreaterThan(0);
+  });
+
+  test("non-flagged model and non-audio mime add nothing", () => {
+    const base = estimateContentBlockTokens(audioBlock("audio/wav"), {
+      providerName: "baseten",
+    });
+    expect(
+      estimateContentBlockTokens(audioBlock("audio/wav"), {
+        providerName: "baseten",
+        model: "some-other-model",
+      }),
+    ).toBe(base);
+    expect(
+      estimateContentBlockTokens(audioBlock("audio/x-m4a"), {
+        providerName: "baseten",
+        model: "thinkingmachines/inkling",
+      }),
+    ).toBe(
+      estimateContentBlockTokens(audioBlock("audio/x-m4a"), {
+        providerName: "baseten",
+      }),
+    );
   });
 });

@@ -1,4 +1,3 @@
-
 import { DiscordLogo } from "@/components/icons/discord-logo";
 import { NudgeChatBanner } from "@/components/nudges/nudge-chat-banner";
 
@@ -7,21 +6,24 @@ interface DiscordNudgeBannerProps {
   onDismiss: () => void;
 }
 
-export function DiscordNudgeBanner({ onJoin, onDismiss }: DiscordNudgeBannerProps) {
+export function DiscordNudgeBanner({
+  onJoin,
+  onDismiss,
+}: DiscordNudgeBannerProps) {
   return (
     <NudgeChatBanner
       icon={
-        <DiscordLogo
-          size={16}
-          style={{ color: "var(--content-default)" }}
-        />
+        <DiscordLogo size={16} style={{ color: "var(--content-default)" }} />
       }
       title="Join our community!"
       subtitle={
         <>
-          <span className="sm:hidden">Share feedback, request features, get answers faster</span>
+          <span className="sm:hidden">
+            Share feedback, request features, get answers faster
+          </span>
           <span className="hidden sm:inline">
-            Talk to the team — share feedback, request features, get answers faster
+            Talk to the team — share feedback, request features, get answers
+            faster
           </span>
         </>
       }

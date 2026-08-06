@@ -25,9 +25,7 @@ afterEach(() => {
 });
 
 function renderShell(
-  overrides: Partial<
-    ComponentProps<typeof ToolProgressCardShell>
-  > = {},
+  overrides: Partial<ComponentProps<typeof ToolProgressCardShell>> = {},
 ) {
   return render(
     <ToolProgressCardShell
@@ -186,7 +184,9 @@ describe("ToolProgressCardShell — leading icon slot", () => {
     // loading renders no indicator at all).
     expect(getByTestId("tool-progress-card-status-indicator")).toBeTruthy();
     // The wrapper exists in the rendered DOM.
-    expect(container.querySelector('[data-testid="leading-icon"]')).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="leading-icon"]'),
+    ).not.toBeNull();
   });
 
   test("omits the leading-icon wrapper when leadingIcon is undefined", () => {
@@ -242,9 +242,9 @@ describe("ToolProgressCardShell — headerActionSlot", () => {
     expect(rail.className).toContain("shrink-0");
     // Both the action slot and the pill share the same rail container.
     expect(rail.contains(getByTestId("action-button"))).toBe(true);
-    expect(rail.contains(getByTestId("tool-progress-card-step-count-pill"))).toBe(
-      true,
-    );
+    expect(
+      rail.contains(getByTestId("tool-progress-card-step-count-pill")),
+    ).toBe(true);
   });
 
   test("keeps the step-count pill inside the toggle button when no action slot is present", () => {
@@ -362,7 +362,10 @@ describe("ToolProgressCardShell — terminal-state header bypass", () => {
     originalClearTimeout = globalThis.clearTimeout;
     originalDateNow = Date.now;
     Date.now = () => now;
-    globalThis.setTimeout = ((fn: (...args: unknown[]) => void, ms?: number) => {
+    globalThis.setTimeout = ((
+      fn: (...args: unknown[]) => void,
+      ms?: number,
+    ) => {
       const handle: TimerHandle = {
         id: nextTimerId++,
         fn: () => fn(),
@@ -375,7 +378,9 @@ describe("ToolProgressCardShell — terminal-state header bypass", () => {
     }) as typeof globalThis.setTimeout;
     globalThis.clearTimeout = ((id: number) => {
       const handle = timers.find((h) => h.id === id);
-      if (handle) handle.cleared = true;
+      if (handle) {
+        handle.cleared = true;
+      }
     }) as typeof globalThis.clearTimeout;
   });
 

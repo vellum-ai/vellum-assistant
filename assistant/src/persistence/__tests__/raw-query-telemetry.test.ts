@@ -14,7 +14,9 @@ import { rawTelemetryRun } from "../raw-query.js";
 await initializeDb();
 
 const telemetry = getTelemetrySqlite();
-if (!telemetry) throw new Error("telemetry database unavailable in test");
+if (!telemetry) {
+  throw new Error("telemetry database unavailable in test");
+}
 
 telemetry.exec(/*sql*/ `
   CREATE TABLE IF NOT EXISTS raw_telemetry_run_test (

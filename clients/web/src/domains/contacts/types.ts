@@ -17,8 +17,7 @@ export type ChannelInfo = ChannelsAvailableGetResponse["channels"][number];
 // ---------------------------------------------------------------------------
 
 export type ContactSelection =
-  | { kind: "assistant" }
-  | { kind: "contact"; contactId: string };
+  { kind: "assistant" } | { kind: "contact"; contactId: string };
 
 export interface ContactSummary extends Pick<
   ContactPayload,

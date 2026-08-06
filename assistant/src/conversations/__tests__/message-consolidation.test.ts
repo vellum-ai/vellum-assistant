@@ -381,3 +381,57 @@ describe("system-card boundaries", () => {
     expect(findDisplayTurnEndIndex(rows, 0)).toBe(0);
   });
 });
+
+describe("provider-error boundaries", () => {
+  const errorMeta = JSON.stringify({
+    messageKind: "provider_error",
+    providerErrorCode: "PROVIDER_BILLING",
+    providerErrorCategory: "credits_exhausted",
+  });
+
+  test("a provider-error row never merges into the preceding assistant run", () => {
+    const { messages } = mergeConsecutiveAssistantMessages([
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "reply" }])),
+      makeMsg(
+        "assistant",
+        JSON.stringify([{ type: "text", text: "You're out of credits." }]),
+        { metadata: errorMeta },
+      ),
+    ]);
+    expect(messages).toHaveLength(2);
+    expect(messages[1]!.metadata).toBe(errorMeta);
+  });
+
+  test("an assistant row never merges into a preceding provider-error row", () => {
+    const { messages } = mergeConsecutiveAssistantMessages([
+      makeMsg(
+        "assistant",
+        JSON.stringify([{ type: "text", text: "You're out of credits." }]),
+        { metadata: errorMeta },
+      ),
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "reply" }])),
+    ]);
+    expect(messages).toHaveLength(2);
+    expect(messages[0]!.metadata).toBe(errorMeta);
+  });
+
+  test("findDisplayTurnEndIndex treats a provider-error row as a single-row turn", () => {
+    const rows = [
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "error" }]), {
+        metadata: errorMeta,
+      }),
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "reply" }])),
+    ];
+    expect(findDisplayTurnEndIndex(rows, 0)).toBe(0);
+  });
+
+  test("findDisplayTurnEndIndex stops an assistant run before a provider-error row", () => {
+    const rows = [
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "reply" }])),
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "error" }]), {
+        metadata: errorMeta,
+      }),
+    ];
+    expect(findDisplayTurnEndIndex(rows, 0)).toBe(0);
+  });
+});

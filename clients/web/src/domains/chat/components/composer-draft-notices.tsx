@@ -30,14 +30,17 @@ export function ComposerDraftNotices() {
 
   const uploadingCount = selectUploadingCount(attachments);
   const showUploadBlocked =
-    uploadingCount > 0 && (hasText || selectUploadedIds(attachments).length > 0);
+    uploadingCount > 0 &&
+    (hasText || selectUploadedIds(attachments).length > 0);
   const showRestoredDraft =
     restoredDraftConversationId !== null &&
     restoredDraftConversationId === activeConversationId;
 
   // Auto-dismiss the restored-draft notice after a few seconds.
   useEffect(() => {
-    if (!showRestoredDraft) return;
+    if (!showRestoredDraft) {
+      return;
+    }
     const id = window.setTimeout(
       () => useComposerStore.getState().clearRestoredDraftNotice(),
       5000,

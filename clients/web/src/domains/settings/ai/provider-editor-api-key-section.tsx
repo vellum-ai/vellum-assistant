@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { ChevronRight, Loader2 } from "lucide-react";
@@ -119,13 +119,15 @@ export function ProviderEditorApiKeySection({
                   credential && !hasCurrent
                     ? [{ label: credential, value: credential }, ...baseOptions]
                     : baseOptions;
-                if (dropdownOptions.length === 0) return null;
+                if (dropdownOptions.length === 0) {
+                  return null;
+                }
                 return (
                   <div className="space-y-1">
                     <label className="block text-body-small-default text-[var(--content-tertiary)]">
                       Credential Reference
                     </label>
-                    <Dropdown
+                    <Select
                       aria-label="Credential reference"
                       value={credential}
                       onChange={(v) => {
@@ -156,7 +158,9 @@ export function ProviderEditorApiKeySection({
                       disabled={!newCredentialName.trim()}
                       onClick={() => {
                         const trimmed = newCredentialName.trim();
-                        if (!trimmed) return;
+                        if (!trimmed) {
+                          return;
+                        }
                         const ref = `credential/${provider}/${trimmed}`;
                         onCredentialChange(ref);
                         setIsCreatingNewCredential(false);
@@ -182,9 +186,7 @@ export function ProviderEditorApiKeySection({
                     }
                   }}
                 >
-                  {isCreatingNewCredential
-                    ? "Cancel"
-                    : "+ New Credential"}
+                  {isCreatingNewCredential ? "Cancel" : "+ New Credential"}
                 </Button>
               </div>
             </div>

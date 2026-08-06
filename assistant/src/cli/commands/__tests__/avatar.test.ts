@@ -98,7 +98,9 @@ async function runCommand(
     registerAvatarCommand(program);
     await program.parseAsync(["node", "assistant", ...args]);
   } catch {
-    if (process.exitCode === 0) process.exitCode = 1;
+    if (process.exitCode === 0) {
+      process.exitCode = 1;
+    }
   } finally {
     process.stdout.write = originalStdoutWrite;
     process.stderr.write = originalStderrWrite;
@@ -157,7 +159,10 @@ describe("subcommand registration", () => {
 
 describe("avatar generate", () => {
   test("calls avatar_generate with description", async () => {
-    mockIpcResult = { ok: true, result: { ok: true, message: "Avatar generated successfully." } };
+    mockIpcResult = {
+      ok: true,
+      result: { ok: true, message: "Avatar generated successfully." },
+    };
 
     const { exitCode } = await runCommand([
       "avatar",
@@ -194,12 +199,7 @@ describe("avatar set", () => {
   test("calls avatar_set with absolute imagePath unchanged", async () => {
     mockIpcResult = { ok: true, result: { ok: true } };
 
-    const { exitCode } = await runCommand([
-      "avatar",
-      "set",
-      "--image",
-      "/tmp",
-    ]);
+    const { exitCode } = await runCommand(["avatar", "set", "--image", "/tmp"]);
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
@@ -227,7 +227,12 @@ describe("avatar set", () => {
         expect(lastIpcCall).toBeDefined();
         expect(lastIpcCall!.method).toBe("avatar_set");
         // Path should be absolute
-        expect(((lastIpcCall!.params!.body as Record<string, unknown>).imagePath as string).startsWith("/")).toBe(true);
+        expect(
+          (
+            (lastIpcCall!.params!.body as Record<string, unknown>)
+              .imagePath as string
+          ).startsWith("/"),
+        ).toBe(true);
       }
       // If the file doesn't exist we skip — the test is about path resolution
     } finally {
@@ -312,7 +317,10 @@ describe("avatar get", () => {
   test("calls avatar_get with default format path", async () => {
     mockIpcResult = {
       ok: true,
-      result: { exists: true, path: "/home/user/.vellum/workspace/data/avatar/avatar-image.png" },
+      result: {
+        exists: true,
+        path: "/home/user/.vellum/workspace/data/avatar/avatar-image.png",
+      },
     };
 
     const { exitCode } = await runCommand(["avatar", "get"]);

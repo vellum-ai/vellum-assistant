@@ -63,10 +63,14 @@ export function IntroductionScreen({
   const chosen = characters.length > 0 ? characters[selectedIndex] : undefined;
 
   const art = useMemo(() => {
-    if (!components || !chosen) return null;
+    if (!components || !chosen) {
+      return null;
+    }
     const body = components.bodyShapes.find((b) => b.id === chosen.bodyShape);
     const color = components.colors.find((c) => c.id === chosen.color);
-    if (!body || !color) return null;
+    if (!body || !color) {
+      return null;
+    }
     return { body, color: color.hex };
   }, [components, chosen]);
 
@@ -100,92 +104,95 @@ export function IntroductionScreen({
       data-theme="dark"
       className="relative h-full overflow-hidden"
       style={{ backgroundColor: "var(--surface-base)" }}
-    ><OnboardingStageSizeProvider size={{ w, h }}>
-      {/* The avatar color fills in so coverage is end-to-end even where the
+    >
+      <OnboardingStageSizeProvider size={{ w, h }}>
+        {/* The avatar color fills in so coverage is end-to-end even where the
           body shape has gaps/spikes. */}
-      <motion.div
-        className="absolute inset-0 z-0"
-        style={{ backgroundColor: art.color }}
-        initial={reduce ? false : { opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={reduce ? { duration: 0 } : { duration: 0.6, delay: 0.35 }}
-      />
+        <motion.div
+          className="absolute inset-0 z-0"
+          style={{ backgroundColor: art.color }}
+          initial={reduce ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={reduce ? { duration: 0 } : { duration: 0.6, delay: 0.35 }}
+        />
 
-      {/* Body — grows from the picker size to cover the screen. */}
-      <motion.svg
-        aria-hidden="true"
-        className="pointer-events-none absolute z-[1]"
-        viewBox={`0 0 ${art.body.viewBox.width} ${art.body.viewBox.height}`}
-        width={coverSize}
-        height={coverH}
-        style={{ left: bodyLeft, top: bodyTop, transformOrigin: "center" }}
-        initial={reduce ? false : { scale: bodyStartScale, y: bodyStartY }}
-        animate={{ scale: 1, y: 0 }}
-        transition={
-          reduce
-            ? { duration: 0 }
-            : { type: "spring", stiffness: 78, damping: 18, mass: 1 }
-        }
-      >
-        <path d={art.body.svgPath} fill={art.color} />
-      </motion.svg>
-
-      {/* Eyes peek up from the bottom, growing in alongside the body. */}
-      <OnboardingPeekingEyes entrance />
-
-      {/* Progress + back — fade in after the grow. */}
-      <motion.div
-        initial={reduce ? false : { opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={reduce ? { duration: 0 } : { duration: 0.4, delay: 1 }}
-      >
-        <OnboardingTopBar onBack={onBack} onNext={onForward} />
-      </motion.div>
-
-      {/* Greeting + Continue, grouped so the button sits just under the text. */}
-      <div className={ONBOARDING_STEP_CONTENT}>
-        <motion.h1
-          className="text-center leading-[1.15] max-md:leading-[1.25]"
-          style={{ fontFamily: "var(--font-serif)" }}
-          initial={reduce ? false : { scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
+        {/* Body — grows from the picker size to cover the screen. */}
+        <motion.svg
+          aria-hidden="true"
+          className="pointer-events-none absolute z-[1]"
+          viewBox={`0 0 ${art.body.viewBox.width} ${art.body.viewBox.height}`}
+          width={coverSize}
+          height={coverH}
+          style={{ left: bodyLeft, top: bodyTop, transformOrigin: "center" }}
+          initial={reduce ? false : { scale: bodyStartScale, y: bodyStartY }}
+          animate={{ scale: 1, y: 0 }}
           transition={
             reduce
               ? { duration: 0 }
-              : { type: "spring", stiffness: 260, damping: 11, delay: 1 }
+              : { type: "spring", stiffness: 78, damping: 18, mass: 1 }
           }
         >
-          <span
-            className="block text-[clamp(2.5rem,6vw,5rem)]"
-            style={{ color: tone.fgDeep }}
-          >
-            {greeting}
-          </span>
-          <span
-            className="block text-[clamp(2.5rem,6vw,5rem)]"
-            style={{ color: tone.fg }}
-          >
-            {intro}
-          </span>
-        </motion.h1>
+          <path d={art.body.svgPath} fill={art.color} />
+        </motion.svg>
 
+        {/* Eyes peek up from the bottom, growing in alongside the body. */}
+        <OnboardingPeekingEyes entrance />
+
+        {/* Progress + back — fade in after the grow. */}
         <motion.div
-          initial={reduce ? false : { opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={reduce ? { duration: 0 } : { duration: 0.4, delay: 1.15 }}
+          initial={reduce ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={reduce ? { duration: 0 } : { duration: 0.4, delay: 1 }}
         >
-          <Button
-            type="button"
-            variant="primary"
-            size="regular"
-            rightIcon={<ArrowRight size={16} />}
-            onClick={onContinue}
-            className="h-11 w-[234px] text-base"
-          >
-            Continue
-          </Button>
+          <OnboardingTopBar onBack={onBack} onNext={onForward} />
         </motion.div>
-      </div>
+
+        {/* Greeting + Continue, grouped so the button sits just under the text. */}
+        <div className={ONBOARDING_STEP_CONTENT}>
+          <motion.h1
+            className="text-center leading-[1.15] max-md:leading-[1.25]"
+            style={{ fontFamily: "var(--font-serif)" }}
+            initial={reduce ? false : { scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={
+              reduce
+                ? { duration: 0 }
+                : { type: "spring", stiffness: 260, damping: 11, delay: 1 }
+            }
+          >
+            <span
+              className="block text-[clamp(2.5rem,6vw,5rem)]"
+              style={{ color: tone.fgDeep }}
+            >
+              {greeting}
+            </span>
+            <span
+              className="block text-[clamp(2.5rem,6vw,5rem)]"
+              style={{ color: tone.fg }}
+            >
+              {intro}
+            </span>
+          </motion.h1>
+
+          <motion.div
+            initial={reduce ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={
+              reduce ? { duration: 0 } : { duration: 0.4, delay: 1.15 }
+            }
+          >
+            <Button
+              type="button"
+              variant="primary"
+              size="regular"
+              rightIcon={<ArrowRight size={16} />}
+              onClick={onContinue}
+              className="h-11 w-[234px] text-base"
+            >
+              Continue
+            </Button>
+          </motion.div>
+        </div>
       </OnboardingStageSizeProvider>
     </div>
   );

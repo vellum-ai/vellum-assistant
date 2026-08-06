@@ -124,6 +124,19 @@ export function useDiagnosticsConsentCurrent(): [
   return [value, setter];
 }
 
+/**
+ * Whether the platform has any consent record for this user, set on session
+ * sync by the auth store (device acks count as evidence).
+ *
+ * Consent surfaces must key first-time framing off THIS flag, not off
+ * `useTosAccepted()`/`usePrivacyConsent()`: those two carry version currency,
+ * so both read `false` for a never-consented user AND for an established user
+ * whose acceptances went stale when both required versions were bumped.
+ */
+export function useHasConsentRecord(): boolean {
+  return useOnboardingStore.use.hasConsentRecord();
+}
+
 // ---------------------------------------------------------------------------
 // Non-hook readers (for gates/guards outside React render)
 // ---------------------------------------------------------------------------
@@ -196,7 +209,9 @@ export function isAnalyticsEnabled(): boolean {
  * and tolerant of disabled storage.
  */
 export function readSelectedVersion(): string {
-  if (typeof window === "undefined") return "";
+  if (typeof window === "undefined") {
+    return "";
+  }
   try {
     return getLocalSetting(KEY_SELECTED_VERSION, "");
   } catch {
@@ -209,7 +224,9 @@ export function readSelectedVersion(): string {
  * the key so the next hatch uses the managed "latest" default.
  */
 export function writeSelectedVersion(version: string): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") {
+    return;
+  }
   try {
     if (version === "") {
       removeLocalSetting(KEY_SELECTED_VERSION);

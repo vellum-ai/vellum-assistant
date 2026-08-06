@@ -1,4 +1,3 @@
-import { isSlackDmChannel } from "./channel.js";
 import {
   slackReactionEventSchema,
   type SlackReactionEvent,
@@ -35,20 +34,7 @@ function normalizeSlackReaction(
 
   const channel = event.item.channel;
 
-  // DM reactions should still route via default assistant (same as DM messages).
-  // Only apply fallback to DM channels (D...) — reactions from unrouted public
-  // channels should not bypass explicit routing policy.
-  let routing = resolveAssistant(config, channel, event.user);
-  if (
-    isRejection(routing) &&
-    config.defaultAssistantId &&
-    isSlackDmChannel(channel)
-  ) {
-    routing = {
-      assistantId: config.defaultAssistantId,
-      routeSource: "default" as const,
-    };
-  }
+  const routing = resolveAssistant(config, channel, event.user);
   if (isRejection(routing)) return null;
 
   const prefix = op === "added" ? "reaction" : "reaction_removed";

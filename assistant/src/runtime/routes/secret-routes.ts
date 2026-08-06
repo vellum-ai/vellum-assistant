@@ -32,13 +32,14 @@ import {
 } from "../../daemon/credential-transcript-scrub.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
-import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/v3/substrate/memory-v2-startup.js";
+import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/substrate/boot-maintenance.js";
 import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
 import { validateAtlasCloudApiKey } from "../../providers/atlascloud/client.js";
 import { validateBasetenApiKey } from "../../providers/baseten/client.js";
 import { validateGeminiApiKey } from "../../providers/gemini/client.js";
 import { validateMinimaxApiKey } from "../../providers/minimax/client.js";
 import { validateOpenAIApiKey } from "../../providers/openai/client.js";
+import { validatePoolsideApiKey } from "../../providers/poolside/client.js";
 import { API_KEY_PROVIDERS } from "../../providers/provider-secret-catalog.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
@@ -107,7 +108,7 @@ async function queueApiKeyPropagation(
           getPlatformAssistantId() || undefined,
         );
         log.info(
-          "Pushed queued assistant API key to CES after handshake completed",
+          "Notified CES of the queued assistant API key after handshake completed (ack only; CES reads the durable value from the credential store)",
         );
       } catch (err) {
         log.warn(
@@ -121,6 +122,44 @@ async function queueApiKeyPropagation(
   log.warn(
     "Timed out waiting for CES client to become ready — API key was not propagated",
   );
+}
+
+/**
+ * Notify CES that the assistant API key changed. This is advisory: the key is
+ * durably stored in the credential vault and CES reads it from there. When no
+ * CES client is connected the notification is skipped, but the skip is logged
+ * rather than dropped silently. Exported for direct testing.
+ */
+export async function notifyCesOfAssistantApiKeyUpdate(
+  value: string,
+  cesClient: CesClient | undefined,
+  logger: Pick<ReturnType<typeof getLogger>, "info" | "warn"> = log,
+): Promise<void> {
+  const generation = ++apiKeyGeneration;
+  if (!cesClient) {
+    logger.warn(
+      "Assistant API key updated but no CES client is connected; skipping the CES key-update notification (advisory only; CES reads the durable value from the credential store)",
+    );
+    return;
+  }
+  if (cesClient.isReady()) {
+    try {
+      await cesClient.updateAssistantApiKey(
+        value,
+        getPlatformAssistantId() || undefined,
+      );
+      logger.info(
+        "Notified CES of the updated assistant API key (ack only; CES reads the durable value from the credential store)",
+      );
+    } catch (err) {
+      logger.warn(
+        { error: err instanceof Error ? err.message : String(err) },
+        "Failed to notify CES of the assistant API key update (non-fatal)",
+      );
+    }
+    return;
+  }
+  void queueApiKeyPropagation(cesClient, value, generation);
 }
 
 // ---------------------------------------------------------------------------
@@ -228,6 +267,15 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         }
       } else if (name === "baseten") {
         const validation = await validateBasetenApiKey(value);
+        if (!validation.valid) {
+          log.warn(
+            { provider: name, reason: validation.reason },
+            "API key validation failed",
+          );
+          return { success: false, error: validation.reason };
+        }
+      } else if (name === "poolside") {
+        const validation = await validatePoolsideApiKey(value);
         if (!validation.valid) {
           log.warn(
             { provider: name, reason: validation.reason },
@@ -371,28 +419,7 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         // pages unseeded until restart. Detached — must not block the response.
         void maybeReseedCapabilitiesAfterManagedCredential(getConfig());
         if (service === "vellum" && field === "assistant_api_key") {
-          const generation = ++apiKeyGeneration;
-          const cesClient = getCesClient();
-          if (cesClient) {
-            if (cesClient.isReady()) {
-              try {
-                await cesClient.updateAssistantApiKey(
-                  value,
-                  getPlatformAssistantId() || undefined,
-                );
-                log.info(
-                  "Pushed assistant API key to CES after managed proxy credential update",
-                );
-              } catch (err) {
-                log.warn(
-                  { error: err instanceof Error ? err.message : String(err) },
-                  "Failed to push assistant API key to CES (non-fatal)",
-                );
-              }
-            } else {
-              void queueApiKeyPropagation(cesClient, value, generation);
-            }
-          }
+          await notifyCesOfAssistantApiKeyUpdate(value, getCesClient());
         }
       }
       if (
@@ -746,8 +773,14 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: z.object({
       success: z.boolean(),
-      type: z.string(),
-      name: z.string(),
+      type: z.string().optional(),
+      name: z.string().optional(),
+      error: z
+        .string()
+        .optional()
+        .describe(
+          "Why the secret was not stored (e.g. provider-side API key validation failed). Present only when success is false.",
+        ),
     }),
     handler: handleAddSecret,
   },

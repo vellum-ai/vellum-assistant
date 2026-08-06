@@ -344,9 +344,13 @@ export class WorkflowRunManager {
    * does not resolve.
    */
   private resolveScriptSource(opts: StartWorkflowOptions): string {
-    if (opts.scriptSource !== undefined) return opts.scriptSource;
+    if (opts.scriptSource !== undefined) {
+      return opts.scriptSource;
+    }
     const saved = this.deps.getWorkflow(opts.name);
-    if (!saved) throw new WorkflowNotFoundError(opts.name);
+    if (!saved) {
+      throw new WorkflowNotFoundError(opts.name);
+    }
     return saved.source;
   }
 
@@ -502,7 +506,9 @@ export class WorkflowRunManager {
     ctx: RunContext,
     summary: string,
   ): Promise<void> {
-    if (!ctx.conversationId) return;
+    if (!ctx.conversationId) {
+      return;
+    }
     try {
       await this.deps.wake({
         conversationId: ctx.conversationId,
@@ -600,7 +606,9 @@ const MAX_SUMMARY_RESULT_CHARS = 2000;
 
 /** Bound a result tail for the summary; the full value stays on the run row. */
 function truncateForSummary(s: string, runId: string): string {
-  if (s.length <= MAX_SUMMARY_RESULT_CHARS) return s;
+  if (s.length <= MAX_SUMMARY_RESULT_CHARS) {
+    return s;
+  }
   const omitted = s.length - MAX_SUMMARY_RESULT_CHARS;
   return (
     `${s.slice(0, MAX_SUMMARY_RESULT_CHARS)}… ` +
@@ -611,8 +619,12 @@ function truncateForSummary(s: string, runId: string): string {
 
 /** Compact a workflow result for the summary — JSON for objects, string otherwise. */
 function stringifyResult(value: unknown): string {
-  if (value == null) return "(no result)";
-  if (typeof value === "string") return value;
+  if (value == null) {
+    return "(no result)";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
   try {
     return JSON.stringify(value);
   } catch {

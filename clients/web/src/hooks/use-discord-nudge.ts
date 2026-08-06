@@ -6,7 +6,7 @@
  * cascade, conversation count).
  */
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 import { useNudgeStore } from "@/stores/nudge-store";
 import {
@@ -85,11 +85,21 @@ export function areDiscordPrerequisitesMet(
   platformNudgeResolved: boolean,
   conversationCount: number,
 ): boolean {
-  if (!platformNudgeResolved) return false;
-  if (!isGitHubNudgeResolved()) return false;
-  if (!isAccountAgeEligible()) return false;
-  if (conversationCount < DISCORD_MIN_CONVERSATION_COUNT) return false;
-  if (!isGitHubDismissCooldownElapsed()) return false;
+  if (!platformNudgeResolved) {
+    return false;
+  }
+  if (!isGitHubNudgeResolved()) {
+    return false;
+  }
+  if (!isAccountAgeEligible()) {
+    return false;
+  }
+  if (conversationCount < DISCORD_MIN_CONVERSATION_COUNT) {
+    return false;
+  }
+  if (!isGitHubDismissCooldownElapsed()) {
+    return false;
+  }
   return true;
 }
 
@@ -148,11 +158,23 @@ export function useDiscordNudgeState(
     useNudgeStore.getState().dismissDiscordBanner();
   }, []);
 
-  return {
-    bannerShouldShow: prerequisitesMet && !joined && !bannerDismissed,
-    handleJoin,
-    handleBannerDismiss,
-  };
+  // Stable identity: consumers feed this into `useMemo` deps that build
+  // banner elements. See docs/CONVENTIONS.md, "Never key an effect on a
+  // ReactNode prop".
+  return useMemo(
+    () => ({
+      bannerShouldShow: prerequisitesMet && !joined && !bannerDismissed,
+      handleJoin,
+      handleBannerDismiss,
+    }),
+    [
+      prerequisitesMet,
+      joined,
+      bannerDismissed,
+      handleJoin,
+      handleBannerDismiss,
+    ],
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -160,6 +182,8 @@ export function useDiscordNudgeState(
 // ---------------------------------------------------------------------------
 
 export function openDiscordInvite(): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") {
+    return;
+  }
   window.open(DISCORD_INVITE_URL, "_blank", "noopener,noreferrer");
 }

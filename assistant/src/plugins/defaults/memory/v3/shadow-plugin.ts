@@ -32,6 +32,7 @@ import {
 } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
+import { isMemoryEnabled } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/schema.js";
 import {
   recordLatencySubSpan,
@@ -41,6 +42,8 @@ import { stripCommentLines } from "../host-utils.js";
 import { getLogger } from "../logging.js";
 import { memorySqliteOrNull } from "../memory-db.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../paths.js";
+import { getPageIndex, invalidatePageIndex } from "../substrate/page-index.js";
+import { readPage, renderPageContent } from "../substrate/page-store.js";
 import {
   capabilityOrDiskBody,
   renderCapabilityContent,
@@ -53,7 +56,6 @@ import type { EntityIndex } from "./entity-lane.js";
 import { buildEntityIndex } from "./entity-lane.js";
 import { getActiveSlugs } from "./ever-injected-store.js";
 import { computeFreshSet } from "./fresh-set.js";
-import { isMemoryV3InjectionGateEnabled } from "./gate-flag.js";
 import { computeHotSet } from "./hot-set.js";
 import { bumpLanesVersion, readLanesVersion } from "./lanes-version-store.js";
 import { computeLearnedEdgeGraph } from "./learned-edges.js";
@@ -67,8 +69,6 @@ import { ensureSectionCollection } from "./section-dense-store.js";
 import type { SectionNeedle } from "./section-needle.js";
 import { buildSectionNeedle } from "./section-needle.js";
 import { buildSectionIndex } from "./sections.js";
-import { getPageIndex, invalidatePageIndex } from "./substrate/page-index.js";
-import { readPage, renderPageContent } from "./substrate/page-store.js";
 import { resolveV3Tuning } from "./tuning-profile.js";
 import {
   type MemoryRoutingTurn,
@@ -284,10 +284,12 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     .map((entry) => entry.slug)
     .filter((slug) => sectionIndex.byArticle.has(slug));
 
-  // Fresh is the modification-recency top-K over the page index with core and
-  // hot excluded (fresh never duplicates the rest of the prefix). Page mtimes
-  // move at consolidation — the same event that invalidates the lanes — so the
-  // set is recomputed exactly when it can have changed.
+  // Fresh is the effective-recency top-K over the page index (`freshAt`:
+  // origin date when declared, else mtime, so backdated imports rank by their
+  // original chronology) with core and hot excluded (fresh never duplicates
+  // the rest of the prefix). Page mtimes move at consolidation, the same
+  // event that invalidates the lanes, so the set is recomputed exactly when
+  // it can have changed.
   const freshSlugs = computeFreshSet(pageIndex.entries, {
     k: tuning.freshSetK,
     excludeSlugs: new Set([...coreSlugs, ...hotSlugs]),
@@ -314,11 +316,12 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   // body into the byte-stable prefix. Disk pages render raw (frontmatter +
   // body) through `renderCard` so `kind: index` pages surface their `links:`
   // map in the card TOC. Each disk card carries its lane annotation; fresh
-  // cards additionally carry the page's last-modified time (an absolute
-  // stamp — it only changes when the page does, so the card stays byte-stable
-  // between lane recomputes).
-  const modifiedAtBySlug = new Map(
-    pageIndex.entries.map((entry) => [entry.slug, entry.modifiedAt]),
+  // cards additionally carry the page's effective-recency time (`freshAt`, so
+  // imported pages display their original date; an absolute stamp that only
+  // changes when the page does, so the card stays byte-stable between lane
+  // recomputes).
+  const freshAtBySlug = new Map(
+    pageIndex.entries.map((entry) => [entry.slug, entry.freshAt]),
   );
   const laneAnnotation = (
     slug: Slug,
@@ -327,19 +330,22 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     if (lane !== "fresh") {
       return `[lane: ${lane}]`;
     }
-    const modifiedAt = modifiedAtBySlug.get(slug);
+    const freshAt = freshAtBySlug.get(slug);
     if (
-      modifiedAt === undefined ||
-      !Number.isFinite(modifiedAt) ||
-      modifiedAt <= 0
+      freshAt === undefined ||
+      freshAt === null ||
+      !Number.isFinite(freshAt)
     ) {
       return "[lane: fresh]";
     }
-    const stamp = new Date(modifiedAt)
+    const stamp = new Date(freshAt)
       .toISOString()
       .slice(0, 16)
       .replace("T", " ");
-    return `[lane: fresh · updated ${stamp} UTC]`;
+    // "dated", not "updated": for origin-dated imports the stamp is the
+    // content's original chronology, not a last-modified time, and claiming
+    // an update would feed the selector false temporal metadata.
+    return `[lane: fresh · dated ${stamp} UTC]`;
   };
   const prefixCards = new Map<Slug, string>();
   for (const [lane, slugs] of [
@@ -472,8 +478,9 @@ function readNowContext(): string | null {
 function buildSituationalContext(): string {
   const now = readNowContext();
   const at = new Date();
-  // Clock time matters, not just the date: fresh cards carry absolute
-  // `updated <time>` stamps, and hour-grain windows ("while I was asleep",
+  // Clock time matters, not just the date: fresh cards carry `dated <time>`
+  // stamps (effective recency, so imports show their content's chronology
+  // rather than write time), and hour-grain windows ("while I was asleep",
   // "this morning") are only computable against a current-time anchor —
   // measured on a state-recall turn, the anchor alone moved selection more
   // than prompt steering did.
@@ -690,7 +697,7 @@ export async function observeTurn(
     }
 
     const cfg = getConfig();
-    if (cfg.memory.enabled === false) {
+    if (!isMemoryEnabled(cfg)) {
       return null;
     }
     // Lane init is module-memoized: the first turn after daemon start pays
@@ -702,10 +709,6 @@ export async function observeTurn(
       () => getLanes(cfg),
     );
     const v3 = cfg.memory.v3;
-    // Resolve the effective gate enable once for the turn: the feature flag
-    // AND the `memory.v3.gate.enabled` config kill-switch. Tuning lives in
-    // `memory.v3.gate`.
-    const gateEnabled = isMemoryV3InjectionGateEnabled(cfg);
     // Re-resolve the corpus-adaptive tuning each turn from the CURRENT config
     // (with the lane-build corpus-size signal) so a live config.json edit to a
     // per-turn knob (selectorEnabled, denseK, replyQueryK, edge.*) takes effect
@@ -733,6 +736,7 @@ export async function observeTurn(
       activeSlugs: getActiveSlugs(conversationId),
       entityCap: v3.entity.cap,
       replyQueryK: tuning.replyQueryK,
+      spanQueryK: tuning.spanQueryK,
       edgeSeeds: tuning.edgeSeedCount,
       edgePerSeed: tuning.edgePerSeed,
       edgeCap: tuning.edgeCap,
@@ -744,11 +748,10 @@ export async function observeTurn(
         v3.selectorPromptPath,
         getWorkspaceDir(),
       ),
-      // Per-turn injection gate: the `memory.v3.gate` tuning with the raw
-      // config `enabled` overwritten by the effective enable (flag AND config).
-      // The spread is the compile-time drift guard — if the gate schema and
-      // `V3GateConfig` diverge, this stops typechecking.
-      gateConfig: { ...v3.gate, enabled: gateEnabled },
+      // Per-turn injection gate: the `memory.v3.gate` tuning, `enabled`
+      // kill-switch included. Read-only downstream, so the config object is
+      // passed as-is.
+      gateConfig: v3.gate,
     });
 
     // A zero-selection turn over a non-trivial pool is unusual enough to be

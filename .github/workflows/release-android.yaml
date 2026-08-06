@@ -1,0 +1,198 @@
+name: Release Android
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target environment: dev, staging, or production"
+        required: true
+        type: string
+      version:
+        description: "Release version string"
+        required: true
+        type: string
+
+concurrency:
+  group: android-release-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 30
+    outputs:
+      artifact_name: ${{ steps.config.outputs.artifact_name }}
+      package_id: ${{ steps.config.outputs.package_id }}
+      version_name: ${{ steps.config.outputs.version_name }}
+    permissions:
+      contents: read
+    steps:
+      - name: Resolve environment config
+        id: config
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          case "$ENVIRONMENT" in
+            production)
+              echo "flavor=Production" >> "$GITHUB_OUTPUT"
+              echo "package_id=ai.vellum.assistant" >> "$GITHUB_OUTPUT"
+              ;;
+            staging)
+              echo "flavor=Staging" >> "$GITHUB_OUTPUT"
+              echo "package_id=ai.vellum.assistant.staging" >> "$GITHUB_OUTPUT"
+              ;;
+            dev)
+              echo "flavor=Dev" >> "$GITHUB_OUTPUT"
+              echo "package_id=ai.vellum.assistant.dev" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::Invalid Android environment: $ENVIRONMENT"
+              exit 1
+              ;;
+          esac
+
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Android version must begin with MAJOR.MINOR.PATCH: $VERSION"
+            exit 1
+          fi
+          echo "version_name=$VERSION" >> "$GITHUB_OUTPUT"
+          version_code=$(($(date +%s) / 10))
+          echo "version_code=$version_code" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=android-aab-${ENVIRONMENT}-${version_code}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Java
+        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: ./.github/actions/setup-android-sdk
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+
+      - name: Install web dependencies
+        working-directory: clients/web
+        run: bun install --frozen-lockfile --filter=@vellumai/web
+
+      - name: Sync Android project
+        working-directory: clients/web
+        env:
+          VELLUM_ENVIRONMENT: ${{ inputs.environment }}
+        run: bun run android:sync
+
+      - name: Restore optional Firebase configuration
+        env:
+          ANDROID_FIREBASE_CONFIG_B64: ${{ secrets.ANDROID_FIREBASE_CONFIG_B64 }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          EXPECTED_PACKAGE_ID: ${{ steps.config.outputs.package_id }}
+        run: |
+          if [ -z "$ANDROID_FIREBASE_CONFIG_B64" ]; then
+            echo "::warning::ANDROID_FIREBASE_CONFIG_B64 is not configured for $ENVIRONMENT; native Android push will be unavailable in this AAB"
+            exit 0
+          fi
+
+          umask 077
+          if ! printf '%s' "$ANDROID_FIREBASE_CONFIG_B64" \
+            | base64 --decode > clients/android/app/google-services.json; then
+            echo "::error::ANDROID_FIREBASE_CONFIG_B64 is not valid base64"
+            exit 1
+          fi
+          if ! jq -e --arg package_id "$EXPECTED_PACKAGE_ID" \
+            'any(.client[]?; .client_info.android_client_info.package_name == $package_id)' \
+            clients/android/app/google-services.json >/dev/null 2>&1; then
+            echo "::error::Firebase configuration does not contain $EXPECTED_PACKAGE_ID"
+            exit 1
+          fi
+
+      - name: Restore upload key
+        env:
+          ANDROID_UPLOAD_KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$ANDROID_UPLOAD_KEYSTORE_B64" ]; then
+            echo "::error::ANDROID_UPLOAD_KEYSTORE_B64 is empty"
+            exit 1
+          fi
+          printf '%s' "$ANDROID_UPLOAD_KEYSTORE_B64" | base64 --decode > /tmp/vellum-android-upload.jks
+          chmod 600 /tmp/vellum-android-upload.jks
+
+      - name: Build signed app bundle
+        working-directory: clients/android
+        env:
+          VELLUM_ANDROID_VERSION_CODE: ${{ steps.config.outputs.version_code }}
+          VELLUM_ANDROID_VERSION_NAME: ${{ steps.config.outputs.version_name }}
+          VELLUM_ANDROID_REQUIRE_SIGNING: 'true'
+          VELLUM_ANDROID_KEYSTORE_PATH: /tmp/vellum-android-upload.jks
+          VELLUM_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          VELLUM_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          VELLUM_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: ./gradlew ":app:bundle${{ steps.config.outputs.flavor }}Release"
+
+      - name: Upload signed app bundle artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ steps.config.outputs.artifact_name }}
+          path: clients/android/app/build/outputs/bundle/${{ inputs.environment }}Release/*.aab
+          if-no-files-found: error
+
+      - name: Remove sensitive build material
+        if: ${{ always() }}
+        run: |
+          rm -f /tmp/vellum-android-upload.jks
+          rm -f clients/android/app/google-services.json
+
+  publish:
+    needs: [build-and-upload]
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+
+      - name: Install publisher dependencies
+        working-directory: clients/web
+        run: bun install --frozen-lockfile --filter=@vellumai/web --ignore-scripts
+
+      - name: Download signed app bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.build-and-upload.outputs.artifact_name }}
+          path: android-bundle
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Publish to Google Play internal track
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          bundles=(android-bundle/*.aab)
+          if [ "${#bundles[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one signed Android App Bundle, found ${#bundles[@]}"
+            exit 1
+          fi
+
+          bun clients/web/scripts/publish-android-play.ts \
+            --bundle "${bundles[0]}" \
+            --package-id "${{ needs.build-and-upload.outputs.package_id }}" \
+            --release-name "${{ needs.build-and-upload.outputs.version_name }}"

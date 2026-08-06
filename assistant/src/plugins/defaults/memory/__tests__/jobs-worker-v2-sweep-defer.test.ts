@@ -31,12 +31,20 @@ import { eq } from "drizzle-orm";
 // v2-enabled state this regression needs — no seeding required.
 
 mock.module("../graph/graph-search.js", () => ({
-  searchGraphNodes: async () => [],
   embedGraphNodeDirect: async () => {},
   embedGraphNodeJob: async (): Promise<void> => {},
   enqueueGraphNodeEmbed: () => {},
   embedGraphTriggerJob: async (): Promise<void> => {},
   enqueueGraphTriggerEmbed: () => {},
+}));
+
+// `searchGraphNodes` lives in the v1 tier, and the handler-registration import
+// graph still reaches it (`job-handlers.js` → `v1/graph/extraction-job.js` →
+// `v1/graph/extraction.js`). Stubbing it keeps the real Qdrant search module —
+// and its client graph — out of this test, which is what makes the file
+// hermetic and fast.
+mock.module("../v1/graph/graph-search.js", () => ({
+  searchGraphNodes: async () => [],
 }));
 
 mock.module("../../../../persistence/db-maintenance.js", () => ({

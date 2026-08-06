@@ -17,8 +17,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (prevOverride === undefined) delete process.env.VELLUM_WORKSPACE_DIR;
-  else process.env.VELLUM_WORKSPACE_DIR = prevOverride;
+  if (prevOverride === undefined) {
+    delete process.env.VELLUM_WORKSPACE_DIR;
+  } else {
+    process.env.VELLUM_WORKSPACE_DIR = prevOverride;
+  }
   rmSync(workspaceDir, { recursive: true, force: true });
 });
 

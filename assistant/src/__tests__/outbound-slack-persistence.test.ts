@@ -66,7 +66,9 @@ mock.module("../persistence/conversation-crud.js", () => ({
     updates: Record<string, unknown>,
   ) => {
     const row = persistedRows.find((candidate) => candidate.id === messageId);
-    if (!row) {return;}
+    if (!row) {
+      return;
+    }
     const existing =
       row.metadata && typeof row.metadata === "string"
         ? (JSON.parse(row.metadata) as Record<string, unknown>)
@@ -78,18 +80,26 @@ mock.module("../persistence/conversation-crud.js", () => ({
     // `lastAssistantPersisted()` assertions continue to find the row that
     // was reserved at `llm_call_started` time.
     const row = persistedRows.find((candidate) => candidate.id === messageId);
-    if (row) {row.content = content;}
+    if (row) {
+      row.content = content;
+    }
     const call = addMessageCalls.find((c) => c.id === messageId);
-    if (call) {call.content = content;}
+    if (call) {
+      call.content = content;
+    }
   },
   markMessageContentInflight: () => {},
   finalizeMessageContent: (messageId: string, content: string) => {
     // The finalize seam writes through `finalizeMessageContent`; mirror it
     // into the same captures as `updateMessageContent`.
     const row = persistedRows.find((candidate) => candidate.id === messageId);
-    if (row) {row.content = content;}
+    if (row) {
+      row.content = content;
+    }
     const call = addMessageCalls.find((c) => c.id === messageId);
-    if (call) {call.content = content;}
+    if (call) {
+      call.content = content;
+    }
   },
   // The handler treats provenance as a flat spread; returning {} keeps the
   // metadata snapshot focused on the fields under test.
@@ -153,6 +163,7 @@ mock.module("../persistence/attachments-store.js", () => ({
 // ── Imports (after mocks) ──────────────────────────────────────────────────
 
 import type { AgentEvent } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -162,7 +173,6 @@ import {
   handleLlmCallStarted,
   handleMessageComplete,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { deliverReplyViaCallback } from "../runtime/channel-reply-delivery.js";
 import { setConfig } from "./helpers/set-config.js";
@@ -233,7 +243,9 @@ function makeMessageCompleteEvent(
 /** Find the most recently persisted assistant-role message in the capture log. */
 function lastAssistantPersisted(): AddMessageCall {
   for (let i = addMessageCalls.length - 1; i >= 0; i--) {
-    if (addMessageCalls[i].role === "assistant") {return addMessageCalls[i];}
+    if (addMessageCalls[i].role === "assistant") {
+      return addMessageCalls[i];
+    }
   }
   throw new Error("No assistant message was persisted via addMessage");
 }

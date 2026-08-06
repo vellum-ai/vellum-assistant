@@ -60,9 +60,9 @@ describe("resolveAssistantLifecycleState — transport-shaped failures (LUM-2402
 
 describe("isTransportShapedError", () => {
   test("matches the structured proxy code", () => {
-    expect(
-      isTransportShapedError({ code: PROXY_NETWORK_ERROR_CODE }),
-    ).toBe(true);
+    expect(isTransportShapedError({ code: PROXY_NETWORK_ERROR_CODE })).toBe(
+      true,
+    );
   });
 
   test("matches a raw net::ERR_* detail", () => {

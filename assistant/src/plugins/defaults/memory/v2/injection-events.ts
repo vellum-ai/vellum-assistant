@@ -33,15 +33,21 @@ export function recordInjectionEvents(
   slugs: readonly string[],
   injectedAt: number,
 ): void {
-  if (slugs.length === 0) return;
+  if (slugs.length === 0) {
+    return;
+  }
   try {
     const raw = memorySqliteOrNull("recordInjectionEvents");
-    if (!raw) return;
+    if (!raw) {
+      return;
+    }
     const insert = raw.prepare(
       `INSERT INTO memory_v2_injection_events (slug, injected_at) VALUES (?, ?)`,
     );
     const append = raw.transaction((items: readonly string[]) => {
-      for (const slug of items) insert.run(slug, injectedAt);
+      for (const slug of items) {
+        insert.run(slug, injectedAt);
+      }
     });
     append(slugs);
   } catch (err) {
@@ -58,7 +64,9 @@ export function recordInjectionEvents(
  */
 export function computeInjectionScore(slug: string, now: number): number {
   const raw = memorySqliteOrNull("computeInjectionScore");
-  if (!raw) return 0;
+  if (!raw) {
+    return 0;
+  }
   const cutoff = now - READ_WINDOW_MS;
   const rows = raw
     .query(
@@ -67,7 +75,9 @@ export function computeInjectionScore(slug: string, now: number): number {
     )
     .all(slug, cutoff) as Array<{ injected_at: number }>;
   let score = 0;
-  for (const row of rows) score += decayContribution(now - row.injected_at);
+  for (const row of rows) {
+    score += decayContribution(now - row.injected_at);
+  }
   return score;
 }
 
@@ -84,9 +94,13 @@ export function computeInjectionScores(
   now: number,
 ): Map<string, number> {
   const out = new Map<string, number>();
-  if (slugs.length === 0) return out;
+  if (slugs.length === 0) {
+    return out;
+  }
   const raw = memorySqliteOrNull("computeInjectionScores");
-  if (!raw) return out;
+  if (!raw) {
+    return out;
+  }
   const cutoff = now - READ_WINDOW_MS;
   const placeholders = slugs.map(() => "?").join(",");
   const rows = raw

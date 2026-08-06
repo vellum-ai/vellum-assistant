@@ -23,7 +23,9 @@ describe("seedAdmissionPolicyDefaults", () => {
   test("seeds enforced channels with their defaults (vellum → guardian_only, rest → trusted_contacts)", () => {
     seedAdmissionPolicyDefaults(store);
 
-    const byChannel = new Map(store.list().map((r) => [r.channelType, r.policy]));
+    const byChannel = new Map(
+      store.list().map((r) => [r.channelType, r.policy]),
+    );
     expect(byChannel.get("vellum")).toBe("guardian_only");
     expect(byChannel.get("slack")).toBe("trusted_contacts");
     expect(byChannel.get("telegram")).toBe("trusted_contacts");
@@ -51,6 +53,23 @@ describe("seedAdmissionPolicyDefaults", () => {
     expect(store.get("telegram")).toBe("any_contact");
     // A channel the user never touched still gets its seeded default.
     expect(store.get("email")).toBe("trusted_contacts");
+  });
+
+  test("picks up discord generically — enforced, hidden, pinned at the default floor", () => {
+    // Discord carries no entry in CHANNEL_ADMISSION_DEFAULTS and no special
+    // casing in the seed: adding it to CHANNEL_IDS is enough to give it a
+    // floor, so a channel id can never reach ingress unenforced.
+    seedAdmissionPolicyDefaults(store);
+
+    // Enforced — not skipped as exempt — at the universal default.
+    expect(store.get("discord")).toBe("trusted_contacts");
+
+    // Hidden: Discord is absent from the Channel Trust Floors list, so the
+    // seed re-pins any row rather than leaving a floor the user cannot see or
+    // reset.
+    store.set("discord", "strangers", "drifted row");
+    seedAdmissionPolicyDefaults(store);
+    expect(store.get("discord")).toBe("trusted_contacts");
   });
 
   test("resets a stranded hidden-channel row back to its default", () => {

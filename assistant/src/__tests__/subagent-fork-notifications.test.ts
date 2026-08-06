@@ -29,7 +29,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import { SubagentManager } from "../subagent/manager.js";
 import type { SubagentState } from "../subagent/types.js";
 
@@ -52,6 +52,11 @@ interface FakeManagedSubagent {
       estimatedCost: number;
     };
     subagentDeniedToolNames: Set<string>;
+    subagentToolStats: {
+      calls: number;
+      succeeded: number;
+      filesWritten: Set<string>;
+    };
   } | null;
   state: SubagentState;
   parentSendToClient: (msg: AssistantEvent) => void;
@@ -82,6 +87,11 @@ function injectFakeSubagent(
     sendToClient: () => {},
     usageStats: { inputTokens: 100, outputTokens: 50, estimatedCost: 0.005 },
     subagentDeniedToolNames: new Set<string>(),
+    subagentToolStats: {
+      calls: 0,
+      succeeded: 0,
+      filesWritten: new Set<string>(),
+    },
   };
 
   const internals = asInternals(manager);

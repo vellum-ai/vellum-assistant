@@ -141,7 +141,10 @@ export function registerConnectCommand(oauth: Command): void {
             // =============================================================
 
             if (isModelSpawnedConversationShell()) {
-              const redirect = buildOAuthConnectSurfaceRedirect(provider);
+              const redirect = buildOAuthConnectSurfaceRedirect(
+                provider,
+                opts.scopes,
+              );
               writeOutput(cmd, redirect);
               process.exitCode = 1;
               return;

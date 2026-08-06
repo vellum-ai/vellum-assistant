@@ -73,7 +73,9 @@ describe("voice approval atomic decide (ATL-463)", () => {
     });
 
     expect(result.applied).toBe(true);
-    if (!result.applied) return;
+    if (!result.applied) {
+      return;
+    }
     expect(result.resolverFailed).toBeUndefined();
     expect(sim.getRequest(requestId)!.status).toBe("approved");
 
@@ -104,7 +106,9 @@ describe("voice approval atomic decide (ATL-463)", () => {
     // The failure is flagged so callers surface it to the guardian rather
     // than silently dropping it; nothing was committed gateway-side.
     expect(result.applied).toBe(true);
-    if (!result.applied) return;
+    if (!result.applied) {
+      return;
+    }
     expect(result.resolverFailed).toBe(true);
     expect(result.resolverFailureReason).toBe("voice_activation_failed");
     expect(result.grantMinted).toBe(false);
@@ -121,7 +125,9 @@ describe("voice approval atomic decide (ATL-463)", () => {
       actorContext: guardianActor(),
     });
     expect(retry.applied).toBe(true);
-    if (!retry.applied) return;
+    if (!retry.applied) {
+      return;
+    }
     expect(retry.resolverFailed).toBeUndefined();
     expect(sim.getRequest(requestId)!.status).toBe("approved");
     expect(sim.state.appliedOutcomes).toHaveLength(1);
@@ -138,7 +144,9 @@ describe("voice approval atomic decide (ATL-463)", () => {
     });
 
     expect(result.applied).toBe(true);
-    if (!result.applied) return;
+    if (!result.applied) {
+      return;
+    }
     expect(result.resolverFailed).toBe(true);
     expect(result.resolverFailureReason).toBe("voice_activation_failed");
     expect(sim.getRequest(requestId)!.status).toBe("pending");
@@ -161,7 +169,9 @@ describe("voice approval atomic decide (ATL-463)", () => {
       actorContext: guardianActor(),
     });
     expect(second.applied).toBe(false);
-    if (second.applied) return;
+    if (second.applied) {
+      return;
+    }
     expect(second.reason).toBe("already_resolved");
     // No second outcome was ever applied.
     expect(sim.state.appliedOutcomes).toHaveLength(1);

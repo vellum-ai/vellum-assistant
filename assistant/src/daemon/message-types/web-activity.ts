@@ -10,6 +10,7 @@ export type WebSearchProviderId =
   | "brave"
   | "perplexity"
   | "tavily"
+  | "keenable"
   | "firecrawl";
 
 /** Provider that backed a `web_fetch` call. `default` is the built-in fetcher. */

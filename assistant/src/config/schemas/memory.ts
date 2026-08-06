@@ -17,7 +17,8 @@ import {
   MemorySegmentationConfigSchema,
   QdrantConfigSchema,
 } from "./memory-storage.js";
-import { MemoryV2ConfigSchema } from "./memory-v2.js";
+import { MemorySubstrateConfigSchema } from "./memory-substrate.js";
+import { MemoryV2ConfigSchema, WEIGHT_SUM_TOLERANCE } from "./memory-v2.js";
 import { MemoryV3ConfigSchema } from "./memory-v3.js";
 
 export const MemoryConfigSchema = z
@@ -53,6 +54,9 @@ export const MemoryConfigSchema = z
     ),
     summarization: MemorySummarizationConfigSchema.default(
       MemorySummarizationConfigSchema.parse({}),
+    ),
+    substrate: MemorySubstrateConfigSchema.default(
+      MemorySubstrateConfigSchema.parse({}),
     ),
     v2: MemoryV2ConfigSchema.default(MemoryV2ConfigSchema.parse({})),
     v3: MemoryV3ConfigSchema.default(MemoryV3ConfigSchema.parse({})),
@@ -117,6 +121,36 @@ export const MemoryConfigSchema = z
         message:
           "memory.retrieval.injection.perTurn.capabilityReserve + serendipitySlots must be less than maxNodes",
       });
+    }
+    // Resolved hybrid-weight invariant. `resolveSubstrateTuning` pairs each
+    // `memory.substrate` weight with its `memory.v2` twin on an
+    // undefined-only fallback, so a single substrate weight forms its
+    // effective pair with the v2 value (schema default applied by now). The
+    // substrate schema's own refinement already covers the both-set case, and
+    // the v2 schema covers the neither-set case — this check guards the mixed
+    // case those local refinements cannot see.
+    const substrateDense = config.substrate?.dense_weight;
+    const substrateSparse = config.substrate?.sparse_weight;
+    const oneSubstrateWeightSet =
+      (substrateDense === undefined) !== (substrateSparse === undefined);
+    if (oneSubstrateWeightSet) {
+      const effectiveDense =
+        substrateDense !== undefined ? substrateDense : config.v2.dense_weight;
+      const effectiveSparse =
+        substrateSparse !== undefined
+          ? substrateSparse
+          : config.v2.sparse_weight;
+      const effectiveSum = effectiveDense + effectiveSparse;
+      if (Math.abs(effectiveSum - 1.0) >= WEIGHT_SUM_TOLERANCE) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [
+            "substrate",
+            substrateDense !== undefined ? "dense_weight" : "sparse_weight",
+          ],
+          message: `memory hybrid weights must sum to 1.0 after memory.substrate → memory.v2 fallback (effective dense_weight ${effectiveDense.toFixed(4)} + sparse_weight ${effectiveSparse.toFixed(4)} = ${effectiveSum.toFixed(4)})`,
+        });
+      }
     }
   });
 

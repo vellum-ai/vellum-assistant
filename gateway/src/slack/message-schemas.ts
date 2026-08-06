@@ -57,10 +57,17 @@ const slackEditedSchema = z
 const slackMessageChannelType = () =>
   z.enum(["im", "channel", "group", "mpim"]).optional().catch(undefined);
 
-/** The edited message body carried in a `message_changed` event's `message`. */
+/**
+ * The edited message body carried in a `message_changed` event's `message`.
+ *
+ * `bot_id` is modeled because it is the only author field an app-attributed
+ * post carries: a `bot_message`-shaped message has no `user`, so without this
+ * the self-filter cannot tell our own edited post from an inbound one.
+ */
 const slackChangedMessageSchema = z
   .object({
     user: optionalString(),
+    bot_id: optionalString(),
     text: optionalString(),
     ts: optionalString(),
     client_msg_id: optionalString(),
@@ -74,6 +81,7 @@ const slackChangedMessageSchema = z
 const slackChangedPreviousMessageSchema = z
   .object({
     user: optionalString(),
+    bot_id: optionalString(),
     text: optionalString(),
     ts: optionalString(),
     edited: slackEditedSchema,
@@ -104,6 +112,7 @@ export type SlackMessageChangedEvent = z.infer<
 const slackDeletedPreviousMessageSchema = z
   .object({
     user: optionalString(),
+    bot_id: optionalString(),
     text: optionalString(),
     ts: optionalString(),
     thread_ts: optionalString(),
@@ -172,6 +181,46 @@ type _SlackMessageApiCrossChecks = [
 ];
 
 /**
+ * A single entity the user has open.
+ *
+ * `value` is polymorphic across entity types: an id string for
+ * `channel_id` / `canvas_id` / `list_id`, but an object for
+ * `message_context` (`{ message_ts, channel_id }`) — the case that identifies
+ * a specific message or thread. Modelling it as a plain string silently
+ * collapses that variant, so the union is load-bearing.
+ */
+const slackAppContextEntitySchema = z.object({
+  type: requiredString(),
+  value: z.union([
+    z.string(),
+    z.object({
+      message_ts: optionalString(),
+      channel_id: optionalString(),
+    }),
+  ]),
+  team_id: optionalString(),
+  enterprise_id: optionalString(),
+});
+
+/**
+ * What the sender had open when they messaged the app, ordered by relevance.
+ * Slack attaches it to `message.im` once the app subscribes to
+ * `app_context_changed`, which requires `agent_view`.
+ *
+ * Tolerance is per-entity, not per-array: a single malformed entity collapses
+ * to `undefined` in place rather than rejecting its siblings. Catching only at
+ * the array level would let one bad entry discard a usable context entirely —
+ * the message would still deliver, but "summarize this" would go unresolved
+ * with the answer sitting right there in the payload. Consumers drop the holes.
+ */
+const slackAppContextSchema = z.object({
+  entities: z
+    .array(slackAppContextEntitySchema.optional().catch(undefined))
+    .optional()
+    .catch(undefined),
+});
+
+/**
  * Tolerant schema for the plain-message family — `app_mention`, direct
  * messages, and channel/group messages. The three differ only in discriminator
  * values (`type` / `channel_type`) and which fields the normalizer keys on, so
@@ -192,6 +241,7 @@ export const slackMessageEventSchema = z.object({
   team: optionalString(),
   bot_id: optionalString(),
   bot_profile: slackBotProfileSchema.optional().catch(undefined),
+  app_context: slackAppContextSchema.optional().catch(undefined),
 });
 export type SlackMessageEvent = z.infer<typeof slackMessageEventSchema>;
 

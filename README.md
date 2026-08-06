@@ -95,7 +95,7 @@ All commands target the default assistant. If you have multiple, pass the assist
 
 **Guides**
 
-- [Your self-hosted assistant on your phone](docs/self-hosted-phone.md) — reach a locally hosted assistant from your phone with the nginx edge, a Tailscale HTTPS front, and one-scan QR pairing.
+- [Your self-hosted assistant on your devices](docs/self-hosted-phone.md) — reach a locally hosted assistant from your phone, tablet, or another computer with the nginx edge, a Tailscale HTTPS front, and one-scan QR pairing.
 
 </details>
 

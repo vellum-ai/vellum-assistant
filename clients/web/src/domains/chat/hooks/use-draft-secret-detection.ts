@@ -3,10 +3,6 @@
  * owns the notice/dismissal + pre-send gate state for the composer secret
  * guard.
  *
- * Gated on the `composer-secret-guard` assistant flag: while the flag is off
- * (or the flag store has not hydrated yet) the hook is inert — no store
- * subscription, no scanning work, `matches` is always empty.
- *
  * Draft scanning subscribes to the composer store directly (debounced,
  * non-reactive) instead of taking the draft as a reactive prop: the
  * orchestrator that mounts this hook deliberately does not subscribe to
@@ -33,7 +29,6 @@ import {
 } from "@vellumai/service-contracts/secret-detection";
 
 import { useComposerStore } from "@/domains/chat/composer-store";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 // ---------------------------------------------------------------------------
 // Pure scan policy (DOM-free, exported for tests)
@@ -49,15 +44,11 @@ export const SECRET_SCAN_MIN_DRAFT_LENGTH = 16;
 export const SECRET_SCAN_DEBOUNCE_MS = 250;
 
 /**
- * Scan decision + prefilter: returns the secrets to surface for a draft, or
- * an empty list when scanning is disabled or the draft is too short to
- * contain a detectable token.
+ * Scan prefilter: returns the secrets to surface for a draft, or an empty
+ * list when the draft is too short to contain a detectable token.
  */
-export function scanDraftForSecrets(
-  text: string,
-  enabled: boolean,
-): DetectedSecret[] {
-  if (!enabled || text.length < SECRET_SCAN_MIN_DRAFT_LENGTH) {
+export function scanDraftForSecrets(text: string): DetectedSecret[] {
+  if (text.length < SECRET_SCAN_MIN_DRAFT_LENGTH) {
     return [];
   }
   return detectSecretsInText(text);
@@ -97,10 +88,7 @@ export interface UseDraftSecretDetectionParams {
 }
 
 export interface DraftSecretDetectionResult {
-  /**
-   * Secrets currently detected in the draft, ordered by position. Empty
-   * while the flag is off or the flag store has not hydrated.
-   */
+  /** Secrets currently detected in the draft, ordered by position. */
   matches: DetectedSecret[];
   /** True when the user dismissed the notice for every flagged value. */
   dismissed: boolean;
@@ -127,8 +115,8 @@ export interface DraftSecretDetectionResult {
   /**
    * Arm a single-use bypass bound to the exact content the last
    * {@link checkBeforeSend} blocked. A no-op when nothing is blocked.
-   * Invalidated by any subsequent draft edit, flag flip, or conversation
-   * switch — the bypass approves the content as it stood when armed.
+   * Invalidated by any subsequent draft edit or conversation switch: the
+   * bypass approves the content as it stood when armed.
    */
   allowOnce: () => void;
 }
@@ -137,11 +125,6 @@ export function useDraftSecretDetection({
   conversationId,
   debounceMs = SECRET_SCAN_DEBOUNCE_MS,
 }: UseDraftSecretDetectionParams): DraftSecretDetectionResult {
-  const composerSecretGuard =
-    useAssistantFeatureFlagStore.use.composerSecretGuard();
-  const hasHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
-  const enabled = hasHydrated && composerSecretGuard;
-
   const [matches, setMatches] = useState<DetectedSecret[]>([]);
   const [dismissedValues, setDismissedValues] =
     useState<ReadonlySet<string>>(EMPTY_VALUE_SET);
@@ -159,15 +142,15 @@ export function useDraftSecretDetection({
   const scanNextInputImmediatelyRef = useRef(false);
   const prevConversationIdRef = useRef(conversationId);
 
-  // Dismissal and send-block state are scoped to one conversation's draft
-  // under one flag state — any transition of either invalidates them.
-  // Layout effect: the reset must land before the switched route paints.
+  // Dismissal and send-block state are scoped to one conversation's draft,
+  // so a conversation switch invalidates them. Layout effect: the reset must
+  // land before the switched route paints.
   useLayoutEffect(() => {
     allowOnceContentRef.current = null;
     blockedContentRef.current = null;
     setSendBlocked(false);
     setDismissedValues(EMPTY_VALUE_SET);
-  }, [enabled, conversationId]);
+  }, [conversationId]);
 
   // Conversation switches swap the draft in a parent post-render effect,
   // after this effect runs — the composer store still holds the outgoing
@@ -186,13 +169,8 @@ export function useDraftSecretDetection({
   }, [conversationId]);
 
   useEffect(() => {
-    if (!enabled) {
-      setMatches([]);
-      return;
-    }
-
     const applyScan = (text: string) => {
-      const next = scanDraftForSecrets(text, true);
+      const next = scanDraftForSecrets(text);
       setMatches((prev) => (sameMatches(prev, next) ? prev : next));
       if (next.length === 0) {
         // The flagged values left the draft: reset dismissal and any block.
@@ -253,7 +231,7 @@ export function useDraftSecretDetection({
       }
       unsubscribe();
     };
-  }, [enabled, debounceMs]);
+  }, [debounceMs]);
 
   const dismiss = useCallback(() => {
     setDismissedValues(new Set(matches.map((m) => m.value)));
@@ -272,33 +250,27 @@ export function useDraftSecretDetection({
     setSendBlocked(false);
   }, []);
 
-  const checkBeforeSend = useCallback(
-    (text: string): boolean => {
-      if (!enabled) {
-        return true;
-      }
-      // Single-use: consumed on this attempt whether or not it applies.
-      const approvedContent = allowOnceContentRef.current;
-      allowOnceContentRef.current = null;
-      if (approvedContent !== null && approvedContent === text) {
-        blockedContentRef.current = null;
-        setSendBlocked(false);
-        return true;
-      }
-      // Anything other than the exact approved content is scanned as usual.
-      const found = scanDraftForSecrets(text, true);
-      if (found.length === 0) {
-        blockedContentRef.current = null;
-        setSendBlocked(false);
-        return true;
-      }
-      blockedContentRef.current = text;
-      setMatches((prev) => (sameMatches(prev, found) ? prev : found));
-      setSendBlocked(true);
-      return false;
-    },
-    [enabled],
-  );
+  const checkBeforeSend = useCallback((text: string): boolean => {
+    // Single-use: consumed on this attempt whether or not it applies.
+    const approvedContent = allowOnceContentRef.current;
+    allowOnceContentRef.current = null;
+    if (approvedContent !== null && approvedContent === text) {
+      blockedContentRef.current = null;
+      setSendBlocked(false);
+      return true;
+    }
+    // Anything other than the exact approved content is scanned as usual.
+    const found = scanDraftForSecrets(text);
+    if (found.length === 0) {
+      blockedContentRef.current = null;
+      setSendBlocked(false);
+      return true;
+    }
+    blockedContentRef.current = text;
+    setMatches((prev) => (sameMatches(prev, found) ? prev : found));
+    setSendBlocked(true);
+    return false;
+  }, []);
 
   const dismissed =
     matches.length > 0 && matches.every((m) => dismissedValues.has(m.value));

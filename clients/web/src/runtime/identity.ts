@@ -16,6 +16,8 @@ import { isElectron } from "@/runtime/is-electron";
  * Safe to call from any host — no-op off Electron.
  */
 export function setAssistantName(name: string): void {
-  if (!isElectron()) return;
+  if (!isElectron()) {
+    return;
+  }
   window.vellum?.identity?.setName(name);
 }

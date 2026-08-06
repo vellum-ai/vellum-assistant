@@ -46,7 +46,9 @@ function resetTables(): void {
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 
@@ -408,6 +410,26 @@ describe("getRetrospectiveConfig handler", () => {
     expect(result.available).toBe(false);
     expect(result.enabled).toBe(false);
     expect(result.nextRunAt).toBeNull();
+    expect(result.success).toBe(true);
+  });
+
+  test("available but not enabled when only the retrospective switch is off", async () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify(
+        { memory: { retrospective: { enabled: false } } },
+        null,
+        2,
+      ) + "\n",
+    );
+
+    const handler = findHandler("getRetrospectiveConfig");
+    const result = (await handler({})) as ConfigResponse;
+
+    // `available` stays true so the Settings row still renders. It reads
+    // "Paused" rather than disappearing as it would with memory off.
+    expect(result.available).toBe(true);
+    expect(result.enabled).toBe(false);
     expect(result.success).toBe(true);
   });
 

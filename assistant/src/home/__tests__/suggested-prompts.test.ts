@@ -61,6 +61,7 @@ mock.module("../../runtime/assistant-event.js", () => ({
 
 mock.module("../../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: { publish: async () => {} },
+  broadcastMessage: () => {},
 }));
 
 const { getSuggestedPrompts, refreshAssistantSuggestedPrompts } =

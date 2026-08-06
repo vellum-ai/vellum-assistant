@@ -16,6 +16,11 @@ let shareAnalytics = true;
 let shareDiagnostics = true;
 let analyticsConsentCurrent = true;
 let diagnosticsConsentCurrent = true;
+// Whether the platform holds ANY consent record for this user. Independent of
+// the two legal flags above, which carry version CURRENCY only — both go false
+// for a never-consented user AND for an established user whose acceptances
+// predate both current required versions.
+let hasConsentRecord = true;
 const setTosAccepted = mock((next: boolean) => {
   tosAccepted = next;
 });
@@ -34,7 +39,11 @@ mock.module("@/domains/onboarding/prefs", () => ({
   useShareAnalytics: () => [shareAnalytics, setShareAnalytics],
   useShareDiagnostics: () => [shareDiagnostics, setShareDiagnostics],
   useAnalyticsConsentCurrent: () => [analyticsConsentCurrent, mock(() => {})],
-  useDiagnosticsConsentCurrent: () => [diagnosticsConsentCurrent, mock(() => {})],
+  useDiagnosticsConsentCurrent: () => [
+    diagnosticsConsentCurrent,
+    mock(() => {}),
+  ],
+  useHasConsentRecord: () => hasConsentRecord,
 }));
 
 const saveConsentMock = mock((_args: unknown) => {});
@@ -49,7 +58,9 @@ mock.module("@/lib/auth/hard-navigate", () => ({
 }));
 mock.module("@/runtime/is-electron", () => ({ isElectron: () => true }));
 mock.module("@/stores/auth-store", () => ({
-  useAuthStore: { use: { user: () => ({ id: "user-1" }), logout: () => mock(async () => {}) } },
+  useAuthStore: {
+    use: { user: () => ({ id: "user-1" }), logout: () => mock(async () => {}) },
+  },
   useHasPlatformSession: () => true,
 }));
 
@@ -110,9 +121,8 @@ mock.module("@vellumai/design-library/components/toggle", () => ({
   ),
 }));
 
-const { ReviewTermsScreen } = await import(
-  "@/domains/onboarding/pages/review-terms-screen"
-);
+const { ReviewTermsScreen } =
+  await import("@/domains/onboarding/pages/review-terms-screen");
 
 const TOS_LABEL = "I agree to the Terms of Service";
 const PRIVACY_LABEL = "I agree to the Privacy and AI Data Sharing Policy";
@@ -134,6 +144,7 @@ describe("ReviewTermsScreen", () => {
     shareDiagnostics = true;
     analyticsConsentCurrent = true;
     diagnosticsConsentCurrent = true;
+    hasConsentRecord = true;
   });
   afterEach(cleanup);
 
@@ -207,9 +218,11 @@ describe("ReviewTermsScreen", () => {
 
   test("first consent (nothing ever accepted) shows consent framing, no changelog", () => {
     // A user who arrived with an assistant but never consented — e.g. via the
-    // bring-your-agent import, which replaces onboarding.
+    // bring-your-agent import, which replaces onboarding. No consent record is
+    // what makes this first consent, not the two stale legal flags.
     tosAccepted = false;
     privacyConsent = false;
+    hasConsentRecord = false;
     const { rerender } = render(<ReviewTermsScreen />);
 
     expect(screen.getByText("Before You Start")).toBeTruthy();
@@ -236,5 +249,51 @@ describe("ReviewTermsScreen", () => {
     // Heading must not flip mid-flow once the box is checked.
     expect(screen.getByText("Updated terms")).toBeTruthy();
     expect(screen.queryByText("Review your privacy preferences")).toBeNull();
+  });
+
+  test("first consent surfaces the diagnostics toggle even when it isn't stale", () => {
+    // Bring-your-agent skips the onboarding privacy screen, so review-terms is
+    // where this user first chooses diagnostics sharing. Their *Current flags
+    // read never-asked as "nothing to re-review" (true), so the toggle is not
+    // stale — it must still be shown, or the choice is never offered.
+    tosAccepted = false;
+    privacyConsent = false;
+    hasConsentRecord = false;
+    analyticsConsentCurrent = true;
+    diagnosticsConsentCurrent = true;
+    render(<ReviewTermsScreen />);
+
+    expect(screen.getByText("Privacy preferences")).toBeTruthy();
+    // Diagnostics only — analytics stays null until an explicit opt-in, matching
+    // the onboarding privacy screen.
+    expect(screen.getAllByRole("switch").length).toBe(1);
+    expect(
+      screen.getByText(
+        "Send crash reports, conversation traces, and session replay data",
+      ),
+    ).toBeTruthy();
+  });
+
+  test("both legal versions bumped for an EXISTING user is not first consent", () => {
+    // Regression: `firstConsentAtMount` must key off the consent-record signal,
+    // not off the two legal flags. Those carry version currency, so an
+    // established user whose acceptances predate BOTH current required versions
+    // has both stale — previously misread as never-consented, which swapped in
+    // first-time framing, suppressed the "what's changed" notes that are the
+    // entire point of the re-review, and forced an unrelated diagnostics toggle
+    // into the flow.
+    tosAccepted = false;
+    privacyConsent = false;
+    hasConsentRecord = true; // they HAVE consented before
+    analyticsConsentCurrent = true;
+    diagnosticsConsentCurrent = true;
+    render(<ReviewTermsScreen />);
+
+    // Re-review framing, not first-time framing.
+    expect(screen.getByText("Updated terms")).toBeTruthy();
+    expect(screen.queryByText("Before You Start")).toBeNull();
+    // The diagnostics toggle is not dragged into a purely legal re-review.
+    expect(screen.queryByText("Privacy preferences")).toBeNull();
+    expect(screen.queryAllByRole("switch").length).toBe(0);
   });
 });

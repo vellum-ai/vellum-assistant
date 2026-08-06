@@ -8,11 +8,7 @@
  */
 
 export type PTTModifier =
-  | "function"
-  | "control"
-  | "shift"
-  | "option"
-  | "command";
+  "function" | "control" | "shift" | "option" | "command";
 
 export interface PTTOff {
   kind: "off";

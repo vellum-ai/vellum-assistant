@@ -15,9 +15,13 @@ const SIZE_RE = /^([\d.]+)\s*(B|KB|MB|GB)$/;
 
 function parseHumanReadableSize(s: string): number {
   const m = SIZE_RE.exec(s.trim());
-  if (!m) return 0;
+  if (!m) {
+    return 0;
+  }
   const value = Number.parseFloat(m[1]!);
-  if (!Number.isFinite(value)) return 0;
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
   switch (m[2]) {
     case "B":
       return Math.round(value);
@@ -57,7 +61,9 @@ export function parseAttachmentSummariesFromContent(content: string): {
 } {
   const marker = "[File attachment] ";
   const idx = content.indexOf(marker);
-  if (idx < 0) return { cleanedContent: content, attachments: undefined };
+  if (idx < 0) {
+    return { cleanedContent: content, attachments: undefined };
+  }
 
   // Only treat the marker as a summary block when it starts at line boundary —
   // otherwise it's just user text that happens to mention the phrase.
@@ -74,7 +80,9 @@ export function parseAttachmentSummariesFromContent(content: string): {
   const attachments: DisplayAttachment[] = [];
   for (const line of content.slice(idx).split("\n")) {
     const match = ATTACHMENT_LINE_RE.exec(line);
-    if (!match) continue;
+    if (!match) {
+      continue;
+    }
     const [, filename, mimeType, sizeStr] = match;
     attachments.push({
       id: `rehydrated:${attachments.length}`,

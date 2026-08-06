@@ -13,7 +13,7 @@ import type {
   HostTransferCancelEvent,
   HostTransferRequestEvent,
 } from "../api/events/host-transfer.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 // ---------------------------------------------------------------------------

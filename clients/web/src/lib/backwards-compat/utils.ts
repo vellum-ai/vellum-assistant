@@ -49,7 +49,7 @@ import { whenStoreState } from "@/utils/when-store-state";
  */
 export function useAssistantSupports(minVersion: string): boolean {
   const version = useAssistantIdentityStore.use.version();
-  return supportsVersion(version, minVersion);
+  return versionSupports(version, minVersion);
 }
 
 /**
@@ -100,24 +100,64 @@ export function useAssistantScopedSupports(
  */
 export function assistantSupports(minVersion: string): boolean {
   const version = useAssistantIdentityStore.getState().version;
-  return supportsVersion(version, minVersion);
+  return versionSupports(version, minVersion);
 }
 
-function supportsVersion(
+/**
+ * Non-hook variant of {@link useAssistantScopedSupports}, for imperative
+ * callers (event handlers, async ops) — same owner-scoping rule, read off a
+ * `getState()` snapshot.
+ *
+ * Narrows `ownerAssistantId` to `string`: a null/undefined owner is never
+ * supported, so a `true` result always carries a usable assistant id.
+ *
+ * Inherits {@link assistantSupports}'s conservative `false` while the version
+ * is unhydrated, so callers that may run before the identity fetch lands must
+ * await {@link whenAssistantVersionKnownFor} first, passing the same owner.
+ * The unscoped {@link whenAssistantVersionKnown} is NOT enough here: it is
+ * satisfied by a version still held for another assistant, and the owner
+ * mismatch then answers `false` as if the feature were unsupported.
+ */
+export function assistantScopedSupports(
+  minVersion: string,
+  ownerAssistantId: string | null | undefined,
+): ownerAssistantId is string {
+  const identityAssistantId = useAssistantIdentityStore.getState().assistantId;
+  return (
+    assistantSupports(minVersion) &&
+    ownerAssistantId != null &&
+    ownerAssistantId === identityAssistantId
+  );
+}
+
+/**
+ * Raw comparison behind `useAssistantSupports`/`assistantSupports`, for
+ * gates that resolve the assistant version themselves instead of reading
+ * the identity store (e.g. onboarding, which runs against a freshly
+ * hatched assistant before the store hydrates). Same semantics: `false`
+ * on null/unparseable versions, dev builds ahead of same-base stable.
+ */
+export function versionSupports(
   version: string | null | undefined,
   minVersion: string,
 ): boolean {
-  if (!version) return false;
+  if (!version) {
+    return false;
+  }
   const parsed = parseSemver(version);
   const min = parseSemver(minVersion);
-  if (!parsed || !min) return false;
+  if (!parsed || !min) {
+    return false;
+  }
   // Compare base versions (major.minor.patch) first, ignoring
   // pre-release suffixes. If the bases differ, the higher base wins.
   const baseCmp = compareParsed(
     { ...parsed, pre: null },
     { ...min, pre: null },
   );
-  if (baseCmp !== 0) return baseCmp > 0;
+  if (baseCmp !== 0) {
+    return baseCmp > 0;
+  }
   // Base versions are equal. Dev pre-releases (e.g.
   // `0.10.0-dev.202606211252.5cf8576`) are development builds AHEAD of
   // the stable release with the same base — they contain unreleased
@@ -168,6 +208,34 @@ export function whenAssistantVersionKnown(
   return whenStoreState(
     useAssistantIdentityStore,
     (state) => Boolean(state.version),
+    { timeoutMs },
+  );
+}
+
+/**
+ * The scoped counterpart: resolves once the identity store holds a version
+ * **for `ownerAssistantId`**, or after `timeoutMs`.
+ *
+ * Write paths behind {@link assistantScopedSupports} need this rather than
+ * {@link whenAssistantVersionKnown}. The unscoped wait is satisfied by any
+ * non-null version, including one still held for the assistant the user was
+ * looking at a moment ago; the scoped read then fails on the owner mismatch
+ * and the write silently takes the legacy shape for an assistant that never
+ * needed it. Matching the wait to the read closes that gap.
+ *
+ * A null owner resolves immediately: the scoped gate reports `false` for one
+ * regardless, so there is nothing to wait for.
+ */
+export function whenAssistantVersionKnownFor(
+  ownerAssistantId: string | null | undefined,
+  timeoutMs: number = VERSION_RESOLUTION_TIMEOUT_MS,
+): Promise<void> {
+  if (ownerAssistantId == null) {
+    return Promise.resolve();
+  }
+  return whenStoreState(
+    useAssistantIdentityStore,
+    (state) => Boolean(state.version) && state.assistantId === ownerAssistantId,
     { timeoutMs },
   );
 }

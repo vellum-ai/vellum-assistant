@@ -43,10 +43,7 @@ export function VoicePickerCard() {
 
   if (available && current) {
     return (
-      <DetailCard
-        title={voiceTitle}
-        subtitle={MANAGED_VOICE_CREDITS_NOTE}
-      >
+      <DetailCard title={voiceTitle} subtitle={MANAGED_VOICE_CREDITS_NOTE}>
         <div className="flex items-center gap-3">
           <VoiceLabel
             description={current.description}

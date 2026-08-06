@@ -134,7 +134,9 @@ function isOutsideWorkspace(
   linkTarget: string,
   workspaceDir: string | undefined,
 ): boolean {
-  if (!workspaceDir) return false;
+  if (!workspaceDir) {
+    return false;
+  }
   const resolved = resolve(dirname(diskPath), linkTarget);
   const ws = resolve(workspaceDir);
   return resolved !== ws && !resolved.startsWith(ws + sep);
@@ -277,7 +279,9 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       // Clear workspace contents selectively, preserving skip dirs
       const topEntries = readdirSync(workspaceDir, { withFileTypes: true });
       for (const entry of topEntries) {
-        if (topLevelSkipDirs.has(entry.name)) continue;
+        if (topLevelSkipDirs.has(entry.name)) {
+          continue;
+        }
 
         const entryPath = join(workspaceDir, entry.name);
         if (entry.name === "data" && entry.isDirectory()) {
@@ -285,7 +289,9 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
           // (critical user data) but clear everything else
           const dataEntries = readdirSync(entryPath, { withFileTypes: true });
           for (const dataEntry of dataEntries) {
-            if (dataSubdirSkipDirs.has(dataEntry.name)) continue;
+            if (dataSubdirSkipDirs.has(dataEntry.name)) {
+              continue;
+            }
             rmSync(join(entryPath, dataEntry.name), {
               recursive: true,
               force: true,

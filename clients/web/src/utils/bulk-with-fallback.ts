@@ -24,17 +24,14 @@ export async function executeBulkWithFallback<T>(opts: {
   const bulkRes = await bulkCall();
 
   if (bulkRes.response?.status === 404) {
-    const { abortedAt, succeeded } = await batchExecute(
-      items,
-      async (item) => {
-        try {
-          await fallbackFn(item);
-        } catch (err) {
-          rollbackItem(item);
-          throw err;
-        }
-      },
-    );
+    const { abortedAt, succeeded } = await batchExecute(items, async (item) => {
+      try {
+        await fallbackFn(item);
+      } catch (err) {
+        rollbackItem(item);
+        throw err;
+      }
+    });
     if (abortedAt !== null) {
       captureError(
         new Error(
@@ -47,6 +44,9 @@ export async function executeBulkWithFallback<T>(opts: {
     for (const item of items) {
       rollbackItem(item);
     }
-    captureError(bulkRes.error, { context: `${context}:bulk`, bestEffort: true });
+    captureError(bulkRes.error, {
+      context: `${context}:bulk`,
+      bestEffort: true,
+    });
   }
 }

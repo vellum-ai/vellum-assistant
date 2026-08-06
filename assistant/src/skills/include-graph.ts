@@ -27,12 +27,16 @@ export function getImmediateChildren(
   catalogIndex: Map<string, SkillSummary>,
 ): SkillSummary[] {
   const parent = catalogIndex.get(parentId);
-  if (!parent?.includes || parent.includes.length === 0) return [];
+  if (!parent?.includes || parent.includes.length === 0) {
+    return [];
+  }
 
   const children: SkillSummary[] = [];
   for (const childId of parent.includes) {
     const child = catalogIndex.get(childId);
-    if (child) children.push(child);
+    if (child) {
+      children.push(child);
+    }
   }
   return children;
 }
@@ -76,7 +80,9 @@ function validateIncludeGraph(
   ): IncludeValidationError | IncludeValidationCycleError | null {
     const currentState = state.get(id) ?? "unseen";
 
-    if (currentState === "done") return null;
+    if (currentState === "done") {
+      return null;
+    }
 
     if (currentState === "visiting") {
       // Found a cycle — build the cycle path from the point where id first appears
@@ -105,7 +111,9 @@ function validateIncludeGraph(
           continue;
         }
         const childError = dfs(childId);
-        if (childError) return childError;
+        if (childError) {
+          return childError;
+        }
       }
     }
 
@@ -115,7 +123,9 @@ function validateIncludeGraph(
   }
 
   const error = dfs(rootId);
-  if (error) return error;
+  if (error) {
+    return error;
+  }
   return { ok: true, visited };
 }
 
@@ -155,17 +165,25 @@ export function traverseIncludes(
   const seen = new Set<string>();
 
   function dfs(id: string): void {
-    if (seen.has(id)) return;
+    if (seen.has(id)) {
+      return;
+    }
     seen.add(id);
     visited.push(id);
 
     const skill = catalogIndex.get(id);
-    if (!skill?.includes) return;
+    if (!skill?.includes) {
+      return;
+    }
 
     for (const childId of skill.includes) {
-      if (seen.has(childId)) continue;
+      if (seen.has(childId)) {
+        continue;
+      }
       // Only traverse children that exist in the catalog
-      if (!catalogIndex.has(childId)) continue;
+      if (!catalogIndex.has(childId)) {
+        continue;
+      }
       dfs(childId);
     }
   }
@@ -187,11 +205,15 @@ export function collectAllMissing(
   const visited = new Set<string>();
 
   function dfs(id: string): void {
-    if (visited.has(id)) return;
+    if (visited.has(id)) {
+      return;
+    }
     visited.add(id);
 
     const skill = catalogIndex.get(id);
-    if (!skill?.includes) return;
+    if (!skill?.includes) {
+      return;
+    }
 
     for (const childId of skill.includes) {
       if (!catalogIndex.has(childId)) {

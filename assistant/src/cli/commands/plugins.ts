@@ -7,10 +7,14 @@
  */
 
 import { createRequire } from "node:module";
+import { join } from "node:path";
 
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { stripAnsiAndControlChars } from "../../util/ansi.js";
+import { getWorkspacePluginsDir } from "../../util/platform.js";
+import { truncate } from "../../util/truncate.js";
 import { yellow } from "../lib/cli-colors.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { confirmPrompt } from "../lib/confirm-prompt.js";
@@ -20,6 +24,7 @@ import type {
   PluginRemoteInfo,
 } from "../lib/inspect-plugin.js";
 import type {
+  ConfirmStagedInstall,
   InstallPluginOptions,
   PluginFetchSource,
 } from "../lib/install-from-github.js";
@@ -37,6 +42,7 @@ import {
 } from "../lib/plugin-constants.js";
 import type { FingerprintComparison } from "../lib/plugin-fingerprint.js";
 import type { PluginPinHistoryEntry } from "../lib/plugin-pin-history.js";
+import type { PluginScheduleSurface } from "../lib/plugin-surfaces.js";
 import { runPublish } from "../lib/publish-plugin.js";
 import { registerCommand } from "../lib/register-command.js";
 import {
@@ -99,6 +105,11 @@ const libs = {
       "../lib/search-plugins.js",
     ) as typeof import("../lib/search-plugins.js");
   },
+  get surfaces() {
+    return loadModule(
+      "../lib/plugin-surfaces.js",
+    ) as typeof import("../lib/plugin-surfaces.js");
+  },
   get uninstall() {
     return loadModule(
       "../lib/uninstall-plugin.js",
@@ -157,6 +168,16 @@ export function registerPluginsCommand(program: Command): void {
             const usesMarketplaceGit =
               !direct && Boolean(opts.pin || opts.ref || opts.allowUnreviewed);
 
+            // Consent gate the installers run between staging and finalize:
+            // a plugin that declares schedules gets them listed and, unless
+            // --force, must be confirmed before anything lands on disk that
+            // the daemon's schedule reconciler could arm.
+            const confirmStaged: ConfirmStagedInstall = (staged) =>
+              confirmDeclaredSchedules(staged, "install", {
+                force: Boolean(opts.force),
+                json: false,
+              });
+
             let result;
             let untrusted = false;
             if (!direct && !usesMarketplaceGit) {
@@ -167,7 +188,7 @@ export function registerPluginsCommand(program: Command): void {
               if (libs.catalogLocal.arePlatformFeaturesEnabled()) {
                 result = await libs.installPlatform.installPluginViaPlatform(
                   { name: nameOrUrl, force: opts.force },
-                  { fetch: globalThis.fetch.bind(globalThis) },
+                  { fetch: globalThis.fetch.bind(globalThis), confirmStaged },
                 );
               } else {
                 const source =
@@ -190,7 +211,7 @@ export function registerPluginsCommand(program: Command): void {
                       ref: source.ref,
                     },
                   },
-                  { fetch: globalThis.fetch.bind(globalThis) },
+                  { fetch: globalThis.fetch.bind(globalThis), confirmStaged },
                 );
               }
             } else {
@@ -210,6 +231,7 @@ export function registerPluginsCommand(program: Command): void {
               }
               result = await libs.installGitHub.installPlugin(installOpts, {
                 fetch: globalThis.fetch.bind(globalThis),
+                confirmStaged,
               });
             }
             log.info(
@@ -231,6 +253,11 @@ export function registerPluginsCommand(program: Command): void {
               `Installed ${label} "${result.name}" (${result.fileCount} file${result.fileCount === 1 ? "" : "s"})${pinned} → ${result.target}`,
             );
           } catch (err) {
+            if (err instanceof libs.installGitHub.PluginInstallDeclinedError) {
+              // The consent gate already printed the outcome and set the exit
+              // code; the install was aborted with nothing left on disk.
+              return;
+            }
             if (err instanceof libs.installGitHub.PluginAlreadyInstalledError) {
               console.error(`${err.message}\nPass --force to overwrite.`);
               process.exitCode = 1;
@@ -407,7 +434,10 @@ export function registerPluginsCommand(program: Command): void {
               "plugin inspect",
             );
 
-            for (const line of formatInspection(inspection)) {
+            const describeCron = inspection.surfaces?.schedules.length
+              ? await loadCronDescriber()
+              : null;
+            for (const line of formatInspection(inspection, describeCron)) {
               console.log(line);
             }
           } catch (err) {
@@ -665,7 +695,12 @@ export function registerPluginsCommand(program: Command): void {
       subcommand(plugins, "upgrade").action(
         async (
           name: string,
-          opts: { dryRun?: boolean; strategy?: string; json?: boolean },
+          opts: {
+            dryRun?: boolean;
+            strategy?: string;
+            json?: boolean;
+            force?: boolean;
+          },
         ) => {
           const strategy = opts.strategy;
           if (
@@ -682,11 +717,16 @@ export function registerPluginsCommand(program: Command): void {
             // Prefer the daemon: when the upgrade re-materializes files it runs
             // the plugin's `shutdown` + `init` hooks in the main process —
             // symmetric to how install/uninstall run their lifecycle there.
+            // The daemon route is unattended (no staging prompt); a schedule
+            // the upgraded revision adds is surfaced by the reconciler's
+            // `schedule.declared` notification, and mirrored at the terminal
+            // by the declared-schedules listing printed after the upgrade.
             // Fall back to a local upgrade only when the daemon is unreachable
             // (a transport error carries no `statusCode`); an operator can still
             // upgrade while it's stopped, and the new code is picked up on the
             // daemon's next start. A daemon-side decision (not installed, not
             // upgradable, …) is surfaced rather than silently retried locally.
+            const preUpgradeScheduleNames = listInstalledScheduleNames(name);
             const daemon = await cliIpcCall<PluginUpgradeResult>(
               "plugins_upgrade",
               {
@@ -695,20 +735,36 @@ export function registerPluginsCommand(program: Command): void {
               },
             );
             let result: PluginUpgradeResult;
+            let upgradedViaDaemon = false;
             if (daemon.ok && daemon.result) {
               result = daemon.result;
+              upgradedViaDaemon = true;
             } else if (daemon.statusCode === undefined) {
-              log.debug(
-                { name, error: daemon.error },
-                "upgrade could not reach the daemon; upgrading locally",
-              );
+              // The CLI logger writes debug to stdout, which would corrupt
+              // --json output, so under --json the same note goes to stderr.
+              // The CLI logger drops structured fields either way.
+              const fallbackNote =
+                "upgrade could not reach the daemon; upgrading locally";
+              if (opts.json) {
+                console.error(fallbackNote);
+              } else {
+                log.debug({ name, error: daemon.error }, fallbackNote);
+              }
+              // The local path stages in this process, so it gets the same
+              // consent gate as install: declared schedules are listed and
+              // confirmed (or --force) before the staged tree goes live.
+              const confirmStaged: ConfirmStagedInstall = (staged) =>
+                confirmDeclaredSchedules(staged, "upgrade", {
+                  force: Boolean(opts.force),
+                  json: Boolean(opts.json),
+                });
               result = await libs.upgrade.upgradePlugin(
                 {
                   name,
                   dryRun: opts.dryRun,
                   strategy: strategy as PluginUpgradeStrategy | undefined,
                 },
-                { fetch: globalThis.fetch.bind(globalThis) },
+                { fetch: globalThis.fetch.bind(globalThis), confirmStaged },
               );
             } else {
               console.error(daemon.error ?? "Plugin upgrade failed.");
@@ -736,7 +792,20 @@ export function registerPluginsCommand(program: Command): void {
             for (const line of formatUpgrade(result)) {
               console.log(line);
             }
+
+            if (upgradedViaDaemon && result.outcome === "upgraded") {
+              await printDeclaredSchedulesAfterUpgrade(
+                result.name,
+                result.target,
+                preUpgradeScheduleNames,
+              );
+            }
           } catch (err) {
+            if (err instanceof libs.installGitHub.PluginInstallDeclinedError) {
+              // The consent gate already printed the outcome and set the exit
+              // code; the upgrade was aborted with the live install untouched.
+              return;
+            }
             if (
               err instanceof libs.uninstall.PluginNotInstalledError ||
               err instanceof libs.upgrade.PluginNotUpgradableError ||
@@ -936,6 +1005,209 @@ function printUntrustedPluginWarning(
 }
 
 /**
+ * The declared-schedules block for a plugin tree: a heading plus one aligned
+ * row per schedule, or null when the plugin declares none. Callers own the
+ * output stream and any per-row annotation.
+ */
+async function buildDeclaredScheduleListing(
+  pluginName: string,
+  pluginDir: string,
+): Promise<{
+  heading: string;
+  rows: string[];
+  schedules: readonly PluginScheduleSurface[];
+} | null> {
+  const { schedules } = libs.surfaces.detectPluginSurfaces(pluginDir);
+  if (schedules.length === 0) {
+    return null;
+  }
+  const describeCron = await loadCronDescriber();
+  return {
+    heading: `Plugin "${pluginName}" declares ${schedules.length} schedule${schedules.length === 1 ? "" : "s"}:`,
+    rows: formatScheduleRows(schedules, describeCron),
+    schedules,
+  };
+}
+
+/**
+ * List a staged plugin's declared schedules and ask for consent. Schedules run
+ * automatically once armed, so neither an install nor an upgrade may add any
+ * silently: the user either confirms the listing or passes --force. Returns
+ * whether the operation may proceed; a refusal's user-facing outcome (message
+ * + exit code) is fully handled here, so the caller aborts without further
+ * output. `action` selects the install vs upgrade wording.
+ */
+async function confirmDeclaredSchedules(
+  staged: { name: string; stagingDir: string },
+  action: "install" | "upgrade",
+  opts: { force: boolean; json: boolean },
+): Promise<boolean> {
+  const listing = await buildDeclaredScheduleListing(
+    staged.name,
+    staged.stagingDir,
+  );
+  if (!listing) {
+    return true;
+  }
+  // Everything this gate prints is human output: the listing, the prompt
+  // itself, and the cancellation line. Under --json all of it goes to stderr
+  // so it cannot corrupt the JSON document the caller parses off stdout.
+  const write = (line: string): void => {
+    if (opts.json) {
+      console.error(line);
+    } else {
+      console.log(line);
+    }
+  };
+  write(listing.heading);
+  for (const row of listing.rows) {
+    write(`  ${row}`);
+  }
+  write(
+    "Schedules run automatically in the background once the plugin is installed.",
+  );
+  if (opts.force) {
+    return true;
+  }
+  const verb = action === "install" ? "Install" : "Upgrade";
+  const result = await confirmPrompt({
+    question: `${verb} "${staged.name}" and allow these schedules? [y/N] `,
+    isTTY: Boolean(process.stdin.isTTY),
+    refuseNonInteractiveMessage: `Refusing to ${action} "${staged.name}" non-interactively: it declares schedules. Pass --force to confirm.`,
+    stdout: opts.json ? process.stderr : undefined,
+  });
+  if (result === "non-interactive") {
+    process.exitCode = 1;
+    return false;
+  }
+  if (result === "denied") {
+    write(`${verb} cancelled.`);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Maximum rendered width of a declared-schedule listing cell. Declaration
+ * strings come from the plugin being installed, so an overlong expression
+ * must not be able to push the consent prompt off-screen.
+ */
+const MAX_SCHEDULE_CELL_WIDTH = 60;
+
+/**
+ * Make a plugin-controlled declaration string safe to print next to the
+ * install consent prompt: drop escape sequences and control characters
+ * (which could rewrite or hide the surrounding untrusted-source warning)
+ * and cap the cell width.
+ */
+function sanitizeScheduleCell(value: string): string {
+  return truncate(stripAnsiAndControlChars(value), MAX_SCHEDULE_CELL_WIDTH);
+}
+
+/** Humanizes a cron expression for display; returns the input when unrecognized. */
+type CronDescriber = (expression: string) => string;
+
+/**
+ * Load the schedule store's cron humanizer for cadence display. Loaded
+ * lazily inside actions because it lives in the daemon's module graph
+ * (see the `cli/no-daemon-internals` hoisting rule); when it cannot be
+ * loaded, listings fall back to raw expressions.
+ */
+async function loadCronDescriber(): Promise<CronDescriber | null> {
+  try {
+    const { describeCronExpression } =
+      await import("../../schedule/schedule-store.js");
+    return describeCronExpression;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cadence cell for a declared-schedules listing: the humanized cron cadence
+ * with the raw expression kept as ground truth ("Every day at 9:00 AM
+ * (0 9 * * *)"). RRULEs and anything the describer does not recognize stay
+ * as the raw expression alone.
+ */
+function formatCadenceCell(
+  cadence: string,
+  describeCron: CronDescriber | null,
+): string {
+  const described = describeCron?.(cadence);
+  return described && described !== cadence
+    ? `${described} (${cadence})`
+    : cadence;
+}
+
+/** Aligned `name  cadence  (mode)` rows for a declared-schedules listing. */
+function formatScheduleRows(
+  schedules: readonly PluginScheduleSurface[],
+  describeCron: CronDescriber | null,
+): string[] {
+  if (schedules.length === 0) {
+    return [];
+  }
+  const rows = schedules.map((s) => ({
+    name: sanitizeScheduleCell(s.name),
+    cadence: sanitizeScheduleCell(formatCadenceCell(s.cadence, describeCron)),
+    mode: s.mode,
+  }));
+  const nameW = Math.max(...rows.map((r) => r.name.length));
+  const cadenceW = Math.max(...rows.map((r) => r.cadence.length));
+  return rows.map(
+    (r) =>
+      `${r.name.padEnd(nameW)}  ${r.cadence.padEnd(cadenceW)}  (${r.mode})`,
+  );
+}
+
+/**
+ * Names of the schedules the installed copy of a plugin currently declares.
+ * Empty when the plugin (or its schedules/ dir) is absent, or when the
+ * install path cannot be probed at all (for example an unsanitized name);
+ * the upgrade itself surfaces such errors, this snapshot never does.
+ */
+function listInstalledScheduleNames(name: string): ReadonlySet<string> {
+  try {
+    const surfaces = libs.surfaces.detectPluginSurfaces(
+      join(getWorkspacePluginsDir(), name),
+    );
+    return new Set(surfaces.schedules.map((s) => s.name));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * After a daemon-applied upgrade, list the revision's declared schedules with
+ * a `[new]` marker on the ones the previous revision did not declare. The
+ * daemon path has no staging prompt, so this display is how the operator sees
+ * at the terminal what the reconciler's notification says. Display only:
+ * arming decisions stay with the reconciler.
+ */
+async function printDeclaredSchedulesAfterUpgrade(
+  name: string,
+  target: string,
+  previousNames: ReadonlySet<string>,
+): Promise<void> {
+  const listing = await buildDeclaredScheduleListing(name, target);
+  if (!listing) {
+    return;
+  }
+  const { heading, rows, schedules } = listing;
+  console.log("");
+  console.log(heading);
+  schedules.forEach((schedule, index) => {
+    const marker = previousNames.has(schedule.name) ? "" : "  [new]";
+    console.log(`  ${rows[index]}${marker}`);
+  });
+  if (schedules.some((schedule) => !previousNames.has(schedule.name))) {
+    console.log(
+      "New schedules run automatically in the background. Run 'assistant schedules list' to review them, or 'assistant schedules disable <id>' to turn one off.",
+    );
+  }
+}
+
+/**
  * Render a plugin's marketplace-pin history as a table: the pinned commit (short
  * SHA), when it was promoted, and a marker for the pin currently active. An
  * empty history reports that none was found.
@@ -1059,7 +1331,10 @@ function remoteLocation(remote: PluginRemoteInfo): string {
  * that each carry `timestamp` (the human version), `hash` (the precise id), and
  * `location`, with a `drift` line under the installed copy.
  */
-function formatInspection(inspection: PluginInspection): string[] {
+function formatInspection(
+  inspection: PluginInspection,
+  describeCron: CronDescriber | null,
+): string[] {
   const { name, status, local, remote, remoteError, surfaces } = inspection;
   const lines: string[] = [name, "─".repeat(44)];
   const topRow = (label: string, value: string) =>
@@ -1124,6 +1399,10 @@ function formatInspection(inspection: PluginInspection): string[] {
     surfaceBlock("skills", surfaces.skills);
     surfaceBlock("hooks", surfaces.hooks);
     surfaceBlock("tools", surfaces.tools);
+    surfaceBlock(
+      "schedules",
+      formatScheduleRows(surfaces.schedules, describeCron),
+    );
   }
 
   for (const issue of local?.issues ?? []) {

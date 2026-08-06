@@ -245,7 +245,7 @@ describe("PairDeviceCard", () => {
 
     expect(
       screen.getByText(
-        "This is a loopback address your phone can't reach. Enter the assistant's public https URL.",
+        "This is a loopback address other devices can't reach. Enter the assistant's public https URL.",
       ),
     ).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -306,7 +306,7 @@ describe("PairDeviceCard", () => {
 
     expect(
       screen.getByText(
-        "Scan from your phone's camera to open My Assistant on it.",
+        "Scan with another device's camera — or open the link on it — to use My Assistant there.",
       ),
     ).toBeTruthy();
   });
@@ -316,7 +316,7 @@ describe("PairDeviceCard", () => {
 
     expect(
       screen.getByText(
-        "Scan from your phone's camera to open this assistant on it.",
+        "Scan with another device's camera — or open the link on it — to use this assistant there.",
       ),
     ).toBeTruthy();
   });

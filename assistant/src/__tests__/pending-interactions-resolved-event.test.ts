@@ -10,7 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 
 // Capture every broadcast emitted by the tracker. The real hub is replaced
 // with a thin recorder so we can assert payloads deterministically.

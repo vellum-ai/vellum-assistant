@@ -18,7 +18,9 @@ const CONFIG_PATH = join(WORKSPACE_DIR, "config.json");
 function ensureTestDir(): void {
   const dirs = [WORKSPACE_DIR, join(WORKSPACE_DIR, "data")];
   for (const dir of dirs) {
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
   }
 }
 

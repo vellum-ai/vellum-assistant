@@ -17,7 +17,9 @@ export async function run(
 
   try {
     const seqs = listSequences(status ? { status } : undefined);
-    if (seqs.length === 0) return ok("No sequences found.");
+    if (seqs.length === 0) {
+      return ok("No sequences found.");
+    }
 
     const lines = seqs.map((s) => {
       const enrollments = countActiveEnrollments(s.id);

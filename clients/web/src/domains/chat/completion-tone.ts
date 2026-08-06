@@ -28,7 +28,9 @@ const DENY_DECISION_ACTIONS: ReadonlySet<string> = new Set([
  * is neither trusted nor kept out, so the card reads neutral. `block`/`reject`
  * stay `danger`.
  */
-const PARK_DECISION_ACTIONS: ReadonlySet<string> = new Set(["leave_unverified"]);
+const PARK_DECISION_ACTIONS: ReadonlySet<string> = new Set([
+  "leave_unverified",
+]);
 
 /** Action segment of an `apr:<requestId>:<action>` guardian-decision id. */
 function guardianDecisionAction(actionId: string): string {

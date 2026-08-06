@@ -20,7 +20,9 @@ export function isMarkdown(
   name: string | undefined,
   mimeType: string | undefined,
 ): boolean {
-  if (mimeType === "text/markdown") return true;
+  if (mimeType === "text/markdown") {
+    return true;
+  }
   const lower = (name ?? "").toLowerCase();
   return lower.endsWith(".md") || lower.endsWith(".markdown");
 }

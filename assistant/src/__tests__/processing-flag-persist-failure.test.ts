@@ -100,10 +100,6 @@ mock.module("../memory/query-builder.js", () => ({
   buildMemoryQuery: () => "",
 }));
 
-mock.module("../plugins/defaults/memory/retrieval-budget.js", () => ({
-  computeRecallBudget: () => 0,
-}));
-
 mock.module("../runtime/sync/sync-publisher.js", () => ({
   publishSyncInvalidation: () => {},
 }));

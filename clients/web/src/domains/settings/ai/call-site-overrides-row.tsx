@@ -1,17 +1,21 @@
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import {
-    getDefaultModelForProvider,
-    getModelsForProvider,
-    PROVIDER_DISPLAY_NAMES,
+  getDefaultModelForProvider,
+  getModelsForProvider,
+  PROVIDER_DISPLAY_NAMES,
 } from "@/assistant/llm-model-catalog";
 import type { CallSiteOverrideDraft } from "@/generated/daemon/types.gen";
 
 import {
-    INFERENCE_PROVIDERS,
+  INFERENCE_PROVIDERS,
+  isInferenceProvider,
 } from "@/domains/settings/ai/constants";
-import { CUSTOM_SENTINEL, isDraftActive } from "@/domains/settings/ai/call-site-helpers";
+import {
+  CUSTOM_SENTINEL,
+  isDraftActive,
+} from "@/domains/settings/ai/call-site-helpers";
 import { useSelectableInferenceProviders } from "@/domains/settings/ai/provider-availability";
 
 // ---------------------------------------------------------------------------
@@ -51,15 +55,36 @@ export function CallSiteOverrideRow({
   const overrideOn = isDraftActive(draft);
 
   const profileVal = (() => {
-    if (!draft || !overrideOn) return "";
-    if (draft.provider || draft.model) return CUSTOM_SENTINEL;
+    if (!draft || !overrideOn) {
+      return "";
+    }
+    if (draft.provider || draft.model) {
+      return CUSTOM_SENTINEL;
+    }
     return draft.profile ?? "";
   })();
 
   const isCustom = profileVal === CUSTOM_SENTINEL;
   const selectableInferenceProviders = useSelectableInferenceProviders();
-  const defaultProvider = selectableInferenceProviders[0] ?? INFERENCE_PROVIDERS[0];
-  const currentProvider = selectableInferenceProviders.find((p) => p === draft?.provider) ?? defaultProvider;
+  const defaultProvider =
+    selectableInferenceProviders[0] ?? INFERENCE_PROVIDERS[0];
+  // Show what is actually pinned, even when this assistant cannot select it
+  // (an `ollama` pin on a platform-hosted assistant, say). Substituting a
+  // selectable provider for display would show one thing while saving
+  // another, and picking the shown value could not repair it: it is already
+  // the value, so the change never fires.
+  //
+  // `LlmProvider` is wider than the picker's domain (it also carries the
+  // `openai-compatible`, `vellum` and `chatgpt` routing sentinels), so a pin
+  // outside `INFERENCE_PROVIDERS` still falls back rather than being offered
+  // as a row the picker cannot represent.
+  const storedProvider = isInferenceProvider(draft?.provider)
+    ? draft.provider
+    : undefined;
+  const storedProviderIsSelectable =
+    storedProvider !== undefined &&
+    selectableInferenceProviders.some((p) => p === storedProvider);
+  const currentProvider = storedProvider ?? defaultProvider;
   const availableModels = getModelsForProvider(currentProvider);
   const modelOptions = availableModels.map((m) => ({
     value: m.id,
@@ -70,7 +95,11 @@ export function CallSiteOverrideRow({
   function handleProfilePickerChange(val: string) {
     if (val === CUSTOM_SENTINEL) {
       const defaultModel = getDefaultModelForProvider(defaultProvider) ?? "";
-      onDraftChange(id, { profile: null, provider: defaultProvider, model: defaultModel });
+      onDraftChange(id, {
+        profile: null,
+        provider: defaultProvider,
+        model: defaultModel,
+      });
     } else if (val === "") {
       onDraftChange(id, null);
     } else {
@@ -78,9 +107,16 @@ export function CallSiteOverrideRow({
     }
   }
 
-  function handleProviderChange(provider: (typeof INFERENCE_PROVIDERS)[number]) {
+  function handleProviderChange(
+    provider: (typeof INFERENCE_PROVIDERS)[number],
+  ) {
     const defaultModel = getDefaultModelForProvider(provider) ?? "";
-    onDraftChange(id, { ...(draft ?? {}), profile: null, provider, model: defaultModel });
+    onDraftChange(id, {
+      ...(draft ?? {}),
+      profile: null,
+      provider,
+      model: defaultModel,
+    });
   }
 
   function handleModelChange(model: string) {
@@ -108,7 +144,7 @@ export function CallSiteOverrideRow({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {overrideOn && (
-            <Dropdown
+            <Select
               value={profileVal}
               onChange={handleProfilePickerChange}
               options={profileOptions}
@@ -133,20 +169,36 @@ export function CallSiteOverrideRow({
               <label className="mb-1 block text-body-small-default text-[var(--content-tertiary)]">
                 Provider
               </label>
-              <Dropdown
+              <Select
                 value={currentProvider ?? ""}
                 onChange={handleProviderChange}
-                options={selectableInferenceProviders.map((p) => ({
-                  value: p,
-                  label: PROVIDER_DISPLAY_NAMES[p] ?? p,
-                }))}
+                options={[
+                  ...selectableInferenceProviders.map((p) => ({
+                    value: p,
+                    label: PROVIDER_DISPLAY_NAMES[p] ?? p,
+                  })),
+                  // Keeps the trigger honest and gives the user a way out:
+                  // the row renders its real pin, and choosing any other
+                  // provider is a genuine change that fires.
+                  ...(storedProvider && !storedProviderIsSelectable
+                    ? [
+                        {
+                          value: storedProvider,
+                          label: `${
+                            PROVIDER_DISPLAY_NAMES[storedProvider] ??
+                            storedProvider
+                          } (unavailable)`,
+                        },
+                      ]
+                    : []),
+                ]}
               />
             </div>
             <div className="flex-1">
               <label className="mb-1 block text-body-small-default text-[var(--content-tertiary)]">
                 Model
               </label>
-              <Dropdown
+              <Select
                 value={draft?.model ?? ""}
                 onChange={handleModelChange}
                 options={modelOptions}

@@ -47,7 +47,7 @@ const queryClientMock = {
 const writeSelectedVersionMock = mock(() => {});
 const connectLocalAssistantMock = mock(async (_assistantId: string) => {});
 
-let isLocalModeValue = false;
+let isLocalClientValue = false;
 let localGatewayUrlValue: string | undefined = undefined;
 let platformSessionValue: PlatformSessionStatus = "absent";
 
@@ -145,12 +145,13 @@ mock.module("@/domains/onboarding/prefs", () => ({
 }));
 
 mock.module("@/lib/navigation/navigation-resolver", () => ({
+  POST_CHECKOUT_HATCH_PARAM: "post_checkout",
   resolveNavigation: () => ({ action: "allow" }),
 }));
 
 mock.module("@/lib/navigation/build-state", () => ({
   buildNavigationState: (overrides: Record<string, unknown> = {}) => ({
-    isLocalMode: isLocalModeValue,
+    isLocalClient: isLocalClientValue,
     isGatewayAuth: false,
     hasAssistants: false,
     sessionSettled: true,
@@ -168,7 +169,7 @@ mock.module("@/runtime/native-auth", () => ({
 }));
 
 mock.module("@/lib/local-mode", () => ({
-  isLocalMode: () => isLocalModeValue,
+  isLocalClient: () => isLocalClientValue,
   isRemoteGatewayMode: () => false,
   isLocalAssistant: () => false,
   isPlatformAssistant: () => false,
@@ -181,10 +182,12 @@ mock.module("@/lib/local-mode", () => ({
   loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
   setActiveLockfileAssistant: async () => {},
   saveLockfileAssistant: async () => {},
+  saveManagedLockfileAssistant: async () => {},
   updateLockfileAssistant: async () => {},
   primeLocalGatewayConnection: async () => {},
   primeLocalGatewayConnectionWithRepair: async () => {},
   getLocalGatewayUrl: () => localGatewayUrlValue,
+  getPairedGatewayUrl: () => undefined,
   // Mirrors the real probe against the mocked gateway URL, so tests that stub
   // `globalThis.fetch` keep driving the readyz loop the same way.
   probeLocalGatewayReady: async () => {
@@ -259,6 +262,29 @@ mock.module("@tanstack/react-query", () => ({
   useQueryClient: () => queryClientMock,
 }));
 
+// Platform hatches hold for the post-payment resize before handing off, which
+// reads the billing surface. These tests cover the lifecycle/avatar hand-off on
+// a plain org, so the subscription resolves as a confirmed non-Pro plan and the
+// wait returns without polling. Post-payment provisioning itself is covered in
+// pages/hatching-screen.test.tsx. Only the four calls the hatching screen makes
+// are overridden — the rest of the SDK stays real (the organization store binds
+// `organizationsList` from it).
+const actualSdk = await import("@/generated/api/sdk.gen");
+mock.module("@/generated/api/sdk.gen", () => ({
+  ...actualSdk,
+  assistantsOperationalStatusDetailRead: async () => ({
+    data: { state: "active", active_operation: null },
+  }),
+  organizationsBillingSubscriptionOnboardingEnsureProvisionedCreate:
+    async () => ({ data: { state: "noop", reason: null, targets: {} } }),
+  organizationsBillingSubscriptionOnboardingRetrieve: async () => ({
+    data: { max_machine_tier: null, selected_storage_gib: null },
+  }),
+  organizationsBillingSubscriptionRetrieve: async () => ({
+    data: { plan_id: "base" },
+  }),
+}));
+
 mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   assistantsActiveRetrieveOptions: () => ({}),
   assistantsOauthConnectionsListOptions: () => ({}),
@@ -276,7 +302,7 @@ beforeEach(() => {
   checkAssistantImpl = async () => {};
   fetchTraitsImpl = async () => null;
   getAssistantImpl = async () => assistantResult("active");
-  isLocalModeValue = false;
+  isLocalClientValue = false;
   localGatewayUrlValue = undefined;
   platformSessionValue = "absent";
   sessionStorage.clear();
@@ -329,7 +355,7 @@ describe("onboarding lifecycle sync", () => {
   // full reload. The hatch flow must drive the same `connectLocalAssistant`
   // primitive the returning-user connect path uses.
   test("local hatch establishes the authenticated session via connectLocalAssistant", async () => {
-    isLocalModeValue = true;
+    isLocalClientValue = true;
     localGatewayUrlValue = "http://127.0.0.1:7821";
     searchParams = new URLSearchParams("hosting=local");
 
@@ -412,7 +438,9 @@ describe("onboarding lifecycle sync", () => {
     let assistantCalls = 0;
     getAssistantImpl = async () => {
       assistantCalls += 1;
-      if (assistantCalls === 1) throw new Error("transient pre-flight failure");
+      if (assistantCalls === 1) {
+        throw new Error("transient pre-flight failure");
+      }
       return assistantResult("active");
     };
     hatchAssistantMock.mockResolvedValueOnce(assistantResult("active"));
@@ -435,7 +463,9 @@ describe("onboarding lifecycle sync", () => {
     let assistantCalls = 0;
     getAssistantImpl = async () => {
       assistantCalls += 1;
-      if (assistantCalls === 1) return { ok: false, status: 404, error: {} };
+      if (assistantCalls === 1) {
+        return { ok: false, status: 404, error: {} };
+      }
       return assistantResult("active");
     };
     hatchAssistantMock.mockImplementationOnce(async () => {

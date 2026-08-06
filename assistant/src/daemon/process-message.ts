@@ -12,6 +12,7 @@ import {
   createAssistantMessage,
   createUserMessage,
 } from "../agent/message-types.js";
+import type { AssistantEvent } from "../api/index.js";
 import {
   type ChannelId,
   type InterfaceId,
@@ -69,7 +70,6 @@ import {
   preactivateHostProxySkills,
   shouldAttachHostProxyForCapability,
 } from "./host-proxy-preactivation.js";
-import type { AssistantEvent } from "./message-protocol.js";
 import type { SubagentToolGateMode } from "./tool-setup-types.js";
 
 const log = getLogger("process-message");
@@ -154,7 +154,9 @@ export function deriveIngressIdempotencyKey(options?: {
 function buildEventEmitter(
   observer?: (msg: AssistantEvent) => void,
 ): (msg: AssistantEvent) => void {
-  if (!observer) {return broadcastMessage;}
+  if (!observer) {
+    return broadcastMessage;
+  }
   return (msg) => {
     broadcastMessage(msg);
     try {
@@ -482,12 +484,12 @@ export async function processMessage(
     const userMetaWithSlack = slackMeta
       ? { ...serverChannelMeta, slackMeta }
       : serverChannelMeta;
-    const cleanMsg = createUserMessage(content, attachments);
+    const cleanMsg = await createUserMessage(content, attachments);
     const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
     const persisted = await addMessage(
       conversationId,
       "user",
-      serializePersistedUserMessageContent(
+      await serializePersistedUserMessageContent(
         content,
         options?.displayContent,
         attachments,
@@ -576,11 +578,11 @@ export async function processMessage(
     const compactUserMeta = slackMeta
       ? { ...compactChannelMeta, slackMeta }
       : compactChannelMeta;
-    const cleanMsg = createUserMessage(content, attachments);
+    const cleanMsg = await createUserMessage(content, attachments);
     const persisted = await addMessage(
       conversationId,
       "user",
-      serializePersistedUserMessageContent(
+      await serializePersistedUserMessageContent(
         content,
         options?.displayContent,
         attachments,
@@ -631,11 +633,11 @@ export async function processMessage(
     const cleanUserMeta = slackMeta
       ? { ...cleanChannelMeta, slackMeta }
       : cleanChannelMeta;
-    const cleanMsg = createUserMessage(content, attachments);
+    const cleanMsg = await createUserMessage(content, attachments);
     const persisted = await addMessage(
       conversationId,
       "user",
-      serializePersistedUserMessageContent(
+      await serializePersistedUserMessageContent(
         content,
         options?.displayContent,
         attachments,

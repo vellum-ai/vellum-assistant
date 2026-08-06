@@ -50,6 +50,20 @@ const CredentialPromptParams = z.object({
 // Response type (shared with CLI consumer)
 // ---------------------------------------------------------------------------
 
+/**
+ * Appended to every terminal success message.
+ *
+ * The prompt blocks until the user answers, so by the time a caller reads the
+ * result the secure input is already gone from the UI. A bare `ok: true` reads
+ * as "the prompt opened successfully", which leads a model to follow up with
+ * "the prompt is open, paste your value there" — pointing the user at a surface
+ * that has already closed. The user, having just submitted, re-answers a prompt
+ * that never reappears, and the flow loops. State the close explicitly so the
+ * only available reading is the correct one.
+ */
+const PROMPT_CLOSED_NOTICE =
+  "The secure prompt has closed — do not ask the user to enter this value again.";
+
 export type CredentialPromptResult = {
   ok: boolean;
   /**
@@ -204,19 +218,26 @@ async function handleCredentialPrompt({ body = {} }: RouteHandlerArgs) {
       ok: true,
       service: validated.service,
       field: validated.field,
-      message: `One-time credential provided for ${validated.service}/${validated.field}. The value was not saved and will be consumed by the next operation.`,
+      message: `One-time credential provided for ${validated.service}/${validated.field}. The value was not saved and will be consumed by the next operation. ${PROMPT_CLOSED_NOTICE}`,
     };
   }
 
+  // A Slack channel token is routed through the channel config rather than the
+  // vault, so its connection status is what describes the outcome; every other
+  // credential reports the vault write.
   const slackStatus = persisted.slackChannel
     ? formatSlackChannelStatus(persisted.slackChannel).trim()
     : "";
+  const outcomeSummary =
+    slackStatus.length > 0
+      ? slackStatus
+      : `Credential received from the user and stored as ${validated.service}/${validated.field}.`;
 
   return {
     ok: true,
     service: validated.service,
     field: validated.field,
-    message: slackStatus.length > 0 ? slackStatus : undefined,
+    message: `${outcomeSummary} ${PROMPT_CLOSED_NOTICE}`,
   };
 }
 

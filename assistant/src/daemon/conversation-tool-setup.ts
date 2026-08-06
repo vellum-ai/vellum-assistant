@@ -6,12 +6,14 @@
  * keeping the constructor body focused on wiring.
  */
 
+import type { AssistantEvent } from "../api/index.js";
 import {
   type HostProxyCapability,
   supportsHostProxy,
 } from "../channels/types.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
+import { isMemoryEnabled } from "../config/memory-v3-gate.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
@@ -62,7 +64,10 @@ import {
   type UsageAttributionSnapshot,
 } from "../usage/attribution.js";
 import { getLogger } from "../util/logger.js";
-import { conversationSupportsDynamicUi } from "./channel-ui-capability.js";
+import {
+  conversationSupportsDynamicUi,
+  conversationSupportsGuardianQuestionCards,
+} from "./channel-ui-capability.js";
 import type { Conversation } from "./conversation.js";
 import { projectSkillTools } from "./conversation-skill-tools.js";
 import {
@@ -73,16 +78,15 @@ import {
   isDoordashCommand,
   markDoordashStepInProgress,
 } from "./doordash-steps.js";
-import type { AssistantEvent } from "./message-protocol.js";
 import { runPostExecutionSideEffects } from "./tool-side-effects.js";
 import { FALLBACK_TURN_TRUST, resolveTrustClass } from "./trust-context.js";
 
 const log = getLogger("conversation-tool-setup");
 
-import type { ToolSetupContext } from "./tool-setup-types.js";
+import type { SubagentToolStats } from "./tool-setup-types.js";
 export type {
   SubagentToolGateMode,
-  ToolSetupContext,
+  SubagentToolStats,
   WakeToolContextPin,
 } from "./tool-setup-types.js";
 
@@ -108,7 +112,7 @@ export type {
  */
 export function resolveConversationAttribution(
   ctx: Pick<
-    ToolSetupContext,
+    Conversation,
     "conversationId" | "currentCallSite" | "currentTurnOverrideProfile"
   >,
 ): UsageAttributionSnapshot | null {
@@ -176,8 +180,8 @@ export function getEffectiveEnabledPluginSet(conv: {
 // ── read-only pass classification ────────────────────────────────────
 
 /**
- * The ONLY tools allowed in a read-only subagent pass (the live-voice background
- * continuation, `subagentDenySideEffects`). This is a strict fail-safe allowlist
+ * The ONLY tools allowed in a read-only subagent pass
+ * (`subagentDenySideEffects`). This is a strict fail-safe allowlist
  * of tools known to be read-only. Everything else is refused, because:
  * - A side-effect denylist is inherently incomplete — low-risk core mutators
  *   (`remember`, `notify_parent`, `computer_use_*`, `delete_memory_page`, …) are
@@ -193,8 +197,13 @@ export function getEffectiveEnabledPluginSet(conv: {
  * own implementation) does not slip through. `skill_execute` is the dispatcher —
  * its resolved inner tool is classified by the same check in the executor gate,
  * so exposing the wrapper is safe.
+ *
+ * Exported so a role allowlist that relies on this gate for its read-only
+ * guarantee (the advisor consult) can be asserted to stay inside the set: a name
+ * outside it is admitted by the role and then refused at dispatch, which reads
+ * as a broken tool rather than a policy decision.
  */
-const READ_ONLY_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
+export const READ_ONLY_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
   "file_read",
   "file_list",
   "code_search",
@@ -228,7 +237,7 @@ export function createToolExecutor(
   executor: ToolExecutor,
   prompter: PermissionPrompter,
   secretPrompter: SecretPrompter,
-  ctx: ToolSetupContext,
+  ctx: Conversation,
 ): (
   name: string,
   input: Record<string, unknown>,
@@ -307,6 +316,45 @@ export function createToolExecutor(
     };
   };
 
+  // Machine tool-call accounting for the subagent truth envelope. Recorded
+  // here because this closure is the single dispatch choke point every tool
+  // call passes through, including the `skill_execute` indirection (counted
+  // under the resolved inner tool name, not the wrapper). Non-subagent
+  // conversations never reach the counters.
+  const subagentStats = (): SubagentToolStats | undefined =>
+    ctx.isSubagent === true ? ctx.subagentToolStats : undefined;
+
+  const recordToolDispatch = (): void => {
+    const stats = subagentStats();
+    if (stats) {
+      stats.calls++;
+    }
+  };
+
+  const recordToolResult = (
+    toolName: string,
+    toolInput: Record<string, unknown>,
+    result: ToolExecutionResult,
+  ): void => {
+    const stats = subagentStats();
+    if (!stats || result.isError) {
+      return;
+    }
+    stats.succeeded++;
+    // Both file tools name their target `path`. A Set dedupes repeated edits
+    // of the same file, so the count reads as "files touched", not "writes".
+    // These two are the only writes with a path to attribute: a builder can
+    // also write through the shell, a document tool, or an MCP tool, and those
+    // are invisible here, which is why the footer names the two tools it
+    // counts (see `formatSubagentToolStats`).
+    if (toolName === "file_write" || toolName === "file_edit") {
+      const target = toolInput.path;
+      if (typeof target === "string" && target.length > 0) {
+        stats.filesWritten.add(target);
+      }
+    }
+  };
+
   return async (
     name: string,
     input: Record<string, unknown>,
@@ -353,7 +401,7 @@ export function createToolExecutor(
       trustClass: resolveTrustClass(turnTrust),
       executionChannel: turnTrust.sourceChannel,
       requestOrigin: ctx.currentTurnRequestOrigin,
-      sourceActorPrincipalId: turnTrust.guardianPrincipalId,
+      sourceActorPrincipalId: ctx.getTurnActorPrincipalId(),
       callSessionId: ctx.callSessionId,
       triggeredBySurfaceAction:
         ctx.surfaceActionRequestIds?.has(ctx.currentRequestId ?? "") ?? false,
@@ -386,6 +434,7 @@ export function createToolExecutor(
       isPlatformHosted: getIsPlatform(),
       transportInterface: ctx.transportInterface,
       overrideProfile: ctx.currentTurnOverrideProfile,
+      cronRunId: ctx.currentTurnCronRunId,
       invokingCallSite: ctx.currentCallSite ?? "mainAgent",
       attribution: resolveConversationAttribution(ctx),
       enabledPluginSet: effectiveEnabledPluginSet,
@@ -423,6 +472,8 @@ export function createToolExecutor(
       // channels that can't render dynamic surfaces (Telegram, SMS) instead of
       // emitting one the channel silently drops.
       supportsDynamicUi: conversationSupportsDynamicUi(ctx),
+      supportsGuardianQuestionCards:
+        conversationSupportsGuardianQuestionCards(ctx),
       proxyToolResolver: (
         toolName: string,
         proxyInput: Record<string, unknown>,
@@ -499,12 +550,14 @@ export function createToolExecutor(
         return pluginRejection;
       }
 
+      recordToolDispatch();
       const rawResult = await executor.execute(
         toolName,
         toolInput,
         toolContext,
       );
       const result = augmentSkillExecuteError(toolName, toolInput, rawResult);
+      recordToolResult(toolName, toolInput, result);
       if (toolContext.approvedViaPrompt) {
         ctx.approvedViaPromptThisTurn = true;
       }
@@ -514,11 +567,13 @@ export function createToolExecutor(
       return result;
     }
 
+    recordToolDispatch();
     const result = await executor.execute(
       executionName,
       executionInput,
       toolContext,
     );
+    recordToolResult(executionName, executionInput, result);
     if (toolContext.approvedViaPrompt) {
       ctx.approvedViaPromptThisTurn = true;
     }
@@ -541,7 +596,7 @@ export function createToolExecutor(
  */
 export function createProxyApprovalCallback(
   _prompter: PermissionPrompter,
-  _ctx: ToolSetupContext,
+  _ctx: Conversation,
 ): ProxyApprovalCallback {
   return async (_request: ProxyApprovalRequest): Promise<boolean> => {
     // Proxied asks follow the same non-host auto-allow contract as regular
@@ -717,7 +772,7 @@ export function isToolActiveForContext(
   }
   if (name === "remember") {
     try {
-      return getConfig().memory?.enabled !== false;
+      return isMemoryEnabled(getConfig());
     } catch {
       return true;
     }

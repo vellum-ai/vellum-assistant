@@ -22,7 +22,9 @@ export function migrateJobDeferrals(database: DrizzleDb): void {
       `SELECT 1 FROM memory_checkpoints WHERE key = 'migration_job_deferrals'`,
     )
     .get();
-  if (checkpoint) return;
+  if (checkpoint) {
+    return;
+  }
 
   try {
     raw.exec(/*sql*/ `

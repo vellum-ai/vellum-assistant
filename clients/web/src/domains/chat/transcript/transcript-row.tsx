@@ -1,6 +1,12 @@
-import { memo, type ReactNode } from "react";
+import {
+  memo,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { CreditsUpsellCard } from "@/domains/chat/components/credits-upsell-card";
+import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
 import { StreamingShimmerText } from "@/domains/chat/components/streaming-shimmer-text";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
@@ -10,8 +16,12 @@ import { PendingContactRequestRow } from "@/domains/chat/transcript/pending-cont
 import { PendingSecretRow } from "@/domains/chat/transcript/pending-secret-row";
 import { SystemCardRow } from "@/domains/chat/transcript/system-card-row";
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
+import { isInteractiveClickTarget } from "@/domains/chat/transcript/transcript-message-body-shared";
+import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
+import { isPointerCoarse } from "@/utils/pointer";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 
 /**
  * Thin dispatcher: render one `TranscriptItem` using the matching existing
@@ -62,7 +72,9 @@ export interface TranscriptRowProps {
   ) => void | Promise<void>;
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
-  /** Forwarded to inline app surfaces so they can render live preview iframes. */
+  /** Assistant that owns this transcript. Forwarded to inline app surfaces so
+   *  they can render live preview iframes, and to every markdown renderer in
+   *  the row so workspace file references resolve against its workspace. */
   assistantId?: string | null;
   /** Click handler when the user clicks the "open timeline" button on an
    *  inline subagent progress card. */
@@ -74,6 +86,10 @@ export interface TranscriptRowProps {
   onWorkflowClick?: (runId: string) => void;
   /** Callback to abort/stop a running workflow from an inline card. */
   onStopWorkflow?: (runId: string) => void;
+  /** Ids of the documents this message's whole response changed. Set only on
+   *  the message that ends a completed response, so the response closes with
+   *  one reopen link per document (see `resolveResponseDocumentIds`). */
+  changedDocumentIds?: string[];
   /** True when this row belongs to the actively-streaming turn. Forwarded to
    *  `TranscriptMessageBody` so the streaming message's last tool-call group
    *  defaults open. History rows leave it `false`. */
@@ -82,6 +98,66 @@ export interface TranscriptRowProps {
    *  `TranscriptMessageBody` so the message directly above the parked avatar
    *  collapses its hover-actions row and animates it open on hover. */
   isLatestMessage?: boolean;
+}
+
+/**
+ * A credits upsell card substituted for a credits-exhausted provider-error
+ * row: a standalone card, outside the persona bubble/avatar machinery like
+ * `SystemCardRow`. It keeps the `msg-<id>` DOM anchor that
+ * `TranscriptHandle.scrollToMessage` and the `?message=<id>` deep link
+ * resolve via `getElementById`, and exposes the same Inspect affordance as
+ * ordinary rows: the daemon backfills the failed request's LLM logs onto
+ * this row's message id, and inspection is their only entry point while the
+ * bubble is substituted. The actions reveal on hover/focus-visible, and on
+ * coarse pointers via tap (dismissed by tapping outside), mirroring
+ * `TranscriptMessageBody`'s reveal behavior.
+ */
+function CreditsUpsellMessageRow({
+  message,
+  conversationId,
+  onInspectMessage,
+}: {
+  message: DisplayMessage;
+  conversationId?: string | null;
+  onInspectMessage?: (messageId: string) => void;
+}) {
+  const { wrapperRef, revealed, toggleRevealed } = useCoarsePointerReveal();
+  const handleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if (isInteractiveClickTarget(e.target as Element | null)) {
+      return;
+    }
+    if (!isPointerCoarse()) {
+      return;
+    }
+    toggleRevealed();
+  };
+
+  const messageId = message.id;
+  const inspectHandler =
+    onInspectMessage && messageId
+      ? () => onInspectMessage(messageId)
+      : undefined;
+  return (
+    <div
+      ref={wrapperRef}
+      id={messageId ? `msg-${messageId}` : undefined}
+      data-message-id={messageId || undefined}
+      data-revealed={revealed}
+      onClick={handleClick}
+      className="group/msg flex flex-col gap-2"
+    >
+      <CreditsUpsellCard />
+      {inspectHandler && (
+        <div className="h-6 overflow-hidden opacity-0 transition-opacity duration-200 ease-out group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100 motion-reduce:transition-none">
+          <MessageHoverActions
+            message={message}
+            conversationId={conversationId}
+            onInspect={inspectHandler}
+          />
+        </div>
+      )}
+    </div>
+  );
 }
 
 export const TranscriptRow = memo(function TranscriptRow({
@@ -106,6 +182,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   onStopSubagent,
   onWorkflowClick,
   onStopWorkflow,
+  changedDocumentIds,
   isStreaming,
   isLatestMessage,
 }: TranscriptRowProps) {
@@ -114,7 +191,9 @@ export const TranscriptRow = memo(function TranscriptRow({
       // Daemon-authored status cards render as standalone system notices,
       // outside the persona bubble/avatar/hover-action machinery.
       if (item.message.isSystemCard) {
-        return <SystemCardRow message={item.message} />;
+        return (
+          <SystemCardRow message={item.message} assistantId={assistantId} />
+        );
       }
       return (
         <TranscriptMessageBody
@@ -138,6 +217,7 @@ export const TranscriptRow = memo(function TranscriptRow({
           onStopSubagent={onStopSubagent}
           onWorkflowClick={onWorkflowClick}
           onStopWorkflow={onStopWorkflow}
+          changedDocumentIds={changedDocumentIds}
           isStreaming={isStreaming}
           isLatestMessage={isLatestMessage}
         />
@@ -177,7 +257,9 @@ export const TranscriptRow = memo(function TranscriptRow({
             item.active ? "h-7 opacity-100" : "h-0 opacity-0"
           }`}
         >
-          <StreamingShimmerText>{item.label ?? "Thinking"}</StreamingShimmerText>
+          <StreamingShimmerText>
+            {item.label ?? "Thinking"}
+          </StreamingShimmerText>
         </div>
       );
 
@@ -194,7 +276,11 @@ export const TranscriptRow = memo(function TranscriptRow({
       return (
         <div className="flex justify-start">
           <div className="max-w-full rounded-[var(--radius-lg)] bg-[var(--surface-overlay)] px-4 py-3 text-body-small-default text-[var(--content-secondary)]">
-            <ChatMarkdownMessage content={item.result.text} hardLineBreaks />
+            <ChatMarkdownMessage
+              content={item.result.text}
+              hardLineBreaks
+              assistantId={assistantId}
+            />
           </div>
         </div>
       );
@@ -204,6 +290,23 @@ export const TranscriptRow = memo(function TranscriptRow({
         return <>{renderOnboardingChoice()}</>;
       }
       return null;
+
+    case "creditsUpsell": {
+      // Substituted in place of a credits-exhausted provider-error row by
+      // `buildTranscriptItems`. Substituted items carry the underlying row
+      // (`message`) and render through `CreditsUpsellMessageRow`; the
+      // proactive tail card has no backing message and renders the bare card.
+      if (item.message) {
+        return (
+          <CreditsUpsellMessageRow
+            message={item.message}
+            conversationId={conversationId}
+            onInspectMessage={onInspectMessage}
+          />
+        );
+      }
+      return <CreditsUpsellCard />;
+    }
 
     default: {
       // Exhaustiveness guard — TypeScript narrows `item` to `never` here.

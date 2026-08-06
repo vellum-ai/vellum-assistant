@@ -10,8 +10,7 @@ export function formatFriendlyDate(
     day: "numeric",
     month: "short",
     year:
-      opts?.alwaysShowYear ||
-      date.getFullYear() !== new Date().getFullYear()
+      opts?.alwaysShowYear || date.getFullYear() !== new Date().getFullYear()
         ? "numeric"
         : undefined,
   });
@@ -21,9 +20,7 @@ export function formatFriendlyDate(
  * Compact relative-time label for inline metadata ("just now", "2h ago").
  * Mirrors the macOS client's `Date.relativeShortString()`.
  */
-export function formatRelativeDate(
-  dateStr: string | null | undefined,
-): string {
+export function formatRelativeDate(dateStr: string | null | undefined): string {
   if (!dateStr) {
     return "—";
   }
@@ -69,6 +66,25 @@ export function formatRelativeDate(
     return `${weeks}w ago`;
   }
   return date.toLocaleDateString();
+}
+
+/**
+ * Compact absolute timestamp for inline metadata, e.g. "Aug 5, 11:42 AM".
+ * Pairs the friendly date (short month, year only outside the current one)
+ * with the local time, short enough to sit beside a relative label.
+ */
+export function formatCompactLocalDate(
+  dateStr: string | null | undefined,
+): string {
+  if (!dateStr) {
+    return "";
+  }
+  const date = new Date(dateStr);
+  const time = date.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${formatFriendlyDate(date)}, ${time}`;
 }
 
 /**

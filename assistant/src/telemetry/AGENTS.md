@@ -42,3 +42,9 @@ If the type previously existed daemon-only, also move it out of `Extensions` in 
 **For a new event type, prefer calling `recordTelemetryEvent` directly** rather than adding a `record<Thing>Event` store wrapper. A wrapper that only renames camelCase fields to the snake-case wire shape is gratuitous indirection now that `recordTelemetryEvent`'s `fields` argument is fully typed from the wire. Add a store module only when it earns its keep: clamp values to server bounds (`config-setting-events-store.ts`), stamp a custom deterministic `daemon_event_id` via `recordTelemetryOutboxEvent` (`onboarding-research-events-store.ts`), aggregate multiple events (`auth-fallback-events-store.ts`), centralize a non-trivial mapping reused across many call sites (`watchdog-events-store.ts`), or provide a stable, mockable seam for tests (`skill-loaded-events-store.ts`).
 
 The generic outbox also self-heals: rows for a type the platform later removes or renames are drained by the synthetic orphan-drain source (`orphanOutboxDrainSource` in `telemetry-event-sources.ts`), so a retired type needs no cleanup step here.
+
+## Frozen: the `memory_tier` watchdog contract
+
+`memory-tier-reporter.ts` emits a watchdog event with `check_name` `memory_tier` carrying the assistant's coarse memory tier in `detail.tier` — one of `off`, `v1`, `v2`, `v3`, derived by `memoryTier()` (`config/memory-tier.ts`). It re-asserts at boot and on a six-hour interval, so the series is a heartbeat rather than an edge log.
+
+Platform dashboards group on the check name and pivot on those exact bucket values, so **both are frozen**: renaming the check or changing a bucket string silently empties a dashboard instead of failing a build. Retiring a tier (see `plugins/defaults/memory/AGENTS.md`'s deletion runbooks) makes a bucket unreachable but must not remove it without coordinating platform-side first.

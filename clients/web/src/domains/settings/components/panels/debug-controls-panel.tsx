@@ -16,7 +16,9 @@ import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";
 
 function isInternalUser(email: string | null, isAdmin: boolean): boolean {
-  if (isAdmin) return true;
+  if (isAdmin) {
+    return true;
+  }
   return !!email && email.toLowerCase().endsWith("@vellum.ai");
 }
 
@@ -24,7 +26,10 @@ export function DebugControlsPanel() {
   const navigate = useNavigate();
   const user = useAuthStore.use.user();
   const platformGate = usePlatformGate();
-  const showInternalControls = isInternalUser(user?.email ?? null, user?.isStaff ?? false);
+  const showInternalControls = isInternalUser(
+    user?.email ?? null,
+    user?.isStaff ?? false,
+  );
 
   const [assistant, setAssistant] = useState<Assistant | null>(null);
   const [loading, setLoading] = useState(true);

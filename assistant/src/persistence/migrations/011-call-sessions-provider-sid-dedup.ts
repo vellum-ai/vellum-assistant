@@ -19,7 +19,9 @@ export function migrateCallSessionsProviderSidDedup(database: DrizzleDb): void {
       `SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_call_sessions_provider_sid_unique'`,
     )
     .get();
-  if (idxExists) return;
+  if (idxExists) {
+    return;
+  }
 
   // Check if the table even exists yet (first boot).
   const tableExists = raw
@@ -27,7 +29,9 @@ export function migrateCallSessionsProviderSidDedup(database: DrizzleDb): void {
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'call_sessions'`,
     )
     .get();
-  if (!tableExists) return;
+  if (!tableExists) {
+    return;
+  }
 
   // Count duplicates before doing any work.
   const dupCount = raw
@@ -44,7 +48,9 @@ export function migrateCallSessionsProviderSidDedup(database: DrizzleDb): void {
     )
     .get() as { c: number } | null;
 
-  if (!dupCount || dupCount.c === 0) return;
+  if (!dupCount || dupCount.c === 0) {
+    return;
+  }
 
   log.warn(
     { duplicateGroups: dupCount.c },

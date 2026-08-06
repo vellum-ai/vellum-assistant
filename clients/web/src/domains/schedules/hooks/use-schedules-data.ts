@@ -73,8 +73,12 @@ export function useSchedulesData(
 
   const usageForSchedule = useCallback(
     (id: string): ScheduleRowUsage => {
-      if (isUsageSummaryLoading) return { status: "loading" };
-      if (isUsageSummaryError) return { status: "error" };
+      if (isUsageSummaryLoading) {
+        return { status: "loading" };
+      }
+      if (isUsageSummaryError) {
+        return { status: "error" };
+      }
       return {
         status: "ready",
         summary:
@@ -86,7 +90,9 @@ export function useSchedulesData(
 
   const handleToggle = useCallback(
     async (id: string, enabled: boolean) => {
-      if (!assistantId) return;
+      if (!assistantId) {
+        return;
+      }
       try {
         await toggleSchedule(assistantId, id, enabled);
         void refetchSchedules();

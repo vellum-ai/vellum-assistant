@@ -20,12 +20,15 @@ interface McpServerDetailModalProps {
   server: McpServerEntry | null;
   toolsSummary: McpToolsSummaryServer | undefined;
   onClose: () => void;
-  onSave: (serverId: string, updates: {
-    name: string;
-    defaultRiskLevel?: string;
-    maxTools?: number;
-    headers?: Record<string, string> | null;
-  }) => void;
+  onSave: (
+    serverId: string,
+    updates: {
+      name: string;
+      defaultRiskLevel?: string;
+      maxTools?: number;
+      headers?: Record<string, string> | null;
+    },
+  ) => void;
   isPending: boolean;
 }
 
@@ -61,9 +64,12 @@ export function McpServerDetailModal({
 
     // Determine if auth was changed: type switched, or new values entered
     const typeChanged = authType !== server.authType;
-    const hasNewBearerValue = authType === "bearer" && bearerToken.trim() !== "";
+    const hasNewBearerValue =
+      authType === "bearer" && bearerToken.trim() !== "";
     const hasNewApiKeyValue =
-      authType === "api-key" && apiKeyHeader.trim() !== "" && apiKeyValue.trim() !== "";
+      authType === "api-key" &&
+      apiKeyHeader.trim() !== "" &&
+      apiKeyValue.trim() !== "";
     const authChanged = typeChanged || hasNewBearerValue || hasNewApiKeyValue;
 
     let headers: Record<string, string> | null | undefined;
@@ -73,7 +79,11 @@ export function McpServerDetailModal({
       headers = null;
     } else if (authType === "bearer" && bearerToken.trim()) {
       headers = { Authorization: `Bearer ${bearerToken.trim()}` };
-    } else if (authType === "api-key" && apiKeyHeader.trim() && apiKeyValue.trim()) {
+    } else if (
+      authType === "api-key" &&
+      apiKeyHeader.trim() &&
+      apiKeyValue.trim()
+    ) {
       headers = { [apiKeyHeader.trim()]: apiKeyValue.trim() };
     } else {
       headers = undefined;
@@ -84,7 +94,15 @@ export function McpServerDetailModal({
       defaultRiskLevel: riskLevel,
       ...(headers !== undefined ? { headers } : {}),
     });
-  }, [server, riskLevel, authType, bearerToken, apiKeyHeader, apiKeyValue, onSave]);
+  }, [
+    server,
+    riskLevel,
+    authType,
+    bearerToken,
+    apiKeyHeader,
+    apiKeyValue,
+    onSave,
+  ]);
 
   const handleClose = useCallback(() => {
     if (!isPending) {
@@ -97,7 +115,14 @@ export function McpServerDetailModal({
   }
 
   return (
-    <Modal.Root open={!!server} onOpenChange={(next) => { if (!next) { handleClose(); } }}>
+    <Modal.Root
+      open={!!server}
+      onOpenChange={(next) => {
+        if (!next) {
+          handleClose();
+        }
+      }}
+    >
       <Modal.Content size="lg">
         <Modal.Header>
           <Modal.Title icon={Cable}>{server.id}</Modal.Title>
@@ -109,7 +134,10 @@ export function McpServerDetailModal({
         <Modal.Body>
           <div className="space-y-5">
             <div className="space-y-1.5">
-              <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-risk">
+              <label
+                className="text-body-small-default text-[var(--content-secondary)]"
+                htmlFor="mcp-risk"
+              >
                 Default risk level
               </label>
               <select
@@ -144,7 +172,10 @@ export function McpServerDetailModal({
 
                 {!server.hasOAuth ? (
                   <div className="space-y-1.5">
-                    <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-detail-auth">
+                    <label
+                      className="text-body-small-default text-[var(--content-secondary)]"
+                      htmlFor="mcp-detail-auth"
+                    >
                       Authentication
                     </label>
                     <select
@@ -164,7 +195,10 @@ export function McpServerDetailModal({
 
                 {authType === "bearer" && !server.hasOAuth ? (
                   <div className="space-y-1.5">
-                    <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-detail-bearer">
+                    <label
+                      className="text-body-small-default text-[var(--content-secondary)]"
+                      htmlFor="mcp-detail-bearer"
+                    >
                       Bearer token
                     </label>
                     <Input
@@ -172,7 +206,11 @@ export function McpServerDetailModal({
                       type="password"
                       value={bearerToken}
                       onChange={(e) => setBearerToken(e.target.value)}
-                      placeholder={server.hasStaticAuth && server.authType === "bearer" ? "••••••••  (leave blank to keep current)" : "tok_..."}
+                      placeholder={
+                        server.hasStaticAuth && server.authType === "bearer"
+                          ? "••••••••  (leave blank to keep current)"
+                          : "tok_..."
+                      }
                       fullWidth
                     />
                   </div>
@@ -181,7 +219,10 @@ export function McpServerDetailModal({
                 {authType === "api-key" && !server.hasOAuth ? (
                   <div className="flex gap-3">
                     <div className="flex-1 space-y-1.5">
-                      <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-detail-apikey-header">
+                      <label
+                        className="text-body-small-default text-[var(--content-secondary)]"
+                        htmlFor="mcp-detail-apikey-header"
+                      >
                         Header name
                       </label>
                       <Input
@@ -194,7 +235,10 @@ export function McpServerDetailModal({
                       />
                     </div>
                     <div className="flex-1 space-y-1.5">
-                      <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-detail-apikey-value">
+                      <label
+                        className="text-body-small-default text-[var(--content-secondary)]"
+                        htmlFor="mcp-detail-apikey-value"
+                      >
                         API key
                       </label>
                       <Input
@@ -202,7 +246,11 @@ export function McpServerDetailModal({
                         type="password"
                         value={apiKeyValue}
                         onChange={(e) => setApiKeyValue(e.target.value)}
-                        placeholder={server.hasStaticAuth && server.authType === "api-key" ? "••••••••  (leave blank to keep current)" : "sk_..."}
+                        placeholder={
+                          server.hasStaticAuth && server.authType === "api-key"
+                            ? "••••••••  (leave blank to keep current)"
+                            : "sk_..."
+                        }
                         fullWidth
                       />
                     </div>
@@ -217,21 +265,33 @@ export function McpServerDetailModal({
                   Registered tools ({toolsSummary.toolCount})
                 </h3>
                 <p className="text-body-small-default text-[var(--content-tertiary)]">
-                  Total estimated token overhead: ~{toolsSummary.estimatedTokens.toLocaleString()} tokens
+                  Total estimated token overhead: ~
+                  {toolsSummary.estimatedTokens.toLocaleString()} tokens
                 </p>
                 <div className="max-h-64 overflow-y-auto rounded-lg border border-[var(--border-base)]">
                   <table className="w-full text-body-small-default">
                     <thead>
                       <tr className="border-b border-[var(--border-base)] bg-[var(--surface-base)]">
-                        <th className="px-3 py-2 text-left font-medium text-[var(--content-secondary)]">Tool</th>
-                        <th className="px-3 py-2 text-left font-medium text-[var(--content-secondary)]">Description</th>
-                        <th className="px-3 py-2 text-right font-medium text-[var(--content-secondary)]">Tokens</th>
+                        <th className="px-3 py-2 text-left font-medium text-[var(--content-secondary)]">
+                          Tool
+                        </th>
+                        <th className="px-3 py-2 text-left font-medium text-[var(--content-secondary)]">
+                          Description
+                        </th>
+                        <th className="px-3 py-2 text-right font-medium text-[var(--content-secondary)]">
+                          Tokens
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {toolsSummary.tools.map((tool) => (
-                        <tr key={tool.name} className="border-b border-[var(--border-base)] last:border-b-0">
-                          <td className="px-3 py-2 font-medium text-[var(--content-default)]">{tool.name}</td>
+                        <tr
+                          key={tool.name}
+                          className="border-b border-[var(--border-base)] last:border-b-0"
+                        >
+                          <td className="px-3 py-2 font-medium text-[var(--content-default)]">
+                            {tool.name}
+                          </td>
                           <td className="max-w-xs truncate px-3 py-2 text-[var(--content-tertiary)]">
                             {tool.description || "\u2014"}
                           </td>

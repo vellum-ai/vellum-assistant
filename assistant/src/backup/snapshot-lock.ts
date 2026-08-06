@@ -114,7 +114,9 @@ function tryAtomicCreateLock(lockPath: string): boolean {
     return true;
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === "EEXIST") return false;
+    if (code === "EEXIST") {
+      return false;
+    }
     throw err;
   } finally {
     if (fd != null) {
@@ -179,17 +181,25 @@ function readLockHolder(lockPath: string): LockReadResult {
     raw = readFileSync(lockPath, "utf-8");
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ENOENT") return { kind: "missing" };
+    if (code === "ENOENT") {
+      return { kind: "missing" };
+    }
     return { kind: "empty" };
   }
   const trimmed = raw.trim();
-  if (trimmed.length === 0) return { kind: "empty" };
+  if (trimmed.length === 0) {
+    return { kind: "empty" };
+  }
   // The payload is `<pid> <timestamp>`, but be lenient about formats: any
   // leading positive integer is treated as the PID.
   const match = /^\d+/.exec(trimmed);
-  if (!match) return { kind: "empty" };
+  if (!match) {
+    return { kind: "empty" };
+  }
   const pid = Number.parseInt(match[0], 10);
-  if (!Number.isFinite(pid) || pid <= 0) return { kind: "empty" };
+  if (!Number.isFinite(pid) || pid <= 0) {
+    return { kind: "empty" };
+  }
   return { kind: "pid", pid };
 }
 
@@ -389,7 +399,9 @@ export async function acquireSnapshotLock(
 function makeRelease(lockPath: string): () => Promise<void> {
   let released = false;
   return async () => {
-    if (released) return;
+    if (released) {
+      return;
+    }
     released = true;
     try {
       unlinkSync(lockPath);

@@ -17,7 +17,7 @@
  * therefore the emitters — stays cheap and free of import-time side effects.
  */
 
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { ConfirmationRequestEvent } from "../api/index.js";
 import { IntegrityError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 
@@ -30,7 +30,7 @@ const log = getLogger("confirmation-guardian-request");
  * never thrown.
  */
 export async function createGuardianRequestForConfirmation(
-  msg: AssistantEvent & { type: "confirmation_request" },
+  msg: ConfirmationRequestEvent,
   conversationId: string,
   opts?: {
     /**

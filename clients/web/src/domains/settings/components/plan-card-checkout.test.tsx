@@ -33,6 +33,7 @@ import {
   readCheckoutIntent,
   saveCheckoutIntent,
 } from "@/lib/billing/checkout-intent";
+import { makeProPackage } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
 
 const CHECKOUT_URL = "https://stripe.test/checkout/session";
 
@@ -92,26 +93,7 @@ function plansResponse(): PlanListResponse {
         included_features: [],
         machine_tiers: [],
         storage_tiers: [],
-        packages: [
-          {
-            key: "mighty",
-            name: "Mighty",
-            description: "",
-            version: 1,
-            machine_tier: null,
-            storage_tier: "xs",
-            credit_tier: "credits_25",
-            machine_size: null,
-            storage_gib: 10,
-            credits_usd: 25,
-            include_platform_fee: false,
-            base_price_cents: 0,
-            machine_price_cents: 0,
-            storage_price_cents: 0,
-            credit_price_cents: 0,
-            total_price_cents: 3000,
-          },
-        ],
+        packages: [makeProPackage()],
       },
     ],
   };

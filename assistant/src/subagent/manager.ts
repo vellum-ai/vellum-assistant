@@ -10,6 +10,7 @@
 
 import { v4 as uuid } from "uuid";
 
+import type { AssistantEvent } from "../api/index.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { Conversation } from "../daemon/conversation.js";
@@ -18,11 +19,12 @@ import {
   removeSubagentConversation,
   setSubagentConversation,
 } from "../daemon/conversation-registry.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
 import {
-  deleteSubagentRecord,
-  loadAllSubagentRecords,
+  deleteAllSubagentRecords,
+  deleteSubagentRecordsByParent,
+  loadRehydratableSubagentRecords,
+  type SubagentRecord,
   upsertSubagentRecord,
 } from "../persistence/subagent-store.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
@@ -36,14 +38,24 @@ import type { Message, TextContent } from "../providers/types.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
+import { sleep } from "../util/retry.js";
 import { injectMessageIntoParent } from "./notify.js";
+import { isSubagentProgressEvent } from "./progress-events.js";
 import {
+  DEFAULT_SUBAGENT_ROLE,
+  formatSubagentToolStats,
+  normalizeSubagentLabel,
+  settleUnsupervisedStatus,
   SUBAGENT_LIMITS,
   SUBAGENT_ROLE_REGISTRY,
   type SubagentConfig,
+  subagentOutputContractText,
   type SubagentRole,
+  type SubagentSpawnMode,
   type SubagentState,
   type SubagentStatus,
+  type SubagentToolStatsReading,
+  type SubagentToolStatsSummary,
   TERMINAL_STATUSES,
 } from "./types.js";
 
@@ -53,6 +65,101 @@ const log = getLogger("subagent-manager");
 const TERMINAL_RETENTION_MS = 30 * 60 * 1000; // 30 minutes
 /** How often to sweep expired terminal entries (ms). */
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+/**
+ * Cap on the terminal subagents a restart rebuilds in memory. Rows live as long
+ * as their parent conversation, so the table is unbounded history, while a
+ * rehydrated terminal entry only serves the in-process subagent tools for the
+ * current session. Both route surfaces read the durable table directly and
+ * carry their own bounds, so this one is invisible to them. Subagents that are
+ * not terminal are never capped: an unsettled row has to be settled to
+ * `interrupted` at any age.
+ */
+const MAX_REHYDRATED_TERMINAL_RECORDS = 200;
+
+/**
+ * How long {@link SubagentManager.settleQueuedTurns} waits for a queued
+ * follow-up turn before reporting the subagent as still moving.
+ *
+ * Sized for the drain handoff, not for the turn itself: the queue is taken
+ * some milliseconds before the processing lock, and a wait shorter than that
+ * gap would mistake a turn that is starting for one that already finished. A
+ * guidance turn that is genuinely mid-flight outlives any budget worth
+ * blocking the parent's tool call for, so it is reported as unfinished instead
+ * of waited out.
+ */
+const QUEUED_TURN_SETTLE_TIMEOUT_MS = 2_000;
+/** Gap between queue observations while a queued turn is waiting to start. */
+const QUEUED_TURN_POLL_MS = 25;
+
+// ── Durable record → state mapping ─────────────────────────────────────
+
+/**
+ * The in-memory view of a durable subagent record. Shared by the startup
+ * rehydration and by the subagent tools' fallback for a record the manager
+ * does not hold, so the two cannot drift.
+ *
+ * The recorded status maps through verbatim. What an active status means for a
+ * subagent nothing is executing is a separate decision, made by
+ * {@link settleUnsupervisedStatus} at the call site. The spawn-time
+ * `SubagentConfig` fields that are not persisted (context, prompts, trust,
+ * profile overrides) are absent, so this shape answers lifecycle questions
+ * only.
+ *
+ * Tool-call counters are in-memory only and the row carries none, so a state
+ * built here never has {@link SubagentState.stats}. What that absence means is
+ * the manager's answer to give, not this shape's: see
+ * {@link SubagentManager.currentToolStats}.
+ */
+export function subagentStateFromRecord(rec: SubagentRecord): SubagentState {
+  return {
+    config: {
+      id: rec.id,
+      parentConversationId: rec.parentConversationId,
+      label: rec.label,
+      objective: rec.objective,
+      role: rec.role as SubagentRole,
+      fork: rec.isFork,
+      ...(rec.sendResultToUser != null
+        ? { sendResultToUser: rec.sendResultToUser }
+        : {}),
+      ...(rec.parentToolUseId != null
+        ? { parentToolUseId: rec.parentToolUseId }
+        : {}),
+    },
+    status: rec.status as SubagentStatus,
+    conversationId: rec.conversationId,
+    isFork: rec.isFork,
+    ...(rec.error != null ? { error: rec.error } : {}),
+    createdAt: rec.createdAt,
+    ...(rec.startedAt != null ? { startedAt: rec.startedAt } : {}),
+    ...(rec.completedAt != null ? { completedAt: rec.completedAt } : {}),
+    usage: {
+      inputTokens: rec.inputTokens,
+      outputTokens: rec.outputTokens,
+      estimatedCost: rec.estimatedCost,
+    },
+  };
+}
+
+// ── Spawn ordering ─────────────────────────────────────────────────────
+
+/** Total order on spawns: recorded spawn time, then the row's insertion order. */
+interface SpawnKey {
+  createdAt: number;
+  spawnSeq: number;
+}
+
+/**
+ * Whether `a` was spawned after `b`. `created_at` is millisecond-resolution, so
+ * two subagents spawned in the same tick compare equal on it; `spawnSeq` (the
+ * row's `rowid`) then decides, giving the same last-spawn-wins answer the live
+ * label index gives.
+ */
+function isLaterSpawn(a: SpawnKey, b: SpawnKey): boolean {
+  return a.createdAt === b.createdAt
+    ? a.spawnSeq > b.spawnSeq
+    : a.createdAt > b.createdAt;
+}
 
 // ── Skill ID merge helper ──────────────────────────────────────────────
 
@@ -91,6 +198,18 @@ function extractFinalAssistantText(messages: Message[]): string {
 }
 
 /**
+ * Snapshot the child conversation's live tool-call counters before the
+ * conversation is released. The `filesWritten` Set collapses to its size so
+ * nothing keeps a reference into the released conversation.
+ */
+function snapshotToolStats(
+  conversation: Conversation,
+): SubagentToolStatsSummary {
+  const { calls, succeeded, filesWritten } = conversation.subagentToolStats;
+  return { calls, succeeded, filesWritten: filesWritten.size };
+}
+
+/**
  * Pull the user-visible text out of a streaming delta event, or null for any
  * other event type. Used by the synchronous `onText` tap to forward
  * `assistant_text_delta` / `assistant_thinking_delta` chunks to the caller.
@@ -112,12 +231,15 @@ export function buildSubagentSystemPrompt(
   role: SubagentRole,
 ): string {
   const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
-  const sections: string[] = [
-    roleConfig.systemPromptPreamble,
-    "",
-    "## Your Task",
-    config.objective,
-  ];
+  const sections: string[] = [roleConfig.systemPromptPreamble];
+  if (config.persona) {
+    sections.push(`- Persona: act as ${config.persona} for this task.`);
+  }
+  const contractText = subagentOutputContractText(config.outputContract);
+  if (contractText) {
+    sections.push(`- Output contract: ${contractText}`);
+  }
+  sections.push("", "## Your Task", config.objective);
   if (config.context) {
     sections.push("", "## Context from Parent", config.context);
   }
@@ -128,6 +250,7 @@ export function buildSubagentSystemPrompt(
     "- You cannot spawn nested subagents.",
     "- Use notify_parent to report important findings, or if you are blocked.",
     '- If the objective needs a capability your role\'s tools do not provide (for example, writing or editing a file, or running a command, with a read-only role), do NOT fabricate a completed result — call notify_parent with urgency "blocked", name the capability you lack (e.g. file_write), and stop.',
+    "- If a tool call fails, or a tool you expected is unavailable, report the failure verbatim and stop that line of work. Never simulate, reconstruct, or invent tool output you did not actually receive.",
   );
   return sections.join("\n");
 }
@@ -155,6 +278,8 @@ export function buildSubagentTerminalMessage(opts: {
   deferred?: boolean;
   /** Tools the subagent attempted but that its role allowlist denied. */
   deniedTools?: string[];
+  /** What the subagent actually ran, harvested when the run ended. */
+  stats?: SubagentToolStatsSummary;
 }): string {
   const {
     label,
@@ -166,6 +291,7 @@ export function buildSubagentTerminalMessage(opts: {
     error,
     deferred,
     deniedTools,
+    stats,
   } = opts;
   const prefix = isFork ? "Fork" : "Subagent";
 
@@ -175,8 +301,13 @@ export function buildSubagentTerminalMessage(opts: {
   const many = (deniedTools?.length ?? 0) > 1;
   const deniedNote =
     deniedTools && deniedTools.length > 0
-      ? `\n\nNote: this ${prefix.toLowerCase()} attempted ${deniedTools.join(", ")} but its role does not permit ${many ? "them" : "it"}. If the objective requires ${many ? "those" : "that"}, re-spawn with a role that includes ${many ? "them" : "it"} (e.g. \`coder\`).`
+      ? `\n\nNote: this ${prefix.toLowerCase()} attempted ${deniedTools.join(", ")} but its role does not permit ${many ? "them" : "it"}. If the objective requires ${many ? "those" : "that"}, re-spawn with a role that includes ${many ? "them" : "it"} (e.g. \`builder\`).`
       : "";
+
+  // Machine truth envelope: the counts the parent can check the synthesis
+  // above against. Absent when the run never reached the harvest, and on the
+  // deferred path, where the counters are still moving (see the caller).
+  const statsNote = stats ? `\n\n${formatSubagentToolStats(stats)}` : "";
 
   if (outcome === "failed") {
     return (
@@ -194,7 +325,8 @@ export function buildSubagentTerminalMessage(opts: {
       (silent
         ? `(Use these findings internally; do not relay the raw ${prefix.toLowerCase()} output to the user.)`
         : `(Incorporate this into your reply to the user as appropriate.)`) +
-      deniedNote
+      deniedNote +
+      statsNote
     );
   }
 
@@ -209,7 +341,8 @@ export function buildSubagentTerminalMessage(opts: {
     `[${prefix} "${label}" completed]\n\n` +
     `${reason}. Use subagent_read with subagent_id "${subagentId}"${lastN} for the latest output.` +
     (silent ? ` Keep the result internal.` : ``) +
-    deniedNote
+    deniedNote +
+    statsNote
   );
 }
 
@@ -223,6 +356,14 @@ interface ManagedSubagent {
   parentSendToClient: (msg: AssistantEvent) => void;
   /** Epoch ms after which this terminal entry can be removed by the TTL sweep. */
   retainedUntil?: number;
+  /**
+   * True for an entry the startup rehydration rebuilt from a durable row
+   * rather than a run this process executed. Such an entry sits in the manager
+   * exactly like a live one but can never have tool-call counters, so
+   * {@link SubagentManager.currentToolStats} reads this to tell "never
+   * measured here" apart from "not measured yet".
+   */
+  rehydrated?: boolean;
   /**
    * Sticky monotonic flag: set to true when sendMessage enqueues a follow-up
    * message while a run is in progress, and never cleared. Needed because the
@@ -252,6 +393,15 @@ interface ManagedSubagent {
    * this callback IN ADDITION to the normal `subagent_event` envelope.
    */
   onText?: (chunk: string) => void;
+  /**
+   * Optional liveness tap for the synchronous path. When set,
+   * `wrappedSendToClient` fires it once per event that shows the child is still
+   * moving (see {@link isSubagentProgressEvent}), which is a superset of the
+   * `onText` chunks: a subagent executing a tool streams no token but is not
+   * stalled. Callers that bound a synchronous run by an idle window re-arm it
+   * here.
+   */
+  onProgress?: () => void;
 }
 
 export interface SubagentNotificationInfo {
@@ -313,9 +463,11 @@ export class SubagentManager {
     const { subagentId } = await this.setUpSubagent(config, parentSendToClient);
 
     // ── Kick off the agent loop (fire-and-forget) ───────────────────
-    this.runSubagent(subagentId, config.objective).catch((err) => {
-      log.error({ subagentId, err }, "Subagent run failed unexpectedly");
-    });
+    this.runSubagent(subagentId, config.requestText ?? config.objective).catch(
+      (err) => {
+        log.error({ subagentId, err }, "Subagent run failed unexpectedly");
+      },
+    );
 
     return subagentId;
   }
@@ -332,7 +484,11 @@ export class SubagentManager {
   private async setUpSubagent(
     config: Omit<SubagentConfig, "id">,
     parentSendToClient: (msg: AssistantEvent) => void,
-    opts?: { synchronous?: boolean; onText?: (chunk: string) => void },
+    opts?: {
+      synchronous?: boolean;
+      onText?: (chunk: string) => void;
+      onProgress?: () => void;
+    },
   ): Promise<{ subagentId: string; managed: ManagedSubagent }> {
     // ── Limit checks ────────────────────────────────────────────────
 
@@ -347,22 +503,13 @@ export class SubagentManager {
     }
 
     // ── Resolve role ─────────────────────────────────────────────────
+    // A role is one of the three types, or absent for an internal caller that
+    // states no shape and runs on the default. The `subagent_spawn` tool
+    // resolves whatever the model wrote into a type before it gets here (see
+    // subagent/role-resolution.ts), so an unregistered value at this point is
+    // an internal caller's bug and is worth throwing over.
     const isFork = config.fork === true;
-    const role: SubagentRole = (config.role as SubagentRole) ?? "general";
-    if (isFork && role !== "general") {
-      // A context-inheriting subagent normally keeps the parent's `general`
-      // role so its KV cache stays aligned with the parent conversation. An
-      // explicit non-general role opts out of that alignment on purpose
-      // (e.g. the advisor role running on a stronger profile), so honor it.
-      log.warn(
-        {
-          requestedRole: role,
-          parentConversationId: config.parentConversationId,
-          label: config.label,
-        },
-        "Fork requested with non-general role — caller opted out of parent KV-cache alignment",
-      );
-    }
+    const role: SubagentRole = config.role ?? DEFAULT_SUBAGENT_ROLE;
     if (!SUBAGENT_ROLE_REGISTRY[role]) {
       throw new Error(
         `Invalid subagent role "${config.role}". Must be one of: ${Object.keys(SUBAGENT_ROLE_REGISTRY).join(", ")}`,
@@ -370,14 +517,29 @@ export class SubagentManager {
     }
     const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
 
+    // ── Resolve spawn mode ───────────────────────────────────────────
+    // The spawning call site is the only layer that can tell an advisor
+    // consult or a live-voice continuation apart from a plain fork, so it
+    // declares its mode. The fallback is mechanical rather than NULL: a
+    // future call site that forgets still records honest context-inheritance
+    // shape instead of dropping out of the telemetry breakdown entirely.
+    const spawnMode: SubagentSpawnMode =
+      config.spawnMode ?? (isFork ? "fork" : "regular");
+
     // ── Create conversation ─────────────────────────────────────────
     const subagentId = uuid();
+    // `subagentRole` / `subagentSpawnMode` are stamped on the conversation
+    // row, not just the `subagents` row, because `subagents` rows are deleted
+    // on dispose while usage telemetry flushes on a watermark that can trail
+    // far behind. See migration 362.
     const conversationRecord = await bootstrapConversation({
       conversationType: "background",
       source: "subagent",
       origin: "subagent",
       systemHint: `Subagent: ${config.label}`,
       parentConversationId: config.parentConversationId,
+      subagentRole: role,
+      subagentSpawnMode: spawnMode,
     });
 
     // ── Build conversation dependencies ─────────────────────────────
@@ -474,6 +636,7 @@ export class SubagentManager {
       parentSendToClient,
       ...(opts?.synchronous ? { synchronous: true } : {}),
       ...(opts?.onText ? { onText: opts.onText } : {}),
+      ...(opts?.onProgress ? { onProgress: opts.onProgress } : {}),
     };
 
     // Wrap sendToClient to envelope all events with the subagent ID.
@@ -487,6 +650,11 @@ export class SubagentManager {
         if (text) {
           managed.onText(text);
         }
+      }
+      // Liveness tap, separate from the text tap because tool activity is
+      // progress the caller must see and is not a chunk it can forward.
+      if (managed.onProgress && isSubagentProgressEvent(msg)) {
+        managed.onProgress();
       }
       managed.parentSendToClient({
         type: "subagent_event",
@@ -508,10 +676,11 @@ export class SubagentManager {
         // Records the parent at construction; drives isSubagent and notify
         // routing from non-writable in-process state.
         parentConversationId: config.parentConversationId,
-        // The advisor consult runs tool-less for CLIENT tools but should ground
-        // its guidance with provider-native web search when the resolved
-        // provider supports it. This is a server tool the provider runs itself,
-        // so it stays one-shot — no client tool surfaced, allowlist unchanged.
+        // The advisor consult is scoped to read-only CLIENT tools and should
+        // also ground its guidance with provider-native web search when the
+        // resolved provider supports it. This is a server tool the provider
+        // runs itself, so no client tool is surfaced and the allowlist is
+        // unchanged.
         // Other roles keep the default (no native search appended).
         ...(role === "advisor" ? { enableNativeWebSearch: true } : {}),
       },
@@ -528,8 +697,13 @@ export class SubagentManager {
     // Subagents execute as background child conversations, but their tool
     // permissions must still be scoped to the actor that spawned them. Without
     // this, tool execution falls back to `unknown` trust and guardian-owned
-    // desktop turns get denied as unverified.
-    if (parentConversation?.trustContext) {
+    // desktop turns get denied as unverified. An explicit config trust context
+    // wins over parent inheritance: a parent that stamps trust per-turn (the
+    // live-voice bridge) has already cleared it by the time a detached spawn
+    // reads it, so its spawner resolves trust itself.
+    if (config.trustContext) {
+      conversation.setTrustContext({ ...config.trustContext });
+    } else if (parentConversation?.trustContext) {
       conversation.setTrustContext({ ...parentConversation.trustContext });
     }
     const parentAuthContext = parentConversation?.getAuthContext();
@@ -559,19 +733,28 @@ export class SubagentManager {
       conversation.hasSystemPromptOverride = true;
     }
 
-    // Apply the role's tool allowlist when one is defined. The `general` role
-    // has `allowedTools: undefined`, so default forks (which keep the general
-    // role) are unaffected; a fork carrying an explicit role gets its
-    // allowlist applied like any other subagent.
+    // Apply the role's tool allowlist when one is defined. `builder` defines
+    // none, so it keeps the full surface its conversation projects; the scoped
+    // roles are filtered to their own list whether or not this is a fork.
     if (roleConfig.allowedTools) {
       conversation.setSubagentAllowedTools(new Set(roleConfig.allowedTools));
     }
 
-    // A read-only subagent (e.g. the live-voice background continuation) refuses
-    // side-effecting tools regardless of trust class; the executor gate rejects
-    // any such dispatch and they are kept off the model's tool surface.
-    if (config.denySideEffectTools) {
+    // A read-only subagent refuses side-effecting tools regardless of trust
+    // class; the executor gate rejects any such dispatch and they are kept off
+    // the model's tool surface. The role carries the gate so a caller cannot
+    // spawn a role past it, and a spawn can still ask for it on top.
+    if (config.denySideEffectTools || roleConfig.denySideEffects) {
       conversation.setSubagentDenySideEffects(true);
+    }
+
+    // A synchronous child's only parent channel is the awaiting caller: a
+    // mid-run notify_parent would inject a user-role turn into the live
+    // parent conversation (starting an unsolicited parent run) instead of
+    // reaching that caller, so suppress it — the same reason runSubagent
+    // skips the terminal parent-injection on this path.
+    if (opts?.synchronous) {
+      conversation.setSubagentSuppressParentNotifications(true);
     }
 
     // Pre-activate skills defined by the role config, merged with any caller-provided skill IDs.
@@ -589,7 +772,7 @@ export class SubagentManager {
     // context, disk-pressure warning) can resolve it by id; subagents are not
     // in the eviction-managed conversation store.
     setSubagentConversation(conversationRecord.id, conversation);
-    const labelKey = `${config.parentConversationId}:${config.label.toLowerCase().trim()}`;
+    const labelKey = `${config.parentConversationId}:${normalizeSubagentLabel(config.label)}`;
     if (this.labelIndex.has(labelKey)) {
       log.warn(
         {
@@ -650,12 +833,20 @@ export class SubagentManager {
   async spawnAndAwait(
     config: Omit<SubagentConfig, "id">,
     parentSendToClient: (msg: AssistantEvent) => void,
-    opts?: { signal?: AbortSignal; onText?: (chunk: string) => void },
+    opts?: {
+      signal?: AbortSignal;
+      onText?: (chunk: string) => void;
+      onProgress?: () => void;
+    },
   ): Promise<string> {
     const { subagentId, managed } = await this.setUpSubagent(
       config,
       parentSendToClient,
-      { synchronous: true, ...(opts?.onText ? { onText: opts.onText } : {}) },
+      {
+        synchronous: true,
+        ...(opts?.onText ? { onText: opts.onText } : {}),
+        ...(opts?.onProgress ? { onProgress: opts.onProgress } : {}),
+      },
     );
 
     // Wire the external signal to abort the child conversation. If the signal
@@ -682,7 +873,10 @@ export class SubagentManager {
     }
 
     try {
-      const finalText = await this.runSubagent(subagentId, config.objective);
+      const finalText = await this.runSubagent(
+        subagentId,
+        config.requestText ?? config.objective,
+      );
       // Surface aborts as a rejection so the caller's timeout path is
       // observable — but carry the partial text on the error so a caller that
       // timed out a long generation (e.g. the advisor consult) can still
@@ -765,13 +959,24 @@ export class SubagentManager {
       // the generic "complete this task and return your findings" wrapper would
       // fight that framing. The advisor's objective is already the bare advice
       // request (`advisorRequestText()`), so it is sent uncontested.
+      //
+      // A fork's persona and output contract ride in this framing rather than
+      // the system prompt: the prompt is the parent's, inherited verbatim to
+      // keep the KV cache aligned, so the task message is the only place a
+      // fork-specific instruction can land.
       const useForkFraming =
         managed.state.isFork && managed.state.config.role !== "advisor";
+      const forkPersona = managed.state.config.persona;
+      const forkContract = subagentOutputContractText(
+        managed.state.config.outputContract,
+      );
       const message = useForkFraming
         ? [
             "⎯⎯⎯ FORK TASK ⎯⎯⎯",
             "You have been forked from the parent conversation to execute a specific task.",
             "The conversation above is context — do NOT continue it. Do NOT spawn sub-agents.",
+            ...(forkPersona ? [`Act as ${forkPersona} for this task.`] : []),
+            ...(forkContract ? [`Output contract: ${forkContract}`] : []),
             "Complete this task directly and return only your findings:",
             "",
             objective,
@@ -789,6 +994,11 @@ export class SubagentManager {
         ...(managed.state.config.forceOverrideProfile
           ? { forceOverrideProfile: true }
           : {}),
+        // Stamp the child's usage with the firing that spawned it so schedule
+        // cost reporting sees delegated spend.
+        ...(managed.state.config.cronRunId
+          ? { cronRunId: managed.state.config.cronRunId }
+          : {}),
       });
 
       // Agent loop completed successfully.
@@ -800,6 +1010,12 @@ export class SubagentManager {
       const deniedTools = [...conversation.subagentDeniedToolNames];
       // Copy usage stats from the conversation before sending status (which includes usage).
       managed.state.usage = { ...conversation.usageStats };
+      // Same window for the tool-call counts: the terminal notification below
+      // reads them off the state. This is the first reading, not necessarily
+      // the last, since a follow-up turn queued during the run drains after
+      // this returns and keeps counting into the same conversation. Later
+      // readers go through `currentToolStats` for the settled numbers.
+      managed.state.stats = snapshotToolStats(conversation);
       // Only update state + notify if still non-terminal (guards against abort race).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
         managed.state.completedAt = Date.now();
@@ -827,6 +1043,7 @@ export class SubagentManager {
       // Copy usage from the captured conversation reference — managed.conversation
       // may have been nulled by an external dispose() before catch runs.
       managed.state.usage = { ...conversation.usageStats };
+      managed.state.stats = snapshotToolStats(conversation);
 
       // Only update status if not already terminal (e.g. aborted).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
@@ -960,8 +1177,14 @@ export class SubagentManager {
   }
 
   /**
-   * Abort all subagents belonging to a parent conversation.
-   * Called when the parent conversation is aborted or evicted.
+   * Abort all in-flight subagents belonging to a parent conversation, keeping
+   * every child's metadata (and durable record) readable for the normal
+   * terminal-retention window. Called when the parent conversation stops or is
+   * released from memory but its id lives on — user cancel, idle eviction,
+   * config-reload rebuild — so a completed child's result stays retrievable via
+   * `subagent_read` afterwards. Aborted children release their live
+   * conversations through the run's own teardown and are swept on the TTL like
+   * any other terminal entry.
    */
   abortAllForParent(
     parentConversationId: string,
@@ -979,10 +1202,83 @@ export class SubagentManager {
       }
     }
 
-    // Dispose all children — the parent conversation is going away so nobody
-    // will call subagent_read.  Use snapshot since dispose mutates the set.
-    for (const childId of [...children]) {
-      this.dispose(childId);
+    return count;
+  }
+
+  /**
+   * Abort and fully dispose every subagent across all parents, deleting their
+   * durable records. For clear-all: every conversation's data is going away,
+   * including retained children of parents that are no longer in the in-memory
+   * conversation store.
+   *
+   * `keepRecords` tears down the in-memory side only, leaving every row for the
+   * caller to delete. Clear-all passes it so the ordered persistence wipe that
+   * follows owns row deletion (conversations first, then subagents), matching
+   * the retry-safe pattern already on `disposeAllForParent`: an eager delete
+   * here would lose the rows if that wipe throws. Without it, behavior is
+   * unchanged and the records are deleted here.
+   */
+  disposeAllForAllParents(opts?: { keepRecords?: boolean }): void {
+    for (const parentId of [...this.parentToChildren.keys()]) {
+      this.disposeAllForParent(parentId, undefined, opts);
+    }
+    // `parentToChildren` only names parents that still hold in-memory children,
+    // and the TTL sweep drops a child's entry while keeping its row, so a
+    // parent whose children were all swept has no key to iterate. Clearing the
+    // table is the only way to take every retained row with the data it
+    // belongs to.
+    if (!this.shuttingDown && !opts?.keepRecords) {
+      try {
+        deleteAllSubagentRecords();
+      } catch (err) {
+        log.warn({ err }, "Failed to delete subagent records");
+      }
+    }
+  }
+
+  /**
+   * Abort and fully dispose all subagents belonging to a parent conversation,
+   * deleting their durable records. Only for parents whose conversation data is
+   * going away (deletion, clear-all) — nobody will call subagent_read.
+   *
+   * `keepRecords` tears down the in-memory side only, leaving the rows for the
+   * caller to delete itself. For a caller that has destructive work of its own
+   * still to do: the rows are a subagent's only durable metadata, so dropping
+   * them before that work commits loses them for good if it throws, while the
+   * conversation they describe survives for a retried delete.
+   */
+  disposeAllForParent(
+    parentConversationId: string,
+    parentSendToClient?: (msg: AssistantEvent) => void,
+    opts?: { keepRecords?: boolean },
+  ): number {
+    const count = this.abortAllForParent(
+      parentConversationId,
+      parentSendToClient,
+    );
+
+    const children = this.parentToChildren.get(parentConversationId);
+    if (children) {
+      // Use snapshot since dispose mutates the set.
+      for (const childId of [...children]) {
+        this.dispose(childId);
+      }
+    }
+
+    // The durable rows are dropped here rather than per child: a subagent's row
+    // lives as long as its parent conversation, and one the TTL sweep already
+    // evicted has no in-memory entry left to dispose, so its row is only
+    // reachable by parent. Shutdown keeps every row so in-flight children can
+    // rehydrate as `interrupted` on the next boot.
+    if (!this.shuttingDown && !opts?.keepRecords) {
+      try {
+        deleteSubagentRecordsByParent(parentConversationId);
+      } catch (err) {
+        log.warn(
+          { parentConversationId, err },
+          "Failed to delete subagent records for parent",
+        );
+      }
     }
 
     return count;
@@ -990,9 +1286,19 @@ export class SubagentManager {
 
   // ── Send message to subagent ──────────────────────────────────────────
 
+  /**
+   * Deliver a follow-up message to a live subagent.
+   *
+   * `opts.cronRunId` is the firing that produced THIS message, not the one the
+   * subagent was spawned under: a continuation turn's spend belongs to the
+   * firing that asked for it. Only the immediately-processed turn carries it,
+   * since a queued message drains through the conversation's own queue, which
+   * holds no per-message run options.
+   */
   async sendMessage(
     subagentId: string,
     content: string,
+    opts?: { cronRunId?: string | null },
   ): Promise<"sent" | "empty" | "not_found" | "terminal"> {
     const trimmed = content?.trim();
     if (!trimmed) {
@@ -1031,6 +1337,7 @@ export class SubagentManager {
           ...(managed.state.config.forceOverrideProfile
             ? { forceOverrideProfile: true }
             : {}),
+          ...(opts?.cronRunId ? { cronRunId: opts.cronRunId } : {}),
         })
         .catch((err) => {
           log.error({ subagentId, err }, "Subagent message processing failed");
@@ -1045,11 +1352,121 @@ export class SubagentManager {
     return this.subagents.get(subagentId)?.state;
   }
 
+  /**
+   * The subagent's tool-call counters, brought up to date first, or why there
+   * are none (see {@link SubagentToolStatsReading}).
+   *
+   * `runSubagent` harvests when its awaited agent loop returns, but that is not
+   * the end of the child's work: guidance queued during the run drains
+   * afterwards, on the same conversation, and those calls land in the same
+   * counters. So any read taken later re-reads them while the conversation is
+   * still retained (see {@link refreshToolStats}), and the release freezes the
+   * settled numbers. Readers that need the queued turn's calls included wait
+   * for it first, via {@link settleQueuedTurns}.
+   *
+   * An id the manager does not hold is `unrecoverable` rather than unknown:
+   * counters exist nowhere else, so no caller can ever obtain them, and the
+   * only state a caller can be holding for such an id came from the durable
+   * row.
+   */
+  currentToolStats(subagentId: string): SubagentToolStatsReading {
+    const managed = this.subagents.get(subagentId);
+    if (!managed) {
+      return { kind: "unrecoverable" };
+    }
+    this.refreshToolStats(managed);
+    if (managed.state.stats) {
+      return { kind: "counted", stats: managed.state.stats };
+    }
+    return managed.rehydrated
+      ? { kind: "unrecoverable" }
+      : { kind: "unmeasured" };
+  }
+
+  /**
+   * Wait for a follow-up turn queued during the subagent's run to finish.
+   *
+   * `runSubagent` marks the subagent terminal as soon as its own agent loop
+   * returns, and the parent is told to read from there. Guidance queued during
+   * that run drains afterwards though, on the same retained conversation, so a
+   * read taken in that window sees the transcript and the counters from before
+   * the guidance landed and never comes back for the rest. Waiting here closes
+   * the window.
+   *
+   * Resolves `true` once the retained conversation is idle with an empty
+   * queue, and `false` when `timeoutMs` elapses first, so the reader always
+   * gets an answer within a bound and can say the subagent is still moving
+   * rather than pass a partial result off as final.
+   *
+   * `true` comes back immediately when nothing can still be running: no
+   * manager entry, no retained conversation (a released one has its transcript
+   * and counters frozen), or a run that never had anything queued.
+   *
+   * Idle is confirmed across two observations a poll apart. The drain takes
+   * the queue before it takes the processing lock (`drainQueue` shifts the
+   * message, then `drainSingleMessage` awaits slash resolution and the
+   * user-message persist before `runAgentLoop` sets processing), so a single
+   * look into that gap finds an empty queue and an unlocked conversation while
+   * the turn is in fact starting.
+   */
+  async settleQueuedTurns(
+    subagentId: string,
+    timeoutMs: number = QUEUED_TURN_SETTLE_TIMEOUT_MS,
+  ): Promise<boolean> {
+    const managed = this.subagents.get(subagentId);
+    const conversation = managed?.conversation;
+    if (!managed || !conversation || managed.hadEnqueuedMessages !== true) {
+      return true;
+    }
+    const deadline = Date.now() + timeoutMs;
+    let idleObservations = 0;
+    for (;;) {
+      // A release during the wait (the TTL sweep, or a dispose) freezes
+      // everything a reader can see, so there is nothing left to wait for.
+      if (managed.conversation !== conversation) {
+        return true;
+      }
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        return false;
+      }
+      if (conversation.isProcessing()) {
+        idleObservations = 0;
+        await conversation.waitForIdle({ timeoutMs: remainingMs });
+        continue;
+      }
+      if (conversation.hasQueuedMessages()) {
+        idleObservations = 0;
+        await sleep(Math.min(QUEUED_TURN_POLL_MS, remainingMs));
+        continue;
+      }
+      idleObservations += 1;
+      if (idleObservations >= 2) {
+        return true;
+      }
+      await sleep(Math.min(QUEUED_TURN_POLL_MS, remainingMs));
+    }
+  }
+
+  /**
+   * Re-read the child conversation's live counters into its state.
+   *
+   * Only ever updates a harvest that already happened: a run that never
+   * reached its harvest (aborted before the first turn, or still going) has
+   * nothing measured to report, and a zero taken mid-flight would read as
+   * "this subagent used no tools" rather than "not measured yet".
+   */
+  private refreshToolStats(managed: ManagedSubagent): void {
+    if (managed.conversation && managed.state.stats) {
+      managed.state.stats = snapshotToolStats(managed.conversation);
+    }
+  }
+
   getByLabel(
     label: string,
     parentConversationId: string,
   ): SubagentState | undefined {
-    const key = `${parentConversationId}:${label.toLowerCase().trim()}`;
+    const key = `${parentConversationId}:${normalizeSubagentLabel(label)}`;
     const id = this.labelIndex.get(key);
     return id ? this.getState(id) : undefined;
   }
@@ -1119,6 +1536,10 @@ export class SubagentManager {
     if (!managed.conversation) {
       return;
     }
+    // Last chance at the counters: on the deferred path this release happens
+    // after the queued follow-up turn drained, so this is the reading that
+    // includes it. Everything read after this point is this snapshot.
+    this.refreshToolStats(managed);
     const conversation = managed.conversation;
     removeSubagentConversation(conversation.conversationId, conversation);
     conversation.dispose();
@@ -1136,6 +1557,11 @@ export class SubagentManager {
    * Dispose a subagent and remove it from tracking.
    * Should be called after the subagent reaches a terminal state
    * and its data is no longer needed.
+   *
+   * In-memory only: a subagent's row in the `subagents` table lives as long as
+   * its parent conversation, so it survives this and keeps answering
+   * `getSubagentDetail` for a client that missed the spawn event. Rows are
+   * deleted by parent, from `disposeAllForParent` / `disposeAllForAllParents`.
    */
   dispose(subagentId: string): void {
     const managed = this.subagents.get(subagentId);
@@ -1160,22 +1586,11 @@ export class SubagentManager {
     }
     this.subagents.delete(subagentId);
 
-    // Drop the durable record too — but only during normal operation. On
-    // shutdown we keep rows so a subagent that was in flight can rehydrate as
-    // `interrupted` on the next boot.
-    if (!this.shuttingDown) {
-      try {
-        deleteSubagentRecord(subagentId);
-      } catch (err) {
-        log.warn({ subagentId, err }, "Failed to delete subagent record");
-      }
-    }
-
     // Remove from label index only if it still maps to this subagent
     // (guards against stale delete when a newer subagent reused the label).
     const label = managed.state.config.label;
     const parentConvId = managed.state.config.parentConversationId;
-    const labelKey = `${parentConvId}:${label.toLowerCase().trim()}`;
+    const labelKey = `${parentConvId}:${normalizeSubagentLabel(label)}`;
     if (this.labelIndex.get(labelKey) === subagentId) {
       this.labelIndex.delete(labelKey);
     }
@@ -1217,9 +1632,10 @@ export class SubagentManager {
         conversationId: state.conversationId,
         label: state.config.label,
         objective: state.config.objective,
-        role: state.config.role ?? "general",
+        role: state.config.role ?? DEFAULT_SUBAGENT_ROLE,
         isFork: state.isFork,
         sendResultToUser: state.config.sendResultToUser ?? null,
+        parentToolUseId: state.config.parentToolUseId ?? null,
         status: state.status,
         error: state.error ?? null,
         createdAt: state.createdAt,
@@ -1246,46 +1662,35 @@ export class SubagentManager {
    * carry a no-op sender and no live conversation, and are swept on the normal
    * TTL like any other terminal subagent.
    *
+   * Bounded by `MAX_REHYDRATED_TERMINAL_RECORDS`: every row still unsettled
+   * loads however old it is, plus the most recently finished terminal ones.
+   * Older terminal subagents stay in the table and are read from there.
+   *
    * Best-effort and idempotent: a second restart re-reads `interrupted` rows
    * and leaves them unchanged.
    */
   rehydrateFromDb(): { rehydrated: number; interrupted: number } {
-    const records = loadAllSubagentRecords();
+    const records = loadRehydratableSubagentRecords({
+      terminalStatuses: [...TERMINAL_STATUSES],
+      maxTerminal: MAX_REHYDRATED_TERMINAL_RECORDS,
+    });
     let interrupted = 0;
     const now = Date.now();
+    // Spawn key of the record currently holding each label. Precedence is
+    // decided here rather than by the order rows arrive in, and follows spawn
+    // order to match the live index, which `spawn()` moves to the newest
+    // subagent regardless of what finishes first.
+    const labelClaimedBy = new Map<string, SpawnKey>();
     for (const rec of records) {
       const wasInFlight = !TERMINAL_STATUSES.has(rec.status as SubagentStatus);
-      const status: SubagentStatus = wasInFlight
-        ? "interrupted"
-        : (rec.status as SubagentStatus);
       if (wasInFlight) {
         interrupted++;
       }
 
+      const mapped = subagentStateFromRecord(rec);
       const state: SubagentState = {
-        config: {
-          id: rec.id,
-          parentConversationId: rec.parentConversationId,
-          label: rec.label,
-          objective: rec.objective,
-          role: rec.role as SubagentRole,
-          fork: rec.isFork,
-          ...(rec.sendResultToUser != null
-            ? { sendResultToUser: rec.sendResultToUser }
-            : {}),
-        },
-        status,
-        conversationId: rec.conversationId,
-        isFork: rec.isFork,
-        ...(rec.error != null ? { error: rec.error } : {}),
-        createdAt: rec.createdAt,
-        ...(rec.startedAt != null ? { startedAt: rec.startedAt } : {}),
-        ...(rec.completedAt != null ? { completedAt: rec.completedAt } : {}),
-        usage: {
-          inputTokens: rec.inputTokens,
-          outputTokens: rec.outputTokens,
-          estimatedCost: rec.estimatedCost,
-        },
+        ...mapped,
+        status: settleUnsupervisedStatus(mapped.status),
       };
 
       const managed: ManagedSubagent = {
@@ -1293,11 +1698,20 @@ export class SubagentManager {
         state,
         parentSendToClient: () => {},
         retainedUntil: now + TERMINAL_RETENTION_MS,
+        rehydrated: true,
       };
       this.subagents.set(rec.id, managed);
 
-      const labelKey = `${rec.parentConversationId}:${rec.label.toLowerCase().trim()}`;
-      this.labelIndex.set(labelKey, rec.id);
+      const labelKey = `${rec.parentConversationId}:${normalizeSubagentLabel(rec.label)}`;
+      const spawnKey: SpawnKey = {
+        createdAt: rec.createdAt,
+        spawnSeq: rec.spawnSeq,
+      };
+      const claimedBy = labelClaimedBy.get(labelKey);
+      if (claimedBy === undefined || isLaterSpawn(spawnKey, claimedBy)) {
+        labelClaimedBy.set(labelKey, spawnKey);
+        this.labelIndex.set(labelKey, rec.id);
+      }
 
       if (!this.parentToChildren.has(rec.parentConversationId)) {
         this.parentToChildren.set(rec.parentConversationId, new Set());
@@ -1367,6 +1781,8 @@ export class SubagentManager {
         { subagentId: id },
         "Sweeping expired terminal subagent metadata",
       );
+      // Metadata only: the durable row outlives the sweep so a client that
+      // missed `subagent_spawned` can still resolve the child conversation.
       this.dispose(id);
     }
     // Stop the timer if there are no more entries to sweep.
@@ -1438,6 +1854,10 @@ export class SubagentManager {
       ? config.sendResultToUser !== true
       : config.sendResultToUser === false;
 
+    // A queued follow-up turn means the snapshot we hold is stale; defer to a
+    // read pointer so the parent picks up the queued turn's output instead.
+    const deferred = managed.hadEnqueuedMessages === true;
+
     const message = buildSubagentTerminalMessage({
       label: config.label,
       subagentId: config.id,
@@ -1446,10 +1866,14 @@ export class SubagentManager {
       silent,
       finalText,
       error: managed.state.error,
-      // A queued follow-up turn means the snapshot we hold is stale; defer to a
-      // read pointer so the parent picks up the queued turn's output instead.
-      deferred: managed.hadEnqueuedMessages === true,
+      deferred,
       deniedTools,
+      // Same staleness applies to the counters, and worse: the queued turn has
+      // not run yet at this point, so any number quoted here would under-report
+      // it, permanently, in a message that is never rewritten. The deferred
+      // message sends the parent to `subagent_read`, whose footer re-reads the
+      // counters once the queued turn has actually landed.
+      ...(deferred ? {} : { stats: managed.state.stats }),
     });
 
     const notification: SubagentNotificationInfo = {

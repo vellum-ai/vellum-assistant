@@ -70,6 +70,7 @@ import {
 } from "./voice-room-layout";
 import {
   splitTranscriptWords,
+  VOICE_ASSISTANT_CAPTION_CLASS,
   VoiceTranscriptText,
 } from "./voice-transcript-text";
 
@@ -168,7 +169,7 @@ export function VoiceAmbientTranscript() {
           <div
             data-testid="voice-ambient-assistant"
             aria-live="polite"
-            className="break-words text-[clamp(17px,2.5vmin,26px)] leading-relaxed"
+            className={VOICE_ASSISTANT_CAPTION_CLASS}
           >
             <VoiceTranscriptText
               text={assistantTranscript}

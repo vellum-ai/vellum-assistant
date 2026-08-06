@@ -25,7 +25,7 @@ import { useState } from "react";
 import { Button, Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
-import { DetailShell } from "@/domains/chat/components/detail-shell";
+import { DetailShell } from "@/components/detail-shell";
 import { StreamingShimmerText } from "@/domains/chat/components/streaming-shimmer-text";
 import {
   activityRunSummaryLabel,
@@ -49,6 +49,7 @@ import {
   toolDetailPayloadFromToolCall,
   type ToolCallCardStep,
 } from "@/domains/chat/utils/tool-call-card-utils";
+import { thinkingPreview } from "@/domains/chat/utils/thinking-preview";
 import { truncate } from "@/domains/chat/utils/truncate";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type {
@@ -67,9 +68,16 @@ const THINKING_PILL_MAX_CHARS = 60;
 export function ActivityStepsPanel({
   payload,
   onClose,
+  assistantId,
 }: {
   payload: ActivityStepsPayload;
   onClose: () => void;
+  /**
+   * Assistant that owns the conversation this activity group belongs to.
+   * Threaded to the drill-in reasoning markdown so workspace file references
+   * resolve against the right workspace.
+   */
+  assistantId?: string | null;
 }) {
   // Level-2 drill-in: the step detail currently open, or null for the
   // timeline. Local state — the drawer level is navigation within the panel,
@@ -165,7 +173,7 @@ export function ActivityStepsPanel({
       onClose={onClose}
     >
       {stepDetail ? (
-        <StepDetailLevel detail={stepDetail} />
+        <StepDetailLevel detail={stepDetail} assistantId={assistantId} />
       ) : (
         <PhaseGroupedStepList
           steps={cardData.steps}
@@ -223,7 +231,7 @@ function TimelineStep({
     return (
       <ToolStepPill
         iconName="brain"
-        label={truncate(step.text, THINKING_PILL_MAX_CHARS)}
+        label={truncate(thinkingPreview(step.text), THINKING_PILL_MAX_CHARS)}
         ariaLabel="View thinking"
         active={false}
         onClick={() =>
@@ -274,7 +282,13 @@ function TimelineStep({
  * live reasoning markdown; tool details reuse the shared `ToolDetailBody`
  * (technical details + streaming output).
  */
-function StepDetailLevel({ detail }: { detail: ToolDetailPayload }) {
+function StepDetailLevel({
+  detail,
+  assistantId,
+}: {
+  detail: ToolDetailPayload;
+  assistantId?: string | null;
+}) {
   // Live reasoning for thinking details — streams while the panel is open,
   // falling back to the click-time snapshot when the source can't be
   // resolved. Called unconditionally (hook rules); no-ops for tool details.
@@ -290,6 +304,7 @@ function StepDetailLevel({ detail }: { detail: ToolDetailPayload }) {
         <ChatMarkdownMessage
           content={liveThinking ?? detail.thinkingText ?? ""}
           hardLineBreaks
+          assistantId={assistantId}
         />
       ) : (
         <ToolDetailBody detail={detail} />

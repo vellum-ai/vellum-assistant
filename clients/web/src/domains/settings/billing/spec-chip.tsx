@@ -20,12 +20,12 @@ export function SpecChip({
   return (
     <div
       className={cn(
-        "flex items-center gap-1.5 rounded-lg bg-[var(--surface-overlay)] px-2 py-1.5",
+        "flex items-center gap-1.5 rounded-lg bg-[var(--surface-lift)] px-2 py-1.5",
         multiline ? "min-h-8 min-w-0" : "h-8",
       )}
     >
       <Icon
-        className="h-3.5 w-3.5 shrink-0 text-[var(--content-default)]"
+        className="size-[18px] shrink-0 text-[var(--content-default)]"
         aria-hidden
       />
       <Typography

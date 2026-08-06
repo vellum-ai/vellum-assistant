@@ -7,6 +7,7 @@
  * Extracted from inbound-message-handler.ts to keep the top-level handler
  * focused on orchestration.
  */
+import type { AssistantEvent } from "../../../api/index.js";
 import {
   extractMessageTsFromCallbackUrl,
   extractThreadTsFromCallbackUrl,
@@ -18,7 +19,6 @@ import {
   guardianForChannel,
 } from "../../../contacts/guardian-delivery-reader.js";
 import { isConversationBusyError } from "../../../daemon/conversation-messaging.js";
-import type { AssistantEvent } from "../../../daemon/message-protocol.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import {
   getSiblingStreamedReplyTs,

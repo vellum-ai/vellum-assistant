@@ -1,6 +1,12 @@
 import { useMutation } from "@tanstack/react-query";
 import { Check, Copy, Loader2 } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
@@ -9,6 +15,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 import { buildA2AInviteLink } from "@/domains/contacts/a2a-invite";
 import { integrationsA2aInvitePostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 
 export interface GenerateInviteLinkDialogProps {
   open: boolean;
@@ -19,9 +26,13 @@ export interface GenerateInviteLinkDialogProps {
 function formatExpiry(expiresAt: number): string {
   const now = Date.now();
   const diffMs = expiresAt - now;
-  if (diffMs <= 0) return "Expired";
+  if (diffMs <= 0) {
+    return "Expired";
+  }
   const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-  if (diffDays === 1) return "Expires in 1 day";
+  if (diffDays === 1) {
+    return "Expires in 1 day";
+  }
   return `Expires in ${diffDays} days`;
 }
 
@@ -41,9 +52,13 @@ export function GenerateInviteLinkDialog({
   });
 
   const mutateRef = useRef(mutation.mutate);
-  useLayoutEffect(() => { mutateRef.current = mutation.mutate; });
+  useLayoutEffect(() => {
+    mutateRef.current = mutation.mutate;
+  });
   const resetRef = useRef(mutation.reset);
-  useLayoutEffect(() => { resetRef.current = mutation.reset; });
+  useLayoutEffect(() => {
+    resetRef.current = mutation.reset;
+  });
 
   useEffect(() => {
     if (open && !prevOpenRef.current) {
@@ -54,7 +69,9 @@ export function GenerateInviteLinkDialog({
 
   useEffect(() => {
     return () => {
-      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+      if (copiedTimerRef.current) {
+        clearTimeout(copiedTimerRef.current);
+      }
     };
   }, []);
 
@@ -69,10 +86,15 @@ export function GenerateInviteLinkDialog({
   }, [onClose]);
 
   const handleCopy = useCallback((url: string) => {
-    void navigator.clipboard.writeText(url).then(() => {
-      setCopied(true);
-      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-      copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
+    copyToClipboard(url, {
+      errorMessage: "Couldn't copy the invite link.",
+      onCopied: () => {
+        setCopied(true);
+        if (copiedTimerRef.current) {
+          clearTimeout(copiedTimerRef.current);
+        }
+        copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
+      },
     });
   }, []);
 
@@ -88,7 +110,9 @@ export function GenerateInviteLinkDialog({
     <Modal.Root
       open={open}
       onOpenChange={(nextOpen) => {
-        if (!nextOpen) handleClose();
+        if (!nextOpen) {
+          handleClose();
+        }
       }}
     >
       <Modal.Content size="sm">

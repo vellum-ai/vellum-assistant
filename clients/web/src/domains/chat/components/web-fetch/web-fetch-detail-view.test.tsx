@@ -13,8 +13,19 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 // Render the extracted markdown as plain text so assertions can read it back
 // without depending on the markdown renderer's element splitting.
 mock.module("@/domains/chat/components/chat-markdown-message", () => ({
-  ChatMarkdownMessage: ({ content }: { content: string }) => (
-    <div data-testid="markdown">{content}</div>
+  ChatMarkdownMessage: ({
+    content,
+    assistantId,
+  }: {
+    content: string;
+    assistantId?: string | null;
+  }) => (
+    <div
+      data-testid="markdown"
+      data-has-assistant-id={assistantId == null ? "false" : "true"}
+    >
+      {content}
+    </div>
   ),
 }));
 
@@ -67,7 +78,9 @@ describe("parseWebFetchResult", () => {
     expect(parsed.url).toBe("https://www.cnbc.com/2025/09/22/michelob.html");
     expect(parsed.status).toBe("200 OK");
     expect(parsed.notices.length).toBe(1);
-    expect(parsed.notices[0].startsWith("Extracted only 5047 chars")).toBe(true);
+    expect(parsed.notices[0].startsWith("Extracted only 5047 chars")).toBe(
+      true,
+    );
     // The <external_content> wrapper is stripped, leaving the prose.
     expect(parsed.content).toBe(
       "Michelob Ultra has overtaken Modelo Especial as the best-selling beer in the United States.",
@@ -111,10 +124,22 @@ describe("WebFetchDetailView", () => {
     expect(getByText("cnbc.com")).toBeDefined();
     expect(getByText("200 OK")).toBeDefined();
     expect(
-      getByText("Extracted only 5047 chars of text from 757146 bytes of HTML (0.7%). Content may be JavaScript-rendered."),
+      getByText(
+        "Extracted only 5047 chars of text from 757146 bytes of HTML (0.7%). Content may be JavaScript-rendered.",
+      ),
     ).toBeDefined();
     expect(getByTestId("markdown").textContent).toContain(
       "Michelob Ultra has overtaken",
+    );
+  });
+
+  test("never gives the fetched page an assistant id to resolve local files with", () => {
+    const { getByTestId } = render(<WebFetchDetailView detail={payload({})} />);
+    // Remote page text is the least-trusted content in the app: without an
+    // assistant id a `vellum://workspace/…` reference it smuggles in stays an
+    // inert card instead of pulling local workspace bytes into the panel.
+    expect(getByTestId("markdown").getAttribute("data-has-assistant-id")).toBe(
+      "false",
     );
   });
 

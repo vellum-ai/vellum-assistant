@@ -174,7 +174,7 @@ declare -a SAFE_LINE_PATTERNS=(
     # `$ref:`, `description:`, etc.). Without that context, an indented bare
     # `clientSecret:` line would whitelist any structurally-similar line in
     # any file type, weakening secret scanning outside schema files.
-    "^[[:space:]]+[Cc]lient[_-]?[Ss]ecret:[[:space:]]*$"
+    "^[[:space:]]+[a-zA-Z0-9_-]*[Cc]lient[_-]?[Ss]ecret:[[:space:]]*$"
     # TS: optional property type annotation (e.g. `clientSecret?: string;`)
     # Must end with type + optional semicolon/comma — no `=` assignment.
     # Also covers union types like `clientSecret: string | undefined;`.
@@ -1049,7 +1049,7 @@ fi
 # When files in these directories are staged, run prettier --check and eslint
 # on the staged files to catch formatting and lint issues before commit.
 DIRS_WITH_PRETTIER=("assistant" "cli" "gateway")
-DIRS_TO_CHECK=("${DIRS_WITH_PRETTIER[@]}" "clients/web")
+DIRS_TO_CHECK=("${DIRS_WITH_PRETTIER[@]}" "clients/docs" "clients/web")
 
 # Detect bun location (reused by message contract check below)
 BUN="${BUN:-$(command -v bun 2>/dev/null || echo "$HOME/.bun/bin/bun")}"
@@ -1175,7 +1175,7 @@ if [ $ASSISTANT_TS_STAGED -eq 1 ]; then
 fi
 
 # Type-check clients/web/
-TYPECHECK_WEB_DIRS=("clients/web")
+TYPECHECK_WEB_DIRS=("clients/docs" "clients/web")
 for WEB_DIR in "${TYPECHECK_WEB_DIRS[@]}"; do
     WEB_TS_STAGED=0
     while IFS= read -r -d '' FILE; do

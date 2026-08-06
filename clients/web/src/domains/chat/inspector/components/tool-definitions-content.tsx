@@ -215,7 +215,9 @@ function SchemaProperty({
         {isRequired && (
           <span
             className="text-label-default"
-            style={{ color: "var(--content-attention, var(--content-secondary))" }}
+            style={{
+              color: "var(--content-attention, var(--content-secondary))",
+            }}
           >
             required
           </span>

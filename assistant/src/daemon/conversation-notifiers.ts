@@ -8,6 +8,7 @@
  */
 
 import { createAssistantMessage } from "../agent/message-types.js";
+import type { AssistantEvent } from "../api/index.js";
 import { buildCallCompletionMessage } from "../calls/call-conversation-messages.js";
 import {
   registerCallCompletionNotifier,
@@ -23,7 +24,6 @@ import {
   provenanceFromTrustContext,
 } from "../persistence/conversation-crud.js";
 import type { Message } from "../providers/types.js";
-import type { AssistantEvent } from "./message-protocol.js";
 import type { TrustContext } from "./trust-context-types.js";
 
 /**

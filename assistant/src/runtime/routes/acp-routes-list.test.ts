@@ -18,9 +18,13 @@ const inMemoryStates = new Map<string, AcpSessionState>();
 mock.module("../../acp/index.js", () => ({
   getAcpSessionManager: () => ({
     getStatus: (id?: string) => {
-      if (id === undefined) return Array.from(inMemoryStates.values());
+      if (id === undefined) {
+        return Array.from(inMemoryStates.values());
+      }
       const state = inMemoryStates.get(id);
-      if (!state) throw new Error(`ACP session "${id}" not found`);
+      if (!state) {
+        throw new Error(`ACP session "${id}" not found`);
+      }
       return state;
     },
     getBufferedUpdates: () => [],
@@ -59,7 +63,9 @@ function getListHandler() {
     (r: { endpoint: string; method: string }) =>
       r.endpoint === "acp/sessions" && r.method === "GET",
   );
-  if (!route) throw new Error("GET acp/sessions route not registered");
+  if (!route) {
+    throw new Error("GET acp/sessions route not registered");
+  }
   return route.handler;
 }
 

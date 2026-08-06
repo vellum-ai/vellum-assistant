@@ -39,7 +39,9 @@ async function loadText(
 
   if (url.startsWith("data:")) {
     const bytes = dataUriToUint8Array(url);
-    if (!bytes) throw new Error("Malformed data URI");
+    if (!bytes) {
+      throw new Error("Malformed data URI");
+    }
     return new TextDecoder().decode(bytes);
   }
 
@@ -93,10 +95,14 @@ export function TextPreview({
 
     loadText(url, sizeBytes, controller.signal)
       .then((text) => {
-        if (!controller.signal.aborted) setState({ status: "ready", text });
+        if (!controller.signal.aborted) {
+          setState({ status: "ready", text });
+        }
       })
       .catch((err) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) {
+          return;
+        }
         const tooLarge = err instanceof TextTooLargeError;
         if (!tooLarge) {
           captureError(err, {
@@ -145,7 +151,11 @@ export function TextPreview({
         color: "var(--content-default)",
       }}
     >
-      <TextPreviewBody text={state.text} filename={filename} mimeType={mimeType} />
+      <TextPreviewBody
+        text={state.text}
+        filename={filename}
+        mimeType={mimeType}
+      />
     </div>
   );
 }

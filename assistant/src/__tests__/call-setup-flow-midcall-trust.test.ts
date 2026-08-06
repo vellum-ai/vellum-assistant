@@ -50,7 +50,9 @@ mock.module("../runtime/actor-trust-resolver.js", () => ({
   ...realActorTrustResolver,
   resolveActorTrust: () => {
     localResolutions += 1;
-    throw new Error("resolveMidCallTrustContext must not call resolveActorTrust");
+    throw new Error(
+      "resolveMidCallTrustContext must not call resolveActorTrust",
+    );
   },
 }));
 

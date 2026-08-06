@@ -158,7 +158,9 @@ function computeSequenceMetrics(seq: Sequence): SequenceMetrics {
         count++;
       }
     }
-    if (count > 0) avgTimeToReplyMs = totalTime / count;
+    if (count > 0) {
+      avgTimeToReplyMs = totalTime / count;
+    }
   }
 
   // Count sends from event log
@@ -187,7 +189,9 @@ export function getStepMetrics(sequenceId: string): StepMetrics[] {
   const seq =
     listSequences({ status: "active" }).find((s) => s.id === sequenceId) ??
     listSequences().find((s) => s.id === sequenceId);
-  if (!seq) return [];
+  if (!seq) {
+    return [];
+  }
 
   const enrollments = listEnrollments({ sequenceId });
   const sendEvents = eventLog.filter(

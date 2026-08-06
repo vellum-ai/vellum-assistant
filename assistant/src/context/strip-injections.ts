@@ -69,10 +69,16 @@ export function stripUserTextBlocksByPrefix(
 ): Message[] {
   return messages
     .map((message) => {
-      if (message.role !== "user") return message;
+      if (message.role !== "user") {
+        return message;
+      }
       const nextContent = filterInjectionBlocks(message.content, matchers);
-      if (nextContent.length === message.content.length) return message;
-      if (nextContent.length === 0) return null;
+      if (nextContent.length === message.content.length) {
+        return message;
+      }
+      if (nextContent.length === 0) {
+        return null;
+      }
       return { ...message, content: nextContent };
     })
     .filter(
@@ -98,9 +104,13 @@ export function stripTailUserTextBlocksByPrefix(
   matchers: InjectionMatcher[],
 ): Message[] {
   const last = messages[messages.length - 1];
-  if (!last || last.role !== "user") return messages;
+  if (!last || last.role !== "user") {
+    return messages;
+  }
   const nextContent = filterInjectionBlocks(last.content, matchers);
-  if (nextContent.length === last.content.length) return messages;
+  if (nextContent.length === last.content.length) {
+    return messages;
+  }
   return [...messages.slice(0, -1), { ...last, content: nextContent }];
 }
 
@@ -124,6 +134,48 @@ const MEMORY_SPOTLIGHT_MATCHER: InjectionMatcher = {
  */
 export function stripSpotlightInjections(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, [MEMORY_SPOTLIGHT_MATCHER]);
+}
+
+/**
+ * Whether the TURN-STARTING user message carries a memory-v3
+ * `<memory_spotlight>` block.
+ *
+ * The spotlight is the only injected block that is strip-and-replaced from
+ * every user message each turn, so its presence is exactly what makes that
+ * message volatile across turns. Every other injected block (turn context,
+ * workspace, `<info>`, `<memory>` cards, NOW.md) is frozen into history and
+ * re-renders byte-identically, so a message without a spotlight is a stable
+ * cache anchor. Providers consume this through the `mutableLatestUserMessage`
+ * config field when placing cache breakpoints.
+ *
+ * The turn start is the most recent user message carrying TEXT content, which
+ * is the same message the Anthropic client anchors on. Tool-result messages
+ * are skipped: they are user-role but carry no injected blocks, and letting
+ * them answer this question would flip the signal to `false` partway through a
+ * tool loop. The provider would then mark the very same turn-start block at a
+ * different TTL than it did on the turn's first request, billing a second
+ * write for one reusable prefix. Anchoring on the turn start keeps the signal
+ * constant for every request in the turn.
+ *
+ * Detection uses {@link MEMORY_SPOTLIGHT_MATCHER}, the same full-wrapper
+ * matcher {@link stripSpotlightInjections} strips with, so the two can never
+ * disagree about which blocks are ephemeral.
+ */
+export function turnStartUserMessageHasSpotlight(messages: Message[]): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role !== "user") {
+      continue;
+    }
+    const textBlocks = message.content.filter((block) => block.type === "text");
+    if (textBlocks.length === 0) {
+      continue;
+    }
+    return textBlocks.some((block) =>
+      textBlockMatchesInjection(block.text, [MEMORY_SPOTLIGHT_MATCHER]),
+    );
+  }
+  return false;
 }
 
 /** `<NOW.md>` scratchpad prefixes (current tag, pre-line-limit variant, legacy `<now_scratchpad>`) — shared with `stripNowScratchpad` so the two strip paths can't drift. */

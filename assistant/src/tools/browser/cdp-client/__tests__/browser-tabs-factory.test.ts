@@ -9,7 +9,11 @@
 
 import { describe, expect, mock, test } from "bun:test";
 
-import type { BrowserBackend, CdpCommand, CdpResult } from "../../../../browser-session/types.js";
+import type {
+  BrowserBackend,
+  CdpCommand,
+  CdpResult,
+} from "../../../../browser-session/types.js";
 import { CdpError } from "../errors.js";
 import type { BackendCandidate, CdpClient, TabInfo } from "../types.js";
 
@@ -24,13 +28,23 @@ const { buildChainedClient } = await import("../factory.js");
  * This is the real wiring that factory.ts uses — the backend wraps the
  * client's send method via dispatchThroughClient.
  */
-function makeBackendFromClient(client: CdpClient, kind: "extension" | "local" | "cdp-inspect"): BrowserBackend {
+function makeBackendFromClient(
+  client: CdpClient,
+  kind: "extension" | "local" | "cdp-inspect",
+): BrowserBackend {
   return {
     kind,
     isAvailable: () => true,
-    send: async (command: CdpCommand, signal?: AbortSignal): Promise<CdpResult> => {
+    send: async (
+      command: CdpCommand,
+      signal?: AbortSignal,
+    ): Promise<CdpResult> => {
       try {
-        const result = await client.send(command.method, command.params, signal);
+        const result = await client.send(
+          command.method,
+          command.params,
+          signal,
+        );
         return { result };
       } catch (err) {
         if (err instanceof CdpError) {
@@ -56,16 +70,18 @@ interface FakeClientWithTabMethods extends CdpClient {
 function makeFakeExtensionClientWithTabMethods(
   conversationId: string,
 ): FakeClientWithTabMethods {
-  const listTabsMock = mock(async (): Promise<TabInfo[]> => [
-    {
-      tabId: 1,
-      windowId: 10,
-      url: "https://example.com",
-      title: "Example",
-      active: true,
-      pinned: false,
-    },
-  ]);
+  const listTabsMock = mock(
+    async (): Promise<TabInfo[]> => [
+      {
+        tabId: 1,
+        windowId: 10,
+        url: "https://example.com",
+        title: "Example",
+        active: true,
+        pinned: false,
+      },
+    ],
+  );
   const selectTabMock = mock(async (_tabId: number) => ({
     tabId: 42,
     windowId: 10,
@@ -125,7 +141,10 @@ function makeFakeExtensionClientForFreshPath(conversationId: string) {
     kind: "extension" as const,
     conversationId,
     send: mock(
-      async (method: string, params?: Record<string, unknown>): Promise<unknown> => {
+      async (
+        method: string,
+        params?: Record<string, unknown>,
+      ): Promise<unknown> => {
         if (method === "Vellum.listTabs") {
           return {
             tabs: [
@@ -178,7 +197,11 @@ describe("buildChainedClient — tab management methods", () => {
   test("listTabs is forwarded to the underlying client after backend becomes sticky", async () => {
     const conversationId = "conv-tabs-list";
     const fakeClient = makeFakeExtensionClientWithTabMethods(conversationId);
-    const candidate = makeCandidateFromClient(conversationId, fakeClient, "extension");
+    const candidate = makeCandidateFromClient(
+      conversationId,
+      fakeClient,
+      "extension",
+    );
 
     const scoped = buildChainedClient(conversationId, [candidate]);
 
@@ -197,7 +220,11 @@ describe("buildChainedClient — tab management methods", () => {
   test("selectTab is forwarded to the underlying client", async () => {
     const conversationId = "conv-tabs-select";
     const fakeClient = makeFakeExtensionClientWithTabMethods(conversationId);
-    const candidate = makeCandidateFromClient(conversationId, fakeClient, "extension");
+    const candidate = makeCandidateFromClient(
+      conversationId,
+      fakeClient,
+      "extension",
+    );
 
     const scoped = buildChainedClient(conversationId, [candidate]);
 
@@ -215,7 +242,11 @@ describe("buildChainedClient — tab management methods", () => {
   test("closeTab is forwarded to the underlying client", async () => {
     const conversationId = "conv-tabs-close";
     const fakeClient = makeFakeExtensionClientWithTabMethods(conversationId);
-    const candidate = makeCandidateFromClient(conversationId, fakeClient, "extension");
+    const candidate = makeCandidateFromClient(
+      conversationId,
+      fakeClient,
+      "extension",
+    );
 
     const scoped = buildChainedClient(conversationId, [candidate]);
 
@@ -338,7 +369,11 @@ describe("buildChainedClient — fresh-client tab calls (no prior send)", () => 
   test("listTabs on a fresh client triggers failover walk and returns tabs", async () => {
     const conversationId = "conv-fresh-list";
     const fakeClient = makeFakeExtensionClientForFreshPath(conversationId);
-    const candidate = makeCandidateFromClient(conversationId, fakeClient, "extension");
+    const candidate = makeCandidateFromClient(
+      conversationId,
+      fakeClient,
+      "extension",
+    );
     const scoped = buildChainedClient(conversationId, [candidate]);
 
     // Call listTabs WITHOUT establishing sticky — this is the production scenario
@@ -353,7 +388,11 @@ describe("buildChainedClient — fresh-client tab calls (no prior send)", () => 
   test("selectTab on a fresh client triggers failover walk and returns tab info", async () => {
     const conversationId = "conv-fresh-select";
     const fakeClient = makeFakeExtensionClientForFreshPath(conversationId);
-    const candidate = makeCandidateFromClient(conversationId, fakeClient, "extension");
+    const candidate = makeCandidateFromClient(
+      conversationId,
+      fakeClient,
+      "extension",
+    );
     const scoped = buildChainedClient(conversationId, [candidate]);
 
     const result = await scoped.selectTab(42);
@@ -366,7 +405,11 @@ describe("buildChainedClient — fresh-client tab calls (no prior send)", () => 
   test("closeTab on a fresh client triggers failover walk and returns closed status", async () => {
     const conversationId = "conv-fresh-close";
     const fakeClient = makeFakeExtensionClientForFreshPath(conversationId);
-    const candidate = makeCandidateFromClient(conversationId, fakeClient, "extension");
+    const candidate = makeCandidateFromClient(
+      conversationId,
+      fakeClient,
+      "extension",
+    );
     const scoped = buildChainedClient(conversationId, [candidate]);
 
     const result = await scoped.closeTab(99);
@@ -378,13 +421,18 @@ describe("buildChainedClient — fresh-client tab calls (no prior send)", () => 
 
   test("listTabs on fresh non-extension client throws transport_error after sticky established", async () => {
     const conversationId = "conv-fresh-no-list";
-    const noTabsClient: CdpClient & { kind: "local"; conversationId: string } = {
-      kind: "local",
+    const noTabsClient: CdpClient & { kind: "local"; conversationId: string } =
+      {
+        kind: "local",
+        conversationId,
+        send: mock(async () => ({})) as unknown as CdpClient["send"],
+        dispose: mock(() => {}),
+      };
+    const candidate = makeCandidateFromClient(
       conversationId,
-      send: mock(async () => ({})) as unknown as CdpClient["send"],
-      dispose: mock(() => {}),
-    };
-    const candidate = makeCandidateFromClient(conversationId, noTabsClient, "local");
+      noTabsClient,
+      "local",
+    );
     const scoped = buildChainedClient(conversationId, [candidate]);
 
     // No prior send — fresh client, non-extension backend

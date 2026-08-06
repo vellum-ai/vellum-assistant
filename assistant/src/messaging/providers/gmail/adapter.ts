@@ -44,7 +44,9 @@ function extractHeader(msg: GmailMessage, name: string): string {
 }
 
 function extractPlainTextBody(msg: GmailMessage): string {
-  if (!msg.payload) return "";
+  if (!msg.payload) {
+    return "";
+  }
 
   function walkParts(part: GmailMessagePart): string | null {
     if (part.mimeType === "text/plain" && part.body?.data) {
@@ -53,7 +55,9 @@ function extractPlainTextBody(msg: GmailMessage): string {
     if (part.parts) {
       for (const child of part.parts) {
         const result = walkParts(child);
-        if (result) return result;
+        if (result) {
+          return result;
+        }
       }
     }
     return null;
@@ -183,7 +187,9 @@ export const gmailMessagingProvider: MessagingProvider = {
       [conversationId],
     );
 
-    if (!listResult.messages?.length) return [];
+    if (!listResult.messages?.length) {
+      return [];
+    }
 
     const messages = await gmail.batchGetMessages(
       conn,
@@ -256,7 +262,9 @@ export const gmailMessagingProvider: MessagingProvider = {
     const conn = requireConnection(connection);
     const thread = await gmail.getThread(conn, threadId, "full");
     const messages = thread.messages ?? [];
-    if (!messages.length) return [];
+    if (!messages.length) {
+      return [];
+    }
     const limit = options?.limit ?? 50;
     return messages.slice(0, limit).map(mapGmailMessage);
   },
@@ -267,7 +275,9 @@ export const gmailMessagingProvider: MessagingProvider = {
     messageId?: string,
   ): Promise<void> {
     const conn = requireConnection(connection);
-    if (!messageId) return;
+    if (!messageId) {
+      return;
+    }
     await gmail.modifyMessage(conn, messageId, {
       removeLabelIds: ["UNREAD"],
     });
@@ -304,7 +314,9 @@ export const gmailMessagingProvider: MessagingProvider = {
         pageToken,
       );
       const ids = (listResp.messages ?? []).map((m) => m.id);
-      if (ids.length === 0) break;
+      if (ids.length === 0) {
+        break;
+      }
       allMessageIds.push(...ids);
       fetchPromises.push(
         gmail.batchGetMessages(
@@ -316,7 +328,9 @@ export const gmailMessagingProvider: MessagingProvider = {
         ),
       );
       pageToken = listResp.nextPageToken ?? undefined;
-      if (!pageToken) break;
+      if (!pageToken) {
+        break;
+      }
     }
 
     // If we stopped because we hit the cap but there were still more pages, flag truncation
@@ -360,7 +374,9 @@ export const gmailMessagingProvider: MessagingProvider = {
       const displayName = match
         ? match[1].replace(/^["']|["']$/g, "").trim()
         : "";
-      if (!email) continue;
+      if (!email) {
+        continue;
+      }
 
       let agg = senderMap.get(email);
       if (!agg) {
@@ -379,8 +395,12 @@ export const gmailMessagingProvider: MessagingProvider = {
       }
 
       agg.messageCount++;
-      if (listUnsub) agg.hasUnsubscribe = true;
-      if (!agg.displayName && displayName) agg.displayName = displayName;
+      if (listUnsub) {
+        agg.hasUnsubscribe = true;
+      }
+      if (!agg.displayName && displayName) {
+        agg.displayName = displayName;
+      }
 
       if (agg.messageIds.length < maxIdsPerSender) {
         agg.messageIds.push(msg.id);
@@ -442,10 +462,14 @@ export const gmailMessagingProvider: MessagingProvider = {
         pageToken,
       );
       const ids = (listResp.messages ?? []).map((m) => m.id);
-      if (ids.length === 0) break;
+      if (ids.length === 0) {
+        break;
+      }
       allMessageIds.push(...ids);
       pageToken = listResp.nextPageToken ?? undefined;
-      if (!pageToken) break;
+      if (!pageToken) {
+        break;
+      }
     }
 
     if (allMessageIds.length >= maxMessages && pageToken) {

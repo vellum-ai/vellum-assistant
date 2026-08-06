@@ -27,7 +27,9 @@ export async function updatePublishedAppDeployment(
   try {
     // 1. Check if this app has an active published deployment
     const publishedPage = getActivePublishedPageByAppId(appId);
-    if (!publishedPage) return;
+    if (!publishedPage) {
+      return;
+    }
 
     // 2. Load the app and resolve its deployable HTML: the real content
     // lives in dist/index.html (compiled from src/), inlined into a
@@ -47,11 +49,15 @@ export async function updatePublishedAppDeployment(
     }
 
     const html = resolveEffectiveAppHtml(app);
-    if (!html) return;
+    if (!html) {
+      return;
+    }
 
     // 3. Hash the current HTML and check if it changed
     const newHash = createHash("sha256").update(html).digest("hex");
-    if (newHash === publishedPage.htmlHash) return; // No change
+    if (newHash === publishedPage.htmlHash) {
+      return;
+    } // No change
 
     // 4. Get Vercel token — don't prompt, just skip if unavailable
     const slug = publishedPage.projectSlug ?? `vellum-app-${appId}`;

@@ -24,7 +24,7 @@ const realMemoryV3Gate = {
   ...(await import("../../config/memory-v3-gate.js")),
 };
 const realV2Qdrant = {
-  ...(await import("../../plugins/defaults/memory/v3/substrate/qdrant.js")),
+  ...(await import("../../plugins/defaults/memory/substrate/qdrant.js")),
 };
 const realSectionDenseStore = {
   ...(await import("../../plugins/defaults/memory/v3/section-dense-store.js")),
@@ -86,7 +86,9 @@ function makeDeps(opts: {
         : { provider: "gemini" as const, model: "m", dim: opts.probeDim },
     ),
     readConceptPageCollectionDim: mock(async () => {
-      if (opts.committedDimError) throw opts.committedDimError;
+      if (opts.committedDimError) {
+        throw opts.committedDimError;
+      }
       return opts.committedDim ?? null;
     }),
     decideEmbeddingReconcile: mock(() => opts.decision),
@@ -360,7 +362,7 @@ async function withDefaultDepsMocks(opts: {
       realMemoryV3Gate.isMemoryV3Live,
     ),
   }));
-  mock.module("../../plugins/defaults/memory/v3/substrate/qdrant.js", () => ({
+  mock.module("../../plugins/defaults/memory/substrate/qdrant.js", () => ({
     ...realV2Qdrant,
     ensureConceptPageCollection: delegate(
       spies.ensureConceptPageCollection,

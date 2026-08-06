@@ -33,14 +33,7 @@ const EYE_STYLES = [
   "dazed",
 ] as const;
 
-const COLORS = [
-  "green",
-  "orange",
-  "pink",
-  "purple",
-  "teal",
-  "yellow",
-] as const;
+const COLORS = ["green", "orange", "pink", "purple", "teal", "yellow"] as const;
 
 /** Simple string hash (djb2) that produces a non-negative integer. */
 function hashString(str: string): number {

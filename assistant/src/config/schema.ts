@@ -50,6 +50,7 @@ import {
   PlatformConfigSchema,
   UiConfigSchema,
 } from "./schemas/platform.js";
+import { PluginUpdatesConfigSchema } from "./schemas/plugin-updates.js";
 import { SecretDetectionConfigSchema } from "./schemas/security.js";
 import { ServicesSchema } from "./schemas/services.js";
 import { SkillsConfigSchema } from "./schemas/skills.js";
@@ -142,6 +143,9 @@ export const AssistantConfigSchema = z.object({
     .describe(
       "Per-plugin configuration keyed by plugin name. Validated downstream by each plugin's manifest.config validator at bootstrap.",
     ),
+  pluginUpdates: PluginUpdatesConfigSchema.default(
+    PluginUpdatesConfigSchema.parse({}),
+  ),
   legacyTelemetryOptOut: z
     .boolean()
     .optional()

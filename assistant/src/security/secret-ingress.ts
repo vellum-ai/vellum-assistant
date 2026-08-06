@@ -138,7 +138,9 @@ export function checkIngressForSecrets(content: string): IngressCheckResult {
       }
 
       // Skip user-allowlisted values
-      if (isAllowlisted(value)) continue;
+      if (isAllowlisted(value)) {
+        continue;
+      }
 
       if (!detectedTypes.includes(label)) {
         detectedTypes.push(label);

@@ -40,4 +40,5 @@ export {
   type CesRpcClient,
   type CesRpcClientConfig,
   type CesRpcHandshakeOptions,
+  type CesRpcLogger,
 } from "./rpc-client.js";

@@ -23,7 +23,9 @@ mock.module("../runtime/gateway-client.js", () => ({
     url: string,
     payload: { chatId: string; text: string; assistantId?: string },
   ) => {
-    if (deliveryError) throw deliveryError;
+    if (deliveryError) {
+      throw deliveryError;
+    }
     deliveredReplies.push({ url, payload });
   },
 }));

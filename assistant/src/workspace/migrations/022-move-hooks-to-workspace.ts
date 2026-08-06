@@ -34,7 +34,9 @@ export const moveHooksToWorkspaceMigration: WorkspaceMigration = {
 
     mkdirSync(newHooksDir, { recursive: true });
 
-    if (!existsSync(oldHooksDir)) return;
+    if (!existsSync(oldHooksDir)) {
+      return;
+    }
 
     // Move hook entries from root to workspace. The old (user) entries take
     // precedence over anything already at the destination. We remove the
@@ -64,7 +66,9 @@ export const moveHooksToWorkspaceMigration: WorkspaceMigration = {
 
     mkdirSync(oldHooksDir, { recursive: true });
 
-    if (!existsSync(newHooksDir)) return;
+    if (!existsSync(newHooksDir)) {
+      return;
+    }
 
     // Move hook entries back to the root-level directory
     try {

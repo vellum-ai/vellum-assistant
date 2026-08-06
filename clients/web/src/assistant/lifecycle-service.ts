@@ -44,9 +44,11 @@ import { deriveLocalAssistantHealth } from "@/assistant/local-health";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { AssistantState, LocalAssistantHealth } from "@/assistant/types";
 import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
+import { refreshRemoteGatewaySession } from "@/lib/auth/remote-gateway-session";
 import {
   getSelectedAssistant,
-  getLocalGatewayUrl,
+  getAuthGatewayIngressUrl,
+  getPairedGatewayUrl,
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
 import { getLocalAssistantStatusHost } from "@/runtime/local-mode-host";
@@ -131,6 +133,14 @@ class AssistantLifecycleService {
    */
   private reachabilityProbeInFlightIds = new Set<string>();
   /**
+   * Consecutive health probes that came back unreachable. A single failed
+   * probe is weak evidence over a tunnel or during a token rollover, so the
+   * healthy-to-unreachable flip (and the banners keyed off it) waits for a
+   * second consecutive failure. Reset on any successful probe and on
+   * heartbeat teardown.
+   */
+  private probeFailureStreak = 0;
+  /**
    * Tracks the assistant being actively probed. Non-null when a probe
    * loop is running (timer pending OR tick in-flight). Prevents
    * re-entry: the probe's own 502 response fires the unreachable-bus
@@ -170,8 +180,12 @@ class AssistantLifecycleService {
     // deliberately not handled here: its resolver-fed effect path already
     // re-checks, and acting on it would double-fetch with stale inputs.
     useResolvedAssistantsStore.subscribe((state, prevState) => {
-      if (state.selectedAssistantId === prevState.selectedAssistantId) return;
-      if (!isGatewayAuthMode() || this.state.kind === "loading") return;
+      if (state.selectedAssistantId === prevState.selectedAssistantId) {
+        return;
+      }
+      if (!isGatewayAuthMode() || this.state.kind === "loading") {
+        return;
+      }
       this.applyGatewayAuthShortCircuit();
     });
   }
@@ -222,7 +236,9 @@ class AssistantLifecycleService {
    * branches. Safe to call on every input change.
    */
   async respondToInputs(): Promise<void> {
-    if (!this.ready) return;
+    if (!this.ready) {
+      return;
+    }
     // Check gateway auth before the unauthenticated-reset below: local (gateway)
     // and platform are independent authorities, so a platform-session loss that
     // flips `sessionStatus` must not tear down a gateway-driven local lifecycle.
@@ -241,7 +257,9 @@ class AssistantLifecycleService {
     if (this.inputs.hasPlatformSession) {
       setSelfHostedConnection(null);
     }
-    if (!this.inputs.isOrgReady) return;
+    if (!this.inputs.isOrgReady) {
+      return;
+    }
     await this.checkAssistant();
   }
 
@@ -252,7 +270,9 @@ class AssistantLifecycleService {
    * the lifecycle is transient).
    */
   async applyServerResult(result: GetAssistantResult): Promise<void> {
-    if (!this.ready) return;
+    if (!this.ready) {
+      return;
+    }
     if (
       this.state.kind !== "initializing" &&
       this.state.kind !== "cleaning_up"
@@ -279,7 +299,9 @@ class AssistantLifecycleService {
    * wrong assistant.
    */
   async checkAssistant(assistantIdOverride?: string): Promise<void> {
-    if (!this.ready) return;
+    if (!this.ready) {
+      return;
+    }
     if (isGatewayAuthMode()) {
       this.applyGatewayAuthShortCircuit();
       return;
@@ -303,7 +325,9 @@ class AssistantLifecycleService {
         queryFn: () => getAssistant(selectedId ?? undefined),
         staleTime: 0,
       });
-      if (generation !== this.generation) return;
+      if (generation !== this.generation) {
+        return;
+      }
       // If the selected assistant 404s (retired/deleted), clear the
       // stale selection and retry without an ID so the lifecycle
       // falls back to the default first-listed assistant.
@@ -314,17 +338,23 @@ class AssistantLifecycleService {
           queryFn: () => getAssistant(),
           staleTime: 0,
         });
-        if (generation !== this.generation) return;
+        if (generation !== this.generation) {
+          return;
+        }
       }
       await this.applyServerStateUpdate(result);
     } catch (err) {
       console.error("Error checking assistant status:", err);
       captureError(err, { context: "check_assistant" });
-      if (generation !== this.generation) return;
+      if (generation !== this.generation) {
+        return;
+      }
       // A thrown fetch is a transport failure (the request never got
       // an HTTP answer) — same degrade/auto-retry semantics as a
       // proxy-synthesized network error result.
-      if (this.degradeOnTransportFailure()) return;
+      if (this.degradeOnTransportFailure()) {
+        return;
+      }
       this.transition({
         kind: "error",
         transient: true,
@@ -360,7 +390,9 @@ class AssistantLifecycleService {
   }
 
   retryAssistant(): void {
-    if (!this.ready) return;
+    if (!this.ready) {
+      return;
+    }
     void this.checkAssistant();
   }
 
@@ -371,12 +403,16 @@ class AssistantLifecycleService {
    * sessionStorage detector externally.
    */
   markExpectingFirstMessage(): void {
-    if (useAssistantLifecycleStore.getState().expectingFirstMessage) return;
+    if (useAssistantLifecycleStore.getState().expectingFirstMessage) {
+      return;
+    }
     useAssistantLifecycleStore.setState({ expectingFirstMessage: true });
   }
 
   clearExpectingFirstMessage(): void {
-    if (!useAssistantLifecycleStore.getState().expectingFirstMessage) return;
+    if (!useAssistantLifecycleStore.getState().expectingFirstMessage) {
+      return;
+    }
     useAssistantLifecycleStore.setState({ expectingFirstMessage: false });
   }
 
@@ -434,11 +470,15 @@ class AssistantLifecycleService {
       clearTimeout(this.errorRetryTimer);
       this.errorRetryTimer = null;
     }
-    if (resetAttempts) this.errorRetryAttempt = 0;
+    if (resetAttempts) {
+      this.errorRetryAttempt = 0;
+    }
   }
 
   private armErrorRetry(): void {
-    if (this.errorRetryTimer) clearTimeout(this.errorRetryTimer);
+    if (this.errorRetryTimer) {
+      clearTimeout(this.errorRetryTimer);
+    }
     const delay = errorRetryDelayMs(this.errorRetryAttempt);
     this.errorRetryAttempt += 1;
     this.errorRetryTimer = setTimeout(() => {
@@ -456,7 +496,9 @@ class AssistantLifecycleService {
    * probe loop's next tick.
    */
   private onNetworkOnline(): void {
-    if (!this.ready) return;
+    if (!this.ready) {
+      return;
+    }
     if (this.state.kind === "error" && this.state.transient) {
       this.clearErrorRetry(true);
       void this.checkAssistant();
@@ -468,7 +510,9 @@ class AssistantLifecycleService {
   }
 
   private armInitializingWatchdog(): void {
-    if (this.initializingTimeout) clearTimeout(this.initializingTimeout);
+    if (this.initializingTimeout) {
+      clearTimeout(this.initializingTimeout);
+    }
     this.initializingTimeout = setTimeout(() => {
       this.generation++;
       Sentry.captureMessage("Assistant stuck in initializing state", {
@@ -547,15 +591,21 @@ class AssistantLifecycleService {
   private applyGatewayAuthShortCircuit(): void {
     let ingressUrl = window.location.origin;
     let resolvedAssistantId = "self";
-    const localGateway = getLocalGatewayUrl();
+    let rendererToken = getGatewayToken();
     if (isRemoteGatewayMode()) {
       ingressUrl = getRemoteGatewayIngressUrl();
-    } else if (localGateway) {
+    } else {
       const assistant = getSelectedAssistant();
-      ingressUrl = `${window.location.origin}${localGateway}`;
-      resolvedAssistantId = assistant?.assistantId ?? resolvedAssistantId;
+      const resolved = getAuthGatewayIngressUrl(assistant);
+      if (resolved) {
+        ingressUrl = resolved;
+        resolvedAssistantId = assistant?.assistantId ?? resolvedAssistantId;
+        if (getPairedGatewayUrl(assistant) != null) {
+          rendererToken = null;
+        }
+      }
     }
-    setSelfHostedConnection({ url: ingressUrl, token: getGatewayToken() });
+    setSelfHostedConnection({ url: ingressUrl, token: rendererToken });
     this.setOperationalStatusAssistantId(null);
     useResolvedAssistantsStore
       .getState()
@@ -604,7 +654,9 @@ class AssistantLifecycleService {
       return;
     }
 
-    if (generation !== this.generation) return;
+    if (generation !== this.generation) {
+      return;
+    }
     if (nextState.kind !== "active") {
       this.transition(nextState);
     }
@@ -615,7 +667,9 @@ class AssistantLifecycleService {
   // ---------------------------------------------------------------------------
 
   private async probeReachability(assistantId: string): Promise<void> {
-    if (this.reachabilityProbeInFlightIds.has(assistantId)) return;
+    if (this.reachabilityProbeInFlightIds.has(assistantId)) {
+      return;
+    }
     this.reachabilityProbeInFlightIds.add(assistantId);
     try {
       const generation = this.generation;
@@ -638,9 +692,23 @@ class AssistantLifecycleService {
 
       if (health !== "upgrading") {
         try {
-          health = deriveLocalAssistantHealth(
-            await getAssistantHealthz(assistantId),
-          );
+          const healthz = await getAssistantHealthz(assistantId);
+          // An answered 401/403 proves the gateway is up: the session bearer
+          // went stale (remote-web access tokens rotate continuously), not
+          // the assistant. Keep the last known health, count the answer as
+          // evidence of reachability for the failure streak, and nudge the
+          // session refresh.
+          if (
+            !healthz.ok &&
+            (healthz.status === 401 || healthz.status === 403)
+          ) {
+            this.probeFailureStreak = 0;
+            if (isRemoteGatewayMode()) {
+              void refreshRemoteGatewaySession();
+            }
+            return;
+          }
+          health = deriveLocalAssistantHealth(healthz);
         } catch {
           health = "unreachable";
         }
@@ -666,11 +734,31 @@ class AssistantLifecycleService {
             break;
         }
       }
-      if (generation !== this.generation) return;
+      if (generation !== this.generation) {
+        return;
+      }
       if (
         useResolvedAssistantsStore.getState().activeAssistantId !== assistantId
       ) {
         return;
+      }
+      if (health === "unreachable") {
+        this.probeFailureStreak += 1;
+        const lastKnownHealth =
+          this.state.kind === "self_hosted" ||
+          (this.state.kind === "active" && this.state.isLocal)
+            ? this.state.health
+            : undefined;
+        // Debounce the healthy-to-unreachable flip: one dropped probe on an
+        // otherwise-responding assistant is not enough to declare it down.
+        if (
+          this.probeFailureStreak < 2 &&
+          (lastKnownHealth === "healthy" || lastKnownHealth === "unhealthy")
+        ) {
+          return;
+        }
+      } else {
+        this.probeFailureStreak = 0;
       }
       if (this.state.kind === "self_hosted") {
         if (this.state.health !== health) {
@@ -678,7 +766,9 @@ class AssistantLifecycleService {
         }
         return;
       }
-      if (this.state.kind !== "active") return;
+      if (this.state.kind !== "active") {
+        return;
+      }
       // A migrating daemon answers health checks but refuses every DB-backed
       // route with 503 — statuses the unreachable interceptor treats as
       // unreachable. Counting migrating as reachable would therefore
@@ -705,7 +795,9 @@ class AssistantLifecycleService {
   }
 
   private startProbeLoop(assistantId: string): void {
-    if (this.probeLoopAssistantId === assistantId) return;
+    if (this.probeLoopAssistantId === assistantId) {
+      return;
+    }
     this.cancelProbeTimer();
     this.probeLoopAssistantId = assistantId;
     const startedAt = Date.now();
@@ -746,14 +838,20 @@ class AssistantLifecycleService {
    * `transition()`'s edge-trigger when the state leaves local.
    */
   private startHealthHeartbeat(assistantId: string): void {
-    if (this.healthHeartbeatId === assistantId) return;
+    if (this.healthHeartbeatId === assistantId) {
+      return;
+    }
     this.cancelHealthHeartbeat();
     this.healthHeartbeatId = assistantId;
     const token = this.healthHeartbeatToken;
     const tick = async () => {
-      if (token !== this.healthHeartbeatToken) return;
+      if (token !== this.healthHeartbeatToken) {
+        return;
+      }
       await this.probeReachability(assistantId);
-      if (token !== this.healthHeartbeatToken) return;
+      if (token !== this.healthHeartbeatToken) {
+        return;
+      }
       this.healthHeartbeatTimer = setTimeout(
         () => void tick(),
         LOCAL_HEALTH_POLL_MS,
@@ -765,6 +863,7 @@ class AssistantLifecycleService {
   private cancelHealthHeartbeat(): void {
     this.healthHeartbeatToken++;
     this.healthHeartbeatId = null;
+    this.probeFailureStreak = 0;
     if (this.healthHeartbeatTimer) {
       clearTimeout(this.healthHeartbeatTimer);
       this.healthHeartbeatTimer = null;
@@ -788,10 +887,23 @@ class AssistantLifecycleService {
    * overlay (driven by `reachable`) handles the acute state.
    */
   triggerReachabilityProbe(): void {
-    if (this.state.kind !== "active") return;
+    if (this.state.kind !== "active") {
+      return;
+    }
     const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-    if (!assistantId) return;
+    if (!assistantId) {
+      return;
+    }
     this.transition({ ...this.state, reachable: false });
+    // A bus/SSE failure that arrives while no probe is in flight is
+    // independent evidence of trouble: count it as the first strike so the
+    // pulled-forward probe's own failure flips health immediately instead
+    // of being debounced like a lone heartbeat blip. A notification raised
+    // by an in-flight probe's own 5xx response must not seed the streak, or
+    // that probe's failure would be counted twice.
+    if (!this.reachabilityProbeInFlightIds.has(assistantId)) {
+      this.probeFailureStreak = Math.max(this.probeFailureStreak, 1);
+    }
     if (this.healthHeartbeatId === assistantId) {
       // The heartbeat owns the cadence — just pull the next probe
       // forward instead of racing a second retry loop against it.
@@ -807,7 +919,9 @@ class AssistantLifecycleService {
   ): void {
     const activeAssistantId =
       useResolvedAssistantsStore.getState().activeAssistantId;
-    if (activeAssistantId !== assistantId) return;
+    if (activeAssistantId !== assistantId) {
+      return;
+    }
 
     if (!inProgress) {
       void this.probeReachability(assistantId);

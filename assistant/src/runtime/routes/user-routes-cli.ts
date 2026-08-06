@@ -107,7 +107,9 @@ async function discoverRoutes(routesDir: string): Promise<DiscoveredRoute[]> {
         const ext = HANDLER_EXTENSIONS.find((e) => entry.name.endsWith(e)) as
           | HandlerExtension
           | undefined;
-        if (!ext) continue;
+        if (!ext) {
+          continue;
+        }
 
         const relativePath = relative(routesDir, fullPath);
         const withoutExt = relativePath.slice(0, -ext.length);

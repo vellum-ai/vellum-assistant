@@ -73,22 +73,19 @@ mock.module("../plugins/defaults/memory/memory-recall-log-store.js", () => ({
   backfillMemoryRecallLogMessageId: () => {},
 }));
 
-mock.module(
-  "../plugins/defaults/memory/memory-v2-activation-log-store.js",
-  () => ({
-    backfillMemoryV2ActivationMessageId: () => {},
-  }),
-);
+mock.module("../plugins/defaults/memory/v2/activation-log-store.js", () => ({
+  backfillMemoryV2ActivationMessageId: () => {},
+}));
 
 // ── Imports (after mocks) ────────────────────────────────────────────────
 
 import type { AgentEvent } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import type { EventHandlerDeps } from "../daemon/conversation-agent-loop-handlers.js";
 import {
   createEventHandlerState,
   dispatchAgentEvent,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { _resetStreamStateForTesting } from "../runtime/assistant-stream-state.js";
 import {
   recordForChatMint,

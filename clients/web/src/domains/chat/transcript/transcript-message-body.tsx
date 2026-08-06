@@ -3,7 +3,6 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -14,7 +13,10 @@ import { resolveAttachmentFilename } from "@vellumai/service-contracts/attachmen
 
 import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
-import { ToolResultImages } from "@/domains/chat/components/chat-attachments/tool-result-images";
+import {
+  hasToolResultImages,
+  ToolResultImages,
+} from "@/domains/chat/components/chat-attachments/tool-result-images";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import {
   VellumFileActionModal,
@@ -29,6 +31,7 @@ import { WORKFLOW_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors
 import { ACP_RUN_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/acp-run";
 import { BACKGROUND_TASK_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/background-task";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
+import { VisualPlaceholder } from "@/domains/chat/components/surfaces/visual-placeholder";
 import { SingleActivity } from "@/domains/chat/components/single-activity/single-activity";
 import { MultiActivityGroup } from "@/domains/chat/components/multi-activity-group/multi-activity-group";
 import { WEB_TOOL_NAMES } from "@/domains/chat/utils/tool-call-card-utils";
@@ -39,6 +42,11 @@ import {
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
 import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
+import { DocumentReopenLink } from "@/domains/chat/transcript/document-reopen-link";
+import { hasRenderableAnswer } from "@/domains/chat/answered-question";
+import { AnsweredQuestionCard } from "@/domains/chat/components/answered-question-card";
+import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
+import { AssistantContentDisclosure } from "@/domains/chat/transcript/assistant-content-disclosure";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
 import { useSupportsRedactedCredentialChips } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
@@ -49,6 +57,7 @@ import { getExternalLinkUrl } from "@/domains/chat/types/types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { useLongPress } from "@/hooks/use-long-press";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -56,6 +65,7 @@ import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ConversationMessageSurface } from "@vellumai/assistant-api";
@@ -129,9 +139,12 @@ export function TranscriptMessageBody({
   onStopSubagent,
   onWorkflowClick,
   onStopWorkflow,
+  changedDocumentIds,
   isStreaming = false,
   isLatestMessage = false,
 }: TranscriptMessageBodyProps) {
+  const collapseAssistantIntermediates =
+    useClientFeatureFlagStore.use.collapseAssistantIntermediates();
   const isSlackMessage = Boolean(message.slackMessage);
   const isSlackReaction = message.slackMessage?.eventKind === "reaction";
   const isUser = message.role === "user";
@@ -156,6 +169,11 @@ export function TranscriptMessageBody({
       ? trailingGroup.text
       : null,
   );
+
+  // Visuals announced by a still-streaming `ui_show` (`ui_surface_pending`).
+  // Each holds a shimmer at the end of the row's activity area until its
+  // widget lands, its call resolves, or the turn ends.
+  const pendingVisualToolUseIds = message.pendingVisualToolUseIds ?? [];
 
   const isTouch = isPointerCoarse();
 
@@ -200,8 +218,7 @@ export function TranscriptMessageBody({
       ? onRetryLatestTurn
       : undefined;
 
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const [revealed, setRevealed] = useState(false);
+  const { wrapperRef, revealed, toggleRevealed } = useCoarsePointerReveal();
   const slackMessageUrl = getExternalLinkUrl(message.slackMessage?.messageLink);
 
   const [longPressOpen, setLongPressOpen] = useState(false);
@@ -241,24 +258,6 @@ export function TranscriptMessageBody({
     }
   }, []);
 
-  useEffect(() => {
-    if (!revealed) {
-      return;
-    }
-    const onDocPointerDown = (e: PointerEvent) => {
-      const target = e.target as Node | null;
-      if (
-        target &&
-        wrapperRef.current &&
-        !wrapperRef.current.contains(target)
-      ) {
-        setRevealed(false);
-      }
-    };
-    document.addEventListener("pointerdown", onDocPointerDown);
-    return () => document.removeEventListener("pointerdown", onDocPointerDown);
-  }, [revealed]);
-
   const handleBubbleClick = useCallback(
     (e: ReactMouseEvent<HTMLDivElement>) => {
       // Suppress the click that follows a long-press activation so the
@@ -283,9 +282,9 @@ export function TranscriptMessageBody({
       if (!isPointerCoarse()) {
         return;
       }
-      setRevealed((v) => !v);
+      toggleRevealed();
     },
-    [slackMessageUrl],
+    [slackMessageUrl, toggleRevealed],
   );
 
   const linkedSubagentEntries = useSubagentStore((s) =>
@@ -391,6 +390,22 @@ export function TranscriptMessageBody({
     const id = extractBgIdFromResult(tc);
     return id !== undefined && cardBackedBackgroundTaskIds.has(id) ? id : null;
   };
+  /**
+   * Whether a dedicated inline card renders this tool call's content, which
+   * makes the raw chip a duplicate. Each clause requires the card to actually
+   * be there: a failed call (no id), a run with no store entry, and an answered
+   * question with nothing to show are all not card-backed, so they keep the
+   * chip instead of vanishing from the transcript.
+   *
+   * Read by all three places that must agree on this: the chip filter, the
+   * group's suppression set, and the collapse guard that keeps a card-backed
+   * group out of the "Earlier activity" disclosure.
+   */
+  const isCardBacked = (tc: ChatMessageToolCall): boolean =>
+    cardBackedWorkflowRunId(tc) !== null ||
+    cardBackedAcpRunId(tc) !== null ||
+    cardBackedBackgroundTaskId(tc) !== null ||
+    hasRenderableAnswer(tc.answeredQuestion);
   const handleAcpRunClick = useCallback((acpSessionId: string) => {
     useViewerStore.getState().openAcpRunDetail(acpSessionId);
   }, []);
@@ -543,7 +558,10 @@ export function TranscriptMessageBody({
                   attachments={message.attachments}
                   assistantId={assistantId}
                   streamWordFade={streamWordFade}
-                  redactedCredentialChips={!isUser && supportsRedactedCredentialChips}
+                  redactedCredentialChips={
+                    !isUser && supportsRedactedCredentialChips
+                  }
+                  workspacePathLinks={!isUser}
                 />
               </div>
             );
@@ -561,6 +579,7 @@ export function TranscriptMessageBody({
           assistantId={assistantId}
           streamWordFade={streamWordFade}
           redactedCredentialChips={!isUser && supportsRedactedCredentialChips}
+          workspacePathLinks={!isUser}
         />
       </div>
     );
@@ -656,6 +675,27 @@ export function TranscriptMessageBody({
       <AcpConnectAffordance assistantId={assistantId} />
     ) : null;
 
+  // An answered `ask_question` renders its questions and the user's answers as
+  // a durable transcript row. The record rides the tool call itself (live from
+  // `tool_result`, then from the daemon's persisted copy on reload), so this
+  // renders identically on both paths and cannot double up: one card per
+  // answered tool call.
+  const renderAnsweredQuestionCards = (toolCalls: ChatMessageToolCall[]) => {
+    const answered = toolCalls.filter((tc) =>
+      hasRenderableAnswer(tc.answeredQuestion),
+    );
+    if (answered.length === 0) {
+      return null;
+    }
+    return (
+      <div className="flex w-full flex-col gap-1.5">
+        {answered.map((tc) => (
+          <AnsweredQuestionCard key={tc.id} answered={tc.answeredQuestion!} />
+        ))}
+      </div>
+    );
+  };
+
   const renderInlineBackgroundTaskCards = (
     toolCalls: ChatMessageToolCall[],
   ) => {
@@ -700,19 +740,21 @@ export function TranscriptMessageBody({
   const renderSurfaceNode = (
     surface: ConversationMessageSurface,
     key: string,
-  ): ReactNode => (
-    <div key={key} className="w-full">
-      <SurfaceRouter
-        surface={wireSurfaceToDisplay(surface)}
-        onAction={onSurfaceAction}
-        onOpenApp={onOpenApp}
-        onOpenDocument={onOpenDocument}
-        assistantId={assistantId}
-        toolCalls={message.toolCalls}
-        onVellumLinkClick={handleVellumLinkClick}
-      />
-    </div>
-  );
+  ): ReactNode => {
+    return (
+      <div key={key} className="w-full">
+        <SurfaceRouter
+          surface={wireSurfaceToDisplay(surface)}
+          onAction={onSurfaceAction}
+          onOpenApp={onOpenApp}
+          onOpenDocument={onOpenDocument}
+          assistantId={assistantId}
+          toolCalls={message.toolCalls}
+          onVellumLinkClick={handleVellumLinkClick}
+        />
+      </div>
+    );
+  };
 
   // Render one `activity` group (a contiguous thinking + tool run) into its
   // combined `MultiActivityGroup`, a lone inline link, or a bare thinking
@@ -730,16 +772,7 @@ export function TranscriptMessageBody({
       it.kind === "thinking" ? [it.text] : [],
     );
     const renderableToolCalls = groupToolCalls.filter(
-      // Suppress the raw chip only for a card-backed run_workflow / acp_spawn /
-      // background bash call (see cardBackedWorkflowRunId / cardBackedAcpRunId /
-      // cardBackedBackgroundTaskId). A failed call (no id) or a run with no
-      // store entry is not card-backed, so it renders its tool result instead
-      // of vanishing.
-      (tc) =>
-        !isSubagentSpawnCall(tc) &&
-        cardBackedWorkflowRunId(tc) === null &&
-        cardBackedAcpRunId(tc) === null &&
-        cardBackedBackgroundTaskId(tc) === null,
+      (tc) => !isSubagentSpawnCall(tc) && !isCardBacked(tc),
     );
     const loneTool =
       cardItems.length === 1 &&
@@ -758,25 +791,17 @@ export function TranscriptMessageBody({
           {renderInlineWorkflowCards(groupToolCalls)}
           {renderInlineAcpRunCards(groupToolCalls)}
           {renderInlineBackgroundTaskCards(groupToolCalls)}
+          {renderAnsweredQuestionCards(groupToolCalls)}
           {renderAcpConnectAffordance(groupToolCalls)}
         </Fragment>
       );
     }
     if (renderableToolCalls.length > 0) {
-      // A card-backed run_workflow / acp_spawn call is shown by its dedicated
-      // inline card, so drop it from the steps MultiActivityGroup renders too
-      // (the group filters subagent_spawn internally but not the others). A
-      // failed or pruned call is not card-backed and is kept, so its tool result
-      // still renders as a step; subagent spawns are left for the group to filter.
+      // A card-backed call is shown by its dedicated inline card, so drop it
+      // from the steps MultiActivityGroup renders too (the group filters
+      // subagent_spawn internally but not the others).
       const suppressedCardIds = new Set(
-        groupToolCalls
-          .filter(
-            (tc) =>
-              cardBackedWorkflowRunId(tc) !== null ||
-              cardBackedAcpRunId(tc) !== null ||
-              cardBackedBackgroundTaskId(tc) !== null,
-          )
-          .map((tc) => tc.id),
+        groupToolCalls.filter(isCardBacked).map((tc) => tc.id),
       );
       const groupCardToolCalls =
         suppressedCardIds.size === 0
@@ -810,6 +835,7 @@ export function TranscriptMessageBody({
           {renderInlineWorkflowCards(groupToolCalls)}
           {renderInlineAcpRunCards(groupToolCalls)}
           {renderInlineBackgroundTaskCards(groupToolCalls)}
+          {renderAnsweredQuestionCards(groupToolCalls)}
           {renderAcpConnectAffordance(groupToolCalls)}
         </Fragment>
       );
@@ -835,6 +861,7 @@ export function TranscriptMessageBody({
         {renderInlineWorkflowCards(groupToolCalls)}
         {renderInlineAcpRunCards(groupToolCalls)}
         {renderInlineBackgroundTaskCards(groupToolCalls)}
+        {renderAnsweredQuestionCards(groupToolCalls)}
       </Fragment>
     );
   };
@@ -1016,6 +1043,85 @@ export function TranscriptMessageBody({
     );
   }
 
+  const finalResponseGroupIndex = groups.findLastIndex(
+    (group) => group.type === "text" && group.text.trim().length > 0,
+  );
+  const renderedGroups = groups.map((group, gi) => renderGroupNode(group, gi));
+  const collapsibleGroupIndexes = collapseAssistantIntermediates
+    ? groups.flatMap((group, groupIndex) => {
+        if (groupIndex >= finalResponseGroupIndex) {
+          return [];
+        }
+        if (group.type === "surface") {
+          return [];
+        }
+        if (group.type === "text") {
+          const isSurfaceAdjacent =
+            groups[groupIndex - 1]?.type === "surface" ||
+            groups[groupIndex + 1]?.type === "surface";
+          return parseInlineSurfaces(group.text) || isSurfaceAdjacent
+            ? []
+            : [groupIndex];
+        }
+
+        const { toolCalls } = activityItemsToCardData(group.items);
+        const hasVisibleOutputOrControl =
+          hasToolResultImages(toolCalls) ||
+          toolCalls.some(
+            (toolCall) =>
+              isToolCallRunning(toolCall) ||
+              toolCall.pendingConfirmation !== undefined ||
+              isSubagentSpawnCall(toolCall) ||
+              isCardBacked(toolCall) ||
+              acpConnectToolUseId === toolCall.id ||
+              unknownNudgeToolCallIds?.has(toolCall.id) === true,
+          );
+        return hasVisibleOutputOrControl ? [] : [groupIndex];
+      })
+    : [];
+  const collapsibleGroupIndexSet = new Set(collapsibleGroupIndexes);
+  const assistantContent =
+    collapsibleGroupIndexes.length > 0
+      ? renderedGroups.map((renderedGroup, groupIndex) => {
+          if (
+            collapsibleGroupIndexSet.has(groupIndex) &&
+            !collapsibleGroupIndexSet.has(groupIndex - 1)
+          ) {
+            let runEndIndex = groupIndex + 1;
+            while (collapsibleGroupIndexSet.has(runEndIndex)) {
+              runEndIndex += 1;
+            }
+            return (
+              <AssistantContentDisclosure
+                key={`earlier-activity-${groupIndex}`}
+                isStreaming={isStreaming}
+              >
+                {renderedGroups.slice(groupIndex, runEndIndex)}
+              </AssistantContentDisclosure>
+            );
+          }
+          return collapsibleGroupIndexSet.has(groupIndex)
+            ? null
+            : renderedGroup;
+        })
+      : renderedGroups;
+
+  // Resolved across the whole response by `Transcript` and handed only to the
+  // message that ends it. Without a handler the link opens nothing, so it does
+  // not render.
+  const documentReopenLinks =
+    isAssistant && onOpenDocument
+      ? changedDocumentIds?.map((surfaceId) => (
+          <DocumentReopenLink
+            key={`document-reopen-${surfaceId}`}
+            surfaceId={surfaceId}
+            assistantId={assistantId}
+            conversationId={conversationId}
+            onOpenDocument={onOpenDocument}
+          />
+        ))
+      : null;
+
   return (
     <div
       ref={wrapperRef}
@@ -1031,13 +1137,20 @@ export function TranscriptMessageBody({
       className={wrapperClass}
     >
       <div className={columnClass}>
-        {groups.map((group, gi) => renderGroupNode(group, gi))}
+        {assistantContent}
+        {pendingVisualToolUseIds.map((toolUseId) => (
+          <VisualPlaceholder key={`visual-pending-${toolUseId}`} />
+        ))}
         {hasAttachments && (
           <MessageAttachments
             attachments={message.attachments ?? []}
             assistantId={assistantId}
+            messageId={message.id}
           />
         )}
+        {/* Outside the `AssistantContentDisclosure` collapse, so a turn whose
+            document edit lands in "Earlier activity" still ends with the link. */}
+        {documentReopenLinks}
         {trailer}
       </div>
       {vellumFileModal}

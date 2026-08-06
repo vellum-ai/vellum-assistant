@@ -25,6 +25,7 @@ import { ConfirmationStateChangedEventSchema } from "./events/confirmation-state
 import { ContactRequestEventSchema } from "./events/contact-request.js";
 import { ContactsChangedEventSchema } from "./events/contacts-changed.js";
 import { ContextCompactedEventSchema } from "./events/context-compacted.js";
+import { ContextWindowUsageEventSchema } from "./events/context-window-usage.js";
 import { ConversationErrorEventSchema } from "./events/conversation-error.js";
 import { ConversationInferenceProfileUpdatedEventSchema } from "./events/conversation-inference-profile-updated.js";
 import { ConversationListInvalidatedEventSchema } from "./events/conversation-list-invalidated.js";
@@ -81,6 +82,7 @@ import { MessageDequeuedEventSchema } from "./events/message-dequeued.js";
 import { MessageQueuedEventSchema } from "./events/message-queued.js";
 import { MessageQueuedDeletedEventSchema } from "./events/message-queued-deleted.js";
 import { MessageRequestCompleteEventSchema } from "./events/message-request-complete.js";
+import { MessageRequeuedEventSchema } from "./events/message-requeued.js";
 import { MessageSteeredEventSchema } from "./events/message-steered.js";
 import { ModelInfoEventSchema } from "./events/model-info.js";
 import { NavigateSettingsEventSchema } from "./events/navigate-settings.js";
@@ -118,6 +120,7 @@ import { ToolUsePreviewStartEventSchema } from "./events/tool-use-preview-start.
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
 import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
 import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
+import { UISurfacePendingEventSchema } from "./events/ui-surface-pending.js";
 import { UISurfaceShowEventSchema } from "./events/ui-surface-show.js";
 import { UISurfaceUndoResultEventSchema } from "./events/ui-surface-undo-result.js";
 import { UISurfaceUpdateEventSchema } from "./events/ui-surface-update.js";
@@ -134,6 +137,13 @@ export {
   CALL_SITE_COMPACTION_AGENT,
   CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
 } from "./constants/call-sites.js";
+export {
+  DOCUMENT_EDIT_TOOL_NAMES,
+  DOCUMENT_MUTATION_TOOL_NAMES,
+  DOCUMENT_MUTATION_TOOLS,
+  type DocumentMutationTool,
+  REOPENABLE_DOCUMENT_MUTATION_TOOL_NAMES,
+} from "./constants/document-tools.js";
 export {
   SSE_REPLAY_RING_AGE_LIMIT_MS,
   SSE_REPLAY_RING_COUNT_LIMIT,
@@ -269,6 +279,10 @@ export {
   type ContextCompactedEvent,
   ContextCompactedEventSchema,
 } from "./events/context-compacted.js";
+export {
+  type ContextWindowUsageEvent,
+  ContextWindowUsageEventSchema,
+} from "./events/context-window-usage.js";
 export {
   type ConversationErrorCode,
   ConversationErrorCodeSchema,
@@ -446,6 +460,10 @@ export {
   MessageRequestCompleteEventSchema,
 } from "./events/message-request-complete.js";
 export {
+  type MessageRequeuedEvent,
+  MessageRequeuedEventSchema,
+} from "./events/message-requeued.js";
+export {
   type MessageSteeredEvent,
   MessageSteeredEventSchema,
 } from "./events/message-steered.js";
@@ -482,6 +500,12 @@ export {
   type PlatformDisconnectedEvent,
   PlatformDisconnectedEventSchema,
 } from "./events/platform-disconnected.js";
+export {
+  type AnsweredQuestion,
+  type AnsweredQuestionResponse,
+  AnsweredQuestionResponseSchema,
+  AnsweredQuestionSchema,
+} from "./events/question-answered.js";
 export {
   type QuestionEntry,
   QuestionEntrySchema,
@@ -602,6 +626,10 @@ export {
   type UISurfaceDismissEvent,
   UISurfaceDismissEventSchema,
 } from "./events/ui-surface-dismiss.js";
+export {
+  type UISurfacePendingEvent,
+  UISurfacePendingEventSchema,
+} from "./events/ui-surface-pending.js";
 export {
   type SurfaceAction,
   SurfaceActionSchema,
@@ -831,6 +859,8 @@ export {
   TableRowSchema,
   type TableSurfaceData,
   TableSurfaceDataSchema,
+  type VisualSurfaceData,
+  VisualSurfaceDataSchema,
   type WorkResultDiff,
   WorkResultDiffSchema,
   type WorkResultItem,
@@ -890,6 +920,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ContactRequestEventSchema,
   ContactsChangedEventSchema,
   ContextCompactedEventSchema,
+  ContextWindowUsageEventSchema,
   ConversationErrorEventSchema,
   ConversationInferenceProfileUpdatedEventSchema,
   ConversationListInvalidatedEventSchema,
@@ -932,6 +963,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   MessageQueuedEventSchema,
   MessageQueuedDeletedEventSchema,
   MessageRequestCompleteEventSchema,
+  MessageRequeuedEventSchema,
   MessageSteeredEventSchema,
   ModelInfoEventSchema,
   NavigateSettingsEventSchema,
@@ -967,6 +999,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ToolUseStartEventSchema,
   UISurfaceCompleteEventSchema,
   UISurfaceDismissEventSchema,
+  UISurfacePendingEventSchema,
   UISurfaceShowEventSchema,
   UISurfaceUndoResultEventSchema,
   UISurfaceUpdateEventSchema,

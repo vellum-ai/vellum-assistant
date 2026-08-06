@@ -17,8 +17,16 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
-import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
-import type { TrustRuleItem, TrustRuleRisk, TrustRuleSuggestion } from "@/types/trust-rules";
+import type {
+  AllowlistOption,
+  DirectoryScopeOption,
+  ScopeOption,
+} from "@/types/interaction-ui-types";
+import type {
+  TrustRuleItem,
+  TrustRuleRisk,
+  TrustRuleSuggestion,
+} from "@/types/trust-rules";
 
 // ---------------------------------------------------------------------------
 // Types

@@ -28,7 +28,9 @@ export interface DomainInfo {
  * (e.g. IP addresses, localhost, empty strings).
  */
 export function normalizeDomain(input: string): DomainInfo | null {
-  if (!input || typeof input !== "string") return null;
+  if (!input || typeof input !== "string") {
+    return null;
+  }
 
   let hostname: string;
 
@@ -53,7 +55,9 @@ export function normalizeDomain(input: string): DomainInfo | null {
   // Normalize: lowercase, strip trailing dot
   hostname = hostname.toLowerCase().replace(/\.$/, "");
 
-  if (!hostname) return null;
+  if (!hostname) {
+    return null;
+  }
 
   // Reject IP addresses and localhost - they don't have registrable domains
   if (isIPAddress(hostname) || hostname === "localhost") {
@@ -99,8 +103,12 @@ export function extractDomain(rawUrl: string): string {
 
 function isIPAddress(hostname: string): boolean {
   // IPv4
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return true;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) {
+    return true;
+  }
   // IPv6 (bracketed or bare)
-  if (hostname.startsWith("[") || hostname.includes(":")) return true;
+  if (hostname.startsWith("[") || hostname.includes(":")) {
+    return true;
+  }
   return false;
 }

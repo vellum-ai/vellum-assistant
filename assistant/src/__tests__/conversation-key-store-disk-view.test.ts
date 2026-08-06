@@ -14,6 +14,7 @@ const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 const conversationsDir = join(testDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
 
+import type { AssistantEventEnvelope } from "../api/index.js";
 import { getOrCreateConversation } from "../persistence/conversation-key-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -21,7 +22,6 @@ import {
   conversationKeys,
   conversations,
 } from "../persistence/schema/index.js";
-import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import {
   _resetStreamStateForTesting,
   _simulateRestartForTesting,

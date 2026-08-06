@@ -74,7 +74,9 @@ function extractChannelHint(
   text: string,
 ): "phone" | "telegram" | "slack" | undefined {
   for (const { pattern, channel } of CHANNEL_HINT_PATTERNS) {
-    if (pattern.test(text)) return channel;
+    if (pattern.test(text)) {
+      return channel;
+    }
   }
   return undefined;
 }

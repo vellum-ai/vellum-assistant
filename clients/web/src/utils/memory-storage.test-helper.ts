@@ -76,7 +76,11 @@ export function installMemoryStorage(hooks: {
       delete (globalThis as { window?: unknown }).window;
     }
     if (originalLocalStorageDescriptor) {
-      Object.defineProperty(globalThis, "localStorage", originalLocalStorageDescriptor);
+      Object.defineProperty(
+        globalThis,
+        "localStorage",
+        originalLocalStorageDescriptor,
+      );
     } else {
       delete (globalThis as { localStorage?: unknown }).localStorage;
     }

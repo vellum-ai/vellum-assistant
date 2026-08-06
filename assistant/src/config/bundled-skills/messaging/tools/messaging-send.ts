@@ -82,10 +82,11 @@ export async function run(
 
     // Gmail: create a draft instead of sending directly
     if (provider.id === "gmail") {
-      if (!conn)
+      if (!conn) {
         return err(
           "Gmail requires an OAuth connection — is the account connected?",
         );
+      }
       const gmailConn = conn;
       // Reply mode: thread_id provided - create a threaded draft with reply-all recipients
       if (threadId) {
@@ -124,7 +125,9 @@ export async function run(
         const toAddrs = extractHeader(latestHeaders, "To");
         const ccAddrs = extractHeader(latestHeaders, "Cc");
 
-        if (fromAddr) allRecipients.add(fromAddr);
+        if (fromAddr) {
+          allRecipients.add(fromAddr);
+        }
         for (const addr of parseAddressList(toAddrs)) {
           allRecipients.add(addr);
         }

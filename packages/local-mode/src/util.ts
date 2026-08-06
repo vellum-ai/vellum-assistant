@@ -71,6 +71,40 @@ export function originIsAllowed(originHeader: string | undefined): boolean {
   }
 }
 
+/**
+ * Require browser-controlled proof that a request came from the loopback HTTP
+ * origin named by its Host header. Conflicting Origin or Fetch Metadata values
+ * are rejected even when the other signal is valid.
+ */
+export function hasSameOriginCredentialProof(
+  hostHeader: string | undefined,
+  originHeader: string | undefined,
+  secFetchSiteHeader: string | undefined,
+): boolean {
+  if (!hostHeader || !headerHostIsLoopback(hostHeader)) {
+    return false;
+  }
+
+  let hasMatchingOrigin = false;
+  if (originHeader) {
+    try {
+      hasMatchingOrigin =
+        new URL(originHeader).origin === new URL(`http://${hostHeader}`).origin;
+    } catch {
+      return false;
+    }
+    if (!hasMatchingOrigin) {
+      return false;
+    }
+  }
+
+  if (secFetchSiteHeader && secFetchSiteHeader !== "same-origin") {
+    return false;
+  }
+
+  return hasMatchingOrigin || secFetchSiteHeader === "same-origin";
+}
+
 export function isLoopbackAddr(addr: string): boolean {
   const v4Mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
   const normalized = v4Mapped ? v4Mapped[1]! : addr;

@@ -65,11 +65,16 @@ export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
   const isMobile = useIsMobile();
   const isNative = useIsNativePlatform();
 
-  const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(null);
+  const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(
+    null,
+  );
   const onboardingDraftConversationIdRef = useRef<string | null>(null);
   const [didOnboarding, setDidOnboarding] = useState(false);
-  const [onboardingChoiceEligible, setOnboardingChoiceEligible] = useState(false);
-  const [onboardingConversationId, setOnboardingConversationId] = useState<string | null>(null);
+  const [onboardingChoiceEligible, setOnboardingChoiceEligible] =
+    useState(false);
+  const [onboardingConversationId, setOnboardingConversationId] = useState<
+    string | null
+  >(null);
 
   // Consume the `?onboarding=1` signal left by `/onboarding/hatching` when
   // it forwards the user after a successful hatch. Owns the post-hatch
@@ -78,7 +83,9 @@ export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
   // hatching screens before they navigate). The flag is stripped from
   // the URL immediately so a page refresh doesn't re-trigger the greet.
   useEffect(() => {
-    if (searchParams.get("onboarding") !== "1") return;
+    if (searchParams.get("onboarding") !== "1") {
+      return;
+    }
     setDidOnboarding(true);
     const draftId =
       onboardingDraftConversationIdRef.current ?? createDraftConversationId();
@@ -101,7 +108,7 @@ export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
       emitInChatTourExposed();
       if (isInChatTourOn(readInChatTourVariant())) {
         useInChatOnboardingStore.getState().startPrototype();
-        emitInChatTourStarted("auto");
+        emitInChatTourStarted();
       }
     }
     void navigate(routes.conversation(draftId), { replace: true });
@@ -114,7 +121,11 @@ export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
   // too, which fails open to the legacy (card-less) behavior.
   useEffect(() => {
     const ctx = peekPendingPreChatContext();
-    if (ctx !== null && ctx.tasks.length === 0 && ctx.initialMessageHidden !== true) {
+    if (
+      ctx !== null &&
+      ctx.tasks.length === 0 &&
+      ctx.initialMessageHidden !== true
+    ) {
       setOnboardingChoiceEligible(true);
     }
   }, []);

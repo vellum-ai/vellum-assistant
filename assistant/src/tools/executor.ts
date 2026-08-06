@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 
 import { getConfig } from "../config/loader.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
@@ -19,6 +19,8 @@ import {
 } from "../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { executeWithTimeout, safeTimeoutMs } from "./execution-timeout.js";
+import { fileEditInputSchema } from "./filesystem/edit.js";
+import { fileWriteInputSchema } from "./filesystem/write.js";
 import { PermissionChecker } from "./permission-checker.js";
 import { getToolOwner } from "./registry.js";
 import { extractAndSanitize } from "./sensitive-output-placeholders.js";
@@ -99,6 +101,13 @@ export class ToolExecutor {
     }
 
     const tool = gateResult.tool;
+    // The pre-execution gate parsed model-generated input against the tool's
+    // registered Zod schema (`TOOL_INPUT_SCHEMAS`) before any grant was
+    // consumed; substitute the parsed value (with `.catch()` recoveries
+    // applied) so validation and execution see the same input.
+    if (gateResult.parsedInput) {
+      input = gateResult.parsedInput;
+    }
 
     try {
       // A workflow run whose capability manifest grants side-effecting tools or
@@ -469,26 +478,34 @@ export function computePerToolTimeoutMs(
 /**
  * Compute a preview diff for file tools so the confirmation prompt can show
  * what will change. Returns undefined for non-file tools or on any error.
+ * Out-of-workspace targets deliberately produce no preview (strict
+ * sandboxPolicy): the preview runs before the user answers the prompt, and
+ * external file content must not be read — let alone shipped in the
+ * confirmation payload — ahead of approval. Host file tools have no preview
+ * for the same reason.
  */
-function computePreviewDiff(
+async function computePreviewDiff(
   toolName: string,
   input: Record<string, unknown>,
   workingDir: string,
-):
+): Promise<
   | {
       filePath: string;
       oldContent: string;
       newContent: string;
       isNewFile: boolean;
     }
-  | undefined {
+  | undefined
+> {
   try {
     if (toolName === "file_write") {
-      const rawPath = input.path as string;
-      const content = input.content as string;
-      if (!rawPath || typeof content !== "string") {
+      // Parse with the tool's own schema so the preview reads the same shape
+      // the executor will (a call the schema rejects gets no preview).
+      const parsed = fileWriteInputSchema.safeParse(input);
+      if (!parsed.success) {
         return undefined;
       }
+      const { path: rawPath, content } = parsed.data;
       const pathCheck = sandboxPolicy(rawPath, workingDir, {
         mustExist: false,
       });
@@ -503,22 +520,20 @@ function computePreviewDiff(
           return undefined;
         }
       }
-      const oldContent = isNewFile ? "" : readFileSync(filePath, "utf-8");
+      const oldContent = isNewFile ? "" : await readFile(filePath, "utf-8");
       return { filePath, oldContent, newContent: content, isNewFile };
     }
 
     if (toolName === "file_edit") {
-      const rawPath = input.path as string;
-      const oldString = input.old_string as string;
-      const newString = input.new_string as string;
-      if (
-        !rawPath ||
-        typeof oldString !== "string" ||
-        typeof newString !== "string" ||
-        oldString.length === 0
-      ) {
+      const parsed = fileEditInputSchema.safeParse(input);
+      if (!parsed.success) {
         return undefined;
       }
+      const {
+        path: rawPath,
+        old_string: oldString,
+        new_string: newString,
+      } = parsed.data;
       const pathCheck = sandboxPolicy(rawPath, workingDir);
       if (!pathCheck.ok) {
         return undefined;
@@ -531,8 +546,8 @@ function computePreviewDiff(
       if (stat.size > MAX_FILE_SIZE_BYTES) {
         return undefined;
       }
-      const content = readFileSync(filePath, "utf-8");
-      const replaceAll = input.replace_all === true;
+      const content = await readFile(filePath, "utf-8");
+      const replaceAll = parsed.data.replace_all === true;
       const result = applyEdit(content, oldString, newString, replaceAll);
       if (!result.ok) {
         return undefined;

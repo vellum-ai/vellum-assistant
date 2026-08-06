@@ -44,7 +44,9 @@ interface AvatarState {
 
 /** Narrows an unknown value to valid CharacterTraits (presence check only). */
 function isValidTraits(value: unknown): value is CharacterTraits {
-  if (!value || typeof value !== "object") return false;
+  if (!value || typeof value !== "object") {
+    return false;
+  }
   const t = value as Record<string, unknown>;
   return (
     typeof t.bodyShape === "string" &&
@@ -130,7 +132,9 @@ export const seedAvatarManifestMigration: WorkspaceMigration = {
     const manifestPath = join(avatarDir, AVATAR_MANIFEST_FILENAME);
 
     // Idempotent: if a manifest already exists, leave it untouched.
-    if (existsSync(manifestPath)) return;
+    if (existsSync(manifestPath)) {
+      return;
+    }
 
     const state = deriveStateFromLegacyFiles(avatarDir);
 
@@ -140,7 +144,9 @@ export const seedAvatarManifestMigration: WorkspaceMigration = {
     // pick up a later legacy sidecar write (older clients / automation that set
     // an avatar via the generic workspace-file API) instead of being shadowed by
     // a stale `none` manifest. "No avatar" == absence of avatar.json everywhere.
-    if (state.kind === "none") return;
+    if (state.kind === "none") {
+      return;
+    }
 
     writeManifest(state, avatarDir);
   },

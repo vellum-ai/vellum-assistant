@@ -168,7 +168,9 @@ describe("DB migration readiness HTTP gate", () => {
   }
 
   function url(pathname: string): string {
-    if (!server) throw new Error("server not started");
+    if (!server) {
+      throw new Error("server not started");
+    }
     return `http://127.0.0.1:${port}/v1${pathname}`;
   }
 });

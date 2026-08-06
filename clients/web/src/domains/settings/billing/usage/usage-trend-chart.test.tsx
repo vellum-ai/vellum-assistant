@@ -47,9 +47,7 @@ describe("usageSeriesKeyForGroupValue", () => {
     expect(usageSeriesKeyForGroupValue("schedule-123")).toBe(
       "value:schedule-123",
     );
-    expect(usageSeriesKeyForGroupValue(null, "schedule")).toBe(
-      "null:schedule",
-    );
+    expect(usageSeriesKeyForGroupValue(null, "schedule")).toBe("null:schedule");
     expect(usageSeriesKeyForGroupValue(null, "task")).toBe("null:call_site");
     expect(usageSeriesKeyForGroupValue(null, "profile")).toBe(
       "null:inference_profile",
@@ -95,9 +93,7 @@ describe("UsageTrendChart", () => {
       "Evening digest",
     ]);
     expect(
-      legendItems.map((item) =>
-        item.getAttribute("data-usage-legend-state"),
-      ),
+      legendItems.map((item) => item.getAttribute("data-usage-legend-state")),
     ).toEqual(["active", "inactive"]);
 
     const activeLabel = getByText("Morning digest");
@@ -135,9 +131,7 @@ describe("UsageTrendChart", () => {
       "Alpha schedule",
     ]);
     expect(
-      legendItems.map((item) =>
-        item.getAttribute("data-usage-legend-state"),
-      ),
+      legendItems.map((item) => item.getAttribute("data-usage-legend-state")),
     ).toEqual(["active", "active"]);
     expect(getByText("Beta schedule").className).not.toContain("line-through");
   });
@@ -240,9 +234,7 @@ describe("UsageTrendChart", () => {
     expect(bar!.querySelector("[data-usage-fallback-segment]")).toBeNull();
     expect(bar!.querySelector("[data-usage-series-segment]")).toBeNull();
     expect(
-      bar!.querySelector(
-        `[data-usage-series-segment="${activeSeriesKey}"]`,
-      ),
+      bar!.querySelector(`[data-usage-series-segment="${activeSeriesKey}"]`),
     ).toBeNull();
   });
 
@@ -283,9 +275,7 @@ describe("UsageTrendChart", () => {
     const bar = container.querySelector(
       `[data-usage-series-bar="${buckets[0]!.bucketId}"]`,
     );
-    const fallbackSegment = bar?.querySelector(
-      "[data-usage-fallback-segment]",
-    );
+    const fallbackSegment = bar?.querySelector("[data-usage-fallback-segment]");
     expect(fallbackSegment).not.toBeNull();
     expect(
       fallbackSegment?.getAttribute("data-usage-series-segment-label"),

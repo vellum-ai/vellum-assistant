@@ -7,7 +7,7 @@ import {
   MobileSidebarDrawer,
   MobileSidebarTrigger,
 } from "@/components/mobile-sidebar-drawer";
-import type { MutationStatus } from "@/components/slack-setup-wizard";
+import type { MutationStatus } from "@/components/channel-setup-wizard";
 import { useChannelAdapterSelectionStore } from "@/domains/channels/adapter-selection-store";
 import { CHANNEL_META } from "@/domains/channels/channel-meta";
 import { ChannelAdapterList } from "@/domains/channels/components/channel-adapter-list";
@@ -42,14 +42,14 @@ const POLICY_CONFIRMATIONS: Partial<
   no_one: {
     title: "Block all messages?",
     message:
-      "Setting this channel to “No one” hard-denies every inbound message — including messages from you.\n\nYou can reverse this at any time.",
+      "Setting this channel to “No one” hard-denies every inbound message, including messages from you.\n\nYou can reverse this at any time.",
     confirmLabel: "Block all",
     destructive: true,
   },
   any_contact: {
     title: "Allow any contact?",
     message:
-      "“Any contact” admits every matched contact in this channel — including pending, unverified ones — not just your verified contacts.\n\nBest for channels consisting of only people you already trust.",
+      "“Any contact” admits every matched contact in this channel (including pending, unverified ones), not just your verified contacts.\n\nBest for channels consisting of only people you already trust.",
     confirmLabel: "Allow any contact",
   },
   strangers: {
@@ -85,7 +85,9 @@ export interface AssistantChannelsListProps {
   ) => void;
   onSetup?: (channelKey: ChannelKey) => void;
   onDisconnect?: (channelKey: ChannelKey) => void;
-  onSaveTelegramToken?: (botToken: string) => Promise<void>;
+  onSaveTelegramToken?: (botToken: string) => void;
+  telegramSaveStatus?: MutationStatus;
+  telegramSaveError?: string | null;
   onSaveSlackConfig?: (botToken: string, appToken: string) => void;
   slackSaveStatus?: MutationStatus;
   slackSaveError?: string | null;
@@ -124,6 +126,8 @@ export function AssistantChannelsList({
   onSetup,
   onDisconnect,
   onSaveTelegramToken,
+  telegramSaveStatus,
+  telegramSaveError,
   onSaveSlackConfig,
   slackSaveStatus,
   slackSaveError,
@@ -210,6 +214,8 @@ export function AssistantChannelsList({
         onDisconnect ? () => setPendingDisconnect(selected.key) : undefined
       }
       onSaveTelegramToken={onSaveTelegramToken}
+      telegramSaveStatus={telegramSaveStatus}
+      telegramSaveError={telegramSaveError}
       onSaveSlackConfig={onSaveSlackConfig}
       slackSaveStatus={slackSaveStatus}
       slackSaveError={slackSaveError}
@@ -261,7 +267,11 @@ export function AssistantChannelsList({
             wrapper. Both scroll as a whole when the stacked content overflows —
             the per-channel list self-bounds its own rows within that. */}
         <section className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-          {selected.key === "slack" ? detail : <DetailCard>{detail}</DetailCard>}
+          {selected.key === "slack" ? (
+            detail
+          ) : (
+            <DetailCard>{detail}</DetailCard>
+          )}
         </section>
       </div>
 

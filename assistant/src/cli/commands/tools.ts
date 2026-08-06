@@ -24,10 +24,40 @@ interface ToolListEntry {
   source: string;
 }
 
+/** How the daemon read an `--agent` value, when it read one as a role string. */
+interface ResolvedAgentInfo {
+  requested: string;
+  role: string;
+  alias?: string;
+  persona?: string;
+}
+
 interface ToolsGetResponse {
   names: string[];
   schemas: Record<string, unknown>;
   tools: ToolListEntry[];
+  agent?: ResolvedAgentInfo;
+}
+
+/**
+ * What to report when `--agent` landed on a different subagent type than the
+ * value asked for, or `undefined` when it named a type outright (or resolved a
+ * live subagent id, which carries no resolution block).
+ *
+ * A listing that came from an older name or from a persona fallback looks
+ * exactly like one asked for by name, so without this line a typo reads as a
+ * researcher's tool surface with nothing saying the value was not a type. It
+ * goes to stderr so it reaches a person without entering the `--json` stream,
+ * whose stdout contract is the tool array on its own.
+ */
+function agentResolutionLine(agent?: ResolvedAgentInfo): string | undefined {
+  if (agent?.alias) {
+    return `"${agent.requested}" is an older name for "${agent.role}"; listing the ${agent.role} toolset.`;
+  }
+  if (agent?.persona) {
+    return `"${agent.requested}" is not a subagent type, so it is carried as a persona and runs as a researcher; listing the researcher toolset.`;
+  }
+  return undefined;
 }
 
 export function registerToolsCommand(program: Command): void {
@@ -61,10 +91,18 @@ export function registerToolsCommand(program: Command): void {
             }
 
             const tools = response.result?.tools ?? [];
+            const resolutionLine = agentResolutionLine(response.result?.agent);
 
             if (opts.json) {
+              if (resolutionLine) {
+                console.error(resolutionLine);
+              }
               console.log(JSON.stringify(tools, null, 2));
               return;
+            }
+
+            if (resolutionLine) {
+              console.log(`${resolutionLine}\n`);
             }
 
             if (tools.length === 0) {

@@ -4,6 +4,7 @@ import {
   spawnSync,
   type ChildProcess,
 } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   closeSync,
   existsSync,
@@ -16,16 +17,26 @@ import {
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
-import { GATEWAY_PORT } from "./constants.js";
+import { cloudAssistantHubUrl } from "@vellumai/environments";
+
+import {
+  getAssistantDisplayName,
+  lookupAssistantByIdentifier,
+} from "./assistant-config.js";
+import { getCurrentEnvironment } from "./environments/resolve.js";
+import {
+  isAssistantFeatureFlagEnabled,
+  WEB_REMOTE_INGRESS_FLAG,
+} from "./feature-flags.js";
 import { waitForDaemonReady } from "./http-client.js";
 import { loadRawConfig, saveRawConfig } from "./ingress-config.js";
 
 /**
- * CLI-managed nginx reverse proxy that fronts the gateway for remote web
- * ingress: browser → tunnel (TLS) → nginx@127.0.0.1 → gateway@127.0.0.1.
+ * CLI-managed nginx reverse proxy that fronts the gateway as the canonical
+ * tunnel target: browser → tunnel (TLS) → nginx@127.0.0.1 → gateway@127.0.0.1.
  *
- * While this proxy is running, `vellum tunnel` targets nginx's loopback listen
- * port instead of the gateway port.
+ * `vellum tunnel` (and the wake restore path) bring this edge up via
+ * `ensureTunnelEdge` and always front its loopback listen port.
  */
 
 export const DEFAULT_NGINX_INGRESS_PORT = 7840;
@@ -117,22 +128,73 @@ function gatewayProxyBlock(gatewayPort: number): string {
       proxy_set_header Connection $connection_upgrade;`;
 }
 
+/**
+ * Sensitive local-only routes the edge must never expose to the internet,
+ * regardless of whether the SPA is being served.
+ */
+const DENYLIST_LOCATIONS = `    location = /auth/token { return 404; }
+    location = /auth/token/ { return 404; }
+    location = /v1/pair { return 404; }
+    location = /v1/pair/ { return 404; }
+    location = /v1/pair/web-init { return 404; }
+    location = /v1/pair/web-init/ { return 404; }
+    location = /v1/devices { return 404; }
+    location = /v1/devices/ { return 404; }
+    location = /v1/devices/revoke { return 404; }
+    location = /v1/devices/revoke/ { return 404; }
+    location = /v1/guardian/init { return 404; }
+    location = /v1/guardian/init/ { return 404; }
+    location = /v1/guardian/reset-bootstrap { return 404; }
+    location = /v1/guardian/reset-bootstrap/ { return 404; }
+    location = /v1/remote-web/pairing-verification { return 404; }
+    location = /v1/remote-web/pairing-verification/ { return 404; }
+    location ^~ /assistant/__local/ { return 404; }
+    location ^~ /assistant/__gateway/ { return 404; }
+    location ^~ /assistant/__gateway-paired/ { return 404; }`;
+
 export interface RemoteWebIngressOptions {
   webDistDir: string;
   indexHtmlPath?: string;
   config?: Record<string, unknown>;
+  /** Serving assistant's display name, stamped into the served config so
+   *  remote clients can label this origin. Absent in older served configs. */
+  assistantName?: string;
+  /** Cloud web SPA base the remote client can hand this origin to (see
+   *  `cloudWebHubUrl`). Absent in older served configs. */
+  hubUrl?: string;
+}
+
+/**
+ * Cloud web SPA base URL for a build environment. The mapping lives in
+ * `@vellumai/environments` (`cloudAssistantHubUrl`) and is shared with the
+ * Capacitor shell's `server.url`, so the two consumers cannot drift.
+ */
+export function cloudWebHubUrl(env: string | undefined): string {
+  return cloudAssistantHubUrl(env);
 }
 
 function remoteWebIngressConfig(
-  config: Record<string, unknown> | undefined,
+  opts: Pick<RemoteWebIngressOptions, "config" | "assistantName" | "hubUrl">,
 ): Record<string, unknown> {
   return {
     mode: "remote-gateway",
     apiBaseUrl: "/v1",
     platformDisabled: true,
     disablePlatform: true,
-    ...config,
+    ...(opts.assistantName ? { assistantName: opts.assistantName } : {}),
+    ...(opts.hubUrl ? { hubUrl: opts.hubUrl } : {}),
+    ...opts.config,
   };
+}
+
+/**
+ * Stable fingerprint of the SPA config injected into the served index and
+ * `/assistant/__config`. Recorded alongside the edge state so a reuse
+ * decision can tell whether a running edge already serves the requested
+ * config (see `IngressState.remoteWebConfigHash`).
+ */
+function remoteWebConfigFingerprint(config: Record<string, unknown>): string {
+  return createHash("sha256").update(JSON.stringify(config)).digest("hex");
 }
 
 function safeScriptJson(value: unknown): string {
@@ -167,9 +229,11 @@ export function buildIngressNginxConfig(opts: {
         gatewayPort: opts.gatewayPort,
         webDistDir: remoteWebIngress.webDistDir,
         indexHtmlPath: remoteWebIngress.indexHtmlPath,
-        config: remoteWebIngressConfig(remoteWebIngress.config),
+        config: remoteWebIngressConfig(remoteWebIngress),
       })
-    : `    location / {
+    : `${DENYLIST_LOCATIONS}
+
+    location / {
 ${proxyBlock}
     }`;
 
@@ -236,30 +300,17 @@ function buildRemoteWebIngressLocations(opts: {
     opts.indexHtmlPath ?? join(opts.webDistDir, "index.html");
   const configJson = JSON.stringify(opts.config);
 
-  return `    location = /auth/token { return 404; }
-    location = /auth/token/ { return 404; }
-    location = /v1/pair { return 404; }
-    location = /v1/pair/ { return 404; }
-    location = /v1/pair/web-init { return 404; }
-    location = /v1/pair/web-init/ { return 404; }
-    location = /v1/devices { return 404; }
-    location = /v1/devices/ { return 404; }
-    location = /v1/devices/revoke { return 404; }
-    location = /v1/devices/revoke/ { return 404; }
-    location = /v1/guardian/init { return 404; }
-    location = /v1/guardian/init/ { return 404; }
-    location = /v1/guardian/reset-bootstrap { return 404; }
-    location = /v1/guardian/reset-bootstrap/ { return 404; }
-    location = /v1/remote-web/pairing-verification { return 404; }
-    location = /v1/remote-web/pairing-verification/ { return 404; }
-    location ^~ /assistant/__local/ { return 404; }
-    location ^~ /assistant/__gateway/ { return 404; }
+  return `${DENYLIST_LOCATIONS}
 
     location = /healthz {
 ${proxyBlock}
     }
 
     location ^~ /v1/ {
+${proxyBlock}
+    }
+
+    location ^~ /webhooks/ {
 ${proxyBlock}
     }
 
@@ -395,23 +446,58 @@ export function isIngressRunning(workspaceDir: string): boolean {
   return getIngressPid(workspaceDir) !== null;
 }
 
-interface IngressState {
+export interface IngressState {
   listenPort: number;
+  /**
+   * Edge mode: SPA + proxy (true) or webhooks-only proxy (false). A persisted
+   * record without this field represents an SPA edge.
+   */
+  includeWebApp: boolean;
+  /**
+   * Gateway port the edge's proxy_pass targets. Undefined in state records
+   * that predate the field; callers treat an unknown port as unverified and
+   * restart the edge so the running config provably targets the requested
+   * port and the state is stamped for future comparisons.
+   */
+  gatewayPort?: number;
+  /**
+   * Fingerprint of the SPA config injected into the served index. Undefined
+   * for webhooks-only edges and for SPA records that predate the field; an
+   * SPA edge without a recorded fingerprint is treated as drifted and
+   * restarted so the served index provably carries the requested config.
+   */
+  remoteWebConfigHash?: string;
 }
 
-function readIngressState(workspaceDir: string): IngressState | null {
+export function readIngressState(workspaceDir: string): IngressState | null {
   const config = loadRawConfig(workspaceDir);
   const ingress = config.ingress as Record<string, unknown> | undefined;
   const nginx = ingress?.nginx as Record<string, unknown> | undefined;
   const listenPort = nginx?.listenPort;
   if (typeof listenPort !== "number") return null;
-  return { listenPort };
+  const gatewayPort = nginx?.gatewayPort;
+  const remoteWebConfigHash = nginx?.remoteWebConfigHash;
+  return {
+    listenPort,
+    includeWebApp: nginx?.includeWebApp !== false,
+    ...(typeof gatewayPort === "number" ? { gatewayPort } : {}),
+    ...(typeof remoteWebConfigHash === "string" ? { remoteWebConfigHash } : {}),
+  };
 }
 
 function saveIngressState(workspaceDir: string, state: IngressState): void {
   const config = loadRawConfig(workspaceDir);
   const ingress = (config.ingress ?? {}) as Record<string, unknown>;
-  ingress.nginx = { listenPort: state.listenPort };
+  ingress.nginx = {
+    listenPort: state.listenPort,
+    includeWebApp: state.includeWebApp,
+    ...(state.gatewayPort !== undefined
+      ? { gatewayPort: state.gatewayPort }
+      : {}),
+    ...(state.remoteWebConfigHash !== undefined
+      ? { remoteWebConfigHash: state.remoteWebConfigHash }
+      : {}),
+  };
   config.ingress = ingress;
   saveRawConfig(workspaceDir, config);
 }
@@ -447,7 +533,7 @@ export function startIngressNginx(opts: {
   const remoteWebIngress = opts.remoteWebIngress
     ? {
         ...opts.remoteWebIngress,
-        config: remoteWebIngressConfig(opts.remoteWebIngress.config),
+        config: remoteWebIngressConfig(opts.remoteWebIngress),
         indexHtmlPath: join(paths.dir, "assistant-index.html"),
       }
     : undefined;
@@ -478,7 +564,18 @@ export function startIngressNginx(opts: {
   );
   closeSync(fd);
 
-  saveIngressState(opts.workspaceDir, { listenPort: opts.listenPort });
+  saveIngressState(opts.workspaceDir, {
+    listenPort: opts.listenPort,
+    includeWebApp: opts.remoteWebIngress !== undefined,
+    gatewayPort: opts.gatewayPort,
+    ...(remoteWebIngress
+      ? {
+          remoteWebConfigHash: remoteWebConfigFingerprint(
+            remoteWebIngress.config,
+          ),
+        }
+      : {}),
+  });
   return child;
 }
 
@@ -545,32 +642,68 @@ export async function stopIngressNginx(workspaceDir: string): Promise<boolean> {
 export const INGRESS_READY_TIMEOUT_MS = 5_000;
 
 /**
- * Outcome of an attempt to bring up the remote-web nginx ingress edge. Callers
- * render their own messaging per variant: `nginx-ingress up` prints
- * install/build guidance and exits non-zero, while the wake restore path warns
- * and continues.
+ * Settle budget for the spawned nginx to prove port ownership: a healthy
+ * master records its pid under our prefix within milliseconds, while one that
+ * lost the bind exits. Bounds the wait for whichever happens first.
+ */
+// The settle window must outlast nginx's internal bind-retry loop (5 attempts
+// with 500ms sleeps) so a contested bind resolves to a child exit rather than
+// a timeout while the child is still retrying.
+const OWNERSHIP_SETTLE_TIMEOUT_MS = 4_000;
+const OWNERSHIP_SETTLE_INTERVAL_MS = 100;
+
+/**
+ * Outcome of an attempt to bring up the nginx ingress edge. Callers render
+ * their own messaging per variant: `ensureTunnelEdge` maps failure variants to
+ * thrown errors with actionable text, which `vellum tunnel` and
+ * `nginx-ingress up` print before exiting non-zero while the wake restore path
+ * warns and continues.
  */
 export type StartRemoteWebIngressResult =
   | {
       status: "started";
       listenPort: number;
-      webDistDir: string;
+      /** SPA dist directory served by the edge; null in webhooks-only mode. */
+      webDistDir: string | null;
       version: string;
     }
-  | { status: "already-running"; listenPort: number }
+  | {
+      status: "already-running";
+      /** Recorded listen port of the running edge (requested port when no state is recorded). */
+      listenPort: number;
+      /** Recorded edge mode; a running edge without a state record reports the SPA default. */
+      includeWebApp: boolean;
+      /** Recorded gateway upstream; undefined when the record predates the field. */
+      gatewayPort?: number;
+      /**
+       * Set when the surviving edge matches the requested mode and gateway
+       * port but serves a different injected SPA config than requested (a
+       * restart was attempted and failed), so the served index is stale.
+       */
+      staleRemoteWebConfig?: true;
+    }
   | { status: "nginx-missing" }
   | { status: "web-dist-missing" }
-  | { status: "unreachable"; listenPort: number; logPath: string };
+  | { status: "unreachable"; listenPort: number; logPath: string }
+  | { status: "port-conflict"; listenPort: number; logPath: string };
 
 /**
- * Generate the nginx config and start the remote-web ingress edge, then probe
- * /healthz through it to prove the ingress → gateway path is live. A spawned
- * but unreachable nginx is rolled back so a failed attempt leaves no half-up
- * edge behind.
+ * Generate the nginx config and start the remote-web ingress edge, probe
+ * /healthz through it to prove the ingress → gateway path is live, and confirm
+ * via the recorded pid file that the spawned nginx owns the listen port. A
+ * spawned but unreachable or unowned nginx is rolled back so a failed attempt
+ * leaves no half-up edge behind.
+ *
+ * An edge already running in the requested mode, against the requested
+ * gateway port, and serving the requested injected SPA config short-circuits
+ * as `already-running`; one running in the other mode (SPA vs webhooks-only),
+ * against a different gateway port, or serving a drifted SPA config (e.g. a
+ * renamed assistant or an updated hub URL) is stopped and restarted with the
+ * requested config.
  *
  * Pure mechanism: it performs no console output and never exits the process, so
- * both the `nginx-ingress up` command and the wake restore path can share one
- * implementation and map the returned result to their own UX.
+ * every edge caller (`vellum tunnel`, `nginx-ingress up`, the wake restore
+ * path) can share one implementation and map the returned result to its own UX.
  */
 export async function startRemoteWebIngress(opts: {
   workspaceDir: string;
@@ -578,31 +711,96 @@ export async function startRemoteWebIngress(opts: {
   listenPort?: number;
   readyTimeoutMs?: number;
   /**
+   * Serve the web SPA from the edge (default true). When false the web-dist
+   * preflight is skipped and the edge only proxies gateway traffic behind the
+   * sensitive-route denylist (webhooks-only mode).
+   */
+  includeWebApp?: boolean;
+  /**
+   * Serving assistant's display name, stamped into the served remote-web
+   * config (`__VELLUM_CONFIG__.assistantName`) so remote clients can label
+   * this origin. Omitted when unknown; consumers tolerate its absence.
+   */
+  assistantName?: string;
+  /**
    * Invoked once, after every preflight check passes and immediately before
    * nginx is spawned, so callers can emit their own "starting" progress line
-   * with the resolved version/dist/port. Never fires on a preflight bail-out
-   * (nginx-missing, already-running, web-dist-missing).
+   * with the resolved version/dist/port (webDistDir is null in webhooks-only
+   * mode). Never fires on a preflight bail-out (nginx-missing,
+   * already-running, web-dist-missing).
    */
   onStarting?: (info: {
     version: string;
-    webDistDir: string;
+    webDistDir: string | null;
     listenPort: number;
   }) => void;
 }): Promise<StartRemoteWebIngressResult> {
   const listenPort = opts.listenPort ?? getNginxIngressPort();
+  const includeWebApp = opts.includeWebApp ?? true;
 
   const version = getNginxVersion();
   if (!version) {
     return { status: "nginx-missing" };
   }
 
-  if (isIngressRunning(opts.workspaceDir)) {
-    return { status: "already-running", listenPort };
+  const running = isIngressRunning(opts.workspaceDir);
+  const recorded = running ? readIngressState(opts.workspaceDir) : null;
+  const recordedMode = recorded?.includeWebApp ?? true;
+  // The SPA config the served index must carry, computed up front so the
+  // reuse decision and the actual spawn share one value and cannot drift.
+  const spaOptions = includeWebApp
+    ? {
+        hubUrl: cloudWebHubUrl(getCurrentEnvironment().name),
+        ...(opts.assistantName ? { assistantName: opts.assistantName } : {}),
+      }
+    : undefined;
+  const requestedConfigHash = spaOptions
+    ? remoteWebConfigFingerprint(remoteWebIngressConfig(spaOptions))
+    : undefined;
+  // Both sides are undefined in webhooks-only mode; an SPA record without a
+  // fingerprint predates the field and counts as drifted (see IngressState).
+  const configMatches = recorded?.remoteWebConfigHash === requestedConfigHash;
+  const alreadyRunning = (): StartRemoteWebIngressResult => ({
+    status: "already-running",
+    listenPort: recorded?.listenPort ?? listenPort,
+    includeWebApp: recordedMode,
+    ...(recorded?.gatewayPort !== undefined
+      ? { gatewayPort: recorded.gatewayPort }
+      : {}),
+    ...(recordedMode === includeWebApp &&
+    recorded?.gatewayPort === opts.gatewayPort &&
+    !configMatches
+      ? { staleRemoteWebConfig: true as const }
+      : {}),
+  });
+  // An unknown recorded gateway port is unverified (see IngressState).
+  if (
+    running &&
+    recordedMode === includeWebApp &&
+    recorded?.gatewayPort === opts.gatewayPort &&
+    configMatches
+  ) {
+    return alreadyRunning();
   }
 
-  const webDistDir = findWebDistDir();
-  if (!webDistDir) {
-    return { status: "web-dist-missing" };
+  let webDistDir: string | null = null;
+  if (includeWebApp) {
+    webDistDir = findWebDistDir();
+    if (!webDistDir) {
+      return { status: "web-dist-missing" };
+    }
+  }
+
+  // The running edge serves the other mode, targets a different gateway
+  // port, or injects a stale SPA config; restart it with the requested
+  // config. A false stop can mean the old edge exited on its own after the
+  // check above, so recheck liveness and only bail when it is still serving.
+  if (
+    running &&
+    !(await stopIngressNginx(opts.workspaceDir)) &&
+    isIngressRunning(opts.workspaceDir)
+  ) {
+    return alreadyRunning();
   }
 
   opts.onStarting?.({ version, webDistDir, listenPort });
@@ -611,7 +809,11 @@ export async function startRemoteWebIngress(opts: {
     workspaceDir: opts.workspaceDir,
     gatewayPort: opts.gatewayPort,
     listenPort,
-    remoteWebIngress: { webDistDir },
+    remoteWebIngress: webDistDir ? { webDistDir, ...spaOptions } : undefined,
+  });
+  let exited = false;
+  child.once("exit", () => {
+    exited = true;
   });
   child.unref();
 
@@ -621,32 +823,237 @@ export async function startRemoteWebIngress(opts: {
     listenPort,
     opts.readyTimeoutMs ?? INGRESS_READY_TIMEOUT_MS,
   );
-  if (!ready) {
+  const rollback = async (
+    status: "port-conflict" | "unreachable",
+  ): Promise<StartRemoteWebIngressResult> => {
     const { logPath } = getIngressPaths(opts.workspaceDir);
     await stopIngressNginx(opts.workspaceDir);
-    return { status: "unreachable", listenPort, logPath };
+    return { status, listenPort, logPath };
+  };
+  const childExited = (): boolean => exited || child.exitCode !== null;
+  // nginx runs `daemon off`, so the spawned process is the master and stays
+  // alive while the edge serves. An early exit means startup failed: a dead
+  // spawn is reported as a port conflict even when the probe succeeded, since
+  // that probe reached some other process bound to the port (e.g. another
+  // assistant's edge), not this one.
+  if (!ready) {
+    return rollback(childExited() ? "port-conflict" : "unreachable");
   }
+  // A successful probe alone does not prove ownership either: a healthy edge
+  // from another workspace answers /healthz before our master finishes failing
+  // its bind. A master that won the bind records its pid under our prefix, so
+  // settle-poll until the spawn either exits (lost the bind) or that pid file
+  // names a live ingress nginx of ours (owns the port).
+  const deadline = Date.now() + OWNERSHIP_SETTLE_TIMEOUT_MS;
+  for (;;) {
+    if (childExited()) {
+      break;
+    }
+    if (getIngressPid(opts.workspaceDir) !== null) {
+      return { status: "started", listenPort, webDistDir, version };
+    }
+    if (Date.now() >= deadline) {
+      // The child is alive but never proved ownership. Kill it before rolling
+      // back: it may still be inside nginx's bind-retry loop, and an orphan
+      // that later wins the bind would serve with no recorded state.
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        // Already gone; the rollback below clears any remaining state.
+      }
+      break;
+    }
+    await new Promise((resolve) =>
+      setTimeout(resolve, OWNERSHIP_SETTLE_INTERVAL_MS),
+    );
+  }
+  return rollback("port-conflict");
+}
 
-  return { status: "started", listenPort, webDistDir, version };
+/** Retry policy for the `web-remote-ingress` flag lookup. */
+export interface FlagRetryPolicy {
+  attempts: number;
+  intervalMs: number;
 }
 
 /**
- * Resolve the local port a tunnel should target: the nginx ingress when it is
- * recorded AND its process is alive, otherwise the gateway port directly
- * (unchanged behavior when the proxy is not running).
+ * Resolve the edge mode for an assistant: the `web-remote-ingress` flag selects
+ * the SPA edge when enabled and the webhooks-only edge when disabled. The
+ * lookup requires a reachable assistant; `flagRetry` rides out a gateway that
+ * is still starting by retrying thrown lookups (a resolved `false` is a real
+ * answer, not a retry). When the budget is spent the last error throws with a
+ * wake hint.
  */
-export function resolveTunnelTargetPort(
-  workspaceDir: string,
-  gatewayPort: number = GATEWAY_PORT,
-  opts: { preferNginxIngress?: boolean } = {},
-): { port: number; viaIngress: boolean } {
-  if (opts.preferNginxIngress === false) {
-    return { port: gatewayPort, viaIngress: false };
+async function resolveEdgeIncludesWebApp(
+  assistantId: string,
+  gatewayPort: number,
+  flagRetry?: FlagRetryPolicy,
+): Promise<boolean> {
+  const attempts = Math.max(1, flagRetry?.attempts ?? 1);
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await isAssistantFeatureFlagEnabled(
+        assistantId,
+        WEB_REMOTE_INGRESS_FLAG,
+        { runtimeUrl: `http://127.0.0.1:${gatewayPort}` },
+      );
+    } catch (err) {
+      lastError = err;
+      if (attempt < attempts) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, flagRetry?.intervalMs ?? 0),
+        );
+      }
+    }
   }
+  throw new Error(
+    `Could not verify the \`${WEB_REMOTE_INGRESS_FLAG}\` feature flag before starting the edge. Is the assistant running? Try \`vellum wake\` and retry. ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`,
+  );
+}
 
-  const state = readIngressState(workspaceDir);
-  if (state && isIngressRunning(workspaceDir)) {
-    return { port: state.listenPort, viaIngress: true };
+/**
+ * Display name recorded for the assistant in the CLI lockfile; undefined when
+ * no entry matches, so the served config omits the label rather than guessing.
+ */
+function lockfileAssistantName(assistantId: string): string | undefined {
+  const result = lookupAssistantByIdentifier(assistantId);
+  return result.status === "found"
+    ? getAssistantDisplayName(result.entry)
+    : undefined;
+}
+
+/** User-facing label for the edge mode, shared by every edge status line. */
+export function formatEdgeMode(includesWebApp: boolean): string {
+  return includesWebApp ? "remote web + webhooks" : "webhooks only";
+}
+
+/** Resolved edge a tunnel (or bring-your-own HTTPS front) should target. */
+export interface TunnelEdge {
+  /** Loopback listen port the HTTPS front should forward to. */
+  port: number;
+  /** True when this call started the edge, false when a running one was reused. */
+  started: boolean;
+  includesWebApp: boolean;
+}
+
+/**
+ * Bring up the nginx edge as the canonical tunnel target and return the listen
+ * port a tunnel should front.
+ *
+ * The `web-remote-ingress` flag picks the edge mode (enabled: SPA + gateway
+ * proxy, disabled: webhooks-only proxy); an entry without an assistant id
+ * cannot have the flag verified and gets the webhooks-only edge. The resolved
+ * mode is always delegated to `startRemoteWebIngress`, which reuses a running
+ * edge that already serves that mode, gateway port, and injected SPA config
+ * and restarts one that drifted in any respect, so the returned port always
+ * fronts the flag-resolved config. `started` is false when a matching edge was
+ * reused; a drifted edge that survives the restart attempt throws rather than
+ * reporting the wrong config. Failures throw with actionable install or
+ * diagnostic text.
+ */
+export async function ensureTunnelEdge(opts: {
+  assistantId: string | undefined;
+  workspaceDir: string;
+  gatewayPort: number;
+  /** Retries thrown flag lookups (e.g. a still-starting gateway); default one attempt. */
+  flagRetry?: FlagRetryPolicy;
+  /** Forwarded to `startRemoteWebIngress` for caller progress output. */
+  onStarting?: (info: {
+    version: string;
+    webDistDir: string | null;
+    listenPort: number;
+  }) => void;
+}): Promise<TunnelEdge> {
+  const includeWebApp = opts.assistantId
+    ? await resolveEdgeIncludesWebApp(
+        opts.assistantId,
+        opts.gatewayPort,
+        opts.flagRetry,
+      )
+    : false;
+
+  const assistantName =
+    includeWebApp && opts.assistantId
+      ? lockfileAssistantName(opts.assistantId)
+      : undefined;
+
+  const result = await startRemoteWebIngress({
+    workspaceDir: opts.workspaceDir,
+    gatewayPort: opts.gatewayPort,
+    includeWebApp,
+    ...(assistantName ? { assistantName } : {}),
+    ...(opts.onStarting ? { onStarting: opts.onStarting } : {}),
+  });
+
+  switch (result.status) {
+    case "started":
+      return {
+        port: result.listenPort,
+        started: true,
+        includesWebApp: includeWebApp,
+      };
+    case "already-running": {
+      // `already-running` also covers a drifted edge whose restart failed, so
+      // trust the recorded state it carries over the requested config.
+      if (result.includeWebApp !== includeWebApp) {
+        const describe = (spa: boolean) => (spa ? "web app" : "webhooks-only");
+        throw new Error(
+          `The nginx edge is still running in ${describe(result.includeWebApp)} mode ` +
+            `and could not be restarted in ${describe(includeWebApp)} mode. ` +
+            "Run `vellum nginx-ingress down` and retry.",
+        );
+      }
+      if (result.gatewayPort !== opts.gatewayPort) {
+        const upstream =
+          result.gatewayPort !== undefined
+            ? `still proxying gateway port ${result.gatewayPort}`
+            : "proxying an unknown gateway port";
+        throw new Error(
+          `The nginx edge is ${upstream} ` +
+            `and could not be restarted against port ${opts.gatewayPort}. ` +
+            "Run `vellum nginx-ingress down` and retry.",
+        );
+      }
+      if (result.staleRemoteWebConfig) {
+        throw new Error(
+          "The nginx edge is still serving an outdated remote web config " +
+            "and could not be restarted with the updated one. " +
+            "Run `vellum nginx-ingress down` and retry.",
+        );
+      }
+      return {
+        port: result.listenPort,
+        started: false,
+        includesWebApp: result.includeWebApp,
+      };
+    }
+    case "nginx-missing":
+      throw new Error(
+        "nginx is not installed, so the tunnel edge cannot start. " +
+          "Install it (macOS: `brew install nginx`, Linux: `sudo apt install nginx`) " +
+          "or point NGINX_BIN at an existing binary.",
+      );
+    case "web-dist-missing":
+      throw new Error(
+        "Unable to locate built web assets for the remote web edge. " +
+          "Build the SPA (`cd clients/web && VITE_PLATFORM_MODE=false bun run build`) " +
+          "or install @vellumai/web so its packaged dist directory is available.",
+      );
+    case "unreachable":
+      throw new Error(
+        `nginx edge did not become reachable on 127.0.0.1:${result.listenPort}. ` +
+          `Check the nginx log: ${result.logPath}`,
+      );
+    case "port-conflict":
+      throw new Error(
+        `nginx edge exited on startup, most likely because 127.0.0.1:${result.listenPort} ` +
+          "is already in use (for example by another assistant's tunnel edge). " +
+          "Stop whatever is bound to that port, or pick a different edge port by " +
+          "setting the VELLUM_NGINX_INGRESS_PORT environment variable, then retry. " +
+          `Check the nginx log: ${result.logPath}`,
+      );
   }
-  return { port: gatewayPort, viaIngress: false };
 }

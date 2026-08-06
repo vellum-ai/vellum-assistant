@@ -13,7 +13,9 @@ export function downRenameVerificationTable(database: DrizzleDb): void {
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'channel_verification_sessions'`,
     )
     .get();
-  if (!newTableExists) return;
+  if (!newTableExists) {
+    return;
+  }
 
   // If the old table already exists, skip (already rolled back)
   const oldTableExists = raw
@@ -21,7 +23,9 @@ export function downRenameVerificationTable(database: DrizzleDb): void {
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'channel_guardian_verification_challenges'`,
     )
     .get();
-  if (oldTableExists) return;
+  if (oldTableExists) {
+    return;
+  }
 
   // Rename back to old name
   raw.exec(
@@ -68,7 +72,9 @@ export function migrateRenameVerificationTable(database: DrizzleDb): void {
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'channel_guardian_verification_challenges'`,
     )
     .get();
-  if (!oldTableExists) return;
+  if (!oldTableExists) {
+    return;
+  }
 
   // If the new table already exists, the rename would collide — skip
   const newTableExists = raw
@@ -76,7 +82,9 @@ export function migrateRenameVerificationTable(database: DrizzleDb): void {
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'channel_verification_sessions'`,
     )
     .get();
-  if (newTableExists) return;
+  if (newTableExists) {
+    return;
+  }
 
   // Rename the physical table
   raw.exec(

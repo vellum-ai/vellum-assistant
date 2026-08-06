@@ -28,7 +28,9 @@ mock.module("../../tools/credentials/metadata-store.js", () => ({
   getCredentialMetadata: (service: string, field: string) => {
     const key = `${service}/${field}`;
     const entry = metadataStore.get(key);
-    if (!entry) return undefined;
+    if (!entry) {
+      return undefined;
+    }
     return {
       credentialId: `cred-${key}`,
       service,

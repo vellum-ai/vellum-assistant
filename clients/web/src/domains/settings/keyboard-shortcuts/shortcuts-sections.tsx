@@ -18,19 +18,22 @@ import {
 } from "@/domains/settings/keyboard-shortcuts/electron-accelerator";
 
 /** Section copy keyed by the command scope, ordered global-first. */
-const SCOPE_SECTIONS: { scope: ResolvedHotkey["scope"]; title: string; description: string }[] =
-  [
-    {
-      scope: "global",
-      title: "Global shortcuts",
-      description: "Work anywhere, even when Vellum is in the background.",
-    },
-    {
-      scope: "menu",
-      title: "App shortcuts",
-      description: "Work while a Vellum window is focused.",
-    },
-  ];
+const SCOPE_SECTIONS: {
+  scope: ResolvedHotkey["scope"];
+  title: string;
+  description: string;
+}[] = [
+  {
+    scope: "global",
+    title: "Global shortcuts",
+    description: "Work anywhere, even when Vellum is in the background.",
+  },
+  {
+    scope: "menu",
+    title: "App shortcuts",
+    description: "Work while a Vellum window is focused.",
+  },
+];
 
 interface ShortcutRowProps {
   hotkey: ResolvedHotkey;
@@ -133,9 +136,10 @@ function ShortcutRow({
 export function ShortcutsSections() {
   const [catalog, setCatalog] = useState<ResolvedHotkey[]>([]);
   const [recordingKey, setRecordingKey] = useState<string | null>(null);
-  const [conflict, setConflict] = useState<{ key: string; label: string } | null>(
-    null,
-  );
+  const [conflict, setConflict] = useState<{
+    key: string;
+    label: string;
+  } | null>(null);
 
   const refresh = useCallback(() => {
     void getHotkeys().then(setCatalog);
@@ -152,7 +156,9 @@ export function ShortcutsSections() {
   }, []);
 
   useEffect(() => {
-    if (recordingKey === null) return;
+    if (recordingKey === null) {
+      return;
+    }
 
     const handleKeydown = (event: KeyboardEvent) => {
       event.preventDefault();
@@ -164,7 +170,9 @@ export function ShortcutsSections() {
       }
 
       const accelerator = eventToAccelerator(event);
-      if (accelerator === null) return;
+      if (accelerator === null) {
+        return;
+      }
 
       const clash = findConflict(catalog, recordingKey, accelerator);
       if (clash !== null) {

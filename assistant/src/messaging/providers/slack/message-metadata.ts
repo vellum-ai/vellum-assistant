@@ -137,7 +137,9 @@ function compactStoredSlackTimezoneLabel(
   label: string | null | undefined,
 ): string | null {
   const trimmed = label?.trim();
-  if (!trimmed) return null;
+  if (!trimmed) {
+    return null;
+  }
   return (
     COMPACT_SLACK_TIMEZONE_LABEL_BY_NAME.get(trimmed.toUpperCase()) ?? trimmed
   );
@@ -174,12 +176,18 @@ export function formatSlackTimezoneLabel(
   opts: { persistedLabel?: string | null; nowMs?: number } = {},
 ): string | null {
   const persisted = compactStoredSlackTimezoneLabel(opts.persistedLabel);
-  if (persisted) return persisted;
+  if (persisted) {
+    return persisted;
+  }
 
   const trimmedTimezone = timeZone?.trim();
-  if (!trimmedTimezone) return null;
+  if (!trimmedTimezone) {
+    return null;
+  }
   const mapped = COMMON_SLACK_TIMEZONE_LABEL_BY_IANA.get(trimmedTimezone);
-  if (mapped) return mapped;
+  if (mapped) {
+    return mapped;
+  }
   return (
     extractSlackShortTimeZoneName(trimmedTimezone, opts.nowMs ?? Date.now()) ??
     trimmedTimezone
@@ -252,7 +260,9 @@ export function readSlackMetadataFromMessageMetadata(
   metadata: string | null | undefined,
   opts?: { allowFlatLegacy?: boolean },
 ): SlackMessageMetadata | null {
-  if (!metadata) return null;
+  if (!metadata) {
+    return null;
+  }
 
   let parent: Record<string, unknown> | null = null;
   try {
@@ -263,12 +273,16 @@ export function readSlackMetadataFromMessageMetadata(
   } catch {
     return null;
   }
-  if (!parent) return null;
+  if (!parent) {
+    return null;
+  }
 
   const nested = parent.slackMeta;
   if (typeof nested === "string") {
     const parsedNested = readSlackMetadata(nested);
-    if (parsedNested) return parsedNested;
+    if (parsedNested) {
+      return parsedNested;
+    }
   }
 
   return opts?.allowFlatLegacy ? readSlackMetadata(metadata) : null;

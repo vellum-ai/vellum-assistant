@@ -278,7 +278,9 @@ export class ClickHouseCompactionLogStore {
     const rows: Record<string, unknown>[] = [];
     for (const line of text.split("\n")) {
       const trimmed = line.trim();
-      if (trimmed.length === 0) continue;
+      if (trimmed.length === 0) {
+        continue;
+      }
       rows.push(JSON.parse(trimmed) as Record<string, unknown>);
     }
     return pairRowsIntoEvents(rows);
@@ -400,7 +402,9 @@ export class ClickHouseCompactionLogStore {
   }
 
   private async assistantId(): Promise<string> {
-    if (this.cachedAssistantId) return this.cachedAssistantId;
+    if (this.cachedAssistantId) {
+      return this.cachedAssistantId;
+    }
     const val = await this.resolveAssistantId();
     if (!val) {
       throw new Error(
@@ -412,7 +416,9 @@ export class ClickHouseCompactionLogStore {
   }
 
   private async url(): Promise<string> {
-    if (this.cachedUrl) return this.cachedUrl;
+    if (this.cachedUrl) {
+      return this.cachedUrl;
+    }
     const val = await this.resolveUrl();
     if (!val) {
       throw new Error(
@@ -424,7 +430,9 @@ export class ClickHouseCompactionLogStore {
   }
 
   private async password(): Promise<string> {
-    if (this.cachedPassword) return this.cachedPassword;
+    if (this.cachedPassword) {
+      return this.cachedPassword;
+    }
     const val = await this.resolvePassword();
     if (!val) {
       throw new Error(
@@ -505,14 +513,19 @@ function pairRowsIntoEvents(
   for (const row of rows) {
     const id = String(row.compaction_id);
     const pair = byId.get(id) ?? {};
-    if (row.phase === "end") pair.end = row;
-    else pair.start = row;
+    if (row.phase === "end") {
+      pair.end = row;
+    } else {
+      pair.start = row;
+    }
     byId.set(id, pair);
   }
   const events: CompactionLogEvent[] = [];
   for (const [compactionId, { start, end }] of byId) {
     const base = end ?? start;
-    if (!base) continue;
+    if (!base) {
+      continue;
+    }
     events.push({
       compactionId,
       requestId: String(base.request_id ?? ""),
@@ -576,7 +589,9 @@ let cachedStore: {
  */
 export function getCompactionLogStore(): ClickHouseCompactionLogStore | null {
   const cfg = getConfig().compactionLogs;
-  if (!cfg || cfg.destination !== "clickhouse") return null;
+  if (!cfg || cfg.destination !== "clickhouse") {
+    return null;
+  }
   const key = JSON.stringify(cfg.clickhouse);
   if (!cachedStore || cachedStore.key !== key) {
     cachedStore = {
@@ -601,7 +616,9 @@ export function recordCompactionStartBestEffort(
   event: CompactionStartEvent,
 ): void {
   const store = getCompactionLogStore();
-  if (!store) return;
+  if (!store) {
+    return;
+  }
   store.writeStart(conversationId, event).catch((err: unknown) => {
     log.warn(
       { err, conversationId, compactionId: event.compactionId },
@@ -619,7 +636,9 @@ export function recordCompactionEndBestEffort(
   event: CompactionEndEvent,
 ): void {
   const store = getCompactionLogStore();
-  if (!store) return;
+  if (!store) {
+    return;
+  }
   store.writeEnd(conversationId, event).catch((err: unknown) => {
     log.warn(
       { err, conversationId, compactionId: event.compactionId },

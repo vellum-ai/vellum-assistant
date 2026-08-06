@@ -29,18 +29,28 @@ import {
 } from "../lib/client-identity";
 import {
   getLockfileData,
-  upsertLockfileAssistant,
+  upsertRendererLockfileAssistant,
   replacePlatformAssistants,
   isActiveAssistant,
+  isPairedLockfileEntry,
+  PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
   runHatch,
   runRetire,
+  connectImport,
+  unpairAssistant,
   getGuardianAccessToken,
+  getPairedGuardianAccessToken,
   parseGatewayUrl,
+  parsePairedGatewayUrl,
   resolveGatewayProxyTarget,
+  resolvePairedGatewayProxyTarget,
   readAllowedGatewayPorts,
+  readPairedGatewayTargets,
+  authorizePairedForwardHeaders,
   isLoopbackAddr,
   headerHostIsLoopback,
   originIsAllowed,
+  hasSameOriginCredentialProof,
   resolveDevCliInvocation,
   resolveLockfilePaths,
   resolveConfigDir,
@@ -445,6 +455,8 @@ function findWebSourceDir(): string | null {
 const LOCKFILE_PATTERN = /^(?:\/assistant)?\/__local\/lockfile$/;
 const HATCH_PATTERN = /^(?:\/assistant)?\/__local\/hatch$/;
 const RETIRE_PATTERN = /^(?:\/assistant)?\/__local\/retire$/;
+const UNPAIR_PATTERN = /^(?:\/assistant)?\/__local\/unpair$/;
+const CONNECT_IMPORT_PATTERN = /^(?:\/assistant)?\/__local\/connect-import$/;
 const GUARDIAN_TOKEN_PATTERN =
   /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
 const PLATFORM_SESSION_PATTERN =
@@ -462,15 +474,14 @@ function currentPlatformToken(): string | null {
   return platformSessionToken;
 }
 
-// Whether to attach the platform credential to a proxied request. Only
-// same-origin (SPA) traffic qualifies — a cross-site page must not be able to
-// use the local proxy as a confused deputy for authenticated platform calls.
-// Cross-origin fetches always send an Origin; `Sec-Fetch-Site` is a belt-and-
-// braces check for browsers that send it.
-function isSameOriginRequest(req: Request): boolean {
-  if (!originIsAllowed(req.headers.get("origin") ?? undefined)) return false;
-  const site = req.headers.get("sec-fetch-site");
-  return !site || site === "same-origin" || site === "none";
+// Whether to attach a host-owned credential to a proxied request. The browser
+// must positively identify the request as coming from this server's origin.
+export function isSameOriginRequest(req: Request): boolean {
+  return hasSameOriginCredentialProof(
+    req.headers.get("host") ?? undefined,
+    req.headers.get("origin") ?? undefined,
+    req.headers.get("sec-fetch-site") ?? undefined,
+  );
 }
 
 function getEnvRecord(): Record<string, string> {
@@ -500,9 +511,12 @@ async function handleLocalEndpoints(
     LOCKFILE_PATTERN.test(pathname) ||
     HATCH_PATTERN.test(pathname) ||
     RETIRE_PATTERN.test(pathname) ||
+    UNPAIR_PATTERN.test(pathname) ||
+    CONNECT_IMPORT_PATTERN.test(pathname) ||
     GUARDIAN_TOKEN_PATTERN.test(pathname) ||
     PLATFORM_SESSION_PATTERN.test(pathname) ||
-    parseGatewayUrl(pathname).match;
+    parseGatewayUrl(pathname).match ||
+    parsePairedGatewayUrl(pathname).match;
 
   if (!isLocalRoute) return null;
 
@@ -573,7 +587,7 @@ async function handleLocalEndpoints(
           body.organizationId as string | undefined,
         );
       } else {
-        result = upsertLockfileAssistant(
+        result = upsertRendererLockfileAssistant(
           lockfilePaths,
           body.assistant as Record<string, unknown>,
           body.activeAssistant as string | undefined,
@@ -680,12 +694,87 @@ async function handleLocalEndpoints(
     );
   }
 
+  // Unpair: forget a paired assistant (lockfile entry + guardian token).
+  if (UNPAIR_PATTERN.test(pathname)) {
+    if (req.method !== "POST") {
+      return new Response(null, { status: 405 });
+    }
+
+    let assistantId: string | undefined;
+    try {
+      const body = (await req.json()) as { assistantId?: string };
+      assistantId = body.assistantId;
+    } catch {
+      return Response.json(
+        { ok: false, error: "Invalid JSON body" },
+        { status: 400 },
+      );
+    }
+
+    if (!assistantId) {
+      return Response.json(
+        { ok: false, error: "Missing assistantId" },
+        { status: 400 },
+      );
+    }
+
+    const result = unpairAssistant(lockfilePaths, configDir, assistantId);
+    if (result.ok) {
+      return Response.json({ ok: true, lockfile: result.lockfile });
+    }
+    return Response.json(
+      { ok: false, error: result.error },
+      { status: result.status },
+    );
+  }
+
+  // Connect-import: register a pairing bundle from another machine (guardian
+  // token + paired lockfile entry), the write counterpart of unpair.
+  if (CONNECT_IMPORT_PATTERN.test(pathname)) {
+    if (req.method !== "POST") {
+      return new Response(null, { status: 405 });
+    }
+
+    let body: { bundle?: unknown; name?: unknown };
+    try {
+      body = (await req.json()) as { bundle?: unknown; name?: unknown };
+    } catch {
+      return Response.json(
+        { ok: false, error: "Invalid JSON body" },
+        { status: 400 },
+      );
+    }
+
+    const result = connectImport(lockfilePaths, configDir, {
+      bundle: body.bundle,
+      name: body.name,
+    });
+    if (result.ok) {
+      return Response.json({
+        ok: true,
+        assistantId: result.assistantId,
+        accessOnly: result.accessOnly,
+      });
+    }
+    return Response.json(
+      { ok: false, error: result.error },
+      { status: result.status },
+    );
+  }
+
   // Guardian token
   const guardianMatch = pathname.match(GUARDIAN_TOKEN_PATTERN);
   if (guardianMatch) {
     if (req.method !== "GET") return new Response(null, { status: 405 });
 
     const assistantId = decodeURIComponent(guardianMatch[1]!);
+
+    if (isPairedLockfileEntry(lockfilePaths, assistantId)) {
+      return Response.json(
+        { error: PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR },
+        { status: 403 },
+      );
+    }
 
     let invocation: CliInvocation;
     try {
@@ -703,6 +792,7 @@ async function handleLocalEndpoints(
       invocation,
       true,
       _localEnv,
+      { paired: false },
     );
     if (result.ok) {
       return Response.json({ accessToken: result.accessToken });
@@ -728,28 +818,93 @@ async function handleLocalEndpoints(
     const targetUrl = `http://127.0.0.1:${gatewayTarget.port}${gatewayTarget.path}${url.search}`;
     const headers = new Headers(req.headers);
     headers.set("host", `127.0.0.1:${gatewayTarget.port}`);
+    return proxyGatewayFetch(req, targetUrl, headers, "Gateway proxy error");
+  }
 
-    try {
-      const hasBody = req.method !== "GET" && req.method !== "HEAD";
-      const proxyRes = await loopbackSafeFetch(targetUrl, {
-        method: req.method,
-        headers,
-        body: hasBody ? req.body : undefined,
-        redirect: "manual",
-      });
-      const resHeaders = new Headers(proxyRes.headers);
-      resHeaders.delete("transfer-encoding");
-      return new Response(proxyRes.body, {
-        status: proxyRes.status,
-        statusText: proxyRes.statusText,
-        headers: resHeaders,
-      });
-    } catch {
-      return new Response("Gateway proxy error", { status: 502 });
+  // Paired-gateway proxy: same shared decision as the web (Vite middleware)
+  // and Electron (`app://` handler) hosts, forwarding to the remote gateway an
+  // imported pairing recorded as its `runtimeUrl`. The lockfile's paired
+  // entries are the allowlist. Renderer authorization and browser-ambient
+  // headers are stripped on the server-to-server hop. This CLI host reads the
+  // paired guardian bearer from disk and installs it after sanitization.
+  const pairedDecision = resolvePairedGatewayProxyTarget(
+    pathname + url.search,
+    () => readPairedGatewayTargets(lockfilePaths),
+  );
+  if (pairedDecision.kind === "reject") {
+    return new Response(pairedDecision.message, {
+      status: pairedDecision.status,
+    });
+  }
+  if (pairedDecision.kind === "forward") {
+    if (!isSameOriginRequest(req)) {
+      return Response.json({ error: "Forbidden" }, { status: 403 });
     }
+    let invocation: CliInvocation;
+    try {
+      invocation = resolveDevCliInvocation(_baseDir);
+    } catch (err) {
+      return new Response(err instanceof Error ? err.message : String(err), {
+        status: 500,
+      });
+    }
+    const headers = new Headers(req.headers);
+    const tokenResult = await authorizePairedForwardHeaders(
+      pairedDecision.assistantId,
+      pairedDecision.runtimeUrl,
+      headers,
+      (assistantId, runtimeUrl) =>
+        getPairedGuardianAccessToken(
+          assistantId,
+          runtimeUrl,
+          configDir,
+          invocation,
+          true,
+          _localEnv,
+        ),
+    );
+    if (!tokenResult.ok) {
+      return new Response(tokenResult.error, { status: tokenResult.status });
+    }
+    headers.set("host", new URL(pairedDecision.url).host);
+    return proxyGatewayFetch(
+      req,
+      pairedDecision.url,
+      headers,
+      "Paired gateway proxy error",
+    );
   }
 
   return null;
+}
+
+// One streamed hop for both gateway data-plane proxies. The upstream
+// `transfer-encoding` is dropped so re-serving the streamed body doesn't emit
+// a duplicate chunked header.
+async function proxyGatewayFetch(
+  req: Request,
+  targetUrl: string,
+  headers: Headers,
+  errorMessage: string,
+): Promise<Response> {
+  try {
+    const hasBody = req.method !== "GET" && req.method !== "HEAD";
+    const proxyRes = await loopbackSafeFetch(targetUrl, {
+      method: req.method,
+      headers,
+      body: hasBody ? req.body : undefined,
+      redirect: "manual",
+    });
+    const resHeaders = new Headers(proxyRes.headers);
+    resHeaders.delete("transfer-encoding");
+    return new Response(proxyRes.body, {
+      status: proxyRes.status,
+      statusText: proxyRes.statusText,
+      headers: resHeaders,
+    });
+  } catch {
+    return new Response(errorMessage, { status: 502 });
+  }
 }
 
 function getBaseDir(): string {

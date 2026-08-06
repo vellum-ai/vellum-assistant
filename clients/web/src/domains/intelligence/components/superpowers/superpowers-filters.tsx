@@ -1,32 +1,38 @@
 import {
-    ArrowDownToLine,
-    Box,
-    Brain,
-    Check,
-    CheckCircle,
-    Filter,
-    Globe,
-    LayoutGrid,
-    Loader2,
-    Puzzle,
-    Search,
-    Terminal,
-    User,
-    Zap,
+  ArrowDownToLine,
+  Box,
+  Brain,
+  Check,
+  CheckCircle,
+  Filter,
+  Globe,
+  LayoutGrid,
+  Loader2,
+  Puzzle,
+  Search,
+  Terminal,
+  User,
+  Zap,
 } from "lucide-react";
 import {
-    type ChangeEvent,
-    type Dispatch,
-    type ReactNode,
-    type SetStateAction,
-    useState,
+  type ChangeEvent,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+  useState,
 } from "react";
 
 import { resolveCategoryIcon } from "@/domains/intelligence/skills/category-icon-map";
 import type { CategoryInfo } from "@/domains/intelligence/skills/use-skill-categories";
 import type { SuperpowerFilter } from "@/domains/intelligence/superpowers/types";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { BottomSheet, Button, Input, PanelItem, Popover } from "@vellumai/design-library";
+import {
+  BottomSheet,
+  Button,
+  Input,
+  PanelItem,
+  Popover,
+} from "@vellumai/design-library";
 
 interface FilterOption {
   value: SuperpowerFilter;
@@ -34,7 +40,11 @@ interface FilterOption {
   icon: typeof LayoutGrid;
 }
 
-const ALL_FILTER: FilterOption = { value: "all", label: "All", icon: LayoutGrid };
+const ALL_FILTER: FilterOption = {
+  value: "all",
+  label: "All",
+  icon: LayoutGrid,
+};
 
 const STATUS_FILTERS: FilterOption[] = [
   ALL_FILTER,
@@ -168,7 +178,12 @@ function FilterControl(props: FilterControlProps) {
 
   if (isMobile) {
     return (
-      <FilterSheet {...props} open={open} onOpenChange={setOpen} trigger={trigger} />
+      <FilterSheet
+        {...props}
+        open={open}
+        onOpenChange={setOpen}
+        trigger={trigger}
+      />
     );
   }
 
@@ -255,7 +270,10 @@ function FilterSheet({
   return (
     <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
       <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
-      <BottomSheet.Content className="max-h-[85dvh]" aria-describedby={undefined}>
+      <BottomSheet.Content
+        className="max-h-[85dvh]"
+        aria-describedby={undefined}
+      >
         <div
           aria-hidden
           className="mx-auto mb-3 h-1 w-9 shrink-0 rounded-full bg-[var(--border-element)]"
@@ -432,7 +450,9 @@ function FilterGroup({
               >
                 <Icon className="h-4 w-4" aria-hidden />
                 <span className="flex-1">{option.label}</span>
-                {isSelected && <CheckCircle className="h-3.5 w-3.5" aria-hidden />}
+                {isSelected && (
+                  <CheckCircle className="h-3.5 w-3.5" aria-hidden />
+                )}
               </button>
             </li>
           );

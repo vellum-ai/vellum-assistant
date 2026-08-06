@@ -17,8 +17,8 @@ import {
 import { join } from "node:path";
 import { beforeAll, describe, expect, test } from "bun:test";
 
+import type { AssistantEventEnvelope } from "../../api/index.js";
 import { SYNC_TAGS } from "../../daemon/message-types/sync.js";
-import type { AssistantEventEnvelope } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 
 // ---------------------------------------------------------------------------
@@ -66,15 +66,18 @@ beforeAll(() => {
 
 function getRoute(operationId: string): RouteDefinition {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route)
+  if (!route) {
     throw new Error(`No shared route found for operationId: ${operationId}`);
+  }
   return route;
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 500;
   while (Date.now() < deadline) {
-    if (predicate()) return;
+    if (predicate()) {
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error("Timed out waiting for workspace route event");

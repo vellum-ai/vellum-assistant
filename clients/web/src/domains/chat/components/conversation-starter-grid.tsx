@@ -33,7 +33,7 @@ export function ConversationStarterGrid({
     return null;
   }
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-2 gap-4">
       {visible.map((starter) => (
         <ConversationStarterChip
           key={starter.id}

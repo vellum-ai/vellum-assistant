@@ -80,7 +80,9 @@ export function registerPsCommand(program: Command): void {
 
       ps.action(async (_opts, cmd: Command) => {
         const r = await cliIpcCall<PsResponse>("ps");
-        if (!r.ok) return exitFromIpcResult(r);
+        if (!r.ok) {
+          return exitFromIpcResult(r);
+        }
 
         if (shouldOutputJson(cmd)) {
           writeOutput(cmd, r.result);

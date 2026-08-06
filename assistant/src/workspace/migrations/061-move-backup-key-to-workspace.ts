@@ -23,7 +23,9 @@ export const moveBackupKeyToWorkspaceMigration: WorkspaceMigration = {
   run(workspaceDir: string): void {
     const oldPath = join(getVellumRoot(), "protected", "backup.key");
     const newPath = join(workspaceDir, ".backup.key");
-    if (!existsSync(oldPath)) return;
+    if (!existsSync(oldPath)) {
+      return;
+    }
     if (existsSync(newPath)) {
       try {
         unlinkSync(oldPath);
@@ -39,7 +41,9 @@ export const moveBackupKeyToWorkspaceMigration: WorkspaceMigration = {
   down(workspaceDir: string): void {
     const oldPath = join(getVellumRoot(), "protected", "backup.key");
     const newPath = join(workspaceDir, ".backup.key");
-    if (!existsSync(newPath)) return;
+    if (!existsSync(newPath)) {
+      return;
+    }
     if (existsSync(oldPath)) {
       try {
         unlinkSync(newPath);

@@ -12,10 +12,10 @@ mock.module("@/runtime/dictation-overlay", () => ({
   subscribeToDictationOverlayState: () => () => undefined,
 }));
 
-const { useDictationOverlaySync } = await import("./use-dictation-overlay-sync");
-const { useVoiceRecordingStore } = await import(
-  "@/domains/chat/voice/voice-recording-store"
-);
+const { useDictationOverlaySync } =
+  await import("./use-dictation-overlay-sync");
+const { useVoiceRecordingStore } =
+  await import("@/domains/chat/voice/voice-recording-store");
 const { formatVoiceError } = await import("@/domains/chat/utils/chat");
 
 const renderSync = () => {

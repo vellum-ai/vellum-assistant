@@ -1,5 +1,7 @@
 import { basename } from "node:path";
 
+import { z } from "zod";
+
 import { markAcpConnectCardRaised } from "../../acp/acp-connect-card-state.js";
 import { resolveAgentWithAutoInstall } from "../../acp/auto-install.js";
 import { getAcpSessionManager } from "../../acp/index.js";
@@ -10,8 +12,25 @@ import {
 import { formatResolveFailure } from "../../acp/resolve-agent.js";
 import { claudeResumeHint } from "../../acp/resume-hint.js";
 import { FailedDependencyError } from "../../runtime/routes/errors.js";
+import {
+  invalidToolInputResult,
+  nullAsOmitted,
+} from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import { getSendToClient } from "./context.js";
+
+/**
+ * Model-input schema, `safeParse`d at the top of {@link executeAcpSpawn}.
+ * Same in-tool pattern and TOOLS.json drift guard as the other bundled-skill
+ * tools — see the schema block in `tools/document/document-tool.ts` for the
+ * framework. The bespoke '"task" is required.' check keeps its message for
+ * the missing/null/empty cases.
+ */
+export const acpSpawnInputSchema = z.looseObject({
+  agent: nullAsOmitted(z.string()),
+  task: nullAsOmitted(z.string()),
+  cwd: nullAsOmitted(z.string()),
+});
 
 /**
  * Recover the stable `acp_claude_oauth_missing` marker off a `prepareAgentEnv`
@@ -34,8 +53,12 @@ export async function executeAcpSpawn(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const agent = (input.agent as string) || "claude";
-  const task = input.task as string;
+  const parsedInput = acpSpawnInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("acp_spawn", parsedInput.error);
+  }
+  const agent = parsedInput.data.agent || "claude";
+  const task = parsedInput.data.task;
 
   if (!task) {
     return { content: '"task" is required.', isError: true };
@@ -87,7 +110,7 @@ export async function executeAcpSpawn(
 
   try {
     const manager = getAcpSessionManager();
-    const cwd = (input.cwd as string) || context.workingDir;
+    const cwd = parsedInput.data.cwd || context.workingDir;
     const { acpSessionId, protocolSessionId } = await manager.spawn(
       agent,
       agentConfig,

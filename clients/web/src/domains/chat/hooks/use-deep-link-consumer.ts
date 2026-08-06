@@ -40,15 +40,23 @@ export function useDeepLinkConsumer(): void {
   const pending = usePendingDeepLinkStore.use.pendingComposerMessage();
 
   useEffect(() => {
-    if (pending === null) return;
+    if (pending === null) {
+      return;
+    }
     const consumed = usePendingDeepLinkStore
       .getState()
       .consumePendingComposerMessage();
-    if (consumed === null) return;
+    if (consumed === null) {
+      return;
+    }
     // Read imperatively — a one-shot decision when a link arrives, not something
     // to re-run per keystroke, so this hook must not subscribe to the draft.
-    const { input, restoredDraftConversationId, setInput, clearRestoredDraftNotice } =
-      useComposerStore.getState();
+    const {
+      input,
+      restoredDraftConversationId,
+      setInput,
+      clearRestoredDraftNotice,
+    } = useComposerStore.getState();
     const activeConversationId =
       useConversationStore.getState().activeConversationId;
     // A just-restored draft (cold load) is not live typing, so a deeplink may
@@ -67,6 +75,8 @@ export function useDeepLinkConsumer(): void {
     }
     setInput(consumed);
     // The deeplink supersedes the restored draft, so retire its notice too.
-    if (inputIsRestoredDraft) clearRestoredDraftNotice();
+    if (inputIsRestoredDraft) {
+      clearRestoredDraftNotice();
+    }
   }, [pending]);
 }

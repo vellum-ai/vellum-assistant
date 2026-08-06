@@ -46,7 +46,11 @@ mock.module("@/lib/consent/diagnostics-consent", () => ({
   failCloseDiagnosticsGateUntilFirstSync: mock(() => {}),
 }));
 
-let currentUser: { id: string } | null = { id: "u1" };
+type MockUser = { id: string; kind: "platform" | "local" };
+const PLATFORM_USER: MockUser = { id: "u1", kind: "platform" };
+// The synthetic identity local mode signs in, with no platform account behind it.
+const LOCAL_USER: MockUser = { id: "gateway-local", kind: "local" };
+let currentUser: MockUser | null = PLATFORM_USER;
 mock.module("@/stores/auth-store", () => ({
   useAuthStore: { getState: () => ({ user: currentUser }) },
 }));
@@ -115,7 +119,7 @@ beforeEach(() => {
   setServerAnalyticsEffective.mockClear();
   setPendingAnalyticsOptIn.mockClear();
   setServerDiagnosticsEffective.mockClear();
-  currentUser = { id: "u1" };
+  currentUser = PLATFORM_USER;
   consentResult = Promise.resolve(consentRecord());
   clock += FLOOR_CLEAR_MS;
   setSystemTime(new Date(clock));
@@ -131,6 +135,15 @@ const flush = (): Promise<void> => Promise.resolve();
 describe("refreshDiagnosticsConsent", () => {
   test("no-ops when unauthenticated", async () => {
     currentUser = null;
+    await refreshDiagnosticsConsent();
+    expect(fetchConsent).not.toHaveBeenCalled();
+    expect(applyResolvedDiagnosticsConsent).not.toHaveBeenCalled();
+  });
+
+  test("no-ops for a local-mode user with no platform account", async () => {
+    // A truthy id is not a platform account, and the 401/403 the platform
+    // answers with is a settled rejection that arms the auth recovery.
+    currentUser = LOCAL_USER;
     await refreshDiagnosticsConsent();
     expect(fetchConsent).not.toHaveBeenCalled();
     expect(applyResolvedDiagnosticsConsent).not.toHaveBeenCalled();

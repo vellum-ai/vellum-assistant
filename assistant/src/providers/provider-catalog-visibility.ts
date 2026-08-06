@@ -29,10 +29,10 @@ export function getVisibleProviderCatalog(
           !m.featureFlag ||
           isAssistantFeatureFlagEnabled(m.featureFlag, config),
       );
-      if (visibleModels.length === entry.models.length) return entry;
+      if (visibleModels.length === entry.models.length) {
+        return entry;
+      }
       return { ...entry, models: visibleModels };
     })
-    .filter(
-      (entry) => entry.models.length > 0 || entry.defaultModel === "",
-    );
+    .filter((entry) => entry.models.length > 0 || entry.defaultModel === "");
 }

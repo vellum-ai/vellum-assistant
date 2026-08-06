@@ -134,8 +134,6 @@ describe("migration 342: conversations.parent_conversation_id", () => {
     expect(() => migrateAddConversationParentId(db)).not.toThrow();
 
     const names = columnInfo(sqlite).map((c) => c.name);
-    expect(
-      names.filter((n) => n === "parent_conversation_id"),
-    ).toHaveLength(1);
+    expect(names.filter((n) => n === "parent_conversation_id")).toHaveLength(1);
   });
 });

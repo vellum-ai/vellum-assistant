@@ -107,9 +107,7 @@ function SegmentRow({ segment, widthPercent }: SegmentRowProps): ReactNode {
           >
             {segment.label}
           </span>
-          {segment.ttl ? (
-            <Tag tone="neutral">{segment.ttl}</Tag>
-          ) : null}
+          {segment.ttl ? <Tag tone="neutral">{segment.ttl}</Tag> : null}
         </span>
         <span
           className="shrink-0 text-label-default tabular-nums"

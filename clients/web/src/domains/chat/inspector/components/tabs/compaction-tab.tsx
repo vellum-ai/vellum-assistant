@@ -1,4 +1,10 @@
-import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, MinusCircle } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  MinusCircle,
+} from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { Button, Card } from "@vellumai/design-library";
@@ -6,10 +12,10 @@ import { Button, Card } from "@vellumai/design-library";
 import { useCompactionTrail } from "@/domains/chat/inspector/compaction-trail-api";
 import type { CompactionTrailEvent } from "@/domains/chat/inspector/compaction-trail-fetch";
 import {
-    displayText,
-    formatCount,
-    formattedCreatedAt,
-    MISSING_VALUE,
+  displayText,
+  formatCount,
+  formattedCreatedAt,
+  MISSING_VALUE,
 } from "@/domains/chat/inspector/inspector-formatters";
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 
@@ -121,9 +127,9 @@ export function CompactionTab({
             className="mt-1 text-body-medium-lighter"
             style={{ color: "var(--content-secondary)" }}
           >
-            A compaction is attributed to the call that ran right after
-            it. If you expect one here, check that the conversation
-            crossed its context budget just before this call.
+            A compaction is attributed to the call that ran right after it. If
+            you expect one here, check that the conversation crossed its context
+            budget just before this call.
           </p>
         </Card>
       </div>
@@ -219,7 +225,8 @@ function EventCard({
               {outcome.label}
               {totalCount > 1 ? (
                 <span style={{ color: "var(--content-tertiary)" }}>
-                  {" "}· {index} of {totalCount}
+                  {" "}
+                  · {index} of {totalCount}
                 </span>
               ) : null}
             </span>
@@ -262,8 +269,14 @@ function EventCard({
               event.preservedTailMessages,
             )}
           />
-          <MetadataRow label="Duration" value={formatDuration(event.durationMs)} />
-          <MetadataRow label="Summary model" value={displayText(event.summaryModel)} />
+          <MetadataRow
+            label="Duration"
+            value={formatDuration(event.durationMs)}
+          />
+          <MetadataRow
+            label="Summary model"
+            value={displayText(event.summaryModel)}
+          />
           <MetadataRow
             label="Summary cost"
             value={formatSummarizerUsage(

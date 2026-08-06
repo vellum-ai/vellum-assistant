@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<!-- Required on an appex: App Store Connect rejects the whole upload
+	     ("Missing Info.plist value … CFBundleDisplayName") when a widget
+	     extension omits it, and the failure lands at the altool step long
+	     after the archive has built and signed. Distinct from CFBundleName
+	     below, which XcodeGen derives from the target name and so reads
+	     "VoiceActivity Dev" — a build-system identifier, not something to
+	     show a user. This is the name that appears in the widget gallery,
+	     so it tracks the containing app's display name per environment. -->
+	<key>CFBundleDisplayName</key>
+	<string>$(BUNDLE_DISPLAY_NAME)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.widgetkit-extension</string>
+	</dict>
+	<!-- The containing app's URL scheme, so the Live Activity's widgetURL
+	     deep-links back into the app this appex is embedded in. Deliberately
+	     NOT CFBundleURLTypes: an appex must not register a URL type (it can
+	     never be the target of one) — this only lets the extension *build* a
+	     link. Read via BundleURLScheme. -->
+	<key>VellumURLScheme</key>
+	<string>$(BUNDLE_URL_SCHEME)</string>
+</dict>
+</plist>

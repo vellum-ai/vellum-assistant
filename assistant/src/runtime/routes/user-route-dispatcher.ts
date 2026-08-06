@@ -14,12 +14,17 @@
  *   each other.
  *
  * Each handler file exports named functions for HTTP methods (GET, POST, PUT,
- * etc.) using the standard Web API Request/Response signature.
+ * etc.) using the standard Web API Request/Response signature. New handlers
+ * reach daemon capabilities by importing `@vellumai/plugin-api` (e.g.
+ * `publishEvent`, `runConversationTurn`), which broker process-safe access — so
+ * a handler behaves identically in-process and in the route-host subprocess.
  *
- * Handlers receive a second `context` argument with runtime singletons
- * (event hub, etc.) that would otherwise be unreachable from dynamically
- * imported modules because Bun's cache-busting import creates separate
- * module instances.
+ * For backward compatibility, the in-process path still passes a **deprecated**
+ * `context` second argument (see `deprecated-route-context.ts`): a thin shim
+ * over those same plugin-api calls that records a deprecation-usage telemetry
+ * signal so remaining callers can be found and migrated. The route-host path
+ * does not supply it. The argument is transitional and removed once telemetry
+ * shows no route depends on it.
  *
  * Modules are lazily loaded on first request and cached by file path +
  * mtime. When a file changes on disk, the next request reloads it via
@@ -36,59 +41,17 @@ import {
   RouteHostUnavailableError,
 } from "../../routes/route-host-client.js";
 import { getLogger } from "../../util/logger.js";
-import type { AssistantEventHub } from "../assistant-event-hub.js";
 import { httpError } from "../http-errors.js";
+import {
+  buildDeprecatedRouteContext,
+  type UserRouteContext,
+} from "./deprecated-route-context.js";
 import {
   resolveHandlerFile,
   resolveRouteLocation,
 } from "./user-route-resolution.js";
 
 const log = getLogger("user-routes");
-
-// ---------------------------------------------------------------------------
-// User route context — injected into every handler as the second argument
-// ---------------------------------------------------------------------------
-
-/**
- * Runtime context passed to user-defined route handlers.
- *
- * Because user route modules are loaded via dynamic `import()` with
- * cache-busting query parameters, they get isolated module instances
- * and cannot import process-level singletons like the event hub
- * directly. This context bridges the gap by carrying references to
- * the daemon's real singletons.
- */
-export interface UserRouteContext {
-  /** The daemon's event hub singleton — use this to publish events to connected SSE clients. */
-  readonly assistantEventHub: AssistantEventHub;
-  /** Conversation operations available to route handlers (e.g. posting integration events as turns). */
-  readonly conversations: RouteConversationsApi;
-}
-
-/**
- * Conversation operations exposed to route handlers. Lets integration routes
- * (webhook receivers, cron jobs, device/service callbacks) surface an inbound
- * event as a real assistant turn rather than only a client-side event.
- */
-export interface RouteConversationsApi {
-  /**
-   * Post a message into an existing conversation as a real assistant turn.
-   *
-   * The turn is attributed to a dedicated integration interface (never a human
-   * surface) and runs under the conversation's existing trust context — a
-   * route cannot impersonate a user or elevate privilege by posting. Unknown
-   * conversation ids are rejected (a route never silently creates one), and
-   * posts are rate-limited per conversation to backstop runaway loops.
-   *
-   * Rejects with a `RouteMessageError` carrying `code`
-   * (`"not_found" | "rate_limited" | "invalid"`) — catch it to map to an HTTP
-   * status, or let it surface as a 500.
-   */
-  postMessage(
-    conversationId: string,
-    text: string,
-  ): Promise<{ messageId: string }>;
-}
 
 // ---------------------------------------------------------------------------
 // Route handler types
@@ -108,12 +71,11 @@ const HTTP_METHODS = [
 type HttpMethod = (typeof HTTP_METHODS)[number];
 
 /**
- * The function signature that user-defined route handlers must follow.
- *
- * Handlers may accept an optional second `context` argument with runtime
- * singletons (event hub). Legacy handlers that only accept `request`
- * continue to work — the context is passed positionally but ignored if
- * the handler doesn't declare the parameter.
+ * The function signature that user-defined route handlers must follow. New
+ * handlers take just the `Request` and reach daemon state through
+ * `@vellumai/plugin-api`. A deprecated `context` second argument is still passed
+ * on the in-process path for backward compatibility (see
+ * `deprecated-route-context.ts`); handlers that omit the parameter ignore it.
  */
 type RouteHandler = (
   request: Request,
@@ -136,7 +98,6 @@ const DEFAULT_HANDLER_TIMEOUT_MS = 120_000;
 export class UserRouteDispatcher {
   private moduleCache = new Map<string, CachedModule>();
   private handlerTimeoutMs: number;
-  private context: UserRouteContext;
   /**
    * The route host client. Constructing it is inert — the subprocess spawns
    * lazily on the client's first `invoke` — so a dispatcher whose host is never
@@ -144,13 +105,9 @@ export class UserRouteDispatcher {
    */
   private readonly routeHostClient: RouteHostClient;
 
-  constructor(options: {
-    handlerTimeoutMs?: number;
-    context: UserRouteContext;
-  }) {
+  constructor(options: { handlerTimeoutMs?: number } = {}) {
     this.handlerTimeoutMs =
       options.handlerTimeoutMs ?? DEFAULT_HANDLER_TIMEOUT_MS;
-    this.context = Object.freeze({ ...options.context });
     // Both execution paths — in-process ({@link executeHandler}) and the route
     // host subprocess — must honor the same per-request timeout, so the host
     // client's hard-kill deadline is driven by the dispatcher's timeout rather
@@ -324,7 +281,9 @@ export class UserRouteDispatcher {
   ): Promise<Response> {
     try {
       const result = await Promise.race([
-        Promise.resolve(handler(request, this.context)),
+        Promise.resolve(
+          handler(request, buildDeprecatedRouteContext(routePath)),
+        ),
         new Promise<never>((_, reject) =>
           setTimeout(
             () => reject(new Error("Handler timed out")),

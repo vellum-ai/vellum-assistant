@@ -8,7 +8,9 @@
 export function tryResolveConversationId(
   opts: { explicit?: string } = {},
 ): string | undefined {
-  if (opts.explicit) return opts.explicit;
+  if (opts.explicit) {
+    return opts.explicit;
+  }
 
   const contextJson = process.env.__SKILL_CONTEXT_JSON;
   if (contextJson) {
@@ -23,7 +25,9 @@ export function tryResolveConversationId(
   }
 
   const envConvId = process.env.__CONVERSATION_ID;
-  if (envConvId && typeof envConvId === "string") return envConvId;
+  if (envConvId && typeof envConvId === "string") {
+    return envConvId;
+  }
 
   return undefined;
 }
@@ -37,6 +41,8 @@ export function resolveConversationId(opts: {
   failureHelp: string;
 }): string {
   const resolved = tryResolveConversationId({ explicit: opts.explicit });
-  if (resolved) return resolved;
+  if (resolved) {
+    return resolved;
+  }
   throw new Error(opts.failureHelp);
 }

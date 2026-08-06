@@ -208,7 +208,7 @@ const BUN_BIN = "/usr/local/bin/bun";
 const BUN_ADD_KEY = `${BUN_BIN} add`;
 
 import type { AcpSessionUpdateEvent } from "../../api/events/acp-session-update.js";
-import type { AssistantEvent } from "../../daemon/message-protocol.js";
+import type { AssistantEvent } from "../../api/index.js";
 import { getSqlite } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
 import type { AcpSessionState } from "../types.js";

@@ -17,7 +17,9 @@ let mockResolveError: Error | null = null;
 
 mock.module("../../../providers/speech-to-text/resolve.js", () => ({
   resolveBatchTranscriber: async () => {
-    if (mockResolveError) throw mockResolveError;
+    if (mockResolveError) {
+      throw mockResolveError;
+    }
     return mockTranscriber;
   },
 }));
@@ -65,7 +67,9 @@ import type { RouteHandlerArgs } from "../types.js";
 
 function getRoute(endpoint: string) {
   const route = ROUTES.find((r) => r.endpoint === endpoint);
-  if (!route) throw new Error(`Route ${endpoint} not found`);
+  if (!route) {
+    throw new Error(`Route ${endpoint} not found`);
+  }
   return route;
 }
 
@@ -93,7 +97,9 @@ async function expectRouteError(
     expect(err).toBeInstanceOf(RouteError);
     const re = err as InstanceType<typeof RouteError>;
     expect(re.statusCode).toBe(statusCode);
-    if (code) expect(re.code).toBe(code);
+    if (code) {
+      expect(re.code).toBe(code);
+    }
     return re;
   }
 }
@@ -139,6 +145,19 @@ describe("stt-routes", () => {
     const transcribeFile = getRoute("stt/transcribe-file");
     expect(transcribeFile.method).toBe("POST");
     expect(transcribeFile.policy?.requiredScopes).toContain("chat.write");
+  });
+
+  // -- Providers list -------------------------------------------------------
+
+  test("providers list includes each provider's languageSelection", async () => {
+    const { handler } = getRoute("stt/providers");
+    const result = (await handler(makeArgs({}))) as {
+      providers: Array<{ id: string; languageSelection: string }>;
+    };
+
+    const byId = new Map(result.providers.map((p) => [p.id, p]));
+    expect(byId.get("deepgram")?.languageSelection).toBe("manual");
+    expect(byId.get("google-gemini")?.languageSelection).toBe("auto");
   });
 
   // -- Success path ---------------------------------------------------------

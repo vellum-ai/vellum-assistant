@@ -11,7 +11,9 @@
  * trimming whitespace, so callers can do strict equality against the base type.
  */
 function baseMediaType(mimeType: string | undefined): string {
-  if (!mimeType) return "";
+  if (!mimeType) {
+    return "";
+  }
   const semi = mimeType.indexOf(";");
   return (semi === -1 ? mimeType : mimeType.slice(0, semi)).trim();
 }
@@ -27,7 +29,9 @@ export function isJson(
   name: string | undefined,
   mimeType: string | undefined,
 ): boolean {
-  if (baseMediaType(mimeType) === "application/json") return true;
+  if (baseMediaType(mimeType) === "application/json") {
+    return true;
+  }
   const lower = (name ?? "").toLowerCase();
   return lower.endsWith(".json");
 }

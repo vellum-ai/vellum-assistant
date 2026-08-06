@@ -57,7 +57,9 @@ function collectSkillLoads(logs: LLMRequestLogEntry[]): SkillLoad[] {
     const sections = entry.responseSections ?? [];
     sections.forEach((section, sectionIndex) => {
       const skill = extractSkillId(section);
-      if (skill == null) return;
+      if (skill == null) {
+        return;
+      }
       loads.push({
         skill,
         logId: entry.id,
@@ -72,12 +74,20 @@ function collectSkillLoads(logs: LLMRequestLogEntry[]): SkillLoad[] {
 
 function extractSkillId(section: LLMContextSection): string | null {
   const kind = section.kind?.toLowerCase?.() ?? "";
-  if (!TOOL_USE_KINDS.has(kind)) return null;
-  if (section.toolName !== "skill_load") return null;
+  if (!TOOL_USE_KINDS.has(kind)) {
+    return null;
+  }
+  if (section.toolName !== "skill_load") {
+    return null;
+  }
   const data = section.data;
-  if (data == null || typeof data !== "object") return null;
+  if (data == null || typeof data !== "object") {
+    return null;
+  }
   const value = (data as Record<string, unknown>).skill;
-  if (typeof value !== "string") return null;
+  if (typeof value !== "string") {
+    return null;
+  }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }

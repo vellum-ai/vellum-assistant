@@ -70,7 +70,9 @@ export function invalidateAssistantInferredItemsForConversation(
         )`,
     conversationId,
   );
-  if (candidates.length === 0) return 0;
+  if (candidates.length === 0) {
+    return 0;
+  }
 
   // Gather every corroborating (non-failed-conversation) source id across the
   // candidates, then ask the main DB which of them are failed.
@@ -86,7 +88,9 @@ export function invalidateAssistantInferredItemsForConversation(
       sources = [];
     }
     const others = sources.filter((s) => s !== conversationId);
-    for (const o of others) otherIds.add(o);
+    for (const o of others) {
+      otherIds.add(o);
+    }
     return { id: c.id, others };
   });
 
@@ -98,7 +102,9 @@ export function invalidateAssistantInferredItemsForConversation(
   const toInvalidate = parsed
     .filter((p) => !p.others.some((o) => !failedIds.has(o)))
     .map((p) => p.id);
-  if (toInvalidate.length === 0) return 0;
+  if (toInvalidate.length === 0) {
+    return 0;
+  }
 
   // Chunk the id list so a conversation attached to more nodes than SQLite's
   // bound-parameter limit still invalidates them all instead of throwing.
@@ -137,7 +143,9 @@ export function invalidateAssistantInferredItemsForConversation(
  */
 function failedConversationIds(ids: Set<string>): Set<string> {
   const failed = new Set<string>();
-  if (ids.size === 0) return failed;
+  if (ids.size === 0) {
+    return failed;
+  }
 
   const all = [...ids];
   const CHUNK = 500;
@@ -157,7 +165,9 @@ function failedConversationIds(ids: Set<string>): Set<string> {
           )`,
       ...chunk,
     );
-    for (const r of rows) failed.add(r.conversation_id);
+    for (const r of rows) {
+      failed.add(r.conversation_id);
+    }
   }
   return failed;
 }
@@ -183,7 +193,9 @@ export function cancelPendingJobsForConversation(
   types: readonly string[],
   reason: string = "conversation_deleted",
 ): number {
-  if (types.length === 0) return 0;
+  if (types.length === 0) {
+    return 0;
+  }
   const placeholders = types.map(() => "?").join(", ");
   const cancelled = rawMemoryRun(
     "taskMemory:cancelJobs:byConversation",

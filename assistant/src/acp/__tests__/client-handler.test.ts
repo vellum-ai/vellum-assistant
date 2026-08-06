@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { SessionNotification } from "@agentclientprotocol/sdk";
 
-import type { AssistantEvent } from "../../daemon/message-protocol.js";
+import type { AssistantEvent } from "../../api/index.js";
 import { VellumAcpClientHandler } from "../client-handler.js";
 
 const ACP_SESSION_ID = "acp-session-abc";

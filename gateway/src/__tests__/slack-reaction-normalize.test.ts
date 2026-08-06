@@ -6,7 +6,6 @@ import type { GatewayConfig } from "../config.js";
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return {
     assistantRuntimeBaseUrl: "http://localhost:7821",
-    defaultAssistantId: "default-assistant",
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: {
@@ -24,7 +23,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeProxyRequireAuth: false,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
-    unmappedPolicy: "default",
     trustProxy: false,
     ...overrides,
   } as GatewayConfig;
@@ -93,19 +91,8 @@ describe("normalizeSlackReactionAdded", () => {
     expect(result!.event.actor.actorExternalId).toBe("BOT1");
   });
 
-  test("returns null for unroutable channels without default", () => {
-    const config = makeConfig({ defaultAssistantId: undefined });
-    const event = makeReactionEvent();
-    const result = normalizeSlackReactionAdded(event, "ev-5", config);
-
-    expect(result).toBeNull();
-  });
-
-  test("falls back to default assistant for unrouted DM channels", () => {
-    const config = makeConfig({
-      defaultAssistantId: "default-ast",
-      unmappedPolicy: "reject",
-    });
+  test("resolves unrouted DM channels to the local assistant", () => {
+    const config = makeConfig();
     const event = makeReactionEvent({
       item: { type: "message", channel: "D999", ts: "111.222" },
     });
@@ -115,17 +102,17 @@ describe("normalizeSlackReactionAdded", () => {
     expect(result!.channel).toBe("D999");
   });
 
-  test("does not fall back to default assistant for unrouted public channels", () => {
-    const config = makeConfig({
-      defaultAssistantId: "default-ast",
-      unmappedPolicy: "reject",
-    });
+  test("resolves unrouted public channels to the local assistant", () => {
+    // Previously dropped here because the unmapped policy rejected them. The
+    // gateway now normalizes them and lets the admission floor decide.
+    const config = makeConfig();
     const event = makeReactionEvent({
       item: { type: "message", channel: "C999", ts: "111.222" },
     });
     const result = normalizeSlackReactionAdded(event, "ev-6b", config);
 
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.channel).toBe("C999");
   });
 
   test("generates unique externalMessageId including reaction name and user", () => {

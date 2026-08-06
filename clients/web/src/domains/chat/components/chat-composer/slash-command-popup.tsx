@@ -12,8 +12,14 @@ interface SlashCommandPopupProps {
   onSelect: (command: SlashCommand) => void;
 }
 
-export function SlashCommandPopup({ commands, selectedIndex, onSelect }: SlashCommandPopupProps) {
-  if (commands.length === 0) return null;
+export function SlashCommandPopup({
+  commands,
+  selectedIndex,
+  onSelect,
+}: SlashCommandPopupProps) {
+  if (commands.length === 0) {
+    return null;
+  }
   return (
     <div
       role="listbox"
@@ -44,7 +50,11 @@ interface SlashCommandRowProps {
   onSelect: () => void;
 }
 
-function SlashCommandRow({ command, isSelected, onSelect }: SlashCommandRowProps) {
+function SlashCommandRow({
+  command,
+  isSelected,
+  onSelect,
+}: SlashCommandRowProps) {
   return (
     <PanelItem asChild active={isSelected} label="">
       <button
@@ -56,7 +66,9 @@ function SlashCommandRow({ command, isSelected, onSelect }: SlashCommandRowProps
         <span className="text-body-small-default font-mono text-[var(--primary-base)]">
           /{command.name}
         </span>
-        <span className="text-[var(--content-secondary)]">{command.description}</span>
+        <span className="text-[var(--content-secondary)]">
+          {command.description}
+        </span>
       </button>
     </PanelItem>
   );

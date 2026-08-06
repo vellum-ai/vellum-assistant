@@ -2,7 +2,7 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -34,6 +34,7 @@ import type {
 } from "@/generated/daemon/types.gen";
 import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
 import {
+  connectionAuthTypeForProvider,
   connectionSaveErrorMessage,
   parseCredentialRef,
   validationErrorMessage,
@@ -63,6 +64,12 @@ export interface ProviderCreateFormProps {
   connections?: ProviderConnection[];
   /** Pre-selected provider type. */
   defaultProviderType?: ConnectionProvider;
+  /**
+   * Hide the form's own provider selector. For hosts whose surrounding UI
+   * already names the provider (a picker that preselected it via
+   * `defaultProviderType`), rendering it again reads as a duplicate field.
+   */
+  hideProviderSelect?: boolean;
   onCreated: (connection: ProviderConnection) => void;
   onCancel: () => void;
   /** "modal" wraps the form in Modal chrome; "inline" drops it for embedding. */
@@ -74,6 +81,7 @@ export function ProviderCreateForm({
   existingNames,
   connections,
   defaultProviderType,
+  hideProviderSelect = false,
   onCreated,
   onCancel,
   variant = "modal",
@@ -104,13 +112,12 @@ export function ProviderCreateForm({
   );
   const isChatgpt = selected === "chatgpt";
   const provider: ConnectionProvider = isChatgpt ? "openai" : selected;
-  // Auth is derived from the provider, never user-chosen: ollama is keyless,
-  // ChatGPT is subscription (OAuth), everything else authenticates by API key.
+  // Auth is derived from the provider, never user-chosen: ChatGPT is
+  // subscription (OAuth), everything else follows the provider's connection
+  // auth (ollama keyless, the rest API key).
   const authType: Auth["type"] = isChatgpt
     ? "oauth_subscription"
-    : provider === "ollama"
-      ? "none"
-      : "api_key";
+    : connectionAuthTypeForProvider(provider);
   // Custom providers get per-connection credential slots: keying the ref by
   // the provider type would share ONE vault slot across every custom
   // endpoint, so saving any endpoint's key overwrites the others'.
@@ -365,74 +372,76 @@ export function ProviderCreateForm({
 
   const body = (
     <div className="space-y-4">
-      {/* Provider */}
-      <div className="space-y-1">
-        <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          Provider
-        </label>
-        <Dropdown
-          aria-label="Provider"
-          value={selected}
-          onChange={(newSelected) => {
-            setSelected(newSelected);
-            setError(null);
-            if (newSelected === "chatgpt") {
-              return;
-            }
-            // Internal names always follow the selected provider. Preserve a
-            // user-edited Display Name across provider changes.
-            const { name: seedName, key: seedKey } = deriveProviderDefaults(
-              newSelected,
-              existingNames,
-            );
-            if (!isLabelDirty.current) {
-              // A custom provider's name is the user's identity for it —
-              // seeding the protocol's display name would produce
-              // "Add OpenAI-compatible".
-              setLabel(newSelected === "openai-compatible" ? "" : seedName);
-            }
-            setName(seedKey);
-            setCredential(
-              newSelected === "ollama"
-                ? ""
-                : newSelected === "openai-compatible"
-                  ? `credential/${seedKey}/api_key`
-                  : `credential/${newSelected}/api_key`,
-            );
-            // Credential ref changes above trigger a new TQ query key,
-            // so the presence check auto-refetches for the new provider.
-          }}
-          options={[
-            // Catalog providers first; the custom-provider entry closes the
-            // list. "OpenAI-compatible" is the protocol a custom provider
-            // must speak, not the provider's identity.
-            ...connectionProviderOptions
-              .filter((p) => p !== "openai-compatible")
-              .map((p) => ({
-                value: p,
-                label: PROVIDER_DISPLAY_NAMES[p],
-              })),
-            ...(connectionProviderOptions.includes("openai-compatible")
-              ? [
-                  {
-                    value: "openai-compatible" as ConnectionProvider,
-                    label: "Custom provider",
-                  },
-                ]
-              : []),
-          ]}
-        />
-        {isOpenAICompatible ? (
-          <Typography
-            variant="body-small-default"
-            as="p"
-            className="text-[var(--content-tertiary)]"
-          >
-            Custom providers connect to any endpoint that serves the
-            OpenAI-compatible API — xAI, Groq, LM Studio, vLLM, and similar.
-          </Typography>
-        ) : null}
-      </div>
+      {/* Provider — omitted when the host's own picker already fixed it. */}
+      {!hideProviderSelect && (
+        <div className="space-y-1">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
+            Provider
+          </label>
+          <Select
+            aria-label="Provider"
+            value={selected}
+            onChange={(newSelected) => {
+              setSelected(newSelected);
+              setError(null);
+              if (newSelected === "chatgpt") {
+                return;
+              }
+              // Internal names always follow the selected provider. Preserve a
+              // user-edited Display Name across provider changes.
+              const { name: seedName, key: seedKey } = deriveProviderDefaults(
+                newSelected,
+                existingNames,
+              );
+              if (!isLabelDirty.current) {
+                // A custom provider's name is the user's identity for it —
+                // seeding the protocol's display name would produce
+                // "Add OpenAI-compatible".
+                setLabel(newSelected === "openai-compatible" ? "" : seedName);
+              }
+              setName(seedKey);
+              setCredential(
+                newSelected === "ollama"
+                  ? ""
+                  : newSelected === "openai-compatible"
+                    ? `credential/${seedKey}/api_key`
+                    : `credential/${newSelected}/api_key`,
+              );
+              // Credential ref changes above trigger a new TQ query key,
+              // so the presence check auto-refetches for the new provider.
+            }}
+            options={[
+              // Catalog providers first; the custom-provider entry closes the
+              // list. "OpenAI-compatible" is the protocol a custom provider
+              // must speak, not the provider's identity.
+              ...connectionProviderOptions
+                .filter((p) => p !== "openai-compatible")
+                .map((p) => ({
+                  value: p,
+                  label: PROVIDER_DISPLAY_NAMES[p],
+                })),
+              ...(connectionProviderOptions.includes("openai-compatible")
+                ? [
+                    {
+                      value: "openai-compatible" as ConnectionProvider,
+                      label: "Custom provider",
+                    },
+                  ]
+                : []),
+            ]}
+          />
+          {isOpenAICompatible ? (
+            <Typography
+              variant="body-small-default"
+              as="p"
+              className="text-[var(--content-tertiary)]"
+            >
+              Custom providers connect to any endpoint that serves the
+              OpenAI-compatible API — xAI, Groq, LM Studio, vLLM, and similar.
+            </Typography>
+          ) : null}
+        </div>
+      )}
 
       {/* Name + Base URL + Models — custom providers only. Name leads:
           the user is adding "xAI", not configuring a URL. */}

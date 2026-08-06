@@ -15,9 +15,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { AssistantEvent } from "../daemon/message-protocol.js";
-import { buildAssistantEvent } from "../runtime/assistant-event.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import type { AssistantEvent } from "../api/index.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
 import { getSignalsDir } from "../util/platform.js";
 
@@ -28,11 +27,7 @@ export function handleEmitEventSignal(): void {
     const content = readFileSync(join(getSignalsDir(), "emit-event"), "utf-8");
     const message = JSON.parse(content) as AssistantEvent;
 
-    assistantEventHub
-      .publish(buildAssistantEvent(message))
-      .catch((err: unknown) => {
-        log.error({ err }, "Failed to publish event from signal");
-      });
+    broadcastMessage(message);
 
     log.info({ type: message.type }, "Emit-event signal handled");
   } catch (err) {

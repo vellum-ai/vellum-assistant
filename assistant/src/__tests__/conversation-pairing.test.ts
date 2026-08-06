@@ -23,7 +23,9 @@ let mockExistingConversations: Record<
 > = {};
 
 const createConversationMock = mock((_opts?: unknown) => {
-  if (createConversationShouldThrow) throw new Error("DB write failed");
+  if (createConversationShouldThrow) {
+    throw new Error("DB write failed");
+  }
   return { id: mockConversationId };
 });
 
@@ -34,7 +36,9 @@ const addMessageMock = mock(
     _content: string,
     _options?: unknown,
   ) => {
-    if (addMessageShouldThrow) throw new Error("DB write failed");
+    if (addMessageShouldThrow) {
+      throw new Error("DB write failed");
+    }
     return { id: mockMessageId };
   },
 );

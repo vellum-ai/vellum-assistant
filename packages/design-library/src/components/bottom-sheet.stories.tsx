@@ -106,3 +106,35 @@ export const WithIcon: Story = {
     </BottomSheet.Root>
   ),
 };
+
+/**
+ * A sheet whose content is itself a surface: `padded={false}` drops the default
+ * inset so the fill reaches the rounded top corners, and `className` overrides
+ * the default height band so the sheet rests against a chosen edge instead of
+ * sizing to its rows. The unpadded sheet owns its own safe-area allowance.
+ */
+export const FullBleed: Story = {
+  args: {
+    triggerLabel: "Open full-bleed sheet",
+    title: "",
+    description: "",
+    showIcon: false,
+  },
+  render: ({ triggerLabel }) => (
+    <BottomSheet.Root>
+      <BottomSheet.Trigger asChild>
+        <Button>{triggerLabel}</Button>
+      </BottomSheet.Trigger>
+      <BottomSheet.Content
+        padded={false}
+        className="top-24 max-h-none min-h-0 overflow-hidden"
+        aria-label="Full-bleed sheet"
+        aria-describedby={undefined}
+      >
+        <div className="flex flex-1 items-center justify-center bg-[var(--primary-base)] text-[var(--content-inset)]">
+          Content reaches every edge
+        </div>
+      </BottomSheet.Content>
+    </BottomSheet.Root>
+  ),
+};

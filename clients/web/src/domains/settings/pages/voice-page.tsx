@@ -11,11 +11,12 @@ import {
 import { Link, Navigate, useSearchParams } from "react-router";
 
 import { Button } from "@vellumai/design-library/components/button";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import { Slider } from "@vellumai/design-library/components/slider";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
+import { ListeningLanguageCard } from "@/domains/settings/pages/listening-language-card";
 import { VoicePickerCard } from "@/domains/settings/pages/voice-picker-card";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
@@ -84,14 +85,17 @@ const labelClasses = "text-body-small-default text-[var(--content-tertiary)]";
  * output settings and input settings don't sit in one undifferentiated stack:
  *
  *  - **Output** — how the assistant sounds (its voice).
- *  - **Input** — how you talk to it (mic, push to talk, turn taking).
+ *  - **Input**: how you talk to it (mic, spoken language, push to talk, turn
+ *    taking).
  *  - **Captions** — reading along, which belongs to neither half, so it trails
  *    on its own.
  *
  * Deliberately NOT here: the BYO text-to-speech / speech-to-text provider forms
  * (they live with every other provider on Models & Services) and the event
  * sound effects (their own Sounds page — they're notification feedback, not
- * voice).
+ * voice). The listening language is the one speech-to-text setting that does
+ * belong: it describes the speaker rather than the service, and someone whose
+ * assistant is mishearing them looks for it here, not among the API keys.
  */
 export function VoicePage() {
   // Honor legacy deep links from when this page carried Sounds and Services
@@ -111,10 +115,7 @@ export function VoicePage() {
 export function VoiceSections() {
   return (
     <div className="flex flex-col gap-8">
-      <VoiceSection
-        heading="Output"
-        description="How your assistant sounds."
-      >
+      <VoiceSection heading="Output" description="How your assistant sounds.">
         <VoicePickerCard />
         <SpeechServicesBanner />
       </VoiceSection>
@@ -124,6 +125,7 @@ export function VoiceSections() {
         description="How you talk to your assistant."
       >
         <MicrophoneCard />
+        <ListeningLanguageCard />
         <PushToTalkCard />
         <ConversationTuningCard />
       </VoiceSection>
@@ -148,7 +150,9 @@ export function VoiceSections() {
 function SpeechServicesBanner() {
   const { available } = useManagedVoiceSelection(useActiveAssistantId());
 
-  if (!available) return null;
+  if (!available) {
+    return null;
+  }
 
   return (
     <div className="flex flex-wrap items-center gap-1.5 px-1 text-body-small-default text-[var(--content-tertiary)]">
@@ -211,17 +215,36 @@ function CaptionsCard() {
   );
 }
 
+/**
+ * Stored value meaning "use whatever the OS picks". Shared with
+ * `voice-input-device.ts`, which reads the same key, so the storage shape
+ * cannot change.
+ */
 const SYSTEM_DEFAULT_DEVICE = "";
+
+/**
+ * Option value standing in for {@link SYSTEM_DEFAULT_DEVICE}. Radix reserves
+ * the empty string, so an option carrying it is discarded and the row would
+ * simply not render. Mapped back at the boundary so storage keeps its shape.
+ */
+const SYSTEM_DEFAULT_OPTION = "__system_default__";
 
 function MicrophoneCard() {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [needsPermission, setNeedsPermission] = useState(false);
+  // Whether the browser has given us a list we can draw conclusions from.
+  // Before the first enumeration resolves, and while permission is withheld
+  // (ids come back redacted and are filtered out), an absent device says
+  // nothing about whether it is plugged in.
+  const [deviceListIsKnown, setDeviceListIsKnown] = useState(false);
   const [deviceId, setDeviceId] = useState<string>(() =>
     getPreferredInputDeviceId(),
   );
 
   const refreshDevices = useCallback(async () => {
-    if (!navigator.mediaDevices?.enumerateDevices) return;
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      return;
+    }
     try {
       const all = await navigator.mediaDevices.enumerateDevices();
       const inputs = all.filter((device) => device.kind === "audioinput");
@@ -242,9 +265,13 @@ function MicrophoneCard() {
             device.deviceId !== "communications",
         ),
       );
+      setDeviceListIsKnown(
+        inputs.length === 0 || inputs.some((d) => !!d.label),
+      );
     } catch {
       setDevices([]);
       setNeedsPermission(false);
+      setDeviceListIsKnown(false);
     }
   }, []);
 
@@ -253,7 +280,9 @@ function MicrophoneCard() {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
       });
-      for (const track of stream.getTracks()) track.stop();
+      for (const track of stream.getTracks()) {
+        track.stop();
+      }
     } catch {
       // Denied or no device — the picker keeps showing System Default.
     }
@@ -263,25 +292,50 @@ function MicrophoneCard() {
   useEffect(() => {
     void refreshDevices();
     const mediaDevices = navigator.mediaDevices;
-    if (!mediaDevices?.addEventListener) return;
+    if (!mediaDevices?.addEventListener) {
+      return;
+    }
     const onDeviceChange = () => void refreshDevices();
     mediaDevices.addEventListener("devicechange", onDeviceChange);
     return () =>
       mediaDevices.removeEventListener("devicechange", onDeviceChange);
   }, [refreshDevices]);
 
-  const options = useMemo(
-    () => [
-      { value: SYSTEM_DEFAULT_DEVICE, label: "System Default" },
-      ...devices.map((device, index) => ({
-        value: device.deviceId,
-        label: device.label || `Microphone ${index + 1}`,
-      })),
-    ],
-    [devices],
-  );
+  const options = useMemo(() => {
+    const live = devices.map((device, index) => ({
+      value: device.deviceId,
+      label: device.label || `Microphone ${index + 1}`,
+    }));
+    // A saved device absent from the list keeps its own row rather than being
+    // displayed as System Default: capture already falls back, so the
+    // preference survives for when the device returns, and showing it is what
+    // makes System Default a real change that can clear it.
+    //
+    // Only claim it is disconnected once the list is worth trusting. An
+    // unresolved or permission-redacted list is empty for reasons that have
+    // nothing to do with the device.
+    const savedIsAbsent =
+      deviceId !== SYSTEM_DEFAULT_DEVICE &&
+      !live.some((option) => option.value === deviceId);
+    return [
+      { value: SYSTEM_DEFAULT_OPTION, label: "System Default" },
+      ...live,
+      ...(savedIsAbsent
+        ? [
+            {
+              value: deviceId,
+              label: deviceListIsKnown
+                ? "Saved microphone (not connected)"
+                : "Saved microphone",
+            },
+          ]
+        : []),
+    ];
+  }, [devices, deviceId, deviceListIsKnown]);
 
-  const handleChange = useCallback((next: string) => {
+  const handleChange = useCallback((option: string) => {
+    const next =
+      option === SYSTEM_DEFAULT_OPTION ? SYSTEM_DEFAULT_DEVICE : option;
     setDeviceId(next);
     if (next === SYSTEM_DEFAULT_DEVICE) {
       removeLocalSetting(LS_VOICE_INPUT_DEVICE);
@@ -290,12 +344,8 @@ function MicrophoneCard() {
     }
   }, []);
 
-  // A saved device that's currently unplugged won't be in the list; show
-  // System Default (capture falls back to it) without clearing the saved
-  // preference, so reconnecting the device picks it back up.
-  const selectedValue = options.some((option) => option.value === deviceId)
-    ? deviceId
-    : SYSTEM_DEFAULT_DEVICE;
+  const selectedValue =
+    deviceId === SYSTEM_DEFAULT_DEVICE ? SYSTEM_DEFAULT_OPTION : deviceId;
 
   return (
     <DetailCard
@@ -304,7 +354,7 @@ function MicrophoneCard() {
     >
       <div className="flex flex-col gap-3">
         <div className="max-w-xs">
-          <Dropdown<string>
+          <Select<string>
             options={options}
             value={selectedValue}
             onChange={handleChange}
@@ -377,10 +427,18 @@ function PushToTalkCard() {
       if (fnPushToTalkConfigurable && event.getModifierState("Fn")) {
         modifiers.push("function");
       }
-      if (event.ctrlKey) modifiers.push("control");
-      if (event.altKey) modifiers.push("option");
-      if (event.shiftKey) modifiers.push("shift");
-      if (event.metaKey) modifiers.push("command");
+      if (event.ctrlKey) {
+        modifiers.push("control");
+      }
+      if (event.altKey) {
+        modifiers.push("option");
+      }
+      if (event.shiftKey) {
+        modifiers.push("shift");
+      }
+      if (event.metaKey) {
+        modifiers.push("command");
+      }
       return modifiers;
     },
     [fnPushToTalkConfigurable],
@@ -427,7 +485,9 @@ function PushToTalkCard() {
 
   const handleCaptureKeyUp = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
-      if (!isRecording) return;
+      if (!isRecording) {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
 
@@ -438,7 +498,9 @@ function PushToTalkCard() {
         key === "Shift" ||
         key === "Meta" ||
         key === "Fn";
-      if (!isModifierOnly) return;
+      if (!isModifierOnly) {
+        return;
+      }
 
       if (nonModifierPressedRef.current) {
         nonModifierPressedRef.current = false;
@@ -458,7 +520,9 @@ function PushToTalkCard() {
   );
 
   useEffect(() => {
-    if (!isRecording) return;
+    if (!isRecording) {
+      return;
+    }
     const handler = (event: MouseEvent) => {
       if (
         recordingZoneRef.current &&
@@ -637,8 +701,9 @@ function ConversationTuningCard() {
             <Slider
               value={(pauseMs ?? DEFAULT_PAUSE_BEFORE_REPLY_MS) / 1000}
               onValueChange={(next) => {
-                if (typeof next === "number")
+                if (typeof next === "number") {
                   setPauseMs(Math.round(next * 1000));
+                }
               }}
               min={MIN_PAUSE_BEFORE_REPLY_MS / 1000}
               max={MAX_PAUSE_BEFORE_REPLY_MS / 1000}

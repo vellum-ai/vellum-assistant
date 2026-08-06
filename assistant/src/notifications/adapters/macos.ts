@@ -18,8 +18,8 @@
  * does not match their own identity.
  */
 
+import type { AssistantEvent } from "../../api/index.js";
 import type { InterfaceId } from "../../channels/types.js";
-import type { AssistantEvent } from "../../daemon/message-protocol.js";
 import { getLogger } from "../../util/logger.js";
 import type {
   ChannelAdapter,
@@ -101,12 +101,15 @@ export class VellumAdapter implements ChannelAdapter {
       this.broadcast({
         type: "notification_intent",
         deliveryId: payload.deliveryId,
+        correlationId: payload.correlationId,
         sourceEventName: payload.sourceEventName,
         title: payload.copy.title,
         body: payload.copy.body,
         deepLinkMetadata: payload.deepLinkTarget,
         targetGuardianPrincipalId,
         silent,
+        remotePushDispatched: payload.remotePushDispatched,
+        remotePushPlatforms: payload.remotePushPlatforms,
       } as AssistantEvent);
 
       log.info(

@@ -15,13 +15,13 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 
 import {
-    assistantsListQueryKey,
-    organizationsBillingSubscriptionRetrieveQueryKey,
+  assistantsListQueryKey,
+  organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { SubscriptionResponse } from "@/generated/api/types.gen";
 
@@ -40,6 +40,13 @@ mock.module("@/hooks/use-platform-gate", () => ({
   usePlatformGate: () => "full",
 }));
 
+let nativeAndroid = false;
+
+mock.module("@/runtime/platform-detection", () => ({
+  isNativeAndroid: () => nativeAndroid,
+  useIsNativeAndroid: () => nativeAndroid,
+}));
+
 const ASSISTANT_ID = "asst-1";
 
 // Seed the selection store so useActiveAssistantId() (called by
@@ -48,9 +55,25 @@ mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => ASSISTANT_ID,
 }));
 
-const { EmailServiceCard } = await import("@/domains/settings/ai/email-service-card");
+// Platform-id resolution is effect-driven and never settles under
+// renderToStaticMarkup; resolve it synchronously so the managed form
+// (and the entitlement gate under test) renders.
+mock.module("@/hooks/use-platform-assistant-id", () => ({
+  usePlatformAssistantId: () => ({
+    platformAssistantId: ASSISTANT_ID,
+    isLoading: false,
+    error: null,
+  }),
+}));
+
+const { EmailServiceCard } =
+  await import("@/domains/settings/ai/email-service-card");
 
 const ASSISTANT_HANDLE = "my-assistant";
+
+beforeEach(() => {
+  nativeAndroid = false;
+});
 
 function makeSubscription(
   managedEmail: boolean,
@@ -71,10 +94,9 @@ function renderCard(subscription: SubscriptionResponse): string {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  client.setQueryData(
-    assistantsListQueryKey(),
-    { results: [{ id: ASSISTANT_ID, handle: ASSISTANT_HANDLE }] },
-  );
+  client.setQueryData(assistantsListQueryKey(), {
+    results: [{ id: ASSISTANT_ID, handle: ASSISTANT_HANDLE }],
+  });
   client.setQueryData(
     organizationsBillingSubscriptionRetrieveQueryKey(),
     subscription,
@@ -107,6 +129,15 @@ describe("EmailServiceCard managed-email gate", () => {
     // The domain registration form renders for entitled orgs.
     expect(html).toContain("Subdomain");
     expect(html).toContain("Register");
+  });
+
+  test("native Android shows website guidance without an upgrade action", () => {
+    nativeAndroid = true;
+    const html = renderCard(makeSubscription(false, "base"));
+
+    expect(html).toContain("Manage your subscription on our website.");
+    expect(html).not.toContain(">Upgrade<");
+    expect(html).not.toContain("/assistant/plans");
   });
 
   test("Successful payload WITHOUT entitlements is treated as unknown and fails open", () => {

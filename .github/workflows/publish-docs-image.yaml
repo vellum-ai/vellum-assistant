@@ -1,0 +1,115 @@
+name: Publish Docs Image
+
+# Builds and publishes the docs-site image to each environment's Artifact
+# Registry, then dispatches the platform repo's docs-cd workflow so the docs
+# Deployment (and nothing else) rolls to the freshly published SHA. Pushes to main publish to dev,
+# staging, and production so every environment's registry always has the
+# latest main build; `workflow_dispatch` republishes (and redeploys) a single
+# chosen environment. The image lives under the existing `sandbox-images` AR
+# repo.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'clients/docs/**'
+      - 'packages/design-library/**'
+      - 'package.json'
+      - 'bun.lock'
+      - 'patches/**'
+      - '.dockerignore'
+      - '.github/workflows/publish-docs-image.yaml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target GitHub environment to publish to.
+        type: choice
+        required: true
+        default: dev
+        options:
+          - dev
+          - staging
+          - production
+
+env:
+  DOCS_IMAGE_NAME: sandbox-images/docs-site
+
+jobs:
+  push-docs-image:
+    runs-on: ubuntu-latest-8-cores
+    timeout-minutes: 30
+    strategy:
+      # A failure in one environment (e.g. missing registry vars) must not
+      # cancel the others.
+      fail-fast: false
+      matrix:
+        environment: ${{ github.event_name == 'push' && fromJSON('["dev", "staging", "production"]') || fromJSON(format('["{0}"]', inputs.environment)) }}
+    permissions:
+      contents: read
+      id-token: write
+    environment: ${{ matrix.environment }}
+    # Cancel superseded publishes per environment: concurrency groups run in
+    # arbitrary order, so cancelling older runs is what guarantees the newest
+    # commit's build is the one that tags `latest`. A cancelled run skips its
+    # SHA tag; only the newest image matters in this registry.
+    concurrency:
+      group: publish-docs-image-${{ matrix.environment }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker ${{ vars.GCP_REGISTRY_HOST }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Compute image name
+        id: image
+        run: |
+          echo "gcp=${{ vars.GCP_REGISTRY_HOST }}/${{ vars.GCP_PROJECT_ID }}/${{ env.DOCS_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+
+      # Single-arch: GKE nodes are amd64, so no multi-arch digest/manifest
+      # dance is needed. The gha cache scope is shared across environments,
+      # so one leg builds and the others reuse its layers.
+      - name: Build and push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: clients/docs/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.image.outputs.gcp }}:${{ github.sha }}
+            ${{ steps.image.outputs.gcp }}:latest
+          cache-from: type=gha,scope=docs-site
+          cache-to: type=gha,mode=max,ignore-error=true,scope=docs-site
+
+      # The dispatch lives inside the matrix leg so each environment deploys
+      # only after its own publish succeeded, and a cancelled (superseded)
+      # publish never triggers a deploy. docs-cd rolls only the docs
+      # Deployment to this SHA — it does not run a full platform Helm deploy.
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+          owner: vellum-ai
+          repositories: vellum-assistant-platform
+
+      - name: Trigger platform docs deploy
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh workflow run docs-cd.yaml \
+            --repo vellum-ai/vellum-assistant-platform \
+            --field environment="${{ matrix.environment }}" \
+            --field docs_image_tag="${{ github.sha }}"

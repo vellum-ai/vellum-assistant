@@ -8,7 +8,7 @@ Each executor is a module exporting `run(input, context)` (the `SkillToolScript`
 
 ## Keeping public docs in sync
 
-A bundled skill's `SKILL.md` is its behavioral source of truth. Skills with a public reference page (`https://www.vellum.ai/docs/skills-reference/<slug>`, authored in the **vellum-assistant-platform** repo) are fingerprinted in `scripts/skill-docs-sync.manifest.json` and enforced by `skill-docs-sync-guard.test.ts`.
+A bundled skill's `SKILL.md` is its behavioral source of truth. Skills with a public reference page (`https://www.vellum.ai/docs/skills-reference/<slug>`, authored in this repo at `clients/docs/src/app/docs/_components/skills-reference-<slug>-content.tsx`) are fingerprinted in `scripts/skill-docs-sync.manifest.json` and enforced by `skill-docs-sync-guard.test.ts`.
 
 When you change a documented skill's `SKILL.md`, the guard fails until you reconcile it:
 

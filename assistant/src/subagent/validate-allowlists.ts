@@ -25,19 +25,22 @@ export interface UnknownAllowlistTool {
 
 /**
  * Pure core: given the set of registered tool names, return every allowlist
- * entry that has no matching registered tool. Roles with no allowlist
- * (`allowedTools: undefined`, e.g. `general`) impose no filter and contribute
- * nothing. Exported for direct unit testing without standing up the real tool
- * registry.
+ * entry that has no matching registered tool. A role with no allowlist
+ * (`allowedTools: undefined`) imposes no filter and contributes nothing.
+ * Exported for direct unit testing without standing up the real tool registry.
  */
 export function findUnknownAllowlistTools(
   registeredToolNames: ReadonlySet<string>,
 ): UnknownAllowlistTool[] {
   const unknown: UnknownAllowlistTool[] = [];
   for (const [role, config] of Object.entries(SUBAGENT_ROLE_REGISTRY)) {
-    if (!config.allowedTools) continue;
+    if (!config.allowedTools) {
+      continue;
+    }
     for (const tool of config.allowedTools) {
-      if (!registeredToolNames.has(tool)) unknown.push({ role, tool });
+      if (!registeredToolNames.has(tool)) {
+        unknown.push({ role, tool });
+      }
     }
   }
   return unknown;

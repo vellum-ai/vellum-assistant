@@ -14,7 +14,10 @@
  *  - editing Name then selecting another model does NOT clobber Name/Key,
  *  - "+ Create new provider" mounts the inline ProviderCreateForm, and a
  *    successful create selects that provider + enables Save once a model is
- *    chosen.
+ *    chosen,
+ *  - every supported provider is offered, unconnected ones chipped with what
+ *    they still need and routed into the inline create form preselected,
+ *  - a rejected activation surfaces the server's own reason.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -26,6 +29,7 @@ import { createElement, type ReactNode } from "react";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { ProviderConnection } from "@/generated/daemon/types.gen";
 import * as sdkGen from "@/generated/daemon/sdk.gen";
+import { ApiError } from "@/utils/api-errors";
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -37,7 +41,7 @@ const initialLifecycleState = useAssistantLifecycleStore.getState();
 
 // Spy on the design-library toast so we can assert the shared ProfileEditorModal
 // does NOT fire a profile-create success toast itself — that toast belongs to
-// the surrounding surface (Settings via ManageProfilesModal, composer via its
+// the surrounding surface (Settings via ProfileDetailPanel, composer via its
 // own quick-add), preventing a double-fire.
 mock.module("@vellumai/design-library/components/toast", () => ({
   toast: {
@@ -82,8 +86,9 @@ mock.module("@/domains/settings/ai/use-provider-credentials-list", () => ({
   }),
 }));
 
-const { ProfileEditorModal } =
-  await import("@/domains/settings/ai/profile-editor-modal");
+const { ProfileEditorModal } = await import(
+  "@/domains/settings/ai/profile-editor-modal"
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -135,7 +140,9 @@ function getSaveBtn(): HTMLButtonElement {
   const btn = document.querySelector<HTMLButtonElement>(
     '[data-testid="modal-save-btn"]',
   );
-  if (!btn) throw new Error("expected a modal-save-btn");
+  if (!btn) {
+    throw new Error("expected a modal-save-btn");
+  }
   return btn;
 }
 
@@ -173,13 +180,67 @@ function pickOption(trigger: HTMLButtonElement, wantedLabel: string): void {
   fireEvent.click(option);
 }
 
+/**
+ * The open listbox as `{ label, meta }` rows. `meta` is the right-aligned
+ * suffix chip ("Managed", "Custom", "Add API key", …), empty when absent.
+ */
+function optionRows(): { label: string; meta: string }[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ).map((o) => {
+    const label = optionLabel(o);
+    const full = (o.textContent ?? "").trim();
+    return { label, meta: full.slice(label.length).trim() };
+  });
+}
+
+/** Labels of the open listbox, in order. */
+function optionLabels(): string[] {
+  return optionRows().map((row) => row.label);
+}
+
+/** Meta chip on supported-but-unconnected, key-based provider rows. */
+const ADD_KEY_META = "Add API key";
+
+/**
+ * Every supported provider a platform-hosted assistant can connect by API key,
+ * in picker order. Ollama is absent (self-hosted only) and custom endpoints are
+ * reached through "+ Create new provider", so neither appears here.
+ */
+const UNCONNECTED_PROVIDER_LABELS = [
+  "Anthropic",
+  "OpenAI",
+  "Google Gemini",
+  "Fireworks",
+  "Together AI",
+  "OpenRouter",
+  "Vercel AI Gateway",
+  "MiniMax",
+  "Atlas Cloud",
+  "LiteLLM",
+  "Baseten",
+  "Poolside",
+];
+
 /** The create-mode Provider dropdown is labelled via `aria-labelledby`. */
 function providerTrigger(): HTMLButtonElement {
   const trigger = document.querySelector<HTMLButtonElement>(
     'button[role="combobox"][aria-labelledby="profile-editor-provider-label"]',
   );
-  if (!trigger) throw new Error("expected the Provider dropdown trigger");
+  if (!trigger) {
+    throw new Error("expected the Provider dropdown trigger");
+  }
   return trigger;
+}
+
+/**
+ * The inline ProviderCreateForm's own Provider dropdown (`aria-label`), or
+ * null — the sub-form omits it when the outer picker preselected the provider.
+ */
+function createFormProviderTrigger(): HTMLButtonElement | null {
+  return document.querySelector<HTMLButtonElement>(
+    'button[role="combobox"][aria-label="Provider"]',
+  );
 }
 
 /** Selects a provider in the create-mode Provider dropdown, then a model in
@@ -194,7 +255,9 @@ function selectModel(label: string): void {
   // helper robust to the optional Connection dropdown appearing alongside it.
   const provTrigger = providerTrigger();
   for (const trigger of dropdownTriggers()) {
-    if (trigger === provTrigger) continue;
+    if (trigger === provTrigger) {
+      continue;
+    }
     fireEvent.click(trigger);
     const option = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
@@ -234,6 +297,7 @@ function renderEdit(
   initialValues: Record<string, unknown>,
   onSave: (name: string, entry: unknown) => Promise<void> = () =>
     Promise.resolve(),
+  connections: ProviderConnection[] = [makeConnection("anthropic-personal")],
 ) {
   return render(
     <Wrapper>
@@ -243,7 +307,7 @@ function renderEdit(
         profileName={(initialValues.name as string) ?? "balanced"}
         initialValues={initialValues as never}
         existingNames={[(initialValues.name as string) ?? "balanced"]}
-        connections={[makeConnection("anthropic-personal")]}
+        connections={connections}
         assistantId={ASSISTANT_ID}
         onSave={onSave}
         onCancel={() => {}}
@@ -294,7 +358,9 @@ function findSwitchByLabel(label: string): HTMLButtonElement | null {
 /** The Top P toggle is a switch labelled (via aria-labelledby) "Top P". */
 function topPSwitch(): HTMLButtonElement {
   const sw = findSwitchByLabel("Top P");
-  if (!sw) throw new Error("expected a Top P switch");
+  if (!sw) {
+    throw new Error("expected a Top P switch");
+  }
   return sw;
 }
 
@@ -313,7 +379,9 @@ function findTopPSlider(): HTMLElement | null {
 
 function topPSlider(): HTMLElement {
   const slider = findTopPSlider();
-  if (!slider) throw new Error("expected a Top P slider (aria-valuemax=1)");
+  if (!slider) {
+    throw new Error("expected a Top P slider (aria-valuemax=1)");
+  }
   return slider;
 }
 
@@ -334,15 +402,17 @@ beforeEach(async () => {
   // Seed a hydrated pre-gate version: the save path awaits
   // whenAssistantVersionKnown(), and an unhydrated store would stall each
   // save until that helper's timeout. Gate-on tests override per-test.
-  const { useAssistantIdentityStore } =
-    await import("@/stores/assistant-identity-store");
+  const { useAssistantIdentityStore } = await import(
+    "@/stores/assistant-identity-store"
+  );
   useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.11");
 });
 
 afterEach(async () => {
   cleanup();
-  const { useAssistantIdentityStore } =
-    await import("@/stores/assistant-identity-store");
+  const { useAssistantIdentityStore } = await import(
+    "@/stores/assistant-identity-store"
+  );
   useAssistantIdentityStore.getState().clearIdentity();
 });
 
@@ -351,22 +421,23 @@ afterEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe("ProfileEditorModal create mode — provider-first", () => {
-  test("keeps Name and Key inside Advanced in create mode", () => {
+  test("Name is top-level in create mode; Key stays inside Advanced (LUM-2881)", () => {
     renderCreate([makeConnection("anthropic-personal")]);
+
+    // The Name field renders before any provider/model is picked - it is
+    // top-level, never inside the Advanced disclosure.
+    expect(getInputByPlaceholder("e.g. Fast & Cheap")).toBeDefined();
 
     selectProvider("Anthropic");
     selectModel("Claude Opus 4.8");
 
-    expect(
-      document.querySelector('input[placeholder="e.g. Fast & Cheap"]'),
-    ).toBeNull();
+    expect(getInputByPlaceholder("e.g. Fast & Cheap")).toBeDefined();
     expect(
       document.querySelector('input[placeholder="e.g. fast-cheap"]'),
     ).toBeNull();
 
     fireEvent.click(getButton("Advanced"));
 
-    expect(getInputByPlaceholder("e.g. Fast & Cheap")).toBeDefined();
     expect(getInputByPlaceholder("e.g. fast-cheap")).toBeDefined();
   });
 
@@ -428,26 +499,37 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     );
   });
 
-  test("first-run empty state shows only the create-new-provider option", () => {
+  test("first-run empty state offers every supported provider, each flagged as needing a key", () => {
+    // Nothing is connected yet, so every supported provider is listed as a
+    // "connect me" entry — a supported provider must never be invisible just
+    // because no connection exists for it (Google Gemini, in the report).
     renderCreate([]);
     fireEvent.click(providerTrigger());
-    const optionLabels = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).map((o) => optionLabel(o));
-    expect(optionLabels).toEqual(["+ Create new provider"]);
+    expect(optionLabels()).toEqual([
+      ...UNCONNECTED_PROVIDER_LABELS,
+      "+ Create new provider",
+    ]);
+    expect(optionLabels()).toContain("Google Gemini");
+    // Each carries the chip naming what it still needs.
+    expect(
+      optionRows()
+        .filter((row) => row.label !== "+ Create new provider")
+        .every((row) => row.meta === ADD_KEY_META),
+    ).toBe(true);
   });
 
-  test("the Vellum-managed connection surfaces every managed-routable provider", () => {
+  test("the Vellum-managed connection leads, with the unconnected providers behind it", () => {
     // A platform-hosted user's only connection is the single provider-agnostic
-    // `vellum` connection. It must expand into the managed-routable providers
-    // so the picker isn't limited to "+ Create new provider".
+    // `vellum` connection. It leads the list as one entry (never the managed
+    // upstreams it routes to); BYOK providers follow as connect-me entries.
     renderCreate([makeConnection("vellum-managed", "vellum")]);
     fireEvent.click(providerTrigger());
-    const optionLabels = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).map((o) => optionLabel(o));
-    // A single Vellum entry — never the managed upstreams it routes to.
-    expect(optionLabels).toEqual(["Vellum", "+ Create new provider"]);
+    expect(optionRows()[0]).toEqual({ label: "Vellum", meta: "Managed" });
+    expect(optionLabels()).toEqual([
+      "Vellum",
+      ...UNCONNECTED_PROVIDER_LABELS,
+      "+ Create new provider",
+    ]);
   });
 
   test("selecting Vellum saves the model's managed upstream bound to the vellum connection", async () => {
@@ -526,12 +608,16 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     // Both endpoints are individual entries; no generic collapsed entry and
     // no second field.
     fireEvent.click(providerTrigger());
-    const optionLabels = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).map((o) => optionLabel(o));
-    expect(optionLabels).toEqual([
+    expect(optionRows().slice(0, 2)).toEqual([
+      { label: "lm-studio", meta: "Custom" },
+      { label: "vllm-box", meta: "Custom" },
+    ]);
+    // The unconnected providers follow, and the create entry still closes the
+    // list — "OpenAI-compatible" is never offered as a bare protocol entry.
+    expect(optionLabels()).toEqual([
       "lm-studio",
       "vllm-box",
+      ...UNCONNECTED_PROVIDER_LABELS,
       "+ Create new provider",
     ]);
     fireEvent.click(
@@ -557,8 +643,9 @@ describe("ProfileEditorModal create mode — provider-first", () => {
   });
 
   test("a new-enough assistant gets the identity payload: provider vellum, no binding", async () => {
-    const { useAssistantIdentityStore } =
-      await import("@/stores/assistant-identity-store");
+    const { useAssistantIdentityStore } = await import(
+      "@/stores/assistant-identity-store"
+    );
     useAssistantIdentityStore
       .getState()
       .setIdentity("test-asst", "0.10.12", ASSISTANT_ID);
@@ -590,8 +677,9 @@ describe("ProfileEditorModal create mode — provider-first", () => {
   });
 
   test("an older assistant keeps the legacy payload byte-identical", async () => {
-    const { useAssistantIdentityStore } =
-      await import("@/stores/assistant-identity-store");
+    const { useAssistantIdentityStore } = await import(
+      "@/stores/assistant-identity-store"
+    );
     useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.11");
     try {
       const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
@@ -875,15 +963,20 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     ).toBe(false);
   });
 
-  test("a BYOK connection surfaces its own provider", () => {
+  test("a BYOK connection surfaces its own provider, unchipped and listed once", () => {
     // A self-hosted user who entered an Anthropic API key gets an `anthropic`
-    // connection, which must surface Anthropic as a selectable provider.
+    // connection, which must surface Anthropic as a ready-to-use provider —
+    // leading the list, with no "needs a key" chip and no duplicate entry in
+    // the unconnected tail.
     renderCreate([makeConnection("anthropic-personal", "anthropic")]);
     fireEvent.click(providerTrigger());
-    const optionLabels = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).map((o) => optionLabel(o));
-    expect(optionLabels).toEqual(["Anthropic", "+ Create new provider"]);
+    expect(optionRows()[0]).toEqual({ label: "Anthropic", meta: "" });
+    expect(optionLabels().filter((l) => l === "Anthropic")).toHaveLength(1);
+    expect(optionLabels()).toEqual([
+      "Anthropic",
+      ...UNCONNECTED_PROVIDER_LABELS.filter((l) => l !== "Anthropic"),
+      "+ Create new provider",
+    ]);
   });
 
   test("a provider unknown to the catalog shows an explicit empty-model state", () => {
@@ -937,10 +1030,26 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     fireEvent.click(providerTrigger());
 
-    const optionLabels = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).map((o) => optionLabel(o));
-    expect(optionLabels).toEqual(["+ Create new provider"]);
+    // Neither as a connected entry (the connection exists but can't be reached
+    // from a platform-hosted assistant) nor as a connect-me entry.
+    expect(optionLabels()).not.toContain("Ollama");
+    expect(optionLabels()).toEqual([
+      ...UNCONNECTED_PROVIDER_LABELS,
+      "+ Create new provider",
+    ]);
+  });
+
+  test("a self-hosted assistant offers unconnected Ollama as a keyless set-up entry", () => {
+    // Ollama serves a local endpoint with no credential, so its chip must not
+    // promise an API key step it never asks for.
+    useAssistantLifecycleStore.setState({
+      assistantState: { kind: "self_hosted" },
+    });
+    renderCreate([]);
+
+    fireEvent.click(providerTrigger());
+
+    expect(optionRows()).toContainEqual({ label: "Ollama", meta: "Set up" });
   });
 
   test("+ Create new provider mounts ProviderCreateForm; successful create selects it and Save enables after a model", async () => {
@@ -970,6 +1079,108 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     await waitFor(() => {
       expect(getSaveBtn().disabled).toBe(false);
     });
+  });
+
+  test("picking an unconnected provider opens the inline create form preselected on it", () => {
+    renderCreate([makeConnection("anthropic-personal", "anthropic")]);
+
+    selectProvider("Google Gemini");
+
+    // The sub-form is mounted with Gemini already fixed, so the user lands
+    // directly on the API-key field with no second Provider dropdown — the
+    // outer picker is the single place the provider reads.
+    expect(createFormProviderTrigger()).toBeNull();
+    expect(getInputByPlaceholder("Enter your API key")).toBeDefined();
+    expect(optionLabel(providerTrigger())).toBe("Google Gemini");
+  });
+
+  test("switching to another unconnected provider re-seeds the inline create form", () => {
+    renderCreate([]);
+
+    selectProvider("Google Gemini");
+    // Gemini's credential ref is seeded into the remounted sub-form.
+    expect(getInputByPlaceholder("Enter your API key")).toBeDefined();
+    expect(optionLabel(providerTrigger())).toBe("Google Gemini");
+
+    selectProvider("OpenRouter");
+    expect(getInputByPlaceholder("Enter your API key")).toBeDefined();
+    expect(optionLabel(providerTrigger())).toBe("OpenRouter");
+  });
+
+  test("the generic create-new-provider entry keeps the sub-form's own Provider dropdown", () => {
+    renderCreate([]);
+
+    selectProvider("+ Create new provider");
+
+    const trigger = createFormProviderTrigger();
+    expect(trigger).not.toBeNull();
+  });
+
+  test("connecting a preselected provider binds it and continues the profile flow", async () => {
+    createdConnection = makeConnection("gemini", "gemini");
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+    renderCreate([], onSave);
+
+    selectProvider("Google Gemini");
+    fireEvent.change(getInputByPlaceholder("Enter your API key"), {
+      target: { value: "test-key-123" },
+    });
+    fireEvent.click(getButton("Add"));
+
+    // The sub-form collapses and the new connection is bound to the profile.
+    await waitFor(() => {
+      expect(document.body.textContent).toContain(
+        "New provider connection will show up in the Providers section.",
+      );
+    });
+
+    selectModel("Gemini 3.6 Flash");
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.provider).toBe("gemini");
+    expect(saveCalls[0].entry.provider_connection).toBe("gemini");
+  });
+
+  test("cancelling the inline create leaves the profile without a provider", () => {
+    renderCreate([]);
+
+    selectProvider("Google Gemini");
+    // The sub-form's own Cancel, not the modal footer's.
+    const inlineCancel = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    ).find(
+      (b) =>
+        b.textContent?.trim() === "Cancel" &&
+        b.getAttribute("data-testid") !== "modal-cancel-btn",
+    );
+    fireEvent.click(inlineCancel!);
+
+    // No connection was created, so the profile must not be left bound to a
+    // route the daemon can't dispatch through — Save stays blocked.
+    expect(getSaveBtn().disabled).toBe(true);
+    expect(providerTrigger().textContent?.trim()).toBe("Select a provider…");
+  });
+
+  test("a connected provider is selected directly, without the create form", () => {
+    renderCreate([makeConnection("anthropic-personal", "anthropic")]);
+
+    selectProvider("Anthropic");
+
+    expect(
+      document.querySelector('input[placeholder="Enter your API key"]'),
+    ).toBeNull();
+    selectModel("Claude Opus 4.8");
+    expect(optionLabel(providerTrigger())).toBe("Anthropic");
   });
 
   test("inline-create then immediate save persists the new provider_connection (no race)", async () => {
@@ -1270,6 +1481,9 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       fireEvent.click(trigger);
       return labels;
     });
+    expect(optionLabels).toContain("GPT-5.6 Sol");
+    expect(optionLabels).toContain("GPT-5.6 Terra");
+    expect(optionLabels).toContain("GPT-5.6 Luna");
     expect(optionLabels).toContain("GPT-5.5");
     expect(optionLabels).not.toContain("GPT-5.5 Pro");
   });
@@ -1568,6 +1782,47 @@ describe("ProfileEditorModal — invariant managed profiles in view mode", () =>
     expect(saveCalls[0].options?.mode).toBe("merge");
   });
 
+  test("a rejected re-enable surfaces the server's reason verbatim", async () => {
+    // The daemon rejects activating a profile it can't dispatch through with a
+    // 400 naming what's missing. Generic retry copy would send the user round
+    // the same failing loop, so the server's message wins.
+    const onSave = () =>
+      Promise.reject(
+        new ApiError(400, 'No API key for provider "gemini". Add one first.'),
+      );
+
+    renderView({ ...invariantProfile, status: "disabled" }, onSave);
+
+    fireEvent.click(findSwitchByLabel("Active")!);
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain(
+        'No API key for provider "gemini". Add one first.',
+      );
+    });
+    expect(document.body.textContent).not.toContain(
+      "Failed to save profile. Please try again.",
+    );
+  });
+
+  test("a non-400 failure keeps the generic retry copy", async () => {
+    // A 500 carries internal detail — the modal must not leak it.
+    const onSave = () => Promise.reject(new ApiError(500, "boom: db offline"));
+
+    renderView({ ...invariantProfile, status: "disabled" }, onSave);
+
+    fireEvent.click(findSwitchByLabel("Active")!);
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain(
+        "Failed to save profile. Please try again.",
+      );
+    });
+    expect(document.body.textContent).not.toContain("boom: db offline");
+  });
+
   test("Save As New from an invariant profile yields a fully editable create form", () => {
     renderView(invariantProfile);
 
@@ -1584,5 +1839,72 @@ describe("ProfileEditorModal — invariant managed profiles in view mode", () =>
     expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(false);
     expect(getInputByPlaceholder("e.g. fast-cheap").disabled).toBe(false);
     expect(findSwitchByLabel("Active")).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Why Save is disabled (LUM-3076)
+// ---------------------------------------------------------------------------
+
+describe("ProfileEditorModal: explains why Save is blocked", () => {
+  /**
+   * Field errors are announced, so assert on the alert rather than on page
+   * text: "Select a provider" is also the picker's placeholder, and matching
+   * that would pass with no error rendered at all.
+   */
+  function fieldErrors(): string[] {
+    return Array.from(
+      document.querySelectorAll<HTMLElement>('[role="alert"]'),
+    ).map((el) => el.textContent?.trim() ?? "");
+  }
+
+  test("a profile missing its provider says so on open", () => {
+    // The Profiles row for an unusable profile links here saying "Click to
+    // fix", so the reason has to be on screen before the user touches
+    // anything. A disabled Save with no message is the bug.
+    renderEdit({ name: "half-built", provider: "", model: "" });
+
+    expect(fieldErrors()).toContain("Select a provider");
+    expect(getSaveBtn().disabled).toBe(true);
+  });
+
+  test("a complete profile raises no field error", () => {
+    renderEdit({
+      name: "balanced",
+      provider: "anthropic",
+      model: "claude-opus-5",
+    });
+
+    expect(fieldErrors()).toEqual([]);
+  });
+
+  test("with no connections at all, the error is the way out", () => {
+    // The blocking reason and the fix are the same fact here. Passing the
+    // hint as helper text would hide it, since the field shows one message
+    // and the error wins, leaving the user staring at "Select a provider"
+    // above an empty list.
+    renderEdit({ name: "half-built" }, undefined, []);
+
+    expect(fieldErrors()).toContain(
+      "No provider connections. Open Providers to add one.",
+    );
+    expect(fieldErrors()).not.toContain("Select a provider");
+  });
+
+  test("a locked profile is not told to fix a field it cannot edit", () => {
+    // `invariant` forces read-only even in edit mode, so `effectiveMode` is
+    // still "edit" and the error would otherwise render above a disabled
+    // picker. Matches how `keyError` is already suppressed for these.
+    renderEdit({ name: "my-managed", invariant: true });
+
+    expect(fieldErrors()).toEqual([]);
+  });
+
+  test("an untouched create form does not scold the user for empty fields", () => {
+    // Everything is empty because the user just opened it, not because they
+    // did anything wrong.
+    renderCreate([makeConnection("anthropic")]);
+
+    expect(fieldErrors()).toEqual([]);
   });
 });

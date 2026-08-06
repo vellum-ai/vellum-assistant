@@ -22,6 +22,10 @@
  *   action that removes from `processingConversationIds`, so the two
  *   collections stay in sync.
  * - `attentionConversationIds` — conversations with pending interactions
+ * - `draftConversationIds`: ids minted client-side that have no server row
+ *   yet, so surfaces can tell "this conversation is empty because it is brand
+ *   new" apart from "this conversation is empty because history is still
+ *   loading" (see the field doc below)
  * - `pendingDraftProfiles` — model profiles picked in the composer for
  *   conversations whose row isn't loaded yet (drafts, or URL-opened
  *   conversations mid-load), keyed by conversation id (see field doc below)
@@ -44,14 +48,18 @@ import { createSelectors } from "@/utils/create-selectors";
 // ---------------------------------------------------------------------------
 
 function addToSet<T>(prev: Set<T>, key: T): Set<T> {
-  if (prev.has(key)) return prev;
+  if (prev.has(key)) {
+    return prev;
+  }
   const next = new Set(prev);
   next.add(key);
   return next;
 }
 
 function removeFromSet<T>(prev: Set<T>, key: T): Set<T> {
-  if (!prev.has(key)) return prev;
+  if (!prev.has(key)) {
+    return prev;
+  }
   const next = new Set(prev);
   next.delete(key);
   return next;
@@ -59,21 +67,30 @@ function removeFromSet<T>(prev: Set<T>, key: T): Set<T> {
 
 function addOrRemoveFromSet<T>(prev: Set<T> | undefined, key: T): Set<T> {
   const next = new Set(prev);
-  if (next.has(key)) next.delete(key);
-  else next.add(key);
+  if (next.has(key)) {
+    next.delete(key);
+  } else {
+    next.add(key);
+  }
   return next;
 }
 
 function removeMultipleFromSet<T>(prev: Set<T>, keys: T[]): Set<T> {
   const toRemove = keys.filter((k) => prev.has(k));
-  if (toRemove.length === 0) return prev;
+  if (toRemove.length === 0) {
+    return prev;
+  }
   const next = new Set(prev);
-  for (const k of toRemove) next.delete(k);
+  for (const k of toRemove) {
+    next.delete(k);
+  }
   return next;
 }
 
 function deleteFromMap<K, V>(prev: Map<K, V>, key: K): Map<K, V> {
-  if (!prev.has(key)) return prev;
+  if (!prev.has(key)) {
+    return prev;
+  }
   const next = new Map(prev);
   next.delete(key);
   return next;
@@ -89,6 +106,18 @@ export interface ConversationListState {
   processingConversationIds: Set<string>;
   processingSnapshots: Map<string, number | undefined>;
   attentionConversationIds: Set<string>;
+  /**
+   * Conversation ids minted by `createDraftConversationId()` that have not been
+   * resolved against the server yet. A draft key is a client invention: nothing
+   * exists under it until the first message is sent, so there is no history to
+   * wait for and no transcript skeleton to show.
+   *
+   * Registered at the mint site and cleared once a send resolves the key (see
+   * `use-send-message`). Session-scoped by design: a reload starts with an
+   * empty set, so a key that survived in the URL is treated as a real
+   * conversation and loads its history normally.
+   */
+  draftConversationIds: Set<string>;
   /**
    * Model profiles picked in the composer for conversations that have no server
    * row loaded yet, keyed by conversation id → profile name. Two situations
@@ -126,7 +155,10 @@ export interface ConversationListActions {
   setEditingConversationId: (conversationId: string | null) => void;
 
   // --- Processing conversation ids (and their snapshots, kept atomic) ---
-  addProcessingConversationId: (conversationId: string, snapshot?: number) => void;
+  addProcessingConversationId: (
+    conversationId: string,
+    snapshot?: number,
+  ) => void;
   /**
    * Idempotent "this conversation is mid-turn" mark for SSE start events.
    * Like `addProcessingConversationId` but tolerant of repeat firings
@@ -142,7 +174,10 @@ export interface ConversationListActions {
    * No-op when the id is already in the set and a snapshot is already
    * recorded.
    */
-  markConversationProcessing: (conversationId: string, snapshot?: number) => void;
+  markConversationProcessing: (
+    conversationId: string,
+    snapshot?: number,
+  ) => void;
   removeProcessingConversationId: (conversationId: string) => void;
   removeMultipleProcessingConversationIds: (conversationIds: string[]) => void;
   transferProcessingConversationId: (
@@ -154,13 +189,21 @@ export interface ConversationListActions {
   addAttentionConversationId: (conversationId: string) => void;
   removeAttentionConversationId: (conversationId: string) => void;
 
+  // --- Draft conversation ids ---
+  registerDraftConversationId: (conversationId: string) => void;
+  /** Drop the draft mark once the key resolves server-side (no-op when absent). */
+  clearDraftConversationId: (conversationId: string) => void;
+
   // --- Pending draft profiles ---
   setPendingDraftProfile: (conversationId: string, profile: string) => void;
   /** Remove the stash for a single conversation id (no-op when absent). */
   clearPendingDraftProfile: (conversationId: string) => void;
 
   // --- Pending draft plugins ---
-  setPendingDraftPlugins: (conversationId: string, plugins: Set<string>) => void;
+  setPendingDraftPlugins: (
+    conversationId: string,
+    plugins: Set<string>,
+  ) => void;
   /** Add/remove a plugin id from the draft's set, creating it if absent. */
   togglePendingDraftPlugin: (conversationId: string, name: string) => void;
   /** Remove the stash for a single conversation id (no-op when absent). */
@@ -184,6 +227,7 @@ const INITIAL_STATE: ConversationListState = {
   processingConversationIds: new Set(),
   processingSnapshots: new Map(),
   attentionConversationIds: new Set(),
+  draftConversationIds: new Set(),
   pendingDraftProfiles: new Map(),
   pendingDraftPlugins: new Map(),
 };
@@ -213,7 +257,10 @@ export const useConversationStore = createSelectors(
       const nextSnapshots = new Map(processingSnapshots);
       nextSnapshots.set(conversationId, snapshot);
       set({
-        processingConversationIds: addToSet(processingConversationIds, conversationId),
+        processingConversationIds: addToSet(
+          processingConversationIds,
+          conversationId,
+        ),
         processingSnapshots: nextSnapshots,
       });
     },
@@ -223,7 +270,9 @@ export const useConversationStore = createSelectors(
       const alreadyInSet = processingConversationIds.has(conversationId);
       const alreadyHasSnapshot = processingSnapshots.has(conversationId);
       // Already fully tracked — no work.
-      if (alreadyInSet && alreadyHasSnapshot) return;
+      if (alreadyInSet && alreadyHasSnapshot) {
+        return;
+      }
       const nextSnapshots = alreadyHasSnapshot
         ? processingSnapshots
         : new Map(processingSnapshots).set(conversationId, snapshot);
@@ -237,8 +286,14 @@ export const useConversationStore = createSelectors(
 
     removeProcessingConversationId: (conversationId) => {
       set({
-        processingConversationIds: removeFromSet(get().processingConversationIds, conversationId),
-        processingSnapshots: deleteFromMap(get().processingSnapshots, conversationId),
+        processingConversationIds: removeFromSet(
+          get().processingConversationIds,
+          conversationId,
+        ),
+        processingSnapshots: deleteFromMap(
+          get().processingSnapshots,
+          conversationId,
+        ),
       });
     },
 
@@ -257,9 +312,14 @@ export const useConversationStore = createSelectors(
       });
     },
 
-    transferProcessingConversationId: (oldConversationId, newConversationId) => {
+    transferProcessingConversationId: (
+      oldConversationId,
+      newConversationId,
+    ) => {
       const { processingConversationIds, processingSnapshots } = get();
-      if (!processingConversationIds.has(oldConversationId)) return;
+      if (!processingConversationIds.has(oldConversationId)) {
+        return;
+      }
       const nextIds = new Set(processingConversationIds);
       nextIds.delete(oldConversationId);
       nextIds.add(newConversationId);
@@ -267,13 +327,21 @@ export const useConversationStore = createSelectors(
       const snapshot = nextSnapshots.get(oldConversationId);
       nextSnapshots.delete(oldConversationId);
       nextSnapshots.set(newConversationId, snapshot);
-      set({ processingConversationIds: nextIds, processingSnapshots: nextSnapshots });
+      set({
+        processingConversationIds: nextIds,
+        processingSnapshots: nextSnapshots,
+      });
     },
 
     // --- Attention conversation ids ---
 
     addAttentionConversationId: (conversationId) => {
-      set({ attentionConversationIds: addToSet(get().attentionConversationIds, conversationId) });
+      set({
+        attentionConversationIds: addToSet(
+          get().attentionConversationIds,
+          conversationId,
+        ),
+      });
     },
 
     removeAttentionConversationId: (conversationId) => {
@@ -285,12 +353,36 @@ export const useConversationStore = createSelectors(
       });
     },
 
+    // --- Draft conversation ids ---
+
+    registerDraftConversationId: (conversationId) => {
+      set({
+        draftConversationIds: addToSet(
+          get().draftConversationIds,
+          conversationId,
+        ),
+      });
+    },
+
+    clearDraftConversationId: (conversationId) => {
+      set({
+        draftConversationIds: removeFromSet(
+          get().draftConversationIds,
+          conversationId,
+        ),
+      });
+    },
+
     // --- Pending draft profiles ---
 
     setPendingDraftProfile: (conversationId, profile) => {
       const current = get().pendingDraftProfiles;
-      if (current.get(conversationId) === profile) return;
-      set({ pendingDraftProfiles: new Map(current).set(conversationId, profile) });
+      if (current.get(conversationId) === profile) {
+        return;
+      }
+      set({
+        pendingDraftProfiles: new Map(current).set(conversationId, profile),
+      });
     },
 
     clearPendingDraftProfile: (conversationId) => {
@@ -298,7 +390,9 @@ export const useConversationStore = createSelectors(
       // No-op when absent so subscribers don't re-render needlessly. Scoped to
       // a single id so a send (or promotion) that resolves after the user moved
       // to another draft can't wipe the newer draft's selection.
-      if (!current.has(conversationId)) return;
+      if (!current.has(conversationId)) {
+        return;
+      }
       const next = new Map(current);
       next.delete(conversationId);
       set({ pendingDraftProfiles: next });
@@ -308,14 +402,20 @@ export const useConversationStore = createSelectors(
 
     setPendingDraftPlugins: (conversationId, plugins) => {
       set({
-        pendingDraftPlugins: new Map(get().pendingDraftPlugins).set(conversationId, plugins),
+        pendingDraftPlugins: new Map(get().pendingDraftPlugins).set(
+          conversationId,
+          plugins,
+        ),
       });
     },
 
     togglePendingDraftPlugin: (conversationId, name) => {
       const current = get().pendingDraftPlugins;
       const next = new Map(current);
-      next.set(conversationId, addOrRemoveFromSet(current.get(conversationId), name));
+      next.set(
+        conversationId,
+        addOrRemoveFromSet(current.get(conversationId), name),
+      );
       set({ pendingDraftPlugins: next });
     },
 
@@ -324,7 +424,9 @@ export const useConversationStore = createSelectors(
       // No-op when absent so subscribers don't re-render needlessly. Scoped to
       // a single id so a send that resolves after the user moved to another
       // draft can't wipe the newer draft's selection.
-      if (!current.has(conversationId)) return;
+      if (!current.has(conversationId)) {
+        return;
+      }
       const next = new Map(current);
       next.delete(conversationId);
       set({ pendingDraftPlugins: next });
@@ -332,13 +434,19 @@ export const useConversationStore = createSelectors(
 
     // --- Compound ---
 
-    graduateProcessingConversationId: (conversationId, hasPendingInteraction) => {
+    graduateProcessingConversationId: (
+      conversationId,
+      hasPendingInteraction,
+    ) => {
       set((state) => ({
         processingConversationIds: removeFromSet(
           state.processingConversationIds,
           conversationId,
         ),
-        processingSnapshots: deleteFromMap(state.processingSnapshots, conversationId),
+        processingSnapshots: deleteFromMap(
+          state.processingSnapshots,
+          conversationId,
+        ),
         attentionConversationIds: hasPendingInteraction
           ? addToSet(state.attentionConversationIds, conversationId)
           : state.attentionConversationIds,
@@ -353,6 +461,7 @@ export const useConversationStore = createSelectors(
         processingConversationIds: new Set(),
         processingSnapshots: new Map(),
         attentionConversationIds: new Set(),
+        draftConversationIds: new Set(),
         pendingDraftProfiles: new Map(),
         pendingDraftPlugins: new Map(),
       });

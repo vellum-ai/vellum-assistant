@@ -170,6 +170,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "messaging/providers/slack/api.ts", // Slack Web API client (bot token for direct sends)
       "messaging/providers/telegram-bot/api.ts", // Telegram Bot API client (bot token for direct sends)
       "runtime/channel-readiness-service.ts", // channel readiness probes for Telegram connectivity
+      "telegram/webhook-health.ts", // Telegram webhook health sweep — reads bot_token to call getWebhookInfo (Bot API authenticates via the token in the URL path) and checks webhook_secret for existence only; neither value is logged, persisted, or returned
       "messaging/providers/whatsapp/adapter.ts", // WhatsApp credential lookup for connectivity check
       "messaging/providers/whatsapp/api.ts", // WhatsApp Cloud API client (bot token for direct sends)
       "messaging/providers/slack/adapter.ts", // Slack bot token lookup for Socket Mode connectivity check
@@ -247,7 +248,9 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
     function collectTsFiles(dir: string, files: string[] = []): string[] {
       for (const entry of readdirSync(dir)) {
         const full = join(dir, entry);
-        if (entry === "__tests__" || entry === "node_modules") continue;
+        if (entry === "__tests__" || entry === "node_modules") {
+          continue;
+        }
         const s = statSync(full);
         if (s.isDirectory()) {
           collectTsFiles(full, files);

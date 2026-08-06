@@ -119,8 +119,11 @@ describe("buildSystemPrompt — default persona trust-class guardrail", () => {
   });
 
   afterEach(() => {
-    if (priorAuthEnv === undefined) delete process.env.DISABLE_HTTP_AUTH;
-    else process.env.DISABLE_HTTP_AUTH = priorAuthEnv;
+    if (priorAuthEnv === undefined) {
+      delete process.env.DISABLE_HTTP_AUTH;
+    } else {
+      process.env.DISABLE_HTTP_AUTH = priorAuthEnv;
+    }
   });
 
   test("stranger (unknown) sees the guardrail and the stranger greeting", () => {

@@ -89,7 +89,9 @@ export async function fetchBackgroundTasks(
       query: { conversationId },
       throwOnError: false,
     });
-    if (!response?.ok || !data?.tools) return null;
+    if (!response?.ok || !data?.tools) {
+      return null;
+    }
     return {
       active: data.tools.map(toTaskEntry),
       completed: (data.completed ?? []).map(toCompletedTaskEntry),
@@ -120,10 +122,14 @@ export function applyBackgroundTaskSnapshot(
   snapshot: BackgroundTaskSnapshot | null,
   knownIds: string[],
 ): void {
-  if (snapshot === null) return;
+  if (snapshot === null) {
+    return;
+  }
   const store = useBackgroundTaskStore.getState();
   const seedable = [...snapshot.active, ...snapshot.completed];
-  if (seedable.length > 0) store.seedFromHistory(seedable);
+  if (seedable.length > 0) {
+    store.seedFromHistory(seedable);
+  }
   // Only the still-active ids count as "present"; a completed entry was seeded
   // terminal above, so retireMissing skips it (not an active status) regardless.
   store.retireMissing(
@@ -138,11 +144,15 @@ export function useBackgroundTaskRehydration(
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
 
   useEffect(() => {
-    if (!assistantId || !conversationId) return;
+    if (!assistantId || !conversationId) {
+      return;
+    }
     let cancelled = false;
     const knownIds = knownTaskIdsFor(conversationId);
     void fetchBackgroundTasks(assistantId, conversationId).then((snapshot) => {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       applyBackgroundTaskSnapshot(snapshot, knownIds);
     });
     return () => {
@@ -158,14 +168,22 @@ export function useBackgroundTaskRehydration(
   useBusSubscription(
     "sse.opened",
     ({ assistantId: openedAssistantId, cause }) => {
-      if (cause === "fresh" || cause === "anchor") return;
-      if (!assistantId || !conversationId || openedAssistantId !== assistantId) {
+      if (cause === "fresh" || cause === "anchor") {
+        return;
+      }
+      if (
+        !assistantId ||
+        !conversationId ||
+        openedAssistantId !== assistantId
+      ) {
         return;
       }
       const knownIds = knownTaskIdsFor(conversationId);
-      void fetchBackgroundTasks(assistantId, conversationId).then((snapshot) => {
-        applyBackgroundTaskSnapshot(snapshot, knownIds);
-      });
+      void fetchBackgroundTasks(assistantId, conversationId).then(
+        (snapshot) => {
+          applyBackgroundTaskSnapshot(snapshot, knownIds);
+        },
+      );
     },
   );
 }

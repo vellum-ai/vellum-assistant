@@ -59,7 +59,9 @@ export function getInjected(
   conversationId: string,
 ): Map<string, EverInjectedEntry> {
   const mdb = memoryDbOrNull("getInjected");
-  if (!mdb) return new Map();
+  if (!mdb) {
+    return new Map();
+  }
   const rows = mdb
     .select({
       slug: memoryV3EverInjected.slug,
@@ -78,7 +80,9 @@ export function getInjected(
 /** The injection dedup set: slugs whose cards are currently resident. */
 export function getActiveSlugs(conversationId: string): Set<string> {
   const mdb = memoryDbOrNull("getActiveSlugs");
-  if (!mdb) return new Set();
+  if (!mdb) {
+    return new Set();
+  }
   const rows = mdb
     .select({ slug: memoryV3EverInjected.slug })
     .from(memoryV3EverInjected)
@@ -109,7 +113,9 @@ export function getActiveEntries(
   conversationId: string,
 ): ActiveInjectedEntry[] {
   const mdb = memoryDbOrNull("getActiveEntries");
-  if (!mdb) return [];
+  if (!mdb) {
+    return [];
+  }
   return mdb
     .select({
       slug: memoryV3EverInjected.slug,
@@ -133,7 +139,9 @@ export function getActiveEntries(
  */
 export function getPrunedSlugs(conversationId: string): Set<string> {
   const mdb = memoryDbOrNull("getPrunedSlugs");
-  if (!mdb) return new Set();
+  if (!mdb) {
+    return new Set();
+  }
   const rows = mdb
     .select({ slug: memoryV3EverInjected.slug })
     .from(memoryV3EverInjected)
@@ -157,13 +165,17 @@ export function recordInjected(
   entries: Array<{ slug: string; bytes: number }>,
   at: number = Date.now(),
 ): void {
-  if (entries.length === 0) return;
+  if (entries.length === 0) {
+    return;
+  }
   // Best-effort — a derived injection-accounting write must never abort the
   // agent turn, so a degraded memory connection or a failed statement only
   // logs a warning.
   try {
     const mdb = memoryDbOrNull("recordInjected");
-    if (!mdb) return;
+    if (!mdb) {
+      return;
+    }
     for (const entry of entries) {
       mdb
         .insert(memoryV3EverInjected)
@@ -197,10 +209,14 @@ export function markPruned(
   slugs: string[],
   at: number,
 ): void {
-  if (slugs.length === 0) return;
+  if (slugs.length === 0) {
+    return;
+  }
   try {
     const mdb = memoryDbOrNull("markPruned");
-    if (!mdb) return;
+    if (!mdb) {
+      return;
+    }
     mdb
       .update(memoryV3EverInjected)
       .set({ prunedAt: at })
@@ -223,7 +239,9 @@ export function markPruned(
 export function clearConversation(conversationId: string): void {
   try {
     const mdb = memoryDbOrNull("clearConversation");
-    if (!mdb) return;
+    if (!mdb) {
+      return;
+    }
     mdb
       .delete(memoryV3EverInjected)
       .where(eq(memoryV3EverInjected.conversationId, conversationId))
@@ -239,7 +257,9 @@ export function clearConversation(conversationId: string): void {
 /** Total bytes of resident (non-pruned) cards — the prune-valve input. */
 export function residentBytes(conversationId: string): number {
   const mdb = memoryDbOrNull("residentBytes");
-  if (!mdb) return 0;
+  if (!mdb) {
+    return 0;
+  }
   const row = mdb
     .select({
       total: sql<number>`COALESCE(SUM(${memoryV3EverInjected.bytes}), 0)`,
@@ -270,7 +290,9 @@ export function forkEverInjected(
 ): void {
   try {
     const mdb = memoryDbOrNull("forkEverInjected");
-    if (!mdb) return;
+    if (!mdb) {
+      return;
+    }
     const parentRows = mdb
       .select({
         slug: memoryV3EverInjected.slug,
@@ -335,10 +357,14 @@ export function seedEverInjectedFromSlugs(
   slugs: string[],
   at: number,
 ): void {
-  if (slugs.length === 0) return;
+  if (slugs.length === 0) {
+    return;
+  }
   try {
     const mdb = memoryDbOrNull("seedEverInjectedFromSlugs");
-    if (!mdb) return;
+    if (!mdb) {
+      return;
+    }
     const prunedRows = mdb
       .select({
         slug: memoryV3EverInjected.slug,

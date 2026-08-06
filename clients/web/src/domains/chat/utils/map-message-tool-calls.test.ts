@@ -14,9 +14,7 @@ function toolCall(
   };
 }
 
-function assistantMessage(
-  toolCalls: ChatMessageToolCall[],
-): DisplayMessage {
+function assistantMessage(toolCalls: ChatMessageToolCall[]): DisplayMessage {
   return {
     id: "msg-1",
     role: "assistant",
@@ -94,7 +92,10 @@ describe("mapMessageToolCalls", () => {
     };
 
     // WHEN the helper runs
-    const next = mapMessageToolCalls(message, (tc) => ({ ...tc, isError: true }));
+    const next = mapMessageToolCalls(message, (tc) => ({
+      ...tc,
+      isError: true,
+    }));
 
     // THEN the message is returned untouched
     expect(next).toBe(message);

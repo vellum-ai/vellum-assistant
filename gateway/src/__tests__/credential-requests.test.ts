@@ -1,7 +1,7 @@
 /**
  * Tests for one-time credential-collection links: the credential_requests
  * store lifecycle (atomic claim / redeem / rollback), the public peek/submit
- * HTTP handlers, and the IPC mint handler's guards (flag, public URL, caps).
+ * HTTP handlers, and the IPC mint handler's guards (public URL, caps).
  *
  * SECURITY invariants pinned here: the plaintext token is never stored (only
  * its sha256 hash), a link is single-use under racing submitters, and a
@@ -36,12 +36,6 @@ mock.module("../ipc/assistant-client.js", () => ({
   },
 }));
 
-let flagEnabled = true;
-mock.module("../feature-flag-resolver.js", () => ({
-  isFeatureFlagEnabled: () => flagEnabled,
-  getFeatureFlagValue: () => flagEnabled,
-}));
-
 const { getGatewayDb, initGatewayDb, resetGatewayDb } =
   await import("../db/connection.js");
 const { credentialRequests } = await import("../db/schema.js");
@@ -62,7 +56,6 @@ beforeEach(() => {
   getGatewayDb().delete(credentialRequests).run();
   ipcCalls = [];
   ipcFailure = null;
-  flagEnabled = true;
   resetCredentialRequestRateLimiterForTests();
 });
 
@@ -154,22 +147,6 @@ describe("credential-request mint (IPC)", () => {
 
     expect(result).toEqual({ ok: false, error: "no_public_base_url" });
     expect(ensurePublicIngressLive).not.toHaveBeenCalled();
-  });
-
-  test("refuses to mint when the feature flag is off — before any ingress work", async () => {
-    flagEnabled = false;
-    const ensurePublicIngressLive = mock(async () => {});
-    const getPlatformAssistantId = mock(async () => "assistant-123");
-    const result = await createCredentialRequest(
-      fakeGatewayConfig("https://velay-dev.vellum.ai"),
-      fakeConfigFile("https://x.test"),
-      { service: "github", field: "api_token" },
-      { getPlatformAssistantId, ensurePublicIngressLive },
-    );
-    expect(result).toEqual({ ok: false, error: "flag_disabled" });
-    // The flag gate runs first: no ingress activation, no credential read.
-    expect(ensurePublicIngressLive).not.toHaveBeenCalled();
-    expect(getPlatformAssistantId).not.toHaveBeenCalled();
   });
 
   test("does not read the platform assistant id when the config URL resolves", async () => {

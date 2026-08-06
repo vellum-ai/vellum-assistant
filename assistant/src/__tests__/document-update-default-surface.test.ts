@@ -41,7 +41,8 @@ function bootstrapDocumentTables(): void {
       content TEXT NOT NULL,
       word_count INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      workspace_path TEXT
     );
 
     CREATE TABLE document_conversations (
@@ -184,6 +185,34 @@ describe("executeDocumentUpdate — default surface_id resolution", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("no document is open");
     expect(result.content).toContain("document_create");
+  });
+
+  test("reports success when no client is connected to render the edit", () => {
+    // A headless turn (a schedule, or an SMS or Telegram channel) has no
+    // client, but the row is written all the same. Reporting an error would
+    // skip the post-execution hooks, so the documents-changed broadcast that
+    // tells clients about the edit would never fire, and the model would be
+    // told to retry a write that already succeeded.
+    seedDocument({
+      surfaceId: "doc-headless",
+      conversationId: "conv-current",
+      title: "X",
+      content: "start",
+      createdAt: Date.now(),
+    });
+
+    const result = executeDocumentUpdate(
+      { content: "appended", mode: "append" },
+      makeContext({ sendToClient: undefined }),
+    );
+
+    expect(result.isError).toBe(false);
+    const body = parseResult<{ success: boolean; surface_id: string }>(result);
+    expect(body.success).toBe(true);
+    // Web anchors its changed-document chip on this id, so a headless write
+    // that omitted it would surface nothing.
+    expect(body.surface_id).toBe("doc-headless");
+    expect(getDocumentById("doc-headless")?.content).toBe("start\n\nappended");
   });
 
   test("still requires content", () => {

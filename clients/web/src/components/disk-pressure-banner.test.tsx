@@ -4,7 +4,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import type { DiskPressureStatus } from "@vellumai/assistant-api";
 
-const { DiskPressureBanner } = await import("@/components/disk-pressure-banner");
+const { DiskPressureBanner } =
+  await import("@/components/disk-pressure-banner");
 
 afterEach(() => {
   cleanup();
@@ -67,5 +68,21 @@ describe("DiskPressureBanner warning variant", () => {
     fireEvent.click(screen.getByRole("button", { name: "Upgrade" }));
 
     expect(onUpgradeStorage).toHaveBeenCalledTimes(1);
+  });
+
+  test("omits purchase copy and action when storage upgrades are unavailable", () => {
+    render(
+      <DiskPressureBanner
+        status={warningStatus}
+        mode="warning"
+        onAcknowledge={() => {}}
+        onReviewWorkspaceData={() => {}}
+      />,
+    );
+
+    expect(
+      screen.getByText("Free up space to avoid interruptions."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Upgrade" })).toBeNull();
   });
 });

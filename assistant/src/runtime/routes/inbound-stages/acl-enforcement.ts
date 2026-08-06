@@ -25,6 +25,7 @@ import {
   isKeptOutStatus,
 } from "../../../contacts/member-status.js";
 import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../../notifications/notification-utils.js";
+import { findInboundConversationId } from "../../../persistence/delivery-crud.js";
 import { resolveGuardianName } from "../../../prompts/user-reference.js";
 import { getLogger } from "../../../util/logger.js";
 import { truncate } from "../../../util/truncate.js";
@@ -210,6 +211,19 @@ export async function enforceIngressAcl(
 
   // Slack message timestamp for permalink construction.
   const messageTs = sourceMetadata?.messageId ?? undefined;
+
+  // Internal conversation already bound to this inbound address, when one
+  // exists. Pins the in-app access-request card to the originating
+  // conversation so unrelated requests never share a destination. Strictly
+  // read-only — the deny lanes below run before recordInbound, and a denied
+  // inbound must never mint a conversation; a sender with no prior
+  // conversation falls through to the decision engine's start_new guard.
+  const destinationConversationId =
+    findInboundConversationId(
+      sourceChannel,
+      conversationExternalId,
+      sourceMetadata?.threadId,
+    ) ?? undefined;
 
   // The shared usability predicate is the fail-closed gate: an unusable
   // verdict soft-denies with NO stranger-lane side effects (no access-request
@@ -426,6 +440,7 @@ export async function enforceIngressAcl(
                 isStranger,
                 isRestricted,
                 messageTs,
+                destinationConversationId,
               });
             } catch (err) {
               log.error(
@@ -508,6 +523,7 @@ export async function enforceIngressAcl(
                 isStranger,
                 isRestricted,
                 messageTs,
+                destinationConversationId,
               });
             } catch (err) {
               log.error(
@@ -559,6 +575,7 @@ export async function enforceIngressAcl(
               isStranger,
               isRestricted,
               messageTs,
+              destinationConversationId,
             });
             guardianNotified = accessResult.notified;
             handshakeInProgress =
@@ -730,6 +747,7 @@ export async function enforceIngressAcl(
                   isStranger,
                   isRestricted,
                   messageTs,
+                  destinationConversationId,
                 });
               } catch (err) {
                 log.error(
@@ -809,6 +827,7 @@ export async function enforceIngressAcl(
                   isStranger,
                   isRestricted,
                   messageTs,
+                  destinationConversationId,
                 });
                 guardianNotified = accessResult.notified;
                 handshakeInProgress =

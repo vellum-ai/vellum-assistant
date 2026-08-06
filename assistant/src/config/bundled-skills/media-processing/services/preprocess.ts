@@ -110,7 +110,9 @@ export function parseDroppedFrameTimestamps(stderr: string): number[] {
   const lines = stderr.split("\n");
   for (const line of lines) {
     // mpdecimate marks dropped frames with "drop" at the end of the line
-    if (!line.includes("drop")) continue;
+    if (!line.includes("drop")) {
+      continue;
+    }
     const match = line.match(/pts_time:([\d.]+)/);
     if (match) {
       timestamps.push(parseFloat(match[1]));
@@ -130,7 +132,9 @@ export function buildDeadTimeRanges(
   gapThresholdSeconds: number = 1.0,
   minDurationSeconds: number = 5.0,
 ): TimeRange[] {
-  if (droppedTimestamps.length === 0) return [];
+  if (droppedTimestamps.length === 0) {
+    return [];
+  }
 
   const ranges: TimeRange[] = [];
   let rangeStart = droppedTimestamps[0];
@@ -316,7 +320,9 @@ async function extractDominantColors(framePath: string): Promise<string[]> {
   );
 
   // Fallback: return empty if analysis fails
-  if (result.exitCode !== 0) return [];
+  if (result.exitCode !== 0) {
+    return [];
+  }
 
   // Parse palette info from stderr - look for color hex values
   const colors: string[] = [];

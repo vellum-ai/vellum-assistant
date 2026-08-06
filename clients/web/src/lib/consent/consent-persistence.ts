@@ -567,6 +567,10 @@ function writeConsent(
   if (legal) {
     store.setAnalyticsConsentCurrent(true);
     store.setDiagnosticsConsentCurrent(true);
+    // Accepting on a consent screen creates the record, so a subsequent mount
+    // must not re-frame this user as never-consented while the write is still
+    // in flight.
+    store.setHasConsentRecord(true);
     store.setConsentHydrated(true);
   } else if (opts.hasPlatformSession) {
     if (shareAnalytics !== undefined) {

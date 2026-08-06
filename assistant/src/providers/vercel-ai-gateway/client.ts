@@ -26,7 +26,6 @@ const DEFAULT_VERCEL_AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1";
 
 export class VercelAIGatewayProvider extends OpenAIChatCompletionsProvider {
   private readonly gatewayApiKey: string;
-  private readonly defaultModel: string;
   private readonly resolvedBaseURL: string;
   private readonly providerStreamTimeoutMs: number | undefined;
   private readonly useNativeWebSearch: boolean;
@@ -50,7 +49,6 @@ export class VercelAIGatewayProvider extends OpenAIChatCompletionsProvider {
       backfillEmptyAssistantContent: true,
     });
     this.gatewayApiKey = apiKey;
-    this.defaultModel = model;
     this.resolvedBaseURL = baseURL;
     this.providerStreamTimeoutMs = options.streamTimeoutMs;
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;

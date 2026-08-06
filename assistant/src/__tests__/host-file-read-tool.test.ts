@@ -27,6 +27,7 @@ mock.module("../daemon/host-file-proxy.js", () => ({
 }));
 
 import { hostFileReadTool } from "../tools/host-filesystem/read.js";
+import { DEFAULT_READ_LINE_LIMIT } from "../tools/shared/filesystem/file-ops-service.js";
 import type { ToolContext } from "../tools/types.js";
 
 const testDirs: string[] = [];
@@ -118,13 +119,13 @@ describe("host_file_read tool", () => {
   test("rejects missing path parameter", async () => {
     const result = await hostFileReadTool.execute({}, makeContext());
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("path is required");
+    expect(result.content).toContain('Invalid input for tool "host_file_read"');
   });
 
   test("rejects non-string path", async () => {
     const result = await hostFileReadTool.execute({ path: 42 }, makeContext());
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("path is required and must be a string");
+    expect(result.content).toContain('Invalid input for tool "host_file_read"');
   });
 
   test("reads entire file when no offset or limit specified", async () => {
@@ -226,13 +227,16 @@ describe("host_file_read image support", () => {
 
     expect(result.isError).toBe(false);
     expect(result.contentBlocks).toHaveLength(1);
+    // The proxied request carries the resolved default window, so a host read
+    // is bounded by the same limit as a local one rather than streaming a
+    // whole file across the bridge.
     expect(requests).toEqual([
       {
         input: {
           operation: "read",
           path: "/host/screenshot.png",
           offset: undefined,
-          limit: undefined,
+          limit: DEFAULT_READ_LINE_LIMIT,
         },
         conversationId: "test-conversation",
         signal: undefined,

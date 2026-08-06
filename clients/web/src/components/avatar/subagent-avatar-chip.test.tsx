@@ -45,12 +45,16 @@ describe("SubagentAvatarChip", () => {
     // `<div>` inside. `<div>` inside `<span>` is invalid HTML and browsers
     // auto-close the span, dropping the className and aria-label. Use a
     // `<div>` wrapper so the chrome stays valid.
-    const html = renderToStaticMarkup(<SubagentAvatarChip subagentId="alpha" />);
+    const html = renderToStaticMarkup(
+      <SubagentAvatarChip subagentId="alpha" />,
+    );
     expect(html.startsWith("<div")).toBe(true);
   });
 
   test("defaults to 16px size when none provided", () => {
-    const html = renderToStaticMarkup(<SubagentAvatarChip subagentId="alpha" />);
+    const html = renderToStaticMarkup(
+      <SubagentAvatarChip subagentId="alpha" />,
+    );
     expect(html).toContain("width:16px");
     expect(html).toContain("height:16px");
   });

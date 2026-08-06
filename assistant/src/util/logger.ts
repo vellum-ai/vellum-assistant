@@ -74,7 +74,9 @@ export function getCurrentLogFilePath(): string {
 }
 
 export function pruneOldLogFiles(dir: string, retentionDays: number): number {
-  if (!existsSync(dir)) return 0;
+  if (!existsSync(dir)) {
+    return 0;
+  }
 
   const cutoff = new Date();
   cutoff.setUTCDate(cutoff.getUTCDate() - retentionDays);
@@ -83,7 +85,9 @@ export function pruneOldLogFiles(dir: string, retentionDays: number): number {
   let removed = 0;
   for (const name of readdirSync(dir)) {
     const match = LOG_FILE_PATTERN.exec(name);
-    if (!match) continue;
+    if (!match) {
+      continue;
+    }
     const fileDate = new Date(match[1] + "T00:00:00Z");
     if (fileDate < cutoff) {
       try {
@@ -102,7 +106,9 @@ let activeLogDate: string | null = null;
 let activeLogFileConfig: LogFileConfig | null = null;
 
 function resolveLogDir(config: LogFileConfig): string | undefined {
-  if (!config.dir) return undefined;
+  if (!config.dir) {
+    return undefined;
+  }
 
   if (!existsSync(config.dir)) {
     try {
@@ -185,7 +191,9 @@ function buildRotatingLogger(config: LogFileConfig): Logger {
 }
 
 function ensureCurrentDate(): void {
-  if (!activeLogFileConfig?.dir || !activeLogDate) return;
+  if (!activeLogFileConfig?.dir || !activeLogDate) {
+    return;
+  }
   const today = formatDate(new Date());
   if (today !== activeLogDate) {
     rootLogger = buildRotatingLogger(activeLogFileConfig);
@@ -294,7 +302,9 @@ function getRootLogger(): Logger {
  * otherwise returns the first maxLen chars with a suffix indicating how much was cut.
  */
 export function truncateForLog(value: string, maxLen = 500): string {
-  if (value.length <= maxLen) return value;
+  if (value.length <= maxLen) {
+    return value;
+  }
   return (
     value.slice(0, maxLen) + `... (${value.length - maxLen} chars truncated)`
   );

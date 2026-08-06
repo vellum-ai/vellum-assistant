@@ -59,6 +59,13 @@ mock.module("../../access-request-helper.js", () => ({
   isApprovalHandshakeInProgress: () => approvalHandshakeForTest,
 }));
 
+// The deny lanes resolve the originating conversation read-only through this
+// entrypoint; default to "no bound conversation" and let tests opt into one.
+let inboundConversationIdForTest: string | null = null;
+mock.module("../../../persistence/delivery-crud.js", () => ({
+  findInboundConversationId: () => inboundConversationIdForTest,
+}));
+
 // Gateway-backed verification-session client: track challenge minting so the
 // callback exemption (LUM-2673) can assert no session is created for button
 // presses; the throw toggle simulates an unreachable gateway (transport
@@ -129,6 +136,7 @@ beforeEach(() => {
   accessRequestCalls.length = 0;
   approvalHandshakeForTest = false;
   guardianDeliveryCalls.length = 0;
+  inboundConversationIdForTest = null;
 });
 
 describe("enforceIngressAcl — verdict-sourced member resolution", () => {
@@ -344,6 +352,48 @@ describe("enforceIngressAcl — present stranger verdict enters the stranger lan
     // guardian is notified and a canned reply is delivered.
     expect(accessRequestCalls.length).toBe(1);
     expect(deliverReplyCalls.length).toBe(1);
+  });
+
+  test("access request pins to the bound inbound conversation when one exists", async () => {
+    inboundConversationIdForTest = "conv-origin-1";
+    const strangerVerdict: TrustVerdict = {
+      trustClass: "unknown",
+      canonicalSenderId: "stranger-1",
+    };
+
+    await enforceIngressAcl(
+      makeParams({
+        canonicalSenderId: "stranger-1",
+        rawSenderId: "stranger-1",
+        sourceMetadata: withVerdict(strangerVerdict),
+      }),
+    );
+
+    expect(accessRequestCalls.length).toBe(1);
+    expect(accessRequestCalls[0]).toMatchObject({
+      destinationConversationId: "conv-origin-1",
+    });
+  });
+
+  test("access request carries no destination pin when no conversation is bound", async () => {
+    const strangerVerdict: TrustVerdict = {
+      trustClass: "unknown",
+      canonicalSenderId: "stranger-1",
+    };
+
+    await enforceIngressAcl(
+      makeParams({
+        canonicalSenderId: "stranger-1",
+        rawSenderId: "stranger-1",
+        sourceMetadata: withVerdict(strangerVerdict),
+      }),
+    );
+
+    expect(accessRequestCalls.length).toBe(1);
+    expect(
+      (accessRequestCalls[0] as { destinationConversationId?: string })
+        .destinationConversationId,
+    ).toBeUndefined();
   });
 });
 

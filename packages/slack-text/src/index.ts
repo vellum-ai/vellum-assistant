@@ -5,7 +5,7 @@ export interface RenderSlackTextOptions {
   channelFallbackLabel?: string;
 }
 
-const SLACK_USER_MENTION_RE = /<@([UW][A-Z0-9]+)>/g;
+const SLACK_USER_MENTION_RE = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g;
 const SLACK_CHANNEL_REFERENCE_RE = /<#([CDG][A-Z0-9]+)(?:\|[^>]*)?>/g;
 
 export function extractSlackUserMentionIds(text: string): string[] {
@@ -107,7 +107,14 @@ export async function buildSlackUserLabelMap(
 
   for (const text of texts) {
     if (!text) continue;
-    for (const id of extractSlackUserMentionIds(text)) {
+    for (const match of text.matchAll(SLACK_USER_MENTION_RE)) {
+      const id = match[1];
+      // A pipe-form mention carrying a usable embedded label renders from
+      // that label directly; only queue a lookup when the label is missing,
+      // empty, or ID-shaped. Mirrors the channel builder below.
+      const [, embeddedLabel] = splitSlackLabel(match[0].slice(1, -1));
+      const sanitizedEmbeddedLabel = sanitizeOptionalLabel(embeddedLabel);
+      if (sanitizedEmbeddedLabel && sanitizedEmbeddedLabel !== id) continue;
       if (seen.has(id)) continue;
       seen.add(id);
       ids.push(id);
@@ -175,17 +182,29 @@ function renderUserMention(
   content: string,
   options: RenderSlackTextOptions,
 ): string {
-  const id = content.slice(1);
+  const [idWithPrefix, label] = splitSlackLabel(content);
+  const id = idWithPrefix.slice(1);
   if (!isSlackUserId(id)) {
     return `<${content}>`;
   }
 
+  // Slack's legacy pipe form (`<@U123|username>`) carries its own label:
+  // prefer it over a lookup, mirroring renderChannelReference. The embedded
+  // label is Slack-sourced (part of the token), so entities decode before
+  // sanitization; the caller-resolved label below is not.
+  const embeddedLabel = sanitizeOptionalLabel(
+    label === undefined ? undefined : decodeSlackHtmlEntities(label),
+  );
+  if (embeddedLabel && embeddedLabel !== id) {
+    return `@${embeddedLabel}`;
+  }
+
   const fallback = sanitizeLabel(options.userFallbackLabel, "unknown-user");
-  const label = sanitizeLabel(options.userLabels?.[id], fallback);
-  if (label === id) {
+  const resolvedLabel = sanitizeLabel(options.userLabels?.[id], fallback);
+  if (resolvedLabel === id) {
     return `@${fallback}`;
   }
-  return `@${label}`;
+  return `@${resolvedLabel}`;
 }
 
 function renderChannelReference(
@@ -282,13 +301,27 @@ function sanitizeLabel(label: string | undefined, fallback: string): string {
   return sanitizedFallback || "unknown";
 }
 
-function sanitizeOptionalLabel(label: string | undefined): string | undefined {
-  return label
+/**
+ * Normalize a mention label to the renderer's semantics: strip angle
+ * brackets, collapse whitespace, strip leading `@`/`#` prefixes. Exported as
+ * the single source of truth so persistence-side validation applies exactly
+ * the normalization rendering applies; returns `undefined` when nothing
+ * usable remains.
+ */
+export function sanitizeSlackLabel(
+  label: string | undefined,
+): string | undefined {
+  const sanitized = label
     ?.replace(/[<>]/g, "")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/^[@#]+/, "")
     .trim();
+  return sanitized || undefined;
+}
+
+function sanitizeOptionalLabel(label: string | undefined): string | undefined {
+  return sanitizeSlackLabel(label);
 }
 
 function isSlackUserId(value: string): boolean {

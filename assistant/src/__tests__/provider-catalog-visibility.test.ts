@@ -30,9 +30,13 @@ describe("getVisibleProviderCatalog", () => {
   test("returns the full catalog when all feature flags are enabled", () => {
     const allFlags: Record<string, boolean> = {};
     for (const entry of PROVIDER_CATALOG) {
-      if (entry.featureFlag) allFlags[entry.featureFlag] = true;
+      if (entry.featureFlag) {
+        allFlags[entry.featureFlag] = true;
+      }
       for (const model of entry.models) {
-        if (model.featureFlag) allFlags[model.featureFlag] = true;
+        if (model.featureFlag) {
+          allFlags[model.featureFlag] = true;
+        }
       }
     }
     setOverridesForTesting(allFlags);
@@ -45,9 +49,13 @@ describe("getVisibleProviderCatalog", () => {
   test("hides a provider whose featureFlag is disabled", () => {
     const allFlags: Record<string, boolean> = {};
     for (const entry of PROVIDER_CATALOG) {
-      if (entry.featureFlag) allFlags[entry.featureFlag] = true;
+      if (entry.featureFlag) {
+        allFlags[entry.featureFlag] = true;
+      }
       for (const model of entry.models) {
-        if (model.featureFlag) allFlags[model.featureFlag] = true;
+        if (model.featureFlag) {
+          allFlags[model.featureFlag] = true;
+        }
       }
     }
     setOverridesForTesting({ ...allFlags, "test-provider-flag": false });

@@ -299,7 +299,9 @@ describe("getSkillFiles — provider chain fallback", () => {
     const result = await getSkillFiles("acme-seo");
 
     expect("error" in result).toBe(false);
-    if ("error" in result) return;
+    if ("error" in result) {
+      return;
+    }
 
     expect(result.skill).toEqual({
       id: "acme-seo",
@@ -330,7 +332,9 @@ describe("getSkillFiles — provider chain fallback", () => {
     const result = await getSkillFiles("ghost-skill");
 
     expect("error" in result).toBe(true);
-    if (!("error" in result)) return;
+    if (!("error" in result)) {
+      return;
+    }
     expect(result.status).toBe(404);
     expect(result.error).toContain("ghost-skill");
   });
@@ -346,7 +350,9 @@ describe("getSkillFiles — provider chain fallback", () => {
     const result = await getSkillFiles("broken-skill");
 
     expect("error" in result).toBe(true);
-    if (!("error" in result)) return;
+    if (!("error" in result)) {
+      return;
+    }
     expect(result.status).toBe(404);
     expect(result.error).toContain("broken-skill");
     expect(result.error).toContain("unavailable");
@@ -386,7 +392,9 @@ describe("getSkillFiles — provider chain fallback", () => {
       const result = await getSkillFiles("installed-skill");
 
       expect("error" in result).toBe(false);
-      if ("error" in result) return;
+      if ("error" in result) {
+        return;
+      }
 
       expect(result.files).toHaveLength(2);
       const skillMd = result.files.find((f) => f.path === "SKILL.md");
@@ -450,7 +458,9 @@ describe("getSkillFiles — provider chain fallback", () => {
     const result = await getSkillFiles("ghost-installed");
 
     expect("error" in result).toBe(true);
-    if (!("error" in result)) return;
+    if (!("error" in result)) {
+      return;
+    }
     expect(result.status).toBe(404);
     expect(result.error).toContain("ghost-installed");
     expect(result.error).toContain("directory missing");
@@ -475,7 +485,9 @@ describe("getSkillFiles — provider chain fallback", () => {
     const result = await getSkillFiles("plain-skill");
 
     expect("error" in result).toBe(false);
-    if ("error" in result) return;
+    if ("error" in result) {
+      return;
+    }
     expect(result.skill.name).toBe("plain-skill");
     expect(result.skill.kind).toBe("catalog");
     expect(result.skill.origin).toBe("vellum");
@@ -501,7 +513,9 @@ describe("getSkillFiles — provider chain fallback", () => {
     const result = await getSkillFiles("fancy-skill");
 
     expect("error" in result).toBe(false);
-    if ("error" in result) return;
+    if ("error" in result) {
+      return;
+    }
     expect(result.skill.name).toBe("Pretty Fancy Name");
   });
 
@@ -545,7 +559,9 @@ describe("getSkillFiles — provider chain fallback", () => {
     const result = await getSkillFiles("owner/repo/my-skill");
 
     expect("error" in result).toBe(false);
-    if ("error" in result) return;
+    if ("error" in result) {
+      return;
+    }
     expect(result.skill.origin).toBe("skillssh");
     expect(result.files).toHaveLength(1);
     expect(result.files[0].path).toBe("SKILL.md");
@@ -608,7 +624,9 @@ describe("getSkillFiles — provider chain fallback", () => {
     const result = await getSkillFiles("cool-tool");
 
     expect("error" in result).toBe(false);
-    if ("error" in result) return;
+    if ("error" in result) {
+      return;
+    }
     expect(result.skill.origin).toBe("clawhub");
     expect(result.files).toHaveLength(2);
   });
@@ -622,7 +640,9 @@ describe("getSkillFiles — provider chain fallback", () => {
     const result = await getSkillFiles("unknown-origin-skill");
 
     expect("error" in result).toBe(true);
-    if (!("error" in result)) return;
+    if (!("error" in result)) {
+      return;
+    }
     expect(result.status).toBe(404);
   });
 
@@ -705,7 +725,9 @@ describe("getSkillFiles — provider chain fallback", () => {
     const result = await getSkillFiles("contested-skill");
 
     expect("error" in result).toBe(false);
-    if ("error" in result) return;
+    if ("error" in result) {
+      return;
+    }
     // Vellum provider should have been used
     expect(result.skill.origin).toBe("vellum");
     expect(result.skill.name).toBe("Vellum Contested");

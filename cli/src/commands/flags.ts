@@ -93,13 +93,13 @@ function printHelp(): void {
     "  $ vellum flags                                              # list flags for active assistant",
   );
   console.log(
-    "  $ vellum flags get voice-mode                                 # inspect one flag",
+    "  $ vellum flags get browser                                     # inspect one flag",
   );
   console.log(
-    "  $ vellum flags set voice-mode true                           # enable a flag",
+    "  $ vellum flags set browser true                               # enable a flag",
   );
   console.log(
-    "  $ vellum flags set voice-mode true --assistant eval-1       # target by name/id",
+    "  $ vellum flags set browser true     --assistant eval-1       # target by name/id",
   );
 }
 

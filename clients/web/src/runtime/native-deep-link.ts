@@ -103,6 +103,109 @@ export function parseBillingCheckoutCompleteDeepLink(
   return null;
 }
 
+/** Host segment shared with `VoiceModeDeepLink.swift` on the native side. */
+const START_VOICE_DEEP_LINK_HOST = "voice";
+
+/**
+ * What a `<scheme>://voice` deep link asks the app to do.
+ *
+ * - `mode: "new"` — start a fresh live-voice session (default).
+ * - `mode: "resume"` — bring an already-running session back on screen; falls
+ *   back to `new` when nothing is running.
+ * - `prompt` — free-form text the user already spoke before the app was up
+ *   (Siri's `AskVellumIntent`). `null` whenever the link carries no usable
+ *   prompt, which includes every prompt this parser rejects.
+ */
+interface StartVoiceDeepLinkPayload {
+  mode: "new" | "resume";
+  prompt: string | null;
+}
+
+/**
+ * Longest `prompt` a start-voice deep link may carry. A spoken request is a
+ * sentence or two; 2000 characters is far above any real utterance and far
+ * below anything that could be used to push a wall of text into the app.
+ */
+export const MAX_START_VOICE_PROMPT_LENGTH = 2000;
+
+/**
+ * Control characters rejected outright in a `prompt`: C0 (`U+0000`-`U+001F`),
+ * DEL and C1 (`U+007F`-`U+009F`), and the Unicode line separators
+ * (`U+2028`/`U+2029`). None of them can appear in something a person said out
+ * loud, so their presence means the link was hand-built rather than produced
+ * by `AskVellumIntent` — reason enough to drop the text.
+ */
+const START_VOICE_PROMPT_CONTROL_CHARS_RE =
+  /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
+
+/**
+ * Validate the `prompt` query parameter, returning `null` for anything the app
+ * should not act on.
+ *
+ * Rejection is total, not a truncation: half of a question is a *different*
+ * question, and silently asking the assistant a mangled version of what the
+ * user said is worse than asking nothing and letting them retype. The link
+ * still parses — the user did ask for voice — so an oversized prompt degrades
+ * to a plain `mode=new` start rather than dropping the whole command.
+ */
+function sanitizeStartVoicePrompt(raw: string | null): string | null {
+  if (raw === null) {
+    return null;
+  }
+  if (START_VOICE_PROMPT_CONTROL_CHARS_RE.test(raw)) {
+    return null;
+  }
+  const prompt = raw.trim();
+  if (prompt.length === 0 || prompt.length > MAX_START_VOICE_PROMPT_LENGTH) {
+    return null;
+  }
+  return prompt;
+}
+
+/**
+ * Parse a `vellum-assistant://voice?mode=new|resume&prompt=...` deep link — the
+ * single native→SPA channel for "start talking".
+ *
+ * Every native producer targets this one URL shape: App Intents (Siri and the
+ * Action Button), the Dynamic Island Live Activity's `widgetURL`, and manual
+ * test links opened from Safari. New capabilities extend this parser rather
+ * than adding a second mechanism — `prompt` is the first of them.
+ *
+ * Strict like the sibling parsers: the scheme must be an exact match against
+ * {@link NATIVE_URL_SCHEME_BY_HOST}'s values — a `startsWith` check would let
+ * `vellum-assistant-evil://voice` through — and the host must be exactly
+ * `voice`. A missing or unrecognized `mode` degrades to `"new"`, the safe
+ * interpretation of "the user asked for voice".
+ *
+ * `prompt` gets the strictest treatment of anything in this module because it
+ * is the only free-form text on the surface, and a custom URL scheme is
+ * openable by any other app or any web page. Bounds and character rules live
+ * here rather than at the consumer so there is exactly one place where an
+ * untrusted prompt becomes a trusted one — see {@link sanitizeStartVoicePrompt}.
+ */
+export function parseStartVoiceDeepLink(
+  rawUrl: string,
+): StartVoiceDeepLinkPayload | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+
+  if (!ALLOWED_NATIVE_URL_PROTOCOLS.has(url.protocol)) {
+    return null;
+  }
+  if (url.host !== START_VOICE_DEEP_LINK_HOST) {
+    return null;
+  }
+
+  return {
+    mode: url.searchParams.get("mode") === "resume" ? "resume" : "new",
+    prompt: sanitizeStartVoicePrompt(url.searchParams.get("prompt")),
+  };
+}
+
 export function buildOAuthCompleteDeepLink(
   scheme: string,
   payload: OAuthCompleteDeepLinkPayload,

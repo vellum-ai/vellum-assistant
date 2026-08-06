@@ -7,7 +7,13 @@
  * `onboardingChoiceEligible` below). Once dismissed it never reappears.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { PRECHAT_TASKS } from "@/types/prechat-tasks";
@@ -89,7 +95,15 @@ export function useOnboardingChoice({
     }
     // `messages` is not read in the body; listed so this effect re-fires
     // when a new message arrives and greetingSeenRef may have just latched.
-  }, [phase, isNative, didOnboarding, messages, onboardingChoiceEligible, activeConversationId, onboardingConversationId]);
+  }, [
+    phase,
+    isNative,
+    didOnboarding,
+    messages,
+    onboardingChoiceEligible,
+    activeConversationId,
+    onboardingConversationId,
+  ]);
 
   // Dismiss if the user switches to a different conversation.
   useEffect(() => {

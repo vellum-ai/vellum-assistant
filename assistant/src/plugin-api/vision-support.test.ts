@@ -14,6 +14,8 @@ interface MockProfileEntry {
 }
 
 let mockProfiles: Record<string, MockProfileEntry> = {};
+let mockDefaultProvider: { provider: string; connectionName?: string } | null =
+  null;
 
 // Real model catalog — don't mock it, the test exercises real catalog lookups.
 const { doesSupportVision } = await import("./vision-support.js");
@@ -40,16 +42,26 @@ function profile(key: string): ModelProfileInfo {
 function applyConfig(): void {
   setConfig("llm", { profiles: {} });
   const config = getConfig() as { llm: unknown };
-  config.llm = { profiles: mockProfiles };
+  config.llm = {
+    profiles: mockProfiles,
+    ...(mockDefaultProvider != null
+      ? { defaultProvider: mockDefaultProvider }
+      : {}),
+  };
 }
 
-function setMockConfig(profiles: Record<string, MockProfileEntry>) {
+function setMockConfig(
+  profiles: Record<string, MockProfileEntry>,
+  defaultProvider?: { provider: string; connectionName?: string },
+) {
   mockProfiles = profiles;
+  mockDefaultProvider = defaultProvider ?? null;
   applyConfig();
 }
 
 beforeEach(() => {
   mockProfiles = {};
+  mockDefaultProvider = null;
   applyConfig();
 });
 
@@ -144,6 +156,58 @@ describe("doesSupportVision", () => {
       },
     });
     expect(doesSupportVision(profile("mix-profile"))).toBe(false);
+  });
+});
+
+describe("doesSupportVision with a BYO default provider", () => {
+  test("judges a default profile against the default provider's column model", () => {
+    // Managed/vellum column: cost-optimized → deepseek-v4-flash (text-only,
+    // supportsVision: false). Anthropic column: cost-optimized carries
+    // intent "latency-optimized" → claude-haiku-4-5 (supportsVision: true).
+    // The judged model must be the one the BYO install actually runs.
+    setMockConfig({}, { provider: "anthropic" });
+    expect(doesSupportVision(profile("cost-optimized"))).toBe(true);
+  });
+
+  test("without a default provider, a default profile judges the managed column", () => {
+    // Null-reduction: no defaultProvider resolves cost-optimized through the
+    // vellum column (deepseek-v4-flash, text-only).
+    setMockConfig({});
+    expect(doesSupportVision(profile("cost-optimized"))).toBe(false);
+  });
+
+  test("mix arms naming a default profile resolve through the same column", () => {
+    setMockConfig(
+      {
+        "mix-profile": {
+          mix: [
+            { profile: "text-arm", weight: 0.5 },
+            { profile: "cost-optimized", weight: 0.5 },
+          ],
+        },
+        "text-arm": {
+          provider: "fireworks",
+          model: "accounts/fireworks/models/glm-5p2",
+        },
+      },
+      { provider: "anthropic" },
+    );
+    // The "cost-optimized" arm resolves to the anthropic column's
+    // vision-capable model, so the mix can route to vision.
+    expect(doesSupportVision(profile("mix-profile"))).toBe(true);
+  });
+
+  test("a user-owned profile is unaffected by the default provider", () => {
+    setMockConfig(
+      {
+        "custom-text": {
+          provider: "fireworks",
+          model: "accounts/fireworks/models/glm-5p2",
+        },
+      },
+      { provider: "anthropic" },
+    );
+    expect(doesSupportVision(profile("custom-text"))).toBe(false);
   });
 });
 

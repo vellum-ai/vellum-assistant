@@ -62,17 +62,36 @@ jobs:
           # register-release job succeeded; that run's head SHA is the last
           # released commit. (See notify-dev-release for why we key off the job
           # conclusion rather than the overall run conclusion.)
+          #
+          # The jobs listing MUST be paginated: this workflow has >30 jobs and
+          # the API defaults to 30 per page, so register-release lands on page 2
+          # and an unpaginated call silently yields an empty conclusion.
+          #
+          # The runs listing is deliberately NOT --paginate'd: it is a bounded
+          # lookback window, not an exhaustive scan. It must stay comfortably
+          # longer than the longest expected quiet stretch, because every idle
+          # hour adds one cancelled run to it; at 100 the hourly schedule gives
+          # ~4 days of runway, which covers weekends and long holidays. That
+          # bounds the walk below at 100 requests (~1 each, since 42 jobs fit in
+          # one per_page=100 page), well inside this job's 5-minute timeout.
           PREV_SHA=""
           while read -r rid rsha; do
             [ -z "$rid" ] && continue
-            CONCL=$(gh api "repos/${REPO}/actions/runs/${rid}/jobs" \
-              --jq '[.jobs[] | select(.name == "register-release") | .conclusion] | .[0] // empty')
+            # Best-effort, for the same reason as the cancel call below: a
+            # per-run API failure (purged run, transient 5xx, rate limit) must
+            # not fail this gate job and turn an idle no-op into a workflow
+            # failure. Skip that run and keep walking.
+            if ! CONCL=$(gh api "repos/${REPO}/actions/runs/${rid}/jobs?per_page=100" --paginate \
+              --jq '[.jobs[] | select(.name == "register-release") | .conclusion] | .[0] // empty'); then
+              echo "::warning::Could not read jobs for run ${rid}; skipping it in the dev-release walk-back."
+              continue
+            fi
             if [ "$CONCL" = "success" ]; then
               PREV_SHA="$rsha"
               break
             fi
           done < <(gh api \
-            "repos/${REPO}/actions/workflows/dev-release.yaml/runs?branch=main&status=completed&per_page=30&exclude_pull_requests=true" \
+            "repos/${REPO}/actions/workflows/dev-release.yaml/runs?branch=main&status=completed&per_page=100&exclude_pull_requests=true" \
             --jq ".workflow_runs[] | select(.id != ${RUN_ID}) | \"\(.id) \(.head_sha)\"")
 
           echo "Last successful dev release SHA: ${PREV_SHA:-<none>}"
@@ -783,12 +802,30 @@ jobs:
   # ── Web SPA (dev bucket) ─────────────────────────────────────────────
   # The platform SPA ships to the dev GCS bucket with every dev release,
   # not on merge to main; staging/production deploys live in release.yml.
-  # Gated on register-release so the dev bucket only updates when the dev
-  # backend release actually registered with the platform — if register-release
-  # fails or is skipped, this job is skipped too.
+  #
+  # ci-web is the only hard gate: a dev release must always get the web changes
+  # onto the dev instance, even when the backend half of the release does not
+  # land. register-release stays in `needs` purely for *ordering* — when the
+  # backend release does register, the SPA still publishes after it, so the dev
+  # UI is never pushed ahead of a backend that shipped in the same run. But the
+  # `if` deliberately uses a status function, which drops the implicit
+  # success() check on every `needs` entry: a failed or skipped register-release
+  # (backend CI red, a Docker build failure, or a platform registration outage)
+  # no longer strands green web commits outside dev until the next hourly run
+  # happens to be fully green.
+  #
+  # The trade-off is accepted on dev only: a dev SPA can briefly run against the
+  # previously-released dev backend. Staging and production keep the strict
+  # gating in release.yml, where a UI ahead of its backend actually matters.
+  #
+  # !cancelled() (rather than always()) keeps this quiet when a run is
+  # superseded by the next hourly release via concurrency.cancel-in-progress.
+  # No has_new_commits check is needed: ci-web is itself gated on that job, so
+  # an idle run skips ci-web and this job with it.
   deploy-web-spa:
     name: Deploy Web SPA (dev)
     needs: [ci-web, register-release]
+    if: ${{ !cancelled() && needs.ci-web.result == 'success' }}
     permissions:
       contents: read
       id-token: write
@@ -1316,11 +1353,21 @@ jobs:
           # The release did not register (job failed, was skipped because an
           # upstream image build failed, etc.). Post a short alert without a
           # changelog and skip the commit diffing entirely.
+          #
+          # The SPA deploy is gated on ci-web alone, so it can (and should) have
+          # shipped even on this path. Say which half actually landed, or the
+          # alert reads as "nothing reached dev" while the dev web UI has in
+          # fact just moved to this commit.
           if [ "${RELEASE_RESULT}" != "success" ]; then
             echo "register-release result: ${RELEASE_RESULT} — building failure notification."
+            if [ "${SPA_RESULT}" = "success" ]; then
+              SPA_SENTENCE="The web SPA *was* deployed, so the dev web UI is now on this commit, but it is running against the previously-released backend."
+            else
+              SPA_SENTENCE="The web SPA was not deployed either (result: ${SPA_RESULT}), so the dev web UI is unchanged."
+            fi
             jq -n \
               --arg run_url "$RUN_URL" \
-              --arg body "The dev release run failed — no new dev build was published. See the workflow run for details." \
+              --arg body "The dev release run failed — no new dev backend release was registered with the platform. ${SPA_SENTENCE} See the workflow run for details." \
               '{
                 unfurl_links: false,
                 unfurl_media: false,
@@ -1345,17 +1392,29 @@ jobs:
           # an older SHA and re-announce already-released commits. Walk recent
           # completed runs newest-first and pick the first whose register-release
           # job succeeded.
+          #
+          # The jobs listing MUST be paginated: this workflow has >30 jobs and
+          # the API defaults to 30 per page, so register-release lands on page 2
+          # and an unpaginated call silently yields an empty conclusion, which
+          # degrades to the single-commit fallback below. See check-for-new-commits
+          # for why the runs listing is bounded rather than fully paginated.
           PREV_SHA=""
           while read -r rid rsha; do
             [ -z "$rid" ] && continue
-            CONCL=$(gh api "repos/${REPO}/actions/runs/${rid}/jobs" \
-              --jq '[.jobs[] | select(.name == "register-release") | .conclusion] | .[0] // empty')
+            # Best-effort: a per-run API failure must not abort the notification
+            # step, which would drop the Slack message for a real release
+            # entirely. Skip that run and keep walking.
+            if ! CONCL=$(gh api "repos/${REPO}/actions/runs/${rid}/jobs?per_page=100" --paginate \
+              --jq '[.jobs[] | select(.name == "register-release") | .conclusion] | .[0] // empty'); then
+              echo "::warning::Could not read jobs for run ${rid}; skipping it in the dev-release walk-back."
+              continue
+            fi
             if [ "$CONCL" = "success" ]; then
               PREV_SHA="$rsha"
               break
             fi
           done < <(gh api \
-            "repos/${REPO}/actions/workflows/dev-release.yaml/runs?branch=main&status=completed&per_page=30&exclude_pull_requests=true" \
+            "repos/${REPO}/actions/workflows/dev-release.yaml/runs?branch=main&status=completed&per_page=100&exclude_pull_requests=true" \
             --jq ".workflow_runs[] | select(.id != ${RUN_ID}) | \"\(.id) \(.head_sha)\"")
 
           echo "Previous dev release SHA: ${PREV_SHA:-<none>}"
@@ -1601,6 +1660,9 @@ jobs:
     needs: [compute-version]
     runs-on: macos-26
     timeout-minutes: 30
+    # Resolves the environment-scoped STRIPE_PUBLISHABLE_KEY secret baked into
+    # the renderer below.
+    environment: dev
     continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
@@ -1687,6 +1749,11 @@ jobs:
           VITE_SENTRY_DSN_MACOS: ${{ secrets.SENTRY_DSN_MACOS }}
           VITE_SENTRY_ENVIRONMENT: dev
           VITE_SESSION_REPLAY_APP_ID: ${{ vars.VITE_SESSION_REPLAY_APP_ID }}
+          # Environment-scoped secret (pk_test_ on dev); requires the job's
+          # `environment: dev` above, else it resolves empty and the
+          # payment-method modal can't mount Stripe Elements. Publishable keys
+          # are public, so embedding them is expected.
+          VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           # Sentry release tracking for the Electron renderer (mirrors release.yml).
           # VITE_APP_VERSION tags renderer events with the release (read in
           # clients/web/src/lib/sentry/sentry-init.ts) and names the registered
@@ -2170,6 +2237,18 @@ jobs:
   release-ios:
     needs: [compute-version, register-release, build-chrome-extension]
     uses: ./.github/workflows/release-ios.yaml
+    with:
+      environment: dev
+      version: ${{ needs.compute-version.outputs.version }}
+    secrets: inherit
+
+  release-android:
+    needs: [compute-version, register-release, build-chrome-extension]
+    if: vars.ANDROID_DEV_RELEASE_ENABLED == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/release-android.yaml
     with:
       environment: dev
       version: ${{ needs.compute-version.outputs.version }}

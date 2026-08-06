@@ -138,12 +138,22 @@ export const MessageChanged: Story = {
     assistantId: "assistant-1",
     previous: call("call-prev", [
       { kind: "system", label: "System prompt", text: SYSTEM_PROMPT },
-      { kind: "message", label: "User", role: "user", text: "Summarize the file at src/app.ts" },
+      {
+        kind: "message",
+        label: "User",
+        role: "user",
+        text: "Summarize the file at src/app.ts",
+      },
       { kind: "message", label: "Assistant", role: "assistant", text: "Done." },
     ]),
     current: call("call-cur", [
       { kind: "system", label: "System prompt", text: SYSTEM_PROMPT },
-      { kind: "message", label: "User", role: "user", text: "Summarize the file at src/main.ts" },
+      {
+        kind: "message",
+        label: "User",
+        role: "user",
+        text: "Summarize the file at src/main.ts",
+      },
       { kind: "message", label: "Assistant", role: "assistant", text: "Done." },
     ]),
   },
@@ -164,8 +174,18 @@ export const UnchangedPrefix: Story = {
     current: call("call-cur", [
       { kind: "system", label: "System prompt", text: SYSTEM_PROMPT },
       { kind: "message", label: "User", role: "user", text: "First question" },
-      { kind: "message", label: "Assistant", role: "assistant", text: "Answer" },
-      { kind: "message", label: "User", role: "user", text: "Follow-up question" },
+      {
+        kind: "message",
+        label: "Assistant",
+        role: "assistant",
+        text: "Answer",
+      },
+      {
+        kind: "message",
+        label: "User",
+        role: "user",
+        text: "Follow-up question",
+      },
     ]),
   },
 };

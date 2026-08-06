@@ -30,15 +30,12 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { useResolvedAssistantsStore } = await import(
-  "@/stores/resolved-assistants-store"
-);
-const { useBackgroundTaskStore } = await import(
-  "@/domains/chat/background-task-store"
-);
-const { stopBackgroundTask } = await import(
-  "@/domains/chat/utils/background-task-actions"
-);
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
+const { useBackgroundTaskStore } =
+  await import("@/domains/chat/background-task-store");
+const { stopBackgroundTask } =
+  await import("@/domains/chat/utils/background-task-actions");
 
 function seedRunning(id = "bg-1"): void {
   const entry: BackgroundTaskEntry = {

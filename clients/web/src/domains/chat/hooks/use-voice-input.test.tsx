@@ -168,5 +168,4 @@ describe("useVoiceInput", () => {
 
     expect(hook.result.current.voiceError).toBe("not-allowed-permanent");
   });
-
 });

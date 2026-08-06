@@ -60,13 +60,13 @@ mock.module("../daemon/conversation-store.js", () => ({
 
 import { and, eq } from "drizzle-orm";
 
+import type { AssistantEvent } from "../api/index.js";
 import {
   _internal,
   type CreateScopedApprovalGrantParams,
   revokeScopedApprovalGrantsForContext,
 } from "../approvals/scoped-approval-grants.js";
 import { startVoiceTurn } from "../calls/voice-session-bridge.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { scopedApprovalGrants } from "../persistence/schema/index.js";

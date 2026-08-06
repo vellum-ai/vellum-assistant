@@ -151,6 +151,7 @@ mock.module("../persistence/jobs-store.js", () => ({
   MESSAGE_LEXICAL_JOB_TYPES: [],
   rescheduleMemoryJob: mock(() => {}),
   resetRunningJobsToPending: mock(() => 0),
+  upsertEmbedGraphNodeJob: mock(() => "job-embed-node"),
   SLOW_LLM_JOB_TYPES: [],
   upsertDebouncedJob: mock(() => "job-debounced"),
   upsertMemoryRetrospectiveJob: mock(() => "job-memory-retrospective"),

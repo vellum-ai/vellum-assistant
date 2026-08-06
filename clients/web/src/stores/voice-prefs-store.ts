@@ -69,7 +69,9 @@ export function interruptSensitivityToMs(level: InterruptSensitivity): number {
  * an out-of-range `silenceThresholdMs` the daemon would reject.
  */
 export function clampPauseBeforeReplyMs(ms: number): number {
-  if (!Number.isFinite(ms)) return DEFAULT_PAUSE_BEFORE_REPLY_MS;
+  if (!Number.isFinite(ms)) {
+    return DEFAULT_PAUSE_BEFORE_REPLY_MS;
+  }
   return Math.round(
     Math.min(
       MAX_PAUSE_BEFORE_REPLY_MS,
@@ -155,7 +157,8 @@ const useVoicePrefsStoreBase = create<VoicePrefsStore>()(
       },
       setPauseBeforeReplyMs: (next: number | null) =>
         set({
-          pauseBeforeReplyMs: next === null ? null : clampPauseBeforeReplyMs(next),
+          pauseBeforeReplyMs:
+            next === null ? null : clampPauseBeforeReplyMs(next),
         }),
       setInterruptSensitivity: (next: InterruptSensitivity | null) =>
         set({ interruptSensitivity: next }),

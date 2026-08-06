@@ -68,7 +68,9 @@ export async function runDeterministicRecallSearch(
 
   for (const [index, settledResult] of adapterResults.entries()) {
     const source = selectedAdapters[index]?.source;
-    if (!source) continue;
+    if (!source) {
+      continue;
+    }
 
     if (settledResult.status === "fulfilled") {
       appendEvidence(evidenceBySource, source, settledResult.value.evidence);
@@ -154,15 +156,21 @@ function sortEvidence(evidence: RecallEvidence[]): RecallEvidence[] {
 
 function compareEvidence(a: RecallEvidence, b: RecallEvidence): number {
   const scoreCompare = rankScore(b) - rankScore(a);
-  if (scoreCompare !== 0) return scoreCompare;
+  if (scoreCompare !== 0) {
+    return scoreCompare;
+  }
 
   const timestampCompare = (b.timestampMs ?? 0) - (a.timestampMs ?? 0);
-  if (timestampCompare !== 0) return timestampCompare;
+  if (timestampCompare !== 0) {
+    return timestampCompare;
+  }
 
   const priorityCompare =
     (SOURCE_PRIORITY.get(a.source) ?? Number.MAX_SAFE_INTEGER) -
     (SOURCE_PRIORITY.get(b.source) ?? Number.MAX_SAFE_INTEGER);
-  if (priorityCompare !== 0) return priorityCompare;
+  if (priorityCompare !== 0) {
+    return priorityCompare;
+  }
 
   return (
     [
@@ -180,10 +188,18 @@ function rankScore(item: RecallEvidence): number {
 
 function retrievalRankBoost(item: RecallEvidence): number {
   const retrieval = item.metadata?.retrieval;
-  if (retrieval === "path") return 0.45;
-  if (retrieval === "structured-json") return 0.4;
-  if (retrieval === "section") return 0.35;
-  if (retrieval === "lexical") return 0.25;
+  if (retrieval === "path") {
+    return 0.45;
+  }
+  if (retrieval === "structured-json") {
+    return 0.4;
+  }
+  if (retrieval === "section") {
+    return 0.35;
+  }
+  if (retrieval === "lexical") {
+    return 0.25;
+  }
   return 0;
 }
 
@@ -230,7 +246,9 @@ function capEvidence(
       totalTextSize,
     });
     totalTextSize = appended.totalTextSize;
-    if (appended.totalRemaining <= 0) break;
+    if (appended.totalRemaining <= 0) {
+      break;
+    }
   }
 
   return capped;
@@ -285,7 +303,9 @@ function errorToMessage(err: unknown): string {
 }
 
 function isAbortLikeError(err: unknown): boolean {
-  if (err instanceof Error && err.name === "AbortError") return true;
+  if (err instanceof Error && err.name === "AbortError") {
+    return true;
+  }
   if (
     typeof DOMException !== "undefined" &&
     err instanceof DOMException &&

@@ -93,7 +93,9 @@ function formatTally(r: MemoryEvalTallyResult): string {
     `  sign-test p:    ${r.signTestP.toFixed(3)} over ${r.decided} decided turns`,
     `  confident:      ${r.confident ? "yes" : "no"}`,
   ];
-  for (const note of r.notes) lines.push(`  note: ${note}`);
+  for (const note of r.notes) {
+    lines.push(`  note: ${note}`);
+  }
   return lines.join("\n");
 }
 

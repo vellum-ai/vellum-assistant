@@ -1,8 +1,7 @@
 import { useMemo } from "react";
 
 import { groupContentBlocks } from "@/domains/chat/transcript/message-content";
-import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
-import { messageMatchKeys } from "@/domains/chat/utils/message-identity";
+import { useTranscriptMessageById } from "@/domains/chat/hooks/use-transcript-message-by-id";
 
 /**
  * Reasoning text for a thinking detail drawer, re-derived from the rendered
@@ -34,22 +33,24 @@ export function useLiveThinkingText(
   groupIndex: number | undefined,
   thinkingItemIndex?: number,
 ): string | null {
-  const messages = useTranscriptMessages();
+  const message = useTranscriptMessageById(messageId);
   return useMemo(() => {
-    if (!messageId || groupIndex == null) return null;
-    const message = messages.find((m) =>
-      messageMatchKeys(m).includes(messageId),
-    );
-    if (!message) return null;
+    if (!message || groupIndex == null) {
+      return null;
+    }
     const groups = groupContentBlocks(message.contentBlocks ?? [], {
       splitInlineThinking: message.role !== "user",
     });
     const group = groups[groupIndex];
-    if (!group || group.type !== "activity") return null;
+    if (!group || group.type !== "activity") {
+      return null;
+    }
     const segments = group.items.flatMap((item) =>
       item.type === "thinking" && item.thinking ? [item.thinking] : [],
     );
-    if (thinkingItemIndex == null) return segments.join("\n");
+    if (thinkingItemIndex == null) {
+      return segments.join("\n");
+    }
     return segments[thinkingItemIndex] ?? null;
-  }, [messages, messageId, groupIndex, thinkingItemIndex]);
+  }, [message, groupIndex, thinkingItemIndex]);
 }

@@ -1,8 +1,11 @@
 import {
-  isLocalMode,
+  isLocalClient,
   getLocalGatewayUrl,
+  getPairedGatewayUrl,
+  getSelectedAssistant,
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
+import { getSelfHostedIngressUrl } from "@/lib/self-hosted/connection";
 import type { LockfileAssistant } from "@/runtime/local-mode-host";
 
 /**
@@ -57,12 +60,33 @@ let remoteGatewayToken: string | null = null;
 let remoteGatewayExpiresAt: number = 0;
 
 export function isGatewayAuthEnabled(): boolean {
-  if (isRemoteGatewayMode()) return true;
-  return isLocalMode() && getLocalGatewayUrl() != null;
+  if (isRemoteGatewayMode()) {
+    return true;
+  }
+  if (!isLocalClient()) {
+    return false;
+  }
+  return (
+    getLocalGatewayUrl() != null ||
+    getPairedGatewayUrl(getSelectedAssistant()) != null
+  );
 }
 
 export function isGatewayAuthMode(): boolean {
-  return isGatewayAuthEnabled() && getGatewayToken() !== null;
+  if (!isGatewayAuthEnabled()) {
+    return false;
+  }
+  if (!isRemoteGatewayMode()) {
+    const selectedAssistant = getSelectedAssistant();
+    const pairedGatewayUrl = getPairedGatewayUrl(selectedAssistant);
+    if (pairedGatewayUrl != null) {
+      return (
+        getSelfHostedIngressUrl() ===
+        `${window.location.origin}${pairedGatewayUrl}`
+      );
+    }
+  }
+  return getGatewayToken() !== null;
 }
 
 function isTokenExpired(expiresAt: number): boolean {
@@ -120,6 +144,28 @@ export function getGatewayToken(): string | null {
   return null;
 }
 
+/**
+ * Install a gateway-minted actor bearer in the in-memory and localStorage
+ * slots used by `getGatewayToken()`. Paired guardian credentials never enter
+ * this module; their trusted host proxy owns acquisition and injection.
+ */
+export function seedGatewayToken(params: {
+  token: string;
+  expiresAtEpochSeconds: number;
+  source: string;
+}): void {
+  try {
+    localStorage.setItem(LS_TOKEN_KEY, params.token);
+    localStorage.setItem(LS_EXPIRES_KEY, String(params.expiresAtEpochSeconds));
+    localStorage.setItem(LS_TOKEN_SOURCE_KEY, params.source);
+  } catch {
+    // localStorage unavailable
+  }
+  cachedToken = params.token;
+  cachedExpiresAt = params.expiresAtEpochSeconds;
+  cachedTokenSource = params.source;
+}
+
 async function acquireGatewayToken(
   tokenUrl?: string,
   guardianToken?: string,
@@ -140,16 +186,7 @@ async function acquireGatewayToken(
     token: string;
     expiresAt: number;
   };
-  try {
-    localStorage.setItem(LS_TOKEN_KEY, token);
-    localStorage.setItem(LS_EXPIRES_KEY, String(expiresAt));
-    localStorage.setItem(LS_TOKEN_SOURCE_KEY, url);
-  } catch {
-    // localStorage unavailable
-  }
-  cachedToken = token;
-  cachedExpiresAt = expiresAt;
-  cachedTokenSource = url;
+  seedGatewayToken({ token, expiresAtEpochSeconds: expiresAt, source: url });
   return token;
 }
 
@@ -166,7 +203,9 @@ export async function ensureGatewayToken(
     clearGatewayToken();
   }
   const existing = getGatewayToken();
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
   return acquireGatewayToken(tokenUrl, guardianToken);
 }
 
@@ -174,7 +213,9 @@ export function getLocalTokenUrl(
   assistant?: LockfileAssistant,
 ): string | undefined {
   const gatewayUrl = getLocalGatewayUrl(assistant);
-  if (!gatewayUrl) return undefined;
+  if (!gatewayUrl) {
+    return undefined;
+  }
   return `${gatewayUrl}/auth/token`;
 }
 

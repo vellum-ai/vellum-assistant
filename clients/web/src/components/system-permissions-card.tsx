@@ -99,10 +99,7 @@ const LOCAL_PERMISSION_ROWS: LocalPermissionRowMeta[] = [
 function usePendingKind() {
   const [pendingKind, setPendingKind] = useState<PermissionRowId | null>(null);
 
-  const run = async (
-    kind: PermissionRowId,
-    action: () => Promise<unknown>,
-  ) => {
+  const run = async (kind: PermissionRowId, action: () => Promise<unknown>) => {
     setPendingKind(kind);
     try {
       await action();
@@ -133,7 +130,9 @@ function useNotificationBadgesEnabled() {
   const update = (next: boolean) => {
     setEnabled(next);
     setDeviceBool("dockBadgesEnabled", next);
-    if (!next) setDockBadge(0);
+    if (!next) {
+      setDockBadge(0);
+    }
   };
 
   return [enabled, update] as const;
@@ -206,11 +205,15 @@ export function SystemPermissionsCard({
       SystemPermissionKind,
       { meta: SystemPermissionRowMeta; item: SystemPermissionStateItem }
     >();
-    if (!state) return rows;
+    if (!state) {
+      return rows;
+    }
 
     for (const meta of SYSTEM_PERMISSION_ROWS) {
       const item = state[meta.sourceKind];
-      if (item) rows.set(meta.id, { meta, item });
+      if (item) {
+        rows.set(meta.id, { meta, item });
+      }
     }
 
     return rows;
@@ -219,7 +222,9 @@ export function SystemPermissionsCard({
   const rows = useMemo<PermissionRowViewModel[]>(() => {
     const systemRows = SYSTEM_PERMISSION_ROWS.map((meta) => {
       const item = systemRowsById.get(meta.id)?.item;
-      if (!item) return null;
+      if (!item) {
+        return null;
+      }
 
       return {
         id: meta.id,
@@ -242,7 +247,9 @@ export function SystemPermissionsCard({
     return [...systemRows, ...localRows];
   }, [notificationBadgesEnabled, pendingKind, systemRowsById]);
 
-  if (!supported) return null;
+  if (!supported) {
+    return null;
+  }
 
   const handleSystemToggle = async (
     meta: SystemPermissionRowMeta,
@@ -275,9 +282,7 @@ export function SystemPermissionsCard({
   };
 
   return (
-    <section
-      className="w-full rounded-[20px] border border-[var(--border-hover)] bg-[var(--surface-lift)] px-4 pb-3 pt-5"
-    >
+    <section className="w-full rounded-[20px] border border-[var(--border-hover)] bg-[var(--surface-lift)] px-4 pb-3 pt-5">
       <h2 className="text-[18px] font-semibold leading-[22px] text-[var(--content-emphasised)]">
         System Permissions
       </h2>
@@ -289,11 +294,7 @@ export function SystemPermissionsCard({
       ) : (
         <div className="mt-3 space-y-2">
           {rows.map((row) => (
-            <PermissionRow
-              key={row.id}
-              row={row}
-              onToggle={handleToggle}
-            />
+            <PermissionRow key={row.id} row={row} onToggle={handleToggle} />
           ))}
         </div>
       )}

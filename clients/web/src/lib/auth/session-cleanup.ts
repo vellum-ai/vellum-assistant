@@ -22,6 +22,9 @@
  * - https://web.dev/articles/sign-out-best-practices
  */
 
+import { clearTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
+import { clearUserScopedOverrides } from "@/utils/typed-storage";
+
 const USER_PREFIX = "vellum:";
 
 /**
@@ -59,12 +62,24 @@ const LEGACY_DEVICE_KEYS = new Set([
 ]);
 
 function isUserScopedKey(key: string): boolean {
-  if (key.startsWith(USER_PREFIX)) return true;
-  if (LEGACY_DEVICE_KEYS.has(key)) return false;
+  if (key.startsWith(USER_PREFIX)) {
+    return true;
+  }
+  if (LEGACY_DEVICE_KEYS.has(key)) {
+    return false;
+  }
   return LEGACY_USER_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
 
 export function clearUserScopedStorage(): void {
+  // The takeover avatar stash can outlive `sessionStorage.clear()` through its
+  // in-memory mirror when the write never reached storage.
+  clearTakeoverAvatarStash();
+
+  // Same shape: a typed-storage accessor holds a value in memory when the
+  // device refuses writes, so the key sweep below has nothing to remove.
+  clearUserScopedOverrides();
+
   try {
     sessionStorage.clear();
   } catch {

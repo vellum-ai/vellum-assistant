@@ -56,7 +56,9 @@ export function parseAddressList(header: string): string[] {
       current += ch;
     } else if (ch === "," && !inQuotes && !inAngle) {
       const trimmed = current.trim();
-      if (trimmed) addresses.push(trimmed);
+      if (trimmed) {
+        addresses.push(trimmed);
+      }
       current = "";
     } else {
       current += ch;
@@ -64,7 +66,9 @@ export function parseAddressList(header: string): string[] {
   }
 
   const trimmed = current.trim();
-  if (trimmed) addresses.push(trimmed);
+  if (trimmed) {
+    addresses.push(trimmed);
+  }
 
   return addresses;
 }
@@ -91,7 +95,9 @@ export function extractEmail(address: string): string {
   const segments = [...cleaned.matchAll(/<([^>]+)>/g)].map((m) => m[1]);
   if (segments.length > 0) {
     const emailSegment = [...segments].reverse().find((s) => s.includes("@"));
-    if (emailSegment) return emailSegment.trim().toLowerCase();
+    if (emailSegment) {
+      return emailSegment.trim().toLowerCase();
+    }
   }
   return address
     .replace(/<[^>]+>/g, "")
@@ -109,10 +115,14 @@ export function extractEmail(address: string): string {
 export async function resolveProvider(
   platformInput?: string,
 ): Promise<MessagingProvider> {
-  if (platformInput) return getMessagingProvider(platformInput);
+  if (platformInput) {
+    return getMessagingProvider(platformInput);
+  }
 
   const connected = await getConnectedProviders();
-  if (connected.length === 1) return connected[0];
+  if (connected.length === 1) {
+    return connected[0];
+  }
   if (connected.length === 0) {
     throw new Error(
       "No messaging platforms are connected. Use messaging_auth_test to check connection status, then set up a platform.",
@@ -135,8 +145,12 @@ export async function getProviderConnection(
   provider: MessagingProvider,
   account?: string,
 ): Promise<OAuthConnection | undefined> {
-  if (provider.resolveConnection) return provider.resolveConnection(account);
-  if (await provider.isConnected?.()) return undefined;
+  if (provider.resolveConnection) {
+    return provider.resolveConnection(account);
+  }
+  if (await provider.isConnected?.()) {
+    return undefined;
+  }
   return resolveOAuthConnection(provider.credentialService, {
     account,
     requiredScopes: provider.requiredScopes,

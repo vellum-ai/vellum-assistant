@@ -572,9 +572,13 @@ export class MediaStreamOutput implements CallTransport {
    * so callers never hang.
    */
   awaitPlaybackDrained(): Promise<void> {
-    if (this.state === "closed") return Promise.resolve();
+    if (this.state === "closed") {
+      return Promise.resolve();
+    }
     const targetSeq = this.enqueuedEndOfTurnSeq;
-    if (this.echoedEndOfTurnSeq >= targetSeq) return Promise.resolve();
+    if (this.echoedEndOfTurnSeq >= targetSeq) {
+      return Promise.resolve();
+    }
     return new Promise<void>((resolve) => {
       this.drainWaiters.push({ targetSeq, resolve });
     });
@@ -691,11 +695,16 @@ export class MediaStreamOutput implements CallTransport {
   // ── Private: playback drain waiters ─────────────────────────────────
 
   private resolveDrainWaiters(): void {
-    if (this.drainWaiters.length === 0) return;
+    if (this.drainWaiters.length === 0) {
+      return;
+    }
     const remaining: typeof this.drainWaiters = [];
     for (const w of this.drainWaiters) {
-      if (this.echoedEndOfTurnSeq >= w.targetSeq) w.resolve();
-      else remaining.push(w);
+      if (this.echoedEndOfTurnSeq >= w.targetSeq) {
+        w.resolve();
+      } else {
+        remaining.push(w);
+      }
     }
     this.drainWaiters = remaining;
   }
@@ -703,7 +712,9 @@ export class MediaStreamOutput implements CallTransport {
   private releaseAllDrainWaiters(): void {
     const waiters = this.drainWaiters;
     this.drainWaiters = [];
-    for (const w of waiters) w.resolve();
+    for (const w of waiters) {
+      w.resolve();
+    }
   }
 
   // ── Private: playback queue management ──────────────────────────────
@@ -988,7 +999,6 @@ export class MediaStreamOutput implements CallTransport {
         return;
       }
 
-
       const contentType = response.headers.get("content-type") ?? "audio/mpeg";
       const format: CallAudioFormat = contentType.includes("wav")
         ? "wav"
@@ -1006,14 +1016,18 @@ export class MediaStreamOutput implements CallTransport {
           version,
           abortController.signal,
         );
-        if (result.outcome !== "fallback") return;
+        if (result.outcome !== "fallback") {
+          return;
+        }
         // The body could not be transcoded incrementally and was drained
         // instead; transcode it through the whole-buffer path.
         buffer = result.buffered;
       } else {
         buffer = Buffer.from(await response.arrayBuffer());
       }
-      if (version !== this.playbackVersion || this.isClosed()) return;
+      if (version !== this.playbackVersion || this.isClosed()) {
+        return;
+      }
 
       const frames = this.audioBufferToFrames(buffer, format);
       if (version !== this.playbackVersion || this.isClosed()) {
@@ -1073,21 +1087,31 @@ export class MediaStreamOutput implements CallTransport {
 
       for (;;) {
         const { done, value } = await reader.read();
-        if (!isCurrent()) return { outcome: "aborted" };
-        if (done || !value) break;
+        if (!isCurrent()) {
+          return { outcome: "aborted" };
+        }
+        if (done || !value) {
+          break;
+        }
         let chunk = viewToBuffer(value);
 
         if (!encoder) {
           pending =
             pending.length > 0 ? Buffer.concat([pending, chunk]) : chunk;
           const decision = sniffStreamableHeader(pending, format);
-          if (decision.kind === "need-more-bytes") continue;
+          if (decision.kind === "need-more-bytes") {
+            continue;
+          }
           if (decision.kind === "fallback") {
             const rest: Buffer[] = [pending];
             for (;;) {
               const next = await reader.read();
-              if (!isCurrent()) return { outcome: "aborted" };
-              if (next.done || !next.value) break;
+              if (!isCurrent()) {
+                return { outcome: "aborted" };
+              }
+              if (next.done || !next.value) {
+                break;
+              }
               rest.push(viewToBuffer(next.value));
             }
             return { outcome: "fallback", buffered: Buffer.concat(rest) };
@@ -1097,7 +1121,9 @@ export class MediaStreamOutput implements CallTransport {
             (frames) => this.sendFrames(frames),
           );
           chunk = pending.subarray(decision.payloadOffset);
-          if (chunk.length === 0) continue;
+          if (chunk.length === 0) {
+            continue;
+          }
         }
 
         encoder.push(chunk);

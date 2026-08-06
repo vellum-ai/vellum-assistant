@@ -78,7 +78,7 @@ let pkbSearchResults: Array<{
   hybridScore?: number;
 }> = [];
 let pkbSearchThrows: Error | null = null;
-mock.module("../plugins/defaults/memory/pkb/pkb-search.js", () => ({
+mock.module("../plugins/defaults/memory/v1/pkb/pkb-search.js", () => ({
   searchPkbFiles: async () => {
     if (pkbSearchThrows) {
       throw pkbSearchThrows;
@@ -151,7 +151,7 @@ import { conversations, messages } from "../persistence/schema/index.js";
 import { registerDefaultPluginInjectors } from "../plugins/defaults/index.js";
 import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import postCompact from "../plugins/defaults/memory/hooks/post-compact.js";
-import { getPkbRoot } from "../plugins/defaults/memory/pkb/types.js";
+import { getPkbRoot } from "../plugins/defaults/memory/v1/pkb/types.js";
 import {
   buildUnifiedTurnContextBlock,
   type UnifiedTurnContextOptions,

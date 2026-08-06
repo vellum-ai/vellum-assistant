@@ -44,7 +44,9 @@ export function classifyWaitUtterance(
   callbackOfferMade: boolean,
 ): WaitUtteranceClass {
   const lower = text.toLowerCase().trim();
-  if (lower.length === 0) return "empty";
+  if (lower.length === 0) {
+    return "empty";
+  }
 
   // Callback opt-in patterns (check before impatience to catch "yes call me back")
   if (callbackOfferMade) {
@@ -142,7 +144,9 @@ interface ScheduleNextHeartbeatParams {
 export function scheduleNextHeartbeat(
   params: ScheduleNextHeartbeatParams,
 ): ReturnType<typeof setTimeout> | null {
-  if (!params.isWaitActive()) return null;
+  if (!params.isWaitActive()) {
+    return null;
+  }
 
   const elapsed = Date.now() - params.accessRequestWaitStartedAt;
   const initialWindow = getGuardianWaitUpdateInitialWindowMs();
@@ -160,7 +164,9 @@ export function scheduleNextHeartbeat(
         );
 
   return setTimeout(() => {
-    if (!params.isWaitActive()) return;
+    if (!params.isWaitActive()) {
+      return;
+    }
 
     const seq = params.consumeSequence();
     const guardianLabel = params.resolveGuardianLabel();

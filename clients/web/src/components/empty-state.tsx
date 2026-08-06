@@ -36,7 +36,9 @@ export function EmptyState({
           {icon}
         </div>
       ) : null}
-      <h3 className="text-title-small text-[var(--content-default)]">{title}</h3>
+      <h3 className="text-title-small text-[var(--content-default)]">
+        {title}
+      </h3>
       {description ? (
         <p className="max-w-md text-body-medium-lighter text-[color:var(--content-tertiary)]">
           {description}

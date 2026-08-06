@@ -37,7 +37,12 @@ const CHANNELS: SlackChannel[] = [
   makeChannel({ id: "C002", name: "engineering", memberCount: 18 }),
   makeChannel({ id: "C003", name: "eng-releases", memberCount: 9 }),
   makeChannel({ id: "C004", name: "design", memberCount: 7 }),
-  makeChannel({ id: "C005", name: "leadership", isPrivate: true, memberCount: 4 }),
+  makeChannel({
+    id: "C005",
+    name: "leadership",
+    isPrivate: true,
+    memberCount: 4,
+  }),
 ];
 
 const meta: Meta<typeof SlackChannelTypeDefaults> = {

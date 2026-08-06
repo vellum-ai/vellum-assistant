@@ -32,7 +32,7 @@ import type {
 } from "@agentclientprotocol/sdk";
 
 import type { AcpSessionUpdateEvent } from "../api/events/acp-session-update.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import { redactJsonStringLeaves } from "../security/redact-json.js";
 import { redactSensitiveFields } from "../security/redaction.js";
 import { redactSecrets } from "../security/secret-scanner.js";

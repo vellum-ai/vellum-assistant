@@ -15,6 +15,7 @@
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { fileURLToPath } from "node:url";
 
 const setDeviceBool = mock((_name: string, _value: boolean) => {});
 const syncDiagnosticsToMain = mock((_enabled: boolean) => {});
@@ -324,7 +325,7 @@ describe("single-writer invariant", () => {
     // through this module's chokepoints. Reads (`getDeviceSetting`/
     // `getDeviceBool`/`watchDeviceSetting`) and the device-settings registry
     // entry are fine anywhere.
-    const srcRoot = new URL("../..", import.meta.url).pathname;
+    const srcRoot = fileURLToPath(new URL("../..", import.meta.url));
     const writePatterns = [
       /\bset(?:DeviceBool|DeviceSetting)\(\s*["']diagnosticsReporting["']/,
       /\bset(?:LocalBool|LocalSetting)\(\s*["']device:diagnostics_reporting["']/,

@@ -151,8 +151,9 @@ export async function listGuardianDecisionPrompts(params: {
 
   for (const req of pendingRequests) {
     // Skip expired requests
-    if (req.expiresAt && new Date(req.expiresAt).getTime() < Date.now())
+    if (req.expiresAt && new Date(req.expiresAt).getTime() < Date.now()) {
       continue;
+    }
 
     const prompt = mapRequestToPrompt(req, conversationId);
     prompts.push(prompt);

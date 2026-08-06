@@ -1,7 +1,7 @@
 import type {
   MemoryV2ConceptRowRecord,
   MemoryV2ConfigSnapshot,
-} from "../../memory-v2-activation-log-store.js";
+} from "../../v2/activation-log-store.js";
 
 export const sampleConcepts: MemoryV2ConceptRowRecord[] = [
   {

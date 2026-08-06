@@ -12,11 +12,11 @@ import {
 } from "bun:test";
 
 import type { LoopToolExecutor } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import {
   queueConversationNotice,
   resetConversationNoticesForTests,
 } from "../daemon/conversation-notices.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { getConversationDirName } from "../persistence/conversation-directories.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
@@ -318,6 +318,8 @@ const deleteMessageByIdMock = mock(() => ({
   deletedSummaryIds: [],
 }));
 const reserveMessageMock = mock(async () => ({ id: "msg-reserve" }));
+/** Persisted rows the loop reads back. Empty unless a test seeds one. */
+let mockStoredMessages: unknown[] = [];
 const updateMessageContentMock = mock(() => {});
 const finalizeMessageContentMock = mock(() => {});
 const addMessageMock = mock(() => ({ id: "mock-msg-id" }));
@@ -328,7 +330,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   updateConversationUsage: () => {},
   updateMessageMetadata: updateMessageMetadataMock,
   setConversationHistoryStrippedAt: setConversationHistoryStrippedAtMock,
-  getMessages: () => [],
+  getMessages: () => mockStoredMessages,
   getConversation: () => mockConversationRow,
   provenanceFromTrustContext: () => ({
     source: "user",
@@ -349,6 +351,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   finalizeMessageContent: finalizeMessageContentMock,
   recordConversationPersistedSeq: () => {},
   getConversationPersistedSeq: () => null,
+  PROVIDER_ERROR_MESSAGE_KIND: "provider_error",
   // The real schema is a Zod object; tests don't exercise validation,
   // so a passthrough is sufficient — the production code at
   // `handleMessageComplete` only branches on `success` and reads two
@@ -377,6 +380,11 @@ mock.module("../persistence/conversation-attention-store.js", () => ({
 }));
 mock.module("../runtime/sync/sync-publisher.js", () => ({
   publishSyncInvalidation: publishSyncInvalidationMock,
+}));
+
+const emitAssistantReplyNotificationMock = mock(async () => {});
+mock.module("../notifications/assistant-reply-producer.js", () => ({
+  emitAssistantReplyNotification: emitAssistantReplyNotificationMock,
 }));
 
 afterAll(() => {
@@ -537,7 +545,7 @@ mock.module("../daemon/date-context.js", () => ({
   resolveTurnTimezoneContext: resolveTurnTimezoneContextMock,
 }));
 
-mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
+mock.module("../agent/history-repair/history-repair.js", () => ({
   repairHistory: (msgs: Message[]) => ({
     messages: msgs,
     stats: {
@@ -774,6 +782,7 @@ function makeCtx(
     channelCapabilities: undefined,
     commandIntent: undefined,
     trustContext: undefined,
+    toolsDisabledDepth: 0,
 
     allowedToolNames: undefined,
     preactivatedSkillIds: undefined,
@@ -804,7 +813,16 @@ function makeCtx(
     getQueueDepth: () => 0,
     hasQueuedMessages: () => false,
     canHandoffAtCheckpoint: () => false,
-    drainQueue: () => {},
+    drainQueue: (_reason?: string) => {},
+    // Forwards to drainQueue so tests that spy the drain observe the agent
+    // loop's post-turn kick through the guarded entry point.
+    kickDrainQueue(
+      this: { drainQueue: (reason?: string) => unknown },
+      reason: string = "loop_complete",
+      _origin?: string,
+    ) {
+      return this.drainQueue(reason);
+    },
     getTurnInterfaceContext: () => null,
     getTurnChannelContext: () => ({
       userMessageChannel: "vellum" as const,
@@ -847,6 +865,24 @@ function makeCtx(
   return ctx;
 }
 
+/**
+ * What `classifyConversationError` returns for a daily-credit-limit 402 (see
+ * `dailyLimitClassification` in conversation-error.ts). Its `userMessage` is
+ * banner voice; the loop swaps in {@link DAILY_LIMIT_ASSISTANT_REPLY} for the
+ * transcript row.
+ */
+const DAILY_LIMIT_CLASSIFICATION = {
+  code: "PROVIDER_BILLING",
+  userMessage:
+    "You've hit your daily credit limit. Raise the limit in Billing settings to keep going today.",
+  retryable: false,
+  errorCategory: "daily_limit_reached",
+};
+
+/** Mirrors `DAILY_LIMIT_REACHED_ASSISTANT_REPLY` in conversation-agent-loop.ts. */
+const DAILY_LIMIT_ASSISTANT_REPLY =
+  "I had to stop because you hit your daily credit limit. Raise the limit in Settings → Billing and we can pick up where we left off, or I can continue once it resets.";
+
 type CompactionResult = Parameters<typeof applyCompactionResult>[1];
 
 function makeCompactionResult(
@@ -886,6 +922,7 @@ beforeEach(() => {
   setAgentLoopExitReasonOnLatestLogMock.mockClear();
   syncMessageToDiskMock.mockClear();
   rebuildConversationDiskViewFromDbStateMock.mockClear();
+  emitAssistantReplyNotificationMock.mockClear();
   updateMessageMetadataMock.mockClear();
   updateMessageMetadataMock.mockImplementation(() => {});
   updateConversationSlackContextWatermarkMock.mockClear();
@@ -915,7 +952,9 @@ beforeEach(() => {
   getSlackCompactionWatermarkForPrefixMock.mockClear();
   deleteMessageByIdMock.mockClear();
   reserveMessageMock.mockClear();
+  mockStoredMessages = [];
   updateMessageContentMock.mockClear();
+  updateMessageContentMock.mockImplementation(() => {});
   finalizeMessageContentMock.mockClear();
   rmSync(inflightDir(), { recursive: true, force: true });
   addMessageMock.mockClear();
@@ -1166,6 +1205,92 @@ describe("session-agent-loop", () => {
       await expect(
         runAgentLoopImpl(ctx, "hello", "msg-1", () => {}),
       ).rejects.toThrow("runAgentLoop called without prior persistUserMessage");
+    });
+
+    test("defers workspace Git work when tools are disabled", async () => {
+      const ensureInitialized = mock(async () => {});
+      const commitTurnChanges = mock(async () => {});
+      const ctx = makeCtx({
+        toolsDisabledDepth: 1,
+        getWorkspaceGitService: () => ({ ensureInitialized }),
+        commitTurnChanges,
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(ensureInitialized).not.toHaveBeenCalled();
+      expect(commitTurnChanges).not.toHaveBeenCalled();
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(commitTurnChanges).toHaveBeenCalledTimes(1);
+    });
+
+    test("leaves a deferred commit to an immediate follow-up turn", async () => {
+      const commitTurnChanges = mock(async () => {});
+      const ctx = makeCtx({
+        toolsDisabledDepth: 1,
+        commitTurnChanges,
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+      ctx.setProcessing(true);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(commitTurnChanges).not.toHaveBeenCalled();
+      ctx.setProcessing(false);
+    });
+
+    test("initializes workspace Git before hooks when tools can run", async () => {
+      let initialized = false;
+      const ensureInitialized = mock(async () => {
+        initialized = true;
+      });
+      const commitTurnChanges = mock(async () => {});
+      const initializedDuringHook: boolean[] = [];
+      registerPlugin({
+        manifest: {
+          name: "test-workspace-git-ready-before-hook",
+          version: "1.0.0",
+        },
+        hooks: {
+          "user-prompt-submit": async () => {
+            initializedDuringHook.push(initialized);
+          },
+        },
+      });
+      const ctx = makeCtx({
+        getWorkspaceGitService: () => ({ ensureInitialized }),
+        commitTurnChanges,
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(ensureInitialized).toHaveBeenCalledTimes(1);
+      expect(commitTurnChanges).toHaveBeenCalledTimes(1);
+      expect(initializedDuringHook).toEqual([true]);
+    });
+
+    test("continues a tool-capable turn when workspace Git initialization fails", async () => {
+      const ensureInitialized = mock(async () => {
+        throw new Error("simulated Git initialization failure");
+      });
+      const events: AssistantEvent[] = [];
+      const ctx = makeCtx({
+        getWorkspaceGitService: () => ({ ensureInitialized }),
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (event) =>
+        events.push(event),
+      );
+
+      expect(ensureInitialized).toHaveBeenCalledTimes(1);
+      expect(events.some((event) => event.type === "message_complete")).toBe(
+        true,
+      );
+      expect(events.some((event) => event.type === "conversation_error")).toBe(
+        false,
+      );
     });
   });
 
@@ -1955,6 +2080,76 @@ describe("session-agent-loop", () => {
       expect(ctx.pendingSurfaceActions.has("stale-form-1")).toBe(false);
     });
 
+    test("withholds the dismissal event and keeps the surface pending when its persisted write fails", async () => {
+      const events: AssistantEvent[] = [];
+
+      const ctx = makeCtx();
+      ctx.pendingSurfaceActions.set("stale-table-2", { surfaceType: "table" });
+      mockStoredMessages = [
+        {
+          id: "msg-with-stale-surface",
+          conversationId: "conv-1",
+          role: "assistant",
+          content: [{ type: "ui_surface", surfaceId: "stale-table-2" }],
+          createdAt: 0,
+          metadata: null,
+        },
+      ];
+      updateMessageContentMock.mockImplementationOnce(() => {
+        throw new Error("database is locked");
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg), {
+        isUserMessage: true,
+      });
+
+      // Announcing a dismissal the DB still holds as pending leaves the client
+      // showing a card the next history reseed reverts.
+      expect(
+        events.filter((e) => e.type === "ui_surface_complete"),
+      ).toHaveLength(0);
+      // The card stays live on the client, so the daemon must keep treating it
+      // as pending; the sweep retries on the next user message.
+      expect(ctx.pendingSurfaceActions.has("stale-table-2")).toBe(true);
+    });
+
+    test("dismisses the remaining surfaces when one write fails", async () => {
+      const events: AssistantEvent[] = [];
+
+      const ctx = makeCtx();
+      ctx.pendingSurfaceActions.set("stale-table-3", { surfaceType: "table" });
+      ctx.pendingSurfaceActions.set("stale-form-3", { surfaceType: "form" });
+      mockStoredMessages = [
+        {
+          id: "msg-with-stale-surfaces",
+          conversationId: "conv-1",
+          role: "assistant",
+          content: [
+            { type: "ui_surface", surfaceId: "stale-table-3" },
+            { type: "ui_surface", surfaceId: "stale-form-3" },
+          ],
+          createdAt: 0,
+          metadata: null,
+        },
+      ];
+      updateMessageContentMock.mockImplementationOnce(() => {
+        throw new Error("database is locked");
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg), {
+        isUserMessage: true,
+      });
+
+      // Retaining the failed entry must not stall the sweep: deleting the
+      // current key while iterating the map leaves later keys reachable.
+      const completed = events
+        .filter((e) => e.type === "ui_surface_complete")
+        .map((e) => (e as { surfaceId: string }).surfaceId);
+      expect(completed).toEqual(["stale-form-3"]);
+      expect(ctx.pendingSurfaceActions.has("stale-table-3")).toBe(true);
+      expect(ctx.pendingSurfaceActions.has("stale-form-3")).toBe(false);
+    });
+
     test("does not auto-complete surfaces when request is a surface action", async () => {
       const events: AssistantEvent[] = [];
 
@@ -2218,6 +2413,177 @@ describe("session-agent-loop", () => {
       expect(backfillCall[1]).toBe("mock-msg-id");
     });
 
+    test("stamps provider-error metadata onto the persisted synthetic assistant row", async () => {
+      mockConversationErrorClassification = {
+        code: "PROVIDER_BILLING",
+        userMessage:
+          "You're out of credits. Add credits in Settings → Billing to continue.",
+        retryable: false,
+        errorCategory: "credits_exhausted",
+      };
+
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("Payment Required");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(addMessageMock).toHaveBeenCalledTimes(1);
+      const addCall = addMessageMock.mock.calls[0] as unknown as [
+        string,
+        string,
+        string,
+        { metadata?: Record<string, unknown> },
+      ];
+      expect(addCall[1]).toBe("assistant");
+      // The persisted row swaps the context-neutral classification copy for
+      // assistant-voice wording, since this turn truly ends with no reply.
+      const persistedBlocks = JSON.parse(addCall[2]) as Array<{
+        type: string;
+        text: string;
+      }>;
+      expect(persistedBlocks[0]?.text).toBe(
+        "I couldn't reply because you ran out of credits. Add credits in Settings → Billing and we can pick up where we left off.",
+      );
+      expect(addCall[3]?.metadata).toMatchObject({
+        messageKind: "provider_error",
+        providerErrorCode: "PROVIDER_BILLING",
+        providerErrorCategory: "credits_exhausted",
+      });
+    });
+
+    test("persists assistant-voice daily-limit copy on a first-call rejection", async () => {
+      mockConversationErrorClassification = DAILY_LIMIT_CLASSIFICATION;
+
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("Payment Required");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(addMessageMock).toHaveBeenCalledTimes(1);
+      const addCall = addMessageMock.mock.calls[0] as unknown as [
+        string,
+        string,
+        string,
+        { metadata?: Record<string, unknown> },
+      ];
+      expect(addCall[1]).toBe("assistant");
+      // Like the credits-exhausted row, the daily-limit row re-enters LLM
+      // history and renders as assistant speech, so it carries first-person
+      // copy rather than the banner-voice classification text.
+      const persistedBlocks = JSON.parse(addCall[2]) as Array<{
+        type: string;
+        text: string;
+      }>;
+      expect(persistedBlocks[0]?.text).toBe(DAILY_LIMIT_ASSISTANT_REPLY);
+      expect(addCall[3]?.metadata).toMatchObject({
+        messageKind: "provider_error",
+        providerErrorCode: "PROVIDER_BILLING",
+        providerErrorCategory: "daily_limit_reached",
+      });
+    });
+
+    test("persists the synthetic error row when a daily-limit error kills the run mid-turn", async () => {
+      // Mid-turn shape: the run already carries assistant `tool_use` messages
+      // from the completed tool round-trip, and only the failing follow-up
+      // call lacks a reply. The synthetic error row must persist for this
+      // shape too, so a reload explains why the assistant stopped instead of
+      // ending on a bare tool call.
+      reserveMessageMock
+        .mockImplementationOnce(async () => ({ id: "msg-reserve-1" }))
+        .mockImplementationOnce(async () => ({ id: "msg-reserve-2" }))
+        .mockImplementationOnce(async () => ({ id: "msg-reserve-3" }));
+      mockConversationErrorClassification = DAILY_LIMIT_CLASSIFICATION;
+
+      // GIVEN a run whose first call asks for a tool, the tool succeeds, and
+      // the follow-up call is rejected with a daily-limit 402.
+      const ctx = makeCtx({
+        providerResponses: [
+          toolUseResponse("tu-1", "file_read", {}),
+          new Error("Payment Required"),
+        ],
+        loopTools: [
+          {
+            name: "file_read",
+            description: "Read a file",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+        toolExecutor: async () => ({ content: "file content", isError: false }),
+      } as unknown as Partial<Conversation>);
+
+      await runAgentLoopImpl(ctx, "hello", "msg-user-daily", () => {});
+
+      // (a) The synthetic provider-error row is persisted with the
+      // assistant-voice daily-limit copy and the classification metadata.
+      expect(addMessageMock).toHaveBeenCalledTimes(1);
+      const addCall = addMessageMock.mock.calls[0] as unknown as [
+        string,
+        string,
+        string,
+        { metadata?: Record<string, unknown> },
+      ];
+      expect(addCall[1]).toBe("assistant");
+      const persistedBlocks = JSON.parse(addCall[2]) as Array<{
+        type: string;
+        text: string;
+      }>;
+      expect(persistedBlocks[0]?.text).toBe(DAILY_LIMIT_ASSISTANT_REPLY);
+      expect(addCall[3]?.metadata).toMatchObject({
+        messageKind: "provider_error",
+        providerErrorCode: "PROVIDER_BILLING",
+        providerErrorCategory: "daily_limit_reached",
+      });
+
+      // (b) The empty row the failing call reserved at `llm_call_started` is
+      // dropped, so the transcript carries the error row instead of a stranded
+      // blank bubble. The failing call reserves last (after the first call's
+      // assistant row and the grouped tool-result row).
+      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
+      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
+        string,
+      ];
+      expect(deleteCall[0]).toBe("msg-reserve-3");
+
+      // (c) The turn is stamped failed with the classified code.
+      const outcomeStamps = (
+        updateMessageMetadataMock.mock.calls as unknown as Array<
+          [string, Record<string, unknown>]
+        >
+      ).filter((call) => call[1]?.turnOutcome !== undefined);
+      expect(outcomeStamps).toHaveLength(1);
+      expect(outcomeStamps[0]?.[0]).toBe("msg-user-daily");
+      expect(outcomeStamps[0]?.[1]).toMatchObject({
+        turnOutcome: "failed",
+        turnFailureCode: "PROVIDER_BILLING",
+      });
+
+      // (d) History ends tool_use -> tool_result -> error text, so the row
+      // never lands between a tool_use and its tool_result on replay.
+      const tail = ctx.messages.slice(-3) as Array<{
+        role: string;
+        content: Array<{ type: string; text?: string }>;
+      }>;
+      expect(tail[0]?.role).toBe("assistant");
+      expect(tail[0]?.content[0]?.type).toBe("tool_use");
+      expect(tail[1]?.role).toBe("user");
+      expect(tail[1]?.content[0]?.type).toBe("tool_result");
+      expect(tail[2]?.role).toBe("assistant");
+      expect(tail[2]?.content[0]).toEqual({
+        type: "text",
+        text: DAILY_LIMIT_ASSISTANT_REPLY,
+      });
+    });
+
     test("does not persist managed credential refresh failures as assistant text", async () => {
       mockConversationErrorClassification = {
         code: "MANAGED_KEY_INVALID",
@@ -2259,6 +2625,120 @@ describe("session-agent-loop", () => {
         string,
       ];
       expect(deleteCall[0]).toBe("msg-reserve");
+    });
+
+    test("does not push the synthetic error row as a reply notification", async () => {
+      // The synthetic row carries the provider's error text. It reaches the
+      // `message_complete` branch like any other turn, so without the
+      // provider-error guard the tail would send that text to the lock screen
+      // as if it were the assistant's reply.
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("upstream 500");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(addMessageMock).toHaveBeenCalled();
+      expect(emitAssistantReplyNotificationMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("assistant-reply notification wiring", () => {
+    test("a completed turn notifies with the row that opened it", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("here you go")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-user-7", () => {});
+
+      expect(emitAssistantReplyNotificationMock).toHaveBeenCalledTimes(1);
+      const notifyCall = emitAssistantReplyNotificationMock.mock
+        .calls[0] as unknown as [
+        { conversationId: string; userMessageId: string | undefined },
+      ];
+      expect(notifyCall[0]).toMatchObject({
+        conversationId: "test-conv",
+        userMessageId: "msg-user-7",
+      });
+    });
+
+    test("a caller-supplied notify row overrides the turn's user message id", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("here you go")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-user-tail", () => {}, {
+        notifyUserMessageId: "msg-user-prompt",
+      });
+
+      expect(emitAssistantReplyNotificationMock).toHaveBeenCalledTimes(1);
+      const notifyCall = emitAssistantReplyNotificationMock.mock
+        .calls[0] as unknown as [{ userMessageId: string | undefined }];
+      expect(notifyCall[0].userMessageId).toBe("msg-user-prompt");
+    });
+
+    test("threads the app-only delivery marker to the producer", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("here you go")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-user-8", () => {}, {
+        replyDeliveredInAppOnly: true,
+      });
+
+      expect(emitAssistantReplyNotificationMock).toHaveBeenCalledTimes(1);
+      const notifyCall = emitAssistantReplyNotificationMock.mock
+        .calls[0] as unknown as [{ replyDeliveredInAppOnly?: boolean }];
+      expect(notifyCall[0].replyDeliveredInAppOnly).toBe(true);
+    });
+
+    test("omits the app-only delivery marker for an ordinary turn", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("here you go")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-user-9", () => {});
+
+      expect(emitAssistantReplyNotificationMock).toHaveBeenCalledTimes(1);
+      const notifyCall = emitAssistantReplyNotificationMock.mock
+        .calls[0] as unknown as [Record<string, unknown>];
+      expect(notifyCall[0]).not.toHaveProperty("replyDeliveredInAppOnly");
     });
   });
 
@@ -2849,12 +3329,20 @@ describe("session-agent-loop", () => {
       }));
 
       // GIVEN a real loop whose provider streams a delta — landing a debounced
-      // partial flush on the reserved row — then rejects, so the loop emits
-      // `provider_error` and `error` and exits with no `message_complete`.
+      // partial flush on the reserved row — then rejects. The loop resumes a
+      // call that died after it had started streaming, so the second attempt
+      // is scripted to fail before streaming anything: that keeps exactly one
+      // row carrying partial content, and the turn then exits via
+      // `provider_error` with no `message_complete`.
+      let attempt = 0;
       const ctx = makeCtx({
         loopProvider: {
           name: "mock-provider",
           async sendMessage(_messages, options) {
+            attempt++;
+            if (attempt > 1) {
+              throw new Error("upstream 500");
+            }
             options?.onEvent?.({ type: "text_delta", text: "hello world" });
             await new Promise((resolve) => setTimeout(resolve, 1100));
             throw new Error("upstream 500");
@@ -2878,11 +3366,12 @@ describe("session-agent-loop", () => {
         .split("\n");
       expect(orphanLines).toHaveLength(1);
       expect(updateMessageContentMock).toHaveBeenCalledTimes(0);
-      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
-      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
-        string,
-      ];
-      expect(deleteCall[0]).toBe("msg-orphan-with-partial");
+      // Scoped to the row under test: the resumed attempt reserves a row of
+      // its own, which its own cleanup deletes.
+      const deletedIds = deleteMessageByIdMock.mock.calls.map(
+        (call) => (call as unknown as [string])[0],
+      );
+      expect(deletedIds).toContain("msg-orphan-with-partial");
     });
   });
 

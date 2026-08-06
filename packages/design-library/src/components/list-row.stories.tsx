@@ -14,6 +14,7 @@ const meta: Meta<typeof ListRow> = {
     showChevron: { control: "boolean" },
     selected: { control: "boolean" },
     disabled: { control: "boolean" },
+    trailingInteractive: { control: "boolean" },
   },
   args: {
     title: "hourly water reminder",
@@ -105,6 +106,35 @@ export const Disabled: Story = {
     onClick: () => {},
     disabled: true,
   },
+};
+
+/**
+ * `trailingInteractive` renders the trailing cluster OUTSIDE the row's
+ * button (like `leading`), so it can host its own controls - a menu trigger,
+ * a picker - without nesting interactive elements. Used by the Language
+ * Model card's profile rows (chips + kebab menu).
+ */
+export const InteractiveTrailing: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <ListRow
+      title="Balanced"
+      subtitle="Claude Sonnet 4.5  •  Managed by Vellum"
+      onClick={() => {}}
+      showChevron={false}
+      trailingInteractive
+      trailing={
+        <button
+          type="button"
+          aria-label="Row actions"
+          className="rounded px-2 py-1 text-body-small-default text-[var(--content-secondary)] hover:bg-[var(--surface-hover)]"
+          onClick={() => {}}
+        >
+          ⋮
+        </button>
+      }
+    />
+  ),
 };
 
 /** A stack of rows demonstrating the automatic hairline dividers between siblings. */

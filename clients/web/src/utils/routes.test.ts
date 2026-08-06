@@ -96,9 +96,9 @@ describe("isConversationChatPath (composer-mounting routes only)", () => {
 
   test("matches a bare conversation route, tolerating a trailing slash", () => {
     expect(isConversationChatPath(routes.conversation("conv-1"))).toBe(true);
-    expect(
-      isConversationChatPath(`${routes.conversation("conv-1")}/`),
-    ).toBe(true);
+    expect(isConversationChatPath(`${routes.conversation("conv-1")}/`)).toBe(
+      true,
+    );
   });
 
   test("rejects the inspector subroute — InspectPage has no composer", () => {

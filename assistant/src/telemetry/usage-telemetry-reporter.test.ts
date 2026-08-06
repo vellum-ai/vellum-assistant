@@ -260,6 +260,8 @@ type UnreportedUsageEventFixture = UsageEvent & {
   turnIndex: number | null;
   parentConversationId: string | null;
   parentTurnIndex: number | null;
+  subagentRole: string | null;
+  subagentSpawnMode: string | null;
 };
 
 function makeUsageEvent(
@@ -290,6 +292,8 @@ function makeUsageEvent(
     turnIndex: 1,
     parentConversationId: null,
     parentTurnIndex: null,
+    subagentRole: null,
+    subagentSpawnMode: null,
     llmCallCount: 1,
     ...overrides,
   };
@@ -1318,6 +1322,7 @@ describe("UsageTelemetryReporter", () => {
       outcome?: string | null;
       batchedInto?: string | null;
       failureCode?: string | null;
+      scripted?: boolean | null;
     } = {},
   ) {
     return {
@@ -1329,6 +1334,9 @@ describe("UsageTelemetryReporter", () => {
       interfaceId: "macos",
       channelId: "vellum",
       clientMetadata: null,
+      // Defaults to UNKNOWN so existing cases keep asserting the pre-marker
+      // wire shape; each scripted case opts in explicitly.
+      scripted: null,
       ...overrides,
     };
   }
@@ -1586,6 +1594,50 @@ describe("UsageTelemetryReporter", () => {
     expect("batched_into" in byId["evt-failed"]).toBe(false);
     expect(byId["evt-cancelled"].outcome).toBe("cancelled");
     expect("failure_code" in byId["evt-cancelled"]).toBe(false);
+  });
+
+  test("the scripted marker rides the turn event with all three states distinct", async () => {
+    // `scripted` is what lets activation metrics exclude auto-sent onboarding
+    // turns for EVERY owner rather than only diagnostics-consenting ones
+    // (ANT-10), so its states must stay distinguishable on the wire. Note
+    // diagnostics consent is OFF here: unlike `trace`, this field must ship
+    // regardless: that independence is the entire point of the field.
+    mockGetCachedShareDiagnostics.mockReturnValue(false);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    useStatefulCheckpoints();
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-scripted", 1700000010000, "conv-1", { scripted: true }),
+      turnEvent("evt-typed", 1700000011000, "conv-1", { scripted: false }),
+      turnEvent("evt-unknown", 1700000012000, "conv-2", { scripted: null }),
+    ]);
+    mockIsTurnSettled.mockReturnValue(true);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":3}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    const byId = Object.fromEntries(
+      body.events.map((e: { daemon_event_id: string }) => [
+        e.daemon_event_id,
+        e,
+      ]),
+    );
+    expect(byId["evt-scripted"].scripted).toBe(true);
+    // The state most at risk: an omit-when-falsy spread would drop this and
+    // silently downgrade a turn we KNOW was typed into "unknown", handing
+    // activation back to the consent-gated classifier this field replaces.
+    expect("scripted" in byId["evt-typed"]).toBe(true);
+    expect(byId["evt-typed"].scripted).toBe(false);
+    // A row predating the marker stays UNKNOWN: the key is absent, so the
+    // wire shape is byte-identical to a pre-scripted turn event and
+    // downstream falls back to the trace classifier rather than being told
+    // something untrue about the turn.
+    expect("scripted" in byId["evt-unknown"]).toBe(false);
   });
 
   test("an unrecognized outcome value in metadata is dropped from the wire", async () => {

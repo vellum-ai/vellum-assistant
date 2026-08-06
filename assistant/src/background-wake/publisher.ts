@@ -22,7 +22,9 @@ export function refreshBackgroundWakeIntent(reason: string): void {
 }
 
 function schedulePendingRefresh(): void {
-  if (refreshTimer || inFlightRefresh) return;
+  if (refreshTimer || inFlightRefresh) {
+    return;
+  }
   refreshTimer = setTimeout(runPendingRefresh, REFRESH_DEBOUNCE_MS);
   refreshTimer.unref?.();
 }

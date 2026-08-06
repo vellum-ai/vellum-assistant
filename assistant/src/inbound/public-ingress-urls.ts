@@ -43,11 +43,41 @@ export interface IngressConfig {
   };
 }
 
-function assertPublicIngressEnabled(config: IngressConfig): void {
-  if (config.ingress?.enabled === false) {
-    throw new Error(
+/**
+ * True when the user has explicitly switched public ingress off.
+ *
+ * An explicit opt-out is a decision not to accept inbound webhooks at all, so
+ * it must not be silently routed around via platform callbacks. An *absent*
+ * ingress config is merely "not set up yet" and is eligible for the platform
+ * fallback, so only a literal `false` counts here.
+ *
+ * Every consumer that offers a platform-callback fallback has to consult this
+ * before falling back, which is why it lives here rather than in each caller.
+ */
+export function isPublicIngressDisabled(config: IngressConfig): boolean {
+  return config.ingress?.enabled === false;
+}
+
+/**
+ * Thrown when a URL builder is asked for a URL while ingress is opted out.
+ *
+ * Distinct from the "no URL configured" error so callers with a
+ * platform-callback fallback can tell the two apart: "not set up yet" is
+ * eligible for the fallback, an explicit opt-out is not. Matching on the
+ * message text would break the moment the copy is reworded.
+ */
+export class PublicIngressDisabledError extends Error {
+  constructor() {
+    super(
       "Public ingress is disabled. Ask the assistant to enable it, or update it from the Settings page.",
     );
+    this.name = "PublicIngressDisabledError";
+  }
+}
+
+function assertPublicIngressEnabled(config: IngressConfig): void {
+  if (isPublicIngressDisabled(config)) {
+    throw new PublicIngressDisabledError();
   }
 }
 
@@ -66,11 +96,15 @@ export function getPublicBaseUrl(config: IngressConfig): string {
 
   const ingressValue = config.ingress?.publicBaseUrl;
   const normalizedIngressValue = normalizePublicBaseUrl(ingressValue);
-  if (normalizedIngressValue) return normalizedIngressValue;
+  if (normalizedIngressValue) {
+    return normalizedIngressValue;
+  }
 
   const ingressEnvValue = getIngressPublicBaseUrl();
   const normalizedIngressEnvValue = normalizePublicBaseUrl(ingressEnvValue);
-  if (normalizedIngressEnvValue) return normalizedIngressEnvValue;
+  if (normalizedIngressEnvValue) {
+    return normalizedIngressEnvValue;
+  }
 
   throw new Error(
     "No public base URL configured. Set ingress.publicBaseUrl in config.",
@@ -90,10 +124,7 @@ export function getTwilioVoiceWebhookUrl(
   config: IngressConfig,
   callSessionId?: string,
 ): string {
-  return buildTwilioVoiceWebhookUrl(
-    getPublicBaseUrl(config),
-    callSessionId,
-  );
+  return buildTwilioVoiceWebhookUrl(getPublicBaseUrl(config), callSessionId);
 }
 
 /**

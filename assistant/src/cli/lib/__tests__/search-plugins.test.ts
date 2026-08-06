@@ -59,7 +59,10 @@ function entry(
  * sources do (dedupe by name, project, sort), reusing the real projection. */
 function catalog(entries: MarketplaceEntry[], ref = "main"): PluginCatalog {
   return {
-    ...buildBundledPluginCatalog({ name: "vellum-assistant", plugins: entries }),
+    ...buildBundledPluginCatalog({
+      name: "vellum-assistant",
+      plugins: entries,
+    }),
     ref,
   };
 }
@@ -125,9 +128,9 @@ describe("filterPluginCatalog", () => {
   });
 
   test("throws InvalidSearchPatternError on a malformed pattern", () => {
-    expect(() =>
-      filterPluginCatalog(catalog([]), "(unterminated"),
-    ).toThrow(InvalidSearchPatternError);
+    expect(() => filterPluginCatalog(catalog([]), "(unterminated")).toThrow(
+      InvalidSearchPatternError,
+    );
   });
 });
 
@@ -150,7 +153,9 @@ describe("assertValidSearchPattern", () => {
 describe("marketplaceMatch", () => {
   test("projects a root entry onto a github source with a display locator", () => {
     expect(
-      marketplaceMatch(entry("simple-memory", "vellum-ai/simple-memory", SHA_A)),
+      marketplaceMatch(
+        entry("simple-memory", "vellum-ai/simple-memory", SHA_A),
+      ),
     ).toEqual({
       name: "simple-memory",
       path: `github:vellum-ai/simple-memory@${SHA_A}`,
@@ -253,7 +258,9 @@ describe("projectMarketplaceEntries", () => {
       entry("simple-memory", "vellum-ai/simple-memory", SHA_A),
     ]);
     expect(match).toEqual(
-      marketplaceMatch(entry("simple-memory", "vellum-ai/simple-memory", SHA_A)),
+      marketplaceMatch(
+        entry("simple-memory", "vellum-ai/simple-memory", SHA_A),
+      ),
     );
   });
 

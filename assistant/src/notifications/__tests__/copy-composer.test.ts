@@ -1,7 +1,8 @@
 /**
- * Tests for the notification copy-composer — specifically the fallback
- * path that composeFallbackCopy uses when the LLM is unavailable, and
- * the shared deriveTitle utility.
+ * Tests for the notification copy-composer: the fallback path that
+ * composeFallbackCopy uses when the LLM is unavailable, the normalization
+ * it applies to producer-supplied titles, and the shared deriveTitle
+ * utility.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -190,6 +191,55 @@ describe("composeFallbackCopy honors requestedMessage / requestedTitle", () => {
     expect(copy.vellum?.title).toBe("User Title");
   });
 
+  test("strips markdown and quotes from a producer-supplied title", () => {
+    const signal = makeSignal({
+      contextPayload: {
+        requestedMessage: "The deploy finished cleanly.",
+        requestedTitle: '"**Deploy** finished"',
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.title).toBe("Deploy finished");
+  });
+
+  test("derives the title when requestedTitle reads as leaked prose", () => {
+    const signal = makeSignal({
+      contextPayload: {
+        requestedMessage: "Backup finished. Nothing needs your attention.",
+        requestedTitle: "I need to generate a title for this notification",
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.title).toBe("Backup finished.");
+  });
+
+  test("derives the title when requestedTitle spans multiple lines", () => {
+    const signal = makeSignal({
+      contextPayload: {
+        requestedMessage: "The nightly job is done.",
+        requestedTitle: "Nightly job\nsecond line",
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.title).toBe("The nightly job is done.");
+  });
+
+  test("truncates an over-long requestedTitle to the shared title budget", () => {
+    const signal = makeSignal({
+      contextPayload: {
+        requestedMessage: "Body text",
+        requestedTitle:
+          "Alpha bravo charlie delta echo foxtrot golf hotel india juliett",
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.title).toBe("Alpha bravo charlie delta echo");
+  });
+
   test("works with non-assistant_tool source channels", () => {
     for (const sourceChannel of ["scheduler", "watcher", "slack"] as const) {
       const signal = makeSignal({
@@ -202,6 +252,171 @@ describe("composeFallbackCopy honors requestedMessage / requestedTitle", () => {
 
       expect(copy.vellum?.body).toBe(`Message from ${sourceChannel}`);
     }
+  });
+});
+
+// ── Plugin schedule templates ─────────────────────────────────────────
+
+describe("composeFallbackCopy plugin schedule templates", () => {
+  test("schedule.declared renders plugin, schedule name, and cadence", () => {
+    const signal = makeSignal({
+      sourceEventName: "schedule.declared",
+      contextPayload: {
+        pluginName: "news",
+        scheduleName: "digest",
+        sourceKey: "plugin:news/digest",
+        cadence: "0 9 * * *",
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.title).toBe("New plugin schedule: digest");
+    expect(copy.vellum?.body).toContain('Plugin "news"');
+    expect(copy.vellum?.body).toContain('"digest"');
+    expect(copy.vellum?.body).toContain("0 9 * * *");
+  });
+
+  test("schedule.declared omits the cadence suffix when absent", () => {
+    const signal = makeSignal({
+      sourceEventName: "schedule.declared",
+      contextPayload: { pluginName: "news", scheduleName: "digest" },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.body).not.toContain("(");
+    expect(copy.vellum?.body).toContain('"digest"');
+  });
+
+  test("schedule.definition_changed renders plugin and schedule name", () => {
+    const signal = makeSignal({
+      sourceEventName: "schedule.definition_changed",
+      contextPayload: {
+        pluginName: "news",
+        scheduleName: "digest",
+        sourceKey: "plugin:news/digest",
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.title).toBe("Plugin schedule changed: digest");
+    expect(copy.vellum?.body).toBe(
+      'Plugin "news" changed the definition of its schedule "digest".',
+    );
+  });
+
+  test("schedule.definition_error renders plugin, schedule name, and reason", () => {
+    const signal = makeSignal({
+      sourceEventName: "schedule.definition_error",
+      contextPayload: {
+        pluginName: "news",
+        scheduleName: "digest",
+        sourceKey: "plugin:news/digest",
+        reason: "invalid cron expression",
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.title).toBe("Plugin schedule error: digest");
+    expect(copy.vellum?.body).toContain('Plugin "news"');
+    expect(copy.vellum?.body).toContain("invalid cron expression");
+    // A non-empty body means the broadcaster's empty-body skip never
+    // suppresses a definition error when the notification LLM is down.
+    expect(copy.vellum?.body?.length).toBeGreaterThan(0);
+  });
+
+  test("schedule.definition_error says so when the schedule was paused", () => {
+    const signal = makeSignal({
+      sourceEventName: "schedule.definition_error",
+      contextPayload: {
+        pluginName: "news",
+        scheduleName: "sync",
+        sourceKey: "plugin:news/sync",
+        reason: "config.json is not valid JSON",
+        paused: true,
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.body).toContain("config.json is not valid JSON");
+    expect(copy.vellum?.body).toContain("paused until the declaration loads");
+  });
+
+  test("schedule.definition_error omits the pause line when the row kept running", () => {
+    const signal = makeSignal({
+      sourceEventName: "schedule.definition_error",
+      contextPayload: {
+        pluginName: "news",
+        scheduleName: "digest",
+        reason: "invalid cron expression",
+        paused: false,
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.body).not.toContain("paused");
+  });
+
+  test("schedule.definition_error still renders with an empty payload", () => {
+    const signal = makeSignal({
+      sourceEventName: "schedule.definition_error",
+      contextPayload: {},
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.body?.length).toBeGreaterThan(0);
+  });
+
+  test("schedule.declared sanitizes plugin-controlled fields", () => {
+    // Plugin-authored declaration strings carrying a clear-screen CSI, an OSC
+    // title write, a BEL, and a newline must not reach the rendered copy.
+    const signal = makeSignal({
+      sourceEventName: "schedule.declared",
+      contextPayload: {
+        pluginName: "news\u001b[2Jext",
+        scheduleName: "digest\u0007",
+        cadence: "0 9 * * *\u001b]0;pwned\u0007",
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.title).toBe("New plugin schedule: digest");
+    expect(copy.vellum?.body).toContain('Plugin "newsext"');
+    expect(copy.vellum?.body).toContain("0 9 * * *");
+    expect(copy.vellum?.body).not.toContain("\u001b");
+    expect(copy.vellum?.body).not.toContain("\u0007");
+    expect(copy.vellum?.body).not.toContain("pwned");
+  });
+
+  test("schedule.declared omits a cadence that sanitizes to nothing", () => {
+    const signal = makeSignal({
+      sourceEventName: "schedule.declared",
+      contextPayload: {
+        pluginName: "news",
+        scheduleName: "digest",
+        cadence: "\u001b[2J\u0007",
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.body).not.toContain("(");
+    expect(copy.vellum?.body).not.toContain("\u001b");
+  });
+
+  test("schedule.definition_error sanitizes and flattens the reason", () => {
+    const signal = makeSignal({
+      sourceEventName: "schedule.definition_error",
+      contextPayload: {
+        pluginName: "news\u001b[31m",
+        scheduleName: "digest",
+        reason: "bad\nexpression\u001b[0m",
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.body).toContain('Plugin "news"');
+    expect(copy.vellum?.body).toContain("bad expression");
+    expect(copy.vellum?.body).not.toContain("\u001b");
+    expect(copy.vellum?.body).not.toContain("\n");
   });
 });
 

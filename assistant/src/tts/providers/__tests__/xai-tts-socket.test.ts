@@ -52,20 +52,28 @@ class MockWebSocket {
 
   simulateOpen(): void {
     this.readyState = 1; // OPEN
-    for (const l of this.listeners.get("open") ?? []) l();
+    for (const l of this.listeners.get("open") ?? []) {
+      l();
+    }
   }
 
   simulateMessage(data: unknown): void {
-    for (const l of this.listeners.get("message") ?? []) l({ data });
+    for (const l of this.listeners.get("message") ?? []) {
+      l({ data });
+    }
   }
 
   simulateClose(code = 1000, reason = ""): void {
     this.readyState = 3;
-    for (const l of this.listeners.get("close") ?? []) l({ code, reason });
+    for (const l of this.listeners.get("close") ?? []) {
+      l({ code, reason });
+    }
   }
 
   simulateError(err: unknown = new Error("boom")): void {
-    for (const l of this.listeners.get("error") ?? []) l(err);
+    for (const l of this.listeners.get("error") ?? []) {
+      l(err);
+    }
   }
 }
 
@@ -108,10 +116,7 @@ describe("synthesizeOverXaiTtsSocket", () => {
 
     const ws = mockWs;
     (globalThis as Record<string, unknown>).WebSocket = class {
-      constructor(
-        url: string,
-        options?: { headers?: Record<string, string> },
-      ) {
+      constructor(url: string, options?: { headers?: Record<string, string> }) {
         constructorCalls.push({ url, options });
         return ws;
       }
@@ -132,7 +137,8 @@ describe("synthesizeOverXaiTtsSocket", () => {
       connectTimeoutMs: 1_000,
       firstChunkTimeoutMs: 1_000,
       idleTimeoutMs: 1_000,
-      makeTimeoutError: (timeoutMs) => new Error(`timed out after ${timeoutMs}ms`),
+      makeTimeoutError: (timeoutMs) =>
+        new Error(`timed out after ${timeoutMs}ms`),
       makeStreamError: (detail) => new Error(`stream failed: ${detail}`),
       makeEmptyError: () => new Error("empty audio"),
       ...overrides,
@@ -161,7 +167,9 @@ describe("synthesizeOverXaiTtsSocket", () => {
   });
 
   test("sends text.delta then text.done after open", async () => {
-    const promise = synthesizeOverXaiTtsSocket(makeOptions({ text: "Hi there" }));
+    const promise = synthesizeOverXaiTtsSocket(
+      makeOptions({ text: "Hi there" }),
+    );
     mockWs.simulateOpen();
 
     expect(sentFrames()).toEqual([
@@ -181,7 +189,10 @@ describe("synthesizeOverXaiTtsSocket", () => {
 
     const frames = sentFrames();
     expect(frames).toHaveLength(3);
-    expect(frames[0]).toEqual({ type: "text.delta", delta: "a".repeat(15_000) });
+    expect(frames[0]).toEqual({
+      type: "text.delta",
+      delta: "a".repeat(15_000),
+    });
     expect(frames[1]).toEqual({ type: "text.delta", delta: "b".repeat(500) });
     expect(frames[2]).toEqual({ type: "text.done" });
 
@@ -255,7 +266,10 @@ describe("synthesizeOverXaiTtsSocket", () => {
     mockWs.simulateOpen();
     const encoded = new TextEncoder().encode(audioDeltaFrame("binary-chunk"));
     mockWs.simulateMessage(
-      encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength),
+      encoded.buffer.slice(
+        encoded.byteOffset,
+        encoded.byteOffset + encoded.byteLength,
+      ),
     );
     mockWs.simulateMessage(AUDIO_DONE_FRAME);
 

@@ -67,8 +67,10 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
 | `actor_client_v1`    | `chat.{read,write}`, `approval.{read,write}`, `settings.{read,write}`, `attachments.{read,write}`, `calls.{read,write}`, `feature_flags.{read,write}` | Desktop, CLI clients                         |
 | `gateway_ingress_v1` | `ingress.write`, `internal.write`                                                                                                                     | Gateway channel inbound + webhook forwarding |
-| `gateway_service_v1` | `settings.read`, `settings.write`, `internal.write`                                                                                                   | Gateway service-to-daemon calls              |
-| `internal_v1`        | `internal.all`                                                                                                                                        | Internal service connections                 |
+| `gateway_service_v1` | `chat.{read,write}`, `settings.{read,write}`, `attachments.{read,write}`, `internal.write`                                                            | Gateway service-to-daemon calls              |
+| `local_v1`           | `local.all`                                                                                                                                           | Local (loopback) conversation sessions       |
+| `speech_relay_v1`    | `speech.relay`                                                                                                                                        | Daemon dial of the gateway speech relay only |
+| `ui_page_v1`         | `settings.read`                                                                                                                                       | Served UI pages                              |
 
 **Identity lifecycle:**
 
@@ -374,10 +376,9 @@ External users who are not the guardian can gain access to the assistant through
 **Notification signals:** The flow emits signals at each lifecycle transition via `emitNotificationSignal()`:
 
 - `ingress.access_request` — unknown contact denied, guardian notified
-- `ingress.trusted_contact.guardian_decision` — guardian approved or denied
-- `ingress.trusted_contact.verification_sent` — code created and delivered
+- `ingress.trusted_contact.guardian_decision` — the guardian's verdict (the payload's `decision` field carries approved/denied; exactly one lifecycle signal fires per denial)
+- `ingress.trusted_contact.verification_sent` — code created and delivered (stands in for `guardian_decision` on approve so the pipeline doesn't announce approval before verification)
 - `ingress.trusted_contact.activated` — requester verified, contact active
-- `ingress.trusted_contact.denied` — guardian explicitly denied
 
 **HTTP API (for management):**
 
@@ -625,10 +626,10 @@ Real-time conversation chat message capture on macOS uses a WebSocket-based stre
 
 Two provider adapters are supported, each implementing the `StreamingTranscriber` interface from `src/stt/types.ts`:
 
-| Provider          | Adapter                                                     | Mode          | Mechanism                                                                                                                                                                                                                                             |
-| ----------------- | ----------------------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Deepgram**      | `src/providers/speech-to-text/deepgram-realtime.ts`         | `realtime-ws` | Opens a WebSocket to Deepgram's `/v1/listen` endpoint, forwards raw PCM audio, normalizes Deepgram's `is_final`/`speech_final` semantics into `partial`/`final` events. Uses model `nova-2`.                                                          |
-| **Google Gemini** | `src/providers/speech-to-text/google-gemini-live-stream.ts` | `realtime-ws` | Opens a bidirectional streaming session against Gemini's Live API (`ai.live.connect`), forwards PCM audio frames, and normalizes `serverContent.inputTranscription` events into `partial`/`final` events. Uses model `gemini-live-2.5-flash-preview`. |
+| Provider          | Adapter                                                     | Mode          | Mechanism                                                                                                                                                                                                                                                    |
+| ----------------- | ----------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Deepgram**      | `src/providers/speech-to-text/deepgram-realtime.ts`         | `realtime-ws` | Opens a WebSocket to Deepgram's `/v1/listen` endpoint, forwards raw PCM audio, normalizes Deepgram's `is_final`/`speech_final` semantics into `partial`/`final` events. Uses model `nova-2`.                                                                 |
+| **Google Gemini** | `src/providers/speech-to-text/google-gemini-live-stream.ts` | `realtime-ws` | Opens a bidirectional streaming session against Gemini's Live API (`ai.live.connect`), forwards PCM audio frames, and normalizes `serverContent.inputTranscription` events into `partial`/`final` events. Uses model `gemini-2.5-flash-native-audio-latest`. |
 
 **Provider-specific behavior differences:**
 
@@ -718,6 +719,7 @@ The web client implements these flows in `clients/web/src/domains/chat/voice/`: 
 **Cross-boundary notes:**
 
 - The `services.stt` config block is the single source of truth for STT provider selection across the daemon batch boundary, the conversation streaming boundary, the client service-first boundary, and the telephony boundary. The batch and streaming resolvers (`resolveBatchTranscriber()`, `resolveStreamingTranscriber()`) both read from `services.stt.provider` and resolve credentials through the same catalog; the telephony boundary's media-stream STT session uses these same resolvers — it selects streaming vs batch transcription via `resolveStreamingTranscriber()`/`resolveBatchTranscriber()` under the `calls.voice.telephonyStreaming` flag, gated by `resolveTelephonySttCapability()`, while call placement/TwiML is gated by `resolveTelephonyCredentialReadiness()`. The daemon provider catalog (`src/providers/speech-to-text/provider-catalog.ts`) is the authoritative registry of supported providers. Native clients fetch display metadata via `GET /v1/stt/providers`.
+- **Spoken language** is a second axis on the same block: `services.stt.language` is read by `resolveStreamingTranscriber()` and `resolveBatchTranscriber()` and forwarded to the adapters that accept one (Deepgram, xAI, and the managed relay, which passes it to Deepgram server-side). Callers may override it per streaming session, but none need to: reading it in the resolvers means every boundary inherits the setting. Gemini and Whisper take no language option and auto-detect natively, so they ignore it. Leaving it unset is **not** auto-detection on Deepgram or the managed relay: Deepgram's default is English, so non-English speech transcribes as English-sounding nonsense. `"multi"` selects nova-3 code-switching across English, Spanish, French, German, Hindi, Russian, Portuguese, Japanese, Italian, and Dutch, the mode to use when a speaker mixes languages inside one utterance. BYOK Deepgram pins `model=nova-3` for **any** explicitly configured language, not just `"multi"`: the curated roster is verified against nova-3 (the default nova-2 supports only a subset, and rejects `"multi"` outright), and `deepgramLanguageOptions()` owns the model+language pairing so every call site inherits the rule; leaving the language unset keeps the adapter default model with no language param. `"multi"` is never forwarded to xAI (it is not a BCP-47 code; xAI auto-handles multilingual audio). The managed relay pins nova-3 and allowlists `language`, so streaming needs no platform-side change; managed **batch** goes through the platform speech proxy, which accepts no language parameter, so forwarding it there is deferred pending a platform-side change.
 - Conversation streaming does not replace the client service-first batch path. When streaming is available, it runs concurrently during recording and provides real-time partials and finals. The batch path remains the fallback for providers that do not support streaming, when streaming fails mid-session, or when streaming produces no final transcript.
 - Credential mapping is catalog-driven: `provider-secret-catalog.ts` derives STT API-key provider names from the daemon catalog via `listCredentialProviderNames()`, deduplicating against the LLM/search provider list. Adding a provider to the catalog automatically includes its credential name in `API_KEY_PROVIDERS`.
 - Terminology: "STT", "transcription", and "speech recognition" all refer to the same operation (converting audio to text).
@@ -752,7 +754,7 @@ Conversation starters follow the same pattern via `GET /v1/conversation-starters
 
 The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is the canonical module for determining whether an assistant feature flag is enabled. It loads default values from the unified registry at `meta/feature-flags/feature-flag-registry.json` (bundled copy at `src/config/feature-flag-registry.json`) and resolves the effective state for each declared assistant-scope flag. Assistant feature flags are declaration-driven assistant-scoped booleans that can gate any assistant behavior; skill availability is one consumer.
 
-**Canonical key format:** Simple kebab-case (e.g., `contacts`, `voice-mode`).
+**Canonical key format:** Simple kebab-case (e.g., `contacts`, `browser`).
 
 **Resolution priority** (highest wins):
 
@@ -780,7 +782,7 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 
 All six enforcement points derive the flag key via `skillFlagKey(skill)` — which returns `undefined` for ungated skills, short-circuiting the check — and then call `isAssistantFeatureFlagEnabled(flagKey, config)` for consistency.
 
-**Migration path:** The legacy `skills.<id>.enabled` and `feature_flags.<id>.enabled` key formats are no longer supported. All code must use simple kebab-case keys (e.g., `contacts`, `voice-mode`). Guard tests enforce canonical key usage and declaration coverage for literal key references in the unified registry.
+**Migration path:** The legacy `skills.<id>.enabled` and `feature_flags.<id>.enabled` key formats are no longer supported. All code must use simple kebab-case keys (e.g., `contacts`, `browser`). Guard tests enforce canonical key usage and declaration coverage for literal key references in the unified registry.
 
 **Key source files:**
 
@@ -821,18 +823,22 @@ graph LR
         SL["logs/session-*.json<br/>───────────────<br/>Per-session JSON log<br/>task, start/end times, result<br/>Per-turn: AX tree, screenshot,<br/>action, token usage"]
     end
 
+    subgraph "$VELLUM_WORKSPACE_DIR/data/db/assistant-memory.db (SQLite + WAL)"
+        direction TB
+        SEG["memory_segments<br/>───────────────<br/>Text chunks for retrieval<br/>Linked to messages<br/>token_estimate per segment"]
+        SUM["memory_summaries<br/>───────────────<br/>scope: conversation | weekly<br/>Compressed history for context<br/>window management"]
+        EMB["memory_embeddings<br/>───────────────<br/>target: segment | item | summary<br/>provider + model metadata<br/>vector_json (float array)<br/>Powers semantic search"]
+    end
+
     subgraph "$VELLUM_WORKSPACE_DIR/data/db/assistant.db (SQLite + WAL)"
         direction TB
         CONV["conversations<br/>───────────────<br/>id, title, timestamps<br/>token counts, estimated cost<br/>context_summary (compaction)<br/>conversation_type: 'standard' | 'background' | 'scheduled'"]
         MSG["messages<br/>───────────────<br/>id, conversation_id (FK)<br/>role: user | assistant<br/>content: JSON array<br/>created_at"]
         TOOL["tool_invocations<br/>───────────────<br/>tool_name, input, result<br/>decision, risk_level<br/>duration_ms"]
-        SEG["memory_segments<br/>───────────────<br/>Text chunks for retrieval<br/>Linked to messages<br/>token_estimate per segment"]
-        SUM["memory_summaries<br/>───────────────<br/>scope: conversation | weekly<br/>Compressed history for context<br/>window management"]
-        EMB["memory_embeddings<br/>───────────────<br/>target: segment | item | summary<br/>provider + model metadata<br/>vector_json (float array)<br/>Powers semantic search"]
         JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill, cleanup<br/>Status: pending → running →<br/>completed | failed"]
         ATT["attachments<br/>───────────────<br/>base64-encoded file data<br/>mime_type, size_bytes<br/>Linked to messages via<br/>message_attachments join"]
         REM["reminders<br/>───────────────<br/>One-time scheduled reminders<br/>label, message, fireAt<br/>mode: notify | execute<br/>status: pending → fired | cancelled<br/>routing_intent: single_channel |<br/>multi_channel | all_channels<br/>routing_hints_json (free-form)"]
-        SCHED_JOBS["cron_jobs (recurrence schedules)<br/>───────────────<br/>Recurring schedule definitions<br/>cron_expression: cron or RRULE string<br/>schedule_syntax: 'cron' | 'rrule'<br/>timezone, message, next_run_at<br/>enabled, retry_count<br/>Legacy alias: scheduleJobs"]
+        SCHED_JOBS["cron_jobs (recurrence schedules)<br/>───────────────<br/>Recurring schedule definitions<br/>cron_expression: cron or RRULE string<br/>schedule_syntax: 'cron' | 'rrule'<br/>timezone, message, next_run_at<br/>enabled, retry_count<br/>source_key: plugin-declared provenance<br/>definition_hash, user_enabled<br/>Legacy alias: scheduleJobs"]
         SCHED_RUNS["cron_runs (schedule runs)<br/>───────────────<br/>Execution history per schedule<br/>job_id (FK → cron_jobs)<br/>status: ok | error<br/>duration_ms, output, error<br/>Legacy alias: scheduleRuns"]
         TASKS["tasks<br/>───────────────<br/>Reusable prompt templates<br/>title, Handlebars template<br/>inputSchema, contextFlags<br/>requiredTools, status"]
         TASK_RUNS["task_runs<br/>───────────────<br/>Execution history per task<br/>taskId (FK → tasks)<br/>conversationId, status<br/>startedAt, finishedAt, error"]
@@ -856,6 +862,59 @@ graph LR
 ```
 
 ---
+
+## Plugin-Declared Schedules: Declaration → Reconciler → cron_jobs
+
+Plugins contribute recurring schedules as a surface: directories under
+`<pluginDir>/schedules/`, each a `<name>/` holding `config.json` plus
+exactly one `index.md` (runs as `execute`) or `index.sh` (runs as `script`)
+entrypoint. Ambiguity fails closed: a file sitting directly under
+`schedules/`, zero/multiple/unsupported entrypoints, and malformed config
+produce per-schedule `DeclarationError`s without affecting siblings
+(`src/schedule/plugin-schedule-declarations.ts`).
+
+A level-based reconciler (`src/schedule/plugin-schedule-reconciler.ts`)
+converges declarations into ordinary `cron_jobs` rows keyed by the nullable
+`source_key` column (`plugin:<plugin>/<name>`). Rows with `source_key IS
+NULL` are imperative schedules the reconciler never touches. Triggers: a
+startup pass in `daemon/lifecycle.ts` (after plugin init, before the
+scheduler starts), the end of `reconcilePluginSourcesNow()` in
+`plugins/mtime-cache.ts` (install/uninstall/upgrade and sentinel-driven
+changes), the plugin enable/disable routes, and a 60s backstop sweep
+registered with the HTTP server's background sweeps.
+
+Reconcile lag never lets a disabled plugin run. The disable path writes a
+`.disabled` sentinel that only a reconcile pass turns into disarmed rows, so
+the scheduler re-reads the sentinel at fire time and records a skipped run
+instead of executing a claimed row whose plugin is off. Run-now applies the
+same boundary through `declarationExistsOnDisk`, which also covers a plugin
+whose manifest no longer parses, a declaration directory that is gone, and a
+plugin root or declaration directory resolving outside the tree it belongs to
+(the same `isInsidePluginRoot` containment the loader applies before importing
+a plugin).
+
+A declaration that stops parsing keeps its execute row armed on the message
+already stored in the row, but disarms its script rows: a script row fires its
+entrypoint by absolute path, so leaving it armed would run the very `index.sh`
+the parser rejected. Those rows re-arm on the pass after the declaration parses
+again.
+
+Ownership boundaries: the reconciler owns definition columns (expression,
+timezone, message/script, retry policy, `definition_hash`); the execution
+engine owns runtime columns (`next_run_at`, `status`, `last_*`,
+`retry_count`) and its latches are never overridden; the user owns
+`user_enabled`, a sticky override consulted when computing effective
+`enabled`. Nothing ever writes to plugin files. Execution itself is
+unchanged: declared rows fire through the same `claimDueSchedules` path as
+imperative ones.
+
+Consent and surfacing: CLI install/upgrade list declared schedules and
+prompt before finalizing; unattended daemon-route installs are covered by
+`schedule.declared` arrival notifications, with `schedule.definition_changed`
+and `schedule.definition_error` covering upgrades and broken declarations
+(events registered in `notifications/signal.ts`, deterministic templates in
+`notifications/copy-composer.ts`). Settings routes, CLI, and web render
+plugin-sourced rows read-only except the enabled toggle.
 
 ---
 
@@ -1968,9 +2027,9 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | User preferences                         | UserDefaults                                           | plist                               | Foundation                         | Permanent                                               |
 | Session logs                             | `~/Library/.../logs/session-*.json`                    | JSON per session                    | Swift Codable                      | Unbounded                                               |
 | Conversations & messages                 | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite + WAL                        | Drizzle ORM (Bun)                  | Permanent                                               |
-| Memory segments                          | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent                                               |
+| Memory segments                          | `$VELLUM_WORKSPACE_DIR/data/db/assistant-memory.db`    | SQLite                              | Drizzle ORM                        | Permanent                                               |
 | Extracted facts                          | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent, deduped                                      |
-| Embeddings                               | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | JSON float arrays                   | Drizzle ORM                        | Permanent                                               |
+| Embeddings                               | `$VELLUM_WORKSPACE_DIR/data/db/assistant-memory.db`    | JSON float arrays                   | Drizzle ORM                        | Permanent                                               |
 | Async job queue                          | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Completed jobs persist                                  |
 | Attachments                              | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | Base64 in SQLite                    | Drizzle ORM                        | Permanent                                               |
 | Sandbox filesystem                       | `$VELLUM_WORKSPACE_DIR`                                | Real filesystem tree                | Node FS APIs                       | Persistent across sessions                              |

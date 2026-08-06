@@ -1,4 +1,3 @@
-
 import { ExternalLink, Pin, PinOff, Puzzle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -132,9 +131,13 @@ export function AppPreviewThumbnail({
   // IntersectionObserver simply never load the live preview and stay on the
   // icon/Puzzle fallback — acceptable degradation.
   useEffect(() => {
-    if (loadHtml == null) return;
+    if (loadHtml == null) {
+      return;
+    }
     const el = containerRef.current;
-    if (!el || typeof IntersectionObserver === "undefined") return;
+    if (!el || typeof IntersectionObserver === "undefined") {
+      return;
+    }
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry?.isIntersecting) {
@@ -149,11 +152,15 @@ export function AppPreviewThumbnail({
   }, [loadHtml]);
 
   useEffect(() => {
-    if (!isVisible || loadHtml == null) return;
+    if (!isVisible || loadHtml == null) {
+      return;
+    }
     let cancelled = false;
     loadHtml()
       .then((result) => {
-        if (!cancelled) setHtml(result);
+        if (!cancelled) {
+          setHtml(result);
+        }
       })
       .catch(() => {
         // Silent — falls back to icon/Puzzle placeholder.
@@ -215,5 +222,3 @@ export function AppPreviewThumbnail({
     </div>
   );
 }
-
-

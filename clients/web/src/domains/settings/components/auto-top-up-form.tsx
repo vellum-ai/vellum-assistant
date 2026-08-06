@@ -2,6 +2,7 @@ import { useState, type ChangeEvent } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
+import { Notice } from "@vellumai/design-library/components/notice";
 
 export interface AutoTopUpFormValues {
   threshold_usd: string;
@@ -13,11 +14,21 @@ export interface AutoTopUpFormProps {
   initialValues?: AutoTopUpFormValues;
   submitting: boolean;
   serverErrors: Record<string, string>;
+  /**
+   * Announce that saving will apply the default daily credit limit. Set while
+   * the user is turning auto top-up on and the org has no daily limit yet.
+   */
+  showDefaultDailyLimitNote?: boolean;
   onSave: (values: AutoTopUpFormValues) => void;
   onCancel: () => void;
 }
 
-export type AutoTopUpFormErrors = Partial<Record<keyof AutoTopUpFormValues, string>>;
+/** Mirrors the backend `BILLING_DEFAULT_DAILY_CREDIT_LIMIT_USD` default. */
+const DEFAULT_DAILY_CREDIT_LIMIT_USD = 25;
+
+export type AutoTopUpFormErrors = Partial<
+  Record<keyof AutoTopUpFormValues, string>
+>;
 
 const DEFAULTS: AutoTopUpFormValues = {
   threshold_usd: "100",
@@ -32,7 +43,9 @@ const DEFAULTS: AutoTopUpFormValues = {
  * lone "-" pass through unchanged so typing-in-progress states aren't lost.
  */
 function coerceUsdToIntStr(v: string): string {
-  if (v === "" || v === "-") return v;
+  if (v === "" || v === "-") {
+    return v;
+  }
   const n = parseFloat(v);
   return Number.isFinite(n) ? String(Math.trunc(n)) : "";
 }
@@ -97,8 +110,12 @@ export function visibleAutoTopUpError(
   serverErrors: Record<string, string>,
   touched: boolean,
 ): string | undefined {
-  if (serverErrors[field]) return serverErrors[field];
-  if (touched) return clientErrors[field];
+  if (serverErrors[field]) {
+    return serverErrors[field];
+  }
+  if (touched) {
+    return clientErrors[field];
+  }
   return undefined;
 }
 
@@ -106,11 +123,14 @@ export function AutoTopUpForm({
   initialValues = DEFAULTS,
   submitting,
   serverErrors,
+  showDefaultDailyLimitNote = false,
   onSave,
   onCancel,
 }: AutoTopUpFormProps) {
   const [values, setValues] = useState<AutoTopUpFormValues>(initialValues);
-  const [touched, setTouched] = useState<Record<keyof AutoTopUpFormValues, boolean>>({
+  const [touched, setTouched] = useState<
+    Record<keyof AutoTopUpFormValues, boolean>
+  >({
     threshold_usd: false,
     amount_usd: false,
     monthly_cap_usd: false,
@@ -137,7 +157,11 @@ export function AutoTopUpForm({
     visibleAutoTopUpError(field, clientErrors, serverErrors, touched[field]);
 
   const handleSubmit = () => {
-    setTouched({ threshold_usd: true, amount_usd: true, monthly_cap_usd: true });
+    setTouched({
+      threshold_usd: true,
+      amount_usd: true,
+      monthly_cap_usd: true,
+    });
     // Validate against the COERCED submit values, not the focused-typing
     // snapshot. Otherwise an in-progress decimal like "12.9" can fail
     // hysteresis (12.9 >= 12.5) even though its truncated submit value
@@ -150,7 +174,9 @@ export function AutoTopUpForm({
     setValues(coercedValues);
     const submitErrors = validateAutoTopUpValues(coercedValues);
     const allValid = Object.keys(submitErrors).length === 0;
-    if (!allValid) return;
+    if (!allValid) {
+      return;
+    }
     const toApiFormat = (v: string): string =>
       v === "" ? "" : `${parseInt(v, 10)}.00`;
     onSave({
@@ -227,6 +253,17 @@ export function AutoTopUpForm({
           </Button>
         </div>
       </div>
+
+      {showDefaultDailyLimitNote && (
+        <Notice
+          tone="info"
+          className="mt-3"
+          data-testid="auto-top-up-default-daily-limit-note"
+        >
+          A default daily credit limit of ${DEFAULT_DAILY_CREDIT_LIMIT_USD} per
+          day will be applied. You can adjust it under Daily credit limit.
+        </Notice>
+      )}
     </div>
   );
 }

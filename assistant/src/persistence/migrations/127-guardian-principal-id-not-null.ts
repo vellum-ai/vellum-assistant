@@ -12,7 +12,9 @@ export function downGuardianPrincipalIdNotNull(database: DrizzleDb): void {
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'channel_guardian_bindings'`,
     )
     .get();
-  if (!tableExists) return;
+  if (!tableExists) {
+    return;
+  }
 
   // Check if guardian_principal_id has NOT NULL — if not, already rolled back
   const colInfo = raw
@@ -20,7 +22,9 @@ export function downGuardianPrincipalIdNotNull(database: DrizzleDb): void {
       `SELECT "notnull" FROM pragma_table_info('channel_guardian_bindings') WHERE name = 'guardian_principal_id'`,
     )
     .get() as { notnull: number } | null;
-  if (!colInfo || colInfo.notnull === 0) return;
+  if (!colInfo || colInfo.notnull === 0) {
+    return;
+  }
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {
@@ -101,7 +105,9 @@ export function migrateGuardianPrincipalIdNotNull(database: DrizzleDb): void {
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'channel_guardian_bindings'`,
     )
     .get();
-  if (!tableExists) return;
+  if (!tableExists) {
+    return;
+  }
 
   // Guard: column must exist (added by migration 125)
   const colExists = raw
@@ -109,7 +115,9 @@ export function migrateGuardianPrincipalIdNotNull(database: DrizzleDb): void {
       `SELECT 1 FROM pragma_table_info('channel_guardian_bindings') WHERE name = 'guardian_principal_id'`,
     )
     .get();
-  if (!colExists) return;
+  if (!colExists) {
+    return;
+  }
 
   // Check if the column already has NOT NULL (idempotency)
   const colInfo = raw
@@ -117,7 +125,9 @@ export function migrateGuardianPrincipalIdNotNull(database: DrizzleDb): void {
       `SELECT "notnull" FROM pragma_table_info('channel_guardian_bindings') WHERE name = 'guardian_principal_id'`,
     )
     .get() as { notnull: number } | null;
-  if (colInfo && colInfo.notnull === 1) return;
+  if (colInfo && colInfo.notnull === 1) {
+    return;
+  }
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {

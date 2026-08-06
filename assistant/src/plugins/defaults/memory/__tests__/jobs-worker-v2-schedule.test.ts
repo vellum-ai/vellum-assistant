@@ -77,7 +77,7 @@ const { getMemoryCheckpoint, setMemoryCheckpoint, deleteMemoryCheckpoint } =
 const { maybeEnqueueGraphMaintenanceJobs, consolidationFailureBackoffMs } =
   await import("../jobs-worker.js");
 const { CONSOLIDATION_FAILURE_CHECKPOINT_KEY } =
-  await import("../v3/substrate/consolidation-job.js");
+  await import("../substrate/consolidation-job.js");
 const CONSOLIDATE_CHECKPOINT_KEY = "memory_v2_consolidate_last_run";
 
 function buildConfig(overrides: {
@@ -85,6 +85,7 @@ function buildConfig(overrides: {
   v2Enabled?: boolean;
   intervalHours?: number;
   maxBufferLines?: number | null;
+  substrateIntervalHours?: number;
 }) {
   const partial = applyNestedDefaults({});
   if (overrides.memoryEnabled !== undefined) {
@@ -98,6 +99,10 @@ function buildConfig(overrides: {
   }
   if (overrides.maxBufferLines !== undefined) {
     partial.memory.v2.consolidation_max_buffer_lines = overrides.maxBufferLines;
+  }
+  if (overrides.substrateIntervalHours !== undefined) {
+    partial.memory.substrate.consolidation_interval_hours =
+      overrides.substrateIntervalHours;
   }
   return partial;
 }
@@ -243,6 +248,36 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
     expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
 
     // 7h elapsed — over the configured 6h interval.
+    setMemoryCheckpoint(
+      CONSOLIDATE_CHECKPOINT_KEY,
+      String(now - 7 * 60 * 60 * 1000),
+    );
+
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+  });
+
+  test("memory.substrate.consolidation_interval_hours overrides the memory.v2 value", () => {
+    // v2 says every hour; substrate says every 6 hours. The substrate key
+    // wins, so a 4h-old checkpoint (over the v2 interval, under the
+    // substrate one) must not enqueue.
+    const config = buildConfig({
+      v2Enabled: true,
+      intervalHours: 1,
+      substrateIntervalHours: 6,
+    });
+    writeBuffer(15);
+
+    const now = Date.now();
+    setMemoryCheckpoint(
+      CONSOLIDATE_CHECKPOINT_KEY,
+      String(now - 4 * 60 * 60 * 1000),
+    );
+
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+
+    // 7h elapsed — over the substrate's 6h interval.
     setMemoryCheckpoint(
       CONSOLIDATE_CHECKPOINT_KEY,
       String(now - 7 * 60 * 60 * 1000),

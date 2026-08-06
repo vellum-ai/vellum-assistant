@@ -191,7 +191,9 @@ function buildFilenameStem(input: {
 
 function extensionForAudioMimeType(mimeType: string): string {
   const mapped = AUDIO_EXTENSION_BY_MIME_TYPE[mimeType];
-  if (mapped) return mapped;
+  if (mapped) {
+    return mapped;
+  }
   const subtype = mimeType.slice("audio/".length);
   return sanitizeFilenamePart(subtype.replace(/^x-/, "")) || "audio";
 }
@@ -218,7 +220,9 @@ function isLiveVoiceRole(value: unknown): value is LiveVoiceAudioArchiveRole {
 function isArtifactMetadata(
   value: unknown,
 ): value is LiveVoiceAudioArtifactMetadata {
-  if (!isRecord(value)) return false;
+  if (!isRecord(value)) {
+    return false;
+  }
   return (
     value.source === LIVE_VOICE_AUDIO_SOURCE &&
     typeof value.archiveKey === "string" &&
@@ -241,7 +245,9 @@ function readMessageMetadata(
     `SELECT metadata FROM messages WHERE id = ?`,
     messageId,
   );
-  if (!row) return "not_found";
+  if (!row) {
+    return "not_found";
+  }
 
   if (!row.metadata) {
     return { metadata: {}, artifacts: [] };
@@ -337,7 +343,9 @@ function persistArtifactMetadata(
   artifact: LiveVoiceAudioArtifactMetadata,
 ): boolean {
   const state = readMessageMetadata(messageId);
-  if (state === "not_found" || state === "invalid_metadata") return false;
+  if (state === "not_found" || state === "invalid_metadata") {
+    return false;
+  }
 
   const nextArtifacts = [
     ...state.artifacts.filter(
@@ -361,7 +369,9 @@ function persistArtifactMetadata(
 function sanitizeOptionalPositiveNumber(
   value: number | undefined,
 ): number | undefined {
-  if (value == null) return undefined;
+  if (value == null) {
+    return undefined;
+  }
   return Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
@@ -458,11 +468,13 @@ function artifactFromAttachment(input: {
   };
 }
 
-export function archiveLiveVoiceAudioArtifact(
+export async function archiveLiveVoiceAudioArtifact(
   input: ArchiveLiveVoiceAudioInput,
-): LiveVoiceAudioArchiveResult {
+): Promise<LiveVoiceAudioArchiveResult> {
   const validated = validateInput(input);
-  if ("type" in validated) return validated;
+  if ("type" in validated) {
+    return validated;
+  }
 
   const state = readMessageMetadata(input.messageId);
   if (state === "not_found") {
@@ -517,7 +529,7 @@ export function archiveLiveVoiceAudioArtifact(
     const position = input.position ?? nextAttachmentPosition(input.messageId);
     const stored =
       input.audio.type === "base64"
-        ? attachInlineAttachmentToMessage(
+        ? await attachInlineAttachmentToMessage(
             input.messageId,
             position,
             validated.filename,
@@ -602,15 +614,15 @@ interface LinkLiveVoiceAudioArtifactInput {
   position?: number;
 }
 
-export function archiveLiveVoiceUserUtteranceAudio(
+export async function archiveLiveVoiceUserUtteranceAudio(
   input: ArchiveLiveVoiceRolelessAudioInput,
-): LiveVoiceAudioArchiveResult {
+): Promise<LiveVoiceAudioArchiveResult> {
   return archiveLiveVoiceAudioArtifact({ ...input, role: "user" });
 }
 
-export function archiveLiveVoiceAssistantResponseAudio(
+export async function archiveLiveVoiceAssistantResponseAudio(
   input: ArchiveLiveVoiceRolelessAudioInput,
-): LiveVoiceAudioArchiveResult {
+): Promise<LiveVoiceAudioArchiveResult> {
   return archiveLiveVoiceAudioArtifact({ ...input, role: "assistant" });
 }
 
@@ -618,11 +630,11 @@ function normalizeMessageId(messageId: string | null | undefined): string {
   return messageId?.trim() ?? "";
 }
 
-function linkLiveVoiceAudioToMessage(
+async function linkLiveVoiceAudioToMessage(
   input: LinkLiveVoiceRolelessAudioInput & {
     role: LiveVoiceAudioArchiveRole;
   },
-): LiveVoiceAudioArchiveResult {
+): Promise<LiveVoiceAudioArchiveResult> {
   const messageId = normalizeMessageId(input.messageId);
   if (!messageId) {
     return resultUnlinked(
@@ -639,15 +651,15 @@ function linkLiveVoiceAudioToMessage(
   });
 }
 
-export function linkLiveVoiceUserUtteranceAudioToMessage(
+export async function linkLiveVoiceUserUtteranceAudioToMessage(
   input: LinkLiveVoiceRolelessAudioInput,
-): LiveVoiceAudioArchiveResult {
+): Promise<LiveVoiceAudioArchiveResult> {
   return linkLiveVoiceAudioToMessage({ ...input, role: "user" });
 }
 
-export function linkLiveVoiceAssistantResponseAudioToMessage(
+export async function linkLiveVoiceAssistantResponseAudioToMessage(
   input: LinkLiveVoiceRolelessAudioInput,
-): LiveVoiceAudioArchiveResult {
+): Promise<LiveVoiceAudioArchiveResult> {
   return linkLiveVoiceAudioToMessage({ ...input, role: "assistant" });
 }
 

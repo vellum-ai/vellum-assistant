@@ -1,4 +1,4 @@
-import type { AssistantEvent } from "../../daemon/message-protocol.js";
+import type { AssistantEvent } from "../../api/index.js";
 import { browserManager } from "./browser-manager.js";
 
 // Track which conversations have an active browser page.
@@ -32,7 +32,9 @@ function getSender(
 }
 
 export async function ensureScreencast(conversationId: string): Promise<void> {
-  if (activeBrowserConversations.has(conversationId)) {return;}
+  if (activeBrowserConversations.has(conversationId)) {
+    return;
+  }
 
   activeBrowserConversations.add(conversationId);
 
@@ -49,7 +51,9 @@ export async function ensureScreencast(conversationId: string): Promise<void> {
 export async function stopBrowserScreencast(
   conversationId: string,
 ): Promise<void> {
-  if (!activeBrowserConversations.has(conversationId)) {return;}
+  if (!activeBrowserConversations.has(conversationId)) {
+    return;
+  }
 
   // Safe no-op if CDP screencast was never started
   await browserManager.stopScreencast(conversationId);

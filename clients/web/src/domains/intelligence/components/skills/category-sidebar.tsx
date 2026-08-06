@@ -81,9 +81,7 @@ function CategoryRow({
       className="h-auto justify-between gap-3 rounded-lg border-0 bg-transparent px-3 py-2 text-left hover:bg-[var(--ghost-hover)]"
       style={{
         backgroundColor: isActive ? "var(--surface-active)" : undefined,
-        color: isActive
-          ? "var(--content-default)"
-          : "var(--content-secondary)",
+        color: isActive ? "var(--content-default)" : "var(--content-secondary)",
       }}
     >
       <span className="flex items-center gap-2.5">

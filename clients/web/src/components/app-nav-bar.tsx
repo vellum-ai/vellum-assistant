@@ -1,9 +1,12 @@
 import {
   ChevronUp,
+  Expand,
   Globe,
+  Link2,
   Loader2,
   Maximize2,
   Pencil,
+  RefreshCw,
   Share,
   X,
 } from "lucide-react";
@@ -23,7 +26,8 @@ export interface AppNavBarProps {
   appName: string;
   onEdit?: () => void;
   /**
-   * Desktop: flips the left button label to "Close chat".
+   * Desktop: swaps the left "Edit" button for an expand icon that drops the
+   * chat panel and gives the app the full width.
    * Mobile: swaps the right-side edit icon to a chevron-up + active state,
    * marking the bar as the slide-up affordance for the minimized app strip.
    */
@@ -32,6 +36,15 @@ export interface AppNavBarProps {
   isSharing?: boolean;
   onDeploy?: () => void;
   isDeploying?: boolean;
+  /**
+   * Live URL of the app's active Vercel deployment, when it has one. Turns
+   * the deploy affordance into "Deployed to Vercel" (which hands back the
+   * link) plus an explicit Redeploy, instead of offering a first-time deploy
+   * for an app that is already published.
+   */
+  deployedUrl?: string | null;
+  /** Invoked by the deployed-state item; copies the link and shows it. */
+  onCopyDeployedLink?: () => void;
   /** When provided, renders a fullscreen toggle button in the right group. */
   onToggleFullscreen?: () => void;
   onClose: () => void;
@@ -45,6 +58,8 @@ export function AppNavBar({
   isSharing,
   onDeploy,
   isDeploying,
+  deployedUrl,
+  onCopyDeployedLink,
   onToggleFullscreen,
   onClose,
 }: AppNavBarProps) {
@@ -60,12 +75,26 @@ export function AppNavBar({
   // `...` menu shape.
   const showShareDeployMenu = onShare != null && onDeploy != null;
 
+  // An app is only treated as deployed when the caller can also hand the link
+  // back. Otherwise the affordance would report a deployment it can't reach.
+  const isDeployed =
+    deployedUrl != null && deployedUrl !== "" && onCopyDeployedLink != null;
+
   return (
     <div className="flex items-center justify-between rounded-t-xl bg-[var(--surface-lift)] px-4 py-3">
       <div className="hidden md:flex items-center min-w-[72px]">
-        {onEdit != null && (
-          <Button onClick={onEdit}>{isEditing ? "Close chat" : "Edit"}</Button>
-        )}
+        {onEdit != null &&
+          (isEditing ? (
+            <Button
+              variant="outlined"
+              iconOnly={<Expand />}
+              onClick={onEdit}
+              tooltip="Expand app"
+              aria-label="Expand app"
+            />
+          ) : (
+            <Button onClick={onEdit}>Edit</Button>
+          ))}
       </div>
 
       <Typography
@@ -87,21 +116,37 @@ export function AppNavBar({
             isSharing={isSharing}
             onDeploy={onDeploy}
             isDeploying={isDeploying}
+            deployedUrl={deployedUrl}
+            onCopyDeployedLink={onCopyDeployedLink}
             isMobile={isMobile}
           />
         ) : (
           <>
-            {onDeploy != null && (
-              <Button
-                variant="outlined"
-                iconOnly={
-                  isDeploying ? <Loader2 className="animate-spin" /> : <Globe />
-                }
-                onClick={onDeploy}
-                disabled={isDeploying}
-                tooltip={isDeploying ? "Deploying…" : "Deploy"}
-              />
-            )}
+            {onDeploy != null &&
+              (isDeployed ? (
+                <Button
+                  variant="outlined"
+                  iconOnly={<Link2 />}
+                  onClick={onCopyDeployedLink}
+                  tooltip="Deployed: copy link"
+                  aria-label="Deployed to Vercel, copy link"
+                />
+              ) : (
+                <Button
+                  variant="outlined"
+                  iconOnly={
+                    isDeploying ? (
+                      <Loader2 className="animate-spin" />
+                    ) : (
+                      <Globe />
+                    )
+                  }
+                  onClick={onDeploy}
+                  disabled={isDeploying}
+                  tooltip={isDeploying ? "Deploying…" : "Deploy"}
+                  aria-label={isDeploying ? "Deploying…" : "Deploy"}
+                />
+              ))}
             {onShare != null && (
               <Button
                 variant="outlined"
@@ -111,6 +156,7 @@ export function AppNavBar({
                 onClick={onShare}
                 disabled={isSharing}
                 tooltip={isSharing ? "Sharing…" : "Share"}
+                aria-label={isSharing ? "Sharing…" : "Share"}
               />
             )}
           </>
@@ -121,6 +167,7 @@ export function AppNavBar({
             iconOnly={<Maximize2 />}
             onClick={onToggleFullscreen}
             tooltip="Fullscreen"
+            aria-label="Fullscreen"
           />
         )}
         {onEdit != null && (
@@ -129,11 +176,18 @@ export function AppNavBar({
             iconOnly={isEditing ? <ChevronUp /> : <Pencil />}
             onClick={onEdit}
             tooltip={isEditing ? "Open app" : "Edit"}
+            aria-label={isEditing ? "Open app" : "Edit"}
             active={isEditing}
             className="md:hidden"
           />
         )}
-        <Button variant="outlined" iconOnly={<X />} onClick={onClose} tooltip="Close" />
+        <Button
+          variant="outlined"
+          iconOnly={<X />}
+          onClick={onClose}
+          tooltip="Close"
+          aria-label="Close"
+        />
       </div>
     </div>
   );
@@ -153,6 +207,8 @@ interface ShareDeployMenuTriggerProps {
   isSharing?: boolean;
   onDeploy: () => void;
   isDeploying?: boolean;
+  deployedUrl?: string | null;
+  onCopyDeployedLink?: () => void;
   isMobile: boolean;
 }
 
@@ -161,20 +217,20 @@ function ShareDeployMenuTrigger({
   isSharing,
   onDeploy,
   isDeploying,
+  deployedUrl,
+  onCopyDeployedLink,
   isMobile,
 }: ShareDeployMenuTriggerProps) {
   const [open, setOpen] = useState(false);
+  const isDeployed =
+    deployedUrl != null && deployedUrl !== "" && onCopyDeployedLink != null;
   const isBusy = isSharing || isDeploying;
-  const triggerIcon = isBusy ? (
-    <Loader2 className="animate-spin" />
-  ) : (
-    <Share />
-  );
+  const triggerIcon = isBusy ? <Loader2 className="animate-spin" /> : <Share />;
   const triggerTooltip = isSharing
     ? "Sharing…"
     : isDeploying
-      ? "Deploying…"
-      : "Share & deploy";
+    ? "Deploying…"
+    : "Share & deploy";
 
   if (isMobile) {
     return (
@@ -185,6 +241,7 @@ function ShareDeployMenuTrigger({
             iconOnly={triggerIcon}
             disabled={isBusy}
             tooltip={triggerTooltip}
+            aria-label={triggerTooltip}
           />
         </BottomSheet.Trigger>
         <BottomSheet.Content aria-describedby={undefined}>
@@ -207,21 +264,56 @@ function ShareDeployMenuTrigger({
                 onShare();
               }}
             />
-            <PanelItem
-              icon={Globe}
-              label={
-                <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
-                  <span>Deploy to Vercel</span>
-                  <span className="text-body-small-default text-[var(--content-tertiary)]">
-                    Publish as a static page
+            {isDeployed ? (
+              <>
+                <PanelItem
+                  icon={Link2}
+                  label={
+                    <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
+                      <span>Deployed to Vercel</span>
+                      <span className="break-all text-body-small-default text-[var(--content-tertiary)]">
+                        {deployedUrl}
+                      </span>
+                    </span>
+                  }
+                  onSelect={() => {
+                    setOpen(false);
+                    onCopyDeployedLink?.();
+                  }}
+                />
+                <PanelItem
+                  icon={RefreshCw}
+                  label={
+                    <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
+                      <span>Redeploy</span>
+                      <span className="text-body-small-default text-[var(--content-tertiary)]">
+                        Publish the current version
+                      </span>
+                    </span>
+                  }
+                  onSelect={() => {
+                    setOpen(false);
+                    onDeploy();
+                  }}
+                />
+              </>
+            ) : (
+              <PanelItem
+                icon={Globe}
+                label={
+                  <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
+                    <span>Deploy to Vercel</span>
+                    <span className="text-body-small-default text-[var(--content-tertiary)]">
+                      Publish as a static page
+                    </span>
                   </span>
-                </span>
-              }
-              onSelect={() => {
-                setOpen(false);
-                onDeploy();
-              }}
-            />
+                }
+                onSelect={() => {
+                  setOpen(false);
+                  onDeploy();
+                }}
+              />
+            )}
           </BottomSheet.Body>
         </BottomSheet.Content>
       </BottomSheet.Root>
@@ -236,6 +328,7 @@ function ShareDeployMenuTrigger({
           iconOnly={triggerIcon}
           disabled={isBusy}
           tooltip={triggerTooltip}
+          aria-label={triggerTooltip}
         />
       </Menu.Trigger>
       <Menu.Content align="end" sideOffset={4}>
@@ -246,13 +339,33 @@ function ShareDeployMenuTrigger({
         >
           Share
         </Menu.Item>
-        <Menu.Item
-          leftIcon={<Globe size={14} />}
-          onSelect={() => onDeploy()}
-          className="whitespace-nowrap"
-        >
-          Deploy to Vercel
-        </Menu.Item>
+        {isDeployed ? (
+          <>
+            <Menu.Item
+              leftIcon={<Link2 size={14} />}
+              shortcut="Copy link"
+              onSelect={() => onCopyDeployedLink?.()}
+              className="whitespace-nowrap"
+            >
+              Deployed to Vercel
+            </Menu.Item>
+            <Menu.Item
+              leftIcon={<RefreshCw size={14} />}
+              onSelect={() => onDeploy()}
+              className="whitespace-nowrap"
+            >
+              Redeploy
+            </Menu.Item>
+          </>
+        ) : (
+          <Menu.Item
+            leftIcon={<Globe size={14} />}
+            onSelect={() => onDeploy()}
+            className="whitespace-nowrap"
+          >
+            Deploy to Vercel
+          </Menu.Item>
+        )}
       </Menu.Content>
     </Menu.Root>
   );

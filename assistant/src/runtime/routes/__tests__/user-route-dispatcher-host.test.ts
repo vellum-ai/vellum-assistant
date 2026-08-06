@@ -4,8 +4,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { RouteInvokeParams } from "../../../routes/route-host-protocol.js";
 import { getWorkspaceRoutesDir } from "../../../util/platform.js";
-import { AssistantEventHub } from "../../assistant-event-hub.js";
-import type { UserRouteContext } from "../user-route-dispatcher.js";
 
 // The dispatcher constructs the route host client inline and reads the enabled
 // flag from config, so both are mocked here (there is no injection seam).
@@ -51,15 +49,8 @@ mock.module("../../../routes/route-host-client.js", () => ({
 
 const { UserRouteDispatcher } = await import("../user-route-dispatcher.js");
 
-function context(): UserRouteContext {
-  return {
-    assistantEventHub: new AssistantEventHub(),
-    conversations: { postMessage: async () => ({ messageId: "m" }) },
-  };
-}
-
 function makeDispatcher() {
-  return new UserRouteDispatcher({ context: context() });
+  return new UserRouteDispatcher();
 }
 
 function writeHandler(name: string, content: string): void {
@@ -189,10 +180,10 @@ describe("UserRouteDispatcher — route host delegation", () => {
     // The in-process and route-host paths must share one per-request deadline,
     // so the host client's hard-kill timeout is the dispatcher's, not the
     // client's own default.
-    new UserRouteDispatcher({ context: context() });
+    new UserRouteDispatcher();
     expect(ctorOptions.at(-1)?.invokeTimeoutMs).toBe(120_000);
 
-    new UserRouteDispatcher({ context: context(), handlerTimeoutMs: 5_000 });
+    new UserRouteDispatcher({ handlerTimeoutMs: 5_000 });
     expect(ctorOptions.at(-1)?.invokeTimeoutMs).toBe(5_000);
   });
 

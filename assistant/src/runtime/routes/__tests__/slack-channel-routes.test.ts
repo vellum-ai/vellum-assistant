@@ -16,6 +16,13 @@ const originalFetch = globalThis.fetch;
 
 mock.module("../../../security/secure-keys.js", () => ({
   getSecureKeyAsync: async () => "xoxb-test",
+  // The route's import graph (api.ts -> auth.ts -> oauth/*) also reads the
+  // result-shaped accessor; provide it so the mock stays import-complete
+  // even if these static imports ever become dynamic.
+  getSecureKeyResultAsync: async () => ({
+    value: "xoxb-test",
+    unreachable: false,
+  }),
 }));
 
 mock.module("../../sync/sync-publisher.js", () => ({
@@ -53,7 +60,9 @@ function resolveHandler(): RouteDefinition["handler"] {
   const route = ROUTES.find(
     (r) => r.operationId === "slack_channel_name_resolve",
   );
-  if (!route) throw new Error("slack_channel_name_resolve route not found");
+  if (!route) {
+    throw new Error("slack_channel_name_resolve route not found");
+  }
   return route.handler;
 }
 

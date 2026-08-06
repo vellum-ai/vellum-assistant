@@ -27,7 +27,6 @@ const { createLogTailRoutes } = await import("./log-tail-handlers.js");
 function makeConfig(): GatewayConfig {
   return {
     assistantRuntimeBaseUrl: "http://localhost:7821",
-    defaultAssistantId: undefined,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: {
@@ -45,7 +44,6 @@ function makeConfig(): GatewayConfig {
     runtimeProxyRequireAuth: true,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
-    unmappedPolicy: "default",
     trustProxy: false,
   } as GatewayConfig;
 }

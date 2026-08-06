@@ -207,30 +207,49 @@ describe("useConversationStore", () => {
   describe("pendingDraftPlugins", () => {
     it("toggle adds then removes a name for a conversation id", () => {
       getState().togglePendingDraftPlugin("draft-a", "plugin-1");
-      expect(getState().pendingDraftPlugins.get("draft-a")?.has("plugin-1")).toBe(true);
+      expect(
+        getState().pendingDraftPlugins.get("draft-a")?.has("plugin-1"),
+      ).toBe(true);
       getState().togglePendingDraftPlugin("draft-a", "plugin-1");
-      expect(getState().pendingDraftPlugins.get("draft-a")?.has("plugin-1")).toBe(false);
+      expect(
+        getState().pendingDraftPlugins.get("draft-a")?.has("plugin-1"),
+      ).toBe(false);
     });
 
     it("toggle accumulates multiple names for one conversation id", () => {
       getState().togglePendingDraftPlugin("draft-a", "plugin-1");
       getState().togglePendingDraftPlugin("draft-a", "plugin-2");
-      expect(getState().pendingDraftPlugins.get("draft-a")?.has("plugin-1")).toBe(true);
-      expect(getState().pendingDraftPlugins.get("draft-a")?.has("plugin-2")).toBe(true);
+      expect(
+        getState().pendingDraftPlugins.get("draft-a")?.has("plugin-1"),
+      ).toBe(true);
+      expect(
+        getState().pendingDraftPlugins.get("draft-a")?.has("plugin-2"),
+      ).toBe(true);
     });
 
     it("keeps independent selections for different conversation ids", () => {
       getState().togglePendingDraftPlugin("draft-a", "plugin-1");
       getState().togglePendingDraftPlugin("draft-b", "plugin-2");
-      expect(getState().pendingDraftPlugins.get("draft-a")?.has("plugin-1")).toBe(true);
-      expect(getState().pendingDraftPlugins.get("draft-a")?.has("plugin-2")).toBe(false);
-      expect(getState().pendingDraftPlugins.get("draft-b")?.has("plugin-2")).toBe(true);
+      expect(
+        getState().pendingDraftPlugins.get("draft-a")?.has("plugin-1"),
+      ).toBe(true);
+      expect(
+        getState().pendingDraftPlugins.get("draft-a")?.has("plugin-2"),
+      ).toBe(false);
+      expect(
+        getState().pendingDraftPlugins.get("draft-b")?.has("plugin-2"),
+      ).toBe(true);
     });
 
     it("sets a selection set keyed by conversation id", () => {
-      getState().setPendingDraftPlugins("draft-a", new Set(["plugin-1", "plugin-2"]));
+      getState().setPendingDraftPlugins(
+        "draft-a",
+        new Set(["plugin-1", "plugin-2"]),
+      );
       expect(getState().pendingDraftPlugins.get("draft-a")?.size).toBe(2);
-      expect(getState().pendingDraftPlugins.get("draft-a")?.has("plugin-1")).toBe(true);
+      expect(
+        getState().pendingDraftPlugins.get("draft-a")?.has("plugin-1"),
+      ).toBe(true);
     });
 
     it("clears only the named id, leaving other drafts intact", () => {
@@ -238,7 +257,9 @@ describe("useConversationStore", () => {
       getState().togglePendingDraftPlugin("draft-b", "plugin-2");
       getState().clearPendingDraftPlugins("draft-a");
       expect(getState().pendingDraftPlugins.has("draft-a")).toBe(false);
-      expect(getState().pendingDraftPlugins.get("draft-b")?.has("plugin-2")).toBe(true);
+      expect(
+        getState().pendingDraftPlugins.get("draft-b")?.has("plugin-2"),
+      ).toBe(true);
     });
 
     it("clear is a no-op (same reference) when the id is absent", () => {
@@ -247,5 +268,33 @@ describe("useConversationStore", () => {
       getState().clearPendingDraftPlugins("draft-z");
       expect(getState().pendingDraftPlugins).toBe(before);
     });
+  });
+});
+
+describe("draft conversation ids", () => {
+  it("registers and clears a draft key", () => {
+    getState().registerDraftConversationId("draft-1");
+    expect(getState().draftConversationIds.has("draft-1")).toBe(true);
+
+    getState().clearDraftConversationId("draft-1");
+    expect(getState().draftConversationIds.has("draft-1")).toBe(false);
+  });
+
+  it("keeps the same set reference when clearing an unknown key", () => {
+    getState().registerDraftConversationId("draft-1");
+    const before = getState().draftConversationIds;
+
+    getState().clearDraftConversationId("never-registered");
+
+    expect(getState().draftConversationIds).toBe(before);
+  });
+
+  it("drops every draft on reset", () => {
+    getState().registerDraftConversationId("draft-1");
+    getState().registerDraftConversationId("draft-2");
+
+    getState().reset();
+
+    expect(getState().draftConversationIds.size).toBe(0);
   });
 });

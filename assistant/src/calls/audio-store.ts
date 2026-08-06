@@ -30,7 +30,9 @@ export function storeAudio(buffer: Buffer, format: CallAudioFormat): string {
   // Evict oldest if over capacity
   while (currentBytes + buffer.length > MAX_STORE_BYTES && store.size > 0) {
     const oldest = store.keys().next().value;
-    if (oldest) removeEntry(oldest);
+    if (oldest) {
+      removeEntry(oldest);
+    }
   }
   const id = randomUUID();
   const contentType = contentTypeForFormat(format);
@@ -146,7 +148,9 @@ export function getAudio(id: string): AudioResult | null {
 
   // Check regular store
   const entry = store.get(id);
-  if (!entry) return null;
+  if (!entry) {
+    return null;
+  }
   if (Date.now() > entry.expiresAt) {
     removeEntry(id);
     return null;
@@ -194,7 +198,9 @@ function removeEntry(id: string): void {
 function evictExpired(): void {
   const now = Date.now();
   for (const [id, entry] of store) {
-    if (now > entry.expiresAt) removeEntry(id);
+    if (now > entry.expiresAt) {
+      removeEntry(id);
+    }
   }
   for (const [id, entry] of streamingStore) {
     if (now > entry.expiresAt) {

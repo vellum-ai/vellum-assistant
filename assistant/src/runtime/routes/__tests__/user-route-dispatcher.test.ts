@@ -9,36 +9,17 @@ import {
   getWorkspacePluginsDir,
   getWorkspaceRoutesDir,
 } from "../../../util/platform.js";
-import { AssistantEventHub } from "../../assistant-event-hub.js";
-import type { UserRouteContext } from "../user-route-dispatcher.js";
 import { UserRouteDispatcher } from "../user-route-dispatcher.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Build a minimal UserRouteContext for tests. */
-function makeContext(overrides?: Partial<UserRouteContext>): UserRouteContext {
-  return {
-    assistantEventHub: new AssistantEventHub(),
-    conversations: {
-      postMessage: async () => ({ messageId: "test-msg" }),
-    },
-    ...overrides,
-  };
-}
-
-/** Create a dispatcher with a stub context and optional overrides. */
-function makeDispatcher(
-  options?: Partial<{
-    handlerTimeoutMs: number;
-    context: UserRouteContext;
-  }>,
-): UserRouteDispatcher {
-  return new UserRouteDispatcher({
-    context: options?.context ?? makeContext(),
-    ...options,
-  });
+/** Create a dispatcher with optional overrides. */
+function makeDispatcher(options?: {
+  handlerTimeoutMs?: number;
+}): UserRouteDispatcher {
+  return new UserRouteDispatcher(options);
 }
 
 function makeRequest(
@@ -418,111 +399,46 @@ describe("description metadata", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Context injection
+// Handler signature
 // ---------------------------------------------------------------------------
 
-describe("context injection", () => {
-  test("passes UserRouteContext as second argument to handler", async () => {
+describe("handler signature", () => {
+  test("passes the request and the deprecated context shim", async () => {
     writeHandler(
-      "ctx-echo.ts",
+      "ctx-shape.ts",
       `export function GET(request, context) {
         return Response.json({
-          hasHub: typeof context.assistantEventHub?.publish === "function",
-          hasConversations: typeof context.conversations?.postMessage === "function",
+          argCount: arguments.length,
+          method: request.method,
+          hasPublish: typeof context?.assistantEventHub?.publish === "function",
+          hasPostMessage:
+            typeof context?.conversations?.postMessage === "function",
         });
       }`,
     );
 
     const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("ctx-echo", makeRequest("GET"));
+    const res = await dispatcher.dispatch("ctx-shape", makeRequest("GET"));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.hasHub).toBe(true);
-    expect(body.hasConversations).toBe(true);
+    expect(body.argCount).toBe(2);
+    expect(body.method).toBe("GET");
+    expect(body.hasPublish).toBe(true);
+    expect(body.hasPostMessage).toBe(true);
   });
 
-  test("handler can publish events through injected hub", async () => {
+  test("a handler that ignores the context still works", async () => {
     writeHandler(
-      "ctx-publish.ts",
-      `export async function POST(request, context) {
-        const body = await request.json();
-        await context.assistantEventHub.publish({
-          id: "test-event-1",
-          assistantId: "self",
-          conversationId: body.conversationId,
-          emittedAt: new Date().toISOString(),
-          message: { type: "open_conversation", conversationId: body.conversationId },
-        });
-        return Response.json({ published: true });
-      }`,
-    );
-
-    const hub = new AssistantEventHub();
-    const received: unknown[] = [];
-    hub.subscribe({
-      type: "process",
-      callback: (event) => {
-        received.push(event);
-      },
-    });
-
-    const ctx = makeContext({ assistantEventHub: hub });
-    const dispatcher = makeDispatcher({ context: ctx });
-    const req = new Request("http://localhost/v1/x/ctx-publish", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversationId: "conv-123" }),
-    });
-    const res = await dispatcher.dispatch("ctx-publish", req);
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.published).toBe(true);
-    expect(received).toHaveLength(1);
-    expect((received[0] as { conversationId: string }).conversationId).toBe(
-      "conv-123",
-    );
-  });
-
-  test("legacy handlers that ignore context still work", async () => {
-    writeHandler(
-      "no-ctx.ts",
+      "req-only.ts",
       `export function GET(request) {
-        return Response.json({ legacy: true });
+        return Response.json({ ok: true, method: request.method });
       }`,
     );
 
     const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("no-ctx", makeRequest("GET"));
+    const res = await dispatcher.dispatch("req-only", makeRequest("GET"));
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.legacy).toBe(true);
-  });
-
-  test("context is frozen — mutations throw in strict mode", async () => {
-    writeHandler(
-      "ctx-mutate.ts",
-      `export function GET(request, context) {
-        let threw = false;
-        try {
-          context.assistantEventHub = "hacked";
-        } catch {
-          threw = true;
-        }
-        // Reassignment must not take — the hub reference stays intact.
-        return Response.json({
-          threw,
-          hubIntact: typeof context.assistantEventHub?.publish === "function",
-        });
-      }`,
-    );
-
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("ctx-mutate", makeRequest("GET"));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    // Object.freeze makes property assignment throw in strict mode (ESM)
-    // and silently fail in sloppy mode — either way the value is unchanged.
-    expect(body.hubIntact).toBe(true);
+    expect((await res.json()).ok).toBe(true);
   });
 });
 
@@ -535,11 +451,8 @@ describe("plugin routes", () => {
     writePluginHandler(
       "my-plugin",
       "status.ts",
-      `export function GET(request, context) {
-        return Response.json({
-          plugin: true,
-          hasHub: typeof context.assistantEventHub?.publish === "function",
-        });
+      `export function GET(request) {
+        return Response.json({ plugin: true });
       }`,
     );
 
@@ -551,8 +464,6 @@ describe("plugin routes", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.plugin).toBe(true);
-    // Plugin handlers receive the same runtime context as workspace routes.
-    expect(body.hasHub).toBe(true);
   });
 
   test("resolves nested paths and the index (namespace root)", async () => {

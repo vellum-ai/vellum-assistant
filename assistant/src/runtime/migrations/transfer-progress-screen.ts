@@ -107,7 +107,9 @@ function inferFailedPhase(
   state: MigrationWizardState,
 ): TransferPhase | "unknown" {
   const stepError = state.steps["transfer"].error;
-  if (!stepError) return "unknown";
+  if (!stepError) {
+    return "unknown";
+  }
 
   // Export job failure codes
   if (

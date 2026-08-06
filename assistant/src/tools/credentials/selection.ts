@@ -52,13 +52,19 @@ function bestHostMatch(
   templates: CredentialInjectionTemplate[] | undefined,
   targetHost: string,
 ): "exact" | "wildcard" | "none" {
-  if (!templates || templates.length === 0) return "none";
+  if (!templates || templates.length === 0) {
+    return "none";
+  }
 
   let best: "exact" | "wildcard" | "none" = "none";
   for (const t of templates) {
     const match = hostMatchesPattern(targetHost, t.hostPattern);
-    if (match === "exact") return "exact"; // can't do better
-    if (match === "wildcard") best = "wildcard";
+    if (match === "exact") {
+      return "exact";
+    } // can't do better
+    if (match === "wildcard") {
+      best = "wildcard";
+    }
   }
   return best;
 }
@@ -93,7 +99,9 @@ export function rankCredentialsForEndpoint(
   for (const cred of credentials) {
     // Domain policy check using the same matcher as credential enforcement
     if (cred.allowedDomains.length > 0) {
-      if (!isDomainAllowed(targetHost, cred.allowedDomains)) continue;
+      if (!isDomainAllowed(targetHost, cred.allowedDomains)) {
+        continue;
+      }
     }
 
     let tierScore = 0;
@@ -131,7 +139,9 @@ export function rankCredentialsForEndpoint(
   // Sort by tier score first, then by recency as tiebreaker
   scored.sort((a, b) => {
     const tierDiff = b.tierScore - a.tierScore;
-    if (tierDiff !== 0) return tierDiff;
+    if (tierDiff !== 0) {
+      return tierDiff;
+    }
     return b.updatedAt - a.updatedAt;
   });
 

@@ -1,4 +1,3 @@
-
 import { useHintRotation } from "@/domains/chat/hooks/use-hint-rotation";
 
 const SETUP_HINTS = [

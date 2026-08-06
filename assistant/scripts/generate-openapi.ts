@@ -369,7 +369,9 @@ function buildSpec(
   // Sort by path, then by method for deterministic output
   uniqueRoutes.sort((a, b) => {
     const pathCmp = a.path.localeCompare(b.path);
-    if (pathCmp !== 0) return pathCmp;
+    if (pathCmp !== 0) {
+      return pathCmp;
+    }
     return a.method.localeCompare(b.method);
   });
 
@@ -607,15 +609,17 @@ async function main() {
         );
         if (inGeneratedOnly.length) {
           console.error(`  Only in generated (missing from committed yaml):`);
-          for (const p of inGeneratedOnly.slice(0, 20))
+          for (const p of inGeneratedOnly.slice(0, 20)) {
             console.error(`    + ${p}`);
+          }
         }
         if (inExistingOnly.length) {
           console.error(
             `  Only in existing (stale entries in committed yaml):`,
           );
-          for (const p of inExistingOnly.slice(0, 20))
+          for (const p of inExistingOnly.slice(0, 20)) {
             console.error(`    - ${p}`);
+          }
         }
       }
       process.exit(1);

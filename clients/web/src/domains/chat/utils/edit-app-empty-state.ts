@@ -15,14 +15,16 @@ export interface EditAppContext {
 }
 
 export function buildEditAppGreeting(app: EditAppContext): string {
-  return `Editing ${app.name} — what should we change?`;
+  return `Editing ${app.name}. What should we change?`;
 }
 
 function appReference(app: EditAppContext): string {
   return app.dirName ? `${app.name} (${app.dirName})` : app.name;
 }
 
-export function buildEditAppStarters(app: EditAppContext): ConversationStarter[] {
+export function buildEditAppStarters(
+  app: EditAppContext,
+): ConversationStarter[] {
   const ref = appReference(app);
   return [
     {
@@ -35,7 +37,7 @@ export function buildEditAppStarters(app: EditAppContext): ConversationStarter[]
     {
       id: "edit-app:add-feature",
       label: "Add a feature",
-      prompt: `Open ${ref} — I want to add a new feature.`,
+      prompt: `Open ${ref}. I want to add a new feature.`,
       category: "edit-app",
       batch: 0,
     },
@@ -49,7 +51,7 @@ export function buildEditAppStarters(app: EditAppContext): ConversationStarter[]
     {
       id: "edit-app:fix-bug",
       label: "Fix a bug",
-      prompt: `Open ${ref} — there's something I want to fix.`,
+      prompt: `Open ${ref}. There's something I want to fix.`,
       category: "edit-app",
       batch: 0,
     },

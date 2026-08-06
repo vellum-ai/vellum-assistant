@@ -199,10 +199,10 @@ function safeJson(value: unknown): string {
  * Repair a historical block that fails the current schema. Field-level
  * repair for the variants whose string fields consumers touch directly
  * (text, tool_result, web_search_tool_result); any other block that at
- * least carries a string `type` passes through untouched — persisted
- * kinds outside the provider union (e.g. `ui_surface`) are live data
- * whose renderers own their shape. Only type-less values are wrapped in
- * a text block carrying their serialized payload.
+ * least carries a string `type` passes through untouched — a persisted
+ * kind the union does not model yet is live data whose renderers own its
+ * shape. Only type-less values are wrapped in a text block carrying their
+ * serialized payload.
  */
 function coerceLegacyBlock(block: unknown): ContentBlock {
   if (typeof block === "object" && block !== null) {

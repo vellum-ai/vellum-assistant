@@ -35,8 +35,9 @@ mock.module("@/domains/chat/voice/live-voice/connection", () => ({
       const { token } = await mintResult;
       const url = new URL(`wss://velay.vellum.ai/${assistantId}/v1/live-voice`);
       url.searchParams.set("token", token);
-      if (conversationId)
+      if (conversationId) {
         url.searchParams.set("conversationId", conversationId);
+      }
       return url.toString();
     },
   ),
@@ -147,7 +148,9 @@ async function connectAndGetSocket(
 ): Promise<FakeWebSocket> {
   await client.connect(args);
   const ws = FakeWebSocket.instances.at(-1);
-  if (!ws) throw new Error("no WebSocket was constructed");
+  if (!ws) {
+    throw new Error("no WebSocket was constructed");
+  }
   return ws;
 }
 
@@ -196,6 +199,7 @@ describe("connect", () => {
     expect(ws.sentJson).toEqual([
       {
         type: "start",
+        client: "web",
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
         conversationId: "conv-xyz",
       },
@@ -208,8 +212,21 @@ describe("connect", () => {
     ws.open();
     expect(ws.sentJson[0]).toEqual({
       type: "start",
+      client: "web",
       audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
     });
+  });
+
+  test("reports the detected OS surface as the start frame's client", async () => {
+    const ws = await connectAndGetSocket(makeClient());
+    ws.open();
+
+    // Attribution for the daemon's voice-turn telemetry. It has to be the
+    // detected surface rather than a literal: the iOS and macOS apps run this
+    // same bundle over this same transport, so a hardcoded "web" would report
+    // every native session as a browser one. Under the test DOM (no Electron,
+    // no Capacitor) the detected surface is "web".
+    expect(ws.sentJson[0]).toMatchObject({ client: "web" });
   });
 
   test("includes turnDetection in the start frame when provided", async () => {
@@ -221,6 +238,7 @@ describe("connect", () => {
     expect(ws.sentJson).toEqual([
       {
         type: "start",
+        client: "web",
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
         turnDetection: "server_vad",
       },
@@ -238,6 +256,7 @@ describe("connect", () => {
     expect(ws.sentJson).toEqual([
       {
         type: "start",
+        client: "web",
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
         turnDetection: "server_vad",
         silenceThresholdMs: 1500,
@@ -403,7 +422,7 @@ describe("server frame dispatch", () => {
     expect(got.archived).toHaveLength(1);
   });
 
-  test("dispatches speech_started / utterance_end / utterance_discarded / turn_cancelled to their events", async () => {
+  test("dispatches speech_started / utterance_end / utterance_discarded / turn_cancelled / minimize_room to their events", async () => {
     const { client, ws } = await ready();
 
     const { got, record } = makeRecorder();
@@ -411,12 +430,14 @@ describe("server frame dispatch", () => {
     client.on("utteranceEnd", record("utteranceEnd"));
     client.on("utteranceDiscarded", record("utteranceDiscarded"));
     client.on("turnCancelled", record("turnCancelled"));
+    client.on("minimizeRoom", record("minimizeRoom"));
 
     ws.receive({ type: "speech_started", seq: 2 });
     ws.receive({ type: "utterance_end", seq: 3, reason: "silence" });
     ws.receive({ type: "utterance_end", seq: 4, reason: "max-duration" });
     ws.receive({ type: "utterance_discarded", seq: 5 });
     ws.receive({ type: "turn_cancelled", seq: 6, turnId: "t1" });
+    ws.receive({ type: "minimize_room", seq: 7, turnId: "t1" });
 
     expect(got.speechStarted).toEqual([{ type: "speech_started", seq: 2 }]);
     expect(got.utteranceEnd).toEqual([
@@ -428,6 +449,9 @@ describe("server frame dispatch", () => {
     ]);
     expect(got.turnCancelled).toEqual([
       { type: "turn_cancelled", seq: 6, turnId: "t1" },
+    ]);
+    expect(got.minimizeRoom).toEqual([
+      { type: "minimize_room", seq: 7, turnId: "t1" },
     ]);
   });
 
@@ -623,6 +647,7 @@ describe("sendAudio", () => {
     expect(ws.sentJson).toEqual([
       {
         type: "start",
+        client: "web",
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
       },
     ]);
@@ -682,6 +707,7 @@ describe("control frames", () => {
     expect(ws.sentJson).toEqual([
       {
         type: "start",
+        client: "web",
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
       },
     ]);

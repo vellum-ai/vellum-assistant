@@ -42,7 +42,9 @@ export const seedDefaultInferenceProfiles052: WorkspaceMigration = {
   description:
     "Seed default inference profiles (quality-optimized, balanced, cost-optimized) and activeProfile",
   run(workspaceDir: string): void {
-    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) return;
+    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) {
+      return;
+    }
 
     const configPath = join(workspaceDir, "config.json");
 
@@ -50,7 +52,9 @@ export const seedDefaultInferenceProfiles052: WorkspaceMigration = {
     if (existsSync(configPath)) {
       try {
         const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+          return;
+        }
         config = raw as Record<string, unknown>;
       } catch {
         return;
@@ -67,7 +71,9 @@ export const seedDefaultInferenceProfiles052: WorkspaceMigration = {
     let changed = false;
 
     for (const name of PROFILE_NAMES) {
-      if (readObject(profiles[name]) !== null) continue;
+      if (readObject(profiles[name]) !== null) {
+        continue;
+      }
       profiles[name] = isAnthropic
         ? cloneFragment(ANTHROPIC_PROFILES[name])
         : {};
@@ -83,7 +89,9 @@ export const seedDefaultInferenceProfiles052: WorkspaceMigration = {
       changed = true;
     }
 
-    if (!changed) return;
+    if (!changed) {
+      return;
+    }
 
     config.llm = llm;
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");

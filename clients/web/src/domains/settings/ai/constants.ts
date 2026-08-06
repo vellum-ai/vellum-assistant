@@ -22,7 +22,22 @@ export const INFERENCE_PROVIDERS = [
   "atlascloud",
   "litellm",
   "baseten",
+  "poolside",
 ] as const;
+
+/**
+ * Narrows a stored provider to the picker's domain. `LlmProvider` is wider:
+ * it also carries routing sentinels (`openai-compatible`, `vellum`,
+ * `chatgpt`) that deliberately never appear in the provider picker.
+ */
+export function isInferenceProvider(
+  provider: string | null | undefined,
+): provider is (typeof INFERENCE_PROVIDERS)[number] {
+  return (
+    provider != null &&
+    (INFERENCE_PROVIDERS as readonly string[]).includes(provider)
+  );
+}
 
 /**
  * `provider` value stored on the single Vellum-managed connection. It is a

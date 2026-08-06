@@ -22,21 +22,20 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 
 // The viewer store imports the generated daemon SDK, which isn't built in
-// CI/worktree checkouts. Stub the two endpoints it references so the module
+// CI/worktree checkouts. Stub every endpoint it references so the module
 // loads. Component + store are imported dynamically below so the mock is
 // registered first.
 mock.module("@/generated/daemon/sdk.gen", () => ({
   appsByIdOpenPost: async () => ({ data: undefined }),
   documentsByIdGet: async () => ({ data: undefined }),
+  documentsForworkspacefilePost: async () => ({ data: undefined }),
 }));
 
-const { SingleActivity } = await import(
-  "@/domains/chat/components/single-activity/single-activity"
-);
+const { SingleActivity } =
+  await import("@/domains/chat/components/single-activity/single-activity");
 const { useViewerStore } = await import("@/stores/viewer-store");
-const { toolDetailPayloadFromToolCall } = await import(
-  "@/domains/chat/utils/tool-call-card-utils"
-);
+const { toolDetailPayloadFromToolCall } =
+  await import("@/domains/chat/utils/tool-call-card-utils");
 
 const CONTENT = "Let me reason about the next step before acting.";
 const startedAt = 1_717_000_000_000;
@@ -317,10 +316,7 @@ describe("SingleActivity — web variant", () => {
     results: RESULTS,
   };
 
-  const ERROR_STEP: Extract<
-    ToolCallCardStep,
-    { kind: "web_search_error" }
-  > = {
+  const ERROR_STEP: Extract<ToolCallCardStep, { kind: "web_search_error" }> = {
     kind: "web_search_error",
     title: "Web search failed",
     durationLabel: "1s",

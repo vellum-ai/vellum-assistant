@@ -55,7 +55,8 @@ beforeEach(() => {
   // The hook gates on isPointerCoarse(). happy-dom's matchMedia doesn't
   // populate media-query results by default, so stub it.
   if (!window.matchMedia) {
-    window.matchMedia = () => ({ matches: true } as MediaQueryList) as typeof window.matchMedia;
+    window.matchMedia = () =>
+      ({ matches: true }) as MediaQueryList as typeof window.matchMedia;
   }
   // Ensure matchMedia returns matches: true for the coarse-pointer query.
   window.matchMedia = ((query: string) => ({
@@ -139,9 +140,11 @@ describe("useSwipeVertical", () => {
     );
     act(() =>
       result.current.onTouchEnd(
-        makeTouchEvent("touchend", [], [
-          { identifier: 0, clientX: 100, clientY: 200 },
-        ]),
+        makeTouchEvent(
+          "touchend",
+          [],
+          [{ identifier: 0, clientX: 100, clientY: 200 }],
+        ),
       ),
     );
 
@@ -170,9 +173,11 @@ describe("useSwipeVertical", () => {
     );
     act(() =>
       result.current.onTouchEnd(
-        makeTouchEvent("touchend", [], [
-          { identifier: 0, clientX: 100, clientY: 100 },
-        ]),
+        makeTouchEvent(
+          "touchend",
+          [],
+          [{ identifier: 0, clientX: 100, clientY: 100 }],
+        ),
       ),
     );
 
@@ -202,9 +207,11 @@ describe("useSwipeVertical", () => {
     // Only moved 50px — below the 80px threshold.
     act(() =>
       result.current.onTouchEnd(
-        makeTouchEvent("touchend", [], [
-          { identifier: 0, clientX: 100, clientY: 150 },
-        ]),
+        makeTouchEvent(
+          "touchend",
+          [],
+          [{ identifier: 0, clientX: 100, clientY: 150 }],
+        ),
       ),
     );
 
@@ -235,9 +242,11 @@ describe("useSwipeVertical", () => {
     );
     act(() =>
       result.current.onTouchEnd(
-        makeTouchEvent("touchend", [], [
-          { identifier: 0, clientX: 300, clientY: 110 },
-        ]),
+        makeTouchEvent(
+          "touchend",
+          [],
+          [{ identifier: 0, clientX: 300, clientY: 110 }],
+        ),
       ),
     );
 
@@ -271,9 +280,11 @@ describe("useSwipeVertical", () => {
     // Gesture should have been reset; a subsequent touchend should not commit.
     act(() =>
       result.current.onTouchEnd(
-        makeTouchEvent("touchend", [], [
-          { identifier: 0, clientX: 100, clientY: 200 },
-        ]),
+        makeTouchEvent(
+          "touchend",
+          [],
+          [{ identifier: 0, clientX: 100, clientY: 200 }],
+        ),
       ),
     );
 
@@ -330,9 +341,7 @@ describe("useSwipeVertical", () => {
   });
 
   test("resets on touchcancel", () => {
-    const { result } = renderHook(() =>
-      useSwipeVertical({ enabled: true }),
-    );
+    const { result } = renderHook(() => useSwipeVertical({ enabled: true }));
 
     act(() =>
       result.current.onTouchStart(

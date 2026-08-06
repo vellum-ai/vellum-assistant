@@ -51,7 +51,9 @@ export async function listContacts(
     personFields: PERSON_FIELDS,
     pageSize: String(pageSize),
   };
-  if (pageToken) query.pageToken = pageToken;
+  if (pageToken) {
+    query.pageToken = pageToken;
+  }
   return request<PeopleConnectionsResponse>(
     connection,
     "/people/me/connections",

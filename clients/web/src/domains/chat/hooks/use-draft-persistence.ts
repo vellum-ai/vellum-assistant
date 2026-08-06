@@ -37,16 +37,23 @@ export function useDraftPersistence(): void {
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const unsubscribe = useComposerStore.subscribe((state, prev) => {
-      if (state.input === prev.input) return;
+      if (state.input === prev.input) {
+        return;
+      }
       // Capture key + value at change time so a mid-debounce conversation switch
       // can't mis-file this draft.
       const key = useConversationStore.getState().activeConversationId;
       const value = state.input;
-      if (timer) clearTimeout(timer);
+      if (timer) {
+        clearTimeout(timer);
+      }
       timer = setTimeout(() => {
         // Only write when this conversation is still active — guards the switch
         // race (never persist conversation B's text under conversation A).
-        if (key && useConversationStore.getState().activeConversationId === key) {
+        if (
+          key &&
+          useConversationStore.getState().activeConversationId === key
+        ) {
           useComposerStore.getState().saveDraft(key, value);
         }
       }, AUTOSAVE_DEBOUNCE_MS);
@@ -61,15 +68,20 @@ export function useDraftPersistence(): void {
       // because switchToConversation updates it after handleConversationSwitch
       // sets the new input. Falls back to activeConversationId for the
       // initial-load case where previousConversationId is still null.
-      const key = useChatSessionStore.getState().previousConversationId
-        ?? useConversationStore.getState().activeConversationId;
+      const key =
+        useChatSessionStore.getState().previousConversationId ??
+        useConversationStore.getState().activeConversationId;
       if (key) {
-        useComposerStore.getState().saveDraft(key, useComposerStore.getState().input);
+        useComposerStore
+          .getState()
+          .saveDraft(key, useComposerStore.getState().input);
       }
     };
 
     const onVisibilityChange = () => {
-      if (document.visibilityState === "hidden") flush();
+      if (document.visibilityState === "hidden") {
+        flush();
+      }
     };
 
     window.addEventListener("pagehide", flush);
@@ -77,7 +89,9 @@ export function useDraftPersistence(): void {
 
     return () => {
       flush();
-      if (timer) clearTimeout(timer);
+      if (timer) {
+        clearTimeout(timer);
+      }
       unsubscribe();
       window.removeEventListener("pagehide", flush);
       document.removeEventListener("visibilitychange", onVisibilityChange);
@@ -93,8 +107,12 @@ export function useDraftPersistence(): void {
   const activeConversationId = useConversationStore.use.activeConversationId();
   const didMountRestoreRef = useRef(false);
   useEffect(() => {
-    if (!activeConversationId) return;
-    if (didMountRestoreRef.current) return;
+    if (!activeConversationId) {
+      return;
+    }
+    if (didMountRestoreRef.current) {
+      return;
+    }
     didMountRestoreRef.current = true;
     useComposerStore.getState().restoreDraftIfEmpty(activeConversationId);
   }, [activeConversationId]);

@@ -79,7 +79,7 @@ import {
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations, messages } from "../persistence/schema/index.js";
-import { getPkbRoot } from "../plugins/defaults/memory/pkb/types.js";
+import { getPkbRoot } from "../plugins/defaults/memory/v1/pkb/types.js";
 import { buildUnifiedTurnContextBlock } from "../plugins/defaults/turn-context/unified-turn-context.js";
 import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";

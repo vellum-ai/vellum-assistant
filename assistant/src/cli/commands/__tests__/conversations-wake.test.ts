@@ -1,8 +1,10 @@
 /**
- * CLI plumbing tests for untrusted-content input on `assistant conversations
- * wake`. Inline `--external-content` resolves to the fenced `externalContent`
- * body field and implies `--persist`. The route fences the resulting string
- * (see wake-conversation-routes.test.ts).
+ * CLI plumbing tests for `assistant conversations wake`. Inline
+ * `--external-content` resolves to the fenced `externalContent` body field and
+ * implies `--persist`; a script-mode schedule's environment resolves to the
+ * `cronRunId` and `scheduleId` body fields. The route fences the untrusted
+ * string and applies the schedule's pinned profile (see
+ * wake-conversation-routes.test.ts).
  */
 
 import * as nodeFs from "node:fs";
@@ -81,20 +83,26 @@ async function runWake(args: string[]): Promise<number> {
 function lastBody(): Record<string, unknown> {
   const body = (lastIpcCall?.params as { body?: Record<string, unknown> })
     ?.body;
-  if (!body) throw new Error("no wake_conversation body captured");
+  if (!body) {
+    throw new Error("no wake_conversation body captured");
+  }
   return body;
 }
 
 let savedRunId: string | undefined;
+let savedScheduleId: string | undefined;
 
 beforeEach(() => {
   lastIpcCall = null;
   loggerCalls.length = 0;
   process.exitCode = 0;
-  // The wake action reads __SCHEDULE_RUN_ID for cost attribution; clear it so
-  // it never leaks a cronRunId into the captured body.
+  // The wake action reads __SCHEDULE_RUN_ID for cost attribution and
+  // __SCHEDULE_ID for the schedule's pinned inference profile; clear both so
+  // they never leak into the captured body.
   savedRunId = process.env.__SCHEDULE_RUN_ID;
+  savedScheduleId = process.env.__SCHEDULE_ID;
   delete process.env.__SCHEDULE_RUN_ID;
+  delete process.env.__SCHEDULE_ID;
 });
 
 describe("conversations wake untrusted-content input", () => {
@@ -134,14 +142,61 @@ describe("conversations wake untrusted-content input", () => {
   });
 
   test("no untrusted content and no --persist sends neither field", async () => {
-    const code = await runWake(["wake", "conv-5", "--hint", "wake up", "--json"]);
+    const code = await runWake([
+      "wake",
+      "conv-5",
+      "--hint",
+      "wake up",
+      "--json",
+    ]);
     expect(code).toBe(0);
     expect(lastBody().persist).toBeUndefined();
     expect(lastBody().externalContent).toBeUndefined();
   });
 });
 
+describe("conversations wake schedule environment", () => {
+  test("script-mode env threads the run id and the schedule id", async () => {
+    process.env.__SCHEDULE_RUN_ID = "run-9";
+    process.env.__SCHEDULE_ID = "sched-9";
+    const code = await runWake([
+      "wake",
+      "conv-6",
+      "--hint",
+      "Digest ready",
+      "--json",
+    ]);
+    expect(code).toBe(0);
+    expect(lastBody()).toMatchObject({
+      cronRunId: "run-9",
+      scheduleId: "sched-9",
+    });
+  });
+
+  test("outside a script run neither field is sent", async () => {
+    const code = await runWake([
+      "wake",
+      "conv-7",
+      "--hint",
+      "Digest ready",
+      "--json",
+    ]);
+    expect(code).toBe(0);
+    expect(lastBody().cronRunId).toBeUndefined();
+    expect(lastBody().scheduleId).toBeUndefined();
+  });
+});
+
 afterEach(() => {
-  if (savedRunId !== undefined) process.env.__SCHEDULE_RUN_ID = savedRunId;
+  if (savedRunId !== undefined) {
+    process.env.__SCHEDULE_RUN_ID = savedRunId;
+  } else {
+    delete process.env.__SCHEDULE_RUN_ID;
+  }
+  if (savedScheduleId !== undefined) {
+    process.env.__SCHEDULE_ID = savedScheduleId;
+  } else {
+    delete process.env.__SCHEDULE_ID;
+  }
   process.exitCode = 0;
 });

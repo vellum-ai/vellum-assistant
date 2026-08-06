@@ -59,7 +59,10 @@
  */
 
 import { getConfig } from "../../../../config/loader.js";
-import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
+import {
+  isMemoryEnabled,
+  isMemoryV3Live,
+} from "../../../../config/memory-v3-gate.js";
 import {
   type PendingConversationNotice,
   queueConversationNotice,
@@ -113,7 +116,9 @@ function lruSet<V>(map: Map<string, V>, key: string, value: V): void {
     map.delete(key);
   } else if (map.size >= MAX_TRACKED_CONVERSATIONS) {
     const oldest = map.keys().next().value;
-    if (oldest !== undefined) map.delete(oldest);
+    if (oldest !== undefined) {
+      map.delete(oldest);
+    }
   }
   map.set(key, value);
 }
@@ -123,7 +128,9 @@ function queueMemoryV3ConversationNotice(
   ctx: TurnContext,
   live: boolean,
 ): void {
-  if (!live) return;
+  if (!live) {
+    return;
+  }
   const notice: PendingConversationNotice = err.conversationNotice ?? {
     source: "memory_v3",
     code: "UNKNOWN",
@@ -162,7 +169,9 @@ function observeTurnOnce(
   turnIndex: number,
 ): Promise<OrchestrateResult | null> {
   const cached = observedTurns.get(conversationId);
-  if (cached && cached.turnIndex === turnIndex) return cached.result;
+  if (cached && cached.turnIndex === turnIndex) {
+    return cached.result;
+  }
   const result = observeTurn(conversationId, turnIndex);
   lruSet(observedTurns, conversationId, { turnIndex, result });
   return result;
@@ -192,14 +201,22 @@ function computeSpotlightEntries(
   const selected = new Set<Slug>(result.selections.map((s) => s.slug));
   const entries: SpotlightEntry[] = [];
   for (const candidate of result.lanes.finder) {
-    if (entries.length >= n) break;
-    if (!selected.has(candidate.slug)) continue;
+    if (entries.length >= n) {
+      break;
+    }
+    if (!selected.has(candidate.slug)) {
+      continue;
+    }
     // Capability slugs never spotlight: their card already carries the whole
     // injection form, and their index "sections" are slices of the full-help
     // body the injection layer deliberately keeps out of context.
-    if (isCapabilitySlug(candidate.slug)) continue;
+    if (isCapabilitySlug(candidate.slug)) {
+      continue;
+    }
     const section = result.matchedSections.get(candidate.slug);
-    if (!section) continue;
+    if (!section) {
+      continue;
+    }
     entries.push({
       slug: candidate.slug,
       title: section.title,
@@ -233,7 +250,9 @@ function updateSpotlightWindow(
   for (const turn of [{ turnIndex, entries }, ...prior.reverse()]) {
     for (const entry of turn.entries) {
       const key = `${entry.slug}§${entry.title}`;
-      if (seen.has(key)) continue;
+      if (seen.has(key)) {
+        continue;
+      }
       seen.add(key);
       window.push(entry);
     }
@@ -257,10 +276,16 @@ export const memoryV3Injector: Injector = {
   order: 1000,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     const config = getConfig();
-    if (config.memory.enabled === false) return null;
+    if (!isMemoryEnabled(config)) {
+      return null;
+    }
     const live = isMemoryV3Live(config);
-    if (!live) return null;
-    if (!isPersonalMemoryAllowed(ctx.trust)) return null;
+    if (!live) {
+      return null;
+    }
+    if (!isPersonalMemoryAllowed(ctx.trust)) {
+      return null;
+    }
 
     let observed: OrchestrateResult | null;
     try {
@@ -283,7 +308,9 @@ export const memoryV3Injector: Injector = {
     // hook skipped v2 retrieval under live, so a turn with nothing selected
     // simply gets no v3 `<memory>` block (prior turns' frozen cards still ride
     // history).
-    if (!observed || observed.selections.length === 0) return null;
+    if (!observed || observed.selections.length === 0) {
+      return null;
+    }
     // `const` so the non-null narrowing survives capture in the `commit`
     // closure below (a `let` would re-widen to `OrchestrateResult | null`).
     const result = observed;
@@ -300,14 +327,18 @@ export const memoryV3Injector: Injector = {
       const cards: Array<{ slug: Slug; card: string }> = [];
       for (const slug of netNew) {
         const card = await renderV3CardContent(slug);
-        if (card.trim().length > 0) cards.push({ slug, card });
+        if (card.trim().length > 0) {
+          cards.push({ slug, card });
+        }
       }
       // Every net-new card rendered empty: return null rather than an
       // empty-text block. Under live there is no v2 block, so the turn simply
       // gets no new memory. Distinct from the all-repeat case (empty `netNew`),
       // where the empty block correctly keeps v2 suppressed because the cards
       // already ride history.
-      if (netNew.length > 0 && cards.length === 0) return null;
+      if (netNew.length > 0 && cards.length === 0) {
+        return null;
+      }
       const entries = cards.map(({ slug, card }) => ({
         slug,
         // Capability cards (skills / CLI commands) render with their own
@@ -370,15 +401,23 @@ export const memoryV3SpotlightInjector: Injector = {
   order: 1001,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     const config = getConfig();
-    if (config.memory.enabled === false) return null;
+    if (!isMemoryEnabled(config)) {
+      return null;
+    }
     // The spotlight rides the live `<memory>` layer; with `memory.v3.live` off
     // it produces nothing and keeps no ring state.
-    if (!isMemoryV3Live(config)) return null;
-    if (!isPersonalMemoryAllowed(ctx.trust)) return null;
+    if (!isMemoryV3Live(config)) {
+      return null;
+    }
+    if (!isPersonalMemoryAllowed(ctx.trust)) {
+      return null;
+    }
 
     try {
       const result = await observeTurnOnce(ctx.conversationId, ctx.turnIndex);
-      if (!result || result.selections.length === 0) return null;
+      if (!result || result.selections.length === 0) {
+        return null;
+      }
 
       const { n, windowTurns } = config.memory.v3.spotlight;
       const current = computeSpotlightEntries(result, n);
@@ -388,7 +427,9 @@ export const memoryV3SpotlightInjector: Injector = {
         current,
         windowTurns,
       );
-      if (window.length === 0) return null;
+      if (window.length === 0) {
+        return null;
+      }
 
       return {
         id: MEMORY_V3_SPOTLIGHT_BLOCK_ID,

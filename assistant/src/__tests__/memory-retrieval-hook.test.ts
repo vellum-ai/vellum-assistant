@@ -66,9 +66,9 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 
 import type { UserPromptSubmitContext } from "@vellumai/plugin-api";
 
+import type { AssistantEvent } from "../api/index.js";
 import type { AssistantConfig } from "../config/schema.js";
 import type { Conversation } from "../daemon/conversation.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { QdrantSparseVector } from "../persistence/embeddings/qdrant-client.js";
 import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import userPromptSubmitMemoryRetrieval from "../plugins/defaults/memory/hooks/user-prompt-submit.js";

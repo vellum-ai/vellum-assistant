@@ -59,7 +59,9 @@ interface ParsedRequest {
 
 function parseHttpRequest(buf: Buffer): ParsedRequest | null {
   const headerEnd = buf.indexOf("\r\n\r\n");
-  if (headerEnd === -1) return null;
+  if (headerEnd === -1) {
+    return null;
+  }
 
   const headerBlock = buf.subarray(0, headerEnd).toString("utf-8");
   const lines = headerBlock.split("\r\n");
@@ -68,7 +70,9 @@ function parseHttpRequest(buf: Buffer): ParsedRequest | null {
   const headers: Record<string, string> = {};
   for (let i = 1; i < lines.length; i++) {
     const colonIdx = lines[i].indexOf(":");
-    if (colonIdx === -1) continue;
+    if (colonIdx === -1) {
+      continue;
+    }
     const key = lines[i].slice(0, colonIdx).trim().toLowerCase();
     const value = lines[i].slice(colonIdx + 1).trim();
     headers[key] = value;
@@ -187,7 +191,9 @@ function handleDecryptedConnection(
     chunks.push(chunk);
     const combined = Buffer.concat(chunks);
     const parsed = parseHttpRequest(combined);
-    if (!parsed) return;
+    if (!parsed) {
+      return;
+    }
 
     tlsSocket.removeListener("data", onData);
     tlsSocket.pause();

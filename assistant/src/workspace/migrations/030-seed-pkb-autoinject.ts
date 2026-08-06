@@ -22,7 +22,9 @@ export const seedPkbAutoinjectMigration: WorkspaceMigration = {
 
   run(workspaceDir: string): void {
     const pkbDir = join(workspaceDir, "pkb");
-    if (!existsSync(pkbDir)) return;
+    if (!existsSync(pkbDir)) {
+      return;
+    }
 
     // Seed _autoinject.md if it doesn't already exist
     const autoinjectPath = join(pkbDir, "_autoinject.md");
@@ -59,7 +61,9 @@ export const seedPkbAutoinjectMigration: WorkspaceMigration = {
 
   down(workspaceDir: string): void {
     const autoinjectPath = join(workspaceDir, "pkb", "_autoinject.md");
-    if (!existsSync(autoinjectPath)) return;
+    if (!existsSync(autoinjectPath)) {
+      return;
+    }
 
     try {
       const content = readFileSync(autoinjectPath, "utf-8");

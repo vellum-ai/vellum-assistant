@@ -137,6 +137,31 @@ describe("STT provider catalog", () => {
   });
 
   // -----------------------------------------------------------------------
+  // Language selection capability
+  // -----------------------------------------------------------------------
+
+  test("languageSelection is set for all providers", () => {
+    for (const entry of listProviderEntries()) {
+      expect(["manual", "auto"]).toContain(entry.languageSelection);
+    }
+  });
+
+  const expectedLanguageSelection = [
+    ["deepgram", "manual"],
+    ["vellum", "manual"],
+    ["xai", "manual"],
+    ["google-gemini", "auto"],
+    ["openai-whisper", "auto"],
+  ] as const;
+
+  test.each(expectedLanguageSelection)(
+    "%s has languageSelection %s",
+    (id, expected) => {
+      expect(getProviderEntry(id)?.languageSelection).toBe(expected);
+    },
+  );
+
+  // -----------------------------------------------------------------------
   // Credential lookup
   // -----------------------------------------------------------------------
 

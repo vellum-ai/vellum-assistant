@@ -21,15 +21,21 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 
 export function useRuleEditorBridge(
   messages: DisplayMessage[],
-  handleOpenRuleEditorForToolCall: (ctx: ReturnType<typeof toolCallToRuleContext>) => void,
+  handleOpenRuleEditorForToolCall: (
+    ctx: ReturnType<typeof toolCallToRuleContext>,
+  ) => void,
 ): void {
   const handleRuleEditorRequest = useCallback(() => {
     const toolCallId = useViewerStore.getState().ruleEditorRequestToolCallId;
-    if (!toolCallId) return;
+    if (!toolCallId) {
+      return;
+    }
     const tc = messages
       .flatMap((m) => m.toolCalls ?? [])
       .find((t) => t.id === toolCallId);
-    if (!tc) return;
+    if (!tc) {
+      return;
+    }
     handleOpenRuleEditorForToolCall(toolCallToRuleContext(tc));
   }, [messages, handleOpenRuleEditorForToolCall]);
 

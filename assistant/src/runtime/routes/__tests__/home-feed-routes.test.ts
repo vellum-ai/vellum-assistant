@@ -108,8 +108,9 @@ async function handleGetHomeFeed(req: Request) {
     const result = await _handleGetHomeFeed({ queryParams });
     return fakeResponse(result);
   } catch (err) {
-    if (err instanceof RouteError)
+    if (err instanceof RouteError) {
       return fakeResponse({ error: err.message }, err.statusCode);
+    }
     throw err;
   }
 }
@@ -128,8 +129,9 @@ async function handlePatchFeedItem(req: Request, itemId: string) {
     });
     return fakeResponse(result);
   } catch (err) {
-    if (err instanceof RouteError)
+    if (err instanceof RouteError) {
       return fakeResponse({ error: err.message }, err.statusCode);
+    }
     throw err;
   }
 }
@@ -145,8 +147,9 @@ async function handlePostFeedAction(
     });
     return fakeResponse(result);
   } catch (err) {
-    if (err instanceof RouteError)
+    if (err instanceof RouteError) {
       return fakeResponse({ error: err.message }, err.statusCode);
+    }
     throw err;
   }
 }

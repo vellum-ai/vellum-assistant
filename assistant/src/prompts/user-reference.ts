@@ -50,7 +50,9 @@ export function resolveUserReference(): string {
  */
 export function resolveUserPronouns(): string | null {
   const content = resolveGuardianPersonaStrict();
-  if (content == null) return null;
+  if (content == null) {
+    return null;
+  }
 
   const snapshotIdx = content.indexOf("## Onboarding Snapshot");
 
@@ -75,7 +77,9 @@ export function resolveUserPronouns(): string | null {
 }
 
 function cleanPronounValue(raw: string): string | null {
-  if (raw === DECLINED_BY_USER_SENTINEL) return null;
+  if (raw === DECLINED_BY_USER_SENTINEL) {
+    return null;
+  }
   // Strip "inferred: " prefix for clean output
   return raw.replace(/^inferred:\s*/i, "");
 }

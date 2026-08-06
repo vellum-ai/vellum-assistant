@@ -67,7 +67,9 @@ describe("buildSuperpowersSearchParams", () => {
   });
 
   test("resetting a value back to its default removes the param", () => {
-    const params = new URLSearchParams("?q=git&filter=installed&category=email");
+    const params = new URLSearchParams(
+      "?q=git&filter=installed&category=email",
+    );
     const next = buildSuperpowersSearchParams(params, {
       q: "",
       filter: "all",

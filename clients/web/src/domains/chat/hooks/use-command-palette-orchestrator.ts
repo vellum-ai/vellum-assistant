@@ -24,7 +24,8 @@ export interface UseCommandPaletteOrchestratorOptions {
   switchConversation: (key: string) => void;
 }
 
-export type UseCommandPaletteOrchestratorReturn = UseCommandPaletteSectionsReturn;
+export type UseCommandPaletteOrchestratorReturn =
+  UseCommandPaletteSectionsReturn;
 
 export function useCommandPaletteOrchestrator({
   assistantId,
@@ -47,8 +48,11 @@ export function useCommandPaletteOrchestrator({
     startNewConversation,
     switchConversation,
     navigate: (to: string | number) => {
-      if (typeof to === "number") navigate(to);
-      else void navigate(to);
+      if (typeof to === "number") {
+        navigate(to);
+      } else {
+        void navigate(to);
+      }
     },
     navigateToSettings,
   });

@@ -39,10 +39,7 @@ import { isElectron } from "@/runtime/is-electron";
 import type { ResearchStatus } from "@/domains/onboarding/research-runner";
 import type { ResearchOnboardingValues } from "@/domains/onboarding/screens/research-onboarding-screen";
 import type { GiveMeAFaceValues } from "@/domains/onboarding/screens/give-me-a-face-screen";
-import type {
-  ResearchFact,
-  ResearchSuggestion,
-} from "@/utils/research-facts";
+import type { ResearchFact, ResearchSuggestion } from "@/utils/research-facts";
 
 /** The sub-steps the research-onboarding route sequences through. */
 export type ResearchStep =
@@ -134,12 +131,18 @@ export function readResearchSnapshot(
   userId: string | null,
 ): ResearchOnboardingSnapshot | null {
   // Desktop app: never resume — each launch starts onboarding fresh.
-  if (isElectron()) return null;
+  if (isElectron()) {
+    return null;
+  }
   const key = storageKey(userId);
-  if (!key) return null;
+  if (!key) {
+    return null;
+  }
   try {
     const raw = localStorage.getItem(key);
-    if (!raw) return null;
+    if (!raw) {
+      return null;
+    }
     return JSON.parse(raw) as ResearchOnboardingSnapshot;
   } catch {
     // Unreadable / malformed / privacy-mode throw — start fresh.
@@ -152,9 +155,13 @@ export function writeResearchSnapshot(
   snapshot: ResearchOnboardingSnapshot,
 ): void {
   // Desktop app: don't persist steps — nothing should survive a relaunch.
-  if (isElectron()) return;
+  if (isElectron()) {
+    return;
+  }
   const key = storageKey(userId);
-  if (!key) return;
+  if (!key) {
+    return;
+  }
   try {
     localStorage.setItem(key, JSON.stringify(snapshot));
   } catch {
@@ -164,7 +171,9 @@ export function writeResearchSnapshot(
 
 export function clearResearchSnapshot(userId: string | null): void {
   const key = storageKey(userId);
-  if (!key) return;
+  if (!key) {
+    return;
+  }
   try {
     localStorage.removeItem(key);
   } catch {
@@ -190,13 +199,17 @@ export function clearResearchSnapshot(userId: string | null): void {
 export function resolveResumeStep(
   snapshot: ResearchOnboardingSnapshot,
 ): ResearchStep {
-  if (snapshot.research?.status === "done") return "suggestions";
+  if (snapshot.research?.status === "done") {
+    return "suggestions";
+  }
   if (snapshot.step === "meeting") {
     return snapshot.checkinBooked ? "looking" : "letschat";
   }
   // The established-assistant guard holds an intercepted submit in transient
   // state that a snapshot can't restore, so a saved journey never resumes onto
   // it — land on the form and let a resubmit re-evaluate the guard.
-  if (snapshot.step === "existing") return "form";
+  if (snapshot.step === "existing") {
+    return "form";
+  }
   return snapshot.step;
 }

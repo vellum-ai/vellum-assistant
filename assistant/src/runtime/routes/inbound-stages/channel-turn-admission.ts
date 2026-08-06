@@ -4,8 +4,8 @@
  *
  * Every interactive send path queues a message that arrives while the
  * conversation is mid-turn and runs it once the turn completes (HTTP
- * `/v1/messages` and `route-conversation-post` both call
- * `conversation.enqueueMessage`; see `runtime/CLAUDE.md` "Queue if busy").
+ * `/v1/messages` calls `conversation.enqueueMessage`; see `runtime/CLAUDE.md`
+ * "Queue if busy").
  * Channel inbound cannot reuse that queue directly: the queue drains replies
  * onto the SSE event hub, whereas a channel turn delivers its reply back
  * through the provider callback URL (streaming session + `finalizeEventDelivery`

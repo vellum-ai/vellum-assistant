@@ -34,7 +34,7 @@ export interface UseAutoSendEffectsOptions {
   sendMessage: (
     content: string,
     attachments?: never[],
-    opts?: { hidden?: boolean },
+    opts?: { hidden?: boolean; scripted?: boolean },
   ) => Promise<void>;
   reachabilityPhase: ReachabilityState["phase"];
   reachabilityProbe: (options?: ReachabilityProbeOptions) => void;
@@ -75,13 +75,17 @@ export function useAutoSendEffects({
   const promptConsumedRef = useRef<string | null>(null);
   useEffect(() => {
     const prompt = searchParams.get("prompt");
-    if (!prompt || !activeConversationId) return;
+    if (!prompt || !activeConversationId) {
+      return;
+    }
     // A relay token makes each dispatch unique so repeated identical prompts
     // re-fire; one-shot callers (deep links, doc feedback) omit it and dedupe
     // on the prompt text.
     const relayToken = searchParams.get("relay");
     const key = `${activeConversationId}:${relayToken ?? prompt}`;
-    if (promptConsumedRef.current === key) return;
+    if (promptConsumedRef.current === key) {
+      return;
+    }
     promptConsumedRef.current = key;
     void sendMessage(prompt);
     // One-shot callers (no relay token) dedupe only on this component ref,
@@ -102,8 +106,12 @@ export function useAutoSendEffects({
 
   // 2. Pre-chat reachability probe — eagerly start the probe cycle.
   useEffect(() => {
-    if (!assistantId) return;
-    if (!getPendingInitialMessageRef.current()) return;
+    if (!assistantId) {
+      return;
+    }
+    if (!getPendingInitialMessageRef.current()) {
+      return;
+    }
     if (reachabilityPhase === "idle") {
       reachabilityProbe({ mode: "background" });
     }
@@ -112,12 +120,32 @@ export function useAutoSendEffects({
   // 3. Onboarding initial message — fires once when daemon is reachable.
   const initialMessageConsumedRef = useRef(false);
   useEffect(() => {
-    if (initialMessageConsumedRef.current || !assistantId || !activeConversationId) return;
-    if (reachabilityPhase !== "ready") return;
+    if (
+      initialMessageConsumedRef.current ||
+      !assistantId ||
+      !activeConversationId
+    ) {
+      return;
+    }
+    if (reachabilityPhase !== "ready") {
+      return;
+    }
     const message = getPendingInitialMessageRef.current();
-    if (!message) return;
+    if (!message) {
+      return;
+    }
     initialMessageConsumedRef.current = true;
     const hidden = getPendingInitialMessageHiddenRef.current?.() ?? false;
-    void sendMessage(message, [], { hidden });
+    // Every message that reaches here is auto-sent by an onboarding flow, not
+    // typed: the research prompt, the "Let's chat" kickoff greeting, or the
+    // legacy pre-chat bootstrap. Marked unconditionally rather than keyed off
+    // `hidden`, because the two are independent: the research prompt is
+    // visible AND scripted.
+    //
+    // Note this is the pre-chat staged message only. The `?prompt=` auto-send
+    // above is deliberately NOT marked: those are user-initiated (quick input,
+    // a check-in CTA the user clicked), and the analytics classifier does not
+    // treat them as scripted either.
+    void sendMessage(message, [], { hidden, scripted: true });
   }, [activeConversationId, assistantId, reachabilityPhase, sendMessage]);
 }

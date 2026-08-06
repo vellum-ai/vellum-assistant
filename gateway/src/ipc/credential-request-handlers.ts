@@ -21,14 +21,12 @@ import {
   CredentialRequestStore,
   MAX_ACTIVE_CREDENTIAL_REQUESTS,
 } from "../db/credential-request-store.js";
-import { isFeatureFlagEnabled } from "../feature-flag-resolver.js";
 import { getLogger } from "../logger.js";
 import { resolvePublicHttpBaseUrl } from "../runtime/client.js";
 import type { IpcRoute } from "./server.js";
 
 const log = getLogger("credential-requests");
 
-const CREDENTIAL_REQUESTS_FLAG = "credential-requests";
 export const DEFAULT_CREDENTIAL_REQUEST_TTL_MS = 30 * 60_000;
 const MAX_CREDENTIAL_REQUEST_TTL_MS = 24 * 60 * 60_000;
 
@@ -70,11 +68,7 @@ export type CreateCredentialRequestResult =
   | { ok: true; token: string; url: string; expiresAt: number }
   | {
       ok: false;
-      error:
-        | "flag_disabled"
-        | "no_public_base_url"
-        | "rate_limited"
-        | "too_many_active";
+      error: "no_public_base_url" | "rate_limited" | "too_many_active";
     };
 
 export interface CreateCredentialRequestDeps {
@@ -121,10 +115,6 @@ export async function createCredentialRequest(
   params: z.infer<typeof CreateCredentialRequestSchema>,
   deps: CreateCredentialRequestDeps = {},
 ): Promise<CreateCredentialRequestResult> {
-  if (!isFeatureFlagEnabled(CREDENTIAL_REQUESTS_FLAG)) {
-    return { ok: false, error: "flag_disabled" };
-  }
-
   const publicBaseUrl = await resolvePublicHttpBaseUrl(
     config,
     configFile,

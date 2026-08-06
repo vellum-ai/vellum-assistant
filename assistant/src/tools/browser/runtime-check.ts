@@ -21,9 +21,13 @@ export interface BrowserRuntimeStatus {
 function resolveChromium(
   pw: Record<string, unknown>,
 ): Record<string, unknown> | undefined {
-  if (pw.chromium) return pw;
+  if (pw.chromium) {
+    return pw;
+  }
   const def = pw.default as Record<string, unknown> | undefined;
-  if (def?.chromium) return def;
+  if (def?.chromium) {
+    return def;
+  }
   return undefined;
 }
 
@@ -38,7 +42,9 @@ async function tryBundledPlaywright(): Promise<
   try {
     const pw = await import("playwright");
     const mod = resolveChromium(pw as unknown as Record<string, unknown>);
-    if (mod?.chromium) return mod as unknown as typeof import("playwright");
+    if (mod?.chromium) {
+      return mod as unknown as typeof import("playwright");
+    }
   } catch {
     // Bundled import failed entirely
   }
@@ -56,8 +62,12 @@ function resolvePackageEntry(pkgDir: string): string {
     if (typeof exportsRoot === "object" && exportsRoot?.import) {
       return join(pkgDir, exportsRoot.import);
     }
-    if (pkg.module) return join(pkgDir, pkg.module);
-    if (pkg.main) return join(pkgDir, pkg.main);
+    if (pkg.module) {
+      return join(pkgDir, pkg.module);
+    }
+    if (pkg.main) {
+      return join(pkgDir, pkg.main);
+    }
   } catch {
     // Fall through to default
   }
@@ -72,7 +82,9 @@ function resolvePackageEntry(pkgDir: string): string {
 export async function importPlaywright(): Promise<typeof import("playwright")> {
   // Try bundled import (works in dev/source mode)
   const bundled = await tryBundledPlaywright();
-  if (bundled) return bundled;
+  if (bundled) {
+    return bundled;
+  }
 
   // Compiled binary fallback: install playwright to disk and import
   // from an absolute path so the JS runtime resolves it from the
@@ -127,7 +139,9 @@ export async function ensureChromiumHeadlessShell(
 ): Promise<void> {
   try {
     const execPath = pw.chromium.executablePath();
-    if (existsSync(execPath)) return;
+    if (existsSync(execPath)) {
+      return;
+    }
   } catch {
     // executablePath() may throw if the browser registry is missing
   }

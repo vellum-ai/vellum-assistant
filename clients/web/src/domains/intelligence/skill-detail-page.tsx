@@ -81,6 +81,9 @@ export function SkillDetailPage() {
     onBack: handleBack,
     enabled: isMobile,
     navKey: pathname,
+    // Path only: the list's search params are carried by `handleBack` and
+    // play no part in matching the route branch to warm.
+    prefetchHref: routes.superpowers,
   });
 
   const {

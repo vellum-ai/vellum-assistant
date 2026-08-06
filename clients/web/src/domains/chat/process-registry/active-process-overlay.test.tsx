@@ -16,6 +16,7 @@
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -62,7 +63,9 @@ mock.module("motion/react", () => {
         get: (_target, tag) => (props: Record<string, unknown>) => {
           const domProps: Record<string, unknown> = {};
           for (const key in props) {
-            if (!MOTION_ONLY_PROPS.has(key)) domProps[key] = props[key];
+            if (!MOTION_ONLY_PROPS.has(key)) {
+              domProps[key] = props[key];
+            }
           }
           return createElement(String(tag), domProps);
         },
@@ -123,7 +126,10 @@ function fakeDescriptor(
 describe("ActiveProcessOverlay — gating", () => {
   test("renders nothing when ids is empty", () => {
     const { container } = render(
-      <ActiveProcessOverlay descriptor={fakeDescriptor(STACKED_PILL)} ids={[]} />,
+      <ActiveProcessOverlay
+        descriptor={fakeDescriptor(STACKED_PILL)}
+        ids={[]}
+      />,
     );
     expect(container.firstChild).toBeNull();
     expect(screen.queryByTestId("active-subagent-overlay")).toBeNull();
@@ -192,6 +198,27 @@ describe("ActiveProcessOverlay — expand & rows", () => {
     expect(screen.getByText("Process a")).toBeTruthy();
     expect(screen.queryByText("Process b")).toBeNull();
   });
+
+  test("stays open when a higher layer already claimed Escape", () => {
+    render(
+      <ActiveProcessOverlay
+        descriptor={fakeDescriptor(STACKED_PILL)}
+        ids={["a", "b"]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "2 active processes" }));
+    const event = new KeyboardEvent("keydown", {
+      key: "Escape",
+      cancelable: true,
+    });
+    event.preventDefault();
+
+    act(() => {
+      document.dispatchEvent(event);
+    });
+
+    expect(screen.getByText("2 Active")).toBeTruthy();
+  });
 });
 
 describe("ActiveProcessOverlay — row interactions", () => {
@@ -201,7 +228,9 @@ describe("ActiveProcessOverlay — row interactions", () => {
     render(<ActiveProcessOverlay descriptor={descriptor} ids={["a", "b"]} />);
 
     fireEvent.click(screen.getByRole("button", { name: "2 active processes" }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Open process" })[0]!);
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Open process" })[0]!,
+    );
 
     expect(onOpenDetail).toHaveBeenCalledTimes(1);
     expect(onOpenDetail.mock.calls[0]![0]).toBe("a");

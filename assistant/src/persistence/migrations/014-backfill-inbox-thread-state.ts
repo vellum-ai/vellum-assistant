@@ -18,7 +18,9 @@ export function migrateBackfillInboxThreadStateFromBindings(
   const checkpoint = raw
     .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
     .get(checkpointKey);
-  if (checkpoint) return;
+  if (checkpoint) {
+    return;
+  }
 
   // Guard: skip if either table does not exist yet (first boot edge case).
   const srcExists = raw

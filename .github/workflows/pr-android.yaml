@@ -1,0 +1,29 @@
+name: PR Android Checks
+
+on:
+  pull_request:
+    types: [synchronize, opened, reopened]
+    paths:
+      - 'package.json'
+      - 'bun.lock'
+      - 'patches/**'
+      - 'clients/android/**'
+      - 'clients/web/capacitor.config.ts'
+      - 'clients/web/capacitor-shell/**'
+      - 'clients/web/package.json'
+      - '.github/actions/setup-android-sdk/**'
+      - '.github/workflows/android-checks.yaml'
+      - '.github/workflows/pr-android.yaml'
+      - '.github/workflows/ci-main-android.yaml'
+      - '.github/workflows/release-android.yaml'
+
+concurrency:
+  group: pr-android-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/android-checks.yaml

@@ -189,6 +189,51 @@ function resolveInboundConversation(
 }
 
 /**
+ * Resolve the internal conversation already bound to an inbound
+ * (channel, chat, thread) address, or `null` when none exists. Mirrors
+ * {@link resolveInboundConversation}'s lookup order — threaded key first,
+ * then the Slack flat-key alias when thread evidence exists — but is
+ * strictly read-only: deny lanes use it to attach the in-app
+ * access-request card to the originating conversation, and a denied
+ * inbound must never mint a conversation as a side effect.
+ */
+export function findInboundConversationId(
+  sourceChannel: string,
+  externalChatId: string,
+  sourceThreadId?: string | null,
+): string | null {
+  const threadedKey = buildScopedConversationKey(
+    sourceChannel,
+    externalChatId,
+    sourceThreadId,
+  );
+  const threadedMapping = getConversationByKey(threadedKey);
+  if (threadedMapping) {
+    return threadedMapping.conversationId;
+  }
+
+  const threadId = sourceThreadId?.trim();
+  if (sourceChannel !== "slack" || !threadId) {
+    return null;
+  }
+
+  const legacyKey = buildScopedConversationKey(sourceChannel, externalChatId);
+  const legacyMapping = getConversationByKey(legacyKey);
+  if (
+    legacyMapping &&
+    legacySlackConversationHasThreadEvidence(
+      legacyMapping.conversationId,
+      externalChatId,
+      threadId,
+    )
+  ) {
+    return legacyMapping.conversationId;
+  }
+
+  return null;
+}
+
+/**
  * Record an inbound channel event. Returns `duplicate: true` if this
  * exact (channel, chat, message) combination was already seen.
  */

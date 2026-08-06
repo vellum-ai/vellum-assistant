@@ -23,6 +23,8 @@ import { getDeviceSetting } from "@/utils/device-settings";
  */
 export function getEffectiveTimezone(): string {
   const override = getDeviceSetting("timezone", "").trim();
-  if (override) return override;
+  if (override) {
+    return override;
+  }
   return getBrowserTimezone();
 }

@@ -19,6 +19,21 @@ function mintDaemonServiceToken(): string {
   return mintToken({
     aud: "vellum-gateway",
     sub: "svc:daemon:self",
+    scope_profile: "speech_relay_v1",
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: 300,
+  });
+}
+
+/**
+ * A daemon-sub token with the broad service profile, the over-scoped shape
+ * ATL-1033 removed. The relay must reject it: only speech_relay_v1 carries
+ * the speech.relay scope.
+ */
+function mintOverScopedDaemonToken(): string {
+  return mintToken({
+    aud: "vellum-gateway",
+    sub: "svc:daemon:self",
     scope_profile: "gateway_service_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: 300,
@@ -40,8 +55,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return {
     assistantRuntimeBaseUrl: "http://localhost:7821",
     routingEntries: [],
-    defaultAssistantId: undefined,
-    unmappedPolicy: "reject",
     port: 7830,
     runtimeProxyRequireAuth: true,
     shutdownDrainMs: 5000,
@@ -283,6 +296,20 @@ describe("createSpeechRelayUpgradeHandler — gate", () => {
     });
     const req = new Request(
       `http://127.0.0.1:7830/v1/speech/stt/stream?key=${mintActorToken()}`,
+      { headers: { upgrade: "websocket" } },
+    );
+
+    const res = (await handler(req, makeFakeServer()))!;
+    expect(res.status).toBe(401);
+    expect((await bodyOf(res)).code).toBe("invalid_token");
+  });
+
+  test("rejects a daemon token with the broad gateway_service_v1 profile (ATL-1033)", async () => {
+    const handler = createSpeechRelayUpgradeHandler(makeConfig(), "stt", {
+      credentials: makeCredentials("vk-1"),
+    });
+    const req = new Request(
+      `http://127.0.0.1:7830/v1/speech/stt/stream?key=${mintOverScopedDaemonToken()}`,
       { headers: { upgrade: "websocket" } },
     );
 

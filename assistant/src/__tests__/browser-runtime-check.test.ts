@@ -10,7 +10,9 @@ mock.module("playwright", () => {
   return {
     chromium: {
       executablePath: () => {
-        if (mockExecThrows) throw new Error("Browser not found");
+        if (mockExecThrows) {
+          throw new Error("Browser not found");
+        }
         return mockExecPath;
       },
     },

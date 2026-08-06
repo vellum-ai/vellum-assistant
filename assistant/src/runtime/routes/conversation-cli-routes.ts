@@ -44,12 +44,11 @@ function handleListCli({ body = {} }: RouteHandlerArgs) {
   // user sees archived rows alongside live ones in the picker.
   const includeArchived = (body.includeArchived as boolean) ?? false;
 
-  const rows = listConversations(
+  const rows = listConversations({
     limit,
-    "standard",
-    0,
-    includeArchived ? "all" : "active",
-  );
+    conversationType: "standard",
+    archiveStatus: includeArchived ? "all" : "active",
+  });
   return {
     conversations: rows.map((c) => ({
       id: c.id,
@@ -140,7 +139,7 @@ function handleExportCli({ body = {} }: RouteHandlerArgs) {
   let conversationId = body.conversationId as string | undefined;
 
   if (!conversationId) {
-    const all = listConversations(1);
+    const all = listConversations({ limit: 1 });
     if (all.length === 0) {
       throw new NotFoundError("No conversations found");
     }
@@ -151,12 +150,11 @@ function handleExportCli({ body = {} }: RouteHandlerArgs) {
   // behavior of letting `vellum export <prefix>` resolve an archived row.
   let conversation = getConversation(conversationId);
   if (!conversation) {
-    const all = listConversations(
-      Number.MAX_SAFE_INTEGER,
-      "standard",
-      0,
-      "all",
-    );
+    const all = listConversations({
+      limit: Number.MAX_SAFE_INTEGER,
+      conversationType: "standard",
+      archiveStatus: "all",
+    });
     const match = all.find((c) => c.id.startsWith(conversationId!));
     if (match) {
       conversation = match;

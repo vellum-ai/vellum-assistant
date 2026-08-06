@@ -40,7 +40,9 @@ function writePlugin(
     );
   }
 
-  if (opts.disabled) writeFileSync(join(pluginDir, ".disabled"), "");
+  if (opts.disabled) {
+    writeFileSync(join(pluginDir, ".disabled"), "");
+  }
 
   for (const skill of skills) {
     const skillDir = join(pluginDir, "skills", skill.id);
@@ -59,8 +61,9 @@ function skillById(id: string) {
 describe("discoverPluginResidentSkills (via loadSkillCatalog)", () => {
   beforeEach(() => {
     const pluginsDir = getWorkspacePluginsDir();
-    if (existsSync(pluginsDir))
+    if (existsSync(pluginsDir)) {
       rmSync(pluginsDir, { recursive: true, force: true });
+    }
   });
 
   test("surfaces a plugin skill when the install dir name differs from package.json name", () => {

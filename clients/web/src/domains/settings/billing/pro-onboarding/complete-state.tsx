@@ -6,13 +6,17 @@ import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
 import { CreatureCorners, WizardCardHeading } from "./primitives";
+import { takeoverCopy, type TakeoverDirection } from "./takeover-copy";
 import { usePreferredOrActiveAssistant } from "./use-preferred-or-active-assistant";
 
 export function CompleteState({
   assistantId,
+  direction,
 }: {
   /** The provisioning target assistant (onboarding primary, else active). */
   assistantId?: string | null;
+  /** Which way the change that just landed went. */
+  direction?: TakeoverDirection;
 }) {
   const navigate = useNavigate();
   const isOrgReady = useIsOrgReady();
@@ -27,7 +31,7 @@ export function CompleteState({
       <div className="relative flex w-full flex-col items-center">
         <WizardCardHeading
           title="You're all set!"
-          subtitle="Enjoy the new found power."
+          subtitle={takeoverCopy(direction).completeSubtitle}
         />
 
         <div className="mt-10 flex w-full flex-col items-center gap-10">

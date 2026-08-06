@@ -8,7 +8,7 @@ import {
 import { dirname, join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../api/index.js";
 import type {
   EventTargeting,
   ReplaySubscriber,
@@ -144,7 +144,9 @@ describe("assistant-stream-state", () => {
 
   describe("ring buffer eviction", () => {
     test("evicts oldest entries past the 200-event count cap", () => {
-      for (let i = 0; i < 250; i++) stampAndBuffer(mkEvent());
+      for (let i = 0; i < 250; i++) {
+        stampAndBuffer(mkEvent());
+      }
       const peek = _peekStreamForTesting();
       expect(peek.ringLength).toBe(200);
       // Newest is 250, oldest should be 51 (250 - 200 + 1)
@@ -214,7 +216,9 @@ describe("assistant-stream-state", () => {
 
     test("returns null when lastSeenSeq is older than oldest buffered entry", () => {
       // Force eviction by pushing past the count cap.
-      for (let i = 0; i < 250; i++) stampAndBuffer(mkEvent());
+      for (let i = 0; i < 250; i++) {
+        stampAndBuffer(mkEvent());
+      }
       const peek = _peekStreamForTesting();
       expect(peek.oldestSeq).toBe(51);
       // Client claims to have last seen seq=10 — that's far below oldest.
@@ -732,7 +736,9 @@ describe("assistant-stream-state", () => {
 
     test("stamping within a reserved block does not advance the persisted ceiling", () => {
       // GIVEN many stamps within one block
-      for (let i = 0; i < 100; i++) stampAndBuffer(mkEvent());
+      for (let i = 0; i < 100; i++) {
+        stampAndBuffer(mkEvent());
+      }
 
       // WHEN the daemon restarts
       _simulateRestartForTesting();
@@ -786,7 +792,9 @@ describe("assistant-stream-state", () => {
 
       // Stamp past the 200-event ring cap so the restarted process's
       // earliest events are genuinely evicted.
-      for (let i = 0; i < 205; i++) stampAndBuffer(mkEvent());
+      for (let i = 0; i < 205; i++) {
+        stampAndBuffer(mkEvent());
+      }
 
       // The gap now includes evicted post-restart events, so replay must
       // signal the snapshot fallback.

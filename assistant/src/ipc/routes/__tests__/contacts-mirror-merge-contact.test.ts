@@ -16,13 +16,24 @@ await initializeDb();
 
 function seedContact(
   id: string,
-  opts: { displayName?: string; notes?: string | null; userFile?: string | null } = {},
+  opts: {
+    displayName?: string;
+    notes?: string | null;
+    userFile?: string | null;
+  } = {},
 ): void {
   getSqlite()
     .prepare(
       "INSERT INTO contacts (id, display_name, notes, user_file, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
     )
-    .run(id, opts.displayName ?? `name-${id}`, opts.notes ?? null, opts.userFile ?? null, 100, 100);
+    .run(
+      id,
+      opts.displayName ?? `name-${id}`,
+      opts.notes ?? null,
+      opts.userFile ?? null,
+      100,
+      100,
+    );
 }
 
 function seedChannel(
@@ -34,15 +45,25 @@ function seedChannel(
     .prepare(
       "INSERT INTO contact_channels (id, contact_id, type, address, is_primary, created_at) VALUES (?, ?, ?, ?, 0, ?)",
     )
-    .run(id, contactId, opts.type ?? "slack", opts.address ?? `addr-${id}`, 100);
+    .run(
+      id,
+      contactId,
+      opts.type ?? "slack",
+      opts.address ?? `addr-${id}`,
+      100,
+    );
 }
 
-function contactRow(
-  id: string,
-): { display_name: string; notes: string | null; user_file: string | null } | null {
+function contactRow(id: string): {
+  display_name: string;
+  notes: string | null;
+  user_file: string | null;
+} | null {
   return (
     (getSqlite()
-      .prepare("SELECT display_name, notes, user_file FROM contacts WHERE id = ?")
+      .prepare(
+        "SELECT display_name, notes, user_file FROM contacts WHERE id = ?",
+      )
       .get(id) as
       | { display_name: string; notes: string | null; user_file: string | null }
       | undefined) ?? null
@@ -94,14 +115,19 @@ describe("contacts_mirror_merge_contact", () => {
     merge({ mergeContactId: "co-merge2" });
     expect(contactRow("co-keep")?.notes).toBe("only donor");
 
-    getSqlite().prepare("UPDATE contacts SET notes = NULL WHERE id = ?").run("co-keep");
+    getSqlite()
+      .prepare("UPDATE contacts SET notes = NULL WHERE id = ?")
+      .run("co-keep");
     seedContact("co-merge3", { notes: null });
     merge({ mergeContactId: "co-merge3" });
     expect(contactRow("co-keep")?.notes).toBeNull();
   });
 
   test("never clobbers the survivor's display name or user_file", () => {
-    seedContact("co-keep", { displayName: "Curated Name", userFile: "curated.md" });
+    seedContact("co-keep", {
+      displayName: "Curated Name",
+      userFile: "curated.md",
+    });
     seedContact("co-merge", { notes: "n" });
 
     merge({ keepDisplayName: "Gateway Name", resolvedUserFile: "gateway.md" });

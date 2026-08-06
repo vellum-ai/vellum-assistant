@@ -613,9 +613,15 @@ export function deserializeWizardState(
  * - It is not on the first step (nothing to resume)
  */
 export function isResumable(state: MigrationWizardState): boolean {
-  if (!state.direction) return false;
-  if (state.currentStep === "complete") return false;
-  if (state.currentStep === "select-direction") return false;
+  if (!state.direction) {
+    return false;
+  }
+  if (state.currentStep === "complete") {
+    return false;
+  }
+  if (state.currentStep === "select-direction") {
+    return false;
+  }
   return true;
 }
 

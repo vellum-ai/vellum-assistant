@@ -20,10 +20,6 @@ import { channelInjectors } from "../plugins/defaults/channel/injectors.js";
 import { documentsInjectors } from "../plugins/defaults/documents/injectors.js";
 import { registerDefaultPluginInjectors } from "../plugins/defaults/index.js";
 import { memoryInjectors } from "../plugins/defaults/memory/injectors.js";
-import {
-  memoryV3Injector,
-  memoryV3SpotlightInjector,
-} from "../plugins/defaults/memory/v3/injector.js";
 import { sessionInjectors } from "../plugins/defaults/session/injectors.js";
 import { turnContextInjectors } from "../plugins/defaults/turn-context/injectors.js";
 import { workspaceInjectors } from "../plugins/defaults/workspace/injectors.js";
@@ -35,9 +31,10 @@ import {
 import type { Injector } from "../plugins/types.js";
 
 // Every injector every default plugin contributes — the registry-independent
-// union, gathered straight from the plugins' exported arrays. Sorting this by
-// `order` must reproduce what `getRegisteredInjectors()` returns once the
-// defaults are registered.
+// union, gathered straight from the plugins' exported arrays (the memory
+// plugin's whole set, memory-v3 injectors included, comes through
+// `memory/injectors.ts`). Sorting this by `order` must reproduce what
+// `getRegisteredInjectors()` returns once the defaults are registered.
 const ALL_CONTRIBUTED = [
   ...turnContextInjectors,
   ...workspaceInjectors,
@@ -45,8 +42,6 @@ const ALL_CONTRIBUTED = [
   ...channelInjectors,
   ...sessionInjectors,
   ...memoryInjectors,
-  memoryV3Injector,
-  memoryV3SpotlightInjector,
 ];
 
 // The ordered id sequence the chain must produce, by ascending `order`. This

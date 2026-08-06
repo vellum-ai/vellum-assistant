@@ -28,7 +28,9 @@ export const moveSignalsToWorkspaceMigration: WorkspaceMigration = {
 
     mkdirSync(newSignalsDir, { recursive: true });
 
-    if (!existsSync(oldSignalsDir)) return;
+    if (!existsSync(oldSignalsDir)) {
+      return;
+    }
 
     // Move any pending signal files to the new location
     try {
@@ -55,7 +57,9 @@ export const moveSignalsToWorkspaceMigration: WorkspaceMigration = {
 
     mkdirSync(oldSignalsDir, { recursive: true });
 
-    if (!existsSync(newSignalsDir)) return;
+    if (!existsSync(newSignalsDir)) {
+      return;
+    }
 
     // Move signal files back to the root-level directory
     try {

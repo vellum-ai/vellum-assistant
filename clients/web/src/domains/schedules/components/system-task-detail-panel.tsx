@@ -3,16 +3,15 @@ import { Loader2, Play, Settings, X } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import { SCHEDULE_RUNS_PAGE_SIZE } from "@/domains/settings/api/schedules";
-import {
-  ModelProfileRow,
-  type ScheduleModelProfileCallSite,
-} from "@/domains/settings/components/model-profile-row";
+import { ModelProfileRow } from "@/domains/settings/components/model-profile-row";
 import { RecentRunsCard } from "@/domains/settings/components/recent-runs-card";
 import {
   consolidationSubtitle,
   flattenRunPages,
   formatTimestamp,
   heartbeatSubtitle,
+  isBookkeepingRun,
+  isExecutedRun,
   RETROSPECTIVE_SUBTITLE,
 } from "@/domains/settings/utils/schedule-formatters";
 import { toScheduleRun } from "@/domains/settings/utils/system-task-run-transforms";
@@ -27,11 +26,12 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import type { SystemTaskKind } from "@/domains/settings/types/schedules";
+import type { ResolvableCallSite } from "@/hooks/use-call-site-default-profile";
 
 // Each system task resolves its model from a dedicated LLM call site.
 const SYSTEM_TASK_PROFILE_CALL_SITES: Record<
   SystemTaskKind,
-  ScheduleModelProfileCallSite
+  ResolvableCallSite
 > = {
   heartbeat: "heartbeatAgent",
   consolidation: "memoryV2Consolidation",
@@ -118,9 +118,12 @@ export function SystemTaskDetailPanel({
     onRunNow = undefined;
   }
 
-  // Consolidation and retrospective are owned by Memory: no toggle of their
-  // own, paused when Memory is off. Retrospective additionally has no global
-  // schedule, so it hides Next run.
+  // Consolidation and retrospective are owned by Memory: no toggle in this
+  // panel, paused when Memory is off. Retrospective additionally has no global
+  // schedule (so it hides Next run) and its own persisted switch
+  // (`memory.retrospective.enabled`), which pauses it while Memory stays on.
+  // `available` is what tells the two pauses apart, and each pause sends the
+  // user to the control that actually unpauses it.
   const isMemoryManaged = kind !== "heartbeat";
   const isRetrospective = kind === "retrospective";
   const isMemoryPaused = isMemoryManaged && !enabled;
@@ -132,9 +135,13 @@ export function SystemTaskDetailPanel({
     : enabled
       ? "Enabled"
       : "Disabled";
-  const pausedNotice = isRetrospective
-    ? "Memory is off, so retrospectives are paused. Turn Memory back on to resume them."
-    : "Memory is off, so consolidation is paused. Turn Memory back on to resume consolidation.";
+  const isRetrospectiveSwitchedOff =
+    isRetrospective && retrospectiveConfig?.available === true;
+  const pausedNotice = isRetrospectiveSwitchedOff
+    ? "Retrospectives are turned off. Turn them back on under Memory in settings."
+    : isRetrospective
+      ? "Memory is off, so retrospectives are paused. Turn Memory back on to resume them."
+      : "Memory is off, so consolidation is paused. Turn Memory back on to resume consolidation.";
   const showMemorySettings =
     isMemoryManaged && enabled && canOpenMemorySettings;
 
@@ -163,9 +170,23 @@ export function SystemTaskDetailPanel({
     });
   const runs = flattenRunPages(
     data?.pages.map((page) => ({
-      runs: page.runs.map((run) => toScheduleRun(run, kind)),
+      runs: page.runs
+        .filter((run) => !isBookkeepingRun(run))
+        .map((run) => toScheduleRun(run, kind)),
     })),
   );
+
+  // The config endpoint reports lastRunAt from daemon-process state, which
+  // can lag the run history (e.g. right after a restart on older daemons).
+  // Fall back to the newest completed run so completed runs never show "—".
+  const newestCompletedRun = runs?.find(
+    (run) => isExecutedRun(run) && run.status !== "running",
+  );
+  const lastRunAtDisplay =
+    lastRunAt ??
+    newestCompletedRun?.finishedAt ??
+    newestCompletedRun?.startedAt ??
+    null;
 
   return (
     <div
@@ -241,7 +262,7 @@ export function SystemTaskDetailPanel({
             <div className="flex items-center justify-between gap-4">
               <span className="text-[var(--content-secondary)]">Last run</span>
               <span className="text-[var(--content-default)]">
-                {formatTimestamp(lastRunAt)}
+                {formatTimestamp(lastRunAtDisplay)}
               </span>
             </div>
           </div>
@@ -254,9 +275,13 @@ export function SystemTaskDetailPanel({
                   <Button
                     variant="outlined"
                     size="compact"
-                    onClick={() => navigate(`${routes.settings.developer}?tab=memory`)}
+                    onClick={() =>
+                      navigate(`${routes.settings.developer}?tab=memory`)
+                    }
                   >
-                    Turn on Memory
+                    {isRetrospectiveSwitchedOff
+                      ? "Open Memory settings"
+                      : "Turn on Memory"}
                   </Button>
                 ) : undefined
               }
@@ -282,7 +307,9 @@ export function SystemTaskDetailPanel({
             <Button
               variant="outlined"
               leftIcon={<Settings className="h-3.5 w-3.5" />}
-              onClick={() => navigate(`${routes.settings.developer}?tab=memory`)}
+              onClick={() =>
+                navigate(`${routes.settings.developer}?tab=memory`)
+              }
             >
               Memory settings
             </Button>

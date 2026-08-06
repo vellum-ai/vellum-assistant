@@ -127,14 +127,7 @@ export { RiskLevel } from "./types.js";
 // Workspace-local plugins resolve these via the boot-time shim, which
 // re-binds each from the assistant's globalThis-parked namespace so they
 // share module identity with the assistant's own singletons.
-export type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
-/**
- * @deprecated Renamed to {@link AssistantEventEnvelope}. Retained as a
- * compatibility alias so existing plugins that import `AssistantEvent` from
- * `@vellumai/plugin-api` (the SSE envelope a hub subscriber receives) keep
- * compiling. Prefer `AssistantEventEnvelope` in new plugin code.
- */
-export type { AssistantEventEnvelope as AssistantEvent } from "../runtime/assistant-event.js";
+export type { AssistantEvent, AssistantEventEnvelope } from "../api/index.js";
 export type {
   AssistantEventCallback,
   AssistantEventFilter,
@@ -161,7 +154,7 @@ export { getModelProfiles } from "./model-profiles.js";
 // hub without holding the general hub handle. Route/hook authors surfacing a UI
 // invalidation (e.g. `sync_changed`) import this. Delegates to the same
 // capability-restricted facade, so host-proxy control events stay rejected.
-export type { PublishEventOptions } from "./publish-event.js";
+export type { AssistantEventPublishOptions } from "../runtime/assistant-event-publish-options.js";
 export { publishEvent } from "./publish-event.js";
 // Check whether a model or profile can process image input. Accepts a concrete
 // model id, a profile key, or a `ModelProfileInfo`; a bare string is resolved
@@ -180,6 +173,13 @@ export {
   CredentialResolutionError,
   resolveCredential,
 } from "./resolve-credential.js";
+// Resolve the public URL a third party should deliver to for one of the
+// plugin's own ingress routes. Which URL is correct depends on how the
+// assistant is reachable (a managed platform callback route, or a configured
+// public ingress), and `ingress.publicBaseUrl` alone does not decide it. Uses
+// the same resolution as `webhooks register`, and registers the callback route
+// on the managed branches. The plugin defaults to the one in context.
+export { resolveWebhookUrl, type WebhookUrlOptions } from "./webhook-url.js";
 // Resolve a provider for a call site (optionally overriding the profile) so a
 // plugin can run inference through the workspace's configured profiles and
 // credentials — managed-proxy or BYOK — without supplying its own API key.
@@ -245,14 +245,47 @@ export { getWorkspaceDir } from "../util/platform.js";
 // to embed CLI command capabilities without importing the CLI action graph.
 // Pure data — iterate the fields directly.
 export { CLI_COMMAND_HELP } from "../cli/index.help.js";
-// Embeddings — self-contained operations on the host's shared embedding /
+// Embeddings: self-contained operations on the host's shared embedding /
 // vector-store subsystem. Host-resolved: each reads the live workspace config
 // internally, so plugins hold no config. Async because the facade loads the
 // embed graph lazily on first call.
+//
+// Two families:
+//   • Compute-only (`embed`, `generateSparseEmbedding`): run the workspace
+//     backend and return raw vectors, with no persistence.
+//   • Index (`indexDocument` / `queryIndex` / `getDocument` / `removeDocument`):
+//     a plugin-owned semantic namespace (hybrid dense+sparse search),
+//     automatically scoped to the calling plugin, that never participates in
+//     agent recall. It is a derived cache of the plugin's own source data.
+//   • `embedAndUpsert` remains the legacy write-only host-recall path.
+export type {
+  EmbedResult,
+  IndexDocumentOptions,
+  IndexDocumentResult,
+  IndexedDocument,
+  IndexHit,
+  QueryIndexOptions,
+} from "../persistence/embeddings/plugin-facade.js";
 export {
+  embed,
   embedAndUpsert,
+  generateSparseEmbedding,
+  getDocument,
+  indexDocument,
+  queryIndex,
+  removeDocument,
   selectedBackendSupportsMultimodal,
 } from "../persistence/embeddings/plugin-facade.js";
+// Embedding input/output value shapes shared by the compute and index APIs.
+export type {
+  AudioEmbeddingInput,
+  EmbeddingInput,
+  ImageEmbeddingInput,
+  MultimodalEmbeddingInput,
+  SparseEmbedding,
+  TextEmbeddingInput,
+  VideoEmbeddingInput,
+} from "../persistence/embeddings/embedding-types.js";
 // Graph-node orphan sweep — deletes `graph_node` Qdrant points whose backing
 // `memory_graph_nodes` row is gone (cacheless points the cache-driven sweep
 // cannot see). The memory plugin's `sweep_orphaned_graph_node_points` job
@@ -291,6 +324,7 @@ export {
   deleteConversation,
   getConversation,
   getConversationDirPath,
+  getConversationProcessingStartedAt,
   getMessages,
   hasLexicalTokens,
   isConversationProcessing,

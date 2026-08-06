@@ -1,9 +1,9 @@
-
 import { type MutableRefObject, useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
   cancelConversationQueries,
+  findConversation,
   invalidateConversationQueries,
   patchConversation,
   restoreConversationCaches,
@@ -11,6 +11,8 @@ import {
   updateAllConversationCaches,
   type ConversationCacheSnapshot,
 } from "@/utils/conversation-cache";
+import { adjustUnreadCountCache } from "@/utils/conversation-cache-mutations";
+import { contributesToUnreadCount } from "@/utils/conversation-predicates";
 import { executeBulkWithFallback } from "@/utils/bulk-with-fallback";
 import {
   conversationsArchiveBulkPost,
@@ -30,6 +32,7 @@ import {
   findNextConversationId,
   resolveUnpinGroupId,
 } from "@/domains/chat/hooks/conversation-action-utils";
+import { useMarkConversationSeenMutation } from "@/domains/chat/hooks/use-mark-conversation-seen-mutation";
 
 // ---------------------------------------------------------------------------
 // Mutation variable types
@@ -37,7 +40,6 @@ import {
 
 type ArchiveVars = { assistantId: string; conversationId: string };
 type UnarchiveVars = { assistantId: string; conversationId: string };
-type MarkReadVars = { assistantId: string; conversationId: string };
 type MarkUnreadVars = { assistantId: string; conversationId: string };
 type MoveToGroupVars = {
   assistantId: string;
@@ -50,6 +52,18 @@ type MoveToGroupVars = {
 type ReorderVars = { assistantId: string; orderedIds: string[] };
 
 type MutationContext = { snapshot: ConversationCacheSnapshot };
+
+/**
+ * Context for the mark-unread mutation, which additionally applies an
+ * optimistic delta to the server-side unread-count cache. `onError` reverts
+ * by applying the inverse delta (never a snapshot restore, so a concurrent
+ * mutation's adjustment is not clobbered); `onSettled`'s
+ * `invalidateConversationQueries` refetches the authoritative count.
+ *
+ * The mark-seen counterpart lives in `useMarkConversationSeenMutation`,
+ * which two entry points share.
+ */
+type MarkUnreadContext = MutationContext & { unreadCountDelta: number };
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -103,7 +117,12 @@ export function useConversationActions({
   //   onSettled → invalidateQueries (refetch from server)
   // -------------------------------------------------------------------------
 
-  const archiveMutation = useMutation<void, Error, ArchiveVars, MutationContext>({
+  const archiveMutation = useMutation<
+    void,
+    Error,
+    ArchiveVars,
+    MutationContext
+  >({
     mutationFn: async ({ assistantId: aid, conversationId }) => {
       await conversationsByIdArchivePost({
         path: { assistant_id: aid, id: conversationId },
@@ -113,11 +132,15 @@ export function useConversationActions({
     onMutate: async ({ assistantId: aid, conversationId }) => {
       await cancelConversationQueries(queryClient, aid);
       const snapshot = snapshotConversationCaches(queryClient, aid);
-      patchConversation(queryClient, aid, conversationId, { archivedAt: Date.now() });
+      patchConversation(queryClient, aid, conversationId, {
+        archivedAt: Date.now(),
+      });
       return { snapshot };
     },
     onError: (err, _vars, context) => {
-      if (context?.snapshot) restoreConversationCaches(queryClient, context.snapshot);
+      if (context?.snapshot) {
+        restoreConversationCaches(queryClient, context.snapshot);
+      }
       captureError(err, { context: "archiveConversation" });
     },
     onSettled: (_data, _err, { assistantId: aid }) => {
@@ -125,7 +148,12 @@ export function useConversationActions({
     },
   });
 
-  const unarchiveMutation = useMutation<void, Error, UnarchiveVars, MutationContext>({
+  const unarchiveMutation = useMutation<
+    void,
+    Error,
+    UnarchiveVars,
+    MutationContext
+  >({
     mutationFn: async ({ assistantId: aid, conversationId }) => {
       await conversationsByIdUnarchivePost({
         path: { assistant_id: aid, id: conversationId },
@@ -135,11 +163,15 @@ export function useConversationActions({
     onMutate: async ({ assistantId: aid, conversationId }) => {
       await cancelConversationQueries(queryClient, aid);
       const snapshot = snapshotConversationCaches(queryClient, aid);
-      patchConversation(queryClient, aid, conversationId, { archivedAt: undefined });
+      patchConversation(queryClient, aid, conversationId, {
+        archivedAt: undefined,
+      });
       return { snapshot };
     },
     onError: (err, _vars, context) => {
-      if (context?.snapshot) restoreConversationCaches(queryClient, context.snapshot);
+      if (context?.snapshot) {
+        restoreConversationCaches(queryClient, context.snapshot);
+      }
       captureError(err, { context: "unarchiveConversation" });
     },
     onSettled: (_data, _err, { assistantId: aid }) => {
@@ -147,30 +179,16 @@ export function useConversationActions({
     },
   });
 
-  const markReadMutation = useMutation<void, Error, MarkReadVars, MutationContext>({
-    mutationFn: async ({ assistantId: aid, conversationId }) => {
-      await conversationsSeenPost({
-        path: { assistant_id: aid },
-        body: { conversationId },
-        throwOnError: true,
-      });
-    },
-    onMutate: async ({ assistantId: aid, conversationId }) => {
-      await cancelConversationQueries(queryClient, aid);
-      const snapshot = snapshotConversationCaches(queryClient, aid);
-      patchConversation(queryClient, aid, conversationId, { hasUnseenLatestAssistantMessage: false });
-      return { snapshot };
-    },
-    onError: (err, _vars, context) => {
-      if (context?.snapshot) restoreConversationCaches(queryClient, context.snapshot);
-      captureError(err, { context: "markConversationRead" });
-    },
-    onSettled: (_data, _err, { assistantId: aid }) => {
-      void invalidateConversationQueries(queryClient, aid);
-    },
-  });
+  // Shared with the mark-seen-on-open effect so both entry points produce
+  // identical cache effects.
+  const markReadMutation = useMarkConversationSeenMutation();
 
-  const markUnreadMutation = useMutation<void, Error, MarkUnreadVars, MutationContext>({
+  const markUnreadMutation = useMutation<
+    void,
+    Error,
+    MarkUnreadVars,
+    MarkUnreadContext
+  >({
     mutationFn: async ({ assistantId: aid, conversationId }) => {
       await conversationsUnreadPost({
         path: { assistant_id: aid },
@@ -181,11 +199,33 @@ export function useConversationActions({
     onMutate: async ({ assistantId: aid, conversationId }) => {
       await cancelConversationQueries(queryClient, aid);
       const snapshot = snapshotConversationCaches(queryClient, aid);
-      patchConversation(queryClient, aid, conversationId, { hasUnseenLatestAssistantMessage: true });
-      return { snapshot };
+      // Increment the unread count only when flipping this row to unseen
+      // makes it start contributing: it must be eligible for the badge
+      // (foreground, unarchived) and not already counted as unseen.
+      const row = findConversation(queryClient, aid, conversationId);
+      const startsContributing =
+        row !== undefined &&
+        !row.hasUnseenLatestAssistantMessage &&
+        contributesToUnreadCount({
+          ...row,
+          hasUnseenLatestAssistantMessage: true,
+        });
+      const unreadCountDelta = startsContributing ? 1 : 0;
+      if (unreadCountDelta !== 0) {
+        adjustUnreadCountCache(queryClient, aid, unreadCountDelta);
+      }
+      patchConversation(queryClient, aid, conversationId, {
+        hasUnseenLatestAssistantMessage: true,
+      });
+      return { snapshot, unreadCountDelta };
     },
-    onError: (err, _vars, context) => {
-      if (context?.snapshot) restoreConversationCaches(queryClient, context.snapshot);
+    onError: (err, { assistantId: aid }, context) => {
+      if (context?.snapshot) {
+        restoreConversationCaches(queryClient, context.snapshot);
+      }
+      if (context && context.unreadCountDelta !== 0) {
+        adjustUnreadCountCache(queryClient, aid, -context.unreadCountDelta);
+      }
       captureError(err, { context: "markConversationUnread" });
     },
     onSettled: (_data, _err, { assistantId: aid }) => {
@@ -193,8 +233,18 @@ export function useConversationActions({
     },
   });
 
-  const moveToGroupMutation = useMutation<void, Error, MoveToGroupVars, MutationContext>({
-    mutationFn: async ({ assistantId: aid, conversationId, groupId, isPinned }) => {
+  const moveToGroupMutation = useMutation<
+    void,
+    Error,
+    MoveToGroupVars,
+    MutationContext
+  >({
+    mutationFn: async ({
+      assistantId: aid,
+      conversationId,
+      groupId,
+      isPinned,
+    }) => {
       await conversationsReorderPost({
         path: { assistant_id: aid },
         body: {
@@ -203,10 +253,18 @@ export function useConversationActions({
         throwOnError: true,
       });
     },
-    onMutate: async ({ assistantId: aid, conversationId, groupId, isPinned }) => {
+    onMutate: async ({
+      assistantId: aid,
+      conversationId,
+      groupId,
+      isPinned,
+    }) => {
       await cancelConversationQueries(queryClient, aid);
       const snapshot = snapshotConversationCaches(queryClient, aid);
-      patchConversation(queryClient, aid, conversationId, { isPinned, groupId });
+      patchConversation(queryClient, aid, conversationId, {
+        isPinned,
+        groupId,
+      });
       return { snapshot };
     },
     onSuccess: (_data, { conversationId, isPinned }) => {
@@ -215,7 +273,9 @@ export function useConversationActions({
       }
     },
     onError: (err, { conversationId, isPinned }, context) => {
-      if (context?.snapshot) restoreConversationCaches(queryClient, context.snapshot);
+      if (context?.snapshot) {
+        restoreConversationCaches(queryClient, context.snapshot);
+      }
       if (isPinned) {
         prePinGroupIdsRef.current.delete(conversationId);
       }
@@ -226,7 +286,12 @@ export function useConversationActions({
     },
   });
 
-  const reorderMutation = useMutation<void, Error, ReorderVars, MutationContext>({
+  const reorderMutation = useMutation<
+    void,
+    Error,
+    ReorderVars,
+    MutationContext
+  >({
     mutationFn: async ({ assistantId: aid, orderedIds }) => {
       await conversationsReorderPost({
         path: { assistant_id: aid },
@@ -254,7 +319,9 @@ export function useConversationActions({
       return { snapshot };
     },
     onError: (err, _vars, context) => {
-      if (context?.snapshot) restoreConversationCaches(queryClient, context.snapshot);
+      if (context?.snapshot) {
+        restoreConversationCaches(queryClient, context.snapshot);
+      }
       captureError(err, { context: "reorderConversations" });
     },
     onSettled: (_data, _err, { assistantId: aid }) => {
@@ -268,12 +335,17 @@ export function useConversationActions({
 
   const handleArchiveConversation = useCallback(
     (conversation: Conversation) => {
-      if (!assistantId) return;
+      if (!assistantId) {
+        return;
+      }
       haptic.medium();
 
       const wasActive = conversation.conversationId === activeConversationId;
       if (wasActive) {
-        const nextKey = findNextConversationId(conversations, conversation.conversationId);
+        const nextKey = findNextConversationId(
+          conversations,
+          conversation.conversationId,
+        );
         if (nextKey) {
           switchConversation(nextKey);
         } else {
@@ -281,40 +353,74 @@ export function useConversationActions({
         }
       }
 
-      archiveMutation.mutate({ assistantId, conversationId: conversation.conversationId });
+      archiveMutation.mutate({
+        assistantId,
+        conversationId: conversation.conversationId,
+      });
     },
-    [activeConversationId, assistantId, conversations, switchConversation, startNewConversation, archiveMutation],
+    [
+      activeConversationId,
+      assistantId,
+      conversations,
+      switchConversation,
+      startNewConversation,
+      archiveMutation,
+    ],
   );
 
   const handleUnarchiveConversation = useCallback(
     (conversation: Conversation) => {
-      if (!assistantId) return;
-      unarchiveMutation.mutate({ assistantId, conversationId: conversation.conversationId });
+      if (!assistantId) {
+        return;
+      }
+      unarchiveMutation.mutate({
+        assistantId,
+        conversationId: conversation.conversationId,
+      });
     },
     [assistantId, unarchiveMutation],
   );
 
   const handleMarkConversationUnread = useCallback(
     (conversation: Conversation) => {
-      if (!assistantId) return;
-      if (conversation.hasUnseenLatestAssistantMessage || !conversation.latestAssistantMessageAt) return;
-      markUnreadMutation.mutate({ assistantId, conversationId: conversation.conversationId });
+      if (!assistantId) {
+        return;
+      }
+      if (
+        conversation.hasUnseenLatestAssistantMessage ||
+        !conversation.latestAssistantMessageAt
+      ) {
+        return;
+      }
+      markUnreadMutation.mutate({
+        assistantId,
+        conversationId: conversation.conversationId,
+      });
     },
     [assistantId, markUnreadMutation],
   );
 
   const handleMarkConversationRead = useCallback(
     (conversation: Conversation) => {
-      if (!assistantId) return;
-      if (!conversation.hasUnseenLatestAssistantMessage) return;
-      markReadMutation.mutate({ assistantId, conversationId: conversation.conversationId });
+      if (!assistantId) {
+        return;
+      }
+      if (!conversation.hasUnseenLatestAssistantMessage) {
+        return;
+      }
+      markReadMutation.mutate({
+        assistantId,
+        conversationId: conversation.conversationId,
+      });
     },
     [assistantId, markReadMutation],
   );
 
   const handleMoveToGroup = useCallback(
     (conversation: Conversation, groupId: string) => {
-      if (!assistantId) return;
+      if (!assistantId) {
+        return;
+      }
       haptic.light();
 
       const previousIsPinned = conversation.isPinned ?? false;
@@ -322,7 +428,10 @@ export function useConversationActions({
       const isPinned = groupId === "system:pinned";
 
       if (isPinned) {
-        prePinGroupIdsRef.current.set(conversation.conversationId, conversation.groupId);
+        prePinGroupIdsRef.current.set(
+          conversation.conversationId,
+          conversation.groupId,
+        );
       }
 
       moveToGroupMutation.mutate({
@@ -367,7 +476,9 @@ export function useConversationActions({
    */
   const handleReorderConversations = useCallback(
     (ordered: Conversation[]) => {
-      if (!assistantId || ordered.length < 2) return;
+      if (!assistantId || ordered.length < 2) {
+        return;
+      }
       haptic.light();
       reorderMutation.mutate({
         assistantId,
@@ -379,11 +490,12 @@ export function useConversationActions({
 
   const handleRenameConversation = useCallback(
     (conversation: Conversation) => {
-      if (!assistantId) return;
-      useRenameRequestStore.getState().requestRename(
-        conversation.conversationId,
-        conversation.title ?? "",
-      );
+      if (!assistantId) {
+        return;
+      }
+      useRenameRequestStore
+        .getState()
+        .requestRename(conversation.conversationId, conversation.title ?? "");
     },
     [assistantId],
   );
@@ -395,13 +507,25 @@ export function useConversationActions({
 
   const handleMarkAllReadInGroup = useCallback(
     async (groupConversations: Conversation[]) => {
-      if (!assistantId) return;
+      if (!assistantId) {
+        return;
+      }
       const unread = groupConversations.filter(
         (c) => c.hasUnseenLatestAssistantMessage,
       );
-      if (unread.length === 0) return;
+      if (unread.length === 0) {
+        return;
+      }
 
       await cancelConversationQueries(queryClient, assistantId);
+
+      // One optimistic decrement for the rows that count toward the unread
+      // badge (foreground, unarchived); rows that fail roll their share
+      // back one at a time in `rollbackItem`.
+      const contributingCount = unread.filter(contributesToUnreadCount).length;
+      if (contributingCount > 0) {
+        adjustUnreadCountCache(queryClient, assistantId, -contributingCount);
+      }
 
       for (const c of unread) {
         patchConversation(queryClient, assistantId, c.conversationId, {
@@ -422,10 +546,14 @@ export function useConversationActions({
             body: { conversationId: c.conversationId },
             throwOnError: true,
           }),
-        rollbackItem: (c) =>
+        rollbackItem: (c) => {
           patchConversation(queryClient, assistantId, c.conversationId, {
             hasUnseenLatestAssistantMessage: true,
-          }),
+          });
+          if (contributesToUnreadCount(c)) {
+            adjustUnreadCountCache(queryClient, assistantId, 1);
+          }
+        },
         context: "markAllReadInGroup",
       });
 
@@ -436,8 +564,12 @@ export function useConversationActions({
 
   const handleArchiveAllInGroup = useCallback(
     async (_groupName: string, groupConversations: Conversation[]) => {
-      if (!assistantId) return;
-      if (groupConversations.length === 0) return;
+      if (!assistantId) {
+        return;
+      }
+      if (groupConversations.length === 0) {
+        return;
+      }
 
       await cancelConversationQueries(queryClient, assistantId);
 

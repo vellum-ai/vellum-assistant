@@ -1,18 +1,17 @@
-
 import {
-    ArrowRight,
-    Check,
-    ChevronLeft,
-    ChevronRight,
-    Pencil,
-    X,
+  ArrowRight,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  X,
 } from "lucide-react";
 import {
-    type KeyboardEvent as ReactKeyboardEvent,
-    useCallback,
-    useEffect,
-    useRef,
-    useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
 } from "react";
 
 import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
@@ -83,9 +82,7 @@ export function QuestionPromptBody({
   // malformed payloads. Warn so QA notices, but still render something.
   useEffect(() => {
     if (entries.length === 0) {
-      console.warn(
-        "[QuestionPromptCard] received zero entries; expected ≥1",
-      );
+      console.warn("[QuestionPromptCard] received zero entries; expected ≥1");
     }
   }, [entries.length]);
 
@@ -93,13 +90,15 @@ export function QuestionPromptBody({
   const [draftResponses, setDraftResponses] = useState<
     Record<string, QuestionResponseEntry>
   >({});
-  const [freeTextDraft, setFreeTextDraft] = useState<Record<string, string>>({});
+  const [freeTextDraft, setFreeTextDraft] = useState<Record<string, string>>(
+    {},
+  );
   const inputRef = useRef<HTMLInputElement>(null);
 
   const isBatched = entries.length > 1;
   const currentEntry = entries[currentIndex];
   const currentFreeText = currentEntry
-    ? freeTextDraft[currentEntry.id] ?? ""
+    ? (freeTextDraft[currentEntry.id] ?? "")
     : "";
   const hasFreeText = currentFreeText.trim().length > 0;
 
@@ -133,7 +132,9 @@ export function QuestionPromptBody({
   );
 
   const handleOptionClick = (optionId: string) => {
-    if (!currentEntry) return;
+    if (!currentEntry) {
+      return;
+    }
     recordResponse(currentEntry, {
       questionId: currentEntry.id,
       kind: "option",
@@ -142,9 +143,13 @@ export function QuestionPromptBody({
   };
 
   const handleSubmitFreeText = useCallback(() => {
-    if (!currentEntry) return;
+    if (!currentEntry) {
+      return;
+    }
     const trimmed = currentFreeText.trim();
-    if (trimmed.length === 0 || isSubmitting) return;
+    if (trimmed.length === 0 || isSubmitting) {
+      return;
+    }
     recordResponse(currentEntry, {
       questionId: currentEntry.id,
       kind: "free_text",
@@ -153,11 +158,15 @@ export function QuestionPromptBody({
   }, [currentEntry, currentFreeText, isSubmitting, recordResponse]);
 
   const handleSkip = useCallback(() => {
-    if (!currentEntry || isSubmitting) return;
+    if (!currentEntry || isSubmitting) {
+      return;
+    }
     // Skip only applies when there's no in-progress free text — otherwise
     // the affordance is replaced by the Send button. We still gate it here
     // so the hotkey path can't sneak a skip past half-typed text.
-    if (hasFreeText) return;
+    if (hasFreeText) {
+      return;
+    }
     recordResponse(currentEntry, {
       questionId: currentEntry.id,
       kind: "skip",
@@ -170,9 +179,13 @@ export function QuestionPromptBody({
 
   const handleSelectByIndex = useCallback(
     (index: number) => {
-      if (!currentEntry) return;
+      if (!currentEntry) {
+        return;
+      }
       const option = currentEntry.options[index];
-      if (!option) return;
+      if (!option) {
+        return;
+      }
       recordResponse(currentEntry, {
         questionId: currentEntry.id,
         kind: "option",
@@ -186,12 +199,16 @@ export function QuestionPromptBody({
   const canGoNext = currentIndex < entries.length - 1;
 
   const handlePrev = useCallback(() => {
-    if (!canGoPrev) return;
+    if (!canGoPrev) {
+      return;
+    }
     setCurrentIndex((i) => i - 1);
   }, [canGoPrev]);
 
   const handleNext = useCallback(() => {
-    if (!canGoNext) return;
+    if (!canGoNext) {
+      return;
+    }
     setCurrentIndex((i) => i + 1);
   }, [canGoNext]);
 
@@ -213,9 +230,7 @@ export function QuestionPromptBody({
     },
   );
 
-  const handleInputKeyDown = (
-    event: ReactKeyboardEvent<HTMLInputElement>,
-  ) => {
+  const handleInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter") {
       event.preventDefault();
       handleSubmitFreeText();
@@ -252,7 +267,9 @@ export function QuestionPromptBody({
   };
 
   const handleFreeTextChange = (value: string) => {
-    if (!currentEntry) return;
+    if (!currentEntry) {
+      return;
+    }
     setFreeTextDraft((prev) => ({ ...prev, [currentEntry.id]: value }));
   };
 
@@ -414,7 +431,6 @@ export function QuestionPromptBody({
           </Typography>
         )}
       </div>
-
     </>
   );
 }

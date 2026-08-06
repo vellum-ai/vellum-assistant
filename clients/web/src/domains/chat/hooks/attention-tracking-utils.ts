@@ -25,10 +25,14 @@ export function decideGraduationDispatches(
   graduatingKeys: readonly string[],
   pendingKeys: ReadonlySet<string> | null,
 ): GraduationAction[] {
-  if (pendingKeys === null) return [];
+  if (pendingKeys === null) {
+    return [];
+  }
   const actions: GraduationAction[] = [];
   for (const key of graduatingKeys) {
-    if (pendingKeys.has(key)) actions.push({ type: "ADD_ATTENTION_KEY", key });
+    if (pendingKeys.has(key)) {
+      actions.push({ type: "ADD_ATTENTION_KEY", key });
+    }
     actions.push({ type: "REMOVE_PROCESSING_KEY", key });
   }
   return actions;

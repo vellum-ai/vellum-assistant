@@ -123,7 +123,9 @@ async function deliveryForChannel(
   channel: Pick<ContactChannel, "type" | "address" | "externalChatId">,
 ): Promise<GuardianDelivery | undefined> {
   const guardians = await getGuardianDelivery({ channelTypes: [channel.type] });
-  if (!guardians) return undefined;
+  if (!guardians) {
+    return undefined;
+  }
   return guardians.find(
     (g) =>
       g.channelType === channel.type &&

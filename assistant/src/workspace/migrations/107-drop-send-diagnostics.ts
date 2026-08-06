@@ -18,18 +18,24 @@ export const dropSendDiagnosticsMigration: WorkspaceMigration = {
     "Drop sendDiagnostics; preserve an explicit opt-out as legacyDiagnosticsOptOut (crash reporting is gated by platform share_diagnostics consent)",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return; // Malformed config — skip
     }
 
-    if (!("sendDiagnostics" in config)) return;
+    if (!("sendDiagnostics" in config)) {
+      return;
+    }
 
     // An explicit opt-out is preserved as a fail-closed marker; any non-false
     // value carries no opt-out intent.

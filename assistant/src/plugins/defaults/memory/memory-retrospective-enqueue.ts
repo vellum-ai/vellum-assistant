@@ -3,11 +3,20 @@
 // ---------------------------------------------------------------------------
 //
 // Enqueue a `memory_retrospective` job for the given conversation. Gates on:
+//   - `memory.enabled` (the whole memory system) and
+//     `memory.retrospective.enabled` (this pass alone).
 //   - Source conversation isn't a memory-retrospective conversation itself
 //     (recursion guard — we never run a retrospective over reflective
 //     musings from the retrospective agent's own writes).
 //   - Source isn't a `scheduled` thread or a memory-consolidation background
 //     (low yield — see `isLowYieldRetrospectiveSource`).
+//   - The unprocessed tail contains user activity, when
+//     `memory.retrospective.requireUserActivity` is on. Assistant-only
+//     stretches (proactive sends composed by turns running elsewhere) carry
+//     no user turn, so their window anchor is undecidable and their content
+//     is a recap of work captured at its source; the gate defers them until
+//     real user activity arrives. Living here, every trigger kind funnels
+//     through one check.
 //
 // All trigger types funnel through `upsertMemoryRetrospectiveJob` which
 // coalesces rapid enqueues into a single pending row per conversation.
@@ -23,10 +32,12 @@
 // hooks ran (crash / IPC drop) and the conversation then went idle. See
 // `memory-retrospective-sweep.ts`.
 
+import { getConfig } from "../../../config/loader.js";
 import {
   getConversation,
   getConversationSource,
 } from "../../../persistence/conversation-crud.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../../persistence/conversation-types.js";
 import {
   isMemoryEnabled,
   upsertMemoryRetrospectiveJob,
@@ -34,8 +45,9 @@ import {
 import { type TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../../../runtime/capabilities.js";
 import { getLogger } from "./logging.js";
+import { hasQualifyingUserMessageAfter } from "./memory-retrospective-accounting.js";
 import { isMemoryRetrospectiveSource } from "./memory-retrospective-constants.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./v3/substrate/constants.js";
+import { getRetrospectiveState } from "./memory-retrospective-state.js";
 
 const log = getLogger("memory-retrospective-enqueue");
 
@@ -47,14 +59,27 @@ export type MemoryRetrospectiveTrigger =
 
 const COMPACTION_DEBOUNCE_MS = 500;
 
+/**
+ * Returns true when a job row was upserted, false when a gate skipped the
+ * enqueue (or the upsert failed). The sweep counts only true returns toward
+ * its per-pass cap.
+ */
 export function enqueueMemoryRetrospectiveIfEnabled(args: {
   conversationId: string;
   trigger: MemoryRetrospectiveTrigger;
-}): void {
+}): boolean {
   const { conversationId, trigger } = args;
 
   if (!isMemoryEnabled()) {
-    return;
+    return false;
+  }
+
+  if (!isRetrospectiveEnabled()) {
+    log.debug(
+      { conversationId, trigger },
+      "Skipping memory-retrospective enqueue: memory.retrospective.enabled is false",
+    );
+    return false;
   }
 
   if (isMemoryRetrospectiveConversation(conversationId)) {
@@ -62,7 +87,7 @@ export function enqueueMemoryRetrospectiveIfEnabled(args: {
       { conversationId, trigger },
       "Skipping memory-retrospective enqueue: source is a memory-retrospective conversation",
     );
-    return;
+    return false;
   }
 
   if (isLowYieldRetrospectiveSource(conversationId)) {
@@ -70,7 +95,11 @@ export function enqueueMemoryRetrospectiveIfEnabled(args: {
       { conversationId, trigger },
       "Skipping memory-retrospective enqueue: scheduled or consolidation source",
     );
-    return;
+    return false;
+  }
+
+  if (!passesUserActivityGate(conversationId, trigger)) {
+    return false;
   }
 
   const runAfter =
@@ -83,6 +112,65 @@ export function enqueueMemoryRetrospectiveIfEnabled(args: {
       { err, conversationId, trigger },
       "Failed to upsert memory-retrospective job",
     );
+    return false;
+  }
+  return true;
+}
+
+/**
+ * The `memory.retrospective.enabled` kill switch. Deliberately fails CLOSED,
+ * unlike the heuristic gates around it: this flag exists to stop a
+ * fork-driven write burst from locking the DB, so an unreadable config must
+ * not resurrect the very work an operator turned off. A read that throws is
+ * logged rather than swallowed silently.
+ */
+function isRetrospectiveEnabled(): boolean {
+  try {
+    return getConfig().memory.retrospective.enabled;
+  } catch (err) {
+    log.warn(
+      { err },
+      "Could not read memory.retrospective.enabled; treating retrospectives as disabled",
+    );
+    return false;
+  }
+}
+
+/**
+ * The `memory.retrospective.requireUserActivity` gate: pass when the config
+ * is off or the unprocessed tail (everything after the conversation's
+ * `lastProcessedMessageId`) contains at least one user message carrying
+ * non-tool_result content. A gate that cannot be evaluated (config or DB
+ * unavailable) passes — an unevaluable gate must not silence retrospectives.
+ */
+function passesUserActivityGate(
+  conversationId: string,
+  trigger: MemoryRetrospectiveTrigger,
+): boolean {
+  try {
+    if (!getConfig().memory.retrospective.requireUserActivity) {
+      return true;
+    }
+    const state = getRetrospectiveState(conversationId);
+    if (
+      hasQualifyingUserMessageAfter(
+        conversationId,
+        state?.lastProcessedMessageId ?? null,
+      )
+    ) {
+      return true;
+    }
+    log.debug(
+      { conversationId, trigger },
+      "Skipping memory-retrospective enqueue: no user activity in the unprocessed tail",
+    );
+    return false;
+  } catch (err) {
+    log.warn(
+      { err, conversationId, trigger },
+      "User-activity gate check failed; enqueueing anyway",
+    );
+    return true;
   }
 }
 
@@ -107,7 +195,9 @@ export function isMemoryRetrospectiveConversation(
  */
 function isLowYieldRetrospectiveSource(conversationId: string): boolean {
   const conversation = getConversation(conversationId);
-  if (!conversation) return false;
+  if (!conversation) {
+    return false;
+  }
   return (
     conversation.conversationType === "scheduled" ||
     conversation.source === MEMORY_V2_CONSOLIDATION_SOURCE

@@ -97,7 +97,7 @@ describe("Runtime attachment metadata", () => {
     );
 
     // Upload and link an attachment using "self" as the assistantId
-    const stored = uploadAttachment("chart.png", "image/png", "iVBORw==");
+    const stored = await uploadAttachment("chart.png", "image/png", "iVBORw==");
     linkAttachmentToMessage(assistantMsg.id, stored.id, 0);
 
     const res = await fetch(
@@ -162,7 +162,7 @@ describe("Runtime attachment metadata", () => {
   });
 
   test("GET /attachments/:id returns attachment with payload", async () => {
-    const stored = uploadAttachment(
+    const stored = await uploadAttachment(
       "report.pdf",
       "application/pdf",
       "JVBERA==",
@@ -191,7 +191,11 @@ describe("Runtime attachment metadata", () => {
   });
 
   test('GET /attachments/:id returns attachment stored under "self"', async () => {
-    const stored = uploadAttachment("shared.txt", "text/plain", "c2hhcmVk");
+    const stored = await uploadAttachment(
+      "shared.txt",
+      "text/plain",
+      "c2hhcmVk",
+    );
 
     const res = await fetch(
       `http://127.0.0.1:${port}/v1/attachments/${stored.id}`,
@@ -303,12 +307,16 @@ describe("WhatsApp channel ingress attachment resolution", () => {
   test("inbound handler accepts request with valid gateway-uploaded attachment IDs", async () => {
     // Simulate what the gateway does: upload attachments then forward the
     // inbound event with attachmentIds. The handler must resolve them.
-    const img = uploadAttachment(
+    const img = await uploadAttachment(
       "whatsapp-photo.jpg",
       "image/jpeg",
       "/9j/4AAQ",
     );
-    const doc = uploadAttachment("receipt.pdf", "application/pdf", "JVBERi0x");
+    const doc = await uploadAttachment(
+      "receipt.pdf",
+      "application/pdf",
+      "JVBERi0x",
+    );
 
     const res = await fetch(
       `http://127.0.0.1:${ingressPort}/v1/channels/inbound`,
@@ -329,7 +337,7 @@ describe("WhatsApp channel ingress attachment resolution", () => {
   test("inbound handler rejects request when some attachment IDs are missing", async () => {
     // When the gateway fails to upload one attachment, the handler detects
     // the missing ID and returns a 400.
-    const valid = uploadAttachment("ok.jpg", "image/jpeg", "base64ok");
+    const valid = await uploadAttachment("ok.jpg", "image/jpeg", "base64ok");
 
     const res = await fetch(
       `http://127.0.0.1:${ingressPort}/v1/channels/inbound`,
@@ -355,7 +363,7 @@ describe("WhatsApp channel ingress attachment resolution", () => {
 
   test("inbound handler accepts attachment-only message with no text content", async () => {
     // WhatsApp allows sending images/documents without caption text.
-    const img = uploadAttachment("photo.jpg", "image/jpeg", "/9j/4AAQ");
+    const img = await uploadAttachment("photo.jpg", "image/jpeg", "/9j/4AAQ");
 
     const res = await fetch(
       `http://127.0.0.1:${ingressPort}/v1/channels/inbound`,

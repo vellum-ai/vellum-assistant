@@ -28,7 +28,9 @@ export const seedMainAgentOpusCallsiteMigration: WorkspaceMigration = {
   description: "Seed callSites.mainAgent to claude-opus-4-7 for Anthropic",
   run(workspaceDir: string): void {
     // Defer to platform-provided overlays.
-    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) return;
+    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) {
+      return;
+    }
 
     const configPath = join(workspaceDir, "config.json");
     const configExisted = existsSync(configPath);
@@ -37,7 +39,9 @@ export const seedMainAgentOpusCallsiteMigration: WorkspaceMigration = {
     if (configExisted) {
       try {
         const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+          return;
+        }
         config = raw as Record<string, unknown>;
       } catch {
         return;
@@ -59,7 +63,9 @@ export const seedMainAgentOpusCallsiteMigration: WorkspaceMigration = {
 
     const callSites = readObject(llm.callSites) ?? {};
 
-    if (readObject(callSites.mainAgent) !== null) return;
+    if (readObject(callSites.mainAgent) !== null) {
+      return;
+    }
 
     // Historical seed: at the time this migration shipped, Opus's standard
     // output cap was 32k and this avoided inheriting a too-large default.

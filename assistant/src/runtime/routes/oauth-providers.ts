@@ -51,7 +51,9 @@ function resolveRedirectUri(loopbackPort: number | null): string | null {
 }
 
 function serializeProviderFull(row: ReturnType<typeof getProvider>) {
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
   return serializeProvider(row, {
     redirectUri: resolveRedirectUri(row.loopbackPort),
   });
@@ -214,52 +216,105 @@ function handleUpdateProvider({
   const b = body as Record<string, unknown>;
   const params: Record<string, unknown> = {};
 
-  if (b.auth_url !== undefined) params.authorizeUrl = b.auth_url;
-  if (b.token_url !== undefined) params.tokenExchangeUrl = b.token_url;
-  if (b.refresh_url !== undefined) params.refreshUrl = b.refresh_url;
-  if (b.base_url !== undefined) params.baseUrl = b.base_url;
-  if (b.userinfo_url !== undefined) params.userinfoUrl = b.userinfo_url;
-  if (b.default_scopes !== undefined) params.defaultScopes = b.default_scopes;
-  if (b.available_scopes !== undefined)
+  if (b.auth_url !== undefined) {
+    params.authorizeUrl = b.auth_url;
+  }
+  if (b.token_url !== undefined) {
+    params.tokenExchangeUrl = b.token_url;
+  }
+  if (b.refresh_url !== undefined) {
+    params.refreshUrl = b.refresh_url;
+  }
+  if (b.base_url !== undefined) {
+    params.baseUrl = b.base_url;
+  }
+  if (b.userinfo_url !== undefined) {
+    params.userinfoUrl = b.userinfo_url;
+  }
+  if (b.default_scopes !== undefined) {
+    params.defaultScopes = b.default_scopes;
+  }
+  if (b.available_scopes !== undefined) {
     params.availableScopes = b.available_scopes;
-  if (b.scope_separator !== undefined)
+  }
+  if (b.scope_separator !== undefined) {
     params.scopeSeparator = b.scope_separator;
-  if (b.token_endpoint_auth_method !== undefined)
+  }
+  if (b.token_endpoint_auth_method !== undefined) {
     params.tokenEndpointAuthMethod = b.token_endpoint_auth_method;
-  if (b.token_exchange_body_format !== undefined)
+  }
+  if (b.token_exchange_body_format !== undefined) {
     params.tokenExchangeBodyFormat = b.token_exchange_body_format;
-  if (b.ping_url !== undefined) params.pingUrl = b.ping_url;
-  if (b.ping_method !== undefined) params.pingMethod = b.ping_method;
-  if (b.ping_headers !== undefined) params.pingHeaders = b.ping_headers;
-  if (b.ping_body !== undefined) params.pingBody = b.ping_body;
-  if (b.revoke_url !== undefined) params.revokeUrl = b.revoke_url;
-  if (b.revoke_body_template !== undefined)
+  }
+  if (b.ping_url !== undefined) {
+    params.pingUrl = b.ping_url;
+  }
+  if (b.ping_method !== undefined) {
+    params.pingMethod = b.ping_method;
+  }
+  if (b.ping_headers !== undefined) {
+    params.pingHeaders = b.ping_headers;
+  }
+  if (b.ping_body !== undefined) {
+    params.pingBody = b.ping_body;
+  }
+  if (b.revoke_url !== undefined) {
+    params.revokeUrl = b.revoke_url;
+  }
+  if (b.revoke_body_template !== undefined) {
     params.revokeBodyTemplate = b.revoke_body_template;
-  if (b.display_name !== undefined) params.displayLabel = b.display_name;
-  if (b.description !== undefined) params.description = b.description;
-  if (b.dashboard_url !== undefined) params.dashboardUrl = b.dashboard_url;
-  if (b.logo_url !== undefined) params.logoUrl = b.logo_url;
-  if (b.client_id_placeholder !== undefined)
+  }
+  if (b.display_name !== undefined) {
+    params.displayLabel = b.display_name;
+  }
+  if (b.description !== undefined) {
+    params.description = b.description;
+  }
+  if (b.dashboard_url !== undefined) {
+    params.dashboardUrl = b.dashboard_url;
+  }
+  if (b.logo_url !== undefined) {
+    params.logoUrl = b.logo_url;
+  }
+  if (b.client_id_placeholder !== undefined) {
     params.clientIdPlaceholder = b.client_id_placeholder;
-  if (b.requires_client_secret !== undefined)
+  }
+  if (b.requires_client_secret !== undefined) {
     params.requiresClientSecret = b.requires_client_secret;
-  if (b.loopback_port !== undefined) params.loopbackPort = b.loopback_port;
-  if (b.injection_templates !== undefined)
+  }
+  if (b.loopback_port !== undefined) {
+    params.loopbackPort = b.loopback_port;
+  }
+  if (b.injection_templates !== undefined) {
     params.injectionTemplates = b.injection_templates;
-  if (b.app_type !== undefined) params.appType = b.app_type;
-  if (b.identity_url !== undefined) params.identityUrl = b.identity_url;
-  if (b.identity_method !== undefined)
+  }
+  if (b.app_type !== undefined) {
+    params.appType = b.app_type;
+  }
+  if (b.identity_url !== undefined) {
+    params.identityUrl = b.identity_url;
+  }
+  if (b.identity_method !== undefined) {
     params.identityMethod = b.identity_method;
-  if (b.identity_headers !== undefined)
+  }
+  if (b.identity_headers !== undefined) {
     params.identityHeaders = b.identity_headers;
-  if (b.identity_body !== undefined) params.identityBody = b.identity_body;
-  if (b.identity_response_paths !== undefined)
+  }
+  if (b.identity_body !== undefined) {
+    params.identityBody = b.identity_body;
+  }
+  if (b.identity_response_paths !== undefined) {
     params.identityResponsePaths = b.identity_response_paths;
-  if (b.identity_format !== undefined)
+  }
+  if (b.identity_format !== undefined) {
     params.identityFormat = b.identity_format;
-  if (b.identity_ok_field !== undefined)
+  }
+  if (b.identity_ok_field !== undefined) {
     params.identityOkField = b.identity_ok_field;
-  if (b.setup_notes !== undefined) params.setupNotes = b.setup_notes;
+  }
+  if (b.setup_notes !== undefined) {
+    params.setupNotes = b.setup_notes;
+  }
 
   if (Object.keys(params).length === 0) {
     throw new BadRequestError("No fields to update");

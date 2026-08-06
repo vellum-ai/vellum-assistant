@@ -1,5 +1,5 @@
 import { parseFrontmatterFields } from "../frontmatter.js";
-import type { PageIndexEntry } from "./substrate/page-index.js";
+import type { PageIndexEntry } from "../substrate/page-index.js";
 import type { Slug } from "./types.js";
 
 /**
@@ -89,7 +89,9 @@ function parseLinkEntry(entry: string): {
   description: string | undefined;
 } {
   const sep = entry.indexOf(LINK_SEPARATOR);
-  if (sep === -1) return { target: entry.trim(), description: undefined };
+  if (sep === -1) {
+    return { target: entry.trim(), description: undefined };
+  }
   return {
     target: entry.slice(0, sep).trim(),
     description: entry.slice(sep + LINK_SEPARATOR.length).trim() || undefined,
@@ -104,11 +106,17 @@ function parseWikilinks(body: string): string[] {
   for (const match of body.matchAll(WIKILINK_REGEX)) {
     let target = match[1];
     const pipe = target.indexOf("|");
-    if (pipe !== -1) target = target.slice(0, pipe);
+    if (pipe !== -1) {
+      target = target.slice(0, pipe);
+    }
     const hash = target.indexOf("#");
-    if (hash !== -1) target = target.slice(0, hash);
+    if (hash !== -1) {
+      target = target.slice(0, hash);
+    }
     target = target.trim();
-    if (target) targets.push(target);
+    if (target) {
+      targets.push(target);
+    }
   }
   return targets;
 }
@@ -148,8 +156,12 @@ export async function buildEdgeGraph(
     target: Slug,
     description: string | undefined,
   ): void => {
-    if (target === source) return; // no self-edges
-    if (!slugs.has(target)) return; // drop unknown/dangling targets
+    if (target === source) {
+      return;
+    } // no self-edges
+    if (!slugs.has(target)) {
+      return;
+    } // drop unknown/dangling targets
     let out = adjacency.get(source);
     if (!out) {
       out = new Map();
@@ -175,7 +187,9 @@ export async function buildEdgeGraph(
     const links = parsed?.fields.links;
     if (Array.isArray(links)) {
       for (const entry of links) {
-        if (typeof entry !== "string") continue;
+        if (typeof entry !== "string") {
+          continue;
+        }
         const { target, description } = parseLinkEntry(entry);
         addEdge(source, target, description);
       }
@@ -194,13 +208,17 @@ export async function buildEdgeGraph(
     // (c) numeric page-index edges resolved to slugs — fallback.
     for (const targetId of article.edges) {
       const target = byId.get(targetId);
-      if (target) addEdge(source, target, undefined);
+      if (target) {
+        addEdge(source, target, undefined);
+      }
     }
   }
 
   const hubs = new Set<Slug>();
   for (const [slug, degree] of inDegree) {
-    if (degree > hubDegree) hubs.add(slug);
+    if (degree > hubDegree) {
+      hubs.add(slug);
+    }
   }
 
   return { adjacency, hubs, slugs };
@@ -229,17 +247,33 @@ export function edgeExpand(
   const surfaced = new Map<Slug, string | undefined>();
 
   for (const seed of seeds.slice(0, seedCount)) {
-    if (surfaced.size >= cap) break;
+    if (surfaced.size >= cap) {
+      break;
+    }
     const out = graph.adjacency.get(seed);
-    if (!out) continue;
+    if (!out) {
+      continue;
+    }
     let added = 0;
     for (const [target, description] of out) {
-      if (added >= perSeed) break;
-      if (surfaced.size >= cap) break;
-      if (seedSet.has(target)) continue; // already in the pool
-      if (surfaced.has(target)) continue; // already surfaced via another seed
-      if (graph.hubs.has(target)) continue; // hubs excluded
-      if (alive && !alive(target)) continue;
+      if (added >= perSeed) {
+        break;
+      }
+      if (surfaced.size >= cap) {
+        break;
+      }
+      if (seedSet.has(target)) {
+        continue;
+      } // already in the pool
+      if (surfaced.has(target)) {
+        continue;
+      } // already surfaced via another seed
+      if (graph.hubs.has(target)) {
+        continue;
+      } // hubs excluded
+      if (alive && !alive(target)) {
+        continue;
+      }
       surfaced.set(target, description);
       added++;
     }

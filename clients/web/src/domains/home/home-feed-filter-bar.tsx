@@ -43,6 +43,16 @@ export const CATEGORY_STYLES: Record<FeedItemCategory, CategoryStyle> = {
   },
 };
 
+/** Resolves a category to its style, falling back to `system`. */
+export function resolveCategoryStyle(
+  category?: FeedItemCategory,
+): CategoryStyle {
+  if (category && CATEGORY_STYLES[category]) {
+    return CATEGORY_STYLES[category];
+  }
+  return CATEGORY_STYLES.system;
+}
+
 export const CATEGORY_ORDER: FeedItemCategory[] = [
   "security",
   "email",
@@ -69,7 +79,9 @@ export function HomeFeedFilterBar({
     categories.includes(c),
   );
 
-  if (presentCategories.length <= 1) return null;
+  if (presentCategories.length <= 1) {
+    return null;
+  }
 
   const items: SegmentControlItem<FilterValue>[] = [
     { value: ALL_FILTER, label: "All", icon: <List className="h-4 w-4" /> },

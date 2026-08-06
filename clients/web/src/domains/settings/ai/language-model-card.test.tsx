@@ -10,7 +10,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 
 import type { DefaultProviderStatus } from "@/generated/daemon/types.gen";
@@ -77,7 +77,11 @@ function renderCard() {
     createElement(
       QueryClientProvider,
       { client: queryClient },
-      createElement(LanguageModelCard),
+      createElement(LanguageModelCard, {
+        panel: null,
+        onOpenPanel: () => {},
+        onClosePanel: () => {},
+      }),
     ),
   );
 }
@@ -163,39 +167,4 @@ describe("default-provider availability notice", () => {
     expect(defaultProviderGetCalls).toBe(0);
   });
 
-  test("clears after the Providers modal closes once the problem is fixed", async () => {
-    setAvailability(
-      "missing_credential",
-      'Connection "anthropic-personal" has no API key stored.',
-    );
-
-    const result = renderCard();
-    await waitFor(() => {
-      expect(result.baseElement.textContent).toContain("has no API key stored");
-    });
-
-    // Open the Providers modal, "fix" the problem server-side, then close —
-    // the close-triggered refetch must clear the notice without a reload.
-    const providersButton = [
-      ...result.baseElement.querySelectorAll("button"),
-    ].find((b) => b.textContent === "Providers");
-    fireEvent.click(providersButton as HTMLButtonElement);
-    await waitFor(() => {
-      expect(result.baseElement.textContent).toContain(
-        "Manage the model providers your assistant can use.",
-      );
-    });
-
-    setAvailability("ok");
-    const doneButton = [...result.baseElement.querySelectorAll("button")].find(
-      (b) => b.textContent === "Done",
-    );
-    fireEvent.click(doneButton as HTMLButtonElement);
-
-    await waitFor(() => {
-      expect(result.baseElement.textContent).not.toContain(
-        "has no API key stored",
-      );
-    });
-  });
 });

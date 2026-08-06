@@ -8,7 +8,6 @@
 
 import type { OAuthConnection } from "../../oauth/connection.js";
 import { resolveOAuthConnection } from "../../oauth/connection-resolver.js";
-import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { getLogger } from "../../util/logger.js";
 import type {
   FetchResult,
@@ -97,10 +96,16 @@ async function listEvents(
 ): Promise<CalendarEventsListResponse> {
   const query: Record<string, string> = {};
 
-  if (options?.timeMin) query.timeMin = options.timeMin;
-  if (options?.timeMax) query.timeMax = options.timeMax;
+  if (options?.timeMin) {
+    query.timeMin = options.timeMin;
+  }
+  if (options?.timeMax) {
+    query.timeMax = options.timeMax;
+  }
   query.maxResults = String(options?.maxResults ?? 25);
-  if (options?.query) query.q = options.query;
+  if (options?.query) {
+    query.q = options.query;
+  }
 
   // Default to expanding recurring events into instances
   const singleEvents = options?.singleEvents ?? true;
@@ -112,8 +117,12 @@ async function listEvents(
     query.orderBy = "startTime";
   }
 
-  if (options?.pageToken) query.pageToken = options.pageToken;
-  if (options?.syncToken) query.syncToken = options.syncToken;
+  if (options?.pageToken) {
+    query.pageToken = options.pageToken;
+  }
+  if (options?.syncToken) {
+    query.syncToken = options.syncToken;
+  }
 
   const resp = await connection.request({
     method: "GET",
@@ -165,12 +174,14 @@ function eventToItem(event: CalendarEvent, eventType: string): WatcherItem {
       start,
       end,
       location: event.location ?? "",
-      description: event.description
-        ? wrapUntrustedContent(event.description, {
-            source: "calendar",
-            maxChars: 5000,
-          })
-        : "",
+      // Neither capped nor fenced here. The engine bounds every string in this
+      // payload before storing it (`capPayloadForStorage`) and fences the whole
+      // rendered event block in one `<external_content>` envelope before the
+      // model sees it, so both jobs are done once for every provider rather
+      // than per field here. Google's events.list reference documents no
+      // ceiling on `description`, and `location` has none either, so the
+      // engine's pass is the only bound on both.
+      description: event.description ?? "",
       status: event.status ?? "confirmed",
       organizer: event.organizer?.email ?? "",
       attendees:
@@ -212,7 +223,9 @@ async function incrementalSync(
     // the watcher/LLM. Instance expansion happens only in the bounded display
     // query (fallbackFetch), which pairs singleEvents with a timeMin window.
     const query: Record<string, string> = { syncToken, maxResults: "250" };
-    if (pageToken) query.pageToken = pageToken;
+    if (pageToken) {
+      query.pageToken = pageToken;
+    }
 
     const resp = await connection.request({
       method: "GET",
@@ -237,7 +250,9 @@ async function incrementalSync(
     }
 
     const page = resp.body as SyncResponse;
-    if (page.items) allItems = allItems.concat(page.items);
+    if (page.items) {
+      allItems = allItems.concat(page.items);
+    }
     pageToken = page.nextPageToken;
     nextSyncToken = page.nextSyncToken;
   } while (pageToken);
@@ -282,7 +297,9 @@ async function fetchInitialSyncToken(
     const query: Record<string, string> = {
       maxResults: "250",
     };
-    if (pageToken) query.pageToken = pageToken;
+    if (pageToken) {
+      query.pageToken = pageToken;
+    }
 
     const resp = await connection.request({
       method: "GET",
@@ -322,6 +339,7 @@ export const googleCalendarProvider: WatcherProvider = {
   id: "google-calendar",
   displayName: "Google Calendar",
   requiredCredentialService: CREDENTIAL_SERVICE,
+  untrustedContentSource: "calendar",
 
   async getInitialWatermark(credentialService: string): Promise<string> {
     const connection = await resolveOAuthConnection(credentialService);
@@ -358,7 +376,9 @@ export const googleCalendarProvider: WatcherProvider = {
       // Convert events to watcher items, distinguishing new vs updated
       const items: WatcherItem[] = [];
       for (const event of syncResp.items) {
-        if (event.status === "cancelled") continue;
+        if (event.status === "cancelled") {
+          continue;
+        }
 
         const eventType =
           event.created === event.updated

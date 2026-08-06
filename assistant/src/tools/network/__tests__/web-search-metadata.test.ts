@@ -15,9 +15,15 @@ function seedWebSearch(provider: string): void {
 
 mock.module("../../../security/secure-keys.js", () => ({
   getProviderKeyAsync: async (provider: string) => {
-    if (provider === "brave") return mockBraveSecureKey;
-    if (provider === "perplexity") return mockPerplexitySecureKey;
-    if (provider === "tavily") return mockTavilySecureKey;
+    if (provider === "brave") {
+      return mockBraveSecureKey;
+    }
+    if (provider === "perplexity") {
+      return mockPerplexitySecureKey;
+    }
+    if (provider === "tavily") {
+      return mockTavilySecureKey;
+    }
     return undefined;
   },
 }));

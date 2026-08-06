@@ -39,7 +39,9 @@ const DICTATION_CLASSIFICATION_TIMEOUT_MS = 5000;
 const MAX_WINDOW_TITLE_LENGTH = 100;
 
 function sanitizeWindowTitle(title: string | undefined): string {
-  if (!title) return "";
+  if (!title) {
+    return "";
+  }
   return title.replace(/[<>]/g, "").slice(0, MAX_WINDOW_TITLE_LENGTH);
 }
 

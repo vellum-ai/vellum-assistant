@@ -42,11 +42,18 @@ export function buildPointerInstruction(
     `Event: ${context.scenario}`,
     `Phone number: ${context.phoneNumber}`,
   ];
-  if (context.duration) parts.push(`Duration: ${context.duration}`);
-  if (context.reason) parts.push(`Reason: ${context.reason}`);
-  if (context.verificationCode)
+  if (context.duration) {
+    parts.push(`Duration: ${context.duration}`);
+  }
+  if (context.reason) {
+    parts.push(`Reason: ${context.reason}`);
+  }
+  if (context.verificationCode) {
     parts.push(`Verification code: ${context.verificationCode}`);
-  if (context.channel) parts.push(`Channel: ${context.channel}`);
+  }
+  if (context.channel) {
+    parts.push(`Channel: ${context.channel}`);
+  }
 
   parts.push("");
   parts.push(

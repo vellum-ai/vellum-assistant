@@ -6,9 +6,13 @@
  * inlined in a single consumer.
  */
 
-
 import type { AssistantState } from "@/assistant/types";
-import type { AllowlistOption, DirectoryScopeOption, QuestionEntry, ScopeOption } from "@/types/interaction-ui-types";
+import type {
+  AllowlistOption,
+  DirectoryScopeOption,
+  QuestionEntry,
+  ScopeOption,
+} from "@/types/interaction-ui-types";
 
 // ---------------------------------------------------------------------------
 // Assistant state

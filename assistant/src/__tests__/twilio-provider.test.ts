@@ -13,8 +13,12 @@ let mockAccountSid: string | undefined = "AC_test_account";
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key: string) => {
-    if (key === credentialKey("twilio", "auth_token")) return mockAuthToken;
-    if (key === credentialKey("twilio", "account_sid")) return mockAccountSid;
+    if (key === credentialKey("twilio", "auth_token")) {
+      return mockAuthToken;
+    }
+    if (key === credentialKey("twilio", "account_sid")) {
+      return mockAccountSid;
+    }
     return undefined;
   },
 }));

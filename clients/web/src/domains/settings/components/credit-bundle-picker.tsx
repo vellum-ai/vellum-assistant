@@ -2,13 +2,13 @@ import { Info } from "lucide-react";
 import { useMemo } from "react";
 
 import type { CreditTier, CreditTierEnum } from "@/generated/api/types.gen";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { formatMonthly } from "./tier-pricing";
 
 /**
  * Sentinel option value for the synthesized "No credit bundle" entry. The
- * design-library Dropdown is generic over `T extends string`, so it cannot
+ * design-library Select is generic over `T extends string`, so it cannot
  * carry a real `null` value — we map this sentinel to/from `null` at the
  * component boundary so callers see a clean `CreditTierEnum | null`.
  */
@@ -60,7 +60,7 @@ export function CreditBundlePicker({
           <Info className="h-3 w-3 text-[var(--content-tertiary)]" />
         </span>
       </div>
-      <Dropdown<CreditOptionValue>
+      <Select<CreditOptionValue>
         aria-label="Credit bundle"
         placeholder="Select a credit bundle"
         disabled={disabled}

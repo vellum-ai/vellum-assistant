@@ -1,30 +1,9 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
-mock.module(
-  "@/domains/chat/components/chat-attachments/attachment-preview-modal",
-  () => ({
-    AttachmentPreviewModal: ({
-      attachment,
-      siblingAttachments,
-    }: {
-      attachment: { id: string; previewUrl: string | null };
-      siblingAttachments?: Array<{ id: string; previewUrl: string | null }>;
-    }) => (
-      <div
-        data-testid="preview-modal"
-        data-attachment-id={attachment.id}
-        data-preview-url={String(attachment.previewUrl)}
-        data-sibling-preview-urls={JSON.stringify(
-          (siblingAttachments ?? []).map((a) => ({
-            id: a.id,
-            previewUrl: a.previewUrl,
-          })),
-        )}
-      />
-    ),
-  }),
-);
+import { mockAttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
+
+mockAttachmentPreviewModal();
 
 import type { DisplayAttachment } from "@/domains/chat/types/types";
 
@@ -95,9 +74,9 @@ describe("BubbleAttachments", () => {
 
     fireEvent.click(getByRole("button", { name: "photo.png" }));
 
-    expect(getByTestId("preview-modal").getAttribute("data-attachment-id")).toBe(
-      "img-1",
-    );
+    expect(
+      getByTestId("preview-modal").getAttribute("data-attachment-id"),
+    ).toBe("img-1");
   });
 
   test("preserves the original attachment order for a mixed list", () => {
@@ -111,8 +90,7 @@ describe("BubbleAttachments", () => {
     // The pdf chip must appear before the image preview in document order,
     // matching the input order [pdf, image].
     expect(
-      pdfEl.compareDocumentPosition(imgEl) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
+      pdfEl.compareDocumentPosition(imgEl) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 

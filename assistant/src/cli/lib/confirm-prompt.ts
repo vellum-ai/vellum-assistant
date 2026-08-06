@@ -65,7 +65,9 @@ export async function confirmPrompt(
   const answer = await new Promise<string>((resolve) => {
     let settled = false;
     const settle = (value: string) => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       resolve(value);
     };

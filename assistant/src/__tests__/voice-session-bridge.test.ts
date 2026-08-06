@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { AssistantEvent } from "../api/index.js";
 import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
 import type { Conversation } from "../daemon/conversation.js";
 import { persistUserMessage as persistUserMessageImpl } from "../daemon/conversation-messaging.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { setConfig } from "./helpers/set-config.js";
 
 /** Seed the config the voice bridge reads: disclosure copy, plus disabled

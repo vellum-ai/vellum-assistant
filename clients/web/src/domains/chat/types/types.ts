@@ -106,6 +106,16 @@ export interface DisplayMessage {
   role: ConversationMessage["role"];
   surfaces?: Surface[];
   /**
+   * `ui_show` tool calls on this row that announced a still-streaming
+   * `visual` surface (`ui_surface_pending`). Each entry renders a shimmer
+   * placeholder at the end of the row's activity area, holding the space the
+   * widget will claim while the fragment streams. An id is retired when its
+   * surface attaches, when its tool call resolves either way, or when the
+   * turn ends, whichever happens first. Client-only and transient: it never
+   * comes back from history.
+   */
+  pendingVisualToolUseIds?: string[];
+  /**
    * Unified, single-ordered list of content blocks (text / thinking /
    * tool_use / surface / attachment), carried straight through from the wire
    * `ConversationMessage["contentBlocks"]`. Populated at the ingest boundary
@@ -153,6 +163,13 @@ export interface DisplayMessage {
    *  summarize-up-to results). Rendered as a standalone system notice —
    *  no avatar, no persona bubble — never as assistant speech. */
   isSystemCard?: boolean;
+  /** Provider-failure notice metadata, carried from the wire
+   *  `ConversationMessage["providerError"]`. `code` is the stable classified
+   *  error code (e.g. `"PROVIDER_BILLING"`), `category` the classified
+   *  category (e.g. `"credits_exhausted"`). Credits-exhausted rows render as
+   *  the upsell card instead of a persona bubble; other categories keep the
+   *  plain rendering. */
+  providerError?: { code?: string; category?: string };
 }
 
 /**
@@ -219,7 +236,9 @@ export const INHERENTLY_INTERACTIVE_SURFACE_TYPES = [
  * — are non-interactive and should never block the composer.
  */
 export function isSurfaceInteractive(surface: Surface): boolean {
-  if (surface.completed) {return false;}
+  if (surface.completed) {
+    return false;
+  }
   const hasActions =
     Array.isArray(surface.actions) && surface.actions.length > 0;
   return (

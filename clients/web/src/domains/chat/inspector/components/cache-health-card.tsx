@@ -64,7 +64,9 @@ function computeCacheBreakdown(summary: LLMCallSummary): CacheBreakdown | null {
     const readTokens = hasRead ? Math.max(read, 0) : 0;
     const freshTokens = inputTokens;
     const totalTokens = createdTokens + readTokens + freshTokens;
-    if (totalTokens <= 0) return null;
+    if (totalTokens <= 0) {
+      return null;
+    }
     return {
       readTokens,
       createdTokens,
@@ -79,7 +81,9 @@ function computeCacheBreakdown(summary: LLMCallSummary): CacheBreakdown | null {
     const readTokens = Math.max(read, 0);
     const totalTokens = Math.max(inputTokens, readTokens);
     const freshTokens = Math.max(totalTokens - readTokens, 0);
-    if (totalTokens <= 0) return null;
+    if (totalTokens <= 0) {
+      return null;
+    }
     return {
       readTokens,
       createdTokens: 0,
@@ -137,8 +141,12 @@ function buildStatus(breakdown: CacheBreakdown): CacheStatus {
 }
 
 function heroColor(breakdown: CacheBreakdown): string {
-  if (breakdown.readTokens === 0) return "var(--system-negative-strong)";
-  if (breakdown.hitRate >= 0.9) return "var(--system-positive-strong)";
+  if (breakdown.readTokens === 0) {
+    return "var(--system-negative-strong)";
+  }
+  if (breakdown.hitRate >= 0.9) {
+    return "var(--system-positive-strong)";
+  }
   return "var(--system-mid-strong)";
 }
 
@@ -165,11 +173,7 @@ function LegendItem({ color, label, value }: LegendItemProps): ReactNode {
   );
 }
 
-function UnavailableNote({
-  summary,
-}: {
-  summary: LLMCallSummary;
-}): ReactNode {
+function UnavailableNote({ summary }: { summary: LLMCallSummary }): ReactNode {
   const provider = displayProvider(summary.provider);
   const suffix = provider === MISSING_VALUE ? "" : ` for ${provider}`;
   return (
@@ -195,10 +199,14 @@ function UnavailableNote({
  * normalized summary (so callers can drop it in unconditionally).
  */
 export function CacheHealthCard({ summary }: CacheHealthCardProps): ReactNode {
-  if (!summary || isProviderOnlySummary(summary)) return null;
+  if (!summary || isProviderOnlySummary(summary)) {
+    return null;
+  }
 
   const breakdown = computeCacheBreakdown(summary);
-  if (!breakdown) return <UnavailableNote summary={summary} />;
+  if (!breakdown) {
+    return <UnavailableNote summary={summary} />;
+  }
 
   const segments: CacheSegment[] = [
     {

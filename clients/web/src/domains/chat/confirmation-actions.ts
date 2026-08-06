@@ -42,7 +42,8 @@ function cleanupAfterConfirmationDecision(
   mappedToolCallId: string | undefined,
   decision: ConfirmationDecision,
 ): void {
-  const confirmationDecisionValue = decision === "allow" ? "approved" : "denied";
+  const confirmationDecisionValue =
+    decision === "allow" ? "approved" : "denied";
   useInteractionStore.getState().dismissConfirmation();
   useInteractionStore.getState().setInlineConfirmationToolCallId(null);
   const convKey = useConversationStore.getState().activeConversationId;
@@ -70,11 +71,16 @@ function cleanupAfterConfirmationDecision(
     if (!stampTargetId) {
       for (let i = prev.length - 1; i >= 0; i--) {
         const msg = prev[i];
-        if (msg?.role !== "assistant" || !msg.toolCalls?.length) continue;
+        if (msg?.role !== "assistant" || !msg.toolCalls?.length) {
+          continue;
+        }
         const tc = msg.toolCalls.findLast(
           (tc) => !isToolCallRunning(tc) && !tc.riskLevel,
         );
-        if (tc) { stampTargetId = tc.id; break; }
+        if (tc) {
+          stampTargetId = tc.id;
+          break;
+        }
       }
     }
 
@@ -153,23 +159,32 @@ export async function handleConfirmationSubmit(
   decision: ConfirmationDecision,
   toolCall?: ChatMessageToolCall,
 ): Promise<void> {
-  const { pendingConfirmation, isSubmittingConfirmation } = useInteractionStore.getState();
+  const { pendingConfirmation, isSubmittingConfirmation } =
+    useInteractionStore.getState();
   const snapshot = toolCall?.pendingConfirmation ?? pendingConfirmation;
-  if (!snapshot) return;
-  if (!toolCall && isSubmittingConfirmation) return;
+  if (!snapshot) {
+    return;
+  }
+  if (!toolCall && isSubmittingConfirmation) {
+    return;
+  }
   useInteractionStore.getState().submitConfirmationStart();
   useChatSessionStore.getState().setError(null);
 
   const ctx = useStreamStore.getState().streamContext;
   if (!ctx) {
-    useChatSessionStore.getState().setError({ message: "No active session. Please try again." });
+    useChatSessionStore
+      .getState()
+      .setError({ message: "No active session. Please try again." });
     useInteractionStore.getState().submitConfirmationEnd();
     return;
   }
 
   const mappedToolCallId =
     toolCall?.id ??
-    useChatSessionStore.getState().confirmationToolCallMap.get(snapshot.requestId);
+    useChatSessionStore
+      .getState()
+      .confirmationToolCallMap.get(snapshot.requestId);
 
   // Auto-select first pattern/scope when persistent decisions are allowed
   const ruleHint =
@@ -180,7 +195,7 @@ export async function handleConfirmationSubmit(
           selectedPattern: snapshot.allowlistOptions![0]!.pattern,
           selectedScope:
             (snapshot.directoryScopeOptions?.[0]?.scope ??
-            snapshot.scopeOptions?.[0]?.scope) ||
+              snapshot.scopeOptions?.[0]?.scope) ||
             "everywhere",
         }
       : undefined;
@@ -207,7 +222,9 @@ export async function handleConfirmationSubmit(
     cleanupAfterConfirmationDecision(snapshot, mappedToolCallId, decision);
   } catch (err) {
     captureError(err, { context: "submit_confirmation" });
-    useChatSessionStore.getState().setError({ message: "Failed to submit confirmation. Please try again." });
+    useChatSessionStore.getState().setError({
+      message: "Failed to submit confirmation. Please try again.",
+    });
     useInteractionStore.getState().submitConfirmationEnd();
   }
 }
@@ -217,14 +234,23 @@ export async function handleConfirmationSubmit(
  * Resolves the confirmation first, then opens the editor in create mode
  * with a background LLM suggestion.
  */
-export async function handleAllowAndCreateRule(toolCall?: ChatMessageToolCall): Promise<void> {
-  const { pendingConfirmation, isSubmittingConfirmation } = useInteractionStore.getState();
+export async function handleAllowAndCreateRule(
+  toolCall?: ChatMessageToolCall,
+): Promise<void> {
+  const { pendingConfirmation, isSubmittingConfirmation } =
+    useInteractionStore.getState();
   const snapshot = toolCall?.pendingConfirmation ?? pendingConfirmation;
-  if (!snapshot) return;
-  if (!toolCall && isSubmittingConfirmation) return;
+  if (!snapshot) {
+    return;
+  }
+  if (!toolCall && isSubmittingConfirmation) {
+    return;
+  }
   const ctx = useStreamStore.getState().streamContext;
   if (!ctx) {
-    useChatSessionStore.getState().setError({ message: "No active session. Please try again." });
+    useChatSessionStore
+      .getState()
+      .setError({ message: "No active session. Please try again." });
     return;
   }
 
@@ -232,7 +258,9 @@ export async function handleAllowAndCreateRule(toolCall?: ChatMessageToolCall): 
 
   const mappedToolCallId =
     toolCall?.id ??
-    useChatSessionStore.getState().confirmationToolCallMap.get(snapshot.requestId);
+    useChatSessionStore
+      .getState()
+      .confirmationToolCallMap.get(snapshot.requestId);
 
   const editorContext: RuleEditorContext = {
     requestId: snapshot.requestId,
@@ -275,7 +303,9 @@ export async function handleAllowAndCreateRule(toolCall?: ChatMessageToolCall): 
         .setError(result.status === 404 ? null : { message: result.error });
       useInteractionStore.getState().submitConfirmationEnd();
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-      patchTranscriptMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
+      patchTranscriptMessages((prev: DisplayMessage[]) =>
+        clearConfirmationByRequestId(prev, snapshot.requestId),
+      );
       openCreateEditor({ ...editorContext, requestId: "" });
       return;
     }
@@ -286,9 +316,14 @@ export async function handleAllowAndCreateRule(toolCall?: ChatMessageToolCall): 
   } catch (err) {
     captureError(err, { context: "allow_and_create_rule" });
     useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-    patchTranscriptMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
+    patchTranscriptMessages((prev: DisplayMessage[]) =>
+      clearConfirmationByRequestId(prev, snapshot.requestId),
+    );
     openCreateEditor({ ...editorContext, requestId: "" });
-    useChatSessionStore.getState().setError({ message: "Failed to submit confirmation, but you can still create a rule." });
+    useChatSessionStore.getState().setError({
+      message:
+        "Failed to submit confirmation, but you can still create a rule.",
+    });
     useInteractionStore.getState().submitConfirmationEnd();
   }
 }

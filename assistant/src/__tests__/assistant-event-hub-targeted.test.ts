@@ -13,7 +13,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../api/index.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 
 function makeEvent(

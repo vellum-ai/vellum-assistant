@@ -1,4 +1,3 @@
-
 import { KeyRound } from "lucide-react";
 
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
@@ -21,8 +20,7 @@ export function ProviderBillingBanner({
       }
       title="Your API key needs credits"
       subtitle="Add funds with your provider or lower the model token limit."
-      ctaLabel="Open Settings"
-      onAction={onOpenSettings}
+      action={{ label: "Open Settings", onClick: onOpenSettings }}
     />
   );
 }

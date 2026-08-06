@@ -74,8 +74,12 @@ function useElapsedHint(): string | null {
     const t = setInterval(() => setElapsed(Date.now() - started), 1000);
     return () => clearInterval(t);
   }, []);
-  if (elapsed > 150_000) return "Still going — deep research can take a couple of minutes.";
-  if (elapsed > 60_000) return "Digging a little deeper…";
+  if (elapsed > 150_000) {
+    return "Still going — deep research can take a couple of minutes.";
+  }
+  if (elapsed > 60_000) {
+    return "Digging a little deeper…";
+  }
   return null;
 }
 

@@ -100,12 +100,20 @@ export function getInContextPkbPaths(
   }
 
   for (const message of conversation.messages) {
-    if (!Array.isArray(message.content)) continue;
+    if (!Array.isArray(message.content)) {
+      continue;
+    }
     for (const block of message.content as ContentBlock[]) {
-      if (block.type !== "tool_use") continue;
-      if (block.name !== FILE_READ_TOOL_NAME) continue;
+      if (block.type !== "tool_use") {
+        continue;
+      }
+      if (block.name !== FILE_READ_TOOL_NAME) {
+        continue;
+      }
       const rawPath = block.input?.path;
-      if (typeof rawPath !== "string" || rawPath.length === 0) continue;
+      if (typeof rawPath !== "string" || rawPath.length === 0) {
+        continue;
+      }
       // Mirror `file_read`'s own path resolution: absolute paths are taken
       // as-is; relative paths resolve against the tool's working directory
       // (NOT `pkbRoot`). Resolving relative paths against `pkbRoot` would

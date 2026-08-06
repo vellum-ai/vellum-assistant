@@ -48,7 +48,10 @@ describe("classifyEventsDiff", () => {
     const a = textEvent("first");
     const prev = [a];
     const events = [a, textEvent("second")];
-    expect(classifyEventsDiff(prev, events)).toEqual({ kind: "append", from: 1 });
+    expect(classifyEventsDiff(prev, events)).toEqual({
+      kind: "append",
+      from: 1,
+    });
   });
 
   test("append: multiple new events at the tail", () => {
@@ -56,7 +59,10 @@ describe("classifyEventsDiff", () => {
     const b = toolCallEvent("tu-1");
     const prev = [a, b];
     const events = [a, b, textEvent("c"), toolCallEvent("tu-2")];
-    expect(classifyEventsDiff(prev, events)).toEqual({ kind: "append", from: 2 });
+    expect(classifyEventsDiff(prev, events)).toEqual({
+      kind: "append",
+      from: 2,
+    });
   });
 
   test("append: growing from an empty previous array", () => {
@@ -107,7 +113,12 @@ describe("classifyEventsDiff", () => {
       },
     ];
     const subagentB: SubagentTimelineEvent[] = [
-      { id: "detail-1", type: "text", content: "B is thinking", timestamp: NOW },
+      {
+        id: "detail-1",
+        type: "text",
+        content: "B is thinking",
+        timestamp: NOW,
+      },
     ];
     expect(classifyEventsDiff(subagentA, subagentB)).toEqual({
       kind: "fallback",

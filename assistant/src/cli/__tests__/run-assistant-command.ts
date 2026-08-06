@@ -38,7 +38,9 @@ export async function runAssistantCommandFull(
       typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk),
     );
     const callback = typeof encoding === "function" ? encoding : cb;
-    if (typeof callback === "function") callback();
+    if (typeof callback === "function") {
+      callback();
+    }
     return true;
   }) as typeof process.stdout.write;
 

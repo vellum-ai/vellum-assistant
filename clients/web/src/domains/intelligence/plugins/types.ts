@@ -12,12 +12,7 @@ export type PluginStatus = "installed" | "available";
  * regardless of enablement (offered when the daemon can't toggle), and
  * `available` is the not-installed catalog.
  */
-export type PluginFilter =
-  | "all"
-  | "installed"
-  | "active"
-  | "off"
-  | "available";
+export type PluginFilter = "all" | "installed" | "active" | "off" | "available";
 
 /**
  * Unified row model for the Plugins tab, populated from two independent
@@ -97,5 +92,8 @@ interface CatalogPluginSource {
   source: { repo: string };
 }
 
-type _InstalledCompat = AssertAssignable<InstalledPluginSource, InstalledPlugin>;
+type _InstalledCompat = AssertAssignable<
+  InstalledPluginSource,
+  InstalledPlugin
+>;
 type _CatalogCompat = AssertAssignable<CatalogPluginSource, PluginCatalogMatch>;

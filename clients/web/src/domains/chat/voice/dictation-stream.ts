@@ -33,7 +33,10 @@ import {
   type LiveVoiceAudioCaptureOptions,
   type LiveVoiceCaptureResult,
 } from "@/domains/chat/voice/live-voice/pcm-capture";
-import { buildSelfHostedGatewayWsUrl } from "@/domains/chat/voice/live-voice/connection";
+import {
+  buildSelfHostedGatewayWsUrl,
+  isPairedGatewayIngress,
+} from "@/domains/chat/voice/live-voice/connection";
 import { LIVE_VOICE_AUDIO_FORMAT } from "@/domains/chat/voice/live-voice/protocol";
 import {
   getSelfHostedActorToken,
@@ -128,6 +131,14 @@ export function startDictationStream(
     );
     return null;
   }
+  if (isPairedGatewayIngress(ingressUrl)) {
+    // The paired gateway proxy is HTTP-only, so no STT stream WS exists;
+    // batch dictation over HTTP still works, only live partials are skipped.
+    console.info(
+      "dictation-stream: skipping (voice streaming isn't available for paired assistants yet)",
+    );
+    return null;
+  }
 
   const webSocketFactory =
     options.webSocketFactory ?? ((url: string) => new WebSocket(url));
@@ -156,7 +167,9 @@ export function startDictationStream(
   });
 
   const teardown = (): void => {
-    if (closed) return;
+    if (closed) {
+      return;
+    }
     closed = true;
     live = false;
     capture.shutdown();
@@ -173,7 +186,9 @@ export function startDictationStream(
   };
 
   ws.addEventListener("open", () => {
-    if (closed) return;
+    if (closed) {
+      return;
+    }
     void capture.start().then((result) => {
       // Mic denied / device busy: no partials, batch capture unaffected.
       if (!result.ok) {
@@ -184,7 +199,9 @@ export function startDictationStream(
   });
 
   ws.addEventListener("message", (event) => {
-    if (closed || typeof event.data !== "string") return;
+    if (closed || typeof event.data !== "string") {
+      return;
+    }
 
     let parsed: unknown;
     try {
@@ -192,7 +209,9 @@ export function startDictationStream(
     } catch {
       return;
     }
-    if (!parsed || typeof parsed !== "object") return;
+    if (!parsed || typeof parsed !== "object") {
+      return;
+    }
 
     const message = parsed as { type?: string; text?: string };
     switch (message.type) {

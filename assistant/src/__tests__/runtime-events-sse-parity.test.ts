@@ -17,11 +17,10 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent, AssistantEventEnvelope } from "../api/index.js";
 import { getOrCreateConversation } from "../persistence/conversation-key-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 
@@ -68,7 +67,9 @@ async function publishAndReadFrame(
   const frame = new TextDecoder().decode(value);
   // SSE frame: "event: assistant_event\nid: <id>\ndata: <json>\n\n"
   const dataLine = frame.split("\n").find((l) => l.startsWith("data: "));
-  if (!dataLine) {throw new Error(`No data line in SSE frame:\n${frame}`);}
+  if (!dataLine) {
+    throw new Error(`No data line in SSE frame:\n${frame}`);
+  }
   return JSON.parse(dataLine.slice("data: ".length)) as AssistantEventEnvelope;
 }
 

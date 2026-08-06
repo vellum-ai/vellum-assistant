@@ -19,8 +19,8 @@ const TOOLTIP_MAX_WIDTH = 220;
 const TOOLTIP_ESTIMATED_HEIGHT = 56;
 const DAILY_SKELETON_HEIGHTS = [40, 80, 60, 100, 50, 70, 30] as const;
 const HOURLY_SKELETON_HEIGHTS = [
-  18, 24, 28, 35, 42, 50, 64, 78, 92, 106, 118, 96, 84, 74, 68, 80, 88, 72,
-  56, 48, 40, 34, 26, 20,
+  18, 24, 28, 35, 42, 50, 64, 78, 92, 106, 118, 96, 84, 74, 68, 80, 88, 72, 56,
+  48, 40, 34, 26, 20,
 ] as const;
 
 const STACK_COLORS = [
@@ -90,7 +90,10 @@ export function UsageTrendChart({
 }: UsageTrendChartProps) {
   const [tooltip, setTooltip] = useState<SegmentTooltip | null>(null);
   const sorted = useMemo(() => sortUsageSeriesBuckets(buckets), [buckets]);
-  const bucketLegend = useMemo(() => buildUsageSeriesLegend(buckets), [buckets]);
+  const bucketLegend = useMemo(
+    () => buildUsageSeriesLegend(buckets),
+    [buckets],
+  );
   const stackLegendItems = legendItems ?? bucketLegend.items;
   const visibleLegendItems = legendItems ?? bucketLegend.visibleItems;
   const maxCost = useMemo(
@@ -403,13 +406,7 @@ function UsageSeriesLegendDisplay({
   );
 }
 
-function EmptyState({
-  title,
-  subtitle,
-}: {
-  title: string;
-  subtitle: string;
-}) {
+function EmptyState({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div
       className="flex flex-col items-center justify-center rounded-md py-12 text-center"

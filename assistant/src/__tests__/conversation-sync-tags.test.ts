@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
+import type { AssistantEventEnvelope } from "../api/index.js";
 import {
   conversationMetadataSyncTag,
   SYNC_TAGS,
@@ -14,7 +15,6 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ROUTES as CONVERSATION_LIST_ROUTES } from "../runtime/routes/conversation-list-routes.js";
 import { ROUTES as CONVERSATION_MANAGEMENT_ROUTES } from "../runtime/routes/conversation-management-routes.js";

@@ -1,5 +1,13 @@
-
-import { Bookmark, Check, Copy, ExternalLink, FileCode, GitBranch, ListCollapse, RotateCcw } from "lucide-react";
+import {
+  Bookmark,
+  Check,
+  Copy,
+  ExternalLink,
+  FileCode,
+  GitBranch,
+  ListCollapse,
+  RotateCcw,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -9,6 +17,7 @@ import {
   useCanBookmark,
   useIsBookmarked,
 } from "@/hooks/use-bookmarks";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 
 export type MessageHoverActionsProps = {
   /** The message whose text is copied and whose role/timestamp drive the row. */
@@ -110,10 +119,7 @@ export function MessageHoverActions({
 
   // Flat plain-text body derived from the message's text blocks; this is the
   // copy payload and mirrors the daemon's `joinWithSpacing`.
-  const content = useMemo(
-    () => messagePlainText(message),
-    [message],
-  );
+  const content = useMemo(() => messagePlainText(message), [message]);
   const timestamp = useMemo(
     () => latestMessageActivityTimestamp(message),
     [message],
@@ -137,17 +143,18 @@ export function MessageHoverActions({
   }, []);
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(content).then(() => {
-      setShowCopied(true);
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-      }
-      timerRef.current = setTimeout(() => {
-        setShowCopied(false);
-        timerRef.current = null;
-      }, 1500);
-    }).catch(() => {
-      // Clipboard write denied — silently ignore
+    copyToClipboard(content, {
+      errorMessage: "Couldn't copy the message.",
+      onCopied: () => {
+        setShowCopied(true);
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+        }
+        timerRef.current = setTimeout(() => {
+          setShowCopied(false);
+          timerRef.current = null;
+        }, 1500);
+      },
     });
   }, [content]);
 

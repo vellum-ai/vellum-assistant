@@ -25,7 +25,9 @@ function installed(overrides: Partial<InstalledPlugin> = {}): InstalledPlugin {
   } as InstalledPlugin;
 }
 
-function catalog(overrides: Partial<PluginCatalogMatch> = {}): PluginCatalogMatch {
+function catalog(
+  overrides: Partial<PluginCatalogMatch> = {},
+): PluginCatalogMatch {
   return {
     name: "beta",
     path: "github:acme/beta@main",
@@ -125,14 +127,17 @@ describe("matchesQuery", () => {
 
   test("matches against description (case-insensitive)", () => {
     expect(
-      matchesQuery(item({ name: "x", description: "Linear tickets" }), "linear"),
+      matchesQuery(
+        item({ name: "x", description: "Linear tickets" }),
+        "linear",
+      ),
     ).toBe(true);
   });
 
   test("returns false when neither name nor description matches", () => {
-    expect(
-      matchesQuery(item({ name: "x", description: "nope" }), "zzz"),
-    ).toBe(false);
+    expect(matchesQuery(item({ name: "x", description: "nope" }), "zzz")).toBe(
+      false,
+    );
   });
 });
 
@@ -203,7 +208,9 @@ describe("filterByStatus", () => {
 
 describe("shortSha", () => {
   test("truncates a commit SHA to its first 7 chars", () => {
-    expect(shortSha("1234567890abcdef1234567890abcdef12345678")).toBe("1234567");
+    expect(shortSha("1234567890abcdef1234567890abcdef12345678")).toBe(
+      "1234567",
+    );
   });
 
   test("returns 'unknown' for a null SHA", () => {

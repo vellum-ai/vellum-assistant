@@ -16,6 +16,8 @@ Canonical example: `defaults/image-fallback` — `hooks/init.ts` opens `caption-
 
 **Grandfathered exception**: `defaults/memory` predates this rule and uses main-database tables via `persistence/schema` / `db-connection`. Do not extend that pattern to other plugins or grow memory's main-DB surface. Enforced by `__tests__/plugin-state-boundary-guard.test.ts`.
 
+The memory plugin's own internal structure — its tier/directory map, gate predicates, frozen durable names, and the v1/v2 deletion runbooks — lives in `defaults/memory/AGENTS.md`; the architecture narrative is in `assistant/docs/architecture/memory.md`. Read both before touching anything under `defaults/memory/`.
+
 Calling the assistant's service APIs from a default plugin (e.g. `persistence/conversation-crud.ts` reads) is fine — the boundary is about _owning state_: plugin tables, plugin migrations, and plugin files belong to the plugin.
 
 ## Plugin HTTP Routes

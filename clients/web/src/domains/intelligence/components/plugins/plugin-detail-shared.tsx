@@ -1,21 +1,21 @@
 import {
-    ArrowDownToLine,
-    ArrowUpCircle,
-    Download,
-    ExternalLink,
-    Loader2,
-    Trash2,
-    TriangleAlert,
+  ArrowDownToLine,
+  ArrowUpCircle,
+  Download,
+  ExternalLink,
+  Loader2,
+  Trash2,
+  TriangleAlert,
 } from "lucide-react";
 import { useState } from "react";
 
 import {
-    PLUGIN_INSTALL_ERROR,
-    PLUGIN_REMOVE_ERROR,
-    PLUGIN_UPGRADE_ERROR,
-    pluginRemoveConfirmMessage,
-    pluginRiskyUpgradeConfirmLabel,
-    pluginRiskyUpgradeConfirmMessage,
+  PLUGIN_INSTALL_ERROR,
+  PLUGIN_REMOVE_ERROR,
+  PLUGIN_UPGRADE_ERROR,
+  pluginRemoveConfirmMessage,
+  pluginRiskyUpgradeConfirmLabel,
+  pluginRiskyUpgradeConfirmMessage,
 } from "@/domains/intelligence/plugins/constants";
 import { shortSha } from "@/domains/intelligence/plugins/utils";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
@@ -359,7 +359,9 @@ export function PluginDetailActionError({
         ? PLUGIN_UPGRADE_ERROR
         : null;
 
-  if (!message) return null;
+  if (!message) {
+    return null;
+  }
 
   return (
     <div

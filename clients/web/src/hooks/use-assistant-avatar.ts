@@ -16,7 +16,8 @@ export function avatarQueryKey(assistantId: string) {
   return [AVATAR_QUERY_KEY_PREFIX, assistantId] as const;
 }
 
-interface AvatarData {
+/** The shape cached under {@link avatarQueryKey}; read directly by cache consumers. */
+export interface AvatarData {
   components: CharacterComponents | null;
   traits: CharacterTraits | null;
   customImageUrl: string | null;
@@ -134,7 +135,9 @@ export function useAssistantAvatar(assistantId: string | null) {
   });
 
   const invalidate = useCallback(() => {
-    if (!assistantId) return;
+    if (!assistantId) {
+      return;
+    }
     void queryClient.invalidateQueries({
       queryKey: avatarQueryKey(assistantId),
     });

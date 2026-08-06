@@ -1,4 +1,3 @@
-
 import { useEffect, useRef, type RefObject } from "react";
 
 import {
@@ -27,8 +26,7 @@ export interface PushToTalkTarget {
 }
 
 type PushToTalkTargetSource =
-  | RefObject<PushToTalkTarget | null>
-  | (() => PushToTalkTarget | null);
+  RefObject<PushToTalkTarget | null> | (() => PushToTalkTarget | null);
 
 function resolvePushToTalkTarget(
   source: PushToTalkTargetSource,
@@ -64,13 +62,17 @@ const PTT_HOLD_DELAY_MS = 300;
  * `SoundManager.playFallbackBlip`.
  */
 function playActivationBlip(): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") {
+    return;
+  }
   try {
     const AudioContextCtor =
       window.AudioContext ||
       (window as unknown as { webkitAudioContext?: typeof AudioContext })
         .webkitAudioContext;
-    if (!AudioContextCtor) return;
+    if (!AudioContextCtor) {
+      return;
+    }
 
     const ctx = new AudioContextCtor();
     if (ctx.state === "suspended") {
@@ -297,7 +299,10 @@ export function usePushToTalk(
       }
     };
 
-    const unsubscribeSetting = watchSetting(LS_PTT_ACTIVATION_KEY, readActivator);
+    const unsubscribeSetting = watchSetting(
+      LS_PTT_ACTIVATION_KEY,
+      readActivator,
+    );
     const unsubscribeNative = subscribeToHotkeyEvents(handleNativeHotkey);
 
     window.addEventListener("keydown", handleKeyDown);

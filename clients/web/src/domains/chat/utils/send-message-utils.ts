@@ -11,14 +11,24 @@ import {
   type SurfaceCompletionTone,
 } from "@/domains/chat/types/types";
 
-import { attachConfirmationToToolCall, ERROR_MESSAGES } from "@/domains/chat/utils/chat";
+import {
+  attachConfirmationToToolCall,
+  ERROR_MESSAGES,
+} from "@/domains/chat/utils/chat";
 import {
   filterMessageSurfaces,
   mapMessageSurfaces,
 } from "@/domains/chat/utils/map-message-surfaces";
 import { mapMessageToolCalls } from "@/domains/chat/utils/map-message-tool-calls";
-import type { PendingConfirmationState, PendingSecretState } from "@/domains/chat/types";
-import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type {
+  PendingConfirmationState,
+  PendingSecretState,
+} from "@/domains/chat/types";
+import type {
+  AllowlistOption,
+  DirectoryScopeOption,
+  ScopeOption,
+} from "@/types/interaction-ui-types";
 
 const OPTIMISTIC_COMPLETION_SURFACE_TYPES = [
   "choice",
@@ -86,9 +96,7 @@ export function clearPendingConfirmationsFromMessages(
   let anyChanged = false;
   const updated = prev.map((msg) => {
     const next = mapMessageToolCalls(msg, (tc) =>
-      tc.pendingConfirmation
-        ? { ...tc, pendingConfirmation: undefined }
-        : tc,
+      tc.pendingConfirmation ? { ...tc, pendingConfirmation: undefined } : tc,
     );
     if (next !== msg) {
       anyChanged = true;
@@ -108,9 +116,13 @@ export function dismissInteractiveSurfaces(
 ): { updatedMessages: DisplayMessage[]; dismissedIds: Set<string> } {
   const interactiveIds = new Set<string>();
   for (const msg of messagesForScan) {
-    if (!msg.surfaces) {continue;}
+    if (!msg.surfaces) {
+      continue;
+    }
     for (const s of msg.surfaces) {
-      if (isSurfaceInteractive(s)) {interactiveIds.add(s.surfaceId);}
+      if (isSurfaceInteractive(s)) {
+        interactiveIds.add(s.surfaceId);
+      }
     }
   }
   if (interactiveIds.size === 0) {
@@ -130,26 +142,22 @@ export function completeSubmittedSurface(
   opts?: {
     /** Explicit completion tone (icon/color); e.g. a denied guardian decision. */
     tone?: SurfaceCompletionTone;
-    /**
-     * Guardian decision (apr:*) completion. These are approve/deny outcomes,
-     * never a plain "Cancelled" — so the secondary-style cancellation heuristic
-     * (which would mislabel a "Deny" button click as "Cancelled") is skipped.
-     */
-    isGuardianDecision?: boolean;
   },
 ): DisplayMessage[] {
   for (let i = prev.length - 1; i >= 0; i--) {
     const surface = prev[i]!.surfaces?.find((s) => s.surfaceId === surfaceId);
-    if (!surface) {continue;}
+    if (!surface) {
+      continue;
+    }
     if (!OPTIMISTIC_COMPLETION_SURFACE_TYPES.includes(surface.surfaceType)) {
+      return prev;
+    }
+    if (surface.completed) {
       return prev;
     }
     const matchedAction = surface.actions?.find((a) => a.id === actionId);
     const isCancellation =
-      !opts?.isGuardianDecision &&
-      (actionId === "cancel" ||
-        actionId === "dismiss" ||
-        matchedAction?.style === "secondary");
+      actionId === "cancel" || actionId === "dismiss";
     const updated = [...prev];
     updated[i] = mapMessageSurfaces(prev[i]!, (s) =>
       s.surfaceId === surfaceId
@@ -158,7 +166,7 @@ export function completeSubmittedSurface(
             completed: true,
             completionSummary: isCancellation
               ? "Cancelled"
-              : replyText ?? matchedAction?.label ?? undefined,
+              : (replyText ?? matchedAction?.label ?? undefined),
             ...(opts?.tone ? { completionTone: opts.tone } : {}),
           }
         : s,
@@ -210,7 +218,9 @@ function optionalTypedArray<T>(v: unknown): T[] | undefined {
   return Array.isArray(v) ? (v as T[]) : undefined;
 }
 
-export function parsePendingSecretState(raw: Record<string, unknown>): PendingSecretState {
+export function parsePendingSecretState(
+  raw: Record<string, unknown>,
+): PendingSecretState {
   return {
     requestId: typeof raw.requestId === "string" ? raw.requestId : "",
     label: optionalString(raw.label),
@@ -225,9 +235,10 @@ export function parsePendingSecretState(raw: Record<string, unknown>): PendingSe
   };
 }
 
-export function parsePendingConfirmationData(
-  raw: Record<string, unknown>,
-): { confData: Parameters<typeof attachConfirmationToToolCall>[1]; state: PendingConfirmationState } {
+export function parsePendingConfirmationData(raw: Record<string, unknown>): {
+  confData: Parameters<typeof attachConfirmationToToolCall>[1];
+  state: PendingConfirmationState;
+} {
   const confData = {
     requestId: typeof raw.requestId === "string" ? raw.requestId : "",
     title: optionalString(raw.title),
@@ -237,7 +248,9 @@ export function parsePendingConfirmationData(
     riskReason: optionalString(raw.riskReason),
     allowlistOptions: optionalTypedArray<AllowlistOption>(raw.allowlistOptions),
     scopeOptions: optionalTypedArray<ScopeOption>(raw.scopeOptions),
-    directoryScopeOptions: optionalTypedArray<DirectoryScopeOption>(raw.directoryScopeOptions),
+    directoryScopeOptions: optionalTypedArray<DirectoryScopeOption>(
+      raw.directoryScopeOptions,
+    ),
     persistentDecisionsAllowed: optionalBoolean(raw.persistentDecisionsAllowed),
     input: optionalRecord(raw.input),
     toolUseId: optionalString(raw.toolUseId),

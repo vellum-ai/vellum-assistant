@@ -31,7 +31,9 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   }) => {
     requests.push({ path, query });
     const next = nextResponses.shift();
-    if (!next) throw new Error("No staged response for backgroundtoolsGet");
+    if (!next) {
+      throw new Error("No staged response for backgroundtoolsGet");
+    }
     const response = {
       status: next.status,
       ok: next.status >= 200 && next.status < 300,
@@ -140,7 +142,9 @@ describe("fetchBackgroundTasks", () => {
   });
 
   test("maps returned tools to running entries", async () => {
-    nextResponses = [{ status: 200, body: { tools: [toolRow()], completed: [] } }];
+    nextResponses = [
+      { status: 200, body: { tools: [toolRow()], completed: [] } },
+    ];
     const snapshot = await fetchBackgroundTasks("asst-1", "conv-1");
 
     expect(snapshot).toEqual({
@@ -193,7 +197,9 @@ describe("fetchBackgroundTasks", () => {
 
 describe("rehydration", () => {
   test("a list response seeds running entries", async () => {
-    nextResponses = [{ status: 200, body: { tools: [toolRow()], completed: [] } }];
+    nextResponses = [
+      { status: 200, body: { tools: [toolRow()], completed: [] } },
+    ];
     const snapshot = await fetchBackgroundTasks("asst-1", "conv-1");
     applyBackgroundTaskSnapshot(snapshot, []);
 

@@ -20,7 +20,9 @@ function columnInfo(name: string): { notnull: number; dflt_value: unknown } {
     .query(`PRAGMA table_info(conversations)`)
     .all() as Array<{ name: string; notnull: number; dflt_value: unknown }>;
   const col = rows.find((r) => r.name === name);
-  if (!col) throw new Error(`column ${name} missing`);
+  if (!col) {
+    throw new Error(`column ${name} missing`);
+  }
   return col;
 }
 

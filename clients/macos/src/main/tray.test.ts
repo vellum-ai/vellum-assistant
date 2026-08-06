@@ -100,15 +100,27 @@ mock.module("./menu-icon", () => ({
   menuIcon: () => ({ __kind: "template-icon" }),
 }));
 
+// Controllable lockfile snapshot standing in for the watcher's cache, so
+// switcher tests can stage managed/paired/local entries per test.
+let watchedLockfile: {
+  assistants: Array<Record<string, unknown>>;
+  activeAssistant: string | null;
+} = { assistants: [], activeAssistant: null };
 mock.module("./lockfile-watcher", () => ({
-  getWatchedLockfile: () => ({ assistants: [], activeAssistant: null }),
+  getWatchedLockfile: () => watchedLockfile,
+}));
+
+mock.module("./logger", () => ({
+  default: { info: () => {}, warn: () => {}, error: () => {} },
 }));
 
 // Full `./settings` surface so this mock — which leaks into co-run test files
 // via the global module registry — doesn't break sibling modules that import
-// `writeSetting`/`onSettingChange` (e.g. `hotkeys.ts`).
+// `writeSetting`/`onSettingChange` (e.g. `hotkeys.ts`). Feature flags are
+// controllable so the assistant-switcher gate can be exercised.
+let featureFlags: Record<string, boolean> | null = null;
 mock.module("./settings", () => ({
-  readSetting: () => null,
+  readSetting: (key: string) => (key === "featureFlags" ? featureFlags : null),
   readHotkeyOverride: () => null,
   writeSetting: () => {},
   onSettingChange: () => () => {},
@@ -182,6 +194,10 @@ const handlers = {
   toggleMainWindow: mock(() => undefined),
   ensureMainWindow: mock(() => Promise.resolve()),
   openAbout: mock(() => undefined),
+  // No call running by default, so the voice-panel item stays out of the menu
+  // for every case that is not about it.
+  isVoicePanelAvailable: mock(() => false),
+  showVoicePanel: mock(() => undefined),
 };
 
 // Swap in fake timers so the pulse loop and deferred restart are deterministic.
@@ -198,6 +214,9 @@ beforeEach(() => {
   appListeners.clear();
   themeListeners.clear();
   avatarListeners.clear();
+  watchedLockfile = { assistants: [], activeAssistant: null };
+  featureFlags = null;
+  dispatchToMainMock.mockClear();
   buildFromTemplateMock.mockClear();
   statusFramesMock.mockClear();
   invalidateIconCacheMock.mockClear();
@@ -211,7 +230,8 @@ beforeEach(() => {
     intervalCallback = cb;
     return 1 as unknown as ReturnType<typeof setInterval>;
   }) as typeof setInterval;
-  globalThis.clearInterval = clearIntervalMock as unknown as typeof clearInterval;
+  globalThis.clearInterval =
+    clearIntervalMock as unknown as typeof clearInterval;
   timeoutCallbacks = [];
   globalThis.setTimeout = ((cb: () => void) => {
     timeoutCallbacks.push(cb);
@@ -279,9 +299,9 @@ describe("installTray", () => {
     expect(labels).toContain("Restart");
     expect(labels).toContain("About Vellum Electron");
     expect(labels).toContain("Quit Vellum Electron");
-    expect(
-      template.find((item) => item.label?.startsWith("Quit"))?.role,
-    ).toBe("quit");
+    expect(template.find((item) => item.label?.startsWith("Quit"))?.role).toBe(
+      "quit",
+    );
   });
 
   test("the Re-pair item appears only when status is authFailed", () => {
@@ -380,6 +400,143 @@ describe("installTray", () => {
   });
 });
 
+describe("assistant switcher", () => {
+  type MenuItem = {
+    label?: string;
+    type?: string;
+    checked?: boolean;
+    enabled?: boolean;
+    click?: () => void | Promise<void>;
+  };
+
+  const popMenu = (): MenuItem[] => {
+    installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
+    const calls = buildFromTemplateMock.mock.calls;
+    return calls[calls.length - 1]?.[0] as MenuItem[];
+  };
+
+  const managedEntry = {
+    assistantId: "managed-1",
+    name: "Managed One",
+    cloud: "vellum",
+  };
+  const pairedEntry = {
+    assistantId: "paired-1",
+    name: "Remote One",
+    cloud: "paired",
+    runtimeUrl: "https://tunnel.example.com",
+  };
+
+  beforeEach(() => {
+    featureFlags = { "multi-platform-assistant": true };
+  });
+
+  test("lists paired entries alongside managed ones, labeled with the remote host; local entries stay excluded", () => {
+    watchedLockfile = {
+      assistants: [
+        managedEntry,
+        pairedEntry,
+        { assistantId: "local-1", name: "Local One", cloud: "local" },
+      ],
+      activeAssistant: null,
+    };
+
+    const labels = popMenu().map((item) => item.label);
+    expect(labels).toContain("Managed One");
+    expect(labels).toContain("Remote One (Paired · tunnel.example.com)");
+    expect(labels).not.toContain("Local One");
+  });
+
+  test("a paired entry with an unparseable runtimeUrl falls back to a plain Paired suffix", () => {
+    watchedLockfile = {
+      assistants: [{ ...pairedEntry, runtimeUrl: "not a url" }],
+      activeAssistant: null,
+    };
+
+    expect(popMenu().map((item) => item.label)).toContain(
+      "Remote One (Paired)",
+    );
+  });
+
+  test("selecting a paired entry surfaces the window and dispatches selectAssistant", async () => {
+    watchedLockfile = { assistants: [pairedEntry], activeAssistant: null };
+    const template = popMenu();
+    const beforeDispatch = dispatchToMainMock.mock.calls.length;
+
+    await template
+      .find((i) => i.label === "Remote One (Paired · tunnel.example.com)")
+      ?.click?.();
+
+    expect(dispatchToMainMock.mock.calls[beforeDispatch]?.[0]).toEqual({
+      kind: "selectAssistant",
+      assistantId: "paired-1",
+    });
+  });
+
+  test("a paired active entry offers Remove from this Mac, never Retire", () => {
+    watchedLockfile = {
+      assistants: [managedEntry, pairedEntry],
+      activeAssistant: "paired-1",
+    };
+
+    const labels = popMenu().map((item) => item.label ?? "");
+    expect(labels).toContain("Remove from this Mac…");
+    expect(labels.some((label) => label.startsWith("Retire"))).toBe(false);
+  });
+
+  test("Remove from this Mac surfaces the window and dispatches removePairedAssistant", async () => {
+    watchedLockfile = {
+      assistants: [pairedEntry],
+      activeAssistant: "paired-1",
+    };
+    const template = popMenu();
+    const beforeEnsure = handlers.ensureMainWindow.mock.calls.length;
+    const beforeDispatch = dispatchToMainMock.mock.calls.length;
+
+    await template.find((i) => i.label === "Remove from this Mac…")?.click?.();
+
+    expect(handlers.ensureMainWindow.mock.calls.length).toBe(beforeEnsure + 1);
+    expect(dispatchToMainMock.mock.calls[beforeDispatch]?.[0]).toEqual({
+      kind: "removePairedAssistant",
+      assistantId: "paired-1",
+    });
+  });
+
+  test("a managed active entry keeps the Retire item and offers no Remove", async () => {
+    watchedLockfile = {
+      assistants: [managedEntry],
+      activeAssistant: "managed-1",
+    };
+    const template = popMenu();
+
+    const labels = template.map((item) => item.label);
+    expect(labels).toContain("Retire Managed One…");
+    expect(labels).not.toContain("Remove from this Mac…");
+
+    const beforeDispatch = dispatchToMainMock.mock.calls.length;
+    await template.find((i) => i.label === "Retire Managed One…")?.click?.();
+    expect(dispatchToMainMock.mock.calls[beforeDispatch]?.[0]).toEqual({
+      kind: "retireAssistant",
+      assistantId: "managed-1",
+    });
+    expect(
+      dispatchToMainMock.mock.calls.some(
+        (call) =>
+          (call[0] as { kind?: string })?.kind === "removePairedAssistant",
+      ),
+    ).toBe(false);
+  });
+
+  test("an empty switcher shows the managed-or-paired empty state", () => {
+    const empty = popMenu().find(
+      (i) => i.label === "No managed or paired assistants",
+    );
+    expect(empty).toBeDefined();
+    expect(empty?.enabled).toBe(false);
+  });
+});
+
 describe("status-driven updates", () => {
   test("a status change swaps the icon and tooltip", () => {
     installTray(handlers);
@@ -472,5 +629,34 @@ describe("avatar and appearance updates", () => {
 
     expect(invalidateIconCacheMock).toHaveBeenCalledTimes(1);
     expect(tray?.setImage).toHaveBeenLastCalledWith({ id: "idle" });
+  });
+});
+
+describe("the voice panel item", () => {
+  test("is absent when no call is running", () => {
+    handlers.isVoicePanelAvailable.mockReturnValue(false);
+    installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
+    const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
+      label?: string;
+    }>;
+    const labels = template.map((item) => item.label).filter(Boolean);
+    expect(labels).not.toContain("Show Voice Panel");
+  });
+
+  test("appears while a call is running and reopens the panel", () => {
+    handlers.isVoicePanelAvailable.mockReturnValue(true);
+    installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
+    const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
+      label?: string;
+      click?: () => void;
+    }>;
+    // The way back from the panel's close button, which hides the window
+    // without ending the call.
+    const item = template.find((entry) => entry.label === "Show Voice Panel");
+    expect(item).toBeDefined();
+    item?.click?.();
+    expect(handlers.showVoicePanel).toHaveBeenCalled();
   });
 });

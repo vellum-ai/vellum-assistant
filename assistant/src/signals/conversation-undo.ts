@@ -28,7 +28,9 @@ const log = getLogger("signal:conversation-undo");
  * file is written.
  */
 export async function handleConversationUndoSignal(): Promise<void> {
-  if (getIsContainerized()) return;
+  if (getIsContainerized()) {
+    return;
+  }
 
   const resultPath = join(getSignalsDir(), "conversation-undo.result");
 

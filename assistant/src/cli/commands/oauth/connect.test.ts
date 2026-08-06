@@ -70,7 +70,7 @@ afterEach(() => {
   process.exitCode = 0;
 });
 
-async function runConnectCommand(): Promise<{
+async function runConnectCommand(extraArgs: string[] = []): Promise<{
   stdout: string;
   exitCode: number;
 }> {
@@ -94,6 +94,7 @@ async function runConnectCommand(): Promise<{
       "--json",
       "connect",
       "google",
+      ...extraArgs,
     ]);
   } catch {
     // Commander may throw under exitOverride for parse errors; the assertions
@@ -122,5 +123,29 @@ describe("oauth connect", () => {
       "oauth_providers_by_providerKey_get",
       "oauth_mode_get",
     ]);
+  });
+
+  test("managed provider in a conversation shell includes requested scopes in the oauth_connect guidance", async () => {
+    const { stdout, exitCode } = await runConnectCommand([
+      "--scopes",
+      "https://www.googleapis.com/auth/tasks",
+      "https://www.googleapis.com/auth/calendar",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout) as Record<string, unknown>;
+    expect(parsed.code).toBe("use_oauth_connect_surface");
+    expect(parsed.nextAction).toEqual({
+      type: "ui_show",
+      surfaceType: "oauth_connect",
+      data: {
+        providerKey: "google",
+        requestedScopes: [
+          "https://www.googleapis.com/auth/tasks",
+          "https://www.googleapis.com/auth/calendar",
+        ],
+      },
+    });
+    expect(openedUrls).toEqual([]);
   });
 });

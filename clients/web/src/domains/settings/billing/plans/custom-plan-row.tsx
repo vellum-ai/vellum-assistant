@@ -40,7 +40,9 @@ export function CustomPlanRow({
   currentSummary,
 }: CustomPlanRowProps) {
   return (
-    <div className={`flex w-full flex-col items-center gap-8 ${className ?? ""}`}>
+    <div
+      className={`flex w-full flex-col items-center gap-8 ${className ?? ""}`}
+    >
       <p className="text-center text-[20px] font-medium text-[var(--content-tertiary)]">
         Need something more tailored to your needs?
       </p>
@@ -69,9 +71,6 @@ export function CustomPlanRow({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-3">
-          <span className="text-[11px] font-medium text-[var(--content-tertiary)]">
-            Billed monthly
-          </span>
           <Button
             variant="outlined"
             onClick={onConfigure}

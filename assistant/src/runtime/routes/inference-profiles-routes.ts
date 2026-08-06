@@ -9,8 +9,9 @@
  *
  * Unlike the generic `config set llm.profiles.<name> '<json>'` path, these
  * routes validate at write time: the provider must be a known `LLMProvider`,
- * the model must be in the catalog (unless `allowUnlisted`), and a referenced
- * connection must exist. Writes reuse the shared config-write plumbing
+ * the model must be in the catalog (unless `allowUnlisted`), a referenced
+ * connection must exist, and the resulting profile must be able to dispatch
+ * (unless `allowUnavailable`). Writes reuse the shared config-write plumbing
  * (`commitConfigWrite` + the managed-profile guards), so a CLI-created profile
  * is completed/materialized identically to a UI-created one.
  */
@@ -18,7 +19,6 @@
 import { z } from "zod";
 
 import {
-  getEffectiveProfile,
   getEffectiveProfilesForProvider,
   MANAGED_PROFILE_NAMES,
   resolveDefaultProfileForProvider,
@@ -34,14 +34,18 @@ import {
   routingIdentityModelIssue,
 } from "../../config/schemas/llm.js";
 import { getDb } from "../../persistence/db-connection.js";
-import {
-  ConnectionResolutionError,
-  resolveRoutingIdentity,
-} from "../../providers/connection-resolution.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
-import { computeConnectionAvailability } from "../../providers/inference/connection-availability.js";
+import type { ConnectionAvailability } from "../../providers/inference/connection-availability.js";
+import {
+  computeProfileAvailability,
+  CONNECTION_AVAILABILITY_STATUSES,
+  isUnavailable,
+} from "../../providers/inference/connection-availability.js";
 import { getConnection } from "../../providers/inference/connections.js";
-import { isModelInCatalog } from "../../providers/model-catalog.js";
+import {
+  getModelDisplayName,
+  isModelInCatalog,
+} from "../../providers/model-catalog.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   commitConfigWrite,
@@ -49,6 +53,12 @@ import {
   rejectManagedProfileDeletion,
 } from "./conversation-query-routes.js";
 import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
+import {
+  describeUnavailableProfile,
+  type ProfileRepairHint,
+  unavailableProfileWarning,
+  verifyProfileCommand,
+} from "./inference-profile-availability-guard.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // Prototype-pollution guards — a profile name may never be one of these.
@@ -64,15 +74,7 @@ const RESERVED_PROFILE_NAMES = new Set([
 
 const availabilitySchema = z
   .object({
-    status: z.enum([
-      "ok",
-      "missing_connection",
-      "missing_credential",
-      "provider_mismatch",
-      "unsupported_auth",
-      "vellum_unauthenticated",
-      "unknown",
-    ]),
+    status: z.enum(CONNECTION_AVAILABILITY_STATUSES),
     message: z.string().optional(),
   })
   .meta({ id: "ProfileConnectionAvailability" });
@@ -86,7 +88,7 @@ const profileSummarySchema = z
     status: z.enum(["active", "disabled"]),
     source: z.enum(["managed", "user"]),
     provider_connection: z.string().optional(),
-    /** Null when the profile has no connection to judge (e.g. mix profiles). */
+    /** Null when the profile has no provider to judge (e.g. mix profiles). */
     availability: availabilitySchema.nullable(),
   })
   .meta({ id: "InferenceProfileSummary" });
@@ -105,6 +107,12 @@ const profileWriteResultSchema = z
     name: z.string(),
     entry: z.record(z.string(), z.unknown()),
     warnings: z.array(z.string()),
+    /**
+     * One-shot command that proves the profile dispatches. The CLI suppresses
+     * its human-mode hint under `--json`, which is the mode agents use, so the
+     * nudge travels in the payload.
+     */
+    verify: z.string(),
   })
   .meta({ id: "InferenceProfileWriteResult" });
 
@@ -120,6 +128,7 @@ const createRequestSchema = z.object({
   thinking: z.boolean().optional(),
   description: z.string().optional(),
   allowUnlisted: z.boolean().optional(),
+  allowUnavailable: z.boolean().optional(),
 });
 
 const updateRequestSchema = z.object({
@@ -133,6 +142,7 @@ const updateRequestSchema = z.object({
   thinking: z.boolean().optional(),
   description: z.string().optional(),
   allowUnlisted: z.boolean().optional(),
+  allowUnavailable: z.boolean().optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -156,6 +166,7 @@ function validateModel(
   provider: string,
   model: string,
   allowUnlisted: boolean,
+  connectionName?: string,
 ): string[] {
   // Routing identities key no catalog entries; they validate against their
   // route's actual reach — the same checks dispatch applies per-request.
@@ -174,11 +185,24 @@ function validateModel(
   if (isModelInCatalog(provider, model)) {
     return [];
   }
+  // The named connection's advertised model list is authoritative for models
+  // the code-owned catalog doesn't know — a custom (openai-compatible)
+  // endpoint declares its own models at connection-create time.
+  if (connectionName) {
+    const connection = getConnection(getDb(), connectionName);
+    if (connection?.models?.some((m) => m.id === model)) {
+      return [];
+    }
+  }
   if (!allowUnlisted) {
+    const remedy =
+      provider === "openai-compatible"
+        ? `Pass allowUnlisted to create it anyway, or declare the model on the connection ` +
+          `("assistant inference providers update <name> --model ${model}").`
+        : `Pass allowUnlisted to create it anyway, or run ` +
+          `"assistant inference models list --provider ${provider}" to see valid ids.`;
     throw new BadRequestError(
-      `Model "${model}" is not in the catalog for provider "${provider}". ` +
-        `Pass allowUnlisted to create it anyway, or run ` +
-        `"assistant inference models list --provider ${provider}" to see valid ids.`,
+      `Model "${model}" is not in the catalog for provider "${provider}". ${remedy}`,
     );
   }
   return [
@@ -203,46 +227,38 @@ function asPlainObject(value: unknown): Record<string, unknown> | null {
 }
 
 /**
- * Compute connection availability for an effective profile entry — null when
- * there is nothing to judge (no connection or no provider, e.g. mix profiles).
+ * Refuse a write that would persist a profile which provably cannot dispatch.
+ * Returns the offending verdict when the caller forced the write with
+ * `allowUnavailable`, so the handler can warn instead; returns null when the
+ * profile is fine or indeterminate.
  */
-async function profileAvailability(
-  entry: Record<string, unknown>,
-): Promise<Awaited<ReturnType<typeof computeConnectionAvailability>> | null> {
-  const provider = entry.provider;
-  const connection = entry.provider_connection;
-  if (typeof provider !== "string") {
+async function guardProfileAvailability({
+  entry,
+  repair,
+  allowUnavailable,
+}: {
+  entry: Record<string, unknown>;
+  repair: ProfileRepairHint;
+  allowUnavailable: boolean;
+}): Promise<ConnectionAvailability | null> {
+  const availability = await computeProfileAvailability(entry);
+  if (!isUnavailable(availability)) {
     return null;
   }
-  // Routing-identity profiles carry no provider_connection; availability is
-  // judged against the identity's canonical row and derived upstream. A
-  // model the identity cannot route reports as a mismatch rather than
-  // throwing — availability annotates, it must not fail the profiles read.
-  if (ROUTING_IDENTITY_PROVIDERS.has(provider)) {
-    const model = typeof entry.model === "string" ? entry.model : undefined;
-    try {
-      const identity = resolveRoutingIdentity(provider, model);
-      if (!identity) {
-        return null;
-      }
-      return computeConnectionAvailability(
-        identity.expectedProvider,
-        identity.connectionName,
-      );
-    } catch (err) {
-      return {
-        status: "provider_mismatch",
-        message:
-          err instanceof ConnectionResolutionError
-            ? err.message
-            : `Model "${model ?? "<unset>"}" cannot be routed by provider "${provider}".`,
-      };
-    }
+  // isUnavailable() is only true for a non-null verdict.
+  const verdict = availability as ConnectionAvailability;
+  if (allowUnavailable) {
+    return verdict;
   }
-  if (typeof connection !== "string") {
-    return null;
-  }
-  return computeConnectionAvailability(provider, connection);
+  throw new BadRequestError(
+    await describeUnavailableProfile({
+      availability: verdict,
+      provider: String(entry.provider),
+      model: typeof entry.model === "string" ? entry.model : undefined,
+      repair,
+      escapeHatch: repair.kind !== "repoint",
+    }),
+  );
 }
 
 function ensureRawProfiles(
@@ -371,7 +387,7 @@ async function handleListProfiles() {
         ...(typeof record.provider_connection === "string"
           ? { provider_connection: record.provider_connection }
           : {}),
-        availability: await profileAvailability(record),
+        availability: await computeProfileAvailability(record),
       };
     }),
   );
@@ -396,7 +412,7 @@ async function handleGetProfile({ pathParams = {} }: RouteHandlerArgs) {
   return {
     name,
     entry: record,
-    availability: await profileAvailability(record),
+    availability: await computeProfileAvailability(record),
   };
 }
 
@@ -422,14 +438,15 @@ async function handleCreateProfile({ body = {} }: RouteHandlerArgs) {
   }
 
   assertValidProvider(input.provider);
+  if (input.connection) {
+    assertConnectionExists(input.connection);
+  }
   const warnings = validateModel(
     input.provider,
     input.model,
     input.allowUnlisted ?? false,
+    input.connection,
   );
-  if (input.connection) {
-    assertConnectionExists(input.connection);
-  }
 
   const entry: Record<string, unknown> = {
     ...fragmentFromBody(body as Record<string, unknown>),
@@ -437,6 +454,22 @@ async function handleCreateProfile({ body = {} }: RouteHandlerArgs) {
     model: input.model,
     source: "user",
   };
+  // Pickers render the label, so a label-less profile shows its raw config
+  // key (e.g. "gemini-latest"). Default it to the model's human-readable
+  // display name — the catalog's, or the named connection's for custom
+  // endpoints — so an unlabeled create still reads well in the UI.
+  if (entry.label === undefined) {
+    const displayName =
+      getModelDisplayName(input.model) ??
+      (input.connection
+        ? getConnection(getDb(), input.connection)?.models?.find(
+            (m) => m.id === input.model,
+          )?.displayName
+        : undefined);
+    if (displayName) {
+      entry.label = displayName;
+    }
+  }
   validateProfileEntry(entry);
 
   const raw = loadRawConfig();
@@ -446,6 +479,16 @@ async function handleCreateProfile({ body = {} }: RouteHandlerArgs) {
       `Profile "${name}" already exists. Use update to modify it.`,
     );
   }
+
+  const forced = await guardProfileAvailability({
+    entry,
+    repair: { kind: "create" },
+    allowUnavailable: input.allowUnavailable ?? false,
+  });
+  if (forced) {
+    warnings.push(unavailableProfileWarning(name, forced));
+  }
+
   profiles[name] = entry;
   // Defensive: for a user-owned name this is a no-op; it re-asserts the
   // managed-name protection at the shared write choke point.
@@ -456,9 +499,13 @@ async function handleCreateProfile({ body = {} }: RouteHandlerArgs) {
   return {
     ok: true as const,
     name,
-    entry: (getEffectiveProfile(getConfig().llm.profiles, name) ??
-      entry) as Record<string, unknown>,
+    entry: (resolveDefaultProfileForProvider(
+      getConfig().llm.profiles,
+      name,
+      getConfig().llm.defaultProvider ?? null,
+    ) ?? entry) as Record<string, unknown>,
     warnings,
+    verify: verifyProfileCommand(name),
   };
 }
 
@@ -509,6 +556,14 @@ async function handleUpdateProfile({
     assertValidProvider(input.provider);
   }
   let warnings: string[] = [];
+  if (input.connection) {
+    assertConnectionExists(input.connection);
+  }
+  const nextConnection =
+    input.connection ??
+    (typeof existing.provider_connection === "string"
+      ? existing.provider_connection
+      : undefined);
   if (
     (input.provider !== undefined || input.model !== undefined) &&
     typeof nextProvider === "string" &&
@@ -518,10 +573,8 @@ async function handleUpdateProfile({
       nextProvider,
       nextModel,
       input.allowUnlisted ?? false,
+      nextConnection,
     );
-  }
-  if (input.connection) {
-    assertConnectionExists(input.connection);
   }
 
   const merged: Record<string, unknown> = {
@@ -534,6 +587,24 @@ async function handleUpdateProfile({
   };
   validateProfileEntry(merged);
 
+  // The availability guard runs only when the write touches the fields that
+  // determine dispatchability (provider/model/connection) — metadata-only
+  // edits to a pre-staged profile must not require the escape hatch.
+  if (
+    input.provider !== undefined ||
+    input.model !== undefined ||
+    input.connection !== undefined
+  ) {
+    const forced = await guardProfileAvailability({
+      entry: merged,
+      repair: { kind: "update" },
+      allowUnavailable: input.allowUnavailable ?? false,
+    });
+    if (forced) {
+      warnings.push(unavailableProfileWarning(name, forced));
+    }
+  }
+
   profiles[name] = merged;
   normalizeManagedProfileWrites({ llm: { profiles: { [name]: merged } } });
 
@@ -542,9 +613,13 @@ async function handleUpdateProfile({
   return {
     ok: true as const,
     name,
-    entry: (getEffectiveProfile(getConfig().llm.profiles, name) ??
-      merged) as Record<string, unknown>,
+    entry: (resolveDefaultProfileForProvider(
+      getConfig().llm.profiles,
+      name,
+      getConfig().llm.defaultProvider ?? null,
+    ) ?? merged) as Record<string, unknown>,
     warnings,
+    verify: verifyProfileCommand(name),
   };
 }
 
@@ -619,6 +694,13 @@ async function handleSetActiveProfile({ body = {} }: RouteHandlerArgs) {
       `Profile "${name}" is disabled and cannot be set as the active profile. Enable it first, or pick another.`,
     );
   }
+  // No escape hatch here: an active profile that cannot dispatch locks the
+  // user out of chat entirely, and nothing about the write signals that.
+  await guardProfileAvailability({
+    entry,
+    repair: { kind: "repoint", profileName: name },
+    allowUnavailable: false,
+  });
 
   const raw = loadRawConfig();
   const existingLlm = asPlainObject(raw.llm);
@@ -680,7 +762,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Create an inference profile",
     description:
-      "Create a validated custom profile. The provider must be a known LLM provider, the model must be in the catalog (unless allowUnlisted), and a referenced connection must exist. Managed default names cannot be created.",
+      "Create a validated custom profile. The provider must be a known LLM provider, the model must be in the catalog (unless allowUnlisted), a referenced connection must exist, and the profile must be able to dispatch — a valid provider id with no credentialed connection behind it is rejected unless allowUnavailable is set, in which case it is created with a warning.",
     tags: ["inference"],
     requestBody: createRequestSchema,
     responseBody: profileWriteResultSchema,
@@ -688,7 +770,7 @@ export const ROUTES: RouteDefinition[] = [
     additionalResponses: {
       "400": {
         description:
-          "Invalid provider, uncataloged model, or missing connection",
+          "Invalid provider, uncataloged model, missing connection, or a profile that cannot serve requests",
       },
       "409": { description: "A profile with this name already exists" },
     },
@@ -704,14 +786,15 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Update an inference profile",
     description:
-      "Partial update of a custom profile with the same write-time validation as create. Managed default profiles are read-only.",
+      "Partial update of a custom profile with the same write-time validation as create. The dispatch-availability guard (and its allowUnavailable escape hatch) applies when the update changes provider, model, or connection; metadata-only edits skip it. Managed default profiles are read-only.",
     tags: ["inference"],
     pathParams: [{ name: "name", description: "Profile name" }],
     requestBody: updateRequestSchema,
     responseBody: profileWriteResultSchema,
     additionalResponses: {
       "400": {
-        description: "Invalid fields, or attempt to edit a managed profile",
+        description:
+          "Invalid fields, a profile that cannot serve requests, or attempt to edit a managed profile",
       },
       "404": { description: "Profile not found" },
     },
@@ -736,7 +819,7 @@ export const ROUTES: RouteDefinition[] = [
       "404": { description: "Profile not found" },
       "409": {
         description:
-          "Profile is still referenced by activeProfile, advisorProfile, a call site, or a mix arm",
+          "Profile is still referenced by activeProfile, advisorProfile, a call site, a default-tier override, or a mix arm",
       },
     },
     handler: handleDeleteProfile,
@@ -751,7 +834,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Set the active (chat) inference profile",
     description:
-      "Set llm.activeProfile after validating the name against the effective profile catalog (provider-aware default expansion included). Unknown or disabled profiles are rejected so the chat-model selection cannot be silently stripped on the next config load.",
+      "Set llm.activeProfile after validating the name against the effective profile catalog (provider-aware default expansion included). Unknown or disabled profiles are rejected so the chat-model selection cannot be silently stripped on the next config load. A profile that provably cannot dispatch is also rejected — there is no escape hatch, because an unusable active profile locks the user out of chat.",
     tags: ["inference"],
     requestBody: setActiveRequestSchema,
     responseBody: z.object({
@@ -760,7 +843,8 @@ export const ROUTES: RouteDefinition[] = [
     }),
     additionalResponses: {
       "400": {
-        description: "Unknown or disabled profile name",
+        description:
+          "Unknown or disabled profile name, or a profile that cannot serve requests",
       },
     },
     handler: handleSetActiveProfile,

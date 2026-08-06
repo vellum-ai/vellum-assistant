@@ -10,13 +10,7 @@
  * LatestTurnRow follows at the end of the DOM (visual bottom).
  */
 
-import {
-  afterEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { act, useEffect } from "react";
 import { cleanup, render } from "@testing-library/react";
 
@@ -39,16 +33,32 @@ mock.module("@/components/assistant/surfaces", () => ({
 
 // `MessageHoverActions` uses `navigator.clipboard` in a handler; replace
 // with a minimal stub so the server render is deterministic.
-mock.module("@/domains/chat/components/message-hover-actions/message-hover-actions", () => ({
-  MessageHoverActions: () => <div data-testid="hover-actions" />,
-}));
+mock.module(
+  "@/domains/chat/components/message-hover-actions/message-hover-actions",
+  () => ({
+    MessageHoverActions: () => <div data-testid="hover-actions" />,
+  }),
+);
 
 mock.module("@/domains/chat/components/tool-call-chip/tool-call-chip", () => ({
   ToolCallChip: () => <div data-testid="tool-call" />,
 }));
 
-mock.module("@/domains/chat/components/chat-attachments/message-attachments", () => ({
-  MessageAttachments: () => <div data-testid="attachments" />,
+mock.module(
+  "@/domains/chat/components/chat-attachments/message-attachments",
+  () => ({
+    MessageAttachments: () => <div data-testid="attachments" />,
+  }),
+);
+
+// The reopen link names its own document from the documents query; that is
+// covered by `document-reopen-link.test`. Stub it to a bare marker so these
+// tests assert what the transcript owns: how many links a response ends with
+// and which message carries them.
+mock.module("@/domains/chat/transcript/document-reopen-link", () => ({
+  DocumentReopenLink: ({ surfaceId }: { surfaceId: string }) => (
+    <span data-testid="document-reopen-link" data-surface-id={surfaceId} />
+  ),
 }));
 
 // ---------------------------------------------------------------------------
@@ -57,10 +67,12 @@ mock.module("@/domains/chat/components/chat-attachments/message-attachments", ()
 
 import { renderToStaticMarkup } from "react-dom/server";
 
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
 import { Transcript } from "@/domains/chat/transcript/transcript";
+import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
 
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
 function userMessage(id: string, content: string): TranscriptItem {
@@ -86,12 +98,7 @@ const noop = () => {};
 describe("Transcript", () => {
   test("with empty items, renders zero rows", () => {
     const html = renderToStaticMarkup(
-      <Transcript
-        items={[]}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={[]} conversationId={null} onSurfaceAction={noop} />,
     );
     // No message content → no rendered rows.
     expect(html).not.toContain('data-latest-turn="true"');
@@ -100,12 +107,7 @@ describe("Transcript", () => {
 
   test("scroll container has flex-col class (chronological order)", () => {
     const html = renderToStaticMarkup(
-      <Transcript
-        items={[]}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={[]} conversationId={null} onSurfaceAction={noop} />,
     );
     expect(html).toContain("flex-col");
     expect(html).not.toContain("flex-col-reverse");
@@ -122,12 +124,7 @@ describe("Transcript", () => {
     // partitionLatestTurn -> historyItems: [a1, u1, a2] (3), anchor: u2,
     //                       responseItems: [a3].
     const html = renderToStaticMarkup(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     // All history message content appears in the rendered output.
@@ -150,12 +147,7 @@ describe("Transcript", () => {
       assistantMessage("a2", "also assistant"),
     ];
     const html = renderToStaticMarkup(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     expect(html).not.toContain('data-latest-turn="true"');
@@ -172,12 +164,7 @@ describe("Transcript", () => {
     ];
     // partition: history=[a1], anchor=u1, response=[a2]
     const html = renderToStaticMarkup(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     // In flex-col DOM order: history items come first (visual top),
@@ -195,9 +182,7 @@ describe("Transcript avatar slot", () => {
   test("renderAvatar with no anchor (assistant-only history) still mounts the avatar at the bottom", () => {
     // No user message → no anchor. Avatar must still appear so the
     // bottom-of-conversation slot is conversation-agnostic.
-    const items: TranscriptItem[] = [
-      assistantMessage("a1", "only assistant"),
-    ];
+    const items: TranscriptItem[] = [assistantMessage("a1", "only assistant")];
     const html = renderToStaticMarkup(
       <Transcript
         items={items}
@@ -252,12 +237,7 @@ describe("Transcript avatar slot", () => {
       assistantMessage("a1", "reply"),
     ];
     const html = renderToStaticMarkup(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     expect(html).not.toContain('data-latest-assistant-avatar="true"');
@@ -311,9 +291,7 @@ describe("Transcript avatar slot", () => {
   });
 
   test("renderAvatar with anchor: latest-edge wrapper applies min-height (viewport pinning preserved)", () => {
-    const items: TranscriptItem[] = [
-      userMessage("u1", "ANCHOR_MARKER"),
-    ];
+    const items: TranscriptItem[] = [userMessage("u1", "ANCHOR_MARKER")];
     const html = renderToStaticMarkup(
       <Transcript
         items={items}
@@ -366,9 +344,7 @@ describe("Transcript avatar slot", () => {
   });
 
   test("no anchor: no flex-1 spacer rendered (avatar sits inline under history)", () => {
-    const items: TranscriptItem[] = [
-      assistantMessage("a1", "history one"),
-    ];
+    const items: TranscriptItem[] = [assistantMessage("a1", "history one")];
     const html = renderToStaticMarkup(
       <Transcript
         items={items}
@@ -394,7 +370,6 @@ describe("Transcript avatar slot", () => {
         items={items}
         conversationId="conv-1"
         onSurfaceAction={noop}
-
       />,
     );
 
@@ -466,7 +441,7 @@ describe("Transcript no-anchor → anchor transition preserves avatar DOM identi
           items={withAnchor}
           conversationId="conv-1"
           onSurfaceAction={noop}
-  
+
           renderAvatar={renderAvatar}
         />,
       );
@@ -486,12 +461,169 @@ describe("Transcript no-anchor → anchor transition preserves avatar DOM identi
           items={historyOnly}
           conversationId="conv-1"
           onSurfaceAction={noop}
-  
+
           renderAvatar={renderAvatar}
         />,
       );
     });
     expect(avatarMountCount).toBe(1);
     expect(avatarUnmountCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A response is many messages (thinking, tool runs, document edits, more
+// text), and several of them commonly write the same document. The reopen link
+// belongs to the response, not to each message that wrote: one link per
+// document, on the message that ends the response, once the turn has settled.
+// ---------------------------------------------------------------------------
+describe("Transcript changed-document reopen links", () => {
+  afterEach(() => {
+    cleanup();
+    useTurnStore.setState(INITIAL_TURN_STATE);
+  });
+
+  /** A settled `document_update` whose result carries the surface it wrote. */
+  function updateCall(id: string, surfaceId: string): ChatMessageToolCall {
+    return {
+      id,
+      name: "document_update",
+      input: { surface_id: surfaceId, content: "notes" },
+      result: JSON.stringify({ success: true, surface_id: surfaceId }),
+      completedAt: 1,
+    };
+  }
+
+  function editingMessage(
+    id: string,
+    toolCalls: ChatMessageToolCall[],
+  ): TranscriptItem {
+    const msg: DisplayMessage = {
+      id,
+      role: "assistant",
+      toolCalls,
+      contentBlocks: toolCalls.map((toolCall) => ({
+        type: "tool_use",
+        toolCall,
+      })),
+    };
+    return { kind: "message", key: id, message: msg };
+  }
+
+  function renderTranscript(items: TranscriptItem[]) {
+    return render(
+      <Transcript
+        items={items}
+        conversationId="conv-doc"
+        assistantId="asst-doc"
+        onSurfaceAction={noop}
+        onOpenDocument={noop}
+      />,
+    );
+  }
+
+  function reopenSurfaceIds(container: HTMLElement): (string | null)[] {
+    return Array.from(
+      container.querySelectorAll<HTMLElement>(
+        "[data-testid='document-reopen-link']",
+      ),
+    ).map((link) => link.getAttribute("data-surface-id"));
+  }
+
+  /** The response's three messages, all writing the same document. */
+  const threeEditsOfOneDocument: TranscriptItem[] = [
+    userMessage("u1", "update my notes"),
+    editingMessage("a1", [updateCall("tc-1", "surf-notes")]),
+    editingMessage("a2", [updateCall("tc-2", "surf-notes")]),
+    editingMessage("a3", [updateCall("tc-3", "surf-notes")]),
+  ];
+
+  test("renders exactly one link for a document three messages of the response changed", () => {
+    const { container } = renderTranscript(threeEditsOfOneDocument);
+
+    expect(reopenSurfaceIds(container)).toEqual(["surf-notes"]);
+  });
+
+  test("renders one link per distinct document the response changed", () => {
+    const { container } = renderTranscript([
+      userMessage("u1", "update both"),
+      editingMessage("a1", [updateCall("tc-1", "surf-notes")]),
+      editingMessage("a2", [updateCall("tc-2", "surf-plan")]),
+    ]);
+
+    expect(reopenSurfaceIds(container)).toEqual(["surf-notes", "surf-plan"]);
+  });
+
+  test("puts the link on the final message of the response, not the earlier ones", () => {
+    const { container } = renderTranscript(threeEditsOfOneDocument);
+
+    const link = container.querySelector<HTMLElement>(
+      "[data-testid='document-reopen-link']",
+    )!;
+    expect(
+      link.closest("[data-message-id]")!.getAttribute("data-message-id"),
+    ).toBe("a3");
+  });
+
+  test("renders no link while the response is still streaming", () => {
+    useTurnStore.setState({ phase: "streaming" });
+
+    const { container } = renderTranscript(threeEditsOfOneDocument);
+
+    expect(reopenSurfaceIds(container)).toEqual([]);
+  });
+
+  test("renders no link while the response waits on the user", () => {
+    useTurnStore.setState({ phase: "awaiting_user_input" });
+
+    const { container } = renderTranscript(threeEditsOfOneDocument);
+
+    expect(reopenSurfaceIds(container)).toEqual([]);
+  });
+
+  test("renders the link once the streaming response settles", async () => {
+    useTurnStore.setState({ phase: "streaming" });
+    const { container } = renderTranscript(threeEditsOfOneDocument);
+    expect(reopenSurfaceIds(container)).toEqual([]);
+
+    await act(async () => {
+      useTurnStore.setState({ phase: "idle" });
+    });
+
+    expect(reopenSurfaceIds(container)).toEqual(["surf-notes"]);
+  });
+
+  test("keeps the link on a completed response reseeded from history", () => {
+    const { container, rerender } = renderTranscript(threeEditsOfOneDocument);
+    expect(reopenSurfaceIds(container)).toEqual(["surf-notes"]);
+
+    // A reseed from `/messages` rebuilds every row out of the persisted wire
+    // payload: fresh object identities, none of the live stream state.
+    const reseeded = JSON.parse(
+      JSON.stringify(threeEditsOfOneDocument),
+    ) as TranscriptItem[];
+    rerender(
+      <Transcript
+        items={reseeded}
+        conversationId="conv-doc"
+        assistantId="asst-doc"
+        onSurfaceAction={noop}
+        onOpenDocument={noop}
+      />,
+    );
+
+    expect(reopenSurfaceIds(container)).toEqual(["surf-notes"]);
+  });
+
+  test("ends each earlier response with its own link", () => {
+    const { container } = renderTranscript([
+      userMessage("u1", "update my notes"),
+      editingMessage("a1", [updateCall("tc-1", "surf-notes")]),
+      editingMessage("a2", [updateCall("tc-2", "surf-notes")]),
+      userMessage("u2", "now the plan"),
+      editingMessage("a3", [updateCall("tc-3", "surf-plan")]),
+    ]);
+
+    expect(reopenSurfaceIds(container)).toEqual(["surf-notes", "surf-plan"]);
   });
 });

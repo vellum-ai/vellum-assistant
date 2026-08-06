@@ -159,14 +159,18 @@ export interface OnboardingFunnelEvent {
 }
 
 export function getOnboardingFunnelSessionId(): string {
-  if (typeof window === "undefined") return crypto.randomUUID();
+  if (typeof window === "undefined") {
+    return crypto.randomUUID();
+  }
   let existing = "";
   try {
     existing = sessionStorage.getItem(SESSION_STORAGE_KEY) ?? "";
   } catch {
     existing = "";
   }
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
   const next = crypto.randomUUID();
   try {
     sessionStorage.setItem(SESSION_STORAGE_KEY, next);
@@ -202,8 +206,12 @@ export function emitOnboardingFunnelStepCompleted(
   screen: OnboardingFunnelStepDescriptor,
   options: OnboardingFunnelStepCompletedOptions = {},
 ): void {
-  if (typeof window === "undefined") return;
-  if (!isAnalyticsEnabled()) return;
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (!isAnalyticsEnabled()) {
+    return;
+  }
 
   postTelemetryEvents([buildOnboardingFunnelEvent(screen, options)]);
 }
@@ -272,7 +280,9 @@ export function emitFirstMessageScopeSelected(
 }
 
 export function __resetOnboardingFunnelEventsForTests(): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") {
+    return;
+  }
   try {
     sessionStorage.removeItem(SESSION_STORAGE_KEY);
   } catch {

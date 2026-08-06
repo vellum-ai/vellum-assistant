@@ -150,7 +150,9 @@ export function ResearchMockPage() {
         }
         onRestore={(index) =>
           setRemovals((prev) => {
-            if (!prev.has(index)) return prev;
+            if (!prev.has(index)) {
+              return prev;
+            }
             const next = new Map(prev);
             next.delete(index);
             return next;

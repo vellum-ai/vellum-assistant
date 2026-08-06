@@ -35,7 +35,9 @@ export async function publishBackgroundWakeIntent(
   intent: BackgroundWakeIntent,
 ): Promise<BackgroundWakeIntentClientResult> {
   const client = await VellumPlatformClient.create();
-  if (!client) return { status: "skipped", reason: "missing_platform_client" };
+  if (!client) {
+    return { status: "skipped", reason: "missing_platform_client" };
+  }
   if (!client.platformAssistantId) {
     return { status: "skipped", reason: "missing_platform_assistant_id" };
   }
@@ -62,7 +64,9 @@ export async function clearBackgroundWakeIntent(
   intentSnapshot: BackgroundWakeIntentSnapshot = null,
 ): Promise<BackgroundWakeIntentClientResult> {
   const client = await VellumPlatformClient.create();
-  if (!client) return { status: "skipped", reason: "missing_platform_client" };
+  if (!client) {
+    return { status: "skipped", reason: "missing_platform_client" };
+  }
   if (!client.platformAssistantId) {
     return { status: "skipped", reason: "missing_platform_assistant_id" };
   }
@@ -88,7 +92,9 @@ export async function renewBackgroundWakeLease(
   leaseId: string,
 ): Promise<BackgroundWakeLeaseClientResult> {
   const client = await VellumPlatformClient.create();
-  if (!client) return { status: "skipped", reason: "missing_platform_client" };
+  if (!client) {
+    return { status: "skipped", reason: "missing_platform_client" };
+  }
   if (!client.platformAssistantId) {
     return { status: "skipped", reason: "missing_platform_assistant_id" };
   }
@@ -114,7 +120,9 @@ export async function completeBackgroundWakeLease(args: {
   nextIntent?: BackgroundWakeIntent | null;
 }): Promise<BackgroundWakeLeaseClientResult> {
   const client = await VellumPlatformClient.create();
-  if (!client) return { status: "skipped", reason: "missing_platform_client" };
+  if (!client) {
+    return { status: "skipped", reason: "missing_platform_client" };
+  }
   if (!client.platformAssistantId) {
     return { status: "skipped", reason: "missing_platform_assistant_id" };
   }
@@ -122,7 +130,9 @@ export async function completeBackgroundWakeLease(args: {
   const body: Record<string, unknown> = {
     status: args.status,
   };
-  if (args.error) body.error = args.error;
+  if (args.error) {
+    body.error = args.error;
+  }
   if ("nextIntent" in args) {
     body.next_intent = args.nextIntent
       ? {
@@ -170,7 +180,9 @@ function toIsoString(timestampMs: number): string {
 }
 
 async function throwIfNotOk(response: Response, action: string): Promise<void> {
-  if (response.ok) return;
+  if (response.ok) {
+    return;
+  }
 
   let body = "";
   try {

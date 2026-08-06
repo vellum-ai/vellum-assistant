@@ -12,7 +12,10 @@
 import { createContext, useContext } from "react";
 
 import type { UseDragReorderResult } from "@/domains/chat/hooks/use-drag-reorder";
-import type { Conversation, ConversationGroup } from "@/types/conversation-types";
+import type {
+  Conversation,
+  ConversationGroup,
+} from "@/types/conversation-types";
 
 export interface ConversationListContextValue {
   activeConversationId?: string;

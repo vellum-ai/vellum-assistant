@@ -120,7 +120,11 @@ export async function requestSignedUploadUrl(
     );
   }
   const json = data as { url: string; bundle_key: string; expires_at: string };
-  return { url: json.url, bundleKey: json.bundle_key, expiresAt: json.expires_at };
+  return {
+    url: json.url,
+    bundleKey: json.bundle_key,
+    expiresAt: json.expires_at,
+  };
 }
 
 /**
@@ -149,7 +153,9 @@ export async function requestSignedDownloadUrl(
 
   if (status === 422) {
     const message = parseVersionMismatch(error);
-    if (message) throw new TeleportError("version_mismatch", message);
+    if (message) {
+      throw new TeleportError("version_mismatch", message);
+    }
   }
   if (status !== 200 && status !== 201) {
     throw new TeleportError(
@@ -200,7 +206,9 @@ function putWithProgress(
     xhr.timeout = 3_600_000;
     if (onProgress) {
       xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) onProgress(event.loaded / event.total);
+        if (event.lengthComputable) {
+          onProgress(event.loaded / event.total);
+        }
       };
     }
     xhr.onload = () => {

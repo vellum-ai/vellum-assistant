@@ -17,6 +17,7 @@ import {
   unlinkSync,
 } from "node:fs";
 import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { getCurrentLogFilePath } from "./logger.js";
 import { workerMemoryEnv } from "./worker-memory.js";
@@ -209,8 +210,13 @@ export async function spawnWorkerProcess(args: {
 
   // Workers are latency-insensitive, so run them in bun's small-heap mode
   // with a RAM-size hint sized to the container — see worker-memory.ts.
+  //
+  // `fileURLToPath`, not `.pathname`: a URL's pathname is percent-encoded, so
+  // an install path containing a space (every macOS desktop install lives
+  // under "Application Support") would reach bun as "Application%20Support"
+  // and the entry would not be found.
   const child = Bun.spawn({
-    cmd: ["bun", "--smol", "run", args.entry.pathname],
+    cmd: ["bun", "--smol", "run", fileURLToPath(args.entry)],
     env: workerMemoryEnv(),
     stdio: ["ignore", "ignore", stderrFd],
     detached,

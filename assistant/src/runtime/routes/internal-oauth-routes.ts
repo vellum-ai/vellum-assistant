@@ -45,13 +45,17 @@ export const ROUTES: RouteDefinition[] = [
 
       if (error) {
         const consumed = consumeCallbackError(state, error);
-        if (!consumed) throw new NotFoundError("Unknown state");
+        if (!consumed) {
+          throw new NotFoundError("Unknown state");
+        }
         return { ok: true };
       }
 
       if (code) {
         const consumed = consumeCallback(state, code);
-        if (!consumed) throw new NotFoundError("Unknown state");
+        if (!consumed) {
+          throw new NotFoundError("Unknown state");
+        }
         return { ok: true };
       }
 

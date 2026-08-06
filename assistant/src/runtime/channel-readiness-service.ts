@@ -1,14 +1,10 @@
 import { isInviteCodeRedemptionEnabled } from "@vellumai/gateway-client";
-import {
-  normalizePublicBaseUrl,
-  resolveTwilioPublicBaseUrl,
-} from "@vellumai/service-contracts/twilio-ingress";
 import { z } from "zod";
 
 import { resolveTwilioPhoneNumber } from "../calls/twilio-config.js";
 import { hasTwilioCredentials } from "../calls/twilio-rest.js";
-import { getIsPlatform } from "../config/env-registry.js";
 import { getNestedValue, loadRawConfig } from "../config/loader.js";
+import { hasWebhookRoutingConfigured } from "../config/webhook-routing.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { resolveWhatsAppDisplayNumber } from "./channel-invite-transports/whatsapp.js";
@@ -115,41 +111,6 @@ function scopeGrantCheck(rawHeader: string | null): ReadinessCheckResult {
   );
 }
 
-function hasIngressConfigured(options: { twilio?: boolean } = {}): boolean {
-  try {
-    const raw = loadRawConfig();
-    const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
-    const effectiveBaseUrl = options.twilio
-      ? (resolveTwilioPublicBaseUrl(ingress) ?? "")
-      : (normalizePublicBaseUrl(ingress.publicBaseUrl) ?? "");
-    const enabled =
-      (ingress.enabled as boolean | undefined) ??
-      (effectiveBaseUrl ? true : false);
-    return enabled && effectiveBaseUrl.trim().length > 0;
-  } catch {
-    return false;
-  }
-}
-
-function hasWebhookRoutingConfigured(
-  allowManagedCallbacks = false,
-  options: { twilio?: boolean } = {},
-): {
-  configured: boolean;
-  usesManagedCallbacks: boolean;
-} {
-  const ingressConfigured = hasIngressConfigured(options);
-  if (ingressConfigured) {
-    return { configured: true, usesManagedCallbacks: false };
-  }
-
-  const usesManagedCallbacks = allowManagedCallbacks && getIsPlatform();
-  return {
-    configured: usesManagedCallbacks,
-    usesManagedCallbacks,
-  };
-}
-
 // ── Shared check helpers ────────────────────────────────────────────────────
 
 /** Build a check result from a boolean condition. */
@@ -179,14 +140,12 @@ async function checkCredential(
 }
 
 /** Check that public ingress is configured and enabled. */
-function checkIngress(
+async function checkIngress(
   allowManagedCallbacks = false,
   options: { twilio?: boolean } = {},
-): ReadinessCheckResult {
-  const { configured, usesManagedCallbacks } = hasWebhookRoutingConfigured(
-    allowManagedCallbacks,
-    options,
-  );
+): Promise<ReadinessCheckResult> {
+  const { configured, usesManagedCallbacks } =
+    await hasWebhookRoutingConfigured(allowManagedCallbacks, options);
   return check(
     "ingress",
     configured,
@@ -212,7 +171,7 @@ const voiceProbe: ChannelProbe = {
   async runLocalChecks(): Promise<ReadinessCheckResult[]> {
     const hasCreds = await hasTwilioCredentials();
     const hasPhone = !!resolveTwilioPhoneNumber();
-    const ingress = checkIngress(true, { twilio: true });
+    const ingress = await checkIngress(true, { twilio: true });
 
     return [
       check(
@@ -250,7 +209,7 @@ const telegramProbe: ChannelProbe = {
         "webhook_secret",
         "Telegram webhook secret",
       ),
-      checkIngress(true),
+      await checkIngress(true),
     ];
   },
 };
@@ -273,7 +232,7 @@ const emailProbe: ChannelProbe = {
         "Email invite code redemption is enabled",
         "Email invite code redemption is disabled",
       ),
-      checkIngress(),
+      await checkIngress(),
     ];
   },
   async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
@@ -346,7 +305,7 @@ const whatsappProbe: ChannelProbe = {
         "WhatsApp invite code redemption is enabled",
         "WhatsApp invite code redemption is disabled",
       ),
-      checkIngress(),
+      await checkIngress(),
     ];
   },
 };

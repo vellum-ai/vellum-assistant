@@ -56,21 +56,29 @@ export function useEmptyStateGreeting({
       assistantId,
       signal: controller.signal,
       onDelta: (text) => {
-        if (active) setGreeting(text);
+        if (active) {
+          setGreeting(text);
+        }
       },
     })
       .then((text) => {
-        if (!active) return;
+        if (!active) {
+          return;
+        }
         setGreeting(text.trim() || DEFAULT_EMPTY_STATE_GREETING);
       })
       .catch(() => {
         // Transport error, abort, or generation failure — keep whatever
         // streamed in, else fall back to a stable default.
-        if (!active) return;
+        if (!active) {
+          return;
+        }
         setGreeting((current) => current || DEFAULT_EMPTY_STATE_GREETING);
       })
       .finally(() => {
-        if (active) setIsGenerating(false);
+        if (active) {
+          setIsGenerating(false);
+        }
       });
 
     return () => {

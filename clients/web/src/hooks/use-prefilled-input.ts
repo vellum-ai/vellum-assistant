@@ -38,9 +38,13 @@ export function usePrefilledInput(seed: string | null | undefined): {
   const touched = useRef(false);
 
   useEffect(() => {
-    if (touched.current) return;
+    if (touched.current) {
+      return;
+    }
     const trimmed = (seed ?? "").trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      return;
+    }
     setValue((prev) => prev || trimmed);
   }, [seed]);
 
