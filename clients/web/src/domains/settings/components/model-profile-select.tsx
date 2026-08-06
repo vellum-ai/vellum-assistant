@@ -4,16 +4,6 @@ import { Select } from "@vellumai/design-library/components/select";
 
 import { useProfileOptions } from "@/domains/settings/hooks/use-profile-options";
 
-const DEFAULT_PROFILE_OPTION_VALUE = "__default_profile__";
-
-export function profileOptionToSelectValue(value: string | null): string {
-  return value ?? DEFAULT_PROFILE_OPTION_VALUE;
-}
-
-export function selectValueToProfileOption(value: string): string | null {
-  return value === DEFAULT_PROFILE_OPTION_VALUE ? null : value;
-}
-
 export interface ModelProfileSelectProps {
   assistantId: string;
   value: string | null;
@@ -59,14 +49,15 @@ export function ModelProfileSelect({
             ...(option.reason ? { tooltip: option.reason } : {}),
           }
         : {}),
-      value: profileOptionToSelectValue(option.value),
+      value: option.value,
       label: option.label,
     }));
 
   return (
     <Select
-      value={profileOptionToSelectValue(value)}
-      onChange={(selected) => onChange(selectValueToProfileOption(selected))}
+      value={value}
+      onChange={onChange}
+      onSelectNone={() => onChange(null)}
       options={options}
       disabled={disabled || isSaving}
       placeholder={placeholder}

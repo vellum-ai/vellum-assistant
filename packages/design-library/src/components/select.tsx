@@ -13,11 +13,14 @@ export type SelectSize = "regular" | "compact";
 
 export interface SelectOption<T extends string> {
   /**
+   * `null` marks the row meaning "no value chosen", where that is a real
+   * choice rather than the absence of one. Selecting it calls
+   * {@link SelectProps.onSelectNone} instead of `onChange`.
+   *
    * Must not be the empty string: Radix reserves it to mean "cleared". For a
-   * leading "nothing chosen" row, use `placeholder`; for a row that means
-   * something specific ("Default", "Custom"), give it a real sentinel value.
+   * trigger that shows nothing until the user picks, use `placeholder`.
    */
-  readonly value: T;
+  readonly value: T | null;
   readonly label: string;
   readonly icon?: ReactNode;
   readonly suffix?: ReactNode;
@@ -33,8 +36,14 @@ export interface SelectOption<T extends string> {
 export interface SelectProps<T extends string> {
   readonly options: ReadonlyArray<SelectOption<T>>;
   /** Empty string means "nothing chosen", which renders `placeholder`. */
-  readonly value: T | "";
+  /** `null` selects the option carrying a `null` value, if one is offered. */
+  readonly value: T | "" | null;
   readonly onChange: (value: T) => void;
+  /**
+   * Called instead of `onChange` when the user picks the row whose value is
+   * `null`. Separate so `onChange` keeps promising a narrowed `T`.
+   */
+  readonly onSelectNone?: () => void;
   readonly placeholder?: string;
   readonly disabled?: boolean;
   /** Trigger + option density. Defaults to `"regular"` (36px trigger). */
@@ -126,6 +135,7 @@ export function Select<T extends string>({
   "aria-label": ariaLabel,
   "aria-labelledby": ariaLabelledBy,
   "aria-describedby": ariaDescribedBy,
+  onSelectNone,
   "data-testid": dataTestId,
   label,
   helperText,
@@ -159,6 +169,25 @@ export function Select<T extends string>({
     return false;
   });
 
+  // Radix addresses items by string, so the null row needs one. Derived from
+  // the values actually present rather than fixed, so no real value can ever
+  // be mistaken for it and nothing has to be reserved outside this file.
+  const noneToken = (() => {
+    const taken = new Set<string>(
+      selectableOptions.flatMap((option) =>
+        option.value === null ? [] : [option.value],
+      ),
+    );
+    let token = "\u0000none";
+    while (taken.has(token)) {
+      token += "\u0000";
+    }
+    return token;
+  })();
+
+  const tokenFor = (optionValue: T | null): string =>
+    optionValue === null ? noneToken : optionValue;
+
   const selectedOption = selectableOptions.find(
     (option) => option.value === value,
   );
@@ -170,14 +199,14 @@ export function Select<T extends string>({
       // would hand control back to Radix the moment a caller cleared the
       // value, leaving the trigger showing a stale choice. Radix already
       // treats "" as the placeholder state.
-      value={value}
+      value={value === null ? noneToken : value}
       // Radix hands back a plain `string`, but `onChange` promises callers a
       // narrowed `T`. Look the value up in `selectableOptions` and forward the
       // matched option's own `value`, so the type is earned at the runtime
       // boundary rather than asserted across it.
       onValueChange={(next) => {
         const matched = selectableOptions.find(
-          (option) => option.value === next,
+          (option) => tokenFor(option.value) === next,
         );
         if (!matched) {
           // Radix only emits values belonging to mounted items, so this is
@@ -189,6 +218,10 @@ export function Select<T extends string>({
               `Select: ignoring a change to "${next}", which matches no option.`,
             );
           }
+          return;
+        }
+        if (matched.value === null) {
+          onSelectNone?.();
           return;
         }
         onChange(matched.value);
@@ -289,8 +322,8 @@ export function Select<T extends string>({
             {selectableOptions.map((option) => {
               const optionRow = (
                 <RadixSelect.Item
-                  key={option.value}
-                  value={option.value}
+                  key={tokenFor(option.value)}
+                  value={tokenFor(option.value)}
                   disabled={option.disabled}
                   data-slot="select-option"
                   className={cn(
@@ -340,7 +373,7 @@ export function Select<T extends string>({
               );
               return option.tooltip ? (
                 <Tooltip
-                  key={option.value}
+                  key={tokenFor(option.value)}
                   content={option.tooltip}
                   side="right"
                 >

@@ -106,6 +106,45 @@ export const WithPlaceholder: Story = {
   args: { value: "", placeholder: "Select a fruit…" },
 };
 
+export const WithLabel: Story = {
+  args: { label: "Fruit" },
+};
+
+export const WithHelperText: Story = {
+  args: { label: "Fruit", helperText: "Picked fresh this morning." },
+};
+
+export const WithError: Story = {
+  args: { label: "Fruit", value: "", errorText: "Choose a fruit" },
+};
+
+/** An error supersedes helper text, so one message shows rather than two. */
+export const ErrorReplacesHelperText: Story = {
+  args: {
+    label: "Fruit",
+    value: "",
+    helperText: "Picked fresh this morning.",
+    errorText: "Choose a fruit",
+  },
+};
+
+/**
+ * A selectable "no value" row, which is not the same as nothing being
+ * selected. The row carries `null`, and picking it calls `onSelectNone`
+ * rather than `onChange`, so `onChange` keeps promising a narrowed value.
+ */
+export const NullableSelection: Story = {
+  args: {
+    label: "Fruit",
+    value: null,
+    options: [
+      { value: null, label: "No preference" },
+      { value: "apple", label: "Apple" },
+      { value: "banana", label: "Banana" },
+    ],
+  },
+};
+
 export const WithIcons: Story = {
   args: {
     options: visibilityOptions,
@@ -272,16 +311,12 @@ export const OpensUpwardWhenLow: Story = {
  * a caller resets, leaving the previous choice on screen.
  */
 export const ClearedByParent: Story = {
-  args: { value: "",
-    placeholder: "Select a fruit…",
-    "aria-label": "Fruit",
-  },
+  args: { value: "", placeholder: "Select a fruit…", "aria-label": "Fruit" },
   render: function ClearableSelect(args) {
     const [value, setValue] = useState<string>("");
     return (
       <div className="flex w-64 flex-col gap-2">
-        <Select {...args} options={fruits} value={value}
-          onChange={setValue} />
+        <Select {...args} options={fruits} value={value} onChange={setValue} />
         <button type="button" data-testid="clear" onClick={() => setValue("")}>
           Clear
         </button>
@@ -295,7 +330,9 @@ export const ClearedByParent: Story = {
     await step("user picks an option", async () => {
       await userEvent.click(trigger);
       const cherry = [
-        ...document.querySelectorAll<HTMLElement>('[data-slot="select-option"]'),
+        ...document.querySelectorAll<HTMLElement>(
+          '[data-slot="select-option"]',
+        ),
       ].find((o) => o.textContent?.includes("Cherry"));
       await expect(cherry).toBeDefined();
       await userEvent.click(cherry!);
@@ -375,7 +412,9 @@ export const InsideModal: Story = {
 
     await step("choosing an option does not dismiss the modal", async () => {
       const cherry = [
-        ...document.querySelectorAll<HTMLElement>('[data-slot="select-option"]'),
+        ...document.querySelectorAll<HTMLElement>(
+          '[data-slot="select-option"]',
+        ),
       ].find((o) => o.textContent?.includes("Cherry"));
       await userEvent.click(cherry!);
       await expect(trigger!.textContent).toContain("Cherry");
