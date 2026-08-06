@@ -8,6 +8,7 @@
   },
   "conversationAssets": {
     "label": "{count, plural, one {# recurso} other {# recursos}}",
-    "ariaLabel": "Recursos de la conversación, {count, plural, one {# elemento} other {# elementos}}"
+    "ariaLabel": "Recursos de la conversación, {count, plural, one {# elemento} other {# elementos}}",
+    "ariaLabelUnseen": "Recursos de la conversación, {count, plural, one {# elemento} other {# elementos}} (cambios sin ver)"
   }
 }

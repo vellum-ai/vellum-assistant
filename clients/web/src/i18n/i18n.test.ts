@@ -90,6 +90,9 @@ describe("ICU message formatting", () => {
     expect(t("conversationAssets.ariaLabel", { count: 1 })).toBe(
       "Conversation assets, 1 item",
     );
+    expect(t("conversationAssets.ariaLabelUnseen", { count: 1 })).toBe(
+      "Conversation assets, 1 item (unseen changes)",
+    );
   });
 
   test("selects the plural category for other counts", () => {
