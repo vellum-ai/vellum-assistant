@@ -2,12 +2,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
 import { z } from "zod";
 
-import {
-  SidecarSupervisor,
-  type SidecarState,
-} from "./supervisor";
+import { SidecarSupervisor, type SidecarState } from "./process-supervisor";
 
-export type MacHelperState = SidecarState;
+export type NativeSidecarState = SidecarState;
 
 export const JSON_RPC_PARSE_ERROR = -32700;
 export const JSON_RPC_INVALID_REQUEST = -32600;
@@ -54,9 +51,7 @@ const JSON_RPC_FRAME_SCHEMA = z.union([
 ]);
 
 export type JsonRpcId = z.infer<typeof JSON_RPC_ID_SCHEMA>;
-export type JsonRpcNotification = z.infer<
-  typeof JSON_RPC_NOTIFICATION_SCHEMA
->;
+export type JsonRpcNotification = z.infer<typeof JSON_RPC_NOTIFICATION_SCHEMA>;
 export type JsonRpcErrorPayload = z.infer<typeof JSON_RPC_ERROR_SCHEMA>;
 
 type PendingCall = {
@@ -82,7 +77,7 @@ type StreamSubscription = {
   queue: AsyncQueue<unknown>;
 };
 
-export interface MacHelperClientOptions {
+export interface NativeSidecarClientOptions {
   name: string;
   resolveExecutablePath: () => string;
   logger: {
@@ -90,10 +85,12 @@ export interface MacHelperClientOptions {
     warn: (...args: unknown[]) => void;
   };
   responseTimeoutMs?: number;
+  maxFrameBytes?: number;
   spawnArgs?: string[];
   /** Extra environment merged over process.env for the spawned helper. */
   spawnEnv?: Record<string, string>;
   platform?: NodeJS.Platform;
+  spawn?: () => ChildProcessWithoutNullStreams;
   initialBackoffMs?: number;
   maxBackoffMs?: number;
   stableResetMs?: number;
@@ -101,7 +98,7 @@ export interface MacHelperClientOptions {
   circuitWindowMs?: number;
 }
 
-export interface MacHelperStreamOptions<T> {
+export interface NativeSidecarStreamOptions<T> {
   notificationMethod: string;
   notificationSchema: z.ZodType<T>;
   matches?: (notification: JsonRpcNotification) => boolean;
@@ -115,20 +112,25 @@ export class JsonRpcHelperError extends Error {
     super(error.message);
     this.name = "JsonRpcHelperError";
     this.code = error.code;
-    if (error.data !== undefined) this.data = error.data;
+    if (error.data !== undefined) {
+      this.data = error.data;
+    }
   }
 }
 
 const DEFAULT_RESPONSE_TIMEOUT_MS = 2_000;
+const DEFAULT_MAX_FRAME_BYTES = 1_048_576;
 
-export class MacHelperClient {
+export class NativeSidecarClient {
   private readonly name: string;
   private readonly resolveExecutablePath: () => string;
-  private readonly logger: MacHelperClientOptions["logger"];
+  private readonly logger: NativeSidecarClientOptions["logger"];
   private readonly responseTimeoutMs: number;
+  private readonly maxFrameBytes: number;
   private readonly spawnArgs: string[];
   private readonly spawnEnv?: Record<string, string>;
   private readonly platform: NodeJS.Platform;
+  private readonly spawnOverride?: () => ChildProcessWithoutNullStreams;
   private readonly supervisor: SidecarSupervisor;
   private stdoutBuffer = "";
   private nextId = 1;
@@ -140,15 +142,19 @@ export class MacHelperClient {
   >();
   private readonly streamSubscriptions = new Set<StreamSubscription>();
 
-  constructor(options: MacHelperClientOptions) {
+  constructor(options: NativeSidecarClientOptions) {
     this.name = options.name;
     this.resolveExecutablePath = options.resolveExecutablePath;
     this.logger = options.logger;
     this.responseTimeoutMs =
       options.responseTimeoutMs ?? DEFAULT_RESPONSE_TIMEOUT_MS;
+    this.maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES;
     this.spawnArgs = options.spawnArgs ?? [];
-    if (options.spawnEnv) this.spawnEnv = options.spawnEnv;
+    if (options.spawnEnv) {
+      this.spawnEnv = options.spawnEnv;
+    }
     this.platform = options.platform ?? process.platform;
+    this.spawnOverride = options.spawn;
     this.supervisor = new SidecarSupervisor({
       name: this.name,
       logger: this.logger,
@@ -163,11 +169,11 @@ export class MacHelperClient {
     });
   }
 
-  getState(): MacHelperState {
+  getState(): NativeSidecarState {
     return this.supervisor.getState();
   }
 
-  onState(listener: (state: MacHelperState) => void): () => void {
+  onState(listener: (state: NativeSidecarState) => void): () => void {
     return this.supervisor.onState(listener);
   }
 
@@ -216,7 +222,9 @@ export class MacHelperClient {
             ...(params === undefined ? {} : { params }),
           },
           (err) => {
-            if (!err) return;
+            if (!err) {
+              return;
+            }
             this.rejectPendingCall(
               id,
               new Error(`${this.name} write failed: ${err.message}`),
@@ -235,7 +243,7 @@ export class MacHelperClient {
   async *stream<T>(
     method: string,
     params: unknown,
-    options: MacHelperStreamOptions<T>,
+    options: NativeSidecarStreamOptions<T>,
   ): AsyncIterable<T> {
     const child = this.ensureChild();
     const id = this.nextId++;
@@ -274,7 +282,7 @@ export class MacHelperClient {
     }
   }
 
-  retry(): MacHelperState {
+  retry(): NativeSidecarState {
     this.clearPending(new Error(`${this.name} restarted`));
     return this.supervisor.retry();
   }
@@ -311,8 +319,8 @@ export class MacHelperClient {
   }
 
   private ensureChild(): ChildProcessWithoutNullStreams {
-    if (this.platform !== "darwin") {
-      throw new Error(`${this.name} is only available on macOS`);
+    if (this.platform !== "darwin" && this.platform !== "win32") {
+      throw new Error(`${this.name} requires macOS or Windows`);
     }
 
     const child = this.supervisor.ensureRunning();
@@ -323,15 +331,16 @@ export class MacHelperClient {
   }
 
   private spawnChild(): ChildProcessWithoutNullStreams {
+    if (this.spawnOverride) {
+      return this.spawnOverride();
+    }
     const helperPath = this.resolveExecutablePath();
     if (!existsSync(helperPath)) {
       throw new Error(`executable not found at ${helperPath}`);
     }
     return spawn(helperPath, this.spawnArgs, {
       stdio: ["pipe", "pipe", "pipe"],
-      env: this.spawnEnv
-        ? { ...process.env, ...this.spawnEnv }
-        : undefined,
+      env: this.spawnEnv ? { ...process.env, ...this.spawnEnv } : undefined,
     });
   }
 
@@ -339,7 +348,9 @@ export class MacHelperClient {
     child.stdout.on("data", (chunk: Buffer) => this.handleStdout(chunk));
     child.stderr.on("data", (chunk: Buffer) => {
       const line = chunk.toString("utf8").trim();
-      if (line) this.logger.warn(`[${this.name}] ${line}`);
+      if (line) {
+        this.logger.warn(`[${this.name}] ${line}`);
+      }
     });
   }
 
@@ -349,8 +360,18 @@ export class MacHelperClient {
     while (newline >= 0) {
       const line = this.stdoutBuffer.slice(0, newline).trim();
       this.stdoutBuffer = this.stdoutBuffer.slice(newline + 1);
-      if (line.length > 0) this.handleLine(line);
+      if (line.length > 0) {
+        if (Buffer.byteLength(line, "utf8") > this.maxFrameBytes) {
+          this.logger.warn(`[${this.name}] ignored oversized frame`);
+        } else {
+          this.handleLine(line);
+        }
+      }
       newline = this.stdoutBuffer.indexOf("\n");
+    }
+    if (Buffer.byteLength(this.stdoutBuffer, "utf8") > this.maxFrameBytes) {
+      this.logger.warn(`[${this.name}] discarded oversized frame buffer`);
+      this.stdoutBuffer = "";
     }
   }
 
@@ -403,8 +424,12 @@ export class MacHelperClient {
     }
 
     for (const stream of this.streamSubscriptions) {
-      if (stream.method !== notification.method) continue;
-      if (stream.matches && !stream.matches(notification)) continue;
+      if (stream.method !== notification.method) {
+        continue;
+      }
+      if (stream.matches && !stream.matches(notification)) {
+        continue;
+      }
       const parsed = stream.schema.safeParse(notification.params);
       if (parsed.success) {
         stream.queue.push(parsed.data);
@@ -429,36 +454,52 @@ export class MacHelperClient {
   }
 
   private resolvePendingCall(id: JsonRpcId, result: unknown): void {
-    if (id === null) return;
+    if (id === null) {
+      return;
+    }
     const pending = this.pendingCalls.get(String(id));
-    if (!pending) return;
+    if (!pending) {
+      return;
+    }
     clearTimeout(pending.timeout);
     this.pendingCalls.delete(String(id));
     pending.resolve(result);
   }
 
   private rejectPendingCall(id: JsonRpcId, error: Error): void {
-    if (id === null) return;
+    if (id === null) {
+      return;
+    }
     const pending = this.pendingCalls.get(String(id));
-    if (!pending) return;
+    if (!pending) {
+      return;
+    }
     clearTimeout(pending.timeout);
     this.pendingCalls.delete(String(id));
     pending.reject(error);
   }
 
   private finishPendingStream(id: JsonRpcId): void {
-    if (id === null) return;
+    if (id === null) {
+      return;
+    }
     const pending = this.pendingStreams.get(String(id));
-    if (!pending) return;
+    if (!pending) {
+      return;
+    }
     clearTimeout(pending.timeout);
     this.pendingStreams.delete(String(id));
     pending.queue.end();
   }
 
   private failPendingStream(id: JsonRpcId, error: Error): void {
-    if (id === null) return;
+    if (id === null) {
+      return;
+    }
     const pending = this.pendingStreams.get(String(id));
-    if (!pending) return;
+    if (!pending) {
+      return;
+    }
     clearTimeout(pending.timeout);
     this.pendingStreams.delete(String(id));
     pending.queue.fail(error);
@@ -497,7 +538,9 @@ class AsyncQueue<T> implements AsyncIterable<T> {
   private failure: Error | null = null;
 
   push(value: T): void {
-    if (this.closed || this.failure) return;
+    if (this.closed || this.failure) {
+      return;
+    }
     const waiter = this.waiters.shift();
     if (waiter) {
       waiter.resolve({ value, done: false });
@@ -507,7 +550,9 @@ class AsyncQueue<T> implements AsyncIterable<T> {
   }
 
   end(): void {
-    if (this.closed) return;
+    if (this.closed) {
+      return;
+    }
     this.closed = true;
     for (const waiter of this.waiters.splice(0)) {
       waiter.resolve({ value: undefined as T, done: true });
@@ -515,7 +560,9 @@ class AsyncQueue<T> implements AsyncIterable<T> {
   }
 
   fail(error: Error): void {
-    if (this.failure) return;
+    if (this.failure) {
+      return;
+    }
     this.failure = error;
     for (const waiter of this.waiters.splice(0)) {
       waiter.reject(error);
@@ -525,7 +572,9 @@ class AsyncQueue<T> implements AsyncIterable<T> {
   [Symbol.asyncIterator](): AsyncIterator<T> {
     return {
       next: () => {
-        if (this.failure) return Promise.reject(this.failure);
+        if (this.failure) {
+          return Promise.reject(this.failure);
+        }
         if (this.values.length > 0) {
           return Promise.resolve({
             value: this.values.shift() as T,
