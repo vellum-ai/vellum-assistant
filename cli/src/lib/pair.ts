@@ -26,11 +26,13 @@ export function parseGatewayErrorCode(body: string): string | null {
  * Diagnostic for a failed `--web-approve`, naming which gateway rejected the
  * code and hinting at cross-assistant / cross-environment mismatches. Returns
  * null for error codes this helper doesn't recognize, so the caller falls
- * back to the generic HTTP error text.
+ * back to the generic HTTP error text. `assistantReference` should carry the
+ * stable assistant ID (see `formatAssistantReference`); `envName` should be
+ * the effective environment actually used (see `getCurrentEnvironment`).
  */
 export function formatWebApproveFailure(
   gatewayUrl: string,
-  assistantName: string,
+  assistantReference: string,
   envName: string,
   errorCode: string | null,
 ): string | null {
@@ -42,7 +44,7 @@ export function formatWebApproveFailure(
       ? "Pairing code expired on"
       : "No such pairing code on";
   return [
-    `${rejection} ${gatewayUrl} (assistant "${assistantName}", environment "${envName}").`,
+    `${rejection} ${gatewayUrl} (assistant "${assistantReference}", environment "${envName}").`,
     "Codes are minted by the gateway that serves the pair page, expire after 10 minutes, and are single-use.",
     "If the pair page came from a different assistant or environment (e.g. the desktop app's), re-run with that environment's VELLUM_ENVIRONMENT and that assistant's name.",
   ].join("\n");

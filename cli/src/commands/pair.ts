@@ -31,6 +31,7 @@ import { extractFlag } from "../lib/arg-utils.js";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import {
   formatAssistantLookupError,
+  formatAssistantReference,
   lookupAssistantByIdentifier,
   resolveAssistant,
   type AssistantEntry,
@@ -40,7 +41,7 @@ import {
   getClientRegistrationHeaders,
 } from "../lib/client-identity.js";
 import { GATEWAY_PORT } from "../lib/constants.js";
-import { resolveEnvironmentSource } from "../lib/environments/resolve.js";
+import { getCurrentEnvironment } from "../lib/environments/resolve.js";
 import {
   formatFeatureFlagGateMessage,
   isAssistantFeatureFlagEnabled,
@@ -430,8 +431,8 @@ export async function pair(): Promise<void> {
       const errorBody = await response.text().catch(() => "");
       const diagnostic = formatWebApproveFailure(
         mintUrl,
-        assistantDisplayName(entry),
-        resolveEnvironmentSource().name,
+        formatAssistantReference(entry),
+        getCurrentEnvironment().name,
         parseGatewayErrorCode(errorBody),
       );
       console.error(

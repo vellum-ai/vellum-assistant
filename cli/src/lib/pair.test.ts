@@ -3,27 +3,29 @@ import { describe, expect, test } from "bun:test";
 import { formatWebApproveFailure, parseGatewayErrorCode } from "./pair.js";
 
 const GATEWAY_URL = "http://127.0.0.1:20100";
-const ASSISTANT_NAME = "example-assistant";
+// Callers pass formatAssistantReference() output: display name plus stable ID.
+const ASSISTANT_REFERENCE = "example-assistant (asst_0123456789abcdef)";
 const ENV_NAME = "local";
 
 describe("formatWebApproveFailure", () => {
-  test("INVALID_USER_CODE names the gateway, assistant, and environment", () => {
+  test("INVALID_USER_CODE names the gateway, assistant reference, and environment", () => {
     const message = formatWebApproveFailure(
       GATEWAY_URL,
-      ASSISTANT_NAME,
+      ASSISTANT_REFERENCE,
       ENV_NAME,
       "INVALID_USER_CODE",
     );
     expect(message).not.toBeNull();
     expect(message).toContain(`No such pairing code on ${GATEWAY_URL}`);
-    expect(message).toContain(`assistant "${ASSISTANT_NAME}"`);
+    expect(message).toContain(`assistant "${ASSISTANT_REFERENCE}"`);
+    expect(message).toContain("asst_0123456789abcdef");
     expect(message).toContain(`environment "${ENV_NAME}"`);
   });
 
   test("INVALID_USER_CODE includes the TTL note and the cross-environment hint", () => {
     const message = formatWebApproveFailure(
       GATEWAY_URL,
-      ASSISTANT_NAME,
+      ASSISTANT_REFERENCE,
       ENV_NAME,
       "INVALID_USER_CODE",
     );
@@ -36,7 +38,7 @@ describe("formatWebApproveFailure", () => {
   test("EXPIRED_USER_CODE gets the same diagnostic with an expiry lead line", () => {
     const message = formatWebApproveFailure(
       GATEWAY_URL,
-      ASSISTANT_NAME,
+      ASSISTANT_REFERENCE,
       ENV_NAME,
       "EXPIRED_USER_CODE",
     );
@@ -48,7 +50,7 @@ describe("formatWebApproveFailure", () => {
   test("unknown error codes return null so callers fall back to the generic HTTP error", () => {
     for (const code of ["RATE_LIMITED", "BAD_REQUEST", "", null]) {
       expect(
-        formatWebApproveFailure(GATEWAY_URL, ASSISTANT_NAME, ENV_NAME, code),
+        formatWebApproveFailure(GATEWAY_URL, ASSISTANT_REFERENCE, ENV_NAME, code),
       ).toBeNull();
     }
   });
