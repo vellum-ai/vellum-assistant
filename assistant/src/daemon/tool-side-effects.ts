@@ -18,7 +18,10 @@ import { invalidateEdgeIndex } from "../plugins/defaults/memory/substrate/edge-i
 import { invalidatePageIndex } from "../plugins/defaults/memory/substrate/page-index.js";
 import { getConceptsDir } from "../plugins/defaults/memory/substrate/page-store.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
-import { publishAppsChanged } from "../runtime/sync/resource-sync-events.js";
+import {
+  publishAppsChanged,
+  publishDocumentsChanged,
+} from "../runtime/sync/resource-sync-events.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import type { ToolExecutionResult } from "../tools/types.js";
@@ -178,6 +181,23 @@ function registerAppSurfaceRefreshHook(toolName: string): void {
 }
 registerAppSurfaceRefreshHook("app_refresh");
 registerAppSurfaceRefreshHook("app_update");
+
+// The mutating document tools carry no list-level change signal of their own,
+// so the conversation assets pill and the Library keep serving a cached list
+// after an edit, and a deleted document lingers as a ghost row. `skill_execute`
+// calls reach the runner already unwrapped to the inner tool name, so the
+// bundled document-editor skill needs no separate registration.
+registerHook(
+  [
+    "document_create",
+    "document_update",
+    "document_replace_text",
+    "document_delete",
+  ],
+  () => {
+    publishDocumentsChanged();
+  },
+);
 
 registerHook("voice_config_update", (_name, input) => {
   const setting = input.setting as string | undefined;
