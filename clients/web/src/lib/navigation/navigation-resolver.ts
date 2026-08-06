@@ -112,10 +112,7 @@ const LOCAL_ONLY_ONBOARDING_PATHS: Set<string> = new Set([
   routes.onboarding.apiKey,
 ]);
 
-const LOCAL_ONLY_STANDALONE_PATHS: Set<string> = new Set([
-  routes.welcome,
-  routes.selectAssistant,
-]);
+const LOCAL_ONLY_STANDALONE_PATHS: Set<string> = new Set([routes.welcome]);
 
 function isOnboardingPath(pathname: string): boolean {
   return (
@@ -514,7 +511,9 @@ function requireAuth(
 
   if (
     state.isLocalClient &&
-    (isOnboardingPath(path) || LOCAL_ONLY_STANDALONE_PATHS.has(path))
+    (isOnboardingPath(path) ||
+      LOCAL_ONLY_STANDALONE_PATHS.has(path) ||
+      path === routes.selectAssistant)
   ) {
     if (path === routes.selectAssistant && !state.hasAssistants) {
       return { action: "redirect", to: routes.onboarding.hosting };
@@ -537,12 +536,21 @@ function enforceModeBoundary(
   state: NavigationState,
   path: string,
 ): NavigationDecision | null {
+  // The chooser is reachable in every mode: local clients keep their
+  // lockfile-driven picker (a no-assistant local visit still funnels to
+  // hosting), and the platform build hosts the hub chooser. The screen owns
+  // the assistant-switcher flag gate for platform-mode access, because the
+  // flag hydrates asynchronously and this resolver has no hydration signal.
+  if (path === routes.selectAssistant) {
+    if (state.isLocalClient && !state.hasAssistants) {
+      return { action: "redirect", to: routes.onboarding.hosting };
+    }
+    return { action: "allow" };
+  }
+
   if (LOCAL_ONLY_STANDALONE_PATHS.has(path)) {
     if (!state.isLocalClient) {
       return { action: "redirect", to: routes.assistant };
-    }
-    if (path === routes.selectAssistant && !state.hasAssistants) {
-      return { action: "redirect", to: routes.onboarding.hosting };
     }
     return { action: "allow" };
   }
@@ -854,7 +862,8 @@ function resolvePostAuth(
 
 function resolvePostRetire(state: NavigationState): NavigationDecision {
   if (state.hasAssistants) {
-    // select-assistant is local-only; platform users go straight to /assistant
+    // Platform users land on /assistant post-retire; the chooser is an
+    // explicit destination there, not the retire landing.
     return {
       action: "redirect",
       to: state.isLocalClient ? routes.selectAssistant : routes.assistant,
