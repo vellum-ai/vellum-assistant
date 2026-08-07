@@ -8,7 +8,7 @@ import {
   MobileSidebarTrigger,
 } from "@/components/mobile-sidebar-drawer";
 import type { MutationStatus } from "@/components/channel-setup-wizard";
-import { useChannelAdapterSelectionStore } from "@/domains/channels/adapter-selection-store";
+import { useChannelRouteSelection } from "@/domains/channels/hooks/use-channel-route-selection";
 import { CHANNEL_META } from "@/domains/channels/channel-meta";
 import { ChannelAdapterList } from "@/domains/channels/components/channel-adapter-list";
 import { ChannelPanel } from "@/domains/channels/components/channel-panel";
@@ -117,8 +117,9 @@ export interface AssistantChannelsListProps {
  * Slack/Telegram/Phone adapters (`ChannelAdapterList`) beside the selected
  * adapter's detail panel (`ChannelPanel`), plus the disconnect and trust-floor
  * confirmation dialogs. Rendered by the Channels tab (`ChannelsPage`). The
- * active adapter persists in `adapter-selection-store`; the queries and
- * mutations behind the props live in `useAssistantChannels`.
+ * active adapter is the one named in the URL
+ * (`use-channel-route-selection`); the queries and mutations behind the props
+ * live in `useAssistantChannels`.
  */
 export function AssistantChannelsList({
   assistantId,
@@ -145,8 +146,8 @@ export function AssistantChannelsList({
   onSaveTwilioCredentials,
   initialChannel = null,
 }: AssistantChannelsListProps) {
-  const selectedAdapter = useChannelAdapterSelectionStore.use.selectedAdapter();
-  const selectAdapter = useChannelAdapterSelectionStore.use.selectAdapter();
+  const { selected: selectedAdapter, select: selectAdapter } =
+    useChannelRouteSelection();
 
   const [pendingDisconnect, setPendingDisconnect] = useState<ChannelKey | null>(
     null,
@@ -194,7 +195,7 @@ export function AssistantChannelsList({
   };
 
   const handleSelect = (channelKey: string) => {
-    selectAdapter(channelKey as ChannelKey);
+    selectAdapter(channelKey);
     setDrawerOpen(false);
   };
 
@@ -219,7 +220,11 @@ export function AssistantChannelsList({
   // credential-form state (`initialManualEntry`) is seeded once at mount,
   // and each adapter should start fresh.
   const detail = selectedPlugin ? (
-    <PluginChannelPanel key={selectedPlugin.id} channel={selectedPlugin} />
+    <PluginChannelPanel
+      key={selectedPlugin.id}
+      channel={selectedPlugin}
+      assistantId={assistantId}
+    />
   ) : (
     <ChannelPanel
       key={selected!.key}

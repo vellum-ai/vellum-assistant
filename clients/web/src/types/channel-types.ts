@@ -47,10 +47,12 @@ export interface AssistantChannelState {
  * collide in a selection key.
  */
 export interface PluginChannelSummary {
-  /** The row's `source`, `plugin:<pluginName>`, unique across the rail. */
+  /**
+   * The declaring plugin's directory name, which is also the row's id. Unique
+   * against the built-in keys because the assistant refuses to let a plugin
+   * take one of their names.
+   */
   id: string;
-  /** Directory name of the declaring plugin, for linking to its page. */
-  plugin: string;
   label: string;
   description?: string;
   /** Lucide icon name without the `lucide-` prefix. */
