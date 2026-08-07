@@ -18,7 +18,7 @@ import {
   MENU_ICON_SETTINGS,
 } from "./assets/menu-icons";
 import { acceleratorOption } from "./commands.client";
-import { getWatchedLockfile } from "./lockfile-watcher";
+import { getWatchedLockfile } from "./lockfile-watcher.client";
 import { dispatchToMain } from "./main-window";
 import { menuIcon } from "./menu-icon";
 import { readSetting } from "./settings";

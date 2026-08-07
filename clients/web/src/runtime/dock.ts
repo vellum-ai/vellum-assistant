@@ -33,3 +33,7 @@ export function setDockBadge(count: number): void {
 export function getUnreadBadgeSurface(): string {
   return detectElectronHostOS() === "windows" ? "taskbar icon" : "Dock icon";
 }
+
+export function supportsUnreadBadges(): boolean {
+  return typeof window.vellum?.dock?.setBadge === "function";
+}

@@ -14,6 +14,7 @@ const MAIN_DEFAULT_BOUNDS = { width: 1280, height: 800 } as const;
 const MAIN_MIN_SIZE = { width: 800, height: 600 } as const;
 
 let mainWindow: BrowserWindow | null = null;
+let isQuitting = false;
 
 export const current = (): BrowserWindow | null => mainWindow;
 
@@ -63,6 +64,14 @@ const createMainWindow = (): BrowserWindow => {
     win.focus();
   });
 
+  win.on("close", (event) => {
+    if (isQuitting || win.isDestroyed()) {
+      return;
+    }
+    event.preventDefault();
+    win.hide();
+  });
+
   win.on("closed", () => {
     if (mainWindow === win) {
       mainWindow = null;
@@ -102,6 +111,9 @@ export const toggleVisibility = (): void => {
 
 /** Create the initial main window. Call once from `whenReady`. */
 export const installMainWindow = (): void => {
+  app.once("before-quit", () => {
+    isQuitting = true;
+  });
   // Renderer-driven "bring the window forward" - used by feature consumers
   // reacting to inbound signals (deep links, notification clicks) once those
   // land here. Mirrors `clients/macos/src/main/main-window.ts`.

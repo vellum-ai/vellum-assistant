@@ -1,24 +1,19 @@
-import { unwatchFile, watchFile } from "node:fs";
 import path from "node:path";
 
 import { app, nativeImage, shell, type NativeImage } from "electron";
 
 import { openAboutWindow } from "@vellumai/electron-desktop/about";
+import { getWatchedLockfile } from "@vellumai/electron-desktop/lockfile-watcher";
 import { configureStatusIconFallback } from "@vellumai/electron-desktop/status-icon";
 import {
   configureTrayModel,
   installTray,
 } from "@vellumai/electron-desktop/tray-model";
-import { getLockfileData, resolveLockfilePaths } from "@vellumai/local-mode";
-import type { Lockfile } from "@vellumai/local-mode/contract";
 import type { VellumCommand } from "@vellumai/ipc-contract";
 
 import { current, ensureVisible, toggleVisibility } from "./main-window";
 
-const EMPTY_LOCKFILE: Lockfile = { assistants: [], activeAssistant: null };
-const lockfilePaths = resolveLockfilePaths(process.env);
 let cachedIcon: NativeImage | null = null;
-let cachedLockfile = EMPTY_LOCKFILE;
 
 export const getTrayIcon = (): NativeImage => {
   if (cachedIcon) {
@@ -45,32 +40,16 @@ const dispatch = (command: VellumCommand): void => {
   }
 };
 
-const refreshLockfile = (): void => {
-  const result = getLockfileData(lockfilePaths);
-  cachedLockfile = result.ok ? result.data : EMPTY_LOCKFILE;
-};
-
-const installLockfileCache = (): void => {
-  refreshLockfile();
-  const canonicalPath = lockfilePaths[0];
-  if (!canonicalPath) {
-    return;
-  }
-  watchFile(canonicalPath, { interval: 500 }, refreshLockfile);
-  app.once("before-quit", () => {
-    unwatchFile(canonicalPath, refreshLockfile);
-  });
-};
-
-export const installWindowsTray = (): void => {
+export const installWindowsTray = (
+  featureEnabled: (flag: string) => boolean,
+): void => {
   const icon = getTrayIcon();
-  installLockfileCache();
   configureStatusIconFallback(icon.isEmpty() ? null : icon);
   configureTrayModel({
     accelerator: () => ({}),
     dispatch,
-    featureEnabled: (flag) => flag === "multi-platform-assistant",
-    getLockfile: () => cachedLockfile,
+    featureEnabled,
+    getLockfile: getWatchedLockfile,
     icon: () => undefined,
     onboardingActive: () => false,
     openComponentGallery: () => {

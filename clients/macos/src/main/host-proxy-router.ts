@@ -27,7 +27,7 @@ import { HostProxyPoster } from "./host-proxy-poster";
 import { hostBashExecutor } from "./executors/host-bash-executor";
 import { hostFileExecutor } from "./executors/host-file-executor";
 import { hostTransferExecutor } from "./executors/host-transfer-executor";
-import { onLockfileChange, getWatchedLockfile } from "./lockfile-watcher";
+import { onLockfileChange, getWatchedLockfile } from "./lockfile-watcher.client";
 import { HostBrowserExecutor } from "./executors/host-browser-executor";
 import { hostCuExecutor } from "./executors/host-cu-executor";
 import { hostAppControlExecutor } from "./executors/host-app-control-executor";

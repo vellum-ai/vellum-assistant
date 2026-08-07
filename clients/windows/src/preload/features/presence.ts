@@ -11,6 +11,7 @@ import {
   CONNECTIVITY_SET_DEVICE,
   CONNECTIVITY_STATE,
   DOCK_SET_BADGE,
+  FEATURE_FLAGS_SET,
   ICON_SET_AVATAR,
   ICON_SET_CHARACTER,
   IDENTITY_NAME,
@@ -25,6 +26,9 @@ import type {
 const presence: CapabilityModule<BridgeCapabilityRegistry<VellumBridge>> = {
   id: "presence",
   install: (bridge) => {
+    bridge.contribute("featureFlags", {
+      set: (flags) => ipcRenderer.send(FEATURE_FLAGS_SET, flags),
+    });
     bridge.contribute("status", {
       setConnection: (status) => ipcRenderer.send(STATUS_CONNECTION, status),
     });

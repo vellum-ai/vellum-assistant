@@ -87,7 +87,7 @@ import { installLoginItem, installLoginItemIpc } from "./login-item";
 import {
   getWatchedLockfileSnapshot,
   installLockfileWatcher,
-} from "./lockfile-watcher";
+} from "./lockfile-watcher.client";
 import { installHostProxyBridge } from "./host-proxy-router";
 import "./executors/host-bash-executor"; // side-effect: registers host_bash executor
 import log from "./logger";

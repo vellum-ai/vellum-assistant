@@ -1,26 +1,11 @@
 import { beforeEach, expect, mock, test } from "bun:test";
 import type { Lockfile } from "@vellumai/local-mode/contract";
 
-let watchListener: (() => void) | null = null;
-const watchFile = mock(
-  (_path: string, _options: unknown, listener: () => void) => {
-    watchListener = listener;
-  },
-);
-const unwatchFile = mock(() => undefined);
-mock.module("node:fs", () => ({ watchFile, unwatchFile }));
-
-let beforeQuit: (() => void) | null = null;
 const trayIcon = { isEmpty: () => false };
 mock.module("electron", () => ({
   app: {
     getAppPath: () => "/app",
     isPackaged: false,
-    once: (event: string, listener: () => void) => {
-      if (event === "before-quit") {
-        beforeQuit = listener;
-      }
-    },
     showAboutPanel: () => undefined,
   },
   nativeImage: { createFromPath: () => trayIcon },
@@ -31,13 +16,23 @@ let currentLockfile: Lockfile = {
   assistants: [{ assistantId: "assistant-1", cloud: "vellum" }],
   activeAssistant: "assistant-1",
 };
-const getLockfileData = mock(() => ({ ok: true, data: currentLockfile }));
-mock.module("@vellumai/local-mode", () => ({
-  getLockfileData,
-  resolveLockfilePaths: () => ["/config/lockfile.json"],
+const getWatchedLockfile = mock(() => currentLockfile);
+mock.module("@vellumai/electron-desktop/lockfile-watcher", () => ({
+  getWatchedLockfile,
 }));
 
-let trayRuntime: { getLockfile: () => unknown } | null = null;
+let flagHandler: ((args: [Record<string, boolean>]) => void) | null = null;
+mock.module("./ipc.client", () => ({
+  on: (_channel: string, _schema: unknown, handler: typeof flagHandler) => {
+    flagHandler = handler;
+  },
+}));
+
+type TrayRuntime = {
+  featureEnabled: (flag: string) => boolean;
+  getLockfile: () => Lockfile;
+};
+let trayRuntime: TrayRuntime | null = null;
 mock.module("@vellumai/electron-desktop/status-icon", () => ({
   configureStatusIconFallback: () => undefined,
 }));
@@ -45,7 +40,7 @@ mock.module("@vellumai/electron-desktop/about", () => ({
   openAboutWindow: () => undefined,
 }));
 mock.module("@vellumai/electron-desktop/tray-model", () => ({
-  configureTrayModel: (runtime: { getLockfile: () => unknown }) => {
+  configureTrayModel: (runtime: TrayRuntime) => {
     trayRuntime = runtime;
   },
   installTray: () => undefined,
@@ -57,33 +52,32 @@ mock.module("./main-window", () => ({
 }));
 
 const { installWindowsTray } = await import("./tray");
+const { installFeatureFlagsIpc, isFeatureEnabled } =
+  await import("./feature-flags");
 
 beforeEach(() => {
-  beforeQuit = null;
-  watchListener = null;
   trayRuntime = null;
-  getLockfileData.mockClear();
-  watchFile.mockClear();
-  unwatchFile.mockClear();
+  currentLockfile = {
+    assistants: [{ assistantId: "assistant-1", cloud: "vellum" }],
+    activeAssistant: "assistant-1",
+  };
+  getWatchedLockfile.mockClear();
+  installFeatureFlagsIpc();
 });
 
-test("serves tray menus from the watched lockfile cache", () => {
-  installWindowsTray();
+test("serves tray menus from the shared lockfile watcher", () => {
+  installWindowsTray(() => false);
 
-  expect(getLockfileData).toHaveBeenCalledTimes(1);
   expect(trayRuntime?.getLockfile()).toEqual(currentLockfile);
-  expect(trayRuntime?.getLockfile()).toEqual(currentLockfile);
-  expect(getLockfileData).toHaveBeenCalledTimes(1);
-
   currentLockfile = { assistants: [], activeAssistant: null };
-  watchListener?.();
-
   expect(trayRuntime?.getLockfile()).toEqual(currentLockfile);
-  expect(getLockfileData).toHaveBeenCalledTimes(2);
+  expect(getWatchedLockfile).toHaveBeenCalledTimes(2);
+});
 
-  beforeQuit?.();
-  expect(unwatchFile).toHaveBeenCalledWith(
-    "/config/lockfile.json",
-    expect.any(Function),
-  );
+test("reads feature gates from the synchronized flag state", () => {
+  installWindowsTray(isFeatureEnabled);
+
+  expect(trayRuntime?.featureEnabled("multi-platform-assistant")).toBe(false);
+  flagHandler?.([{ "multi-platform-assistant": true }]);
+  expect(trayRuntime?.featureEnabled("multi-platform-assistant")).toBe(true);
 });

@@ -31,6 +31,7 @@ test("contributes the complete presence bridge", () => {
   expect([...contributions.keys()].sort()).toEqual([
     "connectivity",
     "dock",
+    "featureFlags",
     "icon",
     "identity",
     "power",
@@ -38,13 +39,14 @@ test("contributes the complete presence bridge", () => {
   ]);
 });
 
-test("publishes status, identity, avatar, and unread state", () => {
+test("publishes flags, status, identity, avatar, and unread state", () => {
   const contributions = new Map<string, FakeCapability>();
   presence.install({
     contribute: (key: string, value: unknown) =>
       contributions.set(key, value as FakeCapability),
   } as never);
 
+  contributions.get("featureFlags")?.set({ sounds: true });
   contributions.get("status")?.setConnection("thinking");
   contributions.get("identity")?.setName("Example Assistant");
   contributions.get("icon")?.setAvatar(null);
@@ -52,6 +54,7 @@ test("publishes status, identity, avatar, and unread state", () => {
   contributions.get("dock")?.setBadge(3);
 
   expect(send.mock.calls.map((call) => call[0])).toEqual([
+    "vellum:featureFlags:set",
     "vellum:status:connection",
     "vellum:identity:name",
     "vellum:icon:setAvatar",

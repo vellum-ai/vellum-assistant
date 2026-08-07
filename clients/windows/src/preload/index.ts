@@ -7,6 +7,7 @@ import type {
   VellumCommand,
 } from "@vellumai/ipc-contract";
 
+import type { WindowsCoreBridge } from "./core-capabilities";
 import { composePreloadFeatures } from "./features";
 
 export type { AppVersionInfo, VellumBridge, VellumCommand };
@@ -22,24 +23,13 @@ const noopUnsubscribe = (): (() => void) => () => undefined;
  * feature-detect their namespace (`if (!bridge?.hotkeys) return ...`) so a
  * newer renderer can run against an older - or, here, narrower - preload.
  * But a handful are treated as required the moment `platform` reads
- * `"electron"` and are dereferenced unguarded (`window.vellum?.power.onEvent`,
- * `window.vellum!.localMode.*`, dock, menu, mainWindow, deepLinks), so those
+ * `"electron"` and are dereferenced unguarded, so unavailable core features
  * ship as explicit no-op stubs rather than being absent. Each capability
  * ported from the macOS client (`clients/macos/src/preload/index.ts`) should
  * replace its stub with the real IPC wiring alongside its main-process
  * handlers.
  */
-const coreBridge: Pick<
-  VellumBridge,
-  | "platform"
-  | "hostOS"
-  | "app"
-  | "commands"
-  | "deepLinks"
-  | "menu"
-  | "mainWindow"
-  | "localMode"
-> = {
+const coreBridge: WindowsCoreBridge = {
   platform: "electron",
   hostOS: "windows",
   app: {
@@ -64,10 +54,6 @@ const coreBridge: Pick<
   deepLinks: {
     drain: () => Promise.resolve([]),
     onLink: noopUnsubscribe,
-  },
-  // Stub: no application menu yet (`clients/macos/src/main/menu.ts`).
-  menu: {
-    setPlatformSession: () => Promise.resolve(),
   },
   mainWindow: {
     ensureVisible: (): Promise<void> =>
