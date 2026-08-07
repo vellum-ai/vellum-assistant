@@ -920,14 +920,15 @@ export async function resendOutbound(
     };
   }
 
-  const resendDestination =
+  const destination =
     session.destinationAddress ??
     session.expectedPhoneE164 ??
     session.expectedChatId;
-  if (resendDestination) {
+
+  if (destination) {
     const recentDestSends = await countRecentSendsToDestination(
       channel,
-      resendDestination,
+      destination,
       DESTINATION_RATE_WINDOW_MS,
     );
     if (recentDestSends >= MAX_SENDS_PER_DESTINATION_WINDOW) {
@@ -941,10 +942,6 @@ export async function resendOutbound(
     }
   }
 
-  const destination =
-    session.destinationAddress ??
-    session.expectedPhoneE164 ??
-    session.expectedChatId;
   if (!destination) {
     return {
       success: false,
