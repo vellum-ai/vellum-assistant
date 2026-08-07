@@ -137,13 +137,26 @@ export const SIDE_MENU_TILE_SIZE = 32;
  */
 export const SIDE_MENU_COLLAPSED_INSET = 8;
 
+/** The rail's 1px card edge, on both sides. */
+export const SIDE_MENU_BORDER_WIDTH = 1;
+
 /**
- * Wide enough for one tile and its inset, and derived rather than declared:
- * a literal here is a third number that has to agree with the other two, and
- * the failure when it drifts is a rail that moves its icons on collapse.
+ * Wide enough for one tile, its inset, and the border, and derived rather than
+ * declared: a literal here is another number that has to agree with the rest,
+ * and the failure when it drifts is a rail that moves its icons on collapse.
+ *
+ * The border is part of the sum because the rail is `border-box`, so a width
+ * that counts only the tile and its inset spends 2px of that on the border and
+ * leaves the tile 2px less room than it needs. A tile then overflows its
+ * content box, and an overflowing tile does not centre: flexbox drops `auto`
+ * margins to zero once free space goes negative, so tiles laid out that way
+ * start-align while tiles laid out with `self-center` stay centred, and the
+ * column splits into two axes a pixel apart.
  */
 export const SIDE_MENU_COLLAPSED_WIDTH =
-  SIDE_MENU_TILE_SIZE + SIDE_MENU_COLLAPSED_INSET * 2;
+  SIDE_MENU_TILE_SIZE +
+  SIDE_MENU_COLLAPSED_INSET * 2 +
+  SIDE_MENU_BORDER_WIDTH * 2;
 
 /**
  * The geometry above, published to CSS so the classes below can read it. The

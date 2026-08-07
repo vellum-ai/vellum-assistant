@@ -11,6 +11,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import {
+  SIDE_MENU_BORDER_WIDTH,
   SIDE_MENU_COLLAPSED_INSET,
   SIDE_MENU_COLLAPSED_WIDTH,
   SIDE_MENU_TILE_SIZE,
@@ -62,14 +63,22 @@ describe("SideMenu root", () => {
 
   /* A tile stands in for the pill or card the rail collapses, so it holds
      `PanelItem`'s height and the rail insets it by the padding that pill holds
-     its own glyph at. Those two are what the width has to be built from: a
-     wider rail leaves the tile centred somewhere the expanded glyph never sat,
-     and collapsing then slides every icon sideways. */
-  test("collapsed width is one tile plus the inset a pill holds its glyph at", () => {
+     its own glyph at. Those are what the width has to be built from: a wider
+     rail leaves the tile centred somewhere the expanded glyph never sat, and
+     collapsing then slides every icon sideways.
+
+     The border counts too, because the rail is `border-box`. Leaving it out
+     costs the tile the 2px the edge takes, and a tile with no room to sit in
+     stops centring: `auto` margins collapse to zero on negative free space,
+     which start-aligns those tiles while `self-center` ones stay centred. */
+  test("collapsed width holds one tile, its inset, and the rail's border", () => {
     expect(SIDE_MENU_TILE_SIZE).toBe(32);
     expect(SIDE_MENU_COLLAPSED_INSET).toBe(8);
+    expect(SIDE_MENU_BORDER_WIDTH).toBe(1);
     expect(SIDE_MENU_COLLAPSED_WIDTH).toBe(
-      SIDE_MENU_TILE_SIZE + SIDE_MENU_COLLAPSED_INSET * 2,
+      SIDE_MENU_TILE_SIZE +
+        SIDE_MENU_COLLAPSED_INSET * 2 +
+        SIDE_MENU_BORDER_WIDTH * 2,
     );
   });
 
