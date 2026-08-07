@@ -20,7 +20,8 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
-  CompanionAnchor,
+  CompanionCharacter,
+  CompanionGrowth,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -65,7 +66,7 @@ export type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
-  CompanionAnchor,
+  CompanionGrowth,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -190,6 +191,7 @@ declare global {
       };
       icon?: {
         setAvatar(png: Uint8Array | null): void;
+        setCharacter?(character: CompanionCharacter | null): void;
       };
       dock: {
         setBadge(count: number): void;

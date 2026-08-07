@@ -552,20 +552,48 @@ export type LocalAssistantStatusResult =
 // ---------------------------------------------------------------------------
 
 /**
- * Which way the companion pill may grow, against the avatar's resting spot.
+ * Which way the companion pill grows out of the avatar, which holds its place.
  *
- * `center` blooms both ways and is the shape the surface is designed around.
- * The other two are what it degrades to when a screen edge is closer than the
- * clearance bloom needs. Main decides: it owns the window position and is the
- * only side that knows which display the surface is on.
+ * `right` is the shape the surface is designed around; `left` is what it
+ * degrades to when the right edge of the display is closer than the pill's
+ * widest state needs. Main decides: it owns the window position and is the only
+ * side that knows which display the surface is on.
+ *
+ * The avatar does not move either way. That is the whole point of naming a
+ * *direction* rather than an anchor: the mascot is the fixed thing the user
+ * aims at, and the pill is what changes shape around it.
  */
-export const COMPANION_ANCHORS = ["center", "left", "right"] as const;
+export const COMPANION_GROWTHS = ["right", "left"] as const;
 
-export type CompanionAnchor = (typeof COMPANION_ANCHORS)[number];
+export type CompanionGrowth = (typeof COMPANION_GROWTHS)[number];
+
+/**
+ * The assistant's character, as the three trait ids it is composed from.
+ *
+ * Structurally the fields of the web layer's `CharacterTraits` that
+ * `composeSvg` actually consumes, restated here rather than imported: that type
+ * is generated from the daemon's OpenAPI schema, and the contract package must
+ * not depend on it.
+ *
+ * Traits rather than pixels, because the surface renders the *live* character
+ * from them: an avatar that blinks and breathes cannot be shipped as a still.
+ * Absent for an assistant whose avatar is a custom uploaded image, which has no
+ * traits to compose from and stays a still.
+ */
+export interface CompanionCharacter {
+  bodyShape: string;
+  eyeStyle: string;
+  color: string;
+}
 
 /** What main tells the companion renderer. */
 export interface CompanionSurfaceState {
-  anchor: CompanionAnchor;
+  growth: CompanionGrowth;
+  /**
+   * The character to render live, or `undefined` when there is none to
+   * compose. See {@link CompanionCharacter}; `avatarBase64` is the fallback.
+   */
+  character?: CompanionCharacter;
   /**
    * The live-voice session the surface is showing, or `null` when none is
    * running.

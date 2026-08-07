@@ -72,11 +72,28 @@ describe("avatar cache", () => {
 });
 
 describe("installAvatarIpc", () => {
-  test("registers the avatar channel once, even across repeated calls", () => {
+  test("registers both channels once, even across repeated calls", () => {
     installAvatarIpc();
     installAvatarIpc();
-    expect(registrations).toHaveLength(1);
-    expect(registrations[0]?.channel).toBe("vellum:icon:setAvatar");
+    expect(registrations.map((r) => r.channel)).toEqual([
+      "vellum:icon:setAvatar",
+      "vellum:icon:setCharacter",
+    ]);
+  });
+
+  test("the character schema takes the three trait ids, or null", () => {
+    installAvatarIpc();
+    const schema = registrations[1]!.schema;
+    expect(
+      schema.safeParse([
+        { bodyShape: "burst", eyeStyle: "curious", color: "teal" },
+      ]).success,
+    ).toBe(true);
+    expect(schema.safeParse([null]).success).toBe(true);
+    // A partial character would compose into nothing, so it is refused at the
+    // boundary rather than halfway through a render.
+    expect(schema.safeParse([{ bodyShape: "burst" }]).success).toBe(false);
+    expect(schema.safeParse(["burst"]).success).toBe(false);
   });
 
   test("the schema accepts a Uint8Array or null and rejects anything else", () => {

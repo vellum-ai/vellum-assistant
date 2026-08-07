@@ -18,6 +18,7 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionCharacter,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -167,6 +168,12 @@ export interface VellumBridge {
   };
   icon: {
     setAvatar(png: Uint8Array | null): void;
+    /**
+     * Publish the traits the assistant's character is composed from, so
+     * surfaces that can render it live do, rather than showing the still that
+     * `setAvatar` ships. `null` when the avatar is a custom image or absent.
+     */
+    setCharacter(character: CompanionCharacter | null): void;
   };
   dock: {
     setBadge(count: number): void;
