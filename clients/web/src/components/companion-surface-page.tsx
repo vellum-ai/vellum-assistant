@@ -62,12 +62,6 @@ export function CompanionSurfacePage() {
   // Empty until the app's window publishes one, which the surface covers with
   // the component's own fallback wording rather than drawing a blank name.
   const [assistantName, setAssistantName] = useState("");
-  // Whether Type is offered, which is the whole of the gate: Talk and the call
-  // state are outside it. Pushed with the rest of the state rather than read
-  // from the flag store, because this route is standalone and so never fetches
-  // an evaluation of its own. Off until main says otherwise, which is the
-  // honest answer while nothing has been said.
-  const [canType, setCanType] = useState(false);
   const [hovered, setHovered] = useState(false);
   // Whether the composer is open. Local to this page rather than pushed from
   // main, because nothing outside this window opens or closes it: main is told
@@ -106,7 +100,6 @@ export function CompanionSurfacePage() {
       setCall(state.call);
       setTurns(state.turns);
       setAssistantName(state.assistantName);
-      setCanType(state.canType);
     };
     const unsubscribe = subscribeCompanionState(apply);
     // The route chunk loads lazily after the window is created, so a state
@@ -305,7 +298,6 @@ export function CompanionSurfacePage() {
         onType={() => {
           setTyping(true);
         }}
-        canType={canType}
         // Out through main and into whichever renderer holds a conversation to
         // put it in. **The card stays open**, because this is where the answer
         // arrives: the turns mirror pushes the sent message back within the

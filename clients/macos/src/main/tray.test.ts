@@ -139,6 +139,9 @@ mock.module("./window-state", () => ({
 const setCompanionSurfaceVisibleMock = mock((_visible: boolean) => undefined);
 mock.module("./companion-window", () => ({
   setCompanionSurfaceVisible: setCompanionSurfaceVisibleMock,
+  // Reads the same controllable flags the `./settings` mock serves, so a case
+  // turns the surface on the way the real gate sees it turned on.
+  isCompanionSurfaceEnabled: () => featureFlags?.["companion-surface"] === true,
 }));
 
 const dispatchToMainMock = mock((_command: unknown) => undefined);
@@ -307,7 +310,6 @@ describe("installTray", () => {
     expect(labels).toContain("Current Conversation");
     expect(labels).toContain("Mark All as Read");
     expect(labels).toContain("Show / Hide Main Window");
-    expect(labels).toContain("Show Floating Companion");
     expect(labels).toContain("Restart");
     expect(labels).toContain("About Vellum Electron");
     expect(labels).toContain("Quit Vellum Electron");
@@ -325,6 +327,17 @@ describe("installTray", () => {
     }>;
     const labels = template.map((item) => item.label).filter(Boolean);
     expect(labels).toContain("Re-pair Assistant");
+  });
+
+  test("the floating companion item is absent while its flag is off", () => {
+    installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
+    const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
+      label?: string;
+    }>;
+    expect(template.map((item) => item.label)).not.toContain(
+      "Show Floating Companion",
+    );
   });
 
   test("the Re-pair item is absent when status is not authFailed", () => {
@@ -558,6 +571,9 @@ describe("floating companion toggle", () => {
   };
 
   const popCompanionItem = (): MenuItem | undefined => {
+    // The item exists only for someone the surface is on for; these cases are
+    // about what it then does, and the gate itself is covered above.
+    featureFlags = { "companion-surface": true };
     installTray(handlers);
     handlerFor(trays[0], "right-click")?.();
     const calls = buildFromTemplateMock.mock.calls;

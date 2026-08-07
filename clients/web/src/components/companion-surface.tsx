@@ -282,16 +282,6 @@ export interface CompanionSurfaceProps {
    */
   onType?: () => void;
   /**
-   * Whether the surface offers Type at all.
-   *
-   * Its own prop rather than the absence of {@link onType}, because an absent
-   * handler already means something else here: the static stories pass neither
-   * handler and still want both controls drawn. This is the flag's answer, and
-   * `false` leaves a pill carrying Talk alone, which measurement sizes down to
-   * on its own.
-   */
-  canType?: boolean;
-  /**
    * Send what was typed. The text is the composer's own until it leaves, so
    * this is the only thing the caller ever sees of it.
    */
@@ -349,7 +339,6 @@ export function CompanionSurface({
   spotlight,
   onTalk,
   onType,
-  canType = true,
   onSubmit,
   onCancelTyping,
   onAvatarClick,
@@ -501,12 +490,7 @@ export function CompanionSurface({
             {phase === "call" ? (
               <CallBody call={call} onControl={onControl} />
             ) : (
-              <IdleBody
-                spotlight={spotlight}
-                onTalk={onTalk}
-                onType={onType}
-                canType={canType}
-              />
+              <IdleBody spotlight={spotlight} onTalk={onTalk} onType={onType} />
             )}
           </div>
         )}
@@ -760,21 +744,15 @@ function Avatar({
  * "Talk" and "Type" rather than "Talk" and "Ask", because they are two halves
  * of one choice about how to say something, and a verb pair reads as that where
  * a verb and a question word do not.
- *
- * With Type gated off it is one way in, and the pill is Talk's own width: the
- * control is left out rather than disabled, because a dead half of a pair reads
- * as something broken where a single control reads as the offer.
  */
 function IdleBody({
   spotlight,
   onTalk,
   onType,
-  canType,
 }: {
   spotlight?: "talk" | "type";
   onTalk?: () => void;
   onType?: () => void;
-  canType: boolean;
 }) {
   return (
     <>
@@ -785,15 +763,13 @@ function IdleBody({
         active={spotlight === "talk"}
         onClick={onTalk}
       />
-      {canType && (
-        <PillButton
-          icon={<Keyboard className="size-4" />}
-          label="Type"
-          showLabel
-          active={spotlight === "type"}
-          onClick={onType}
-        />
-      )}
+      <PillButton
+        icon={<Keyboard className="size-4" />}
+        label="Type"
+        showLabel
+        active={spotlight === "type"}
+        onClick={onType}
+      />
     </>
   );
 }

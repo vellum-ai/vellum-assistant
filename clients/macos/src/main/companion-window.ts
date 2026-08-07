@@ -22,19 +22,35 @@ import {
   ensureVisible as ensureMainWindowVisible,
 } from "./main-window";
 import { onSettingChange, readSetting } from "./settings";
-import { writeCompanionHidden } from "./window-state";
+import { readCompanionHidden, writeCompanionHidden } from "./window-state";
 
 /**
- * The flag the Type option is behind, evaluated for the signed-in user and
+ * The flag the whole surface is behind, evaluated for the signed-in user and
  * written into settings by the app's window (`useElectronFeatureFlagBridge`).
  *
  * Absent means off, which is the answer for every state that is not a positive
  * evaluation: a fresh install whose window has not synced yet, and an
- * environment where the flag was never provisioned.
+ * environment where the flag was never provisioned. An avatar that appears
+ * over everything the user is doing is the most conspicuous thing this app
+ * ships, so the state of not knowing has to be the state of not showing it.
  */
-const TYPE_FLAG = "companion-type";
+const SURFACE_FLAG = "companion-surface";
 
-const canType = (): boolean => readSetting("featureFlags")?.[TYPE_FLAG] === true;
+export const isCompanionSurfaceEnabled = (): boolean =>
+  readSetting("featureFlags")?.[SURFACE_FLAG] === true;
+
+/**
+ * Whether the surface belongs on screen, given the flag and the user's own
+ * choice from the tray.
+ *
+ * The flag is a floor and the tray preference is a veto, so both have to say
+ * yes. Exported for its tests, as `callOnStart` is: it is the rule that decides
+ * whether the most conspicuous window this app has appears at all.
+ */
+export const shouldShowCompanionSurface = (
+  enabled: boolean,
+  hidden: boolean,
+): boolean => enabled && !hidden;
 
 /**
  * The companion surface (LUM-3086): the assistant's avatar floating from app
@@ -178,7 +194,6 @@ const currentState = (): CompanionSurfaceState => {
     call,
     assistantName: context.assistantName,
     turns: context.turns,
-    canType: canType(),
   };
 };
 
@@ -539,11 +554,12 @@ export const installCompanionWindow = (): void => {
   // here too.
   onAvatarChange(pushState);
 
-  // A flag landing is a change to what the pill offers. Pushing on it is what
-  // lets a targeting change reach the surface as soon as the app's window has
-  // fetched it, the way the menu rebuilds its Developer submenu rather than
-  // waiting for a restart.
-  onSettingChange("featureFlags", pushState);
+  // The flag arrives after launch, not before it: main reads it from settings
+  // and the app's window is what puts it there, once it has signed in and
+  // fetched an evaluation. So the surface cannot be decided once at startup.
+  // This is what opens it when the answer finally lands, and closes it if the
+  // answer changes.
+  onSettingChange("featureFlags", syncCompanionSurface);
 
   // The route loads lazily after the window is created, so a state pushed
   // before its subscription registers is dropped. It pulls this once mounted.
@@ -628,4 +644,26 @@ export const setCompanionSurfaceVisible = (visible: boolean): void => {
   } else {
     closeCompanionWindow();
   }
+};
+
+/**
+ * Open or close the surface to match the two things that decide whether it
+ * belongs on screen: the flag, and the user's own choice from the tray.
+ *
+ * The single place that decision is made, called at launch and again whenever
+ * the flags in settings change. Two call sites reading the same pair of
+ * conditions is how they come to disagree, and disagreeing here means either a
+ * floating avatar nobody was meant to have or a missing one the user turned on.
+ *
+ * **The flag never writes the tray preference.** Losing the flag has to leave
+ * the user's choice exactly as they left it, so that being targeted again
+ * restores the surface for someone who wanted it and leaves it hidden for
+ * someone who did not.
+ */
+export const syncCompanionSurface = (): void => {
+  if (shouldShowCompanionSurface(isCompanionSurfaceEnabled(), readCompanionHidden())) {
+    openCompanionWindow();
+    return;
+  }
+  closeCompanionWindow();
 };

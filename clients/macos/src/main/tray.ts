@@ -16,7 +16,10 @@ import {
 } from "./assets/menu-icons";
 import { onAvatarChange } from "./avatar";
 import { acceleratorOption } from "./commands.client";
-import { setCompanionSurfaceVisible } from "./companion-window";
+import {
+  isCompanionSurfaceEnabled,
+  setCompanionSurfaceVisible,
+} from "./companion-window";
 import { getName, onNameChange } from "./identity";
 import { getWatchedLockfile } from "./lockfile-watcher";
 import { dispatchToMain } from "./main-window";
@@ -308,19 +311,27 @@ const buildTrayMenu = (
       label: "Show / Hide Main Window",
       click: handlers.toggleMainWindow,
     },
-    {
-      // The floating avatar pill (`companion-window.ts`). A checkbox rather
-      // than a toggle-action item: once the surface is hidden, this menu is
-      // the only place left to bring it back from, so the item has to show
-      // which state it is in. Electron flips `checked` before `click` runs,
-      // so the item carries the state being asked for.
-      label: "Show Floating Companion",
-      type: "checkbox",
-      checked: !readCompanionHidden(),
-      click: (item) => {
-        setCompanionSurfaceVisible(item.checked);
-      },
-    },
+    // The floating avatar pill (`companion-window.ts`), for whoever the flag
+    // is on for. Off, there is no surface to show or hide, and an item
+    // offering to bring one back would be the only place in the app that
+    // mentions it exists.
+    ...(isCompanionSurfaceEnabled()
+      ? [
+          {
+            // A checkbox rather than a toggle-action item: once the surface is
+            // hidden, this menu is the only place left to bring it back from,
+            // so the item has to show which state it is in. Electron flips
+            // `checked` before `click` runs, so the item carries the state
+            // being asked for.
+            label: "Show Floating Companion",
+            type: "checkbox" as const,
+            checked: !readCompanionHidden(),
+            click: (item: Electron.MenuItem) => {
+              setCompanionSurfaceVisible(item.checked);
+            },
+          },
+        ]
+      : []),
     { type: "separator" },
     {
       label: "Settings\u2026",

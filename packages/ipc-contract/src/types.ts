@@ -682,15 +682,4 @@ export interface CompanionSurfaceState {
    * surface, so the companion cannot drift from the icon in the Dock beside it.
    */
   avatarBase64?: string;
-  /**
-   * Whether the surface offers Type, which is the `companion-type` flag's
-   * answer for whoever is signed in.
-   *
-   * It travels with the state rather than being read where it is drawn,
-   * because the surface's route is standalone and never fetches flag values of
-   * its own. Main is the side that has one: the app's window syncs its
-   * evaluated flags into settings, which is the same place the tray reads the
-   * flags it gates its own menu items on.
-   */
-  canType: boolean;
 }
