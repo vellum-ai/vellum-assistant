@@ -58,22 +58,28 @@ afterAll(() => {
 
 describe("discoverPluginChannels", () => {
   test("a plugin is a channel because it declares ingress", async () => {
-    writePlugin("imessage", {
+    writePlugin("courier", {
       ingress: INGRESS,
       manifest: {
-        displayName: "iMessage",
-        description: "Reach the assistant by text.",
-        icon: "message-circle",
+        displayName: "Courier",
+        description: "Reach the assistant by carrier pigeon.",
+        icon: "send",
       },
     });
 
     expect(await discoverPluginChannels()).toEqual([
       {
-        id: "plugin:imessage",
-        plugin: "imessage",
-        label: "iMessage",
-        description: "Reach the assistant by text.",
-        icon: "message-circle",
+        id: "courier",
+        source: "plugin:courier",
+        label: "Courier",
+        subtitle: "Reach the assistant by carrier pigeon.",
+        icon: "send",
+        supportsVerification: false,
+        setupMessages: {
+          guardian: "I want to set up Courier. Can you help me?",
+          contact:
+            "I'd like to reach you on Courier. Can you help me get set up?",
+        },
       },
     ]);
   });
@@ -81,9 +87,7 @@ describe("discoverPluginChannels", () => {
   test("ignores a plugin that declares no ingress", async () => {
     // Presentation alone does not make a channel: reaching the assistant from
     // outside is what one is, and ingress is where that is declared.
-    writePlugin("notes", {
-      manifest: { displayName: "Notes", icon: "message-circle" },
-    });
+    writePlugin("notes", { manifest: { displayName: "Notes", icon: "send" } });
 
     expect(await discoverPluginChannels()).toEqual([]);
   });
@@ -91,20 +95,31 @@ describe("discoverPluginChannels", () => {
   test("surfaces a channel whose ingress the gateway would reject", async () => {
     // Validation belongs to the gateway, which owns the schema. A plugin with
     // a broken declaration is a channel with broken ingress, and saying so
-    // beats dropping it off the page the guardian would look at.
-    writePlugin("imessage", {
+    // beats dropping it off the page a guardian would look at.
+    writePlugin("courier", {
       ingress: "{ not json",
-      manifest: { displayName: "iMessage" },
+      manifest: { displayName: "Courier" },
     });
 
-    expect((await discoverPluginChannels())[0]?.label).toBe("iMessage");
+    expect((await discoverPluginChannels())[0]?.label).toBe("Courier");
   });
 
   test("skips a disabled plugin", async () => {
     // Same source of truth the loader uses for hooks, tools and routes: a
     // disabled plugin would otherwise offer a setup flow that cannot run.
-    const dir = writePlugin("imessage", { ingress: INGRESS });
+    const dir = writePlugin("courier", { ingress: INGRESS });
     writeFileSync(join(dir, ".disabled"), "");
+
+    expect(await discoverPluginChannels()).toEqual([]);
+  });
+
+  test("refuses to let a plugin take a built-in channel's id", async () => {
+    // Two rows sharing an id would be ambiguous to any client keying on one,
+    // and letting the plugin win would let it impersonate a built-in.
+    writePlugin("slack", {
+      ingress: INGRESS,
+      manifest: { displayName: "Slack" },
+    });
 
     expect(await discoverPluginChannels()).toEqual([]);
   });
@@ -114,13 +129,13 @@ describe("discoverPluginChannels", () => {
     // never the row itself.
     writePlugin("meeting-bot", { ingress: INGRESS });
 
-    expect(await discoverPluginChannels()).toEqual([
+    expect(await discoverPluginChannels()).toMatchObject([
       {
-        id: "plugin:meeting-bot",
-        plugin: "meeting-bot",
+        id: "meeting-bot",
+        source: "plugin:meeting-bot",
         label: "Meeting Bot",
-        description: undefined,
-        icon: undefined,
+        subtitle: "Provided by the Meeting Bot plugin",
+        icon: "message-square",
       },
     ]);
   });
@@ -128,9 +143,19 @@ describe("discoverPluginChannels", () => {
   test("still lists a channel whose manifest cannot be read", async () => {
     // The directory is the plugin's identity, so an unparseable manifest
     // costs its presentation and not its existence.
-    const dir = writePlugin("imessage", { ingress: INGRESS });
+    const dir = writePlugin("courier", { ingress: INGRESS });
     writeFileSync(join(dir, "package.json"), "{ not json");
 
-    expect((await discoverPluginChannels())[0]?.label).toBe("Imessage");
+    expect((await discoverPluginChannels())[0]?.label).toBe("Courier");
+  });
+
+  test("never claims a plugin channel supports verification", async () => {
+    // There is no client-side verification flow for one, so clients render it
+    // display-only rather than pre-warming a status that cannot arrive.
+    writePlugin("courier", { ingress: INGRESS });
+
+    expect((await discoverPluginChannels())[0]?.supportsVerification).toBe(
+      false,
+    );
   });
 });

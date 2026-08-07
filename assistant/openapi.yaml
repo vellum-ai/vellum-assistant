@@ -4017,8 +4017,8 @@ paths:
       summary: Get available channels
       description:
         Return the channels this assistant can surface to clients, with display metadata (label, icon, verification
-        capability, setup copy). A fixed base list plus `email` when an inbox is registered, with channels brought by
-        installed plugins reported separately under `pluginChannels`.
+        capability, setup copy). A fixed base list plus `email` when an inbox is registered, plus the channels installed
+        plugins bring by declaring ingress routes. Each carries a `source` saying which of those it is.
       tags:
         - channels
       responses:
@@ -4036,16 +4036,9 @@ paths:
                       properties:
                         id:
                           type: string
-                          enum:
-                            - telegram
-                            - phone
-                            - vellum
-                            - whatsapp
-                            - slack
-                            - email
-                            - platform
-                            - a2a
-                            - discord
+                        source:
+                          type: string
+                          description: "`default` for a channel the assistant ships, `plugin:<name>` for one an installed plugin brings"
                         label:
                           type: string
                         subtitle:
@@ -4067,40 +4060,16 @@ paths:
                           additionalProperties: false
                       required:
                         - id
+                        - source
                         - label
                         - subtitle
                         - icon
                         - supportsVerification
                         - setupMessages
                       additionalProperties: false
-                    description: Available channels in display order
-                  pluginChannels:
                     description:
-                      "Channels brought by installed plugins, in install order: those declaring ingress routes in
-                      `channels/ingress.json`, presented from their own manifests. Namespaced under `plugin:` because
-                      they are not members of the channel union the daemon routes and verifies against. Optional so a
-                      client can read a response from a daemon that predates the field: absent means the same as empty."
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                          description: "`plugin:<pluginName>`"
-                        plugin:
-                          type: string
-                        label:
-                          type: string
-                        description:
-                          type: string
-                        icon:
-                          description: Lucide icon name without the `lucide-` prefix
-                          type: string
-                      required:
-                        - id
-                        - plugin
-                        - label
-                      additionalProperties: false
+                      "Available channels in display order: the ones the assistant ships, then the ones installed plugins bring
+                      by declaring ingress routes. `source` distinguishes them."
                 required:
                   - channels
                 additionalProperties: false

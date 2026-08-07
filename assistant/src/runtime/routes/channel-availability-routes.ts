@@ -6,9 +6,9 @@
  * their display metadata (label, subtitle, icon, verification capability,
  * setup-message copy). A fixed base list, plus `email` when an inbox is
  * registered, plus the channels installed plugins bring by declaring
- * ingress (reported separately under `pluginChannels`).
- * Clients should treat the response as authoritative and stop carrying
- * their own per-channel switches.
+ * ingress. One list, because a plugin channel is a channel; each row's
+ * `source` says who contributes it. Clients should treat the response as
+ * authoritative and stop carrying their own per-channel switches.
  *
  * Distinct from `/v1/channels/readiness` (which answers "is this channel
  * configured and working?"). Availability answers "could this channel be
@@ -18,12 +18,9 @@
 import { z } from "zod";
 
 import { isA2AEnabled } from "../../a2a/feature-gate.js";
+import { discoverPluginChannels } from "../../channels/plugin-channel-declarations.js";
 import {
-  discoverPluginChannels,
-  type PluginChannel,
-} from "../../channels/plugin-channel-declarations.js";
-import {
-  CHANNEL_IDS,
+  type AvailableChannel,
   CHANNEL_METADATA,
   type ChannelId,
   type ChannelInfo,
@@ -75,10 +72,9 @@ async function hasRegisteredInbox(): Promise<boolean> {
   }
 }
 
-async function handleGetChannelAvailability(_args: RouteHandlerArgs): Promise<{
-  channels: ChannelInfo[];
-  pluginChannels: PluginChannel[];
-}> {
+async function handleGetChannelAvailability(
+  _args: RouteHandlerArgs,
+): Promise<{ channels: AvailableChannel[] }> {
   const ids: ChannelId[] = [...BASE_AVAILABLE_CHANNELS];
   if (await hasRegisteredInbox()) {
     ids.push("email");
@@ -91,29 +87,26 @@ async function handleGetChannelAvailability(_args: RouteHandlerArgs): Promise<{
   // contains channels that BASE_AVAILABLE_CHANNELS / the email branch
   // explicitly chose, so the lookup is always defined — filter to satisfy
   // the type system without a non-null assertion.
-  const channels = ids
+  const builtIn: AvailableChannel[] = ids
     .map((id) => CHANNEL_METADATA[id])
-    .filter((info): info is ChannelInfo => info !== undefined);
-  // Reported separately rather than folded in: `ChannelInfo.id` is the closed
-  // `ChannelId` union, and a plugin channel is not one of those. See
-  // `PLUGIN_CHANNEL_ID_PREFIX`.
-  const pluginChannels = await discoverPluginChannels();
-  return { channels, pluginChannels };
+    .filter((info): info is ChannelInfo => info !== undefined)
+    .map((info) => ({ ...info, source: "default" as const }));
+  // One list, because a plugin channel is a channel: what differs is who
+  // contributes it, which is what `source` says. Built-ins lead, so a client
+  // rendering in order gets a stable list that plugin installs append to.
+  return { channels: [...builtIn, ...(await discoverPluginChannels())] };
 }
 
-const pluginChannelSchema = z.object({
-  id: z.string().describe("`plugin:<pluginName>`"),
-  plugin: z.string(),
-  label: z.string(),
-  description: z.string().optional(),
-  icon: z
-    .string()
-    .optional()
-    .describe("Lucide icon name without the `lucide-` prefix"),
-});
-
 const channelInfoSchema = z.object({
-  id: z.enum(CHANNEL_IDS),
+  // A string rather than the channel enum: a plugin channel's id is its
+  // plugin name, and `source` is what says which kind a row is.
+  id: z.string(),
+  source: z
+    .string()
+    .describe(
+      "`default` for a channel the assistant ships, `plugin:<name>` for one " +
+        "an installed plugin brings",
+    ),
   label: z.string(),
   subtitle: z.string(),
   icon: z.string(),
@@ -138,24 +131,17 @@ export const ROUTES: RouteDefinition[] = [
       "Return the channels this assistant can surface to clients, with " +
       "display metadata (label, icon, verification capability, setup " +
       "copy). A fixed base list plus `email` when an inbox is registered, " +
-      "with channels brought by installed plugins reported separately " +
-      "under `pluginChannels`.",
+      "plus the channels installed plugins bring by declaring ingress " +
+      "routes. Each carries a `source` saying which of those it is.",
     tags: ["channels"],
     handler: handleGetChannelAvailability,
     responseBody: z.object({
       channels: z
         .array(channelInfoSchema)
-        .describe("Available channels in display order"),
-      pluginChannels: z
-        .array(pluginChannelSchema)
-        .optional()
         .describe(
-          "Channels brought by installed plugins, in install order: those " +
-            "declaring ingress routes in `channels/ingress.json`, presented " +
-            "from their own manifests. Namespaced under `plugin:` because " +
-            "they are not members of the channel union the daemon routes and " +
-            "verifies against. Optional so a client can read a response from " +
-            "a daemon that predates the field: absent means the same as empty.",
+          "Available channels in display order: the ones the assistant " +
+            "ships, then the ones installed plugins bring by declaring " +
+            "ingress routes. `source` distinguishes them.",
         ),
     }),
   },

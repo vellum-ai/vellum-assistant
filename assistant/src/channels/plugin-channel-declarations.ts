@@ -11,13 +11,13 @@
  * gateway's: validating the routes, digesting them, holding them behind a
  * guardian's approval. This reads its presence and nothing else, so a
  * declaration the gateway rejects still surfaces here. That is the honest
- * report — the plugin is a channel and its ingress is broken — and it keeps a
- * schema this module does not own from deciding what the settings page lists.
+ * report, the plugin is a channel and its ingress is broken, and it keeps a
+ * schema this module does not own from deciding what a settings page lists.
  *
  * Presentation comes from the plugin's own manifest, where a plugin's title,
  * description and icon already belong. All three are optional and none gate
  * anything: a plugin with ingress and a bare `package.json` still appears,
- * under a name derived from its directory.
+ * titled from its directory.
  */
 
 import { statSync } from "node:fs";
@@ -26,6 +26,7 @@ import { join } from "node:path";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { parsePluginPresentation } from "../plugins/external-plugin-loader.js";
 import { listInstalledPluginDirs } from "../plugins/installed-plugin-dirs.js";
+import { type AvailableChannel, isChannelId } from "./types.js";
 
 /**
  * The declaration that makes a plugin a channel. Owned by the gateway, which
@@ -33,36 +34,15 @@ import { listInstalledPluginDirs } from "../plugins/installed-plugin-dirs.js";
  */
 export const PLUGIN_INGRESS_MANIFEST_RELPATH = "channels/ingress.json";
 
-/**
- * Prefix separating plugin channel ids from the assistant's own.
- *
- * `ChannelId` is a closed union covering the channels the assistant routes,
- * verifies and applies admission policy to. A plugin channel is none of those
- * things yet, so it is namespaced rather than admitted to that union: a client
- * can display `plugin:imessage` without any code path mistaking it for a
- * channel the daemon knows how to deliver on.
- */
-export const PLUGIN_CHANNEL_ID_PREFIX = "plugin:";
-
-export interface PluginChannel {
-  /** `plugin:<pluginName>`, the id clients key on. */
-  id: string;
-  /** Directory name of the declaring plugin. */
-  plugin: string;
-  /** Title for the channel row. */
-  label: string;
-  /** One line under the title. Absent when the manifest carries none. */
-  description?: string;
-  /** Lucide icon name without the `lucide-` prefix, when the manifest names one. */
-  icon?: string;
-}
+/** Icon for a plugin naming none. The generic "a message arrives here" glyph. */
+const FALLBACK_ICON = "message-square";
 
 /**
  * Title for a plugin with no `displayName`.
  *
  * Derived rather than defaulted to the raw directory name so `meeting-bot`
- * reads as "Meeting Bot" in a list beside "Slack" and "Telegram". A plugin
- * whose casing matters (iMessage) sets `displayName` and this never runs.
+ * reads as "Meeting Bot" beside "Slack" and "Telegram". A plugin whose casing
+ * matters sets `displayName` and this never runs.
  */
 function titleFromDirectory(name: string): string {
   return name
@@ -84,26 +64,43 @@ function declaresIngress(pluginDir: string): boolean {
 /**
  * Every channel brought by an installed, enabled plugin.
  *
- * Disabled plugins are skipped, matching the source of truth the loader uses
- * for hooks, tools and routes: a disabled plugin holds no ingress either, and
- * one that reappeared here would offer a setup flow that cannot run.
+ * A plugin whose directory name is one of the assistant's own channels is
+ * skipped: two rows sharing an id would be ambiguous to any client keying on
+ * one, and the resolution that lets a plugin win would let it impersonate a
+ * built-in channel. The assistant's keep the name.
+ *
+ * Disabled plugins are skipped too, matching the source of truth the loader
+ * uses for hooks, tools and routes: a disabled plugin holds no ingress either,
+ * and one that reappeared here would offer a setup flow that cannot run.
  *
  * Order follows the plugins directory, and is stable for a stable install set.
  */
-export async function discoverPluginChannels(): Promise<PluginChannel[]> {
-  const channels: PluginChannel[] = [];
+export async function discoverPluginChannels(): Promise<AvailableChannel[]> {
+  const channels: AvailableChannel[] = [];
 
   for (const { name, dir } of listInstalledPluginDirs()) {
-    if (isPluginDisabled(name) || !declaresIngress(dir)) {
+    if (isPluginDisabled(name) || isChannelId(name) || !declaresIngress(dir)) {
       continue;
     }
     const presentation = await parsePluginPresentation(dir);
+    const label = presentation?.displayName ?? titleFromDirectory(name);
     channels.push({
-      id: `${PLUGIN_CHANNEL_ID_PREFIX}${name}`,
-      plugin: name,
-      label: presentation?.displayName ?? titleFromDirectory(name),
-      description: presentation?.description,
-      icon: presentation?.icon,
+      id: name,
+      source: `plugin:${name}`,
+      label,
+      subtitle: presentation?.description ?? `Provided by the ${label} plugin`,
+      icon: presentation?.icon ?? FALLBACK_ICON,
+      // No client-side verification flow exists for a plugin channel, so
+      // clients render it display-only and never pre-warm a status for it.
+      supportsVerification: false,
+      // Openers for a setup conversation, which is what this field is for.
+      // Deliberately not the verification copy the built-ins carry: there is
+      // no identity to verify here, and inventing that wording would send
+      // someone down a flow that does not exist.
+      setupMessages: {
+        guardian: `I want to set up ${label}. Can you help me?`,
+        contact: `I'd like to reach you on ${label}. Can you help me get set up?`,
+      },
     });
   }
 

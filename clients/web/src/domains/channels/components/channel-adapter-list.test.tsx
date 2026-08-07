@@ -16,11 +16,11 @@ const CHANNELS: AssistantChannelState[] = [
 
 const PLUGIN_CHANNELS: PluginChannelSummary[] = [
   {
-    id: "plugin:imessage",
-    plugin: "imessage",
-    label: "iMessage",
-    description: "Reach the assistant by text.",
-    icon: "message-circle",
+    id: "plugin:courier",
+    plugin: "courier",
+    label: "Courier",
+    description: "Reach the assistant by carrier pigeon.",
+    icon: "send",
   },
 ];
 
@@ -146,7 +146,7 @@ describe("ChannelAdapterList", () => {
       4,
     );
     expect(document.body.textContent).toContain("From plugins");
-    expect(document.body.textContent).toContain("iMessage");
+    expect(document.body.textContent).toContain("Courier");
   });
 
   test("shows no plugin heading when nothing declares a channel", () => {
@@ -176,13 +176,13 @@ describe("ChannelAdapterList", () => {
       />,
     );
 
-    fireEvent.click(rowFor("iMessage"));
-    expect(selected).toBe("plugin:imessage");
+    fireEvent.click(rowFor("Courier"));
+    expect(selected).toBe("plugin:courier");
   });
 
   test("lists a plugin channel whose manifest names no icon", () => {
-    // Presentation is best-effort in the daemon, so the rail has to render a
-    // channel that arrives with nothing but a label.
+    // Presentation is best-effort on the assistant, so the rail has to render
+    // a channel that arrives with nothing but a label.
     render(
       <ChannelAdapterList
         channels={[]}
@@ -208,11 +208,11 @@ describe("ChannelAdapterList", () => {
       <ChannelAdapterList
         channels={[]}
         pluginChannels={PLUGIN_CHANNELS}
-        selectedKey="plugin:imessage"
+        selectedKey="plugin:courier"
         onSelect={() => {}}
       />,
     );
 
-    expect(rowFor("iMessage").textContent).not.toContain("Not connected");
+    expect(rowFor("Courier").textContent).not.toContain("Not connected");
   });
 });
