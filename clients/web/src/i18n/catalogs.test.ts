@@ -14,17 +14,23 @@ import { Glob } from "bun";
 import { describe, expect, test } from "bun:test";
 import IntlMessageFormat from "intl-messageformat";
 
-import enChat from "@/i18n/locales/en/chat.json";
-import enCommon from "@/i18n/locales/en/common.json";
-import esChat from "@/i18n/locales/es/chat.json";
-import esCommon from "@/i18n/locales/es/common.json";
-import { NAMESPACES, type Namespace } from "@/i18n/namespaces";
+import { loadCatalogs, type LocaleCatalogs } from "@/i18n/catalogs";
+import { NAMESPACES } from "@/i18n/namespaces";
 import { DEFAULT_LOCALE, SUPPORTED_LOCALES } from "@/i18n/supported-locales";
 
-const CATALOGS: Record<string, Record<Namespace, unknown>> = {
-  en: { common: enCommon, chat: enChat },
-  es: { common: esCommon, chat: esChat },
-};
+/**
+ * Built from the real loader rather than a hand-written map, so adding a
+ * locale or a namespace needs no change here and the loader registry itself
+ * is under test.
+ */
+const CATALOGS: Record<string, LocaleCatalogs> = Object.fromEntries(
+  await Promise.all(
+    SUPPORTED_LOCALES.map(async (locale) => [
+      locale,
+      await loadCatalogs(locale),
+    ]),
+  ),
+);
 
 /** Flatten a nested catalog to `{ "a.b.c": "message" }`. */
 function flatten(value: unknown, prefix = ""): Record<string, string> {
@@ -88,7 +94,7 @@ function placeholders(message: string, locale: string): Set<string> {
 }
 
 describe("catalog integrity", () => {
-  test("every shipped locale has every namespace", () => {
+  test("every shipped locale loads every namespace", () => {
     for (const locale of SUPPORTED_LOCALES) {
       for (const namespace of NAMESPACES) {
         expect(CATALOGS[locale]?.[namespace]).toBeDefined();

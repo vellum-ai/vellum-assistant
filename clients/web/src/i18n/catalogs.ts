@@ -35,6 +35,7 @@
  */
 import enChat from "@/i18n/locales/en/chat.json";
 import enCommon from "@/i18n/locales/en/common.json";
+import enSchedules from "@/i18n/locales/en/schedules.json";
 import { NAMESPACES, type Namespace } from "@/i18n/namespaces";
 import { DEFAULT_LOCALE, type SupportedLocale } from "@/i18n/supported-locales";
 
@@ -57,6 +58,7 @@ type CatalogLoader = () => Promise<{ default: Catalog }>;
 export const FALLBACK_CATALOGS: LocaleCatalogs = {
   common: enCommon,
   chat: enChat,
+  schedules: enSchedules,
 };
 
 /** Loaders for the locales that are not bundled into the entry chunk. */
@@ -67,6 +69,7 @@ const CATALOG_LOADERS: Record<
   es: {
     common: () => import("@/i18n/locales/es/common.json"),
     chat: () => import("@/i18n/locales/es/chat.json"),
+    schedules: () => import("@/i18n/locales/es/schedules.json"),
   },
 };
 

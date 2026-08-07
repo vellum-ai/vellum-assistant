@@ -192,6 +192,7 @@ const authBoundaryAllowedPaths = [
 const i18nEnforcedPaths = [
   "src/components/not-found.tsx",
   "src/domains/chat/components/conversation-assets-pill.tsx",
+  "src/domains/schedules/**/*.{ts,tsx}",
 ];
 
 const eslintConfig = defineConfig([
