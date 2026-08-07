@@ -97,6 +97,10 @@ const DESTINATIONS: Array<{ channel: string; destination: string }> = [
 
 beforeEach(() => {
   deliveries.length = 0;
+  // Sessions persist in the sim, and `findActiveSession` returns the latest
+  // for a channel, so without this a test would resend against the previous
+  // test's session.
+  sessions.resetVerificationSessionsSim();
 });
 
 describe("startOutbound delivers from inside the action", () => {
@@ -119,8 +123,21 @@ describe("startOutbound delivers from inside the action", () => {
     // shared path from its second entry point rather than of resend as a
     // feature.
     for (const { channel, destination } of DESTINATIONS) {
-      deliveries.length = 0;
-      await startOutbound({ channel: channel as never, destination });
+      sessions.resetVerificationSessionsSim();
+      const start = await startOutbound({
+        channel: channel as never,
+        destination,
+      });
+      expect(start.verificationSessionId).toBeDefined();
+
+      // A start stamps a 15-second resend cooldown. That cooldown is its own
+      // behaviour; clearing it here is what lets this reach the delivery.
+      sessions.updateSessionDelivery(
+        start.verificationSessionId!,
+        Date.now(),
+        1,
+        null,
+      );
       deliveries.length = 0;
 
       const result = await resendOutbound({ channel: channel as never });
