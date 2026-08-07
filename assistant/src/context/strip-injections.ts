@@ -222,6 +222,10 @@ export const RUNTIME_INJECTION_PREFIXES: InjectionMatcher[] = [
   // and overflow recovery remove a stale spotlight along with the rest of the
   // runtime injections. Full-wrapper shape for the same reason as `<memory>`.
   MEMORY_SPOTLIGHT_MATCHER,
+  // Reports a titling fault that was already claimed once per conversation.
+  // Stripped so a compaction cannot resurrect it into a rewritten history the
+  // claim ledger no longer guards.
+  "<title_generation_unavailable>",
   "<voice_call_control>",
   "<workspace_top_level>", // backward-compat: strip legacy workspace blocks
   // The `<workspace>` top-level block is stripped so each compaction re-injects

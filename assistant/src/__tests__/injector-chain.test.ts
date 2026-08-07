@@ -316,6 +316,7 @@ describe("injector chain", () => {
       "unified-turn-context",
       "config-quarantine-notice",
       "config-validation-reset-notice",
+      "title-generation-unavailable",
       "pkb-context",
       "pkb-reminder",
       "memory-v2-static",

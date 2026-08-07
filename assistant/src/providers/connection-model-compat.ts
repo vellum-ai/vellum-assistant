@@ -1,14 +1,18 @@
 /**
- * Model-compatibility gate for auto-resolved provider connections.
+ * Model compatibility for `oauth_subscription` (ChatGPT Codex) connections,
+ * before dispatch and after it.
  *
- * When a profile uses "Any active <provider> connection" (no
- * `provider_connection` pinned), the daemon auto-picks an active connection
- * for the provider. `oauth_subscription` connections (ChatGPT Codex) hard-
- * route every request to the Codex endpoint, which rejects non-Codex models
- * with HTTP 400. This helper lets the auto-resolution sites skip such a
- * connection when the requested model is not Codex-compatible.
+ * Such a connection hard-routes every request to the Codex endpoint, which
+ * rejects models outside its allowlist with HTTP 400. Two surfaces need that
+ * fact. Auto-resolution (a profile saying "Any active <provider> connection",
+ * where the daemon picks a row) uses the gate to skip a connection that cannot
+ * serve the requested model, and preflight uses it to judge a pinned one.
+ * Callers holding a failure instead of a candidate use
+ * {@link isSubscriptionModelRejection}, which reads the same allowlist to tell
+ * this permanent fault from an ordinary bad request on the same route.
  */
 
+import { ProviderError } from "../util/errors.js";
 import type { ProviderConnection } from "./inference/auth.js";
 import { isCodexSubscriptionModel } from "./openai/codex-models.js";
 
@@ -42,9 +46,12 @@ export function isConnectionCompatibleWithModel(
 }
 
 /**
- * When auto-resolution found candidates but none were model-compatible,
- * return a user-facing explanation if the incompatibility is specifically
- * due to all candidates being `oauth_subscription` (ChatGPT) connections.
+ * Sole owner of the user-facing sentence for "this ChatGPT subscription
+ * cannot serve that model". Given the connections that would serve a request
+ * (the candidate set during auto-resolution, or the single pinned row during
+ * preflight), return the explanation when none of them can serve `model` and
+ * the reason is specifically that they are all `oauth_subscription` (ChatGPT)
+ * connections.
  *
  * Returns `null` when the incompatibility has a different cause (callers
  * should fall through to their existing generic error).
@@ -66,4 +73,32 @@ export function describeSubscriptionModelIncompatibility(
     return null;
   }
   return `Model "${model}" isn't available through your ChatGPT subscription. Select a supported model or add an OpenAI API key connection.`;
+}
+
+/**
+ * Whether `error` is the Codex endpoint refusing `model` because it is not one
+ * the subscription serves.
+ *
+ * The status alone does not establish that. This endpoint is parameter
+ * sensitive and answers HTTP 400 for ordinary client faults too, so a caller
+ * that treated every 400 on the route as a model verdict would tell the user
+ * to change a model that was never the problem. The allowlist is what
+ * separates them: a model outside it can only fail, and no retry, backoff, or
+ * credential refresh changes that, while an allowlisted model returning 400 is
+ * some other bad request and stays the caller's ordinary failure.
+ *
+ * `model` is the model the call site resolved. An unknown model returns
+ * `false`: without it there is no evidence for the stronger claim.
+ */
+export function isSubscriptionModelRejection(
+  error: unknown,
+  model: string | undefined,
+): boolean {
+  return (
+    error instanceof ProviderError &&
+    error.statusCode === 400 &&
+    error.routeAttribution?.credentialSource === "oauth-subscription" &&
+    model !== undefined &&
+    !isCodexSubscriptionModel(model)
+  );
 }

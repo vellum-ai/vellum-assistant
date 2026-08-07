@@ -8,17 +8,26 @@
  * endpoint, which rejects non-Codex models with HTTP 400. The gate skips such
  * a connection during auto-resolution unless the model is Codex-compatible.
  *
- * Two layers are covered:
+ * Three layers are covered:
  *   1. `isConnectionCompatibleWithModel` — the pure predicate.
  *   2. `getConfiguredProvider` — the auto-resolution path that uses the
  *      predicate as an additional `.find()` filter, plus the pinned-connection
  *      path which bypasses the gate entirely.
+ *   3. `isSubscriptionModelRejection`, the after-the-fact counterpart, for
+ *      callers holding the failure that a bypassed gate produced.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
-import { isConnectionCompatibleWithModel } from "../connection-model-compat.js";
+import {
+  type ProviderCredentialSource,
+  ProviderError,
+} from "../../util/errors.js";
+import {
+  isConnectionCompatibleWithModel,
+  isSubscriptionModelRejection,
+} from "../connection-model-compat.js";
 import type { Auth } from "../inference/auth.js";
 
 // ---------------------------------------------------------------------------
@@ -65,6 +74,88 @@ describe("isConnectionCompatibleWithModel", () => {
   test("undefined model applies no gating (compatible)", () => {
     const conn = { auth: oauthAuth };
     expect(isConnectionCompatibleWithModel(conn, undefined)).toBe(true);
+  });
+});
+
+describe("isSubscriptionModelRejection", () => {
+  /** A model the Codex subscription does not serve. */
+  const UNSERVED = "gpt-5.4-nano";
+  /** A model it does serve, so a 400 cannot be about the model. */
+  const SERVED = "gpt-5.4";
+
+  const rejection = (
+    statusCode: number,
+    credentialSource?: ProviderCredentialSource,
+  ) => {
+    const err = new ProviderError("rejected", "openai", statusCode);
+    if (credentialSource) {
+      err.attachRouteAttribution({ credentialSource });
+    }
+    return err;
+  };
+
+  test("a 400 refusing a model the subscription does not serve", () => {
+    expect(
+      isSubscriptionModelRejection(
+        rejection(400, "oauth-subscription"),
+        UNSERVED,
+      ),
+    ).toBe(true);
+  });
+
+  test("a 400 on an allowlisted model is an ordinary bad request", () => {
+    // This endpoint is parameter sensitive and answers 400 for client faults
+    // that have nothing to do with the model. Reporting one as a model
+    // incompatibility would send the user to change a working setting.
+    expect(
+      isSubscriptionModelRejection(
+        rejection(400, "oauth-subscription"),
+        SERVED,
+      ),
+    ).toBe(false);
+  });
+
+  test("an unknown model is not enough to claim a model fault", () => {
+    expect(
+      isSubscriptionModelRejection(
+        rejection(400, "oauth-subscription"),
+        undefined,
+      ),
+    ).toBe(false);
+  });
+
+  test("other statuses on the subscription route stay retryable", () => {
+    // Rate limits and outages clear on their own; only the 400 is the
+    // endpoint refusing the request as configured.
+    expect(
+      isSubscriptionModelRejection(
+        rejection(429, "oauth-subscription"),
+        UNSERVED,
+      ),
+    ).toBe(false);
+    expect(
+      isSubscriptionModelRejection(
+        rejection(500, "oauth-subscription"),
+        UNSERVED,
+      ),
+    ).toBe(false);
+  });
+
+  test("a 400 on any other credential source is not this fault", () => {
+    expect(isSubscriptionModelRejection(rejection(400, "byok"), UNSERVED)).toBe(
+      false,
+    );
+    expect(
+      isSubscriptionModelRejection(rejection(400, "vellum-managed"), UNSERVED),
+    ).toBe(false);
+    expect(isSubscriptionModelRejection(rejection(400), UNSERVED)).toBe(false);
+  });
+
+  test("non-provider errors are not rejections", () => {
+    expect(isSubscriptionModelRejection(new Error("boom"), UNSERVED)).toBe(
+      false,
+    );
+    expect(isSubscriptionModelRejection(undefined, UNSERVED)).toBe(false);
   });
 });
 

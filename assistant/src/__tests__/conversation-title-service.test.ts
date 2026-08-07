@@ -98,13 +98,20 @@ mock.module("../runtime/sync/resource-sync-events.js", () => ({
 }));
 
 import {
+  clearTitleModelFault,
+  getTitleModelFault,
+  recordTitleModelFault,
+} from "../persistence/conversation-title-health.js";
+import {
   AUTO_TITLE_DETERMINISTIC,
   AUTO_TITLE_LLM,
+  classifyTitleGenerationFailure,
   generateAndPersistConversationTitle,
   queueGenerateConversationTitle,
   regenerateConversationTitle,
   titleMutex,
 } from "../persistence/conversation-title-service.js";
+import { ProviderError } from "../util/errors.js";
 
 describe("conversation-title-service", () => {
   beforeEach(() => {
@@ -564,5 +571,116 @@ describe("conversation-title-service", () => {
       mockUpdateConversationTitle.mock.calls as unknown as string[][]
     ).find((c) => c[0] === "conv-2" && c[1] === "Recovery Title");
     expect(secondUpdate).toBeTruthy();
+  });
+
+  describe("classifies a failure by whether it can clear on its own", () => {
+    /** A subscription connection refusing the resolved model: HTTP 400. */
+    function subscriptionRejection(): ProviderError {
+      const err = new ProviderError("unsupported model", "openai", 400);
+      err.attachRouteAttribution({
+        connectionName: "openai-codex",
+        credentialSource: "oauth-subscription",
+      });
+      return err;
+    }
+
+    test("a connection refusing the model reports the routing that caused it", () => {
+      const { reason, fields } = classifyTitleGenerationFailure(
+        { conversationId: "conv-1" },
+        subscriptionRejection(),
+      );
+
+      expect(reason).toBe("model_unavailable");
+      // Without the connection, the status, and which credential surface
+      // refused it, the report names a symptom instead of a cause.
+      expect(fields.connectionName).toBe("openai-codex");
+      expect(fields.credentialSource).toBe("oauth-subscription");
+      expect(fields.httpStatus).toBe(400);
+      expect(fields.conversationId).toBe("conv-1");
+    });
+
+    test("a transient failure stays retryable", () => {
+      const { reason } = classifyTitleGenerationFailure(
+        { conversationId: "conv-1" },
+        new Error("provider timeout"),
+      );
+      expect(reason).toBe("generation_error");
+    });
+
+    test("a rejection on any other credential source stays retryable", () => {
+      // Only the subscription route turns a 400 into a permanent fault. An
+      // API key answering 400 is a different failure and must not be reported
+      // as one the user has to reconfigure.
+      const byok = new ProviderError("bad request", "openai", 400);
+      byok.attachRouteAttribution({ credentialSource: "byok" });
+
+      const { reason } = classifyTitleGenerationFailure(
+        { conversationId: "conv-1" },
+        byok,
+      );
+      expect(reason).toBe("generation_error");
+    });
+
+    // Classification changes only how a failure is reported, never what the
+    // conversation is left showing: the fallback write on a thrown call is
+    // covered by "queue continues processing after a failed call" above, and
+    // a refusal takes that same path.
+  });
+
+  describe("latches a permanent fault for a later turn to report", () => {
+    beforeEach(() => {
+      clearTitleModelFault();
+    });
+
+    test("a refusal is latched with the routing that caused it", async () => {
+      // The turn that triggered this call is long gone by the time the model
+      // refuses, so the latch is the only way the failure reaches anyone.
+      const refusal = new ProviderError("unsupported model", "openai", 400);
+      refusal.attachRouteAttribution({
+        connectionName: "openai-codex",
+        credentialSource: "oauth-subscription",
+      });
+      const provider = makeProvider(async () => {
+        throw refusal;
+      });
+
+      queueGenerateConversationTitle({
+        conversationId: "conv-latch",
+        provider,
+        userMessage: "will be refused",
+      });
+      await titleMutex.withLock(async () => {});
+
+      expect(getTitleModelFault()).toMatchObject({
+        connectionName: "openai-codex",
+      });
+    });
+
+    test("a transient failure latches nothing", async () => {
+      const provider = makeProvider(async () => {
+        throw new Error("provider timeout");
+      });
+
+      queueGenerateConversationTitle({
+        conversationId: "conv-transient",
+        provider,
+        userMessage: "will time out",
+      });
+      await titleMutex.withLock(async () => {});
+
+      expect(getTitleModelFault()).toBeNull();
+    });
+
+    test("a generated title clears a latched fault", async () => {
+      recordTitleModelFault({ model: "stale", connectionName: "openai-codex" });
+
+      await generateAndPersistConversationTitle({
+        conversationId: "conv-recovered",
+        provider: makeProvider(),
+        userMessage: "Help me plan the kickoff",
+      });
+
+      expect(getTitleModelFault()).toBeNull();
+    });
   });
 });

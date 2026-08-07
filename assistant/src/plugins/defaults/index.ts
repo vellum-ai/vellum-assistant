@@ -83,6 +83,7 @@ import taskProgressNudgePostToolUse, {
 import taskProgressNudgePkg from "./task-progress-nudge/package.json" with { type: "json" };
 import titleGenerateStop from "./title-generate/hooks/stop.js";
 import titleGenerateUserPromptSubmit from "./title-generate/hooks/user-prompt-submit.js";
+import { titleGenerateInjectors } from "./title-generate/injectors.js";
 import titleGeneratePkg from "./title-generate/package.json" with { type: "json" };
 import toolErrorPostToolUse from "./tool-error/hooks/post-tool-use.js";
 import toolErrorPkg from "./tool-error/package.json" with { type: "json" };
@@ -322,7 +323,9 @@ export const defaultMaxTokensContinuePlugin: Plugin = {
 /**
  * `title-generate` — two pure-trigger hooks that delegate the title work to
  * the conversation-title service: `user-prompt-submit` (first-pass title) and
- * `stop` (second-pass regeneration once the topic is established).
+ * `stop` (second-pass regeneration once the topic is established). Because
+ * that work is fire-and-forget, the plugin also contributes an injector that
+ * reports an already-observed titling fault back into a later turn.
  */
 export const defaultTitleGeneratePlugin: Plugin = {
   manifest: {
@@ -333,6 +336,7 @@ export const defaultTitleGeneratePlugin: Plugin = {
     "user-prompt-submit": titleGenerateUserPromptSubmit,
     stop: titleGenerateStop,
   },
+  injectors: titleGenerateInjectors,
 };
 
 /**

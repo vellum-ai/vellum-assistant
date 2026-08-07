@@ -521,6 +521,20 @@ export async function preflightResolvedConfig(
     );
   }
 
+  // A subscription connection hard-routes to the Codex endpoint, which
+  // rejects every model outside its allowlist with HTTP 400, a fault no
+  // credential can fix. Judged before the credential probe below, which
+  // returns early on an unreachable store and would otherwise hide it.
+  if (!isConnectionCompatibleWithModel(connection, resolved.model)) {
+    throw new ConnectionResolutionError(
+      connectionName,
+      "model_incompatible",
+      describeSubscriptionModelIncompatibility([connection], resolved.model) ??
+        `provider_connection "${connectionName}" cannot serve model "${resolved.model}"`,
+      errorOptions,
+    );
+  }
+
   switch (connection.auth.type) {
     case "api_key":
     case "oauth_subscription": {
