@@ -26,6 +26,16 @@ mock.module("@/hooks/use-is-mobile", () => ({
 // The sidebar owns its Background/Scheduled lazy queries; stub both so static
 // SSR rendering resolves without a QueryClient. These tests pass the full
 // conversation list through `conversations` and assert the rendered buckets.
+/* Pinned asks the server for its own members, so the mock answers the way the
+   server does: the pinned rows of whatever the test set up. Section rows no
+   longer come from the `conversations` fixture by client-side filtering, which
+   is the coupling being removed. */
+let sectionRows: Conversation[] = [];
+
+function setSectionRows(conversations: Conversation[]) {
+  sectionRows = conversations.filter((c) => c.isPinned);
+}
+
 mock.module("@/hooks/conversation-queries", () => ({
   useBackgroundConversationListQuery: () => ({
     conversations: [],
@@ -33,6 +43,11 @@ mock.module("@/hooks/conversation-queries", () => ({
   }),
   useScheduledConversationListQuery: () => ({
     conversations: [],
+    isPending: false,
+  }),
+  useSectionConversationListQuery: () => ({
+    conversations: sectionRows,
+    isLoading: false,
     isPending: false,
   }),
 }));
@@ -93,6 +108,7 @@ function renderMenu(props: {
   includeTipCard?: boolean;
   isLoadingConversations?: boolean;
 }): string {
+  setSectionRows(props.conversations);
   const includeFooterAction = props.includeFooterAction ?? true;
   const { container } = render(
     createElement(AssistantSideMenu, {

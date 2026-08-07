@@ -34,6 +34,7 @@ import type {
   ConversationGroup,
 } from "@/types/conversation-types";
 import {
+  compareByDisplayOrder,
   groupConversations,
   type CustomGroup,
 } from "@/domains/chat/utils/group-conversations";
@@ -60,7 +61,10 @@ import { mergeConversationLists } from "@/utils/conversation-cache";
 import {
   useBackgroundConversationListQuery,
   useScheduledConversationListQuery,
+  useSectionConversationListQuery,
 } from "@/hooks/conversation-queries";
+import { SYSTEM_PINNED_GROUP_ID } from "@/utils/conversation-list-fetchers";
+import { useSupportsGroupFilter } from "@/lib/backwards-compat/use-supports-group-filter";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { getChannelLabel } from "@/utils/channel-presentation";
 import { RECENTS_SECTION_LABEL } from "@/domains/chat/utils/sidebar-section-icon";
@@ -75,6 +79,9 @@ import { RECENTS_SECTION_LABEL } from "@/domains/chat/utils/sidebar-section-icon
  * each render.
  */
 const EMPTY_KEYS: string[] = [];
+
+/** Stable reference so the Pinned query's options are not rebuilt each render. */
+const PINNED_FILTER = { groupId: SYSTEM_PINNED_GROUP_ID } as const;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -255,6 +262,25 @@ export function useSidebarState({
       isAssistantActive && scheduledReady,
     );
 
+  /* Pinned asks the server for its own members rather than taking whatever
+     pinned rows happen to be in the foreground page. Pinning is stored as
+     group membership, so one filter answers it, and a pinned conversation
+     that sorts many pages deep still appears here.
+
+     Gated: an assistant that predates the filter ignores the unrecognized
+     parameter and returns the entire conversation list, which would render
+     in full inside Pinned. Below the gate the section keeps deriving from
+     the list it is handed, exactly as it did before. The gate is scoped to
+     this assistant so a version still held for the outgoing one cannot
+     authorize a filtered fetch against the incoming one mid-switch. */
+  const supportsGroupFilter = useSupportsGroupFilter(assistantId);
+  const { conversations: pinnedFromQuery, isPending: pinnedPending } =
+    useSectionConversationListQuery(
+      assistantId,
+      PINNED_FILTER,
+      isAssistantActive && supportsGroupFilter,
+    );
+
   const allConversations = useMemo(
     () =>
       mergeConversationLists(
@@ -276,6 +302,31 @@ export function useSidebarState({
     [allConversations, conversationGroups, viewMode],
   );
 
+  /* Re-apply the pinned comparator to the server's rows. The daemon orders
+     user-ordered groups by `COALESCE(display_order, 999999) ASC` then by
+     recency, and pinning writes no `displayOrder`, so for anyone who has
+     never drag-reordered every row ties at the sentinel and falls through to
+     activity order. Left alone, a pinned conversation would jump to the top
+     of Pinned whenever a message landed in it, which is exactly what
+     `compareByCreatedAt` exists to prevent. Copy before sorting: this array
+     is the query cache's own. */
+  const pinnedFromQuerySorted = useMemo(
+    () => [...pinnedFromQuery].sort(compareByDisplayOrder),
+    [pinnedFromQuery],
+  );
+
+  /* Keep painting the derived rows until the section query has answered once.
+     `pinnedFromQuery` is empty while pending, and an empty Pinned section is
+     dropped entirely below, so switching on the gate alone would hide Pinned
+     on every cold load until a multi-page drain finished. The derived list is
+     a subset (the pinned rows that happen to be in the foreground page), so
+     this paints immediately and fills in. `isPending` is false once data has
+     landed, so a later refetch never falls back. */
+  const pinnedConversations =
+    supportsGroupFilter && !pinnedPending
+      ? pinnedFromQuerySorted
+      : grouped.pinned;
+
   // --- Section order ---
 
   // Default layout: Pinned, then the user's custom groups, then - in the
@@ -286,12 +337,12 @@ export function useSidebarState({
   // below them.
   const defaultSections = useMemo((): SidebarSection[] => {
     const list: SidebarSection[] = [];
-    if (grouped.pinned.length > 0) {
+    if (pinnedConversations.length > 0) {
       list.push({
         type: "pinned",
         key: "pinned",
         label: "Pinned",
-        all: grouped.pinned,
+        all: pinnedConversations,
       });
     }
     for (const group of grouped.customGroups) {
@@ -323,7 +374,7 @@ export function useSidebarState({
     return list;
   }, [
     viewMode,
-    grouped.pinned,
+    pinnedConversations,
     grouped.customGroups,
     grouped.recents,
     grouped.channelSections,
@@ -343,8 +394,9 @@ export function useSidebarState({
 
   const curatedSectionCount = useMemo(
     () =>
-      sections.filter((section) => classifySectionKey(section.key) === "curated")
-        .length,
+      sections.filter(
+        (section) => classifySectionKey(section.key) === "curated",
+      ).length,
     [sections],
   );
 
@@ -413,9 +465,7 @@ export function useSidebarState({
     }
     const keys = sections
       .filter((section) =>
-        section.all.some((c) =>
-          attentionConversationIds.has(c.conversationId),
-        ),
+        section.all.some((c) => attentionConversationIds.has(c.conversationId)),
       )
       .map((section) => section.key);
     return keys.length > 0 ? keys : EMPTY_KEYS;

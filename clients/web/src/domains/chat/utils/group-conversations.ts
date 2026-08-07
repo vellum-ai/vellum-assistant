@@ -133,8 +133,18 @@ function compareByCreatedAt(a: Conversation, b: Conversation): number {
  * `displayOrder` come first in ascending order; ties and rows without
  * `displayOrder` fall back to a stable creation-time order so pinned rows
  * never reshuffle when activity arrives (see {@link compareByCreatedAt}).
+ *
+ * Exported because a server-filtered section has to re-apply it. The daemon
+ * orders user-ordered groups by `COALESCE(display_order, 999999) ASC` and
+ * then by recency, so rows that were never dragged all tie at the sentinel
+ * and fall through to activity order, which is the opposite of the invariant
+ * above. Sorting the section's own response with this comparator keeps the
+ * two paths agreeing.
  */
-function compareByDisplayOrder(a: Conversation, b: Conversation): number {
+export function compareByDisplayOrder(
+  a: Conversation,
+  b: Conversation,
+): number {
   const aOrder = a.displayOrder;
   const bOrder = b.displayOrder;
   if (aOrder != null && bOrder != null) {

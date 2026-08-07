@@ -491,24 +491,23 @@ describe("SideMenu.Item collapsed shape", () => {
 
   test('shape="circle" squares the tile, so it is round and not oval', () => {
     const html = renderCollapsedItem({ label: "Pinned", shape: "circle" });
-    /* Regression: a full radius on a `w-full` row drew a 32x30 ellipse,
-       because the rail column is a little wider than the row is tall. The
-       radius alone is not the shape, so assert the squaring too, and assert
-       it as `aspect-square` over the row height: a hard-coded width would be
-       a second copy of the row metric, free to drift from `h-[30px]`. */
-    expect(html).toContain("h-[30px]");
-    expect(html).toContain("aspect-square");
-    expect(html).toContain("mx-auto");
+    /* A full radius on a `w-full` row is an ellipse, not a circle: the rail
+       column is a little wider than the row is tall. The radius alone is not
+       the shape, so assert the square too. A definite `size-*` is what makes
+       it one: a height plus `aspect-square` derives the width instead, and a
+       derived width is `auto`, which `align-items: stretch` then overrides
+       back to the container's. */
+    expect(html).toContain("size-[30px]");
+    expect(html).not.toContain("aspect-square");
   });
 
   test("a tile is built as its own shape, not as a row with patches", () => {
     const html = renderCollapsedItem({ label: "Pinned", shape: "circle" });
     /* The row classes a tile does not want are absent, rather than present
-       and countered. Asserting absence is what keeps this honest: an earlier
-       attempt appended `w-auto` / `max-md:h-[30px]` / `max-md:py-[6px]` to
-       out-specify them, which renders the same but leaves the geometry
-       dependent on tailwind-merge order, one class list away from a 32x30
-       ellipse or a 38x38 tile overflowing the rail. */
+       and countered. Absence is the property worth asserting: countering them
+       with `w-auto` / `max-md:h-[30px]` / `max-md:py-[6px]` renders the same
+       while leaving the geometry dependent on tailwind-merge order, one class
+       list away from a 32x30 ellipse or a 38x38 tile overflowing the rail. */
     expect(html).not.toContain("w-full");
     expect(html).not.toContain("rounded-[6px]");
     expect(html).not.toContain("max-md:h-auto");
@@ -526,7 +525,7 @@ describe("SideMenu.Item collapsed shape", () => {
     expect(html).toContain("w-full");
     expect(html).toContain("max-md:h-auto");
     expect(html).toContain("max-md:py-3");
-    expect(html).not.toContain("aspect-square");
+    expect(html).not.toContain("size-[30px]");
   });
 
   test("default shape keeps the 6px row radius", () => {

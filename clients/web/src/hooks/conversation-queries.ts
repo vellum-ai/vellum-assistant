@@ -36,11 +36,11 @@ import {
   archivedConversationListOptions,
   backgroundConversationListOptions,
   conversationListOptions,
-  originChannelConversationListOptions,
+  sectionConversationListOptions,
   scheduledConversationListOptions,
   unreadConversationCountOptions,
 } from "@/utils/conversation-list-fetchers";
-import type { OriginChannel } from "@/utils/conversation-list-fetchers";
+import type { SectionConversationFilter } from "@/utils/conversation-list-fetchers";
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -173,21 +173,19 @@ export function useScheduledConversationListQuery(
 }
 
 /**
- * Subscribe to conversations for a specific origin channel (e.g. `"slack"`,
- * `"telegram"`). Cached independently per `(assistantId, channel)` tuple
- * under `originChannelConversationsQueryKey`.
+ * Subscribe to one sidebar section's conversations.
  *
- * Each channel section in the sidebar mounts its own instance of this hook.
- * Channel conversations are naturally bounded (~5-30 items), so a flat
- * (non-paginated) query is appropriate. Sections that have no conversations
- * simply don't render — no empty-state UI needed.
+ * Each section mounts its own instance, so its contents come from the server
+ * rather than from filtering another section's list. That is what lets a
+ * pinned conversation appear in Pinned even when it sorts many pages deep in
+ * the full list.
  *
  * `enabled` gates the network fetch; passing `false` keeps the observer
  * subscribed to cache updates without firing a request.
  */
-export function useOriginChannelConversationListQuery(
+export function useSectionConversationListQuery(
   assistantId: string | null,
-  channel: NonNullable<OriginChannel>,
+  filter: SectionConversationFilter,
   enabled: boolean = true,
 ): {
   conversations: Conversation[];
@@ -196,7 +194,7 @@ export function useOriginChannelConversationListQuery(
 } {
   const isOrgReady = useIsOrgReady();
   const query = useQuery({
-    ...originChannelConversationListOptions(assistantId!, channel),
+    ...sectionConversationListOptions(assistantId!, filter),
     enabled: enabled && Boolean(assistantId) && isOrgReady,
   });
   return {

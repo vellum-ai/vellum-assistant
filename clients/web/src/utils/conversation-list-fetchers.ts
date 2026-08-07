@@ -68,25 +68,29 @@ export function scheduledConversationsQueryKey(assistantId: string | null) {
   return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "scheduled"] as const;
 }
 
-/** Prefix key matching all origin-channel conversation caches. */
-export function originChannelListPrefix(assistantId: string | null) {
-  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "channel"] as const;
+/** Prefix key matching every per-section conversation cache. */
+export function sectionListPrefix(assistantId: string | null) {
+  return [CONVERSATION_LIST_PREFIX, assistantId ?? "", "section"] as const;
 }
 
 /**
- * Key for a specific origin channel's conversation cache. A child of
- * {@link originChannelListPrefix}, so prefix-match invalidation of the
- * `"channel"` segment reaches every per-channel cache automatically.
+ * Key for one section's conversation cache, a child of
+ * {@link sectionListPrefix} so prefix-match invalidation reaches every
+ * section at once.
+ *
+ * Both filter axes are in the key because both can be set at once, and two
+ * sections differing only in channel must not share a cache entry.
  */
-export function originChannelConversationsQueryKey(
+export function sectionConversationsQueryKey(
   assistantId: string | null,
-  channel: string,
+  filter: SectionConversationFilter,
 ) {
   return [
     CONVERSATION_LIST_PREFIX,
     assistantId ?? "",
-    "channel",
-    channel,
+    "section",
+    filter.groupId ?? "",
+    filter.originChannel ?? "",
   ] as const;
 }
 
@@ -128,9 +132,29 @@ const CONVERSATION_LIST_MAX_PAGES = 200;
  * Origin channel filter values accepted by the daemon's
  * `GET /v1/conversations?originChannel=` parameter.
  */
-export type OriginChannel = NonNullable<
-  ConversationsGetData["query"]
->["originChannel"];
+type ConversationListQuery = NonNullable<ConversationsGetData["query"]>;
+
+export type OriginChannel = ConversationListQuery["originChannel"];
+
+/**
+ * Group filter accepted by `GET /v1/conversations?groupId=`. Derived from the
+ * generated query type rather than restated, so a schema change surfaces
+ * here as a type error.
+ */
+export type ConversationGroupId = ConversationListQuery["groupId"];
+
+/**
+ * What one sidebar section asks the server for.
+ *
+ * Both axes together, because a section can need both: a channel card is
+ * that channel *and* ungrouped, since `origin_channel` is a separate column
+ * from `group_id` and a Slack conversation filed into a custom group would
+ * otherwise render in two cards.
+ */
+export interface SectionConversationFilter {
+  groupId?: ConversationGroupId;
+  originChannel?: OriginChannel;
+}
 
 type FetchConversationListOptions = {
   conversationType?: "background" | "scheduled";
@@ -145,6 +169,17 @@ type FetchConversationListOptions = {
    * exact `origin_channel` value are returned.
    */
   originChannel?: OriginChannel;
+  /**
+   * Filter to one group: {@link SYSTEM_PINNED_GROUP_ID} for Pinned,
+   * {@link SYSTEM_ALL_GROUP_ID} for what no group claimed, or a custom
+   * group's id.
+   *
+   * A conversation carries exactly one `group_id`, so group-scoped lists are
+   * disjoint by construction and no section needs to subtract another's rows.
+   * The server orders a group-scoped request by the user's own arrangement
+   * (display order, then recency) and never appends pinned rows to it.
+   */
+  groupId?: ConversationGroupId;
 };
 
 /**
@@ -158,7 +193,8 @@ type DrainListKind =
   | "background"
   | "scheduled"
   | "archived"
-  | "origin_channel";
+  | "origin_channel"
+  | "section";
 
 /**
  * Label a drain by the list it is fetching. Archive status is checked first
@@ -176,6 +212,9 @@ function drainListKind(options: FetchConversationListOptions): DrainListKind {
   }
   if (options.originChannel !== undefined) {
     return "origin_channel";
+  }
+  if (options.groupId !== undefined) {
+    return "section";
   }
   return "foreground";
 }
@@ -249,7 +288,7 @@ async function fetchConversationListPage(
   source: ListFetchSource,
   options: FetchConversationListOptions = {},
 ): Promise<TimedConversationListPage> {
-  const { conversationType, archiveStatus, originChannel } = options;
+  const { conversationType, archiveStatus, originChannel, groupId } = options;
   const startedAt = performance.now();
   const { data, error, response } = await conversationsGet({
     path: { assistant_id: assistantId },
@@ -259,6 +298,7 @@ async function fetchConversationListPage(
       ...(conversationType ? { conversationType } : {}),
       ...(archiveStatus ? { archiveStatus } : {}),
       ...(originChannel ? { originChannel } : {}),
+      ...(groupId ? { groupId } : {}),
     },
     throwOnError: false,
   });
@@ -518,22 +558,42 @@ export async function listScheduledConversations(
 }
 
 /**
- * Fetch all active (non-archived) conversations for a given origin channel
- * (e.g. `"slack"`, `"telegram"`), sorted newest-first.
- *
- * Each external channel's sidebar section calls this with its own channel ID.
- * Channel sections are naturally bounded (~5-30 items per user), so a flat
- * fetch (all pages) is appropriate. Cached separately per channel under
- * `originChannelConversationsQueryKey`.
+ * The two group ids the daemon owns. Pinning is stored as group membership,
+ * and `system:all` is what no group claimed, so a conversation belongs to
+ * exactly one group and group-scoped lists never overlap.
  */
-export async function listOriginChannelConversations(
+export const SYSTEM_PINNED_GROUP_ID = "system:pinned";
+export const SYSTEM_ALL_GROUP_ID = "system:all";
+
+/**
+ * Fetch every active conversation matching one section's filter: Pinned, a
+ * custom group, the ungrouped remainder, or a channel within it.
+ *
+ * Drained rather than paginated. A section that shows only its first page is
+ * a section whose unread indicator and bulk actions silently exclude the rest
+ * of its own contents.
+ *
+ * "Drained" means up to `CONVERSATION_LIST_MAX_PAGES` pages
+ * (200 x 50 = 10,000 rows), the shared watchdog bound on every list drain, and
+ * the loop stops there without signalling truncation. Pinned and custom groups
+ * do not realistically reach it. `system:all` is the ungrouped remainder, so on
+ * a heavy account it is the one section that can, and past 10,000 rows its
+ * unread indicator and bulk actions describe only the prefix. Lifting that
+ * needs a windowed section list, not a bigger cap.
+ *
+ * Returned in the server's order, which is NOT the final order for every
+ * section. A user-ordered group (pinned, any custom group) is sorted by
+ * `COALESCE(display_order, 999999) ASC` and then by recency, and pinning
+ * writes no `displayOrder`, so rows the user never dragged all tie at the
+ * sentinel and fall through to activity order. Those sections re-apply
+ * `compareByDisplayOrder` so a pinned row holds its place instead of jumping
+ * on every new message. Recency-ordered sections need no client sort.
+ */
+export async function listSectionConversations(
   assistantId: string,
-  originChannel: NonNullable<OriginChannel>,
+  filter: SectionConversationFilter,
 ): Promise<Conversation[]> {
-  const conversations = await fetchConversationList(assistantId, {
-    originChannel,
-  });
-  return [...conversations].sort(byTimestampDesc("lastMessageAt"));
+  return fetchConversationList(assistantId, filter);
 }
 
 /**
@@ -708,19 +768,20 @@ export function archivedConversationListOptions(assistantId: string) {
 }
 
 /**
- * Query options for a specific origin channel's conversation list.
+ * Query options for one sidebar section's conversations.
  *
- * Generic factory parameterized by channel ID — each sidebar channel section
- * (Slack, Telegram, Email, etc.) uses this with its own channel value. Cached
- * independently per `(assistantId, channel)` tuple.
+ * One factory for every section, parameterized by the filter rather than one
+ * factory per filter axis: a section can constrain both at once, which a
+ * per-axis factory cannot express. Caches independently per
+ * `(assistantId, groupId, originChannel)`.
  */
-export function originChannelConversationListOptions(
+export function sectionConversationListOptions(
   assistantId: string,
-  channel: NonNullable<OriginChannel>,
+  filter: SectionConversationFilter,
 ) {
   return queryOptions({
-    queryKey: originChannelConversationsQueryKey(assistantId, channel),
-    queryFn: () => listOriginChannelConversations(assistantId, channel),
+    queryKey: sectionConversationsQueryKey(assistantId, filter),
+    queryFn: () => listSectionConversations(assistantId, filter),
     staleTime: QUERY_STALE_TIME_MS,
   });
 }

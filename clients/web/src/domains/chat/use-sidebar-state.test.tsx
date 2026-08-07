@@ -3,10 +3,21 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import type { Conversation } from "@/types/conversation-types";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 // The Background/Scheduled sections own their lazy queries; stub both so the
 // hook resolves without a QueryClient and these tests stay focused on the
 // foreground grouping/pagination they exercise.
+/* Pinned asks the server for its own members, so the mock answers the way the
+   server does: the pinned rows of whatever the test set up. Section rows no
+   longer come from the `conversations` fixture by client-side filtering, which
+   is the coupling being removed. */
+let sectionRows: Conversation[] = [];
+
+function setSectionRows(conversations: Conversation[]) {
+  sectionRows = conversations.filter((c) => c.isPinned);
+}
+
 mock.module("@/hooks/conversation-queries", () => ({
   useBackgroundConversationListQuery: () => ({
     conversations: [],
@@ -14,6 +25,11 @@ mock.module("@/hooks/conversation-queries", () => ({
   }),
   useScheduledConversationListQuery: () => ({
     conversations: [],
+    isPending: false,
+  }),
+  useSectionConversationListQuery: () => ({
+    conversations: sectionRows,
+    isLoading: false,
     isPending: false,
   }),
 }));
@@ -241,6 +257,7 @@ describe("useSidebarState all view", () => {
   ];
 
   function renderSidebar() {
+    setSectionRows(conversations);
     return renderHook(() =>
       useSidebarState({
         assistantId: "asst-1",
@@ -316,6 +333,7 @@ describe("useSidebarState section order", () => {
 
   function renderSidebar() {
     seedGroupedView();
+    setSectionRows(conversations);
     return renderHook(() =>
       useSidebarState({
         assistantId: "asst-1",
@@ -339,11 +357,7 @@ describe("useSidebarState section order", () => {
     const { result } = renderSidebar();
 
     act(() =>
-      result.current.onReorderSections([
-        "grp-a",
-        "channel:slack",
-        "recents",
-      ]),
+      result.current.onReorderSections(["grp-a", "channel:slack", "recents"]),
     );
 
     expect(useSidebarLayoutStore.getState().sectionOrder).toEqual([
@@ -362,11 +376,7 @@ describe("useSidebarState section order", () => {
     const { result } = renderSidebar();
 
     act(() =>
-      result.current.onReorderSections([
-        "channel:slack",
-        "grp-a",
-        "recents",
-      ]),
+      result.current.onReorderSections(["channel:slack", "grp-a", "recents"]),
     );
 
     expect(result.current.sections.map((s) => s.key)).toEqual([
@@ -425,11 +435,7 @@ describe("useSidebarState section order", () => {
     const { result, rerender } = renderSidebar();
 
     act(() =>
-      result.current.onReorderSections([
-        "grp-a",
-        "channel:slack",
-        "recents",
-      ]),
+      result.current.onReorderSections(["grp-a", "channel:slack", "recents"]),
     );
 
     // Slack goes quiet: its section stops rendering entirely.
@@ -448,9 +454,7 @@ describe("useSidebarState section order", () => {
     ]);
 
     // Reordering while it's gone must not forget where it lived.
-    act(() =>
-      quiet.result.current.onReorderSections(["grp-a", "recents"]),
-    );
+    act(() => quiet.result.current.onReorderSections(["grp-a", "recents"]));
     expect(useSidebarLayoutStore.getState().sectionOrder).toContain(
       "channel:slack",
     );
@@ -465,5 +469,109 @@ describe("useSidebarState section order", () => {
     );
     const keys = back.result.current.sections.map((s) => s.key);
     expect(keys.indexOf("channel:slack")).toBeLessThan(keys.indexOf("recents"));
+  });
+});
+
+/* The gate is off in every suite above (no version is seeded, so it reads
+   false and Pinned falls back to the derived rows). These seed it on, which is
+   the only way the server-fetched path is exercised at all. */
+describe("Pinned section, gate open", () => {
+  afterEach(() => {
+    useAssistantIdentityStore.getState().clearIdentity();
+    sectionRows = [];
+  });
+
+  function openGate() {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", "0.12.0", "asst-1");
+  }
+
+  /* Regression: the daemon orders user-ordered groups by
+     `COALESCE(display_order, 999999) ASC` then by recency, and pinning writes
+     no `displayOrder`. So the server hands back activity order, while pinned
+     rows are supposed to hold their place regardless of activity. Asserting
+     the order flips, not merely that rows arrive: with the client sort
+     removed this returns the server's order and fails. */
+  test("holds creation order when the server answers in activity order", () => {
+    openGate();
+    const stale = makeConversation(1, {
+      conversationId: "pin-newest-created",
+      isPinned: true,
+      groupId: "system:pinned",
+      createdAt: 3_000,
+      lastMessageAt: 10,
+    });
+    const busy = makeConversation(2, {
+      conversationId: "pin-oldest-created",
+      isPinned: true,
+      groupId: "system:pinned",
+      createdAt: 1_000,
+      lastMessageAt: 9_999,
+    });
+    // Server order: most recent activity first.
+    sectionRows = [busy, stale];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+
+    const pinned = result.current.sections.find((s) => s.type === "pinned");
+    expect(pinned?.all.map((c) => c.conversationId)).toEqual([
+      "pin-newest-created",
+      "pin-oldest-created",
+    ]);
+  });
+
+  test("honours an explicit displayOrder ahead of creation order", () => {
+    openGate();
+    const first = makeConversation(3, {
+      conversationId: "pin-dragged-first",
+      isPinned: true,
+      groupId: "system:pinned",
+      displayOrder: 0,
+      createdAt: 1_000,
+    });
+    const second = makeConversation(4, {
+      conversationId: "pin-dragged-second",
+      isPinned: true,
+      groupId: "system:pinned",
+      displayOrder: 1,
+      createdAt: 9_000,
+    });
+    sectionRows = [second, first];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+
+    const pinned = result.current.sections.find((s) => s.type === "pinned");
+    expect(pinned?.all.map((c) => c.conversationId)).toEqual([
+      "pin-dragged-first",
+      "pin-dragged-second",
+    ]);
+  });
+
+  /* The gate is assistant-scoped: a version fetched for another assistant must
+     not authorize a filtered fetch for this one. */
+  test("stays on the derived rows when the version belongs to another assistant", () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", "0.12.0", "asst-other");
+    sectionRows = [
+      makeConversation(5, {
+        conversationId: "pin-from-server",
+        isPinned: true,
+        groupId: "system:pinned",
+      }),
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+
+    expect(
+      result.current.sections.find((s) => s.type === "pinned"),
+    ).toBeUndefined();
   });
 });

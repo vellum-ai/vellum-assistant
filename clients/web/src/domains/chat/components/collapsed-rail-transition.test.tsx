@@ -53,15 +53,16 @@ describe("collapsing an expanded rail", () => {
     const { rerender } = render(<Rail collapsed={false} />);
     rerender(<Rail collapsed />);
 
-    /* Regression: these all used to wait on the design library's delayed
-       `contentCollapsed`, so for the 150ms of the width transition the rail's
-       section tiles rendered as full-width labelled rows inside a 48px
-       column, with no activity dot and no tooltip. No timers are advanced
-       here on purpose: this asserts the state at the first collapsed paint,
-       which is exactly the window that regressed. */
+    /* A circle tile reads the rail's immediate collapsed flag, not the
+       delayed `contentCollapsed` that lets an ordinary row's label linger.
+       Keying it off the delayed one leaves the rail's section tiles as
+       full-width labelled rows inside a 48px column for the 150ms of the
+       width transition, with no activity dot and no tooltip. No timers are
+       advanced here on purpose: the first collapsed paint is the only window
+       in which the two flags disagree. */
     const [circle] = rows();
     expect(circle!.className).toContain("rounded-full");
-    expect(circle!.className).toContain("aspect-square");
+    expect(circle!.className).toContain("size-[30px]");
     expect(circle!.className).not.toContain("w-full");
     expect(circle!.querySelector('[data-slot="dot"]')).not.toBeNull();
     // The label is the tell: a visible one means it is still an expanded row.

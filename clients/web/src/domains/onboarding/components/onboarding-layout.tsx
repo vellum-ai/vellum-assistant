@@ -14,11 +14,11 @@ import { CreatureFooter } from "./creature-footer";
  * instead of clipping the Continue button off-screen. The CreatureFooter sits
  * outside the scroll container so it stays at the viewport bottom.
  *
- * Overlay components (e.g. the provider Dropdown menu) portal into the
+ * Overlay components (e.g. the provider Select menu) portal into the
  * trailing at-origin element below — outside the centered, animated content
- * column. Without it the Dropdown renders inline and its position:fixed menu
- * anchors to the column's containing block (created by the column's transform
- * animation) instead of the viewport, landing far off to the side.
+ * column. Without it the menu renders inline and anchors to the column's
+ * containing block (created by the column's transform animation) instead of
+ * the viewport, landing far off to the side.
  */
 export function OnboardingLayout({
   children,
