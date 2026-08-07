@@ -760,10 +760,10 @@ export function HatchingScreen() {
 
   if (error) {
     return (
-      <OnboardingLayout>
+      <OnboardingLayout showAvatarWave>
         <div
           role="alert"
-          className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-28 electron-prechat-type" : "min-h-screen justify-center px-6 pb-40"} text-center text-[var(--content-default)]`}
+          className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-28 electron-prechat-type" : "min-h-screen justify-center px-6 pb-40 md:min-h-full md:pb-6"} text-center text-[var(--content-default)]`}
         >
           <h1
             className={
@@ -869,7 +869,7 @@ export function HatchingScreen() {
   }
 
   return (
-    <OnboardingLayout>
+    <OnboardingLayout showAvatarWave>
       {/* Electron layout: title pinned 84px from the window top (the shared
           step-title position), the creature centered in the leftover space via
           auto margins, and the progress section near the bottom — pb-28 keeps
@@ -877,7 +877,7 @@ export function HatchingScreen() {
           bar caps at 200px with a 10px label. Web/iOS keep the centered
           layout. */}
       <div
-        className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-28 electron-prechat-type" : "min-h-screen justify-center px-6 pb-40"} text-center text-[var(--content-default)]`}
+        className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-28 electron-prechat-type" : "min-h-screen justify-center px-6 pb-40 md:min-h-full md:pb-6"} text-center text-[var(--content-default)]`}
       >
         <h1
           className={

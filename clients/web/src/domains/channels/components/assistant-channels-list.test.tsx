@@ -1,10 +1,9 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 
-import { useChannelAdapterSelectionStore } from "@/domains/channels/adapter-selection-store";
 import {
   AssistantChannelsList,
   type AssistantChannelsListProps,
@@ -20,20 +19,40 @@ const CHANNELS: AssistantChannelState[] = [
 // The Slack panel owns its own queries (`SlackChannelSection`), so list
 // renders need a QueryClient. Queries fail fast (retry off, no server) and
 // the panel shows its error state, which these assertions don't depend on.
-// The router wrapper is for the tier legend's settings link.
-function renderList(extraProps: Partial<AssistantChannelsListProps> = {}) {
+// The router mounts at a channel URL because that is where the selection
+// lives; the route pattern has to match the app's so `useParams` resolves.
+/** Renders the current path so a navigation is assertable. */
+function LocationProbe() {
+  const location = useLocation();
+  return <span data-testid="path">{location.pathname}</span>;
+}
+
+function renderList(
+  extraProps: Partial<AssistantChannelsListProps> = {},
+  channelId = "slack",
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[`/assistant/channels/${channelId}`]}>
       <QueryClientProvider client={queryClient}>
-        <AssistantChannelsList
-          assistantId="assistant-1"
-          assistantName="Vex"
-          channels={CHANNELS}
-          {...extraProps}
-        />
+        <Routes>
+          <Route
+            path="/assistant/channels/:channelId"
+            element={
+              <>
+                <AssistantChannelsList
+                  assistantId="assistant-1"
+                  assistantName="Vex"
+                  channels={CHANNELS}
+                  {...extraProps}
+                />
+                <LocationProbe />
+              </>
+            }
+          />
+        </Routes>
       </QueryClientProvider>
     </MemoryRouter>,
   );
@@ -49,12 +68,6 @@ function adapterRow(label: string): HTMLElement {
   }
   return row;
 }
-
-beforeEach(() => {
-  // Selection lives in a module-level store; reset it so every test starts on
-  // the default Slack adapter.
-  useChannelAdapterSelectionStore.setState({ selectedAdapter: "slack" });
-});
 
 afterEach(() => {
   cleanup();
@@ -237,5 +250,36 @@ describe("assistant channels list", () => {
     renderList({ initialChannel: "telegram" });
     expect(setupWizardShown()).toBe(true);
     expect(document.body.textContent).not.toContain("Telegram isn't connected");
+  });
+
+  test("selecting a channel puts it in the URL", () => {
+    // The selection is an address, so a row can be linked to and survives a
+    // reload rather than resetting to the first one.
+    renderList();
+
+    fireEvent.click(adapterRow("Telegram"));
+
+    expect(document.querySelector('[data-testid="path"]')?.textContent).toBe(
+      "/assistant/channels/telegram",
+    );
+  });
+
+  test("opens on the channel the URL names", () => {
+    // The other half of the same property: a pasted link lands on its row,
+    // showing that channel's panel rather than the first one's.
+    renderList({}, "telegram");
+
+    expect(document.body.textContent).toContain("Connect a Telegram bot");
+  });
+
+  test("falls back to the first channel when the URL names an unknown one", () => {
+    // A stale bookmark, or a plugin channel whose plugin was uninstalled.
+    // Showing the first row beats an empty panel.
+    renderList({}, "nonexistent");
+
+    expect(document.querySelectorAll('[data-slot="panel-item"]').length).toBe(
+      3,
+    );
+    expect(document.body.textContent).not.toContain("Connect a Telegram bot");
   });
 });

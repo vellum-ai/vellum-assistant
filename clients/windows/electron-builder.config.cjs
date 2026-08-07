@@ -30,6 +30,13 @@ module.exports = {
     { from: "resources/web-dist", to: "web-dist" },
     { from: "resources/cli-runtime", to: "cli-runtime" },
   ],
+  fileAssociations: [
+    {
+      ext: "vellum",
+      name: "Vellum Bundle",
+      description: "Vellum App Bundle",
+    },
+  ],
   win: {
     target: [
       {

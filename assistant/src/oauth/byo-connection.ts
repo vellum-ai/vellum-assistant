@@ -47,6 +47,11 @@ export class BYOOAuthConnection implements OAuthConnection {
       async (token) => {
         const effectiveBaseUrl = req.baseUrl ?? this.baseUrl;
         const isTelegram = this.provider === "telegram";
+        // Discord bot tokens authenticate with the `Bot ` scheme, not
+        // `Bearer`. Sending Bearer here reaches Discord as an unusable
+        // credential and comes back 401, which reads as a revoked token.
+        const authScheme =
+          this.provider === "discord_channel" ? "Bot" : "Bearer";
         const requestPath = isTelegram
           ? buildTelegramBotApiPath(req.path, token)
           : req.path;
@@ -87,7 +92,7 @@ export class BYOOAuthConnection implements OAuthConnection {
           }
         }
         if (!isTelegram) {
-          headers.set("Authorization", `Bearer ${token}`);
+          headers.set("Authorization", `${authScheme} ${token}`);
         }
 
         const resp = await fetch(fullUrl, {

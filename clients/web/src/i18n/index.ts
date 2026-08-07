@@ -3,7 +3,15 @@
  * modules behind it or from `i18next` / `react-i18next` directly. That keeps
  * the library choice replaceable and gives call sites one place to look.
  *
- * In components:
+ * In components, naming the namespace that owns the string (see
+ * `namespaces.ts` for which one that is):
+ *
+ * ```tsx
+ * const { t } = useTranslation("chat");
+ * return <h1>{t("conversationAssets.label", { count })}</h1>;
+ * ```
+ *
+ * `common` is the default, so cross-domain components can omit it:
  *
  * ```tsx
  * const { t } = useTranslation();
@@ -40,6 +48,12 @@ export {
 } from "@/i18n/supported-locales";
 
 export { systemLocales } from "@/i18n/system-locale";
+
+export {
+  DEFAULT_NAMESPACE,
+  NAMESPACES,
+  type Namespace,
+} from "@/i18n/namespaces";
 
 /**
  * Namespace-bound `t` for non-React call sites.

@@ -16,6 +16,13 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { confirmQueuedMessageDeletion } from "@/domains/chat/queue-cancellation";
 
+/**
+ * Counts every `message_queued` broadcast, then binds the ack to a local row
+ * when this client owns one. The increment is unconditional because the
+ * counter tracks the conversation's whole queue rather than this client's
+ * share of it: a passive tab has to show the queued indicator for a send it
+ * did not originate, and its decrement arrives on the matching broadcast.
+ */
 export function handleMessageQueued(
   event: MessageQueuedEvent,
   ctx: StreamHandlerContext,
@@ -31,6 +38,8 @@ export function handleMessageQueued(
     ? ctx.takePendingQueuedMessageId(clientMessageId)
     : ctx.shiftPendingQueuedMessageId();
   if (!messageId) {
+    // Counted but unbound: no local pending send owns this ack, so there is no
+    // row to position and no mapping to record.
     return;
   }
 
@@ -45,6 +54,9 @@ export function handleMessageQueued(
         requestId,
         messageId,
         setOptimisticSends: ctx.setOptimisticSends,
+        // Mapping cleanup only. The counter moves on the daemon's
+        // `message_queued_deleted` broadcast, which every client sees,
+        // including this one, so decrementing here would double-count.
         onDeleted: () => {
           ctx.popRequestIdMapping(requestId);
         },
@@ -59,6 +71,12 @@ export function handleMessageQueued(
   }
 }
 
+/**
+ * Symmetric counterpart to `handleMessageQueued`: the queue entry left the
+ * queue to be processed, so the decrement is unconditional on every client
+ * that counted the broadcast. Only the row bookkeeping is gated, on whether
+ * this client holds a local row for the request.
+ */
 export function handleMessageDequeued(
   event: MessageDequeuedEvent,
   ctx: StreamHandlerContext,
@@ -70,6 +88,8 @@ export function handleMessageDequeued(
       applyQueuedMessageDequeue(prev, dequeuedMessageId),
     );
   }
+  // A queued row seeded from a `/messages` reseed is keyed by requestId and
+  // has no mapping, but it is rendered and must stop reading as queued.
   patchTranscriptMessages((prev) =>
     applyQueuedMessageDequeue(prev, dequeuedMessageId ?? event.requestId),
   );
@@ -107,7 +127,8 @@ export function handleMessageRequeued(
  * `handleMessageQueued`, which increments for every `message_queued` before it
  * knows whether this client originated the send: the count tracks the
  * conversation's queue, not this client's share of it, so gating either side
- * on a local mapping would desync passive devices.
+ * on a local mapping would desync passive devices. The cancelling tab must
+ * therefore not decrement again in its own DELETE callback.
  */
 export function handleMessageQueuedDeleted(
   event: MessageQueuedDeletedEvent,
@@ -120,6 +141,8 @@ export function handleMessageQueuedDeleted(
       removeQueuedMessage(prev, deletedMessageId),
     );
   }
+  // A queued row seeded from a `/messages` reseed is keyed by requestId and
+  // has no mapping, but it is rendered and must stop reading as queued.
   patchTranscriptMessages((prev) =>
     removeQueuedMessage(prev, deletedMessageId ?? event.requestId),
   );

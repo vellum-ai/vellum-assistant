@@ -41,6 +41,7 @@ import {
 } from "../../runtime/channel-verification-service.js";
 import {
   cancelOutbound,
+  deliverVerificationDiscord,
   deliverVerificationSlack,
   deliverVerificationTelegram,
   DESTINATION_RATE_WINDOW_MS,
@@ -48,8 +49,7 @@ import {
   normalizeTelegramDestination,
 } from "../../runtime/verification-outbound-actions.js";
 import {
-  composeVerificationSlack,
-  composeVerificationTelegram,
+  composeVerificationText,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../../runtime/verification-templates.js";
 import { getTelegramBotUsername } from "../../telegram/bot-username.js";
@@ -209,7 +209,10 @@ export async function getVerificationStatus(
   // restart and detect bootstrap completion.
   const [pendingSession, activeOutboundSession] = await Promise.all([
     getPendingSession(resolvedChannel),
-    findActiveSession(resolvedChannel),
+    // The guardian's own session. A channel can carry one per person
+    // verifying, so an unscoped read would report a requester's session as
+    // the guardian's pending verification.
+    findActiveSession(resolvedChannel, { verificationPurpose: "guardian" }),
   ]);
   const hasPendingChallenge = pendingSession != null;
   const outboundFields: Record<string, unknown> = {};
@@ -327,6 +330,8 @@ function toVerificationChannel(channelType: string): ChannelId | null {
       return "telegram";
     case "slack":
       return "slack";
+    case "discord":
+      return "discord";
     default:
       return null;
   }
@@ -423,7 +428,7 @@ export async function verifyTrustedContact(
         verificationPurpose: "trusted_contact",
       });
 
-      const telegramBody = composeVerificationTelegram(
+      const telegramBody = composeVerificationText(
         GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
         {
           code: sessionResult.secret,
@@ -507,7 +512,7 @@ export async function verifyTrustedContact(
       verificationPurpose: "trusted_contact",
     });
 
-    const slackBody = composeVerificationSlack(
+    const slackBody = composeVerificationText(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_CHALLENGE_REQUEST,
       {
         code: sessionResult.secret,
@@ -519,6 +524,44 @@ export async function verifyTrustedContact(
     const sendCount = 1;
     await updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
     deliverVerificationSlack(slackUserId, slackBody, assistantId);
+
+    return {
+      success: true,
+      verificationSessionId: sessionResult.sessionId,
+      expiresAt: sessionResult.expiresAt,
+      sendCount,
+      channel: verificationChannel,
+    };
+  }
+
+  // --- Discord verification ---
+  if (verificationChannel === "discord") {
+    const discordUserId = channel.address;
+
+    // Only the user snowflake is an identity. A Discord contact's
+    // `externalChatId` is set only when the assistant has already seen them in
+    // a DM, so it is absent for everyone first met in a guild, and the guild
+    // channel is a room rather than a person either way.
+    const sessionResult = await createOutboundSession({
+      channel: verificationChannel,
+      expectedExternalUserId: discordUserId,
+      identityBindingStatus: "bound",
+      destinationAddress: discordUserId,
+      verificationPurpose: "trusted_contact",
+    });
+
+    const discordBody = composeVerificationText(
+      GUARDIAN_VERIFY_TEMPLATE_KEYS.DISCORD_TRUSTED_CONTACT_CHALLENGE,
+      {
+        code: sessionResult.secret,
+        expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
+      },
+    );
+
+    const now = Date.now();
+    const sendCount = 1;
+    await updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
+    deliverVerificationDiscord(discordUserId, discordBody, assistantId);
 
     return {
       success: true,

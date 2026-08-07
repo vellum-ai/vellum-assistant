@@ -121,13 +121,27 @@ mock.module("./logger", () => ({
 let featureFlags: Record<string, boolean> | null = null;
 mock.module("./settings", () => ({
   readSetting: (key: string) => (key === "featureFlags" ? featureFlags : null),
-  readHotkeyOverride: () => null,
   writeSetting: () => {},
   onSettingChange: () => () => {},
 }));
 
+// Full `./window-state` surface, for the same leak-safety reason as
+// `./settings` above. The companion flag is controllable so the checkbox
+// state can be exercised.
+let companionHidden = false;
 mock.module("./window-state", () => ({
   readOnboardingActive: () => false,
+  readCompanionHidden: () => companionHidden,
+  writeCompanionHidden: () => {},
+  writeOnboardingActive: () => {},
+}));
+
+const setCompanionSurfaceVisibleMock = mock((_visible: boolean) => undefined);
+mock.module("./companion-window", () => ({
+  setCompanionSurfaceVisible: setCompanionSurfaceVisibleMock,
+  // Reads the same controllable flags the `./settings` mock serves, so a case
+  // turns the surface on the way the real gate sees it turned on.
+  isCompanionSurfaceEnabled: () => featureFlags?.["companion-surface"] === true,
 }));
 
 const dispatchToMainMock = mock((_command: unknown) => undefined);
@@ -196,8 +210,6 @@ const handlers = {
   openAbout: mock(() => undefined),
   // No call running by default, so the voice-panel item stays out of the menu
   // for every case that is not about it.
-  isVoicePanelAvailable: mock(() => false),
-  showVoicePanel: mock(() => undefined),
 };
 
 // Swap in fake timers so the pulse loop and deferred restart are deterministic.
@@ -216,6 +228,8 @@ beforeEach(() => {
   avatarListeners.clear();
   watchedLockfile = { assistants: [], activeAssistant: null };
   featureFlags = null;
+  companionHidden = false;
+  setCompanionSurfaceVisibleMock.mockClear();
   dispatchToMainMock.mockClear();
   buildFromTemplateMock.mockClear();
   statusFramesMock.mockClear();
@@ -313,6 +327,17 @@ describe("installTray", () => {
     }>;
     const labels = template.map((item) => item.label).filter(Boolean);
     expect(labels).toContain("Re-pair Assistant");
+  });
+
+  test("the floating companion item is absent while its flag is off", () => {
+    installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
+    const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
+      label?: string;
+    }>;
+    expect(template.map((item) => item.label)).not.toContain(
+      "Show Floating Companion",
+    );
   });
 
   test("the Re-pair item is absent when status is not authFailed", () => {
@@ -537,6 +562,47 @@ describe("assistant switcher", () => {
   });
 });
 
+describe("floating companion toggle", () => {
+  type MenuItem = {
+    label?: string;
+    type?: string;
+    checked?: boolean;
+    click?: (item: { checked: boolean }) => void;
+  };
+
+  const popCompanionItem = (): MenuItem | undefined => {
+    // The item exists only for someone the surface is on for; these cases are
+    // about what it then does, and the gate itself is covered above.
+    featureFlags = { "companion-surface": true };
+    installTray(handlers);
+    handlerFor(trays[0], "right-click")?.();
+    const calls = buildFromTemplateMock.mock.calls;
+    const template = calls[calls.length - 1]?.[0] as MenuItem[];
+    return template.find((i) => i.label === "Show Floating Companion");
+  };
+
+  test("renders as a checked checkbox while the surface is shown", () => {
+    const item = popCompanionItem();
+    expect(item?.type).toBe("checkbox");
+    expect(item?.checked).toBe(true);
+  });
+
+  test("renders unchecked once the surface has been hidden", () => {
+    companionHidden = true;
+    expect(popCompanionItem()?.checked).toBe(false);
+  });
+
+  test("applies the item's toggled state to the surface", () => {
+    const item = popCompanionItem();
+    // Electron flips `checked` on the item before `click` runs, so the item
+    // carries the state being asked for.
+    item?.click?.({ checked: false });
+    expect(setCompanionSurfaceVisibleMock).toHaveBeenLastCalledWith(false);
+    item?.click?.({ checked: true });
+    expect(setCompanionSurfaceVisibleMock).toHaveBeenLastCalledWith(true);
+  });
+});
+
 describe("status-driven updates", () => {
   test("a status change swaps the icon and tooltip", () => {
     installTray(handlers);
@@ -629,34 +695,5 @@ describe("avatar and appearance updates", () => {
 
     expect(invalidateIconCacheMock).toHaveBeenCalledTimes(1);
     expect(tray?.setImage).toHaveBeenLastCalledWith({ id: "idle" });
-  });
-});
-
-describe("the voice panel item", () => {
-  test("is absent when no call is running", () => {
-    handlers.isVoicePanelAvailable.mockReturnValue(false);
-    installTray(handlers);
-    handlerFor(trays[0], "right-click")?.();
-    const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
-      label?: string;
-    }>;
-    const labels = template.map((item) => item.label).filter(Boolean);
-    expect(labels).not.toContain("Show Voice Panel");
-  });
-
-  test("appears while a call is running and reopens the panel", () => {
-    handlers.isVoicePanelAvailable.mockReturnValue(true);
-    installTray(handlers);
-    handlerFor(trays[0], "right-click")?.();
-    const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
-      label?: string;
-      click?: () => void;
-    }>;
-    // The way back from the panel's close button, which hides the window
-    // without ending the call.
-    const item = template.find((entry) => entry.label === "Show Voice Panel");
-    expect(item).toBeDefined();
-    item?.click?.();
-    expect(handlers.showVoicePanel).toHaveBeenCalled();
   });
 });

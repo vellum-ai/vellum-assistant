@@ -15,7 +15,11 @@ import {
   MENU_ICON_SETTINGS,
 } from "./assets/menu-icons";
 import { onAvatarChange } from "./avatar";
-import { acceleratorOption } from "./commands";
+import { acceleratorOption } from "./commands.client";
+import {
+  isCompanionSurfaceEnabled,
+  setCompanionSurfaceVisible,
+} from "./companion-window";
 import { getName, onNameChange } from "./identity";
 import { getWatchedLockfile } from "./lockfile-watcher";
 import { dispatchToMain } from "./main-window";
@@ -30,7 +34,7 @@ import {
   type AssistantStatus,
 } from "./status";
 import { invalidateIconCache, statusFrames } from "./status-icon";
-import { readOnboardingActive } from "./window-state";
+import { readCompanionHidden, readOnboardingActive } from "./window-state";
 
 /**
  * macOS menu-bar (Tray) status item.
@@ -65,20 +69,6 @@ import { readOnboardingActive } from "./window-state";
  */
 
 export interface TrayHandlers {
-  /**
-   * Whether a live-voice session is running, which is the only time reopening
-   * the floating panel means anything.
-   *
-   * Injected like every other handler rather than imported: the tray is built
-   * on every menu open, and reaching into the panel module directly would pull
-   * its window and store dependencies into the tray's own graph.
-   */
-  isVoicePanelAvailable(): boolean;
-  /**
-   * Show the floating voice panel again. The way back from its close button,
-   * which hides the window without ending the call.
-   */
-  showVoicePanel(): void;
   /**
    * Bound to the tray's left click and the "Show / Hide Main Window"
    * menu item: if the main window is visible and focused, hide it;
@@ -321,15 +311,24 @@ const buildTrayMenu = (
       label: "Show / Hide Main Window",
       click: handlers.toggleMainWindow,
     },
-    // Only while a call is running, because reopening is meaningless
-    // otherwise. This is the way back from the panel's close button: closing
-    // it never ends the session, so without this a closed panel would leave a
-    // live microphone with no floating control until the call ended.
-    ...(handlers.isVoicePanelAvailable()
+    // The floating avatar pill (`companion-window.ts`), for whoever the flag
+    // is on for. Off, there is no surface to show or hide, and an item
+    // offering to bring one back would be the only place in the app that
+    // mentions it exists.
+    ...(isCompanionSurfaceEnabled()
       ? [
           {
-            label: "Show Voice Panel",
-            click: handlers.showVoicePanel,
+            // A checkbox rather than a toggle-action item: once the surface is
+            // hidden, this menu is the only place left to bring it back from,
+            // so the item has to show which state it is in. Electron flips
+            // `checked` before `click` runs, so the item carries the state
+            // being asked for.
+            label: "Show Floating Companion",
+            type: "checkbox" as const,
+            checked: !readCompanionHidden(),
+            click: (item: Electron.MenuItem) => {
+              setCompanionSurfaceVisible(item.checked);
+            },
           },
         ]
       : []),

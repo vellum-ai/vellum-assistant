@@ -92,7 +92,10 @@ mock.module("../channels/gateway-verification-sessions.js", () => ({
     params: Parameters<typeof createOutboundSessionGuarded>[0],
   ) => createOutboundSessionGuarded(params),
   getPendingSession: async (channel: string) => getPendingSession(channel),
-  findActiveSession: async (channel: string) => findActiveSession(channel),
+  findActiveSession: async (
+    channel: string,
+    filter?: Parameters<typeof findActiveSession>[1],
+  ) => findActiveSession(channel, filter),
 }));
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 import {

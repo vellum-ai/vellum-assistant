@@ -1,8 +1,7 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useLayoutEffect } from "react";
+import { MemoryRouter, Route, Routes } from "react-router";
 
-import { useChannelAdapterSelectionStore } from "@/domains/channels/adapter-selection-store";
 import type { SetupChannelId } from "@/types/channel-types";
 
 import { AssistantChannelsList } from "./assistant-channels-list";
@@ -26,16 +25,19 @@ const withQueryClient: Decorator = (Story) => (
 );
 
 /**
- * Pin the master-detail selection for a story. The active adapter lives in a
- * module-level store that persists across story navigation, so each story
- * seeds it explicitly rather than inheriting the previously-viewed adapter.
+ * Pin the master-detail selection for a story. The active adapter is the one
+ * named in the URL, so a story mounts at that address rather than seeding
+ * state, and the route pattern has to match the app's so `useParams` resolves.
  */
 function withSelectedAdapter(adapter: SetupChannelId): Decorator {
   return function SelectAdapter(Story) {
-    useLayoutEffect(() => {
-      useChannelAdapterSelectionStore.setState({ selectedAdapter: adapter });
-    }, []);
-    return <Story />;
+    return (
+      <MemoryRouter initialEntries={[`/assistant/channels/${adapter}`]}>
+        <Routes>
+          <Route path="/assistant/channels/:channelId" element={<Story />} />
+        </Routes>
+      </MemoryRouter>
+    );
   };
 }
 

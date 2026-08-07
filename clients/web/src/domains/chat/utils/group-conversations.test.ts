@@ -4,10 +4,28 @@ import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
+import type { GroupedConversations } from "@/domains/chat/utils/group-conversations";
 import {
   buildMoveToGroupTargets,
   groupConversations,
 } from "@/domains/chat/utils/group-conversations";
+
+/**
+ * Every conversation id the sidebar would render from a grouping result.
+ *
+ * Scheduled and background threads have no section, so the invariant worth
+ * asserting is that they appear in NONE of these, not that they landed in a
+ * bucket of their own. Checking `recents` alone would miss a leak into a
+ * channel section or a custom group.
+ */
+function renderedIds(result: GroupedConversations): string[] {
+  return [
+    ...result.pinned,
+    ...result.recents,
+    ...result.customGroups.flatMap((g) => g.conversations),
+    ...result.channelSections.flatMap((s) => s.conversations),
+  ].map((c) => c.conversationId);
+}
 
 function makeConversation(overrides: Partial<Conversation>): Conversation {
   return {
@@ -32,8 +50,6 @@ describe("groupConversations · bucket routing", () => {
   test("returns empty buckets for an empty input", () => {
     const result = groupConversations([]);
     expect(result.pinned).toEqual([]);
-    expect(result.scheduled).toEqual([]);
-    expect(result.background).toEqual([]);
     expect(result.channelSections).toEqual([]);
     expect(result.recents).toEqual([]);
   });
@@ -46,12 +62,10 @@ describe("groupConversations · bucket routing", () => {
     ]);
     expect(result.pinned.map((c) => c.conversationId)).toEqual(["a", "b", "c"]);
     expect(result.recents).toEqual([]);
-    expect(result.scheduled).toEqual([]);
-    expect(result.background).toEqual([]);
     expect(result.channelSections).toEqual([]);
   });
 
-  test("routes conversationType=scheduled into scheduled bucket", () => {
+  test("excludes conversationType=scheduled from every rendered bucket", () => {
     const result = groupConversations([
       makeConversation({
         conversationId: "s1",
@@ -62,14 +76,14 @@ describe("groupConversations · bucket routing", () => {
         groupId: "system:scheduled",
       }),
     ]);
-    expect(result.scheduled.map((c) => c.conversationId).sort()).toEqual([
-      "s1",
-      "s2",
-    ]);
+    // No section renders these.
+    for (const id of ["s1", "s2"]) {
+      expect(renderedIds(result)).not.toContain(id);
+    }
     expect(result.recents).toEqual([]);
   });
 
-  test("routes conversationType=background into background bucket", () => {
+  test("excludes conversationType=background from every rendered bucket", () => {
     const result = groupConversations([
       makeConversation({
         conversationId: "b1",
@@ -81,10 +95,10 @@ describe("groupConversations · bucket routing", () => {
         groupId: "system:background",
       }),
     ]);
-    expect(result.background.map((c) => c.conversationId).sort()).toEqual([
-      "b1",
-      "b2",
-    ]);
+    // No section renders these.
+    for (const id of ["b1", "b2"]) {
+      expect(renderedIds(result)).not.toContain(id);
+    }
   });
 
   test("routes Slack-origin conversations into the Slack bucket", () => {
@@ -120,8 +134,6 @@ describe("groupConversations · bucket routing", () => {
       "slack-background",
     ]);
     expect(result.recents.map((c) => c.conversationId)).toEqual(["regular"]);
-    expect(result.scheduled).toEqual([]);
-    expect(result.background).toEqual([]);
   });
 
   test("keeps pinned and custom-group Slack conversations in their explicit buckets", () => {
@@ -160,7 +172,7 @@ describe("groupConversations · bucket routing", () => {
     ).toEqual(["custom-slack"]);
   });
 
-  test("keeps explicitly assigned scheduled and background Slack conversations in their system buckets", () => {
+  test("excludes scheduled and background Slack conversations, channel or not", () => {
     const result = groupConversations([
       makeConversation({
         conversationId: "scheduled-slack",
@@ -175,18 +187,16 @@ describe("groupConversations · bucket routing", () => {
     ]);
 
     expect(result.channelSections).toEqual([]);
-    expect(result.scheduled.map((c) => c.conversationId)).toEqual([
-      "scheduled-slack",
-    ]);
-    expect(result.background.map((c) => c.conversationId)).toEqual([
-      "background-slack",
-    ]);
+    // An explicit system group takes them out of channel routing, so they
+    // fall through to the exclusion rather than into the Slack section.
+    for (const id of ["scheduled-slack", "background-slack"]) {
+      expect(renderedIds(result)).not.toContain(id);
+    }
   });
 
-  test("routes background conversations with source=auto-analysis into background bucket", () => {
-    // Auto-analysis (reflections) are a flavor of background — they land
-    // in the background bucket and are sub-grouped downstream by
-    // backgroundSubGroups.ts.
+  test("excludes auto-analysis reflections like any other background thread", () => {
+    // Auto-analysis (reflections) are a flavor of background, so they are
+    // excluded on the same branch rather than treated as their own kind.
     const result = groupConversations([
       makeConversation({
         conversationId: "r1",
@@ -199,10 +209,10 @@ describe("groupConversations · bucket routing", () => {
         source: "auto-analysis",
       }),
     ]);
-    expect(result.background.map((c) => c.conversationId).sort()).toEqual([
-      "r1",
-      "r2",
-    ]);
+    // No section renders these.
+    for (const id of ["r1", "r2"]) {
+      expect(renderedIds(result)).not.toContain(id);
+    }
   });
 
   test("does not reroute a foreground thread with source=auto-analysis", () => {
@@ -210,7 +220,6 @@ describe("groupConversations · bucket routing", () => {
     const result = groupConversations([
       makeConversation({ conversationId: "a", source: "auto-analysis" }),
     ]);
-    expect(result.background).toEqual([]);
     expect(result.recents.map((c) => c.conversationId)).toEqual(["a"]);
   });
 
@@ -240,7 +249,6 @@ describe("groupConversations · bucket routing", () => {
     expect(result.pinned.map((c) => c.conversationId)).toEqual([
       "pinned-reflection",
     ]);
-    expect(result.background).toEqual([]);
   });
 
   test("excludes archived conversations from every bucket", () => {
@@ -409,7 +417,10 @@ describe("groupConversations · custom group routing", () => {
     const result = groupConversations(conversations, { groups });
 
     expect(result.pinned.map((c) => c.conversationId)).toEqual(["s1"]);
-    expect(result.scheduled.map((c) => c.conversationId)).toEqual(["s2"]);
+    // No section renders these.
+    for (const id of ["s2"]) {
+      expect(renderedIds(result)).not.toContain(id);
+    }
     expect(result.customGroups.every((g) => g.conversations.length === 0)).toBe(
       true,
     );
@@ -443,70 +454,54 @@ describe("groupConversations · custom group routing", () => {
   });
 });
 
-describe("groupConversations · displayOrder for pinned and custom groups", () => {
-  test("pinned bucket sorts by displayOrder ascending (user-set order)", () => {
-    // Note: input is provided newest-first by lastMessageAt to confirm the
-    // pinned sort overrides recency, matching the bug described in LUM-1619.
+describe("groupConversations · recency order for pinned and custom groups", () => {
+  /* Recency is the only order, for these sections as much as any other.
+     `displayOrder` still exists on the wire and still carries values for
+     anyone who arranged rows by hand before that affordance went away, so
+     each test sets it to the REVERSE of the expected result: a comparator
+     that consults it again fails here rather than passing by coincidence. */
+
+  test("pinned sorts by recency, ignoring displayOrder", () => {
     const result = groupConversations([
       makeConversation({
-        conversationId: "b",
+        conversationId: "oldest",
         isPinned: true,
-        displayOrder: 1,
+        displayOrder: 0,
+        lastMessageAt: 1704067200000,
+      }),
+      makeConversation({
+        conversationId: "newest",
+        isPinned: true,
+        displayOrder: 2,
         lastMessageAt: 1704240000000,
       }),
       makeConversation({
-        conversationId: "a",
+        conversationId: "middle",
         isPinned: true,
-        displayOrder: 0,
+        displayOrder: 1,
         lastMessageAt: 1704153600000,
-      }),
-      makeConversation({
-        conversationId: "c",
-        isPinned: true,
-        displayOrder: 2,
-        lastMessageAt: 1704067200000,
-      }),
-    ]);
-    expect(result.pinned.map((c) => c.conversationId)).toEqual(["a", "b", "c"]);
-  });
-
-  test("pinned conversations without displayOrder fall back to createdAt desc, ignoring activity", () => {
-    // lastMessageAt is the REVERSE of createdAt to prove the fallback keys on
-    // immutable creation time, not recency — pinned rows must not reorder
-    // themselves based on activity.
-    const result = groupConversations([
-      makeConversation({
-        conversationId: "older",
-        isPinned: true,
-        createdAt: 1704067200000,
-        lastMessageAt: 1704412800000, // most recent activity
-      }),
-      makeConversation({
-        conversationId: "newer",
-        isPinned: true,
-        createdAt: 1704412800000,
-        lastMessageAt: 1704067200000, // least recent activity
       }),
     ]);
     expect(result.pinned.map((c) => c.conversationId)).toEqual([
-      "newer",
-      "older",
+      "newest",
+      "middle",
+      "oldest",
     ]);
   });
 
-  test("pinned order is stable when a pinned conversation receives new activity", () => {
+  test("a pinned conversation moves to the top when new activity arrives", () => {
     const base = [
       makeConversation({
         conversationId: "a",
         isPinned: true,
         createdAt: 3000,
-        lastMessageAt: 100,
+        lastMessageAt: 300,
       }),
       makeConversation({
         conversationId: "b",
         isPinned: true,
         createdAt: 2000,
-        lastMessageAt: 100,
+        lastMessageAt: 200,
       }),
       makeConversation({
         conversationId: "c",
@@ -515,20 +510,21 @@ describe("groupConversations · displayOrder for pinned and custom groups", () =
         lastMessageAt: 100,
       }),
     ];
-    const before = groupConversations(base).pinned.map((c) => c.conversationId);
-    expect(before).toEqual(["a", "b", "c"]);
+    expect(
+      groupConversations(base).pinned.map((c) => c.conversationId),
+    ).toEqual(["a", "b", "c"]);
 
-    // "c" gets a brand-new message — its lastMessageAt jumps far ahead. The
-    // pinned order must not change.
+    // "c" receives a brand-new message, so it leads. Under the old comparator
+    // the order was pinned to creation time and would not have changed.
     const after = groupConversations(
       base.map((c) =>
         c.conversationId === "c" ? { ...c, lastMessageAt: 9_999_999 } : c,
       ),
     ).pinned.map((c) => c.conversationId);
-    expect(after).toEqual(before);
+    expect(after).toEqual(["c", "a", "b"]);
   });
 
-  test("displayOrder rows come before rows without displayOrder", () => {
+  test("a row carrying displayOrder gets no precedence over one without", () => {
     const result = groupConversations([
       makeConversation({
         conversationId: "no-order-newer",
@@ -543,12 +539,12 @@ describe("groupConversations · displayOrder for pinned and custom groups", () =
       }),
     ]);
     expect(result.pinned.map((c) => c.conversationId)).toEqual([
-      "ordered-0",
       "no-order-newer",
+      "ordered-0",
     ]);
   });
 
-  test("custom group conversations sort by displayOrder", () => {
+  test("custom group conversations sort by recency, ignoring displayOrder", () => {
     const groups: ConversationGroup[] = [
       {
         id: "grp-work",
@@ -560,16 +556,16 @@ describe("groupConversations · displayOrder for pinned and custom groups", () =
     const result = groupConversations(
       [
         makeConversation({
-          conversationId: "z",
-          groupId: "grp-work",
-          displayOrder: 2,
-          lastMessageAt: 1704240000000,
-        }),
-        makeConversation({
           conversationId: "x",
           groupId: "grp-work",
           displayOrder: 0,
           lastMessageAt: 1704067200000,
+        }),
+        makeConversation({
+          conversationId: "z",
+          groupId: "grp-work",
+          displayOrder: 2,
+          lastMessageAt: 1704240000000,
         }),
         makeConversation({
           conversationId: "y",
@@ -582,15 +578,15 @@ describe("groupConversations · displayOrder for pinned and custom groups", () =
     );
     const work = result.customGroups.find((g) => g.id === "grp-work");
     expect(work?.conversations.map((c) => c.conversationId)).toEqual([
-      "x",
-      "y",
       "z",
+      "y",
+      "x",
     ]);
   });
 });
 
 describe("groupConversations · surfaced promotion to recents", () => {
-  test("a surfaced scheduled conversation lands in recents, not scheduled", () => {
+  test("a surfaced scheduled conversation reaches recents instead of being excluded", () => {
     const result = groupConversations([
       makeConversation({
         conversationId: "sched-surfaced",
@@ -605,12 +601,13 @@ describe("groupConversations · surfaced promotion to recents", () => {
     expect(result.recents.map((c) => c.conversationId)).toEqual([
       "sched-surfaced",
     ]);
-    expect(result.scheduled.map((c) => c.conversationId)).toEqual([
-      "sched-plain",
-    ]);
+    // No section renders these.
+    for (const id of ["sched-plain"]) {
+      expect(renderedIds(result)).not.toContain(id);
+    }
   });
 
-  test("a surfaced background conversation lands in recents, not background", () => {
+  test("a surfaced background conversation reaches recents instead of being excluded", () => {
     const result = groupConversations([
       makeConversation({
         conversationId: "bg-surfaced",
@@ -631,9 +628,10 @@ describe("groupConversations · surfaced promotion to recents", () => {
       "bg-legacy-surfaced",
       "bg-surfaced",
     ]);
-    expect(result.background.map((c) => c.conversationId)).toEqual([
-      "bg-plain",
-    ]);
+    // No section renders these.
+    for (const id of ["bg-plain"]) {
+      expect(renderedIds(result)).not.toContain(id);
+    }
   });
 
   test("surfaced conversations sort into recents by lastMessageAt desc", () => {
@@ -737,7 +735,6 @@ describe("groupConversations · surfaced promotion to recents", () => {
       }),
     ]);
     expect(result.recents).toEqual([]);
-    expect(result.background).toEqual([]);
   });
 
   test("duplicate pinned conversations in input produce duplicate pinned entries", () => {
@@ -807,10 +804,8 @@ describe("groupConversations · groupByChannel: false", () => {
     const grouped = groupConversations(conversations);
 
     expect(flat.recents.map((c) => c.conversationId)).toEqual(["s1"]);
-    expect(flat.background).toEqual([]);
     // Same membership in the grouped view, just a different bucket.
     expect(channelSectionIds(grouped, "slack")).toEqual(["s1"]);
-    expect(grouped.background).toEqual([]);
   });
 
   test("pinned and custom-group precedence is unchanged", () => {
