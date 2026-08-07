@@ -107,7 +107,7 @@ to the consent screen.
 >
 > Review the permissions and click **Authorize**.
 
-**On success:** "Discord is connected! You can now ask me to check your Discord servers, read messages, and look up server members."
+**On success:** "Discord is connected! You can now ask me to check which Discord servers you are in and look up server members. This does not let me read your messages, and it is separate from putting a bot in a server so people can talk to me there."
 
 ---
 

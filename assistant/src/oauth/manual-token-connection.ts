@@ -178,6 +178,24 @@ export async function syncManualTokenConnection(
       return;
     }
 
+    case "discord_channel": {
+      const botTokenResult = await getSecureKeyResultAsync(
+        credentialKey("discord_channel", "bot_token"),
+      );
+      if (botTokenResult.unreachable) {
+        log.warn(
+          "Skipping discord_channel manual-token reconciliation — credential backend unreachable",
+        );
+        return;
+      }
+      if (botTokenResult.value) {
+        await ensureManualTokenConnection(provider, accountInfoToStore);
+      } else {
+        removeManualTokenConnection(provider);
+      }
+      return;
+    }
+
     case "sanity": {
       const tokenResult = await getSecureKeyResultAsync(
         credentialKey("sanity", "api_token"),
@@ -216,5 +234,6 @@ export async function syncManualTokenConnection(
 export async function backfillManualTokenConnections(): Promise<void> {
   await syncManualTokenConnection("telegram");
   await syncManualTokenConnection("slack_channel");
+  await syncManualTokenConnection("discord_channel");
   await syncManualTokenConnection("sanity");
 }
