@@ -240,7 +240,7 @@ describe("describeMedia", () => {
   });
 
   test("falls back to generic copy for a label that sanitizes away", () => {
-    expect(describeMedia([" "])).toBe("Sent an attachment");
+    expect(describeMedia(["\0\x07"])).toBe("Sent an attachment");
   });
 
   test("returns empty for no labels, leaving the fallback to the caller", () => {

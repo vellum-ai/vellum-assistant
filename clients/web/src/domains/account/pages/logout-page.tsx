@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useSearchParams } from "react-router";
 
+import { useTranslation } from "@/i18n";
 import { AccountHeading } from "@/components/account/account-form";
 import { AccountShell } from "@/components/account/account-shell";
 import { sanitizeReturnTo } from "@/domains/account/return-to";
@@ -9,6 +10,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 
 export function LogoutPage() {
+  const { t } = useTranslation("account");
   const [searchParams] = useSearchParams();
   const logout = useAuthStore.use.logout();
   const logoutInitiated = useRef(false);
@@ -51,7 +53,7 @@ export function LogoutPage() {
 
   return (
     <AccountShell>
-      <AccountHeading title="Signing out..." />
+      <AccountHeading title={t("logoutPage.title")} />
     </AccountShell>
   );
 }

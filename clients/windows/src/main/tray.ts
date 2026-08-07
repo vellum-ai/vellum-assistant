@@ -47,6 +47,8 @@ export const installWindowsTray = (
   configureStatusIconFallback(icon.isEmpty() ? null : icon);
   configureTrayModel({
     accelerator: () => ({}),
+    companionEnabled: () => false,
+    companionHidden: () => true,
     dispatch,
     featureEnabled,
     getLockfile: getWatchedLockfile,
@@ -56,6 +58,7 @@ export const installWindowsTray = (
       void shell.openExternal("http://localhost:6007");
     },
     removePairedLabel: "Remove from this PC\u2026",
+    setCompanionVisible: () => undefined,
   });
   installTray({
     ensureMainWindow: async () => ensureVisible(),

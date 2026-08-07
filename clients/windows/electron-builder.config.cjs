@@ -30,6 +30,13 @@ module.exports = {
     { from: "resources/web-dist", to: "web-dist" },
     { from: "resources/tray.ico", to: "tray.ico" },
   ],
+  fileAssociations: [
+    {
+      ext: "vellum",
+      name: "Vellum Bundle",
+      description: "Vellum App Bundle",
+    },
+  ],
   win: {
     target: [
       {

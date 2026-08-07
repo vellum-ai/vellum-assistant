@@ -9,7 +9,10 @@
  */
 
 import { isElectron } from "@/runtime/is-electron";
-import type { CompanionSurfaceState } from "@vellumai/ipc-contract";
+import type {
+  CompanionContext,
+  CompanionSurfaceState,
+} from "@vellumai/ipc-contract";
 
 type CompanionBridge = NonNullable<NonNullable<Window["vellum"]>["companion"]>;
 
@@ -83,4 +86,45 @@ export function startCompanionVoice(): void {
  */
 export function activateCompanionApp(): void {
   bridge()?.activate?.();
+}
+
+/**
+ * Tell main whether the composer is open, which is how long the window may
+ * hold the keyboard.
+ *
+ * The keyboard twin of {@link setCompanionInteractive}, and reported from here
+ * for the same reason: main owns the window but only the page knows whether
+ * there is a field on screen to type into. A surface that kept key status after
+ * its field closed would eat the next thing the user typed into the app they
+ * are working in.
+ */
+export function setCompanionComposing(composing: boolean): void {
+  bridge()?.setComposing?.(composing);
+}
+
+/**
+ * Send what the user typed on the surface.
+ *
+ * Like {@link startCompanionVoice}, the message is handed to main and
+ * dispatched to the window that owns a conversation to put it in. Nothing is
+ * awaited: this page has no transport, and the reply arrives where replies
+ * always arrive.
+ */
+export function submitCompanionMessage(
+  message: string,
+  startsConversation: boolean,
+): void {
+  bridge()?.submit?.(message, startsConversation);
+}
+
+/**
+ * Publish the assistant's name and the tail of the open conversation.
+ *
+ * The one call in this module made from the app's own window rather than from
+ * the surface's route: the surface holds neither, so the window that does has
+ * to hand them over. Main holds them and pushes them back down with the rest of
+ * the surface's state.
+ */
+export function setCompanionContext(context: CompanionContext): void {
+  bridge()?.setContext?.(context);
 }

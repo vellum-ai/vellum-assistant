@@ -16,6 +16,7 @@ import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { searchMessageIdsLexical } from "./conversation-search-lexical.js";
 import {
   type ConversationType,
+  NATIVE_ORIGIN_CHANNEL,
   PINNED_GROUP_ID,
   UNGROUPED_GROUP_ID,
 } from "./conversation-types.js";
@@ -299,24 +300,28 @@ function groupIdClause(groupId: string) {
 }
 
 /**
- * Order a group's rows the way the user arranged them: by explicit
- * `display_order` first, then by recency. Only meaningful for a real group;
- * the ungrouped bucket is pure recency, since a row that was dragged inside a
- * group and later removed keeps a stale `display_order` that must not
- * resurface as a sort key.
+ * SQL predicate for {@link ConversationListFilter.originChannel}.
+ *
+ * `'vellum'` additionally matches NULL. `origin_channel` is left NULL at
+ * insert precisely so an inbound message can still claim the conversation for
+ * its channel (`setConversationOriginChannelIfUnset` is guarded on `isNull`),
+ * and migration 288 settles whatever was never claimed to `'vellum'` at daemon
+ * startup. NULL is therefore "not yet attributed", and it is what the
+ * overwhelming majority of rows carry between one boot and the next.
+ *
+ * A strict equality would put those rows in no section at all: not native, not
+ * any channel. Reading NULL as native is the self-correcting error of the two,
+ * since the only rows it can misplace are ones whose inbound message has not
+ * arrived yet, and that message moves them the moment it does.
+ *
+ * Every other channel matches exactly. A row is claimed for a channel only by
+ * that channel, so there is no ambiguity to be tolerant about.
  */
-function isUserOrderedGroup(groupId: string | undefined): boolean {
-  if (groupId === undefined) {
-    return false;
+function originChannelClause(originChannel: string) {
+  if (originChannel === NATIVE_ORIGIN_CHANNEL) {
+    return sql`(origin_channel IS NULL OR origin_channel = ${NATIVE_ORIGIN_CHANNEL})`;
   }
-  // Pinned and custom groups are the only drag-reorderable sections, so they
-  // are the only ones whose `display_order` means anything. Every other
-  // system bucket sorts by recency: `batchSetDisplayOrders` writes
-  // `display_order` alongside `group_id` when a row moves into
-  // `system:background` / `system:scheduled`, and that value persists through
-  // later moves, so honouring it would order the same section differently
-  // depending on whether it was fetched by `conversationType` or `groupId`.
-  return groupId === PINNED_GROUP_ID || !groupId.startsWith("system:");
+  return eq(conversations.originChannel, originChannel);
 }
 
 function conversationListWhere(filter: ConversationListFilter) {
@@ -329,7 +334,7 @@ function conversationListWhere(filter: ConversationListFilter) {
   return and(
     conversationTypeClause(conversationType),
     archiveStatusClause(archiveStatus) ?? undefined,
-    originChannel ? eq(conversations.originChannel, originChannel) : undefined,
+    originChannel ? originChannelClause(originChannel) : undefined,
     groupId ? groupIdClause(groupId) : undefined,
   );
 }
@@ -354,14 +359,11 @@ export function listConversations(
   // distinguish a total order from a lucky one. The guarantee becomes
   // observable, and gets its test, with the keyset pagination work.
   const tiebreak = desc(conversations.id);
-  const orderBy = isUserOrderedGroup(filter.groupId)
-    ? [sql`COALESCE(display_order, 999999) ASC`, recency, tiebreak]
-    : [recency, tiebreak];
   return db
     .select()
     .from(conversations)
     .where(conversationListWhere(filter))
-    .orderBy(...orderBy)
+    .orderBy(recency, tiebreak)
     .limit(limit ?? 100)
     .offset(offset)
     .all()
@@ -487,7 +489,6 @@ export function listPinnedConversations(
       ),
     )
     .orderBy(
-      sql`COALESCE(display_order, 999999) ASC`,
       desc(
         sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
       ),

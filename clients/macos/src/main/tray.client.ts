@@ -18,11 +18,15 @@ import {
   MENU_ICON_SETTINGS,
 } from "./assets/menu-icons";
 import { acceleratorOption } from "./commands.client";
+import {
+  isCompanionSurfaceEnabled,
+  setCompanionSurfaceVisible,
+} from "./companion-window";
 import { getWatchedLockfile } from "./lockfile-watcher.client";
 import { dispatchToMain } from "./main-window";
 import { menuIcon } from "./menu-icon";
 import { readSetting } from "./settings";
-import { readOnboardingActive } from "./window-state";
+import { readCompanionHidden, readOnboardingActive } from "./window-state";
 
 const ICONS: Record<TrayMenuIcon, NativeImage> = {
   check: menuIcon(MENU_ICON_CIRCLECHECK),
@@ -40,6 +44,8 @@ export { __resetForTesting };
 export const installTray = (handlers: TrayHandlers): void => {
   configureTrayModel({
     accelerator: acceleratorOption,
+    companionEnabled: isCompanionSurfaceEnabled,
+    companionHidden: readCompanionHidden,
     dispatch: dispatchToMain,
     featureEnabled: (flag) => readSetting("featureFlags")?.[flag] === true,
     getLockfile: getWatchedLockfile,
@@ -49,6 +55,7 @@ export const installTray = (handlers: TrayHandlers): void => {
       void shell.openExternal("http://localhost:6007");
     },
     removePairedLabel: "Remove from this Mac…",
+    setCompanionVisible: setCompanionSurfaceVisible,
   });
   installSharedTray(handlers);
 };

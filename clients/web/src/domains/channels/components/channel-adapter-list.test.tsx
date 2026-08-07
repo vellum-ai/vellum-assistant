@@ -3,12 +3,25 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import { ChannelAdapterList } from "@/domains/channels/components/channel-adapter-list";
-import type { AssistantChannelState } from "@/types/channel-types";
+import type {
+  AssistantChannelState,
+  PluginChannelSummary,
+} from "@/types/channel-types";
 
 const CHANNELS: AssistantChannelState[] = [
   { key: "slack", status: "ready", address: "@vex" },
   { key: "telegram", status: "not_configured" },
   { key: "phone", status: "not_configured" },
+];
+
+const PLUGIN_CHANNELS: PluginChannelSummary[] = [
+  {
+    plugin: "courier",
+    key: "plugins-courier",
+    label: "Courier",
+    description: "Reach the assistant by carrier pigeon.",
+    icon: "send",
+  },
 ];
 
 afterEach(() => {
@@ -117,5 +130,118 @@ describe("ChannelAdapterList", () => {
     expect(phone.getAttribute("tabindex")).not.toBe("-1");
     phone.focus();
     expect(document.activeElement).toBe(phone);
+  });
+
+  /**
+   * Naming the section belongs to whatever mounts the rail (the chrome's
+   * `<h1>` on desktop, the drawer title on mobile), so the card must not
+   * say "Channels" itself. Counting headings by that name is what catches
+   * a second copy; `IntelligenceLayout`'s test holds up the first.
+   */
+  test("leaves naming the section to the surface that mounts it", () => {
+    render(
+      <ChannelAdapterList
+        channels={CHANNELS}
+        pluginChannels={PLUGIN_CHANNELS}
+        selectedKey="slack"
+        onSelect={() => {}}
+      />,
+    );
+
+    // Rows rendered, so the count below is not vacuously zero.
+    expect(document.querySelectorAll('[data-slot="panel-item"]').length).toBe(
+      4,
+    );
+
+    const named = Array.from(
+      document.querySelectorAll("h1, h2, h3, h4, h5, h6"),
+    ).filter((el) => el.textContent?.trim() === "Channels");
+    expect(named.length).toBe(0);
+  });
+
+  test("lists channels a plugin brings in the same list as the rest", () => {
+    render(
+      <ChannelAdapterList
+        channels={CHANNELS}
+        pluginChannels={PLUGIN_CHANNELS}
+        selectedKey="slack"
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(document.querySelectorAll('[data-slot="panel-item"]').length).toBe(
+      4,
+    );
+    expect(document.body.textContent).not.toContain("From plugins");
+    expect(document.body.textContent).toContain("Courier");
+  });
+
+  test("looks untouched when no plugin brings a channel", () => {
+    // The common case: the rail is the three built-ins and nothing else.
+    render(
+      <ChannelAdapterList
+        channels={CHANNELS}
+        selectedKey="slack"
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(document.querySelectorAll('[data-slot="panel-item"]').length).toBe(
+      3,
+    );
+  });
+
+  test("selects a plugin channel by its namespaced id", () => {
+    // The id is what keeps a plugin row from colliding with an adapter key.
+    let selected: string | undefined;
+    render(
+      <ChannelAdapterList
+        channels={CHANNELS}
+        pluginChannels={PLUGIN_CHANNELS}
+        selectedKey="slack"
+        onSelect={(key) => {
+          selected = key;
+        }}
+      />,
+    );
+
+    fireEvent.click(rowFor("Courier"));
+    expect(selected).toBe("plugins-courier");
+  });
+
+  test("lists a plugin channel whose manifest names no icon", () => {
+    // Presentation is best-effort on the assistant, so the rail has to render
+    // a channel that arrives with nothing but a label.
+    render(
+      <ChannelAdapterList
+        channels={[]}
+        pluginChannels={[
+          {
+            plugin: "meeting-bot",
+            key: "plugins-meeting-bot",
+            label: "Meeting Bot",
+          },
+        ]}
+        selectedKey="plugins-meeting-bot"
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(rowFor("Meeting Bot")).toBeDefined();
+  });
+
+  test("carries no connection badge on a plugin row", () => {
+    // Nothing here can answer it for an arbitrary plugin, and a badge that
+    // always read "Not connected" would be a claim rather than a gap.
+    render(
+      <ChannelAdapterList
+        channels={[]}
+        pluginChannels={PLUGIN_CHANNELS}
+        selectedKey="plugins-courier"
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(rowFor("Courier").textContent).not.toContain("Not connected");
   });
 });

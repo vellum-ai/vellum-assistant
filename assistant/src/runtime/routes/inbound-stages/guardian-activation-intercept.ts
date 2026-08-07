@@ -133,7 +133,11 @@ export async function handleGuardianActivationIntercept(
   // normal pipeline handle the message.
   let existingSession: VerificationSessionWire | null;
   try {
-    existingSession = await findActiveSession(sourceChannel);
+    // This sender's own session. The channel may carry others, and what the
+    // guard below needs to know is whether THIS activation is a duplicate.
+    existingSession = await findActiveSession(sourceChannel, {
+      expectedExternalUserId: rawSenderId,
+    });
   } catch (err) {
     log.warn(
       { err, sourceChannel },
@@ -158,25 +162,18 @@ export async function handleGuardianActivationIntercept(
     return { accepted: true, guardianActivationPending: true };
   };
 
+  // The read is scoped to this sender, so anything it returned is this
+  // sender's own activation already in flight.
   if (existingSession) {
-    // Only block if the session belongs to the same sender. If a different
-    // user triggered the session, let this sender proceed (they'll supersede
-    // the stale session via createOutboundSession's revocation logic).
-    const sessionOwner =
-      existingSession.expectedExternalUserId ?? existingSession.expectedChatId;
-    if (
-      sessionOwner === rawSenderId ||
-      sessionOwner === conversationExternalId
-    ) {
-      return respondActivationPending();
-    }
+    return respondActivationPending();
   }
 
   // ── Create verification session ──
-  // When the read above saw no active session, ifNoneActive makes the create
-  // a gateway-side create-if-absent: a concurrent activation that minted in
-  // between conflicts here instead of revoking that first code. A supersede
-  // (stale session from a different sender) deliberately omits the guard.
+  // The read above saw no session for this sender, so the sender-scoped
+  // create-if-absent makes the mint atomic: a concurrent activation from the
+  // same sender that minted in between conflicts here instead of revoking that
+  // first code. Scoped to the sender rather than the channel, because another
+  // person verifying at the same time is ordinary and must not block this.
   let sessionResult: Awaited<
     ReturnType<typeof createOutboundSessionConditional>
   >;
@@ -188,7 +185,7 @@ export async function handleGuardianActivationIntercept(
       identityBindingStatus: "bound",
       destinationAddress: conversationExternalId,
       verificationPurpose: "guardian",
-      ...(existingSession ? {} : { ifNoneActive: true }),
+      ifNoneActiveForExternalUserId: rawSenderId,
     });
   } catch (err) {
     log.warn(

@@ -8,6 +8,22 @@
  * (default hourly), inspects which ones can actually move, and upgrades those
  * with the configured merge strategy (default `theirs`).
  *
+ * Only plugins that come from the curated marketplace are swept. The catalog
+ * pins every entry to an immutable commit that a curator reviewed, so an
+ * unattended upgrade can only land code that passed that review. A plugin
+ * installed straight from a GitHub URL has no such gate: it tracks a mutable
+ * ref (a branch, a tag, or the repo's default branch), so upgrading it means
+ * fetching and executing whatever upstream pushed since. That is a decision
+ * for a human at a terminal, not for an hourly background sweep, so untrusted
+ * installs are filtered out here and left for `assistant plugins upgrade`.
+ *
+ * The filter is applied twice, in both processes. Inspecting here keeps the
+ * daemon from being asked about plugins the sweep would never accept, but the
+ * daemon re-inspects before it moves anything, so this side's verdict cannot be
+ * the one that matters: a catalog entry that disappears in between would flip
+ * the daemon to the direct path. Every request therefore carries
+ * `marketplaceOnly`, which the daemon enforces against its own inspection.
+ *
  * The monitor drives it — not the daemon — for the same reason it drives the
  * plugin source watch and crash recovery: the work is periodic, network-bound,
  * and must not compete with the daemon's turn loop. Drift detection happens
@@ -30,7 +46,10 @@
 import { statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { inspectPlugin } from "../cli/lib/inspect-plugin.js";
+import {
+  inspectPlugin,
+  type PluginInspection,
+} from "../cli/lib/inspect-plugin.js";
 import { listInstalledPlugins } from "../cli/lib/list-installed-plugins.js";
 import { getConfigReadOnly } from "../config/loader.js";
 import type { PluginUpdatesConfig } from "../config/schemas/plugin-updates.js";
@@ -67,22 +86,20 @@ const STAMP_FILENAME = "plugin-auto-update-last-run-at";
 /**
  * Inspection verdicts worth asking the daemon about.
  *
- * `update-available` is the obvious one. `unknown-provenance` (an older or
- * manually-copied install with no recorded commit) is included because an
- * upgrade re-pins it, which is how it stops being unknown. So is
- * `not-in-marketplace`: a plugin installed straight from a GitHub URL has no
- * catalog entry to compare against, but it still tracks a ref upstream may
- * have moved — only the daemon's upgrade can resolve that, and it no-ops when
- * the ref still points at the installed commit.
+ * Both resolve to a curated marketplace pin, which is the only revision this
+ * sweep is willing to move an install to. `update-available` is the obvious
+ * one. `unknown-provenance` (an older or manually-copied install with no
+ * recorded commit) is included because an upgrade re-pins it to that same
+ * curated commit, which is how it stops being unknown.
  *
- * Everything else is skipped: `up-to-date` has nowhere to move, and
- * `remote-unavailable` means the catalog could not be read, so an upgrade
- * would fail on the same outage a moment later.
+ * Everything else is skipped: `up-to-date` has nowhere to move,
+ * `remote-unavailable` means the catalog could not be read so an upgrade would
+ * fail on the same outage a moment later, and `not-in-marketplace` is the
+ * untrusted direct install whose only upgrade target is a mutable upstream ref.
  */
 const UPGRADABLE_STATUSES: ReadonlySet<string> = new Set([
   "update-available",
   "unknown-provenance",
-  "not-in-marketplace",
 ]);
 
 /** Outcome the daemon reports for one plugin; mirrors `PluginUpgradeResult`. */
@@ -114,30 +131,82 @@ function stampSweep(): void {
 }
 
 /**
+ * Whether an installed copy actually tracks the curated source the sweep would
+ * upgrade it to.
+ *
+ * The provenance sidecar records the owner/repo/path the install was
+ * materialized from. When that names a different repository than the catalog
+ * entry claiming the plugin's name, the install is a direct (untrusted) one
+ * sitting on a curated name, and only its name lines up with the catalog. The
+ * sweep leaves it alone: the user picked that source, and swapping it for
+ * someone else's code is a call for a human running `assistant plugins
+ * upgrade`, not for an unattended hourly pass.
+ *
+ * An install with no recorded source at all (an older or manually-copied copy)
+ * is not disqualified. Nothing about it contradicts the catalog, and re-pinning
+ * it to the curated commit is exactly how it gains provenance.
+ */
+function tracksCuratedSource(inspection: PluginInspection): boolean {
+  const source = inspection.local?.source;
+  if (!source) {
+    return true;
+  }
+  const remote = inspection.remote;
+  if (!remote) {
+    return false;
+  }
+  return (
+    `${source.owner}/${source.repo}`.toLowerCase() ===
+      remote.repo.toLowerCase() && (source.path ?? "") === remote.path
+  );
+}
+
+/** What one pass of inspection concluded about the installed plugins. */
+interface UpgradeCandidates {
+  /** Names the daemon should be asked to upgrade. */
+  readonly candidates: readonly string[];
+  /** Names left alone because they do not come from the curated marketplace. */
+  readonly untrusted: readonly string[];
+}
+
+/**
  * Installed plugins this sweep should ask the daemon to upgrade.
  *
  * Only user-installed plugins are listed (defaults ship with the assistant and
  * have no upstream to advance to). A disabled plugin is deliberately left
- * alone — the user switched it off, and upgrading it would re-materialize code
+ * alone: the user switched it off, and upgrading it would re-materialize code
  * and re-declare schedules for something that isn't running. What survives
  * that is inspected, so the daemon is only asked about plugins that can
- * actually move (see {@link UPGRADABLE_STATUSES}).
+ * actually move (see {@link UPGRADABLE_STATUSES}) and whose move lands on a
+ * curated pin (see {@link tracksCuratedSource}).
  */
-async function listUpgradableNames(): Promise<string[]> {
+async function listUpgradableNames(): Promise<UpgradeCandidates> {
   const installed = listInstalledPlugins()
     .map((plugin) => plugin.name)
     .filter((name) => !isPluginDisabled(name));
 
   const candidates: string[] = [];
+  const untrusted: string[] = [];
   for (const name of installed) {
     try {
       const inspection = await inspectPlugin(
         { name },
         { fetch: globalThis.fetch.bind(globalThis) },
       );
-      if (UPGRADABLE_STATUSES.has(inspection.status)) {
-        candidates.push(name);
+      if (inspection.status === "not-in-marketplace") {
+        // No catalog entry claims the name, so the only thing to upgrade to is
+        // whatever the recorded upstream ref points at right now.
+        untrusted.push(name);
+        continue;
       }
+      if (!UPGRADABLE_STATUSES.has(inspection.status)) {
+        continue;
+      }
+      if (!tracksCuratedSource(inspection)) {
+        untrusted.push(name);
+        continue;
+      }
+      candidates.push(name);
     } catch (err) {
       // An install whose drift cannot be classified (source unreachable,
       // rate-limited) is skipped rather than handed to the daemon, which
@@ -145,10 +214,19 @@ async function listUpgradableNames(): Promise<string[]> {
       log.debug({ err, name }, "Plugin auto-update could not inspect plugin");
     }
   }
-  return candidates;
+  return { candidates, untrusted };
 }
 
-/** Ask the daemon to upgrade one plugin. */
+/**
+ * Ask the daemon to upgrade one plugin.
+ *
+ * `marketplaceOnly` restates this sweep's boundary as something the daemon
+ * enforces rather than something it trusts the caller to have checked. The
+ * daemon re-inspects before it moves anything, so a catalog entry that
+ * disappears between the inspection above and the daemon's own would otherwise
+ * turn a curated upgrade into a direct one against the install's mutable ref.
+ * With the flag set the daemon refuses instead.
+ */
 function requestUpgrade(
   name: string,
   strategy: PluginUpdatesConfig["strategy"],
@@ -157,7 +235,7 @@ function requestUpgrade(
     UPGRADE_IPC_METHOD,
     // The target revision is never caller-supplied — the daemon resolves it
     // from the plugin's own source, exactly as an interactive upgrade does.
-    { pathParams: { name }, body: { strategy } },
+    { pathParams: { name }, body: { strategy, marketplaceOnly: true } },
     { timeoutMs: UPGRADE_TIMEOUT_MS },
   );
 }
@@ -174,6 +252,12 @@ export interface PluginAutoUpdateSweepResult {
   readonly upgraded: readonly string[];
   readonly unchanged: readonly string[];
   readonly failed: readonly string[];
+  /**
+   * Installs the sweep refused to touch because they do not come from the
+   * curated marketplace. They are not failures: a human can still upgrade them
+   * with `assistant plugins upgrade`.
+   */
+  readonly skippedUntrusted: readonly string[];
   /** True when the daemon could not be reached, so the sweep stays due. */
   readonly daemonUnreachable: boolean;
 }
@@ -182,6 +266,7 @@ const NOTHING: Omit<PluginAutoUpdateSweepResult, "skipped"> = {
   upgraded: [],
   unchanged: [],
   failed: [],
+  skippedUntrusted: [],
   daemonUnreachable: false,
 };
 
@@ -214,18 +299,29 @@ export async function runPluginAutoUpdateSweepIfDue(): Promise<PluginAutoUpdateS
     return { skipped: "not-due", ...NOTHING };
   }
 
-  let names: string[];
+  let inspected: UpgradeCandidates;
   try {
-    names = await listUpgradableNames();
+    inspected = await listUpgradableNames();
   } catch (err) {
     log.warn({ err }, "Plugin auto-update could not list installed plugins");
     return { skipped: "no-candidates", ...NOTHING };
+  }
+  const { candidates: names, untrusted } = inspected;
+  if (untrusted.length > 0) {
+    log.info(
+      { plugins: untrusted },
+      "Plugin auto-update skipped plugins that are not from the curated marketplace",
+    );
   }
   if (names.length === 0) {
     // Stamp anyway: a workspace with nothing to move is a completed sweep, and
     // re-inspecting every plugin a minute later would be pure churn.
     stampSweep();
-    return { skipped: "no-candidates", ...NOTHING };
+    return {
+      skipped: "no-candidates",
+      ...NOTHING,
+      skippedUntrusted: untrusted,
+    };
   }
 
   const upgraded: string[] = [];
@@ -302,13 +398,21 @@ export async function runPluginAutoUpdateSweepIfDue(): Promise<PluginAutoUpdateS
         upgraded: upgraded.length,
         unchanged: unchanged.length,
         failed: failed.length,
+        skippedUntrusted: untrusted.length,
         strategy: config.strategy,
       },
       "Plugin auto-update sweep complete",
     );
   }
 
-  return { skipped: null, upgraded, unchanged, failed, daemonUnreachable };
+  return {
+    skipped: null,
+    upgraded,
+    unchanged,
+    failed,
+    skippedUntrusted: untrusted,
+    daemonUnreachable,
+  };
 }
 
 /** Handle for the running auto-update loop. */

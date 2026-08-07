@@ -374,7 +374,6 @@ export function OverridesDetailPanel({
       {hasAnyPersistedOverride && (
         <Button
           variant="outlined"
-          size="compact"
           onClick={() => setShowResetConfirmation(true)}
           disabled={saving || !isSeeded}
           tintColor="var(--system-negative-strong)"
@@ -385,7 +384,6 @@ export function OverridesDetailPanel({
       )}
       <Button
         variant="primary"
-        size="compact"
         onClick={() => void handleSave()}
         disabled={!hasUnsavedDrafts || hasValidationError || saving}
       >
@@ -424,7 +422,6 @@ export function OverridesDetailPanel({
           </div>
           <Button
             variant="outlined"
-            size="compact"
             onClick={() => setShowBulkSwap(true)}
             disabled={
               !isSeeded || saving || hasUnsavedDrafts || !hasBulkSwapCandidates
@@ -475,11 +472,7 @@ export function OverridesDetailPanel({
             <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
               Make sure your assistant is running
             </p>
-            <Button
-              variant="outlined"
-              size="compact"
-              onClick={() => void refetch()}
-            >
+            <Button variant="outlined" onClick={() => void refetch()}>
               Retry
             </Button>
           </div>

@@ -22,8 +22,9 @@ export function SkillsReferenceACPContent() {
             What it does
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
-            Lets your assistant delegate development tasks to external tools such as Claude Code,
-            Codex, and Gemini CLI through the Agent Client Protocol.
+            Sets up, authenticates, and runs external coding tools such as Claude Code, Codex, and
+            Gemini CLI through the Agent Client Protocol, so your assistant can hand development
+            tasks to them.
           </p>
         </section>
 
@@ -32,8 +33,11 @@ export function SkillsReferenceACPContent() {
             Setup required
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
-            Requires the external agent to be installed (e.g., Claude Code CLI). Say &ldquo;Set up
-            ACP&rdquo; for first-time configuration.
+            The protocol adapter is installed automatically the first time you use an agent. For
+            Claude Code that is everything: sign-in runs through an in-app Connect card, so there is
+            nothing to install yourself. Codex additionally needs the Codex CLI (version 0.111 or
+            higher) already on your PATH, since its adapter calls that CLI and inherits its
+            sign-in. Say &ldquo;Set up ACP&rdquo; to walk through it.
           </p>
         </section>
 

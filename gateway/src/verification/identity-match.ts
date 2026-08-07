@@ -1,77 +1,53 @@
 /**
- * Identity matching for verification sessions.
+ * Whether an actor may redeem a session's code.
  *
- * Mirrors the assistant's channel-verification-service.ts identity check.
- * Determines whether the actor submitting a verification code matches the
- * expected identity on an outbound session.
+ * The precedence deciding WHICH identity binds a session lives in the shared
+ * contract (`boundIdentity`), because the supersede scope in the session store
+ * has to agree with this consume-side check. The two disagreeing is a silent
+ * one-time-code bug in either direction: too loose and a stranger in a shared
+ * chat spends someone else's code, too narrow and a mint supersedes nothing
+ * and every earlier code stays spendable for its full TTL.
  */
 
-import type { VerificationSession } from "../db/session-store.js";
-
-/** The identity fields the match rules read — callers may pass a full row. */
-export type IdentityMatchSession = Pick<
-  VerificationSession,
-  | "expectedExternalUserId"
-  | "expectedChatId"
-  | "expectedPhoneE164"
-  | "identityBindingStatus"
->;
+import { boundIdentity } from "@vellumai/gateway-client";
+import type {
+  IdentityBindingStatus,
+  IdentityBoundSession,
+} from "@vellumai/gateway-client";
 
 /**
- * Check whether the actor matches the session's expected identity.
+ * The identity fields the match rules read, plus the binding state.
  *
- * Returns true if:
- * - The session has no expected identity (inbound sessions)
- * - The session's identity binding status is not 'bound' (pending_bootstrap)
- * - The actor matches the expected identity
+ * The binding state keeps its union rather than widening to `string`. Only
+ * `bound` makes the identity decide anything, so a value outside the union
+ * reads as not-bound and admits any holder of the code; the type is what
+ * stops a caller inventing one.
+ */
+export type IdentityMatchSession = IdentityBoundSession & {
+  identityBindingStatus?: IdentityBindingStatus | null;
+};
+
+/**
+ * Check whether the actor submitting a code matches the session's bound
+ * identity.
+ *
+ * True when the session is bound to no identity (an inbound challenge, which
+ * relies on code secrecy alone), or when its binding is not yet final
+ * (`pending_bootstrap`, where the bootstrap path does the binding).
+ *
+ * A caller holding a single identifier for the actor, such as voice, passes it
+ * as both arguments.
  */
 export function checkIdentityMatch(
   session: IdentityMatchSession,
   actorExternalUserId: string,
   actorChatId: string,
 ): boolean {
-  const hasExpectedIdentity =
-    session.expectedExternalUserId != null ||
-    session.expectedChatId != null ||
-    session.expectedPhoneE164 != null;
-
-  if (!hasExpectedIdentity || session.identityBindingStatus !== "bound") {
+  const identity = boundIdentity(session);
+  if (identity === null || session.identityBindingStatus !== "bound") {
     return true;
   }
-
-  // Phone match
-  if (session.expectedPhoneE164 != null) {
-    if (
-      actorExternalUserId === session.expectedPhoneE164 ||
-      actorExternalUserId === session.expectedExternalUserId
-    ) {
-      return true;
-    }
-  }
-
-  // Chat ID match (Telegram, Slack, etc.)
-  if (session.expectedChatId != null) {
-    if (session.expectedExternalUserId != null) {
-      // When both are set, require the externalUserId match — chatId alone
-      // is insufficient (shared group chats).
-      if (actorExternalUserId === session.expectedExternalUserId) {
-        return true;
-      }
-    } else if (actorChatId === session.expectedChatId) {
-      return true;
-    }
-  }
-
-  // Fallback: only expectedExternalUserId set (no phone, no chat)
-  if (
-    session.expectedPhoneE164 == null &&
-    session.expectedChatId == null &&
-    session.expectedExternalUserId != null
-  ) {
-    if (actorExternalUserId === session.expectedExternalUserId) {
-      return true;
-    }
-  }
-
-  return false;
+  return identity.field === "chatId"
+    ? actorChatId === identity.value
+    : actorExternalUserId === identity.value;
 }

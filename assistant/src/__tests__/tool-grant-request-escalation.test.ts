@@ -101,17 +101,20 @@ import {
   getRegisteredKinds,
   getResolver,
 } from "../approvals/guardian-request-resolvers.js";
+import { getConfig } from "../config/loader.js";
 import { getDb } from "../persistence/db-connection.js";
 import { getSqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { scopedApprovalGrants } from "../persistence/schema/index.js";
 import {
+  TC_GRANT_WAIT_MAX_MS,
   ToolApprovalHandler,
   waitForInlineGrant,
 } from "../tools/tool-approval-handler.js";
 import type { ToolContext } from "../tools/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
-/** Short wait config for tests — avoids blocking test suite on the 60s default. */
+/** Short wait config for tests: keeps escalation cases off the real budget. */
 const TEST_INLINE_WAIT_CONFIG = { maxWaitMs: 100, intervalMs: 20 };
 
 await initializeDb();
@@ -489,6 +492,42 @@ describe("inline wait-and-resume", () => {
     expect(elapsed).toBeGreaterThanOrEqual(80);
     expect(elapsed).toBeLessThan(500);
   });
+
+  test("waitForInlineGrant spends timeouts.permissionTimeoutSec when no explicit budget is given", async () => {
+    // The guardian's escalation window must track the configured approval
+    // budget rather than a compiled-in constant, so an operator raising
+    // permissionTimeoutSec actually widens the window a guardian has to
+    // answer in. Omitting maxWaitMs is what production does.
+    const priorTimeouts = getConfig().timeouts;
+    setConfig("timeouts", {
+      ...priorTimeouts,
+      permissionTimeoutSec: 0.15,
+    });
+    try {
+      const req = seedGrantRequest("sha256:configbudget");
+
+      const start = Date.now();
+      const result = await waitForInlineGrant(
+        req.id,
+        {
+          toolName: "bash",
+          inputDigest: "sha256:configbudget",
+          consumingRequestId: "consume-config-budget",
+        },
+        { intervalMs: 20 },
+      );
+      const elapsed = Date.now() - start;
+
+      expect(result.outcome).toBe("timeout");
+      // Bounded well under TC_GRANT_WAIT_MAX_MS: a regression that ignores
+      // config and falls back to the constant blows this ceiling by ~400x.
+      expect(elapsed).toBeGreaterThanOrEqual(120);
+      expect(elapsed).toBeLessThan(3_000);
+      expect(elapsed).toBeLessThan(TC_GRANT_WAIT_MAX_MS);
+    } finally {
+      setConfig("timeouts", priorTimeouts);
+    }
+  }, 10_000);
 
   test("waitForInlineGrant returns aborted when signal fires during wait", async () => {
     const req = seedGrantRequest("sha256:abortwait");

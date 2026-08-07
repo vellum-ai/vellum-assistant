@@ -139,9 +139,22 @@ export function createGatewayVerificationSessionsStub(options: {
       throwIfUnreachable("updateSessionDelivery");
       calls.updateSessionDelivery.push(args);
     },
-    findActiveSession: async () => {
+    // Honours the caller's `expectedExternalUserId` filter the way the
+    // gateway does. Returning the session for every filter would make a
+    // "someone else is verifying" test pass against a lookup that, against
+    // the real gateway, would have found nothing.
+    findActiveSession: async (...args: unknown[]) => {
       calls.sessionReads.push("findActiveSession");
       throwIfUnreachable("findActiveSession");
+      const wantedActor = (
+        args[1] as { expectedExternalUserId?: string } | undefined
+      )?.expectedExternalUserId;
+      if (
+        wantedActor !== undefined &&
+        state.activeSession?.expectedExternalUserId !== wantedActor
+      ) {
+        return null;
+      }
       return state.activeSession;
     },
     getPendingSession: async () => {

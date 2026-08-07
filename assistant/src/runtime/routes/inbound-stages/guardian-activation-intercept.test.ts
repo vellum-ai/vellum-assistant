@@ -122,8 +122,9 @@ describe("handleGuardianActivationIntercept", () => {
       identityBindingStatus: "bound",
       destinationAddress: "chat-123",
       verificationPurpose: "guardian",
-      // No session was read: the create is a gateway-side create-if-absent.
-      ifNoneActive: true,
+      // No session was read for this sender, so the create is a
+      // sender-scoped create-if-absent.
+      ifNoneActiveForExternalUserId: "user-42",
     });
 
     // Verify deliverChannelReply was called with the welcome/verify message
@@ -243,7 +244,11 @@ describe("handleGuardianActivationIntercept", () => {
     expect(emitNotificationSignalCalls).toHaveLength(0);
   });
 
-  test("existing active session from different sender allows superseding", async () => {
+  test("someone else verifying does not turn this sender away", async () => {
+    // The read is scoped to the sender, so another person's live session is
+    // invisible here and this activation proceeds as a first one. Without the
+    // scope it would return the stranger's session and this sender would be
+    // told a verification is "already in progress" that is not theirs.
     gatewaySessions.state.activeSession = {
       id: "existing-sess",
       channel: "telegram",
@@ -254,16 +259,14 @@ describe("handleGuardianActivationIntercept", () => {
 
     const result = await handleGuardianActivationIntercept(makeParams());
 
-    // Should proceed and create a new session (superseding the stale one)
-    expect(result).not.toBeNull();
-    const body = result!;
-    expect(body).toEqual({ accepted: true, guardianActivation: true });
+    expect(result).toEqual({ accepted: true, guardianActivation: true });
     expect(gatewaySessions.calls.create).toHaveLength(1);
-    // Deliberate supersede: the create-if-absent guard is omitted so the
-    // stale session gets revoked.
+    // Carrying the guard is what keeps the stranger's code alive: the mint
+    // supersedes by bound identity, and this sender is not that identity.
     expect(
-      (gatewaySessions.calls.create[0] as Record<string, unknown>).ifNoneActive,
-    ).toBeUndefined();
+      (gatewaySessions.calls.create[0] as Record<string, unknown>)
+        .ifNoneActiveForExternalUserId,
+    ).toBe("user-42");
     expect(emitNotificationSignalCalls).toHaveLength(1);
   });
 

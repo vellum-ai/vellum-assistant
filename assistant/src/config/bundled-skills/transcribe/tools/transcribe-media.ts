@@ -234,8 +234,15 @@ export async function run(
     };
   }
 
-  // Resolve the configured STT provider
-  const transcriber = await resolveBatchTranscriber();
+  // Resolve the configured STT provider. A typed resolver error already names
+  // the mismatch (e.g. a streaming-only provider) and its fix, so it reaches
+  // the model verbatim rather than as the "nothing configured" copy below.
+  let transcriber: BatchTranscriber | null;
+  try {
+    transcriber = await resolveBatchTranscriber();
+  } catch (err) {
+    return { content: (err as Error).message, isError: true };
+  }
   if (!transcriber) {
     return {
       content:
