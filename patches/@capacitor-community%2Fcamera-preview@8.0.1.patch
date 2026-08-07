@@ -43,3 +43,16 @@ index aa18ca78d0d73ceceeae4eee2d23a83a802bab03..42eb0bd7f8619da07f32d12ab9c5989c
                  call.resolve()
              } else {
                  call.reject("camera already stopped")
+@@ -207,9 +210,10 @@ public class CameraPreview: CAPPlugin, CAPBridgedPlugin {
+                     return
+                 }
+                 let imageData: Data?
++                let compression = CGFloat(quality ?? 85) / 100.0
+                 if self.cameraController.currentCameraPosition == .front {
+                     let flippedImage = image.withHorizontallyFlippedOrientation()
+-                    imageData = flippedImage.jpegData(compressionQuality: CGFloat(quality!/100))
++                    imageData = flippedImage.jpegData(compressionQuality: compression)
+                 } else {
+-                    imageData = image.jpegData(compressionQuality: CGFloat(quality!/100))
++                    imageData = image.jpegData(compressionQuality: compression)
+                 }
