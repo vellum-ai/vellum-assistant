@@ -192,14 +192,33 @@ describe("readPluginInbound", () => {
     expect(result.status).toBe("invalid");
   });
 
-  it("carries none of the plugin's reply forward as raw", () => {
-    // `raw` exists so a normalizer can hand the vendor payload to a later
-    // stage. Nothing does that here, and the reply is unvalidated input that
-    // would otherwise ride into the runtime unexamined.
-    const result = read(reply({ secrets: { token: "shh" } }));
+  it("carries the vendor payload the plugin kept", () => {
+    // The gateway understands only the declared fields, so anything the vendor
+    // sent beyond them survives on `raw` or nowhere.
+    const result = read(reply({ raw: { reactions: ["heart"] } }));
 
     expect(result.status).toBe("event");
-    if (result.status !== "event") return;
-    expect(result.event.raw).toEqual({});
+    if (result.status !== "event") {
+      return;
+    }
+    expect(result.event.raw).toEqual({ reactions: ["heart"] });
+  });
+
+  it("carries nothing as raw when the plugin kept nothing", () => {
+    // `raw` means the vendor's payload. Substituting the reply envelope when
+    // the plugin sent none would quietly redefine it.
+    for (const body of [
+      reply(),
+      reply({ raw: "not an object" }),
+      reply({ raw: ["not an object either"] }),
+      reply({ raw: null }),
+    ]) {
+      const result = read(body);
+      expect(result.status).toBe("event");
+      if (result.status !== "event") {
+        continue;
+      }
+      expect(result.event.raw).toEqual({});
+    }
   });
 });

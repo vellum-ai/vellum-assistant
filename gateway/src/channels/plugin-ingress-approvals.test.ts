@@ -16,7 +16,10 @@ import {
 } from "../db/plugin-ingress-approval-store.js";
 import { pluginIngressApprovals } from "../db/schema.js";
 import { IngressInboundSchema } from "./ingress-inbound.js";
-import { PLUGIN_INGRESS_MANIFEST_RELPATH } from "./plugin-ingress.js";
+import {
+  PLUGIN_INGRESS_MANIFEST_RELPATH,
+  type IngressRoute,
+} from "./plugin-ingress.js";
 import {
   findServableRoute,
   ingressDeclarationDigest,
@@ -74,83 +77,48 @@ function writePlugin(
   );
 }
 
+/**
+ * A declared route, defaulted so each case states only what it is about.
+ *
+ * The digest takes whole `IngressRoute`s — it is computed from real
+ * declarations, and a partial shape here would let a field be added to the
+ * declaration without any of these cases noticing it is now covered.
+ */
+function route(
+  overrides: Partial<IngressRoute> & { path: string },
+): IngressRoute {
+  return {
+    kind: "http",
+    signer: "plugin",
+    handshake: "signed-headers",
+    description: "events",
+    ...overrides,
+  };
+}
+
 describe("ingressDeclarationDigest", () => {
   it("is stable across route ordering", () => {
-    const a = ingressDeclarationDigest([
-      {
-        kind: "http",
-        signer: "plugin",
-        handshake: "signed-headers",
-        path: "a",
-      },
-      {
-        kind: "http",
-        signer: "plugin",
-        handshake: "signed-headers",
-        path: "b",
-      },
-    ]);
-    const b = ingressDeclarationDigest([
-      {
-        kind: "http",
-        signer: "plugin",
-        handshake: "signed-headers",
-        path: "b",
-      },
-      {
-        kind: "http",
-        signer: "plugin",
-        handshake: "signed-headers",
-        path: "a",
-      },
-    ]);
-    expect(a).toBe(b);
+    expect(
+      ingressDeclarationDigest([route({ path: "a" }), route({ path: "b" })]),
+    ).toBe(
+      ingressDeclarationDigest([route({ path: "b" }), route({ path: "a" })]),
+    );
   });
 
   it("ignores a description reword so an approval survives it", () => {
-    const before = ingressDeclarationDigest([
-      {
-        kind: "http",
-        signer: "plugin",
-        handshake: "signed-headers" as const,
-        path: "a",
-        description: "one",
-      } as never,
-    ]);
-    const after = ingressDeclarationDigest([
-      {
-        kind: "http",
-        signer: "plugin",
-        handshake: "signed-headers" as const,
-        path: "a",
-        description: "reworded",
-      } as never,
-    ]);
-    expect(after).toBe(before);
+    expect(
+      ingressDeclarationDigest([route({ path: "a", description: "reworded" })]),
+    ).toBe(
+      ingressDeclarationDigest([route({ path: "a", description: "one" })]),
+    );
   });
 
   it("changes when the signer changes", () => {
     // Switching signer changes whose key opens the route, so an approval for
     // one must not carry over to the other.
     expect(
-      ingressDeclarationDigest([
-        {
-          kind: "http",
-          signer: "vellum",
-          handshake: "signed-headers",
-          path: "a",
-        },
-      ]),
-    ).not.toBe(
-      ingressDeclarationDigest([
-        {
-          kind: "http",
-          signer: "plugin",
-          handshake: "signed-headers",
-          path: "a",
-        },
-      ]),
-    );
+      ingressDeclarationDigest([route({ path: "a", signer: "vellum" })]),
+    ).not.toBe(ingressDeclarationDigest([route({ path: "a" })]));
   });
 
   it("keeps the digest a default-scheme route had before handshake existed", () => {
@@ -160,23 +128,11 @@ describe("ingressDeclarationDigest", () => {
     // guardian approves it again. Adding a field must not do that.
     expect(
       ingressDeclarationDigest([
-        {
-          kind: "websocket",
-          signer: "plugin",
-          handshake: "signed-headers",
-          path: "realtime",
-        },
+        route({ path: "realtime", kind: "websocket" }),
       ]),
     ).toBe("a32e2511180b489c31e147ebb926e72b");
     expect(
-      ingressDeclarationDigest([
-        {
-          kind: "http",
-          signer: "vellum",
-          handshake: "signed-headers",
-          path: "hook",
-        },
-      ]),
+      ingressDeclarationDigest([route({ path: "hook", signer: "vellum" })]),
     ).toBe("db809d978434fd3804c8faad82851069");
   });
 
@@ -186,61 +142,36 @@ describe("ingressDeclarationDigest", () => {
     // approved plugin drops back to pending on upgrade.
     expect(
       ingressDeclarationDigest([
-        {
-          kind: "http",
-          signer: "plugin",
-          handshake: "signed-headers",
-          path: "hook",
-          verification: undefined,
-        },
+        route({ path: "hook", verification: undefined }),
       ]),
-    ).toBe(
-      ingressDeclarationDigest([
-        {
-          kind: "http",
-          signer: "plugin",
-          handshake: "signed-headers",
-          path: "hook",
-        },
-      ]),
-    );
+    ).toBe(ingressDeclarationDigest([route({ path: "hook" })]));
   });
 
   it("changes when a route gains a verification descriptor", () => {
     // The descriptor decides which secret and which bytes make a delivery
     // authentic. A guardian approved a route verified one way, not any way.
-    const base = {
-      kind: "http" as const,
-      signer: "plugin" as const,
-      handshake: "signed-headers" as const,
-      path: "events-comms",
-    };
-    const declared = {
-      ...base,
-      verification: {
-        kind: "hmac" as const,
-        algorithm: "sha256" as const,
-        secret: { field: "comms_webhook_secret" },
-        signature: {
-          header: "X-Osis-Signature",
-          encoding: "hex" as const,
-          prefix: "sha256=",
-        },
-        payload: ["body" as const],
+    const verification = {
+      kind: "hmac" as const,
+      algorithm: "sha256" as const,
+      secret: { field: "comms_webhook_secret" },
+      signature: {
+        header: "X-Osis-Signature",
+        encoding: "hex" as const,
+        prefix: "sha256=",
       },
+      payload: ["body" as const],
     };
+    const declared = route({ path: "events-comms", verification });
+
     expect(ingressDeclarationDigest([declared])).not.toBe(
-      ingressDeclarationDigest([base]),
+      ingressDeclarationDigest([route({ path: "events-comms" })]),
     );
     expect(
       ingressDeclarationDigest([
-        {
-          ...declared,
-          verification: {
-            ...declared.verification,
-            secret: { field: "other_secret" },
-          },
-        },
+        route({
+          path: "events-comms",
+          verification: { ...verification, secret: { field: "other_secret" } },
+        }),
       ]),
     ).not.toBe(ingressDeclarationDigest([declared]));
   });
@@ -250,59 +181,21 @@ describe("ingressDeclarationDigest", () => {
     // approved the header scheme has not approved that.
     expect(
       ingressDeclarationDigest([
-        {
-          kind: "websocket",
-          signer: "plugin",
-          handshake: "signed-headers",
-          path: "a",
-        },
+        route({ path: "a", kind: "websocket", handshake: "signed-query" }),
       ]),
     ).not.toBe(
-      ingressDeclarationDigest([
-        {
-          kind: "websocket",
-          signer: "plugin",
-          handshake: "signed-query",
-          path: "a",
-        },
-      ]),
+      ingressDeclarationDigest([route({ path: "a", kind: "websocket" })]),
     );
   });
 
   it("changes when reach widens or a transport changes", () => {
-    const base = ingressDeclarationDigest([
-      {
-        kind: "http",
-        signer: "plugin",
-        handshake: "signed-headers",
-        path: "a",
-      },
-    ]);
+    const base = ingressDeclarationDigest([route({ path: "a" })]);
+
     expect(
-      ingressDeclarationDigest([
-        {
-          kind: "http",
-          signer: "plugin",
-          handshake: "signed-headers",
-          path: "a",
-        },
-        {
-          kind: "http",
-          signer: "plugin",
-          handshake: "signed-headers",
-          path: "b",
-        },
-      ]),
+      ingressDeclarationDigest([route({ path: "a" }), route({ path: "b" })]),
     ).not.toBe(base);
     expect(
-      ingressDeclarationDigest([
-        {
-          kind: "websocket",
-          signer: "plugin",
-          handshake: "signed-headers",
-          path: "a",
-        },
-      ]),
+      ingressDeclarationDigest([route({ path: "a", kind: "websocket" })]),
     ).not.toBe(base);
   });
 
@@ -311,44 +204,26 @@ describe("ingressDeclarationDigest", () => {
     // same grant, so the second must not begin under an approval for the first.
     expect(
       ingressDeclarationDigest([
-        {
-          kind: "http",
-          signer: "plugin",
-          handshake: "signed-headers",
-          path: "a",
-          inbound: IngressInboundSchema.parse({}),
-        },
+        route({ path: "a", inbound: IngressInboundSchema.parse({}) }),
       ]),
-    ).not.toBe(
-      ingressDeclarationDigest([
-        {
-          kind: "http",
-          signer: "plugin",
-          handshake: "signed-headers",
-          path: "a",
-        },
-      ]),
-    );
+    ).not.toBe(ingressDeclarationDigest([route({ path: "a" })]));
   });
 
   it("changes when a delivering route starts reading a field elsewhere", () => {
     // Which key the sender is read from decides who the message is from.
-    const declared = {
-      kind: "http" as const,
-      signer: "plugin" as const,
-      handshake: "signed-headers" as const,
+    const declared = route({
       path: "a",
       inbound: IngressInboundSchema.parse({}),
-    };
+    });
 
     expect(
       ingressDeclarationDigest([
-        {
-          ...declared,
+        route({
+          path: "a",
           inbound: IngressInboundSchema.parse({
             fields: { actorExternalId: "from" },
           }),
-        },
+        }),
       ]),
     ).not.toBe(ingressDeclarationDigest([declared]));
   });
@@ -357,16 +232,9 @@ describe("ingressDeclarationDigest", () => {
     // Introducing the field must not silently re-digest every unchanged
     // manifest, drop each back to pending, and 404 routes a guardian already
     // approved. This is the digest as it stood before `inbound` existed.
-    expect(
-      ingressDeclarationDigest([
-        {
-          kind: "http",
-          signer: "plugin",
-          handshake: "signed-headers",
-          path: "a",
-        },
-      ]),
-    ).toBe("45e87741e530e330a663d4c0bb493c36");
+    expect(ingressDeclarationDigest([route({ path: "a" })])).toBe(
+      "45e87741e530e330a663d4c0bb493c36",
+    );
   });
 });
 

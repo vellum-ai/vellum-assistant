@@ -59,7 +59,11 @@ function renderPanel(sources?: unknown[]) {
   return render(
     <MemoryRouter>
       <QueryClientProvider client={queryClient}>
-        <PluginChannelPanel channel={CHANNEL} assistantId={ASSISTANT_ID} />
+        <PluginChannelPanel
+          channel={CHANNEL}
+          assistantId={ASSISTANT_ID}
+          assistantDisplayName="Ada"
+        />
       </QueryClientProvider>
     </MemoryRouter>,
   );

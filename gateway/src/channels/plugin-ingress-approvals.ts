@@ -44,10 +44,7 @@ const log = getLogger("plugin-ingress-approvals");
  * `JSON.stringify` escapes rather than emits.
  */
 export function ingressDeclarationDigest(
-  routes: readonly Pick<
-    IngressRoute,
-    "kind" | "path" | "signer" | "handshake" | "verification" | "inbound"
-  >[],
+  routes: readonly IngressRoute[],
 ): string {
   const canonical = routes
     .map((route) => {

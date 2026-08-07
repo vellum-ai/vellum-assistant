@@ -154,9 +154,12 @@ export function readInboundField(
 ): string | undefined {
   let cursor: unknown = body;
   for (const segment of path.split(".")) {
-    if (cursor === null || typeof cursor !== "object") return undefined;
-    if (!Object.prototype.hasOwnProperty.call(cursor, segment))
+    if (cursor === null || typeof cursor !== "object") {
       return undefined;
+    }
+    if (!Object.prototype.hasOwnProperty.call(cursor, segment)) {
+      return undefined;
+    }
     cursor = (cursor as Record<string, unknown>)[segment];
   }
   return typeof cursor === "string" ? cursor : undefined;

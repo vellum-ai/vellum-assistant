@@ -68,8 +68,12 @@ export function canonicalizeInboundIdentity(
 export type IdentityKind = "phone" | "email" | "opaque";
 
 function identityKindFor(channel: string): IdentityKind {
-  if (PHONE_CHANNELS.has(channel)) return "phone";
-  if (EMAIL_CHANNELS.has(channel)) return "email";
+  if (PHONE_CHANNELS.has(channel)) {
+    return "phone";
+  }
+  if (EMAIL_CHANNELS.has(channel)) {
+    return "email";
+  }
   return "opaque";
 }
 
@@ -89,7 +93,9 @@ export function canonicalizeIdentityAs(
   rawId: string,
 ): string | null {
   const trimmed = rawId.trim();
-  if (trimmed.length === 0) return null;
+  if (trimmed.length === 0) {
+    return null;
+  }
 
   if (kind === "phone") {
     return normalizePhoneNumber(trimmed) ?? trimmed;
