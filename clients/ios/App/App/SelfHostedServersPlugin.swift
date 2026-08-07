@@ -26,6 +26,7 @@ public class SelfHostedServersPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "add", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "remove", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "switchTo", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "switchToPath", returnType: CAPPluginReturnPromise),
     ]
 
     @objc public func list(_ call: CAPPluginCall) {
@@ -95,6 +96,29 @@ public class SelfHostedServersPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         DispatchQueue.main.async { [weak self] in
             (self?.bridge?.viewController as? MyViewController)?.applyConfiguredOrigin()
+            call.resolve(["ok": true])
+        }
+    }
+
+    @objc public func switchToPath(_ call: CAPPluginCall) {
+        let path = call.getString("path")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !path.isEmpty, !path.hasPrefix("/"), !path.contains("://"), !path.contains("#") else {
+            call.reject("invalid path")
+            return
+        }
+
+        let raw = call.getString("url")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if raw.isEmpty {
+            SelfHostedServer.clear()
+        } else if let url = SelfHostedServer.validate(raw) {
+            SelfHostedServer.store(url)
+            SelfHostedServer.append(url: url, name: nil)
+        } else {
+            call.reject("invalid url")
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            (self?.bridge?.viewController as? MyViewController)?.applyConfiguredOrigin(path: path)
             call.resolve(["ok": true])
         }
     }
