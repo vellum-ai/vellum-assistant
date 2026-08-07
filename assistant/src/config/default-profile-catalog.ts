@@ -311,10 +311,12 @@ export const OS_BETA_PROFILE_TEMPLATE: DefaultProfileTemplate = {
 export const CODE_OWNED_PROFILE_NAMES = new Set<string>(["latency-optimized"]);
 
 // All managed profiles, including the flag-gated os-beta, are invariant:
-// their MANAGED-SOURCE entries are read-only to user-facing writes except
-// re-enabling a disabled one (enforced at commitConfigWrite). A user-owned
-// profile sharing one of these names is NOT locked — invariance is gated on
-// the on-disk entry's `source` being `managed`.
+// their MANAGED-SOURCE entries' CONTENT is read-only to user-facing writes
+// (enforced at commitConfigWrite). `status` is the exception — it is
+// workspace-owned overlay state, so a user may disable a default profile to
+// hide it and enable it again later. A user-owned profile sharing one of
+// these names is NOT locked — invariance is gated on the on-disk entry's
+// `source` being `managed`.
 export const INVARIANT_PROFILE_NAMES = new Set<string>([
   ...DEFAULT_PROFILE_KEYS,
   OS_BETA_PROFILE_KEY,
@@ -457,7 +459,9 @@ const WORKSPACE_OWNED_DEFAULT_FIELDS = ["label", "status", "topP"] as const;
  *   default — a user-owned profile sharing a default name shadows it.
  * - A managed-source workspace entry contributes only its
  *   `WORKSPACE_OWNED_DEFAULT_FIELDS`; all other content comes from the code
- *   default body.
+ *   default body. `status` is one of those fields, so a default the user has
+ *   disabled resolves with `status: "disabled"` and is skipped by the
+ *   resolver at every rung (see `llm-resolver.ts`).
  * - A default absent from the workspace resolves to the catalog body as-is —
  *   the workspace holds at most a thin stub for a default, never its
  *   content. The flag-gated `os-beta` is the exception: it resolves only

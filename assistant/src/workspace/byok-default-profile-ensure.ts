@@ -270,7 +270,6 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
       : null;
 
   const retired = new Map<string, string>();
-  const carriedDisables = new Set<HatchEraProfileKey>();
   for (const key of HATCH_ERA_PROFILE_KEYS) {
     const name = `custom-${key}`;
     const entry = readObject(profiles[name]);
@@ -297,9 +296,6 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
       }
       if (Object.keys(stub).length > 1) {
         profiles[key] = stub;
-        if (stub.status === "disabled") {
-          carriedDisables.add(key);
-        }
       }
     }
     retired.set(name, key);
@@ -318,7 +314,7 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
     return;
   }
 
-  repairProfileSelections(llm, profiles, parsedDefault.data, carriedDisables);
+  repairProfileSelections(llm, profiles, parsedDefault.data);
 
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
   // The lifecycle call site runs before the first loadConfig() of this boot;
@@ -462,11 +458,13 @@ function withCompletionBaked(
  * era) and never wrote `status`, so any other label or any `status` key is
  * user state; it survives conversion as the thin managed overlay on the
  * bare key (the `WORKSPACE_OWNED_DEFAULT_FIELDS` overlay in
- * default-profile-catalog.ts). A carried `status: "disabled"` keeps the
- * profile LISTING honest (the picker shows the default disabled) while
- * dispatch is unaffected: the resolver overrides persisted disabled stubs on
- * default keys so the code-owned anchors always resolve (see
- * `providerAwareEntry` in config/llm-resolver.ts).
+ * default-profile-catalog.ts). A carried `status: "disabled"` is the user's
+ * disable and is honored in full — the picker hides the default and the
+ * resolver skips it at every rung (see `providerAwareEntry` in
+ * config/llm-resolver.ts). `repairProfileSelections` below repoints the
+ * advisor and chat selections off it in the same write, and
+ * `clearDisablesOnReferencedDefaults` (config/seed-inference-profiles.ts)
+ * catches any other reference on the next boot.
  */
 function userOverlayState(
   entry: Record<string, unknown>,
@@ -576,7 +574,6 @@ function repairProfileSelections(
   llm: Record<string, unknown>,
   profiles: Record<string, unknown>,
   defaultProvider: DefaultProviderConfig,
-  carriedDisables: ReadonlySet<HatchEraProfileKey>,
 ): void {
   const effectiveEntry = (name: string): ProfileEntry | undefined =>
     resolveDefaultProfileForProvider(
@@ -585,47 +582,33 @@ function repairProfileSelections(
       defaultProvider,
     );
 
-  const advisor = llm.advisorProfile;
-  const advisorEntry =
-    typeof advisor === "string" ? effectiveEntry(advisor) : undefined;
-  const advisorUnusable =
-    advisorEntry === undefined ||
-    (advisorEntry.source === "managed" && advisorEntry.status === "disabled");
-  if (advisorUnusable) {
-    // A default key whose surviving workspace entry is a disabled managed
-    // stub still dispatches the pure catalog body (`providerAwareEntry` in
-    // llm-resolver.ts treats such stubs as stale hatch-era state), so it is
-    // a better advisor than a lower class whose stub happens to be gone.
-    // Judge usability by dispatch semantics, EXCEPT for a disable this very
-    // write carried off the user's retired copy: that one is user intent,
-    // not hatch residue, and the advisor must not land on it.
-    const fallback = ADVISOR_FALLBACK_ORDER.find((key) => {
-      const entry = effectiveEntry(key);
-      if (entry === undefined) {
-        return false;
-      }
-      if (entry.status !== "disabled") {
-        return true;
-      }
-      if (carriedDisables.has(key)) {
-        return false;
-      }
-      const workspace = readObject(profiles[key]);
-      return (
-        workspace !== null &&
-        workspace.source === "managed" &&
-        resolveDefaultProfileForProvider(undefined, key, defaultProvider)
-          ?.status !== "disabled"
-      );
-    });
+  // A disabled profile is skipped by the resolver, so it is never a usable
+  // selection — for the advisor or the chat model. That holds whether the
+  // disable is a carry off the user's retired copy or state already on the
+  // bare key: both are the user's, and both hide the profile from every
+  // picker.
+  const isUsable = (name: unknown): boolean => {
+    if (typeof name !== "string") {
+      return false;
+    }
+    const entry = effectiveEntry(name);
+    return entry !== undefined && entry.status !== "disabled";
+  };
+
+  if (!isUsable(llm.advisorProfile)) {
+    const fallback = ADVISOR_FALLBACK_ORDER.find(isUsable);
     if (fallback !== undefined) {
       llm.advisorProfile = fallback;
     }
   }
 
-  const active = llm.activeProfile;
-  if (typeof active === "string" && effectiveEntry(active) === undefined) {
-    llm.activeProfile = "balanced";
+  if (typeof llm.activeProfile === "string" && !isUsable(llm.activeProfile)) {
+    // `balanced` only when the user has left it enabled; otherwise the first
+    // enabled class, mirroring `seedInferenceProfiles`' active repair. The
+    // final `balanced` is unreachable (a config with every default disabled
+    // cannot be written) and keeps the assignment a string.
+    llm.activeProfile =
+      ["balanced", ...ADVISOR_FALLBACK_ORDER].find(isUsable) ?? "balanced";
   }
 }
 

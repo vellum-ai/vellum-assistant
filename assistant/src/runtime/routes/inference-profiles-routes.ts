@@ -19,6 +19,7 @@
 import { z } from "zod";
 
 import {
+  CODE_OWNED_PROFILE_NAMES,
   getEffectiveProfilesForProvider,
   MANAGED_PROFILE_NAMES,
   resolveDefaultProfileForProvider,
@@ -28,6 +29,7 @@ import {
   getConfigReadOnly,
   loadRawConfig,
 } from "../../config/loader.js";
+import { collectProfileReferences } from "../../config/profile-references.js";
 import {
   LLMProvider,
   ProfileEntry,
@@ -88,6 +90,18 @@ const profileSummarySchema = z
     status: z.enum(["active", "disabled"]),
     source: z.enum(["managed", "user"]),
     provider_connection: z.string().optional(),
+    /**
+     * Whether the user may hide this profile by disabling it. False for the
+     * code-owned profiles, whose body resolves from the catalog verbatim so a
+     * persisted `status` would be inert — clients must not offer a Disable
+     * action that cannot take effect. Enabling is always allowed, so this
+     * gates only the disable direction.
+     *
+     * Optional on the wire: assistants predating the disable path omit it,
+     * and a client must read its absence as "this assistant has no answer"
+     * rather than as permission.
+     */
+    canDisable: z.boolean().optional(),
     /** Null when the profile has no provider to judge (e.g. mix profiles). */
     availability: availabilitySchema.nullable(),
   })
@@ -311,51 +325,6 @@ function fragmentFromBody(
   return fragment;
 }
 
-/**
- * Enumerate every live reference to profile `name` in the raw `llm` config
- * block: `activeProfile`, `advisorProfile`, each `callSites.<id>.profile`, and
- * every mix arm (`profiles.<mix>.mix[].profile`). Deleting a profile while any
- * of these point at it would leave a dangling reference that `LLMSchema`'s
- * superRefine rejects on the next load — silently resetting the user's chat
- * model or call-site pins. The delete handler rejects instead.
- */
-export function collectProfileReferences(
-  llm: Record<string, unknown> | null,
-  name: string,
-): string[] {
-  if (!llm) {
-    return [];
-  }
-  const refs: string[] = [];
-  if (llm.activeProfile === name) {
-    refs.push("llm.activeProfile");
-  }
-  if (llm.advisorProfile === name) {
-    refs.push("llm.advisorProfile");
-  }
-  const callSites = asPlainObject(llm.callSites);
-  if (callSites) {
-    for (const [siteId, siteConfig] of Object.entries(callSites)) {
-      if (asPlainObject(siteConfig)?.profile === name) {
-        refs.push(`llm.callSites.${siteId}`);
-      }
-    }
-  }
-  const profiles = asPlainObject(llm.profiles);
-  if (profiles) {
-    for (const [profileName, profileEntry] of Object.entries(profiles)) {
-      const mix = asPlainObject(profileEntry)?.mix;
-      if (
-        Array.isArray(mix) &&
-        mix.some((arm) => asPlainObject(arm)?.profile === name)
-      ) {
-        refs.push(`llm.profiles.${profileName}.mix`);
-      }
-    }
-  }
-  return refs;
-}
-
 function validateProfileEntry(entry: Record<string, unknown>): void {
   const parsed = ProfileEntry.safeParse(entry);
   if (!parsed.success) {
@@ -387,6 +356,7 @@ async function handleListProfiles() {
         ...(typeof record.provider_connection === "string"
           ? { provider_connection: record.provider_connection }
           : {}),
+        canDisable: !CODE_OWNED_PROFILE_NAMES.has(name),
         availability: await computeProfileAvailability(record),
       };
     }),
@@ -786,7 +756,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Update an inference profile",
     description:
-      "Partial update of a custom profile with the same write-time validation as create. The dispatch-availability guard (and its allowUnavailable escape hatch) applies when the update changes provider, model, or connection; metadata-only edits skip it. Managed default profiles are read-only.",
+      "Partial update of a custom profile with the same write-time validation as create. The dispatch-availability guard (and its allowUnavailable escape hatch) applies when the update changes provider, model, or connection; metadata-only edits skip it. Managed default profiles have read-only bodies; use the config routes to enable or disable one.",
     tags: ["inference"],
     pathParams: [{ name: "name", description: "Profile name" }],
     requestBody: updateRequestSchema,
@@ -810,7 +780,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Delete an inference profile",
     description:
-      "Delete a custom profile. Managed default profiles cannot be deleted (they are re-seeded on boot).",
+      "Delete a custom profile. Managed default profiles cannot be deleted — the code catalog re-serves them whatever the workspace holds. Disable one instead to hide it from the pickers and stop the resolver selecting it.",
     tags: ["inference"],
     pathParams: [{ name: "name", description: "Profile name" }],
     responseBody: z.object({ ok: z.literal(true), name: z.string() }),

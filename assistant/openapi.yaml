@@ -14692,7 +14692,10 @@ paths:
     delete:
       operationId: inference_profiles_by_name_delete
       summary: Delete an inference profile
-      description: Delete a custom profile. Managed default profiles cannot be deleted (they are re-seeded on boot).
+      description:
+        Delete a custom profile. Managed default profiles cannot be deleted — the code catalog re-serves them
+        whatever the workspace holds. Disable one instead to hide it from the pickers and stop the resolver selecting
+        it.
       tags:
         - inference
       parameters:
@@ -14753,7 +14756,8 @@ paths:
       description:
         Partial update of a custom profile with the same write-time validation as create. The dispatch-availability
         guard (and its allowUnavailable escape hatch) applies when the update changes provider, model, or connection;
-        metadata-only edits skip it. Managed default profiles are read-only.
+        metadata-only edits skip it. Managed default profiles have read-only bodies; use the config routes to enable or
+        disable one.
       tags:
         - inference
       parameters:
@@ -35116,6 +35120,8 @@ components:
             - user
         provider_connection:
           type: string
+        canDisable:
+          type: boolean
         availability:
           anyOf:
             - $ref: "#/components/schemas/ProfileConnectionAvailability"

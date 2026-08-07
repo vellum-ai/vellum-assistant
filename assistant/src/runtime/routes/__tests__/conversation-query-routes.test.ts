@@ -1121,16 +1121,48 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       expect(persistedProfile("os-beta").label).toBe("OS Beta");
     });
 
-    test("rejects disable on managed os-beta profile (invariant)", async () => {
+    test("disables an unreferenced managed profile, preserving seed fields", async () => {
+      // Hiding a default profile is the user's call; only its CONTENT is
+      // read-only. Nothing in the fixture points at os-beta, so the disable
+      // lands.
+      const result = await replaceProfileRoute.handler({
+        pathParams: { name: "os-beta" },
+        body: { status: "disabled" },
+      });
+
+      expect(result).toEqual({ ok: true });
+      const saved = persistedProfile("os-beta");
+      expect(saved.status).toBe("disabled");
+      expect(saved.provider).toBe("together");
+      expect(saved.model).toBe("zai-org/GLM-5.2");
+      expect(saved.source).toBe("managed");
+    });
+
+    test("rejects disabling a managed profile that is still referenced", async () => {
+      (rawConfigFixture.llm as Record<string, unknown>).callSites = {
+        recall: { profile: "os-beta" },
+      };
+      seedRawConfig();
+
       await expect(
         replaceProfileRoute.handler({
           pathParams: { name: "os-beta" },
           body: { status: "disabled" },
         }),
       ).rejects.toThrow(
-        'Cannot edit managed profile "os-beta". Managed profiles are read-only',
+        /Cannot disable profile "os-beta" — it is referenced by llm\.callSites\.recall/,
       );
       // Guard rejects before any write — the seed status is untouched.
+      expect(persistedProfile("os-beta").status).toBe("active");
+    });
+
+    test("rejects a managed status value that is neither active nor disabled", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "os-beta" },
+          body: { status: "retired" },
+        }),
+      ).rejects.toThrow(/Invalid profile fragment/);
       expect(persistedProfile("os-beta").status).toBe("active");
     });
 

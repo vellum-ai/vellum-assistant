@@ -7,6 +7,7 @@ import { Tag } from "@vellumai/design-library/components/tag";
 import { Tooltip } from "@vellumai/design-library/components/tooltip";
 
 import { resolveModelDisplayName } from "@/domains/settings/ai/model-display";
+import { useSupportsDefaultProfileDisable } from "@/lib/backwards-compat/default-profile-disable";
 import type {
   InferenceProfileSummary,
   ProviderConnection,
@@ -62,6 +63,15 @@ export function ProfileRow({
   const isManaged = profile.source === "managed";
   const isDisabled = profile.status === "disabled";
   const displayName = profile.label ?? profile.name;
+
+  // Custom profiles have always been disableable. A managed one needs both an
+  // assistant that supports hiding defaults and that assistant's own verdict
+  // on this profile — `canDisable` is false for the code-owned profiles,
+  // where a persisted status would never take effect.
+  const supportsDefaultDisable = useSupportsDefaultProfileDisable();
+  const canDisable = isManaged
+    ? supportsDefaultDisable && profile.canDisable === true
+    : true;
 
   const subtitleParts: string[] = [];
   if (profile.model) {
@@ -153,11 +163,14 @@ export function ProfileRow({
               {!isActiveProfile && !isDisabled ? (
                 <Menu.Item onSelect={onMakeActive}>Make Default</Menu.Item>
               ) : null}
-              {/* Managed profiles are enable-only: the daemon rejects the
-                  disable direction. */}
+              {/* Disable is how a default profile is removed from view:
+                  managed profiles cannot be deleted (the catalog re-serves
+                  them), so disabling is the verb, matching default plugins.
+                  Enable is never gated — a profile disabled by a newer
+                  assistant must stay recoverable after a downgrade. */}
               {isDisabled ? (
                 <Menu.Item onSelect={() => onSetStatus(true)}>Enable</Menu.Item>
-              ) : !isManaged ? (
+              ) : canDisable ? (
                 <Menu.Item onSelect={() => onSetStatus(false)}>
                   Disable
                 </Menu.Item>

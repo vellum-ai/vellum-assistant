@@ -42,6 +42,7 @@ import {
   withSuppressedConfigDiskWritesSync,
 } from "../../config/loader.js";
 import { completeCustomProfile } from "../../config/profile-materialization.js";
+import { collectProfileReferences } from "../../config/profile-references.js";
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import {
@@ -118,6 +119,7 @@ import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity
 import { publishConfigChanged } from "../sync/resource-sync-events.js";
 import {
   BadRequestError,
+  ConflictError,
   ForbiddenError,
   InternalError,
   NotFoundError,
@@ -933,13 +935,15 @@ function stripWireOnlyProfileKeys(patch: unknown): void {
  * - Echo-stripping: any field whose incoming value equals the current
  *   effective (wire) value is deleted from the fragment — it is catalog
  *   content the client read from us, not user input. Values that DIFFER stay
- *   in the fragment for {@link assertInvariantProfilesPreserved} to reject
- *   (or, for `status`, to judge as the one legal transition).
+ *   in the fragment for {@link assertInvariantProfilesPreserved} to judge.
  * - A default name with NO on-disk entry is catalog-owned: after
- *   echo-stripping, any remaining content field, a `disabled` status, or a
- *   non-managed `source` is rejected — default names cannot be newly
- *   shadowed or given content. A clean echo reduces to a no-op
- *   `{source: "managed"}` stub.
+ *   echo-stripping, any remaining content field or a non-managed `source` is
+ *   rejected — default names cannot be newly shadowed or given content. A
+ *   clean echo reduces to a no-op `{source: "managed"}` stub.
+ * - `status` is the exception to catalog ownership, and the reason the stub
+ *   exists at all: it is workspace-owned overlay state
+ *   (`WORKSPACE_OWNED_DEFAULT_FIELDS`), so a first-time disable of a default
+ *   that has never had an on-disk entry materializes the stub that carries it.
  *
  * Entries are mutated (never replaced) so the normalization also reaches
  * `handleSetConfig`'s `raw` write, which shares object references with the
@@ -1028,9 +1032,13 @@ export function normalizeManagedProfileWrites(patch: unknown): void {
     if (
       "status" in entry &&
       entry.status != null &&
-      entry.status !== "active"
+      entry.status !== "active" &&
+      entry.status !== "disabled"
     ) {
-      throw new BadRequestError(`Cannot disable managed profile "${name}".`);
+      throw new BadRequestError(
+        `Cannot set status ${JSON.stringify(entry.status)} on managed profile "${name}". ` +
+          `Valid statuses are "active" and "disabled".`,
+      );
     }
     const residual = Object.keys(entry).filter(
       (key) => key !== "source" && key !== "status",
@@ -1176,11 +1184,12 @@ export function rejectManagedProfileDeletion(
  * - The NEW raw config must still carry a plain-object entry at the same
  *   path — deletion, non-object overwrite, and subtree replacement are all
  *   rejected by this single check, regardless of route.
- * - `status` is one-directional: effective status is
- *   `entry.status !== "disabled"` (absence/null = active). An active managed
- *   profile can never be disabled; a changed `status` must be `"active"`,
- *   `null`, or absent — re-enabling a disabled profile. Any other value is
- *   rejected.
+ * - `status` moves freely between `"active"` (equivalently `null`/absent) and
+ *   `"disabled"`: it is the user's hide/show control over a default profile,
+ *   mirroring the enable/disable verb default plugins use. Any other value is
+ *   rejected. What a disable may NOT do — strand a live reference, or empty
+ *   the catalog — is enforced separately by {@link assertProfileDisableSafe},
+ *   which needs the whole config rather than one entry.
  * - Wire-only keys (`WIRE_ONLY_PROFILE_KEYS`) are ignored on both sides:
  *   incoming writes have them stripped, but configs persisted before the
  *   strip existed may still carry them on disk, and treating that stale key
@@ -1224,13 +1233,14 @@ function assertInvariantProfilesPreserved(
     }
 
     if (!isDeepStrictEqual(oldEntry.status, newEntry.status)) {
-      if (newEntry.status === "disabled") {
-        throw new BadRequestError(`Cannot disable managed profile "${name}".`);
-      }
-      if (newEntry.status !== "active" && newEntry.status != null) {
+      if (
+        newEntry.status !== "active" &&
+        newEntry.status !== "disabled" &&
+        newEntry.status != null
+      ) {
         throw new BadRequestError(
           `Cannot set status ${JSON.stringify(newEntry.status)} on managed profile "${name}". ` +
-            `Only re-enabling (status "active") is allowed.`,
+            `Valid statuses are "active" and "disabled".`,
         );
       }
     }
@@ -1247,6 +1257,96 @@ function assertInvariantProfilesPreserved(
       throw new BadRequestError(
         `Cannot edit managed profile "${name}" fields [${changedKeys.join(", ")}]. ` +
           `Managed profiles are read-only; duplicate to a custom profile to customize.`,
+      );
+    }
+  }
+}
+
+/**
+ * Guard the two ways disabling a managed default profile could do damage the
+ * user did not ask for. Runs at `commitConfigWrite`, so it covers every route
+ * that can flip a status (the config PATCH the settings UI uses, a full
+ * config SET, and the profile PUT).
+ *
+ * 1. **Stranded references.** A disabled profile is skipped by the resolver,
+ *    so an `activeProfile` / `advisorProfile` / call-site pin / mix arm still
+ *    naming it silently resolves to a different model while every UI keeps
+ *    rendering the pin. The delete route rejects this for custom profiles;
+ *    disable is a default profile's only removal verb, so it inherits the
+ *    same guard, and the same `referencedBy` payload — the settings client
+ *    reuses the delete flow's reassign step to clear them.
+ *
+ *    References are read from the NEW config on purpose: repointing and
+ *    disabling in one write is exactly what the reassign step submits, and
+ *    checking the old config would reject it.
+ *
+ * 2. **A disable that would not take.** `CODE_OWNED_PROFILE_NAMES` profiles
+ *    resolve from the catalog verbatim, overlay and all
+ *    (`resolveAgainstBody`), so a `status` written onto one is inert — the
+ *    profile would keep dispatching while the settings row claimed it was
+ *    off. Reject rather than accept a write that does nothing.
+ *
+ *    This is also what keeps the catalog from ever emptying: the one
+ *    code-owned name (`latency-optimized`) is always enabled, so there is
+ *    structurally always a profile left for the anchor to land on, and no
+ *    separate last-profile floor is needed.
+ *
+ * Custom profiles are deliberately out of scope: their disable is a
+ * reversible soft form of a delete they can also perform outright, and that
+ * delete is already reference-guarded. Widening this to them would change
+ * long-standing behavior on a path this feature does not touch.
+ */
+function assertProfileDisableSafe(
+  oldRaw: Record<string, unknown>,
+  newRaw: Record<string, unknown>,
+): void {
+  const newLlm = asMutablePlainObject(newRaw.llm);
+  const newProfiles = asMutablePlainObject(newLlm?.profiles);
+  if (!newLlm || !newProfiles) {
+    return;
+  }
+  const oldProfiles = asMutablePlainObject(
+    asMutablePlainObject(oldRaw.llm)?.profiles,
+  );
+
+  const newlyDisabled: string[] = [];
+  for (const name of MANAGED_PROFILE_NAMES) {
+    const newEntry = asMutablePlainObject(newProfiles[name]);
+    // Gated on managed ownership, matching every other managed guard: a
+    // user-owned profile sharing a default's name is an ordinary custom
+    // profile and follows custom-profile rules.
+    if (!newEntry || newEntry.source !== "managed") {
+      continue;
+    }
+    if (newEntry.status !== "disabled") {
+      continue;
+    }
+    const oldEntry = asMutablePlainObject(oldProfiles?.[name]);
+    // Already disabled before this write: not this write's doing, so an
+    // unrelated config save must not be rejected by it.
+    if (oldEntry?.source === "managed" && oldEntry.status === "disabled") {
+      continue;
+    }
+    newlyDisabled.push(name);
+  }
+
+  if (newlyDisabled.length === 0) {
+    return;
+  }
+
+  for (const name of newlyDisabled) {
+    if (CODE_OWNED_PROFILE_NAMES.has(name)) {
+      throw new BadRequestError(
+        `Cannot disable profile "${name}" — its configuration is code-owned ` +
+          `and it backs call sites that have no substitute.`,
+      );
+    }
+    const references = collectProfileReferences(newLlm, name);
+    if (references.length > 0) {
+      throw new ConflictError(
+        `Cannot disable profile "${name}" — it is referenced by ${references.join(", ")}. ` +
+          `Clear or repoint ${references.length === 1 ? "that reference" : "those references"} first.`,
+        { referencedBy: references },
       );
     }
   }
@@ -1396,6 +1496,7 @@ export async function commitConfigWrite(
   const preWrite = loadRawConfig();
   completeChangedCustomProfiles(preWrite, raw);
   assertInvariantProfilesPreserved(preWrite, raw);
+  assertProfileDisableSafe(preWrite, raw);
   assertRoutableIdentityEntries(raw);
 
   // Suppress the file-watcher callback for the duration of the debounce
@@ -1715,25 +1816,31 @@ async function handleReplaceInferenceProfile({
     );
   }
   if (isManaged) {
-    // Managed profiles are daemon-seeded and read-only — the commit guard
-    // (`assertInvariantProfilesPreserved`) rejects every write to them
-    // except re-enabling a disabled profile. Enforce the same contract up
-    // front: the only body a managed PUT accepts is a pure status re-enable
-    // (`{status: "active"}`, or `{status: null}` to clear back to
-    // active-by-absence). Rejecting here keeps the error message ahead of
-    // any side effects and mirrors the guard's wording.
+    // A managed profile's CONTENT is daemon-seeded and read-only — the commit
+    // guard (`assertInvariantProfilesPreserved`) rejects every write to it
+    // but `status`, which is workspace-owned and is how a user hides a
+    // default profile or brings it back. Enforce the same contract up front:
+    // the only body a managed PUT accepts is a pure status change
+    // (`"active"`, `null` to clear back to active-by-absence, or
+    // `"disabled"`). Rejecting here keeps the error message ahead of any side
+    // effects and mirrors the guard's wording. Whether a particular disable
+    // is allowed to land — it must not strand a live reference — is
+    // `assertProfileDisableSafe`'s call at commit time, since it needs the
+    // whole config rather than this one entry.
     const requestedKeys = Object.keys(parsed.data);
-    const isStatusReenable =
+    const isStatusOnly =
       requestedKeys.length === 1 &&
       requestedKeys[0] === "status" &&
-      (parsed.data.status === "active" || parsed.data.status === null);
-    if (!isStatusReenable) {
+      (parsed.data.status === "active" ||
+        parsed.data.status === null ||
+        parsed.data.status === "disabled");
+    if (!isStatusOnly) {
       const disallowed = requestedKeys.filter((k) => k !== "status");
       const detail =
         disallowed.length > 0 ? ` fields [${disallowed.join(", ")}]` : "";
       throw new BadRequestError(
         `Cannot edit managed profile "${name}"${detail}. ` +
-          `Managed profiles are read-only (a disabled profile can be re-enabled); ` +
+          `Managed profiles are read-only apart from enabling and disabling them; ` +
           `duplicate to a custom profile to customize.`,
       );
     }
@@ -1849,7 +1956,11 @@ async function handleReplaceInferenceProfile({
     // `replaceInferenceProfileConfig` here would wipe the seed-owned fields
     // (provider, model, advanced params) because that function assumes the
     // body carries the full UI surface.
-    applyManagedProfileReenable(raw, name, fragment.status as "active" | null);
+    applyManagedProfileStatus(
+      raw,
+      name,
+      fragment.status as "active" | "disabled" | null,
+    );
   } else {
     replaceInferenceProfileConfig(raw, name, fragment);
   }
@@ -1867,14 +1978,14 @@ async function handleReplaceInferenceProfile({
 }
 
 /**
- * Apply the disabled→active re-enable to a managed profile entry, preserving
- * every other field already on disk (provider, model, advanced params, etc).
- * `status: "active"` sets the key; `null` clears it (active-by-absence).
+ * Apply a status change to a managed profile entry, preserving every other
+ * field already on disk (provider, model, advanced params, etc). `"active"`
+ * and `"disabled"` set the key; `null` clears it (active-by-absence).
  */
-function applyManagedProfileReenable(
+function applyManagedProfileStatus(
   raw: Record<string, unknown>,
   name: string,
-  status: "active" | null,
+  status: "active" | "disabled" | null,
 ): void {
   const existingLlm = asMutablePlainObject(raw.llm);
   const llm = existingLlm ?? {};

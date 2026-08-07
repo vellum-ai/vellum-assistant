@@ -60,8 +60,17 @@ export function ModelProfilesContent() {
             Built-in profiles
           </SectionHeading>
           <p className="mb-4 text-stone-600 dark:text-stone-400">
-            Every workspace starts with four built-in profiles. You can edit or
-            duplicate them, but the defaults can&apos;t be deleted.
+            Every workspace starts with four built-in profiles. You can duplicate
+            them, but the defaults can&apos;t be deleted — the app re-serves them on
+            every launch. If you don&apos;t use one, disable it instead: a disabled
+            profile disappears from the model pickers and is never picked for an
+            action behind the scenes. You can re-enable it at any time.
+          </p>
+          <p className="mb-4 text-stone-600 dark:text-stone-400">
+            Disabling is refused while something still points at the profile — your
+            workspace default, your advisor model, or a per-action override. Move
+            those to another profile first, and the app will tell you which ones
+            they are.
           </p>
           <div className="overflow-x-auto">
             <table className="mb-4 w-full text-sm text-stone-600 dark:text-stone-400">

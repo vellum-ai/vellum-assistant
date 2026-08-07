@@ -15,6 +15,7 @@ import {
 } from "./default-profile-catalog.js";
 import { loadRawConfig, saveRawConfig } from "./loader.js";
 import { isDispatchableProfile } from "./profile-dispatchability.js";
+import { collectProfileReferences } from "./profile-references.js";
 import { isDefaultProviderChoice, type ProfileEntry } from "./schemas/llm.js";
 
 const log = getLogger("seed-inference-profiles");
@@ -137,6 +138,7 @@ export function seedInferenceProfiles(
   }
 
   pruneNonDispatchableProfiles(llm, profiles);
+  repairUnintendedDefaultProfileDisables(llm, profiles);
 
   // Profile lookups below go through the effective view: a default profile
   // resolves from the code catalog whether or not the workspace carries a
@@ -145,19 +147,31 @@ export function seedInferenceProfiles(
     profiles as Record<string, ProfileEntry>,
   ) as Record<string, Record<string, unknown>>;
 
-  // Active profile resolution.
+  // Active profile resolution. A disabled profile is not a usable selection —
+  // the resolver skips it — so it counts as absent and gets repaired.
   const requestedActiveProfile = readString(llm.activeProfile);
   const requestedActiveEntry =
     requestedActiveProfile !== undefined
       ? readObject(effectiveProfiles[requestedActiveProfile])
       : null;
-  const requestedActiveExists = requestedActiveEntry !== null;
+  const requestedActiveExists =
+    requestedActiveEntry !== null && requestedActiveEntry.status !== "disabled";
   const shouldPreserveActiveProfile =
     options.preserveActiveProfile === true && requestedActiveExists;
 
   if (!shouldPreserveActiveProfile) {
     if (options.isHatch || !requestedActiveExists) {
-      llm.activeProfile = "balanced";
+      // Pick the strongest enabled default rather than `balanced` outright:
+      // the user may have disabled it, and pinning the chat model to a
+      // hidden profile would put the composer on a model absent from its
+      // own picker.
+      llm.activeProfile =
+        firstActiveManagedProfile(effectiveProfiles, [
+          "balanced",
+          "quality-optimized",
+          "cost-optimized",
+          "latency-optimized",
+        ]) ?? "balanced";
     }
   }
 
@@ -254,6 +268,49 @@ function resolveHatchDefaultProvider(
     "Hatch provider cannot back the default profiles; falling back to anthropic",
   );
   return "anthropic";
+}
+
+/**
+ * Repair disabled managed default profiles that the current write paths could
+ * not have produced, so legacy state cannot masquerade as a user's choice to
+ * hide a profile.
+ *
+ * A user CAN disable a default profile — that is the hide feature, and a
+ * disabled default is honored everywhere: hidden from pickers, skipped by the
+ * resolver at every rung. `commitConfigWrite` bounds it by refusing a disable
+ * that strands a live reference (`activeProfile`, `advisorProfile`, a
+ * call-site pin, or a mix arm), since such a reference silently resolves
+ * somewhere else entirely.
+ *
+ * Configs written before that rule existed can carry the stranded state: the
+ * BYOK conversion pass carries a disable off a retired `custom-*` copy onto
+ * the bare default key, and hatch-era seeding wrote disabled stubs outright.
+ * Re-enabling (rather than clearing the reference) is the conservative
+ * repair: it keeps the install on exactly the model it has been running, and
+ * the user can still disable the profile afterwards through the normal flow,
+ * which tells them which references to repoint first.
+ *
+ * A disabled default nothing points at is the user's, and is left hidden.
+ * Runs on every boot; idempotent.
+ */
+function repairUnintendedDefaultProfileDisables(
+  llm: Record<string, unknown>,
+  profiles: Record<string, Record<string, unknown>>,
+): void {
+  for (const name of MANAGED_PROFILE_NAMES) {
+    const entry = profiles[name];
+    if (entry?.source !== "managed" || entry.status !== "disabled") {
+      continue;
+    }
+    if (collectProfileReferences(llm, name).length === 0) {
+      continue;
+    }
+    delete entry.status;
+    log.info(
+      { profile: name },
+      "Re-enabled a disabled default profile that is still referenced",
+    );
+  }
 }
 
 function pruneNonDispatchableProfiles(

@@ -1080,7 +1080,10 @@ describe("loadConfig startup behavior", () => {
     writeConfig({
       llm: {
         profiles: { balanced: edited },
-        activeProfile: "balanced",
+        // Anything still pointing at a disabled profile is repaired at boot
+        // (see the re-enable tests below), so the chat selection sits on a
+        // profile the user has left enabled.
+        activeProfile: "quality-optimized",
       },
     });
 
@@ -1125,7 +1128,7 @@ describe("loadConfig startup behavior", () => {
     writeConfig({
       llm: {
         profiles: { balanced: stub },
-        activeProfile: "balanced",
+        activeProfile: "quality-optimized",
       },
     });
 
@@ -1138,6 +1141,49 @@ describe("loadConfig startup behavior", () => {
     // Content still comes from the catalog — only label/status/topP are
     // workspace-owned.
     expect(effectiveBalanced?.model).toBe("gpt-5.6-luna");
+  });
+
+  test("boot re-enables a disabled default that is still referenced", () => {
+    // `commitConfigWrite` rejects a disable that strands a reference, so this
+    // state only reaches disk from configs written before that rule (hatch-era
+    // stubs, or a disable carried by the BYOK conversion pass). Left alone the
+    // reference would silently resolve to a different model, so boot restores
+    // the profile the install has actually been running on.
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: { source: "managed", status: "disabled" },
+          "cost-optimized": { source: "managed", status: "disabled" },
+        },
+        activeProfile: "balanced",
+        callSites: { recall: { profile: "cost-optimized" } },
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles.balanced.status).toBeUndefined();
+    expect(raw.llm.profiles["cost-optimized"].status).toBeUndefined();
+    expect(raw.llm.activeProfile).toBe("balanced");
+  });
+
+  test("boot leaves an unreferenced disabled default hidden", () => {
+    // The whole point of the feature: a default the user hid, that nothing
+    // points at, stays hidden across boots.
+    writeConfig({
+      llm: {
+        profiles: {
+          "cost-optimized": { source: "managed", status: "disabled" },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profiles["cost-optimized"].status).toBe("disabled");
   });
 
   test("boot preserves a user-edited topP override on a managed stub", () => {

@@ -688,11 +688,9 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.effort).toBe("max");
   });
 
-  test("BYOK: a disabled managed stub does not block resolution — the default-provider intent wins", () => {
+  test("BYOK: a default with no workspace entry resolves the default-provider intent", () => {
     const llm = LLMSchema.parse({
-      profiles: {
-        "cost-optimized": { source: "managed", status: "disabled" },
-      },
+      profiles: {},
       defaultProvider: { provider: "openai" },
     });
     const resolved = resolveCallSiteConfig("memoryExtraction", llm);
@@ -701,12 +699,23 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.model).toBe(resolveModelIntent("openai", "cost-optimized"));
   });
 
+  test("BYOK: disabling a default sends its call sites to the anchor, still on the BYOK provider", () => {
+    const llm = LLMSchema.parse({
+      profiles: {
+        "cost-optimized": { source: "managed", status: "disabled" },
+      },
+      defaultProvider: { provider: "openai" },
+    });
+    // `memoryExtraction` ships pinned to `cost-optimized`; the user hid it.
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+    expect(resolved.provider).toBe("openai");
+    expect(resolved.provider_connection).toBe("openai-personal");
+    expect(resolved.model).toBe(resolveModelIntent("openai", "balanced"));
+  });
+
   test("BYOK full-workspace: every call site resolves through the default provider, never the managed connection", () => {
     const byokConfig = LLMSchema.parse({
       profiles: {
-        balanced: { source: "managed", status: "disabled" },
-        "cost-optimized": { source: "managed", status: "disabled" },
-        "quality-optimized": { source: "managed", status: "disabled" },
         "custom-balanced": {
           source: "user",
           provider: "openai",
@@ -759,9 +768,7 @@ describe("resolveCallSiteConfig", () => {
 
   test("BYOK: tuning overrides from CALL_SITE_DEFAULTS apply on top of the default-provider winner", () => {
     const byokConfig = LLMSchema.parse({
-      profiles: {
-        "cost-optimized": { source: "managed", status: "disabled" },
-      },
+      profiles: {},
       defaultProvider: { provider: "openai" },
     });
 
@@ -1193,10 +1200,10 @@ describe("resolveDefaultProfileKey", () => {
     expect(resolveDefaultProfileKey("filingAgent", llm)).toBe("cost-optimized");
   });
 
-  test("a disabled managed default stub does not divert the key to custom-*", () => {
-    // The default intent is code-owned: a legacy disabled stub is overridden
-    // by the catalog body, and the user-mutable custom-* clone never captures
-    // the call site.
+  test("a disabled default does not divert the key to custom-*", () => {
+    // Disabling a default takes its call sites to the code-owned anchor
+    // (`undefined` — the anchor is not a named selection). The similarly
+    // named, user-mutable `custom-*` clone must never capture them.
     const llm = LLMSchema.parse({
       profiles: {
         "cost-optimized": { source: "managed", status: "disabled" },
@@ -1206,7 +1213,7 @@ describe("resolveDefaultProfileKey", () => {
         },
       },
     });
-    expect(resolveDefaultProfileKey("filingAgent", llm)).toBe("cost-optimized");
+    expect(resolveDefaultProfileKey("filingAgent", llm)).toBeUndefined();
   });
 
   test("mainAgent returns the mix key (not an arm) when activeProfile is a mix", () => {

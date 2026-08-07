@@ -40,8 +40,15 @@ import {
  *   3. `llm.callSites[callSite].profile` (the call site's named profile)
  *   4. `CALL_SITE_DEFAULTS[callSite].profile` intent resolved through
  *      `llm.defaultProvider`
- *   5. balanced intent through `llm.defaultProvider`: the code-owned anchor
- *      for profileless call sites, or when nothing above is usable
+ *   5. the anchor (`anchorEntry`): the first intent in
+ *      `ANCHOR_INTENT_ORDER` the user has left enabled, resolved through
+ *      `llm.defaultProvider`. Serves profileless call sites and any
+ *      resolution where nothing above was usable.
+ *
+ * A profile the user has DISABLED is skipped at every rung — including the
+ * code-owned `CALL_SITE_DEFAULTS` pins — so hiding a default profile also
+ * stops it being selected behind the user's back. Resolution stays total:
+ * the anchor bottoms out on a code-owned body.
  *
  * A winner must carry its own `provider` AND `model`: the base layer's schema
  * default identity never stands in for a selected profile. The anchor is
@@ -148,8 +155,8 @@ export function resolveCallSiteConfig(
 //   2. `llm.activeProfile` (mainAgent only — it IS that call site's selection)
 //   3. `llm.callSites[callSite].profile`
 //   4. `CALL_SITE_DEFAULTS[callSite].profile` intent × default provider
-//   5. balanced intent × default provider (profileless sites, or nothing
-//      above usable)
+//   5. the anchor: first enabled intent in `ANCHOR_INTENT_ORDER` × default
+//      provider (profileless sites, or nothing above usable)
 // A winner must carry its own `provider` AND `model`: the base layer's
 // schema-default identity must never stand in for a selected profile (that
 // would be merge inheritance by the back door). A fallback anchor must be
@@ -222,15 +229,61 @@ export function selectWinningProfile(
     }
   }
   // Anchor: profileless call sites (`vision`, `workflowLeaf`) and any
-  // resolution whose every named rung was unusable land on balanced intent
-  // through the default provider, bottoming out on the code-owned catalog,
-  // so it always resolves. `profileName` stays null on the catalog path:
-  // the anchor itself is not a selection.
+  // resolution whose every named rung was unusable land here.
+  // `profileName` stays null: the anchor itself is not a selection.
   return {
     profileName: null,
     source: "default",
-    entry: usableDefaultIntent("balanced", llm, opts, report) ?? null,
+    entry: anchorEntry(llm, opts, report),
   };
+}
+
+/**
+ * Preference order the anchor walks. `balanced` is the anchor proper; the
+ * rest exist because a user can disable a default profile, and a disabled
+ * `balanced` must not take every profileless call site down with it. Ordered
+ * by how close each intent sits to balanced's cost/quality point, so the
+ * substitute a user gets is the least surprising one still available.
+ *
+ * `latency-optimized` is last and is never skipped for being disabled: it is
+ * in `CODE_OWNED_PROFILE_NAMES`, so it takes no workspace overlay at all and
+ * always resolves — which is what makes it a sound floor.
+ */
+const ANCHOR_INTENT_ORDER = [
+  "balanced",
+  "quality-optimized",
+  "cost-optimized",
+  "latency-optimized",
+] as const;
+
+/**
+ * The anchor must always resolve — every call site bottoms out here — so it
+ * walks `ANCHOR_INTENT_ORDER` for the first intent the user has left enabled
+ * and, if somehow none is, falls back to the pure catalog `balanced` body.
+ *
+ * That last fallback is unreachable through the write paths (disabling the
+ * last enabled profile is rejected at `commitConfigWrite`) and exists so a
+ * hand-edited config.json degrades to a working assistant rather than a
+ * dead one.
+ */
+function anchorEntry(
+  llm: z.infer<typeof LLMSchema>,
+  opts: ResolveCallSiteOpts,
+  report: (requested: string, reason: ResolutionFallbackReason) => void,
+): ProfileEntry | null {
+  for (const intent of ANCHOR_INTENT_ORDER) {
+    const entry = usableDefaultIntent(intent, llm, opts, report);
+    if (entry) {
+      return entry;
+    }
+  }
+  return (
+    resolveDefaultProfileForProvider(
+      undefined,
+      "balanced",
+      llm.defaultProvider ?? null,
+    ) ?? null
+  );
 }
 
 /**
@@ -239,9 +292,14 @@ export function selectWinningProfile(
  * would — the default provider's column, never unconditionally the vellum
  * column.
  *
- * A persisted managed stub carries no user intent (defaults cannot be
- * disabled through any write path), so the pure catalog overrides an
- * unusable one. An unusable user-owned shadow is returned as-is so the rung
+ * A disabled default is honored: `status` is workspace-owned overlay state
+ * and disabling a default is a user-facing action, so the entry is returned
+ * disabled and the rung falls through rather than resurrecting the body the
+ * user hid.
+ *
+ * An INCOMPLETE default (no provider/model) is a different story — no write
+ * path produces one, so it is stale machinery state, and the pure catalog
+ * overrides it. An unusable user-owned shadow is returned as-is so the rung
  * reports it and falls through.
  */
 function providerAwareEntry(
@@ -257,12 +315,10 @@ function providerAwareEntry(
   if (!isDefaultProfileKey(name) || entry?.mix != null) {
     return entry;
   }
-  if (
-    entry != null &&
-    entry.status !== "disabled" &&
-    entry.provider != null &&
-    entry.model != null
-  ) {
+  if (entry?.status === "disabled") {
+    return entry;
+  }
+  if (entry != null && entry.provider != null && entry.model != null) {
     return entry;
   }
   const workspace = llm.profiles?.[name];
@@ -317,13 +373,16 @@ function usableEntry(
 }
 
 /**
- * Resolve a default-profile intent through the default provider. A user
- * shadow that is unusable (disabled/incomplete/a broken mix) is reported and
- * the pure catalog body stands — the fallback anchor is code-owned and must
- * always resolve. A legacy disabled stub on a default is likewise reported
- * and overridden: defaults cannot be disabled through any write path, so a
- * persisted disabled stub is stale hatch-era state whose meaning ("no vellum
- * connection") `llm.defaultProvider` expresses properly.
+ * Resolve a default-profile intent through the default provider.
+ *
+ * A DISABLED intent yields nothing: the user hid that profile, so the rung
+ * reports and falls through to the next one rather than running on a model
+ * the user removed from every picker. `selectWinningProfile`'s anchor walks
+ * the remaining intents, so a disabled `balanced` costs a rung, not a
+ * resolution.
+ *
+ * Any other unusable state — missing, incomplete, a broken mix — is
+ * machinery state rather than user intent, so the pure catalog body stands.
  */
 function usableDefaultIntent(
   intent: string,
@@ -337,11 +396,17 @@ function usableDefaultIntent(
     intent,
     defaultProvider,
   );
+  if (entry?.status === "disabled") {
+    report(intent, "disabled");
+    return undefined;
+  }
   if (entry?.mix != null) {
     entry = resolveProfileFragment(intent, llm, opts, (n) =>
       providerAwareEntry(llm, n),
     );
   }
+  // A mix expansion can still land on a disabled arm, so the status check
+  // stays in the composite condition alongside the pre-mix check above.
   if (
     entry != null &&
     entry.status !== "disabled" &&

@@ -9,6 +9,7 @@ import {
   selectWinningProfile,
 } from "../config/llm-resolver.js";
 import { LLMConfigBase, LLMSchema } from "../config/schemas/llm.js";
+import { resolveModelIntent } from "../providers/model-intents.js";
 
 const schemaBase = LLMConfigBase.parse({});
 
@@ -579,8 +580,8 @@ describe("explicit default-profile references resolve through the default provid
   });
 });
 
-describe("hatch-era disabled stubs on default keys", () => {
-  // Fresh BYOK hatches persist disabled managed stubs.
+describe("disabled default profiles are honored, not overridden", () => {
+  // A user hiding two of the default profiles from their pickers.
   const disabledStubs = {
     balanced: { source: "managed" as const, status: "disabled" as const },
     "cost-optimized": {
@@ -589,17 +590,36 @@ describe("hatch-era disabled stubs on default keys", () => {
     },
   };
 
-  test("an override pin to a disabled default stub still resolves the provider's column", () => {
+  test("an override pin to a disabled default falls through to the anchor", () => {
+    const { fallbacks, opts } = collect();
     const llm = LLMSchema.parse({ profiles: disabledStubs, ...anthropicDp });
     const pinned = resolveCallSiteConfig("mainAgent", llm, {
+      ...opts,
       overrideProfile: "cost-optimized",
     });
-    const viaIntent = resolveCallSiteConfig("conversationSummarization", llm);
+    expect(fallbacks).toContainEqual({
+      callSite: "mainAgent",
+      requested: "cost-optimized",
+      reason: "disabled",
+    });
+    // The anchor skips disabled `balanced` too and lands on the first
+    // intent left enabled.
     expect(pinned.provider).toBe("anthropic");
-    expect(pinned.model).toBe(viaIntent.model);
+    expect(pinned.model).toBe(
+      resolveModelIntent("anthropic", "quality-optimized"),
+    );
   });
 
-  test("activeProfile pointing at a disabled default stub resolves, not falls through", () => {
+  test("a call site whose shipped default is disabled resolves through the anchor", () => {
+    // `conversationSummarization` ships pinned to `cost-optimized`.
+    const llm = LLMSchema.parse({ profiles: disabledStubs, ...anthropicDp });
+    const resolved = resolveCallSiteConfig("conversationSummarization", llm);
+    expect(resolved.model).toBe(
+      resolveModelIntent("anthropic", "quality-optimized"),
+    );
+  });
+
+  test("activeProfile pointing at a disabled default falls through to the call-site pin", () => {
     const llm = LLMSchema.parse({
       profiles: { ...disabledStubs, mine: completeCustom },
       activeProfile: "balanced",
@@ -607,9 +627,26 @@ describe("hatch-era disabled stubs on default keys", () => {
       ...anthropicDp,
     });
     const resolved = resolveCallSiteConfig("mainAgent", llm);
-    // The call-site pin below the active rung must not capture the turn.
-    expect(resolved.provider).toBe("anthropic");
-    expect(resolved.model).not.toBe(completeCustom.model);
+    // The user hid `balanced`, so the rung below it takes the turn rather
+    // than the profile they removed from every picker.
+    expect(resolved.model).toBe(completeCustom.model);
+  });
+
+  test("the anchor still resolves when every default is disabled", () => {
+    // Not reachable through the write paths (the last-enabled guard rejects
+    // it) — resolution must stay total for a hand-edited config.json.
+    const llm = LLMSchema.parse({
+      profiles: Object.fromEntries(
+        ["balanced", "quality-optimized", "cost-optimized"].map((name) => [
+          name,
+          { source: "managed" as const, status: "disabled" as const },
+        ]),
+      ),
+      ...anthropicDp,
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm);
+    expect(resolved.provider).toBeTruthy();
+    expect(resolved.model).toBeTruthy();
   });
 
   test("a disabled CUSTOM profile is still skipped", () => {

@@ -217,13 +217,14 @@ describe("resolver integration", () => {
         },
       },
     });
-    // The fallback anchor is the code-owned intent: a legacy disabled stub
-    // does not suppress it, and the user-mutable custom-* clone never
-    // captures the call site.
-    expect(resolveDefaultProfileKey("mainAgent", llm)).toBe("balanced");
+    // Disabling `balanced` retires it as a named winner — resolution lands on
+    // the code-owned anchor (`undefined`, since the anchor is not a
+    // selection) and walks on to the next enabled intent. What it must never
+    // do is fall into the similarly named, user-mutable `custom-*` clone.
+    expect(resolveDefaultProfileKey("mainAgent", llm)).toBeUndefined();
     const resolved = resolveCallSiteConfig("mainAgent", llm);
     expect(resolved.model).toBe(
-      CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
+      CODE_DEFAULT_PROFILE_ENTRIES["quality-optimized"].model as string,
     );
     expect(resolved.model).not.toBe("claude-sonnet-4-6");
   });

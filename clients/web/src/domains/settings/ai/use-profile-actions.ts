@@ -10,12 +10,13 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useSupportsActiveProfileRoute } from "@/lib/backwards-compat/use-supports-active-profile-route";
-import { badRequestMessage } from "@/utils/api-errors";
+import { badRequestMessage, userActionableMessage } from "@/utils/api-errors";
 import type { ConfigPatchRequest } from "@/generated/daemon/types.gen";
 
 const MAKE_ACTIVE_ERROR_CONTEXT = "settings-ai-profile-make-active";
 const MAKE_ACTIVE_ERROR_MESSAGE =
   "Failed to set the active profile. Please try again.";
+const STATUS_ERROR_MESSAGE = "Failed to update the profile. Please try again.";
 
 export interface ProfileActions {
   /** Set `llm.activeProfile` - the main-chat default. */
@@ -118,14 +119,33 @@ export function useProfileActions(assistantId: string): ProfileActions {
     }
   }
 
+  async function setStatus(name: string, active: boolean): Promise<void> {
+    try {
+      await configMutation.mutateAsync({
+        path: { assistant_id: assistantId },
+        body: {
+          llm: {
+            profiles: { [name]: { status: active ? "active" : "disabled" } },
+          },
+        },
+      });
+    } catch (error) {
+      // A disable the daemon refuses is a verdict about this config, not an
+      // app fault: it names the references still pointing at the profile, or
+      // says this is the last profile left standing. Show it verbatim and
+      // skip the Sentry report — the user is the one who can fix it.
+      const serverMessage = userActionableMessage(error);
+      toast.error(serverMessage ?? STATUS_ERROR_MESSAGE);
+      if (!serverMessage) {
+        captureError(error, { context: "settings-ai-profile-toggle" });
+      }
+      throw error;
+    }
+  }
+
   return {
     makeActive,
-    setStatus: (name, active) =>
-      patchLlm(
-        { profiles: { [name]: { status: active ? "active" : "disabled" } } },
-        "settings-ai-profile-toggle",
-        "Failed to update the profile. Please try again.",
-      ),
+    setStatus,
     deleteProfile: (name, profileOrder, options) =>
       patchLlm(
         {

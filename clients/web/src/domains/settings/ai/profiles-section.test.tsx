@@ -298,7 +298,10 @@ describe("ProfilesSection - chips", () => {
 });
 
 describe("ProfilesSection - kebab menus", () => {
-  test("an active managed profile offers View/Make Default but no Disable or Delete", async () => {
+  test("an active managed profile offers View/Make Default, and no Disable on this old assistant", async () => {
+    // The suite pins 0.10.7, below the managed-disable gate (0.12.0), so the
+    // Disable action stays hidden here. `profile-row.test.tsx` covers the
+    // supported-assistant side.
     renderSection();
     const menu = await openKebab("Balanced");
     const items = menuItems(menu);
