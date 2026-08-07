@@ -32,11 +32,13 @@ public class MainActivity extends BridgeActivity {
     private static final long LAUNCH_SCREEN_LOAD_FALLBACK_MS = 2_000;
     private static final long LAUNCH_SCREEN_TIMEOUT_MS = 15_000;
     private static ConnectDeepLink recreationConnect;
+    private static String recreationRoute;
 
     private final Handler launchScreenHandler = new Handler(Looper.getMainLooper());
     private AlertDialog unreachableDialog;
     private URI effectiveServer;
     private URI pendingAppLink;
+    private String pendingRoute;
     private ConnectDeepLink pendingConnect;
     private boolean pendingNewChat;
     private Intent pendingVoiceLaunch;
@@ -77,6 +79,7 @@ public class MainActivity extends BridgeActivity {
             },
             null
         );
+        pendingRoute = takeRecreationRoute();
         URI selectedServer = pendingConnect == null
             ? NativeFailureGuard.get(
                 "Unable to read the saved self-hosted server",
@@ -99,6 +102,7 @@ public class MainActivity extends BridgeActivity {
             }
         });
         NativeFailureGuard.run("Unable to deliver the Android app link", this::deliverPendingAppLink);
+        NativeFailureGuard.run("Unable to deliver the Android switch route", this::deliverPendingRoute);
         NativeFailureGuard.run("Unable to deliver the Android connect launch", this::deliverPendingConnect);
         NativeFailureGuard.run("Unable to deliver the Android new chat launch", this::deliverPendingNewChat);
     }
@@ -124,6 +128,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(VoiceAudioSessionPlugin.class);
         registerPlugin(VoiceLiveActivityPlugin.class);
         registerPlugin(SafePushNotificationsPlugin.class);
+        registerPlugin(SelfHostedServersPlugin.class);
         super.load();
     }
 
@@ -317,6 +322,27 @@ public class MainActivity extends BridgeActivity {
         bridge.getWebView().loadUrl(appLink.toASCIIString());
     }
 
+    /**
+     * Land on the route a {@code switchToPath} asked for. The configured server
+     * url is the app entry, so the route hangs off it directly, which keeps a
+     * hosting path prefix intact.
+     */
+    private void deliverPendingRoute() {
+        if (pendingRoute == null || bridge == null || bridge.getServerUrl() == null) {
+            return;
+        }
+        String route = pendingRoute;
+        pendingRoute = null;
+        bridge
+            .getWebView()
+            .loadUrl(SelfHostedServer.appRoute(URI.create(bridge.getServerUrl()), route).toASCIIString());
+    }
+
+    /**
+     * Promote a scanned server once its pairing page loads. The list append
+     * waits for the load like the active-slot write does, so an unreachable
+     * origin leaves no card behind in the chooser.
+     */
     private void finishPendingConnect(String loadedUrl) {
         if (
             pendingConnect == null ||
@@ -325,6 +351,7 @@ public class MainActivity extends BridgeActivity {
             return;
         }
         SelfHostedServer.store(this, pendingConnect.server());
+        SelfHostedServer.append(this, pendingConnect.server(), pendingConnect.name());
         pendingConnect = null;
     }
 
@@ -354,20 +381,42 @@ public class MainActivity extends BridgeActivity {
             return;
         }
         String destination = pendingConnect == null
-            ? effectiveServer.toASCIIString()
+            ? SelfHostedServer.appEntry(effectiveServer).toASCIIString()
             : pendingConnect.pairPage().toASCIIString();
         bridge.getWebView().loadUrl(destination);
     }
 
-    private void useVellumCloud() {
+    /**
+     * Reload the shell against the stored server, or the baked Vellum Cloud
+     * origin when the slot is empty, optionally landing on a {@code route}
+     * relative to the app entry. The server url is baked into the Capacitor
+     * config at {@code onCreate}, so applying a new one means recreating the
+     * activity, and the route rides a static across that recreate the way a
+     * connect deep link already does. Backs the {@code SelfHostedServers}
+     * plugin's {@code switchTo} and {@code switchToPath}; must run on the UI
+     * thread.
+     */
+    void applyConfiguredOrigin(String route) {
         VoiceLiveActivityPlugin.clearStatus(this);
-        SelfHostedServer.clear(this);
         pendingConnect = null;
         pendingNewChat = false;
         setRecreationConnect(null);
+        setRecreationRoute(route);
+        // Cleared before the recreate lands so a teardown failure on the origin
+        // being left cannot raise the unreachable dialog against it.
         effectiveServer = null;
         setIntent(withoutData(getIntent()));
         recreate();
+    }
+
+    /**
+     * A dropped clear needs no branch here, unlike on the bridge: reloading
+     * lands back on the origin that could not be reached and re-presents this
+     * dialog, so the failure is already visible and already retryable.
+     */
+    private void useVellumCloud() {
+        SelfHostedServer.clear(this);
+        applyConfiguredOrigin(null);
     }
 
     private void prepareVoiceLaunch(Intent intent) {
@@ -415,6 +464,16 @@ public class MainActivity extends BridgeActivity {
 
     private static synchronized void setRecreationConnect(ConnectDeepLink connect) {
         recreationConnect = connect;
+    }
+
+    private static synchronized String takeRecreationRoute() {
+        String route = recreationRoute;
+        recreationRoute = null;
+        return route;
+    }
+
+    private static synchronized void setRecreationRoute(String route) {
+        recreationRoute = route;
     }
 
     private static final class SelfHostedWebViewClient extends BridgeWebViewClient {

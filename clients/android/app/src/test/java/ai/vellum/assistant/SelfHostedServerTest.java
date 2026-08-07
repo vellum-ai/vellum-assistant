@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.net.URI;
+import java.util.List;
 import org.junit.Test;
 
 public class SelfHostedServerTest {
@@ -102,8 +103,183 @@ public class SelfHostedServerTest {
         assertFalse(SelfHostedServer.samePage(pairPage, "https://example.com/other/assistant/pair"));
     }
 
+    @Test
+    public void collapsesTheDefaultPortSoCanonicalUrlsMatchTheWebStore() {
+        assertEquals("https://example.com/tenant", SelfHostedServer.validate("https://example.com:443/tenant").toASCIIString());
+        assertEquals("http://localhost", SelfHostedServer.validate("http://localhost:80").toASCIIString());
+    }
+
+    @Test
+    public void appendsTheAppEntrySegmentToEverySelfHostedBase() {
+        assertEquals("https://example.com/assistant", SelfHostedServer.appEntry(URI.create("https://example.com")).toASCIIString());
+        assertEquals(
+            "https://example.com/assistant-123/assistant",
+            SelfHostedServer.appEntry(URI.create("https://example.com/assistant-123")).toASCIIString()
+        );
+        // A base hosted at an /assistant prefix has its entry one level deeper,
+        // matching the pair page a connect link for it opens.
+        assertEquals(
+            "https://example.com/assistant/assistant",
+            SelfHostedServer.appEntry(URI.create("https://example.com/assistant")).toASCIIString()
+        );
+    }
+
+    @Test
+    public void reportsADroppedListWriteRatherThanClaimingTheMutationLanded() {
+        FakeStore store = new FakeStore();
+        URI server = SelfHostedServer.validate("https://example.com");
+        store.serversWritable = false;
+
+        assertFalse(SelfHostedServer.append(store, server, null));
+
+        store.serversWritable = true;
+        assertTrue(SelfHostedServer.append(store, server, null));
+        // Forgetting a url the list never held needs no write, so it succeeds.
+        assertTrue(SelfHostedServer.remove(store, SelfHostedServer.validate("https://other.example.com")));
+
+        store.serversWritable = false;
+        assertFalse(SelfHostedServer.remove(store, server));
+    }
+
+    @Test
+    public void aFailedRemovalLeavesTheActiveServerServing() {
+        FakeStore store = new FakeStore();
+        URI server = SelfHostedServer.validate("https://example.com");
+        SelfHostedServer.append(store, server, null);
+        SelfHostedServer.store(store, server);
+        store.serversWritable = false;
+
+        assertFalse(SelfHostedServer.remove(store, server));
+        // The list write goes first precisely so this stays put: a cleared slot
+        // here would relaunch onto Vellum Cloud after a reported failure.
+        assertEquals(server, SelfHostedServer.configured(store));
+    }
+
+    @Test
+    public void reportsADroppedClearRatherThanClaimingTheShellLeftTheOrigin() {
+        FakeStore store = new FakeStore();
+        URI server = SelfHostedServer.validate("https://example.com");
+        SelfHostedServer.store(store, server);
+        store.activeWritable = false;
+
+        assertFalse(SelfHostedServer.clear(store));
+        assertFalse(SelfHostedServer.remove(store, server));
+        assertEquals(server, SelfHostedServer.configured(store));
+    }
+
+    @Test
+    public void acceptsOnlyRoutesThatStayUnderTheAppEntry() {
+        assertEquals("select-assistant?noAutoSkip=1", SelfHostedServer.routePath("select-assistant?noAutoSkip=1"));
+        assertEquals("settings/general", SelfHostedServer.routePath("  settings/general  "));
+
+        assertNull(SelfHostedServer.routePath(null));
+        assertNull(SelfHostedServer.routePath(""));
+        assertNull(SelfHostedServer.routePath("/select-assistant"));
+        assertNull(SelfHostedServer.routePath("//other.example.com/select-assistant"));
+        assertNull(SelfHostedServer.routePath("https://other.example.com/select-assistant"));
+        assertNull(SelfHostedServer.routePath("select-assistant#device_code=secret"));
+        assertNull(SelfHostedServer.routePath("../../escape"));
+        assertNull(SelfHostedServer.routePath("tenant/%2e%2e/escape"));
+    }
+
+    @Test
+    public void hangsRoutesOffTheAppEntrySoHostingPrefixesSurvive() {
+        assertEquals(
+            "https://example.com/assistant-123/assistant/select-assistant?noAutoSkip=1",
+            SelfHostedServer
+                .appRoute(
+                    SelfHostedServer.appEntry(SelfHostedServer.validate("https://example.com/assistant-123")),
+                    SelfHostedServer.routePath("select-assistant?noAutoSkip=1")
+                )
+                .toASCIIString()
+        );
+    }
+
+    @Test
+    public void remembersServersDedupedByCanonicalUrl() {
+        FakeStore store = new FakeStore();
+
+        SelfHostedServer.append(store, SelfHostedServer.validate("https://example.com/assistant-123"), "Work");
+        SelfHostedServer.append(store, SelfHostedServer.validate("HTTPS://Example.com:443/assistant-123/"), null);
+        SelfHostedServer.append(store, SelfHostedServer.validate("https://other.example.com"), "  ");
+
+        List<SelfHostedServer.Entry> servers = SelfHostedServer.servers(store);
+        assertEquals(2, servers.size());
+        assertEquals("https://example.com/assistant-123", servers.get(0).url);
+        assertEquals("Work", servers.get(0).name);
+        assertEquals("https://other.example.com", servers.get(1).url);
+        assertNull(servers.get(1).name);
+    }
+
+    @Test
+    public void keepsTheStoredLabelOnANamelessReAppend() {
+        FakeStore store = new FakeStore();
+        URI server = SelfHostedServer.validate("https://example.com");
+
+        SelfHostedServer.append(store, server, "Kitchen");
+        SelfHostedServer.append(store, server, null);
+        assertEquals("Kitchen", SelfHostedServer.servers(store).get(0).name);
+
+        SelfHostedServer.append(store, server, "Studio");
+        assertEquals("Studio", SelfHostedServer.servers(store).get(0).name);
+    }
+
+    @Test
+    public void listsAnActiveServerThatPredatesTheRememberedList() {
+        FakeStore store = new FakeStore();
+        URI server = SelfHostedServer.validate("https://example.com/assistant-123");
+        SelfHostedServer.store(store, server);
+
+        List<SelfHostedServer.Entry> servers = SelfHostedServer.servers(store);
+        assertEquals(1, servers.size());
+        assertEquals("https://example.com/assistant-123", servers.get(0).url);
+    }
+
+    @Test
+    public void forgettingTheActiveServerReturnsTheShellToVellumCloud() {
+        FakeStore store = new FakeStore();
+        URI active = SelfHostedServer.validate("https://example.com");
+        URI other = SelfHostedServer.validate("https://other.example.com");
+        SelfHostedServer.append(store, active, null);
+        SelfHostedServer.append(store, other, null);
+        SelfHostedServer.store(store, active);
+
+        assertTrue(SelfHostedServer.remove(store, other));
+        assertEquals(1, SelfHostedServer.servers(store).size());
+        assertTrue(SelfHostedServer.isActive(store, active));
+        assertEquals(active, SelfHostedServer.configured(store));
+
+        assertTrue(SelfHostedServer.remove(store, active));
+        assertTrue(SelfHostedServer.servers(store).isEmpty());
+        assertNull(SelfHostedServer.configured(store));
+    }
+
+    @Test
+    public void aCorruptListCostsTheListRatherThanTheLaunch() {
+        FakeStore store = new FakeStore();
+        store.writeServers("not json");
+        SelfHostedServer.store(store, SelfHostedServer.validate("https://example.com"));
+
+        List<SelfHostedServer.Entry> servers = SelfHostedServer.servers(store);
+        assertEquals(1, servers.size());
+        assertEquals("https://example.com", servers.get(0).url);
+    }
+
+    @Test
+    public void entriesThatNoLongerValidateAreDropped() {
+        FakeStore store = new FakeStore();
+        store.writeServers("[{\"url\":\"http://example.com\"},{\"name\":\"Ok\",\"url\":\"https://example.com\"},{}]");
+
+        List<SelfHostedServer.Entry> servers = SelfHostedServer.servers(store);
+        assertEquals(1, servers.size());
+        assertEquals("Ok", servers.get(0).name);
+    }
+
     private static final class FakeStore implements SelfHostedServer.Store {
         private String value;
+        private String servers;
+        private boolean serversWritable = true;
+        private boolean activeWritable = true;
 
         @Override
         public String read() {
@@ -112,13 +288,34 @@ public class SelfHostedServerTest {
 
         @Override
         public boolean write(String value) {
+            if (!activeWritable) {
+                return false;
+            }
             this.value = value;
             return true;
         }
 
         @Override
-        public void clear() {
+        public boolean clear() {
+            if (!activeWritable) {
+                return false;
+            }
             value = null;
+            return true;
+        }
+
+        @Override
+        public String readServers() {
+            return servers;
+        }
+
+        @Override
+        public boolean writeServers(String value) {
+            if (!serversWritable) {
+                return false;
+            }
+            servers = value;
+            return true;
         }
     }
 }

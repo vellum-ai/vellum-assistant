@@ -12,7 +12,10 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -21,13 +24,31 @@ final class SelfHostedServer {
     private static final String CONFIG_FILE = "capacitor.config.json";
     private static final String PREFERENCES_NAME = "self_hosted_server";
     private static final String SERVER_URL_KEY = "server_url";
+    private static final String SERVERS_KEY = "servers";
+    private static final String APP_ENTRY_SEGMENT = "/assistant";
 
+    /** The active slot the shell serves, plus every server it has paired with. */
     interface Store {
         String read();
 
         boolean write(String value);
 
-        void clear();
+        boolean clear();
+
+        String readServers();
+
+        boolean writeServers(String value);
+    }
+
+    /** A canonical server base plus the optional label the chooser shows. */
+    static final class Entry {
+        final String name;
+        final String url;
+
+        Entry(String name, String url) {
+            this.name = name;
+            this.url = url;
+        }
     }
 
     private SelfHostedServer() {}
@@ -45,19 +66,180 @@ final class SelfHostedServer {
     }
 
     static boolean store(Store store, URI server) {
-        URI validated = validate(server == null ? null : server.toASCIIString());
+        URI validated = canonical(server);
         if (validated == null) {
             return false;
         }
         return store.write(validated.toASCIIString());
     }
 
-    static void clear(Context context) {
-        clear(new PreferencesStore(context));
+    static boolean clear(Context context) {
+        return clear(new PreferencesStore(context));
     }
 
-    static void clear(Store store) {
-        store.clear();
+    /** Return the shell to the baked origin, answering whether the slot took it. */
+    static boolean clear(Store store) {
+        return store.clear();
+    }
+
+    static List<Entry> servers(Context context) {
+        return servers(new PreferencesStore(context));
+    }
+
+    /**
+     * The remembered list. Urls re-canonicalize on read so pre-canonical
+     * duplicates collapse (first wins), and an active server missing from the
+     * list joins it unnamed, so a shell paired before the list existed still
+     * lists what it is serving.
+     */
+    static List<Entry> servers(Store store) {
+        List<Entry> entries = new ArrayList<>();
+        for (Entry item : decode(store.readServers())) {
+            URI url = validate(item.url);
+            if (url == null || indexOf(entries, url.toASCIIString()) >= 0) {
+                continue;
+            }
+            entries.add(new Entry(item.name, url.toASCIIString()));
+        }
+        URI active = configured(store);
+        if (active != null && indexOf(entries, active.toASCIIString()) < 0) {
+            entries.add(new Entry(null, active.toASCIIString()));
+        }
+        return entries;
+    }
+
+    static boolean append(Context context, URI server, String name) {
+        return append(new PreferencesStore(context), server, name);
+    }
+
+    /**
+     * Remember a server, deduped by url. A named re-append renames; a nameless
+     * one keeps the stored label, so switching never wipes a name. Answers
+     * whether the list now holds it, so a caller does not publish an entry the
+     * shell failed to persist.
+     */
+    static boolean append(Store store, URI server, String name) {
+        URI validated = canonical(server);
+        if (validated == null) {
+            return false;
+        }
+        List<Entry> entries = servers(store);
+        String url = validated.toASCIIString();
+        String label = normalizeName(name);
+        int index = indexOf(entries, url);
+        if (index < 0) {
+            entries.add(new Entry(label, url));
+        } else if (label != null) {
+            entries.set(index, new Entry(label, url));
+        }
+        return store.writeServers(encode(entries));
+    }
+
+    static boolean isActive(Context context, URI server) {
+        return isActive(new PreferencesStore(context), server);
+    }
+
+    /** Whether a server canonically matches the active slot. */
+    static boolean isActive(Store store, URI server) {
+        URI validated = canonical(server);
+        return validated != null && validated.equals(configured(store));
+    }
+
+    static boolean remove(Context context, URI server) {
+        return remove(new PreferencesStore(context), server);
+    }
+
+    /**
+     * Forget a server, clearing the active slot when it was the active one.
+     * Answers whether the server is gone from both, which a url that was never
+     * remembered satisfies, so only a dropped write reads as failure.
+     *
+     * The list commits before the active slot: the two keys cannot be written
+     * atomically, and a failure that has already cleared the slot would strand
+     * the shell on the baked origin while the caller is told the removal failed.
+     */
+    static boolean remove(Store store, URI server) {
+        URI validated = canonical(server);
+        if (validated == null) {
+            return true;
+        }
+        List<Entry> entries = servers(store);
+        int index = indexOf(entries, validated.toASCIIString());
+        if (index >= 0) {
+            entries.remove(index);
+            if (!store.writeServers(encode(entries))) {
+                return false;
+            }
+        }
+        return !validated.equals(configured(store)) || clear(store);
+    }
+
+    /**
+     * The SPA entry point for a self-hosted base, {@code <base>/assistant}. The
+     * ingress redirects a bare {@code /} to an absolute {@code /assistant/},
+     * which drops a hosting prefix ({@code https://host/assistant-123} landing
+     * on {@code https://host/assistant/}), so the segment is appended here.
+     *
+     * Appended unconditionally, matching the pair page {@link ConnectDeepLink}
+     * builds: a base is never already an entry, because the only url that
+     * carries the segment natively is the baked Vellum Cloud one, which is
+     * configured whole and never passes through here. Testing the last segment
+     * instead would strand a deployment hosted at a {@code /assistant} prefix,
+     * whose entry is {@code /assistant/assistant}.
+     */
+    static URI appEntry(URI server) {
+        try {
+            return new URI(server.toASCIIString() + APP_ENTRY_SEGMENT);
+        } catch (URISyntaxException exception) {
+            return server;
+        }
+    }
+
+    /**
+     * A route relative to the app entry, as {@code path[?query]}, or null when
+     * the candidate could steer the shell off the entry: an absolute or
+     * scheme-relative url, an empty or rooted path, a dot segment, or a
+     * fragment. Validated at the bridge boundary so an invalid route rejects
+     * before anything is stored.
+     */
+    static String routePath(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        final URI relative;
+        try {
+            relative = new URI(raw.trim());
+        } catch (URISyntaxException exception) {
+            return null;
+        }
+        String path = relative.getRawPath();
+        if (
+            relative.isAbsolute() ||
+            relative.getHost() != null ||
+            relative.getRawFragment() != null ||
+            path == null ||
+            path.isEmpty() ||
+            path.startsWith("/") ||
+            containsDotSegment(path) ||
+            containsEncodedDotSegment(path)
+        ) {
+            return null;
+        }
+        return relative.getRawQuery() == null ? path : path + "?" + relative.getRawQuery();
+    }
+
+    /** Hang a {@link #routePath} off an app entry. */
+    static URI appRoute(URI entry, String routePath) {
+        try {
+            return new URI(entry.toASCIIString() + "/" + routePath);
+        } catch (URISyntaxException exception) {
+            return entry;
+        }
+    }
+
+    /** {@link #validate} for an already-parsed url, which re-canonicalizes it. */
+    private static URI canonical(URI server) {
+        return validate(server == null ? null : server.toASCIIString());
     }
 
     static URI validate(String raw) {
@@ -97,7 +279,7 @@ final class SelfHostedServer {
         }
         String path = normalizePath(normalized.getRawPath());
         try {
-            return new URI(scheme + "://" + formatAuthority(host, parsed.getPort()) + path);
+            return new URI(scheme + "://" + formatAuthority(scheme, host, parsed.getPort()) + path);
         } catch (URISyntaxException exception) {
             return null;
         }
@@ -141,7 +323,7 @@ final class SelfHostedServer {
         String source = readAsset(context, CONFIG_FILE);
         JSONObject root = new JSONObject(source);
         JSONObject serverConfig = root.getJSONObject("server");
-        serverConfig.put("url", server.toASCIIString());
+        serverConfig.put("url", appEntry(server).toASCIIString());
 
         File directory = new File(context.getCacheDir(), CONFIG_DIRECTORY);
         if (!directory.exists() && !directory.mkdirs()) {
@@ -181,7 +363,7 @@ final class SelfHostedServer {
         if (uri.getPort() >= 0) {
             return uri.getPort();
         }
-        return "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
+        return defaultPort(uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.US));
     }
 
     private static String normalizePath(String rawPath) {
@@ -244,13 +426,86 @@ final class SelfHostedServer {
         return false;
     }
 
-    private static String formatAuthority(String host, int port) {
+    /**
+     * The scheme's default port is dropped so the canonical form matches the web
+     * store's {@code normalizeOriginUrl}, which builds from {@code URL.origin}
+     * and collapses it. Both sides key the remembered list on this string.
+     */
+    private static String formatAuthority(String scheme, String host, int port) {
         String authorityHost = host.indexOf(':') >= 0 && !host.startsWith("[") ? "[" + host + "]" : host;
-        return port >= 0 ? authorityHost + ":" + port : authorityHost;
+        if (port < 0 || port == defaultPort(scheme)) {
+            return authorityHost;
+        }
+        return authorityHost + ":" + port;
+    }
+
+    private static int defaultPort(String scheme) {
+        return "https".equals(scheme) ? 443 : 80;
     }
 
     private static boolean isLocalDevelopmentHost(String host) {
         return "localhost".equals(host) || "127.0.0.1".equals(host) || "10.0.2.2".equals(host);
+    }
+
+    private static int indexOf(List<Entry> entries, String url) {
+        for (int index = 0; index < entries.size(); index++) {
+            if (entries.get(index).url.equals(url)) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    /** Trim a label and collapse an empty one to null. */
+    private static String normalizeName(String name) {
+        if (name == null) {
+            return null;
+        }
+        String trimmed = name.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    /**
+     * Anything that is not a JSON array of url-carrying objects reads as empty
+     * rather than as an error, so a corrupt preference costs the list rather
+     * than the launch.
+     */
+    private static List<Entry> decode(String raw) {
+        List<Entry> entries = new ArrayList<>();
+        if (raw == null || raw.isEmpty()) {
+            return entries;
+        }
+        final JSONArray items;
+        try {
+            items = new JSONArray(raw);
+        } catch (JSONException exception) {
+            return entries;
+        }
+        for (int index = 0; index < items.length(); index++) {
+            JSONObject item = items.optJSONObject(index);
+            String url = item == null ? null : item.optString("url", null);
+            if (url != null) {
+                entries.add(new Entry(normalizeName(item.optString("name", null)), url));
+            }
+        }
+        return entries;
+    }
+
+    private static String encode(List<Entry> entries) {
+        JSONArray items = new JSONArray();
+        for (Entry entry : entries) {
+            JSONObject item = new JSONObject();
+            try {
+                item.put("url", entry.url);
+                if (entry.name != null) {
+                    item.put("name", entry.name);
+                }
+            } catch (JSONException exception) {
+                continue;
+            }
+            items.put(item);
+        }
+        return items.toString();
     }
 
     private static String readAsset(Context context, String path) throws IOException {
@@ -282,8 +537,18 @@ final class SelfHostedServer {
         }
 
         @Override
-        public void clear() {
-            preferences.edit().remove(SERVER_URL_KEY).commit();
+        public boolean clear() {
+            return preferences.edit().remove(SERVER_URL_KEY).commit();
+        }
+
+        @Override
+        public String readServers() {
+            return preferences.getString(SERVERS_KEY, null);
+        }
+
+        @Override
+        public boolean writeServers(String value) {
+            return preferences.edit().putString(SERVERS_KEY, value).commit();
         }
     }
 }

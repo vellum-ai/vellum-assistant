@@ -108,19 +108,23 @@ production SSO.
 Android accepts environment-specific connect links in this form:
 
 ```text
-vellum-assistant-dev://connect?url=https%3A%2F%2Fassistant.example.com&code=device-code
+vellum-assistant-dev://connect?url=https%3A%2F%2Fassistant.example.com&code=device-code&name=Studio+Mac
 ```
 
 The production and staging builds use their matching auth schemes from the
 Build Variants table. Scanning a connect link switches the native shell to the
 validated server, opens `<server>/assistant/pair`, and keeps an existing server
-path prefix intact. Cold and warm app launches use the same route.
+path prefix intact. Cold and warm app launches use the same route. The optional
+`name` is the label the assistant chooser shows for that server; without one the
+chooser falls back to the hostname.
 
-Only the validated server base is saved after the pairing page loads. The
-one-time device code is kept out of app preferences and the generated
-Capacitor configuration. HTTPS is required except for `localhost`, `127.0.0.1`,
-and the Android emulator host alias `10.0.2.2`. Use `adb reverse` when a physical
-development device needs to reach a service through `localhost`.
+Only the validated server base is saved after the pairing page loads, and the
+remembered list is appended at the same moment, so a server that never loaded
+leaves no card behind. The one-time device code is kept out of app preferences
+and the generated Capacitor configuration. HTTPS is required except for
+`localhost`, `127.0.0.1`, and the Android emulator host alias `10.0.2.2`. Use
+`adb reverse` when a physical development device needs to reach a service
+through `localhost`.
 
 If Android terminates the app before the pairing page loads, scan the connect
 link again. The shell intentionally does not save the one-time code for process
@@ -129,6 +133,25 @@ restoration.
 If a saved or newly scanned server cannot load, the native recovery dialog can
 retry it or clear the saved server and return to Vellum Cloud. A failed new
 server is never promoted over the last server that loaded successfully.
+
+## Assistant Switcher
+
+The `SelfHostedServers` plugin backs the web assistant chooser, matching the iOS
+contract in [`clients/web/docs/CAPACITOR.md`](../web/docs/CAPACITOR.md). It lists
+every paired server alongside the active slot and the baked Vellum Cloud origin,
+adds and forgets entries, and switches between them without leaving the app.
+
+The server url is baked into the Capacitor config at `onCreate`, so switching
+writes the preference and recreates the activity rather than navigating the
+WebView. `switchToPath` additionally lands on a route relative to the app entry,
+carrying it across the recreate; the pairing page's Cancel uses it so abandoning
+a pairing both leaves the origin and reaches the hub chooser in one step.
+Forgetting the active server clears the slot and lands back on Vellum Cloud,
+which is also what the chooser's "Vellum Cloud" card does.
+
+The shell loads `<server>/assistant` rather than the bare base: the ingress
+redirects a bare `/` to an absolute `/assistant/`, which would drop a hosting
+path prefix on relaunch.
 
 ## Biometric Session Recovery
 
@@ -210,6 +233,7 @@ clients/
     │       │   ├── NativeLaunchScreenPlugin.java
     │       │   ├── BiometricTokenStore.java
     │       │   ├── SelfHostedServer.java
+    │       │   ├── SelfHostedServersPlugin.java
     │       │   ├── VoiceAudioSessionPlugin.java
     │       │   ├── VoiceDeepLink.java
     │       │   ├── VoiceLiveActivityPlugin.java

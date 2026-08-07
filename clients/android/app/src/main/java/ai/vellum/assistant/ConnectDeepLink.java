@@ -14,10 +14,12 @@ final class ConnectDeepLink {
 
     private final URI server;
     private final URI pairPage;
+    private final String name;
 
-    private ConnectDeepLink(URI server, URI pairPage) {
+    private ConnectDeepLink(URI server, URI pairPage, String name) {
         this.server = server;
         this.pairPage = pairPage;
+        this.name = name;
     }
 
     static boolean handles(String raw, String expectedScheme) {
@@ -66,7 +68,7 @@ final class ConnectDeepLink {
         if (pairPage == null) {
             return null;
         }
-        return new ConnectDeepLink(server, pairPage);
+        return new ConnectDeepLink(server, pairPage, query.get("name"));
     }
 
     URI server() {
@@ -75,6 +77,15 @@ final class ConnectDeepLink {
 
     URI pairPage() {
         return pairPage;
+    }
+
+    /**
+     * The optional user-facing label for the remembered-server list. Absent on
+     * links from a sender that does not send one, which is not an error: the
+     * chooser falls back to the hostname.
+     */
+    String name() {
+        return name;
     }
 
     private static URI parseUri(String raw) {
