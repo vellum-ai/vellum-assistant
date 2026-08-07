@@ -196,15 +196,48 @@ const SESSION_CONTROL_NEUTRAL_CLASS =
   "border-[var(--room-border)] text-[var(--room-fg-muted)] hover:bg-[var(--room-wash)] hover:text-[var(--room-fg)]";
 
 /**
+ * The same chrome, once the viewfinder is open behind it.
+ *
+ * Every treatment above is derived from the assistant's avatar tone, which is
+ * the correct reference right up until the camera opens: the feed then covers
+ * the look edge to edge, so the tone is describing a background nobody can
+ * see, and a control whose entire resting appearance is a 15%-white hairline
+ * simply is not there over a dark shirt. Over video each control carries its
+ * own scrim instead, and the glyphs go plain white.
+ *
+ * Fixed colors rather than tone-derived ones, deliberately: what sits behind
+ * these is arbitrary camera video, not a color the room picked, so there is
+ * nothing to derive from. The blur is what keeps the scrim honest over a busy
+ * frame without having to push the fill toward opaque.
+ *
+ * `null` for a closed camera, so callers read as "the neutral treatment, plus
+ * whatever the viewfinder demands".
+ */
+function overVideoControlClass(cameraOpen: boolean): string | null {
+  return cameraOpen
+    ? "border-white/25 bg-black/45 text-white backdrop-blur-sm hover:bg-black/60 hover:text-white focus-visible:outline-white"
+    : null;
+}
+
+/**
  * The red treatment worn by a control that is doing something to the call: the
  * two mutes while engaged, and the end control always.
  *
- * Two variants because the room's background is the assistant's avatar color,
+ * Three variants because the room's background is the assistant's avatar color,
  * which can be a light one (yellow). A single red picked against the dark look
  * washes out over that; `isLight` swaps to the darker red the tone helper's
- * foreground colors are chosen against.
+ * foreground colors are chosen against. Over the viewfinder neither applies:
+ * the fill carries the same weight the neutral scrim does, keeping the red
+ * identity while staying readable on whatever is in frame, and the glyph goes
+ * white because a red-on-red icon is the first thing to disappear.
  */
-function destructiveControlClass(isLight: boolean | undefined): string {
+function destructiveControlClass(
+  isLight: boolean | undefined,
+  cameraOpen: boolean,
+): string {
+  if (cameraOpen) {
+    return "border-red-200/40 bg-red-600/55 text-white backdrop-blur-sm hover:bg-red-600/70 focus-visible:outline-white";
+  }
   return isLight
     ? "border-red-700/50 bg-red-600/15 text-red-800 hover:bg-red-600/25"
     : "border-red-400/50 bg-red-500/20 text-red-300 hover:bg-red-500/30";
@@ -825,7 +858,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             type="button"
             onClick={minimizeVoiceRoom}
             aria-label="Minimize voice room"
-            className={ROOM_CONTROL_CLASS}
+            className={cn(ROOM_CONTROL_CLASS, overVideoControlClass(cameraOpen))}
           >
             <ChevronDown className="size-5" />
           </button>
@@ -931,7 +964,16 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           {errorMessage ? (
             <p
               role="status"
-              className="rounded-full bg-[var(--room-wash)] px-3 py-1 text-xs text-[var(--room-fg)]"
+              className={cn(
+                "rounded-full px-3 py-1 text-xs",
+                // Same reason the controls get a scrim: a failed send reported
+                // in tone-derived text over the feed is a message nobody can
+                // read. Camera-closed (a denied permission, the case where the
+                // viewfinder never came up) keeps the room's own treatment.
+                cameraOpen
+                  ? "bg-black/45 text-white backdrop-blur-sm"
+                  : "bg-[var(--room-wash)] text-[var(--room-fg)]",
+              )}
             >
               {errorMessage}
             </p>
@@ -999,16 +1041,22 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                   data-testid="voice-room-shutter"
                   className={cn(
                     "flex size-16 items-center justify-center rounded-full border-4 transition",
-                    "border-[var(--room-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]",
+                    // White rather than the tone's foreground, and the one
+                    // control here that never needs a camera-open branch: the
+                    // shutter exists only while the viewfinder does, so video
+                    // is the only thing it is ever seen against. A light avatar
+                    // tone (yellow) resolves `--room-fg` to a dark color, which
+                    // put a dark ring over dark clothing.
+                    "border-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
                     // The inner disc shrinks while the photo uploads: the
                     // shutter's own press animation doubling as the progress
                     // signal, so nothing else has to appear over the viewfinder.
-                    sending ? "opacity-60" : "hover:bg-[var(--room-wash)]",
+                    sending ? "opacity-60" : "hover:bg-white/20",
                   )}
                 >
                   <span
                     className={cn(
-                      "rounded-full bg-[var(--room-fg)] transition-all",
+                      "rounded-full bg-white transition-all",
                       sending ? "size-6" : "size-11",
                     )}
                   />
@@ -1024,6 +1072,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                     "absolute right-8",
                     SESSION_CONTROL_CLASS,
                     SESSION_CONTROL_NEUTRAL_CLASS,
+                    overVideoControlClass(cameraOpen),
                   )}
                 >
                   <SwitchCamera className="size-5" />
@@ -1050,8 +1099,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             className={cn(
               SESSION_CONTROL_CLASS,
               muted
-                ? destructiveControlClass(tone?.isLight)
-                : SESSION_CONTROL_NEUTRAL_CLASS,
+                ? destructiveControlClass(tone?.isLight, cameraOpen)
+                : cn(
+                    SESSION_CONTROL_NEUTRAL_CLASS,
+                    overVideoControlClass(cameraOpen),
+                  ),
             )}
           >
             {muted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
@@ -1067,8 +1119,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             className={cn(
               SESSION_CONTROL_CLASS,
               outputMuted
-                ? destructiveControlClass(tone?.isLight)
-                : SESSION_CONTROL_NEUTRAL_CLASS,
+                ? destructiveControlClass(tone?.isLight, cameraOpen)
+                : cn(
+                    SESSION_CONTROL_NEUTRAL_CLASS,
+                    overVideoControlClass(cameraOpen),
+                  ),
             )}
           >
             {outputMuted ? (
@@ -1110,6 +1165,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
               className={cn(
                 SESSION_CONTROL_CLASS,
                 SESSION_CONTROL_NEUTRAL_CLASS,
+                overVideoControlClass(cameraOpen),
               )}
             >
               {cameraOpen ? (
@@ -1128,7 +1184,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             aria-label="End voice session"
             className={cn(
               SESSION_CONTROL_CLASS,
-              destructiveControlClass(tone?.isLight),
+              destructiveControlClass(tone?.isLight, cameraOpen),
             )}
           >
             <X className="size-5" strokeWidth={2.5} />
