@@ -24,7 +24,6 @@ describe("CSP_POLICY", () => {
       "base-uri",
       "frame-ancestors",
       "form-action",
-      "frame-src",
     ];
     for (const dir of required) {
       expect(CSP_POLICY).toContain(dir);
@@ -35,9 +34,30 @@ describe("CSP_POLICY", () => {
     // The only control over a srcdoc frame navigating its own browsing
     // context: no CSP directive constrains that from inside the frame, so a
     // `visual` or app-viewer frame rendering model-authored markup would
-    // otherwise be free to carry conversation data out in a URL. Stated
-    // explicitly so loosening `default-src` cannot silently reopen it.
-    expect(directiveValue("frame-src")).toBe("'self'");
+    // otherwise be free to carry conversation data out in a URL. See
+    // ATL-1197.
+    const frameSrc = directiveValue("frame-src");
+    expect(frameSrc).toBeDefined();
+    // Present, and never a wildcard or a bare scheme: the surfaces need only
+    // 'self' (a srcdoc document resolves as 'self'), and every host beyond it
+    // is an explicit third-party frame we chose to embed.
+    expect(frameSrc).toContain("'self'");
+    expect(frameSrc).not.toContain("*;");
+    expect(frameSrc).not.toMatch(/(^|\s)\*(\s|$)/);
+    expect(frameSrc).not.toMatch(/(^|\s)https:(\s|$)/);
+    for (const host of frameSrc!.split(/\s+/).filter((s) => s !== "'self'")) {
+      expect(host.startsWith("https://")).toBe(true);
+    }
+  });
+
+  test("declares frame-src exactly once", () => {
+    // A repeated directive is ignored after its first occurrence, so a second
+    // `frame-src` reads as if it applies and does nothing. Two changes landing
+    // independently is exactly how that happens.
+    const occurrences = CSP_POLICY.split(";").filter(
+      (part) => part.trim().split(/\s+/)[0] === "frame-src",
+    );
+    expect(occurrences).toHaveLength(1);
   });
 
   test("script-src does not allow unsafe-eval", () => {
