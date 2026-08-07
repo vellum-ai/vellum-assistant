@@ -35,12 +35,7 @@ import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
 import type { CSSProperties } from "react";
 
-import {
-  cn,
-  PanelItem,
-  panelItemWashStyle,
-  SIDE_MENU_TILE_SIZE,
-} from "@vellumai/design-library";
+import { cn, PanelItem, panelItemWashStyle } from "@vellumai/design-library";
 
 import {
   SIDEBAR_CHIP_GAP,
@@ -222,7 +217,7 @@ export function AssistantNavItem({
 
      Collapsed, the row becomes the same square glyph tile the identity above
      it uses rather than a pill with its label dropped: a pill is sized by its
-     content, so one keeping its label overflows the collapsed rail
+     content, so on a 48px rail one keeping its label overflows the rail
      entirely. */
   const newConversationTint =
     !navTourActive && hex ? panelItemWashStyle(hex) : undefined;
@@ -242,8 +237,8 @@ export function AssistantNavItem({
       )}
       style={{
         ...newConversationTint,
-        width: SIDE_MENU_TILE_SIZE,
-        height: SIDE_MENU_TILE_SIZE,
+        width: COLLAPSED_ASSISTANT_TILE,
+        height: COLLAPSED_ASSISTANT_TILE,
       }}
     >
       {/* 14px, not the section headers' 12px - the plus glyph carries less

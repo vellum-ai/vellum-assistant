@@ -276,8 +276,8 @@ const meta: Meta<typeof AssistantSideMenu> = {
      shows the geometry desktop users get rather than a frame invented for
      the story. `<main>` is left empty: the chat body is a separate domain
      and mounting it would make these stories depend on it. The sidebar's
-     type and row metrics switch at `md`; the desktop width every story
-     starts at holds these above that breakpoint. */
+     type and row metrics switch at `md`, so view these at a desktop
+     viewport. */
   decorators: [
     (Story) => (
       <div className="flex h-screen gap-4 bg-[var(--surface-base)] p-4">
