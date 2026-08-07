@@ -324,27 +324,6 @@ function originChannelClause(originChannel: string) {
   return eq(conversations.originChannel, originChannel);
 }
 
-/**
- * Order a group's rows the way the user arranged them: by explicit
- * `display_order` first, then by recency. Only meaningful for a real group;
- * the ungrouped bucket is pure recency, since a row that was dragged inside a
- * group and later removed keeps a stale `display_order` that must not
- * resurface as a sort key.
- */
-function isUserOrderedGroup(groupId: string | undefined): boolean {
-  if (groupId === undefined) {
-    return false;
-  }
-  // Pinned and custom groups are the only drag-reorderable sections, so they
-  // are the only ones whose `display_order` means anything. Every other
-  // system bucket sorts by recency: `batchSetDisplayOrders` writes
-  // `display_order` alongside `group_id` when a row moves into
-  // `system:background` / `system:scheduled`, and that value persists through
-  // later moves, so honouring it would order the same section differently
-  // depending on whether it was fetched by `conversationType` or `groupId`.
-  return groupId === PINNED_GROUP_ID || !groupId.startsWith("system:");
-}
-
 function conversationListWhere(filter: ConversationListFilter) {
   const {
     conversationType = "standard",
@@ -380,14 +359,11 @@ export function listConversations(
   // distinguish a total order from a lucky one. The guarantee becomes
   // observable, and gets its test, with the keyset pagination work.
   const tiebreak = desc(conversations.id);
-  const orderBy = isUserOrderedGroup(filter.groupId)
-    ? [sql`COALESCE(display_order, 999999) ASC`, recency, tiebreak]
-    : [recency, tiebreak];
   return db
     .select()
     .from(conversations)
     .where(conversationListWhere(filter))
-    .orderBy(...orderBy)
+    .orderBy(recency, tiebreak)
     .limit(limit ?? 100)
     .offset(offset)
     .all()
@@ -513,7 +489,6 @@ export function listPinnedConversations(
       ),
     )
     .orderBy(
-      sql`COALESCE(display_order, 999999) ASC`,
       desc(
         sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
       ),
