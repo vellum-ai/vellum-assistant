@@ -350,3 +350,70 @@ describe("referential forking", () => {
     expect(textOf(getMessages(source.id))).toHaveLength(4);
   });
 });
+
+describe("referential forking with unfinalized rows", () => {
+  beforeEach(() => {
+    resetTables();
+    clearConfig();
+  });
+
+  test("ancestor rows are hidden while unfinalized and appear once finalized", async () => {
+    const source = await seedSource("Launch");
+    const midRow = getMessages(source.id)[1]!;
+    getDb()
+      .update(messages)
+      .set({ finalized: 0 })
+      .where(eq(messages.id, midRow.id))
+      .run();
+
+    setForkStrategy("reference");
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+    });
+
+    // The fork's lineage read excludes the ancestor's in-flight row; the
+    // source's own read keeps it.
+    expect(textOf(getMessages(fork.id))).toEqual([
+      "draft a launch plan",
+      "tweak the timeline",
+      "updated",
+    ]);
+    expect(getMessages(source.id)).toHaveLength(4);
+
+    getDb()
+      .update(messages)
+      .set({ finalized: 1 })
+      .where(eq(messages.id, midRow.id))
+      .run();
+
+    // Once the row finalizes it enters the inherited window on its own.
+    expect(textOf(getMessages(fork.id))).toEqual([
+      "draft a launch plan",
+      "here is a first pass",
+      "tweak the timeline",
+      "updated",
+    ]);
+  });
+
+  test("an unfinalized tail is not the fork anchor", async () => {
+    const source = await seedSource("Launch");
+    const tail = getMessages(source.id).at(-1)!;
+    getDb()
+      .update(messages)
+      .set({ finalized: 0 })
+      .where(eq(messages.id, tail.id))
+      .run();
+
+    setForkStrategy("reference");
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+    });
+
+    expect(fork.forkParentMessageId).not.toBe(tail.id);
+    expect(textOf(getMessages(fork.id))).toEqual([
+      "draft a launch plan",
+      "here is a first pass",
+      "tweak the timeline",
+    ]);
+  });
+});

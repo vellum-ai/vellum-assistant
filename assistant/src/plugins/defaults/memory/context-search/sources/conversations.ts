@@ -224,6 +224,12 @@ async function gatherCandidateRowsFromQdrant(
  * the source/type/excluded-conversation predicates in SQL (Qdrant has no
  * visibility filtering). The app-side scorer determines final ordering, so
  * the SQL tie-break falls back to recency.
+ *
+ * No `finalized = 1` predicate, deliberately: every id in `messageIds` comes
+ * from the lexical or vector index, and indexing filters `finalized = 1` at
+ * index time (`message-lexical.ts`), so an unfinalized row can never be a
+ * candidate here. Do not copy this query shape to a reader whose id set has a
+ * different provenance; those need the filter themselves.
  */
 function searchByIds(
   messageIds: readonly string[],
