@@ -193,11 +193,27 @@ function renderSprite(
   return sprite;
 }
 
+/**
+ * Whether the entrance has already played somewhere in this session. The
+ * wave sits behind a run of screens that each mount their own copy, and
+ * replaying the pour on every step reads as the page restarting rather than
+ * as the same wave carrying through. One pour per visit, then it is simply
+ * there.
+ */
+let hasPlayedEntrance = false;
+
 interface AvatarWaveProps {
   className?: string;
+  /**
+   * Ask for the staggered entrance. Honored only on the first wave to mount
+   * in a session; later ones render settled however they are configured, so
+   * a screen that requests it does not have to know whether the user has
+   * already come past one.
+   */
+  entrance?: boolean;
 }
 
-export function AvatarWave({ className = "" }: AvatarWaveProps) {
+export function AvatarWave({ className = "", entrance = false }: AvatarWaveProps) {
   const components = useBundledAvatarComponents();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -213,6 +229,10 @@ export function AvatarWave({ className = "" }: AvatarWaveProps) {
     const reduce = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     ).matches;
+    const pour = entrance && !reduce && !hasPlayedEntrance;
+    if (pour) {
+      hasPlayedEntrance = true;
+    }
 
     let width = 0;
     let height = 0;
@@ -442,18 +462,21 @@ export function AvatarWave({ className = "" }: AvatarWaveProps) {
         let revealAlpha = 1;
         let revealDrop = 0;
         if (!reduce) {
-          const elapsed = now - pourStart - item.pourDelay;
-          if (elapsed < 0) {
-            continue;
-          }
-          const p = Math.min(1, elapsed / REVEAL_MS);
-          if (p < 1) {
-            const eased =
-              1 + 2.2 * Math.pow(p - 1, 3) + 1.2 * Math.pow(p - 1, 2);
-            revealScale =
-              0.3 + 0.7 * Math.min(1.04, eased + 0.04 * Math.sin(p * Math.PI));
-            revealAlpha = Math.min(1, p * 2.2);
-            revealDrop = (1 - p) * -60;
+          if (pour) {
+            const elapsed = now - pourStart - item.pourDelay;
+            if (elapsed < 0) {
+              continue;
+            }
+            const p = Math.min(1, elapsed / REVEAL_MS);
+            if (p < 1) {
+              const eased =
+                1 + 2.2 * Math.pow(p - 1, 3) + 1.2 * Math.pow(p - 1, 2);
+              revealScale =
+                0.3 +
+                0.7 * Math.min(1.04, eased + 0.04 * Math.sin(p * Math.PI));
+              revealAlpha = Math.min(1, p * 2.2);
+              revealDrop = (1 - p) * -60;
+            }
           }
           step(item, frames);
           const away = Math.hypot(item.dx, item.dy);
@@ -551,7 +574,7 @@ export function AvatarWave({ className = "" }: AvatarWaveProps) {
       window.removeEventListener("touchend", onLeave);
       window.removeEventListener("touchcancel", onLeave);
     };
-  }, [components]);
+  }, [components, entrance]);
 
   return (
     <canvas

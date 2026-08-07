@@ -27,6 +27,7 @@ export function OnboardingLayout({
   children,
   showCreatureFooter = true,
   showAvatarWave = false,
+  animateAvatarWaveIn = false,
 }: {
   children: ReactNode;
   /**
@@ -42,6 +43,14 @@ export function OnboardingLayout({
    * rather than surrendering half the screen to decoration.
    */
   showAvatarWave?: boolean;
+  /**
+   * Ask the wave to play its entrance rather than appear settled. Reserved
+   * for the screen a visit starts on: the wave spans a run of screens that
+   * each mount their own copy, and pouring it in again at every step reads
+   * as the page restarting. Ignored without `showAvatarWave`, and the wave
+   * itself plays the entrance at most once per session.
+   */
+  animateAvatarWaveIn?: boolean;
 }) {
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
     null,
@@ -69,7 +78,7 @@ export function OnboardingLayout({
         <div className="flex min-h-0 flex-1">
           {content}
           <div className="relative w-[46%] lg:w-1/2">
-            <AvatarWave className="absolute inset-0" />
+            <AvatarWave className="absolute inset-0" entrance={animateAvatarWaveIn} />
           </div>
         </div>
       ) : (
