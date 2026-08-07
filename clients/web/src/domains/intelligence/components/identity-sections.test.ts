@@ -46,9 +46,9 @@ describe("buildIdentitySections", () => {
     ]);
   });
 
-  // LUM-3136: the phone shells briefly hid these two for having rough UI,
-  // which read as a broken home screen. Checking who the assistant knows and
-  // where it listens is mobile work, so the filter must never take them.
+  // Checking who the assistant knows and where it listens is mobile work,
+  // so the native mobile filter must never drop Contacts or Channels
+  // (LUM-3136).
   test.each(["contacts", "channels"])(
     "keeps %s on every platform, phone included",
     (key) => {
