@@ -1,3 +1,5 @@
+import { Plug } from "lucide-react";
+
 import { Card } from "@vellumai/design-library/components/card";
 import { PanelItem } from "@vellumai/design-library/components/panel-item";
 import { Tag } from "@vellumai/design-library/components/tag";
@@ -15,7 +17,7 @@ import type {
 
 export interface ChannelAdapterListProps {
   channels: AssistantChannelState[];
-  /** Channels installed plugins declare. Rendered under their own heading. */
+  /** Channels installed plugins bring. Listed with the rest. */
   pluginChannels?: PluginChannelSummary[];
   selectedKey: ChannelRowKey;
   onSelect: (key: ChannelRowKey) => void;
@@ -33,6 +35,12 @@ export interface ChannelAdapterListProps {
  * mounts it already names it (`IntelligenceLayout`'s section `<h1>` on
  * desktop, the `MobileSidebarDrawer` title on mobile), so one here would
  * put the word on screen twice.
+ *
+ * Channels a plugin brings sit in the same list as the rest. They are
+ * channels, they are selected the same way, and their panel is the thing
+ * that differs; a heading over them would sort the list by who supplies a
+ * channel, which is not what someone scanning it is looking for. A plug
+ * marks them instead.
  */
 export function ChannelAdapterList({
   channels,
@@ -52,33 +60,18 @@ export function ChannelAdapterList({
               onClick={() => onSelect(channel.key)}
             />
           ))}
+
+          {/* After the built-ins rather than interleaved, so installing a
+              plugin appends to the list instead of reordering it. */}
+          {pluginChannels.map((channel) => (
+            <PluginRow
+              key={channel.key}
+              channel={channel}
+              selected={channel.key === selectedKey}
+              onClick={() => onSelect(channel.key)}
+            />
+          ))}
         </div>
-
-        {/* Under their own heading rather than mixed in: these are managed by
-            the plugin that brought them, not by this client, and the detail
-            panel says as much. Absent entirely when nothing declares one, so
-            an assistant with no channel plugins looks exactly as before. */}
-        {pluginChannels.length > 0 ? (
-          <>
-            <h2
-              className="text-label-small"
-              style={{ color: "var(--content-secondary)" }}
-            >
-              From plugins
-            </h2>
-
-            <div className="flex flex-col gap-1">
-              {pluginChannels.map((channel) => (
-                <PluginRow
-                  key={channel.key}
-                  channel={channel}
-                  selected={channel.key === selectedKey}
-                  onClick={() => onSelect(channel.key)}
-                />
-              ))}
-            </div>
-          </>
-        ) : null}
       </Card.Body>
     </Card.Root>
   );
@@ -127,14 +120,24 @@ interface PluginRowProps {
 }
 
 /**
- * Sibling of {@link AdapterRow} without the status badge. Nothing in this
- * client can tell whether a plugin's channel is connected, and a badge that
- * always read "Not connected" would be a false claim rather than a missing
- * one. The plugin's own page answers it.
+ * Sibling of {@link AdapterRow} carrying a plug where a built-in carries its
+ * status badge.
+ *
+ * No connection status: nothing in this client can tell whether an arbitrary
+ * plugin's channel is connected, and a badge permanently reading "Not
+ * connected" would be a false claim rather than an honest gap. The plug says
+ * the one thing this client does know, which is where the channel came from.
  */
 function PluginRow({ channel, selected, onClick }: PluginRowProps) {
   return (
-    <PanelItem asChild active={selected} label={channel.label}>
+    // The plug is decorative, so the aria-label carries the same fact in
+    // words. Without it a screen reader announces a plugin channel and a
+    // built-in identically.
+    <PanelItem
+      asChild
+      active={selected}
+      label={`${channel.label}, from a plugin`}
+    >
       <button
         type="button"
         onClick={onClick}
@@ -147,6 +150,10 @@ function PluginRow({ channel, selected, onClick }: PluginRowProps) {
         <span className="min-w-0 flex-1 truncate text-body-medium-default">
           {channel.label}
         </span>
+        <Plug
+          aria-hidden
+          className="h-4 w-4 shrink-0 text-[color:var(--content-secondary)]"
+        />
       </button>
     </PanelItem>
   );

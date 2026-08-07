@@ -117,7 +117,10 @@ function syncFromStorage(): void {
 // Store
 // ---------------------------------------------------------------------------
 
-const usePinnedAppsStoreBase = create<PinnedAppsStore>()((set, get) => ({
+/* `set` goes unused: every action writes storage and then calls
+   `syncFromStorage`, which reaches the store directly because the storage
+   subscription calls it from outside this initializer too. */
+const usePinnedAppsStoreBase = create<PinnedAppsStore>()((_set, get) => ({
   ...loadState(),
 
   togglePin: (app: PinnableApp) => {

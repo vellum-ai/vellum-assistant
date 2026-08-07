@@ -167,7 +167,8 @@ export const PROVIDER_SEED_DATA: Record<
     description: "Workspace messaging",
     dashboardUrl: "https://api.slack.com/apps",
     clientIdPlaceholder: null,
-    logoUrl: "https://cdn.simpleicons.org/slack",
+    logoUrl:
+      "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/slack/default.svg",
     defaultScopes: [
       "channels:join",
       "channels:read",
@@ -710,7 +711,8 @@ export const PROVIDER_SEED_DATA: Record<
     dashboardUrl:
       "https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
     clientIdPlaceholder: "Application (client) ID from Azure portal",
-    logoUrl: "https://cdn.simpleicons.org/microsoftoutlook",
+    logoUrl:
+      "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/microsoft-outlook/default.svg",
     defaultScopes: [
       "openid",
       "profile",
@@ -764,7 +766,8 @@ export const PROVIDER_SEED_DATA: Record<
     dashboardUrl: null,
     clientIdPlaceholder: null,
     requiresClientSecret: false,
-    logoUrl: "https://cdn.simpleicons.org/slack",
+    logoUrl:
+      "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/slack/default.svg",
     defaultScopes: [],
     injectionTemplates: [
       {

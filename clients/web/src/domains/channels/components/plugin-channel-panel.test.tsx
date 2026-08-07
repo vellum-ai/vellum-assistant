@@ -128,24 +128,29 @@ describe("PluginChannelPanel", () => {
 
     expect(document.body.textContent).not.toContain("Ingress approved");
     expect(document.body.textContent).not.toContain("Revoke ingress");
+    expect(document.body.textContent).toContain(
+      "sees no ingress declaration for Courier",
+    );
   });
 
-  test("shows no decision when the gateway cannot answer", () => {
-    // An older gateway 404s the endpoint and a non-guardian gets a 403.
-    // Neither has a decision to offer, so the panel stays a description
-    // rather than reporting a failure the viewer cannot act on.
-    renderPanel();
+  test("says the gateway sees no declaration rather than showing nothing", () => {
+    // "Can anyone reach this channel" is the question the panel exists to
+    // answer, so an absent answer has to read as an absent answer and not as
+    // an absent feature.
+    renderPanel([]);
 
+    expect(document.body.textContent).toContain(
+      "sees no ingress declaration for Courier",
+    );
     expect(document.body.textContent).not.toContain("Approve ingress");
-    expect(document.body.textContent).not.toContain("Revoke ingress");
   });
 
   test("still offers a way through to the plugin either way", () => {
     // The panel's other job: a plugin owns its own setup surface, and this
     // client cannot render one it does not know the shape of.
-    renderPanel();
+    renderPanel([]);
 
-    expect(document.body.textContent).toContain("Open Courier settings");
+    expect(document.body.textContent).toContain("Open plugin page");
   });
 
   test("does not claim a route is refused when approval does not govern it", () => {

@@ -556,6 +556,98 @@ describe("Conversation message queue", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
+  test("enqueueMessage captures the sender's trust, immune to a later slot change", async () => {
+    // Trust must ride with the queued message. The conversation-level slot is
+    // rewritten by whoever sends next, so a message that reads it at drain time
+    // would run as the wrong actor. Capturing at enqueue is what makes the
+    // drain's identity independent of who sent afterwards.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "slack",
+      requesterExternalUserId: "U-contact",
+    });
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({ content: "msg-2", requestId: "req-2" });
+
+    // A different actor sends while the message waits, moving the slot.
+    conversation.setTrustContext({
+      trustClass: "guardian",
+      sourceChannel: "vellum",
+      requesterExternalUserId: "guardian-principal",
+    });
+
+    const queued = conversation.queue.peek(0);
+    expect(queued?.requestId).toBe("req-2");
+    expect(queued?.trustContext?.trustClass).toBe("trusted_contact");
+    expect(queued?.trustContext?.requesterExternalUserId).toBe("U-contact");
+
+    await resolveRun(0);
+    await p1;
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("a drained turn keeps its sender's trust once the agent loop is running", async () => {
+    // Exercises the real drain -> runAgentLoop ordering against a live
+    // Conversation. The loop re-initializes the per-turn trust snapshot on
+    // entry, so a drain that only stamped the field before calling it would
+    // have that stamp silently undone and the turn would execute as whoever
+    // sent most recently. Asserting inside the run is the point: checking
+    // before the loop starts passes either way.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "slack",
+      requesterExternalUserId: "U-contact",
+    });
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({ content: "msg-2", requestId: "req-2" });
+
+    // The guardian sends while the contact's message waits, moving the slot.
+    conversation.setTrustContext({
+      trustClass: "guardian",
+      sourceChannel: "vellum",
+      requesterExternalUserId: "guardian-principal",
+    });
+
+    // Finish the first turn so the queue drains into a second run.
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Read while run 2 is in flight: this is what tool setup and the
+    // guardian-request producers resolve against.
+    expect(conversation.currentTurnTrustContext?.trustClass).toBe(
+      "trusted_contact",
+    );
+    expect(conversation.currentTurnTrustContext?.requesterExternalUserId).toBe(
+      "U-contact",
+    );
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
   test("[experimental] queued passthrough siblings drain as a single batched run", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();

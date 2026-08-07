@@ -159,7 +159,7 @@ describe("ChannelAdapterList", () => {
     expect(named.length).toBe(0);
   });
 
-  test("lists channels declared by plugins under their own heading", () => {
+  test("lists channels a plugin brings in the same list as the rest", () => {
     render(
       <ChannelAdapterList
         channels={CHANNELS}
@@ -172,12 +172,12 @@ describe("ChannelAdapterList", () => {
     expect(document.querySelectorAll('[data-slot="panel-item"]').length).toBe(
       4,
     );
-    expect(document.body.textContent).toContain("From plugins");
+    expect(document.body.textContent).not.toContain("From plugins");
     expect(document.body.textContent).toContain("Courier");
   });
 
-  test("shows no plugin heading when nothing declares a channel", () => {
-    // The common case, and it has to look exactly as it did before.
+  test("looks untouched when no plugin brings a channel", () => {
+    // The common case: the rail is the three built-ins and nothing else.
     render(
       <ChannelAdapterList
         channels={CHANNELS}
@@ -186,7 +186,9 @@ describe("ChannelAdapterList", () => {
       />,
     );
 
-    expect(document.body.textContent).not.toContain("From plugins");
+    expect(document.querySelectorAll('[data-slot="panel-item"]').length).toBe(
+      3,
+    );
   });
 
   test("selects a plugin channel by its namespaced id", () => {

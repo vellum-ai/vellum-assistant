@@ -62,6 +62,7 @@ import { getModelInfo } from "./handlers/config-model.js";
 import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import { buildTransportHints } from "./transport-hints.js";
+import { sameTrustIdentity, type TrustContext } from "./trust-context-types.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
 const log = getLogger("conversation-process");
@@ -299,6 +300,13 @@ async function buildPassthroughBatch(
       break;
     }
     if (candidate.sourceActorPrincipalId !== head.sourceActorPrincipalId) {
+      break;
+    }
+    // Channel senders carry no principal, so the check above leaves two
+    // different Slack contacts looking identical (`undefined === undefined`).
+    // The batch runs under a single trust context, so split on the sender's
+    // trust identity too or a tail executes with the head's privileges.
+    if (!sameTrustIdentity(candidate.trustContext, head.trustContext)) {
       break;
     }
     if (classifySlash(candidate.content) !== "passthrough") {
@@ -795,7 +803,11 @@ async function drainSingleMessage(
 
   // Snapshot persona context at turn start so later tool turns can't pick up
   // a different actor's context if a concurrent request mutates the live fields.
-  conversation.currentTurnTrustContext = conversation.trustContext;
+  // Trust comes from the queued message, not the live slot: the slot holds
+  // whichever actor sent most recently, which is this sender only when nobody
+  // else sent while this message waited.
+  conversation.currentTurnTrustContext =
+    next.trustContext ?? conversation.trustContext;
   conversation.currentTurnChannelCapabilities =
     conversation.channelCapabilities;
 
@@ -1135,6 +1147,9 @@ async function drainSingleMessage(
       metadata: { ...next.metadata, sentAt: next.sentAt },
       displayContent: next.displayContent,
       clientMessageId: next.clientMessageId,
+      // Attribute the stored row to the sender this turn runs as, not to
+      // whoever happens to occupy the conversation slot at drain time.
+      trustContext: next.trustContext,
       ...(next.transport?.clientOs
         ? { requestClientOs: next.transport.clientOs }
         : {}),
@@ -1258,7 +1273,14 @@ async function drainSingleMessage(
     isUserMessage?: boolean;
     titleText?: string;
     isHiddenPrompt?: boolean;
-  } = { isUserMessage: true };
+    turnTrustContext?: TrustContext;
+  } = {
+    isUserMessage: true,
+    // Carry the sender's trust into the run. The loop re-initializes the
+    // per-turn snapshot on entry, so without this the stamp above is undone
+    // and the turn reverts to the conversation's most recent actor.
+    turnTrustContext: conversation.currentTurnTrustContext,
+  };
   if (next.isInteractive !== undefined) {
     drainLoopOptions.isInteractive = next.isInteractive;
   }
@@ -1383,7 +1405,12 @@ async function drainBatch(
 
   // Snapshot persona context at turn start so later tool turns can't pick up
   // a different actor's context if a concurrent request mutates the live fields.
-  conversation.currentTurnTrustContext = conversation.trustContext;
+  // The head's trust governs the batch, which is sound only because
+  // `buildPassthroughBatch` refuses to coalesce messages from different
+  // actors; without that boundary this would run a tail under the head's
+  // trust.
+  conversation.currentTurnTrustContext =
+    head.trustContext ?? conversation.trustContext;
   conversation.currentTurnChannelCapabilities =
     conversation.channelCapabilities;
 
@@ -1488,6 +1515,9 @@ async function drainBatch(
         metadata: { ...qm.metadata, sentAt: qm.sentAt },
         displayContent: qm.displayContent,
         clientMessageId: qm.clientMessageId,
+        // Same attribution rule as the single-message drain. Batch members
+        // share one sender, so every row here names that sender.
+        trustContext: qm.trustContext,
         ...(qm.transport?.clientOs
           ? { requestClientOs: qm.transport.clientOs }
           : {}),
@@ -1719,8 +1749,12 @@ async function drainBatch(
     titleText?: string;
     isHiddenPrompt?: boolean;
     notifyUserMessageId?: string;
+    turnTrustContext?: TrustContext;
   } = {
     isUserMessage: true,
+    // Same reason as the single-message drain: the loop re-initializes the
+    // per-turn snapshot, so the head's trust has to travel with the call.
+    turnTrustContext: conversation.currentTurnTrustContext,
   };
   if (lastPushEligibleUserMessageId !== undefined) {
     drainLoopOptions.notifyUserMessageId = lastPushEligibleUserMessageId;
