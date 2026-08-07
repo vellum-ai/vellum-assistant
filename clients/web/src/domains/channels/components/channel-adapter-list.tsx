@@ -28,6 +28,11 @@ export interface ChannelAdapterListProps {
  * panel beside it. Mirrors the Contacts tab's `ContactsList` — same `Card`
  * shell, same `PanelItem` selection treatment — so the two About Assistant
  * tabs read as siblings.
+ *
+ * The card carries no "Channels" heading of its own: every surface that
+ * mounts it already names it (`IntelligenceLayout`'s section `<h1>` on
+ * desktop, the `MobileSidebarDrawer` title on mobile), so one here would
+ * put the word on screen twice.
  */
 export function ChannelAdapterList({
   channels,
@@ -38,13 +43,6 @@ export function ChannelAdapterList({
   return (
     <Card.Root className="flex h-full flex-col overflow-hidden">
       <Card.Body className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
-        <h2
-          className="text-title-medium"
-          style={{ color: "var(--content-default)" }}
-        >
-          Channels
-        </h2>
-
         <div className="flex flex-col gap-1">
           {channels.map((channel) => (
             <AdapterRow
@@ -62,12 +60,12 @@ export function ChannelAdapterList({
             an assistant with no channel plugins looks exactly as before. */}
         {pluginChannels.length > 0 ? (
           <>
-            <h3
+            <h2
               className="text-label-small"
               style={{ color: "var(--content-secondary)" }}
             >
               From plugins
-            </h3>
+            </h2>
 
             <div className="flex flex-col gap-1">
               {pluginChannels.map((channel) => (

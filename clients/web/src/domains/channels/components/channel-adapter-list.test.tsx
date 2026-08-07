@@ -132,6 +132,33 @@ describe("ChannelAdapterList", () => {
     expect(document.activeElement).toBe(phone);
   });
 
+  /**
+   * Naming the section belongs to whatever mounts the rail (the chrome's
+   * `<h1>` on desktop, the drawer title on mobile), so the card must not
+   * say "Channels" itself. Counting headings by that name is what catches
+   * a second copy; `IntelligenceLayout`'s test holds up the first.
+   */
+  test("leaves naming the section to the surface that mounts it", () => {
+    render(
+      <ChannelAdapterList
+        channels={CHANNELS}
+        pluginChannels={PLUGIN_CHANNELS}
+        selectedKey="slack"
+        onSelect={() => {}}
+      />,
+    );
+
+    // Rows rendered, so the count below is not vacuously zero.
+    expect(document.querySelectorAll('[data-slot="panel-item"]').length).toBe(
+      4,
+    );
+
+    const named = Array.from(
+      document.querySelectorAll("h1, h2, h3, h4, h5, h6"),
+    ).filter((el) => el.textContent?.trim() === "Channels");
+    expect(named.length).toBe(0);
+  });
+
   test("lists channels declared by plugins under their own heading", () => {
     render(
       <ChannelAdapterList
