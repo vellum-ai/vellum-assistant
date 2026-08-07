@@ -146,7 +146,7 @@ function getSaveBtn(): HTMLButtonElement {
   return btn;
 }
 
-/** All Dropdown triggers (custom comboboxes) in document order. */
+/** All Select triggers (custom comboboxes) in document order. */
 function dropdownTriggers(): HTMLButtonElement[] {
   return Array.from(
     document.querySelectorAll<HTMLButtonElement>('button[role="combobox"]'),

@@ -15,7 +15,7 @@
  * Strategy mirrors plans-page-checkout.test.tsx: mock the generated SDK to
  * capture the request bodies and return fixtures, mock `openUrl` to capture
  * the redirect target, and force the platform-hosted gate open. The
- * design-library Dropdown is a custom combobox — driven by clicking the
+ * design-library Select is a custom combobox — driven by clicking the
  * trigger, then the option whose visible label matches.
  */
 
@@ -349,7 +349,7 @@ function dropdownTrigger(ariaLabel: string): HTMLButtonElement {
   return trigger;
 }
 
-function openDropdown(ariaLabel: string): void {
+function openSelect(ariaLabel: string): void {
   fireEvent.click(dropdownTrigger(ariaLabel));
 }
 
@@ -375,8 +375,8 @@ function clickOption(label: string): void {
   fireEvent.click(option);
 }
 
-function selectOption(dropdownLabel: string, optionLabel: string): void {
-  openDropdown(dropdownLabel);
+function selectOption(selectLabel: string, optionLabel: string): void {
+  openSelect(selectLabel);
   clickOption(optionLabel);
 }
 
@@ -488,7 +488,7 @@ describe("CustomPlanModal — base subscriber", () => {
     const { getByRole } = renderPage(freeSubscription());
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openDropdown("Storage");
+    openSelect("Storage");
 
     const labels = optionLabels();
     expect(labels.some((l) => l.startsWith("30 GB"))).toBe(true);
@@ -752,7 +752,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     const { getByRole } = renderPage(proMightySubscription());
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openDropdown("Machine size");
+    openSelect("Machine size");
 
     expect(optionLabels()).not.toContain(BASELINE_MACHINE_LABEL);
   });
@@ -762,7 +762,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     const { getByRole } = renderPage(freeSubscription());
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openDropdown("Machine size");
+    openSelect("Machine size");
 
     expect(optionLabels()).not.toContain(BASELINE_MACHINE_LABEL);
   });
@@ -890,7 +890,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     );
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openDropdown("Storage");
+    openSelect("Storage");
 
     expect(findOption("10 GB").getAttribute("aria-disabled")).toBe("true");
     // Enabled options carry no `aria-disabled` at all, so assert the absence
@@ -954,7 +954,7 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
     );
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openDropdown("Credit bundle");
+    openSelect("Credit bundle");
 
     // The held legacy bundle appears so the current selection is visible, but
     // it's disabled — a new config can never pick it.
@@ -991,7 +991,7 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
     const { getByRole } = renderPage(freeSubscription());
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openDropdown("Credit bundle");
+    openSelect("Credit bundle");
 
     const labels = optionLabels();
     expect(labels.some((l) => l.startsWith("50 credits"))).toBe(true);
@@ -1054,7 +1054,7 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
     );
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openDropdown("Storage");
+    openSelect("Storage");
 
     expect(findOption("250 GB").getAttribute("aria-disabled")).not.toBe("true");
     expect(findOption("10 GB").getAttribute("aria-disabled")).toBe("true");
