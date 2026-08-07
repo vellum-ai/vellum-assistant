@@ -1581,7 +1581,9 @@ paths:
       description: Transcribe pre-recorded audio through Vellum's managed Deepgram
         speech-to-text proxy. Vellum validates the request, checks billing eligibility,
         calls Deepgram with managed credentials, bills the transcribed duration, and
-        returns the transcript.
+        returns the transcript. Pass 'language' to name the spoken language (a BCP-47
+        code, or 'multi' for code-switching); omitting it decodes as English rather
+        than detecting the language.
       parameters:
       - in: path
         name: assistant_id
@@ -4398,6 +4400,63 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/organizations/billing/checkout-bonus/:
+    get:
+      operationId: organizations_billing_checkout_bonus_retrieve
+      description: |-
+        Return whether the organization may claim the bonus, and its amount.
+
+        Read-only — never creates or modifies billing state. The eligibility
+        check may perform outbound Stripe reads to verify abandonment.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutBonusEligibilityResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+    post:
+      operationId: organizations_billing_checkout_bonus_create
+      description: Claim the one-time bonus; the service re-verifies eligibility.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutBonusClaimResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/organizations/billing/daily-credit-limit/:
     get:
       operationId: organizations_billing_daily_credit_limit_retrieve
@@ -6548,8 +6607,20 @@ components:
           description: True when the balance is above zero but below the low-balance
             threshold and auto-top-up is not enabled. Drives the in-app low-credits
             banner.
+        credits_expiring_soon_usd:
+          type: string
+          description: Unexpired remaining credit (USD, decimal string) from grants
+            whose expiry falls within the next 30 days. Already-expired remainders
+            are excluded.
+        next_credit_expiry_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Earliest upcoming expiry across grants that still hold credit,
+            or null when no unexpired credit remains.
       required:
       - allowed_top_up_amounts
+      - credits_expiring_soon_usd
       - daily_credit_limit_usd
       - daily_limit_reached
       - daily_spend_usd
@@ -6564,6 +6635,7 @@ components:
       - maximum_top_up_usd
       - minimum_top_up
       - minimum_top_up_usd
+      - next_credit_expiry_at
       - pending_compute
       - pending_compute_usd
       - settled_balance
@@ -6571,6 +6643,41 @@ components:
     BlankEnum:
       enum:
       - ''
+    CheckoutBonusClaimResponse:
+      type: object
+      description: POST /…/checkout-bonus/ response shape.
+      properties:
+        status:
+          $ref: '#/components/schemas/CheckoutBonusClaimResponseStatusEnum'
+        amount_usd:
+          type: string
+        balance_usd:
+          type: string
+      required:
+      - amount_usd
+      - balance_usd
+      - status
+    CheckoutBonusClaimResponseStatusEnum:
+      enum:
+      - granted
+      - already_claimed
+      - ineligible
+      type: string
+      description: |-
+        * `granted` - granted
+        * `already_claimed` - already_claimed
+        * `ineligible` - ineligible
+    CheckoutBonusEligibilityResponse:
+      type: object
+      description: GET /…/checkout-bonus/ response shape.
+      properties:
+        eligible:
+          type: boolean
+        amount_usd:
+          type: string
+      required:
+      - amount_usd
+      - eligible
     ClassificationEnum:
       enum:
       - something_broken
@@ -7848,6 +7955,10 @@ components:
           minLength: 1
         source:
           type: string
+        language:
+          type: string
+          minLength: 1
+          maxLength: 32
       required:
       - audioBase64
       - mimeType
@@ -9606,7 +9717,12 @@ components:
           type: string
           minLength: 1
           default: /assistant/settings/billing
-          description: Client-side path to redirect to after checkout completes.
+          description: Client-side path to redirect to after checkout completes. Ignored
+            when return_target is 'native'.
+        return_target:
+          allOf:
+          - $ref: '#/components/schemas/ReturnTargetEnum'
+          default: web
     TopUpCheckoutResponse:
       type: object
       description: Response body for a successfully created top-up checkout session.
