@@ -76,6 +76,34 @@ function loadState(): PinnedAppsState {
   };
 }
 
+/**
+ * Bring the store up to what storage holds, announcing any pin that went away.
+ *
+ * The one way state advances, whether the write came from this tab or another,
+ * so a removed pin is announced once by whoever notices it first. It is safe
+ * to call twice because it diffs against live state: the second call sees the
+ * list it just produced, finds nothing missing, and says nothing. That is what
+ * lets an action call it directly and the subscription call it as well,
+ * without either depending on the other having run.
+ */
+function syncFromStorage(): void {
+  const previousIds = usePinnedAppsStoreBase.getState().pinnedAppIds;
+  const next = loadState();
+  usePinnedAppsStoreBase.setState(next);
+
+  /* An app open in this tab has to close when its pin is cleared, which is
+     what `use-active-app-pin-sync` listens for. Driving that from the diff
+     rather than from `unpin` means a pin cleared in another tab closes the
+     panel too, instead of leaving it open against a pin that is gone. */
+  for (const appId of previousIds) {
+    if (!next.pinnedAppIds.has(appId)) {
+      for (const listener of unpinListeners) {
+        listener(appId);
+      }
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -88,7 +116,7 @@ const usePinnedAppsStoreBase = create<PinnedAppsStore>()((set, get) => ({
       get().unpin(app.id);
     } else {
       pinApp(app);
-      set(loadState());
+      syncFromStorage();
     }
   },
 
@@ -96,12 +124,8 @@ const usePinnedAppsStoreBase = create<PinnedAppsStore>()((set, get) => ({
     if (!get().pinnedAppIds.has(appId)) {
       return;
     }
-    /* No listener call here. Writing the pin out notifies the subscription
-       below, which is the one place a disappearing pin is announced, so a
-       local unpin and one arriving from another tab travel the same path and
-       neither fires twice. */
     unpinApp(appId);
-    set(loadState());
+    syncFromStorage();
   },
 
   setColor: (appId: string, color: string | null) => {
@@ -109,7 +133,7 @@ const usePinnedAppsStoreBase = create<PinnedAppsStore>()((set, get) => ({
       return;
     }
     setAppColor(appId, color);
-    set(loadState());
+    syncFromStorage();
   },
 
   isPinned: (appId: string) => get().pinnedAppIds.has(appId),
@@ -123,41 +147,18 @@ const usePinnedAppsStoreBase = create<PinnedAppsStore>()((set, get) => ({
 }));
 
 /**
- * Follow the stored pin list, so the store tracks its source rather than only
- * its own writes.
+ * A pin list changed under us, by another tab or by anything else writing the
+ * key, so catch up to it.
  *
- * The store mirrors `vellum:pinnedApps` and derives `pinnedAppIds` from it.
- * Without this the mirror only ever advanced when this tab was the one making
- * the change, so pinning in one tab left every other tab rendering the old
- * list indefinitely.
- *
- * Our own writes come back through here too: a save notifies synchronously,
- * before the action's own `set` runs. That is deliberate rather than a
- * redundancy to remove. It is what lets `unpin` announce nothing itself and
- * still have its listeners called exactly once, and re-entering costs nothing
- * because the reload is idempotent and the accessor caches its parse against
- * the raw string.
+ * Our own writes arrive here too, since a save announces itself on the same
+ * channel. That costs nothing and is not relied upon: {@link syncFromStorage}
+ * settles against live state, so whichever of the action and this subscription
+ * reaches it first does the work and the other finds nothing to do.
  *
  * Never unsubscribed. The store is a module-level singleton that lives as long
  * as the document, so there is no later moment at which following the pins is
  * the wrong thing to do.
  */
-subscribePinnedApps(() => {
-  const previousIds = usePinnedAppsStoreBase.getState().pinnedAppIds;
-  const next = loadState();
-  usePinnedAppsStoreBase.setState(next);
-
-  /* Announce pins that went away, whoever removed them. An app open in this
-     tab has to close when its pin is cleared in another one, which is what
-     `use-active-app-pin-sync` listens for; without this the panel would sit
-     there belonging to a pin that no longer exists. */
-  for (const appId of previousIds) {
-    if (!next.pinnedAppIds.has(appId)) {
-      for (const listener of unpinListeners) {
-        listener(appId);
-      }
-    }
-  }
-});
+subscribePinnedApps(syncFromStorage);
 
 export const usePinnedAppsStore = createSelectors(usePinnedAppsStoreBase);

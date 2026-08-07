@@ -1,12 +1,4 @@
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  test,
-} from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   loadPinnedApps,
@@ -14,15 +6,20 @@ import {
   type PinnableApp,
   type PinnedAppEntry,
 } from "@/utils/app-pin-storage";
-import { installMemoryStorage } from "@/utils/memory-storage.test-helper";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 
-installMemoryStorage({ beforeAll, afterAll, beforeEach, afterEach });
-
-// The store is a module singleton whose in-memory slice survives across
-// tests; reset it (and the backing storage, cleared by installMemoryStorage)
-// before each case so pin state starts empty.
+/*
+ * The environment's own `localStorage`, rather than `installMemoryStorage`.
+ * That helper swaps `globalThis.window` for an object carrying nothing but a
+ * storage instance, which leaves the window with no `dispatchEvent`. The store
+ * follows its key by listening on the window, and a save announcing itself
+ * there would be swallowed, so a test file using the helper cannot observe the
+ * thing this store does.
+ */
 beforeEach(() => {
+  localStorage.clear();
+  // The store is a module singleton whose in-memory slice survives across
+  // tests, so reset it alongside storage and start each case empty.
   usePinnedAppsStore.setState({ pinnedApps: [], pinnedAppIds: new Set() });
 });
 
