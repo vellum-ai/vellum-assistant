@@ -98,6 +98,11 @@ mock.module("../runtime/sync/resource-sync-events.js", () => ({
 }));
 
 import {
+  clearTitleModelFault,
+  getTitleModelFault,
+  recordTitleModelFault,
+} from "../persistence/conversation-title-health.js";
+import {
   AUTO_TITLE_DETERMINISTIC,
   AUTO_TITLE_LLM,
   classifyTitleGenerationFailure,
@@ -620,5 +625,62 @@ describe("conversation-title-service", () => {
     // conversation is left showing: the fallback write on a thrown call is
     // covered by "queue continues processing after a failed call" above, and
     // a refusal takes that same path.
+  });
+
+  describe("latches a permanent fault for a later turn to report", () => {
+    beforeEach(() => {
+      clearTitleModelFault();
+    });
+
+    test("a refusal is latched with the routing that caused it", async () => {
+      // The turn that triggered this call is long gone by the time the model
+      // refuses — the latch is the only way the failure reaches anyone.
+      const refusal = new ProviderError("unsupported model", "openai", 400);
+      refusal.attachRouteAttribution({
+        connectionName: "openai-codex",
+        credentialSource: "oauth-subscription",
+      });
+      const provider = makeProvider(async () => {
+        throw refusal;
+      });
+
+      queueGenerateConversationTitle({
+        conversationId: "conv-latch",
+        provider,
+        userMessage: "will be refused",
+      });
+      await titleMutex.withLock(async () => {});
+
+      expect(getTitleModelFault()).toMatchObject({
+        connectionName: "openai-codex",
+      });
+    });
+
+    test("a transient failure latches nothing", async () => {
+      const provider = makeProvider(async () => {
+        throw new Error("provider timeout");
+      });
+
+      queueGenerateConversationTitle({
+        conversationId: "conv-transient",
+        provider,
+        userMessage: "will time out",
+      });
+      await titleMutex.withLock(async () => {});
+
+      expect(getTitleModelFault()).toBeNull();
+    });
+
+    test("a generated title clears a latched fault", async () => {
+      recordTitleModelFault({ model: "stale", connectionName: "openai-codex" });
+
+      await generateAndPersistConversationTitle({
+        conversationId: "conv-recovered",
+        provider: makeProvider(),
+        userMessage: "Help me plan the kickoff",
+      });
+
+      expect(getTitleModelFault()).toBeNull();
+    });
   });
 });

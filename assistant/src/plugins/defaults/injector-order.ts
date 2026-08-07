@@ -15,6 +15,7 @@
  * | `background-turn`          | 15    | prepend-user-tail    |
  * | `unified-turn-context`     | 20    | prepend-user-tail    |
  * | `config-quarantine-notice` | 25    | prepend-user-tail    |
+ * | `title-generation-unavailable` | 27 | prepend-user-tail   |
  * | `pkb-context`              | 30    | after-memory-prefix  |
  * | `pkb-reminder`             | 35    | after-memory-prefix  |
  * | `memory-v2-static`         | 38    | after-memory-prefix  |
@@ -43,6 +44,7 @@ export const DEFAULT_INJECTOR_ORDER = {
   unifiedTurnContext: 20,
   configQuarantineNotice: 25,
   configValidationResetNotice: 26,
+  titleGenerationUnavailable: 27,
   pkbContext: 30,
   pkbReminder: 35,
   memoryV2Static: 38,

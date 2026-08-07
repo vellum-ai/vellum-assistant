@@ -21,6 +21,7 @@ import { documentsInjectors } from "../plugins/defaults/documents/injectors.js";
 import { registerDefaultPluginInjectors } from "../plugins/defaults/index.js";
 import { memoryInjectors } from "../plugins/defaults/memory/injectors.js";
 import { sessionInjectors } from "../plugins/defaults/session/injectors.js";
+import { titleGenerateInjectors } from "../plugins/defaults/title-generate/injectors.js";
 import { turnContextInjectors } from "../plugins/defaults/turn-context/injectors.js";
 import { workspaceInjectors } from "../plugins/defaults/workspace/injectors.js";
 import {
@@ -41,6 +42,7 @@ const ALL_CONTRIBUTED = [
   ...documentsInjectors,
   ...channelInjectors,
   ...sessionInjectors,
+  ...titleGenerateInjectors,
   ...memoryInjectors,
 ];
 
@@ -54,6 +56,7 @@ const EXPECTED_ORDER = [
   "unified-turn-context", // 20
   "config-quarantine-notice", // 25
   "config-validation-reset-notice", // 26
+  "title-generation-unavailable", // 27
   "pkb-context", // 30
   "pkb-reminder", // 35
   "memory-v2-static", // 38
