@@ -1,30 +1,25 @@
 /**
- * The room's circular icon controls: minimize, the two mutes, the camera
- * toggle, flip camera, end session.
+ * Every circular icon control in the room: the corner minimize, the two mutes,
+ * the camera toggle, flip camera, end session.
  *
- * One component rather than the class constants these used to be. The
- * treatment varies along three axes (neutral vs destructive, bordered vs bare,
- * and whether the viewfinder is open behind it), and every call site was
- * re-deriving its own combination through `cn()`. That is how the camera-open
- * scrim can reach four controls and quietly miss the fifth, which is exactly
- * the bug class this file exists to close.
+ * The treatment varies along three axes, so it lives in one place rather than
+ * being assembled per call site: neutral vs destructive toning, bordered vs
+ * bare, and whether the viewfinder is open behind the control. A scrim that
+ * every call site has to remember is one that reaches most of the row and
+ * misses a control.
  *
- * Not the design library's `Button`, and not for lack of trying: these are
- * 48px circles, and `Button`'s sizes stop at `h-8` with `rounded-md` baked
- * into every one of them (see its `size` variants and the `iconOnly` compound
- * variants), so adopting it would mean overriding size, radius, border and
- * every color at each call site while still inheriting `active:scale-[0.97]`
- * and a theme-token focus ring the room cannot use. The library also has no
- * treatment for chrome over live video. The room is not app chrome: it paints
- * itself an arbitrary avatar color, which is why it carries its own `--room-*`
- * contract at all.
+ * The element is a bare `<button>`, not the design library's `Button`. These
+ * are 48px circles; `Button`'s sizes stop at `h-8` with `rounded-md` on every
+ * one of them, and it carries `active:scale-[0.97]` plus a theme-token focus
+ * ring. The room paints itself an arbitrary avatar color, so theme tokens are
+ * as likely to be invisible on it as legible, which is what the `--room-*`
+ * contract exists to replace. The library also has no treatment for chrome
+ * over live video.
  *
- * The sibling voice surfaces (the composer bar, the header pill) DO use
- * `Button` plus `VOICE_SURFACE_CONTROL_CLASS` from `voice-surface-paint.ts`,
- * because at their size the library's shape is the right one. This component
- * deliberately reads the same `--room-*` vars that module publishes, so all
- * three surfaces stay one visual system even though two of them can share an
- * element and this one cannot.
+ * The sibling voice surfaces (the composer bar, the header pill) do use
+ * `Button` with `VOICE_SURFACE_CONTROL_CLASS` from `voice-surface-paint.ts`,
+ * where the library's shape suits their size. This reads the same `--room-*`
+ * vars that module publishes, so all three surfaces are one visual system.
  */
 
 import { Tooltip, cn } from "@vellumai/design-library";

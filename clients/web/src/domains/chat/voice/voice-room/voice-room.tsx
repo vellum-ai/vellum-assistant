@@ -988,7 +988,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                     // shutter exists only while the viewfinder does, so video
                     // is the only thing it is ever seen against. A light avatar
                     // tone (yellow) resolves `--room-fg` to a dark color, which
-                    // put a dark ring over dark clothing.
+                    // would put a dark ring over dark clothing.
                     "border-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
                     // The inner disc shrinks while the photo uploads: the
                     // shutter's own press animation doubling as the progress
