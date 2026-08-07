@@ -1,7 +1,9 @@
+import { unwatchFile, watchFile } from "node:fs";
 import path from "node:path";
 
 import { app, nativeImage, shell, type NativeImage } from "electron";
 
+import { openAboutWindow } from "@vellumai/electron-desktop/about";
 import { configureStatusIconFallback } from "@vellumai/electron-desktop/status-icon";
 import {
   configureTrayModel,
@@ -16,6 +18,7 @@ import { current, ensureVisible, toggleVisibility } from "./main-window";
 const EMPTY_LOCKFILE: Lockfile = { assistants: [], activeAssistant: null };
 const lockfilePaths = resolveLockfilePaths(process.env);
 let cachedIcon: NativeImage | null = null;
+let cachedLockfile = EMPTY_LOCKFILE;
 
 export const getTrayIcon = (): NativeImage => {
   if (cachedIcon) {
@@ -42,19 +45,32 @@ const dispatch = (command: VellumCommand): void => {
   }
 };
 
-const getLockfile = (): Lockfile => {
+const refreshLockfile = (): void => {
   const result = getLockfileData(lockfilePaths);
-  return result.ok ? result.data : EMPTY_LOCKFILE;
+  cachedLockfile = result.ok ? result.data : EMPTY_LOCKFILE;
+};
+
+const installLockfileCache = (): void => {
+  refreshLockfile();
+  const canonicalPath = lockfilePaths[0];
+  if (!canonicalPath) {
+    return;
+  }
+  watchFile(canonicalPath, { interval: 500 }, refreshLockfile);
+  app.once("before-quit", () => {
+    unwatchFile(canonicalPath, refreshLockfile);
+  });
 };
 
 export const installWindowsTray = (): void => {
   const icon = getTrayIcon();
+  installLockfileCache();
   configureStatusIconFallback(icon.isEmpty() ? null : icon);
   configureTrayModel({
     accelerator: () => ({}),
     dispatch,
     featureEnabled: (flag) => flag === "multi-platform-assistant",
-    getLockfile,
+    getLockfile: () => cachedLockfile,
     icon: () => undefined,
     onboardingActive: () => false,
     openComponentGallery: () => {
@@ -64,7 +80,7 @@ export const installWindowsTray = (): void => {
   });
   installTray({
     ensureMainWindow: async () => ensureVisible(),
-    openAbout: () => app.showAboutPanel(),
+    openAbout: openAboutWindow,
     toggleMainWindow: toggleVisibility,
   });
 };
