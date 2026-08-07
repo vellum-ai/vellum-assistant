@@ -95,6 +95,7 @@ public class MainActivity extends BridgeActivity {
         NativeFailureGuard.run("Unable to deliver the Android voice launch", this::deliverPendingVoiceLaunch);
         NativeFailureGuard.run("Unable to configure the Android WebView", () -> {
             if (bridge != null) {
+                bridge.getWebView().setWebChromeClient(new SafeWebChromeClient(bridge));
                 bridge.setWebViewClient(new SelfHostedWebViewClient(bridge, this));
             }
         });
