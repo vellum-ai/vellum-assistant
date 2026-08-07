@@ -76,6 +76,7 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { getLocalBool, setLocalBool } from "@/utils/local-settings";
@@ -88,6 +89,13 @@ interface SuperpowersTabProps {
 
 const SEARCH_DEBOUNCE_MS = 300;
 const TIP_STORAGE_KEY = "vellum:superpowers:tipDismissed";
+
+/**
+ * Matches the `sm:block` on the category sidebar below: while it doesn't match,
+ * the sidebar is absent and the filter control is the only category surface.
+ * Keep the two in sync.
+ */
+const CATEGORY_SIDEBAR_MEDIA_QUERY = "(min-width: 40rem)";
 
 /** One merged, sortable row — a skill or a plugin. */
 type SuperpowerRow =
@@ -137,6 +145,7 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
   const location = useLocation();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
+  const categorySidebarVisible = useMediaQuery(CATEGORY_SIDEBAR_MEDIA_QUERY);
   const version = useAssistantIdentityStore.use.version();
   const pluginsSupported = useSupportsPluginsSurface();
 
@@ -664,6 +673,7 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
         totalCount={totalCount}
         showCounts={!hasActiveSearch}
         pluginsSupported={pluginsSupported}
+        showCategories={!categorySidebarVisible}
       />
 
       {!isLoading && !allFailed && skillsFailed ? (

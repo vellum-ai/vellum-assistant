@@ -87,6 +87,11 @@ interface FilterBarProps {
    * doesn't, the list is skills-only, so the Type group is omitted.
    */
   pluginsSupported: boolean;
+  /**
+   * Whether this control owns category selection. The page hides its category
+   * sidebar on narrow viewports, and categories then have no other surface.
+   */
+  showCategories: boolean;
 }
 
 export function FilterBar({
@@ -102,6 +107,7 @@ export function FilterBar({
   totalCount,
   showCounts,
   pluginsSupported,
+  showCategories,
 }: FilterBarProps) {
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     onSearchChange(e.target.value);
@@ -135,6 +141,7 @@ export function FilterBar({
         totalCount={totalCount}
         showCounts={showCounts}
         pluginsSupported={pluginsSupported}
+        showCategories={showCategories}
       />
     </div>
   );
@@ -150,15 +157,15 @@ interface FilterControlProps {
   totalCount: number;
   showCounts: boolean;
   pluginsSupported: boolean;
+  showCategories: boolean;
 }
 
 /**
  * Filter affordance for the My Superpowers page. On touch the outlined filter
- * button opens a bottom sheet exposing Status, Type, Source, AND Categories
- * (the category sidebar only renders on roomy viewports, so the sheet is the
- * sole category surface there). Otherwise the same button opens a compact
- * popover with Status + Type + Source, and the always-visible sidebar owns
- * category selection.
+ * button opens a bottom sheet; otherwise it opens a compact popover. Both
+ * surfaces carry Status, Type, and Source, and both grow a Categories section
+ * when the page's category sidebar isn't rendered, so category selection is
+ * always reachable somewhere.
  */
 function FilterControl(props: FilterControlProps) {
   const isTouchMobile = useTouchMobile();
@@ -231,6 +238,25 @@ function FilterControl(props: FilterControlProps) {
             selected={props.filter}
             onSelect={selectAndClose}
           />
+          {props.showCategories && (
+            <>
+              <div
+                className="border-t"
+                style={{ borderColor: "var(--border-base)" }}
+              />
+              <CategoryGroup
+                categories={props.categories}
+                category={props.category}
+                counts={props.counts}
+                totalCount={props.totalCount}
+                showCounts={props.showCounts}
+                onSelect={(next) => {
+                  props.onCategoryChange(next);
+                  setOpen(false);
+                }}
+              />
+            </>
+          )}
         </ul>
       </Popover.Content>
     </Popover.Root>
@@ -259,13 +285,11 @@ function FilterSheet({
   totalCount,
   showCounts,
   pluginsSupported,
+  showCategories,
   open,
   onOpenChange,
   trigger,
 }: FilterSheetProps) {
-  const sortedCategories = [...categories].sort((a, b) =>
-    a.label.localeCompare(b.label),
-  );
 
   return (
     <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
@@ -320,25 +344,27 @@ function FilterSheet({
             ))}
           </SheetSection>
 
-          <SheetSection label="Categories">
-            <FilterRow
-              icon={LayoutGrid}
-              label="All"
-              active={category === null}
-              badge={showCounts ? totalCount : undefined}
-              onSelect={() => onCategoryChange(null)}
-            />
-            {sortedCategories.map((cat) => (
+          {showCategories && (
+            <SheetSection label="Categories">
               <FilterRow
-                key={cat.slug}
-                icon={resolveCategoryIcon(cat.icon) ?? LayoutGrid}
-                label={cat.label}
-                active={category === cat.slug}
-                badge={showCounts ? (counts[cat.slug] ?? 0) : undefined}
-                onSelect={() => onCategoryChange(cat.slug)}
+                icon={LayoutGrid}
+                label="All"
+                active={category === null}
+                badge={showCounts ? totalCount : undefined}
+                onSelect={() => onCategoryChange(null)}
               />
-            ))}
-          </SheetSection>
+              {sortCategories(categories).map((cat) => (
+                <FilterRow
+                  key={cat.slug}
+                  icon={resolveCategoryIcon(cat.icon) ?? LayoutGrid}
+                  label={cat.label}
+                  active={category === cat.slug}
+                  badge={showCounts ? (counts[cat.slug] ?? 0) : undefined}
+                  onSelect={() => onCategoryChange(cat.slug)}
+                />
+              ))}
+            </SheetSection>
+          )}
         </BottomSheet.Body>
         <BottomSheet.Footer>
           <Button
@@ -408,6 +434,80 @@ function FilterRow({
       }
       onSelect={onSelect}
     />
+  );
+}
+
+/** Alphabetical by label, leaving the caller's array untouched. */
+function sortCategories(categories: CategoryInfo[]): CategoryInfo[] {
+  return [...categories].sort((a, b) => a.label.localeCompare(b.label));
+}
+
+/**
+ * Categories as popover options, mirroring the sheet's Categories section.
+ * Scrolls independently of the fixed Status/Type/Source groups above it, since
+ * an assistant can carry many categories.
+ */
+function CategoryGroup({
+  categories,
+  category,
+  counts,
+  totalCount,
+  showCounts,
+  onSelect,
+}: {
+  categories: CategoryInfo[];
+  category: string | null;
+  counts: Record<string, number>;
+  totalCount: number;
+  showCounts: boolean;
+  onSelect: (category: string | null) => void;
+}) {
+  const rows: { slug: string | null; label: string; count: number }[] = [
+    { slug: null, label: "All", count: totalCount },
+    ...sortCategories(categories).map((cat) => ({
+      slug: cat.slug,
+      label: cat.label,
+      count: counts[cat.slug] ?? 0,
+    })),
+  ];
+
+  return (
+    <li>
+      <div
+        className="px-3 pb-1 pt-2 text-body-small-default uppercase tracking-wide"
+        style={{ color: "var(--content-tertiary)" }}
+      >
+        Categories
+      </div>
+      <ul className="max-h-48 overflow-y-auto">
+        {rows.map((row) => {
+          const isSelected = category === row.slug;
+          return (
+            <li key={row.slug ?? "all"}>
+              <button
+                type="button"
+                onClick={() => onSelect(row.slug)}
+                role="option"
+                aria-selected={isSelected}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-body-medium-lighter transition-colors hover:bg-[var(--surface-hover)]"
+                style={{
+                  color: isSelected
+                    ? "var(--primary-base)"
+                    : "var(--content-default)",
+                }}
+              >
+                <span className="flex-1 truncate">{row.label}</span>
+                {showCounts && (
+                  <span style={{ color: "var(--content-tertiary)" }}>
+                    {row.count}
+                  </span>
+                )}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </li>
   );
 }
 
