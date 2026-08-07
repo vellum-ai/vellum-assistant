@@ -77,10 +77,10 @@ export type ConversationStreamingMode =
  * audio it is already transcribing, rather than leaving the boundary to the
  * session's local silence timer and front-door hold verdict.
  *
- * - `"provider"` — the provider emits turn lifecycle events (`turn-start`,
+ * - `"provider"`: the provider emits turn lifecycle events (`turn-start`,
  *   `turn-end`) on its transcript stream, and a live-voice session may let
  *   those events commit the turn.
- * - `"none"` — the provider transcribes only; the local silence boundary owns
+ * - `"none"`: the provider transcribes only; the local silence boundary owns
  *   end-of-turn.
  *
  * A provider declaring `"provider"` should number its turns: the staleness
