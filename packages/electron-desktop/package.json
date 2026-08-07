@@ -10,11 +10,15 @@
     "./app-origin": "./src/app-origin.ts",
     "./capability-registry": "./src/capability-registry.ts",
     "./commands": "./src/commands.ts",
+    "./csp": "./src/csp.ts",
     "./devtools": "./src/devtools.ts",
+    "./gateway-forward": "./src/gateway-forward.ts",
     "./global-shortcuts": "./src/global-shortcuts.ts",
     "./hotkeys": "./src/hotkeys.ts",
     "./image-context-menu": "./src/image-context-menu.ts",
     "./ipc": "./src/ipc.ts",
+    "./permissions": "./src/permissions.ts",
+    "./platform-forward": "./src/platform-forward.ts",
     "./text-context-menu": "./src/text-context-menu.ts",
     "./windows": "./src/windows.ts"
   },
@@ -24,7 +28,8 @@
   },
   "dependencies": {
     "@vellumai/electron-utils": "workspace:*",
-    "@vellumai/ipc-contract": "workspace:*"
+    "@vellumai/ipc-contract": "workspace:*",
+    "@vellumai/local-mode": "workspace:*"
   },
   "peerDependencies": {
     "electron": ">=42.2.0",
