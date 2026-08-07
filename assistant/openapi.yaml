@@ -4017,7 +4017,7 @@ paths:
       summary: Get available channels
       description:
         Return the channels this assistant can surface to clients, with display metadata (label, icon, verification
-        capability, setup copy). A fixed base list plus `email` when an inbox is registered, with channels declared by
+        capability, setup copy). A fixed base list plus `email` when an inbox is registered, with channels brought by
         installed plugins reported separately under `pluginChannels`.
       tags:
         - channels
@@ -4076,9 +4076,10 @@ paths:
                     description: Available channels in display order
                   pluginChannels:
                     description:
-                      "Channels declared by installed plugins, in install order. Namespaced under `plugin:` because they are not
-                      members of the channel union the daemon routes and verifies against. Optional so a client can read
-                      a response from a daemon that predates the field: absent means the same as empty."
+                      "Channels brought by installed plugins, in install order: those declaring ingress routes in
+                      `channels/ingress.json`, presented from their own manifests. Namespaced under `plugin:` because
+                      they are not members of the channel union the daemon routes and verifies against. Optional so a
+                      client can read a response from a daemon that predates the field: absent means the same as empty."
                     type: array
                     items:
                       type: object
@@ -4090,16 +4091,15 @@ paths:
                           type: string
                         label:
                           type: string
-                        subtitle:
+                        description:
                           type: string
                         icon:
+                          description: Lucide icon name without the `lucide-` prefix
                           type: string
                       required:
                         - id
                         - plugin
                         - label
-                        - subtitle
-                        - icon
                       additionalProperties: false
                 required:
                   - channels

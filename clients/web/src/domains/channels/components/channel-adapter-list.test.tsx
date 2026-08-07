@@ -19,7 +19,7 @@ const PLUGIN_CHANNELS: PluginChannelSummary[] = [
     id: "plugin:imessage",
     plugin: "imessage",
     label: "iMessage",
-    subtitle: "Reach the assistant by text.",
+    description: "Reach the assistant by text.",
     icon: "message-circle",
   },
 ];
@@ -178,6 +178,27 @@ describe("ChannelAdapterList", () => {
 
     fireEvent.click(rowFor("iMessage"));
     expect(selected).toBe("plugin:imessage");
+  });
+
+  test("lists a plugin channel whose manifest names no icon", () => {
+    // Presentation is best-effort in the daemon, so the rail has to render a
+    // channel that arrives with nothing but a label.
+    render(
+      <ChannelAdapterList
+        channels={[]}
+        pluginChannels={[
+          {
+            id: "plugin:meeting-bot",
+            plugin: "meeting-bot",
+            label: "Meeting Bot",
+          },
+        ]}
+        selectedKey="plugin:meeting-bot"
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(rowFor("Meeting Bot")).toBeDefined();
   });
 
   test("carries no connection badge on a plugin row", () => {

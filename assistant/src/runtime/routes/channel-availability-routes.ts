@@ -5,8 +5,8 @@
  * surface to clients (Contacts / GuardianChannels views, etc.) along with
  * their display metadata (label, subtitle, icon, verification capability,
  * setup-message copy). A fixed base list, plus `email` when an inbox is
- * registered, plus whatever installed plugins declare in
- * `channels/channel.json` (reported separately under `pluginChannels`).
+ * registered, plus the channels installed plugins bring by declaring
+ * ingress (reported separately under `pluginChannels`).
  * Clients should treat the response as authoritative and stop carrying
  * their own per-channel switches.
  *
@@ -20,7 +20,7 @@ import { z } from "zod";
 import { isA2AEnabled } from "../../a2a/feature-gate.js";
 import {
   discoverPluginChannels,
-  type PluginChannelDeclaration,
+  type PluginChannel,
 } from "../../channels/plugin-channel-declarations.js";
 import {
   CHANNEL_IDS,
@@ -77,7 +77,7 @@ async function hasRegisteredInbox(): Promise<boolean> {
 
 async function handleGetChannelAvailability(_args: RouteHandlerArgs): Promise<{
   channels: ChannelInfo[];
-  pluginChannels: PluginChannelDeclaration[];
+  pluginChannels: PluginChannel[];
 }> {
   const ids: ChannelId[] = [...BASE_AVAILABLE_CHANNELS];
   if (await hasRegisteredInbox()) {
@@ -96,10 +96,8 @@ async function handleGetChannelAvailability(_args: RouteHandlerArgs): Promise<{
     .filter((info): info is ChannelInfo => info !== undefined);
   // Reported separately rather than folded in: `ChannelInfo.id` is the closed
   // `ChannelId` union, and a plugin channel is not one of those. See
-  // `PLUGIN_CHANNEL_ID_PREFIX`. A plugin whose declaration fails to parse is
-  // simply absent here; the problem is the plugin author's to see, and this
-  // endpoint feeds a settings list rather than a diagnostic one.
-  const { channels: pluginChannels } = discoverPluginChannels();
+  // `PLUGIN_CHANNEL_ID_PREFIX`.
+  const pluginChannels = await discoverPluginChannels();
   return { channels, pluginChannels };
 }
 
@@ -107,8 +105,11 @@ const pluginChannelSchema = z.object({
   id: z.string().describe("`plugin:<pluginName>`"),
   plugin: z.string(),
   label: z.string(),
-  subtitle: z.string(),
-  icon: z.string(),
+  description: z.string().optional(),
+  icon: z
+    .string()
+    .optional()
+    .describe("Lucide icon name without the `lucide-` prefix"),
 });
 
 const channelInfoSchema = z.object({
@@ -137,7 +138,7 @@ export const ROUTES: RouteDefinition[] = [
       "Return the channels this assistant can surface to clients, with " +
       "display metadata (label, icon, verification capability, setup " +
       "copy). A fixed base list plus `email` when an inbox is registered, " +
-      "with channels declared by installed plugins reported separately " +
+      "with channels brought by installed plugins reported separately " +
       "under `pluginChannels`.",
     tags: ["channels"],
     handler: handleGetChannelAvailability,
@@ -149,11 +150,12 @@ export const ROUTES: RouteDefinition[] = [
         .array(pluginChannelSchema)
         .optional()
         .describe(
-          "Channels declared by installed plugins, in install order. " +
-            "Namespaced under `plugin:` because they are not members of the " +
-            "channel union the daemon routes and verifies against. Optional " +
-            "so a client can read a response from a daemon that predates " +
-            "the field: absent means the same as empty.",
+          "Channels brought by installed plugins, in install order: those " +
+            "declaring ingress routes in `channels/ingress.json`, presented " +
+            "from their own manifests. Namespaced under `plugin:` because " +
+            "they are not members of the channel union the daemon routes and " +
+            "verifies against. Optional so a client can read a response from " +
+            "a daemon that predates the field: absent means the same as empty.",
         ),
     }),
   },

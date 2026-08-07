@@ -17,6 +17,9 @@ export interface PluginChannelPanelProps {
  * would be worse than sending the guardian to the plugin, which owns its own
  * setup surface and its own idea of what "connected" means.
  *
+ * The description is the plugin manifest's, and a manifest need not carry one,
+ * so it is omitted rather than filled with copy this client invented.
+ *
  * No connection status for the same reason: nothing in this client can answer
  * it for an arbitrary plugin, and a badge that always reads "Not connected"
  * would be a claim rather than a gap.
@@ -38,12 +41,14 @@ export function PluginChannelPanel({ channel }: PluginChannelPanelProps) {
         {channel.label}
       </h3>
 
-      <p
-        className="max-w-[420px] text-body-medium-default"
-        style={{ color: "var(--content-secondary)" }}
-      >
-        {channel.subtitle}
-      </p>
+      {channel.description ? (
+        <p
+          className="max-w-[420px] text-body-medium-default"
+          style={{ color: "var(--content-secondary)" }}
+        >
+          {channel.description}
+        </p>
+      ) : null}
 
       <Button
         onClick={() => navigate(`/assistant/plugins/${channel.plugin}`)}

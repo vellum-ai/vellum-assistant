@@ -1,36 +1,37 @@
 /**
- * Parser for plugin-declared channels under `<pluginDir>/channels/`.
+ * Channels that installed plugins bring.
  *
- * A plugin that carries a way for someone to reach the assistant declares it
- * in `channels/channel.json`, alongside the `ingress.json` the gateway reads
- * from the same directory. The two are deliberately separate files: ingress is
- * a request for public reach that a guardian approves, and this is display
- * metadata that grants nothing. A plugin that receives webhooks but is not a
- * channel declares only the first, and a channel that needs no public route
- * declares only the second.
+ * A plugin is a channel because it declares ingress: `channels/ingress.json`
+ * is the list of routes the outside world may reach it on, and reaching the
+ * assistant from outside is what being a channel means. There is no second
+ * file saying so, and nothing a plugin can set to claim the status without
+ * declaring the reach that constitutes it.
  *
- * The plugin's identity comes from the directory the file is read from, never
- * from its contents, so a manifest cannot claim to be another plugin's
- * channel. Errors are per-plugin: one unreadable declaration never hides a
- * sibling's.
+ * What the gateway does with that file is a separate matter, and stays the
+ * gateway's: validating the routes, digesting them, holding them behind a
+ * guardian's approval. This reads its presence and nothing else, so a
+ * declaration the gateway rejects still surfaces here. That is the honest
+ * report — the plugin is a channel and its ingress is broken — and it keeps a
+ * schema this module does not own from deciding what the settings page lists.
  *
- * Pure filesystem and parsing. Nothing here decides whether a channel works,
- * only that a plugin says it has one.
+ * Presentation comes from the plugin's own manifest, where a plugin's title,
+ * description and icon already belong. All three are optional and none gate
+ * anything: a plugin with ingress and a bare `package.json` still appears,
+ * under a name derived from its directory.
  */
 
-import { readFileSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { join } from "node:path";
 
-import { z } from "zod";
-
 import { isPluginDisabled } from "../plugins/disabled-state.js";
-import {
-  isInsidePluginRoot,
-  listInstalledPluginDirs,
-} from "../plugins/installed-plugin-dirs.js";
+import { parsePluginPresentation } from "../plugins/external-plugin-loader.js";
+import { listInstalledPluginDirs } from "../plugins/installed-plugin-dirs.js";
 
-/** Path of a channel declaration within its plugin directory. */
-export const PLUGIN_CHANNEL_MANIFEST_RELPATH = "channels/channel.json";
+/**
+ * The declaration that makes a plugin a channel. Owned by the gateway, which
+ * parses it; named here only to test for it.
+ */
+export const PLUGIN_INGRESS_MANIFEST_RELPATH = "channels/ingress.json";
 
 /**
  * Prefix separating plugin channel ids from the assistant's own.
@@ -43,112 +44,68 @@ export const PLUGIN_CHANNEL_MANIFEST_RELPATH = "channels/channel.json";
  */
 export const PLUGIN_CHANNEL_ID_PREFIX = "plugin:";
 
-const channelManifestSchema = z
-  .object({
-    /** Title shown on the channel row, e.g. "iMessage". */
-    label: z.string().min(1),
-    /** One line under the title, saying what reaching the assistant here means. */
-    subtitle: z.string().min(1),
-    /**
-     * Lucide icon name without the `lucide-` prefix, matching `ChannelInfo`
-     * so a plugin channel renders through the same icon path as a built-in.
-     */
-    icon: z
-      .string()
-      .regex(
-        /^[a-z0-9]+(-[a-z0-9]+)*$/,
-        "icon must be a lucide name in kebab-case",
-      )
-      .refine((v) => !v.startsWith("lucide-"), {
-        message: "icon must omit the lucide- prefix; clients add it",
-      }),
-  })
-  .strict();
-
-export interface PluginChannelDeclaration {
+export interface PluginChannel {
   /** `plugin:<pluginName>`, the id clients key on. */
   id: string;
   /** Directory name of the declaring plugin. */
   plugin: string;
+  /** Title for the channel row. */
   label: string;
-  subtitle: string;
-  icon: string;
-}
-
-/** A declaration that was found but could not be used, and why. */
-export interface PluginChannelProblem {
-  plugin: string;
-  reason: string;
-}
-
-export interface PluginChannelDiscovery {
-  channels: PluginChannelDeclaration[];
-  problems: PluginChannelProblem[];
-}
-
-/** Read and validate one plugin's declaration, if it has one. */
-function readDeclaration(
-  plugin: string,
-  pluginDir: string,
-): PluginChannelDeclaration | PluginChannelProblem | undefined {
-  const manifestPath = join(pluginDir, PLUGIN_CHANNEL_MANIFEST_RELPATH);
-  // Existence first: containment resolves the path, which cannot answer for
-  // one that is not there, and most plugins are not channels.
-  if (!statSync(manifestPath, { throwIfNoEntry: false })?.isFile()) {
-    return undefined;
-  }
-  if (!isInsidePluginRoot(manifestPath, pluginDir)) {
-    // A link pointing out of the plugin would let one install supply
-    // another's declaration.
-    return { plugin, reason: "declaration resolves outside the plugin" };
-  }
-
-  let raw: unknown;
-  try {
-    raw = JSON.parse(readFileSync(manifestPath, "utf-8"));
-  } catch {
-    return { plugin, reason: "unreadable or malformed JSON" };
-  }
-
-  const parsed = channelManifestSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { plugin, reason: z.prettifyError(parsed.error) };
-  }
-
-  return {
-    id: `${PLUGIN_CHANNEL_ID_PREFIX}${plugin}`,
-    plugin,
-    ...parsed.data,
-  };
+  /** One line under the title. Absent when the manifest carries none. */
+  description?: string;
+  /** Lucide icon name without the `lucide-` prefix, when the manifest names one. */
+  icon?: string;
 }
 
 /**
- * Every channel declared by an installed, enabled plugin.
+ * Title for a plugin with no `displayName`.
+ *
+ * Derived rather than defaulted to the raw directory name so `meeting-bot`
+ * reads as "Meeting Bot" in a list beside "Slack" and "Telegram". A plugin
+ * whose casing matters (iMessage) sets `displayName` and this never runs.
+ */
+function titleFromDirectory(name: string): string {
+  return name
+    .split(/[-_]/)
+    .filter((part) => part.length > 0)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+/** True when the plugin declares ingress routes. */
+function declaresIngress(pluginDir: string): boolean {
+  return (
+    statSync(join(pluginDir, PLUGIN_INGRESS_MANIFEST_RELPATH), {
+      throwIfNoEntry: false,
+    })?.isFile() === true
+  );
+}
+
+/**
+ * Every channel brought by an installed, enabled plugin.
  *
  * Disabled plugins are skipped, matching the source of truth the loader uses
- * for hooks, tools and routes: a disabled plugin holds no channel either, and
- * one that reappeared in this list would offer a setup flow that cannot run.
+ * for hooks, tools and routes: a disabled plugin holds no ingress either, and
+ * one that reappeared here would offer a setup flow that cannot run.
  *
  * Order follows the plugins directory, and is stable for a stable install set.
  */
-export function discoverPluginChannels(): PluginChannelDiscovery {
-  const channels: PluginChannelDeclaration[] = [];
-  const problems: PluginChannelProblem[] = [];
+export async function discoverPluginChannels(): Promise<PluginChannel[]> {
+  const channels: PluginChannel[] = [];
 
   for (const { name, dir } of listInstalledPluginDirs()) {
-    if (isPluginDisabled(name)) {
+    if (isPluginDisabled(name) || !declaresIngress(dir)) {
       continue;
     }
-    const result = readDeclaration(name, dir);
-    if (!result) {
-      continue;
-    }
-    if ("reason" in result) {
-      problems.push(result);
-    } else {
-      channels.push(result);
-    }
+    const presentation = await parsePluginPresentation(dir);
+    channels.push({
+      id: `${PLUGIN_CHANNEL_ID_PREFIX}${name}`,
+      plugin: name,
+      label: presentation?.displayName ?? titleFromDirectory(name),
+      description: presentation?.description,
+      icon: presentation?.icon,
+    });
   }
 
-  return { channels, problems };
+  return channels;
 }
