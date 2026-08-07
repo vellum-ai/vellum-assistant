@@ -66,20 +66,6 @@ import { readOnboardingActive } from "./window-state";
 
 export interface TrayHandlers {
   /**
-   * Whether a live-voice session is running, which is the only time reopening
-   * the floating panel means anything.
-   *
-   * Injected like every other handler rather than imported: the tray is built
-   * on every menu open, and reaching into the panel module directly would pull
-   * its window and store dependencies into the tray's own graph.
-   */
-  isVoicePanelAvailable(): boolean;
-  /**
-   * Show the floating voice panel again. The way back from its close button,
-   * which hides the window without ending the call.
-   */
-  showVoicePanel(): void;
-  /**
    * Bound to the tray's left click and the "Show / Hide Main Window"
    * menu item: if the main window is visible and focused, hide it;
    * otherwise show + focus + (recreate if previously destroyed).
@@ -321,18 +307,6 @@ const buildTrayMenu = (
       label: "Show / Hide Main Window",
       click: handlers.toggleMainWindow,
     },
-    // Only while a call is running, because reopening is meaningless
-    // otherwise. This is the way back from the panel's close button: closing
-    // it never ends the session, so without this a closed panel would leave a
-    // live microphone with no floating control until the call ended.
-    ...(handlers.isVoicePanelAvailable()
-      ? [
-          {
-            label: "Show Voice Panel",
-            click: handlers.showVoicePanel,
-          },
-        ]
-      : []),
     { type: "separator" },
     {
       label: "Settings\u2026",
