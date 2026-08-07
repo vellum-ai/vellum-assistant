@@ -3,9 +3,8 @@
  * about it.
  *
  * A plugin channel's routes are served only once a guardian approves the
- * declaration behind them, and until then every delivery is refused. That
- * state lives in the gateway, not the assistant, which is why it is read here
- * rather than alongside the channel list.
+ * declaration behind them. That state lives in the gateway, not the assistant,
+ * which is why it is read here rather than alongside the channel list.
  *
  * Approving names the digest the listing reported. The gateway refuses a
  * digest that is not what the plugin declares right now, so a manifest that
@@ -21,31 +20,56 @@ import {
   assistantChannelIngressListQueryKey,
   assistantChannelIngressRevokeMutation,
 } from "@/generated/gateway/@tanstack/react-query.gen";
+import { httpStatusFromError, shouldRetryQuery } from "@/utils/query-retry";
 
 export type IngressState = "approved" | "pending" | "none";
+
+/** One declared address, and whether the approval decides anything for it. */
+export interface IngressPath {
+  path: string;
+  /**
+   * False for a `signer: "vellum"` route, which the gateway serves without an
+   * approval and keeps serving after a revocation. Saying otherwise would tell
+   * a guardian that public ingress is closed when it is open.
+   */
+  approvalGoverned: boolean;
+}
 
 export interface ChannelIngress {
   /** `none` when the gateway reports no declaration for this plugin at all. */
   state: IngressState;
-  /** Digest to approve. Undefined when there is nothing declared. */
-  digest?: string;
-  /** Public paths the declaration would open, for the guardian to read. */
-  paths: string[];
+  paths: IngressPath[];
   /** True while a decision is in flight. */
   deciding: boolean;
-  /** Whether the gateway could be asked at all (older ones have no endpoint). */
+  /**
+   * Whether this gateway can be asked at all. False only for the two answers
+   * that mean "no decision exists here": a build predating the endpoint, and a
+   * viewer who is not this assistant's guardian.
+   */
   available: boolean;
   approve: () => void;
   revoke: () => void;
+  /** A failure worth showing, as opposed to one that means "not available". */
   error: string | null;
 }
 
 /**
- * A gateway without the endpoint answers 404, and an assistant whose guardian
- * this viewer is not answers 403. Neither is worth an error banner on a
- * settings page: both mean "no decision to offer here", so the panel hides the
- * control rather than reporting a failure the viewer cannot act on.
+ * Statuses that mean the surface does not exist for this caller, rather than
+ * that a request failed.
+ *
+ * A gateway predating the endpoint answers 404, and a viewer who is not the
+ * bound guardian gets 401/403. Neither has a decision to offer, so the control
+ * is absent rather than broken. Everything else, a 5xx or a network failure,
+ * stays visible and reports itself: silently removing the approval on a blip
+ * would tell a guardian there is nothing to decide.
  */
+const SURFACE_ABSENT_STATUSES = new Set([401, 403, 404, 501]);
+
+export function isSurfaceAbsent(error: unknown): boolean {
+  const status = httpStatusFromError(error);
+  return status !== undefined && SURFACE_ABSENT_STATUSES.has(status);
+}
+
 export function useChannelIngress(
   assistantId: string,
   plugin: string,
@@ -53,10 +77,10 @@ export function useChannelIngress(
   const queryClient = useQueryClient();
   const path = { assistant_id: assistantId };
 
-  const { data, isError } = useQuery({
+  const query = useQuery({
     ...assistantChannelIngressListOptions({ path }),
     enabled: Boolean(assistantId),
-    retry: false,
+    retry: shouldRetryQuery,
   });
 
   const invalidate = () =>
@@ -73,15 +97,20 @@ export function useChannelIngress(
     onSuccess: invalidate,
   });
 
-  const entry = data?.sources?.find((source) => source.source === plugin);
-  const failure = approval.error ?? revocation.error;
+  const entry = query.data?.sources?.find((source) => source.source === plugin);
+  const surfaceAbsent = query.isError && isSurfaceAbsent(query.error);
+  const failure =
+    approval.error ?? revocation.error ?? (surfaceAbsent ? null : query.error);
 
   return {
     state: entry ? entry.state : "none",
-    digest: entry?.digest,
-    paths: entry?.routes?.map((route) => route.publicPath) ?? [],
+    paths:
+      entry?.routes?.map((route) => ({
+        path: route.publicPath,
+        approvalGoverned: route.signer !== "vellum",
+      })) ?? [],
     deciding: approval.isPending || revocation.isPending,
-    available: !isError,
+    available: !surfaceAbsent,
     approve: () => {
       if (entry?.digest) {
         approval.mutate({

@@ -1619,7 +1619,7 @@ async function main() {
       handler: (req, params) => handleChannelIngressRevoke(req, params[0]!),
     },
 
-    // ── Channel ingress — assistant-scoped variants ──
+    // ── Channel ingress: assistant-scoped variants ──
     // Same handlers, same guardian auth, reached through the prefix a client
     // built on the platform's addressing produces. Approvals are
     // gateway-global, so the assistant id is matched and discarded, the same

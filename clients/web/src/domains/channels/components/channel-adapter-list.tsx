@@ -72,10 +72,10 @@ export function ChannelAdapterList({
             <div className="flex flex-col gap-1">
               {pluginChannels.map((channel) => (
                 <PluginRow
-                  key={channel.id}
+                  key={channel.key}
                   channel={channel}
-                  selected={channel.id === selectedKey}
-                  onClick={() => onSelect(channel.id)}
+                  selected={channel.key === selectedKey}
+                  onClick={() => onSelect(channel.key)}
                 />
               ))}
             </div>

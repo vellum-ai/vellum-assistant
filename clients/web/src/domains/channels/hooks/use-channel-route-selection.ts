@@ -2,9 +2,7 @@
  * The Channels rail's selection, held in the URL.
  *
  * `/assistant/channels/telegram` names the row on screen, so a selection can
- * be linked, bookmarked and reloaded onto. The alternative this replaces was a
- * module-level store, which survived a remount but left every channel sharing
- * one address.
+ * be linked, bookmarked and reloaded onto.
  *
  * Navigation replaces rather than pushes: moving between rows of one settings
  * page is not a step someone wants to walk back through, and pushing would

@@ -14,20 +14,26 @@ import { cleanup, render } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 
 import { PluginChannelPanel } from "@/domains/channels/components/plugin-channel-panel";
+import { isSurfaceAbsent } from "@/domains/channels/hooks/use-channel-ingress";
 import { assistantChannelIngressListQueryKey } from "@/generated/gateway/@tanstack/react-query.gen";
 import type { PluginChannelSummary } from "@/types/channel-types";
 
 const ASSISTANT_ID = "assistant-1";
 
 const CHANNEL: PluginChannelSummary = {
-  id: "courier",
+  plugin: "courier",
+  key: "plugins-courier",
   label: "Courier",
   description: "Reach the assistant by carrier pigeon.",
   icon: "send",
 };
 
 const ROUTES = [
-  { path: "events", publicPath: "/webhooks/plugins/courier/events" },
+  {
+    path: "events",
+    publicPath: "/webhooks/plugins/courier/events",
+    signer: "plugin",
+  },
 ];
 
 afterEach(() => {
@@ -140,5 +146,77 @@ describe("PluginChannelPanel", () => {
     renderPanel();
 
     expect(document.body.textContent).toContain("Open Courier settings");
+  });
+
+  test("does not claim a route is refused when approval does not govern it", () => {
+    // The gateway serves a `vellum`-signed route out of a pending declaration,
+    // so folding it into the refusal would tell a guardian that public ingress
+    // is closed while it is open.
+    renderPanel([
+      {
+        source: "courier",
+        state: "pending",
+        digest: "d".repeat(32),
+        routes: [
+          ...ROUTES,
+          {
+            path: "ours",
+            publicPath: "/webhooks/plugins/courier/ours",
+            signer: "vellum",
+          },
+        ],
+      },
+    ]);
+
+    expect(document.body.textContent).toContain(
+      "open whatever you decide, because only Vellum can reach them",
+    );
+    expect(document.body.textContent).toContain(
+      "/webhooks/plugins/courier/ours",
+    );
+    expect(document.body.textContent).toContain(
+      "deliveries to them are refused",
+    );
+  });
+
+  test("says nothing about refusal when no address is approval-governed", () => {
+    // Every route already open. There is a decision to record, but claiming
+    // deliveries are refused would be false for all of them.
+    renderPanel([
+      {
+        source: "courier",
+        state: "pending",
+        digest: "d".repeat(32),
+        routes: [
+          {
+            path: "ours",
+            publicPath: "/webhooks/plugins/courier/ours",
+            signer: "vellum",
+          },
+        ],
+      },
+    ]);
+
+    expect(document.body.textContent).not.toContain(
+      "deliveries to them are refused",
+    );
+  });
+});
+
+describe("isSurfaceAbsent", () => {
+  test("treats a missing endpoint and a non-guardian viewer as no surface", () => {
+    // A gateway predating the endpoint 404s; a viewer who is not the bound
+    // guardian gets 401/403. Neither has a decision to offer.
+    for (const status of [401, 403, 404, 501]) {
+      expect(isSurfaceAbsent({ status })).toBe(true);
+    }
+  });
+
+  test("keeps the surface for an outage, which is reportable and retryable", () => {
+    // Hiding the approval on a 5xx or a dropped connection would tell a
+    // guardian there is nothing to decide, and nothing would bring it back.
+    expect(isSurfaceAbsent({ status: 500 })).toBe(false);
+    expect(isSurfaceAbsent({ status: 502 })).toBe(false);
+    expect(isSurfaceAbsent(new Error("network down"))).toBe(false);
   });
 });

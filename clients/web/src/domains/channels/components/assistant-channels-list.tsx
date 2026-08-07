@@ -203,7 +203,7 @@ export function AssistantChannelsList({
   // when its plugin is uninstalled or disabled, so the lookup falls through to
   // the adapters rather than leaving the panel empty.
   const selectedPlugin = pluginChannels.find(
-    (channel) => channel.id === selectedAdapter,
+    (channel) => channel.key === selectedAdapter,
   );
   const selected = selectedPlugin
     ? undefined
@@ -214,14 +214,14 @@ export function AssistantChannelsList({
     return null;
   }
 
-  const selectedKey = selectedPlugin ? selectedPlugin.id : selected!.key;
+  const selectedKey = selectedPlugin ? selectedPlugin.key : selected!.key;
 
   // Keyed on the adapter so switching selection remounts the panel: its
   // credential-form state (`initialManualEntry`) is seeded once at mount,
   // and each adapter should start fresh.
   const detail = selectedPlugin ? (
     <PluginChannelPanel
-      key={selectedPlugin.id}
+      key={selectedPlugin.key}
       channel={selectedPlugin}
       assistantId={assistantId}
     />

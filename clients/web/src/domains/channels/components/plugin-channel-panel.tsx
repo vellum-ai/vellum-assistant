@@ -3,7 +3,10 @@ import { useNavigate } from "react-router";
 import { Button } from "@vellumai/design-library/components/button";
 import { Tag } from "@vellumai/design-library/components/tag";
 
-import { useChannelIngress } from "@/domains/channels/hooks/use-channel-ingress";
+import {
+  useChannelIngress,
+  type IngressPath,
+} from "@/domains/channels/hooks/use-channel-ingress";
 import { PluginChannelIcon } from "@/utils/channel-presentation";
 import type { PluginChannelSummary } from "@/types/channel-types";
 
@@ -31,7 +34,7 @@ export function PluginChannelPanel({
   assistantId,
 }: PluginChannelPanelProps) {
   const navigate = useNavigate();
-  const ingress = useChannelIngress(assistantId, channel.id);
+  const ingress = useChannelIngress(assistantId, channel.plugin);
 
   return (
     <div className="flex flex-col items-center gap-3 py-10 text-center">
@@ -59,13 +62,14 @@ export function PluginChannelPanel({
       {/* Hidden when the gateway cannot answer: one predating the endpoint, or
           a viewer who is not this assistant's guardian. Neither has a decision
           to offer, and an error banner would report a failure the viewer
-          cannot act on. */}
+          cannot act on. A 5xx or a network failure is not that case and keeps
+          the control, which reports the failure and retries. */}
       {ingress.available && ingress.state !== "none" ? (
         <IngressDecision channel={channel} ingress={ingress} />
       ) : null}
 
       <Button
-        onClick={() => navigate(`/assistant/plugins/${channel.id}`)}
+        onClick={() => navigate(`/assistant/plugins/${channel.plugin}`)}
         variant="outlined"
       >
         Open {channel.label} settings
@@ -82,12 +86,20 @@ interface IngressDecisionProps {
 /**
  * The approve / revoke control, and what it is a decision about.
  *
- * The paths are listed rather than summarised: approving opens them to the
+ * The addresses are listed rather than summarised: approving opens them to the
  * public internet, so what is being granted should be readable before the
  * click rather than described in the abstract.
+ *
+ * A declaration can carry addresses the approval does not govern, which the
+ * gateway serves whether or not a guardian ever decides. Those are listed
+ * apart, because folding them into the refusal would tell a guardian that
+ * public ingress is closed while it is open, and because revoking will not
+ * close them either.
  */
 function IngressDecision({ channel, ingress }: IngressDecisionProps) {
   const approved = ingress.state === "approved";
+  const governed = ingress.paths.filter((entry) => entry.approvalGoverned);
+  const ungoverned = ingress.paths.filter((entry) => !entry.approvalGoverned);
 
   return (
     <div className="flex flex-col items-center gap-3">
@@ -95,26 +107,32 @@ function IngressDecision({ channel, ingress }: IngressDecisionProps) {
         {approved ? "Ingress approved" : "Ingress awaiting approval"}
       </Tag>
 
-      <p
-        className="max-w-[420px] text-body-small-default"
-        style={{ color: "var(--content-secondary)" }}
-      >
-        {approved
-          ? `${channel.label} receives messages at these addresses:`
-          : `${channel.label} asks to receive messages at these addresses. Until you approve, deliveries to them are refused:`}
-      </p>
-
-      <ul className="flex flex-col gap-1">
-        {ingress.paths.map((path) => (
-          <li
-            key={path}
-            className="font-mono text-body-small-default"
+      {governed.length > 0 ? (
+        <>
+          <p
+            className="max-w-[420px] text-body-small-default"
             style={{ color: "var(--content-secondary)" }}
           >
-            {path}
-          </li>
-        ))}
-      </ul>
+            {approved
+              ? `${channel.label} receives messages at these addresses:`
+              : `${channel.label} asks to receive messages at these addresses. Until you approve, deliveries to them are refused:`}
+          </p>
+          <PathList paths={governed} />
+        </>
+      ) : null}
+
+      {ungoverned.length > 0 ? (
+        <>
+          <p
+            className="max-w-[420px] text-body-small-default"
+            style={{ color: "var(--content-secondary)" }}
+          >
+            These addresses are open whatever you decide, because only Vellum
+            can reach them:
+          </p>
+          <PathList paths={ungoverned} />
+        </>
+      ) : null}
 
       <Button
         onClick={approved ? ingress.revoke : ingress.approve}
@@ -133,5 +151,21 @@ function IngressDecision({ channel, ingress }: IngressDecisionProps) {
         </p>
       ) : null}
     </div>
+  );
+}
+
+function PathList({ paths }: { paths: IngressPath[] }) {
+  return (
+    <ul className="flex flex-col gap-1">
+      {paths.map((entry) => (
+        <li
+          key={entry.path}
+          className="font-mono text-body-small-default"
+          style={{ color: "var(--content-secondary)" }}
+        >
+          {entry.path}
+        </li>
+      ))}
+    </ul>
   );
 }
