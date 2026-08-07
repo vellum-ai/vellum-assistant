@@ -9,14 +9,53 @@ import {
 } from "bun:test";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 
-import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import type { BillingSummaryResponse } from "@/generated/api/types.gen";
+import * as sdkGen from "@/generated/api/sdk.gen";
 import { __resetForTesting, publish } from "@/lib/event-bus";
 import { routes } from "@/utils/routes";
+import * as capacitorCore from "@capacitor/core";
 
 let nativeAndroid = false;
+// Drives `Capacitor.isNativePlatform()`, which `checkoutReturnTarget()` reads
+// to pick the custom-scheme return on the Capacitor shells.
+let nativePlatform = false;
+
+type Captured = { body?: unknown };
+const checkoutCalls: Captured[] = [];
+
+const SUMMARY: BillingSummaryResponse = {
+  settled_balance: "20.00",
+  minimum_top_up: "5.00",
+  maximum_top_up: "100.00",
+  maximum_balance: "500.00",
+  allowed_top_up_amounts: ["5.00", "10.00", "25.00"],
+  settled_balance_usd: "20.00",
+  minimum_top_up_usd: "5.00",
+  maximum_top_up_usd: "100.00",
+  maximum_balance_usd: "500.00",
+  pending_compute: "0.00",
+  pending_compute_usd: "0.00",
+  effective_balance: "20.00",
+  effective_balance_usd: "20.00",
+  is_degraded: false,
+  daily_credit_limit_usd: null,
+  daily_spend_usd: "0.00",
+  daily_limit_reached: false,
+  low_balance_threshold_usd: "5.00",
+  low_balance_warning: false,
+  credits_expiring_soon_usd: "0.00",
+  next_credit_expiry_at: null,
+};
 
 mock.module("@/runtime/browser", () => ({
   openUrl: () => Promise.resolve(),
@@ -27,6 +66,32 @@ mock.module("@/runtime/platform-detection", () => ({
   useIsNativeAndroid: () => nativeAndroid,
 }));
 
+mock.module("@capacitor/core", () => ({
+  ...capacitorCore,
+  Capacitor: {
+    ...capacitorCore.Capacitor,
+    isNativePlatform: () => nativePlatform,
+  },
+}));
+
+mock.module("@/generated/api/sdk.gen", () => ({
+  ...sdkGen,
+  organizationsBillingSummaryRetrieve: () =>
+    Promise.resolve({ data: SUMMARY, response: { ok: true } }),
+  organizationsBillingTopUpsCheckoutSessionCreate: (opts: Captured) => {
+    checkoutCalls.push(opts);
+    return Promise.resolve({
+      data: {
+        billing_top_up_id: "top-up-123",
+        checkout_url: "https://stripe.test/checkout/session",
+        requested_amount: "5.00",
+        requested_amount_usd: "5.00",
+      },
+      response: { ok: true },
+    });
+  },
+}));
+
 const { AddCreditsModal } = await import("@/components/add-credits-modal");
 
 beforeEach(() => {
@@ -35,6 +100,9 @@ beforeEach(() => {
 
 afterEach(() => {
   nativeAndroid = false;
+  nativePlatform = false;
+  delete (window as { vellum?: unknown }).vellum;
+  checkoutCalls.length = 0;
   cleanup();
   __resetForTesting();
 });
@@ -87,14 +155,61 @@ describe("AddCreditsModal", () => {
   });
 });
 
+describe("AddCreditsModal checkout return_target", () => {
+  // The platform uses `return_target` to decide whether checkout finishes on
+  // a web return URL or the custom-scheme bounce. Dropping it from the body
+  // silently strands Electron/iOS users in the external browser, so these
+  // tests pin the pass-through of `checkoutReturnTarget()`.
+
+  async function submitCheckout(): Promise<Captured> {
+    renderModal();
+
+    const button = screen.getByRole("button", {
+      name: "Continue",
+    }) as HTMLButtonElement;
+    // Enabled only once the billing summary has loaded.
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(checkoutCalls.length).toBe(1));
+    return checkoutCalls[0]!;
+  }
+
+  test('sends return_target "web" in a plain browser', async () => {
+    const call = await submitCheckout();
+
+    expect(call.body).toMatchObject({
+      amount: "5.00",
+      return_target: "web",
+    });
+  });
+
+  test('sends return_target "native" on a Capacitor shell', async () => {
+    nativePlatform = true;
+
+    const call = await submitCheckout();
+
+    expect(call.body).toMatchObject({ return_target: "native" });
+  });
+
+  test('sends return_target "native" inside the Electron shell', async () => {
+    (window as { vellum?: unknown }).vellum = { platform: "electron" };
+
+    const call = await submitCheckout();
+
+    expect(call.body).toMatchObject({ return_target: "native" });
+  });
+});
+
 describe("AddCreditsModal checkout-complete deep-link cleanup", () => {
   // On Electron the Capacitor `browserFinished` listener never fires, so
   // the `flow=top_up` checkout-complete deep link is the only signal that
   // the system-browser checkout is over. The modal must dismiss itself on
   // it (both outcomes) so it does not sit over the success toast or the
-  // billing page's cancel-triggered bonus-offer flow.
+  // billing page's cancel-triggered bonus-offer flow. Closing is ALL it
+  // does: the success toast and the billing-summary invalidation are owned
+  // by `useGlobalDeepLinkConsumer` via `notifyCheckoutSuccess`.
 
-  test("closes and refetches the billing summary on a top_up success return", () => {
+  test("closes on a top_up success return without invalidating the summary itself", () => {
     const onOpenChange = mock((_open: boolean) => undefined);
     const { client } = renderModal(onOpenChange);
     const invalidateSpy = spyOn(client, "invalidateQueries");
@@ -108,10 +223,7 @@ describe("AddCreditsModal checkout-complete deep-link cleanup", () => {
     });
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
-    expect(invalidateSpy).toHaveBeenCalledTimes(1);
-    expect(invalidateSpy.mock.calls[0]?.[0]).toMatchObject({
-      queryKey: organizationsBillingSummaryRetrieveOptions().queryKey,
-    });
+    expect(invalidateSpy).not.toHaveBeenCalled();
   });
 
   test("closes on a top_up cancel return too, before the bonus-offer flow lands", () => {
