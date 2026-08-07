@@ -487,27 +487,30 @@ describe("Pinned section, gate open", () => {
       .setIdentity("test-asst", "0.12.0", "asst-1");
   }
 
-  /* Regression: the daemon orders user-ordered groups by
-     `COALESCE(display_order, 999999) ASC` then by recency, and pinning writes
-     no `displayOrder`. So the server hands back activity order, while pinned
-     rows are supposed to hold their place regardless of activity. Asserting
-     the order flips, not merely that rows arrive: with the client sort
-     removed this returns the server's order and fails. */
-  test("holds creation order when the server answers in activity order", () => {
+  /* The server's order is the rendered order. Pinned used to re-sort the
+     response client side so a drag-reordered arrangement held regardless of
+     activity; LUM-3108 removed drag-reorder, so there is one order and the
+     client no longer second-guesses it.
+
+     `createdAt` and `displayOrder` both contradict the server's order here, so
+     re-introducing either comparator flips the result and fails this. */
+  test("renders the server's order as-is", () => {
     openGate();
-    const stale = makeConversation(1, {
-      conversationId: "pin-newest-created",
-      isPinned: true,
-      groupId: "system:pinned",
-      createdAt: 3_000,
-      lastMessageAt: 10,
-    });
-    const busy = makeConversation(2, {
-      conversationId: "pin-oldest-created",
+    const busy = makeConversation(1, {
+      conversationId: "pin-busy",
       isPinned: true,
       groupId: "system:pinned",
       createdAt: 1_000,
+      displayOrder: 1,
       lastMessageAt: 9_999,
+    });
+    const stale = makeConversation(2, {
+      conversationId: "pin-stale",
+      isPinned: true,
+      groupId: "system:pinned",
+      createdAt: 3_000,
+      displayOrder: 0,
+      lastMessageAt: 10,
     });
     // Server order: most recent activity first.
     sectionRows = [busy, stale];
@@ -518,37 +521,8 @@ describe("Pinned section, gate open", () => {
 
     const pinned = result.current.sections.find((s) => s.type === "pinned");
     expect(pinned?.all.map((c) => c.conversationId)).toEqual([
-      "pin-newest-created",
-      "pin-oldest-created",
-    ]);
-  });
-
-  test("honours an explicit displayOrder ahead of creation order", () => {
-    openGate();
-    const first = makeConversation(3, {
-      conversationId: "pin-dragged-first",
-      isPinned: true,
-      groupId: "system:pinned",
-      displayOrder: 0,
-      createdAt: 1_000,
-    });
-    const second = makeConversation(4, {
-      conversationId: "pin-dragged-second",
-      isPinned: true,
-      groupId: "system:pinned",
-      displayOrder: 1,
-      createdAt: 9_000,
-    });
-    sectionRows = [second, first];
-
-    const { result } = renderHook(() =>
-      useSidebarState({ assistantId: "asst-1", conversations: [] }),
-    );
-
-    const pinned = result.current.sections.find((s) => s.type === "pinned");
-    expect(pinned?.all.map((c) => c.conversationId)).toEqual([
-      "pin-dragged-first",
-      "pin-dragged-second",
+      "pin-busy",
+      "pin-stale",
     ]);
   });
 

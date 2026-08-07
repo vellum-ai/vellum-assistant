@@ -33,7 +33,6 @@ import { SideMenuOverlayBottomColumn } from "@/domains/chat/components/side-menu
 import { SidebarViewModeSelect } from "@/domains/chat/components/sidebar-view-mode-select";
 import { SidebarBackToTop } from "@/domains/chat/components/sidebar-back-to-top";
 import { SidebarConversationSkeleton } from "@/domains/chat/components/sidebar-conversation-skeleton";
-import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
 import { useSectionDragReorder } from "@/domains/chat/hooks/use-section-drag-reorder";
 import { useScrolledPast } from "@/domains/chat/hooks/use-scrolled-past";
 import {
@@ -76,13 +75,6 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onClose?: () => void;
 
   onPinConversation?: (conversation: Conversation) => void;
-  /**
-   * Persist a drag-reorder within a section. Receives the section's full
-   * conversation list in its new order. When omitted, rows aren't draggable.
-   * Only sections that honor `displayOrder` (Pinned, custom groups) offer
-   * drag-reordering — Recents and channel sections stay recency-sorted.
-   */
-  onReorderConversations?: (conversations: Conversation[]) => void;
   onRenameConversation?: (conversation: Conversation) => void;
   onArchiveConversation?: (conversation: Conversation) => void;
   onUnarchiveConversation?: (conversation: Conversation) => void;
@@ -207,7 +199,6 @@ export function AssistantSideMenu({
   footerAction,
   tipCard,
   onPinConversation,
-  onReorderConversations,
   onRenameConversation,
   onArchiveConversation,
   onUnarchiveConversation,
@@ -263,14 +254,8 @@ export function AssistantSideMenu({
   // variant is up, so a stale value from a dismissed overlay is inert.
   const [overlayBottomColumnHeight, setOverlayBottomColumnHeight] = useState(0);
 
-  // --- Drag-reorder (Pinned + custom groups; sections sorted by displayOrder) ---
-
-  const dragReorder = useDragReorder<Conversation>({
-    getId: (c) => c.conversationId,
-    onReorder: (_section, ordered) => onReorderConversations?.(ordered),
-  });
-
-  // Whole-section reordering, separate from the row-level controller above.
+  // Whole-section reordering. Rows themselves do not reorder: every section
+  // is recency-sorted (LUM-3108).
   const sectionDragFor = useSectionDragReorder({
     sections: sidebar.sections,
     onReorder: sidebar.onReorderSections,
@@ -350,8 +335,6 @@ export function AssistantSideMenu({
     onMoveToGroup,
     onCreateGroupInto,
     onRemoveFromGroup,
-    dragReorder,
-    canReorder: !!onReorderConversations,
   };
 
   // Header actions for one section: the bulk actions every section shares,

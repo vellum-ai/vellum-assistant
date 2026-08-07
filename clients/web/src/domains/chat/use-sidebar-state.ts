@@ -34,7 +34,6 @@ import type {
   ConversationGroup,
 } from "@/types/conversation-types";
 import {
-  compareByDisplayOrder,
   groupConversations,
   type CustomGroup,
 } from "@/domains/chat/utils/group-conversations";
@@ -302,30 +301,18 @@ export function useSidebarState({
     [allConversations, conversationGroups, viewMode],
   );
 
-  /* Re-apply the pinned comparator to the server's rows. The daemon orders
-     user-ordered groups by `COALESCE(display_order, 999999) ASC` then by
-     recency, and pinning writes no `displayOrder`, so for anyone who has
-     never drag-reordered every row ties at the sentinel and falls through to
-     activity order. Left alone, a pinned conversation would jump to the top
-     of Pinned whenever a message landed in it, which is exactly what
-     `compareByCreatedAt` exists to prevent. Copy before sorting: this array
-     is the query cache's own. */
-  const pinnedFromQuerySorted = useMemo(
-    () => [...pinnedFromQuery].sort(compareByDisplayOrder),
-    [pinnedFromQuery],
-  );
-
   /* Keep painting the derived rows until the section query has answered once.
      `pinnedFromQuery` is empty while pending, and an empty Pinned section is
      dropped entirely below, so switching on the gate alone would hide Pinned
      on every cold load until a multi-page drain finished. The derived list is
      a subset (the pinned rows that happen to be in the foreground page), so
      this paints immediately and fills in. `isPending` is false once data has
-     landed, so a later refetch never falls back. */
+     landed, so a later refetch never falls back.
+
+     The server's order is rendered as-is. Every section, this one included,
+     is ordered by recency now that nothing writes `display_order`. */
   const pinnedConversations =
-    supportsGroupFilter && !pinnedPending
-      ? pinnedFromQuerySorted
-      : grouped.pinned;
+    supportsGroupFilter && !pinnedPending ? pinnedFromQuery : grouped.pinned;
 
   // --- Section order ---
 

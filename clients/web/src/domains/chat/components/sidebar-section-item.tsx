@@ -4,11 +4,8 @@
  * This is the single render path for Pinned, Chats, every origin-channel
  * section, and every custom group - which is what keeps their spacing and
  * header treatment identical and lets the user interleave them freely
- * (LUM-2909). Only three things vary by type, and they're all here:
+ * (LUM-2909). Only two things vary by type, and they're both here:
  *
- * - **Whether rows drag.** Only the sections that honor `displayOrder`
- *   (Pinned, custom groups) offer row-level reordering - the rest stay
- *   recency-sorted, so dragging a row in them would have nothing to persist.
  * - **Whether the header carries a "…" button.** The curated sections (Pinned
  *   and the custom groups) get one, so their actions are reachable without
  *   knowing to right-click. It reveals on hover; the derived sections (Chats,
@@ -44,21 +41,6 @@ export interface SidebarSectionItemProps {
   collapsedIndicator?: ReactNode;
 }
 
-/**
- * Row-list props for a section. Both branches carry the same keys so the
- * spread below stays a single object type rather than a union.
- */
-function rowListPropsFor(section: SidebarSection) {
-  if (section.type === "recents" || section.type === "channel") {
-    return { items: section.all, dragSection: undefined };
-  }
-  return {
-    items: section.all,
-    dragSection:
-      section.type === "pinned" ? "pinned" : `group:${section.key}`,
-  };
-}
-
 export function SidebarSectionItem({
   section,
   groupMenu,
@@ -85,7 +67,7 @@ export function SidebarSectionItem({
       // rest). It is the one section that never caps/scrolls internally:
       // it grows to fit its own rows instead.
       unbounded={section.type === "pinned"}
-      {...rowListPropsFor(section)}
+      items={section.all}
     />
   );
 }

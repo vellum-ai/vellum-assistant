@@ -57,21 +57,14 @@ const CHATS: Conversation[] = [
 
 /**
  * Rows read their callbacks and active/processing state from context, so
- * every story provides one. Drag-reorder is off, which is what a
- * non-reorderable section passes in the app.
+ * every story provides one.
  */
-const LIST_CONTEXT = {
+const LIST_CONTEXT: React.ComponentProps<
+  typeof ConversationListProvider
+>["value"] = {
   activeConversationId: "c1",
   onSelect: () => {},
-  canReorder: false,
-  dragReorder: {
-    draggingId: null,
-    dropIndicator: null,
-    getItemProps: () => ({}),
-  },
-} as unknown as React.ComponentProps<
-  typeof ConversationListProvider
->["value"];
+};
 
 /**
  * A section's own actions, as the sidebar wires them. Deliberately the real
@@ -230,7 +223,11 @@ export const SectionMenuVersusRowMenu: Story = {
     items: CHATS.slice(0, 4),
     groupMenu: GROUP_MENU,
     trailing: (
-      <GroupActionsMenu label="Chats" footer={GROUP_BY_FOOTER} {...GROUP_MENU} />
+      <GroupActionsMenu
+        label="Chats"
+        footer={GROUP_BY_FOOTER}
+        {...GROUP_MENU}
+      />
     ),
   },
   render: (args) => (

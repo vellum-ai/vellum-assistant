@@ -94,28 +94,10 @@ mock.module("@/domains/chat/components/thread-status-indicator", () => ({
 import { ConversationRow } from "@/domains/chat/components/conversation-row";
 import { ConversationListProvider } from "@/domains/chat/components/conversation-list-context";
 import type { ConversationListContextValue } from "@/domains/chat/components/conversation-list-context";
-import type { UseDragReorderResult } from "@/domains/chat/hooks/use-drag-reorder";
 import type { Conversation } from "@/types/conversation-types";
 
-const stubDragReorder: UseDragReorderResult<Conversation> = {
-  getItemProps: () => ({
-    draggable: true,
-    onDragStart: () => {},
-    onDragOver: () => {},
-    onDragLeave: () => {},
-    onDrop: () => {},
-    onDragEnd: () => {},
-  }),
-  draggingId: null,
-  dropIndicator: null,
-};
-
 function renderRow(onSelect: (id: string) => void) {
-  const ctx: ConversationListContextValue = {
-    onSelect,
-    dragReorder: stubDragReorder,
-    canReorder: false,
-  };
+  const ctx: ConversationListContextValue = { onSelect };
   return render(
     createElement(
       ConversationListProvider,
