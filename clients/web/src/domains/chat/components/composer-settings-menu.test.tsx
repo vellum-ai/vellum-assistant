@@ -655,8 +655,8 @@ describe("compact composer collapse", () => {
 
   test("folds both segments into one hamburger trigger", async () => {
     // The composer mounts only the access-segment instance when compact, so
-    // that instance has to carry the model profile too — otherwise the picker
-    // is unreachable on a narrow window.
+    // that instance has to carry the model profile too, or the picker is
+    // unreachable on a narrow window.
     renderCompact("access");
 
     const trigger = await screen.findByLabelText(

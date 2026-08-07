@@ -493,7 +493,7 @@ export function ChatComposer({
   // Narrow-card collapse: below the compact width the labelled access and
   // model-profile triggers collide, so the pair folds into one hamburger menu
   // (mounted in the access slot, keeping the row's attach | settings | mic |
-  // voice order). Mobile is excluded — its triggers are already icon-only and
+  // voice order). Mobile is excluded: its triggers are already icon-only and
   // open bottom sheets, which fit.
   const composerCardRef = useRef<HTMLFormElement>(null);
   const compactSettings =

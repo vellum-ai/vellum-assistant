@@ -68,7 +68,7 @@ interface Props {
    * right beside the mic), mounting one instance per side. Server state
    * is TanStack-Query-cached, so the two instances share fetches.
    *
-   * Ignored when the surrounding composer is compact — the row then holds a
+   * Ignored when the surrounding composer is compact: the row then holds a
    * single instance whose hamburger menu carries both sections.
    */
   segments?: "both" | "access" | "profile";
@@ -82,7 +82,7 @@ export function ComposerSettingsMenu({
   const isMobile = useIsMobile();
   // A composer too narrow for two labelled triggers folds both segments into
   // one hamburger menu. The composer mounts a single instance in that mode
-  // (see `ChatComposer`'s action row), so `segments` is ignored here — the one
+  // (see `ChatComposer`'s action row), so `segments` is ignored here: the one
   // menu holds both sections.
   const compact = useComposerCompact() && !isMobile;
   const queryClient = useQueryClient();
@@ -692,7 +692,7 @@ export function ComposerSettingsMenu({
   );
 
   if (compact) {
-    // One trigger, one menu, both sections — the row keeps its
+    // One trigger, one menu, both sections, so the row keeps its
     // attach | settings | mic | voice order and nothing collides. The access
     // section waits on a settled fetch (same gate as `showAccess`) so it never
     // flashes the fallback preset, but the trigger itself is always mounted:

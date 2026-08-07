@@ -9,7 +9,7 @@ import {
 
 /**
  * Composer card width (px) below which the action row can no longer hold the
- * labelled access + model-profile triggers side by side — they run into each
+ * labelled access + model-profile triggers side by side: they run into each
  * other and the two labels render on top of one another. Below this the pair
  * collapses into a single hamburger menu holding both sections.
  *
