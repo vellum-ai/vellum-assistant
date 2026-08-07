@@ -1,0 +1,48 @@
+{
+  "workspaceTree": {
+    "heading": "Files",
+    "newFile": "New File",
+    "newFolder": "New Folder",
+    "delete": "Delete",
+    "rename": "Rename",
+    "renaming": "Renaming…",
+    "create": "Create",
+    "creating": "Creating…",
+    "creatingHeading": "Create new",
+    "createTriggerAria": "Create new file or folder",
+    "createTriggerTitle": "New file or folder",
+    "nameLabel": "Name",
+    "nameError": "Enter a single file or folder name without slashes.",
+    "cancel": "Cancel",
+    "sortByNameAria": "Sort by name",
+    "sortBySizeAria": "Sort by size",
+    "sortedBySizeTitle": "Sorted by size, switch to name",
+    "sortedByNameTitle": "Sorted by name, switch to size",
+    "hideHiddenAria": "Hide hidden files",
+    "showHiddenAria": "Show hidden files",
+    "searchPlaceholder": "Search files",
+    "clearSearchAria": "Clear search",
+    "noFilesFound": "No files found",
+    "deleteFolderTitle": "Delete Folder",
+    "deleteFileTitle": "Delete File",
+    "deleteFileMessage": "Are you sure you want to delete <name>{name}</name>? This cannot be undone.",
+    "deleteFolderMessage": "Are you sure you want to delete <name>{name}</name> and all of its contents? This cannot be undone.",
+    "deleting": "Deleting…"
+  },
+  "workspaceBrowser": {
+    "drawerTitle": "Files"
+  },
+  "workspaceFileViewer": {
+    "download": "Download",
+    "downloading": "Downloading…",
+    "downloadFailed": "Download failed. Try again.",
+    "preview": "Preview",
+    "source": "Source",
+    "modifiedLabel": "Modified:",
+    "selectAFile": "Select a file to view",
+    "browseFiles": "Browse files",
+    "fileNotFound": "File not found",
+    "saveFailed": "Save failed",
+    "downloadAria": "Download {name}"
+  }
+}
