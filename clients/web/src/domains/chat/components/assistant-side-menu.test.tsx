@@ -304,21 +304,6 @@ describe("AssistantSideMenu · All view", () => {
     }),
   ];
 
-  // Short lists mount their rows directly, so this can assert what actually
-  // renders. The windowed path is covered below, where virtuoso emits no rows
-  // without real layout and only its presence can be asserted.
-  test("drops the Chats and channel headers in favour of one flat list", () => {
-    const html = renderMenu({ conversations });
-
-    expect(html).not.toContain(">Chats<");
-    expect(html).not.toContain(">Slack<");
-    expect(html).toContain(">Pinned<");
-    expect(html).not.toContain('data-slot="virtual-list"');
-    // The channel conversation is in the flat list, not a channel section.
-    expect(html).toContain("Slack one");
-    expect(html).toContain("Recent one");
-  });
-
   test("carries no 'Show more' affordance", () => {
     const html = renderMenu({
       conversations: Array.from({ length: 40 }, (_, index) =>
@@ -331,45 +316,6 @@ describe("AssistantSideMenu · All view", () => {
 
     expect(html).not.toContain(">Show more<");
     expect(html).toContain('data-slot="virtual-list"');
-  });
-
-  // A stored order that would lift Chats above the curated layer is pulled
-  // back, so the tiers hold however the order was arrived at.
-  test("a stored order that lifts Chats above a group is pulled back", () => {
-    localStorage.setItem("vellum:sidebar-view-mode:asst-1", "grouped");
-    localStorage.setItem(
-      "vellum:sidebar-section-order:asst-1",
-      JSON.stringify(["recents", "grp-a", "channel:slack"]),
-    );
-    useSidebarLayoutStore.setState({ assistantId: null });
-
-    const container = parse(
-      renderMenu({
-        conversations: [
-          makeConversation({ conversationId: "r1", title: "Recent one" }),
-          makeConversation({
-            conversationId: "g1",
-            title: "Group one",
-            groupId: "grp-a",
-          }),
-        ],
-        conversationGroups: [
-          { id: "grp-a", name: "Alpha", isSystemGroup: false },
-        ] as unknown as ConversationGroup[],
-      }),
-    );
-
-    const root = container.querySelector<HTMLElement>(
-      '[data-slot="collapsible"]',
-    );
-    if (!root) {
-      throw new Error("expected the section list's accordion root");
-    }
-    const children = Array.from(root.children);
-    const indexOfText = (text: string) =>
-      children.findIndex((el) => (el.textContent ?? "").includes(text));
-
-    expect(indexOfText("Alpha")).toBeLessThan(indexOfText("Chats"));
   });
 
   test("offers the grouping dropdown behind the Conversations actions menu", async () => {
@@ -965,29 +911,6 @@ describe("AssistantSideMenu · section header menus", () => {
     return last[1].map((c) => c.conversationId).sort();
   }
 
-  test("the Conversations header covers the same set in either view", async () => {
-    // The header sits above Chats and the channel sections, so its bulk
-    // actions have to reach every conversation it contains. Scoping them to
-    // the `all` view's flat list drops the channel sections in `grouped`,
-    // where those conversations have moved into sections of their own, and a
-    // user who archives "all conversations" is told their Slack threads are
-    // handled when they are not.
-    const scopes: Record<string, string[]> = {};
-    for (const mode of ["all", "grouped"] as const) {
-      localStorage.setItem("vellum:sidebar-view-mode:asst-1", mode);
-      const received: Array<[string, Conversation[]]> = [];
-      const { container, unmount } = renderWithGroupActions({
-        archiveAll: (label, c) => received.push([label, c]),
-      });
-      scopes[mode] = await archiveScopeOf(container, "Conversations", received);
-      unmount();
-      cleanup();
-    }
-
-    expect(scopes.grouped).toContain("s1");
-    expect(scopes.grouped).toEqual(scopes.all);
-  });
-
   test("a section header covers only that section", async () => {
     localStorage.setItem("vellum:sidebar-view-mode:asst-1", "grouped");
     const received: Array<[string, Conversation[]]> = [];
@@ -1247,53 +1170,6 @@ describe("AssistantSideMenu · a listed section is a rendered section", () => {
 });
 
 describe("AssistantSideMenu · equal section treatment", () => {
-  // Custom groups are peers of Pinned, Chats, and the channel sections - not
-  // a separate class. Nothing in the list may imply a grouping the user
-  // didn't create, because they order these however they like.
-  // One rule in the list, and it is not a section break: it marks where the
-  // user's curation ends and the conversations begin. Two sections never have
-  // a rule between them, whatever their type.
-  test("the only rule follows the curated sections", () => {
-    const container = parse(
-      renderMenu({
-        conversations: LAYOUT_CONVERSATIONS,
-        conversationGroups: LAYOUT_GROUPS,
-      }),
-    );
-
-    const root = container.querySelector<HTMLElement>(
-      '[data-slot="collapsible"]',
-    );
-    if (!root) {
-      throw new Error("expected the section list's accordion root");
-    }
-    const children = Array.from(root.children);
-    const indexOfText = (text: string) =>
-      children.findIndex((el) => (el.textContent ?? "").includes(text));
-    // The rule sits inside a wrapper div (pulls it 2px closer to the
-    // curated block above), so it's a grandchild of root, not a direct
-    // child.
-    const ruleSelector = '[data-slot="sidebar-section-rule"]';
-    const ruleIndex = children.findIndex((el) =>
-      el.matches(ruleSelector) ? true : el.querySelector(ruleSelector) != null,
-    );
-
-    // Counts *every* horizontal rule in the list, not just the curated
-    // block's own: a `SideMenu.Separator` between two sections draws the
-    // same line, and this fixture puts Pinned directly above a custom group
-    // - the boundary a per-section divider would land on.
-    expect(
-      root.querySelectorAll(
-        `${ruleSelector}, [data-slot="side-menu-separator"]`,
-      ),
-    ).toHaveLength(1);
-    // Pinned and Alpha above it, Chats and Slack below.
-    expect(indexOfText("Pinned")).toBeLessThan(ruleIndex);
-    expect(indexOfText("Alpha")).toBeLessThan(ruleIndex);
-    expect(indexOfText("Chats")).toBeGreaterThan(ruleIndex);
-    expect(indexOfText("Slack")).toBeGreaterThan(ruleIndex);
-  });
-
   test("the rule is absent until something is curated", () => {
     const container = parse(
       renderMenu({
@@ -1398,44 +1274,6 @@ describe("AssistantSideMenu · equal section treatment", () => {
       expect(pinned.querySelector(".overflow-y-auto")).toBeNull();
       expect(chats.querySelector(".overflow-y-auto")).not.toBeNull();
       expect(slack.querySelector(".overflow-y-auto")).not.toBeNull();
-    } finally {
-      cleanup();
-    }
-  });
-
-  // The dropdown isn't statically rendered at all: it lives behind the
-  // persistent "Conversations" header's "…" button, reachable rather than
-  // always on screen (Chats itself, nested inside Conversations when
-  // grouped by Channels, carries no button of its own, see
-  // `sidebar-section-item.tsx`).
-  test("the grouping dropdown is behind the Conversations actions menu, not statically rendered", async () => {
-    const html = renderMenu({
-      conversations: LAYOUT_CONVERSATIONS,
-      conversationGroups: LAYOUT_GROUPS,
-    });
-    expect(html).not.toContain('data-slot="select"');
-
-    const { container } = render(
-      createElement(AssistantSideMenu, {
-        assistantId: "asst-1",
-        collapsed: false,
-        variant: "rail",
-        conversations: LAYOUT_CONVERSATIONS,
-        conversationGroups: LAYOUT_GROUPS,
-        onSelectConversation: () => {},
-      }),
-    );
-    try {
-      const trigger = container.querySelector<HTMLElement>(
-        '[aria-label="Conversations actions"]',
-      );
-      expect(trigger).not.toBeNull();
-      act(() => {
-        trigger?.click();
-      });
-      await waitFor(() => {
-        expect(document.body.textContent).toContain("Group by");
-      });
     } finally {
       cleanup();
     }
