@@ -35,9 +35,11 @@ Managed-sign-in users should get the integration pre-enabled by setting `service
 
 ### 4. Set the logo URL — `seed-providers.ts`
 
-The `logoUrl` field in `seed-providers.ts` is the source of truth for a provider's logo. Most providers use a [Simple Icons](https://simpleicons.org) (CC0-licensed) CDN URL like `https://cdn.simpleicons.org/acme`. The web client resolves logos from this field (see `clients/web/src/components/integrations/integration-icon.tsx`) and falls back to an initials avatar.
+The `logoUrl` field in `seed-providers.ts` is the source of truth for a provider's logo. Most providers use a [Simple Icons](https://simpleicons.org) (CC0-licensed) CDN URL like `https://cdn.simpleicons.org/acme`.
 
-For brands Simple Icons doesn't host (e.g. Salesforce, which Simple Icons removed for trademark reasons), use the `glincker/thesvg` source via jsDelivr — `https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/<key>/default.svg`. The recognised `logoUrl` prefixes are enforced by `oauth-provider-seed-logos.test.ts`; if you need a third source, extend that allowlist.
+**Verify the URL actually resolves before you commit it.** `oauth-provider-seed-logos.test.ts` only checks the prefix, so a slug that Simple Icons has never hosted (or has since dropped) passes CI and then renders as an initials avatar in the client. Simple Icons removes brands on trademark request: Salesforce is gone, every Microsoft product went in v13, and Slack is currently absent pending permission from the trademark owner. For those, use the `glincker/thesvg` source via jsDelivr: `https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/<key>/default.svg`. The recognised `logoUrl` prefixes are enforced by `oauth-provider-seed-logos.test.ts`; if you need a third source, extend that allowlist.
+
+`logoUrl` is a fallback, not the last word. The web client prefers a logo bundled in `clients/web/public/images/integrations/` when one exists for the provider key, uses `logoUrl` when it doesn't, and only then falls back to an initials avatar (see `BUNDLED_LOGO_URLS` in `clients/web/src/components/integrations/integration-icon.tsx`). Bundling an asset for a new first-class provider is optional but preferred: it survives a CDN removal, works offline, and keeps the integrations list from telling a third party which providers a user is looking at.
 
 ### 5. Secret patterns (if applicable) — `packages/service-contracts/src/secret-detection.ts`
 

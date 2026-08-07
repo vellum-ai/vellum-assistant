@@ -90,6 +90,21 @@ function isCollapsingRail(ctx: SideMenuContextValue): boolean {
   return ctx.variant === "rail" && ctx.collapsed;
 }
 
+/**
+ * Whether a rail entry should render in its collapsed form, for the entries
+ * this package does not draw itself.
+ *
+ * A caller supplying its own trigger through a slot needs the same answer
+ * `SideMenu.Item` gets, and it has to be the delayed one: the lag is what
+ * keeps a label from painting into a rail that is still narrowing around it.
+ * Reading it here rather than accepting it as a prop is what keeps the slot's
+ * content from disagreeing with the menu it sits in, since the two cannot then
+ * be derived from different sources.
+ */
+function useSideMenuCollapsed(): boolean {
+  return isCollapsedRail(useSideMenuContext());
+}
+
 // ---------------------------------------------------------------------------
 // Root
 // ---------------------------------------------------------------------------
@@ -128,24 +143,34 @@ const ROOT_BASE_CLASSES = [
  * screen edges (top/bottom safe-area boundaries on iOS). */
 const ROOT_RAIL_BORDER_CLASSES = "border border-[var(--border-base)]";
 
+/* 8px of horizontal inset, the same the collapsed rail carries, so the moat
+ * around the content does not change width when the rail is toggled.
+ *
+ * The rail's own children are cards and pills that carry their own padding, so
+ * anything wider here is a second inset stacked on the first: it costs the
+ * cards title width on a 220px to 400px column and pushes their edges away
+ * from the resize handle, which sits at the rail's edge and reads as belonging
+ * to something else. Vertical padding is unrelated and stays as it is. */
+const ROOT_RAIL_PADDING = "pt-4 px-2 pb-2";
+
 const ROOT_RAIL_EXPANDED_CLASSES = [
   ROOT_RAIL_BORDER_CLASSES,
   "w-[230px]",
   "rounded-[12px]",
-  "pt-4 px-4 pb-2",
+  ROOT_RAIL_PADDING,
 ].join(" ");
 
 const ROOT_RAIL_COLLAPSED_CLASSES = [
   ROOT_RAIL_BORDER_CLASSES,
   "w-[48px]",
   "rounded-[12px]",
-  "pt-4 px-2 pb-2",
+  ROOT_RAIL_PADDING,
 ].join(" ");
 
 const ROOT_RAIL_RESIZABLE_CLASSES = [
   ROOT_RAIL_BORDER_CLASSES,
   "rounded-[12px]",
-  "pt-4 px-4 pb-2",
+  ROOT_RAIL_PADDING,
 ].join(" ");
 
 const ROOT_OVERLAY_CLASSES = ["w-full", "rounded-none", "p-4"].join(" ");
@@ -499,6 +524,12 @@ export interface SideMenuItemProps {
    * colour as well as form. A caller reaching for a round row somewhere other
    * than the rail wants neither.
    *
+   * Its surface reads the same `--panel-item-bg` / `--panel-item-hover` /
+   * `--panel-item-active` properties `PanelItem`'s pill does, each falling
+   * back to the untinted token. So a caller that tints the expanded pill tints
+   * the collapsed tile with the same one declaration, and a caller that tints
+   * nothing sees no difference.
+   *
    * Ignored when expanded, where the row spans the rail's full width and a
    * full round would draw a pill rather than a circle.
    *
@@ -659,8 +690,13 @@ function SideMenuItem({
   const geometryClasses = isTile
     ? /* The tile carries the same resting surface as the card or pill it
          stands in for when the rail is expanded, so collapsing changes the
-         shape of a thing and not whether it has a surface at all. */
-      "size-[30px] mx-auto rounded-full bg-[var(--surface-lift)]"
+         shape of a thing and not whether it has a surface at all.
+
+         Which is why it reads the same tint properties `PanelItem`'s pill
+         does, through the same fallback: a caller that tints the expanded pill
+         tints this with one declaration, and one that tints nothing reaches
+         `--surface-lift`. */
+      "size-[30px] mx-auto rounded-full bg-[var(--panel-item-bg,var(--surface-lift))]"
     : // `w-full` matters for the `<button>` render path: buttons keep
       // fit-content sizing even as flex containers, so without it a
       // button-backed item shrink-wraps while anchor-backed items fill the rail.
@@ -676,7 +712,18 @@ function SideMenuItem({
   const stateClasses = disabled
     ? "cursor-default text-[color:var(--content-disabled)]"
     : active
-      ? "cursor-pointer bg-[var(--surface-active)] text-[color:var(--content-emphasised)]"
+      ? cn(
+          "cursor-pointer text-[color:var(--content-emphasised)]",
+          /* A tinted tile stays tinted while it is the current page. Without
+             reading the tint here, this rule and the resting one are different
+             declarations of the same property, the active one wins, and the
+             tile drops its colour at exactly the moment it is selected. Only
+             the tile, because it is the only shape carrying a surface to
+             tint. Untinted callers reach `--surface-active`. */
+          isTile
+            ? "bg-[var(--panel-item-active,var(--panel-item-bg,var(--surface-active)))]"
+            : "bg-[var(--surface-active)]",
+        )
       : cn(
           "cursor-pointer",
           /* Which hover surface is right depends on what the shape rests on.
@@ -687,7 +734,7 @@ function SideMenuItem({
              step up from lifted. A row rests transparent, where the overlay
              is exactly what it was built for. */
           isTile
-            ? "hover:bg-[var(--surface-active)]"
+            ? "hover:bg-[var(--panel-item-hover,var(--surface-active))]"
             : "hover:bg-[var(--surface-hover)]",
           emphasized
             ? "text-[color:var(--content-emphasised)]"
@@ -876,4 +923,5 @@ export {
   SideMenuSection,
   SideMenuSeparator,
   SideMenuSubList,
+  useSideMenuCollapsed,
 };

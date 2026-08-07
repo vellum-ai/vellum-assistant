@@ -7,54 +7,64 @@
  * on the same axis as the eyes, so the two rows' labels align. On the
  * collapsed rail both rows survive as icon-only tiles (Figma 7257:135811).
  *
- * Periodically the eyes go on patrol: they sink out through the row's
- * bottom fold, resurface grown on the right side (cut off by the edge),
- * blink, and dive back under to reappear in the icon slot. Between
- * patrols they idle-blink in place (and pulse a touch on the collapsed
- * rail). They never leave the assistant row.
+ * The eyes hold their place in the leading slot and blink there periodically.
+ * They do not travel: the pill is sized to the assistant's name, so there is
+ * nowhere inside it for a grown sprite to go that is not on top of that name.
+ *
+ * The collapsed rail is the exception, and keeps its pulse: its tile centres
+ * the eyes with nothing beside them, so growing has room there.
  *
  * The assistant name is never bolded and always renders white on the
  * avatar-colored row — except on light avatar colors (yellow), where it
  * flips dark for contrast.
  *
- * Falls back to a plain-toned row (a Brain icon in the same leading slot,
- * so both labels stay aligned) when there's no character avatar to dress
- * as (custom image / not loaded).
+ * The leading slot holds whichever avatar the assistant has: the character's
+ * eyes, or an uploaded image in their place, both at the slot's full width so
+ * the row's geometry does not change between them. An uploaded image wears the
+ * plain pill rather than a tinted one, since a colour is read from a
+ * character's palette and nothing derives one from an image.
+ *
+ * With neither, the row falls back to a plain-toned one with a Brain icon in
+ * that slot, so the cluster's labels stay aligned.
  */
 
 import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
 import { Brain, Plus } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
-import type { CSSProperties, Ref } from "react";
+import type { CSSProperties } from "react";
 
 import { cn, PanelItem } from "@vellumai/design-library";
 
 import {
   SIDEBAR_CHIP_GAP,
   SIDEBAR_CHIP_SIZE as CHIP_SIZE,
-  SIDEBAR_ROW_PADDING_X as ROW_PADDING_X,
 } from "@/components/sidebar-nav-geometry";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
-import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import { eyeStyleBaseWidth } from "@/utils/assistant-eyes";
 import { contrastForeground } from "@/utils/avatar-tone";
 import { pathBBox, unionBBox } from "@/utils/eye-bbox";
 
-/** Standard nav-row height, matching `SideMenu.Item`. */
-const ROW_HEIGHT = 30;
-/** Mobile-overlay row height, matching `SideMenu.Item`'s mobile row. */
-const MOBILE_ROW_HEIGHT = 44;
+/**
+ * Taller than the pills below it: this row is the assistant, not an entry in a
+ * list, and at their shared height it reads as the first of several chips
+ * rather than the thing they hang off. Height only, so the label stays on the
+ * axis it shares with New Chat.
+ *
+ * One constant for both branches below, because an assistant with no character
+ * avatar is still the assistant: colour is the only thing that differs.
+ */
+const IDENTITY_PILL_CLASSES = "h-10";
+
 /** Collapsed-rail assistant tile height (Figma 7257:135820). */
 /* Matches the circle `SideMenu.Item` and the section triggers render on the
    rail: every tile there is the same 30px circle, so one step runs the whole
    column. Diverging from it drifts this cluster against the sections. */
 const COLLAPSED_ASSISTANT_TILE = 30;
-/** Patrol stop on the right side: grown, cut off by the bottom edge. */
-const SIDE_SCALE = 2.1;
-const SIDE_RIGHT_MARGIN = 14;
+/** How far the collapsed rail's tile grows the eyes on a pulse. */
+const PULSE_SCALE = 1.35;
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -86,22 +96,18 @@ export function AssistantNavItem({
   onSelect,
   onNewConversation,
 }: AssistantNavItemProps) {
-  const { components, traits } = useAssistantAvatar(assistantId);
+  const { components, traits, customImageUrl } =
+    useAssistantAvatar(assistantId);
   const reduce = useReducedMotion();
-  const isMobile = useIsMobile();
   // While the onboarding tour owns the nav rows (flooding them with its own
-  // eyes treatment), this component's eyes and patrol loop stay completely
+  // eyes treatment), this component's eyes and its loop stay completely
   // suppressed and the assistant row drains to a plain nav item.
   const navTourActive = useInChatOnboardingStore.use.navTourActive();
+  /* Drives the collapsed rail's pulse only. The expanded row's eyes hold still,
+     so nothing there subscribes to these controls and the loop leaves them
+     alone while the rail is open. */
   const eyesControls = useAnimationControls();
-  /* Whichever element is currently the assistant row - the collapsed tile or
-   the expanded pill. The patrol measures it to keep the sprite inside, and
-   the pill is `w-fit`, so its width tracks the assistant's name and cannot be
-   assumed. */
-  const rowRef = useRef<HTMLElement | null>(null);
   const [blinking, setBlinking] = useState(false);
-
-  const rowHeight = isMobile ? MOBILE_ROW_HEIGHT : ROW_HEIGHT;
 
   const eye = useMemo<EyeArt | null>(() => {
     if (!components || !traits) {
@@ -126,8 +132,12 @@ export function AssistantNavItem({
 
   useEffect(() => {
     if (navTourActive) {
-      // Snap home so a tour starting mid-patrol doesn't strand the sprite.
-      eyesControls.set({ x: 0, y: 0, scale: 1 });
+      /* Snap back to rest so a tour starting mid-pulse doesn't strand the
+         sprite grown. Guarded, as every controls call here is: only the
+         collapsed tile subscribes to them. */
+      if (collapsed) {
+        eyesControls.set({ scale: 1 });
+      }
       return;
     }
     if (reduce) {
@@ -149,61 +159,28 @@ export function AssistantNavItem({
       damping,
     });
     const move = (
-      to: { x?: number; y?: number; scale?: number },
+      to: { scale?: number },
       transition: Record<string, unknown>,
     ) =>
       cancelled
         ? Promise.resolve()
         : eyesControls.start({ ...to, transition }).catch(() => {});
 
-    /** How far down the eyes dive to fully exit the row's bottom edge. */
-    const diveY = rowHeight - 4;
-    /** Side-patrol stop: the grown eyes flush with the bottom edge. */
-    const sidePeekY = rowHeight - 20;
-
-    // The one expanded-rail act: dive out through the bottom fold, pop up
-    // grown on the right side, blink, dive again, and slip back into the
-    // icon slot.
-    const patrol = async () => {
-      await move({ y: diveY }, { duration: 0.3, ease: "easeIn" });
-      if (cancelled) {
-        return;
-      }
-      const width = rowRef.current?.offsetWidth ?? 0;
-      if (width === 0) {
-        /* Nothing measurable to stay inside, so skip the side stop rather
-           than guess a width and send the sprite past the edge. */
-        await move({ y: 0 }, spring(320, 18));
-        return;
-      }
-      // x is relative to the sprite's home in the icon slot (row padding
-      // plus its centering offset inside the chip-width slot).
-      const homeLeft = ROW_PADDING_X + (CHIP_SIZE - eyesWidth) / 2;
-      const sideX = Math.max(
-        0,
-        width - SIDE_RIGHT_MARGIN - eyesWidth * SIDE_SCALE - homeLeft,
-      );
-      eyesControls.set({ x: sideX, y: diveY, scale: SIDE_SCALE });
-      await move({ y: sidePeekY }, spring(360, 16));
-      await blink();
-      await sleep(jitter(700, 900));
-      await move({ y: diveY }, { duration: 0.3, ease: "easeIn" });
-      eyesControls.set({ x: 0, y: diveY, scale: 1 });
-      await move({ y: 0 }, spring(320, 18));
-    };
-
-    // Collapsed rail: grow a touch, blink, settle back.
+    // Collapsed rail: grow a touch, blink, settle back. The rail's tile centres
+    // the sprite with nothing beside it, so the pulse has room the expanded
+    // row's leading slot does not.
     const collapsedPulse = async () => {
-      await move({ scale: 1.35 }, spring(300, 14));
+      await move({ scale: PULSE_SCALE }, spring(300, 14));
       await blink();
       await sleep(jitter(250, 350));
       await move({ scale: 1 }, spring(300, 16));
     };
 
     const run = async () => {
-      // A rail toggle can restart the loop mid-patrol — snap the eyes back
-      // to the icon slot before starting over.
-      eyesControls.set({ x: 0, y: 0, scale: 1 });
+      // A rail toggle can restart the loop mid-pulse, so start from rest.
+      if (collapsed) {
+        eyesControls.set({ scale: 1 });
+      }
       while (!cancelled) {
         await sleep(jitter(2800, 3200));
         if (cancelled) {
@@ -211,19 +188,19 @@ export function AssistantNavItem({
         }
         if (collapsed) {
           await collapsedPulse();
-        } else if (Math.random() < 0.55) {
-          await blink(); // resting blink between patrols
         } else {
-          await patrol();
+          await blink();
         }
       }
     };
     void run();
     return () => {
       cancelled = true;
-      eyesControls.stop();
+      if (collapsed) {
+        eyesControls.stop();
+      }
     };
-  }, [reduce, navTourActive, collapsed, eyesControls, rowHeight, eyesWidth]);
+  }, [reduce, navTourActive, collapsed, eyesControls]);
 
   const hex =
     (components &&
@@ -279,6 +256,41 @@ export function AssistantNavItem({
     />
   );
 
+  /* An uploaded image stands in for the character avatar this row otherwise
+     dresses as. It fills the same CHIP_SIZE slot the eyes occupy, so the row
+     reads the same whichever kind of avatar the assistant has, and it is
+     `rounded-full object-cover` as every other surface renders it.
+
+     Not `ChatAvatar`: that would also replace the Brain for assistants with no
+     avatar at all, since it falls back to a generated default character and
+     then to a "V", and it brings a mount spring and the poke sound into a nav
+     row. Only the uploaded-image case wants changing here.
+
+     Suppressed while the tour owns the nav, matching the way the character
+     avatar's colour drains and the Brain stands in for its eyes. */
+  /* One answer to "is there an uploaded image to wear", read by both the
+     expanded slot and the collapsed tile so the two cannot disagree. A url
+     rather than a boolean, so each render site has the value it needs. */
+  const uploadedAvatarUrl = navTourActive ? null : customImageUrl;
+
+  const avatarImage =
+    uploadedAvatarUrl !== null ? (
+      <span
+        aria-hidden="true"
+        className="pointer-events-none flex shrink-0 items-center justify-center"
+        style={{ width: CHIP_SIZE, height: CHIP_SIZE }}
+      >
+        <img
+          src={uploadedAvatarUrl}
+          alt=""
+          width={CHIP_SIZE}
+          height={CHIP_SIZE}
+          className="rounded-full object-cover"
+          style={{ width: CHIP_SIZE, height: CHIP_SIZE }}
+        />
+      </span>
+    ) : null;
+
   if (!hex) {
     // No character avatar (custom image / not loaded): a plain-toned row
     // that keeps the New Chat row's geometry — the Brain icon centers in
@@ -308,22 +320,39 @@ export function AssistantNavItem({
               height: COLLAPSED_ASSISTANT_TILE,
             }}
           >
-            <Brain
-              className="h-3.5 w-3.5"
-              style={{
-                color: active
-                  ? "var(--content-default)"
-                  : "var(--content-tertiary)",
-              }}
-            />
+            {/* The uploaded image fills the tile, as an avatar rather than a
+                glyph sitting on a surface. The tile is already round and
+                clipping, so it needs no rounding of its own. */}
+            {uploadedAvatarUrl !== null ? (
+              <img
+                src={uploadedAvatarUrl}
+                alt=""
+                aria-hidden="true"
+                width={COLLAPSED_ASSISTANT_TILE}
+                height={COLLAPSED_ASSISTANT_TILE}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <Brain
+                className="h-3.5 w-3.5"
+                style={{
+                  color: active
+                    ? "var(--content-default)"
+                    : "var(--content-tertiary)",
+                }}
+              />
+            )}
           </button>
         ) : (
           /* No character avatar, so nothing declares the tint properties and
-             the pill wears its plain surface. Same component as the tinted
-             one below: the colour is the only difference between them. */
+             the pill wears its plain surface. Same component and same
+             geometry as the tinted one below: the colour is the only
+             difference between them. */
           <PanelItem
             shape="pill"
+            className={IDENTITY_PILL_CLASSES}
             icon={Brain}
+            leadingSlot={avatarImage ?? undefined}
             label={label}
             active={active}
             onSelect={onSelect}
@@ -376,9 +405,10 @@ export function AssistantNavItem({
         } as CSSProperties)
       : undefined;
 
-  /* The eyes, in the pill's leading slot. Absolutely placed inside a
-     chip-width box, as they were in the row, so a patrol can still carry the
-     sprite across and under the pill rather than being clipped to the glyph. */
+  /* The eyes, holding still in the pill's leading slot: centred in the same
+     chip-width box the plus glyph and the section icons use, so the cluster's
+     labels stay on one axis. They blink where they sit and go nowhere else,
+     which is what keeps them off the name beside them. */
   const eyesSlot = (
     <span
       aria-hidden="true"
@@ -396,20 +426,17 @@ export function AssistantNavItem({
         />
       )}
       {!navTourActive && eye && (
-        <motion.span
+        <span
           className="absolute"
           style={{
             width: eyesWidth,
             height: eyesHeight,
             left: (CHIP_SIZE - eyesWidth) / 2,
             top: (CHIP_SIZE - eyesHeight) / 2,
-            transformOrigin: "50% 100%",
           }}
-          initial={false}
-          animate={eyesControls}
         >
           {eyesSvg}
-        </motion.span>
+        </span>
       )}
     </span>
   );
@@ -419,7 +446,6 @@ export function AssistantNavItem({
        glyph, not a pill with its label dropped, and it centres the sprite
        rather than leading with it. */
     <button
-      ref={rowRef as Ref<HTMLButtonElement>}
       type="button"
       onClick={onSelect}
       title={label}
@@ -461,8 +487,8 @@ export function AssistantNavItem({
   ) : (
     <span style={tintStyle}>
       <PanelItem
-        ref={rowRef as Ref<HTMLDivElement>}
         shape="pill"
+        className={IDENTITY_PILL_CLASSES}
         leadingSlot={eyesSlot}
         label={label}
         active={active}

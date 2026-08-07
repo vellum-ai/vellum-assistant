@@ -230,12 +230,14 @@ class MyViewController: CAPBridgeViewController {
     /// Load the effective server URL (the configured self-hosted origin or the
     /// baked default) and re-arm foreground change detection against it. Backs
     /// the `SelfHostedServers` plugin's `switchTo`; must run on the main queue.
-    func applyConfiguredOrigin() {
+    func applyConfiguredOrigin(path: String? = nil) {
         bindServerTrackingToConfiguredOrigin()
         guard let destination = appliedServerURL else {
             return
         }
-        webView?.load(URLRequest(url: Self.appEntryURL(forBase: destination)))
+        let entryURL = Self.appEntryURL(forBase: destination)
+        let destinationURL = path.flatMap { Self.appRouteURL(forEntry: entryURL, path: $0) } ?? entryURL
+        webView?.load(URLRequest(url: destinationURL))
     }
 
     /// The SPA entry point for a server base, `<base>/assistant`. The ingress
@@ -249,6 +251,25 @@ class MyViewController: CAPBridgeViewController {
             return base
         }
         return base.appendingPathComponent("assistant")
+    }
+
+    private static func appRouteURL(forEntry entry: URL, path: String) -> URL? {
+        guard let components = URLComponents(string: path),
+              components.scheme == nil,
+              components.host == nil,
+              !components.path.isEmpty,
+              !components.path.split(separator: "/").contains(".."),
+              components.fragment == nil
+        else {
+            return nil
+        }
+        var route = entry.appendingPathComponent(components.path)
+        guard var routeComponents = URLComponents(url: route, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        routeComponents.percentEncodedQuery = components.percentEncodedQuery
+        route = routeComponents.url ?? route
+        return route
     }
 
     // MARK: - Quote-and-reply edit menu

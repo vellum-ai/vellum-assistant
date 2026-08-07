@@ -13,6 +13,7 @@ import {
   loadPinnedApps,
   pinApp,
   savePinnedApps,
+  setAppColor,
   unpinApp,
   type PinnableApp,
 } from "@/utils/app-pin-storage";
@@ -146,6 +147,116 @@ describe("isAppPinned", () => {
     pinApp(makeApp({ id: "a1", name: "First" }));
     unpinApp("a1");
     expect(isAppPinned("a1")).toBe(false);
+  });
+});
+
+describe("setAppColor", () => {
+  test("sets the colour on the addressed pin only", () => {
+    pinApp(makeApp({ id: "a1", name: "First" }));
+    pinApp(makeApp({ id: "a2", name: "Second" }));
+
+    setAppColor("a1", "teal");
+
+    const result = loadPinnedApps();
+    expect(result[0]).toEqual({
+      appId: "a1",
+      pinnedOrder: 1,
+      name: "First",
+      color: "teal",
+    });
+    expect(result[1]!.color).toBeUndefined();
+  });
+
+  test("replaces an existing colour rather than accumulating", () => {
+    pinApp(makeApp({ id: "a1", name: "First" }));
+    setAppColor("a1", "teal");
+    setAppColor("a1", "pink");
+
+    expect(loadPinnedApps()[0]!.color).toBe("pink");
+  });
+
+  /* Cleared means absent, not present-and-undefined. Asserted against the
+     serialised text because that is where the two differ: an entry holding
+     `undefined` reads back as an entry holding nothing, so comparing parsed
+     objects would pass either way. */
+  test("clearing removes the key instead of storing undefined", () => {
+    pinApp(makeApp({ id: "a1", name: "First" }));
+    setAppColor("a1", "teal");
+    setAppColor("a1", null);
+
+    expect(memoryStorage.getItem(STORAGE_KEY)).not.toContain("color");
+    expect(loadPinnedApps()[0]!.color).toBeUndefined();
+  });
+
+  test("leaves the rest of the entry untouched", () => {
+    pinApp(makeApp({ id: "a1", name: "First", icon: "🚀" }));
+    setAppColor("a1", "green");
+
+    expect(loadPinnedApps()).toEqual([
+      {
+        appId: "a1",
+        pinnedOrder: 1,
+        name: "First",
+        icon: "🚀",
+        color: "green",
+      },
+    ]);
+  });
+
+  test("is a no-op for an app that is not pinned", () => {
+    setAppColor("ghost", "teal");
+    expect(loadPinnedApps()).toEqual([]);
+  });
+
+  test("colouring an unpinned app does not resurrect it", () => {
+    pinApp(makeApp({ id: "a1", name: "First" }));
+    unpinApp("a1");
+
+    setAppColor("a1", "teal");
+
+    expect(loadPinnedApps()).toEqual([]);
+    expect(isAppPinned("a1")).toBe(false);
+  });
+});
+
+describe("colour compatibility", () => {
+  /* The load path has no version stamp, so a pin written before `color`
+     existed has to stay valid on its own merits. This is the case that costs a
+     user their pins if the field is ever validated as required. */
+  test("keeps pins written without a colour", () => {
+    memoryStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify([
+        { appId: "a1", pinnedOrder: 1, name: "No colour" },
+        { appId: "a2", pinnedOrder: 2, name: "With colour", color: "teal" },
+      ]),
+    );
+
+    expect(loadPinnedApps().map((e) => e.appId)).toEqual(["a1", "a2"]);
+    expect(loadPinnedApps()[0]!.color).toBeUndefined();
+  });
+
+  test("keeps pins carrying keys the reader does not know", () => {
+    memoryStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify([
+        { appId: "a1", pinnedOrder: 1, name: "Future", somethingNew: 7 },
+      ]),
+    );
+
+    expect(loadPinnedApps().map((e) => e.appId)).toEqual(["a1"]);
+  });
+
+  test("rejects an entry whose colour is not a string", () => {
+    memoryStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify([
+        { appId: "a1", pinnedOrder: 1, name: "Bad colour", color: 42 },
+        { appId: "a2", pinnedOrder: 2, name: "Good" },
+      ]),
+    );
+
+    expect(loadPinnedApps().map((e) => e.appId)).toEqual(["a2"]);
   });
 });
 
