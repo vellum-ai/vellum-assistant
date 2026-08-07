@@ -4,12 +4,17 @@
  *
  * Load-bearing behavior:
  *   - a managed assistant gets the fetched voice rows inside the surface card,
- *   - picking a voice PATCHes `services.tts.providers.vellum.model`,
+ *     scoped by the provider dropdown,
  *   - picking a voice submits no surface action, so auditioning several voices
  *     never fires an assistant turn,
- *   - a BYO assistant gets the Models & Services pointer, not an empty card.
+ *   - the height cap lands on the scrolling list, not on the wrapper that also
+ *     holds the provider dropdown,
+ *   - every settled state without a picker gets a pointer instead, and the
+ *     unsettled state gets no card at all: a bordered box with nothing in it is
+ *     the one outcome this surface must never produce.
  *
- * The daemon queries, the config PATCH, and audio playback are mocked.
+ * The daemon queries, the config PATCH, and audio playback are mocked; the
+ * design-library Dropdown is real, driven via its combobox trigger.
  */
 
 import {
@@ -32,12 +37,14 @@ import {
 import { MemoryRouter } from "react-router";
 
 import type { Surface } from "@/domains/chat/types/types";
+import type { OrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 
 const ASSISTANT_ID = "asst_1";
 
-let orgReady = true;
+let orgReadiness: OrgHeaderReadiness = "ready";
 mock.module("@/hooks/use-is-org-ready", () => ({
-  useIsOrgReady: () => orgReady,
+  useIsOrgReady: () => orgReadiness === "ready",
+  useOrgHeaderReadiness: () => orgReadiness,
 }));
 mock.module("@vellumai/design-library/components/toast", () => ({
   toast: { success: () => {}, error: () => {} },
@@ -48,6 +55,8 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 let daemonConfigData: { services: Record<string, unknown> } = {
   services: { tts: { provider: "vellum" } },
 };
+// Holds the config query in flight, for the "still loading" state.
+let configPending = false;
 let providersData: { providers: unknown[] } = {
   providers: [
     { id: "vellum", displayName: "Vellum", supportsVoiceSelection: true },
@@ -63,11 +72,17 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
     queryFn: () => Promise.resolve(providersData),
     initialData: providersData,
   }),
-  configGetOptions: () => ({
-    queryKey: ["config-get-test"],
-    queryFn: () => Promise.resolve(daemonConfigData),
-    initialData: daemonConfigData,
-  }),
+  configGetOptions: () =>
+    configPending
+      ? {
+          queryKey: ["config-get-test"],
+          queryFn: () => new Promise(() => {}),
+        }
+      : {
+          queryKey: ["config-get-test"],
+          queryFn: () => Promise.resolve(daemonConfigData),
+          initialData: daemonConfigData,
+        },
   configGetQueryKey: () => ["config-get-test"],
   ttsManagedvoicesGetOptions: () => ({
     queryKey: ["tts-managed-voices-test"],
@@ -84,8 +99,9 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { VoicePickerSurface } =
-  await import("@/domains/chat/components/surfaces/voice-picker-surface");
+const { VoicePickerSurface } = await import(
+  "@/domains/chat/components/surfaces/voice-picker-surface"
+);
 
 const SURFACE: Surface = {
   surfaceId: "surface-voice-1",
@@ -126,10 +142,34 @@ function renderSurface(assistantId: string | null = ASSISTANT_ID) {
   );
 }
 
+/** Voice rows only; the provider dropdown's own options live in a portal. */
+function voiceRows(): HTMLElement[] {
+  const list = screen.getByRole("listbox", { name: "Assistant voice" });
+  return Array.from(list.querySelectorAll<HTMLElement>('[role="option"]'));
+}
+
+/** The list opens on the current voice's provider; Zeus lives under the other. */
+function selectDeepgram() {
+  const trigger = document.querySelector<HTMLElement>(
+    'button[role="combobox"][aria-label="Voice provider"]',
+  );
+  if (!trigger) {
+    throw new Error("expected the voice provider dropdown trigger");
+  }
+  fireEvent.click(trigger);
+  const option = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ).find((o) => o.textContent?.trim() === "Deepgram");
+  if (!option) {
+    throw new Error("expected a Deepgram option");
+  }
+  fireEvent.click(option);
+}
+
 function pickZeus() {
-  const zeus = screen
-    .getAllByRole("option")
-    .find((o) => o.textContent?.includes("Deep, trustworthy"));
+  const zeus = voiceRows().find((o) =>
+    o.textContent?.includes("Deep, trustworthy"),
+  );
   if (!zeus) {
     throw new Error("expected the Zeus option");
   }
@@ -137,7 +177,8 @@ function pickZeus() {
 }
 
 beforeEach(() => {
-  orgReady = true;
+  orgReadiness = "ready";
+  configPending = false;
   configPatchCalls.length = 0;
   onActionCalls.length = 0;
   daemonConfigData = { services: { tts: { provider: "vellum" } } };
@@ -160,7 +201,7 @@ beforeEach(() => {
         label: "Zeus",
         description: "American · deep, trustworthy, smooth",
         sampleUrl: "https://example.test/zeus.wav",
-        source: "elevenlabs",
+        source: "deepgram",
       },
     ],
     defaultModel: "EXAVITQu4vr4xnSDxMaL",
@@ -173,26 +214,43 @@ describe("VoicePickerSurface", () => {
     renderSurface();
 
     expect(screen.getByText("Pick a voice")).toBeTruthy();
-    const rows = screen.getAllByRole("option");
-    expect(rows.length).toBe(2);
-    expect(rows.map((r) => r.textContent ?? "").join(" ")).toContain(
-      "Deep, trustworthy, smooth",
-    );
+    // Scoped to the current voice's provider, with the dropdown to leave it.
+    expect(
+      document.querySelector('button[role="combobox"][aria-label="Voice provider"]'),
+    ).toBeTruthy();
+    const rows = voiceRows();
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.textContent).toContain("Professional, reassuring");
+    // Managed voices bill credits, so the card says so.
+    expect(screen.getByText(/Uses Vellum credits/)).toBeTruthy();
   });
 
-  test("picking a voice PATCHes services.tts.providers.vellum.model", async () => {
+  test("the provider dropdown scopes the list to the chosen provider", () => {
     renderSurface();
-    pickZeus();
+    selectDeepgram();
 
-    await waitFor(() => expect(configPatchCalls.length).toBe(1));
-    expect(configPatchCalls[0]!.path).toEqual({ assistant_id: ASSISTANT_ID });
-    expect(configPatchCalls[0]!.body).toEqual({
-      services: { tts: { providers: { vellum: { model: "aura-2-zeus-en" } } } },
-    });
+    const rows = voiceRows();
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.textContent).toContain("Deep, trustworthy");
+  });
+
+  test("the height cap lands on the scrolling list, not on the wrapper", () => {
+    renderSurface();
+
+    const list = screen.getByRole("listbox", { name: "Assistant voice" });
+    expect(list.className).toContain("max-h-[22rem]");
+    // The cap replaces the list's own default rather than nesting inside it.
+    expect(list.className).not.toContain("max-h-[60vh]");
+    // The wrapper holding the provider dropdown stays unconstrained, so the
+    // dropdown can't be scrolled out of the card.
+    const wrapper = list.parentElement!;
+    expect(wrapper.className).not.toContain("max-h-");
+    expect(wrapper.className).not.toContain("overflow-y-auto");
   });
 
   test("picking a voice submits no surface action", async () => {
     renderSurface();
+    selectDeepgram();
     pickZeus();
 
     // The write is what the card does instead of an action. Waiting for it
@@ -211,5 +269,44 @@ describe("VoicePickerSurface", () => {
     expect(link.getAttribute("href")).toBe(
       "/assistant/settings/ai#text-to-speech",
     );
+  });
+
+  test("a daemon too old to select voices gets a pointer, not an empty card", () => {
+    providersData = {
+      providers: [
+        { id: "vellum", displayName: "Vellum", supportsVoiceSelection: false },
+      ],
+    };
+    renderSurface();
+
+    expect(screen.queryByRole("listbox")).toBeNull();
+    // Managed, so the BYO pointer would be a lie: it gets the plain line.
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.getByText(/available for this assistant/)).toBeTruthy();
+  });
+
+  test("an empty voice catalog gets a pointer, not an empty card", () => {
+    managedVoicesData = { voices: [], defaultModel: null };
+    renderSurface();
+
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(screen.getByText(/available for this assistant/)).toBeTruthy();
+  });
+
+  test("no assistant gets a pointer, not an empty card", () => {
+    renderSurface(null);
+
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(screen.getByText(/available for this assistant/)).toBeTruthy();
+  });
+
+  test("renders no card at all while daemon config is still in flight", () => {
+    configPending = true;
+    const { container } = renderSurface();
+
+    // Not even the title: the card's own chrome would be an empty box until
+    // the queries land.
+    expect(container.textContent).toBe("");
+    expect(screen.queryByText("Pick a voice")).toBeNull();
   });
 });

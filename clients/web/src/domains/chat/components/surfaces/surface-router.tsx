@@ -181,7 +181,7 @@ function SurfaceRouterInner({
         <VoicePickerSurface
           surface={surface}
           onAction={onAction}
-          assistantId={assistantId}
+          assistantId={assistantId ?? null}
         />
       );
 
