@@ -10,11 +10,21 @@
  */
 
 import { boundIdentity } from "@vellumai/gateway-client";
-import type { IdentityBoundSession } from "@vellumai/gateway-client";
+import type {
+  IdentityBindingStatus,
+  IdentityBoundSession,
+} from "@vellumai/gateway-client";
 
-/** The identity fields the match rules read, plus the binding state. */
+/**
+ * The identity fields the match rules read, plus the binding state.
+ *
+ * The binding state keeps its union rather than widening to `string`. Only
+ * `bound` makes the identity decide anything, so a value outside the union
+ * reads as not-bound and admits any holder of the code; the type is what
+ * stops a caller inventing one.
+ */
 export type IdentityMatchSession = IdentityBoundSession & {
-  identityBindingStatus?: string | null;
+  identityBindingStatus?: IdentityBindingStatus | null;
 };
 
 /**

@@ -11,7 +11,9 @@
 import { describe, expect, test } from "bun:test";
 
 import { bindsSameIdentity, boundIdentity } from "@vellumai/gateway-client";
+import type { IdentityBindingStatus } from "@vellumai/gateway-client";
 
+import type { IdentityMatchSession } from "../identity-match.js";
 import { checkIdentityMatch } from "../identity-match.js";
 
 const ALICE = "U-ALICE";
@@ -24,8 +26,8 @@ function session(fields: {
   expectedExternalUserId?: string;
   expectedChatId?: string;
   expectedPhoneE164?: string;
-  identityBindingStatus?: string;
-}) {
+  identityBindingStatus?: IdentityBindingStatus;
+}): IdentityMatchSession {
   return { identityBindingStatus: "bound", ...fields };
 }
 
@@ -212,7 +214,7 @@ describe("invariants across every session shape", () => {
         expectedPhoneE164: string | null;
         expectedExternalUserId: string | null;
         expectedChatId: string | null;
-        identityBindingStatus: string;
+        identityBindingStatus: IdentityBindingStatus;
       },
       actorUserId: string,
       actorChatId: string,
@@ -228,7 +230,7 @@ describe("invariants across every session shape", () => {
                   expectedPhoneE164: p,
                   expectedExternalUserId: u,
                   expectedChatId: c,
-                  identityBindingStatus: "bound",
+                  identityBindingStatus: "bound" as IdentityBindingStatus,
                 },
                 au,
                 ac,
