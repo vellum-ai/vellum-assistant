@@ -6,21 +6,44 @@ import { publicAsset } from "@/utils/public-asset";
 /**
  * Logos we ship in `public/`, keyed by canonical provider key.
  *
+ * This covers every provider in `PROVIDER_SEED_DATA` (Google is handled
+ * separately below, as its mark is multi-colour and ships as a component), so
+ * no first-class integration hits the network to draw its icon.
+ *
  * These take precedence over the provider's seeded `logoUrl`, which points at
- * a third-party icon CDN. A CDN can drop a brand at any time (Simple Icons
+ * a third-party icon CDN. A CDN can drop a brand at any time: Simple Icons
  * removed every Microsoft icon in v13 after contact from Microsoft legal, and
- * Slack is currently absent pending trademark permission), and when it does
+ * Slack in v16 pending permission from the trademark owner. When that happens
  * the request 404s and the integration silently degrades to an initials
- * avatar. A bundled asset can't 404, needs no network, and doesn't tell a
- * third party which integrations a user is looking at.
+ * avatar, which is how Outlook and Slack lost their icons (LUM-3137). A
+ * bundled asset can't 404, needs no network, and doesn't tell a third party
+ * which integrations a user is looking at.
+ *
+ * `logoUrl` stays as the fallback below because providers registered at
+ * runtime (`vellum oauth providers register --logo-url`) aren't in this map.
+ *
+ * Sources and licences: `ATTRIBUTION.md` beside the assets.
  */
 const BUNDLED_LOGO_URLS: Record<string, string> = {
+  airtable: publicAsset("/images/integrations/airtable.svg"),
+  asana: publicAsset("/images/integrations/asana.svg"),
+  discord: publicAsset("/images/integrations/discord.svg"),
+  discord_channel: publicAsset("/images/integrations/discord.svg"),
+  dropbox: publicAsset("/images/integrations/dropbox.svg"),
+  figma: publicAsset("/images/integrations/figma.svg"),
   github: publicAsset("/images/integrations/github.svg"),
+  hubspot: publicAsset("/images/integrations/hubspot.svg"),
   linear: publicAsset("/images/integrations/linear-light-logo.svg"),
   notion: publicAsset("/images/integrations/notion.svg"),
   outlook: publicAsset("/images/integrations/outlook.png"),
+  salesforce: publicAsset("/images/integrations/salesforce.svg"),
+  sanity: publicAsset("/images/integrations/sanity.svg"),
   slack: publicAsset("/images/integrations/slack.svg"),
   slack_channel: publicAsset("/images/integrations/slack.svg"),
+  spotify: publicAsset("/images/integrations/spotify.svg"),
+  telegram: publicAsset("/images/integrations/telegram.svg"),
+  todoist: publicAsset("/images/integrations/todoist.svg"),
+  twitter: publicAsset("/images/integrations/x.svg"),
 };
 
 // Deterministic avatar palette. Each slot is a distinct hue so adjacent
