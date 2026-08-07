@@ -12,6 +12,7 @@ metadata:
       - "how Vellum works or its architecture"
       - "its current configuration or settings"
       - "what it can do, or what skills/tools are available"
+      - "whether a service is connected, and in which sense"
       - "how to self-host a Vellum assistant"
       - "how to configure your own model API key"
     avoid-when:
@@ -29,25 +30,32 @@ This skill contains zero static information — only pointers to where the truth
 
 The CLI is the single source of truth for anything about the running assistant's current state.
 
-| Question type                       | Command                                                                    |
-| ----------------------------------- | -------------------------------------------------------------------------- |
-| Current model, provider, config     | `assistant config get llm`                                                 |
-| Full config                         | `assistant config list`                                                    |
-| Config schema (what's configurable) | `assistant config schema [path]`                                           |
-| Available/installed skills          | `assistant skills list --json`                                             |
-| Platform connection                 | `assistant platform status --json`                                         |
-| Auth/identity                       | `assistant auth info --json`                                               |
-| Connected OAuth providers           | `assistant oauth status <provider>`                                        |
-| Connected clients                   | `assistant clients list --json`                                            |
-| Trust rules                         | `assistant trust list`                                                     |
-| Stored credentials                  | `assistant credentials list`                                               |
-| API keys                            | `assistant keys list`                                                      |
-| MCP servers                         | `assistant mcp list`                                                       |
-| Watchers                            | `assistant watchers list`                                                  |
-| Token usage/costs                   | `assistant usage totals` / `assistant usage breakdown --group-by provider` |
-| Version                             | `assistant --version`                                                      |
+| Question type                         | Command                                                                    |
+| ------------------------------------- | -------------------------------------------------------------------------- |
+| Current model, provider, config       | `assistant config get llm`                                                 |
+| Full config                           | `assistant config list`                                                    |
+| Config schema (what's configurable)   | `assistant config schema [path]`                                           |
+| Available/installed skills            | `assistant skills list --json`                                             |
+| Platform connection                   | `assistant platform status --json`                                         |
+| Auth/identity                         | `assistant auth info --json`                                               |
+| Connected as the user (integrations)  | `assistant oauth status <provider>`                                        |
+| Reachable as the assistant (channels) | `assistant channels list`                                                  |
+| Connected clients                     | `assistant clients list --json`                                            |
+| Trust rules                           | `assistant trust list`                                                     |
+| Stored credentials                    | `assistant credentials list`                                               |
+| API keys                              | `assistant keys list`                                                      |
+| MCP servers                           | `assistant mcp list`                                                       |
+| Watchers                              | `assistant watchers list`                                                  |
+| Token usage/costs                     | `assistant usage totals` / `assistant usage breakdown --group-by provider` |
+| Version                               | `assistant --version`                                                      |
 
 Run `assistant --help` or `assistant <command> --help` to discover more.
+
+A service can be connected in both senses at once, in neither, or in one
+without the other, and the two say nothing about each other. "Is X connected?"
+therefore takes both lookups, and an answer names which sense it found. Some
+services offer both from the same authorize URL, so having done one is not
+evidence of the other.
 
 ### 2. Vellum Docs Site — Conceptual Knowledge
 
