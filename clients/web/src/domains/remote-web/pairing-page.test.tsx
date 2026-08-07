@@ -15,6 +15,7 @@ let injectedAssistantName: string | undefined;
 let injectedHubUrl: string | undefined;
 let nativePlatform = false;
 let nativePlatformName: "ios" | "android" = "ios";
+const nativeSwitchToOriginMock = mock(async (_url: string | null) => false);
 
 mock.module("@/lib/local-mode", () => ({
   isRemoteGatewayMode: () => remoteGatewayMode,
@@ -24,6 +25,10 @@ mock.module("@/lib/local-mode", () => ({
 
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => nativePlatform,
+}));
+
+mock.module("@/runtime/self-hosted-servers", () => ({
+  nativeSwitchToOrigin: nativeSwitchToOriginMock,
 }));
 
 mock.module("@capacitor/core", () => ({
@@ -137,6 +142,8 @@ afterEach(() => {
   exchangeRemoteWebPairingTokenMock.mockClear();
   createRemoteWebPairingChallengeMock.mockClear();
   activateRemoteGatewaySessionMock.mockClear();
+  nativeSwitchToOriginMock.mockReset();
+  nativeSwitchToOriginMock.mockImplementation(async () => false);
 });
 
 describe("RemoteWebPairingPage", () => {
@@ -199,9 +206,47 @@ describe("RemoteWebPairingPage", () => {
 
       // An in-app navigate would be bounced back here by the remote-gateway
       // pairing guard, so cancelling must cross to the hub's own origin.
-      expect(assignMock.mock.calls[0]?.[0]).toBe(
-        "https://hub.example.com/assistant/select-assistant?noAutoSkip=1",
+      await waitFor(() => {
+        expect(assignMock.mock.calls[0]?.[0]).toBe(
+          "https://hub.example.com/assistant/select-assistant?noAutoSkip=1",
+        );
+      });
+    } finally {
+      Object.defineProperty(window.location, "assign", {
+        value: originalAssign,
+        configurable: true,
+      });
+    }
+  });
+
+  test("cancel uses the native origin switch when available", async () => {
+    remoteGatewayMode = true;
+    injectedHubUrl = "https://hub.example.com/assistant";
+    nativePlatform = true;
+    nativeSwitchToOriginMock.mockResolvedValueOnce(true);
+    const assignMock = mock((_url: string) => {});
+    const originalAssign = window.location.assign;
+    Object.defineProperty(window.location, "assign", {
+      value: assignMock,
+      configurable: true,
+    });
+
+    try {
+      render(
+        <MemoryRouter
+          initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
+        >
+          <RemoteWebPairingPage />
+        </MemoryRouter>,
       );
+
+      expect(await screen.findByText("Waiting for approval")).not.toBeNull();
+      fireEvent.click(screen.getByText("Cancel"));
+
+      await waitFor(() => {
+        expect(nativeSwitchToOriginMock).toHaveBeenCalledWith(null);
+      });
+      expect(assignMock).not.toHaveBeenCalled();
     } finally {
       Object.defineProperty(window.location, "assign", {
         value: originalAssign,

@@ -25,6 +25,7 @@ import {
 } from "@/lib/local-mode";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { isAndroidBrowser, isIOSBrowser } from "@/runtime/platform-detection";
+import { nativeSwitchToOrigin } from "@/runtime/self-hosted-servers";
 import { sanitizeReturnTo } from "@/utils/return-to";
 import { routes } from "@/utils/routes";
 
@@ -412,6 +413,13 @@ export function RemoteWebPairingPage() {
   }, []);
 
   const cancelUrl = useMemo(() => hubChooserUrl(), []);
+  const handleCancel = useCallback(() => {
+    void nativeSwitchToOrigin(null).then((switched) => {
+      if (!switched && cancelUrl) {
+        window.location.assign(cancelUrl);
+      }
+    });
+  }, [cancelUrl]);
 
   if (!enabled) {
     return <NotFound />;
@@ -463,7 +471,7 @@ export function RemoteWebPairingPage() {
             variant="outlined"
             fullWidth
             className="mt-6"
-            onClick={() => window.location.assign(cancelUrl)}
+            onClick={handleCancel}
           >
             Cancel
           </Button>
