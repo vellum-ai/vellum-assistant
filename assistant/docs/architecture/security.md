@@ -10,7 +10,7 @@ The permission system controls which tool actions the agent can execute without 
 
 ```mermaid
 graph TB
-    TOOL_CALL["Tool invocation<br/>(toolName, input, policyContext)"] --> CLASSIFY["classifyRisk()<br/>→ Low / Medium / High"]
+    TOOL_CALL["Tool invocation<br/>(toolName, input, policyContext)"] --> CLASSIFY["classifyRisk()<br/>delegates to gateway over IPC<br/>→ Low / Medium / High"]
     CLASSIFY --> CANDIDATES["buildCommandCandidates()<br/>tool:target strings +<br/>canonical path variants"]
     CANDIDATES --> FIND_RULE["findHighestPriorityRule()<br/>iterate sorted rules:<br/>tool, scope, pattern (minimatch),<br/>executionTarget"]
 
@@ -65,7 +65,13 @@ Missing optional fields act as wildcards. A rule with no `executionTarget` match
 
 ### Risk Classification and Escalation
 
-The `classifyRisk()` function determines the risk level for each tool invocation:
+Risk classification is **gateway-owned**. The classifiers live in `gateway/src/risk/`, and the gateway is the sole entry point for classification: the assistant has no local classifier to fall back on.
+
+`classifyRisk()` in `assistant/src/permissions/checker.ts` is the assistant-side entry point. It is asynchronous and delegates to the gateway over IPC (`classify_risk`), returning the risk level plus the metadata the permission check needs: command candidates, action keys, sandbox auto-approve verdict, and allowlist options. It caches results locally.
+
+This section describes **ownership**: which side of the daemon/gateway boundary decides a risk level. It deliberately does not specify what happens when classification fails or when a cached result goes stale. Both are open questions in the code rather than settled design, so pinning them here would turn current behaviour into contract before anyone has decided it should be.
+
+The risk level assigned to each tool invocation:
 
 | Tool                                                             | Risk level                  | Notes                                                                                        |
 | ---------------------------------------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------- |
@@ -184,7 +190,7 @@ File tool candidates include canonical (symlink-resolved) absolute paths via `no
 | File                                          | Role                                                                                                                                                                                |
 | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `assistant/src/permissions/types.ts`          | `TrustRule`, `PolicyContext`, `RiskLevel`, `UserDecision` types                                                                                                                     |
-| `assistant/src/permissions/checker.ts`        | `classifyRisk()`, `check()`, `buildCommandCandidates()`, allowlist/scope generation                                                                                                 |
+| `assistant/src/permissions/checker.ts`        | `classifyRisk()` (assistant-side entry point; delegates to the gateway over IPC and caches the result), `check()`, allowlist/scope generation                                       |
 | `assistant/src/permissions/shell-identity.ts` | `analyzeShellCommand()`, `deriveShellActionKeys()`, `buildShellCommandCandidates()`, `buildShellAllowlistOptions()` — parser-based shell command identity and action key derivation |
 | `assistant/src/permissions/trust-store.ts`    | Rule persistence, `findHighestPriorityRule()`, execution-target matching, starter bundle                                                                                            |
 | `assistant/src/permissions/prompter.ts`       | HTTP prompt flow: `confirmation_request` → `confirmation_response`                                                                                                                  |
@@ -193,6 +199,19 @@ File tool candidates include canonical (symlink-resolved) absolute paths via `no
 | `assistant/src/skills/path-classifier.ts`     | `isSkillSourcePath()`, `normalizeFilePath()`, skill root detection                                                                                                                  |
 | `assistant/src/tools/executor.ts`             | `ToolExecutor` — orchestrates risk classification, permission check, and execution                                                                                                  |
 | `assistant/src/daemon/handlers/config.ts`     | `handleToolPermissionSimulate()` — dry-run simulation handler                                                                                                                       |
+
+Risk classification itself lives in the gateway:
+
+| File                                              | Role                                                                                     |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `gateway/src/ipc/risk-classification-handlers.ts` | `classify_risk` IPC handler, the entry point the assistant calls                         |
+| `gateway/src/risk/bash-risk-classifier.ts`        | Shell command risk, via the tree-sitter parse in `shell-parser.ts` / `shell-identity.ts` |
+| `gateway/src/risk/file-risk-classifier.ts`        | File tool risk, including skill-source-path escalation                                   |
+| `gateway/src/risk/web-risk-classifier.ts`         | Web tool risk                                                                            |
+| `gateway/src/risk/skill-risk-classifier.ts`       | Skill lifecycle tool risk                                                                |
+| `gateway/src/risk/schedule-risk-classifier.ts`    | Scheduled task risk                                                                      |
+| `gateway/src/risk/command-registry/`              | Known-program risk registry backing the bash classifier                                  |
+| `gateway/src/risk/risk-types.ts`                  | `Risk`, `RiskLevel`, and the conversions between them                                    |
 
 ### Permission Simulation (Tool Permission Tester)
 
