@@ -38,8 +38,9 @@ The CLI is the single source of truth for anything about the running assistant's
 | Available/installed skills            | `assistant skills list --json`                                             |
 | Platform connection                   | `assistant platform status --json`                                         |
 | Auth/identity                         | `assistant auth info --json`                                               |
-| Connected as the user (integrations)  | `assistant oauth status <provider>`                                        |
-| Reachable as the assistant (channels) | `assistant channels list`                                                  |
+| What is connected, and in which sense | `assistant oauth providers list --json`                                    |
+| One provider's connection state       | `assistant oauth status <provider>`                                        |
+| Channel delivery health               | `assistant channels list`                                                  |
 | Connected clients                     | `assistant clients list --json`                                            |
 | Trust rules                           | `assistant trust list`                                                     |
 | Stored credentials                    | `assistant credentials list`                                               |
@@ -51,11 +52,20 @@ The CLI is the single source of truth for anything about the running assistant's
 
 Run `assistant --help` or `assistant <command> --help` to discover more.
 
-A service can be connected in both senses at once, in neither, or in one
-without the other, and the two say nothing about each other. "Is X connected?"
-therefore takes both lookups, and an answer names which sense it found. Some
-services offer both from the same authorize URL, so having done one is not
-evidence of the other.
+"Is X connected?" has two answers and a service can have either, both, or
+neither. Each provider carries `acts_as`: `user` means the assistant can act as
+the person who authorized it, `assistant` means a bot people reach the
+assistant through. Report the sense found rather than a bare yes.
+
+Do not infer the sense from the provider key. `slack` and `discord` name the
+user integration while their bots are `slack_channel` and `discord_channel`,
+yet `telegram` is itself the bot. Some services offer both from one authorize
+URL, so having done one is not evidence of the other, and people often cannot
+recall which they did.
+
+`channels list` reports delivery health for channels that have a readiness
+probe, which is not all of them. It answers whether a channel is working, not
+whether something is connected.
 
 ### 2. Vellum Docs Site — Conceptual Knowledge
 

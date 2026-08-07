@@ -22151,6 +22151,11 @@ paths:
                             anyOf:
                               - type: string
                               - type: "null"
+                          acts_as:
+                            type: string
+                            enum:
+                              - user
+                              - assistant
                         required:
                           - provider_key
                           - display_name
@@ -22162,6 +22167,7 @@ paths:
                           - supports_managed_mode
                           - managed_service_is_paid
                           - feature_flag
+                          - acts_as
                         additionalProperties: false
                       - type: "null"
                   apps:
@@ -22679,6 +22685,11 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        acts_as:
+                          type: string
+                          enum:
+                            - user
+                            - assistant
                       required:
                         - provider_key
                         - display_name
@@ -22690,6 +22701,7 @@ paths:
                         - supports_managed_mode
                         - managed_service_is_paid
                         - feature_flag
+                        - acts_as
                       additionalProperties: false
                 required:
                   - providers

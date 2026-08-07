@@ -40,3 +40,42 @@ export function isChannelId(value: unknown): value is ChannelId {
     (CHANNEL_IDS as readonly string[]).includes(value)
   );
 }
+
+/**
+ * The provider key holding each channel's bot credential.
+ *
+ * Two senses of "connected" share the provider registry: a provider the user
+ * authorized so the assistant can act **as them** (`slack`, `discord`,
+ * `google`), and a bot credential letting people reach the assistant **as
+ * itself**. Nothing in a provider key says which, and the naming actively
+ * misleads: `slack` and `discord` name the user integration while their bots
+ * take a `_channel` suffix, yet `telegram` *is* the bot, because Telegram has
+ * no user-identity integration.
+ *
+ * That irregularity is why this is stated rather than derived from the key,
+ * and it is stated here because this file already owns what a channel is.
+ *
+ * Deliberately only the key. What fields each credential requires is declared
+ * once already, per service, in the gateway's credential specs; restating it
+ * here would be a second copy of a different fact.
+ *
+ * Channels absent from this map reach the assistant without a bot credential
+ * of their own: `phone` through the voice provider, `vellum` and `platform`
+ * internally.
+ */
+export const CHANNEL_BOT_PROVIDER = {
+  slack: "slack_channel",
+  discord: "discord_channel",
+  telegram: "telegram",
+} as const satisfies Partial<Record<ChannelId, string>>;
+
+/**
+ * Whether a provider key names a bot the assistant is reached through, rather
+ * than a grant letting it act as the user. This is the "which sense of
+ * connected" question, for any provider key.
+ */
+export function isChannelBotProvider(providerKey: string): boolean {
+  return (Object.values(CHANNEL_BOT_PROVIDER) as readonly string[]).includes(
+    providerKey,
+  );
+}
