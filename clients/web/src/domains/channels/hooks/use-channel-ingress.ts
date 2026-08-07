@@ -97,6 +97,33 @@ export function classifyIngressFailure(
   return "unreadable";
 }
 
+/**
+ * The failure the panel should report, given what it is about to say.
+ *
+ * A refused decision outlives the request that produced it: TanStack keeps a
+ * mutation's error until it is reset or retried, so a rejected approval is
+ * still hanging around when a later refetch fails. Preferring it there would
+ * pair "could not read the ingress approval" with an unrelated sentence about
+ * a digest mismatch. The read failure is the one that explains the state being
+ * shown, so it wins whenever the state is the read failing; everywhere else
+ * the decision is the only thing that can have gone wrong.
+ *
+ * Returns the text to show, or null when nothing failed.
+ */
+export function reportableError(
+  status: IngressStatus,
+  queryError: unknown,
+  decisionError: unknown,
+): string | null {
+  const failure = status === "unreadable" ? queryError : decisionError;
+  if (!failure) {
+    return null;
+  }
+  return failure instanceof Error && failure.message
+    ? failure.message
+    : "Something went wrong";
+}
+
 export function useChannelIngress(
   assistantId: string,
   plugin: string,
@@ -137,9 +164,11 @@ export function useChannelIngress(
     status = entry ? entry.state : "none";
   }
 
-  const decisionError = approval.error ?? revocation.error;
-  const failure =
-    decisionError ?? (status === "unreadable" ? query.error : undefined);
+  const failure = reportableError(
+    status,
+    query.error,
+    approval.error ?? revocation.error,
+  );
 
   return {
     status,
@@ -158,6 +187,6 @@ export function useChannelIngress(
       }
     },
     revoke: () => revocation.mutate({ path: { ...path, source: plugin } }),
-    error: failure ? (failure.message ?? "Something went wrong") : null,
+    error: failure,
   };
 }

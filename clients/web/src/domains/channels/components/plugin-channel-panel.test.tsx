@@ -14,7 +14,10 @@ import { cleanup, render } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 
 import { PluginChannelPanel } from "@/domains/channels/components/plugin-channel-panel";
-import { classifyIngressFailure } from "@/domains/channels/hooks/use-channel-ingress";
+import {
+  classifyIngressFailure,
+  reportableError,
+} from "@/domains/channels/hooks/use-channel-ingress";
 import { assistantChannelIngressListQueryKey } from "@/generated/gateway/@tanstack/react-query.gen";
 import type { PluginChannelSummary } from "@/types/channel-types";
 
@@ -225,6 +228,41 @@ describe("classifyIngressFailure", () => {
     expect(classifyIngressFailure({ status: 502 })).toBe("unreadable");
     expect(classifyIngressFailure(new Error("network down"))).toBe(
       "unreadable",
+    );
+  });
+});
+
+describe("reportableError", () => {
+  test("reports the read failure when the read is what failed", () => {
+    // A refused decision outlives its request, so a rejected approval is still
+    // present when a later refetch fails. Pairing "could not read the ingress
+    // approval" with a digest-mismatch sentence explains nothing.
+    const decision = new Error("Digest does not match");
+    const read = new Error("Bad gateway");
+
+    expect(reportableError("unreadable", read, decision)).toBe("Bad gateway");
+  });
+
+  test("reports the refused decision everywhere else", () => {
+    const decision = new Error("Digest does not match");
+
+    expect(reportableError("pending", undefined, decision)).toBe(
+      "Digest does not match",
+    );
+    expect(reportableError("approved", undefined, decision)).toBe(
+      "Digest does not match",
+    );
+  });
+
+  test("says nothing when nothing failed", () => {
+    expect(reportableError("approved", undefined, undefined)).toBeNull();
+  });
+
+  test("falls back to a sentence for a failure carrying no message", () => {
+    // The generated client can reject with a plain object, which would
+    // otherwise render as an empty line under the button.
+    expect(reportableError("unreadable", { status: 500 }, undefined)).toBe(
+      "Something went wrong",
     );
   });
 });
