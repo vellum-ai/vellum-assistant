@@ -136,6 +136,57 @@ describe("buildResearchPrompt — suggestions toggle", () => {
   });
 });
 
+describe("buildResearchPrompt — parallel search batching", () => {
+  test("asks for parallel tool calls in two batches", () => {
+    const prompt = buildResearchPrompt(SUBJECT);
+
+    expect(prompt).toContain("SEARCH IN PARALLEL");
+    expect(prompt).toContain("AS PARALLEL TOOL CALLS IN ONE STEP");
+    expect(prompt).toContain("Batch 1 — discovery.");
+    expect(prompt).toContain("Batch 2 — corroboration.");
+    // A cap keeps the discovery fan-out from turning into a search storm.
+    expect(prompt).toContain("at most 5 total");
+  });
+
+  test("bans subagent delegation", () => {
+    // Not a style preference: a subagent result is injected into the parent as
+    // a user message that starts a new turn, and a partial-but-complete payload
+    // from one of those turns settles the runner's poll on a half-researched
+    // card. See the module docstring.
+    const prompt = buildResearchPrompt(SUBJECT);
+
+    expect(prompt).toContain("Do NOT delegate this to subagents");
+  });
+
+  test("gates the discovery batch on the placeholder rule", () => {
+    // The placeholder escape hatch lives in the identity gate, which is stated
+    // AFTER the batches — without this forward reference a model reading in
+    // order fires five searches for junk input before reaching it.
+    const prompt = buildResearchPrompt(SUBJECT);
+
+    expect(prompt).toContain("First check the placeholder rule");
+    expect(prompt.indexOf("First check the placeholder rule")).toBeLessThan(
+      prompt.indexOf("placeholder or joke input"),
+    );
+  });
+
+  test("batching does not displace the identity gate or the JSON contract", () => {
+    const prompt = buildResearchPrompt(SUBJECT, [
+      { name: "marketing-expert", description: "Full-stack marketing." },
+    ]);
+
+    // Ordering is load-bearing: batches are described before the gate that
+    // judges their output, which is before the shape the gate feeds.
+    expect(prompt.indexOf("SEARCH IN PARALLEL")).toBeLessThan(
+      prompt.indexOf("IDENTITY GATE"),
+    );
+    expect(prompt.indexOf("IDENTITY GATE")).toBeLessThan(
+      prompt.indexOf('"plugins"'),
+    );
+    expect(prompt).toContain("run the identity gate below");
+  });
+});
+
 describe("buildResearchPrompt — identity gate & confidence calibration", () => {
   test("states the identity gate and the honest no-match fallback", () => {
     const prompt = buildResearchPrompt(SUBJECT);
