@@ -24,10 +24,12 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
  * stored id: a user hears a colour name, and "teal" is an internal identifier
  * that happens to be an English word.
  *
- * Being a map rather than a lookup on the palette is what makes it total. A
- * colour added to the palette and not named here is a compile error at every
- * use, in the manner of `sidebar-section-icon.ts`, instead of a swatch that
- * announces its own id.
+ * This map, not the palette, decides which colours the picker offers:
+ * {@link PinColorId} is derived from it and {@link PIN_COLORS} is the palette
+ * narrowed to it. So every swatch has a name by construction and none can fall
+ * back to announcing its own id. A palette colour with no entry here is left
+ * out rather than caught by the compiler, which is the trade {@link PIN_COLORS}
+ * describes.
  */
 const COLOR_NAME_KEYS = {
   green: "pinnedAppColorSwatches.colors.green",
