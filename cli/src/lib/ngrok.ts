@@ -142,7 +142,7 @@ export function startNgrokProcess(
     stdio = ["ignore", fd, fd];
   }
 
-  // Explicit over a bare port, which ngrok expands to `localhost` — whose ::1
+  // Explicit over a bare port, which ngrok expands to `localhost`, whose ::1
   // answer resolves first on macOS and races the edge's IPv4 bind.
   const args = ["http", `127.0.0.1:${targetPort}`, "--log=stdout"];
   if (domain) {
