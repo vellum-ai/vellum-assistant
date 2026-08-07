@@ -123,7 +123,13 @@ public class SelfHostedServersPlugin extends Plugin {
     private boolean applyOrigin(PluginCall call) {
         String raw = call.getString("url");
         if (raw == null || raw.trim().isEmpty()) {
-            SelfHostedServer.clear(getContext());
+            // A dropped clear leaves the shell on the current self-hosted origin,
+            // so recreating would land right back on it while the caller believes
+            // it reached Vellum Cloud.
+            if (!SelfHostedServer.clear(getContext())) {
+                call.reject("unable to clear the server");
+                return false;
+            }
             return true;
         }
         URI server = SelfHostedServer.validate(raw.trim());

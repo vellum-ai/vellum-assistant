@@ -142,6 +142,32 @@ public class SelfHostedServerTest {
     }
 
     @Test
+    public void aFailedRemovalLeavesTheActiveServerServing() {
+        FakeStore store = new FakeStore();
+        URI server = SelfHostedServer.validate("https://example.com");
+        SelfHostedServer.append(store, server, null);
+        SelfHostedServer.store(store, server);
+        store.serversWritable = false;
+
+        assertFalse(SelfHostedServer.remove(store, server));
+        // The list write goes first precisely so this stays put: a cleared slot
+        // here would relaunch onto Vellum Cloud after a reported failure.
+        assertEquals(server, SelfHostedServer.configured(store));
+    }
+
+    @Test
+    public void reportsADroppedClearRatherThanClaimingTheShellLeftTheOrigin() {
+        FakeStore store = new FakeStore();
+        URI server = SelfHostedServer.validate("https://example.com");
+        SelfHostedServer.store(store, server);
+        store.activeWritable = false;
+
+        assertFalse(SelfHostedServer.clear(store));
+        assertFalse(SelfHostedServer.remove(store, server));
+        assertEquals(server, SelfHostedServer.configured(store));
+    }
+
+    @Test
     public void acceptsOnlyRoutesThatStayUnderTheAppEntry() {
         assertEquals("select-assistant?noAutoSkip=1", SelfHostedServer.routePath("select-assistant?noAutoSkip=1"));
         assertEquals("settings/general", SelfHostedServer.routePath("  settings/general  "));
@@ -253,6 +279,7 @@ public class SelfHostedServerTest {
         private String value;
         private String servers;
         private boolean serversWritable = true;
+        private boolean activeWritable = true;
 
         @Override
         public String read() {
@@ -261,13 +288,20 @@ public class SelfHostedServerTest {
 
         @Override
         public boolean write(String value) {
+            if (!activeWritable) {
+                return false;
+            }
             this.value = value;
             return true;
         }
 
         @Override
-        public void clear() {
+        public boolean clear() {
+            if (!activeWritable) {
+                return false;
+            }
             value = null;
+            return true;
         }
 
         @Override

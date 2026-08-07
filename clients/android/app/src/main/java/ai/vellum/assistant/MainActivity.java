@@ -409,6 +409,11 @@ public class MainActivity extends BridgeActivity {
         recreate();
     }
 
+    /**
+     * A dropped clear needs no branch here, unlike on the bridge: reloading
+     * lands back on the origin that could not be reached and re-presents this
+     * dialog, so the failure is already visible and already retryable.
+     */
     private void useVellumCloud() {
         SelfHostedServer.clear(this);
         applyConfiguredOrigin(null);

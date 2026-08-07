@@ -33,7 +33,7 @@ final class SelfHostedServer {
 
         boolean write(String value);
 
-        void clear();
+        boolean clear();
 
         String readServers();
 
@@ -73,12 +73,13 @@ final class SelfHostedServer {
         return store.write(validated.toASCIIString());
     }
 
-    static void clear(Context context) {
-        clear(new PreferencesStore(context));
+    static boolean clear(Context context) {
+        return clear(new PreferencesStore(context));
     }
 
-    static void clear(Store store) {
-        store.clear();
+    /** Return the shell to the baked origin, answering whether the slot took it. */
+    static boolean clear(Store store) {
+        return store.clear();
     }
 
     static List<Entry> servers(Context context) {
@@ -150,24 +151,27 @@ final class SelfHostedServer {
 
     /**
      * Forget a server, clearing the active slot when it was the active one.
-     * Answers whether the list is now without it, which a url that was never in
-     * it satisfies, so only a failed write reads as failure.
+     * Answers whether the server is gone from both, which a url that was never
+     * remembered satisfies, so only a dropped write reads as failure.
+     *
+     * The list commits before the active slot: the two keys cannot be written
+     * atomically, and a failure that has already cleared the slot would strand
+     * the shell on the baked origin while the caller is told the removal failed.
      */
     static boolean remove(Store store, URI server) {
         URI validated = canonical(server);
         if (validated == null) {
             return true;
         }
-        if (validated.equals(configured(store))) {
-            clear(store);
-        }
         List<Entry> entries = servers(store);
         int index = indexOf(entries, validated.toASCIIString());
-        if (index < 0) {
-            return true;
+        if (index >= 0) {
+            entries.remove(index);
+            if (!store.writeServers(encode(entries))) {
+                return false;
+            }
         }
-        entries.remove(index);
-        return store.writeServers(encode(entries));
+        return !validated.equals(configured(store)) || clear(store);
     }
 
     /**
@@ -533,8 +537,8 @@ final class SelfHostedServer {
         }
 
         @Override
-        public void clear() {
-            preferences.edit().remove(SERVER_URL_KEY).commit();
+        public boolean clear() {
+            return preferences.edit().remove(SERVER_URL_KEY).commit();
         }
 
         @Override
