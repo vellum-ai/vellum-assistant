@@ -19,6 +19,7 @@ import {
 } from "../../../loader.js";
 import { VALID_CONVERSATION_TIMEOUTS } from "../../../schemas/elevenlabs.js";
 import { VALID_STT_PROVIDERS } from "../../../schemas/stt.js";
+import { voicePickerHint } from "./shared.js";
 
 /**
  * Valid voice config settings and their UserDefaults key mappings.
@@ -196,8 +197,9 @@ const STT_LANGUAGE_ALIASES: Record<
  * write still happens and the result stays non-error; this only redirects the
  * next request.
  */
-const MANAGED_VOICE_PICKER_HINT =
-  'Next time the user wants to change or hear a voice, prefer `ui_show { surface_type: "voice_picker", data: {} }`, which lets them hear and pick from the managed catalog in the conversation. Set the id here only when the user named a specific voice.';
+const MANAGED_VOICE_PICKER_HINT = voicePickerHint(
+  "which lets them hear and pick from the managed catalog in the conversation. Set the id here only when the user named a specific voice.",
+);
 
 function validateSetting(
   setting: string,
