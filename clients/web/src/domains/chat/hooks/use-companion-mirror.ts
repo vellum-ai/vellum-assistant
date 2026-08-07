@@ -1,5 +1,5 @@
 /**
- * `useCompanionMirror()` — mirrors what the macOS companion surface cannot know
+ * `useCompanionMirror()` mirrors what the macOS companion surface cannot know
  * onto it: the assistant's name and the tail of the open conversation. Together
  * they are what let an exchange started from the surface's Type option be read
  * on the surface, instead of by going back to an app the user deliberately did

@@ -1,4 +1,4 @@
-import { lazy, useEffect, useState } from "react";
+import { lazy, useEffect, useRef, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
@@ -225,6 +225,11 @@ export function RootLayout() {
   const [removePairedPending, setRemovePairedPending] = useState(false);
   // Whether the tray "New Assistant…" name-prompt dialog is open.
   const [createOpen, setCreateOpen] = useState(false);
+  // The conversation the companion surface's open composer is talking to,
+  // minted by its first message. Held here because the surface never learns the
+  // id: it says only whether it is starting or continuing, and this is the side
+  // that mints one.
+  const companionConversationRef = useRef<string | null>(null);
 
   const { login } = useOnboardingLogin();
 
@@ -329,12 +334,24 @@ export function RootLayout() {
       // conversation rather than sending into whatever the app has selected:
       // the user reached past the app to a floating avatar, so they are
       // starting something, not adding to a thread they cannot see. Every
-      // follow-up continues that one, which by then is the active conversation
-      // because the first message navigated here.
+      // follow-up continues that one.
+      //
+      // Which is the remembered id, not the active conversation, because the
+      // two come apart: pressing the avatar brings the app forward with the
+      // card still open, and picking a different thread there leaves the app's
+      // selection somewhere the card's conversation is not. A follow-up
+      // resolved against the selection would land in the thread the user
+      // happened to open rather than the one they were typing to.
+      //
+      // The fallback covers the composer outliving this window's memory of it,
+      // which a reload does: the active conversation is the best guess left.
       const conversations = useConversationStore.getState();
       const conversationId = command.startsConversation
         ? createDraftConversationId()
-        : (conversations.activeConversationId ?? createDraftConversationId());
+        : (companionConversationRef.current ??
+          conversations.activeConversationId ??
+          createDraftConversationId());
+      companionConversationRef.current = conversationId;
       conversations.setActiveConversationId(conversationId);
       // The `?prompt=` auto-send pathway (`use-auto-send-effects`), with a
       // relay token so sending the same words twice sends twice instead of
