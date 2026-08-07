@@ -273,20 +273,12 @@ async function runGatewayFlow(
 ): Promise<OAuth2FlowResult> {
   // Dynamic imports required here to avoid circular dependencies with
   // config/loader → security → oauth2 module chains.
-  const { loadConfig } = await import("../config/loader.js");
-  const { getOAuthCallbackUrl } =
-    await import("../inbound/public-ingress-urls.js");
-  const { resolveCallbackUrl } =
-    await import("../inbound/platform-callback-registration.js");
+  const { resolveOauthCallbackUrl } =
+    await import("../inbound/oauth-callback-url.js");
   const { registerPendingCallback } =
     await import("./oauth-callback-registry.js");
 
-  const appConfig = loadConfig();
-  const redirectUri = await resolveCallbackUrl(
-    () => getOAuthCallbackUrl(appConfig),
-    "webhooks/oauth/callback",
-    "oauth",
-  );
+  const redirectUri = await resolveOauthCallbackUrl();
 
   const codePromise = new Promise<string>((resolve, reject) => {
     registerPendingCallback(state, resolve, reject);
@@ -556,20 +548,12 @@ export async function prepareOAuth2Flow(
 
   // Dynamic imports required here to avoid circular dependencies with
   // config/loader → security → oauth2 module chains.
-  const { loadConfig } = await import("../config/loader.js");
-  const { getOAuthCallbackUrl } =
-    await import("../inbound/public-ingress-urls.js");
-  const { resolveCallbackUrl } =
-    await import("../inbound/platform-callback-registration.js");
+  const { resolveOauthCallbackUrl } =
+    await import("../inbound/oauth-callback-url.js");
   const { registerPendingCallback } =
     await import("./oauth-callback-registry.js");
 
-  const appConfig = loadConfig();
-  const redirectUri = await resolveCallbackUrl(
-    () => getOAuthCallbackUrl(appConfig),
-    "webhooks/oauth/callback",
-    "oauth",
-  );
+  const redirectUri = await resolveOauthCallbackUrl();
 
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = generateCodeChallenge(codeVerifier);

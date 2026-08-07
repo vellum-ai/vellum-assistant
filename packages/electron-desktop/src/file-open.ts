@@ -1,25 +1,28 @@
 import { BrowserWindow, app, type WebContents } from "electron";
+import path from "node:path";
 import { z } from "zod";
 
-import { handle, on } from "./ipc";
-import { ensureVisible as ensureMainWindowVisible } from "./main-window";
+import {
+  FILE_OPEN_DRAIN,
+  FILE_OPEN_EVENT,
+  FILE_OPEN_SUBSCRIBE,
+  FILE_OPEN_UNSUBSCRIBE,
+} from "@vellumai/ipc-contract";
+
+import type { createIpcRegistrar } from "./ipc";
 
 /**
- * Inbound file-open events — `.vellum` bundle double-clicks in Finder.
+ * Inbound file-open events for `.vellum` bundles.
  *
- * The OS delivers `open-file` when the user double-clicks a `.vellum`
- * bundle (or drags it onto the Dock icon). This module captures the
- * file path, validates it, and routes it to the renderer via the same
- * buffer/broadcast/subscriber pattern used by `deep-links.ts`.
+ * The OS delivers paths through `open-file` or process argv. This module
+ * captures, validates, and routes them through the same buffer, broadcast,
+ * and subscriber pattern used by `deep-links.ts`.
  *
  * Lifecycle hooks (all required):
  *
  *   - `app.on("will-finish-launching", () => app.on("open-file", ...))`
  *     captures file paths delivered AT launch. Registering in
  *     `whenReady` misses the launching file — same pitfall as deep links.
- *   - `app.on("second-instance")` forwards `.vellum` paths from argv
- *     when a second launch attempt occurs.
- *
  * Buffering: file paths arriving before the renderer subscribes are
  * queued in `pending[]`. The renderer drains via
  * `window.vellum.fileOpen.drain()` once mounted. Live file-open events
@@ -29,6 +32,59 @@ import { ensureVisible as ensureMainWindowVisible } from "./main-window";
 
 const VELLUM_EXT_RE = /\.vellum$/i;
 
+type IpcRegistrar = ReturnType<typeof createIpcRegistrar>;
+
+export interface FileOpenDependencies {
+  ensureMainWindowVisible: () => void | Promise<void>;
+  handle: IpcRegistrar["handle"];
+  on: IpcRegistrar["on"];
+}
+
+let dependencies: FileOpenDependencies | null = null;
+
+export const configureFileOpen = (next: FileOpenDependencies): void => {
+  dependencies = next;
+};
+
+const getDependencies = (): FileOpenDependencies => {
+  if (!dependencies) {
+    throw new Error("File open module is not configured");
+  }
+  return dependencies;
+};
+
+export const canonicalizeVellumFilePath = (
+  filePath: string,
+  workingDirectory = process.cwd(),
+): string | null => {
+  if (!VELLUM_EXT_RE.test(filePath)) {
+    return null;
+  }
+  return path.resolve(workingDirectory, filePath);
+};
+
+export const extractVellumFilePathsFromArgv = (
+  argv: readonly string[],
+  workingDirectory = process.cwd(),
+): string[] => {
+  const seen = new Set<string>();
+  const paths: string[] = [];
+  for (const arg of argv) {
+    const filePath = canonicalizeVellumFilePath(arg, workingDirectory);
+    if (!filePath) {
+      continue;
+    }
+    const key =
+      process.platform === "win32" ? filePath.toLowerCase() : filePath;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    paths.push(filePath);
+  }
+  return paths;
+};
+
 const pending: string[] = [];
 
 const subscribers = new Set<WebContents>();
@@ -37,22 +93,43 @@ const fileOpenCallbacks = new Set<(path: string) => void>();
 
 const broadcast = (filePath: string): void => {
   for (const win of BrowserWindow.getAllWindows()) {
-    if (win.isDestroyed()) continue;
-    win.webContents.send("vellum:fileOpen:event", filePath);
+    if (win.isDestroyed()) {
+      continue;
+    }
+    win.webContents.send(FILE_OPEN_EVENT, filePath);
   }
 };
 
 const notifyCallbacks = (filePath: string): void => {
-  for (const cb of fileOpenCallbacks) cb(filePath);
+  for (const cb of fileOpenCallbacks) {
+    cb(filePath);
+  }
 };
 
 export const handleFileOpen = (filePath: string): void => {
-  if (!VELLUM_EXT_RE.test(filePath)) return;
-  if (subscribers.size === 0) pending.push(filePath);
-  broadcast(filePath);
-  notifyCallbacks(filePath);
+  const canonicalPath = canonicalizeVellumFilePath(filePath);
+  if (!canonicalPath) {
+    return;
+  }
+  if (subscribers.size === 0) {
+    pending.push(canonicalPath);
+  }
+  broadcast(canonicalPath);
+  notifyCallbacks(canonicalPath);
   if (app.isReady()) {
-    void ensureMainWindowVisible();
+    void getDependencies().ensureMainWindowVisible();
+  }
+};
+
+export const handleFileOpenArgv = (
+  argv: readonly string[],
+  workingDirectory = process.cwd(),
+): void => {
+  for (const filePath of extractVellumFilePathsFromArgv(
+    argv,
+    workingDirectory,
+  )) {
+    handleFileOpen(filePath);
   }
 };
 
@@ -76,8 +153,11 @@ export const onFileOpen = (callback: (path: string) => void): (() => void) => {
 let installed = false;
 
 export const installFileOpen = (): void => {
-  if (installed) return;
+  if (installed) {
+    return;
+  }
   installed = true;
+  const { handle, on } = getDependencies();
 
   app.on("will-finish-launching", () => {
     app.on("open-file", (event, filePath) => {
@@ -86,7 +166,7 @@ export const installFileOpen = (): void => {
     });
   });
 
-  handle("vellum:fileOpen:drain", z.tuple([]), (_args, event): string[] => {
+  handle(FILE_OPEN_DRAIN, z.tuple([]), (_args, event): string[] => {
     if (!subscribers.has(event.sender)) {
       subscribers.add(event.sender);
       event.sender.once("destroyed", () => {
@@ -96,15 +176,17 @@ export const installFileOpen = (): void => {
     return pending.splice(0, pending.length);
   });
 
-  on("vellum:fileOpen:subscribe", z.tuple([]), (_args, event) => {
-    if (subscribers.has(event.sender)) return;
+  on(FILE_OPEN_SUBSCRIBE, z.tuple([]), (_args, event) => {
+    if (subscribers.has(event.sender)) {
+      return;
+    }
     subscribers.add(event.sender);
     event.sender.once("destroyed", () => {
       subscribers.delete(event.sender);
     });
   });
 
-  on("vellum:fileOpen:unsubscribe", z.tuple([]), (_args, event) => {
+  on(FILE_OPEN_UNSUBSCRIBE, z.tuple([]), (_args, event) => {
     subscribers.delete(event.sender);
   });
 };

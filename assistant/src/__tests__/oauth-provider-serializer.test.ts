@@ -291,7 +291,24 @@ describe("serializeProviderSummary", () => {
       supports_managed_mode: true,
       managed_service_is_paid: false,
       feature_flag: null,
+      acts_as: "user",
     });
+  });
+
+  test("names which sense of connected a provider represents", () => {
+    // The provider key does not say, and the naming actively misleads:
+    // `slack` is the user integration while its bot is `slack_channel`, but
+    // `telegram` is itself the bot. A caller asking "is X connected?" needs
+    // this to answer which X it found.
+    const sense = (provider: string) =>
+      serializeProviderSummary(makeRow({ provider }))!.acts_as;
+
+    expect(sense("slack")).toBe("user");
+    expect(sense("slack_channel")).toBe("assistant");
+    expect(sense("discord")).toBe("user");
+    expect(sense("discord_channel")).toBe("assistant");
+    expect(sense("telegram")).toBe("assistant");
+    expect(sense("google")).toBe("user");
   });
 
   test("nullifies missing optional fields", () => {

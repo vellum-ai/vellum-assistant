@@ -223,6 +223,35 @@ const STT_ERROR_MAP: Record<SttErrorCategory, () => RouteError> = {
   "provider-error": () => new BadGatewayError("STT provider error"),
 };
 
+/**
+ * Resolve the configured batch transcriber, or fail the request with a 503
+ * naming which kind of unavailability this is.
+ *
+ * A typed {@link SttError} already names the situation and its fix (a
+ * configured provider that cannot batch transcribe), so its message is
+ * surfaced verbatim. `null` means nothing is configured at all, and any other
+ * throw is an unexpected resolver failure.
+ */
+async function resolveBatchTranscriberOrUnavailable(): Promise<BatchTranscriber> {
+  let transcriber: BatchTranscriber | null;
+  try {
+    transcriber = await resolveBatchTranscriber();
+  } catch (err) {
+    if (err instanceof SttError) {
+      throw new ServiceUnavailableError(err.message);
+    }
+    log.error({ err }, "Failed to resolve STT transcriber");
+    throw new ServiceUnavailableError("STT provider is not available");
+  }
+
+  if (!transcriber) {
+    throw new ServiceUnavailableError(
+      "No speech-to-text provider is configured",
+    );
+  }
+  return transcriber;
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -288,19 +317,7 @@ async function handleTranscribe({ body }: RouteHandlerArgs) {
   }
 
   // -- Resolve transcriber --------------------------------------------------
-  let transcriber;
-  try {
-    transcriber = await resolveBatchTranscriber();
-  } catch (err) {
-    log.error({ err }, "Failed to resolve STT transcriber");
-    throw new ServiceUnavailableError("STT provider is not available");
-  }
-
-  if (!transcriber) {
-    throw new ServiceUnavailableError(
-      "No speech-to-text provider is configured",
-    );
-  }
+  const transcriber = await resolveBatchTranscriberOrUnavailable();
 
   // -- Transcribe with timeout ----------------------------------------------
   const abortController = new AbortController();
@@ -358,18 +375,7 @@ async function handleTranscribeFile({ body }: RouteHandlerArgs) {
     );
   }
 
-  let transcriber;
-  try {
-    transcriber = await resolveBatchTranscriber();
-  } catch (err) {
-    log.error({ err }, "Failed to resolve STT transcriber");
-    throw new ServiceUnavailableError("STT provider is not available");
-  }
-  if (!transcriber) {
-    throw new ServiceUnavailableError(
-      "No speech-to-text provider is configured",
-    );
-  }
+  const transcriber = await resolveBatchTranscriberOrUnavailable();
 
   const startTime = Date.now();
   let wavPath: string | null = null;

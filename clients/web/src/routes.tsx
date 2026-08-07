@@ -1013,6 +1013,19 @@ export const routeTree = [
                             },
                           },
                           {
+                            // Same page, with the selected channel in the URL
+                            // so a row is linkable and survives a reload.
+                            // `/channels` alone still resolves, landing on the
+                            // first row.
+                            path: "channels/:channelId",
+                            lazy: {
+                              Component: () =>
+                                import("@/channels-page-route").then(
+                                  (m) => m.ChannelsPageRoute,
+                                ),
+                            },
+                          },
+                          {
                             path: "library",
                             lazy: {
                               Component: () =>

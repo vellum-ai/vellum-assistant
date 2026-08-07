@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   LiveVoiceConfigSchema,
+  LiveVoiceFluxConfigSchema,
   LiveVoiceFrontModelConfigSchema,
   LiveVoiceVadConfigSchema,
   VALID_LIVE_VOICE_MODES,
@@ -24,6 +25,15 @@ const FRONT_MODEL_DEFAULTS = {
   ackFirstDeltaTimeoutMs: 2500,
   ackGenerationTimeoutMs: 600,
   progress: PROGRESS_DEFAULTS,
+};
+
+// `eagerEotThreshold` is deliberately absent: it has no default, and leaving it
+// unset is what keeps Deepgram from emitting speculative turn events.
+const FLUX_DEFAULTS = {
+  turnEnd: { enabled: false },
+  model: "flux-general-en",
+  eotThreshold: 0.7,
+  eotTimeoutMs: 5_000,
 };
 
 describe("LiveVoiceVadConfigSchema", () => {
@@ -181,6 +191,87 @@ describe("LiveVoiceFrontModelConfigSchema", () => {
   });
 });
 
+describe("LiveVoiceFluxConfigSchema", () => {
+  test("empty object parses to defaults, with turn-end off", () => {
+    expect(LiveVoiceFluxConfigSchema.parse({})).toEqual(FLUX_DEFAULTS);
+  });
+
+  test("an unset eagerEotThreshold is absent, not zero", () => {
+    expect("eagerEotThreshold" in LiveVoiceFluxConfigSchema.parse({})).toBe(
+      false,
+    );
+  });
+
+  test("accepts overrides", () => {
+    const parsed = LiveVoiceFluxConfigSchema.parse({
+      turnEnd: { enabled: true },
+      model: "flux-general-multi",
+      eotThreshold: 0.85,
+      eagerEotThreshold: 0.45,
+      eotTimeoutMs: 12_000,
+    });
+    expect(parsed.turnEnd.enabled).toBe(true);
+    expect(parsed.model).toBe("flux-general-multi");
+    expect(parsed.eotThreshold).toBe(0.85);
+    expect(parsed.eagerEotThreshold).toBe(0.45);
+    expect(parsed.eotTimeoutMs).toBe(12_000);
+  });
+
+  test("partial overrides merge with defaults", () => {
+    const parsed = LiveVoiceFluxConfigSchema.parse({ eotThreshold: 0.6 });
+    expect(parsed.eotThreshold).toBe(0.6);
+    expect(parsed.turnEnd.enabled).toBe(false);
+    expect(parsed.model).toBe("flux-general-en");
+    expect(parsed.eotTimeoutMs).toBe(5_000);
+  });
+
+  test("rejects an eotThreshold outside 0.5..0.9", () => {
+    const above = LiveVoiceFluxConfigSchema.safeParse({ eotThreshold: 0.95 });
+    expect(above.success).toBe(false);
+    expect(above.error?.issues.map((i) => i.message)).toEqual([
+      "liveVoice.flux.eotThreshold must be <= 0.9",
+    ]);
+
+    const below = LiveVoiceFluxConfigSchema.safeParse({ eotThreshold: 0.4 });
+    expect(below.success).toBe(false);
+    expect(below.error?.issues.map((i) => i.message)).toEqual([
+      "liveVoice.flux.eotThreshold must be >= 0.5",
+    ]);
+  });
+
+  test("rejects an eagerEotThreshold outside 0.3..0.9", () => {
+    expect(
+      LiveVoiceFluxConfigSchema.safeParse({ eagerEotThreshold: 0.2 }).success,
+    ).toBe(false);
+    expect(
+      LiveVoiceFluxConfigSchema.safeParse({ eagerEotThreshold: 0.95 }).success,
+    ).toBe(false);
+  });
+
+  test("rejects an eotTimeoutMs outside 500..60000, and non-integers", () => {
+    expect(
+      LiveVoiceFluxConfigSchema.safeParse({ eotTimeoutMs: 499 }).success,
+    ).toBe(false);
+    expect(
+      LiveVoiceFluxConfigSchema.safeParse({ eotTimeoutMs: 60_001 }).success,
+    ).toBe(false);
+    expect(
+      LiveVoiceFluxConfigSchema.safeParse({ eotTimeoutMs: 1_500.5 }).success,
+    ).toBe(false);
+  });
+
+  test("rejects a non-boolean turnEnd.enabled", () => {
+    const result = LiveVoiceFluxConfigSchema.safeParse({
+      turnEnd: { enabled: "yes" },
+    });
+    expect(result.success).toBe(false);
+    const msgs = result.error?.issues.map((i) => i.message) ?? [];
+    expect(msgs.some((m) => m.includes("liveVoice.flux.turnEnd.enabled"))).toBe(
+      true,
+    );
+  });
+});
+
 describe("LiveVoiceConfigSchema", () => {
   test("empty object parses to defaults", () => {
     const parsed = LiveVoiceConfigSchema.parse({});
@@ -193,6 +284,9 @@ describe("LiveVoiceConfigSchema", () => {
         bargeInMinSpeechMs: 250,
       },
       frontModel: FRONT_MODEL_DEFAULTS,
+      // Off by default: Flux turn detection is opt-in, so the front-door hold
+      // verdict keeps committing turns until it is enabled.
+      flux: FLUX_DEFAULTS,
       maxSessionDurationSeconds: 1800,
       // Off by default: voice turns carry only their transcript, no audio
       // artifacts on the conversation messages (JARVIS-1283).
@@ -220,6 +314,7 @@ describe("LiveVoiceConfigSchema", () => {
       mode: "ptt",
       vad: { silenceThresholdMs: 900 },
       frontModel: { endpointDecisionTimeoutMs: 300 },
+      flux: { turnEnd: { enabled: true } },
       maxSessionDurationSeconds: 600,
     });
     expect(parsed.mode).toBe("ptt");
@@ -230,6 +325,9 @@ describe("LiveVoiceConfigSchema", () => {
     // Partial frontModel overrides merge with defaults
     expect(parsed.frontModel.endpointDecisionTimeoutMs).toBe(300);
     expect(parsed.frontModel.endpointExtensionMs).toBe(1500);
+    // Partial flux overrides merge with defaults
+    expect(parsed.flux.turnEnd.enabled).toBe(true);
+    expect(parsed.flux.eotThreshold).toBe(0.7);
     expect(parsed.maxSessionDurationSeconds).toBe(600);
   });
 

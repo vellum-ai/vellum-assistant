@@ -41,6 +41,7 @@ import {
 import { z } from "zod";
 
 import type { AssistantConfig } from "../../../../config/types.js";
+import { warmGuardianBindings } from "../../../../contacts/guardian-delivery-reader.js";
 import {
   cachedTextBlock,
   extractToolUse,
@@ -392,6 +393,13 @@ async function runRouterBatch(
     batchIndex,
     provider,
   } = params;
+
+  // Warm both guardian-delivery cache keys (vellum + unfiltered) so
+  // resolveUserName's sync guardian-file resolution, including its
+  // any-channel fallback, hits fresh keys instead of falling back to
+  // users/default.md on a cold/TTL-expired cache. Two local-socket IPC
+  // reads per batch, dwarfed by the batch's provider call.
+  await warmGuardianBindings();
 
   const systemPrompt = resolveRouterPrompt(
     config.memory?.v2?.router?.router_prompt_path ?? null,

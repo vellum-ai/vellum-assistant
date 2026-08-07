@@ -273,7 +273,6 @@ export function BulkOverrideSwapModal({
               </div>
               <Button
                 variant="ghost"
-                size="compact"
                 onClick={() =>
                   setDeselectedIds(
                     allSelected
@@ -318,17 +317,11 @@ export function BulkOverrideSwapModal({
           >
             {actionCount(selectedIds.length)} will change
           </Typography>
-          <Button
-            variant="ghost"
-            size="compact"
-            onClick={onClose}
-            disabled={applying}
-          >
+          <Button variant="ghost" onClick={onClose} disabled={applying}>
             Cancel
           </Button>
           <Button
             variant="primary"
-            size="compact"
             disabled={
               !source || !target || selectedIds.length === 0 || applying
             }

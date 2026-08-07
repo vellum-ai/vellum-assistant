@@ -47,12 +47,23 @@ export const SIDEBAR_SECTION_MAX_HEIGHT = 300;
  * sidebar body scrolls, so an oversized section degrades to body scrolling
  * the same way a long section list does today.
  */
+/**
+ * The gap between any two stacked entries in the sidebar: the built-in nav's
+ * pills, the section cards, and the scrollport that holds them.
+ *
+ * One constant rather than a `gap-*` at each container, because those
+ * containers nest - the body holds the section root which holds the cards -
+ * so a different value at any level surfaces as a different gap between two
+ * adjacent entries, and which container wins is not locally visible.
+ */
+export const SIDEBAR_STACK_GAP = "gap-2";
+
 export const SIDEBAR_SECTION_RESIZE_MIN_HEIGHT = 64;
 export const SIDEBAR_SECTION_RESIZE_MAX_HEIGHT = 600;
 
 /**
- * Text treatment for a section title (Pinned, Pinned Apps, a custom
- * group, the persistent Conversations header, Group by). `font-[350]!` sits below
+ * Text treatment for a section title (Pinned, a custom group, Chats, a
+ * channel section). `font-[350]!` sits below
  * the `lighter` type-scale tier's own 400 weight, a step past the scale's
  * lightest named weight rather than a new tier of its own (DM Sans is a
  * variable font down to 300). The trailing `!` forces it over the

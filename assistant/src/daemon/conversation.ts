@@ -2661,6 +2661,12 @@ export class Conversation {
        * forwarded into {@link runAgentLoopImpl} and threaded to `recordUsage`.
        */
       cronRunId?: string | null;
+      /**
+       * See {@link runAgentLoopImpl}: trust this turn runs under. Queue
+       * drains pass the sender's trust captured at enqueue so the run is not
+       * reset to the conversation's most recent actor.
+       */
+      turnTrustContext?: TrustContext;
     },
   ): Promise<void> {
     const { onEvent, ...rest } = options ?? {};

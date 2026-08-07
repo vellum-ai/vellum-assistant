@@ -68,7 +68,7 @@ describe("handleCreateVerificationSession — trusted_contact", () => {
 
     const result = (await handleCreateVerificationSession({
       body: { purpose: "trusted_contact", contactChannelId: "cc-1" },
-    })) as Record<string, unknown>;
+    })) as unknown as Record<string, unknown>;
 
     expect(result.success).toBe(true);
     expect(result.verificationSessionId).toBe("sess-1");

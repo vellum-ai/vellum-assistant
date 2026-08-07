@@ -52,6 +52,7 @@ import {
   ServiceUnavailableError,
 } from "./errors.js";
 import { parseBody } from "./parse-body.js";
+import { startActorPrincipalHeal } from "./sse-actor-principal-heal.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("events-routes");
@@ -455,28 +456,28 @@ export function handleSubscribeAssistantEvents(
     throw err;
   }
 
-  // Self-heal for dev-bypass connections: the sync resolution above reads
-  // only the guardian-delivery cache, which can be cold at connect time.
-  // Without this, the subscription would carry no principal for its whole
-  // lifetime and every host-proxy result would 403. Fire-and-forget so the
-  // stream is not delayed; keyed by connectionId so a reconnect race cannot
-  // patch the subscription that replaced this one.
+  // Self-heal for dev-bypass connections: the sync resolution above reads only
+  // the guardian-delivery cache, which can be cold at connect time, and a
+  // subscription that carries no principal for its lifetime 403s every
+  // host-proxy result it submits. The heal retries on a bounded backoff
+  // (`sse-actor-principal-heal.ts`), fire-and-forget so the stream is not
+  // delayed, keyed by connectionId so a reconnect race cannot patch the
+  // subscription that replaced this one. The lookup forces a fresh gateway read
+  // because a cached empty result outlives the retry schedule.
   if (
     clientId &&
     interfaceId &&
     actorPrincipalId == null &&
     rawActorPrincipalId?.trim() === "dev-bypass"
   ) {
-    void resolveActorPrincipalIdForLocalGuardian("dev-bypass")
-      .then((resolved) => {
-        if (resolved) {
-          hub.fillClientActorPrincipalId(sub.connectionId, resolved);
-        }
-      })
-      .catch(() => {
-        // Best-effort: an unreachable gateway leaves the record unhealed;
-        // the next reconnect retries.
-      });
+    startActorPrincipalHeal({
+      hub,
+      connectionId: sub.connectionId,
+      resolve: () =>
+        resolveActorPrincipalIdForLocalGuardian("dev-bypass", {
+          forceRefresh: true,
+        }),
+    });
   }
 
   const stream = new ReadableStream<Uint8Array>(

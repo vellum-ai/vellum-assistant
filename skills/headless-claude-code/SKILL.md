@@ -1,12 +1,14 @@
 ---
 name: headless-claude-code
-description: Reference guide for running Claude Code in headless, container, and CI environments — covers auth strategies, interactive mode pitfalls, tmux orchestration, root user workarounds, and git auth without SSH agents or keychains
+description: Reference guide for running Claude Code in third-party headless, container, and CI environments. Covers auth strategies, interactive mode pitfalls, tmux orchestration, root user workarounds, and git auth without SSH agents or keychains
 compatibility: "Any environment running Claude Code headlessly"
 metadata:
   emoji: "🖥️"
   vellum:
     category: "development"
     display-name: "Headless Claude Code"
+    avoid-when:
+      - "Setting up or authenticating Claude Code inside a Vellum assistant: the ACP skill owns that path"
 ---
 
 # Headless Claude Code

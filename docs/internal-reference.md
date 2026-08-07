@@ -729,31 +729,29 @@ dictation-stream.ts ──WSS──>  stt-stream-websocket.ts  ──WS──>  
                                                                         │
                                                             resolveStreamingTranscriber()
                                                                         │
-                                                         ┌──────────────┼──────────────┬──────────────┐
-                                                         │              │              │              │
-                                                  DeepgramRealtime  GoogleGemini   OpenAIWhisper   XAIRealtime
-                                                  Transcriber       Live Stream    Streaming       Transcriber
-                                                  (realtime-ws)     Transcriber    Transcriber     (realtime-ws)
-                                                                    (realtime-ws)  (incr-batch)
-                                                         │              │              │              │
-                                                  WSS to Deepgram  WSS to Gemini  HTTP polling    WSS to xAI
-                                                  /v1/listen       Live API       to Whisper API  realtime API
+                                                            one StreamingTranscriber adapter
+                                                            per streaming-capable provider
+                                                            (see the support matrix below)
+                                                                        │
+                                                            WSS or HTTP to that provider
 ```
 
-**Provider support matrix:**
+**Provider support matrix** (derived from the catalog in `src/providers/speech-to-text/provider-catalog.ts`, which is the source of truth):
 
 | Provider         | `conversationStreamingMode` | Streaming adapter | Batch fallback |
 | ---------------- | --------------------------- | ----------------- | -------------- |
 | `deepgram`       | `realtime-ws`               | Yes               | Yes            |
+| `deepgram-flux`  | `realtime-ws`               | Yes               | No             |
 | `google-gemini`  | `realtime-ws`               | Yes               | Yes            |
 | `openai-whisper` | `incremental-batch`         | Yes               | Yes            |
+| `vellum`         | `realtime-ws`               | Yes               | Yes            |
 | `xai`            | `realtime-ws`               | Yes               | Yes            |
 
 ### Debugging Stream Sessions
 
 #### 1. Verify provider supports streaming
 
-Check the configured STT provider in the assistant's config (`services.stt.provider`). All four providers (`deepgram`, `google-gemini`, `openai-whisper`, and `xai`) support conversation streaming. The client checks streaming availability before opening a WebSocket — if the provider's `conversationStreamingMode` is `"none"`, streaming sessions are not attempted.
+Check the configured STT provider in the assistant's config (`services.stt.provider`). Every provider in the matrix above supports conversation streaming. The client checks streaming availability before opening a WebSocket: if the provider's `conversationStreamingMode` is `"none"`, streaming sessions are not attempted. `deepgram-flux` is the one provider with no batch fallback, so a session failure there has nowhere to degrade to and file transcription fails outright.
 
 #### 2. Verify credentials are configured
 

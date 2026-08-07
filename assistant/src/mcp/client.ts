@@ -5,7 +5,6 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 
-import { getIsPlatform } from "../config/env-registry.js";
 import type { McpTransport } from "../config/schemas/mcp.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
@@ -101,21 +100,19 @@ export class McpClient {
       transportConfig.type === "sse" ||
       transportConfig.type === "streamable-http";
 
-    // For HTTP transports, only attach an OAuth provider if cached tokens exist.
-    // This avoids triggering client registration (which binds to a random port)
-    // during daemon startup. If no tokens, try without auth — if the server
-    // requires it, skip silently.
+    // For HTTP transports, only attach an OAuth provider if cached tokens
+    // exist. This avoids triggering client registration during daemon
+    // startup. If no tokens, try without auth: if the server requires it,
+    // skip silently.
     if (isHttpTransport) {
       const cachedTokens = await getSecureKeyAsync(
         `mcp:${this.serverId}:tokens`,
       );
       if (cachedTokens) {
-        const callbackTransport = getIsPlatform() ? "gateway" : "loopback";
         this.oauthProvider = new McpOAuthProvider(
           this.serverId,
           transportConfig.url,
           /* interactive */ false,
-          callbackTransport,
         );
       }
     }
