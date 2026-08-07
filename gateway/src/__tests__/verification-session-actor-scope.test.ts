@@ -238,10 +238,8 @@ describe("findActiveSession", () => {
   test("unfiltered, returns the most recent regardless of actor", () => {
     // The shape a caller gets when it does not say whose session it means.
     //
-    // Both mints land in the same millisecond, so `created_at` ties and only
-    // the insert-order tiebreak decides this. Without it the answer is
-    // whichever row SQLite reaches first, which is stable enough to pass
-    // locally and flake on CI.
+    // Both mints land in the same millisecond, so `created_at` ties and the
+    // insert-order tiebreak is the only thing deciding this.
     mintOutboundFor(ALICE);
     const bob = mintOutboundFor(BOB);
 

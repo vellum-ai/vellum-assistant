@@ -268,10 +268,10 @@ export function findLatestSessionByStatuses(
       ),
     )
     // `created_at` is a millisecond stamp, so two sessions minted in the same
-    // tick tie on it and SQLite is free to return either. Several people
-    // verifying at once is the normal case now, so break the tie on insert
-    // order: rowid rises with every insert, making "latest" mean the one
-    // actually written last rather than whichever the planner reached first.
+    // tick tie on it and SQLite is free to return either. Several people can
+    // be verifying at once, so the tie breaks on insert order: rowid rises
+    // with every insert, making "latest" mean the row written last rather
+    // than whichever the planner reached first.
     .orderBy(desc(channelVerificationSessions.createdAt), desc(sql`rowid`))
     .get();
 
