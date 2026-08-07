@@ -384,10 +384,14 @@ export async function runAgentLoopImpl(
   // without going through processMessage/drainQueue. This ensures the system
   // prompt callback always reads a valid snapshot rather than undefined.
   //
-  // A queue drain runs a message whose sender may not be the conversation's
-  // most recent one, so it passes that sender's trust explicitly. Falling back
-  // to the slot here would undo the drain's stamp and hand the turn back to
-  // whoever sent last.
+  // Every turn entry point (`processMessage` and both queue drains) captures
+  // the acting trust at turn start and passes it here. Awaits sit between that
+  // capture and this line, and the conversation slot is writable throughout
+  // (live-voice hydration, pointer elevation, the voice bridge), so re-reading
+  // it would run the turn as whoever wrote last rather than as the actor the
+  // turn belongs to. The `?? ctx.trustContext` fallback serves only the direct
+  // callers that never capture a turn: subagent manager, voice bridge,
+  // regenerate.
   ctx.currentTurnTrustContext = options?.turnTrustContext ?? ctx.trustContext;
   ctx.currentTurnChannelCapabilities = ctx.channelCapabilities;
 

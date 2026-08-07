@@ -2345,7 +2345,15 @@ export async function processMessage(
     titleText?: string;
     callSite?: LLMCallSite;
     overrideProfile?: string;
-  } = { isUserMessage: true };
+    turnTrustContext?: TrustContext;
+  } = {
+    isUserMessage: true,
+    // Carry the trust captured at turn start into the run. Several awaits sit
+    // between that capture and the loop opening, and the conversation slot is
+    // writable throughout that window, so letting the loop re-read it would
+    // run this turn as whoever wrote last.
+    turnTrustContext: conversation.currentTurnTrustContext,
+  };
   if (isInteractive !== undefined) {
     loopOptions.isInteractive = isInteractive;
   }
