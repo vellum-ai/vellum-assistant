@@ -275,8 +275,7 @@ export function groupConversations(
     }))
     .sort((a, b) => a.channelId.localeCompare(b.channelId));
   // Pinned and the custom groups sort by recency like every other section.
-  // They used to honor `displayOrder` instead, which only ever held a value
-  // for someone who had drag-reordered (LUM-3108 removed that affordance).
+  // `displayOrder` is not consulted anywhere: recency is the one order.
   const sortedPinned = pinned.slice().sort(compareByRecency);
   for (const bucket of customGroupsList) {
     bucket.conversations.sort(compareByRecency);

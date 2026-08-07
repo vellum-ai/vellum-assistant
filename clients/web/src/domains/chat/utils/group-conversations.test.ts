@@ -455,12 +455,11 @@ describe("groupConversations · custom group routing", () => {
 });
 
 describe("groupConversations · recency order for pinned and custom groups", () => {
-  /* Pinned and the custom groups used to sort by `displayOrder`, falling back
-     to creation time, so that a drag-reordered arrangement held regardless of
-     activity. LUM-3108 removed drag-reorder, and every section sorts by
-     recency now. Each test below sets `displayOrder` to the REVERSE of the
-     expected result, so re-introducing the old comparator fails them rather
-     than leaving them coincidentally passing. */
+  /* Recency is the only order, for these sections as much as any other.
+     `displayOrder` still exists on the wire and still carries values for
+     anyone who arranged rows by hand before that affordance went away, so
+     each test sets it to the REVERSE of the expected result: a comparator
+     that consults it again fails here rather than passing by coincidence. */
 
   test("pinned sorts by recency, ignoring displayOrder", () => {
     const result = groupConversations([
