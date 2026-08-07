@@ -1,27 +1,60 @@
 import { describe, expect, test } from "bun:test";
 
-import { normalizeLanguageTag, rankLanguages } from "../language-metadata.js";
+import {
+  dominantLanguageTag,
+  rankLanguages,
+  voteDominantLanguage,
+} from "../language-metadata.js";
 
-describe("normalizeLanguageTag", () => {
-  test("lowercases a bare base subtag", () => {
-    expect(normalizeLanguageTag("EN")).toBe("en");
+describe("voteDominantLanguage", () => {
+  test("only the dominance-ranked first entry votes", () => {
+    const tally = new Map<string, number>();
+    voteDominantLanguage(tally, ["en", "es"]);
+    expect(tally.get("en")).toBe(1);
+    expect(tally.has("es")).toBe(false);
   });
 
-  test("strips the region subtag", () => {
-    expect(normalizeLanguageTag("en-US")).toBe("en");
+  test("regional variants count toward their base subtag", () => {
+    const tally = new Map<string, number>();
+    voteDominantLanguage(tally, ["pt-BR"]);
+    voteDominantLanguage(tally, ["pt"]);
+    expect(tally.get("pt")).toBe(2);
   });
 
-  test("handles mixed-case regional tags", () => {
-    expect(normalizeLanguageTag("PT-br")).toBe("pt");
+  test("underscore-separated variants count toward their base subtag", () => {
+    const tally = new Map<string, number>();
+    voteDominantLanguage(tally, ["hi_IN"]);
+    expect(tally.get("hi")).toBe(1);
   });
 
-  test("trims surrounding whitespace", () => {
-    expect(normalizeLanguageTag("  hi ")).toBe("hi");
+  test("blank and absent tags cast no vote", () => {
+    const tally = new Map<string, number>();
+    voteDominantLanguage(tally, undefined);
+    voteDominantLanguage(tally, []);
+    voteDominantLanguage(tally, ["  "]);
+    expect(tally.size).toBe(0);
+  });
+});
+
+describe("dominantLanguageTag", () => {
+  test("most votes wins", () => {
+    const tally = new Map([
+      ["en", 1],
+      ["es", 3],
+    ]);
+    expect(dominantLanguageTag(tally)).toBe("es");
   });
 
-  test("returns empty string for blank input", () => {
-    expect(normalizeLanguageTag("")).toBe("");
-    expect(normalizeLanguageTag("   ")).toBe("");
+  test("ties break by first insertion", () => {
+    const tally = new Map([
+      ["hi", 2],
+      ["en", 2],
+    ]);
+    expect(dominantLanguageTag(tally)).toBe("hi");
+  });
+
+  test("undefined for an empty tally", () => {
+    expect(dominantLanguageTag(new Map())).toBeUndefined();
   });
 });
 

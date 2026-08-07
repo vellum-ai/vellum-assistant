@@ -576,12 +576,11 @@ describe("DeepgramRealtimeTranscriber", () => {
         type: "final",
         text: "hello world hola",
         confidence: 0.95,
-        language: "en",
         languages: ["en", "es"],
       });
     });
 
-    test("omits both fields entirely when no language metadata is present", async () => {
+    test("omits the languages field entirely when no language metadata is present", async () => {
       const { events } = await startSession();
 
       mockWs.simulateMessage(
@@ -614,7 +613,6 @@ describe("DeepgramRealtimeTranscriber", () => {
         type: "final",
         text: "hello",
         confidence: 0.95,
-        language: "en",
         languages: ["en"],
       });
     });
@@ -638,7 +636,6 @@ describe("DeepgramRealtimeTranscriber", () => {
         type: "partial",
         text: "namaste hello",
         confidence: 0.95,
-        language: "en",
         languages: ["en", "hi"],
       });
     });
@@ -658,7 +655,6 @@ describe("DeepgramRealtimeTranscriber", () => {
         type: "final",
         text: "mixed speech",
         confidence: 0.95,
-        language: "es",
         languages: ["es", "en"],
       });
     });
@@ -677,7 +673,6 @@ describe("DeepgramRealtimeTranscriber", () => {
         type: "final",
         text: "bonjour",
         confidence: 0.95,
-        language: "fr",
         languages: ["fr", "en"],
       });
     });
@@ -700,7 +695,6 @@ describe("DeepgramRealtimeTranscriber", () => {
         type: "final",
         text: "hola amigo",
         confidence: 0.95,
-        language: "es",
         languages: ["es"],
       });
     });
@@ -863,7 +857,6 @@ describe("DeepgramRealtimeTranscriber", () => {
       expect(finals[0]).toEqual({
         type: "final",
         text: "hello hola amigo",
-        language: "es",
         languages: ["es", "en"],
       });
     });
@@ -890,7 +883,6 @@ describe("DeepgramRealtimeTranscriber", () => {
       expect(finals[0]).toEqual({
         type: "final",
         text: "bonjour hello there",
-        language: "fr",
         languages: ["fr", "en"],
       });
     });
@@ -931,7 +923,6 @@ describe("DeepgramRealtimeTranscriber", () => {
       expect(finals[0]).toEqual({
         type: "final",
         text: "hello",
-        language: "en",
         languages: ["en"],
       });
     });
@@ -959,7 +950,6 @@ describe("DeepgramRealtimeTranscriber", () => {
       expect(finals[1]).toEqual({
         type: "final",
         text: "hello",
-        language: "en",
         languages: ["en"],
       });
     });

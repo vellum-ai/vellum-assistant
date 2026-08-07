@@ -264,16 +264,11 @@ export interface SttStreamServerPartialEvent {
    */
   readonly confidence?: number;
   /**
-   * Dominant detected language of this chunk as a lowercase base subtag
-   * (e.g. "en", "hi"). Only providers with code-switching metadata
-   * (currently Deepgram nova-3 `multi`) populate this. Consumers must
-   * treat absence as "unknown", never as English.
-   */
-  readonly language?: string;
-  /**
-   * All detected languages of this chunk in dominance order, normalized
-   * to lowercase base subtags. Populated under the same conditions as
-   * {@link language}; absence means "unknown", never English.
+   * All detected languages of this chunk in dominance order (first entry
+   * dominant), already normalized to lowercase base subtags (e.g. "en",
+   * "hi") by the emitting adapter; consumers must not re-normalize. Only
+   * providers with code-switching metadata (currently Deepgram nova-3
+   * `multi`) populate this. Absence means "unknown", never English.
    */
   readonly languages?: readonly string[];
 }
@@ -293,16 +288,11 @@ export interface SttStreamServerFinalEvent {
    */
   readonly confidence?: number;
   /**
-   * Dominant detected language of this chunk as a lowercase base subtag
-   * (e.g. "en", "hi"). Only providers with code-switching metadata
-   * (currently Deepgram nova-3 `multi`) populate this. Consumers must
-   * treat absence as "unknown", never as English.
-   */
-  readonly language?: string;
-  /**
-   * All detected languages of this chunk in dominance order, normalized
-   * to lowercase base subtags. Populated under the same conditions as
-   * {@link language}; absence means "unknown", never English.
+   * All detected languages of this chunk in dominance order (first entry
+   * dominant), already normalized to lowercase base subtags (e.g. "en",
+   * "hi") by the emitting adapter; consumers must not re-normalize. Only
+   * providers with code-switching metadata (currently Deepgram nova-3
+   * `multi`) populate this. Absence means "unknown", never English.
    */
   readonly languages?: readonly string[];
   /**

@@ -26,7 +26,8 @@
  * cap/fallback policy. LiveVoiceSession drives the routing.
  */
 
-import { baseLanguageSubtag } from "../util/language-subtag.js";
+import { NON_LATIN_SENTENCE_ENDING_PUNCTUATION } from "../tts/speakable-segments.js";
+import { localizedOrDefault } from "../util/language-subtag.js";
 import {
   ESCALATE_VERDICT_TOKEN,
   HOLD_VERDICT_TOKEN,
@@ -86,11 +87,10 @@ export const FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE: Readonly<
  * {@link FALLBACK_ESCALATION_BRIDGE} for unknown or absent languages.
  */
 export function fallbackEscalationBridgeFor(language?: string): string {
-  const base = baseLanguageSubtag(language);
-  return (
-    (base !== undefined
-      ? FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE[base]
-      : undefined) ?? FALLBACK_ESCALATION_BRIDGE
+  return localizedOrDefault(
+    FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
+    language,
+    FALLBACK_ESCALATION_BRIDGE,
   );
 }
 
@@ -109,12 +109,16 @@ export const MIN_SPOKEN_BRIDGE_CHARS = 3;
 export const MAX_ESCALATION_BRIDGE_CHARS = 140;
 
 /**
- * Sentence terminators that end an escalation bridge, including the
- * non-Latin enders the localized bridges use (the set mirrors
- * tts/speakable-segments.ts). Without them a Japanese or Hindi bridge never
- * hits a terminator and buffers to the char cap before hand-off.
+ * Sentence terminators that end an escalation bridge: the segmenter's
+ * non-Latin ender roster (tts/speakable-segments.ts) plus the ASCII enders
+ * and the ellipsis. Built from the shared set so the rosters cannot
+ * diverge: without the non-Latin enders a Japanese or Hindi bridge never
+ * hits a terminator and buffers to the char cap before hand-off. Exported
+ * for tests that assert spoken phrases end in a recognized terminator.
  */
-const BRIDGE_SENTENCE_END_REGEX = /[.!?…。｡！？．।॥؟۔]/;
+export const BRIDGE_SENTENCE_END_REGEX = new RegExp(
+  `[.!?…${[...NON_LATIN_SENTENCE_ENDING_PUNCTUATION].join("")}]`,
+);
 
 /**
  * Normalize a raw post-`[1]` stream into the bridge that is actually
