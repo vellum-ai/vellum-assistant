@@ -25,9 +25,7 @@
  * out. In `all` (the default) they are Pinned, the custom groups, and Chats,
  * which holds every conversation the others did not claim. In `grouped`, one
  * section per origin channel joins them and Chats keeps the remainder. Neither
- * view has a list outside the sections: `all` view used to render its
- * conversations through a second, headerless path, and every consumer that
- * forgot to special-case it drifted (LUM-3130).
+ * view has a list outside the sections.
  *
  * The headline output is {@link SidebarState.sections}: one flat, ordered
  * list of every renderable section (Pinned, Chats, each channel, each custom
@@ -137,11 +135,10 @@ export interface SidebarState {
    * - in `grouped` view - the channel sections), which is a starting
    * arrangement rather than a constraint.
    *
-   * The only list this hook publishes. The conversations that belong to no
-   * curated section reach the sidebar as the Chats section's own contents,
-   * never as a second collection beside `sections`: one was published here as
-   * `flatList` after Chats became a section in both views, and the rail went
-   * on drawing it as an extra Chats tile alongside the real one (LUM-3130).
+   * The only list this hook publishes. Conversations that belong to no curated
+   * section reach the sidebar as the Chats section's own contents, never as a
+   * second collection beside `sections`: a consumer handed both renders
+   * whichever one it is not told to skip, on top of the section itself.
    */
   sections: SidebarSection[];
   /**

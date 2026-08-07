@@ -3,9 +3,7 @@
  *
  * The rail's whole contract is that it is the expanded sidebar's section list
  * with the labels taken off: same sections, same order, one tile each. It is
- * not a second list that happens to agree, which is what it drifted into -
- * an extra hardcoded Chats tile survived `all` view gaining a real Chats
- * section, and the rail drew the same conversations twice (LUM-3130).
+ * not a second list that happens to agree with that one.
  *
  * So these assert the mapping itself - tile count against section count, and
  * labels against section labels, in order - rather than that some particular
@@ -81,9 +79,8 @@ const SLACK: SidebarSection = {
 
 describe("CollapsedRailSections", () => {
   /* `all` view: Chats holds the channel conversations itself, so the rail is
-     Pinned + Chats and nothing else. The regression drew a second Chats tile
-     here from a list published alongside `sections`, so this counts the tiles
-     rather than asking whether Chats is present - two of them satisfy that. */
+     Pinned + Chats and nothing else. Counts the tiles rather than asking
+     whether Chats is present, because two Chats tiles satisfy that. */
   test("draws one tile per section in all view, Chats included exactly once", () => {
     const labels = railLabels([PINNED, CHATS]);
 
@@ -91,10 +88,9 @@ describe("CollapsedRailSections", () => {
     expect(labels.filter((l) => l === "Chats")).toHaveLength(1);
   });
 
-  /* Grouped view is the arrangement the bug hid in: with channel sections
-     present the extra tile was suppressed, so the rail looked correct here
-     while `all` view - the default - showed the duplicate. Both views are
-     asserted so a fix that only holds in one of them fails. */
+  /* The two views hand the rail a different section set, and the mapping has
+     to hold for both: asserting only one leaves the other free to add or drop
+     a tile. */
   test("draws one tile per section in grouped view", () => {
     const labels = railLabels([
       PINNED,
@@ -115,8 +111,8 @@ describe("CollapsedRailSections", () => {
     ]);
   });
 
-  /* No sections means no tiles - not a fallback tile standing in for a list
-     that isn't there, which is the shape the duplicate came in. */
+  /* No sections means no tiles, rather than a fallback tile standing in for a
+     list the rail is not given. */
   test("draws nothing when there are no sections", () => {
     expect(railLabels([])).toEqual([]);
   });

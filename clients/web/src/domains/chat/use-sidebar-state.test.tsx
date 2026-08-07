@@ -292,11 +292,10 @@ describe("useSidebarState all view", () => {
     expect(recentsIds(result)).not.toContain("g1");
   });
 
-  /* Regression (LUM-3130): the uncurated rows are reachable as the Chats
-     section and nowhere else. A second copy published beside `sections` is
-     what put a duplicate Chats tile on the collapsed rail, so this asserts
-     the count rather than merely that Chats holds them - one section holding
-     them and a parallel list holding them too would pass the tests above. */
+  /* The uncurated rows are reachable as the Chats section and nowhere else.
+     Asserts the count rather than merely that Chats holds them: one section
+     holding them and a parallel list holding them too passes the tests above,
+     and gives the collapsed rail two Chats tiles to draw. */
   test("publishes the uncurated rows once, as the Chats section", () => {
     const { result } = renderSidebar();
 

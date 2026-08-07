@@ -146,10 +146,9 @@ function seedViewMode(assistantId: string, mode: SidebarViewMode): void {
     pinnedApps: PINNED_APPS,
     pinnedAppIds: new Set(PINNED_APPS.map((app) => app.appId)),
   });
-  /* `PreferencesMenu` renders nothing for a signed-out user, and a story has
-     no session, so without this the footer these stories claim to show was
-     silently absent from every one of them - which is how a clipped collapsed
-     Preferences pill shipped (LUM-3130). */
+  /* `PreferencesMenu` renders nothing for a signed-out user and a story has no
+     session of its own, so the sidebar's footer entry only appears in these
+     stories once one is seeded. */
   useAuthStore.setState({ sessionStatus: "authenticated" });
 }
 
@@ -261,12 +260,10 @@ export const CollapsedRail: Story = {
   },
 };
 
-/* The same rail in the default view, which is the one users actually land on
-   and the one where the rail last drifted from the expanded sidebar: Chats
-   drew twice, once as a section and once as an extra icon left over from when
-   `all` view had no Chats section (LUM-3130). Grouped view hid it, so the
-   collapsed story above never showed it. Every view the rail supports gets a
-   collapsed surface here for that reason. */
+/* The same rail in the default view, which is the one most users see. The two
+   views put a different section set in the column, and the rail is where a
+   section list going wrong is hardest to spot, so each view gets its own
+   collapsed surface rather than sharing one. */
 export const CollapsedRailAllView: Story = {
   name: "Collapsed rail · all view",
   beforeEach: () => seedViewMode("asst-collapsed-all", "all"),

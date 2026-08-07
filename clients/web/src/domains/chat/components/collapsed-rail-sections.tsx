@@ -67,14 +67,10 @@ function CollapsedRailSectionIcon({
  * order and labels come straight from `sections`, so the rail can't drift
  * from the expanded list the way two hand-maintained orders would.
  *
- * That includes the flat list. It used to get an extra icon of its own here,
- * from when `useSidebarState` pushed the Chats section in `grouped` view only
- * and `all` view rendered the same conversations through a separate headerless
- * path. Chats is now a section in both views, so the extra icon drew a second
- * Chats tile - same label, same glyph, same conversations - beside the real
- * one in the rail's default view (LUM-3130). Anything the rail needs to show
- * has to be a section, which is the invariant that keeps the two lists from
- * drifting apart again.
+ * `sections` is the only source a tile may come from, in either view mode:
+ * every conversation the rail can reach belongs to some section, so a tile
+ * drawn from anywhere else stands beside the section that already holds those
+ * rows and draws them a second time.
  */
 export function CollapsedRailSections({
   sections,
