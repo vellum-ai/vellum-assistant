@@ -171,11 +171,16 @@ export const createRoutedDictationDeps = (
   host: DictationHost | undefined,
 ): DictationOverlayDeps => {
   let routedToHost = false;
+  // Whether the last state drawn ended a dictation, which is what makes the
+  // next `recording` a new one rather than a continuation. See the re-begin
+  // below.
+  let settled = false;
 
   return {
     ...base,
     showOverlay: () => {
       routedToHost = host?.canHost() === true;
+      settled = false;
       if (routedToHost) {
         host?.begin();
         return;
@@ -184,12 +189,28 @@ export const createRoutedDictationDeps = (
     },
     forwardState: (state) => {
       if (routedToHost) {
+        // **A recording that interrupts a terminal state is a fresh begin.**
+        // The controller keeps a session visible while `done` or `error`
+        // lingers and folds a new recording into it, so `showOverlay` is not
+        // called a second time. For a window that only has to stay put that is
+        // exactly right; for one that comes to the cursor it means the second
+        // dictation is drawn wherever the first one was. The error linger is
+        // three seconds, which is precisely when a user retries somewhere else.
+        //
+        // `begin` is safe to call again: it keeps the parked spot it already
+        // recorded (see `parkedOriginForSnap`), so the surface still returns to
+        // where the user left it rather than to the previous cursor.
+        if (settled && state.kind === "recording") {
+          host?.begin();
+        }
+        settled = state.kind === "done" || state.kind === "error";
         host?.forward(state);
         return;
       }
       base.forwardState(state);
     },
     hideOverlay: () => {
+      settled = false;
       if (routedToHost) {
         routedToHost = false;
         host?.end();

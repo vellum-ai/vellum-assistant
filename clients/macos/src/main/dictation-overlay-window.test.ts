@@ -276,6 +276,54 @@ describe("createRoutedDictationDeps", () => {
     expect(host.end).not.toHaveBeenCalled();
   });
 
+  // The controller keeps a session visible while a terminal state lingers and
+  // folds a new recording into it, so `showOverlay` never fires a second time.
+  // A window pinned top-center does not care; one that comes to the cursor
+  // would otherwise draw the second dictation wherever the first one happened.
+  test("a recording during the done linger snaps again", () => {
+    const { host, deps } = createRouted(() => true);
+
+    deps.showOverlay();
+    deps.forwardState({ kind: "done" });
+    deps.forwardState(RECORDING);
+
+    expect(host.begin).toHaveBeenCalledTimes(2);
+  });
+
+  test("a recording during the error linger snaps again", () => {
+    const { host, deps } = createRouted(() => true);
+
+    deps.showOverlay();
+    deps.forwardState({ kind: "error", message: "Microphone unavailable" });
+    deps.forwardState(RECORDING);
+
+    expect(host.begin).toHaveBeenCalledTimes(2);
+  });
+
+  test("states within one dictation do not snap again", () => {
+    const { host, deps } = createRouted(() => true);
+
+    deps.showOverlay();
+    deps.forwardState(RECORDING);
+    deps.forwardState({ kind: "recording", transcription: "more words" });
+    deps.forwardState({ kind: "processing" });
+
+    expect(host.begin).toHaveBeenCalledTimes(1);
+  });
+
+  test("the terminal marker does not survive into the next session", () => {
+    const { host, deps } = createRouted(() => true);
+
+    deps.showOverlay();
+    deps.forwardState({ kind: "done" });
+    deps.hideOverlay();
+    deps.showOverlay();
+    deps.forwardState(RECORDING);
+
+    // Two begins, one per session — not a third from the stale `done`.
+    expect(host.begin).toHaveBeenCalledTimes(2);
+  });
+
   test("the next session re-decides", () => {
     let onScreen = false;
     const { base, host, deps } = createRouted(() => onScreen);
