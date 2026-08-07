@@ -56,6 +56,15 @@ function clientBindingKey(serverId: string): string {
 }
 
 /**
+ * Logo shown on an authorization server's consent screen.
+ *
+ * Anonymously fetchable, which is the requirement: the server loads it
+ * without credentials. It identifies Vellum rather than the individual
+ * assistant, so every assistant a person runs presents the same mark.
+ */
+const CLIENT_LOGO_URI = "https://www.vellum.ai/favicon.svg";
+
+/**
  * What a stored client registration was made against.
  *
  * A client identifier belongs to the authorization server that issued it and
@@ -133,18 +142,19 @@ export class McpOAuthProvider implements OAuthClientProvider {
    * assistant id so a server can correlate an assistant's registrations
    * across servers without treating every assistant as the same client.
    *
-   * `logo_uri` is absent deliberately. The assistant's avatar is served
-   * only behind authentication, and an authorization server fetching a logo
-   * is anonymous, so there is no URL to give it. A stable public identity
-   * per assistant is what would supply one, and the same prerequisite would
-   * let this move to Client ID Metadata Documents and drop registration
-   * altogether.
+   * `logo_uri` is the Vellum mark rather than the assistant's own avatar.
+   * An authorization server fetching a logo is anonymous, and the avatar is
+   * served only behind authentication, so there is no per-assistant URL to
+   * give it. A stable public identity per assistant is what would supply
+   * one, and the same prerequisite would let this move to Client ID
+   * Metadata Documents and drop registration altogether.
    */
   get clientMetadata(): OAuthClientMetadata {
     const assistantName = getAssistantName();
     const assistantId = getPlatformAssistantId().trim();
     return {
       client_name: assistantName ?? "Vellum Assistant",
+      logo_uri: CLIENT_LOGO_URI,
       redirect_uris: this._redirectUrl ? [this._redirectUrl] : [],
       token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],
