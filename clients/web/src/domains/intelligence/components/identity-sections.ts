@@ -31,18 +31,22 @@ function section(
 }
 
 /**
- * Sections the native mobile shells leave off the overview. Their UI needs
- * more work before it earns a place on a phone, so on iOS and Android they
- * offer the user little. Only the overview cards go: the routes stay
- * registered and reachable by deep link, so putting a section back is a
- * single edit to this list once its mobile UI is ready.
+ * Sections the native mobile shells leave off the overview. The test is
+ * whether the task belongs on a phone, not how finished the surface looks:
+ * curating memories and browsing host files are desk work, so on iOS and
+ * Android those two are noise.
+ *
+ * Contacts and Channels are deliberately absent from this list. Who the
+ * assistant knows and where it listens are exactly what someone needs to
+ * check and change while away from their desk, so they earn a card even
+ * though their mobile UI is still rough. An unpolished way in beats no way
+ * in. Do not re-add them for looking unfinished; that is a reason to polish
+ * them, not to hide them.
+ *
+ * Only the overview cards go: the routes stay registered and reachable by
+ * deep link, so moving a section either way is a single edit to this list.
  */
-const NATIVE_MOBILE_HIDDEN_KEYS: readonly string[] = [
-  "memory",
-  "workspace",
-  "contacts",
-  "channels",
-];
+const NATIVE_MOBILE_HIDDEN_KEYS: readonly string[] = ["memory", "workspace"];
 
 export interface BuildIdentitySectionsOptions {
   /** True inside the iOS or Android Capacitor shell. */
