@@ -245,7 +245,7 @@ mock.module("./devtools", () => ({
   areChromeDevToolsEnabled: () => false,
 }));
 
-mock.module("./window-state", () => ({
+mock.module("@vellumai/electron-desktop/window-state", () => ({
   readOnboardingActive: () => false,
 }));
 

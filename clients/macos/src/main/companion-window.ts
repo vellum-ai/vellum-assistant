@@ -22,7 +22,10 @@ import {
   ensureVisible as ensureMainWindowVisible,
 } from "./main-window";
 import { onSettingChange, readSetting } from "./settings";
-import { readCompanionHidden, writeCompanionHidden } from "./window-state";
+import {
+  readCompanionHidden,
+  writeCompanionHidden,
+} from "@vellumai/electron-desktop/window-state";
 
 /**
  * The flag the whole surface is behind, evaluated for the signed-in user and

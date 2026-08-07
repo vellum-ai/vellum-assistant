@@ -24,6 +24,8 @@
     "./login-item": "./src/login-item.ts",
     "./preload": "./src/preload.ts",
     "./text-context-menu": "./src/text-context-menu.ts",
+    "./window-readiness": "./src/window-readiness.ts",
+    "./window-state": "./src/window-state.ts",
     "./windows": "./src/windows.ts"
   },
   "scripts": {
@@ -33,7 +35,8 @@
   "dependencies": {
     "@vellumai/electron-utils": "workspace:*",
     "@vellumai/ipc-contract": "workspace:*",
-    "@vellumai/local-mode": "workspace:*"
+    "@vellumai/local-mode": "workspace:*",
+    "electron-store": "11.0.2"
   },
   "peerDependencies": {
     "electron": ">=42.2.0",

@@ -34,7 +34,10 @@ import {
   type AssistantStatus,
 } from "./status";
 import { invalidateIconCache, statusFrames } from "./status-icon";
-import { readCompanionHidden, readOnboardingActive } from "./window-state";
+import {
+  readCompanionHidden,
+  readOnboardingActive,
+} from "@vellumai/electron-desktop/window-state";
 
 /**
  * macOS menu-bar (Tray) status item.
