@@ -195,8 +195,6 @@ const handlers = {
   openAbout: mock(() => undefined),
   // No call running by default, so the voice-panel item stays out of the menu
   // for every case that is not about it.
-  isVoicePanelAvailable: mock(() => false),
-  showVoicePanel: mock(() => undefined),
 };
 
 // Swap in fake timers so the pulse loop and deferred restart are deterministic.
@@ -628,34 +626,5 @@ describe("avatar and appearance updates", () => {
 
     expect(invalidateIconCacheMock).toHaveBeenCalledTimes(1);
     expect(tray?.setImage).toHaveBeenLastCalledWith({ id: "idle" });
-  });
-});
-
-describe("the voice panel item", () => {
-  test("is absent when no call is running", () => {
-    handlers.isVoicePanelAvailable.mockReturnValue(false);
-    installTray(handlers);
-    handlerFor(trays[0], "right-click")?.();
-    const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
-      label?: string;
-    }>;
-    const labels = template.map((item) => item.label).filter(Boolean);
-    expect(labels).not.toContain("Show Voice Panel");
-  });
-
-  test("appears while a call is running and reopens the panel", () => {
-    handlers.isVoicePanelAvailable.mockReturnValue(true);
-    installTray(handlers);
-    handlerFor(trays[0], "right-click")?.();
-    const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
-      label?: string;
-      click?: () => void;
-    }>;
-    // The way back from the panel's close button, which hides the window
-    // without ending the call.
-    const item = template.find((entry) => entry.label === "Show Voice Panel");
-    expect(item).toBeDefined();
-    item?.click?.();
-    expect(handlers.showVoicePanel).toHaveBeenCalled();
   });
 });

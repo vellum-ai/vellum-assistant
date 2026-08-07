@@ -42,7 +42,6 @@ import type {
   VoiceActivityContent,
   VoiceActivityControl,
   VoiceActivityStart,
-  VoiceActivityState,
 } from "@vellumai/ipc-contract";
 
 export type {
@@ -285,6 +284,9 @@ const bridge: VellumBridge = {
   icon: {
     setAvatar: (png: Uint8Array | null): void => {
       ipcRenderer.send("vellum:icon:setAvatar", png);
+    },
+    setCharacter: (character): void => {
+      ipcRenderer.send("vellum:icon:setCharacter", character);
     },
   },
   dock: {
@@ -575,22 +577,6 @@ const bridge: VellumBridge = {
     end: (): void => {
       ipcRenderer.send("vellum:voiceActivity:end");
     },
-    getState: (): Promise<VoiceActivityState | null> =>
-      ipcRenderer.invoke(
-        "vellum:voiceActivity:getState",
-      ) as Promise<VoiceActivityState | null>,
-    onState: (callback) => {
-      const handler = (
-        _event: IpcRendererEvent,
-        payload: VoiceActivityState | null,
-      ) => {
-        callback(payload);
-      };
-      ipcRenderer.on("vellum:voiceActivity:state", handler);
-      return () => {
-        ipcRenderer.off("vellum:voiceActivity:state", handler);
-      };
-    },
     control: (control: VoiceActivityControl): void => {
       ipcRenderer.send("vellum:voiceActivity:control", control);
     },
@@ -605,15 +591,6 @@ const bridge: VellumBridge = {
       return () => {
         ipcRenderer.off("vellum:voiceActivity:controlEvent", handler);
       };
-    },
-    activate: (): void => {
-      ipcRenderer.send("vellum:voiceActivity:activate");
-    },
-    dismiss: (): void => {
-      ipcRenderer.send("vellum:voiceActivity:dismiss");
-    },
-    setCollapsed: (collapsed: boolean): void => {
-      ipcRenderer.send("vellum:voiceActivity:setCollapsed", collapsed);
     },
   },
   companion: {
@@ -638,6 +615,12 @@ const bridge: VellumBridge = {
     },
     moveBy: (dx: number, dy: number): void => {
       ipcRenderer.send("vellum:companion:moveBy", dx, dy);
+    },
+    startVoice: (): void => {
+      ipcRenderer.send("vellum:companion:startVoice");
+    },
+    activate: (): void => {
+      ipcRenderer.send("vellum:companion:activate");
     },
   },
   popout: {

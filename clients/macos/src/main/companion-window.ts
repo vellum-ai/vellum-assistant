@@ -1,16 +1,39 @@
-import { screen } from "electron";
+import { BrowserWindow, screen } from "electron";
 import { z } from "zod";
 
-import type { CompanionAnchor, CompanionSurfaceState } from "@vellumai/ipc-contract";
+import {
+  voiceActivityContentSchema,
+  voiceActivityControlSchema,
+  voiceActivityStartSchema,
+  type CompanionGrowth,
+  type CompanionSurfaceState,
+  type VoiceActivityState,
+} from "@vellumai/ipc-contract";
 
-import { getAvatarPng, onAvatarChange } from "./avatar";
+import { getAvatarPng, getCharacter, onAvatarChange } from "./avatar";
 import { createFloatingWindow, getFloatingWindow } from "./floating-window";
 import { handle, on } from "./ipc";
+import {
+  current as currentMainWindow,
+  dispatchToMain,
+  ensureVisible as ensureMainWindowVisible,
+} from "./main-window";
 
 /**
  * The always-present companion surface (LUM-3086): the assistant's avatar
  * floating from app launch, expanding on hover into a pill with the voice and
- * type-chat options.
+ * type-chat options, and holding that expansion for as long as a call runs.
+ *
+ * **It is also the desktop's live-voice session surface**, the counterpart to
+ * the iOS Dynamic Island and Lock Screen activity. Main holds the session
+ * snapshot the window renderer publishes and pushes it down to the surface,
+ * which is why a session survives the surface's own renderer reloading: the
+ * elapsed clock is anchored on this side.
+ *
+ * A session is shown on the surface that is already there rather than in a
+ * window of its own. One assistant, one place on screen: a separate panel for
+ * calls meant the avatar sat inert beside a window describing the call it was
+ * supposedly having.
  *
  * **A transparent canvas, not a window that resizes.** The canvas is fixed at
  * the widest extent any state can reach and the pill is drawn inside it, so the
@@ -34,17 +57,21 @@ const COMPANION_ROUTE = "/floating/companion";
 /** The avatar's resting footprint, matching `CompanionSurface`. */
 const AVATAR_BOX = 44;
 
-/** The widest the pill gets, matching `WIDTHS.call` in the renderer. */
-const MAX_PILL_WIDTH = 296;
+/**
+ * The widest the pill gets, matching `FALLBACK_WIDTHS.call` in the renderer.
+ *
+ * A ceiling rather than a width: the pill measures its own content, so this is
+ * what the canvas is sized to hold, and content wider than it is clipped by the
+ * window. The call's approval row is the widest thing the surface renders.
+ */
+const MAX_PILL_WIDTH = 360;
 
 /**
- * How far the pill can reach from the avatar's centre.
+ * How far the pill reaches from the avatar's centre.
  *
- * Worst case is not bloom. Bloom splits its growth and reaches
- * `MAX_PILL_WIDTH / 2` either side, but an edge-anchored pill puts the avatar
- * at one end and reaches almost the pill's whole width the other way. The
- * canvas has to hold whichever anchor main later picks, so it is sized for the
- * larger.
+ * The avatar holds its place and the body runs off one side of it, so the reach
+ * is almost the pill's whole width. The canvas has to hold it in whichever
+ * direction main later picks, so it is sized for that reach on both sides.
  */
 const MAX_REACH = MAX_PILL_WIDTH - AVATAR_BOX / 2;
 
@@ -57,7 +84,17 @@ const CANVAS_HEIGHT = AVATAR_BOX + CANVAS_PAD * 2;
 /** Gap from the work area's bottom-right on the first ever launch. */
 const DEFAULT_MARGIN = 24;
 
-let anchor: CompanionAnchor = "center";
+let growth: CompanionGrowth = "right";
+
+/**
+ * The running live-voice session, or `null` when none is.
+ *
+ * Held here rather than in the surface's renderer because that renderer can
+ * load, reload, or be recreated mid-call, and an elapsed clock anchored in it
+ * would restart when that happened: the one fact on the surface a user would
+ * read as "the call dropped and came back".
+ */
+let call: VoiceActivityState | null = null;
 
 /**
  * The state the renderer sees, rebuilt on demand.
@@ -68,34 +105,72 @@ let anchor: CompanionAnchor = "center";
  */
 const currentState = (): CompanionSurfaceState => {
   const png = getAvatarPng();
+  const character = getCharacter();
   return {
-    anchor,
+    growth,
+    character: character === null ? undefined : character,
     avatarBase64: png === null ? undefined : png.toString("base64"),
+    call,
   };
 };
 
 /**
- * Which way the pill may grow, from where the avatar actually sits.
+ * The session after a `start`, which is not always a new session.
  *
- * Bloom needs `(width - AVATAR_BOX) / 2` of clearance either side at the
- * widest state. When a side does not have it the surface flips rather than
- * clips, so the avatar stays where the user put it instead of sliding off the
- * display with the controls the user was reaching for.
+ * A redundant start updates the running call rather than restarting its clock.
+ * The mirror re-syncs on mount and the session controller remounts across
+ * layout-level route changes while the store persists, so a second start for a
+ * call already on screen is expected traffic, and an elapsed timer that jumped
+ * back to zero on a route change would be a visible lie about a session that
+ * never stopped.
+ *
+ * Exported for its tests, which is also why it takes `now` rather than reading
+ * the clock.
  */
-export const anchorFor = (
+export const callOnStart = (
+  current: VoiceActivityState | null,
+  start: Omit<VoiceActivityState, "startedAt">,
+  now: number,
+): VoiceActivityState =>
+  current === null ? { ...start, startedAt: now } : { ...current, ...start };
+
+/**
+ * The session after an `update`, or `null` when there is nothing to update.
+ *
+ * An update with no session is dropped rather than promoted into one: it
+ * carries no assistant name and no avatar, so honoring it would put an
+ * anonymous call on the surface. In practice this is the tail of a session that
+ * has already ended.
+ */
+export const callOnUpdate = (
+  current: VoiceActivityState | null,
+  content: Partial<VoiceActivityState>,
+): VoiceActivityState | null =>
+  current === null ? null : { ...current, ...content };
+
+/**
+ * Which way the pill grows, from where the avatar actually sits.
+ *
+ * The body needs `MAX_PILL_WIDTH - AVATAR_BOX` of clearance on the side it
+ * grows into. Rightward is the default and leftward is what it flips to when
+ * the right edge is too close, so the avatar stays exactly where the user put
+ * it instead of the controls running off the display.
+ *
+ * A display too narrow for either direction still grows right, because the
+ * clipping is then unavoidable and the user can drag the surface somewhere it
+ * fits.
+ */
+export const growthFor = (
   avatarCentreX: number,
   workArea: { x: number; width: number },
-): CompanionAnchor => {
-  const needed = (MAX_PILL_WIDTH - AVATAR_BOX) / 2;
-  const roomLeft = avatarCentreX - workArea.x;
+): CompanionGrowth => {
+  const needed = MAX_PILL_WIDTH - AVATAR_BOX;
   const roomRight = workArea.x + workArea.width - avatarCentreX;
-  if (roomLeft < needed) {
+  const roomLeft = avatarCentreX - workArea.x;
+  if (roomRight < needed && roomLeft >= needed) {
     return "left";
   }
-  if (roomRight < needed) {
-    return "right";
-  }
-  return "center";
+  return "right";
 };
 
 /**
@@ -127,8 +202,8 @@ const pushState = (): void => {
   }
 };
 
-/** Recompute the anchor from where the window currently is. */
-const refreshAnchor = (): void => {
+/** Recompute the growth direction from where the window currently is. */
+const refreshGrowth = (): void => {
   const win = getFloatingWindow(COMPANION_KIND);
   if (!win) {
     return;
@@ -139,11 +214,11 @@ const refreshAnchor = (): void => {
     x: Math.round(avatarCentreX),
     y: Math.round(y + CANVAS_HEIGHT / 2),
   });
-  const next = anchorFor(avatarCentreX, workArea);
-  if (next === anchor) {
+  const next = growthFor(avatarCentreX, workArea);
+  if (next === growth) {
     return;
   }
-  anchor = next;
+  growth = next;
   pushState();
 };
 
@@ -184,7 +259,7 @@ export const installCompanionWindow = (): void => {
   // Dragging the surface. The renderer sends deltas rather than absolute
   // positions because it is the side holding the pointer, and main is the side
   // that knows where the window currently is. Moving fires `move`, which
-  // recomputes the anchor, so dragging toward a screen edge flips the growth
+  // recomputes the direction, so dragging toward a screen edge flips the growth
   // before the user gets there.
   on(
     "vellum:companion:moveBy",
@@ -196,6 +271,124 @@ export const installCompanionWindow = (): void => {
       }
       const [x, y] = win.getPosition();
       win.setPosition(Math.round(x + dx), Math.round(y + dy));
+    },
+  );
+
+  /**
+   * Talk, delivered to the renderer that can act on it.
+   *
+   * The surface is its own renderer and holds no live-voice session, so the
+   * press travels through main the way the voice panel's controls do. It goes
+   * to the main window rather than the focused one, and rather than to every
+   * window: the session lives where `ChatLayout` is mounted, which is that
+   * window and no other, and the press arrives while the user is working in
+   * some other app entirely, so "focused" would name the wrong target.
+   *
+   * **A window that exists is not raised, and one that does not is created.**
+   * A user reaching for a floating avatar has chosen not to go back to Vellum,
+   * and the session shows itself on this surface, so an existing window is left
+   * exactly where it was. But closing the main window destroys it while this
+   * surface stays on screen, and a command dispatched into that gap lands
+   * nowhere: Talk would read as broken. There is no way to host a session
+   * without a renderer to host it in, so that case builds one, which
+   * necessarily shows it.
+   */
+  on("vellum:companion:startVoice", z.tuple([]), () => {
+    if (currentMainWindow() !== null) {
+      dispatchToMain({ kind: "startVoice" });
+      return;
+    }
+    // Resolves once the renderer has loaded and the window has shown, so the
+    // command arrives at a page that can receive it.
+    void ensureMainWindowVisible().then(() => {
+      dispatchToMain({ kind: "startVoice" });
+    });
+  });
+
+  /**
+   * The avatar, pressed: come forward on the conversation the user was last in.
+   *
+   * `currentConversation` is the command the app already has for exactly this,
+   * so the surface asks for it rather than growing a path of its own, and the
+   * two degrade the same way. The renderer navigates when it has a conversation
+   * to navigate to and does nothing when it does not, which leaves the window
+   * simply coming forward. The same is true when the app is somewhere with no
+   * chat layout mounted, such as Settings: the command lands nowhere and the
+   * window is still raised, which is the smaller half of what was asked and
+   * never the wrong thing to do.
+   *
+   * This *does* raise the app, unlike Talk. It is the one press on the surface
+   * whose entire purpose is to go back to Vellum.
+   */
+  on("vellum:companion:activate", z.tuple([]), () => {
+    void ensureMainWindowVisible().then(() => {
+      dispatchToMain({ kind: "currentConversation" });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // The running session
+  //
+  // Published by whichever renderer holds it (the main window's live-voice
+  // mirror), held here, and pushed down to the surface as part of its state.
+  // The same payload the iOS bridge sends to ActivityKit, which is why the
+  // types live in the contract package rather than here.
+  // -------------------------------------------------------------------------
+
+  on(
+    "vellum:voiceActivity:start",
+    z.tuple([voiceActivityStartSchema]),
+    ([start]) => {
+      call = callOnStart(call, start, Date.now());
+      pushState();
+    },
+  );
+
+  on(
+    "vellum:voiceActivity:update",
+    z.tuple([voiceActivityContentSchema]),
+    ([content]) => {
+      const next = callOnUpdate(call, content);
+      if (next === null) {
+        return;
+      }
+      call = next;
+      pushState();
+    },
+  );
+
+  on("vellum:voiceActivity:end", z.tuple([]), () => {
+    if (call === null) {
+      return;
+    }
+    call = null;
+    pushState();
+  });
+
+  /**
+   * Deliver a press on the surface to the session that can act on it.
+   *
+   * Broadcast rather than addressed, the same shape the dictation overlay uses
+   * for its stop: main does not know which renderer owns the session, and the
+   * session's own listener is mounted for exactly the session's lifetime, so a
+   * press with no owner lands nowhere rather than being misrouted. The surface
+   * is excluded because it is the sender.
+   */
+  on(
+    "vellum:voiceActivity:control",
+    z.tuple([voiceActivityControlSchema]),
+    ([control]) => {
+      const surface = getFloatingWindow(COMPANION_KIND);
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (
+          win === surface ||
+          win.isDestroyed() ||
+          win.webContents.isDestroyed()
+        ) {
+          continue;
+        }
+        win.webContents.send("vellum:voiceActivity:controlEvent", control);
+      }
     },
   );
 
@@ -244,11 +437,11 @@ export const openCompanionWindow = (): void => {
     },
   });
 
-  refreshAnchor();
-  win.on("move", refreshAnchor);
-  // A display added, removed or rearranged moves the edges the anchor is
+  refreshGrowth();
+  win.on("move", refreshGrowth);
+  // A display added, removed or rearranged moves the edges the direction is
   // measured against without the window itself moving at all.
-  screen.on("display-metrics-changed", refreshAnchor);
-  screen.on("display-added", refreshAnchor);
-  screen.on("display-removed", refreshAnchor);
+  screen.on("display-metrics-changed", refreshGrowth);
+  screen.on("display-added", refreshGrowth);
+  screen.on("display-removed", refreshGrowth);
 };

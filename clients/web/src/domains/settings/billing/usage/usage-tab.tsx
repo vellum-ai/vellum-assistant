@@ -1,9 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
-import { Dropdown } from "@vellumai/design-library";
+import { Select } from "@vellumai/design-library/components/select";
 
 import { buildCallSiteMetadataMap } from "@/domains/settings/billing/usage/call-site-metadata";
 import {
@@ -199,6 +205,21 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   });
 
   const effectiveGroupBy = breakdownQuery.data?.groupBy ?? groupBy;
+
+  // The breakdown query falls back to a supported grouping when this gateway
+  // rejects the requested one, so `effectiveGroupBy` is what the page is
+  // actually showing. Adopt it into the URL: leaving the two apart means the
+  // address bar keeps asking for a grouping this gateway cannot serve, and
+  // every load pays the rejected request again. Converges in one pass, since
+  // the fallback grouping is by definition one the gateway supports.
+  useEffect(() => {
+    if (effectiveGroupBy !== groupBy) {
+      updateUsageSearchParams({
+        groupBy: effectiveGroupBy,
+        scheduleId: effectiveGroupBy === "schedule" ? undefined : null,
+      });
+    }
+  }, [effectiveGroupBy, groupBy, updateUsageSearchParams]);
   const seriesGroupBy = shouldFetchUsageSeries(effectiveGroupBy)
     ? effectiveGroupBy
     : undefined;
@@ -357,10 +378,6 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   }, [effectiveGroupBy, scheduleId, schedulesQuery.data]);
 
   const handleGroupByChange = (nextGroupBy: UsageGroupBy) => {
-    if (nextGroupBy === groupBy && effectiveGroupBy !== groupBy) {
-      void breakdownQuery.refetch();
-      void seriesQuery.refetch();
-    }
     updateUsageSearchParams({
       groupBy: nextGroupBy,
       scheduleId: nextGroupBy === "schedule" ? undefined : null,
@@ -497,7 +514,7 @@ function TimeRangeStrip({
 }) {
   return (
     <div className="flex items-center">
-      <Dropdown<UsageTimeRange>
+      <Select<UsageTimeRange>
         value={range}
         onChange={onChange}
         options={RANGE_OPTIONS.map((option) => ({
@@ -704,7 +721,7 @@ function GroupByPicker({
 }) {
   return (
     <div className="flex items-center">
-      <Dropdown<UsageGroupBy>
+      <Select<UsageGroupBy>
         value={value}
         onChange={onChange}
         menuAlign="end"

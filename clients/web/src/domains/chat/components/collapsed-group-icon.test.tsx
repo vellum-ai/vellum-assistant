@@ -1,13 +1,21 @@
 /**
  * Tests for `CollapsedGroupIcon` and `getGroupIndicatorState`.
  *
- * Uses `renderToStaticMarkup` for deterministic assertions on the rendered
- * output. (happy-dom is wired up via `bunfig.toml`, but Radix's popover/tooltip
- * overlays mount lazily on hover and never appear in static markup, so the
- * design-library primitives are mocked to surface their props inline instead.)
+ * `CollapsedGroupIcon` is a wiring component: it picks the section's icon and
+ * tooltip, decides whether the tile opens a popover at all, and hands the rest
+ * to `SideMenu.Item`. So these tests assert the wiring, with `SideMenu.Item`
+ * mocked to surface the props it receives. How those props actually render
+ * (the circle, the muted `aria-disabled` treatment that keeps the tooltip
+ * hoverable, the indicator overlay) is the design library's contract and is
+ * covered in `side-menu.test.tsx`.
+ *
+ * Uses `renderToStaticMarkup` for deterministic assertions. (happy-dom is
+ * wired up via `bunfig.toml`, but Radix's popover overlays mount lazily and
+ * never appear in static markup.)
  */
 
 import { describe, expect, mock, test } from "bun:test";
+import type { LucideIcon } from "lucide-react";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -16,15 +24,43 @@ const passthrough = ({ children, ...props }: Record<string, unknown>) =>
   createElement("div", props, children as ReactNode);
 const mockTrigger = ({ children }: Record<string, unknown>) =>
   createElement("div", { "data-testid": "trigger" }, children as ReactNode);
-// The real `Tooltip` portals its content and only mounts it on hover, so it
-// never appears in static markup. Render the trigger inline and surface the
-// `content` prop as an attribute so tests can assert what the tooltip says.
-const mockTooltip = ({ content, children }: Record<string, unknown>) =>
-  createElement(
-    "div",
-    { "data-testid": "tooltip", "data-tooltip-content": String(content) },
-    children as ReactNode,
+
+/**
+ * Stands in for `SideMenu.Item`, surfacing the props this component is
+ * responsible for choosing as attributes. `data-tooltip-content` resolves
+ * `tooltip` / `showCollapsedTooltip` the same way the real component does, so
+ * a test can assert the text a user would actually hover.
+ */
+const mockSideMenuItem = ({
+  icon,
+  label,
+  tooltip,
+  showCollapsedTooltip,
+  shape,
+  disabled,
+  indicator,
+  active,
+  ...props
+}: Record<string, unknown>) => {
+  const tooltipContent =
+    tooltip ?? (showCollapsedTooltip === true ? label : undefined);
+  return createElement(
+    "button",
+    {
+      "data-slot": "side-menu-item",
+      "aria-label": String(label),
+      "data-tooltip-content":
+        tooltipContent == null ? undefined : String(tooltipContent),
+      "data-shape": shape == null ? "default" : String(shape),
+      "data-active": active === true ? "true" : undefined,
+      "aria-disabled": disabled === true ? "true" : undefined,
+      tabIndex: disabled === true ? -1 : undefined,
+      ...props,
+    },
+    icon ? createElement(icon as LucideIcon, { key: "icon", size: 14 }) : null,
+    (indicator as ReactNode) ?? null,
   );
+};
 
 mock.module("@vellumai/design-library", () => ({
   Popover: {
@@ -32,7 +68,7 @@ mock.module("@vellumai/design-library", () => ({
     Trigger: mockTrigger,
     Content: passthrough,
   },
-  Tooltip: mockTooltip,
+  SideMenu: { Item: mockSideMenuItem },
 }));
 
 import {
@@ -160,8 +196,23 @@ describe("CollapsedGroupIcon", () => {
         <div>content</div>
       </CollapsedGroupIcon>,
     );
+    expect(html).toContain('data-slot="group-indicator-dot"');
     expect(html).toContain("bg-[var(--system-mid-strong)]");
-    expect(html).toContain("rounded-full");
+  });
+
+  test("the tile is a circle, and the dot rides it as an overlay", () => {
+    const html = renderToStaticMarkup(
+      <CollapsedGroupIcon icon={Pin} label="Pinned" indicatorState="unread">
+        <div>content</div>
+      </CollapsedGroupIcon>,
+    );
+    // The rail is a column of circles, so the tile asks for the circle
+    // geometry rather than drawing its own radius.
+    expect(html).toContain('data-shape="circle"');
+    // The dot goes through `indicator`, the collapsed overlay slot, not
+    // through `badge` (which a collapsed row suppresses) and not as a sibling
+    // of the tile (which would put it outside the circle's box).
+    expect(html).toContain('data-slot="group-indicator-dot"');
   });
 
   test("renders indicator dot with processing class (pulsing)", () => {
@@ -228,19 +279,21 @@ describe("CollapsedGroupIcon disabled state", () => {
         <div data-testid="popover-body">Should not render</div>
       </CollapsedGroupIcon>,
     );
-    /* Nothing to open, expressed as `aria-disabled` and never as the native
-       attribute. The tile is its own tooltip trigger, and a natively disabled
+    /* Nothing to open, expressed through the row's `disabled` prop, which
+       renders as `aria-disabled` and never as the native attribute. (That
+       distinction is the design library's to keep: a natively disabled
        control dispatches no pointer events, so the "No conversations" hint
-       explaining why it does nothing would be the one thing unreachable. */
+       would be the one thing unreachable. `side-menu.test.tsx` holds it.) */
     expect(html).toContain('aria-disabled="true"');
     expect(html).not.toContain('disabled=""');
     expect(html).toContain('tabindex="-1"');
+    // No popover: neither the trigger's semantics nor its body.
     expect(html).not.toContain('aria-haspopup="dialog"');
     expect(html).not.toContain("Should not render");
-    // Muted, disabled styling on the bare icon.
-    expect(html).toContain("text-[var(--content-disabled)]");
-    // Still labelled for assistive tech.
+    // Still labelled for assistive tech, and still a circle like its
+    // populated neighbours rather than falling back to a rounded square.
     expect(html).toContain('aria-label="Pinned"');
+    expect(html).toContain('data-shape="circle"');
   });
 
   test("hover tooltip explains the group is empty rather than repeating the label", () => {

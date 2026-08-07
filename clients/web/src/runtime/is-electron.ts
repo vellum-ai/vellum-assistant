@@ -20,7 +20,8 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
-  CompanionAnchor,
+  CompanionCharacter,
+  CompanionGrowth,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -65,7 +66,7 @@ export type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
-  CompanionAnchor,
+  CompanionGrowth,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -190,6 +191,7 @@ declare global {
       };
       icon?: {
         setAvatar(png: Uint8Array | null): void;
+        setCharacter?(character: CompanionCharacter | null): void;
       };
       dock: {
         setBadge(count: number): void;
@@ -320,21 +322,16 @@ declare global {
         start(state: VoiceActivityStart): void;
         update(content: VoiceActivityContent): void;
         end(): void;
-        getState(): Promise<VoiceActivityState | null>;
-        onState(
-          callback: (state: VoiceActivityState | null) => void,
-        ): () => void;
         control(control: VoiceActivityControl): void;
         onControl(callback: (control: VoiceActivityControl) => void): () => void;
-        activate?(): void;
-        dismiss?(): void;
-        setCollapsed?(collapsed: boolean): void;
       };
       companion?: {
         getState(): Promise<CompanionSurfaceState | null>;
         onState(callback: (state: CompanionSurfaceState) => void): () => void;
         setInteractive?(interactive: boolean): void;
         moveBy?(dx: number, dy: number): void;
+        startVoice?(): void;
+        activate?(): void;
       };
     };
   }

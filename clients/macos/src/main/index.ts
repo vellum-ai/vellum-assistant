@@ -101,11 +101,6 @@ import {
 import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTextInsertionIpc } from "./textInsertion";
 import { installTray } from "./tray";
-import {
-  installVoiceActivityWindow,
-  isVoiceActivityRunning,
-  reopenVoiceActivityPanel,
-} from "./voice-activity-window";
 import { installWebContentsSecurity } from "./windows";
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
@@ -487,7 +482,6 @@ app
     installApplicationMenu();
     installQuickInput();
     installDictationOverlay({ onRecordingLifecycle: setDictationRecording });
-    installVoiceActivityWindow();
     installCompanionWindow();
     installPopoutWindows();
     installGlobalShortcuts();
@@ -520,8 +514,6 @@ app
       toggleMainWindow: toggleMainWindowVisibility,
       ensureMainWindow: ensureMainWindowVisible,
       openAbout: openAboutWindow,
-      isVoicePanelAvailable: isVoiceActivityRunning,
-      showVoicePanel: reopenVoiceActivityPanel,
     });
     installNativeAuth();
     installMainWindow();
