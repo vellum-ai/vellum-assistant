@@ -339,7 +339,7 @@ function renderPage(
   );
 }
 
-function dropdownTrigger(ariaLabel: string): HTMLButtonElement {
+function selectTrigger(ariaLabel: string): HTMLButtonElement {
   const trigger = document.querySelector<HTMLButtonElement>(
     `button[role="combobox"][aria-label="${ariaLabel}"]`,
   );
@@ -350,7 +350,7 @@ function dropdownTrigger(ariaLabel: string): HTMLButtonElement {
 }
 
 function openSelect(ariaLabel: string): void {
-  fireEvent.click(dropdownTrigger(ariaLabel));
+  fireEvent.click(selectTrigger(ariaLabel));
 }
 
 function optionLabels(): string[] {
@@ -1030,7 +1030,7 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
 
     // Seeded to the held tier (a no-op), so Continue starts disabled.
     expect(continueButton().disabled).toBe(true);
-    expect(dropdownTrigger("Storage").textContent).toContain("250 GB");
+    expect(selectTrigger("Storage").textContent).toContain("250 GB");
     expect(recapRows()).toEqual([
       "Platform fee: $20/mo",
       "Medium machine (2.5 vCPU, 5 GiB)",
