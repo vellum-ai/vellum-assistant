@@ -454,16 +454,15 @@ export const PROVIDER_SEED_DATA: Record<
     pingUrl: "https://discord.com/api/v10/users/@me",
     baseUrl: "https://discord.com/api/v10",
     displayLabel: "Discord",
-    description: "Servers and messages",
+    // Your servers, not their contents. These scopes reach the guild list and
+    // your membership in one; reading messages is not among them. Discord
+    // documents `messages.read` as local RPC only, so requesting it would put
+    // a permission on the consent screen that grants nothing here.
+    description: "Your servers and profile",
     dashboardUrl: "https://discord.com/developers/applications",
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/discord",
-    defaultScopes: [
-      "identify",
-      "guilds",
-      "guilds.members.read",
-      "messages.read",
-    ],
+    defaultScopes: ["identify", "guilds", "guilds.members.read"],
     availableScopes:
       "https://discord.com/developers/docs/topics/oauth2#shared-resources-oauth2-scopes",
     loopbackPort: 17326,
@@ -773,6 +772,35 @@ export const PROVIDER_SEED_DATA: Record<
         injectionType: "header",
         headerName: "Authorization",
         valuePrefix: "Bearer ",
+      },
+    ],
+  },
+
+  // The bot that sits in a server and talks to people there, which is a
+  // different thing from the `discord` integration above and starts at the
+  // same Discord authorize URL. Both are reasonably called "connecting
+  // Discord", so each has to be nameable on its own. The bot token is already
+  // stored under this key by `skills/discord-app-setup`; seeding the provider
+  // is what lets the product tell the two apart.
+  discord_channel: {
+    provider: "discord_channel",
+    authorizeUrl: "urn:manual-token",
+    tokenExchangeUrl: "urn:manual-token",
+    pingUrl: "https://discord.com/api/v10/users/@me",
+    baseUrl: "https://discord.com/api/v10",
+    displayLabel: "Discord Server",
+    description: "A bot in your server",
+    dashboardUrl: "https://discord.com/developers/applications",
+    clientIdPlaceholder: null,
+    requiresClientSecret: false,
+    logoUrl: "https://cdn.simpleicons.org/discord",
+    defaultScopes: [],
+    injectionTemplates: [
+      {
+        hostPattern: "discord.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bot ",
       },
     ],
   },

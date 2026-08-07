@@ -96,7 +96,12 @@ Wait for the user to provide the Client ID.
 
 Follow the `vellum-oauth-integrations` workflow to collect credentials, register the OAuth app, connect, and verify.
 
-Scopes to request: `identify guilds guilds.members.read messages.read`
+Scopes to request: `identify guilds guilds.members.read`
+
+This reaches the user's server list and their profile, not the contents of any
+channel. Discord's `messages.read` grants nothing to a server-side app (its
+docs scope it to a local RPC client), so asking for it only adds a permission
+to the consent screen.
 
 > I'll start the Discord authorization flow now. You should see a Discord consent page asking you to authorize **Vellum Assistant** to access your account.
 >
