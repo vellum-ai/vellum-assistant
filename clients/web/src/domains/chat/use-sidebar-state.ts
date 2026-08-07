@@ -21,11 +21,13 @@
  * comment on `defaultSections` for why it cannot simply move down with the
  * contents, and for the point at which it has to go.
  *
- * Two views share all of that. In `all` (the default) the sections are Pinned
- * and the custom groups, and everything else renders as
- * {@link SidebarState.flatList}, one recency-sorted list the sidebar
- * virtualizes. In `grouped`, Chats and one section per origin channel join
- * them, and the flat list goes unused.
+ * Two views share all of that, and they differ only in how many sections come
+ * out. In `all` (the default) they are Pinned, the custom groups, and Chats,
+ * which holds every conversation the others did not claim. In `grouped`, one
+ * section per origin channel joins them and Chats keeps the remainder. Neither
+ * view has a list outside the sections: `all` view used to render its
+ * conversations through a second, headerless path, and every consumer that
+ * forgot to special-case it drifted (LUM-3130).
  *
  * The headline output is {@link SidebarState.sections}: one flat, ordered
  * list of every renderable section (Pinned, Chats, each channel, each custom
@@ -130,17 +132,16 @@ export interface SidebarState {
   onViewModeChange: (next: SidebarViewMode) => void;
 
   /**
-   * The `all` view's list: every conversation that is neither pinned nor in a
-   * custom group, newest first. Windowed at render, so it carries no page
-   * size or reveal state of its own.
-   */
-  flatList: Conversation[];
-
-  /**
    * Every section in the user's chosen order. Sections the user has never
-   * moved fall back to the default order (Pinned, custom groups, then - in
-   * `grouped` view - Chats and the channel sections), which is a starting
+   * moved fall back to the default order (Pinned, custom groups, Chats, then
+   * - in `grouped` view - the channel sections), which is a starting
    * arrangement rather than a constraint.
+   *
+   * The only list this hook publishes. The conversations that belong to no
+   * curated section reach the sidebar as the Chats section's own contents,
+   * never as a second collection beside `sections`: one was published here as
+   * `flatList` after Chats became a section in both views, and the rail went
+   * on drawing it as an extra Chats tile alongside the real one (LUM-3130).
    */
   sections: SidebarSection[];
   /**
@@ -463,7 +464,6 @@ export function useSidebarState({
   return {
     viewMode,
     onViewModeChange: setViewMode,
-    flatList: grouped.recents,
     sections,
     onReorderSections,
     onMoveSection,

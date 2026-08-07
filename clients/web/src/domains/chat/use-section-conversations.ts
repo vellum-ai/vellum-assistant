@@ -61,8 +61,8 @@ const NO_FILTER: SectionConversationFilter = {};
  * would return a fraction of the section and look like a quiet account rather
  * than a broken filter. Chats stays on its derived rows there.
  *
- * Chats is a section only in Grouped view. The `all` view renders the same
- * conversations as `flatList`, which is not a section and is not wired here.
+ * Chats is a section in both views, and both are wired here: `holdsChannels`
+ * below is which of the two it is asking as.
  *
  * One asymmetry to know about, because it looks like a bug from either side.
  * `Conversation.originChannel` is binding-first on the client

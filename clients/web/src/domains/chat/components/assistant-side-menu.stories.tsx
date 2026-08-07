@@ -19,6 +19,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
+import { useAuthStore } from "@/stores/auth-store";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import {
   saveViewMode,
@@ -145,6 +146,11 @@ function seedViewMode(assistantId: string, mode: SidebarViewMode): void {
     pinnedApps: PINNED_APPS,
     pinnedAppIds: new Set(PINNED_APPS.map((app) => app.appId)),
   });
+  /* `PreferencesMenu` renders nothing for a signed-out user, and a story has
+     no session, so without this the footer these stories claim to show was
+     silently absent from every one of them - which is how a clipped collapsed
+     Preferences pill shipped (LUM-3130). */
+  useAuthStore.setState({ sessionStatus: "authenticated" });
 }
 
 const SHARED_ARGS = {
@@ -245,12 +251,30 @@ export const GroupedView: Story = {
    explaining why it does nothing stays reachable. It's muted rather than
    natively disabled for exactly that reason. */
 export const CollapsedRail: Story = {
-  name: "Collapsed rail",
+  name: "Collapsed rail · grouped view",
   beforeEach: () => seedViewMode("asst-collapsed", "grouped"),
   args: {
     ...SHARED_ARGS,
     assistantId: "asst-collapsed",
     collapsed: true,
+    footerAction: <PreferencesMenu assistantId="asst-story" collapsed />,
+  },
+};
+
+/* The same rail in the default view, which is the one users actually land on
+   and the one where the rail last drifted from the expanded sidebar: Chats
+   drew twice, once as a section and once as an extra icon left over from when
+   `all` view had no Chats section (LUM-3130). Grouped view hid it, so the
+   collapsed story above never showed it. Every view the rail supports gets a
+   collapsed surface here for that reason. */
+export const CollapsedRailAllView: Story = {
+  name: "Collapsed rail · all view",
+  beforeEach: () => seedViewMode("asst-collapsed-all", "all"),
+  args: {
+    ...SHARED_ARGS,
+    assistantId: "asst-collapsed-all",
+    collapsed: true,
+    footerAction: <PreferencesMenu assistantId="asst-story" collapsed />,
   },
 };
 
