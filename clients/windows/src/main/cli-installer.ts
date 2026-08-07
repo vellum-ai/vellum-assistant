@@ -1,7 +1,9 @@
 import {
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -19,13 +21,20 @@ export interface CliRuntimePaths {
 
 type InstallState = { currentInstallDir: string; previousInstallDir?: string };
 
+type CliRuntimeOwnership = {
+  owner: "vellum-assistant";
+  version: string;
+};
+
 const STATE = "install-state.json";
+export const CLI_RUNTIME_OWNERSHIP_MARKER = ".vellum-runtime.json";
 export const CLI_RUNTIME_EXECUTABLES = [
   "vellum.exe",
   "bun.exe",
   "assistant.exe",
   "vellum-daemon.exe",
   "vellum-gateway.exe",
+  "vellum-worker.exe",
   "credential-executor.exe",
 ] as const;
 export const CLI_RUNTIME_ASSETS = [
@@ -33,6 +42,8 @@ export const CLI_RUNTIME_ASSETS = [
   "bundled-skills",
   "brain-graph",
   "default-plugins",
+  "node_modules",
+  "feature-flag-registry.json",
   "web-tree-sitter.wasm",
   "tree-sitter-bash.wasm",
 ] as const;
@@ -87,6 +98,97 @@ function readState(installRoot: string): InstallState | undefined {
   return typeof state?.currentInstallDir === "string" ? state : undefined;
 }
 
+function normalizeRuntimePath(value: string): string {
+  const resolved = path.resolve(value);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+function isDirectRuntimeDir(installRoot: string, runtimeDir: string): boolean {
+  const resolvedRoot = normalizeRuntimePath(installRoot);
+  const resolvedRuntime = normalizeRuntimePath(runtimeDir);
+  return (
+    path.dirname(resolvedRuntime) === resolvedRoot &&
+    path.basename(resolvedRuntime).length > 0 &&
+    !path.basename(resolvedRuntime).startsWith(".")
+  );
+}
+
+function writeOwnershipMarker(runtimeDir: string, version: string): void {
+  const ownership: CliRuntimeOwnership = {
+    owner: "vellum-assistant",
+    version,
+  };
+  writeFileSync(
+    path.join(runtimeDir, CLI_RUNTIME_OWNERSHIP_MARKER),
+    `${JSON.stringify(ownership)}\n`,
+    "utf8",
+  );
+}
+
+function isRealDirectory(runtimeDir: string): boolean {
+  try {
+    return lstatSync(runtimeDir).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function isOwnedCliRuntime(installRoot: string, runtimeDir: string): boolean {
+  if (
+    !isDirectRuntimeDir(installRoot, runtimeDir) ||
+    !isRealDirectory(runtimeDir)
+  ) {
+    return false;
+  }
+  const ownership = readJson<CliRuntimeOwnership>(
+    path.join(runtimeDir, CLI_RUNTIME_OWNERSHIP_MARKER),
+  );
+  const version = path.basename(runtimeDir);
+  return (
+    ownership?.owner === "vellum-assistant" &&
+    ownership.version === version &&
+    isValidCliRuntime(runtimeDir, version)
+  );
+}
+
+function isValidInstalledRuntime(
+  installRoot: string,
+  runtimeDir: string | undefined,
+): runtimeDir is string {
+  if (!runtimeDir || !isDirectRuntimeDir(installRoot, runtimeDir)) {
+    return false;
+  }
+  return isRealDirectory(runtimeDir) && isValidCliRuntime(runtimeDir);
+}
+
+function pruneOldCliRuntimes(
+  installRoot: string,
+  keepDirs: readonly string[],
+): void {
+  const keep = new Set(keepDirs.map(normalizeRuntimePath));
+  let entries;
+  try {
+    entries = readdirSync(installRoot, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const runtimeDir = path.join(installRoot, entry.name);
+    if (
+      !entry.isDirectory() ||
+      keep.has(normalizeRuntimePath(runtimeDir)) ||
+      !isOwnedCliRuntime(installRoot, runtimeDir)
+    ) {
+      continue;
+    }
+    try {
+      rmSync(runtimeDir, { recursive: true });
+    } catch {
+      // Cleanup is best-effort and must not roll back a valid install.
+    }
+  }
+}
+
 function writeState(installRoot: string, state: InstallState): void {
   const target = path.join(installRoot, STATE);
   const staging = `${target}.${process.pid}.tmp`;
@@ -104,31 +206,54 @@ export function provisionCliRuntime(paths: CliRuntimePaths) {
   mkdirSync(installRoot, { recursive: true });
   const target = path.join(installRoot, version);
   const priorState = readState(installRoot);
+  const priorCurrent = isValidInstalledRuntime(
+    installRoot,
+    priorState?.currentInstallDir,
+  )
+    ? priorState.currentInstallDir
+    : undefined;
+  const priorPrevious = isValidInstalledRuntime(
+    installRoot,
+    priorState?.previousInstallDir,
+  )
+    ? priorState.previousInstallDir
+    : undefined;
 
-  if (isValidCliRuntime(target, version)) {
+  if (
+    isValidInstalledRuntime(installRoot, target) &&
+    isValidCliRuntime(target, version)
+  ) {
+    writeOwnershipMarker(target, version);
     writeState(installRoot, {
       currentInstallDir: target,
-      previousInstallDir: priorState?.previousInstallDir,
+      previousInstallDir: priorPrevious,
     });
+    pruneOldCliRuntimes(
+      installRoot,
+      [target, priorPrevious].filter((dir): dir is string => Boolean(dir)),
+    );
     return {
       installDir: target,
-      previousInstallDir: priorState?.previousInstallDir,
+      previousInstallDir: priorPrevious,
       reused: true,
     };
   }
 
   if (!isValidCliRuntime(sourceDir, version)) {
-    for (const fallback of [
-      priorState?.currentInstallDir,
-      priorState?.previousInstallDir,
-    ]) {
-      if (fallback && isValidCliRuntime(fallback)) {
-        return {
-          installDir: fallback,
-          previousInstallDir: priorState?.previousInstallDir,
-          reused: true,
-        };
+    for (const fallback of [priorCurrent, priorPrevious]) {
+      if (!fallback) {
+        continue;
       }
+      const fallbackVersion = readRuntimeManifest(fallback)?.version;
+      if (fallbackVersion) {
+        writeOwnershipMarker(fallback, fallbackVersion);
+      }
+      return {
+        installDir: fallback,
+        previousInstallDir:
+          fallback === priorCurrent ? priorPrevious : undefined,
+        reused: true,
+      };
     }
     throw new Error("The packaged Windows CLI runtime is missing or invalid.");
   }
@@ -146,6 +271,7 @@ export function provisionCliRuntime(paths: CliRuntimePaths) {
     if (!isValidCliRuntime(staging, version)) {
       throw new Error("The staged Windows CLI runtime failed validation.");
     }
+    writeOwnershipMarker(staging, version);
     if (existsSync(target)) {
       renameSync(target, displaced);
     }
@@ -153,15 +279,17 @@ export function provisionCliRuntime(paths: CliRuntimePaths) {
     installedTarget = true;
     writeState(installRoot, {
       currentInstallDir: target,
-      previousInstallDir:
-        priorState && isValidCliRuntime(priorState.currentInstallDir)
-          ? priorState.currentInstallDir
-          : priorState?.previousInstallDir,
+      previousInstallDir: priorCurrent ?? priorPrevious,
     });
     rmSync(displaced, { recursive: true, force: true });
+    const previousInstallDir = priorCurrent ?? priorPrevious;
+    pruneOldCliRuntimes(
+      installRoot,
+      [target, previousInstallDir].filter((dir): dir is string => Boolean(dir)),
+    );
     return {
       installDir: target,
-      previousInstallDir: priorState?.currentInstallDir,
+      previousInstallDir,
       reused: false,
     };
   } catch (error) {

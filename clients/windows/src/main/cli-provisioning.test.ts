@@ -14,6 +14,7 @@ import {
   CLI_RUNTIME_ASSETS,
   CLI_RUNTIME_ENTRIES,
   CLI_RUNTIME_EXECUTABLES,
+  CLI_RUNTIME_OWNERSHIP_MARKER,
   isValidCliRuntime,
   provisionCliRuntime,
   type CliRuntimePaths,
@@ -43,7 +44,7 @@ const writeRuntime = (dir: string, version: string): string => {
   }
   for (const name of CLI_RUNTIME_ASSETS) {
     const target = path.join(dir, name);
-    if (name.endsWith(".wasm")) {
+    if (name.endsWith(".wasm") || name.endsWith(".json")) {
       writeFileSync(target, name, "utf8");
     } else {
       mkdirSync(target, { recursive: true });
@@ -53,6 +54,11 @@ const writeRuntime = (dir: string, version: string): string => {
   writeFileSync(
     path.join(dir, "runtime.json"),
     JSON.stringify({ version, bunVersion: "1.3.11" }),
+    "utf8",
+  );
+  writeFileSync(
+    path.join(dir, CLI_RUNTIME_OWNERSHIP_MARKER),
+    JSON.stringify({ owner: "vellum-assistant", version }),
     "utf8",
   );
   return path.join(dir, "vellum.exe");
@@ -102,6 +108,51 @@ test("installs, upgrades, and falls back from paths with spaces", () => {
   const fallback = provisionCliRuntime(runtimePaths(root, "3.0.0"));
   expect(fallback.installDir).toBe(v1.installDir);
   expect(fallback.reused).toBeTrue();
+});
+
+test("prunes only owned runtimes older than the fallback", () => {
+  const root = makeTempDir();
+  let previousInstallDir: string | undefined;
+
+  for (const version of ["1.0.0", "2.0.0", "3.0.0"]) {
+    const paths = runtimePaths(root, version);
+    rmSync(paths.sourceDir, { recursive: true, force: true });
+    writeRuntime(paths.sourceDir, version);
+    previousInstallDir = provisionCliRuntime(paths).previousInstallDir;
+  }
+
+  const installRoot = runtimePaths(root, "3.0.0").installRoot;
+  expect(existsSync(path.join(installRoot, "1.0.0"))).toBeFalse();
+  expect(existsSync(path.join(installRoot, "2.0.0"))).toBeTrue();
+  expect(existsSync(path.join(installRoot, "3.0.0"))).toBeTrue();
+  expect(previousInstallDir).toBe(path.join(installRoot, "2.0.0"));
+
+  const foreign = path.join(installRoot, "foreign");
+  writeRuntime(foreign, "foreign");
+  rmSync(path.join(foreign, CLI_RUNTIME_OWNERSHIP_MARKER));
+  const fourth = runtimePaths(root, "4.0.0");
+  rmSync(fourth.sourceDir, { recursive: true, force: true });
+  writeRuntime(fourth.sourceDir, fourth.version);
+  provisionCliRuntime(fourth);
+  expect(existsSync(foreign)).toBeTrue();
+});
+
+test("does not trust fallback paths outside the install root", () => {
+  const root = makeTempDir();
+  const paths = runtimePaths(root, "2.0.0");
+  const outside = path.join(root, "outside-runtime");
+  writeRuntime(outside, "1.0.0");
+  mkdirSync(paths.installRoot, { recursive: true });
+  writeFileSync(
+    path.join(paths.installRoot, "install-state.json"),
+    JSON.stringify({ currentInstallDir: outside }),
+    "utf8",
+  );
+
+  expect(() => provisionCliRuntime(paths)).toThrow(
+    "The packaged Windows CLI runtime is missing or invalid.",
+  );
+  expect(existsSync(outside)).toBeTrue();
 });
 
 test("does not replace a foreign launcher", () => {

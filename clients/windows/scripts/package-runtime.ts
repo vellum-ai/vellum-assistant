@@ -57,6 +57,11 @@ const targets = [
       "postgres",
     ],
   ],
+  [
+    "vellum-worker.exe",
+    "assistant/src/windows-compiled-worker-entry.ts",
+    ["chromium-bidi/*"],
+  ],
   ["credential-executor.exe", "credential-executor/src/main.ts"],
   ["cli-uninstaller.exe", "clients/windows/scripts/uninstall-cli.ts"],
 ] as const;
@@ -96,6 +101,27 @@ for (const [specifier, name] of [
   copyFileSync(
     Bun.resolveSync(specifier, path.join(repoRoot, "gateway")),
     path.join(outputDir, name),
+  );
+}
+copyFileSync(
+  path.join(repoRoot, "meta", "feature-flags", "feature-flag-registry.json"),
+  path.join(outputDir, "feature-flag-registry.json"),
+);
+const pluginApiShim = spawnSync(
+  process.execPath,
+  [
+    path.join(repoRoot, "assistant", "scripts", "write-plugin-api-shim.ts"),
+    outputDir,
+  ],
+  {
+    cwd: repoRoot,
+    stdio: "inherit",
+    windowsHide: true,
+  },
+);
+if (pluginApiShim.status !== 0) {
+  throw new Error(
+    `Failed to package the plugin API shim (exit ${pluginApiShim.status}).`,
   );
 }
 copyFileSync(process.execPath, path.join(outputDir, "bun.exe"));
