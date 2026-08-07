@@ -565,6 +565,12 @@ export interface EnqueueMessageOptions {
   sourceActorPrincipalId?: string;
   /** Auth context snapshot captured for queued turn-scoped authorization. */
   authContext?: AuthContext;
+  /**
+   * Sender's trust, for the drain to run this message under. Defaults to the
+   * conversation's trust at enqueue time, which the sending route has just
+   * set to this sender.
+   */
+  trustContext?: TrustContext;
 }
 
 // ── enqueueMessage ───────────────────────────────────────────────────
@@ -593,6 +599,9 @@ export function enqueueMessage(
     options.sourceActorPrincipalId ??
     ctx.currentTurnSourceActorPrincipalId ??
     queuedAuthContext?.actorPrincipalId;
+  // Deliberately not falling back to `currentTurnTrustContext`: that is the
+  // in-flight turn's actor, which is precisely who this message is not from.
+  const queuedTrustContext = options.trustContext ?? ctx.trustContext;
 
   if (!ctx.isProcessing()) {
     return { queued: false, requestId };
@@ -619,6 +628,7 @@ export function enqueueMessage(
     isInteractive,
     sourceActorPrincipalId,
     authContext: queuedAuthContext,
+    trustContext: queuedTrustContext,
     transport,
     displayContent,
     sentAt: Date.now(),

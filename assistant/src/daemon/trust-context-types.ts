@@ -67,3 +67,34 @@ export interface TrustContext {
    */
   requesterInteractionCount?: number;
 }
+
+/**
+ * Whether two trust contexts describe the same acting identity at the same
+ * privilege, for callers that may only run work under one of them (batched
+ * turns being the case that matters).
+ *
+ * Compares the fields the tool-approval path keys on: the privilege
+ * (`trustClass`), the channel a grant is scoped to (`sourceChannel`), and who
+ * the actor is (`requesterExternalUserId`, `requesterChatId`). Deliberately
+ * conservative: an absent field never matches a present one, so unknown
+ * identities are treated as distinct. Answering "different" when they match
+ * only costs a batching opportunity; answering "same" when they differ runs
+ * one actor's work under another's privileges.
+ */
+export function sameTrustIdentity(
+  a: TrustContext | undefined,
+  b: TrustContext | undefined,
+): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (!a || !b) {
+    return false;
+  }
+  return (
+    a.trustClass === b.trustClass &&
+    a.sourceChannel === b.sourceChannel &&
+    a.requesterExternalUserId === b.requesterExternalUserId &&
+    a.requesterChatId === b.requesterChatId
+  );
+}
