@@ -68,8 +68,7 @@ export type PinnedAppsStore = PinnedAppsState & PinnedAppsActions;
 // Helpers
 // ---------------------------------------------------------------------------
 
-function loadState(): PinnedAppsState {
-  const pinnedApps = loadPinnedApps();
+function deriveState(pinnedApps: PinnedAppEntry[]): PinnedAppsState {
   return {
     pinnedApps,
     pinnedAppIds: new Set(pinnedApps.map((a) => a.appId)),
@@ -97,15 +96,15 @@ function syncFromStorage(): void {
     return;
   }
 
-  const pinnedAppIds = new Set(pinnedApps.map((a) => a.appId));
-  usePinnedAppsStoreBase.setState({ pinnedApps, pinnedAppIds });
+  const next = deriveState(pinnedApps);
+  usePinnedAppsStoreBase.setState(next);
 
   /* An app open in this tab has to close when its pin is cleared, which is
      what `use-active-app-pin-sync` listens for. Driving that from the diff
      rather than from `unpin` means a pin cleared in another tab closes the
      panel too, instead of leaving it open against a pin that is gone. */
   for (const appId of previous.pinnedAppIds) {
-    if (!pinnedAppIds.has(appId)) {
+    if (!next.pinnedAppIds.has(appId)) {
       for (const listener of unpinListeners) {
         listener(appId);
       }
@@ -117,11 +116,10 @@ function syncFromStorage(): void {
 // Store
 // ---------------------------------------------------------------------------
 
-/* `set` goes unused: every action writes storage and then calls
-   `syncFromStorage`, which reaches the store directly because the storage
-   subscription calls it from outside this initializer too. */
+/* `set` goes unused: `syncFromStorage` is the only writer, and it reaches the
+   store directly because the subscription calls it from out here as well. */
 const usePinnedAppsStoreBase = create<PinnedAppsStore>()((_set, get) => ({
-  ...loadState(),
+  ...deriveState(loadPinnedApps()),
 
   togglePin: (app: PinnableApp) => {
     if (get().pinnedAppIds.has(app.id)) {
