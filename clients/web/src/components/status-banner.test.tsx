@@ -816,6 +816,36 @@ describe("StatusBanner", () => {
     expect(screen.queryByText("Assistant is waking")).toBeNull();
   });
 
+  test("restarts the settle window when the polled assistant changes", async () => {
+    /**
+     * A settled unreachable reading for one assistant must not carry over to
+     * a newly selected assistant whose cached status also reads unreachable;
+     * the new assistant gets its own settle window.
+     */
+
+    // GIVEN assistant A's unreachable reading has settled into the error
+    setUnreachableSettleMs(20);
+    operationalStatusQueryMock = {
+      data: { state: "unreachable" },
+      isError: false,
+    };
+    const { rerender } = render(<StatusBanner />);
+    await waitFor(() => {
+      expect(screen.getByText("Assistant is unreachable")).toBeTruthy();
+    });
+
+    // WHEN the user switches to assistant B with a cached unreachable reading
+    setUnreachableSettleMs(30_000);
+    activeAssistantIdMock = "assistant-456";
+    rerender(<StatusBanner />);
+
+    // THEN assistant B gets a fresh settle window with the waking treatment
+    await waitFor(() => {
+      expect(screen.getByText("Assistant is waking")).toBeTruthy();
+    });
+    expect(screen.queryByText("Assistant is unreachable")).toBeNull();
+  });
+
   test("holds back a status-query error until it persists past the settle window", async () => {
     /**
      * A status-query error with no resume signal (e.g. the first probe after

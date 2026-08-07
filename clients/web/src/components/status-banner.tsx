@@ -658,30 +658,32 @@ function useAssistantBannerConfig(): BannerConfig | null {
   // timers, probes racing a pod wake): no resume event or prior healthy
   // reading is needed for the suppression to apply.
   const [hasUnreachableSettled, setHasUnreachableSettled] = useState(false);
+  // Keyed by assistant id so a polling-target switch restarts the settle
+  // window instead of inheriting the previous assistant's settled reading.
   useEffect(() => {
+    setHasUnreachableSettled(false);
     if (operationalStatus?.state !== "unreachable") {
-      setHasUnreachableSettled(false);
       return;
     }
     const timeout = setTimeout(() => {
       setHasUnreachableSettled(true);
     }, unreachableSettleMs);
     return () => clearTimeout(timeout);
-  }, [operationalStatus?.state]);
+  }, [assistantId, operationalStatus?.state]);
 
   // Same debounce for the status query erroring outright: the first probe
   // after a cold restart or reconnect can fail before the assistant settles.
   const [hasStatusErrorSettled, setHasStatusErrorSettled] = useState(false);
   useEffect(() => {
+    setHasStatusErrorSettled(false);
     if (!operationalStatusIsError) {
-      setHasStatusErrorSettled(false);
       return;
     }
     const timeout = setTimeout(() => {
       setHasStatusErrorSettled(true);
     }, unreachableSettleMs);
     return () => clearTimeout(timeout);
-  }, [operationalStatusIsError]);
+  }, [assistantId, operationalStatusIsError]);
 
   // Suppress the brief "crash_loop" flash during a restart. The pod bounce
   // bumps the container restart counter, which the platform can briefly
