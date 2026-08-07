@@ -174,6 +174,28 @@ describe("ScheduleDetailPanel model profile", () => {
     expect(optionLabels).toEqual(["Quality", "Thrifty"]);
   });
 
+  /**
+   * The picker is the one editable value in a list of read-only facts, so it
+   * has to occupy a row the same height as theirs and put its value on their
+   * right edge. That rests on the trigger claiming no fixed height and on the
+   * negative margins cancelling its own padding; drop either and the row
+   * silently grows taller than its neighbours again.
+   */
+  test("the picker takes no more room than the facts around it", async () => {
+    renderPanel(BASE_SCHEDULE);
+    await waitFor(() => {
+      expect(profileTrigger()).toBeDefined();
+    });
+
+    const trigger = profileTrigger()!;
+    expect(trigger.className).not.toContain("h-9");
+    expect(trigger.className).toContain("py-1");
+
+    const wrapper = trigger.closest('[data-slot="select"]');
+    expect(wrapper?.className).toContain("-my-1");
+    expect(wrapper?.className).toContain("-mr-2");
+  });
+
   test("picking a profile patches that schedule with the chosen key", async () => {
     renderPanel(BASE_SCHEDULE);
     await waitFor(() => {

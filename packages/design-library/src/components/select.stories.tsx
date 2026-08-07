@@ -73,6 +73,7 @@ const meta: Meta<typeof Select> = {
     placeholder: { control: "text" },
     disabled: { control: "boolean" },
     size: { control: "inline-radio", options: ["regular", "compact"] },
+    variant: { control: "inline-radio", options: ["default", "ghost"] },
     menuAlign: { control: "select", options: ["start", "end"] },
     menuMaxHeight: { control: "number" },
     menuMinWidth: { control: "number" },
