@@ -683,6 +683,16 @@ describe("Conversation message queue", () => {
         sourceChannel: "vellum",
         requesterExternalUserId: "guardian-principal",
       });
+      // Also move the per-turn field, which is writable out-of-band: a wake
+      // that settles inside this window restores its prior value there
+      // (agent-wake stamps at :1470 and restores in a `finally` at :1554).
+      // Covers both writers, so a fix that reads either one back at the agent
+      // loop call still fails this test.
+      conversation.currentTurnTrustContext = {
+        trustClass: "guardian",
+        sourceChannel: "vellum",
+        requesterExternalUserId: "guardian-principal",
+      };
       slotMoved = true;
       return result;
     };
