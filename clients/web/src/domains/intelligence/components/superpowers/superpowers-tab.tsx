@@ -76,7 +76,6 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { useMediaQuery } from "@/hooks/use-media-query";
 import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { getLocalBool, setLocalBool } from "@/utils/local-settings";
@@ -89,13 +88,6 @@ interface SuperpowersTabProps {
 
 const SEARCH_DEBOUNCE_MS = 300;
 const TIP_STORAGE_KEY = "vellum:superpowers:tipDismissed";
-
-/**
- * Matches the `sm:block` on the category sidebar below: while it doesn't match,
- * the sidebar is absent and the filter control is the only category surface.
- * Keep the two in sync.
- */
-const CATEGORY_SIDEBAR_MEDIA_QUERY = "(min-width: 40rem)";
 
 /** One merged, sortable row — a skill or a plugin. */
 type SuperpowerRow =
@@ -144,8 +136,10 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
+  // Owns both halves of the category surface: the rail below renders only while
+  // there is room for it, and the filter control grows a Categories section
+  // whenever it doesn't, so the two can't disagree about who carries it.
   const isMobile = useIsMobile();
-  const categorySidebarVisible = useMediaQuery(CATEGORY_SIDEBAR_MEDIA_QUERY);
   const version = useAssistantIdentityStore.use.version();
   const pluginsSupported = useSupportsPluginsSurface();
 
@@ -673,7 +667,7 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
         totalCount={totalCount}
         showCounts={!hasActiveSearch}
         pluginsSupported={pluginsSupported}
-        showCategories={!categorySidebarVisible}
+        showCategories={isMobile}
       />
 
       {!isLoading && !allFailed && skillsFailed ? (
@@ -690,17 +684,19 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
       ) : null}
 
       <div className="flex min-h-0 flex-1 gap-6">
-        <aside className="hidden w-56 shrink-0 overflow-y-auto sm:block">
-          <CategorySidebar
-            ariaLabel="Superpower categories"
-            selected={category}
-            onSelect={handleCategoryChange}
-            counts={counts}
-            totalCount={totalCount}
-            showCounts={!hasActiveSearch}
-            categories={categories}
-          />
-        </aside>
+        {!isMobile && (
+          <aside className="w-56 shrink-0 overflow-y-auto">
+            <CategorySidebar
+              ariaLabel="Superpower categories"
+              selected={category}
+              onSelect={handleCategoryChange}
+              counts={counts}
+              totalCount={totalCount}
+              showCounts={!hasActiveSearch}
+              categories={categories}
+            />
+          </aside>
+        )}
 
         {listColumn}
       </div>

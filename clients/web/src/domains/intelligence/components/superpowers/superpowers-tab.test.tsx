@@ -306,8 +306,8 @@ function clickFilterOption(label: string): void {
 }
 
 /**
- * Answers media queries for a given device shape: `narrow` drives the width
- * queries (the mobile breakpoint and the category rail's own `sm`), and
+ * Answers media queries for a given device shape: `narrow` drives the mobile
+ * breakpoint (which decides whether the category rail renders at all), and
  * `coarsePointer` drives `useTouchMobile`, which picks the bottom sheet over
  * the popover. Returns a restore fn the caller invokes once done.
  */

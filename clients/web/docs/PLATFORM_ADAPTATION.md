@@ -18,7 +18,7 @@ area:
 | Axis | Question | Signal | Do not use it for |
 |------|----------|--------|-------------------|
 | **Window size** | How much room is there? | `useIsMobile()`, Tailwind `max-md:` | Deciding which overlay or affordance to use |
-| **Input capability** | Mouse or thumb? | `useTouchMobile()`, `isPointerCoarse()`, `touch-mobile:` | Deciding how much fits on screen |
+| **Input capability** | Mouse or thumb? | `isPointerCoarse()`; `useTouchMobile()` for narrow **and** coarse | Deciding how much fits on screen |
 | **Platform** | Which OS idiom and which native capabilities? | `data-native-platform` + `native-mobile:`, `useIsNativeIOS()` / `useIsNativeAndroid()`, `detectClientOs()` | Anything that is really about size or input |
 
 None of the three implies another. A narrow Electron window is compact **with a mouse**. An iPad is
@@ -41,14 +41,23 @@ and reach for the hook only when the difference is structural (different compone
 
 ### Input capability
 
-`useTouchMobile()` ([`src/hooks/use-touch-mobile.ts`](../src/hooks/use-touch-mobile.ts)) requires a
-narrow viewport **and** a coarse pointer, mirroring the design library's `touch-mobile:` variant in
-[`tokens.css`](../../../packages/design-library/src/tokens.css). This is the signal for
-**interaction**: which overlay a trigger opens, whether long-press is the way in, whether a
-hover-revealed affordance can exist at all. Use `isPointerCoarse()`
-([`src/utils/pointer.ts`](../src/utils/pointer.ts)) directly when the viewport half is irrelevant, for
-example when gating a hardware-keyboard-only affordance (see
+The pointer is the signal for **interaction**: which overlay a trigger opens, whether long-press is
+the way in, whether a hover-revealed affordance can exist at all. `isPointerCoarse()`
+([`src/utils/pointer.ts`](../src/utils/pointer.ts)) is that axis by itself, and it is what a purely
+interactive question should read, for example gating a hardware-keyboard-only affordance (see
 [`CAPACITOR.md`: Keyboard-only affordances](./CAPACITOR.md#keyboard-only-affordances-on-touch-devices)).
+
+`useTouchMobile()` ([`src/hooks/use-touch-mobile.ts`](../src/hooks/use-touch-mobile.ts)) is **not**
+that axis. It is a compound of narrow viewport **and** coarse pointer, mirroring the design library's
+`touch-mobile:` variant in [`tokens.css`](../../../packages/design-library/src/tokens.css), so read it
+as "a phone-shaped device" rather than "a touch device". Know what it excludes: a tablet in landscape
+is coarse but roomy, so the hook is false there and a surface forking on it alone serves the
+pointer-oriented branch to a thumb. That is a known gap in today's overlay call sites, and the reason
+the fork belongs inside the primitive (rung 3), where the size half and the pointer half can be
+weighed per surface instead of ANDed once for all of them.
+
+Use the compound only when both halves genuinely matter: a bottom sheet wants a thumb *and* wants the
+narrow window that leaves no room to anchor.
 
 References: MDN [`pointer`](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/pointer) and
 [`hover`](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/hover) media features.
@@ -107,6 +116,13 @@ Two things to get right on this rung:
   this to the rare case of a desktop window crossing the breakpoint mid-session, but do not put
   unsaved form state in a surface that can flip.
 
+**This rung is not yet built here, and the codebase is in open violation of it.** Roughly a dozen
+overlay call sites still write `isTouchMobile ? Sheet : Popover` themselves, because no primitive
+accepts the intent. Reaching for the signal at a call site is therefore the *status quo*, not the
+pattern: the fix is the menu/sheet pair moving into the design library, tracked as
+[LUM-3177](https://linear.app/vellum/issue/LUM-3177). Do not add a new copy of the branch; extend the
+count in the ticket instead.
+
 **4. Separate implementations behind one import (last resort).** React Native's
 [platform-specific code](https://reactnative.dev/docs/platform-specific-code) guidance is the right
 mental model: `Platform.select` when only small parts differ, `.ios.tsx` / `.android.tsx` files when
@@ -146,13 +162,19 @@ The most common way an adaptive layout loses a control: one component hides itse
 different thresholds. Nothing connects them, so the gap between the thresholds is a viewport where
 the control exists in neither surface, and no type or test notices.
 
-So whenever a surface is hidden by a Tailwind variant and something else stands in for it, one owner
-holds a single named signal and both sides read it. Usually the page that renders both: it resolves
-the breakpoint once (`useMediaQuery` with a constant sitting beside the markup it mirrors) and passes
-the answer down, rather than each child guessing at a width. Keep the substitution tied to *the
-absence of the thing it replaces*, never to a proxy like the pointer: the superpowers filter grows a
-Categories section exactly when the category rail is not rendered, so both a phone and a narrow
-mouse-driven window get it, and neither shows it twice.
+Mirroring the class in JS does not fix it, it just writes the drift down: a `(min-width: 40rem)`
+constant next to a "keep this in sync with `sm:block`" comment is two thresholds again, plus a fourth
+breakpoint nobody else uses.
+
+So when a surface has a substitute, don't hide it in CSS at all. One owner reads one shared signal
+(`useIsMobile()`, not a bespoke query) and both halves follow from it: the surface renders only when
+that signal says there is room, and the substitute carries the control exactly when it doesn't. In the
+superpowers page the category rail mounts only on a roomy window and the filter control grows a
+Categories section only on a narrow one, from the same boolean, so there is no viewport where
+categories are missing and none where they appear twice.
+
+Tie the substitution to **the absence of the thing it replaces**, never to a proxy like the pointer:
+otherwise a narrow mouse-driven window falls between the two.
 
 ---
 

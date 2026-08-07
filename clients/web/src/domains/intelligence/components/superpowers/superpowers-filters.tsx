@@ -88,8 +88,8 @@ interface FilterBarProps {
    */
   pluginsSupported: boolean;
   /**
-   * Whether this control owns category selection. The page hides its category
-   * sidebar on narrow viewports, and categories then have no other surface.
+   * Whether this control owns category selection, which it does exactly when
+   * the page's category rail is unmounted and categories have no other surface.
    */
   showCategories: boolean;
 }
@@ -164,8 +164,8 @@ interface FilterControlProps {
  * Filter affordance for the My Superpowers page. On touch the outlined filter
  * button opens a bottom sheet; otherwise it opens a compact popover. Both
  * surfaces carry Status, Type, and Source, and both grow a Categories section
- * when the page's category sidebar isn't rendered, so category selection is
- * always reachable somewhere.
+ * when the page's category rail is unmounted, so category selection is reachable
+ * on exactly one surface at any viewport.
  */
 function FilterControl(props: FilterControlProps) {
   const isTouchMobile = useTouchMobile();
