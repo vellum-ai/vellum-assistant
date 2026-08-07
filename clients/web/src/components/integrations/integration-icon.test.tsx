@@ -13,6 +13,11 @@
  * Rendered via `@testing-library/react` (happy-dom, see
  * `clients/web/test-setup.ts`). happy-dom does not fetch `img` sources, so a
  * failing load is simulated with `fireEvent.error`.
+ *
+ * Bundled sources are matched on the `images/integrations/<file>` substring
+ * rather than a whole-string compare. `publicAsset()` prefixes
+ * `import.meta.env.BASE_URL`, which Vite supplies and the test runner does
+ * not, so the leading segment differs between here and the browser.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -43,11 +48,12 @@ describe("IntegrationIcon", () => {
 
     const img = container.querySelector("img");
     expect(img).not.toBeNull();
-    expect(img!.getAttribute("src")).toEndWith(
-      "/images/integrations/outlook.png",
+    expect(img!.getAttribute("src")).toContain(
+      "images/integrations/outlook.png",
     );
     // Both failure shapes must be excluded: drawing the CDN URL, and
     // degrading to the initials avatar when that URL 404s.
+    expect(img!.getAttribute("src")).not.toContain("simpleicons.org");
     expect(container.textContent).not.toContain("OU");
   });
 
@@ -58,8 +64,8 @@ describe("IntegrationIcon", () => {
       logoUrl: "https://cdn.simpleicons.org/slack",
     });
 
-    expect(container.querySelector("img")!.getAttribute("src")).toEndWith(
-      "/images/integrations/slack.svg",
+    expect(container.querySelector("img")!.getAttribute("src")).toContain(
+      "images/integrations/slack.svg",
     );
   });
 
