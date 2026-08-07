@@ -21,8 +21,7 @@ import type { PropsWithChildren } from "react";
 import type { ReactRenderer } from "@storybook/react-vite";
 
 import { i18nextInitOptions } from "../src/i18n/config";
-import englishChat from "../src/i18n/locales/en/chat.json";
-import englishCommon from "../src/i18n/locales/en/common.json";
+import { FALLBACK_CATALOGS } from "../src/i18n/catalogs";
 
 // @storybook/addon-themes@10.4.0 ships ESM code but its package.json omits
 // `"type": "module"`, so TypeScript NodeNext resolution misreads the default
@@ -50,9 +49,7 @@ void i18next
   .use(new ICU())
   .use(initReactI18next)
   .init(
-    i18nextInitOptions("en", {
-      en: { common: englishCommon, chat: englishChat },
-    }),
+    i18nextInitOptions("en", { en: FALLBACK_CATALOGS }),
   );
 
 const lightTheme = create({

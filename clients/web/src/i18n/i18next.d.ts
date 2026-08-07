@@ -14,6 +14,7 @@
  */
 import type chat from "@/i18n/locales/en/chat.json";
 import type common from "@/i18n/locales/en/common.json";
+import type schedules from "@/i18n/locales/en/schedules.json";
 
 declare module "i18next" {
   interface CustomTypeOptions {
@@ -21,6 +22,7 @@ declare module "i18next" {
     resources: {
       common: typeof common;
       chat: typeof chat;
+      schedules: typeof schedules;
     };
     returnNull: false;
   }

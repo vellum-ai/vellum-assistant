@@ -16,8 +16,7 @@ import ICU from "i18next-icu";
 import { initReactI18next } from "react-i18next";
 
 import { i18nextInitOptions } from "./src/i18n/config";
-import englishChat from "./src/i18n/locales/en/chat.json";
-import englishCommon from "./src/i18n/locales/en/common.json";
+import { FALLBACK_CATALOGS } from "./src/i18n/catalogs";
 
 GlobalRegistrator.register();
 
@@ -99,14 +98,13 @@ window.HTMLElement.prototype.focus = function patchedFocus(
 // whether they pass. `initI18n()` is exercised directly by `i18n.test.ts`,
 // which mocks the locale sources it reads.
 //
-// Only `@/i18n/config` and the English catalog are imported here. Pulling in
-// `@/i18n/i18n` would seed the module registry with `system-locale` and
-// `device-settings` before the tests that mock them get to run.
+// `FALLBACK_CATALOGS` is every English namespace, so adding a namespace needs
+// no change here. Only `@/i18n/config` and `@/i18n/catalogs` are imported:
+// pulling in `@/i18n/i18n` would seed the module registry with `system-locale`
+// and `device-settings` before the tests that mock them get to run.
 await i18next
   .use(new ICU())
   .use(initReactI18next)
   .init(
-    i18nextInitOptions("en", {
-      en: { common: englishCommon, chat: englishChat },
-    }),
+    i18nextInitOptions("en", { en: FALLBACK_CATALOGS }),
   );

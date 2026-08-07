@@ -159,6 +159,9 @@ export const noUntranslatedStrings = {
      * translated at all.
      */
     function checkExpression(node, messageId, data) {
+      if (!node) {
+        return;
+      }
       if (node.type === "Literal" && typeof node.value === "string") {
         if (isTranslatable(node.value)) {
           context.report({
@@ -178,6 +181,19 @@ export const noUntranslatedStrings = {
             data: { ...data, text: preview(statics) },
           });
         }
+        return;
+      }
+      // `cond ? "Open" : "Close"` and `label || "Untitled"` are copy chosen in
+      // the component. Picking a string in TypeScript is the same problem as
+      // writing one there: the choice belongs in the catalog, where a
+      // translator can see both branches.
+      if (node.type === "ConditionalExpression") {
+        checkExpression(node.consequent, messageId, data);
+        checkExpression(node.alternate, messageId, data);
+        return;
+      }
+      if (node.type === "LogicalExpression") {
+        checkExpression(node.right, messageId, data);
       }
     }
 
@@ -191,6 +207,27 @@ export const noUntranslatedStrings = {
           messageId: "jsxText",
           data: { text: preview(node.value) },
         });
+      },
+
+      // `<p>{`Use ${name} for all schedules`}</p>` and `<p>{"Done"}</p>` are
+      // copy rendered as an element's child, but neither is `JSXText`, so they
+      // need their own visit. The template form is the more important of the
+      // two: it is a sentence assembled in the component, which no translator
+      // can reorder.
+      JSXExpressionContainer(node) {
+        const parent = node.parent;
+        if (
+          parent?.type !== "JSXElement" &&
+          parent?.type !== "JSXFragment"
+        ) {
+          // An attribute value, handled by `JSXAttribute` against the list of
+          // props that actually reach a user.
+          return;
+        }
+        if (insideTransElement(node)) {
+          return;
+        }
+        checkExpression(node.expression, "jsxText", {});
       },
 
       JSXAttribute(node) {

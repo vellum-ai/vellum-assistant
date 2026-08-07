@@ -2,6 +2,7 @@ import { Calendar, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { PageEmptyState } from "@/components/page-empty-state";
+import { useTranslation } from "@/i18n";
 import { ScheduleRow } from "@/domains/schedules/components/schedule-row";
 import { Button } from "@vellumai/design-library";
 import { Collapsible } from "@vellumai/design-library/components/collapsible";
@@ -64,6 +65,7 @@ export function SchedulesPanel({
   defaultProfileLabel,
   systemTasksSlot,
 }: SchedulesPanelProps) {
+  const { t } = useTranslation("schedules");
   const renderScheduleRow = (schedule: Schedule) => (
     <ScheduleRow
       key={schedule.id}
@@ -103,7 +105,9 @@ export function SchedulesPanel({
               aria-hidden
               className="shrink-0 transition-transform group-data-[state=open]:rotate-90"
             />
-            <span>Past ({pastOneTime.length})</span>
+            <span>
+              {t("schedulesPanel.pastToggle", { count: pastOneTime.length })}
+            </span>
           </Collapsible.Trigger>
           <Collapsible.Content>
             <div className="pt-1">{pastOneTime.map(renderOneTimeRow)}</div>
@@ -133,11 +137,11 @@ export function SchedulesPanel({
               onClick={refetch}
               className="cursor-pointer underline hover:no-underline"
             >
-              Retry
+              {t("schedulesPanel.retry")}
             </button>
           }
         >
-          Failed to load schedules.
+          {t("schedulesPanel.loadFailed")}
         </Notice>
       );
     }
@@ -150,22 +154,22 @@ export function SchedulesPanel({
       return (
         <PageEmptyState
           icon={Calendar}
-          title="No schedules yet"
-          description="Ask your assistant to set one up, or create one yourself."
+          title={t("schedulesPanel.emptyTitle")}
+          description={t("schedulesPanel.emptyDescription")}
           actions={
             <>
               <Button variant="primary" size="regular" onClick={onStartNewChat}>
-                New Conversation
+                {t("schedulesPanel.newConversation")}
               </Button>
               <span className="text-body-small-default text-[var(--content-tertiary)]">
-                or
+                {t("schedulesPanel.emptyActionsSeparator")}
               </span>
               <Button
                 variant="outlined"
                 size="regular"
                 onClick={onCreateSchedule}
               >
-                Create schedule
+                {t("schedulesPanel.createSchedule")}
               </Button>
             </>
           }
@@ -183,7 +187,9 @@ export function SchedulesPanel({
               onClick={onRebaseProfiles}
               className="max-w-full truncate"
             >
-              {`Use ${defaultProfileLabel} for all schedules`}
+              {t("schedulesPanel.useProfileForAll", {
+                profile: defaultProfileLabel,
+              })}
             </Button>
           </div>
         ) : null}
@@ -191,7 +197,7 @@ export function SchedulesPanel({
         {oneTime.length > 0 ? (
           <>
             <p className="mt-3 px-2 text-label-small-default text-[var(--content-tertiary)]">
-              One-time
+              {t("schedulesPanel.oneTimeHeading")}
             </p>
             {oneTime.map(renderOneTimeRow)}
           </>
