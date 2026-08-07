@@ -12,12 +12,14 @@ import type { RemoteWebPairingTokenResult } from "@/lib/auth/remote-gateway-sess
 
 let remoteGatewayMode = false;
 let injectedAssistantName: string | undefined;
+let injectedHubUrl: string | undefined;
 let nativePlatform = false;
 let nativePlatformName: "ios" | "android" = "ios";
 
 mock.module("@/lib/local-mode", () => ({
   isRemoteGatewayMode: () => remoteGatewayMode,
   getRemoteGatewayAssistantName: () => injectedAssistantName,
+  getRemoteGatewayHubUrl: () => injectedHubUrl,
 }));
 
 mock.module("@/runtime/native-auth", () => ({
@@ -128,6 +130,7 @@ afterEach(() => {
   cleanup();
   remoteGatewayMode = false;
   injectedAssistantName = undefined;
+  injectedHubUrl = undefined;
   nativePlatform = false;
   nativePlatformName = "ios";
   setUserAgent(ORIGINAL_USER_AGENT);
@@ -170,6 +173,57 @@ describe("RemoteWebPairingPage", () => {
       AbortSignal,
     );
     expect(createRemoteWebPairingChallengeMock).not.toHaveBeenCalled();
+  });
+
+  test("cancel leaves the origin for the hub chooser", async () => {
+    remoteGatewayMode = true;
+    injectedHubUrl = "https://hub.example.com/assistant";
+    const assignMock = mock((_url: string) => {});
+    const originalAssign = window.location.assign;
+    Object.defineProperty(window.location, "assign", {
+      value: assignMock,
+      configurable: true,
+    });
+
+    try {
+      render(
+        <MemoryRouter
+          initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
+        >
+          <RemoteWebPairingPage />
+        </MemoryRouter>,
+      );
+
+      expect(await screen.findByText("Waiting for approval")).not.toBeNull();
+      fireEvent.click(screen.getByText("Cancel"));
+
+      // An in-app navigate would be bounced back here by the remote-gateway
+      // pairing guard, so cancelling must cross to the hub's own origin.
+      expect(assignMock.mock.calls[0]?.[0]).toBe(
+        "https://hub.example.com/assistant/select-assistant?noAutoSkip=1",
+      );
+    } finally {
+      Object.defineProperty(window.location, "assign", {
+        value: originalAssign,
+        configurable: true,
+      });
+    }
+  });
+
+  test("cancel is hidden when the served config names no hub", async () => {
+    remoteGatewayMode = true;
+    injectedHubUrl = undefined;
+
+    render(
+      <MemoryRouter
+        initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
+      >
+        <RemoteWebPairingPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Waiting for approval")).not.toBeNull();
+    expect(screen.queryByText("Cancel")).toBeNull();
   });
 
   test("shows progress state while creating a challenge", () => {

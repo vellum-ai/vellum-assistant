@@ -20,6 +20,7 @@ import {
 } from "@/lib/auth/remote-gateway-session";
 import {
   getRemoteGatewayAssistantName,
+  getRemoteGatewayHubUrl,
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
 import { isNativePlatform } from "@/runtime/native-auth";
@@ -180,6 +181,25 @@ function buildAppHandoffUrl(
     `package=${VELLUM_ANDROID_PACKAGE};` +
     `S.browser_fallback_url=${fallbackUrl};end`
   );
+}
+
+/**
+ * The hub's chooser on its own origin, or `null` when the served config names
+ * no hub. Abandoning a pairing has to leave this origin: the chooser sits
+ * behind `requireRemoteGatewayPairing`, which bounces an unauthenticated visit
+ * straight back here and mints a fresh code. `noAutoSkip` keeps the hub on the
+ * chooser instead of skipping through a lone assistant.
+ */
+function hubChooserUrl(): string | null {
+  const hubUrl = getRemoteGatewayHubUrl();
+  if (!hubUrl) {
+    return null;
+  }
+  try {
+    return `${new URL(hubUrl).origin}${routes.selectAssistant}?noAutoSkip=1`;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -391,6 +411,8 @@ export function RemoteWebPairingPage() {
     setState({ kind: "verifying" });
   }, []);
 
+  const cancelUrl = useMemo(() => hubChooserUrl(), []);
+
   if (!enabled) {
     return <NotFound />;
   }
@@ -434,6 +456,17 @@ export function RemoteWebPairingPage() {
           <p className="text-body-small-lighter mt-4 text-[var(--content-tertiary)]">
             Expires {new Date(state.expiresAt).toLocaleTimeString()}.
           </p>
+        ) : null}
+
+        {state.kind === "polling" && cancelUrl ? (
+          <Button
+            variant="outlined"
+            fullWidth
+            className="mt-6"
+            onClick={() => window.location.assign(cancelUrl)}
+          >
+            Cancel
+          </Button>
         ) : null}
       </section>
     </main>
