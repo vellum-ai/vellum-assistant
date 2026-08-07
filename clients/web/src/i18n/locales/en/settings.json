@@ -1,4 +1,7 @@
 {
+  "billingStatusHandler": {
+    "upgradeCancelToast": "Upgrade canceled. No changes to your plan."
+  },
   "checkoutBonusModal": {
     "title": "Here's {amount} on us",
     "body": "Claim a one-time {amount} credit and we'll add it straight to your account balance. No payment required.",
