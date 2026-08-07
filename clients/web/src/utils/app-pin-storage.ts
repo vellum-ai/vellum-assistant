@@ -71,6 +71,7 @@ const storage = createStorageAccessor<PinnedAppEntry[]>({
 
 export const loadPinnedApps = storage.load;
 export const savePinnedApps = storage.save;
+export const subscribePinnedApps = storage.subscribe;
 
 export function pinApp(app: PinnableApp): void {
   const entries = storage.load();
