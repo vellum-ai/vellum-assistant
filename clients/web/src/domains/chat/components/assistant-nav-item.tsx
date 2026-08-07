@@ -257,15 +257,20 @@ export function AssistantNavItem({
 
      Suppressed while the tour owns the nav, matching the way the character
      avatar's colour drains and the Brain stands in for its eyes. */
+  /* One answer to "is there an uploaded image to wear", read by both the
+     expanded slot and the collapsed tile so the two cannot disagree. A url
+     rather than a boolean, so each render site has the value it needs. */
+  const uploadedAvatarUrl = navTourActive ? null : customImageUrl;
+
   const avatarImage =
-    !navTourActive && customImageUrl ? (
+    uploadedAvatarUrl !== null ? (
       <span
         aria-hidden="true"
         className="pointer-events-none flex shrink-0 items-center justify-center"
         style={{ width: CHIP_SIZE, height: CHIP_SIZE }}
       >
         <img
-          src={customImageUrl}
+          src={uploadedAvatarUrl}
           alt=""
           width={CHIP_SIZE}
           height={CHIP_SIZE}
@@ -307,9 +312,9 @@ export function AssistantNavItem({
             {/* The uploaded image fills the tile, as an avatar rather than a
                 glyph sitting on a surface. The tile is already round and
                 clipping, so it needs no rounding of its own. */}
-            {customImageUrl && !navTourActive ? (
+            {uploadedAvatarUrl !== null ? (
               <img
-                src={customImageUrl}
+                src={uploadedAvatarUrl}
                 alt=""
                 aria-hidden="true"
                 width={COLLAPSED_ASSISTANT_TILE}
