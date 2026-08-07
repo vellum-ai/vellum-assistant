@@ -844,6 +844,9 @@ export function useSendMessage({
                 requestId,
                 messageId: userMessage.id,
                 setOptimisticSends,
+                // Mapping cleanup only. `pendingQueuedCount` moves on the
+                // daemon's `message_queued_deleted` broadcast, which lands on
+                // this tab too, so decrementing here would double-count.
                 onDeleted: () => {
                   useChatSessionStore.getState().popRequestIdMapping(requestId);
                 },
@@ -933,6 +936,15 @@ export function useSendMessage({
         }
 
         resolvedId = result.resolvedConversationId;
+
+        // The send materialized the conversation, so the key is no longer a
+        // draft: history is real from here and must show the normal loading
+        // state when the user navigates back to it. Clears whether or not the
+        // server kept the client key. When it assigned a different one, the
+        // old key is dead and this is just cleanup.
+        useConversationStore
+          .getState()
+          .clearDraftConversationId(activeConversationId);
 
         // Resolve draft key -> server-assigned conversation ID.
         if (resolvedId && resolvedId !== activeConversationId) {

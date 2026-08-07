@@ -24,7 +24,7 @@ import {
 import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag } from "@vellumai/design-library/components/tag";
@@ -229,7 +229,9 @@ export function ResizeCard({
         Resize
       </Button>
     )
-  ) : basePlanResizeAction;
+  ) : (
+    basePlanResizeAction
+  );
 
   const machineAction = !isPlatform ? null : isPro ? (
     canUpsize ? (
@@ -252,7 +254,9 @@ export function ResizeCard({
         Resize
       </Button>
     )
-  ) : basePlanResizeAction;
+  ) : (
+    basePlanResizeAction
+  );
 
   return (
     <>
@@ -440,7 +444,7 @@ export function ResizeCard({
                   <span className="text-label-medium-default text-[var(--content-secondary)]">
                     Machine Size
                   </span>
-                  <Dropdown
+                  <Select
                     options={machineSizeOptions}
                     value={displaySize}
                     onChange={setSelectedSize}

@@ -451,12 +451,18 @@ export function buildActiveDocuments(conversationId: string): Array<{
  * the readable handle is its `slug` (the directory stem, frozen at creation).
  * The app tools key off the id, so the line carries it for tool calls and the
  * slug for everything a human or the model would recognize.
+ *
+ * The resolved directory is not part of the returned shape. A workspace app's
+ * files are reachable by joining the workspace `Root:` from the `<workspace>`
+ * block with the app-builder skill's `data/apps/<slug>/` layout and the slug
+ * above. A plugin-bundled app's files sit outside that layout and belong to
+ * the plugin, which the provenance clause marks as not the assistant's to
+ * rewrite, so no path is offered for them either.
  */
 export function buildVisibleAppContext(appId: string | undefined): {
   appId: string;
   name: string;
   slug: string;
-  sourceDir: string;
   pluginName?: string;
 } | null {
   if (!appId) {
@@ -471,7 +477,6 @@ export function buildVisibleAppContext(appId: string | undefined): {
       appId: source.id,
       name: source.name,
       slug: source.dirName,
-      sourceDir: source.sourceDir,
       ...(source.origin.kind === "plugin"
         ? { pluginName: source.origin.pluginName }
         : {}),
@@ -2239,10 +2244,10 @@ export async function applyRuntimeInjections(
     : undefined;
   // OS surface reported by the client, independent of the transport interface
   // above. Drives the per-turn `client_os:` line so the model knows whether it
-  // is talking to the web, iOS, or macOS app (all sharing the `"web"`
+  // is talking to a browser, mobile, or desktop app (all sharing the `"web"`
   // transport interface). Read the frozen per-turn snapshot (not the live
   // `clientOs`) so a queued message from another surface can't perturb the
-  // in-flight turn — same anti-race pattern as `clientTimezone`.
+  // in-flight turn, using the same anti-race pattern as `clientTimezone`.
   const clientOs = liveConversation?.currentTurnClientOs ?? undefined;
   // The app the client has on screen (app viewer or the app-editing split),
   // resolved to its name and source directory so the assistant can act on it

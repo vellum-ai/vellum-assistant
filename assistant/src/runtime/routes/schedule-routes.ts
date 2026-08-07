@@ -17,6 +17,8 @@ import {
 } from "../../persistence/llm-usage-store.js";
 import { isDeferSchedule } from "../../schedule/defer-provenance.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
+import { declarationExistsOnDisk } from "../../schedule/plugin-schedule-declarations.js";
+import { isPluginSchedulesEnabled } from "../../schedule/plugin-schedules-gate.js";
 import {
   describeRRuleExpression,
   isSingleFireRRule,
@@ -39,6 +41,7 @@ import {
   listSchedules,
   resolveScheduleConversationGroupId,
   type ScheduleJob,
+  setUserEnabled,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { getScheduleUsageSummaries } from "../../schedule/schedule-usage-store.js";
@@ -135,6 +138,18 @@ const scheduleSchema = z.object({
   reuseConversation: z.boolean(),
   wakeConversationId: z.string().nullable(),
   workflowName: z.string().nullable(),
+  sourceKey: z
+    .string()
+    .nullable()
+    .describe(
+      "Plugin declaration this schedule mirrors (plugin:<pluginName>/<scheduleName>); null for user-created schedules",
+    ),
+  userEnabled: z
+    .boolean()
+    .nullable()
+    .describe(
+      "User enable/disable override on a plugin-sourced schedule; null when the declaration's own enabled value applies. Always null for user-created schedules.",
+    ),
   isOneShot: z.boolean(),
   // A deferred wake ("remind me about this tomorrow") is an ordinary schedule
   // row created by the defer path, distinguishable only by `createdBy`, which
@@ -285,6 +300,8 @@ function serializeSchedule(
     reuseConversation: j.reuseConversation,
     wakeConversationId: j.wakeConversationId,
     workflowName: j.workflowName,
+    sourceKey: j.sourceKey,
+    userEnabled: j.userEnabled,
     isOneShot: isOneShotForDisplay(j),
     isDeferred: isDeferSchedule(j.createdBy),
   };
@@ -570,7 +587,9 @@ async function handleToggleSchedule(
   // enabled, with no further caller involvement.
   await assertWakeMutationAllowed(getSchedule(id), undefined, headers);
 
-  const updated = await updateSchedule(id, { enabled });
+  // One endpoint serves both kinds of row: imperative schedules take the
+  // plain enabled write, plugin-sourced ones record the user_enabled override.
+  const updated = await setUserEnabled(id, enabled);
   if (!updated) {
     throw new NotFoundError("Schedule not found");
   }
@@ -583,7 +602,18 @@ async function handleDeleteSchedule(
   headers?: Record<string, string>,
 ) {
   await assertWakeMutationAllowed(getSchedule(id), undefined, headers);
-  const removed = await deleteSchedule(id);
+  let removed: boolean;
+  try {
+    removed = await deleteSchedule(id);
+  } catch (err) {
+    // Store-layer refusals (e.g. plugin-sourced rows, which only the plugin's
+    // schedule file can remove) are caller mistakes with an actionable
+    // message, not daemon faults.
+    if (err instanceof UserError) {
+      throw new BadRequestError(err.message);
+    }
+    throw err;
+  }
   if (!removed) {
     throw new NotFoundError("Schedule not found");
   }
@@ -596,7 +626,18 @@ async function handleCancelSchedule(
   headers?: Record<string, string>,
 ) {
   await assertWakeMutationAllowed(getSchedule(id), undefined, headers);
-  const cancelled = await cancelSchedule(id);
+  let cancelled: boolean;
+  try {
+    cancelled = await cancelSchedule(id);
+  } catch (err) {
+    // Store-layer refusals (plugin-sourced rows, for which cancellation is a
+    // permanent latch) are caller mistakes with an actionable message, not
+    // daemon faults.
+    if (err instanceof UserError) {
+      throw new BadRequestError(err.message);
+    }
+    throw err;
+  }
   if (!cancelled) {
     throw new NotFoundError("Schedule not found or not cancellable");
   }
@@ -1057,7 +1098,8 @@ export const ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Toggle schedule",
-    description: "Enable or disable a schedule.",
+    description:
+      "Enable or disable a schedule. On a plugin-managed schedule this records the user's override (userEnabled).",
     tags: ["schedules"],
     requestBody: z.object({
       enabled: z.boolean().describe("New enabled state"),
@@ -1176,7 +1218,8 @@ export const ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Run schedule now",
-    description: "Trigger an immediate execution of a schedule.",
+    description:
+      "Trigger an immediate execution of a schedule. A plugin-sourced schedule is rejected with a 400 when its plugin is disabled or no longer declares it.",
     tags: ["schedules"],
     responseBody: z.object({
       schedules: z.array(scheduleSchema).describe("Updated schedule list"),
@@ -1193,6 +1236,23 @@ async function handleRunScheduleNow(
   const schedule = getSchedule(id);
   if (!schedule) {
     throw new NotFoundError("Schedule not found");
+  }
+
+  // A plugin-sourced row runs the plugin's own script or prompt, so run-now is
+  // only offered while that plugin is something the runtime would activate.
+  // `declarationExistsOnDisk` is the same probe the enable path uses: it covers
+  // a disabled plugin, an unreadable or invalid manifest, and a declaration
+  // that is simply gone. Turning the feature flag off retires the surface
+  // wholesale and takes the same path. The row can still be armed at this
+  // point, because the reconciler that disarms it runs on its own schedule.
+  if (
+    schedule.sourceKey !== null &&
+    (!isPluginSchedulesEnabled() ||
+      !(await declarationExistsOnDisk(schedule.sourceKey)))
+  ) {
+    throw new BadRequestError(
+      "This schedule's plugin is disabled or no longer declares it, so it cannot be run.",
+    );
   }
 
   // ── Script mode (shell command, no LLM) ──────────────────────────

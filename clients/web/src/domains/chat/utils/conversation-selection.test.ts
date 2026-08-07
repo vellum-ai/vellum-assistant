@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  createDraftConversationId,
   resolveBootstrappedConversationId,
   shouldMintNewChatDraft,
 } from "@/domains/chat/utils/conversation-selection";
+import { useConversationStore } from "@/stores/conversation-store";
 
 const conversations = [
   { conversationId: "old-visible" },
@@ -249,9 +251,9 @@ describe("resolveBootstrappedConversationId", () => {
       expect(
         resolveBootstrappedConversationId({ ...args, conversations: [] }),
       ).toBe("new-chat-draft");
-      expect(resolveBootstrappedConversationId({ ...args, conversations })).toBe(
-        "new-chat-draft",
-      );
+      expect(
+        resolveBootstrappedConversationId({ ...args, conversations }),
+      ).toBe("new-chat-draft");
     });
   });
 });
@@ -295,5 +297,29 @@ describe("shouldMintNewChatDraft", () => {
         currentConversationId: null,
       }),
     ).toBe(false);
+  });
+});
+
+describe("createDraftConversationId", () => {
+  test("registers the minted key as a draft", () => {
+    useConversationStore.getState().reset();
+
+    const conversationId = createDraftConversationId();
+
+    expect(
+      useConversationStore.getState().draftConversationIds.has(conversationId),
+    ).toBe(true);
+  });
+
+  test("registers every key it mints, so concurrent drafts both count", () => {
+    useConversationStore.getState().reset();
+
+    const first = createDraftConversationId();
+    const second = createDraftConversationId();
+
+    expect(first).not.toBe(second);
+    expect(useConversationStore.getState().draftConversationIds).toEqual(
+      new Set([first, second]),
+    );
   });
 });

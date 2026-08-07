@@ -36,7 +36,13 @@ import { initializeDb } from "../../../persistence/db-init.js";
 import {
   conversations,
   providerConnections,
+  scheduleJobs,
 } from "../../../persistence/schema/index.js";
+import {
+  createSchedule,
+  getSchedule,
+  upsertDeclaredSchedule,
+} from "../../../schedule/schedule-store.js";
 import { ROUTES as CONVERSATION_MANAGEMENT_ROUTES } from "../conversation-management-routes.js";
 import { ROUTES as INFERENCE_PROFILE_SESSION_ROUTES } from "../inference-profile-session-routes.js";
 import type { RouteDefinition } from "../types.js";
@@ -118,7 +124,7 @@ function clearConversations(): void {
   getDb().delete(conversations).run();
 }
 
-function seedConversation(id: string): void {
+function seedConversation(id: string, scheduleJobId?: string): void {
   const now = Date.now();
   getDb()
     .insert(conversations)
@@ -129,6 +135,7 @@ function seedConversation(id: string): void {
       updatedAt: now,
       source: "test",
       conversationType: "standard",
+      scheduleJobId,
     })
     .run();
 }
@@ -462,5 +469,56 @@ describe("POST /v1/conversations/inference-profile-session/close (inference_prof
 
     expect(result.noop).toBe(true);
     expect(result.closed).toBeNull();
+  });
+});
+
+describe("DELETE /v1/conversations/:id (deleteConversation)", () => {
+  const deleteHandler = findHandler(
+    CONVERSATION_MANAGEMENT_ROUTES,
+    "deleteConversation",
+  );
+
+  beforeEach(() => {
+    clearConversations();
+    getDb().delete(scheduleJobs).run();
+  });
+
+  test("deleting the last conversation of a plugin-declared schedule keeps the schedule", async () => {
+    // GIVEN a plugin-sourced schedule with a single run conversation
+    const job = await upsertDeclaredSchedule("plugin:example/daily", {
+      name: "daily",
+      syntax: "cron",
+      expression: "0 9 * * *",
+      message: "Do the daily thing.",
+      mode: "execute",
+      enabled: true,
+      definitionHash: "hash-1",
+    });
+    const convId = crypto.randomUUID();
+    seedConversation(convId, job.id);
+
+    // WHEN the conversation is deleted
+    await deleteHandler({ pathParams: { id: convId } });
+
+    // THEN the conversation is gone but the schedule row survives: its
+    // lifecycle belongs to the reconciler, not conversation cleanup.
+    expect(getDb().select().from(conversations).all()).toHaveLength(0);
+    expect(getSchedule(job.id)).not.toBeNull();
+  });
+
+  test("deleting the last conversation of a user schedule still deletes the schedule", async () => {
+    const job = await createSchedule({
+      name: "imperative",
+      message: "Do the thing.",
+      syntax: "cron",
+      expression: "0 9 * * *",
+    });
+    const convId = crypto.randomUUID();
+    seedConversation(convId, job.id);
+
+    await deleteHandler({ pathParams: { id: convId } });
+
+    expect(getDb().select().from(conversations).all()).toHaveLength(0);
+    expect(getSchedule(job.id)).toBeNull();
   });
 });

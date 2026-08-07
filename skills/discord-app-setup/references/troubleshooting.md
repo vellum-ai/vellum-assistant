@@ -25,15 +25,24 @@ The token validates against the REST API but the gateway closes the connection. 
 
 ### "Disallowed intents" gateway close (code 4014)
 
-The bot is connecting with an intent flag that is not enabled on the application.
+Discord refused a privileged intent the app is not approved for. This client identifies with `GUILDS`, `GUILD_MESSAGES`, and `DIRECT_MESSAGES` only, all three non-privileged, so it should never provoke a 4014.
 
-- Open **Bot → Privileged Gateway Intents** in the developer portal.
-- Enable **Message Content Intent** and **Server Members Intent**, then **Save Changes**.
-- The connection will succeed on the next reconnect.
+Enabling privileged intents is **not** the fix. If you see this code, the IDENTIFY bitmask is not the one this client builds: check that the running gateway version matches the deployed assistant, and report it, rather than turning portal toggles on to satisfy it.
 
 ### Messages arrive without content
 
-The Message Content Intent is not enabled, or not requested in the gateway identify payload. Re-check Step 2.
+Discord empties `content` for messages outside its exemption list. The four exempt cases are messages that mention your app, DMs with your app, your app's own messages, and the target of a message context-menu command.
+
+The bot only acts on messages that mention it, so an admitted message always carries content. Empty content therefore means the message was not actually a mention of the bot, not that an intent is missing. Enabling the Message Content Intent is only required to read messages the bot is **not** mentioned in, which this integration does not do.
+
+### The bot is online but never replies
+
+This is the expected state of a fresh setup, not a fault. The bot acts only when it is @mentioned in a channel on the allow-list, and that list starts empty.
+
+- Check the list: `assistant config get discord.allowedChannelIds`
+- Populate it: `assistant config set discord.allowedChannelIds '["<channel id>"]'`
+- Confirm you are mentioning the bot directly, not just posting in the channel.
+- If it still stays silent, the channel's admission policy may be excluding the sender: by default Discord admits trusted contacts rather than anyone in the server.
 
 ## OAuth Invite Errors
 
@@ -68,7 +77,7 @@ Same root cause — the stored bot token is invalid. The invite URL script calls
 - Bot tokens **do not expire** automatically.
 - Resetting a token in the developer portal **immediately invalidates** the old one. All running connections using the old token will be disconnected.
 - If the application is deleted, all its tokens are immediately revoked.
-- Privileged intent changes take effect on the **next gateway reconnect** — no token reset needed.
+- Intent changes take effect on the **next gateway reconnect**, with no token reset needed. This integration requests no privileged intents, so toggling them in the portal changes nothing about what it receives.
 
 ## Removing the Bot
 

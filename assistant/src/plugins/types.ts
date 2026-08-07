@@ -147,9 +147,9 @@ export interface TurnContext {
   /** Human-readable interface label (e.g. "vellum", "telegram"). */
   readonly interfaceName?: string;
   /**
-   * Client OS surface ("web" | "ios" | "macos"), reported independently of
-   * the transport interface. Rendered as the `client_os:` line so the model
-   * knows the platform even though the web/iOS/macOS apps share one `"web"`
+   * Client OS surface, reported independently of the transport interface.
+   * Rendered as the `client_os:` line so the model knows the platform even
+   * though browser, mobile, and desktop apps share one `"web"`
    * transport interface.
    */
   readonly clientOs?: string;
@@ -163,10 +163,13 @@ export interface TurnContext {
     /** Canonical id the app tools key off (an opaque UUID for workspace apps). */
     appId: string;
     name: string;
-    /** Directory stem: the readable handle for an otherwise opaque id. */
+    /**
+     * Directory stem: the readable handle for an otherwise opaque id, and the
+     * piece the model joins with the workspace root and the app-builder skill's
+     * `data/apps/<slug>/` layout to reach the app's files. The resolved
+     * directory itself is not sent, being derivable from those three.
+     */
     slug: string;
-    /** Absolute path of the app's source directory. */
-    sourceDir: string;
     /** Owning plugin, when the app is plugin-bundled rather than sandbox-built. */
     pluginName?: string;
   } | null;

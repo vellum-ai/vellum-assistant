@@ -14,7 +14,7 @@ import { useDraftOverride } from "@/hooks/use-draft-override";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isNativeDictationSupported } from "@/runtime/native-dictation-partials";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -167,7 +167,6 @@ export function SttProviderForm({
     available: languageAvailable,
     currentCode: languageCode,
     configuredProviderId: languageProviderId,
-    daemonDefaultsToMulti: languageDefaultsToMulti,
     selectLanguage,
     selecting: languageSelecting,
   } = useSttLanguageSelection(assistantId);
@@ -373,7 +372,7 @@ export function SttProviderForm({
         <label className="block text-body-small-default text-[var(--content-tertiary)]">
           Provider
         </label>
-        <Dropdown
+        <Select
           value={draftProvider}
           onChange={setDraftProvider}
           options={providers.map((p) => ({
@@ -390,17 +389,13 @@ export function SttProviderForm({
             Spoken language
           </label>
           {/* A trigger row (current value + chevron) opening the shared
-              search-first picker: mirrors the Dropdown trigger's field
+              search-first picker: mirrors the Select trigger's field
               styling so the form reads uniformly, but opens a dialog. */}
           <SelectTriggerRow
             aria-label="Spoken language"
             aria-haspopup="dialog"
             onClick={() => setLanguagePickerOpen(true)}
-            value={sttLanguageLabelForCode(
-              languageCode,
-              languageProviderId,
-              languageDefaultsToMulti,
-            )}
+            value={sttLanguageLabelForCode(languageCode, languageProviderId)}
           />
           <p className="text-body-small-default text-[var(--content-tertiary)]">
             Applies from your next spoken turn.
@@ -411,7 +406,6 @@ export function SttProviderForm({
             title="Spoken language"
             currentCode={languageCode}
             configuredProviderId={languageProviderId}
-            daemonDefaultsToMulti={languageDefaultsToMulti}
             selectLanguage={selectLanguage}
             selecting={languageSelecting}
           />

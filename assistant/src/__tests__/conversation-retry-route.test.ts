@@ -24,6 +24,7 @@ import { z } from "zod";
 import {
   isBackgroundEventMetadata,
   isEchoSuppressedUserMessage,
+  isHiddenMessageMetadata,
 } from "../persistence/conversation-types.js";
 
 mock.module("../config/env.js", () => ({
@@ -73,7 +74,7 @@ const getConversationMock = mock((id: string) =>
 mock.module("../persistence/conversation-crud.js", () => ({
   addMessage: async () => ({ id: "unused", deduplicated: false }),
   archiveConversation: () => true,
-  batchSetDisplayOrders: () => {},
+  batchSetConversationPlacement: () => {},
   countConversationsByScheduleJobId: () => 0,
   deleteConversation: () => ({ segmentIds: [], deletedSummaryIds: [] }),
   extractImageSourcePaths: () => undefined,
@@ -81,6 +82,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   getConversation: getConversationMock,
   isBackgroundEventMetadata,
   isEchoSuppressedUserMessage,
+  isHiddenMessageMetadata,
   provenanceFromTrustContext: () => ({ provenanceTrustClass: "unknown" }),
   setConversationSurfaced: () => null,
   unarchiveConversation: () => true,

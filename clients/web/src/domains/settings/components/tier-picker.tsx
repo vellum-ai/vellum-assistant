@@ -8,7 +8,7 @@ import type {
   StorageTierEnum,
 } from "@/generated/api/types.gen";
 import { MACHINE_TIER_LABEL } from "@/lib/billing/machine-sizes";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { formatDelta, formatMonthly } from "./tier-pricing";
 
@@ -98,7 +98,7 @@ export function TierPicker({
             <Info className="h-3 w-3 text-[var(--content-tertiary)]" />
           </span>
         </div>
-        <Dropdown<MachineTierEnum>
+        <Select<MachineTierEnum>
           aria-label="Machine tier"
           placeholder="Select a machine tier"
           value={selectedMachineTier ?? ("" as MachineTierEnum)}
@@ -119,7 +119,7 @@ export function TierPicker({
             <Info className="h-3 w-3 text-[var(--content-tertiary)]" />
           </span>
         </div>
-        <Dropdown<StorageTierEnum>
+        <Select<StorageTierEnum>
           aria-label="Storage tier"
           placeholder="Select a storage tier"
           value={selectedStorageTier ?? ("" as StorageTierEnum)}

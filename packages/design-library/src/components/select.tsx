@@ -1,7 +1,8 @@
 import { Check, ChevronDown } from "lucide-react";
-import type { CSSProperties, ReactNode } from "react";
+import { useId, type CSSProperties, type ReactNode } from "react";
 import * as RadixSelect from "@radix-ui/react-select";
 
+import { Field, fieldDescriptionId } from "./field";
 import { cn } from "../utils/cn";
 import { usePortalContainer } from "../utils/portal-container";
 import { Tooltip } from "./tooltip";
@@ -12,11 +13,14 @@ export type SelectSize = "regular" | "compact";
 
 export interface SelectOption<T extends string> {
   /**
+   * `null` marks the row meaning "no value chosen", where that is a real
+   * choice rather than the absence of one. Selecting it calls
+   * {@link SelectProps.onSelectNone} instead of `onChange`.
+   *
    * Must not be the empty string: Radix reserves it to mean "cleared". For a
-   * leading "nothing chosen" row, use `placeholder`; for a row that means
-   * something specific ("Default", "Custom"), give it a real sentinel value.
+   * trigger that shows nothing until the user picks, use `placeholder`.
    */
-  readonly value: T;
+  readonly value: T | null;
   readonly label: string;
   readonly icon?: ReactNode;
   readonly suffix?: ReactNode;
@@ -32,8 +36,14 @@ export interface SelectOption<T extends string> {
 export interface SelectProps<T extends string> {
   readonly options: ReadonlyArray<SelectOption<T>>;
   /** Empty string means "nothing chosen", which renders `placeholder`. */
-  readonly value: T | "";
+  /** `null` selects the option carrying a `null` value, if one is offered. */
+  readonly value: T | "" | null;
   readonly onChange: (value: T) => void;
+  /**
+   * Called instead of `onChange` when the user picks the row whose value is
+   * `null`. Separate so `onChange` keeps promising a narrowed `T`.
+   */
+  readonly onSelectNone?: () => void;
   readonly placeholder?: string;
   readonly disabled?: boolean;
   /** Trigger + option density. Defaults to `"regular"` (36px trigger). */
@@ -48,7 +58,20 @@ export interface SelectProps<T extends string> {
   readonly menuAlign?: SelectMenuAlign;
   readonly "aria-label"?: string;
   readonly "aria-labelledby"?: string;
+  readonly "aria-describedby"?: string;
   readonly "data-testid"?: string;
+  /** Field label rendered above the trigger and wired to it. */
+  readonly label?: ReactNode;
+  /** Guidance below the trigger. Suppressed while `errorText` is set. */
+  readonly helperText?: ReactNode;
+  /**
+   * Blocking message below the trigger. Also tints the trigger border and
+   * marks it `aria-invalid`, matching `Input`.
+   */
+  readonly errorText?: ReactNode;
+  /** Stretch the field to its container. Defaults to true. */
+  readonly fullWidth?: boolean;
+  readonly wrapperClassName?: string;
 }
 
 const DEFAULT_MENU_MAX_HEIGHT = 280;
@@ -111,9 +134,22 @@ export function Select<T extends string>({
   menuAlign = "start",
   "aria-label": ariaLabel,
   "aria-labelledby": ariaLabelledBy,
+  "aria-describedby": ariaDescribedBy,
+  onSelectNone,
   "data-testid": dataTestId,
+  label,
+  helperText,
+  errorText,
+  fullWidth = true,
+  wrapperClassName,
 }: SelectProps<T>) {
   const portalContainer = usePortalContainer();
+  const reactId = useId();
+  const triggerId = id ?? `select-${reactId}`;
+  const invalid = Boolean(errorText);
+  const describedBy =
+    ariaDescribedBy ??
+    fieldDescriptionId(triggerId, invalid, Boolean(helperText));
 
   // Radix throws if an item claims the empty string. Drop such options rather
   // than take the tree down, and say why: the intent is almost always a
@@ -133,25 +169,44 @@ export function Select<T extends string>({
     return false;
   });
 
+  // Radix addresses items by string, so the null row needs one. Derived from
+  // the values actually present rather than fixed, so no real value can ever
+  // be mistaken for it and nothing has to be reserved outside this file.
+  const noneToken = (() => {
+    const taken = new Set<string>(
+      selectableOptions.flatMap((option) =>
+        option.value === null ? [] : [option.value],
+      ),
+    );
+    let token = "\u0000none";
+    while (taken.has(token)) {
+      token += "\u0000";
+    }
+    return token;
+  })();
+
+  const tokenFor = (optionValue: T | null): string =>
+    optionValue === null ? noneToken : optionValue;
+
   const selectedOption = selectableOptions.find(
     (option) => option.value === value,
   );
 
-  return (
+  const control = (
     <RadixSelect.Root
       // Passed through untouched, empty string included. Radix reads
       // `prop !== undefined` as "controlled", so translating "" to `undefined`
       // would hand control back to Radix the moment a caller cleared the
       // value, leaving the trigger showing a stale choice. Radix already
       // treats "" as the placeholder state.
-      value={value}
+      value={value === null ? noneToken : value}
       // Radix hands back a plain `string`, but `onChange` promises callers a
       // narrowed `T`. Look the value up in `selectableOptions` and forward the
       // matched option's own `value`, so the type is earned at the runtime
       // boundary rather than asserted across it.
       onValueChange={(next) => {
         const matched = selectableOptions.find(
-          (option) => option.value === next,
+          (option) => tokenFor(option.value) === next,
         );
         if (!matched) {
           // Radix only emits values belonging to mounted items, so this is
@@ -165,23 +220,38 @@ export function Select<T extends string>({
           }
           return;
         }
+        if (matched.value === null) {
+          onSelectNone?.();
+          return;
+        }
         onChange(matched.value);
       }}
       disabled={disabled}
       name={name}
     >
-      <div data-slot="select" className={cn("relative", className)} style={style}>
+      <div
+        data-slot="select"
+        className={cn("relative", className)}
+        style={style}
+      >
         <RadixSelect.Trigger
-          id={id}
+          id={triggerId}
           aria-label={ariaLabel}
-          aria-labelledby={ariaLabelledBy}
+          aria-labelledby={
+            ariaLabelledBy ?? (label ? `${triggerId}-label` : undefined)
+          }
+          aria-describedby={describedBy}
+          aria-invalid={invalid || undefined}
           // Radix sets the native `disabled` attribute and `data-disabled`,
           // but not `aria-disabled`.
           aria-disabled={disabled || undefined}
           data-testid={dataTestId}
           data-slot="select-trigger"
           className={cn(
-            "flex w-full items-center gap-2 rounded-md border border-[var(--field-border)] bg-[var(--field-bg)] text-left transition-colors focus:outline-none data-[state=open]:border-[var(--border-active)] disabled:cursor-not-allowed disabled:opacity-60",
+            "flex w-full items-center gap-2 rounded-md border bg-[var(--field-bg)] text-left transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-60",
+            invalid
+              ? "border-[var(--system-negative-strong)] data-[state=open]:border-[var(--system-negative-strong)]"
+              : "border-[var(--field-border)] data-[state=open]:border-[var(--border-active)]",
             TRIGGER_SIZE_CLASSES[size],
           )}
           style={{
@@ -205,11 +275,11 @@ export function Select<T extends string>({
               title={selectedOption?.label || undefined}
             >
               {/* Explicit children rather than Radix's default, which reads
-                  from the mounted item and so renders nothing before the menu
-                  has opened or under `renderToStaticMarkup`. Falling back to
-                  the placeholder keeps a value that no longer matches any
-                  option (a deleted profile, say) from rendering as a blank
-                  control. */}
+                    from the mounted item and so renders nothing before the menu
+                    has opened or under `renderToStaticMarkup`. Falling back to
+                    the placeholder keeps a value that no longer matches any
+                    option (a deleted profile, say) from rendering as a blank
+                    control. */}
               <RadixSelect.Value placeholder={placeholder ?? ""}>
                 {selectedOption?.label ?? placeholder ?? ""}
               </RadixSelect.Value>
@@ -252,8 +322,8 @@ export function Select<T extends string>({
             {selectableOptions.map((option) => {
               const optionRow = (
                 <RadixSelect.Item
-                  key={option.value}
-                  value={option.value}
+                  key={tokenFor(option.value)}
+                  value={tokenFor(option.value)}
                   disabled={option.disabled}
                   data-slot="select-option"
                   className={cn(
@@ -303,7 +373,7 @@ export function Select<T extends string>({
               );
               return option.tooltip ? (
                 <Tooltip
-                  key={option.value}
+                  key={tokenFor(option.value)}
                   content={option.tooltip}
                   side="right"
                 >
@@ -317,5 +387,25 @@ export function Select<T extends string>({
         </RadixSelect.Content>
       </RadixSelect.Portal>
     </RadixSelect.Root>
+  );
+
+  // Nothing to label or explain: stay a bare control so existing call
+  // sites that position the trigger themselves are unaffected.
+  if (label == null && helperText == null && errorText == null) {
+    return control;
+  }
+
+  return (
+    <Field
+      id={triggerId}
+      label={label}
+      helperText={helperText}
+      errorText={errorText}
+      fullWidth={fullWidth}
+      disabled={disabled}
+      className={wrapperClassName}
+    >
+      {control}
+    </Field>
   );
 }

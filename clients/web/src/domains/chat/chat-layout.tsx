@@ -2,6 +2,7 @@ import {
   lazy,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -12,6 +13,7 @@ import {
   useNavigate,
   useNavigationType,
 } from "react-router";
+import { SIDE_MENU_TILE_SIZE } from "@vellumai/design-library";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import {
@@ -45,6 +47,7 @@ import {
 } from "@/hooks/edge-swipe-motion";
 import { useEdgeSwipeDrawer } from "@/hooks/use-edge-swipe-drawer";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
+import { useMobileDrawerStore } from "@/stores/mobile-drawer-store";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
@@ -307,7 +310,7 @@ export function ChatLayout({
   // --- Sidebar collapsed / drawer state ---
   const [collapsed, setCollapsed] = useState<boolean>(readPersistedCollapsed);
   const [sidebarWidth, setSidebarWidth] = useState<number>(readPersistedWidth);
-  // The tour walks the sidebar's rows, which a 48px collapsed rail doesn't
+  // The tour walks the sidebar's rows, which the collapsed rail doesn't
   // show — so the tour's whole run forces the rail expanded. Derived (not
   // written through setCollapsed) so the user's persisted preference is
   // untouched and the rail collapses back on its own when the tour ends.
@@ -395,9 +398,14 @@ export function ChatLayout({
       // landing width comes from state, not DOM measurement: skipping the
       // tour un-forces a collapsed rail in this same commit, so the nav's
       // measured width still reads expanded while it is already collapsing
-      // to 48px. No fill, so the wrapper returns to shrink-wrapping the nav
-      // the moment the animation ends.
-      const targetWidth = effectiveCollapsed ? 48 : sidebarWidth;
+      // to the rail width. No fill, so the wrapper returns to shrink-wrapping
+      // the nav the moment the animation ends.
+      //
+      // A collapsed rail is one tile wide here: this layout renders the nav
+      // without the design library's own padding and border (the page draws
+      // that chrome), and the collapsed rail sizes its tile as content, so
+      // nothing is added around it.
+      const targetWidth = effectiveCollapsed ? SIDE_MENU_TILE_SIZE : sidebarWidth;
       railFocusAnimationsRef.current = [
         aside.animate(
           [
@@ -465,6 +473,23 @@ export function ChatLayout({
   const voiceRoomVisible = useIsVoiceRoomVisible();
 
   const drawerVisible = isMobile && drawerOpen;
+
+  // Publish for surfaces that render outside this tree and would otherwise
+  // paint over the drawer; see `mobile-drawer-store`. Mirrors the same
+  // condition the drawer itself mounts on, so the two can't disagree.
+  //
+  // Layout effect, not passive: a passive effect runs after the browser can
+  // paint, so the drawer's first frame would go up with the store still
+  // reporting false and the peek still portaled over it. Publishing before
+  // paint means the two never disagree on screen.
+  const drawerPresented = drawerVisible || drawerDragging;
+  const setDrawerPresented = useMobileDrawerStore.use.setPresented();
+  useLayoutEffect(() => {
+    setDrawerPresented(drawerPresented);
+    return () => {
+      setDrawerPresented(false);
+    };
+  }, [drawerPresented, setDrawerPresented]);
 
   const toggleSidebar = useCallback(() => {
     // The tour forces the rail expanded; a toggle would only flip the
@@ -573,7 +598,6 @@ export function ChatLayout({
     handleMoveToGroup,
     handleRemoveFromGroup,
     handleRenameConversation,
-    handleReorderConversations,
     handleMarkAllReadInGroup,
     handleArchiveAllInGroup,
   } = useConversationActions({
@@ -895,7 +919,6 @@ export function ChatLayout({
       activeAppId={activeAppId ?? undefined}
       onOpenApp={handleOpenAppFromSidebar}
       onPinConversation={handleTogglePinConversation}
-      onReorderConversations={handleReorderConversations}
       onRenameConversation={handleRenameConversation}
       onArchiveConversation={handleArchiveConversation}
       onUnarchiveConversation={handleUnarchiveConversation}

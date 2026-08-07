@@ -68,6 +68,19 @@ export const TelegramConfigSchema = z
       .string({ error: "telegram.apiBaseUrl must be a string" })
       .default("https://api.telegram.org")
       .describe("Base URL for the Telegram Bot API"),
+    // Written by the gateway reconciler, read by the health sweep. Deployment
+    // state rather than user configuration: it records where this deployment
+    // last pointed Telegram, so the sweep can tell our own registration from a
+    // stale tunnel address or another deployment's callback. Unset until a
+    // reconciliation succeeds, which the sweep reports as unverified rather
+    // than healthy. Stripped by sanitize-for-transfer, like
+    // ingress.publicBaseUrlManagedBy, because it does not travel between hosts.
+    registeredWebhookUrl: z
+      .string({ error: "telegram.registeredWebhookUrl must be a string" })
+      .optional()
+      .describe(
+        "Webhook URL this deployment last registered with Telegram (managed by the gateway)",
+      ),
     deliverAuthBypass: z
       .boolean({ error: "telegram.deliverAuthBypass must be a boolean" })
       .default(false)

@@ -10,6 +10,17 @@ export interface PinnedAppEntry {
   pinnedOrder: number;
   name: string;
   icon?: string;
+  /**
+   * A colour the user picked for this pin, as an id from the pinned-app colour
+   * registry. Absent on a pin with no colour, which is every pin until one is
+   * chosen.
+   *
+   * Unlike {@link PinnedAppEntry.name} and {@link PinnedAppEntry.icon}, this
+   * has no counterpart on the app: those two are copied off {@link AppSummary}
+   * at pin time and mirror it, while this belongs to the pin alone and is not
+   * reflected anywhere else the app appears.
+   */
+  color?: string;
 }
 
 /**
@@ -19,6 +30,14 @@ export interface PinnedAppEntry {
  */
 export type PinnableApp = Pick<AppSummary, "id" | "name" | "icon">;
 
+/**
+ * Per-entry validation is the whole compatibility story for this key: there is
+ * no version stamp, and {@link parsePinnedApps} simply drops what fails. So
+ * every optional field must be optional here in both directions. A pin written
+ * before that field existed stays valid because `undefined` passes, and a pin
+ * carrying a field a reader does not know about stays valid because unknown
+ * keys are never rejected.
+ */
 function isValidEntry(value: unknown): value is PinnedAppEntry {
   if (!value || typeof value !== "object") {
     return false;
@@ -29,7 +48,8 @@ function isValidEntry(value: unknown): value is PinnedAppEntry {
     typeof record.pinnedOrder === "number" &&
     Number.isFinite(record.pinnedOrder) &&
     typeof record.name === "string" &&
-    (record.icon === undefined || typeof record.icon === "string")
+    (record.icon === undefined || typeof record.icon === "string") &&
+    (record.color === undefined || typeof record.color === "string")
   );
 }
 
@@ -51,6 +71,7 @@ const storage = createStorageAccessor<PinnedAppEntry[]>({
 
 export const loadPinnedApps = storage.load;
 export const savePinnedApps = storage.save;
+export const subscribePinnedApps = storage.subscribe;
 
 export function pinApp(app: PinnableApp): void {
   const entries = storage.load();
@@ -75,6 +96,29 @@ export function unpinApp(appId: string): void {
     .sort((a, b) => a.pinnedOrder - b.pinnedOrder)
     .map((e, i) => ({ ...e, pinnedOrder: i + 1 }));
   storage.save(entries);
+}
+
+/**
+ * Set or clear a pin's colour. `null` clears it. A no-op for an app that is
+ * not pinned, so a colour can never conjure a pin that unpinning just removed.
+ */
+export function setAppColor(appId: string, color: string | null): void {
+  const entries = storage.load();
+  if (!entries.some((e) => e.appId === appId)) {
+    return;
+  }
+  storage.save(
+    entries.map((entry) => {
+      if (entry.appId !== appId) {
+        return entry;
+      }
+      /* Drop the key rather than storing `undefined`: `JSON.stringify` omits
+         it either way, so keeping it would leave the in-memory entry and the
+         entry read back from storage unequal. */
+      const { color: _cleared, ...rest } = entry;
+      return color === null ? rest : { ...rest, color };
+    }),
+  );
 }
 
 export function isAppPinned(appId: string): boolean {

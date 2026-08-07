@@ -38,6 +38,8 @@ export const authEntry = {
   native: false,
   authFlowCalls: [] as AuthFlowCall[],
   hardNavigateCalls: [] as string[],
+  /** When set, `startNativeLogin` rejects with it instead of resolving. */
+  nativeLoginError: null as unknown,
 };
 
 export const mockAuthStore = () => ({
@@ -59,7 +61,10 @@ export const mockNativeAuth = () => ({
     });
     return Promise.resolve();
   },
-  startNativeLogin: () => Promise.resolve(),
+  startNativeLogin: () =>
+    authEntry.nativeLoginError
+      ? Promise.reject(authEntry.nativeLoginError)
+      : Promise.resolve(),
   useIsNativePlatform: () => authEntry.native,
 });
 
@@ -81,6 +86,7 @@ export function setupAuthEntry() {
     authEntry.native = false;
     authEntry.authFlowCalls = [];
     authEntry.hardNavigateCalls = [];
+    authEntry.nativeLoginError = null;
     setPlatformSession("present");
     useAssistantLifecycleStore.setState({
       assistantState: { kind: "loading" },

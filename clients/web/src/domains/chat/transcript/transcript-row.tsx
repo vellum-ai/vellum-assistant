@@ -86,6 +86,10 @@ export interface TranscriptRowProps {
   onWorkflowClick?: (runId: string) => void;
   /** Callback to abort/stop a running workflow from an inline card. */
   onStopWorkflow?: (runId: string) => void;
+  /** Ids of the documents this message's whole response changed. Set only on
+   *  the message that ends a completed response, so the response closes with
+   *  one reopen link per document (see `resolveResponseDocumentIds`). */
+  changedDocumentIds?: string[];
   /** True when this row belongs to the actively-streaming turn. Forwarded to
    *  `TranscriptMessageBody` so the streaming message's last tool-call group
    *  defaults open. History rows leave it `false`. */
@@ -178,6 +182,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   onStopSubagent,
   onWorkflowClick,
   onStopWorkflow,
+  changedDocumentIds,
   isStreaming,
   isLatestMessage,
 }: TranscriptRowProps) {
@@ -212,6 +217,7 @@ export const TranscriptRow = memo(function TranscriptRow({
           onStopSubagent={onStopSubagent}
           onWorkflowClick={onWorkflowClick}
           onStopWorkflow={onStopWorkflow}
+          changedDocumentIds={changedDocumentIds}
           isStreaming={isStreaming}
           isLatestMessage={isLatestMessage}
         />

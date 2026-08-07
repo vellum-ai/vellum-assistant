@@ -1,9 +1,11 @@
 import { describe, expect, mock, test } from "bun:test";
 
+import { sanitizeForTts } from "../../calls/tts-text-sanitizer.js";
 import type { VoiceTurnOptions } from "../../calls/voice-session-bridge.js";
 import {
   ESCALATION_CONTINUATION_CONTENT,
   FALLBACK_ESCALATION_BRIDGE,
+  FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
 } from "../../calls/voice-triage-escalate.js";
 import type {
   StreamingTranscriber,
@@ -11,9 +13,11 @@ import type {
 } from "../../stt/types.js";
 import {
   LiveVoiceSession,
+  type LiveVoiceTtsStreamer,
   type LiveVoiceTurnStarter,
 } from "../live-voice-session.js";
 import type { LiveVoiceSessionFactoryContext } from "../live-voice-session-manager.js";
+import type { LiveVoiceTtsOptions } from "../live-voice-tts.js";
 import {
   createLiveVoiceServerFrameSequencer,
   type LiveVoiceClientStartFrame,
@@ -57,7 +61,13 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   }
 }
 
-function createHarness(startVoiceTurn: LiveVoiceTurnStarter) {
+function createHarness(
+  startVoiceTurn: LiveVoiceTurnStarter,
+  opts: {
+    transcriber?: MockStreamingTranscriber;
+    streamTtsAudio?: LiveVoiceTtsStreamer;
+  } = {},
+) {
   const sequencer = createLiveVoiceServerFrameSequencer();
   const frames: LiveVoiceServerFrame[] = [];
   const context: LiveVoiceSessionFactoryContext = {
@@ -69,10 +79,11 @@ function createHarness(startVoiceTurn: LiveVoiceTurnStarter) {
       return frame;
     }),
   };
-  const transcriber = new MockStreamingTranscriber();
+  const transcriber = opts.transcriber ?? new MockStreamingTranscriber();
   const session = new LiveVoiceSession(context, {
     resolveTranscriber: mock(async () => transcriber),
     startVoiceTurn,
+    ...(opts.streamTtsAudio ? { streamTtsAudio: opts.streamTtsAudio } : {}),
     createTurnId: () => "live-turn-1",
     emitMetrics: false,
   });
@@ -188,6 +199,35 @@ describe("live-voice triage-and-escalate routing", () => {
     expect(escalated?.overrideProfile).toBeUndefined();
     expect(escalated?.routingLeg).toBe("escalated");
     expect(escalated?.content).toBe(ESCALATION_CONTINUATION_CONTENT);
+  });
+
+  test("no leg is told to refuse setup flows, and the escalated leg is told to run them", async () => {
+    const { starter } = scriptedStartVoiceTurn({
+      frontDoor: ["[1] ", "Let me think about that."],
+      escalated: ["The detailed answer is 42."],
+    });
+    const { frames, session } = createHarness(starter);
+
+    await driveTurn(session);
+    await waitFor(() => starter.mock.calls.length >= 2);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    const frontDoorPrompt =
+      starter.mock.calls[0]?.[0]?.voiceControlPrompt ?? "";
+    const escalatedPrompt =
+      starter.mock.calls[1]?.[0]?.voiceControlPrompt ?? "";
+    // The phone's no-setup-flows rule must not leak onto a channel that has a
+    // screen: it contradicts the base prompt's "never tell the user you cannot
+    // show them something".
+    expect(frontDoorPrompt).not.toContain("Never start account connections");
+    expect(escalatedPrompt).not.toContain("Never start account connections");
+    expect(frontDoorPrompt).not.toContain("finish it in text chat");
+    expect(escalatedPrompt).not.toContain("finish it in text chat");
+    // The leg that can actually run one is told to.
+    expect(escalatedPrompt).toContain("This includes connecting accounts");
+    // The toolless fast leg is not: a connection is not its to run, and its
+    // capability digest already routes anything needing a tool here.
+    expect(frontDoorPrompt).not.toContain("This includes connecting accounts");
   });
 
   test("the screen-reveal teaching reaches the escalated leg's prompt but never the front-door leg's", async () => {
@@ -311,6 +351,95 @@ describe("live-voice triage-and-escalate routing", () => {
     // The verdict itself is never shown; the fallback bridge is audio-only.
     expect(spokenText(frames)).not.toContain("[1]");
     expect(spokenText(frames)).not.toContain(FALLBACK_ESCALATION_BRIDGE);
+  });
+
+  test("escalating a Hindi turn speaks the Hindi fallback bridge and quotes it to the escalated leg", async () => {
+    const { starter } = scriptedStartVoiceTurn({
+      frontDoor: ["[1]"],
+      escalated: ["तैयार उत्तर।"],
+    });
+    const ttsCalls: LiveVoiceTtsOptions[] = [];
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      ttsCalls.push(options);
+      return {
+        provider: "fish-audio" as const,
+        contentType: "audio/pcm",
+        sampleRate: 24_000,
+        chunks: 0,
+        bytes: 0,
+      };
+    });
+    const { frames, session } = createHarness(starter, {
+      transcriber: new MockStreamingTranscriber([
+        { type: "final", text: "नमस्ते", languages: ["hi"] },
+        { type: "closed" },
+      ]),
+      streamTtsAudio,
+    });
+
+    await driveTurn(session);
+    await waitFor(() => starter.mock.calls.length >= 2);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    const hindiBridge = FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE.hi!;
+    // The escalated leg is told the exact phrase the caller heard, so its
+    // continuation rule can quote it and ban a re-announcing echo.
+    expect(starter.mock.calls[1]?.[0]?.spokenEscalationBridge).toBe(
+      hindiBridge,
+    );
+    // The caller hears the Hindi fallback; like every canned bridge it is
+    // audio-only, so it reaches TTS but never a caption frame.
+    expect(ttsCalls.map((call) => call.text)).toContain(
+      sanitizeForTts(hindiBridge).trim(),
+    );
+    expect(spokenText(frames)).not.toContain(hindiBridge);
+    // The detected language rides every synthesis request of the turn.
+    expect(ttsCalls.every((call) => call.language === "hi")).toBe(true);
+  });
+
+  test("escalating an out-of-roster-language turn hints the English fallback bridge as 'en'", async () => {
+    // "ar" is outside the localized bridge table, so the canned fallback is
+    // English text; its synthesis request must carry an "en" hint rather
+    // than the turn's "ar", while the escalated leg's model speech keeps
+    // the turn language.
+    const { starter } = scriptedStartVoiceTurn({
+      frontDoor: ["[1]"],
+      escalated: ["The thorough answer."],
+    });
+    const ttsCalls: LiveVoiceTtsOptions[] = [];
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      ttsCalls.push(options);
+      return {
+        provider: "fish-audio" as const,
+        contentType: "audio/pcm",
+        sampleRate: 24_000,
+        chunks: 0,
+        bytes: 0,
+      };
+    });
+    const { frames, session } = createHarness(starter, {
+      transcriber: new MockStreamingTranscriber([
+        { type: "final", text: "مرحبا", languages: ["ar"] },
+        { type: "closed" },
+      ]),
+      streamTtsAudio,
+    });
+
+    await driveTurn(session);
+    await waitFor(() => starter.mock.calls.length >= 2);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(starter.mock.calls[1]?.[0]?.spokenEscalationBridge).toBe(
+      FALLBACK_ESCALATION_BRIDGE,
+    );
+    const bridgeCall = ttsCalls.find(
+      (call) => call.text === sanitizeForTts(FALLBACK_ESCALATION_BRIDGE).trim(),
+    );
+    expect(bridgeCall?.language).toBe("en");
+    const answerCall = ttsCalls.find((call) =>
+      call.text.includes("The thorough answer"),
+    );
+    expect(answerCall?.language).toBe("ar");
   });
 
   test("barge-in during the escalated leg aborts it", async () => {

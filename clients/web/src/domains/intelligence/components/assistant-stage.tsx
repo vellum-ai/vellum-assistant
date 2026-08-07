@@ -12,10 +12,16 @@
  * height at the bottom.
  */
 
-import { createContext, useContext, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useLayoutEffect,
+  type ReactNode,
+} from "react";
 import { cn } from "@vellumai/design-library";
 
 import { useElementSize, type StageSize } from "@/hooks/use-element-size";
+import { usePageSurfaceStore } from "@/stores/page-surface-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { toneForBg, type AvatarTone } from "@/utils/avatar-tone";
 
@@ -94,6 +100,21 @@ export function AssistantStage({
   const bg = resolveAvatarHex(components, traits) ?? DEFAULT_STAGE_BG;
   const tone = toneForBg(bg);
 
+  // The stage is the page's canvas on the full-bleed routes (overview,
+  // personality), so hand its color to the app shell and let it run into the
+  // safe areas rather than stopping at the stage's edge. Native mobile only.
+  // See `page-surface-store`.
+  // Layout effect, not passive: the stage commits and can paint before a
+  // passive effect runs, so the safe areas would trail the stage by a frame,
+  // both on arrival and whenever the avatar color resolves.
+  const setPageSurface = usePageSurfaceStore.use.setSurface();
+  useLayoutEffect(() => {
+    setPageSurface(bg);
+    return () => {
+      setPageSurface(null);
+    };
+  }, [bg, setPageSurface]);
+
   const showEyes = Boolean(components && traits);
   const showImage = !showEyes && Boolean(customImageUrl);
 
@@ -115,6 +136,7 @@ export function AssistantStage({
       ref={ref}
       className={cn(
         "relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[var(--border-base)]",
+        "native-mobile:rounded-none native-mobile:border-0",
         className,
       )}
       style={{ backgroundColor: bg, color: tone.fg }}

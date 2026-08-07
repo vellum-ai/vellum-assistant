@@ -57,7 +57,7 @@ import {
 } from "../../../channels/types.js";
 import { isV3TierActive } from "../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../config/types.js";
-import { getGuardianDelivery } from "../../../contacts/guardian-delivery-reader.js";
+import { warmGuardianBindings } from "../../../contacts/guardian-delivery-reader.js";
 import { extractTurnContextTimestamp } from "../../../context/compactor.js";
 import {
   formatLocalTimestamp,
@@ -152,6 +152,20 @@ export async function memoryRetrospectiveJob(
   if (!sourceConversationId) {
     log.warn({ jobId: job.id }, "Skipping job: missing conversationId");
     return { kind: "no_new_messages" };
+  }
+
+  // Execution-time twin of the enqueue funnel's `memory.retrospective.enabled`
+  // gate: rows queued before the flag was turned off drain as no-ops instead
+  // of forking. The CLI's manual `memory retrospective run` calls
+  // `runForkBasedRetrospective` directly and so is unaffected: an operator's
+  // explicit request overrides the flag, matching the lookback and
+  // user-activity gates.
+  if (!config.memory.retrospective.enabled) {
+    log.info(
+      { jobId: job.id, sourceConversationId },
+      "Skipping job: memory.retrospective.enabled is false",
+    );
+    return { kind: "disabled" };
   }
 
   // Central health counter (admin analytics groups on the watchdog
@@ -465,10 +479,11 @@ export async function runForkBasedRetrospective(
   // parity — the fork always runs execution gate mode below, so the source's
   // full tool surface stays on the wire while the allowlist holds at
   // execution time.
-  // Warm the vellum guardian-delivery cache so the sync slug resolution inside
-  // resolveSourceParityPins (resolveUserSlug(undefined)) hits a fresh key
-  // instead of falling back to "default" on a cold/TTL-expired cache.
-  await getGuardianDelivery({ channelTypes: ["vellum"] });
+  // Warm both guardian-delivery cache keys (vellum + unfiltered) so the sync
+  // slug resolution inside resolveSourceParityPins (resolveUserSlug(undefined)),
+  // including its any-channel fallback, hits fresh keys instead of falling
+  // back to "default" on a cold/TTL-expired cache.
+  await warmGuardianBindings();
   const { personaOverride, toolContextPin } = resolveSourceParityPins(
     sourceConversation,
     newMessages,

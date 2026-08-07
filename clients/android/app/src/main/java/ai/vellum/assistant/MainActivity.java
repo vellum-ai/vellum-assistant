@@ -4,17 +4,21 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.net.http.SslError;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.View;
+import android.view.ViewGroup;
 import android.webkit.SslErrorHandler;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
+import android.widget.ImageView;
 import com.capacitorjs.plugins.pushnotifications.PushNotificationsPlugin;
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebViewClient;
 import com.getcapacitor.CapConfig;
-import com.getcapacitor.Logger;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginLoadException;
 import com.getcapacitor.PluginManager;
@@ -25,41 +29,81 @@ import java.util.List;
 import org.json.JSONException;
 
 public class MainActivity extends BridgeActivity {
+    private static final long LAUNCH_SCREEN_LOAD_FALLBACK_MS = 2_000;
+    private static final long LAUNCH_SCREEN_TIMEOUT_MS = 15_000;
     private static ConnectDeepLink recreationConnect;
 
+    private final Handler launchScreenHandler = new Handler(Looper.getMainLooper());
     private AlertDialog unreachableDialog;
     private URI effectiveServer;
     private URI pendingAppLink;
     private ConnectDeepLink pendingConnect;
     private boolean pendingNewChat;
     private Intent pendingVoiceLaunch;
+    private View launchScreen;
+    private boolean launchScreenReady;
+    private SafeWebChromeClient webChromeClient;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        boolean recoveredProcess = VoiceLiveActivityPlugin.clearRecoveredStatus(this);
-        if (
-            VoiceDeepLink.shouldSuppressRecoveredStatusLaunch(
-                recoveredProcess,
-                VoiceDeepLink.isStatusNotificationIntent(getIntent())
+        NativeFailureGuard.initialize(this);
+        NativeFailureGuard.run(
+            "Unable to apply the Android launch theme",
+            () -> NativeLaunchScreenPlugin.applySavedTheme(this)
+        );
+        boolean recoveredProcess = NativeFailureGuard.get(
+            "Unable to clear the recovered voice status",
+            () -> VoiceLiveActivityPlugin.clearRecoveredStatus(this),
+            false
+        );
+        NativeFailureGuard.run("Unable to normalize the Android launch intent", () -> {
+            if (
+                VoiceDeepLink.shouldSuppressRecoveredStatusLaunch(
+                    recoveredProcess,
+                    VoiceDeepLink.isStatusNotificationIntent(getIntent())
+                )
+            ) {
+                setIntent(VoiceDeepLink.clearedCommandIntent(getIntent()));
+            }
+        });
+        NativeFailureGuard.run(
+            "Unable to prepare the Android voice launch",
+            () -> prepareVoiceLaunch(getIntent())
+        );
+        pendingConnect = NativeFailureGuard.get(
+            "Unable to read the Android connect launch",
+            () -> {
+                ConnectDeepLink connect = takeRecreationConnect();
+                return connect == null ? consumeConnectIntent(getIntent()) : connect;
+            },
+            null
+        );
+        URI selectedServer = pendingConnect == null
+            ? NativeFailureGuard.get(
+                "Unable to read the saved self-hosted server",
+                () -> SelfHostedServer.configured(this),
+                null
             )
-        ) {
-            setIntent(VoiceDeepLink.clearedCommandIntent(getIntent()));
-        }
-        prepareVoiceLaunch(getIntent());
-        pendingConnect = takeRecreationConnect();
-        if (pendingConnect == null) {
-            pendingConnect = consumeConnectIntent(getIntent());
-        }
-        configureServer(pendingConnect == null ? SelfHostedServer.configured(this) : pendingConnect.server());
-        pendingAppLink = consumeAppLinkIntent(getIntent());
+            : pendingConnect.server();
+        configureServer(selectedServer);
+        pendingAppLink = NativeFailureGuard.get(
+            "Unable to read the Android app link",
+            () -> consumeAppLinkIntent(getIntent()),
+            null
+        );
         super.onCreate(savedInstanceState);
-        deliverPendingVoiceLaunch();
-        if (bridge != null) {
-            bridge.setWebViewClient(new SelfHostedWebViewClient(bridge, this));
-        }
-        deliverPendingAppLink();
-        deliverPendingConnect();
-        deliverPendingNewChat();
+        NativeFailureGuard.run("Unable to show the Android launch screen", this::showLaunchScreen);
+        NativeFailureGuard.run("Unable to deliver the Android voice launch", this::deliverPendingVoiceLaunch);
+        NativeFailureGuard.run("Unable to configure the Android WebView", () -> {
+            if (bridge != null) {
+                webChromeClient = new SafeWebChromeClient(bridge);
+                bridge.getWebView().setWebChromeClient(webChromeClient);
+                bridge.setWebViewClient(new SelfHostedWebViewClient(bridge, this));
+            }
+        });
+        NativeFailureGuard.run("Unable to deliver the Android app link", this::deliverPendingAppLink);
+        NativeFailureGuard.run("Unable to deliver the Android connect launch", this::deliverPendingConnect);
+        NativeFailureGuard.run("Unable to deliver the Android new chat launch", this::deliverPendingNewChat);
     }
 
     @Override
@@ -69,18 +113,63 @@ public class MainActivity extends BridgeActivity {
             plugins = new PluginManager(getAssets()).loadPluginClasses();
             plugins.removeIf(PushNotificationsPlugin.class::equals);
         } catch (PluginLoadException exception) {
-            Logger.error("Unable to load Capacitor plugins", exception);
+            NativeFailureGuard.record("Unable to load Capacitor plugins", exception);
             plugins = new ArrayList<>();
         }
         bridgeBuilder.setPlugins(plugins);
         registerPlugin(NativeAuthPlugin.class);
         registerPlugin(NativeBiometricPlugin.class);
+        registerPlugin(NativeFailureReportsPlugin.class);
+        registerPlugin(NativeLaunchScreenPlugin.class);
+        registerPlugin(AndroidNotificationChannelsPlugin.class);
         registerPlugin(AndroidNotificationSettingsPlugin.class);
         registerPlugin(AndroidPushRegistrationPlugin.class);
         registerPlugin(VoiceAudioSessionPlugin.class);
         registerPlugin(VoiceLiveActivityPlugin.class);
         registerPlugin(SafePushNotificationsPlugin.class);
         super.load();
+    }
+
+    private void showLaunchScreen() {
+        if (launchScreenReady) {
+            return;
+        }
+        ImageView view = new ImageView(this);
+        view.setBackgroundColor(NativeLaunchScreenPlugin.backgroundColor(this));
+        view.setImageResource(R.drawable.vellum_mark);
+        view.setColorFilter(NativeLaunchScreenPlugin.foregroundColor(this));
+        view.setScaleType(ImageView.ScaleType.CENTER);
+        view.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        addContentView(
+            view,
+            new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        );
+        launchScreen = view;
+        scheduleLaunchScreenFallback(LAUNCH_SCREEN_TIMEOUT_MS);
+    }
+
+    void hideLaunchScreen() {
+        launchScreenReady = true;
+        launchScreenHandler.removeCallbacksAndMessages(null);
+        if (launchScreen == null) {
+            return;
+        }
+        ViewGroup parent = (ViewGroup) launchScreen.getParent();
+        if (parent != null) {
+            parent.removeView(launchScreen);
+        }
+        launchScreen = null;
+    }
+
+    private void scheduleLaunchScreenFallback(long delayMs) {
+        if (launchScreenReady) {
+            return;
+        }
+        launchScreenHandler.removeCallbacksAndMessages(null);
+        launchScreenHandler.postDelayed(this::hideLaunchScreen, delayMs);
     }
 
     @Override
@@ -137,6 +226,11 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onDestroy() {
+        launchScreenHandler.removeCallbacksAndMessages(null);
+        if (webChromeClient != null) {
+            webChromeClient.destroy();
+            webChromeClient = null;
+        }
         if (unreachableDialog != null) {
             unreachableDialog.dismiss();
             unreachableDialog = null;
@@ -146,16 +240,25 @@ public class MainActivity extends BridgeActivity {
 
     private void configureServer(URI selectedServer) {
         effectiveServer = selectedServer;
-        if (selectedServer == null) {
-            config = CapConfig.loadDefault(this);
-            return;
-        }
         try {
-            config = SelfHostedServer.overrideCapacitorConfig(this, selectedServer);
-        } catch (IOException | JSONException exception) {
-            Logger.error("Unable to apply the self-hosted server configuration", exception);
+            config = selectedServer == null
+                ? CapConfig.loadDefault(this)
+                : SelfHostedServer.overrideCapacitorConfig(this, selectedServer);
+        } catch (IOException | JSONException | RuntimeException exception) {
+            NativeFailureGuard.record(
+                "Unable to apply the self-hosted server configuration",
+                exception
+            );
             effectiveServer = null;
-            config = CapConfig.loadDefault(this);
+            try {
+                config = CapConfig.loadDefault(this);
+            } catch (RuntimeException fallbackException) {
+                NativeFailureGuard.record(
+                    "Unable to load the Android app configuration",
+                    fallbackException
+                );
+                config = new CapConfig.Builder(this).create();
+            }
         }
     }
 
@@ -333,6 +436,8 @@ public class MainActivity extends BridgeActivity {
 
         @Override
         public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+            VoiceAudioSessionPlugin.releaseForPageLoad(activity);
+            activity.scheduleLaunchScreenFallback(LAUNCH_SCREEN_TIMEOUT_MS);
             mainFrameUrl = url;
             mainFrameFailed = false;
             super.onPageStarted(view, url, favicon);
@@ -343,7 +448,17 @@ public class MainActivity extends BridgeActivity {
             super.onPageFinished(view, url);
             if (!mainFrameFailed) {
                 activity.finishPendingConnect(url);
+                activity.scheduleLaunchScreenFallback(LAUNCH_SCREEN_LOAD_FALLBACK_MS);
             }
+        }
+
+        @Override
+        public boolean onRenderProcessGone(
+            WebView view,
+            android.webkit.RenderProcessGoneDetail detail
+        ) {
+            VoiceAudioSessionPlugin.releaseForPageLoad(activity);
+            return super.onRenderProcessGone(view, detail);
         }
 
         @Override
@@ -376,6 +491,7 @@ public class MainActivity extends BridgeActivity {
 
         private void fail(String url) {
             mainFrameFailed = true;
+            activity.hideLaunchScreen();
             activity.handleServerFailure(url);
         }
     }

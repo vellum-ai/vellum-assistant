@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="AppTheme.NoActionBarLaunch" parent="@style/AppThemeNoActionBarLaunchBase">
+        <item name="android:windowDisablePreview">false</item>
+    </style>
+</resources>

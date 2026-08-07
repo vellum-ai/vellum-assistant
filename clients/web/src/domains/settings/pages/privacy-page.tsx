@@ -20,7 +20,7 @@ import {
 import { getDeviceSetting, setDeviceSetting } from "@/utils/device-settings";
 import { savePreferenceToggle } from "@/lib/consent/consent-persistence";
 import { legalUrl, routes } from "@/utils/routes";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 
 const RETENTION_OPTIONS: { value: string; label: string }[] = [
   { value: "dontRetain", label: "Don't retain" },
@@ -144,7 +144,7 @@ export function PrivacyPage() {
               LLM Request Log Retention
             </label>
             <div className="mt-2" style={{ maxWidth: 280 }}>
-              <Dropdown
+              <Select
                 value={retentionId}
                 onChange={handleRetentionChange}
                 options={RETENTION_OPTIONS}

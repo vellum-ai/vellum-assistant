@@ -55,6 +55,13 @@ export interface Conversation {
   draft?: boolean;
   /** Server-seeded flag mirroring the daemon's `Conversation.isProcessing()`. Optional: pre-0.8.7 daemons and optimistic drafts omit it. */
   isProcessing?: boolean;
+  /**
+   * Set when this conversation branched from another that has since been
+   * deleted, so the messages before its branch point are gone. Only the
+   * daemon can tell: the branch is referential, so the loss is invisible from
+   * the message list alone.
+   */
+  historyOrphaned?: boolean;
 }
 
 export interface ConversationChannelBinding {

@@ -86,8 +86,9 @@ mock.module("@/domains/settings/ai/use-provider-credentials-list", () => ({
   }),
 }));
 
-const { ProfileEditorModal } =
-  await import("@/domains/settings/ai/profile-editor-modal");
+const { ProfileEditorModal } = await import(
+  "@/domains/settings/ai/profile-editor-modal"
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -145,8 +146,8 @@ function getSaveBtn(): HTMLButtonElement {
   return btn;
 }
 
-/** All Dropdown triggers (custom comboboxes) in document order. */
-function dropdownTriggers(): HTMLButtonElement[] {
+/** All Select triggers (custom comboboxes) in document order. */
+function selectTriggers(): HTMLButtonElement[] {
   return Array.from(
     document.querySelectorAll<HTMLButtonElement>('button[role="combobox"]'),
   );
@@ -253,7 +254,7 @@ function selectModel(label: string): void {
   // listbox contains the target model label. Probing each candidate keeps the
   // helper robust to the optional Connection dropdown appearing alongside it.
   const provTrigger = providerTrigger();
-  for (const trigger of dropdownTriggers()) {
+  for (const trigger of selectTriggers()) {
     if (trigger === provTrigger) {
       continue;
     }
@@ -296,6 +297,7 @@ function renderEdit(
   initialValues: Record<string, unknown>,
   onSave: (name: string, entry: unknown) => Promise<void> = () =>
     Promise.resolve(),
+  connections: ProviderConnection[] = [makeConnection("anthropic-personal")],
 ) {
   return render(
     <Wrapper>
@@ -305,7 +307,7 @@ function renderEdit(
         profileName={(initialValues.name as string) ?? "balanced"}
         initialValues={initialValues as never}
         existingNames={[(initialValues.name as string) ?? "balanced"]}
-        connections={[makeConnection("anthropic-personal")]}
+        connections={connections}
         assistantId={ASSISTANT_ID}
         onSave={onSave}
         onCancel={() => {}}
@@ -400,15 +402,17 @@ beforeEach(async () => {
   // Seed a hydrated pre-gate version: the save path awaits
   // whenAssistantVersionKnown(), and an unhydrated store would stall each
   // save until that helper's timeout. Gate-on tests override per-test.
-  const { useAssistantIdentityStore } =
-    await import("@/stores/assistant-identity-store");
+  const { useAssistantIdentityStore } = await import(
+    "@/stores/assistant-identity-store"
+  );
   useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.11");
 });
 
 afterEach(async () => {
   cleanup();
-  const { useAssistantIdentityStore } =
-    await import("@/stores/assistant-identity-store");
+  const { useAssistantIdentityStore } = await import(
+    "@/stores/assistant-identity-store"
+  );
   useAssistantIdentityStore.getState().clearIdentity();
 });
 
@@ -639,8 +643,9 @@ describe("ProfileEditorModal create mode — provider-first", () => {
   });
 
   test("a new-enough assistant gets the identity payload: provider vellum, no binding", async () => {
-    const { useAssistantIdentityStore } =
-      await import("@/stores/assistant-identity-store");
+    const { useAssistantIdentityStore } = await import(
+      "@/stores/assistant-identity-store"
+    );
     useAssistantIdentityStore
       .getState()
       .setIdentity("test-asst", "0.10.12", ASSISTANT_ID);
@@ -672,8 +677,9 @@ describe("ProfileEditorModal create mode — provider-first", () => {
   });
 
   test("an older assistant keeps the legacy payload byte-identical", async () => {
-    const { useAssistantIdentityStore } =
-      await import("@/stores/assistant-identity-store");
+    const { useAssistantIdentityStore } = await import(
+      "@/stores/assistant-identity-store"
+    );
     useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.11");
     try {
       const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
@@ -983,7 +989,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     // The Model dropdown trigger explains the empty list instead of showing
     // a bare "Select a model" placeholder over zero options...
-    const triggerLabels = dropdownTriggers().map((t) => t.textContent?.trim());
+    const triggerLabels = selectTriggers().map((t) => t.textContent?.trim());
     expect(triggerLabels).toContain("No models available");
     expect(triggerLabels).not.toContain("Select a model");
 
@@ -1002,7 +1008,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     selectProvider("Ollama");
 
-    const triggerLabels = dropdownTriggers().map((t) => t.textContent?.trim());
+    const triggerLabels = selectTriggers().map((t) => t.textContent?.trim());
     expect(triggerLabels).toContain("Select a model");
     expect(triggerLabels).not.toContain("No models available");
 
@@ -1370,7 +1376,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
     // The Model trigger surfaces the bound id (no catalog/connection name
     // available, so it falls back to the raw id) rather than the empty
     // placeholder...
-    const triggerLabels = dropdownTriggers().map((t) => t.textContent?.trim());
+    const triggerLabels = selectTriggers().map((t) => t.textContent?.trim());
     expect(triggerLabels).toContain("openrouter/fusion");
     expect(triggerLabels).not.toContain("Select a model");
 
@@ -1417,7 +1423,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
 
     // Open each combobox; the Model dropdown must list the bound id so it can
     // be re-selected manually (the second reported surface of JARVIS-1180).
-    const optionLabels = dropdownTriggers().flatMap((trigger) => {
+    const optionLabels = selectTriggers().flatMap((trigger) => {
       fireEvent.click(trigger);
       const labels = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
@@ -1459,15 +1465,15 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
     // The incompatible model is auto-cleared: the Model trigger falls back to the
     // placeholder and never surfaces "GPT-5.5 Pro".
     await waitFor(() => {
-      const labels = dropdownTriggers().map((t) => t.textContent?.trim());
+      const labels = selectTriggers().map((t) => t.textContent?.trim());
       expect(labels).toContain("Select a model");
     });
-    expect(dropdownTriggers().map((t) => t.textContent?.trim())).not.toContain(
+    expect(selectTriggers().map((t) => t.textContent?.trim())).not.toContain(
       "GPT-5.5 Pro",
     );
 
     // The dropdown offers the Codex-compatible models but not the filtered one.
-    const optionLabels = dropdownTriggers().flatMap((trigger) => {
+    const optionLabels = selectTriggers().flatMap((trigger) => {
       fireEvent.click(trigger);
       const labels = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
@@ -1520,7 +1526,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
     // WHEN the user picks the free-text option (the Model dropdown is the only
     // one offering it) and types an id absent from the catalog, then saves
     let pickedCustom = false;
-    for (const trigger of dropdownTriggers()) {
+    for (const trigger of selectTriggers()) {
       fireEvent.click(trigger);
       const customOption = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
@@ -1576,7 +1582,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       subscriptionConnection,
     );
 
-    const optionLabels = dropdownTriggers().flatMap((trigger) => {
+    const optionLabels = selectTriggers().flatMap((trigger) => {
       fireEvent.click(trigger);
       const labels = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
@@ -1833,5 +1839,72 @@ describe("ProfileEditorModal — invariant managed profiles in view mode", () =>
     expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(false);
     expect(getInputByPlaceholder("e.g. fast-cheap").disabled).toBe(false);
     expect(findSwitchByLabel("Active")).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Why Save is disabled (LUM-3076)
+// ---------------------------------------------------------------------------
+
+describe("ProfileEditorModal: explains why Save is blocked", () => {
+  /**
+   * Field errors are announced, so assert on the alert rather than on page
+   * text: "Select a provider" is also the picker's placeholder, and matching
+   * that would pass with no error rendered at all.
+   */
+  function fieldErrors(): string[] {
+    return Array.from(
+      document.querySelectorAll<HTMLElement>('[role="alert"]'),
+    ).map((el) => el.textContent?.trim() ?? "");
+  }
+
+  test("a profile missing its provider says so on open", () => {
+    // The Profiles row for an unusable profile links here saying "Click to
+    // fix", so the reason has to be on screen before the user touches
+    // anything. A disabled Save with no message is the bug.
+    renderEdit({ name: "half-built", provider: "", model: "" });
+
+    expect(fieldErrors()).toContain("Select a provider");
+    expect(getSaveBtn().disabled).toBe(true);
+  });
+
+  test("a complete profile raises no field error", () => {
+    renderEdit({
+      name: "balanced",
+      provider: "anthropic",
+      model: "claude-opus-5",
+    });
+
+    expect(fieldErrors()).toEqual([]);
+  });
+
+  test("with no connections at all, the error is the way out", () => {
+    // The blocking reason and the fix are the same fact here. Passing the
+    // hint as helper text would hide it, since the field shows one message
+    // and the error wins, leaving the user staring at "Select a provider"
+    // above an empty list.
+    renderEdit({ name: "half-built" }, undefined, []);
+
+    expect(fieldErrors()).toContain(
+      "No provider connections. Open Providers to add one.",
+    );
+    expect(fieldErrors()).not.toContain("Select a provider");
+  });
+
+  test("a locked profile is not told to fix a field it cannot edit", () => {
+    // `invariant` forces read-only even in edit mode, so `effectiveMode` is
+    // still "edit" and the error would otherwise render above a disabled
+    // picker. Matches how `keyError` is already suppressed for these.
+    renderEdit({ name: "my-managed", invariant: true });
+
+    expect(fieldErrors()).toEqual([]);
+  });
+
+  test("an untouched create form does not scold the user for empty fields", () => {
+    // Everything is empty because the user just opened it, not because they
+    // did anything wrong.
+    renderCreate([makeConnection("anthropic")]);
+
+    expect(fieldErrors()).toEqual([]);
   });
 });

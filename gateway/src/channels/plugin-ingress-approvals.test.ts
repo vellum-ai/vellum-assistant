@@ -15,6 +15,7 @@ import {
   revokePluginIngressApproval,
 } from "../db/plugin-ingress-approval-store.js";
 import { pluginIngressApprovals } from "../db/schema.js";
+import { IngressInboundSchema } from "./ingress-inbound.js";
 import { PLUGIN_INGRESS_MANIFEST_RELPATH } from "./plugin-ingress.js";
 import {
   findServableRoute,
@@ -304,6 +305,69 @@ describe("ingressDeclarationDigest", () => {
       ]),
     ).not.toBe(base);
   });
+
+  it("changes when a route starts delivering messages", () => {
+    // Receiving a callback and being able to start a conversation are not the
+    // same grant, so the second must not begin under an approval for the first.
+    expect(
+      ingressDeclarationDigest([
+        {
+          kind: "http",
+          signer: "plugin",
+          handshake: "signed-headers",
+          path: "a",
+          inbound: IngressInboundSchema.parse({}),
+        },
+      ]),
+    ).not.toBe(
+      ingressDeclarationDigest([
+        {
+          kind: "http",
+          signer: "plugin",
+          handshake: "signed-headers",
+          path: "a",
+        },
+      ]),
+    );
+  });
+
+  it("changes when a delivering route starts reading a field elsewhere", () => {
+    // Which key the sender is read from decides who the message is from.
+    const declared = {
+      kind: "http" as const,
+      signer: "plugin" as const,
+      handshake: "signed-headers" as const,
+      path: "a",
+      inbound: IngressInboundSchema.parse({}),
+    };
+
+    expect(
+      ingressDeclarationDigest([
+        {
+          ...declared,
+          inbound: IngressInboundSchema.parse({
+            fields: { actorExternalId: "from" },
+          }),
+        },
+      ]),
+    ).not.toBe(ingressDeclarationDigest([declared]));
+  });
+
+  it("leaves a route declaring no delivery encoded as it always was", () => {
+    // Introducing the field must not silently re-digest every unchanged
+    // manifest, drop each back to pending, and 404 routes a guardian already
+    // approved. This is the digest as it stood before `inbound` existed.
+    expect(
+      ingressDeclarationDigest([
+        {
+          kind: "http",
+          signer: "plugin",
+          handshake: "signed-headers",
+          path: "a",
+        },
+      ]),
+    ).toBe("45e87741e530e330a663d4c0bb493c36");
+  });
 });
 
 describe("resolvePluginIngress", () => {
@@ -464,6 +528,29 @@ describe("findServableRoute", () => {
     expect(findServableRoute(res, "p", "hook", "websocket")).toBeUndefined();
     expect(findServableRoute(res, "p", "other", "http")).toBeUndefined();
     expect(findServableRoute(res, "other", "hook", "http")).toBeUndefined();
+  });
+
+  it("ignores one trailing slash on the requested path", () => {
+    // Senders add it: a provider handed `.../hook` may call `.../hook/`.
+    const res = resolution({
+      approved: [
+        { plugin: "p", routes: [http("plugin")], digest: "d".repeat(32) },
+      ],
+    });
+    expect(findServableRoute(res, "p", "hook/", "http")?.path).toBe("hook");
+  });
+
+  it("does not let a trailing slash reach past a declaration", () => {
+    // A declared path may not end in a slash (see `IngressRouteSchema`), so
+    // dropping one can only ever land back on the path that was declared.
+    const res = resolution({
+      approved: [
+        { plugin: "p", routes: [http("plugin")], digest: "d".repeat(32) },
+      ],
+    });
+    expect(findServableRoute(res, "p", "hook//", "http")).toBeUndefined();
+    expect(findServableRoute(res, "p", "hook/more", "http")).toBeUndefined();
+    expect(findServableRoute(res, "p", "hook/more/", "http")).toBeUndefined();
   });
 
   it("serves nothing for a declaration that failed validation", () => {

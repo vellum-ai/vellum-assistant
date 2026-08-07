@@ -26,7 +26,7 @@ import { sendTelegramReply } from "../../../messaging/providers/telegram-bot/sen
 import { getLogger } from "../../../util/logger.js";
 import { RESEND_COOLDOWN_MS } from "../../verification-outbound-actions.js";
 import {
-  composeVerificationTelegram,
+  composeVerificationText,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../../verification-templates.js";
 
@@ -194,7 +194,7 @@ export async function handleBootstrapIntercept(
   const newSession: CreateOutboundSessionResult = minted;
 
   // Compose and send the verification prompt via Telegram
-  const telegramBody = composeVerificationTelegram(
+  const telegramBody = composeVerificationText(
     GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
     {
       code: newSession.secret,

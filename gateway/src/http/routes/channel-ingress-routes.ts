@@ -42,7 +42,63 @@ const ApprovalViewSchema = z.object({
   approvedAt: z.number(),
 });
 
+const IngressRouteViewSchema = z.object({
+  path: z.string(),
+  /** Absolute path the gateway would serve, which is the reach being granted. */
+  publicPath: z.string(),
+  kind: z.string(),
+  signer: z.string(),
+  handshake: z.string(),
+  description: z.string(),
+  /** Credential the route's signatures are verified against. */
+  credential: z.string(),
+  /**
+   * Whether the gateway serves this route right now. Not implied by the
+   * source's state: a `vellum`-signed route is served without approval.
+   */
+  served: z.boolean(),
+  /**
+   * Whether this route's replies deliver messages into the assistant, rather
+   * than the route being a callback the plugin merely receives. Approving one
+   * of these grants the plugin a way to start conversations, which is a
+   * different decision than opening an address.
+   */
+  deliversInbound: z.boolean(),
+  /** Present when the route declares its own verification scheme. */
+  verification: z
+    .object({ algorithm: z.string(), signatureHeader: z.string() })
+    .optional(),
+});
+
+const IngressSourceViewSchema = z.object({
+  source: z.string(),
+  /** Approval state. Whether a given route is live is per-route `served`. */
+  state: z.enum(["approved", "pending"]),
+  /** Digest of what the source declares now: the one to approve. */
+  digest: z.string(),
+  approvedAt: z.number().optional(),
+  /** On a pending source holding a grant for an earlier declaration. */
+  approvedDigest: z.string().optional(),
+  routes: z.array(IngressRouteViewSchema),
+});
+
+const ChannelIngressListSchema = z.object({
+  sources: z.array(IngressSourceViewSchema),
+  /** Declarations that failed validation. Unservable regardless of approval. */
+  problems: z.array(z.object({ source: z.string(), reason: z.string() })),
+});
+
 export const ROUTES: GatewayRouteDefinition[] = [
+  {
+    path: "/v1/channel-ingress",
+    method: "get",
+    operationId: "channelIngressList",
+    summary: "List ingress declarations and their approval state",
+    description:
+      "Every declaration the gateway can see, each with the digest a guardian would approve, the public paths it would open, and the credential its signatures are verified against. This is the only way to learn that a declaration is waiting: on the public surface a route held back by approval 404s exactly like one nobody declared.",
+    tags: ["channel-ingress"],
+    responseBody: ChannelIngressListSchema,
+  },
   {
     path: "/v1/channel-ingress/{source}/approve",
     method: "post",

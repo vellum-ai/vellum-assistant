@@ -2,11 +2,11 @@ import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 
+import { useTranslation } from "@/i18n";
+import type { MutationStatus } from "@/components/channel-setup-wizard";
 import { EmptyState } from "@/components/empty-state";
-import {
-  SlackSetupWizard,
-  type MutationStatus,
-} from "@/components/slack-setup-wizard";
+import { SlackSetupWizard } from "@/components/slack-setup-wizard";
+import { TelegramSetupWizard } from "@/components/telegram-setup-wizard";
 import { CHANNEL_META } from "@/domains/channels/channel-meta";
 import { ChannelTrustFloorSection } from "@/domains/channels/components/channel-trust-floor-section";
 import { ConnectedChannelHeader } from "@/domains/channels/components/connected-channel-header";
@@ -17,7 +17,6 @@ import {
   SlackThreadBehavior,
   type SlackThreadMode,
 } from "@/domains/channels/components/slack-thread-behavior";
-import { TelegramCredentialEntry } from "@/domains/channels/components/telegram-credential-entry";
 import { TwilioCredentialEntry } from "@/domains/channels/components/twilio-credential-entry";
 import type { AdmissionPolicy } from "@/lib/channel-admission-policy/types";
 import type { AssistantChannelState } from "@/types/channel-types";
@@ -38,7 +37,9 @@ interface ChannelPanelProps {
   initialManualEntry?: boolean;
   onSetup?: () => void;
   onDisconnect?: () => void;
-  onSaveTelegramToken?: (botToken: string) => Promise<void>;
+  onSaveTelegramToken?: (botToken: string) => void;
+  telegramSaveStatus?: MutationStatus;
+  telegramSaveError?: string | null;
   onSaveSlackConfig?: (botToken: string, appToken: string) => void;
   slackSaveStatus?: MutationStatus;
   slackSaveError?: string | null;
@@ -74,6 +75,8 @@ export function ChannelPanel({
   onSetup,
   onDisconnect,
   onSaveTelegramToken,
+  telegramSaveStatus,
+  telegramSaveError,
   onSaveSlackConfig,
   slackSaveStatus,
   slackSaveError,
@@ -87,10 +90,12 @@ export function ChannelPanel({
   policyError = false,
   onPolicyChange,
 }: ChannelPanelProps) {
+  const { t } = useTranslation("channels");
   const connected = channel.status === "ready";
   // Manual credential entry is a connect-time affordance, so it only applies
   // while disconnected — seeded from a `?setup=<channel>` deep link. Declared
   // before the Slack branch to keep hook order stable across renders.
+  const incomplete = channel.status === "incomplete";
   const [manualEntry, setManualEntry] = useState(initialManualEntry);
 
   // Slack is its own adapter shape — a token-pair channel with dedicated
@@ -164,17 +169,43 @@ export function ChannelPanel({
         </>
       ) : manualEntry ? (
         channel.key === "telegram" ? (
-          <TelegramCredentialEntry onSave={onSaveTelegramToken} />
+          <TelegramSetupWizard
+            assistantName={assistantName}
+            saveStatus={telegramSaveStatus}
+            saveError={telegramSaveError}
+            onSave={onSaveTelegramToken}
+          />
         ) : (
           <TwilioCredentialEntry onSave={onSaveTwilioCredentials} />
         )
       ) : (
-        // Pitch the channel and point at guided setup, with a
-        // manual-credentials escape hatch.
+        // Two different states share this branch. `not_configured` has never
+        // been set up and gets the pitch. `incomplete` holds credentials that
+        // are not delivering, so pitching the channel would hide that setup
+        // already happened and something after it failed.
         <EmptyState
           icon={<ChannelIcon channelId={channel.key} className="h-6 w-6" />}
-          title={`${getChannelLabel(channel.key)} isn't connected`}
-          description={meta.disconnectedPitch?.(assistantDisplayName)}
+          title={
+            incomplete
+              ? t("channelPanel.incompleteTitle", {
+                  channel: getChannelLabel(channel.key),
+                })
+              : t("channelPanel.disconnectedTitle", {
+                  channel: getChannelLabel(channel.key),
+                })
+          }
+          description={
+            incomplete
+              ? (channel.warning ??
+                t("channelPanel.incompleteDescription", {
+                  channel: getChannelLabel(channel.key),
+                }))
+              : meta.disconnectedPitchKey
+                ? t(meta.disconnectedPitchKey, {
+                    assistant: assistantDisplayName,
+                  })
+                : undefined
+          }
           action={
             <div className="flex flex-col items-center gap-1">
               <Button
@@ -183,14 +214,18 @@ export function ChannelPanel({
                 onClick={onSetup}
                 disabled={!onSetup || pending}
               >
-                {pending ? "Opening…" : "Set up"}
+                {pending
+                  ? t("channelPanel.opening")
+                  : incomplete
+                    ? t("channelPanel.finishSetup")
+                    : t("channelPanel.setUp")}
               </Button>
               <Button
                 type="button"
                 variant="link"
                 onClick={() => setManualEntry(true)}
               >
-                or connect manually
+                {t("channelPanel.connectManually")}
               </Button>
             </div>
           }

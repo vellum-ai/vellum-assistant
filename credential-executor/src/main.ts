@@ -17,7 +17,7 @@
  * optional credential CRUD routes) for Kubernetes liveness/readiness probes.
  */
 
-import { mkdirSync, unlinkSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { createServer as createNetServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
@@ -27,6 +27,11 @@ import {
   CesRpcMethod,
 } from "@vellumai/service-contracts/credential-rpc";
 import type { SecureKeyBackend } from "@vellumai/credential-storage";
+import {
+  ipcListenOptions,
+  isNamedPipePath,
+  removeIpcEndpointFile,
+} from "@vellumai/ipc-server-utils";
 
 import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
 import { initLogger, getLogger } from "./logger.js";
@@ -75,8 +80,9 @@ function ensureDataDirs(mode: CesMode): void {
  * share the same registry — they differ only in where the secure key backend
  * reads from and whether the health server is started.
  */
-function buildCrudHandlers(
+export function buildCrudHandlers(
   secureKeyBackend: SecureKeyBackend,
+  audit: Pick<ReturnType<typeof getLogger>, "info"> = log,
 ): RpcHandlerRegistry {
   const handlers: RpcHandlerRegistry = {};
 
@@ -90,6 +96,8 @@ function buildCrudHandlers(
     value: string;
   }) => {
     const ok = await secureKeyBackend.set(req.account, req.value);
+    // Audit the mutation: account name and outcome only, never the value.
+    audit.info({ account: req.account, ok }, "CES credential set");
     return { ok };
   }) as (typeof handlers)[string];
 
@@ -97,6 +105,7 @@ function buildCrudHandlers(
     account: string;
   }) => {
     const result = await secureKeyBackend.delete(req.account);
+    audit.info({ account: req.account, result }, "CES credential delete");
     return { result };
   }) as (typeof handlers)[string];
 
@@ -111,6 +120,7 @@ function buildCrudHandlers(
     const results = [];
     for (const { account, value } of req.credentials) {
       const ok = await secureKeyBackend.set(account, value);
+      audit.info({ account, ok }, "CES credential set (bulk)");
       results.push({ account, ok });
     }
     return { results };
@@ -154,12 +164,10 @@ function serveStandaloneSocket(opts: {
     onApiKeyUpdate,
   } = opts;
 
-  mkdirSync(dirname(socketPath), { recursive: true });
-  try {
-    unlinkSync(socketPath);
-  } catch {
-    // stale or absent — fine
+  if (!isNamedPipePath(socketPath)) {
+    mkdirSync(dirname(socketPath), { recursive: true });
   }
+  removeIpcEndpointFile(socketPath);
 
   const netServer = createNetServer();
 
@@ -169,6 +177,7 @@ function serveStandaloneSocket(opts: {
 
   netServer.on("connection", (socket: Socket) => {
     connectionCount++;
+    log.info({ connections: connectionCount }, "CES client connected");
     const readable = new Readable({ read() {} });
     const writable = new Writable({
       write(chunk, _encoding, callback) {
@@ -205,10 +214,11 @@ function serveStandaloneSocket(opts: {
       })
       .then(() => {
         connectionCount = Math.max(0, connectionCount - 1);
+        log.info({ connections: connectionCount }, "CES client disconnected");
       });
   });
 
-  netServer.listen(socketPath, () => {
+  netServer.listen(ipcListenOptions(socketPath), () => {
     log.info(`CES socket listening at ${socketPath}`);
   });
 
@@ -216,11 +226,7 @@ function serveStandaloneSocket(opts: {
     "abort",
     () => {
       netServer.close();
-      try {
-        unlinkSync(socketPath);
-      } catch {
-        // already removed
-      }
+      removeIpcEndpointFile(socketPath);
     },
     { once: true },
   );
@@ -392,11 +398,19 @@ async function main(): Promise<void> {
     log,
     onApiKeyUpdate:
       mode === "managed"
-        ? (_newKey: string, newAssistantId?: string) => {
-            log.info("Assistant API key updated via RPC");
-            if (newAssistantId) {
-              log.info("Assistant ID updated via RPC");
-            }
+        ? (newKey: string, newAssistantId?: string) => {
+            // Ack-only. CES reads the durable assistant API key from the shared
+            // credential store via the CRUD handlers; this RPC just acknowledges
+            // the assistant's notification that the key rotated. The pushed
+            // value is intentionally not persisted here (length logged, never
+            // the value).
+            log.info(
+              {
+                keyBytes: newKey.length,
+                assistantIdUpdated: Boolean(newAssistantId),
+              },
+              "Acknowledged assistant API key update notification (ack only; value not stored by CES)",
+            );
           }
         : undefined,
   });
@@ -413,11 +427,13 @@ async function main(): Promise<void> {
   log.info("Server stopped.");
 }
 
-main().catch((err) => {
-  try {
-    getLogger("main").fatal({ err }, "Fatal error");
-  } catch {
-    process.stderr.write(`[ces-${getCesMode()}] Fatal: ${err}\n`);
-  }
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch((err) => {
+    try {
+      getLogger("main").fatal({ err }, "Fatal error");
+    } catch {
+      process.stderr.write(`[ces-${getCesMode()}] Fatal: ${err}\n`);
+    }
+    process.exit(1);
+  });
+}

@@ -306,25 +306,20 @@ describe("Conversation.waitForIdle", () => {
     expect(second.value).toBe(true);
   });
 
-  test("a clear whose persisted write throws does not release waiters", async () => {
+  test("a clear whose persisted write throws still releases waiters", async () => {
     const conversation = makeConversation();
     conversation.setProcessing(true);
 
     const waiter = observe(conversation.waitForIdle({ timeoutMs: 60_000 }));
 
     failNextProcessingWrite = true;
-    expect(() => conversation.setProcessing(false)).toThrow(
-      "database is locked",
-    );
+    expect(() => conversation.setProcessing(false)).not.toThrow();
     await flushMicrotasks();
-    // The write failed, so the flag reverted to processing — the waiter must
-    // still be pending.
-    expect(conversation.isProcessing()).toBe(true);
-    expect(waiter.settled).toBe(false);
 
-    // The retried clear commits and releases the waiter.
-    conversation.setProcessing(false);
-    await flushMicrotasks();
+    // The persisted column is advisory and the boot-time stale-processing
+    // sweep recovers it; the in-memory flag is the release every waiter (voice
+    // barge-in, drain) is parked on, so it has to stick.
+    expect(conversation.isProcessing()).toBe(false);
     expect(waiter.value).toBe(true);
   });
 });

@@ -11,8 +11,13 @@ const TOC_ITEMS = [
   { id: "publishing", label: "Publishing your plugin", level: 2 },
   { id: "installing", label: "Installing a plugin", level: 2 },
   { id: "the-cli", label: "The plugins CLI", level: 3 },
-  { id: "untrusted-install", label: "Installing from a GitHub URL (untrusted)", level: 2 },
+  {
+    id: "untrusted-install",
+    label: "Installing from a GitHub URL (untrusted)",
+    level: 2,
+  },
   { id: "updating", label: "Updating a plugin", level: 2 },
+  { id: "automatic-updates", label: "Automatic updates", level: 3 },
   { id: "drift", label: "Drift and local edits", level: 3 },
   { id: "in-product", label: "Upgrading from the Plugins tab", level: 3 },
   { id: "the-manifest", label: "The marketplace manifest", level: 2 },
@@ -252,10 +257,9 @@ export function ExtensibilityDistributionContent() {
           A plugin does not have to live in your workspace to be installed.
           Vellum keeps a curated catalog of external plugins, and the CLI
           installs any of them by name. The catalog is a single manifest the
-          Vellum team reviews and approves, so installing a catalog plugin
-          only ever pulls code that has been vetted into that list. For
-          plugins not yet in the catalog, the CLI also accepts a GitHub URL
-          directly, see{" "}
+          Vellum team reviews and approves, so installing a catalog plugin only
+          ever pulls code that has been vetted into that list. For plugins not
+          yet in the catalog, the CLI also accepts a GitHub URL directly, see{" "}
           <Link href="#untrusted-install" className={linkClass}>
             Installing from a GitHub URL (untrusted)
           </Link>
@@ -406,8 +410,8 @@ e83c5163316f89bfbde7d9ab23ca2e25604af290`}</code>
               import errors at boot).
             </li>
             <li>
-              The surfaces the plugin claims contribute something on boot
-              rather than silently failing.
+              The surfaces the plugin claims contribute something on boot rather
+              than silently failing.
             </li>
           </ul>
           <p className="mb-0 text-zinc-600 dark:text-zinc-400">
@@ -506,9 +510,9 @@ simple-memory  0.1.0    ok`}</code>
           </SectionHeading>
           <p className="mb-4 text-zinc-600 dark:text-zinc-400">
             While a plugin is still under development, before it is whitelisted
-            in the catalog, you can install it directly from its GitHub repo
-            by passing a URL (anything containing a slash) instead of a
-            marketplace name:
+            in the catalog, you can install it directly from its GitHub repo by
+            passing a URL (anything containing a slash) instead of a marketplace
+            name:
           </p>
           <pre className="mb-4 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm text-zinc-100">
             <code>{`# Install from a repo URL (default branch)
@@ -528,15 +532,14 @@ $ assistant plugins install owner/repo --name my-plugin --force
 $ assistant plugins install owner/repo`}</code>
           </pre>
           <p className="mb-4 text-zinc-600 dark:text-zinc-400">
-            The ref comes from the URL&apos;s{" "}
-            <code>/tree/&lt;ref&gt;/</code> segment, or defaults to the
-            repository&apos;s default branch. The install directory name is
-            derived from the repo (or sub-path leaf) and can be overridden with{" "}
-            <code>--name</code>.
+            The ref comes from the URL&apos;s <code>/tree/&lt;ref&gt;/</code>{" "}
+            segment, or defaults to the repository&apos;s default branch. The
+            install directory name is derived from the repo (or sub-path leaf)
+            and can be overridden with <code>--name</code>.
           </p>
           <p className="mb-4 text-zinc-600 dark:text-zinc-400">
-            A direct install <strong>bypasses marketplace curation
-            entirely</strong>:
+            A direct install{" "}
+            <strong>bypasses marketplace curation entirely</strong>:
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600 dark:text-zinc-400">
             <li>
@@ -550,26 +553,26 @@ $ assistant plugins install owner/repo`}</code>
             <li>
               The source is <strong>untrusted</strong>. It has not been
               reviewed, and its hooks and tools run inside the assistant with
-              full access. The CLI prints a yellow warning naming the source
-              so the choice to trust it is explicit.
+              full access. The CLI prints a yellow warning naming the source so
+              the choice to trust it is explicit.
             </li>
             <li>
               Unlike marketplace installs, which pin an immutable, reviewed
-              commit SHA, a branch or <code>HEAD</code> ref is mutable. A
-              direct install is a development convenience, not a reproducible
-              pin. If you pin a full commit SHA in the URL, the integrity
-              check still enforces it.
+              commit SHA, a branch or <code>HEAD</code> ref is mutable. A direct
+              install is a development convenience, not a reproducible pin. If
+              you pin a full commit SHA in the URL, the integrity check still
+              enforces it.
             </li>
             <li>
-              The marketplace-only flags (<code>--ref</code>,{" "}
-              <code>--pin</code>, <code>--allow-unreviewed</code>) do not
-              apply to a direct install. The ref lives in the URL.
+              The marketplace-only flags (<code>--ref</code>, <code>--pin</code>
+              , <code>--allow-unreviewed</code>) do not apply to a direct
+              install. The ref lives in the URL.
             </li>
           </ul>
           <p className="mb-0 text-zinc-600 dark:text-zinc-400">
             Once the plugin is ready for broader distribution, add it to{" "}
-            <code>marketplace.json</code> so others can install it by name
-            with a reviewed, reproducible pin.
+            <code>marketplace.json</code> so others can install it by name with
+            a reviewed, reproducible pin.
           </p>
         </section>
 
@@ -580,9 +583,65 @@ $ assistant plugins install owner/repo`}</code>
           <p className="mb-4 text-zinc-600 dark:text-zinc-400">
             Installs are pinned. Because the catalog pins each plugin to an
             immutable commit, an install never changes on its own. It stays on
-            the commit it was installed at until you explicitly move it.
+            the commit it was installed at until you explicitly move it &mdash;
+            or until an opted-in workspace&apos;s automatic sweep moves it.
             Curators advance a plugin by bumping its <code>source.ref</code> in
             the manifest; your local copy only catches up when you upgrade it.
+          </p>
+
+          <SectionHeading id="automatic-updates" level={3}>
+            Automatic updates
+          </SectionHeading>
+          <p className="mb-4 text-zinc-600 dark:text-zinc-400">
+            Upgrades are manual by default. A workspace can opt into unattended
+            upgrades with the <code>pluginUpdates</code> block in its{" "}
+            <code>config.json</code>:
+          </p>
+          <pre className="mb-4 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm text-zinc-100">
+            <code>{`{
+  "pluginUpdates": {
+    "mode": "auto",
+    "strategy": "theirs"
+  }
+}`}</code>
+          </pre>
+          <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600 dark:text-zinc-400">
+            <li>
+              <code>mode</code>: <code>manual</code> (the default) never
+              upgrades on its own. <code>auto</code> sweeps your installed
+              marketplace plugins hourly and moves each one to the
+              catalog&apos;s current pin.
+            </li>
+            <li>
+              <code>strategy</code>: how an automatic upgrade reconciles your
+              local edits with the incoming revision. <code>theirs</code> (the
+              default) three-way merges and resolves conflicting hunks toward
+              the incoming revision; <code>ours</code> resolves them toward your
+              edit; <code>overwrite</code> discards local edits and re-installs
+              wholesale.
+            </li>
+            <li>
+              <code>checkIntervalMs</code>: minimum spacing between sweeps,
+              default <code>3600000</code> (1 hour). The last sweep is recorded
+              on disk, so restarting the assistant does not re-run a sweep that
+              already ran within the interval.
+            </li>
+          </ul>
+          <p className="mb-4 text-zinc-600 dark:text-zinc-400">
+            Only curated marketplace installs are swept. The catalog pins every
+            entry to a commit a curator reviewed, so an automatic upgrade can
+            only land reviewed code. A plugin you installed straight from a
+            GitHub URL tracks a mutable ref instead (a branch, a tag, or the
+            repo&apos;s default branch), so upgrading it means running whatever
+            upstream pushed since. Those stay put until you upgrade them
+            yourself with <code>assistant plugins upgrade &lt;name&gt;</code>.
+          </p>
+          <p className="mb-4 text-zinc-600 dark:text-zinc-400">
+            Disabled plugins are skipped too, and so is anything already on its
+            latest revision: the sweep checks for drift before it moves
+            anything. A plugin that cannot be upgraded (its source is
+            unreachable, or it has no upstream to advance to) is skipped and the
+            rest of the sweep continues.
           </p>
 
           <SectionHeading id="drift" level={3}>
@@ -595,8 +654,9 @@ $ assistant plugins install owner/repo`}</code>
             the plugin root. The fingerprint excludes four preserved entries (
             <code>install-meta.json</code>, <code>config.json</code>,{" "}
             <code>data/</code>, <code>.disabled</code>) so user config edits and
-            runtime data never show as drift. <code>assistant plugins inspect &lt;name&gt;</code>{" "}
-            reads that sidecar, compares the installed commit against the
+            runtime data never show as drift.{" "}
+            <code>assistant plugins inspect &lt;name&gt;</code> reads that
+            sidecar, compares the installed commit against the
             marketplace&apos;s current pin, and reports one of six states:
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600 dark:text-zinc-400">
@@ -758,14 +818,15 @@ e83c5163316f89bfbde7d9ab23ca2e25604af290  refs/tags/v1.2.0^{}`}</code>
           <p className="mb-4 text-zinc-600 dark:text-zinc-400">
             The adapter is a single JavaScript file referenced from the
             marketplace entry&apos;s <code>adapter</code> field. It runs after
-            the plugin is cloned but before the loader scans for surfaces, so
-            it can move files, generate a manifest, or rename entry points. The
+            the plugin is cloned but before the loader scans for surfaces, so it
+            can move files, generate a manifest, or rename entry points. The
             transform receives the cloned directory path and the marketplace
             entry, and is expected to leave the tree in Vellum&apos;s plugin
             layout:
           </p>
           <pre className="mb-4 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm text-zinc-100">
-            <code>{`// adapter.js — reshapes a Claude Code skill into Vellum layout
+            <code>
+              {`// adapter.js — reshapes a Claude Code skill into Vellum layout
 export default function adapt({ dir, entry }) {
   // The source repo ships instructions in SKILL.md at the root.
   // Vellum expects them under skills/<name>/SKILL.md.
@@ -792,10 +853,9 @@ export default function adapt({ dir, entry }) {
             </code>
           </pre>
           <p className="mb-0 text-zinc-600 dark:text-zinc-400">
-            The adapter runs in the assistant&apos;s sandbox alongside the
-            rest of the plugin install, with filesystem access limited to the
-            plugin directory. Network access is not available during the
-            adapt step.
+            The adapter runs in the assistant&apos;s sandbox alongside the rest
+            of the plugin install, with filesystem access limited to the plugin
+            directory. Network access is not available during the adapt step.
           </p>
         </section>
       </DocsContent>

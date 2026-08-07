@@ -5,7 +5,6 @@ import { pathToFileURL } from "node:url";
 import path from "node:path";
 
 import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
-import { createAuthPopupSignInTracker } from "@vellumai/electron-utils/auth-popup-session";
 import {
   pairedGatewayTargetsFromLockfile,
   readAllowedGatewayPorts,
@@ -14,7 +13,7 @@ import {
   resolveLockfilePaths,
 } from "@vellumai/local-mode";
 
-import { installAbout, openAboutWindow } from "./about";
+import { installAbout, openAboutWindow } from "./about.client";
 import { installAutoUpdate } from "./auto-update";
 import { APP_HOST, APP_PROTOCOL, BUNDLES_DIR_NAME, VELLUMAPP_PROTOCOL } from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin";
@@ -57,11 +56,11 @@ import {
 import { installDiagnosticsIpc } from "./diagnostics";
 import { installFeatureFlagsIpc } from "./feature-flags";
 import { installFeedbackIpc } from "./feedback";
-import { installGlobalShortcuts } from "./global-shortcuts";
+import { installGlobalShortcuts } from "./global-shortcuts.client";
 import { installHotkeyHelper } from "./hotkey-helper";
-import { installHotkeysIpc } from "./hotkeys";
-import { installImageContextMenu } from "./image-context-menu";
-import { installTextContextMenu } from "./text-context-menu";
+import { installHotkeysIpc } from "./hotkeys.client";
+import { installImageContextMenu } from "@vellumai/electron-desktop/image-context-menu";
+import { installTextContextMenu } from "@vellumai/electron-desktop/text-context-menu";
 import { installPopoutWindows } from "./popout-window";
 import { installQuickInput } from "./quick-input-window";
 import {
@@ -95,10 +94,14 @@ import { installPermissionHandler } from "./permissions";
 import { installPermissionsService } from "./permissions-service";
 import { installPowerEvents } from "./power-events";
 import { installIdentityIpc } from "./identity";
+import {
+  installCompanionWindow,
+  syncCompanionSurface,
+} from "./companion-window";
 import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTextInsertionIpc } from "./textInsertion";
 import { installTray } from "./tray";
-import { hardenedWebPreferences } from "./windows";
+import { installWebContentsSecurity } from "./windows";
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
 // menu bar's first submenu reads "Vellum Electron", and — more
@@ -479,6 +482,7 @@ app
     installApplicationMenu();
     installQuickInput();
     installDictationOverlay({ onRecordingLifecycle: setDictationRecording });
+    installCompanionWindow();
     installPopoutWindows();
     installGlobalShortcuts();
     // Register the avatar channel before the Dock and Tray install so their
@@ -513,6 +517,16 @@ app
     });
     installNativeAuth();
     installMainWindow();
+
+    // After the main window, so the surface opens over a running app rather
+    // than being the first thing on screen at launch. Present from here on,
+    // unless the user has hidden it from the tray or the flag it is behind is
+    // off: the app being frontmost is not one of its states.
+    //
+    // A launch that finds no flag yet leaves it closed and the window that
+    // opens it later is the app's own, once it has an evaluation to write into
+    // settings.
+    syncCompanionSurface();
 
     // Runs after the main window so the recovery dialog has a window to sit in
     // front of, and so a user who declines lands on a working app rather than
@@ -569,97 +583,10 @@ app.on("web-contents-created", (_event, contents) => {
   installImageContextMenu(contents);
   installTextContextMenu(contents);
 
-  // Mirror renderer console output (info and up) into the main log file.
-  // The packaged app has no devtools, so without this the renderer's
-  // diagnostics — voice/dictation fallback decisions especially — are
-  // invisible in the field; `vellum.log` is the only artifact a debugging
-  // session can read.
-  contents.on("console-message", (event) => {
-    if (event.level === "debug") return;
-    // wc id disambiguates which window a line came from — dictation partials
-    // route to a single owner window, so cross-window confusion is invisible
-    // without it.
-    const line = `[renderer wc=${contents.id}] ${event.message}`;
-    if (event.level === "error") log.error(line);
-    else if (event.level === "warning") log.warn(line);
-    else log.info(line);
-  });
-
-  // Sign-in isolation for the connect / OAuth popups below. Created per
-  // opener so the marked-window flag cannot cross windows.
-  const authPopups = createAuthPopupSignInTracker({
+  installWebContentsSecurity(contents, {
     cookies: () => session.defaultSession.cookies,
-    onCleared: (hosts, removed) =>
-      log.info(
-        `[auth-popup] cleared ${removed} sign-in cookie(s) for ${hosts.join(", ")}`,
-      ),
-    onError: (err) =>
-      log.warn("[auth-popup] failed to clear sign-in cookies:", err),
-  });
-
-  contents.setWindowOpenHandler(({ url, disposition }) => {
-    // Programmatic popups (`window.open(url, name, features)` with size
-    // hints) come through as `new-window` disposition. The web app's OAuth /
-    // connect flows open a blank popup synchronously during the click handler
-    // (`window.open("", "_blank", "width=500,height=600")`), then navigate it
-    // to the OAuth URL after the API call resolves. Chromium resolves the
-    // empty string to `about:blank`, which must be allowed here so the popup
-    // handle is returned to the renderer for the subsequent postMessage
-    // callback chain.
-    if (disposition === "new-window" && url === "about:blank") {
-      // That deferred-navigation shape is what identifies an authorization
-      // surface: a plain link popup always opens at its real URL. Only these
-      // get their third-party sign-in cookies swept on close, so closing a
-      // Slack / GitHub / Discord link window leaves those sessions intact.
-      authPopups.markNextChildAsAuthPopup();
-      return {
-        action: "allow",
-        overrideBrowserWindowOptions: {
-          webPreferences: { ...hardenedWebPreferences(), preload: undefined },
-        },
-      };
-    }
-
-    // Only http(s) is ever opened — file:, javascript:, custom schemes are
-    // denied with no fallback.
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      return { action: "deny" };
-    }
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-      return { action: "deny" };
-    }
-
-    // Programmatic popups with a real URL also come through as `new-window`
-    // disposition and are allowed as in-app child windows.
-    if (disposition === "new-window") {
-      // Child popups inherit the same hardened baseline as every window.
-      // `preload: undefined` explicitly clears the parent's preload so
-      // third-party OAuth pages don't get the Vellum bridge.
-      return {
-        action: "allow",
-        overrideBrowserWindowOptions: {
-          webPreferences: { ...hardenedWebPreferences(), preload: undefined },
-        },
-      };
-    }
-
-    // Plain target=_blank link clicks → system browser.
-    void shell.openExternal(url);
-    return { action: "deny" };
-  });
-
-  // Sweep the sign-in cookies of the popups marked above once they close. An
-  // in-app authorization window has no address bar, profile switcher, or
-  // provider sign-out page to fall back on, so without this the identity
-  // provider's SSO cookie sticks around in the app's session and every later
-  // authorization silently reuses the first account — Microsoft skips the
-  // account picker outright. Unmarked child windows (plain link opens) keep
-  // their cookies, as do Vellum's own.
-  contents.on("did-create-window", (window) => {
-    authPopups.trackCreatedChild(window);
+    logger: log,
+    openExternal: (url) => shell.openExternal(url),
   });
 });
 

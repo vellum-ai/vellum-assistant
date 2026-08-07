@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { CompanionCharacter } from "@vellumai/ipc-contract";
+
 import { on } from "./ipc";
 
 /**
@@ -25,6 +27,7 @@ import { on } from "./ipc";
 type AvatarListener = () => void;
 
 let currentAvatarPng: Buffer | null = null;
+let currentCharacter: CompanionCharacter | null = null;
 const listeners = new Set<AvatarListener>();
 
 /**
@@ -33,6 +36,16 @@ const listeners = new Set<AvatarListener>();
  * fallback mark.
  */
 export const getAvatarPng = (): Buffer | null => currentAvatarPng;
+
+/**
+ * The traits the assistant's character is composed from, or `null` when there
+ * are none: a custom uploaded image, or no avatar at all.
+ *
+ * The still in {@link getAvatarPng} is what the Dock and Tray need, because
+ * neither can run an animation. The companion surface can, so it takes these
+ * and composes the character itself, which is the only way its eyes blink.
+ */
+export const getCharacter = (): CompanionCharacter | null => currentCharacter;
 
 /**
  * Subscribe to avatar changes. Returns an unsubscribe function. The listener
@@ -56,10 +69,33 @@ export const setAvatar = (png: Buffer | null): void => {
   for (const listener of listeners) listener();
 };
 
+/**
+ * Cache the character's traits (or `null` to clear) and notify subscribers.
+ * Same listener set as the PNG: they describe one assistant, and a surface
+ * that re-renders for one wants to re-render for the other.
+ */
+export const setCharacter = (character: CompanionCharacter | null): void => {
+  currentCharacter = character;
+  for (const listener of listeners) listener();
+};
+
 // The renderer ships raw PNG bytes as a `Uint8Array`, or `null` to clear.
 // Electron's structured clone delivers it as a `Uint8Array` (a `Buffer` is a
 // subclass), normalized to `Buffer` here so consumers have one type.
 const avatarPayloadSchema = z.tuple([z.instanceof(Uint8Array).nullable()]);
+
+// The three trait ids the character is composed from. Validated rather than
+// trusted because they are interpolated into a lookup the renderer performs;
+// unknown ids resolve to no character rather than throwing.
+const characterPayloadSchema = z.tuple([
+  z
+    .object({
+      bodyShape: z.string(),
+      eyeStyle: z.string(),
+      color: z.string(),
+    })
+    .nullable(),
+]);
 
 /**
  * Register the `vellum:icon:setAvatar` renderer→main channel. Fire-and-forget
@@ -77,6 +113,10 @@ export const installAvatarIpc = (): void => {
   on("vellum:icon:setAvatar", avatarPayloadSchema, ([png]) => {
     setAvatar(png === null ? null : Buffer.from(png));
   });
+
+  on("vellum:icon:setCharacter", characterPayloadSchema, ([character]) => {
+    setCharacter(character);
+  });
 };
 
 // Test seam — exported only for unit-test setup so each test starts from a
@@ -84,5 +124,6 @@ export const installAvatarIpc = (): void => {
 export const __resetForTesting = (): void => {
   installed = false;
   currentAvatarPng = null;
+  currentCharacter = null;
   listeners.clear();
 };

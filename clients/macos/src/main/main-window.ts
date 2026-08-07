@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getRendererRootUrl } from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin";
 import { decideNavigation } from "./auth-nav";
-import { type VellumCommand } from "./commands";
+import { type VellumCommand } from "@vellumai/electron-desktop/commands";
 import { getName, onNameChange } from "./identity";
 import { handle } from "./ipc";
 import { createWindow } from "./windows";
@@ -198,6 +198,9 @@ const createMainWindow = (): BrowserWindow => {
     // renderer content extends up to the top edge behind them.
     browserWindow: { ...sizing, titleBarStyle: "hidden", show: false },
     navigation: { installGuard: installSameOriginNavigationGuard },
+    // This window owns the live-voice session, which keeps running (and keeps
+    // a floating panel on screen) while the user works in another app.
+    backgroundThrottling: false,
   });
 
   // Main owns the window title (the active assistant's name). Block the

@@ -3,7 +3,7 @@ import { decideGuardianRequest } from "../../channels/gateway-guardian-requests.
 import {
   clearAll,
   getConversation,
-  isHiddenMessageMetadata,
+  isSuppressedQueuedMessage,
 } from "../../persistence/conversation-crud.js";
 import { resolveConversationId } from "../../persistence/conversation-key-store.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
@@ -13,6 +13,7 @@ import { getSubagentManager } from "../../subagent/index.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
 import { UserError } from "../../util/errors.js";
 import { touchConversation } from "../conversation-evictor.js";
+import { forceClearStaleProcessing } from "../conversation-lifecycle.js";
 import {
   buildSlashContext,
   formatCleanResult,
@@ -283,7 +284,9 @@ function mayActOnQueuedMessage(
  * `message_queued_deleted`. It is the counterpart to the `message_queued` ack
  * and the only signal that closes out a queued row that never runs: without it
  * a client that didn't originate the delete leaves the pending indicator up
- * forever, since no `message_dequeued` is ever coming. Hidden sends are
+ * forever, since no `message_dequeued` is ever coming. Rows with no
+ * client-visible queued counterpart ({@link isSuppressedQueuedMessage} —
+ * hidden sends and daemon-injected subagent/ACP/wake notifications) are
  * suppressed for the same reason they get no ack: they have no client row to
  * close.
  */
@@ -325,7 +328,12 @@ export function deleteQueuedMessage(
     return { removed: false, reason: "forbidden" };
   }
   conversation.removeQueuedMessage(requestId);
-  if (!isHiddenMessageMetadata(queued.metadata)) {
+  // Queue events come in pairs, so an entry that never produced a
+  // `message_queued` ack (a suppressed daemon-injected send, or a hidden
+  // machine send) must not produce a delete either: clients have no row to
+  // retire and an unpaired event would decrement a counter that was never
+  // incremented.
+  if (!isSuppressedQueuedMessage(queued.metadata)) {
     queued.onEvent({
       type: "message_queued_deleted",
       conversationId,
@@ -423,16 +431,26 @@ export function steerToMessage(
     "Steering to queued message — aborting current generation",
   );
 
-  // Abort the in-flight generation. The agent loop's finally block calls
+  // Abort the in-flight generation. The agent loop's release calls
   // drainQueue, which will pick up the promoted message at the head.
   // Unlike abortConversation, we do NOT clear the queue or dispose
-  // prompters — we want the queue to drain with the promoted message first.
+  // prompters: we want the queue to drain with the promoted message first.
   const reason = createAbortReason(
     "preempted_by_new_message",
     "steerToMessage",
     conversationId,
   );
-  conversation.abortController?.abort(reason);
+  if (conversation.abortController) {
+    conversation.abortController.abort(reason);
+  } else {
+    // Processing is latched with no live turn to abort, so nothing is going to
+    // reach a drain on its own and the message promoted above would sit at the
+    // head of a queue that never runs. Release the flag and drain here instead.
+    // `pendingSteerRepair` stays set: the drain consumes it, repairing any
+    // tool_use blocks the dead turn stranded before the promoted head runs.
+    forceClearStaleProcessing(conversation, "steerToMessage");
+    void conversation.kickDrainQueue("loop_complete", "steer_force_clear");
+  }
   // Deny pending confirmations so the abort unblocks immediately.
   conversation.denyAllPendingConfirmations();
 

@@ -11,6 +11,7 @@
 
 import { getConfig } from "../../config/loader.js";
 import type { TtsXaiProviderConfig } from "../../config/schemas/tts.js";
+import { DEEPGRAM_MULTI_LANGUAGE_CODES } from "../../providers/speech-to-text/deepgram.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
@@ -149,6 +150,31 @@ function resolveVoiceId(
   return request.voiceId?.trim() || config.voiceId || "eve";
 }
 
+/**
+ * Language codes a request-level hint may carry into the xAI API. xAI does
+ * not document a supported-language roster, so the hint is bounded by the
+ * Deepgram code-switching set: languages the STT layer detects are always in
+ * it, and only an out-of-roster `services.stt.language` pin can exceed it.
+ */
+const REQUEST_LANGUAGE_CODES: ReadonlySet<string> = new Set(
+  DEEPGRAM_MULTI_LANGUAGE_CODES,
+);
+
+/**
+ * Resolve the synthesis language: request override > configured default.
+ * A request language outside {@link REQUEST_LANGUAGE_CODES} is dropped in
+ * favor of the configured value (default "auto", which self-detects).
+ */
+function resolveLanguage(
+  request: TtsSynthesisRequest,
+  config: TtsXaiProviderConfig,
+): string {
+  if (request.language && REQUEST_LANGUAGE_CODES.has(request.language)) {
+    return request.language;
+  }
+  return config.language;
+}
+
 /** Resolve the xAI API key, throwing `XAI_TTS_NO_API_KEY` when unset. */
 async function requireApiKey(): Promise<string> {
   const apiKey = await getSecureKeyAsync(credentialKey("xai", "api_key"));
@@ -173,7 +199,7 @@ function buildStreamUrl(
   outputParams: XaiOutputParams,
 ): string {
   const params = new URLSearchParams({
-    language: config.language,
+    language: resolveLanguage(request, config),
     voice: resolveVoiceId(request, config),
     codec: outputParams.codec,
     sample_rate: String(outputParams.sample_rate),
@@ -209,7 +235,7 @@ export function createXaiProvider(
       const body = {
         text: request.text,
         voice_id: voiceId,
-        language: config.language,
+        language: resolveLanguage(request, config),
         output_format: {
           codec: output.codec,
           sample_rate: output.sample_rate,

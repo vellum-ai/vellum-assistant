@@ -10,7 +10,7 @@
  *   4. Legacy managed-mode daemon configs render as Vellum; an openai
  *      daemon config renders honestly without being clobbered.
  *
- * The design-library Dropdown is real, driven via its combobox trigger like
+ * The design-library Select is real, driven via its combobox trigger like
  * `web-search-card.test.tsx`.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -101,8 +101,9 @@ mock.module("@/lib/backwards-compat/utils", () => ({
   whenAssistantVersionKnown: () => Promise.resolve(),
 }));
 
-const { ImageGenerationCard } =
-  await import("@/domains/settings/ai/image-generation-card");
+const { ImageGenerationCard } = await import(
+  "@/domains/settings/ai/image-generation-card"
+);
 const { LS_IMAGE_GEN_PROVIDER } = await import("@/utils/local-settings-keys");
 
 function renderCard() {
@@ -130,6 +131,18 @@ function visibleOptions(): string[] {
   return Array.from(
     document.querySelectorAll<HTMLElement>('[role="option"]'),
   ).map((o) => o.textContent?.trim() ?? "");
+}
+
+/**
+ * Dismiss an open listbox. Radix marks the rest of the page `aria-hidden`
+ * while its menu is open, so anything queried by role afterwards is
+ * unreachable until it closes.
+ */
+function closeMenu(): void {
+  fireEvent.keyDown(document.activeElement ?? document.body, {
+    key: "Escape",
+    code: "Escape",
+  });
 }
 
 /** Click an option in the already-open listbox (the trigger toggles). */
@@ -292,6 +305,7 @@ describe("ImageGenerationCard — provider-only configuration", () => {
 
     fireEvent.click(trigger("Image generation model"));
     expect(visibleOptions()).toEqual(["GPT Image 2"]);
+    closeMenu();
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(configPatchCalls.length).toBe(1));

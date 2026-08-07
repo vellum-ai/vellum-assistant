@@ -12,7 +12,7 @@ import { getConfig } from "../config/loader.js";
 import { usesConceptPageMemory } from "../config/memory-v3-gate.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
-import { isHiddenMessageMetadata } from "../persistence/conversation-types.js";
+import { isSuppressedQueuedMessage } from "../persistence/conversation-types.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
@@ -143,6 +143,38 @@ export interface DisposeContext extends AbortContext {
 
 // ── abort ─────────────────────────────────────────────────────────────
 
+/** The conversation surface {@link forceClearStaleProcessing} needs. */
+export interface StaleProcessingContext {
+  readonly conversationId: string;
+  setProcessing(value: boolean): void;
+}
+
+/**
+ * Release a processing flag that no live turn owns.
+ *
+ * Callers reach this when `isProcessing()` is true but `abortController` is
+ * null: the turn that owned the flag already tore its controller down (the
+ * agent loop nulls `abortController` before clearing the flag) or died without
+ * ever installing one. Either way no agent-loop release is going to run to
+ * clear it, so signalling the controller would be a silent no-op (`?.abort()`
+ * on null does nothing) and the conversation would stay wedged: every later
+ * submit is rejected with "already processing" and Stop appears dead.
+ * `setProcessing(false)` also nulls the persisted column and emits the metadata
+ * invalidation that drives clients to idle.
+ *
+ * `origin` names the calling site for log correlation.
+ */
+export function forceClearStaleProcessing(
+  ctx: StaleProcessingContext,
+  origin: string,
+): void {
+  log.warn(
+    { conversationId: ctx.conversationId, origin },
+    "Processing latched with no live abort controller; force-clearing the stale processing flag",
+  );
+  ctx.setProcessing(false);
+}
+
 /**
  * Keep the queue intact across a user interrupt so the messages queued behind
  * the stopped turn still run.
@@ -197,9 +229,11 @@ function preserveQueueAcrossInterrupt(
  * closes out the turn the message was waiting on; `message_queued_deleted` is
  * the terminal event for the queued row itself, the same one a user-issued
  * DELETE emits (`deleteQueuedMessage`). Without the second, a client holds the
- * pending indicator forever, since no `message_dequeued` is coming. Hidden
- * sends are suppressed for the same reason they get no queued ack: they have
- * no client row to close.
+ * pending indicator forever, since no `message_dequeued` is coming. Rows with
+ * no client-visible queued counterpart ({@link isSuppressedQueuedMessage} —
+ * hidden sends and daemon-injected subagent/ACP/wake notifications) are
+ * suppressed for the same reason they get no queued ack: they have no client
+ * row to close.
  */
 function discardQueueOnAbort(ctx: AbortContext): void {
   for (const queued of ctx.queue) {
@@ -207,7 +241,7 @@ function discardQueueOnAbort(ctx: AbortContext): void {
       type: "generation_cancelled",
       conversationId: ctx.conversationId,
     });
-    if (isHiddenMessageMetadata(queued.metadata)) {
+    if (isSuppressedQueuedMessage(queued.metadata)) {
       continue;
     }
     queued.onEvent({
@@ -248,21 +282,7 @@ export function abortConversation(
       // clear it here and risk clobbering a client's optimistic state.
       ctx.abortController.abort(effectiveReason);
     } else {
-      // The flag is set but there is no live controller to signal: the turn
-      // that owned it already tore its controller down (the agent-loop
-      // `finally` nulls `abortController` before clearing the flag) or died
-      // without ever installing one. Either way no agent-loop `finally` is
-      // going to run to clear the flag. Without this branch the abort is a
-      // silent no-op — `?.abort()` does nothing — and the conversation stays
-      // wedged: every later submit is rejected with "already processing" and
-      // Stop appears dead. Force-clear the flag directly so the conversation
-      // frees up. `setProcessing(false)` also nulls the persisted column and
-      // emits the metadata invalidation that drives clients to idle.
-      log.warn(
-        { conversationId: ctx.conversationId },
-        "Abort requested while processing but no live abort controller — force-clearing stale processing flag",
-      );
-      ctx.setProcessing(false);
+      forceClearStaleProcessing(ctx, "abortConversation");
     }
     ctx.prompter.dispose();
     ctx.secretPrompter.dispose();

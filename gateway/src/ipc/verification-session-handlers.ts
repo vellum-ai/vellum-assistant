@@ -67,7 +67,8 @@ export const verificationSessionRoutes: IpcRoute[] = [
   {
     // Mint an outbound session (numeric code when identity is bound,
     // 32-byte hex for pending_bootstrap); secret transits for delivery.
-    // Optional claim guards (requireSourceSessionPending / ifNoneActive)
+    // Optional claim guards (requireSourceSessionPending /
+    // ifNoneActiveForExternalUserId)
     // run atomically with the mint; a failed guard returns a conflict
     // marker instead of revoking the winner's session.
     method: VERIFICATION_SESSIONS_IPC_METHODS.createOutbound,
@@ -88,12 +89,16 @@ export const verificationSessionRoutes: IpcRoute[] = [
   },
   {
     // Most recent active outbound session (pending_bootstrap /
-    // awaiting_response).
+    // awaiting_response), narrowed by the caller's filter when it named one.
     method: VERIFICATION_SESSIONS_IPC_METHODS.findActive,
     schema: FindActiveSessionIpcParamsSchema,
     handler: (params?: Record<string, unknown>) => {
-      const { channel } = FindActiveSessionIpcParamsSchema.parse(params);
-      return findActiveSession(channel);
+      const { channel, expectedExternalUserId, verificationPurpose } =
+        FindActiveSessionIpcParamsSchema.parse(params);
+      return findActiveSession(channel, {
+        ...(expectedExternalUserId ? { expectedExternalUserId } : {}),
+        ...(verificationPurpose ? { verificationPurpose } : {}),
+      });
     },
   },
   {

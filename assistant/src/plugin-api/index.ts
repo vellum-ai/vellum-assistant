@@ -173,6 +173,23 @@ export {
   CredentialResolutionError,
   resolveCredential,
 } from "./resolve-credential.js";
+// Resolve the public URL a third party should deliver to for one of the
+// plugin's own ingress routes. Which URL is correct depends on how the
+// assistant is reachable (a managed platform callback route, or a configured
+// public ingress), and `ingress.publicBaseUrl` alone does not decide it. Uses
+// the same resolution as `webhooks register`, and registers the callback route
+// on the managed branches. The plugin defaults to the one in context.
+export { resolveWebhookUrl, type WebhookUrlOptions } from "./webhook-url.js";
+// Resolve the redirect URI an authorization server should send a user back
+// to after consent. One shared route serves every OAuth flow in the
+// assistant, demultiplexed by OAuth `state`, so this takes no arguments and
+// returns the same URL for every caller and every attempt. A plugin needs it
+// when it publishes something that has to name the redirect URI ahead of the
+// flow, such as a Client ID Metadata Document, whose `redirect_uris` an
+// authorization server matches exactly. Throws when no public ingress is
+// configured and the assistant is not connected to the platform, which is the
+// case where no URL would work.
+export { resolveOauthCallbackUrl } from "../inbound/oauth-callback-url.js";
 // Resolve a provider for a call site (optionally overriding the profile) so a
 // plugin can run inference through the workspace's configured profiles and
 // credentials — managed-proxy or BYOK — without supplying its own API key.
@@ -338,21 +355,26 @@ export { synthesizeText, TtsSynthesisError } from "../tts/synthesize-text.js";
 export type { TtsSynthesisResult } from "../tts/types.js";
 // Streaming speech-to-text — open a live transcription session against the
 // assistant's globally configured STT provider stack. The plugin feeds audio
-// chunks via `sendAudio` and receives partial/final transcript events through
-// the `start(onEvent)` callback, closing with `stop`. `SttStreamServerEvent`
-// and its variants type the events handed to `onEvent`; `SttErrorCategory`
-// classifies `error` events; `SttProviderId` names the resolved session's
-// provider.
+// chunks via `sendAudio` and receives transcript and turn-boundary events
+// through the `start(onEvent)` callback, closing with `stop`.
+// `SttStreamServerEvent` types the events handed to `onEvent`; every member of
+// that union is exported alongside it so a plugin can name each variant in an
+// exhaustive switch. `SttErrorCategory` classifies `error` events;
+// `SttProviderId` names the resolved session's provider.
 export type {
   StreamingTranscriber,
   SttErrorCategory,
   SttProviderId,
   SttStreamServerClosedEvent,
+  SttStreamServerEagerTurnEndEvent,
   SttStreamServerErrorEvent,
   SttStreamServerEvent,
   SttStreamServerFinalEvent,
   SttStreamServerFinalizedEvent,
   SttStreamServerPartialEvent,
+  SttStreamServerTurnEndEvent,
+  SttStreamServerTurnResumedEvent,
+  SttStreamServerTurnStartEvent,
 } from "../stt/types.js";
 export { openTranscriptionSession } from "./transcription-session.js";
 // Conversation agent-loop turn — run a full conversation turn (persist user

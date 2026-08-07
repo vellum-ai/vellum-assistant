@@ -9,6 +9,7 @@ import {
   getScheduleRuns,
   listSchedules,
 } from "../../schedule/schedule-store.js";
+import { describeScheduleSource } from "../../util/schedule-source-key.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -78,6 +79,13 @@ export async function executeScheduleList(
       `  Description: ${describeAuthoredPurpose(job)}`,
     ];
 
+    const detailPlugin = describeScheduleSource(job.sourceKey);
+    if (detailPlugin) {
+      lines.push(
+        `  Managed by plugin: ${detailPlugin} (definition read-only; only enabled can be changed)`,
+      );
+    }
+
     if (oneShot) {
       lines.push(`  Fire at: ${formatLocalDate(job.nextRunAt)}`);
     } else {
@@ -143,18 +151,20 @@ export async function executeScheduleList(
   for (const job of jobs) {
     const status = job.enabled ? "enabled" : "disabled";
     const oneShot = isOneShot(job);
+    const plugin = describeScheduleSource(job.sourceKey);
+    const managed = plugin ? ` (managed by plugin ${plugin})` : "";
 
     if (oneShot) {
       const fireTime = formatLocalDate(job.nextRunAt);
       lines.push(
-        `  - [${status}] ${job.name} (id: ${job.id}) (one-shot, ${job.mode}) [${job.status}]`,
+        `  - [${status}] ${job.name} (id: ${job.id}) (one-shot, ${job.mode}) [${job.status}]${managed}`,
         `    Description: ${describeAuthoredPurpose(job)}`,
         `    fire at: ${fireTime}`,
       );
     } else {
       const next = job.enabled ? formatLocalDate(job.nextRunAt) : "n/a";
       lines.push(
-        `  - [${status}] ${job.name} (id: ${job.id}) (${job.mode})`,
+        `  - [${status}] ${job.name} (id: ${job.id}) (${job.mode})${managed}`,
         `    Description: ${describeAuthoredPurpose(job)}`,
         `    Schedule: [${job.syntax}] ${describeSchedule(job)}`,
         `    Next: ${next}`,

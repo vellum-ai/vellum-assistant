@@ -4,9 +4,12 @@ import { describe, expect, it } from "bun:test";
 
 import "../../__tests__/test-preload.js";
 import { initSigningKey } from "../../auth/token-service.js";
+import { IngressInboundSchema } from "../../channels/ingress-inbound.js";
+import type { GatewayInboundEvent } from "../../channels/inbound-event.js";
 import type { PluginIngressResolution } from "../../channels/plugin-ingress-approvals.js";
 import type { IngressRoute } from "../../channels/plugin-ingress.js";
 import type { GatewayConfig } from "../../config.js";
+import type { HandleInboundOptions } from "../../handlers/handle-inbound.js";
 import { createPluginWebhookHandler } from "./plugin-webhook.js";
 
 // The handler mints a real service token for the upstream hop. Initialising
@@ -136,21 +139,96 @@ describe("approved routes", () => {
 
     expect(calls[0]!.url).toContain("?token=abc");
   });
-});
 
-describe("the gate", () => {
-  it("404s a route the plugin declares but nobody approved", async () => {
-    // The whole point of the gate: pending is not served.
+  it("serves a trailing-slash request under the declared path", async () => {
+    // Providers store the URL we hand them and may call it back with a
+    // slash appended. The plugin serves what it declared, so the forward
+    // uses the declared spelling rather than the requested one.
     const { calls, fetchImpl } = recordingFetch();
     const handle = createPluginWebhookHandler({
       config: CONFIG,
       credentials: CREDENTIALS,
-      resolve: () =>
-        resolution({
-          pending: [
-            { plugin: "meeting-bot", routes: [ROUTE], digest: "d".repeat(32) },
-          ],
-        }),
+      resolve: () => approvedWith([ROUTE]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/realtime/", '{"event":"joined"}'),
+      "meeting-bot",
+      "realtime/",
+    );
+
+    expect(res.status).toBe(200);
+    expect(calls[0]!.url).toBe(
+      "http://runtime.test:7821/v1/x/plugins/meeting-bot/realtime",
+    );
+  });
+});
+
+describe("the gate", () => {
+  /** An unapproved declaration of `routes` for `meeting-bot`. */
+  function pendingWith(routes: IngressRoute[]): PluginIngressResolution {
+    return resolution({
+      pending: [{ plugin: "meeting-bot", routes, digest: "d".repeat(32) }],
+    });
+  }
+
+  it("does not forward a route the plugin declares but nobody approved", async () => {
+    // The whole point of the gate: pending is not served, however well the
+    // delivery is signed.
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => pendingWith([ROUTE]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/realtime"),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      error: "Ingress route awaiting approval",
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("tells only a verified caller that the route is waiting", async () => {
+    // A prober cannot sign, and the difference between 404 and 409 is exactly
+    // what would tell them a route is declared here. Every way of failing
+    // before the signature has to land on the same answer.
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => pendingWith([ROUTE]),
+      fetchImpl,
+    });
+
+    for (const req of [
+      post("/webhooks/plugins/meeting-bot/realtime", "{}", ""),
+      post("/webhooks/plugins/meeting-bot/realtime", "{}", "wrong-secret"),
+      post("/webhooks/plugins/meeting-bot/realtime", "x".repeat(2048)),
+    ]) {
+      const res = await handle(req, "meeting-bot", "realtime");
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: "Not Found" } as never);
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it("hides a missing secret on an unapproved route", async () => {
+    // 409 "secret not configured" would name the plugin and the route to a
+    // caller who has proved nothing.
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: credentialsFor({}),
+      resolve: () => pendingWith([ROUTE]),
       fetchImpl,
     });
 
@@ -295,7 +373,6 @@ describe("the gate", () => {
       "realtime/../../secret",
       "realtime%2fextra",
       "REALTIME",
-      "realtime/",
     ]) {
       const res = await handle(
         post(`/webhooks/plugins/meeting-bot/${path}`),
@@ -863,5 +940,216 @@ describe("upstream failures", () => {
 
     expect(res.status).toBe(404);
     expect(await res.text()).toBe("no such route");
+  });
+});
+
+describe("inbound delivery", () => {
+  const INBOUND_ROUTE: IngressRoute = {
+    ...ROUTE,
+    path: "events",
+    inbound: IngressInboundSchema.parse({ identity: "phone" }),
+  };
+
+  /** A plugin reply, and a recorder for what reached the inbound pipeline. */
+  function replyingWith(body: unknown, status = 200) {
+    const handled: GatewayInboundEvent[] = [];
+    const options: (HandleInboundOptions | undefined)[] = [];
+    return {
+      handled,
+      options,
+      deps: {
+        config: CONFIG,
+        credentials: CREDENTIALS,
+        resolve: () => approvedWith([INBOUND_ROUTE]),
+        fetchImpl: async () =>
+          new Response(typeof body === "string" ? body : JSON.stringify(body), {
+            status,
+          }),
+        handleInboundImpl: async (
+          _config: GatewayConfig,
+          event: GatewayInboundEvent,
+          opts?: HandleInboundOptions,
+        ) => {
+          handled.push(event);
+          options.push(opts);
+          return { forwarded: true, rejected: false };
+        },
+      },
+    };
+  }
+
+  const MESSAGE = {
+    message: {
+      content: "hello",
+      conversationExternalId: "chat-1",
+      externalMessageId: "msg-1",
+    },
+    actor: { actorExternalId: "(202) 555-0142", displayName: "Ada" },
+  };
+
+  it("runs the plugin's reply through the inbound pipeline", async () => {
+    // The whole point: the delivery the gateway already authenticated is what
+    // produces the message, so nothing new has to be opened to receive one.
+    const { handled, deps } = replyingWith(MESSAGE);
+    const handle = createPluginWebhookHandler(deps);
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(res.status).toBe(200);
+    expect(handled).toHaveLength(1);
+    expect(handled[0]!.sourceChannel).toBe("plugin");
+    expect(handled[0]!.message.content).toBe("hello");
+    expect(handled[0]!.actor.actorExternalId).toBe("meeting-bot:+12025550142");
+  });
+
+  it("tells the pipeline which plugin and which route it came from", async () => {
+    // A plugin can declare several routes, and knowing which one a turn
+    // arrived on separates a provider misconfiguration from a plugin bug.
+    const { options, deps } = replyingWith(MESSAGE);
+    const handle = createPluginWebhookHandler(deps);
+
+    await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(options[0]?.sourceMetadata).toEqual({
+      plugin: "meeting-bot",
+      ingressRoute: "events",
+    });
+  });
+
+  it("does not echo the plugin's reply back to the vendor", async () => {
+    // The reply was addressed to us. A plugin normalizing a delivery into an
+    // event should not thereby send the sender's message back to the vendor.
+    const { deps } = replyingWith(MESSAGE);
+    const handle = createPluginWebhookHandler(deps);
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(await res.json()).toEqual({ ok: true });
+  });
+
+  it("leaves a route that declares no delivery a plain proxy", async () => {
+    // Every declaration written before `inbound` existed means this, so the
+    // reply has to reach the vendor untouched and nothing may be delivered.
+    const { handled, deps } = replyingWith(MESSAGE);
+    const handle = createPluginWebhookHandler({
+      ...deps,
+      resolve: () => approvedWith([{ ...INBOUND_ROUTE, inbound: undefined }]),
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(handled).toHaveLength(0);
+    expect(await res.json()).toEqual(MESSAGE as never);
+  });
+
+  it("delivers nothing when the plugin only acknowledged", async () => {
+    // The ordinary case. Receipts, echoes, and events the plugin does not
+    // handle all reply like this, and none of them is a turn.
+    const { handled, deps } = replyingWith({ ok: true, ignored: "an echo" });
+    const handle = createPluginWebhookHandler(deps);
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(res.status).toBe(200);
+    expect(handled).toHaveLength(0);
+  });
+
+  it("still acknowledges the vendor when the reply cannot be read", async () => {
+    // The delivery was authentic and the plugin accepted it, so a failure to
+    // interpret its answer is ours. A 5xx here would have the vendor retry a
+    // delivery that fails the same way every time.
+    const { handled, deps } = replyingWith("not json at all");
+    const handle = createPluginWebhookHandler(deps);
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(res.status).toBe(200);
+    expect(handled).toHaveLength(0);
+  });
+
+  it("still acknowledges the vendor when the pipeline throws", async () => {
+    const { deps } = replyingWith(MESSAGE);
+    const handle = createPluginWebhookHandler({
+      ...deps,
+      handleInboundImpl: async () => {
+        throw new Error("runtime is down");
+      },
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(res.status).toBe(200);
+  });
+
+  it("delivers nothing from a reply the plugin itself failed", async () => {
+    // A plugin reporting a failure is not reporting a message, and the vendor
+    // gets that status back so its own retry logic can act on it.
+    const { handled, deps } = replyingWith(MESSAGE, 500);
+    const handle = createPluginWebhookHandler(deps);
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(res.status).toBe(500);
+    expect(handled).toHaveLength(0);
+  });
+
+  it("delivers nothing from a route awaiting approval", async () => {
+    // The gate stands in front of this like everything else: a declaration
+    // that can start conversations must be one a guardian decided about.
+    const { handled, deps } = replyingWith(MESSAGE);
+    const handle = createPluginWebhookHandler({
+      ...deps,
+      resolve: () =>
+        resolution({
+          pending: [
+            {
+              plugin: "meeting-bot",
+              routes: [INBOUND_ROUTE],
+              digest: "d".repeat(32),
+            },
+          ],
+        }),
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/events"),
+      "meeting-bot",
+      "events",
+    );
+
+    expect(res.status).toBe(409);
+    expect(handled).toHaveLength(0);
   });
 });

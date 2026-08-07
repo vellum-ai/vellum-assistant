@@ -29,10 +29,12 @@
  * - All timers and listeners are cleaned up on close to prevent leaks.
  */
 
+import { rankLanguages } from "../../stt/language-metadata.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
+import { baseLanguageSubtag } from "../../util/language-subtag.js";
 import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("deepgram-realtime");
@@ -208,6 +210,11 @@ interface DeepgramStreamWord {
   confidence?: number;
   start?: number;
   end?: number;
+  /**
+   * BCP-47 tag of the language this word was spoken in. Present only on
+   * code-switching models (nova-3 with `language=multi`).
+   */
+  language?: string;
 }
 
 /**
@@ -225,11 +232,23 @@ interface DeepgramStreamAlternative {
   speaker?: number;
   /** Per-word speaker tags when diarization is enabled. */
   words?: DeepgramStreamWord[];
+  /**
+   * Detected languages for the chunk in dominance order. Emitted by
+   * code-switching models; the container varies by API version, so
+   * {@link DeepgramStreamChannel.languages} is checked as well.
+   */
+  languages?: string[];
 }
 
 /** A channel within a Deepgram streaming response. */
 interface DeepgramStreamChannel {
   alternatives?: DeepgramStreamAlternative[];
+  /**
+   * Detected languages for the chunk in dominance order. Alternate
+   * container for {@link DeepgramStreamAlternative.languages} on some
+   * API versions.
+   */
+  languages?: string[];
 }
 
 /**
@@ -342,6 +361,15 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * {@link utteranceBoundaryFinals} is enabled.
    */
   private pendingFinalSegments: string[] = [];
+
+  /**
+   * Raw detected-language tags for the withheld segments, accumulated
+   * alongside {@link pendingFinalSegments} and ranked into the event's
+   * `languages` when the utterance flushes. Cleared wherever the pending
+   * segments are cleared. Only populated when
+   * {@link utteranceBoundaryFinals} is enabled.
+   */
+  private pendingLanguageTags: string[] = [];
 
   /** The live WebSocket connection, set during start(). */
   private ws: WsLike | null = null;
@@ -748,6 +776,12 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * words — see {@link extractSpeakerLabel}. Confidence is taken from
    * the top alternative when present.
    *
+   * Code-switching models (nova-3 with `language=multi`) tag detected
+   * languages per word and per container. When present, these become the
+   * dominance-ranked `languages` field on the emitted events (see
+   * {@link extractLanguages}). The field is omitted when the frame
+   * carries no language metadata.
+   *
    * We emit:
    * - `partial` for `is_final: false` frames (if interim results enabled).
    * - `final` for `is_final: true` frames.
@@ -788,6 +822,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       typeof alternative?.confidence === "number"
         ? alternative.confidence
         : undefined;
+    const languages = extractLanguages(frame.channel, alternative);
 
     if (frame.is_final) {
       if (this.utteranceBoundaryFinals) {
@@ -795,6 +830,16 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
         // Finalize flush is a forced boundary — flush what is pending.
         if (text.length > 0) {
           this.pendingFinalSegments.push(text);
+          // Collect language tags only from frames that contributed text
+          // so the flushed metadata stays aligned with the emitted
+          // transcript (empty frames may still carry tags, but they
+          // describe no emitted words). Raw per-word tags are preferred
+          // over the frame's ranked list so cross-frame frequency
+          // weighting survives until the flush ranks the whole utterance.
+          const wordTags = collectWordLanguageTags(alternative);
+          this.pendingLanguageTags.push(
+            ...(wordTags.length > 0 ? wordTags : languages),
+          );
         }
         if (frame.speech_final || fromFinalize) {
           this.flushPendingUtterance();
@@ -807,6 +852,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
           text,
           ...(speakerLabel !== undefined ? { speakerLabel } : {}),
           ...(confidence !== undefined ? { confidence } : {}),
+          ...(languages.length > 0 ? { languages } : {}),
           // Mark the finalize flush so consumers can attribute it to the
           // utterance that requested the flush rather than new speech.
           ...(fromFinalize ? { fromFinalize: true } : {}),
@@ -819,6 +865,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
         text,
         ...(speakerLabel !== undefined ? { speakerLabel } : {}),
         ...(confidence !== undefined ? { confidence } : {}),
+        ...(languages.length > 0 ? { languages } : {}),
       });
     }
 
@@ -917,16 +964,27 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
 
   /**
    * Emit a single aggregated `final` for the withheld `is_final` segments
-   * of the current utterance. No-op when nothing is pending, so boundary
-   * signals over silence emit nothing.
+   * of the current utterance, carrying the dominance-ranked detected
+   * languages accumulated alongside them (field omitted when no segment
+   * carried language metadata). No-op when nothing is pending, so
+   * boundary signals over silence emit nothing.
    */
   private flushPendingUtterance(): void {
     if (this.pendingFinalSegments.length === 0) {
+      // Tags accumulate only alongside text, but clear defensively so a
+      // future drift cannot leak one utterance's tags into the next.
+      this.pendingLanguageTags = [];
       return;
     }
     const text = this.pendingFinalSegments.join(" ");
+    const languages = rankLanguages(this.pendingLanguageTags);
     this.pendingFinalSegments = [];
-    this.emitEvent({ type: "final", text });
+    this.pendingLanguageTags = [];
+    this.emitEvent({
+      type: "final",
+      text,
+      ...(languages.length > 0 ? { languages } : {}),
+    });
   }
 
   /**
@@ -1222,6 +1280,62 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
  * contract on {@link SttStreamServerPartialEvent} /
  * {@link SttStreamServerFinalEvent}.
  */
+/**
+ * Derive the detected languages for a chunk, most dominant first.
+ *
+ * Code-switching models tag languages in two shapes:
+ *   1. Per-word `language` tags on `alternatives[0].words[]`, the richest
+ *      signal; ranked by frequency via {@link rankLanguages} (ties broken
+ *      by first appearance).
+ *   2. A container-level `languages` array in dominance order, attached to
+ *      the alternative or (on some API versions) the channel. Used as the
+ *      fallback when no word carries a tag; normalized and deduped with
+ *      the provider's order preserved.
+ *
+ * Returns `[]` when the frame carries no language metadata: callers omit
+ * the event fields entirely so absence stays distinguishable from a
+ * detected language.
+ */
+function extractLanguages(
+  channel: DeepgramStreamChannel | undefined,
+  alternative: DeepgramStreamAlternative | undefined,
+): string[] {
+  const wordTags = collectWordLanguageTags(alternative);
+  if (wordTags.length > 0) {
+    return rankLanguages(wordTags);
+  }
+
+  const container = Array.isArray(alternative?.languages)
+    ? alternative.languages
+    : Array.isArray(channel?.languages)
+      ? channel.languages
+      : [];
+  const deduped = new Set(
+    container
+      .filter((tag): tag is string => typeof tag === "string")
+      .flatMap((tag) => {
+        const base = baseLanguageSubtag(tag);
+        return base !== undefined ? [base] : [];
+      }),
+  );
+  return [...deduped];
+}
+
+/**
+ * Collect the raw per-word `language` tags of a chunk, in word order and
+ * without ranking or normalization. Used both for per-frame ranking in
+ * {@link extractLanguages} and for cross-frame accumulation in
+ * utterance-boundary mode, where ranking is deferred to the flush so
+ * frequency weighting spans the whole utterance.
+ */
+function collectWordLanguageTags(
+  alternative: DeepgramStreamAlternative | undefined,
+): string[] {
+  return (alternative?.words ?? []).flatMap((word) =>
+    typeof word.language === "string" ? [word.language] : [],
+  );
+}
+
 function extractSpeakerLabel(
   alternative: DeepgramStreamAlternative | undefined,
 ): string | undefined {

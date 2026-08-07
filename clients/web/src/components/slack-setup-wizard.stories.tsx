@@ -124,9 +124,16 @@ export const Saving: Story = {
   play: fillTokens,
 };
 
+/**
+ * The post-save state. No credential fields are populated: a successful save
+ * clears them, so a story showing both would depict something the wizard
+ * cannot produce.
+ */
 export const Connected: Story = {
   args: { saveStatus: "success" },
-  play: fillTokens,
+  play: async ({ canvasElement }) => {
+    await goToConnect(canvasElement);
+  },
 };
 
 export const SaveFailed: Story = {

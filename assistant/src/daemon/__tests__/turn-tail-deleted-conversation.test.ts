@@ -1,9 +1,9 @@
 /**
- * `runDeferredTurnTail` runs after the terminal SSE, so the user can delete the
- * conversation while its awaited bookkeeping is still draining. These tests pin
- * that the tail's two filesystem steps (tool-result spooling and the JSONL disk
- * mirror) read the conversation fresh and skip once it is gone, rather than
- * rebuilding a deleted conversation's directory from in-memory history.
+ * `settleTurnContent` runs after the terminal SSE, so the user can delete the
+ * conversation before its content-settling steps run. These tests pin that the
+ * two filesystem steps (tool-result spooling and the JSONL disk mirror) read the
+ * conversation fresh and skip once it is gone, rather than rebuilding a deleted
+ * conversation's directory from in-memory history.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -19,10 +19,9 @@ setConfig("memory", { enabled: false, v2: { enabled: false } });
 
 const CONVERSATION_ID = "conv-tail-delete-1";
 const ASSISTANT_MESSAGE_ID = "msg-assistant-1";
-const USER_MESSAGE_ID = "msg-user-1";
 const CONVERSATION_DIR = "/tmp/vellum-test/conv-tail-delete-1";
 
-/** Flipped by a deferred finalize effect to model a mid-tail deletion. */
+/** Flipped by a test to model a deletion that landed before the settle ran. */
 let conversationDeleted = false;
 let getConversationCalls = 0;
 const resolvedDirCalls: string[] = [];
@@ -56,6 +55,7 @@ function makeConversation(): ConversationRow {
     originInterface: null,
     forkParentConversationId: null,
     forkParentMessageId: null,
+    forkStrategy: null,
     isAutoTitle: 0,
     scheduleJobId: null,
     lastMessageAt: null,
@@ -115,29 +115,22 @@ mock.module("../../persistence/conversation-disk-view.js", () => ({
   },
 }));
 
-const { runDeferredTurnTail } =
-  await import("../conversation-turn-finalize.js");
+const { settleTurnContent } = await import("../conversation-turn-finalize.js");
 
 const rlog = makeMockLogger() as Parameters<
-  typeof runDeferredTurnTail
+  typeof settleTurnContent
 >[0]["rlog"];
 
-/** Runs the tail with one deferred effect standing in for the turn's bookkeeping. */
-async function runTail(
-  deferredEffect: () => Promise<void>,
-): Promise<Message[]> {
+/** Settles one turn's content and hands back the history it left behind. */
+async function runSettle(): Promise<Message[]> {
   const ctx = { conversationId: CONVERSATION_ID, messages: [] as Message[] };
-  await runDeferredTurnTail({
+  await settleTurnContent({
     ctx,
     state: {
-      deferredFinalizeEffects: [deferredEffect],
       lastAssistantMessageId: ASSISTANT_MESSAGE_ID,
       inflightWriters: new Map<string, InflightContentWriter>(),
     },
     rlog,
-    generationCompletedAt: Date.now(),
-    turnCompleted: true,
-    userMessageId: USER_MESSAGE_ID,
   });
   return ctx.messages;
 }
@@ -150,11 +143,11 @@ beforeEach(() => {
   diskSyncCalls.length = 0;
 });
 
-describe("runDeferredTurnTail conversation deleted mid-tail", () => {
+describe("settleTurnContent conversation deleted after the terminal SSE", () => {
   test("skips the filesystem steps when the conversation is gone", async () => {
-    const messages = await runTail(async () => {
-      conversationDeleted = true;
-    });
+    conversationDeleted = true;
+
+    const messages = await runSettle();
 
     expect(resolvedDirCalls).toEqual([]);
     expect(truncateCalls).toEqual([]);
@@ -162,16 +155,14 @@ describe("runDeferredTurnTail conversation deleted mid-tail", () => {
     expect(messages).toEqual([]);
   });
 
-  test("reads the conversation once more before the filesystem steps", async () => {
-    await runTail(async () => {
-      conversationDeleted = true;
-    });
+  test("reads the conversation itself rather than trusting an earlier read", async () => {
+    await runSettle();
 
-    expect(getConversationCalls).toBe(2);
+    expect(getConversationCalls).toBe(1);
   });
 
   test("runs the filesystem steps when the conversation survives", async () => {
-    const messages = await runTail(async () => {});
+    const messages = await runSettle();
 
     expect(resolvedDirCalls).toEqual([CONVERSATION_ID]);
     expect(truncateCalls).toEqual([CONVERSATION_DIR]);

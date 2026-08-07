@@ -14,6 +14,9 @@
 
 -keepattributes RuntimeVisibleAnnotations,AnnotationDefault,SourceFile,LineNumberTable
 
+# Capacitor reads permission annotations through this handle at runtime.
+-keep class com.getcapacitor.PluginHandle { *; }
+
 -keep @com.getcapacitor.annotation.CapacitorPlugin class * { *; }
 -keepclassmembers class * {
     @com.getcapacitor.PluginMethod <methods>;

@@ -56,6 +56,7 @@ import { routes } from "@/utils/routes";
 const DEFAULT_CHANNELS: ChannelInfo[] = [
   {
     id: "slack",
+    source: "default",
     label: "Slack",
     subtitle: "Message your assistant from Slack",
     icon: "hash",
@@ -69,6 +70,7 @@ const DEFAULT_CHANNELS: ChannelInfo[] = [
   },
   {
     id: "telegram",
+    source: "default",
     label: "Telegram",
     subtitle: "Message your assistant from Telegram",
     icon: "send",
@@ -82,6 +84,7 @@ const DEFAULT_CHANNELS: ChannelInfo[] = [
   },
   {
     id: "phone",
+    source: "default",
     label: "Phone Calling",
     subtitle: "Call or text your assistant via phone",
     icon: "phone",

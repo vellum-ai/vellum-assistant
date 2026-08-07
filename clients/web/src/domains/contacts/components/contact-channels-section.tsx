@@ -103,6 +103,7 @@ export function buildVisibleChannels(
     }
     visibleChannels.push({
       id: ch.type,
+      source: "default",
       label: ch.type.charAt(0).toUpperCase() + ch.type.slice(1),
       subtitle: "",
       icon: "help-circle",

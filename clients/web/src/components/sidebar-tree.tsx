@@ -3,6 +3,7 @@ import { Fragment } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { navigateWithPageTransition } from "@/lib/page-transition";
 import { isModifiedLinkClick } from "@/utils/link-click";
 import { SideMenu } from "@vellumai/design-library";
 
@@ -73,7 +74,7 @@ export function SidebarTree({
                     return;
                   }
                   e.preventDefault();
-                  navigate(href);
+                  navigateWithPageTransition(navigate, href, "push");
                 }
           }
         />

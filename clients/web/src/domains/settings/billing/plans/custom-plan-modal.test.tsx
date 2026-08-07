@@ -15,7 +15,7 @@
  * Strategy mirrors plans-page-checkout.test.tsx: mock the generated SDK to
  * capture the request bodies and return fixtures, mock `openUrl` to capture
  * the redirect target, and force the platform-hosted gate open. The
- * design-library Dropdown is a custom combobox — driven by clicking the
+ * design-library Select is a custom combobox — driven by clicking the
  * trigger, then the option whose visible label matches.
  */
 
@@ -339,7 +339,7 @@ function renderPage(
   );
 }
 
-function dropdownTrigger(ariaLabel: string): HTMLButtonElement {
+function selectTrigger(ariaLabel: string): HTMLButtonElement {
   const trigger = document.querySelector<HTMLButtonElement>(
     `button[role="combobox"][aria-label="${ariaLabel}"]`,
   );
@@ -349,8 +349,8 @@ function dropdownTrigger(ariaLabel: string): HTMLButtonElement {
   return trigger;
 }
 
-function openDropdown(ariaLabel: string): void {
-  fireEvent.click(dropdownTrigger(ariaLabel));
+function openSelect(ariaLabel: string): void {
+  fireEvent.click(selectTrigger(ariaLabel));
 }
 
 function optionLabels(): string[] {
@@ -375,8 +375,8 @@ function clickOption(label: string): void {
   fireEvent.click(option);
 }
 
-function selectOption(dropdownLabel: string, optionLabel: string): void {
-  openDropdown(dropdownLabel);
+function selectOption(selectLabel: string, optionLabel: string): void {
+  openSelect(selectLabel);
   clickOption(optionLabel);
 }
 
@@ -488,7 +488,7 @@ describe("CustomPlanModal — base subscriber", () => {
     const { getByRole } = renderPage(freeSubscription());
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openDropdown("Storage");
+    openSelect("Storage");
 
     const labels = optionLabels();
     expect(labels.some((l) => l.startsWith("30 GB"))).toBe(true);
@@ -752,7 +752,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     const { getByRole } = renderPage(proMightySubscription());
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openDropdown("Machine size");
+    openSelect("Machine size");
 
     expect(optionLabels()).not.toContain(BASELINE_MACHINE_LABEL);
   });
@@ -762,7 +762,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     const { getByRole } = renderPage(freeSubscription());
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openDropdown("Machine size");
+    openSelect("Machine size");
 
     expect(optionLabels()).not.toContain(BASELINE_MACHINE_LABEL);
   });
@@ -890,10 +890,12 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     );
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openDropdown("Storage");
+    openSelect("Storage");
 
     expect(findOption("10 GB").getAttribute("aria-disabled")).toBe("true");
-    expect(findOption("30 GB").getAttribute("aria-disabled")).toBe("false");
+    // Enabled options carry no `aria-disabled` at all, so assert the absence
+    // of the disabled state rather than a literal "false".
+    expect(findOption("30 GB").getAttribute("aria-disabled")).not.toBe("true");
   });
 
   test("a failed dispatch keeps the modal open and skips the takeover", async () => {
@@ -952,14 +954,15 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
     );
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openDropdown("Credit bundle");
+    openSelect("Credit bundle");
 
     // The held legacy bundle appears so the current selection is visible, but
     // it's disabled — a new config can never pick it.
     expect(findOption("25 credits").getAttribute("aria-disabled")).toBe("true");
-    // The live tier stays selectable.
-    expect(findOption("50 credits").getAttribute("aria-disabled")).toBe(
-      "false",
+    // The live tier stays selectable. Enabled options carry no
+    // `aria-disabled`, so assert the absence of the disabled state.
+    expect(findOption("50 credits").getAttribute("aria-disabled")).not.toBe(
+      "true",
     );
   });
 
@@ -988,7 +991,7 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
     const { getByRole } = renderPage(freeSubscription());
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openDropdown("Credit bundle");
+    openSelect("Credit bundle");
 
     const labels = optionLabels();
     expect(labels.some((l) => l.startsWith("50 credits"))).toBe(true);
@@ -1027,7 +1030,7 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
 
     // Seeded to the held tier (a no-op), so Continue starts disabled.
     expect(continueButton().disabled).toBe(true);
-    expect(dropdownTrigger("Storage").textContent).toContain("250 GB");
+    expect(selectTrigger("Storage").textContent).toContain("250 GB");
     expect(recapRows()).toEqual([
       "Platform fee: $20/mo",
       "Medium machine (2.5 vCPU, 5 GiB)",
@@ -1051,9 +1054,9 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
     );
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openDropdown("Storage");
+    openSelect("Storage");
 
-    expect(findOption("250 GB").getAttribute("aria-disabled")).toBe("false");
+    expect(findOption("250 GB").getAttribute("aria-disabled")).not.toBe("true");
     expect(findOption("10 GB").getAttribute("aria-disabled")).toBe("true");
   });
 

@@ -48,7 +48,7 @@ import {
   extractAttachmentStoredPaths,
   extractImageSourcePaths,
   getConversation,
-  isHiddenMessageMetadata,
+  isSuppressedQueuedMessage,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
@@ -217,11 +217,11 @@ export interface MessagingConversationContext {
   currentTurnAuthContext?: AuthContext;
   currentTurnSourceActorPrincipalId?: string;
   /**
-   * OS surface reported by the connected client ("web" | "ios" | "macos" |
-   * "android"), re-applied from transport metadata on every inbound message.
+   * OS surface reported by the connected client, re-applied from transport
+   * metadata on every inbound message.
    * Persisted under `metadata.client.os` so turn telemetry can attribute the
-   * real platform — the transport `interfaceId` is "web" for the web, iOS,
-   * and macOS apps alike (they share the web renderer).
+   * real platform. The transport `interfaceId` is "web" for browser, mobile,
+   * and desktop apps because they share the web renderer.
    */
   clientOs?: string;
   getTurnChannelContext(): TurnChannelContext | null;
@@ -565,6 +565,12 @@ export interface EnqueueMessageOptions {
   sourceActorPrincipalId?: string;
   /** Auth context snapshot captured for queued turn-scoped authorization. */
   authContext?: AuthContext;
+  /**
+   * Sender's trust, for the drain to run this message under. Defaults to the
+   * conversation's trust at enqueue time, which the sending route has just
+   * set to this sender.
+   */
+  trustContext?: TrustContext;
 }
 
 // ── enqueueMessage ───────────────────────────────────────────────────
@@ -593,6 +599,9 @@ export function enqueueMessage(
     options.sourceActorPrincipalId ??
     ctx.currentTurnSourceActorPrincipalId ??
     queuedAuthContext?.actorPrincipalId;
+  // Deliberately not falling back to `currentTurnTrustContext`: that is the
+  // in-flight turn's actor, which is precisely who this message is not from.
+  const queuedTrustContext = options.trustContext ?? ctx.trustContext;
 
   if (!ctx.isProcessing()) {
     return { queued: false, requestId };
@@ -619,6 +628,7 @@ export function enqueueMessage(
     isInteractive,
     sourceActorPrincipalId,
     authContext: queuedAuthContext,
+    trustContext: queuedTrustContext,
     transport,
     displayContent,
     sentAt: Date.now(),
@@ -636,16 +646,17 @@ export function enqueueMessage(
   }
   // Ack the accepted enqueue on the sender's event sink. Emitting here,
   // rather than at each ingress call site, is what guarantees every path
-  // that queues (HTTP send, surface actions, agent wake, subagent
-  // notifications) surfaces the queued row live. Hidden sends are
-  // suppressed from the transcript at every stage, including this ack,
-  // and `position` counts visible items only: both mirror the
-  // list-messages queued-snapshot filter so a live ack and a cold reload
-  // render the same row at the same position.
-  if (!isHiddenMessageMetadata(metadata)) {
+  // that queues a person's prompt (HTTP send, surface actions, CLI signal)
+  // surfaces the queued row live. Rows with no client-visible counterpart —
+  // hidden sends and daemon-injected notifications (subagent/ACP/wake) — are
+  // suppressed from the transcript at every stage, including this ack, and
+  // `position` counts visible items only: both mirror the list-messages
+  // queued-snapshot filter so a live ack and a cold reload render the same
+  // row at the same position.
+  if (!isSuppressedQueuedMessage(metadata)) {
     const position = ctx.queue
       .snapshot()
-      .filter((item) => !isHiddenMessageMetadata(item.metadata)).length;
+      .filter((item) => !isSuppressedQueuedMessage(item.metadata)).length;
     onEvent?.({
       type: "message_queued",
       conversationId: ctx.conversationId,
@@ -667,6 +678,14 @@ export interface PersistMessageOptions {
   metadata?: Record<string, unknown>;
   displayContent?: string;
   clientMessageId?: string;
+  /**
+   * Trust to attribute the stored row to. Queue drains pass the sender's
+   * captured trust so persisted provenance names the same actor the turn
+   * executes as; the conversation slot may by then hold someone else.
+   * Defaults to the conversation's trust, which is correct for callers
+   * persisting a message the current actor just sent.
+   */
+  trustContext?: TrustContext;
   /**
    * Persist the row without indexing it (no memory segments, embeddings, or
    * lexical-index entry). For machine-authored prompts that must not enter
@@ -783,9 +802,9 @@ export async function persistUserMessage(
     return result;
   } catch (err) {
     // Clear the flag, but never let a clear failure mask the original error
-    // or skip the bookkeeping reset. `setProcessing` reverts its own
-    // in-memory flag when its persist throws, so the conversation is left
-    // consistent either way.
+    // or skip the bookkeeping reset. `setProcessing(false)` releases in memory
+    // regardless of its advisory mirror write, so the guard here is purely
+    // defensive against future changes.
     try {
       ctx.setProcessing(false);
     } catch (clearErr) {
@@ -843,7 +862,9 @@ export async function persistQueuedMessageBody(
       extractTurnChannelContext(metadata) ?? ctx.getTurnChannelContext();
     const turnIfCtx =
       extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext();
-    const provenance = provenanceFromTrustContext(ctx.trustContext);
+    const provenance = provenanceFromTrustContext(
+      options.trustContext ?? ctx.trustContext,
+    );
     const imageSourcePaths = extractImageSourcePaths(attachments);
 
     // Strip the transient `slackInbound` carrier key from the persisted

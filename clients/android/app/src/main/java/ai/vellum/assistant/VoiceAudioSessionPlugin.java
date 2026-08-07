@@ -19,6 +19,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 public class VoiceAudioSessionPlugin extends Plugin implements AudioManager.OnAudioFocusChangeListener {
     static final String EVENT_NAME = "voiceAudioInterruption";
     private static final String FAILURE_CODE = "AUDIO_SESSION_FAILED";
+    private static volatile VoiceAudioSessionPlugin loadedPlugin;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final AudioDeviceCallback deviceCallback = new AudioDeviceCallback() {
@@ -40,6 +41,7 @@ public class VoiceAudioSessionPlugin extends Plugin implements AudioManager.OnAu
 
     @Override
     public void load() {
+        loadedPlugin = this;
         audioManager = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             AudioAttributes attributes = new AudioAttributes.Builder()
@@ -69,7 +71,19 @@ public class VoiceAudioSessionPlugin extends Plugin implements AudioManager.OnAu
 
     @Override
     protected void handleOnDestroy() {
+        if (loadedPlugin == this) {
+            loadedPlugin = null;
+        }
         runOnMainThread(this::releaseAudioFocus);
+    }
+
+    static void releaseForPageLoad(Context context) {
+        VoiceAudioSessionPlugin plugin = loadedPlugin;
+        if (plugin == null) {
+            VoiceModeService.stop(context);
+            return;
+        }
+        plugin.runOnMainThread(plugin::releaseAudioFocus);
     }
 
     @Override
@@ -88,8 +102,10 @@ public class VoiceAudioSessionPlugin extends Plugin implements AudioManager.OnAu
         }
 
         try {
+            VoiceModeService.start(getContext());
             int result = requestAudioFocus();
             if (result != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                VoiceModeService.stop(getContext());
                 call.resolve(activationResult(false));
                 return;
             }
@@ -119,6 +135,7 @@ public class VoiceAudioSessionPlugin extends Plugin implements AudioManager.OnAu
     @SuppressWarnings("deprecation")
     private void releaseAudioFocus() {
         stopRouteMonitoring();
+        VoiceModeService.stop(getContext());
         if (audioManager == null) {
             active = false;
             return;
@@ -144,6 +161,7 @@ public class VoiceAudioSessionPlugin extends Plugin implements AudioManager.OnAu
         if (focusChange == AudioManager.AUDIOFOCUS_LOSS) {
             active = false;
             stopRouteMonitoring();
+            VoiceModeService.stop(getContext());
         }
         notifyListeners(EVENT_NAME, event.toJSObject());
     }

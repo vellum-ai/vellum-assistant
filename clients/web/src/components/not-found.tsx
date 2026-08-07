@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 
 import { Button } from "@vellumai/design-library/components/button";
 
+import { useTranslation } from "@/i18n";
 import { routes } from "@/utils/routes";
 
 const container: Variants = {
@@ -25,6 +26,7 @@ const rise: Variants = {
 export function NotFound() {
   const navigate = useNavigate();
   const reduceMotion = useReducedMotion();
+  const { t } = useTranslation();
 
   return (
     <div
@@ -73,21 +75,21 @@ export function NotFound() {
           variants={rise}
           className="rounded-full border border-[var(--border-subtle)] bg-[var(--surface-base)] px-3 py-1 text-label-medium-default uppercase tracking-[0.18em] text-[var(--content-tertiary)]"
         >
-          Error 404
+          {t("notFound.badge")}
         </motion.span>
 
         <motion.h1
           variants={rise}
           className="text-3xl font-semibold tracking-tight text-[var(--content-strong)]"
         >
-          Page not found
+          {t("notFound.title")}
         </motion.h1>
 
         <motion.p
           variants={rise}
           className="text-body-medium-default text-[var(--content-secondary)]"
         >
-          The page you&apos;re looking for doesn&apos;t exist or may have moved.
+          {t("notFound.body")}
         </motion.p>
 
         <motion.div
@@ -99,14 +101,14 @@ export function NotFound() {
             leftIcon={<Sparkles />}
             onClick={() => navigate(routes.assistant)}
           >
-            Back to your assistant
+            {t("notFound.backToAssistant")}
           </Button>
           <Button
             variant="ghost"
             leftIcon={<ArrowLeft />}
             onClick={() => navigate(-1)}
           >
-            Go back
+            {t("notFound.goBack")}
           </Button>
         </motion.div>
       </motion.div>

@@ -48,7 +48,11 @@ Examples:
       description:
         "Install a plugin by name from the Vellum platform (content is served as a verified tarball from the plugin's pinned commit), or directly from a GitHub URL (untrusted)",
       options: [
-        { flags: "--force", description: "Overwrite an existing install" },
+        {
+          flags: "--force",
+          description:
+            "Overwrite an existing install and skip the declared-schedules confirmation prompt",
+        },
         {
           flags: "--ref <ref>",
           description: `For a marketplace install, the manifest revision to read the pin from (default: ${DEFAULT_PLUGIN_REF}). For a GitHub URL, the git ref (branch/tag/SHA) to clone — states a slash-containing branch (e.g. feature/x) explicitly and skips the remote ref lookup a bare /tree/ URL otherwise does`,
@@ -70,6 +74,11 @@ Examples:
         },
       ],
       helpText: `
+A plugin that declares schedules (a schedules/ directory) has them listed
+during the install, and the install asks for confirmation before finalizing:
+schedules run automatically in the background once the plugin is installed.
+Pass --force to skip the prompt (required for non-interactive installs).
+
 A GitHub URL (anything containing a slash) installs directly from that repo,
 bypassing the marketplace whitelist. Such a plugin is UNTRUSTED — it has not
 been reviewed and its hooks/tools run with full assistant access — so the
@@ -121,7 +130,7 @@ Examples:
       name: "inspect",
       args: "<name>",
       description:
-        "Show a plugin's local install metadata, the marketplace pin, whether an update is available, and the surfaces (skills, hooks, tools) it contributes",
+        "Show a plugin's local install metadata, the marketplace pin, whether an update is available, and the surfaces (skills, hooks, tools, schedules) it contributes",
       options: [
         {
           flags: "--json",
@@ -245,6 +254,11 @@ $ assistant plugins publish --json`,
           flags: "--json",
           description: "Emit machine-readable JSON instead of a summary",
         },
+        {
+          flags: "--force",
+          description:
+            "Skip the declared-schedules confirmation prompt of a local upgrade (the assistant-applied path never prompts)",
+        },
       ],
       helpText: `
 A marketplace plugin upgrades to the curated pin. A plugin installed directly
@@ -252,6 +266,15 @@ from a GitHub URL (untrusted) upgrades against its recorded source: it re-fetche
 whatever its recorded ref resolves to now — a pinned commit SHA is immutable (a
 no-op), while a branch/tag/HEAD advances as upstream does — and re-materializes
 it verbatim, with no curated adapter overlay.
+
+With the assistant running, the upgrade is applied by it immediately, with no
+confirmation prompt: a schedule the new revision declares is armed by the
+assistant and surfaced as a notification, and the upgrade output lists the
+revision's declared schedules with any new ones marked. Only when the
+assistant is unreachable does the upgrade run locally instead; that path
+stages the new revision first, and a revision that declares schedules lists
+them and asks for confirmation before going live (--force skips that prompt,
+as for install).
 
 Examples:
   $ assistant plugins upgrade example

@@ -1,6 +1,30 @@
-/** Declarative help for the `assistant stt` command. */
+/**
+ * Declarative help for the `assistant stt` command.
+ *
+ * The advertised provider list is derived from the STT provider catalog, the
+ * single source of truth for which providers exist and which boundaries they
+ * serve, so the help cannot drift from what the daemon actually accepts.
+ */
 
+// provider-catalog is an execution-free data leaf (a literal map behind
+// type-only imports, no adapter or credential graph), consumed synchronously
+// to derive this module's constant. Pure data from pure data, so a lazy
+// `import()` has nothing to defer.
+// eslint-disable-next-line cli/no-daemon-internals
+import {
+  listProviderIds,
+  supportsBoundary,
+} from "../../providers/speech-to-text/provider-catalog.js";
 import type { CliCommandHelp } from "../lib/cli-command-help.js";
+
+/**
+ * `stt transcribe` runs the `daemon-batch` boundary, so streaming-only
+ * providers are omitted: naming one would advertise a configuration that
+ * fails on every file.
+ */
+const batchProviders = listProviderIds()
+  .filter((id) => supportsBoundary(id, "daemon-batch"))
+  .join(", ");
 
 export const sttHelp: CliCommandHelp = {
   name: "stt",
@@ -11,7 +35,8 @@ audio and video files. The provider is set via:
 
   $ assistant config set services.stt.provider <provider>
 
-Supported providers: openai-whisper, deepgram, google-gemini, xai.
+Supported providers: ${batchProviders}.
+Streaming-only providers serve live speech and cannot transcribe files.
 
 Examples:
   $ assistant stt transcribe --file /path/to/meeting.wav

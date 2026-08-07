@@ -34,6 +34,10 @@ import {
 import { getLiveVoiceSessionManager } from "../live-voice/live-voice-manager.js";
 import { resolveStreamingTranscriber } from "../providers/speech-to-text/resolve.js";
 import {
+  startPluginScheduleReconcileSweep,
+  stopPluginScheduleReconcileSweep,
+} from "../schedule/plugin-schedule-reconciler.js";
+import {
   activeSttStreamSessions,
   SttStreamSession,
 } from "../stt/stt-stream-session.js";
@@ -511,12 +515,20 @@ export class RuntimeHttpServer {
 
     startTelegramWebhookHealthSweep();
     log.info("Telegram webhook health sweep started");
+
+    // Backstop for plugin enable/disable, which flips the `.disabled`
+    // sentinel without poking the plugin source reconcile. The readiness
+    // guard lives inside reconcilePluginSchedules, which no-ops while
+    // migrations are unready.
+    startPluginScheduleReconcileSweep();
+    log.info("Plugin schedule reconcile sweep started");
   }
 
   async stop(): Promise<void> {
     stopGuardianExpirySweep();
     stopInferenceProfileSessionReaper();
     stopTelegramWebhookHealthSweep();
+    stopPluginScheduleReconcileSweep();
     if (this.retrySweepTimer) {
       clearInterval(this.retrySweepTimer);
       this.retrySweepTimer = null;

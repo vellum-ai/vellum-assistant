@@ -12,13 +12,11 @@
  * causes a spurious reload.
  */
 
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import {
-  getWorkspaceHooksDir,
-  getWorkspacePluginsDir,
-} from "../util/platform.js";
+import { getWorkspaceHooksDir } from "../util/platform.js";
+import { listInstalledPluginDirs } from "./installed-plugin-dirs.js";
 import { snapshotPluginSource } from "./source-fingerprint.js";
 import type { PluginSourceVersion } from "./source-versions.js";
 
@@ -33,28 +31,7 @@ import type { PluginSourceVersion } from "./source-versions.js";
 export function collectSourceVersions(): Record<string, PluginSourceVersion> {
   const out: Record<string, PluginSourceVersion> = {};
 
-  const pluginsDir = getWorkspacePluginsDir();
-  let entries: string[] = [];
-  try {
-    entries = readdirSync(pluginsDir);
-  } catch {
-    // No plugins directory yet — nothing to watch there.
-  }
-  for (const entry of entries) {
-    if (entry.startsWith(".")) {
-      continue;
-    }
-    const dir = join(pluginsDir, entry);
-    try {
-      if (!statSync(dir).isDirectory()) {
-        continue;
-      }
-    } catch {
-      continue;
-    }
-    if (!existsSync(join(dir, "package.json"))) {
-      continue;
-    }
+  for (const { dir } of listInstalledPluginDirs()) {
     const snapshot = snapshotPluginSource(dir);
     out[dir] = {
       fingerprint: snapshot.fingerprint,

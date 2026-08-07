@@ -13,11 +13,7 @@ export {
   CardFooter,
   type CardRootProps,
 } from "./components/card";
-export {
-  Notice,
-  type NoticeProps,
-  type NoticeTone,
-} from "./components/notice";
+export { Notice, type NoticeProps, type NoticeTone } from "./components/notice";
 export { ProgressBar, type ProgressBarProps } from "./components/progress-bar";
 export {
   ResizablePanel,
@@ -40,10 +36,7 @@ export {
   type TypographyVariant,
   type TypographyAs,
 } from "./components/typography";
-export {
-  Popover,
-  type PopoverContentProps,
-} from "./components/popover";
+export { Popover, type PopoverContentProps } from "./components/popover";
 export {
   Input,
   Textarea,
@@ -163,15 +156,6 @@ export {
   type SelectMenuAlign,
   type SelectSize,
 } from "./components/select";
-/** @deprecated Use `Select`. */
-export {
-  Dropdown,
-  resolveDropdownMenuPosition,
-  type DropdownOption,
-  type DropdownProps,
-  type DropdownMenuPosition,
-  type DropdownMenuAlign,
-} from "./components/dropdown";
 export {
   PanelItem,
   ROW_BASE_CLASSES as panelItemRowBaseClasses,
@@ -207,8 +191,12 @@ export {
   SideMenuSection,
   SideMenuSeparator,
   SideMenuSubList,
+  useSideMenuCollapsed,
   SIDE_MENU_DEFAULT_WIDTH,
+  SIDE_MENU_BORDER_WIDTH,
   SIDE_MENU_COLLAPSED_WIDTH,
+  SIDE_MENU_COLLAPSED_INSET,
+  SIDE_MENU_TILE_SIZE,
   SIDE_MENU_MIN_WIDTH,
   SIDE_MENU_MAX_WIDTH,
   type SideMenuProps,
@@ -243,10 +231,7 @@ export {
   type StatSquareProps,
   type StatSquareTone,
 } from "./components/stat-square";
-export {
-  ListRow,
-  type ListRowProps,
-} from "./components/list-row";
+export { ListRow, type ListRowProps } from "./components/list-row";
 export {
   ShortcutKeys,
   parseAccelerator,
@@ -254,6 +239,11 @@ export {
 } from "./components/shortcut-keys";
 export { cn } from "./utils/cn";
 export { initInputModality } from "./utils/input-modality";
+export {
+  PANEL_ITEM_WASH,
+  panelItemWashStyle,
+  type PanelItemWash,
+} from "./utils/panel-item-tint";
 export {
   PortalContainerProvider,
   usePortalContainer,

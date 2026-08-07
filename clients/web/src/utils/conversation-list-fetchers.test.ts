@@ -34,7 +34,7 @@ const {
   listBackgroundConversationsFirstPage,
   listConversations,
   listConversationsFirstPage,
-  listOriginChannelConversations,
+  listSectionConversations,
   listScheduledConversations,
   listScheduledConversationsFirstPage,
 } = await import("@/utils/conversation-list-fetchers");
@@ -66,12 +66,17 @@ type PageFixture = {
  * Stub the daemon transport so each list GET resolves the next fixture in
  * order. Returns the captured offsets so tests can assert the walk.
  */
-function stubPages(fixtures: PageFixture[]): { offsets: number[] } {
+function stubPages(fixtures: PageFixture[]): {
+  offsets: number[];
+  queries: Record<string, unknown>[];
+} {
   const offsets: number[] = [];
+  const queries: Record<string, unknown>[] = [];
   daemonClient.get = mock(
     async (options: { query?: Record<string, unknown> }) => {
       const index = offsets.length;
       offsets.push(Number(options.query?.offset ?? 0));
+      queries.push({ ...(options.query ?? {}) });
       const fixture = fixtures[index];
       if (!fixture) {
         throw new Error(`test setup has no fixture for request ${index}`);
@@ -95,7 +100,7 @@ function stubPages(fixtures: PageFixture[]): { offsets: number[] } {
       };
     },
   ) as typeof daemonClient.get;
-  return { offsets };
+  return { offsets, queries };
 }
 
 /**
@@ -301,7 +306,7 @@ describe("conversation list drain diagnostics", () => {
 
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
     const channel = await diagnosticsDuring(() =>
-      listOriginChannelConversations(ASSISTANT_ID, "slack"),
+      listSectionConversations(ASSISTANT_ID, { originChannel: "slack" }),
     );
 
     expect(channel.events[0]?.details).toMatchObject({
@@ -519,7 +524,7 @@ describe("conversation list drain telemetry", () => {
   test("an origin-channel drain is labeled origin_channel, not foreground", async () => {
     stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
 
-    await listOriginChannelConversations(ASSISTANT_ID, "slack");
+    await listSectionConversations(ASSISTANT_ID, { originChannel: "slack" });
 
     const emits = drainEmits();
     expect(emits).toHaveLength(1);
@@ -593,6 +598,82 @@ describe("conversation list drain telemetry", () => {
       pages: 1,
       rows: 1,
       list_kind: "foreground",
+    });
+  });
+});
+
+/*
+ * The section filter is what the whole per-section arrangement rests on: if a
+ * filter is dropped on the way to the wire the request still succeeds, it just
+ * answers with a superset, and the section renders rows that are not its own.
+ * That failure is silent, so it gets assertions on the query itself rather than
+ * on the returned rows.
+ */
+describe("section list filters", () => {
+  test("forwards groupId to the daemon on every page of the drain", async () => {
+    const { queries } = stubPages([
+      { ids: ["c-0"], hasMore: true },
+      { ids: ["c-1"], hasMore: false },
+    ]);
+
+    await listSectionConversations(ASSISTANT_ID, {
+      groupId: "system:pinned",
+    });
+
+    expect(queries).toHaveLength(2);
+    for (const query of queries) {
+      expect(query.groupId).toBe("system:pinned");
+    }
+  });
+
+  test("sends both filters for a channel inside the ungrouped remainder", async () => {
+    // `origin_channel` is a separate column from `group_id`, so a channel card
+    // constrains on both: without the group filter a conversation filed into a
+    // custom group would render in that group AND in its channel.
+    const { queries } = stubPages([{ ids: ["c-0"], hasMore: false }]);
+
+    await listSectionConversations(ASSISTANT_ID, {
+      groupId: "system:all",
+      originChannel: "slack",
+    });
+
+    expect(queries[0]).toMatchObject({
+      groupId: "system:all",
+      originChannel: "slack",
+    });
+  });
+
+  test("omits the filters it was not given rather than sending empties", async () => {
+    const { queries } = stubPages([{ ids: ["c-0"], hasMore: false }]);
+
+    await listSectionConversations(ASSISTANT_ID, { groupId: "grp-a" });
+
+    expect(queries[0]).not.toHaveProperty("originChannel");
+  });
+
+  test("labels a group-only drain 'section', keeping it distinct from a channel", async () => {
+    stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
+    const group = await diagnosticsDuring(() =>
+      listSectionConversations(ASSISTANT_ID, { groupId: "system:pinned" }),
+    );
+
+    expect(group.events[0]?.details).toMatchObject({
+      listKind: "section",
+      source: "drain",
+    });
+
+    // A channel section carries a groupId too, and still labels as the channel
+    // so the bounded per-channel budget stays readable.
+    stubPages([{ ids: ["c-0"], hasMore: false, contentLength: "10" }]);
+    const channel = await diagnosticsDuring(() =>
+      listSectionConversations(ASSISTANT_ID, {
+        groupId: "system:all",
+        originChannel: "slack",
+      }),
+    );
+
+    expect(channel.events[0]?.details).toMatchObject({
+      listKind: "origin_channel",
     });
   });
 });

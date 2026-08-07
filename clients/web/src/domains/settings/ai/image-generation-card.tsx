@@ -7,7 +7,7 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { captureError } from "@/lib/sentry/capture-error";
 
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -237,7 +237,7 @@ export function ImageGenerationCard() {
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Provider
           </label>
-          <Dropdown
+          <Select
             aria-label="Image generation provider"
             value={provider}
             onChange={handleProviderChange}
@@ -271,7 +271,7 @@ export function ImageGenerationCard() {
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Active Model
           </label>
-          <Dropdown
+          <Select
             aria-label="Image generation model"
             value={effectiveModel}
             onChange={setImageGenModel}

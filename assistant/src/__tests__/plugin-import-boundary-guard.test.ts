@@ -115,6 +115,12 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../config/skill-state.js",
     "../../../../config/skills.js",
     "../../../../config/types.js",
+    // Same host module the retrospective job couples to (the `../../../`
+    // entry below): the sweep job and v2 router warm the guardian-delivery
+    // cache before their sync `resolveUserName` reads so worker-process
+    // prompts address the guardian instead of the default profile. No
+    // plugin-api equivalent.
+    "../../../../contacts/guardian-delivery-reader.js",
     "../../../../context/token-estimator.js",
     "../../../../daemon/conversation-error.js",
     "../../../../daemon/conversation-notices.js",

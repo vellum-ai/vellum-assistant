@@ -6,6 +6,7 @@ import type {
 } from "@/generated/daemon/types.gen";
 import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
 import {
+  effectiveCallSiteProfile,
   isDraftActive,
   draftsEqual,
 } from "@/domains/settings/ai/call-site-helpers";
@@ -31,6 +32,73 @@ describe("isDraftActive", () => {
     expect(isDraftActive({ profile: null, provider: null, model: null })).toBe(
       false,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// effectiveCallSiteProfile
+// ---------------------------------------------------------------------------
+
+describe("effectiveCallSiteProfile", () => {
+  // `defaultProfile` is the daemon's winning profile for the call site, so a
+  // live pin is reflected there. Reporting "override" is a comparison, not an
+  // assumption that the pin won.
+  test("a live pin is reported as an override", () => {
+    expect(
+      effectiveCallSiteProfile({ defaultProfile: "fast" }, { profile: "fast" }),
+    ).toEqual({ profile: "fast", via: "override" });
+  });
+
+  // The case this exists for: the pin names a profile the resolver cannot
+  // use, so it skips the rung and the action runs on its default. Trusting
+  // the raw override would file the action under a profile it is not using,
+  // and offer to swap it away from a profile it never ran on.
+  test("a pin the resolver skipped reports what actually runs", () => {
+    expect(
+      effectiveCallSiteProfile(
+        { defaultProfile: "balanced" },
+        { profile: "retired" },
+      ),
+    ).toEqual({ profile: "balanced", via: "default" });
+  });
+
+  test("without a pin the winner is reported as the default", () => {
+    for (const override of [null, undefined, {}, { effort: "low" as const }]) {
+      expect(
+        effectiveCallSiteProfile({ defaultProfile: "slow" }, override),
+      ).toEqual({ profile: "slow", via: "default" });
+    }
+  });
+
+  // A profileless call site has no named winner, so the catalog reports only
+  // the shipped tier, which is also what the row caption shows.
+  test("falls back to the shipped tier when there is no named winner", () => {
+    expect(
+      effectiveCallSiteProfile({ shippedDefaultProfile: "balanced" }, null),
+    ).toEqual({ profile: "balanced", via: "default" });
+  });
+
+  test("a provider or model pin references no profile", () => {
+    expect(
+      effectiveCallSiteProfile({ defaultProfile: "slow" }, { model: "gpt-4o" }),
+    ).toBe(null);
+    expect(
+      effectiveCallSiteProfile(
+        { defaultProfile: "slow" },
+        { provider: "openai" },
+      ),
+    ).toBe(null);
+    expect(
+      effectiveCallSiteProfile(
+        { defaultProfile: "slow" },
+        { profile: "fast", model: "gpt-4o" },
+      ),
+    ).toBe(null);
+  });
+
+  test("a site with nothing to resolve carries no profile", () => {
+    expect(effectiveCallSiteProfile({}, null)).toBe(null);
+    expect(effectiveCallSiteProfile({}, {})).toBe(null);
   });
 });
 

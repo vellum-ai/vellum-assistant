@@ -10,7 +10,7 @@ import type { ChannelId } from "./types.js";
 
 export type InboundChannelId = Extract<
   ChannelId,
-  "telegram" | "whatsapp" | "slack" | "email" | "a2a" | "discord"
+  "telegram" | "whatsapp" | "slack" | "email" | "a2a" | "discord" | "plugin"
 >;
 
 interface InboundEventBase<C extends InboundChannelId> {
@@ -86,11 +86,21 @@ export type EmailInboundEvent = InboundEventBase<"email">;
 export type A2aInboundEvent = InboundEventBase<"a2a">;
 /**
  * Constructed by `discord/normalize.ts`. `conversationExternalId` is the
- * channel snowflake — the parent channel when the message is in a thread —
- * `actorExternalId` the author's user snowflake, and `source.threadId` the
- * thread or forum-post snowflake for thread messages.
+ * channel snowflake (the parent channel when the message is in a thread, the
+ * DM channel when it is a DM), `actorExternalId` the author's user snowflake,
+ * and `source.threadId` the thread or forum-post snowflake for thread
+ * messages. `source.chatType` is `"dm"` or `"channel"`, and only on `"dm"` is
+ * `conversationExternalId` a private address.
  */
 export type DiscordInboundEvent = InboundEventBase<"discord">;
+/**
+ * Constructed by `plugin-inbound.ts` from a plugin's reply to a verified
+ * webhook delivery. One channel covers every plugin, so `conversationExternalId`
+ * and `actorExternalId` are both prefixed with the plugin's directory name and
+ * `source.chatType` carries whatever the plugin reported. Which plugin it was
+ * reaches the runtime on `sourceMetadata`, not here.
+ */
+export type PluginInboundEvent = InboundEventBase<"plugin">;
 
 export type GatewayInboundEvent =
   | TelegramInboundEvent
@@ -98,4 +108,5 @@ export type GatewayInboundEvent =
   | SlackInboundEvent
   | EmailInboundEvent
   | A2aInboundEvent
-  | DiscordInboundEvent;
+  | DiscordInboundEvent
+  | PluginInboundEvent;

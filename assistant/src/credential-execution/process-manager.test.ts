@@ -125,3 +125,102 @@ describe("CesProcessManager.onTransportClose", () => {
     await pm.stop();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Transport-death logging: WARN only for genuinely-unexpected death
+// ---------------------------------------------------------------------------
+
+type LogCall = { level: string; msg: string };
+
+function makeRecordingLogger(): {
+  calls: LogCall[];
+  logger: NonNullable<Parameters<typeof createCesProcessManager>[0]["logger"]>;
+} {
+  const calls: LogCall[] = [];
+  const rec =
+    (level: string) =>
+    (...args: unknown[]) => {
+      const msg = typeof args[0] === "string" ? args[0] : args[1];
+      calls.push({ level, msg: typeof msg === "string" ? msg : "" });
+    };
+  const logger = {
+    info: rec("info"),
+    warn: rec("warn"),
+    debug: rec("debug"),
+    error: rec("error"),
+  } as unknown as NonNullable<
+    Parameters<typeof createCesProcessManager>[0]["logger"]
+  >;
+  return { calls, logger };
+}
+
+describe("CesProcessManager transport-death logging", () => {
+  let tempDir: string;
+  let server: Server;
+  let connections: Array<import("node:net").Socket>;
+
+  beforeEach(async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "ces-pm-log-test-"));
+    mockSocketPath = join(tempDir, "ces.sock");
+    connections = [];
+    server = createServer((socket) => {
+      connections.push(socket);
+      socket.on("error", () => {});
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(mockSocketPath, resolve),
+    );
+  });
+
+  afterEach(async () => {
+    for (const sock of connections) {
+      sock.destroy();
+    }
+    connections = [];
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  test("logs WARN when the transport dies unexpectedly (remote close)", async () => {
+    const { calls, logger } = makeRecordingLogger();
+    const pm = createCesProcessManager({ logger });
+    const transport = await pm.start();
+
+    // The remote (server) closes the connection: genuinely-unexpected death.
+    for (const sock of connections) {
+      sock.destroy();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(transport.isAlive()).toBe(false);
+
+    expect(
+      calls.some(
+        (c) => c.level === "warn" && c.msg.includes("died unexpectedly"),
+      ),
+    ).toBe(true);
+
+    await pm.stop();
+  });
+
+  test("does not log WARN on an intentional stop()", async () => {
+    const { calls, logger } = makeRecordingLogger();
+    const pm = createCesProcessManager({ logger });
+    await pm.start();
+
+    await pm.stop();
+    // Let the socket close event propagate after destroy().
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(
+      calls.some(
+        (c) => c.level === "warn" && c.msg.includes("died unexpectedly"),
+      ),
+    ).toBe(false);
+    expect(
+      calls.some(
+        (c) =>
+          c.level === "debug" && c.msg.includes("CES socket transport closed"),
+      ),
+    ).toBe(true);
+  });
+});

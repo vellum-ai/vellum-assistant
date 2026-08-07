@@ -1,7 +1,9 @@
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 
 import { ChevronRight } from "lucide-react";
 
+import { pluginNameFromSourceKey } from "@/domains/schedules/plugin-source";
+import { useTranslation } from "@/i18n";
 import {
   formatScheduleCost,
   formatScheduleRunCount,
@@ -9,6 +11,7 @@ import {
   type ScheduleRowUsage,
 } from "@/domains/settings/utils/schedule-formatters";
 import { Skeleton } from "@vellumai/design-library/components/skeleton";
+import { Tag } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import type { Schedule } from "@/domains/settings/types/schedules";
@@ -49,6 +52,7 @@ function inlineUsage(usage: ScheduleRowUsage) {
  */
 export function ScheduleRowShell({
   name,
+  badge,
   metaParts,
   usage,
   enabled,
@@ -58,6 +62,8 @@ export function ScheduleRowShell({
   toggleAriaLabel,
 }: {
   name: string;
+  /** Optional chip rendered after the name (e.g. plugin attribution). */
+  badge?: ReactNode;
   metaParts: string[];
   usage: ScheduleRowUsage;
   enabled: boolean;
@@ -88,8 +94,11 @@ export function ScheduleRowShell({
         className="flex min-w-0 flex-1 cursor-pointer items-center gap-4 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
       >
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="truncate text-body-medium-default text-[var(--content-default)]">
-            {name}
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-body-medium-default text-[var(--content-default)]">
+              {name}
+            </span>
+            {badge}
           </span>
           {metaParts.length > 0 ? (
             <span className="flex min-w-0 items-center gap-2 text-label-small-default text-[var(--content-tertiary)]">
@@ -127,22 +136,29 @@ export function ScheduleRow({
   /** Omit for read-only rows (past one-shots) — hides the enable/disable toggle. */
   onToggle?: (enabled: boolean) => void;
 }) {
+  const { t } = useTranslation("schedules");
   const cadence = schedule.isOneShot ? "" : schedule.cadenceDescription.trim();
   const runAt = schedule.lastRunAt ?? schedule.nextRunAt;
   const metaParts = [cadence, runAt ? formatTimestamp(runAt) : ""].filter(
     Boolean,
   );
+  const pluginName = pluginNameFromSourceKey(schedule.sourceKey);
 
   return (
     <ScheduleRowShell
       name={schedule.name}
+      badge={pluginName ? <Tag tone="info">{pluginName}</Tag> : undefined}
       metaParts={metaParts}
       usage={usage}
       enabled={schedule.enabled}
       selected={selected}
       onClick={onClick}
       onToggle={onToggle}
-      toggleAriaLabel={onToggle ? `Toggle ${schedule.name}` : undefined}
+      toggleAriaLabel={
+        onToggle
+          ? t("scheduleRow.toggleAria", { name: schedule.name })
+          : undefined
+      }
     />
   );
 }

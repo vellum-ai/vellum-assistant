@@ -24,7 +24,6 @@ export interface SttLanguagePickerModalProps {
   currentCode: string;
   configuredProviderId: string;
   suggestedCode?: string | null;
-  daemonDefaultsToMulti?: boolean;
   selectLanguage: (code: string) => void;
   selecting: boolean;
 }
@@ -36,7 +35,6 @@ export function SttLanguagePickerModal({
   currentCode,
   configuredProviderId,
   suggestedCode,
-  daemonDefaultsToMulti,
   selectLanguage,
   selecting,
 }: SttLanguagePickerModalProps) {
@@ -69,7 +67,6 @@ export function SttLanguagePickerModal({
           <SttLanguagePicker
             currentCode={currentCode}
             configuredProviderId={configuredProviderId}
-            daemonDefaultsToMulti={daemonDefaultsToMulti}
             suggestedCode={suggestedCode}
             selectLanguage={selectLanguage}
             selecting={selecting}

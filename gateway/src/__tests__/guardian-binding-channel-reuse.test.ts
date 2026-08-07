@@ -39,7 +39,7 @@ const TEST_SOCKET_PATH = join(
   tmpdir(),
   `vellum-guardian-binding-reuse-test-${process.pid}.sock`,
 );
-mock.module("../ipc/socket-path.js", () => ({
+mock.module("../ipc/endpoint.js", () => ({
   resolveIpcSocketPath: () => ({ path: TEST_SOCKET_PATH }),
 }));
 
