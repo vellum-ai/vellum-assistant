@@ -3,6 +3,7 @@
 // pattern: pin state is local-only, persisted to disk, survives daemon sync.
 
 import type { AppSummary } from "@/types/app-types";
+import { watchSetting } from "@/utils/local-settings";
 import { createStorageAccessor } from "@/utils/typed-storage";
 
 export interface PinnedAppEntry {
@@ -71,6 +72,18 @@ const storage = createStorageAccessor<PinnedAppEntry[]>({
 
 export const loadPinnedApps = storage.load;
 export const savePinnedApps = storage.save;
+
+/**
+ * Call `onChange` whenever the stored pin list changes, from this tab or
+ * another one, and return an unsubscribe.
+ *
+ * Exported instead of the key so the key stays private to this module: a
+ * caller that wants to follow the pins asks for the pins, rather than
+ * learning a string it would then have to keep in step with.
+ */
+export function subscribePinnedApps(onChange: () => void): () => void {
+  return watchSetting(storage.key, onChange);
+}
 
 export function pinApp(app: PinnableApp): void {
   const entries = storage.load();
