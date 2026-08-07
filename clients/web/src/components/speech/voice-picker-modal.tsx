@@ -78,6 +78,9 @@ function VoicePickerContent({
           filterBySource
           value={currentModel}
           onChange={selectModel}
+          // The dialog body is the nearest scrollport, so opening on the
+          // current voice scrolls nothing but this list.
+          autoScrollToSelected
         />
       </Modal.Body>
       <Modal.Footer className="items-center justify-between gap-3">
