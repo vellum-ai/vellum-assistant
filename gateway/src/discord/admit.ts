@@ -107,6 +107,19 @@ export function admitDiscordMessage(
   // allow-list could name, and it needs no mention to be meant for the bot.
   // The room is admitted; whether this particular person is answered in it is
   // the runtime's trust-class floor to decide.
+  //
+  // This reads an absent guild as a DM, which makes the absence load-bearing:
+  // it is the only thing standing between "private" and "a public channel
+  // admitted without either control". The ingress schema therefore collapses a
+  // malformed `guild_id` to a sentinel rather than to `undefined`, so a parse
+  // failure stays on the guild path. Do not relax that without moving this
+  // branch onto positive evidence of a DM.
+  //
+  // A Discord *group* DM is also guild-less and would be admitted here. This
+  // app cannot be in one: a bot joins a group DM only via the `gdm.join` OAuth
+  // scope, and the invite the setup skill builds requests `bot` and
+  // `applications.commands` only. Adding that scope would need this branch to
+  // distinguish the two first.
   if (!candidate.guildId) {
     return ADMITTED;
   }

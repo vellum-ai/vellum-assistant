@@ -35,10 +35,7 @@ import { normalizePhoneNumber } from "../util/phone.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 import { isGuardianBoundForChannel } from "./channel-verification-service.js";
 import {
-  composeVerificationDiscord,
-  composeVerificationEmail,
-  composeVerificationSlack,
-  composeVerificationTelegram,
+  composeVerificationText,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "./verification-templates.js";
 
@@ -349,7 +346,7 @@ async function startOutboundTelegram(
       verificationPurpose: "guardian",
     });
 
-    const telegramBody = composeVerificationTelegram(
+    const telegramBody = composeVerificationText(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
       {
         code: sessionResult.secret,
@@ -707,7 +704,7 @@ async function startOutboundSlack(
     verificationPurpose: "guardian",
   });
 
-  const slackBody = composeVerificationSlack(
+  const slackBody = composeVerificationText(
     GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_CHALLENGE_REQUEST,
     {
       code: sessionResult.secret,
@@ -801,7 +798,7 @@ async function startOutboundDiscord(
     verificationPurpose: "guardian",
   });
 
-  const discordBody = composeVerificationDiscord(
+  const discordBody = composeVerificationText(
     GUARDIAN_VERIFY_TEMPLATE_KEYS.DISCORD_CHALLENGE_REQUEST,
     {
       code: sessionResult.secret,
@@ -886,7 +883,7 @@ async function startOutboundEmail(
     verificationPurpose: "guardian",
   });
 
-  const emailBody = composeVerificationEmail(
+  const emailBody = composeVerificationText(
     GUARDIAN_VERIFY_TEMPLATE_KEYS.EMAIL_CHALLENGE_REQUEST,
     {
       code: sessionResult.secret,
@@ -1016,7 +1013,7 @@ export async function resendOutbound(
       verificationPurpose: "guardian",
     });
 
-    const telegramBody = composeVerificationTelegram(
+    const telegramBody = composeVerificationText(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND,
       {
         code: newSession.secret,
@@ -1091,7 +1088,7 @@ export async function resendOutbound(
       verificationPurpose: "guardian",
     });
 
-    const slackBody = composeVerificationSlack(
+    const slackBody = composeVerificationText(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_RESEND,
       {
         code: newSession.secret,
@@ -1129,7 +1126,7 @@ export async function resendOutbound(
       verificationPurpose: "guardian",
     });
 
-    const discordBody = composeVerificationDiscord(
+    const discordBody = composeVerificationText(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.DISCORD_RESEND,
       {
         code: newSession.secret,
@@ -1172,7 +1169,7 @@ export async function resendOutbound(
       verificationPurpose: "guardian",
     });
 
-    const emailBody = composeVerificationEmail(
+    const emailBody = composeVerificationText(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.EMAIL_RESEND,
       {
         code: newSession.secret,

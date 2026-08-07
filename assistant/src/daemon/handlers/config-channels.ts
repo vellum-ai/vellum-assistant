@@ -49,9 +49,7 @@ import {
   normalizeTelegramDestination,
 } from "../../runtime/verification-outbound-actions.js";
 import {
-  composeVerificationDiscord,
-  composeVerificationSlack,
-  composeVerificationTelegram,
+  composeVerificationText,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../../runtime/verification-templates.js";
 import { getTelegramBotUsername } from "../../telegram/bot-username.js";
@@ -427,7 +425,7 @@ export async function verifyTrustedContact(
         verificationPurpose: "trusted_contact",
       });
 
-      const telegramBody = composeVerificationTelegram(
+      const telegramBody = composeVerificationText(
         GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
         {
           code: sessionResult.secret,
@@ -511,7 +509,7 @@ export async function verifyTrustedContact(
       verificationPurpose: "trusted_contact",
     });
 
-    const slackBody = composeVerificationSlack(
+    const slackBody = composeVerificationText(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_CHALLENGE_REQUEST,
       {
         code: sessionResult.secret,
@@ -549,7 +547,7 @@ export async function verifyTrustedContact(
       verificationPurpose: "trusted_contact",
     });
 
-    const discordBody = composeVerificationDiscord(
+    const discordBody = composeVerificationText(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.DISCORD_TRUSTED_CONTACT_CHALLENGE,
       {
         code: sessionResult.secret,

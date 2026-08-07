@@ -162,46 +162,15 @@ const templates: Record<
 };
 
 /**
- * Compose an outbound verification Slack DM from a template key and typed variables.
- * Returns plain string content suitable for Slack delivery.
+ * Compose an outbound verification message from a template key and typed
+ * variables. Returns plain string content suitable for any text channel's
+ * delivery.
+ *
+ * One function rather than one per channel: the body was identical four times
+ * over, and the template key already names the channel, so a per-channel
+ * wrapper added a name and no safety.
  */
-export function composeVerificationSlack(
-  templateKey: TextVerifyTemplateKey,
-  vars: GuardianVerifyTemplateVars,
-): string {
-  const composer = templates[templateKey];
-  return composer(vars);
-}
-
-/**
- * Compose an outbound verification Discord DM from a template key and typed variables.
- * Returns plain string content suitable for Discord delivery.
- */
-export function composeVerificationDiscord(
-  templateKey: TextVerifyTemplateKey,
-  vars: GuardianVerifyTemplateVars,
-): string {
-  const composer = templates[templateKey];
-  return composer(vars);
-}
-
-/**
- * Compose an outbound verification email from a template key and typed variables.
- * Returns plain string content suitable for email delivery.
- */
-export function composeVerificationEmail(
-  templateKey: TextVerifyTemplateKey,
-  vars: GuardianVerifyTemplateVars,
-): string {
-  const composer = templates[templateKey];
-  return composer(vars);
-}
-
-/**
- * Compose an outbound verification Telegram message from a template key and typed variables.
- * Returns plain string content suitable for Telegram delivery.
- */
-export function composeVerificationTelegram(
+export function composeVerificationText(
   templateKey: TextVerifyTemplateKey,
   vars: GuardianVerifyTemplateVars,
 ): string {
