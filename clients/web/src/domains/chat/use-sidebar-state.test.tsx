@@ -4,6 +4,9 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import type * as ConversationQueries from "@/hooks/conversation-queries";
 import type { Conversation } from "@/types/conversation-types";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
+/* Type-only, so it is erased before the `mock.module` above takes effect and
+   the dynamic `import` below is still what supplies the implementation. */
+import type { SidebarState } from "@/domains/chat/use-sidebar-state";
 
 /* The Background/Scheduled sections own their lazy queries; stub both so the
    hook resolves without a QueryClient.
@@ -267,25 +270,40 @@ describe("useSidebarState all view", () => {
     expect(renderSidebar().result.current.viewMode).toBe("all");
   });
 
+  /** The Chats section, which is where this view's uncurated rows live. */
+  function recentsIds(result: { current: SidebarState }): string[] {
+    const recents = result.current.sections.find((s) => s.type === "recents");
+    return (recents?.all ?? []).map((c) => c.conversationId);
+  }
+
   test("merges the channel conversations into one recency-sorted list", () => {
     const { result } = renderSidebar();
 
     expect(
       result.current.sections.filter((section) => section.type === "channel"),
     ).toEqual([]);
-    expect(result.current.flatList.map((c) => c.conversationId)).toEqual([
-      "s1",
-      "r1",
-      "t1",
-    ]);
+    expect(recentsIds(result)).toEqual(["s1", "r1", "t1"]);
   });
 
   test("leaves pinned and grouped conversations out of the flat list", () => {
     const { result } = renderSidebar();
 
-    const flatIds = result.current.flatList.map((c) => c.conversationId);
-    expect(flatIds).not.toContain("p1");
-    expect(flatIds).not.toContain("g1");
+    expect(recentsIds(result)).not.toContain("p1");
+    expect(recentsIds(result)).not.toContain("g1");
+  });
+
+  /* The uncurated rows are reachable as the Chats section and nowhere else.
+     Asserts the count rather than merely that Chats holds them: one section
+     holding them and a parallel list holding them too passes the tests above,
+     and gives the collapsed rail two Chats tiles to draw. */
+  test("publishes the uncurated rows once, as the Chats section", () => {
+    const { result } = renderSidebar();
+
+    const holders = result.current.sections.filter((section) =>
+      section.all.some((c) => c.conversationId === "s1"),
+    );
+    expect(holders.map((s) => s.key)).toEqual(["recents"]);
+    expect(Object.keys(result.current)).not.toContain("flatList");
   });
 
   /* Chats is a section in this view too, not a bare list under the curated

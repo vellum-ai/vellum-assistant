@@ -14,6 +14,7 @@ import {
   Button,
   PanelItem,
   Popover,
+  SideMenu,
 } from "@vellumai/design-library";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
@@ -54,6 +55,12 @@ export interface PreferencesMenuProps {
    * `pill` is a floating rounded button for the mobile overlay's action row.
    */
   triggerVariant?: "item" | "pill";
+  /**
+   * The rail is collapsed, so the `item` trigger reduces to the icon-only
+   * tile every other rail entry reduces to. Ignored by the `pill` variant,
+   * which only ever renders on the mobile overlay.
+   */
+  collapsed?: boolean;
 }
 
 export function PreferencesMenu({
@@ -61,6 +68,7 @@ export function PreferencesMenu({
   assistantVersion,
   activeConversationId,
   triggerVariant = "item",
+  collapsed = false,
 }: PreferencesMenuProps) {
   const isAuthenticated = useIsAuthenticated();
   const isMobile = useIsMobile();
@@ -87,6 +95,33 @@ export function PreferencesMenu({
             wide enough to overlap it at narrow viewports. */}
         <span className="min-w-0 truncate">{PREFERENCES_LABEL}</span>
       </Button>
+    ) : collapsed ? (
+      /* Collapsed, the same tile every other rail entry reduces to: a 30px
+         circle with the glyph centred and no label, its name carried by the
+         hover tooltip. A pill is sized by its content, so one keeping its
+         label is wider than the 48px rail and gets clipped mid-word, and one
+         with only the label dropped is still a content-width capsule with the
+         glyph against its leading edge. `SideMenu.Item` owns that whole
+         treatment, and it is what the pinned apps above and the section tiles
+         use, so the foot of the rail is drawn by the same component as the
+         rest of it.
+
+         No chevron: it says which way the popover will open, and a tile has
+         no room for it beside the glyph. */
+      <SideMenu.Item
+        icon={CircleUser}
+        label={PREFERENCES_LABEL}
+        showCollapsedTooltip
+        shape="tile"
+        active={isOpen}
+        /* `active` is the open-popover surface here, not a location: this
+           tile opens a menu over the rail rather than navigating, so it drops
+           the `aria-current="page"` a real destination row sets. Mirrors the
+           section tiles in `CollapsedGroupIcon`. */
+        aria-current={undefined}
+        aria-haspopup="dialog"
+        data-tour-id="settings"
+      />
     ) : (
       /* A pill, matching the identity and pinned-app entries it shares the
          rail with: these are destinations you keep, not rows in a list.

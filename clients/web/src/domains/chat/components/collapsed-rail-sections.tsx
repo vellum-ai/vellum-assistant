@@ -5,22 +5,12 @@ import {
 import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 import { useSectionConversations } from "@/domains/chat/use-section-conversations";
-import {
-  RECENTS_SECTION_ICON,
-  RECENTS_SECTION_LABEL,
-  sectionIcon,
-} from "@/domains/chat/utils/sidebar-section-icon";
-import type { SidebarViewMode } from "@/domains/chat/utils/sidebar-view-mode";
-import type { Conversation } from "@/types/conversation-types";
+import { sectionIcon } from "@/domains/chat/utils/sidebar-section-icon";
 
 export interface CollapsedRailSectionsProps {
   sections: SidebarSection[];
   /** Owns the section queries; `null` keeps them on the derived rows. */
   assistantId: string | null;
-  /** Sidebar view mode; the flat list gets its own rail icon in "all". */
-  viewMode: SidebarViewMode;
-  /** Every conversation neither pinned nor in a custom group. */
-  flatList: Conversation[];
   processingConversationIds?: Set<string>;
   attentionConversationIds?: Set<string>;
 }
@@ -76,12 +66,15 @@ function CollapsedRailSectionIcon({
  * as the expanded sidebar, as flyout icons. Nothing here is type-aware -
  * order and labels come straight from `sections`, so the rail can't drift
  * from the expanded list the way two hand-maintained orders would.
+ *
+ * `sections` is the only source a tile may come from, in either view mode:
+ * every conversation the rail can reach belongs to some section, so a tile
+ * drawn from anywhere else stands beside the section that already holds those
+ * rows and draws them a second time.
  */
 export function CollapsedRailSections({
   sections,
   assistantId,
-  viewMode,
-  flatList,
   processingConversationIds,
   attentionConversationIds,
 }: CollapsedRailSectionsProps) {
@@ -96,30 +89,6 @@ export function CollapsedRailSections({
           attentionConversationIds={attentionConversationIds}
         />
       ))}
-      {/* The flat list has no section of its own to draw, so the rail
-          gives it one icon - otherwise the All view's conversations
-          would be unreachable while collapsed. */}
-      {viewMode === "all" ? (
-        <CollapsedGroupIcon
-          icon={RECENTS_SECTION_ICON}
-          label={RECENTS_SECTION_LABEL}
-          disabled={flatList.length === 0}
-          indicatorState={getGroupIndicatorState(
-            flatList,
-            processingConversationIds,
-            attentionConversationIds,
-          )}
-        >
-          {(close, scrollParent) => (
-            <CollapsedGroupFlyout
-              title={RECENTS_SECTION_LABEL}
-              conversations={flatList}
-              onClosePopover={close}
-              scrollParent={scrollParent}
-            />
-          )}
-        </CollapsedGroupIcon>
-      ) : null}
     </div>
   );
 }

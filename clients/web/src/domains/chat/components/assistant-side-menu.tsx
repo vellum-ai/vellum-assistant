@@ -499,8 +499,6 @@ export function AssistantSideMenu({
             <CollapsedRailSections
               sections={sidebar.sections}
               assistantId={assistantId ?? null}
-              viewMode={sidebar.viewMode}
-              flatList={sidebar.flatList}
               processingConversationIds={processingConversationIds}
               attentionConversationIds={attentionConversationIds}
             />

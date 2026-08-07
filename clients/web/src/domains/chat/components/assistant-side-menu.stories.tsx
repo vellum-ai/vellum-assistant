@@ -19,6 +19,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
+import { useAuthStore } from "@/stores/auth-store";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import {
   saveViewMode,
@@ -145,6 +146,10 @@ function seedViewMode(assistantId: string, mode: SidebarViewMode): void {
     pinnedApps: PINNED_APPS,
     pinnedAppIds: new Set(PINNED_APPS.map((app) => app.appId)),
   });
+  /* `PreferencesMenu` renders nothing for a signed-out user and a story has no
+     session of its own, so the sidebar's footer entry only appears in these
+     stories once one is seeded. */
+  useAuthStore.setState({ sessionStatus: "authenticated" });
 }
 
 const SHARED_ARGS = {
@@ -245,12 +250,28 @@ export const GroupedView: Story = {
    explaining why it does nothing stays reachable. It's muted rather than
    natively disabled for exactly that reason. */
 export const CollapsedRail: Story = {
-  name: "Collapsed rail",
+  name: "Collapsed rail · grouped view",
   beforeEach: () => seedViewMode("asst-collapsed", "grouped"),
   args: {
     ...SHARED_ARGS,
     assistantId: "asst-collapsed",
     collapsed: true,
+    footerAction: <PreferencesMenu assistantId="asst-story" collapsed />,
+  },
+};
+
+/* The same rail in the default view, which is the one most users see. The two
+   views put a different section set in the column, and the rail is where a
+   section list going wrong is hardest to spot, so each view gets its own
+   collapsed surface rather than sharing one. */
+export const CollapsedRailAllView: Story = {
+  name: "Collapsed rail · all view",
+  beforeEach: () => seedViewMode("asst-collapsed-all", "all"),
+  args: {
+    ...SHARED_ARGS,
+    assistantId: "asst-collapsed-all",
+    collapsed: true,
+    footerAction: <PreferencesMenu assistantId="asst-story" collapsed />,
   },
 };
 
