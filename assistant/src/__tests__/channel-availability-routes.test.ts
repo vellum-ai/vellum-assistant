@@ -57,6 +57,8 @@ const handler = ROUTES[0]!.handler;
 
 interface ChannelEntry {
   id: string;
+  /** `default` here, `plugin:<name>` for a channel a plugin brings. */
+  source: string;
   label: string;
   subtitle: string;
   icon: string;
