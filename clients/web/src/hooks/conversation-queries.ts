@@ -182,6 +182,14 @@ export function useScheduledConversationListQuery(
  *
  * `enabled` gates the network fetch; passing `false` keeps the observer
  * subscribed to cache updates without firing a request.
+ *
+ * `hasData` rather than `isError` is what a section should branch on when
+ * deciding whether to trust this result. The two are not complements: React
+ * Query keeps the last successful data when a later refetch fails, so an
+ * errored query can still be holding the section's real rows, and treating
+ * `isError` as "unusable" would swap them for a worse list. `hasData` is
+ * false in exactly the cases with nothing to show - never fetched, still
+ * pending, or failed before it ever succeeded.
  */
 export function useSectionConversationListQuery(
   assistantId: string | null,
@@ -191,6 +199,9 @@ export function useSectionConversationListQuery(
   conversations: Conversation[];
   isLoading: boolean;
   isPending: boolean;
+  isError: boolean;
+  /** Whether the query has ever resolved; survives a failed refetch. */
+  hasData: boolean;
 } {
   const isOrgReady = useIsOrgReady();
   const query = useQuery({
@@ -201,6 +212,8 @@ export function useSectionConversationListQuery(
     conversations: query.data ?? EMPTY_CONVERSATIONS,
     isLoading: query.isLoading,
     isPending: query.isPending,
+    isError: query.isError,
+    hasData: query.data !== undefined,
   };
 }
 

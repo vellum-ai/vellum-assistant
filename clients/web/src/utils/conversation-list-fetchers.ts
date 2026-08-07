@@ -137,6 +137,32 @@ type ConversationListQuery = NonNullable<ConversationsGetData["query"]>;
 export type OriginChannel = ConversationListQuery["originChannel"];
 
 /**
+ * The same set as {@link OriginChannel}, at runtime.
+ *
+ * A sidebar channel section is keyed by whatever `origin_channel` its rows
+ * carried, which is a plain string, so sending it as a query parameter needs a
+ * membership check first. `_Exhaustive` fails to compile if the generated
+ * union gains a channel this list is missing, so a schema change surfaces here
+ * rather than as a section that silently stops filtering.
+ */
+export const ORIGIN_CHANNELS = [
+  "telegram",
+  "phone",
+  "vellum",
+  "whatsapp",
+  "slack",
+  "email",
+  "platform",
+  "a2a",
+  "discord",
+] as const satisfies readonly NonNullable<OriginChannel>[];
+
+type _Exhaustive =
+  NonNullable<OriginChannel> extends (typeof ORIGIN_CHANNELS)[number]
+    ? true
+    : never;
+
+/**
  * Group filter accepted by `GET /v1/conversations?groupId=`. Derived from the
  * generated query type rather than restated, so a schema change surfaces
  * here as a type error.
@@ -566,6 +592,16 @@ export const SYSTEM_PINNED_GROUP_ID = "system:pinned";
 export const SYSTEM_ALL_GROUP_ID = "system:all";
 
 /**
+ * The `originChannel` value for a conversation started in Vellum rather than
+ * arriving from an external channel, and so the filter the Chats section
+ * asks for.
+ *
+ * Typed against the generated union, so removing it from the schema fails
+ * the build here rather than sending a value the daemon rejects.
+ */
+export const NATIVE_ORIGIN_CHANNEL: NonNullable<OriginChannel> = "vellum";
+
+/**
  * Fetch every active conversation matching one section's filter: Pinned, a
  * custom group, the ungrouped remainder, or a channel within it.
  *
@@ -581,13 +617,8 @@ export const SYSTEM_ALL_GROUP_ID = "system:all";
  * unread indicator and bulk actions describe only the prefix. Lifting that
  * needs a windowed section list, not a bigger cap.
  *
- * Returned in the server's order, which is NOT the final order for every
- * section. A user-ordered group (pinned, any custom group) is sorted by
- * `COALESCE(display_order, 999999) ASC` and then by recency, and pinning
- * writes no `displayOrder`, so rows the user never dragged all tie at the
- * sentinel and fall through to activity order. Those sections re-apply
- * `compareByDisplayOrder` so a pinned row holds its place instead of jumping
- * on every new message. Recency-ordered sections need no client sort.
+ * Rendered in the server's order, which is recency for every section,
+ * pinned and custom groups included. The client applies no sort of its own.
  */
 export async function listSectionConversations(
   assistantId: string,

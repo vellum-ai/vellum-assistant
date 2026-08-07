@@ -27,6 +27,10 @@ import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
 import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
 import {
+  ComposerCompactProvider,
+  useIsCompactComposerWidth,
+} from "@/domains/chat/components/chat-composer/composer-compact";
+import {
   COMPOSER_RADIUS_CLASS,
   VoiceComposerBar,
 } from "@/domains/chat/components/chat-composer/voice-composer-bar";
@@ -153,7 +157,9 @@ export interface ChatComposerProps {
   contextWindowIndicatorSlot?: ReactNode;
   // Model-profile picker rendered on the row's right end, beside the mic
   // (Figma: New-App 7471-25234). The orchestrator passes a second
-  // `ComposerSettingsMenu` instance scoped to the profile segment.
+  // `ComposerSettingsMenu` instance scoped to the profile segment. Dropped
+  // below the compact card width, where `thresholdPickerSlot`'s menu absorbs
+  // the profile section rather than the two triggers colliding.
   modelPickerSlot?: ReactNode;
 
   // Slot rendered above the form (between the max-width wrapper and the form).
@@ -484,6 +490,15 @@ export function ChatComposer({
   const isNative = useIsNativePlatform();
   const isElectronHost = isElectron();
 
+  // Narrow-card collapse: below the compact width the labelled access and
+  // model-profile triggers collide, so the pair folds into one hamburger menu
+  // (mounted in the access slot, keeping the row's attach | settings | mic |
+  // voice order). Mobile is excluded: its triggers are already icon-only and
+  // open bottom sheets, which fit.
+  const composerCardRef = useRef<HTMLFormElement>(null);
+  const compactSettings =
+    useIsCompactComposerWidth(composerCardRef) && !isMobile;
+
   // Stable ref so handleSlashCommandSelect's autoSend path always calls the
   // latest onSubmit even after flushSync triggers a synchronous re-render.
   const onSubmitRef = useRef(onSubmit);
@@ -706,6 +721,7 @@ export function ChatComposer({
       <Popover.Root open={emoji.show || slash.show}>
         <Popover.Anchor asChild>
           <form
+            ref={composerCardRef}
             data-slot="chat-composer"
             onSubmit={onSubmit}
             className={`overflow-hidden bg-[var(--surface-lift)] shadow-[0px_2px_2px_rgba(0,0,0,0.05)] ${
@@ -967,110 +983,40 @@ export function ChatComposer({
                 session's own controls live in the bar above the card, and
                 everything here (attach, model picker, send) keeps working
                 alongside it. */}
-              <div className="flex items-center justify-between gap-1 px-2 pb-2">
-                <div className="flex min-w-0 items-center gap-2">
-                  {contextWindowIndicatorSlot}
-                  {!isAssistantBusy && (
-                    <AttachFileButton
-                      disabled={typingDisabled || !assistantId}
-                      onFilesSelected={onAddAttachmentFiles}
-                    />
-                  )}
-                  {!isAssistantBusy && thresholdPickerSlot ? (
-                    <div
-                      aria-hidden="true"
-                      className="h-4 w-px shrink-0 bg-[var(--border-hover)] touch-mobile:-mx-1"
-                    />
-                  ) : null}
-                  {thresholdPickerSlot}
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  {isAssistantBusy ? (
-                    <>
-                      {/* Desktop: always show stop. Mobile: show stop only when there is no sendable content. */}
-                      {(!isMobile || !canSendMessageContent) && (
-                        <Button
-                          variant="primary"
-                          iconOnly={
-                            <Square className="h-3 w-3" fill="currentColor" />
-                          }
-                          onClick={onStopGenerating}
-                          aria-label="Stop generating"
-                        />
-                      )}
-                      {/* Mobile: show send instead of stop when content can be queued. */}
-                      {isMobile && canSendMessageContent && (
-                        <Button
-                          variant="primary"
-                          iconOnly={
-                            <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
-                          }
-                          type="submit"
-                          disabled={
-                            sendDisabled || attachmentsUploadingCount > 0
-                          }
-                          title={
-                            sendDisabled
-                              ? "Type a message to send"
-                              : attachmentsUploadingCount > 0
-                                ? "Uploading attachments…"
-                                : "Send message"
-                          }
-                          aria-label="Send message"
-                        />
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      {modelPickerSlot}
-                      {modelPickerSlot && showDictationButton ? (
-                        <div
-                          aria-hidden="true"
-                          className="h-4 w-px shrink-0 bg-[var(--border-hover)] touch-mobile:-mx-1"
-                        />
-                      ) : null}
-                      {showDictationButton && (
-                        <VoiceInputButton
-                          ref={voiceInputRef}
-                          assistantId={assistantId}
-                          // Mutual exclusion: a live-voice session in another
-                          // thread must block dictation, or two mic capture
-                          // flows could run at once. (This composer's own
-                          // session takes the button away entirely — see
-                          // `showDictationButton`.)
-                          disabled={typingDisabled || isLiveVoiceSessionLive}
-                          onTranscript={onVoiceTranscript}
-                          onInterimTranscript={onVoiceInterimTranscript}
-                          onError={onVoiceError}
-                          onBeforeStart={onVoiceBeforeStart}
-                          onStreamReady={(stream: MediaStream | null) => {
-                            voiceStreamRef.current = stream;
-                            setVoiceStream(stream);
-                          }}
-                        />
-                      )}
-                      {/* macOS parity: the send button is hidden during recording
-                      and while transcription is being processed. Only the voice
-                      button (mic / stop / spinner) is shown. Otherwise the send
-                      slot holds voice mode until there is something to send, at
-                      which point the send arrow takes over. */}
-                      {!isVoiceActive &&
-                        (showVoiceModeInSendSlot ? (
-                          // Session entry point: once a session starts here the
-                          // slot gives way to the send arrow and the bar above
-                          // the card owns stopping. Disabled while dictation is
-                          // active or a live-voice session already runs
-                          // elsewhere, so a second mic/voice capture can't open
-                          // alongside it.
-                          <LiveVoiceButton
-                            onStart={handleLiveVoiceStart}
-                            disabled={
-                              typingDisabled ||
-                              isVoiceActive ||
-                              isLiveVoiceSessionLive
+              <ComposerCompactProvider compact={compactSettings}>
+                <div className="flex items-center justify-between gap-1 px-2 pb-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    {contextWindowIndicatorSlot}
+                    {!isAssistantBusy && (
+                      <AttachFileButton
+                        disabled={typingDisabled || !assistantId}
+                        onFilesSelected={onAddAttachmentFiles}
+                      />
+                    )}
+                    {!isAssistantBusy && thresholdPickerSlot ? (
+                      <div
+                        aria-hidden="true"
+                        className="h-4 w-px shrink-0 bg-[var(--border-hover)] touch-mobile:-mx-1"
+                      />
+                    ) : null}
+                    {thresholdPickerSlot}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {isAssistantBusy ? (
+                      <>
+                        {/* Desktop: always show stop. Mobile: show stop only when there is no sendable content. */}
+                        {(!isMobile || !canSendMessageContent) && (
+                          <Button
+                            variant="primary"
+                            iconOnly={
+                              <Square className="h-3 w-3" fill="currentColor" />
                             }
+                            onClick={onStopGenerating}
+                            aria-label="Stop generating"
                           />
-                        ) : (
+                        )}
+                        {/* Mobile: show send instead of stop when content can be queued. */}
+                        {isMobile && canSendMessageContent && (
                           <Button
                             variant="primary"
                             iconOnly={
@@ -1078,12 +1024,10 @@ export function ChatComposer({
                             }
                             type="submit"
                             disabled={
-                              sendDisabled ||
-                              attachmentsUploadingCount > 0 ||
-                              !canSendMessageContent
+                              sendDisabled || attachmentsUploadingCount > 0
                             }
                             title={
-                              sendDisabled || !canSendMessageContent
+                              sendDisabled
                                 ? "Type a message to send"
                                 : attachmentsUploadingCount > 0
                                   ? "Uploading attachments…"
@@ -1091,11 +1035,93 @@ export function ChatComposer({
                             }
                             aria-label="Send message"
                           />
-                        ))}
-                    </>
-                  )}
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {/* Compact: the model profile moves into the left
+                          slot's hamburger alongside access, so nothing is
+                          mounted here. */}
+                        {!compactSettings && modelPickerSlot}
+                        {!compactSettings &&
+                        modelPickerSlot &&
+                        showDictationButton ? (
+                          <div
+                            aria-hidden="true"
+                            className="h-4 w-px shrink-0 bg-[var(--border-hover)] touch-mobile:-mx-1"
+                          />
+                        ) : null}
+                        {showDictationButton && (
+                          <VoiceInputButton
+                            ref={voiceInputRef}
+                            assistantId={assistantId}
+                            // Mutual exclusion: a live-voice session in another
+                            // thread must block dictation, or two mic capture
+                            // flows could run at once. (This composer's own
+                            // session takes the button away entirely — see
+                            // `showDictationButton`.)
+                            disabled={typingDisabled || isLiveVoiceSessionLive}
+                            onTranscript={onVoiceTranscript}
+                            onInterimTranscript={onVoiceInterimTranscript}
+                            onError={onVoiceError}
+                            onBeforeStart={onVoiceBeforeStart}
+                            onStreamReady={(stream: MediaStream | null) => {
+                              voiceStreamRef.current = stream;
+                              setVoiceStream(stream);
+                            }}
+                          />
+                        )}
+                        {/* macOS parity: the send button is hidden during recording
+                      and while transcription is being processed. Only the voice
+                      button (mic / stop / spinner) is shown. Otherwise the send
+                      slot holds voice mode until there is something to send, at
+                      which point the send arrow takes over. */}
+                        {!isVoiceActive &&
+                          (showVoiceModeInSendSlot ? (
+                            // Session entry point: once a session starts here the
+                            // slot gives way to the send arrow and the bar above
+                            // the card owns stopping. Disabled while dictation is
+                            // active or a live-voice session already runs
+                            // elsewhere, so a second mic/voice capture can't open
+                            // alongside it.
+                            <LiveVoiceButton
+                              onStart={handleLiveVoiceStart}
+                              disabled={
+                                typingDisabled ||
+                                isVoiceActive ||
+                                isLiveVoiceSessionLive
+                              }
+                            />
+                          ) : (
+                            <Button
+                              variant="primary"
+                              iconOnly={
+                                <ArrowUp
+                                  className="h-4 w-4"
+                                  strokeWidth={2.5}
+                                />
+                              }
+                              type="submit"
+                              disabled={
+                                sendDisabled ||
+                                attachmentsUploadingCount > 0 ||
+                                !canSendMessageContent
+                              }
+                              title={
+                                sendDisabled || !canSendMessageContent
+                                  ? "Type a message to send"
+                                  : attachmentsUploadingCount > 0
+                                    ? "Uploading attachments…"
+                                    : "Send message"
+                              }
+                              aria-label="Send message"
+                            />
+                          ))}
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
+              </ComposerCompactProvider>
             </div>
           </form>
         </Popover.Anchor>

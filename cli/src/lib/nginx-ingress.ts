@@ -15,6 +15,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
+import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 
 import { cloudAssistantHubUrl } from "@vellumai/environments";
@@ -188,13 +189,22 @@ function remoteWebIngressConfig(
 }
 
 /**
+ * Part of edge identity: a detached edge is reused only while its recorded
+ * fingerprint matches, so this must change whenever the generated index or
+ * nginx template does.
+ */
+const EDGE_TEMPLATE_VERSION = 2;
+
+/**
  * Stable fingerprint of the SPA config injected into the served index and
- * `/assistant/__config`. Recorded alongside the edge state so a reuse
- * decision can tell whether a running edge already serves the requested
- * config (see `IngressState.remoteWebConfigHash`).
+ * `/assistant/__config`, plus the template that renders them. Recorded
+ * alongside the edge state so a reuse decision can tell whether a running edge
+ * already serves the requested config (see `IngressState.remoteWebConfigHash`).
  */
 function remoteWebConfigFingerprint(config: Record<string, unknown>): string {
-  return createHash("sha256").update(JSON.stringify(config)).digest("hex");
+  return createHash("sha256")
+    .update(JSON.stringify({ template: EDGE_TEMPLATE_VERSION, config }))
+    .digest("hex");
 }
 
 function safeScriptJson(value: unknown): string {
@@ -203,15 +213,36 @@ function safeScriptJson(value: unknown): string {
     .replace(/>/g, "\\u003e");
 }
 
+/**
+ * Preloading the whole chunk graph opens ~290 tunnel connections on a cold
+ * load, and one dropped request blanks the app before React can report it.
+ * These are hints only; the entry module still pulls what it needs.
+ */
+function stripModulePreloads(html: string): string {
+  return html.replace(/<link[^>]+rel="modulepreload"[^>]*>\s*/g, "");
+}
+
 export function buildRemoteWebIndexHtml(
   rawHtml: string,
   config: Record<string, unknown>,
 ): string {
+  const html = stripModulePreloads(rawHtml);
   const script = `<script>window.__VELLUM_CONFIG__=${safeScriptJson(config)}</script>`;
-  if (rawHtml.includes("</head>")) {
-    return rawHtml.replace("</head>", `${script}</head>`);
+  if (html.includes("</head>")) {
+    return html.replace("</head>", `${script}</head>`);
   }
-  return `${script}${rawHtml}`;
+  return `${script}${html}`;
+}
+
+/**
+ * Whether the host has an IPv6 loopback to bind. False on Linux installs with
+ * IPv6 disabled, where emitting the listener would make nginx exit at startup
+ * rather than fall back to IPv4.
+ */
+export function hasIpv6Loopback(): boolean {
+  return Object.values(networkInterfaces())
+    .flatMap((addrs) => addrs ?? [])
+    .some((addr) => addr.address === "::1");
 }
 
 /**
@@ -221,8 +252,16 @@ export function buildIngressNginxConfig(opts: {
   gatewayPort: number;
   listenPort: number;
   remoteWebIngress?: RemoteWebIngressOptions;
+  /** Emit the `[::1]` listener. Off where the host has no IPv6 loopback,
+   *  since nginx exits at startup when it cannot bind a listen address. */
+  ipv6Loopback?: boolean;
 }): string {
   const proxyBlock = gatewayProxyBlock(opts.gatewayPort);
+  // A tunnel agent pointed at "localhost" reaches ::1 first on macOS, so an
+  // IPv4-only bind refuses whichever share of a burst resolves that way.
+  const ipv6Listen = opts.ipv6Loopback
+    ? `    listen [::1]:${opts.listenPort};\n`
+    : "";
   const remoteWebIngress = opts.remoteWebIngress;
   const serverLocations = remoteWebIngress
     ? buildRemoteWebIngressLocations({
@@ -272,7 +311,7 @@ http {
 
   server {
     listen 127.0.0.1:${opts.listenPort};
-    client_max_body_size 512m;
+${ipv6Listen}    client_max_body_size 512m;
 
     # This edge sits behind a TLS-terminating front (tunnel or tailscale serve),
     # so redirects must be relative: emit "Location: /assistant/" and let the
@@ -553,6 +592,7 @@ export function startIngressNginx(opts: {
       gatewayPort: opts.gatewayPort,
       listenPort: opts.listenPort,
       remoteWebIngress,
+      ipv6Loopback: hasIpv6Loopback(),
     }),
   );
 

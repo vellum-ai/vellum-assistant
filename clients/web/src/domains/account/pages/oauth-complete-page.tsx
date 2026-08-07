@@ -1,4 +1,6 @@
 import { useEffect, useRef } from "react";
+
+import { useTranslation } from "@/i18n";
 import { useSearchParams } from "react-router";
 
 import {
@@ -208,6 +210,7 @@ export function completeOAuthPopup(
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export function OAuthCompletePage() {
+  const { t } = useTranslation("account");
   const [searchParams] = useSearchParams();
   const requestId = searchParams.get("requestId");
   const oauthStatus = searchParams.get("oauth_status");
@@ -270,7 +273,7 @@ export function OAuthCompletePage() {
               opacity: 0.7,
             }}
           >
-            Error: {oauthCode}
+            {t("oauthComplete.errorCode", { code: oauthCode })}
           </p>
         )}
       </div>

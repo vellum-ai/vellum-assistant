@@ -1619,6 +1619,33 @@ async function main() {
       handler: (req, params) => handleChannelIngressRevoke(req, params[0]!),
     },
 
+    // ── Channel ingress: assistant-scoped variants ──
+    // Same handlers, same guardian auth, reached through the prefix a client
+    // built on the platform's addressing produces. Approvals are
+    // gateway-global, so the assistant id is matched and discarded, the same
+    // precedent as channel-permission-overrides below. These exist because the
+    // web client's generated gateway SDK only speaks the prefixed form; the
+    // guardian decision they carry is unchanged, since `edge-guardian` is what
+    // decides who may call them and it applies to both spellings.
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-ingress\/?$/,
+      method: "GET",
+      auth: "edge-guardian",
+      handler: () => handleChannelIngressList(),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-ingress\/([^/]+)\/approve\/?$/,
+      method: "POST",
+      auth: "edge-guardian",
+      handler: (req, params) => handleChannelIngressApprove(req, params[0]!),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-ingress\/([^/]+)\/revoke\/?$/,
+      method: "POST",
+      auth: "edge-guardian",
+      handler: (req, params) => handleChannelIngressRevoke(req, params[0]!),
+    },
+
     // ── Channel permission overrides (matrix cells) — flat routes ──
     // HTTP mirror of the channel-permission IPC surface so configuration
     // clients can read/write cascade cells. Gateway-owned storage; same
@@ -2571,9 +2598,17 @@ async function main() {
 
         // Seed a contact channel for the actor (dual-write, fire-and-forget)
         // so later verification flows have a record to upgrade.
+        //
+        // `externalChatId` is recorded only for a DM, where the conversation
+        // address is a private one-to-one channel. A guild channel is a room
+        // the actor happens to be standing in, and storing it as their
+        // delivery address is how a private notice ends up posted in public.
         void upsertContactChannel({
           sourceChannel: "discord",
           externalUserId: event.actor.actorExternalId,
+          ...(event.source.chatType === "dm"
+            ? { externalChatId: event.message.conversationExternalId }
+            : {}),
           displayName: event.actor.displayName,
           username: event.actor.username,
         }).catch(() => {});

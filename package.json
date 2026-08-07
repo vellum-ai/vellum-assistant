@@ -36,6 +36,7 @@
     "path-to-regexp": "8.4.2"
   },
   "patchedDependencies": {
-    "storybook@10.4.0": "patches/storybook@10.4.0.patch"
+    "storybook@10.4.0": "patches/storybook@10.4.0.patch",
+    "@capacitor-community/camera-preview@8.0.1": "patches/@capacitor-community%2Fcamera-preview@8.0.1.patch"
   }
 }

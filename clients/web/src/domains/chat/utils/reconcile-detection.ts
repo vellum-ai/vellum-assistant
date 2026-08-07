@@ -18,9 +18,24 @@ import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
+function serverHasNewAttachments(
+  serverMessage: DisplayMessage,
+  localMessage: DisplayMessage,
+): boolean {
+  if (!serverMessage.attachments?.length) {
+    return false;
+  }
+  const localAttachmentIds = new Set(
+    localMessage.attachments?.map((attachment) => attachment.id),
+  );
+  return serverMessage.attachments.some(
+    (attachment) => !localAttachmentIds.has(attachment.id),
+  );
+}
+
 /**
- * Whether the server snapshot carries content the local view does not yet have
- * — a row absent locally, or a matched row whose text has grown.
+ * Whether the server snapshot carries content the local view does not yet have:
+ * a row absent locally, changed text, or a newly hydrated attachment.
  */
 export function serverSnapshotHasNewContent(
   serverMessages: DisplayMessage[],
@@ -39,7 +54,10 @@ export function serverSnapshotHasNewContent(
     if (!match) {
       return true;
     }
-    if (messagePlainText(match) !== messagePlainText(sm)) {
+    if (
+      messagePlainText(match) !== messagePlainText(sm) ||
+      serverHasNewAttachments(sm, match)
+    ) {
       return true;
     }
   }

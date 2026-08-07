@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router";
 
+import { useTranslation } from "@/i18n";
 import { listAssistants } from "@/assistant/api";
 import { syncPlatformAssistantsToLockfile } from "@/lib/local-mode";
 import { registerLocalPlatformSession } from "@/runtime/local-mode-host";
@@ -27,6 +28,7 @@ const LOOPBACK_RETURN_TO_KEY = "vellum:loopback:returnTo";
  *      cookie), checks for existing assistants, and navigates accordingly
  */
 export function PlatformLoopbackPage() {
+  const { t } = useTranslation("account");
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
@@ -102,7 +104,7 @@ export function PlatformLoopbackPage() {
             className="mt-4 rounded-lg border border-[var(--border-disabled)] px-4 py-2 text-sm hover:bg-[var(--surface-lift)]"
             onClick={() => void navigate(routes.welcome)}
           >
-            Back to Welcome
+            {t("platformLoopbackPage.backToWelcome")}
           </button>
         </div>
       </div>
@@ -111,7 +113,9 @@ export function PlatformLoopbackPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[var(--surface-base)] text-[var(--content-default)]">
-      <p className="text-body-medium-default">Completing login...</p>
+      <p className="text-body-medium-default">
+        {t("platformLoopbackPage.completing")}
+      </p>
     </div>
   );
 }

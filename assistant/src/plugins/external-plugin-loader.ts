@@ -92,6 +92,12 @@ const PluginPackageJsonSchema = z
     version: z.string().optional(),
     peerDependencies: z.record(z.string(), z.string()).optional(),
     credentialKeyPatterns: z.unknown().optional(),
+    /** Human title, when the package name is not one ("@vellumai/imessage"). */
+    displayName: z.string().min(1).optional(),
+    /** Standard npm field, reused as the one-line description clients show. */
+    description: z.string().min(1).optional(),
+    /** Lucide icon name without the `lucide-` prefix, matching `ChannelInfo`. */
+    icon: z.string().min(1).optional(),
   })
   .passthrough();
 
@@ -466,6 +472,47 @@ export async function loadExternalPlugin(
  * surface the failure through their own channel (e.g. the schedule
  * reconciler's per-day deduped notification).
  */
+/**
+ * How a plugin presents itself: its title, its one line, its glyph.
+ *
+ * Every field is optional and none of them gate anything. A surface that
+ * shows a plugin falls back rather than hiding it, so a missing `icon`
+ * costs an icon and not the row.
+ */
+export interface PluginPresentation {
+  displayName?: string;
+  description?: string;
+  icon?: string;
+}
+
+/**
+ * Read a plugin's presentation fields from its manifest.
+ *
+ * Separate from {@link parsePluginManifest} because the two answer different
+ * questions: that one decides whether a plugin is loadable, this one only
+ * dresses it for display. An unreadable or invalid manifest yields `undefined`
+ * here rather than an error, since a caller showing a plugin has already
+ * established it exists.
+ */
+export async function parsePluginPresentation(
+  pluginDir: string,
+): Promise<PluginPresentation | undefined> {
+  let rawPkg: unknown;
+  try {
+    rawPkg = JSON.parse(
+      await readFile(join(pluginDir, "package.json"), "utf8"),
+    );
+  } catch {
+    return undefined;
+  }
+  const parsed = PluginPackageJsonSchema.safeParse(rawPkg);
+  if (!parsed.success) {
+    return undefined;
+  }
+  const { displayName, description, icon } = parsed.data;
+  return { displayName, description, icon };
+}
+
 export async function parsePluginManifest(
   pluginDir: string,
   opts: { quiet?: boolean } = {},

@@ -27,7 +27,7 @@ function Rail({ collapsed }: { collapsed: boolean }) {
         <SideMenu.Item
           icon={Pin}
           label="Pinned"
-          shape="circle"
+          shape="tile"
           showCollapsedTooltip
           indicator={<span data-slot="dot" />}
         />

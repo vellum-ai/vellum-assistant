@@ -114,6 +114,78 @@ export const VerificationSessionSchema = z.object({
 export type VerificationSessionWire = z.infer<typeof VerificationSessionSchema>;
 
 // ---------------------------------------------------------------------------
+// Bound identity (which of the three identity columns decides who may redeem)
+// ---------------------------------------------------------------------------
+
+/** The identity fields the rules read. Callers may pass a full session row. */
+export interface IdentityBoundSession {
+  expectedExternalUserId?: string | null;
+  expectedChatId?: string | null;
+  expectedPhoneE164?: string | null;
+}
+
+/**
+ * The identity a session redeems on.
+ *
+ * `chatId` is compared against the actor's conversation and everything else
+ * against the actor themselves, which is why the field travels with the value.
+ */
+export interface BoundIdentity {
+  field: "phoneE164" | "externalUserId" | "chatId";
+  value: string;
+}
+
+/**
+ * The one identity a session is bound to, or null when it is bound to none
+ * (an inbound challenge, or a bootstrap session before its deep link is
+ * redeemed).
+ *
+ * This lives in the contract because more than one side has to agree on it:
+ * the gateway consume path decides who may redeem a code, and the supersede
+ * scope decides whose earlier codes a fresh mint kills. Those two disagreeing
+ * is a silent one-time-code bug, so the rule is stated once.
+ *
+ * Precedence, most to least specific:
+ *
+ * 1. `expectedPhoneE164` (a voice session's subject is the number itself).
+ * 2. `expectedExternalUserId` (the person).
+ * 3. `expectedChatId` (the conversation), and only when nothing identifies a
+ *    person. A chat id can be shared (a Slack channel, a Telegram group), so
+ *    on its own it would let any participant satisfy the binding. It counts
+ *    only where there is no better answer.
+ */
+export function boundIdentity(
+  session: IdentityBoundSession,
+): BoundIdentity | null {
+  // Presence, not truthiness. An empty string is a set-but-useless identity,
+  // and treating it as absent would report the session unbound, which the
+  // consume path reads as "no identity to check" and admits anyone holding
+  // the code. Kept as a value it can compare against and fail instead.
+  if (session.expectedPhoneE164 != null) {
+    return { field: "phoneE164", value: session.expectedPhoneE164 };
+  }
+  if (session.expectedExternalUserId != null) {
+    return { field: "externalUserId", value: session.expectedExternalUserId };
+  }
+  if (session.expectedChatId != null) {
+    return { field: "chatId", value: session.expectedChatId };
+  }
+  return null;
+}
+
+/**
+ * Whether two sessions are bound to the same identity. Two sessions bound to
+ * no identity are not the same: bootstrap sessions are claimed by id, so an
+ * unbound mint must not sweep up every other unbound row.
+ */
+export function bindsSameIdentity(
+  a: BoundIdentity | null,
+  b: BoundIdentity | null,
+): boolean {
+  return a !== null && b !== null && a.field === b.field && a.value === b.value;
+}
+
+// ---------------------------------------------------------------------------
 // IPC methods
 // ---------------------------------------------------------------------------
 
@@ -193,9 +265,12 @@ export type CreateInboundSessionIpcResponse = z.infer<
 /** Request for `verification_sessions_create_outbound`. */
 export const CreateOutboundSessionIpcParamsSchema = z.object({
   channel: z.string().min(1),
-  expectedExternalUserId: z.string().optional(),
-  expectedChatId: z.string().optional(),
-  expectedPhoneE164: z.string().optional(),
+  // An identity field is either absent or a real value. An empty string is
+  // neither, and a session bound to one can never be redeemed by anybody,
+  // so reject it at the boundary rather than mint a dead code.
+  expectedExternalUserId: z.string().min(1).optional(),
+  expectedChatId: z.string().min(1).optional(),
+  expectedPhoneE164: z.string().min(1).optional(),
   identityBindingStatus: IdentityBindingStatusSchema.optional(),
   destinationAddress: z.string().optional(),
   codeDigits: z.number().int().positive().optional(),
@@ -211,7 +286,6 @@ export const CreateOutboundSessionIpcParamsSchema = z.object({
   requireSourceSessionPending: z.string().min(1).optional(),
   // Mint only if the channel has no active (pending_bootstrap /
   // awaiting_response, non-expired) session.
-  ifNoneActive: z.boolean().optional(),
   // Sender-scoped variant: mint unless the channel's active session is bound
   // to this expectedExternalUserId (a different sender may supersede).
   ifNoneActiveForExternalUserId: z.string().min(1).optional(),
@@ -240,7 +314,8 @@ export type CreateOutboundSessionIpcResponse = z.infer<
 
 /**
  * Conflict marker returned by `verification_sessions_create_outbound` when a
- * claim guard (`requireSourceSessionPending` / `ifNoneActive`) fails. Only
+ * claim guard (`requireSourceSessionPending` /
+ * `ifNoneActiveForExternalUserId`) fails. Only
  * reachable when a guard was passed — legacy callers never see this shape.
  */
 export const CreateOutboundSessionConflictSchema = z.object({
@@ -277,7 +352,17 @@ export type GetPendingSessionIpcParams = z.infer<
  * Request for `verification_sessions_find_active` (statuses
  * `pending_bootstrap`/`awaiting_response`, newest first).
  */
-export const FindActiveSessionIpcParamsSchema = ChannelOnlyIpcParamsSchema;
+export const FindActiveSessionIpcParamsSchema =
+  ChannelOnlyIpcParamsSchema.extend({
+    /**
+     * Narrows the lookup to one session. A channel can carry several live
+     * sessions at once, one per person verifying plus the guardian's own flow,
+     * so a caller that means a particular one has to say which. Omitted, the
+     * lookup returns whoever started most recently.
+     */
+    expectedExternalUserId: z.string().min(1).optional(),
+    verificationPurpose: VerificationPurposeSchema.optional(),
+  });
 
 export type FindActiveSessionIpcParams = z.infer<
   typeof FindActiveSessionIpcParamsSchema

@@ -34,12 +34,12 @@ import ICU from "i18next-icu";
 import { initReactI18next } from "react-i18next";
 
 import {
-  DEFAULT_NAMESPACE,
-  FALLBACK_CATALOG,
-  loadCatalog,
-  type Catalog,
+  FALLBACK_CATALOGS,
+  loadCatalogs,
+  type LocaleCatalogs,
 } from "@/i18n/catalogs";
 import { i18nextInitOptions } from "@/i18n/config";
+import { NAMESPACES } from "@/i18n/namespaces";
 import { systemLocales } from "@/i18n/system-locale";
 import {
   DEFAULT_LOCALE,
@@ -104,13 +104,24 @@ function applyDocumentLocale(locale: SupportedLocale): void {
   document.documentElement.dir = direction === "rtl" ? "rtl" : "ltr";
 }
 
-/** Load a locale's catalog into i18next unless it is already registered. */
-async function ensureCatalog(locale: SupportedLocale): Promise<void> {
-  if (i18next.hasResourceBundle(locale, DEFAULT_NAMESPACE)) {
+/** Load a locale's catalogs into i18next unless they are already registered. */
+async function ensureCatalogs(locale: SupportedLocale): Promise<void> {
+  const missing = NAMESPACES.filter(
+    (namespace) => !i18next.hasResourceBundle(locale, namespace),
+  );
+  if (missing.length === 0) {
     return;
   }
-  const catalog = await loadCatalog(locale);
-  i18next.addResourceBundle(locale, DEFAULT_NAMESPACE, catalog, true, true);
+  const catalogs = await loadCatalogs(locale);
+  for (const namespace of missing) {
+    i18next.addResourceBundle(
+      locale,
+      namespace,
+      catalogs[namespace],
+      true,
+      true,
+    );
+  }
 }
 
 /**
@@ -155,14 +166,14 @@ export async function initI18n(): Promise<SupportedLocale> {
   // both the fallback for a key a translated catalog is missing and the floor
   // this function degrades to, so it must be in place before anything that can
   // fail is attempted.
-  const resources: Record<string, Catalog> = {
-    [DEFAULT_LOCALE]: FALLBACK_CATALOG,
+  const resources: Record<string, LocaleCatalogs> = {
+    [DEFAULT_LOCALE]: FALLBACK_CATALOGS,
   };
   let locale: SupportedLocale = DEFAULT_LOCALE;
 
   if (requested !== DEFAULT_LOCALE) {
     try {
-      resources[requested] = await loadCatalog(requested);
+      resources[requested] = await loadCatalogs(requested);
       locale = requested;
     } catch (error) {
       reportCatalogFailure(error, requested);
@@ -191,7 +202,7 @@ export async function initI18n(): Promise<SupportedLocale> {
  * one that can say something useful about the failure.
  */
 export async function changeLocale(locale: SupportedLocale): Promise<void> {
-  await ensureCatalog(locale);
+  await ensureCatalogs(locale);
   await i18next.changeLanguage(locale);
   setDeviceSetting("locale", locale);
   applyDocumentLocale(locale);

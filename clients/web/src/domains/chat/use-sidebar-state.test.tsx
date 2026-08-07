@@ -1,38 +1,38 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import type * as ConversationQueries from "@/hooks/conversation-queries";
 import type { Conversation } from "@/types/conversation-types";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+/* Type-only, so it is erased before the `mock.module` above takes effect and
+   the dynamic `import` below is still what supplies the implementation. */
+import type { SidebarState } from "@/domains/chat/use-sidebar-state";
 
-// The Background/Scheduled sections own their lazy queries; stub both so the
-// hook resolves without a QueryClient and these tests stay focused on the
-// foreground grouping/pagination they exercise.
-/* Pinned asks the server for its own members, so the mock answers the way the
-   server does: the pinned rows of whatever the test set up. Section rows no
-   longer come from the `conversations` fixture by client-side filtering, which
-   is the coupling being removed. */
-let sectionRows: Conversation[] = [];
+/* The Background/Scheduled sections own their lazy queries; stub both so the
+   hook resolves without a QueryClient.
 
-function setSectionRows(conversations: Conversation[]) {
-  sectionRows = conversations.filter((c) => c.isPinned);
-}
-
-mock.module("@/hooks/conversation-queries", () => ({
-  useBackgroundConversationListQuery: () => ({
-    conversations: [],
-    isPending: false,
+   No section query is stubbed here: each section fetches its own rows where
+   it renders (`useSectionConversations`). What this hook owns is the section
+   *list* and the derived fallback rows, which is what these tests cover. */
+mock.module(
+  "@/hooks/conversation-queries",
+  (): Partial<typeof ConversationQueries> => ({
+    useBackgroundConversationListQuery: () => ({
+      conversations: [],
+      isLoading: false,
+      isPending: false,
+      isError: false,
+      refetch: () => {},
+    }),
+    useScheduledConversationListQuery: () => ({
+      conversations: [],
+      isLoading: false,
+      isPending: false,
+      isError: false,
+      refetch: () => {},
+    }),
   }),
-  useScheduledConversationListQuery: () => ({
-    conversations: [],
-    isPending: false,
-  }),
-  useSectionConversationListQuery: () => ({
-    conversations: sectionRows,
-    isLoading: false,
-    isPending: false,
-  }),
-}));
+);
 
 const { useSidebarState } = await import("@/domains/chat/use-sidebar-state");
 
@@ -257,7 +257,6 @@ describe("useSidebarState all view", () => {
   ];
 
   function renderSidebar() {
-    setSectionRows(conversations);
     return renderHook(() =>
       useSidebarState({
         assistantId: "asst-1",
@@ -271,33 +270,57 @@ describe("useSidebarState all view", () => {
     expect(renderSidebar().result.current.viewMode).toBe("all");
   });
 
+  /** The Chats section, which is where this view's uncurated rows live. */
+  function recentsIds(result: { current: SidebarState }): string[] {
+    const recents = result.current.sections.find((s) => s.type === "recents");
+    return (recents?.all ?? []).map((c) => c.conversationId);
+  }
+
   test("merges the channel conversations into one recency-sorted list", () => {
     const { result } = renderSidebar();
 
     expect(
       result.current.sections.filter((section) => section.type === "channel"),
     ).toEqual([]);
-    expect(result.current.flatList.map((c) => c.conversationId)).toEqual([
-      "s1",
-      "r1",
-      "t1",
-    ]);
+    expect(recentsIds(result)).toEqual(["s1", "r1", "t1"]);
   });
 
   test("leaves pinned and grouped conversations out of the flat list", () => {
     const { result } = renderSidebar();
 
-    const flatIds = result.current.flatList.map((c) => c.conversationId);
-    expect(flatIds).not.toContain("p1");
-    expect(flatIds).not.toContain("g1");
+    expect(recentsIds(result)).not.toContain("p1");
+    expect(recentsIds(result)).not.toContain("g1");
   });
 
-  test("renders only the curated sections above the list", () => {
+  /* The uncurated rows are reachable as the Chats section and nowhere else.
+     Asserts the count rather than merely that Chats holds them: one section
+     holding them and a parallel list holding them too passes the tests above,
+     and gives the collapsed rail two Chats tiles to draw. */
+  test("publishes the uncurated rows once, as the Chats section", () => {
+    const { result } = renderSidebar();
+
+    const holders = result.current.sections.filter((section) =>
+      section.all.some((c) => c.conversationId === "s1"),
+    );
+    expect(holders.map((s) => s.key)).toEqual(["recents"]);
+    expect(Object.keys(result.current)).not.toContain("flatList");
+  });
+
+  /* Chats is a section in this view too, not a bare list under the curated
+     ones. It used to be absent here, which is what made All view a different
+     shape from Grouped rather than the same shape with the channel sections
+     folded in: nothing owned the chat list, so it had no card, no header and
+     no menu, and the menu is where the switch back to Grouped lives.
+
+     What All view *doesn't* have is channel sections, which is the whole
+     difference between the two views. */
+  test("gives the flat list its own Chats section, with no channel sections", () => {
     const { result } = renderSidebar();
 
     expect(result.current.sections.map((s) => s.key)).toEqual([
       "pinned",
       "grp-a",
+      "recents",
     ]);
   });
 
@@ -333,7 +356,6 @@ describe("useSidebarState section order", () => {
 
   function renderSidebar() {
     seedGroupedView();
-    setSectionRows(conversations);
     return renderHook(() =>
       useSidebarState({
         assistantId: "asst-1",
@@ -372,7 +394,14 @@ describe("useSidebarState section order", () => {
     ]);
   });
 
-  test("a channel section settles back below the custom groups", () => {
+  /* A channel section may sit above a custom group. This used to be pulled
+     back: sections were split into a curated tier (Pinned, the custom groups)
+     and a governed one (Chats, the channels), and no order could cross the
+     boundary, because the view switch was drawn on it. The switch moved into
+     the sections' own menus, so the boundary has nothing left to protect, and
+     the tier split was the last thing making a custom group a different kind
+     of object from the chat list. */
+  test("a channel section may be ordered above a custom group", () => {
     const { result } = renderSidebar();
 
     act(() =>
@@ -380,53 +409,52 @@ describe("useSidebarState section order", () => {
     );
 
     expect(result.current.sections.map((s) => s.key)).toEqual([
-      "grp-a",
       "channel:slack",
+      "grp-a",
       "recents",
     ]);
     // What renders is what persists, so the stored preference never describes
     // a layout the sidebar refuses to draw.
     expect(useSidebarLayoutStore.getState().sectionOrder).toEqual([
-      "grp-a",
       "channel:slack",
+      "grp-a",
       "recents",
     ]);
   });
 
-  test("a nudge that the channel floor would undo is not offered", () => {
+  /* The ends of the list are the only thing left that refuses a nudge, and
+     they refuse it by not offering it: `canMoveSection` is what the menu reads
+     to decide whether to render the item at all, so a move it reports as
+     unavailable is one the user is never shown (see `sectionMenu` in
+     `assistant-side-menu.tsx`). Asserting the report and the no-op together,
+     since a nudge that quietly does nothing while still being offered is the
+     same dead action from the user's side. */
+  test("onMoveSection nudges one slot and stops at the ends of the list", () => {
     const { result } = renderSidebar();
 
-    // Slack sits last, below Chats, which it may pass...
+    // Slack starts last, and can walk all the way to the top now.
+    act(() => result.current.onMoveSection("channel:slack", -1));
+    expect(result.current.sections.map((s) => s.key)).toEqual([
+      "grp-a",
+      "channel:slack",
+      "recents",
+    ]);
+
     expect(result.current.canMoveSection("channel:slack", -1)).toBe(true);
     act(() => result.current.onMoveSection("channel:slack", -1));
     expect(result.current.sections.map((s) => s.key)).toEqual([
-      "grp-a",
       "channel:slack",
+      "grp-a",
       "recents",
     ]);
 
-    // ...but not the custom group above it.
-    expect(result.current.canMoveSection("channel:slack", -1)).toBe(false);
-  });
-
-  test("onMoveSection nudges within a tier and stops at its boundary", () => {
-    const { result } = renderSidebar();
-
-    // Slack and Chats are both governed by the switch, so they swap freely.
-    act(() => result.current.onMoveSection("channel:slack", -1));
-    expect(result.current.sections.map((s) => s.key)).toEqual([
-      "grp-a",
-      "channel:slack",
-      "recents",
-    ]);
-
-    // The next nudge would cross into the curated tier - refused, and
-    // nothing is persisted.
+    // At the top there is nothing left to pass, so the move is not offered and
+    // a call anyway changes nothing.
     expect(result.current.canMoveSection("channel:slack", -1)).toBe(false);
     act(() => result.current.onMoveSection("channel:slack", -1));
     expect(result.current.sections.map((s) => s.key)).toEqual([
-      "grp-a",
       "channel:slack",
+      "grp-a",
       "recents",
     ]);
   });
@@ -472,106 +500,40 @@ describe("useSidebarState section order", () => {
   });
 });
 
-/* The gate is off in every suite above (no version is seeded, so it reads
-   false and Pinned falls back to the derived rows). These seed it on, which is
-   the only way the server-fetched path is exercised at all. */
-describe("Pinned section, gate open", () => {
-  afterEach(() => {
-    useAssistantIdentityStore.getState().clearIdentity();
-    sectionRows = [];
-  });
-
-  function openGate() {
-    useAssistantIdentityStore
-      .getState()
-      .setIdentity("test-asst", "0.12.0", "asst-1");
-  }
-
-  /* Regression: the daemon orders user-ordered groups by
-     `COALESCE(display_order, 999999) ASC` then by recency, and pinning writes
-     no `displayOrder`. So the server hands back activity order, while pinned
-     rows are supposed to hold their place regardless of activity. Asserting
-     the order flips, not merely that rows arrive: with the client sort
-     removed this returns the server's order and fails. */
-  test("holds creation order when the server answers in activity order", () => {
-    openGate();
-    const stale = makeConversation(1, {
-      conversationId: "pin-newest-created",
-      isPinned: true,
-      groupId: "system:pinned",
-      createdAt: 3_000,
-      lastMessageAt: 10,
-    });
-    const busy = makeConversation(2, {
-      conversationId: "pin-oldest-created",
-      isPinned: true,
-      groupId: "system:pinned",
-      createdAt: 1_000,
-      lastMessageAt: 9_999,
-    });
-    // Server order: most recent activity first.
-    sectionRows = [busy, stale];
-
+/* Which sections exist still comes from the loaded list; what is in them
+   comes from each section's own query. These cover the former. */
+describe("useSidebarState curated sections", () => {
+  test("omits Pinned when no loaded conversation is pinned", () => {
     const { result } = renderHook(() =>
-      useSidebarState({ assistantId: "asst-1", conversations: [] }),
-    );
-
-    const pinned = result.current.sections.find((s) => s.type === "pinned");
-    expect(pinned?.all.map((c) => c.conversationId)).toEqual([
-      "pin-newest-created",
-      "pin-oldest-created",
-    ]);
-  });
-
-  test("honours an explicit displayOrder ahead of creation order", () => {
-    openGate();
-    const first = makeConversation(3, {
-      conversationId: "pin-dragged-first",
-      isPinned: true,
-      groupId: "system:pinned",
-      displayOrder: 0,
-      createdAt: 1_000,
-    });
-    const second = makeConversation(4, {
-      conversationId: "pin-dragged-second",
-      isPinned: true,
-      groupId: "system:pinned",
-      displayOrder: 1,
-      createdAt: 9_000,
-    });
-    sectionRows = [second, first];
-
-    const { result } = renderHook(() =>
-      useSidebarState({ assistantId: "asst-1", conversations: [] }),
-    );
-
-    const pinned = result.current.sections.find((s) => s.type === "pinned");
-    expect(pinned?.all.map((c) => c.conversationId)).toEqual([
-      "pin-dragged-first",
-      "pin-dragged-second",
-    ]);
-  });
-
-  /* The gate is assistant-scoped: a version fetched for another assistant must
-     not authorize a filtered fetch for this one. */
-  test("stays on the derived rows when the version belongs to another assistant", () => {
-    useAssistantIdentityStore
-      .getState()
-      .setIdentity("test-asst", "0.12.0", "asst-other");
-    sectionRows = [
-      makeConversation(5, {
-        conversationId: "pin-from-server",
-        isPinned: true,
-        groupId: "system:pinned",
+      useSidebarState({
+        assistantId: "asst-1",
+        conversations: [makeConversation(1), makeConversation(2)],
       }),
-    ];
-
-    const { result } = renderHook(() =>
-      useSidebarState({ assistantId: "asst-1", conversations: [] }),
     );
 
     expect(
       result.current.sections.find((s) => s.type === "pinned"),
     ).toBeUndefined();
+  });
+
+  test("lists a custom group even when no loaded conversation is in it", () => {
+    const { result } = renderHook(() =>
+      useSidebarState({
+        assistantId: "asst-1",
+        conversations: [makeConversation(1)],
+        conversationGroups: [
+          {
+            id: "grp-work",
+            name: "Work",
+            sortPosition: 0,
+            isSystemGroup: false,
+          },
+        ],
+      }),
+    );
+
+    const work = result.current.sections.find((s) => s.key === "grp-work");
+    expect(work).toBeDefined();
+    expect(work?.label).toBe("Work");
   });
 });

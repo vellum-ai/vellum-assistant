@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 
+import { useTranslation } from "@/i18n";
 import type { MutationStatus } from "@/components/channel-setup-wizard";
 import { EmptyState } from "@/components/empty-state";
 import { SlackSetupWizard } from "@/components/slack-setup-wizard";
@@ -89,6 +90,7 @@ export function ChannelPanel({
   policyError = false,
   onPolicyChange,
 }: ChannelPanelProps) {
+  const { t } = useTranslation("channels");
   const connected = channel.status === "ready";
   // Manual credential entry is a connect-time affordance, so it only applies
   // while disconnected — seeded from a `?setup=<channel>` deep link. Declared
@@ -185,13 +187,19 @@ export function ChannelPanel({
           icon={<ChannelIcon channelId={channel.key} className="h-6 w-6" />}
           title={
             incomplete
-              ? `${getChannelLabel(channel.key)} isn't working yet`
-              : `${getChannelLabel(channel.key)} isn't connected`
+              ? t("channelPanel.incompleteTitle", {
+                  channel: getChannelLabel(channel.key),
+                })
+              : t("channelPanel.disconnectedTitle", {
+                  channel: getChannelLabel(channel.key),
+                })
           }
           description={
             incomplete
               ? (channel.warning ??
-                `${getChannelLabel(channel.key)} is set up but not delivering messages yet. Your assistant can pick up where setup left off and tell you what is wrong.`)
+                t("channelPanel.incompleteDescription", {
+                  channel: getChannelLabel(channel.key),
+                }))
               : meta.disconnectedPitch?.(assistantDisplayName)
           }
           action={
@@ -203,17 +211,17 @@ export function ChannelPanel({
                 disabled={!onSetup || pending}
               >
                 {pending
-                  ? "Opening…"
+                  ? t("channelPanel.opening")
                   : incomplete
-                    ? "Finish setup with your assistant"
-                    : "Set up"}
+                    ? t("channelPanel.finishSetup")
+                    : t("channelPanel.setUp")}
               </Button>
               <Button
                 type="button"
                 variant="link"
                 onClick={() => setManualEntry(true)}
               >
-                or connect manually
+                {t("channelPanel.connectManually")}
               </Button>
             </div>
           }

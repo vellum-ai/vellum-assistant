@@ -200,15 +200,19 @@ describe("CollapsedGroupIcon", () => {
     expect(html).toContain("bg-[var(--system-mid-strong)]");
   });
 
-  test("the tile is a circle, and the dot rides it as an overlay", () => {
+  /* `data-shape` is written by this file's own `SideMenu.Item` stand-in, so
+     it says only that this component asked for the tile shape - not that the
+     tile renders as a circle, which is asserted against the real component in
+     `side-menu.test.tsx`. Worth keeping at that strength: dropping the prop
+     here would square the tile, and nothing else would catch it. */
+  test("asks for the tile shape, and the dot rides it as an overlay", () => {
     const html = renderToStaticMarkup(
       <CollapsedGroupIcon icon={Pin} label="Pinned" indicatorState="unread">
         <div>content</div>
       </CollapsedGroupIcon>,
     );
-    // The rail is a column of circles, so the tile asks for the circle
-    // geometry rather than drawing its own radius.
-    expect(html).toContain('data-shape="circle"');
+    // Asks for the shared tile shape rather than drawing its own radius.
+    expect(html).toContain('data-shape="tile"');
     // The dot goes through `indicator`, the collapsed overlay slot, not
     // through `badge` (which a collapsed row suppresses) and not as a sibling
     // of the tile (which would put it outside the circle's box).
@@ -290,10 +294,10 @@ describe("CollapsedGroupIcon disabled state", () => {
     // No popover: neither the trigger's semantics nor its body.
     expect(html).not.toContain('aria-haspopup="dialog"');
     expect(html).not.toContain("Should not render");
-    // Still labelled for assistive tech, and still a circle like its
-    // populated neighbours rather than falling back to a rounded square.
+    // Still labelled for assistive tech, and still asking for the same tile
+    // shape as its populated neighbours rather than a rounded square.
     expect(html).toContain('aria-label="Pinned"');
-    expect(html).toContain('data-shape="circle"');
+    expect(html).toContain('data-shape="tile"');
   });
 
   test("hover tooltip explains the group is empty rather than repeating the label", () => {

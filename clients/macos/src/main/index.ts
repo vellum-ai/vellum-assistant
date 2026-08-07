@@ -43,7 +43,12 @@ import {
   installDeepLinks,
 } from "./deep-links";
 import { handleBundleFile, installBundleFlow } from "./bundle-flow";
-import { handleFileOpen, hasPendingFiles, installFileOpen, onFileOpen } from "./file-open";
+import {
+  handleFileOpenArgv,
+  hasPendingFiles,
+  installFileOpen,
+  onFileOpen,
+} from "./file-open.client";
 import { installAvatarIpc } from "./avatar";
 import { installCommandPaletteWindow } from "./command-palette-window";
 import { installDictationOverlay } from "./dictation-overlay-window";
@@ -96,7 +101,7 @@ import { installPowerEvents } from "./power-events";
 import { installIdentityIpc } from "./identity";
 import {
   installCompanionWindow,
-  openCompanionWindow,
+  syncCompanionSurface,
 } from "./companion-window";
 import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTextInsertionIpc } from "./textInsertion";
@@ -493,9 +498,14 @@ app
     installMainWindow();
 
     // After the main window, so the surface opens over a running app rather
-    // than being the first thing on screen at launch. It is always present
-    // from here on: the app being frontmost is not one of its states.
-    openCompanionWindow();
+    // than being the first thing on screen at launch. Present from here on,
+    // unless the user has hidden it from the tray or the flag it is behind is
+    // off: the app being frontmost is not one of its states.
+    //
+    // A launch that finds no flag yet leaves it closed and the window that
+    // opens it later is the app's own, once it has an evaluation to write into
+    // settings.
+    syncCompanionSurface();
 
     // Runs after the main window so the recovery dialog has a window to sit in
     // front of, and so a user who declines lands on a working app rather than
@@ -531,14 +541,10 @@ app.on("second-instance", (_event, argv) => {
   // `open-url` never fires. Always check argv here so the buffered
   // / broadcast pipeline is platform-agnostic.
   const deepLink = extractDeepLinkFromArgv(argv);
-  if (deepLink) handleDeepLink(deepLink);
-  // Forward .vellum file paths from second-instance argv so the
-  // buffer/broadcast pipeline handles them identically to open-file.
-  for (const arg of argv) {
-    if (/\.vellum$/i.test(arg)) {
-      handleFileOpen(arg);
-    }
+  if (deepLink) {
+    handleDeepLink(deepLink);
   }
+  handleFileOpenArgv(argv);
 });
 
 app.on("web-contents-created", (_event, contents) => {

@@ -90,6 +90,21 @@ function isCollapsingRail(ctx: SideMenuContextValue): boolean {
   return ctx.variant === "rail" && ctx.collapsed;
 }
 
+/**
+ * Whether a rail entry should render in its collapsed form, for the entries
+ * this package does not draw itself.
+ *
+ * A caller supplying its own trigger through a slot needs the same answer
+ * `SideMenu.Item` gets, and it has to be the delayed one: the lag is what
+ * keeps a label from painting into a rail that is still narrowing around it.
+ * Reading it here rather than accepting it as a prop is what keeps the slot's
+ * content from disagreeing with the menu it sits in, since the two cannot then
+ * be derived from different sources.
+ */
+function useSideMenuCollapsed(): boolean {
+  return isCollapsedRail(useSideMenuContext());
+}
+
 // ---------------------------------------------------------------------------
 // Root
 // ---------------------------------------------------------------------------
@@ -128,39 +143,52 @@ const ROOT_BASE_CLASSES = [
  * screen edges (top/bottom safe-area boundaries on iOS). */
 const ROOT_RAIL_BORDER_CLASSES = "border border-[var(--border-base)]";
 
+/* 8px of horizontal inset, the same the collapsed rail carries, so the moat
+ * around the content does not change width when the rail is toggled.
+ *
+ * The rail's own children are cards and pills that carry their own padding, so
+ * anything wider here is a second inset stacked on the first: it costs the
+ * cards title width on a 220px to 400px column and pushes their edges away
+ * from the resize handle, which sits at the rail's edge and reads as belonging
+ * to something else. Vertical padding is unrelated and stays as it is. */
+const ROOT_RAIL_PADDING = "pt-4 px-2 pb-2";
+
 const ROOT_RAIL_EXPANDED_CLASSES = [
   ROOT_RAIL_BORDER_CLASSES,
   "w-[230px]",
   "rounded-[12px]",
-  "pt-4 px-4 pb-2",
+  ROOT_RAIL_PADDING,
 ].join(" ");
 
 const ROOT_RAIL_COLLAPSED_CLASSES = [
   ROOT_RAIL_BORDER_CLASSES,
   "w-[48px]",
   "rounded-[12px]",
-  "pt-4 px-2 pb-2",
+  ROOT_RAIL_PADDING,
 ].join(" ");
 
 const ROOT_RAIL_RESIZABLE_CLASSES = [
   ROOT_RAIL_BORDER_CLASSES,
   "rounded-[12px]",
-  "pt-4 px-4 pb-2",
+  ROOT_RAIL_PADDING,
 ].join(" ");
 
-const ROOT_OVERLAY_CLASSES = [
-  "w-full",
-  "rounded-none",
-  "p-4",
-].join(" ");
+const ROOT_OVERLAY_CLASSES = ["w-full", "rounded-none", "p-4"].join(" ");
 
 const RAIL_TRANSITION_MS = 150;
-const ROOT_RAIL_TRANSITION = "transition-[width,padding] duration-[150ms] ease-in-out";
+const ROOT_RAIL_TRANSITION =
+  "transition-[width,padding] duration-[150ms] ease-in-out";
 
-function rootChromeClasses(variant: SideMenuVariant, collapsed: boolean, resizable: boolean): string {
+function rootChromeClasses(
+  variant: SideMenuVariant,
+  collapsed: boolean,
+  resizable: boolean,
+): string {
   if (variant === "overlay") return ROOT_OVERLAY_CLASSES;
   if (collapsed) return cn(ROOT_RAIL_COLLAPSED_CLASSES, ROOT_RAIL_TRANSITION);
-  const rail = resizable ? ROOT_RAIL_RESIZABLE_CLASSES : ROOT_RAIL_EXPANDED_CLASSES;
+  const rail = resizable
+    ? ROOT_RAIL_RESIZABLE_CLASSES
+    : ROOT_RAIL_EXPANDED_CLASSES;
   return cn(rail, ROOT_RAIL_TRANSITION);
 }
 
@@ -224,7 +252,10 @@ function SideMenuRoot({
       const drag = dragRef.current;
       if (!drag) return;
       const delta = e.clientX - drag.startX;
-      const next = Math.min(maxWidth, Math.max(minWidth, drag.startWidth + delta));
+      const next = Math.min(
+        maxWidth,
+        Math.max(minWidth, drag.startWidth + delta),
+      );
       drag.nav.style.width = `${next}px`;
     },
     [minWidth, maxWidth],
@@ -240,7 +271,10 @@ function SideMenuRoot({
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       const delta = e.clientX - drag.startX;
-      const finalWidth = Math.min(maxWidth, Math.max(minWidth, drag.startWidth + delta));
+      const finalWidth = Math.min(
+        maxWidth,
+        Math.max(minWidth, drag.startWidth + delta),
+      );
       onWidthChange?.(finalWidth);
     },
     [onWidthChange, minWidth, maxWidth],
@@ -478,18 +512,30 @@ export interface SideMenuItemProps {
   tooltip?: string;
   badge?: ReactNode;
   /**
-   * Collapsed-rail tile geometry, for rails whose section icons read as a
-   * column of circles. `"circle"` squares the tile to its own row height and
-   * centers it in the rail column, then rounds it fully. The squaring is part
-   * of the shape, not an extra: a collapsed row is `w-full` of a column
-   * slightly wider than it is tall, so rounding it alone draws an ellipse.
+   * `"tile"` renders the collapsed-rail affordance: the whole treatment a row
+   * reduces to when the rail collapses, not a geometry switch. It squares to
+   * its own row height, centers in the rail column, rounds fully, and carries
+   * the resting surface the expanded card or pill wore - collapsing changes
+   * the shape of a thing, not whether it has a surface. The squaring is part
+   * of it, not an extra: a collapsed row is `w-full` of a column slightly
+   * wider than it is tall, so rounding it alone draws an ellipse.
+   *
+   * Named for what it is rather than for its outline, because it decides
+   * colour as well as form. A caller reaching for a round row somewhere other
+   * than the rail wants neither.
+   *
+   * Its surface reads the same `--panel-item-bg` / `--panel-item-hover` /
+   * `--panel-item-active` properties `PanelItem`'s pill does, each falling
+   * back to the untinted token. So a caller that tints the expanded pill tints
+   * the collapsed tile with the same one declaration, and a caller that tints
+   * nothing sees no difference.
    *
    * Ignored when expanded, where the row spans the rail's full width and a
    * full round would draw a pill rather than a circle.
    *
    * @default "default"
    */
-  shape?: "default" | "circle";
+  shape?: "default" | "tile";
   /**
    * Overlay drawn on top of a collapsed tile, such as an activity dot on the
    * icon's corner. The row is the positioning context, so the caller places
@@ -538,10 +584,7 @@ function ItemLeadingIcon({
 }) {
   if (indent) {
     return (
-      <span
-        aria-hidden
-        className="inline-block h-[14px] w-[14px] shrink-0"
-      />
+      <span aria-hidden className="inline-block h-[14px] w-[14px] shrink-0" />
     );
   }
   if (!icon) return null;
@@ -590,10 +633,7 @@ function ItemBadge({ children }: { children: ReactNode }) {
   );
 }
 
-type SharedAnchorProps = Omit<
-  ComponentProps<"a">,
-  "href" | "children" | "ref"
->;
+type SharedAnchorProps = Omit<ComponentProps<"a">, "href" | "children" | "ref">;
 /* `disabled` is omitted so the component's own `aria-disabled` treatment is
  * the only way to express the state: a native `disabled` button dispatches
  * no pointer events, which would silence the collapsed row's tooltip. */
@@ -625,7 +665,7 @@ function SideMenuItem({
   ...rest
 }: SideMenuItemProps & SharedAnchorProps & SharedButtonProps) {
   const ctx = useSideMenuContext();
-  /* A circle tile is a collapsed-rail affordance by definition, and its call
+  /* A tile is a collapsed-rail affordance by definition, and its call
      sites mount it on the rail's immediate `collapsed` state. Following the
      delayed flag like an ordinary row would leave it rendering as a
      full-width labelled row inside the 48px column for the whole 150ms
@@ -633,7 +673,7 @@ function SideMenuItem({
      label to linger over, which is the only thing the delay buys. Keying it
      off the immediate flag flips every collapsed-only path at one instant. */
   const collapsed =
-    shape === "circle" ? isCollapsingRail(ctx) : isCollapsedRail(ctx);
+    shape === "tile" ? isCollapsingRail(ctx) : isCollapsedRail(ctx);
 
   /* An item is drawn either as a row or as a tile, and the two want opposite
      things, so they are alternatives rather than one layered over the other.
@@ -646,9 +686,17 @@ function SideMenuItem({
      then needs its own counter-class, which leaves the geometry resting on
      tailwind-merge order rather than on intent. Branching states each shape
      once, so there is nothing to counter. */
-  const isTile = collapsed && shape === "circle";
+  const isTile = collapsed && shape === "tile";
   const geometryClasses = isTile
-    ? "size-[30px] mx-auto rounded-full"
+    ? /* The tile carries the same resting surface as the card or pill it
+         stands in for when the rail is expanded, so collapsing changes the
+         shape of a thing and not whether it has a surface at all.
+
+         Which is why it reads the same tint properties `PanelItem`'s pill
+         does, through the same fallback: a caller that tints the expanded pill
+         tints this with one declaration, and one that tints nothing reaches
+         `--surface-lift`. */
+      "size-[30px] mx-auto rounded-full bg-[var(--panel-item-bg,var(--surface-lift))]"
     : // `w-full` matters for the `<button>` render path: buttons keep
       // fit-content sizing even as flex containers, so without it a
       // button-backed item shrink-wraps while anchor-backed items fill the rail.
@@ -664,9 +712,30 @@ function SideMenuItem({
   const stateClasses = disabled
     ? "cursor-default text-[color:var(--content-disabled)]"
     : active
-      ? "cursor-pointer bg-[var(--surface-active)] text-[color:var(--content-emphasised)]"
+      ? cn(
+          "cursor-pointer text-[color:var(--content-emphasised)]",
+          /* A tinted tile stays tinted while it is the current page. Without
+             reading the tint here, this rule and the resting one are different
+             declarations of the same property, the active one wins, and the
+             tile drops its colour at exactly the moment it is selected. Only
+             the tile, because it is the only shape carrying a surface to
+             tint. Untinted callers reach `--surface-active`. */
+          isTile
+            ? "bg-[var(--panel-item-active,var(--panel-item-bg,var(--surface-active)))]"
+            : "bg-[var(--surface-active)]",
+        )
       : cn(
-          "cursor-pointer hover:bg-[var(--surface-hover)]",
+          "cursor-pointer",
+          /* Which hover surface is right depends on what the shape rests on.
+             A tile rests on `--surface-lift`, and `--surface-hover` is a 6%
+             translucent overlay meant for a transparent base - over a lifted
+             surface it composites *darker* than the resting state, so the
+             tile reads as having no hover at all. `--surface-active` is the
+             step up from lifted. A row rests transparent, where the overlay
+             is exactly what it was built for. */
+          isTile
+            ? "hover:bg-[var(--panel-item-hover,var(--surface-active))]"
+            : "hover:bg-[var(--surface-hover)]",
           emphasized
             ? "text-[color:var(--content-emphasised)]"
             : "text-[color:var(--content-secondary)]",
@@ -747,10 +816,8 @@ function SideMenuItem({
     );
 
   if (href) {
-    const {
-      onClick: anchorOnClick,
-      ...anchorProps
-    } = rest as SharedAnchorProps;
+    const { onClick: anchorOnClick, ...anchorProps } =
+      rest as SharedAnchorProps;
     return withTooltip(
       <a
         ref={ref as Ref<HTMLAnchorElement>}
@@ -779,7 +846,7 @@ function SideMenuItem({
         {badgeNode}
         {trailingNode}
         {indicatorNode}
-      </a>
+      </a>,
     );
   }
 
@@ -856,4 +923,5 @@ export {
   SideMenuSection,
   SideMenuSeparator,
   SideMenuSubList,
+  useSideMenuCollapsed,
 };

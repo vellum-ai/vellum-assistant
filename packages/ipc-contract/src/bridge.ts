@@ -19,6 +19,7 @@ import type {
   AssistantStatus,
   BundleScanData,
   CompanionCharacter,
+  CompanionContext,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -338,6 +339,32 @@ export interface VellumBridge {
      * what pressing the avatar asks for.
      */
     activate(): void;
+    /**
+     * Whether the surface's composer is open, and with it whether the window
+     * may take key status.
+     *
+     * The counterpart to `setInteractive`: mouse events are granted only while
+     * the pointer is on the pill, and keystrokes only while there is a field to
+     * put them in. A floating panel that held the keyboard after its field
+     * closed would swallow what the user typed next into the app they are
+     * actually working in.
+     */
+    setComposing(composing: boolean): void;
+    /**
+     * Send what the user typed. See the `companionSubmit` command: the first
+     * message of a composer's life starts a conversation, the rest continue it,
+     * and none of them raise the app.
+     */
+    submit(message: string, startsConversation: boolean): void;
+    /**
+     * Publish the assistant's name and the tail of the open conversation.
+     *
+     * The one call here the surface's own route does *not* make: it comes from
+     * the window holding the conversation, the way `voiceActivity.update` comes
+     * from the window holding the session. Main holds what arrives and pushes
+     * it back down as part of `onState`.
+     */
+    setContext(context: CompanionContext): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;

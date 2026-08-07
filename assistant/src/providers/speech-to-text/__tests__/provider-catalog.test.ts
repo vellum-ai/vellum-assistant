@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  batchBoundaryGapReason,
   getCredentialProvider,
   getProviderEntry,
   listCredentialProviderNames,
@@ -23,6 +24,7 @@ describe("STT provider catalog", () => {
     const ids = listProviderIds();
     expect(ids).toContain("openai-whisper");
     expect(ids).toContain("deepgram");
+    expect(ids).toContain("deepgram-flux");
     expect(ids).toContain("google-gemini");
   });
 
@@ -101,6 +103,27 @@ describe("STT provider catalog", () => {
     expect(supportsBoundary("openai-whisper", "daemon-streaming")).toBe(true);
   });
 
+  test("deepgram-flux is streaming-only", () => {
+    // Flux has no batch endpoint; the batch transcriber factory rejects it
+    // explicitly rather than silently falling through.
+    expect(supportsBoundary("deepgram-flux", "daemon-streaming")).toBe(true);
+    expect(supportsBoundary("deepgram-flux", "daemon-batch")).toBe(false);
+  });
+
+  test("batchBoundaryGapReason names the batch provider on the same credential", () => {
+    const reason = batchBoundaryGapReason("deepgram-flux");
+    expect(reason).toBe(
+      'Deepgram Flux is streaming-only. Batch transcription requires the deepgram provider: set services.stt.provider to "deepgram".',
+    );
+  });
+
+  test("batchBoundaryGapReason falls back to generic guidance for an unknown provider", () => {
+    // No catalog entry means no credential to search a batch-capable peer on.
+    const reason = batchBoundaryGapReason("nonexistent" as never);
+    expect(reason).toContain("nonexistent is streaming-only");
+    expect(reason).toContain("supports batch transcription");
+  });
+
   test("supportsBoundary returns false for unknown provider IDs", () => {
     // Cast to bypass type checking for the test
     expect(supportsBoundary("nonexistent" as never, "daemon-batch")).toBe(
@@ -150,6 +173,8 @@ describe("STT provider catalog", () => {
     ["deepgram", "manual"],
     ["vellum", "manual"],
     ["xai", "manual"],
+    // Flux takes no language parameter: its model is monolingual English.
+    ["deepgram-flux", "auto"],
     ["google-gemini", "auto"],
     ["openai-whisper", "auto"],
   ] as const;
@@ -169,6 +194,15 @@ describe("STT provider catalog", () => {
     expect(getCredentialProvider("openai-whisper")).toBe("openai");
     expect(getCredentialProvider("deepgram")).toBe("deepgram");
     expect(getCredentialProvider("google-gemini")).toBe("gemini");
+  });
+
+  test("deepgram-flux shares the deepgram credential", () => {
+    expect(getCredentialProvider("deepgram-flux")).toBe("deepgram");
+    // Sharing must not duplicate the key in the API-key provider list.
+    const deepgramEntries = listCredentialProviderNames().filter(
+      (name) => name === "deepgram",
+    );
+    expect(deepgramEntries).toEqual(["deepgram"]);
   });
 
   test("getCredentialProvider returns undefined for unknown ID", () => {

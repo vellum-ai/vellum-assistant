@@ -79,3 +79,29 @@ export const voiceActivityControlSchema = z.object({
   action: voiceActivityControlActionSchema,
   requestId: z.string().optional(),
 });
+
+// ---------------------------------------------------------------------------
+// Companion surface
+// ---------------------------------------------------------------------------
+
+/** See `CompanionTurn`: a side and some text, and deliberately nothing else. */
+export const companionTurnSchema = z.object({
+  role: z.union([z.literal("user"), z.literal("assistant")]),
+  text: z.string(),
+});
+
+/**
+ * The conversation tail the card draws.
+ *
+ * Capped at the boundary rather than trusted, because the publisher is a
+ * renderer and this ends up in a window that floats over every other app. The
+ * card scrolls, so the cap is what the user can plausibly scroll back through
+ * on a floating panel rather than what fits on it.
+ */
+export const companionTurnsSchema = z.array(companionTurnSchema).max(40);
+
+/** What the app's window tells main about the assistant the surface is for. */
+export const companionContextSchema = z.object({
+  assistantName: z.string(),
+  turns: companionTurnsSchema,
+});
