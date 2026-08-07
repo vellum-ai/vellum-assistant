@@ -2,6 +2,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
+import { voicePickerHint } from "./shared.js";
 
 const SETTINGS_TABS = [
   "General",
@@ -23,8 +24,9 @@ const LEGACY_TAB_ALIASES: Record<string, SettingsTab> = {
   "Archived Conversations": "Archive",
 };
 
-const VOICE_TAB_PICKER_HINT =
-  'Next time the user wants to change or hear a voice, prefer `ui_show { surface_type: "voice_picker", data: {} }`, which puts the picker in the conversation without navigating away. Navigating here is right only when the user explicitly asked to open Settings.';
+const VOICE_TAB_PICKER_HINT = voicePickerHint(
+  "which puts the picker in the conversation without navigating away. Navigating here is right only when the user explicitly asked to open Settings.",
+);
 
 export async function run(
   input: Record<string, unknown>,
