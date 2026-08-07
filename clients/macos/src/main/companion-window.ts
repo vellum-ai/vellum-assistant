@@ -21,6 +21,19 @@ import {
   dispatchToMain,
   ensureVisible as ensureMainWindowVisible,
 } from "./main-window";
+import { onSettingChange, readSetting } from "./settings";
+
+/**
+ * The flag the Type option is behind, evaluated for the signed-in user and
+ * written into settings by the app's window (`useElectronFeatureFlagBridge`).
+ *
+ * Absent means off, which is the answer for every state that is not a positive
+ * evaluation: a fresh install whose window has not synced yet, and an
+ * environment where the flag was never provisioned.
+ */
+const TYPE_FLAG = "companion-type";
+
+const canType = (): boolean => readSetting("featureFlags")?.[TYPE_FLAG] === true;
 
 /**
  * The always-present companion surface (LUM-3086): the assistant's avatar
@@ -161,6 +174,7 @@ const currentState = (): CompanionSurfaceState => {
     call,
     assistantName: context.assistantName,
     turns: context.turns,
+    canType: canType(),
   };
 };
 
@@ -520,6 +534,12 @@ export const installCompanionWindow = (): void => {
   // One avatar feeds every surface, so a change to the Dock icon is a change
   // here too.
   onAvatarChange(pushState);
+
+  // A flag landing is a change to what the pill offers. Pushing on it is what
+  // lets a targeting change reach the surface as soon as the app's window has
+  // fetched it, the way the menu rebuilds its Developer submenu rather than
+  // waiting for a restart.
+  onSettingChange("featureFlags", pushState);
 
   // The route loads lazily after the window is created, so a state pushed
   // before its subscription registers is dropped. It pulls this once mounted.

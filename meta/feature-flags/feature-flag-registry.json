@@ -102,6 +102,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "companion-type",
+      "scope": "client",
+      "key": "companion-type",
+      "label": "Companion Surface Type",
+      "description": "Show the Type control on the macOS companion surface, which opens a composer on the pill. The surface's route never fetches flag values of its own, so the evaluated value reaches it from the Electron main process, which reads the flags the app's window syncs into settings",
+      "defaultEnabled": false
+    },
+    {
       "id": "expand-completed-steps",
       "scope": "client",
       "key": "expand-completed-steps",
