@@ -1,5 +1,7 @@
 import { Plug } from "lucide-react";
 
+import { useTranslation } from "@/i18n";
+
 import { Card } from "@vellumai/design-library/components/card";
 import { PanelItem } from "@vellumai/design-library/components/panel-item";
 import { Tag } from "@vellumai/design-library/components/tag";
@@ -129,6 +131,7 @@ interface PluginRowProps {
  * the one thing this client does know, which is where the channel came from.
  */
 function PluginRow({ channel, selected, onClick }: PluginRowProps) {
+  const { t } = useTranslation("channels");
   return (
     // The plug is decorative, so the aria-label carries the same fact in
     // words. Without it a screen reader announces a plugin channel and a
@@ -136,7 +139,9 @@ function PluginRow({ channel, selected, onClick }: PluginRowProps) {
     <PanelItem
       asChild
       active={selected}
-      label={`${channel.label}, from a plugin`}
+      label={t("channelAdapterList.pluginChannelAria", {
+        channel: channel.label,
+      })}
     >
       <button
         type="button"

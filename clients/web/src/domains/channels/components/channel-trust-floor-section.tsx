@@ -1,4 +1,6 @@
 import { Select } from "@vellumai/design-library/components/select";
+
+import { useTranslation } from "@/i18n";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Typography } from "@vellumai/design-library/components/typography";
 
@@ -34,6 +36,7 @@ export function ChannelTrustFloorSection({
   error = false,
   onChange,
 }: ChannelTrustFloorSectionProps) {
+  const { t } = useTranslation("channels");
   const value = policy ?? ADMISSION_POLICY_DEFAULT;
   const descriptions = getPolicyDescriptions(assistantDisplayName);
   const options = ADMISSION_POLICY_VALUES.map((floor) => ({
@@ -49,7 +52,7 @@ export function ChannelTrustFloorSection({
         variant="body-small-emphasised"
         className="text-[color:var(--content-secondary)]"
       >
-        Who can message {assistantDisplayName}
+        {t("channelTrustFloor.heading", { assistant: assistantDisplayName })}
       </Typography>
       {loading ? (
         // Hold off on rendering a concrete floor until the GET succeeds — the
@@ -60,7 +63,7 @@ export function ChannelTrustFloorSection({
           variant="body-small-lighter"
           className="text-[color:var(--content-tertiary)]"
         >
-          Loading…
+          {t("channelTrustFloor.loading")}
         </Typography>
       ) : error ? (
         <Typography
@@ -68,7 +71,7 @@ export function ChannelTrustFloorSection({
           variant="body-small-lighter"
           className="text-[color:var(--content-negative)]"
         >
-          Couldn’t load this setting. Try reopening this page.
+          {t("channelTrustFloor.loadFailed")}
         </Typography>
       ) : (
         <>
@@ -78,7 +81,9 @@ export function ChannelTrustFloorSection({
               onChange={onChange}
               options={options}
               disabled={saving}
-              aria-label={`Who can message ${assistantDisplayName}`}
+              aria-label={t("channelTrustFloor.selectAria", {
+                assistant: assistantDisplayName,
+              })}
             />
           </div>
           <Typography
@@ -90,10 +95,9 @@ export function ChannelTrustFloorSection({
           </Typography>
           {value === "trusted_contacts" ? (
             <Notice tone="info" className="max-w-lg">
-              People you haven’t verified yet (even teammates in the same
-              channel) can’t get through: {assistantDisplayName} lets them know
-              they need to be verified and notifies you. You can verify people
-              ahead of time in Contacts.
+              {t("channelTrustFloor.trustedContactsNotice", {
+                assistant: assistantDisplayName,
+              })}
             </Notice>
           ) : null}
         </>

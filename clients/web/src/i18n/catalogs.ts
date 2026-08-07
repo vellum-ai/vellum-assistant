@@ -34,6 +34,7 @@
  * Reference: https://vite.dev/guide/features#dynamic-import
  */
 import enAccount from "@/i18n/locales/en/account.json";
+import enChannels from "@/i18n/locales/en/channels.json";
 import enChat from "@/i18n/locales/en/chat.json";
 import enCommon from "@/i18n/locales/en/common.json";
 import enSchedules from "@/i18n/locales/en/schedules.json";
@@ -61,6 +62,7 @@ export const FALLBACK_CATALOGS: LocaleCatalogs = {
   chat: enChat,
   schedules: enSchedules,
   account: enAccount,
+  channels: enChannels,
 };
 
 /** Loaders for the locales that are not bundled into the entry chunk. */
@@ -73,6 +75,7 @@ const CATALOG_LOADERS: Record<
     chat: () => import("@/i18n/locales/es/chat.json"),
     schedules: () => import("@/i18n/locales/es/schedules.json"),
     account: () => import("@/i18n/locales/es/account.json"),
+    channels: () => import("@/i18n/locales/es/channels.json"),
   },
 };
 

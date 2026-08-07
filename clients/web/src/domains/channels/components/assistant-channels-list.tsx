@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
+import { useTranslation } from "@/i18n";
 import { DetailCard } from "@/components/detail-card";
 import {
   MobileSidebarDrawer,
@@ -146,6 +147,7 @@ export function AssistantChannelsList({
   onSaveTwilioCredentials,
   initialChannel = null,
 }: AssistantChannelsListProps) {
+  const { t } = useTranslation("channels");
   const { selected: selectedAdapter, select: selectAdapter } =
     useChannelRouteSelection();
 
@@ -274,7 +276,7 @@ export function AssistantChannelsList({
         <MobileSidebarDrawer
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
-          title="Channels"
+          title={t("assistantChannelsList.drawerTitle")}
         >
           <ChannelAdapterList
             channels={channels}
@@ -304,9 +306,11 @@ export function AssistantChannelsList({
 
       <ConfirmDialog
         open={pendingDisconnect !== null}
-        title={`Disconnect ${disconnectMeta?.label ?? ""}?`}
+        title={t("assistantChannelsList.disconnectTitle", {
+          channel: disconnectMeta?.label ?? "",
+        })}
         message={disconnectMeta?.disconnectMessage ?? ""}
-        confirmLabel="Disconnect"
+        confirmLabel={t("assistantChannelsList.disconnectConfirm")}
         destructive
         onConfirm={() => {
           if (pendingDisconnect && onDisconnect) {
