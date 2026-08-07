@@ -215,13 +215,18 @@ export function renderGroupMenuItemsAsPanelItems({
   onRename,
   onDelete,
   onCopyGroupId,
+  onToggleGroupByChannel,
+  isGroupedByChannel = false,
   onMoveUp,
   onMoveDown,
   onClose,
 }: GroupMenuItemsProps & { onClose: () => void }): ReactNode {
   const hasBulkActions = onMarkAllRead != null || onArchiveAll != null;
   const hasIndividualActions =
-    onRename != null || onDelete != null || onCopyGroupId != null;
+    onRename != null ||
+    onDelete != null ||
+    onCopyGroupId != null ||
+    onToggleGroupByChannel != null;
   const hasMoveActions = onMoveUp != null || onMoveDown != null;
 
   return (
@@ -292,6 +297,17 @@ export function renderGroupMenuItemsAsPanelItems({
             icon: Copy,
             label: "Copy group ID",
             run: onCopyGroupId,
+            onClose,
+          })
+        : null}
+      {onToggleGroupByChannel
+        ? buildPanelMenuItem({
+            key: "toggle-group-by-channel",
+            icon: Layers,
+            label: isGroupedByChannel
+              ? "Ungroup by channel"
+              : "Group by channel",
+            run: onToggleGroupByChannel,
             onClose,
           })
         : null}

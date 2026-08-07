@@ -148,19 +148,22 @@ const ROOT_RAIL_RESIZABLE_CLASSES = [
   "pt-4 px-4 pb-2",
 ].join(" ");
 
-const ROOT_OVERLAY_CLASSES = [
-  "w-full",
-  "rounded-none",
-  "p-4",
-].join(" ");
+const ROOT_OVERLAY_CLASSES = ["w-full", "rounded-none", "p-4"].join(" ");
 
 const RAIL_TRANSITION_MS = 150;
-const ROOT_RAIL_TRANSITION = "transition-[width,padding] duration-[150ms] ease-in-out";
+const ROOT_RAIL_TRANSITION =
+  "transition-[width,padding] duration-[150ms] ease-in-out";
 
-function rootChromeClasses(variant: SideMenuVariant, collapsed: boolean, resizable: boolean): string {
+function rootChromeClasses(
+  variant: SideMenuVariant,
+  collapsed: boolean,
+  resizable: boolean,
+): string {
   if (variant === "overlay") return ROOT_OVERLAY_CLASSES;
   if (collapsed) return cn(ROOT_RAIL_COLLAPSED_CLASSES, ROOT_RAIL_TRANSITION);
-  const rail = resizable ? ROOT_RAIL_RESIZABLE_CLASSES : ROOT_RAIL_EXPANDED_CLASSES;
+  const rail = resizable
+    ? ROOT_RAIL_RESIZABLE_CLASSES
+    : ROOT_RAIL_EXPANDED_CLASSES;
   return cn(rail, ROOT_RAIL_TRANSITION);
 }
 
@@ -224,7 +227,10 @@ function SideMenuRoot({
       const drag = dragRef.current;
       if (!drag) return;
       const delta = e.clientX - drag.startX;
-      const next = Math.min(maxWidth, Math.max(minWidth, drag.startWidth + delta));
+      const next = Math.min(
+        maxWidth,
+        Math.max(minWidth, drag.startWidth + delta),
+      );
       drag.nav.style.width = `${next}px`;
     },
     [minWidth, maxWidth],
@@ -240,7 +246,10 @@ function SideMenuRoot({
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       const delta = e.clientX - drag.startX;
-      const finalWidth = Math.min(maxWidth, Math.max(minWidth, drag.startWidth + delta));
+      const finalWidth = Math.min(
+        maxWidth,
+        Math.max(minWidth, drag.startWidth + delta),
+      );
       onWidthChange?.(finalWidth);
     },
     [onWidthChange, minWidth, maxWidth],
@@ -538,10 +547,7 @@ function ItemLeadingIcon({
 }) {
   if (indent) {
     return (
-      <span
-        aria-hidden
-        className="inline-block h-[14px] w-[14px] shrink-0"
-      />
+      <span aria-hidden className="inline-block h-[14px] w-[14px] shrink-0" />
     );
   }
   if (!icon) return null;
@@ -590,10 +596,7 @@ function ItemBadge({ children }: { children: ReactNode }) {
   );
 }
 
-type SharedAnchorProps = Omit<
-  ComponentProps<"a">,
-  "href" | "children" | "ref"
->;
+type SharedAnchorProps = Omit<ComponentProps<"a">, "href" | "children" | "ref">;
 /* `disabled` is omitted so the component's own `aria-disabled` treatment is
  * the only way to express the state: a native `disabled` button dispatches
  * no pointer events, which would silence the collapsed row's tooltip. */
@@ -669,7 +672,17 @@ function SideMenuItem({
     : active
       ? "cursor-pointer bg-[var(--surface-active)] text-[color:var(--content-emphasised)]"
       : cn(
-          "cursor-pointer hover:bg-[var(--surface-hover)]",
+          "cursor-pointer",
+          /* Which hover surface is right depends on what the shape rests on.
+             A tile rests on `--surface-lift`, and `--surface-hover` is a 6%
+             translucent overlay meant for a transparent base - over a lifted
+             surface it composites *darker* than the resting state, so the
+             tile reads as having no hover at all. `--surface-active` is the
+             step up from lifted. A row rests transparent, where the overlay
+             is exactly what it was built for. */
+          isTile
+            ? "hover:bg-[var(--surface-active)]"
+            : "hover:bg-[var(--surface-hover)]",
           emphasized
             ? "text-[color:var(--content-emphasised)]"
             : "text-[color:var(--content-secondary)]",
@@ -750,10 +763,8 @@ function SideMenuItem({
     );
 
   if (href) {
-    const {
-      onClick: anchorOnClick,
-      ...anchorProps
-    } = rest as SharedAnchorProps;
+    const { onClick: anchorOnClick, ...anchorProps } =
+      rest as SharedAnchorProps;
     return withTooltip(
       <a
         ref={ref as Ref<HTMLAnchorElement>}
@@ -782,7 +793,7 @@ function SideMenuItem({
         {badgeNode}
         {trailingNode}
         {indicatorNode}
-      </a>
+      </a>,
     );
   }
 

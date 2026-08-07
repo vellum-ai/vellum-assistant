@@ -22,7 +22,6 @@ import {
 import { SidebarListContextMenu } from "@/domains/chat/components/sidebar-list-context-menu";
 import type { GroupMenuItemsProps } from "@/domains/chat/components/group-actions-menu";
 import { SidebarSectionItem } from "@/domains/chat/components/sidebar-section-item";
-import { ConversationRowList } from "@/domains/chat/components/conversation-nav-section";
 import { SideMenuBuiltInNav } from "@/domains/chat/components/side-menu-built-in-nav";
 import { SideMenuOverlayBottomColumn } from "@/domains/chat/components/side-menu-overlay-bottom-column";
 import { SidebarBackToTop } from "@/domains/chat/components/sidebar-back-to-top";
@@ -37,7 +36,7 @@ import {
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import { NATIVE_MOBILE_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-mobile-button-constants";
 import type { Conversation } from "@/types/conversation-types";
-import { Button, Card, cn, SideMenu } from "@vellumai/design-library";
+import { Button, cn, SideMenu } from "@vellumai/design-library";
 
 export interface AssistantSideMenuProps extends UseSidebarStateParams {
   assistantName?: string | null;
@@ -145,14 +144,13 @@ function SearchButton() {
  *   Body · one section list, in the user's own order (default shown)
  *     • Pinned ▾       - when non-empty
  *     • Group ▾        - one collapsible section per custom group
- *     • ───────────────  - the list's one rule, when anything is curated
- *       above it; never between two sections
- *     • Conversations  - the persistent header; its "…" menu carries the
- *       "Group by" dropdown (None | Channel)
- *     • Group by None: every remaining conversation as one headerless,
- *       virtualized list, newest first
- *     • Group by Channel: Chats ▾ then one collapsible section per
- *       origin channel (Slack, Telegram, WhatsApp, …)
+ *     • Chats ▾        - whatever the curated sections did not claim. Present
+ *       in both views; its "…" menu carries the channel-grouping toggle
+ *       ("Group by channel" / "Ungroup by channel")
+ *     • Channel ▾      - grouped view only: one section per origin channel
+ *       (Slack, Telegram, WhatsApp, …). Ungrouped, those conversations are
+ *       in Chats instead, so which section a conversation appears in changes
+ *       but whether it appears does not
  *   Footer
  *     • caller-provided tip card (SidebarTipCard) — hidden on the collapsed rail
  *     • ───────────────
@@ -535,21 +533,6 @@ export function AssistantSideMenu({
                     Group by toggle, which is why removing the persistent
                     "Conversations" header loses nothing. */}
                   {sidebar.sections.map(renderSection)}
-                  {/* The `all` view's flat list has no header of its own: it
-                    is everything the cards above did not claim, rendered as
-                    one windowed list. It still gets a card, because the card
-                    is what a group of conversations looks like here - without
-                    one it reads as loose rows spilling past the last
-                    section. Same treatment as `SidebarSectionCard`, minus the
-                    drag affordances a headerless list has nothing to grab. */}
-                  {sidebar.viewMode === "all" && bodyElement ? (
-                    <Card.Root bordered={false} noPadding className="p-2">
-                      <ConversationRowList
-                        items={sidebar.flatList}
-                        scrollParent={bodyElement}
-                      />
-                    </Card.Root>
-                  ) : null}
                 </CollapsibleNavSection.Root>
               </SidebarListContextMenu>
               <SidebarBackToTop

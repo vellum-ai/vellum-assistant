@@ -175,10 +175,25 @@ const ROW_BASE_CLASSES = [
 ].join(" ");
 
 const INTERACTIVE_CLASSES = [
-  "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]",
   "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
   "cursor-pointer select-none",
 ].join(" ");
+
+/**
+ * The hover surface, which differs by shape because the shapes rest on
+ * different things. A row rests transparent, where `--surface-hover` - a 6%
+ * translucent overlay - is exactly what it was built for. A pill rests on
+ * `--surface-lift`, where that same overlay composites *darker* than the
+ * resting surface and the pill reads as having no hover at all;
+ * `--surface-active` is the step up from lifted.
+ *
+ * Both stay overridable through `--panel-item-hover`, so a tinted pill still
+ * supplies its own lightened hue and never reaches either fallback.
+ */
+const ROW_HOVER_CLASS =
+  "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]";
+const PILL_HOVER_CLASS =
+  "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-active))]";
 
 /**
  * {@link PanelItemProps.shape} `"pill"`: a capsule that sizes to its content
@@ -386,6 +401,7 @@ function PanelItem({
   const rowClasses = cn(
     ROW_BASE_CLASSES,
     isInteractive && INTERACTIVE_CLASSES,
+    isInteractive && (shape === "pill" ? PILL_HOVER_CLASS : ROW_HOVER_CLASS),
     activeClasses,
     shape === "pill" && PILL_SHAPE_CLASSES,
     className,

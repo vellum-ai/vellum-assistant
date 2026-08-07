@@ -309,13 +309,23 @@ export function useSidebarState({
         group,
       });
     }
+    /* Chats exists in both views. It is the section that holds whatever the
+       curated ones did not claim, and that is true however the rest of the
+       list is arranged - in `all` view `groupConversations` is called with
+       `groupByChannel: false`, so the channel conversations are already in
+       here rather than in sections of their own.
+
+       It used to be pushed only in `grouped` view, leaving `all` view to
+       render the same conversations through a separate headerless path. That
+       one list then had to be given a header and a card by hand every time
+       the others got one, and silently missed both. */
+    list.push({
+      type: "recents",
+      key: "recents",
+      label: RECENTS_SECTION_LABEL,
+      all: grouped.recents,
+    });
     if (viewMode === "grouped") {
-      list.push({
-        type: "recents",
-        key: "recents",
-        label: RECENTS_SECTION_LABEL,
-        all: grouped.recents,
-      });
       for (const section of grouped.channelSections) {
         list.push({
           type: "channel",
