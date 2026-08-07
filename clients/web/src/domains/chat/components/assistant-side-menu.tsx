@@ -140,7 +140,6 @@ function SearchButton() {
  *
  *   Header
  *     • Your Assistant → Intelligence view, with New Chat beneath it
- *     • ───────────────
  *   Body · one section list, in the user's own order (default shown)
  *     • Pinned ▾       - when non-empty
  *     • Group ▾        - one collapsible section per custom group
@@ -152,8 +151,7 @@ function SearchButton() {
  *       in Chats instead, so which section a conversation appears in changes
  *       but whether it appears does not
  *   Footer
- *     • caller-provided tip card (SidebarTipCard) — hidden on the collapsed rail
- *     • ───────────────
+ *     • caller-provided tip card (SidebarTipCard), hidden on the collapsed rail
  *     • caller-provided action (PreferencesMenu)
  *
  * This component does **not** know that order. `useSidebarState` hands it one
