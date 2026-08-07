@@ -71,8 +71,8 @@ Risk classification is **gateway-owned**. The classifiers live in `gateway/src/r
 
 Two properties of that call matter when reading the flow above:
 
-- **Fail-closed.** If the gateway is unreachable or returns an invalid response, `classifyRisk()` throws rather than assuming a risk level. There is no local fallback classification, matching the fail-closed posture used for thresholds.
-- **Cached, with a symlink re-check.** Results are cached on `(toolName, inputHash, workingDir, manifestOverride)`. On a cache hit for a classification carrying sandbox path arguments, the symlink escape check is re-run before the cached entry is reused, because a symlink target can change between invocations and a path that was safe when cached may now escape.
+- **No local fallback.** If the gateway is unreachable or returns an invalid response, `classifyRisk()` throws. There is no local classifier to fall back on, so the tool does not execute. Note that this is an error, not a deny decision: it is recorded through the tool-error path rather than as a permission denial, so it does not appear in the audit trail as a blocked invocation.
+- **Cached per resolved invocation.** Results are cached on the tool name, a hash of the input, the working directory, the manifest override, and, for file tools, the symlink-resolved target paths. Folding resolved paths into the key is deliberate: file risk depends on filesystem state, so a retargeted symlink yields a different key rather than a stale hit. On a hit carrying sandbox path arguments the symlink escape check is re-run as well.
 
 The risk level assigned to each tool invocation:
 
