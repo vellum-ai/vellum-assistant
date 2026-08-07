@@ -44,6 +44,14 @@ mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => true,
 }));
 
+// The BYOK gate pulls the daemon generated client (and its real
+// `queryOptions` import) into the graph; this suite's partial
+// `@tanstack/react-query` mock cannot host that, and the menu only reads
+// `enabled`/`balance`, which the gate never touches.
+mock.module("@/hooks/use-byok-credit-banner-gate", () => ({
+  useSuppressCreditBannersForByok: () => false,
+}));
+
 const authRef: {
   isAuthenticated: boolean;
   user: AuthUser;
@@ -128,9 +136,8 @@ mock.module("@/domains/chat/components/credits-card", () => ({
     ),
 }));
 
-const { PreferencesMenu } = await import(
-  "@/domains/chat/components/preferences-menu"
-);
+const { PreferencesMenu } =
+  await import("@/domains/chat/components/preferences-menu");
 
 beforeEach(() => {
   isMobileRef.value = false;

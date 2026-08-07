@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 
 import { listPluginIngressApprovals } from "../db/plugin-ingress-approval-store.js";
 import { getLogger } from "../logger.js";
+import { canonicalInbound } from "./ingress-inbound.js";
 import { canonicalVerification } from "./ingress-verification.js";
 import {
   discoverPluginIngress,
@@ -22,27 +23,30 @@ const log = getLogger("plugin-ingress-approvals");
  * Digest of what a declaration asks for.
  *
  * Covers reach only — each route's transport, signer, handshake scheme, path,
- * and how it is verified, order-independent. A `description` reword leaves the
- * digest alone, so it does not revoke an approval, while adding a route,
- * changing one's transport, changing whose signature opens it, moving it to a
- * scheme that exposes it differently, or changing which secret and which bytes
- * decide a delivery is authentic all do.
+ * how it is verified, and whether its replies deliver messages into the
+ * assistant, order-independent. A `description` reword leaves the digest
+ * alone, so it does not revoke an approval, while adding a route, changing
+ * one's transport, changing whose signature opens it, moving it to a scheme
+ * that exposes it differently, changing which secret and which bytes decide a
+ * delivery is authentic, or turning a webhook into a way to start a
+ * conversation all do.
  *
- * A route on the default `signed-headers` scheme, or with no declared
- * verification, is encoded without that field, exactly as it was before the
- * field existed. The alternative is that introducing a field silently
- * re-digests every unchanged manifest, drops each one back to `pending`, and
- * 404s routes a guardian already approved until someone approves them again.
- * Omitting the defaults is unambiguous because a path may not contain
- * whitespace (see `IngressRouteSchema`), so a three-token line can never be
- * read as a four-token one, and a verification descriptor is appended behind a
- * tab, which no path may carry and which `JSON.stringify` escapes rather than
- * emits.
+ * A route on the default `signed-headers` scheme, with no declared
+ * verification and no inbound delivery, is encoded without those fields,
+ * exactly as it was before each existed. The alternative is that introducing a
+ * field silently re-digests every unchanged manifest, drops each one back to
+ * `pending`, and 404s routes a guardian already approved until someone
+ * approves them again. Omitting the defaults is unambiguous because a path may
+ * not contain whitespace (see `IngressRouteSchema`), so a three-token line can
+ * never be read as a four-token one, and the two optional encodings are each
+ * appended behind their own separator — a tab for verification, a form feed
+ * for inbound — neither of which a path may carry and both of which
+ * `JSON.stringify` escapes rather than emits.
  */
 export function ingressDeclarationDigest(
   routes: readonly Pick<
     IngressRoute,
-    "kind" | "path" | "signer" | "handshake" | "verification"
+    "kind" | "path" | "signer" | "handshake" | "verification" | "inbound"
   >[],
 ): string {
   const canonical = routes
@@ -51,9 +55,12 @@ export function ingressDeclarationDigest(
         route.handshake === "signed-headers"
           ? `${route.kind} ${route.signer} ${route.path}`
           : `${route.kind} ${route.signer} ${route.handshake} ${route.path}`;
-      return route.verification
+      const verified = route.verification
         ? `${base}\t${canonicalVerification(route.verification)}`
         : base;
+      return route.inbound
+        ? `${verified}\f${canonicalInbound(route.inbound)}`
+        : verified;
     })
     .sort()
     .join("\n");
