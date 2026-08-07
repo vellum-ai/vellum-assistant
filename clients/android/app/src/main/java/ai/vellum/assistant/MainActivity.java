@@ -42,6 +42,7 @@ public class MainActivity extends BridgeActivity {
     private Intent pendingVoiceLaunch;
     private View launchScreen;
     private boolean launchScreenReady;
+    private SafeWebChromeClient webChromeClient;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -95,6 +96,8 @@ public class MainActivity extends BridgeActivity {
         NativeFailureGuard.run("Unable to deliver the Android voice launch", this::deliverPendingVoiceLaunch);
         NativeFailureGuard.run("Unable to configure the Android WebView", () -> {
             if (bridge != null) {
+                webChromeClient = new SafeWebChromeClient(bridge);
+                bridge.getWebView().setWebChromeClient(webChromeClient);
                 bridge.setWebViewClient(new SelfHostedWebViewClient(bridge, this));
             }
         });
@@ -224,6 +227,10 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onDestroy() {
         launchScreenHandler.removeCallbacksAndMessages(null);
+        if (webChromeClient != null) {
+            webChromeClient.destroy();
+            webChromeClient = null;
+        }
         if (unreachableDialog != null) {
             unreachableDialog.dismiss();
             unreachableDialog = null;
