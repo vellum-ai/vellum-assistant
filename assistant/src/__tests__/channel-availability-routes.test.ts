@@ -173,8 +173,19 @@ describe("channels/available", () => {
     for (const channel of result.channels) {
       const expected = (CHANNEL_METADATA as any)[channel.id];
       expect(expected).toBeDefined();
-      expect(channel).toEqual(expected);
+      // Plus `source`, which the metadata does not carry: it says who
+      // contributes the row, and every row here comes from the assistant.
+      expect(channel).toEqual({ ...expected, source: "default" });
     }
+  });
+
+  test("marks every channel the assistant ships as its own", async () => {
+    // The base list is what a client compares a plugin-contributed row
+    // against, so the marker has to be present rather than implied by an
+    // absent field.
+    const result = (await handler({})) as HandlerResult;
+
+    expect(result.channels.every((c) => c.source === "default")).toBe(true);
   });
 
   test("email metadata: not verification-capable, mail icon", async () => {
