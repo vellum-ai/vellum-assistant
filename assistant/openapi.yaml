@@ -4354,6 +4354,7 @@ paths:
                             - platform
                             - a2a
                             - discord
+                            - plugin
                         ready:
                           type: boolean
                         setupStatus:
@@ -4444,6 +4445,7 @@ paths:
                     - platform
                     - a2a
                     - discord
+                    - plugin
                 includeRemote:
                   description: Include remote checks (default true)
                   type: boolean
@@ -4474,6 +4476,7 @@ paths:
                             - platform
                             - a2a
                             - discord
+                            - plugin
                         ready:
                           type: boolean
                         setupStatus:
@@ -6578,6 +6581,7 @@ paths:
               - platform
               - a2a
               - discord
+              - plugin
           description:
             Filter by origin channel. When provided, only conversations with this exact origin_channel value are
             returned. Omit to include all channels.
@@ -6714,6 +6718,7 @@ paths:
                                 - platform
                                 - a2a
                                 - discord
+                                - plugin
                             - type: "null"
                         assistantAttention:
                           type: object
@@ -7077,6 +7082,7 @@ paths:
                               - platform
                               - a2a
                               - discord
+                              - plugin
                           - type: "null"
                       assistantAttention:
                         type: object
@@ -8290,6 +8296,7 @@ paths:
                               - platform
                               - a2a
                               - discord
+                              - plugin
                           - type: "null"
                       assistantAttention:
                         type: object
@@ -21958,6 +21965,7 @@ paths:
                     - platform
                     - a2a
                     - discord
+                    - plugin
                     - scheduler
                     - watcher
                 sourceContextId:
